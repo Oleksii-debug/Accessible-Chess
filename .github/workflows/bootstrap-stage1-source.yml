@@ -23,25 +23,23 @@ jobs:
         shell: bash
         run: |
           set -euxo pipefail
-          FILE_ID='1Jl_7ALdkZmuru2TlEixsY446W8IkuHlq'
-          URL="https://drive.usercontent.google.com/download?id=${FILE_ID}&export=download&confirm=t"
-          curl --fail --location --retry 4 --retry-all-errors --connect-timeout 20 \
-            -A 'Mozilla/5.0' "$URL" -o baseline.zip
+          python -m pip install --disable-pip-version-check --upgrade gdown
+          gdown 'https://drive.google.com/file/d/1Jl_7ALdkZmuru2TlEixsY446W8IkuHlq/view?usp=drivesdk' --fuzzy -O baseline.zip
           ls -lh baseline.zip
           python - <<'PY'
           from pathlib import Path
           import zipfile
           p=Path('baseline.zip')
           print('downloaded bytes:', p.stat().st_size)
-          with p.open('rb') as f:
-              print('signature:', f.read(4))
+          if p.stat().st_size != 111061:
+              raise SystemExit(f'Unexpected baseline byte size: {p.stat().st_size}')
           with zipfile.ZipFile(p) as z:
               bad=z.testzip()
               if bad:
                   raise SystemExit(f'Corrupt ZIP member: {bad}')
               names=z.namelist()
               print('ZIP OK, members:', len(names))
-              required={'acs/main.py','acs/chesscore.py','VERSION.txt','HOTKEYS_UA.txt'}
+              required={'acs/main.py','acs/chesscore.py','VERSION.txt','HOTKEYS_UA.txt','HOTKEYS_EN.txt'}
               missing=required-set(names)
               if missing:
                   raise SystemExit(f'Missing required baseline files: {sorted(missing)}')
@@ -64,6 +62,14 @@ jobs:
             cp -a "$item" "$base"
           done
           rm -rf _baseline
+      - name: Validate imported baseline
+        shell: bash
+        run: |
+          set -euxo pipefail
+          python -m compileall -q acs tests run_accessible_chess.py
+          python -m unittest discover -s tests -p 'test_*.py' -v
+          python -m acs.selftest
+          python -m acs.stage1_smoketest
       - name: Commit imported baseline
         shell: bash
         run: |
