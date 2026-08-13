@@ -24,7 +24,7 @@ jobs:
         run: |
           set -euxo pipefail
           python -m pip install --disable-pip-version-check gdown
-          gdown --id 1Jl_7ALdkZmuru2TlEixsY446W8IkuHlq -O baseline.zip
+          gdown 1Jl_7ALdkZmuru2TlEixsY446W8IkuHlq -O baseline.zip
           python - <<'PY'
           import zipfile
           z=zipfile.ZipFile('baseline.zip')
