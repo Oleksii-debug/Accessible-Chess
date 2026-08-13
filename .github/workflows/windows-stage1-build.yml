@@ -1,0 +1,94 @@
+name: Windows Stage 1 Build
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Require repository-contained Stage 1 source
+        shell: pwsh
+        run: |
+          if (Test-Path "acs\main.py") {
+            Write-Host "Expanded Stage 1 source found in repository."
+          } elseif (Test-Path "bootstrap\Accessible-Chess-Stage1-0.3.1-SOURCE-SNAPSHOT.zip") {
+            Expand-Archive -LiteralPath "bootstrap\Accessible-Chess-Stage1-0.3.1-SOURCE-SNAPSHOT.zip" -DestinationPath ".stage1" -Force
+            $root = Get-ChildItem -Path ".stage1" -Recurse -Filter "main.py" | Where-Object { $_.FullName -match '[\\/]acs[\\/]main\.py$' } | Select-Object -First 1
+            if (-not $root) { throw "Source archive does not contain acs/main.py" }
+            $project = Split-Path (Split-Path $root.FullName -Parent) -Parent
+            Get-ChildItem -LiteralPath $project -Force | ForEach-Object { Copy-Item $_.FullName -Destination "." -Recurse -Force }
+          } else {
+            throw "Stage 1 source is not yet present in the repository. This workflow never downloads the private Google Drive baseline."
+          }
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Install build tools
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pyinstaller
+
+      - name: Compile Python sources
+        shell: pwsh
+        run: |
+          python -m compileall -q acs tests run_accessible_chess.py
+
+      - name: Run unit and regression tests
+        shell: pwsh
+        run: |
+          python -m unittest discover -s tests -v
+
+      - name: Run selftest
+        shell: pwsh
+        run: |
+          python -m acs.selftest
+
+      - name: Run Stage 1 smoke tests
+        shell: pwsh
+        run: |
+          python -m acs.stage1_smoketest
+
+      - name: Build autonomous EXE
+        shell: pwsh
+        run: |
+          $args = @(
+            '--noconfirm', '--clean', '--onefile', '--windowed',
+            '--name', 'AccessibleChess',
+            '--add-data', "sounds;sounds",
+            'run_accessible_chess.py'
+          )
+          python -m PyInstaller @args
+          if (-not (Test-Path 'dist\AccessibleChess.exe')) { throw 'AccessibleChess.exe was not produced' }
+
+      - name: EXE startup diagnostic
+        shell: pwsh
+        run: |
+          $p = Start-Process -FilePath '.\dist\AccessibleChess.exe' -PassThru
+          Start-Sleep -Seconds 8
+          if ($p.HasExited) {
+            if ($p.ExitCode -ne 0) { throw "AccessibleChess.exe exited early with code $($p.ExitCode)" }
+            Write-Host 'AccessibleChess.exe exited cleanly during startup diagnostic.'
+          } else {
+            Write-Host 'AccessibleChess.exe remained running through startup diagnostic.'
+            Stop-Process -Id $p.Id -Force
+          }
+
+      - name: Upload EXE candidate
+        uses: actions/upload-artifact@v4
+        with:
+          name: AccessibleChess-Windows-Stage1
+          path: dist/AccessibleChess.exe
+          if-no-files-found: error
