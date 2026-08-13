@@ -1,85 +1,21 @@
 name: Bootstrap Stage1 Source
 
+# The Stage 1 source snapshot is private on Google Drive. GitHub-hosted
+# runners do not have the user's authenticated Drive session, so anonymous
+# gdown/curl bootstrap attempts are intentionally disabled.
 on:
-  push:
-    branches:
-      - agent/stage1-final-0.3.1
-    paths:
-      - '.github/workflows/bootstrap-stage1-source.yml'
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  import-source:
+  notice:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: agent/stage1-final-0.3.1
-          fetch-depth: 0
-      - name: Download exact Stage1 0.3.1 baseline from Drive
+      - name: Source bootstrap handled by connected pipeline
         shell: bash
         run: |
-          set -euxo pipefail
-          python -m pip install --disable-pip-version-check --upgrade gdown
-          gdown 'https://drive.google.com/file/d/1Jl_7ALdkZmuru2TlEixsY446W8IkuHlq/view?usp=drivesdk' --fuzzy -O baseline.zip
-          ls -lh baseline.zip
-          python - <<'PY'
-          from pathlib import Path
-          import zipfile
-          p=Path('baseline.zip')
-          print('downloaded bytes:', p.stat().st_size)
-          if p.stat().st_size != 111061:
-              raise SystemExit(f'Unexpected baseline byte size: {p.stat().st_size}')
-          with zipfile.ZipFile(p) as z:
-              bad=z.testzip()
-              if bad:
-                  raise SystemExit(f'Corrupt ZIP member: {bad}')
-              names=z.namelist()
-              print('ZIP OK, members:', len(names))
-              required={'acs/main.py','acs/chesscore.py','VERSION.txt','HOTKEYS_UA.txt','HOTKEYS_EN.txt'}
-              missing=required-set(names)
-              if missing:
-                  raise SystemExit(f'Missing required baseline files: {sorted(missing)}')
-          PY
-      - name: Import exact baseline contents
-        shell: bash
-        run: |
-          set -euxo pipefail
-          rm -rf _baseline
-          mkdir _baseline
-          unzip -q baseline.zip -d _baseline
-          rm -f baseline.zip
-          shopt -s dotglob nullglob
-          for item in _baseline/*; do
-            base=$(basename "$item")
-            if [[ "$base" == ".git" || "$base" == ".github" ]]; then
-              continue
-            fi
-            rm -rf "$base"
-            cp -a "$item" "$base"
-          done
-          rm -rf _baseline
-      - name: Validate imported baseline
-        shell: bash
-        run: |
-          set -euxo pipefail
-          python -m compileall -q acs tests run_accessible_chess.py
-          python -m unittest discover -s tests -p 'test_*.py' -v
-          python -m acs.selftest
-          python -m acs.stage1_smoketest
-      - name: Commit imported baseline
-        shell: bash
-        run: |
-          set -euxo pipefail
-          git config user.name 'accessible-chess-ci'
-          git config user.email 'actions@users.noreply.github.com'
-          git add -A
-          if git diff --cached --quiet; then
-            echo 'No source changes to commit.'
-            exit 0
-          fi
-          git commit -m 'Import exact Stage 1 0.3.1 source baseline from Drive'
-          git push origin HEAD:agent/stage1-final-0.3.1
+          echo "Stage 1 bootstrap is intentionally not performed by GitHub Actions."
+          echo "The private Drive baseline is fetched through the connected Google Drive pipeline."
+          echo "This workflow is manual-only and exits successfully to avoid false failure notifications."
