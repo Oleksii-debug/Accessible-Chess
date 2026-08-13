@@ -19,19 +19,32 @@ jobs:
         with:
           ref: agent/stage1-final-0.3.1
           fetch-depth: 0
-      - name: Download Stage1 baseline from Drive
+      - name: Download exact Stage1 0.3.1 baseline from Drive
         shell: bash
         run: |
           set -euxo pipefail
-          python -m pip install --disable-pip-version-check gdown
-          gdown 1Jl_7ALdkZmuru2TlEixsY446W8IkuHlq -O baseline.zip
+          FILE_ID='1Jl_7ALdkZmuru2TlEixsY446W8IkuHlq'
+          URL="https://drive.usercontent.google.com/download?id=${FILE_ID}&export=download&confirm=t"
+          curl --fail --location --retry 4 --retry-all-errors --connect-timeout 20 \
+            -A 'Mozilla/5.0' "$URL" -o baseline.zip
+          ls -lh baseline.zip
           python - <<'PY'
+          from pathlib import Path
           import zipfile
-          z=zipfile.ZipFile('baseline.zip')
-          bad=z.testzip()
-          if bad:
-              raise SystemExit(f'Corrupt ZIP member: {bad}')
-          print('ZIP OK, members:', len(z.namelist()))
+          p=Path('baseline.zip')
+          print('downloaded bytes:', p.stat().st_size)
+          with p.open('rb') as f:
+              print('signature:', f.read(4))
+          with zipfile.ZipFile(p) as z:
+              bad=z.testzip()
+              if bad:
+                  raise SystemExit(f'Corrupt ZIP member: {bad}')
+              names=z.namelist()
+              print('ZIP OK, members:', len(names))
+              required={'acs/main.py','acs/chesscore.py','VERSION.txt','HOTKEYS_UA.txt'}
+              missing=required-set(names)
+              if missing:
+                  raise SystemExit(f'Missing required baseline files: {sorted(missing)}')
           PY
       - name: Import exact baseline contents
         shell: bash
