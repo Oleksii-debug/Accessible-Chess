@@ -12,7 +12,7 @@ The application must support three parallel navigation paths:
 2. Web-like semantic navigation. Prefer real accessibility semantics where the chosen Windows UI technology supports them. If native NVDA browse-mode H/B/I navigation is not available, implement application-level H/Shift+H, B/Shift+B and I/Shift+I commands that move between headings, buttons and input controls and announce the target.
 3. Global shortcuts for frequent chess actions.
 
-Escape exits an interaction submode. Enter/Space activates a control or selects/moves a board piece. F6 cycles major regions when useful.
+Escape exits an interaction submode. Enter/Space activates a control or selects/moves a board piece. F6 may cycle major regions.
 
 ## Main regions and heading order
 1. Інформація про гру / Game information
@@ -30,34 +30,43 @@ Escape exits an interaction submode. Enter/Space activates a control or selects/
 - Standard starting board with Ctrl+N.
 - Empty-board command.
 - 64-square logical board navigated with plain arrow keys.
-- On each square announce coordinate and content, e.g. `e 4, білий пішак` / `e 4, white pawn`, or `e 5, порожньо`.
+- Occupied square announcement example: `e 4, білий пішак` / `e 4, white pawn`.
+- Empty square announcement is ONLY the coordinate, e.g. `e 5`. Never announce `порожньо` / `empty` by default.
 - No table-navigation modifier keys are required.
 - No wraparound at board edges.
-- Piece move from board: Enter/Space on source selects it, navigate to target with arrows, Enter/Space attempts the legal move. Escape cancels selection.
+- PRIMARY move method selected by the user: Enter/Space on source selects the piece, arrow keys navigate to target, Enter/Space attempts the legal move. Escape cancels selection.
+- On selection announce the selected piece and source square.
 - Illegal move gives a concise semantic message and does not silently change state.
 
 ## Move input
-The move input accepts Lichess/SAN-like commands:
+The secondary move method is a Lichess/SAN-like text input:
 - e4
 - Nf3
 - Bc4
+- Qh5
+- Rae1
 - O-O
 - O-O-O
 - promotions and disambiguation where required.
 
 Pawn moves use no piece letter. Internal parser remains language-independent; UI announcements are localized.
 
-Command-mode entries may use a leading colon to avoid collisions with chess notation. Required commands include:
-- `:u` undo
-- `:r` redo
-- `:l` announce last move
-- `:w` set white to move
-- `:b` set black to move
-- `:clear` clear board
-- `:start` restore standard start
-- `:me` announce user's clock
-- `:op` announce opponent clock
-- `:engine` toggle Stockfish
+### Single-letter command console
+Commands use NO colon and are recognized only when the entire trimmed input is exactly one lowercase command letter. No legal SAN move consists of one bare letter, so this avoids collision with normal move input.
+
+Stable Stage 1 command map:
+- `u` — undo
+- `y` — redo
+- `l` — announce last move
+- `w` — set White to move
+- `d` — set Black/Dark to move
+- `x` — clear board
+- `s` — restore standard starting position
+- `t` — announce my clock
+- `o` — announce opponent clock
+- `e` — toggle Stockfish analysis
+
+The same commands must be documented in Ukrainian and English hotkey help.
 
 ## Game mode and analysis mode
 ### Game mode
@@ -95,7 +104,7 @@ Undo/redo must keep board, side-to-move, result, clocks, review state and engine
 - Toggle engine globally.
 - Analysis uses current view position and selected side to move.
 - MultiPV = 5.
-- Alt+1 through Alt+5 announce the corresponding current PV line.
+- Alt+1 through Alt+5 announce the corresponding complete CURRENT PV line.
 - A separate command announces depth and evaluation; do not overload Alt+1..5 with depth.
 - Full principal variation is available in the Stockfish analysis region.
 - Engine may think continuously in analysis mode.
@@ -106,8 +115,8 @@ Undo/redo must keep board, side-to-move, result, clocks, review state and engine
 ## Play versus Stockfish
 Game setup dialog includes:
 - Color: White / Black / Random.
-- Strength: a stable user-facing level scale mapped to supported Stockfish strength parameters.
-- Time control: no clock plus common presets and a custom option.
+- Strength: user-facing levels 1–10 mapped to supported Stockfish strength parameters.
+- Time control presets: no clock, 1+0, 2+1, 3+0, 3+2, 5+0, 5+3, 10+0, 10+5, 15+10, 30+0, 30+20, plus custom.
 - Start game button.
 
 During the game expose:
@@ -125,7 +134,16 @@ Actions:
 - Offer draw.
 - Resign with confirmation.
 
-Required clock shortcuts include user time and opponent time. Clock state must remain correct across undo/redo and game end.
+Clock state must remain correct across undo/redo and game end.
+
+## Board analysis commands
+Where feasible in Stage 1, expose board-focused commands for:
+- possible legal moves
+- possible captures
+- surrounding pieces
+- attackers of the current square/piece
+- defenders of the current square/piece
+- material summary
 
 ## Sounds
 Do not use arbitrary system beeps as chess sounds.
@@ -162,7 +180,25 @@ Native Alt menu structure:
 - Налаштування / Settings
 - Довідка / Help
 
-Ctrl+N starts a new standard game/position. Existing useful shortcuts may be preserved if they do not conflict with the locked Stage 1 interaction model.
+Ctrl+N starts a new standard game/position. Ctrl+Z is undo. Ctrl+Shift+Z is redo. Existing useful shortcuts may be preserved if they do not conflict with the locked Stage 1 interaction model.
+
+## Distribution requirement
+Every release candidate must be delivered in BOTH forms:
+1. Python/source version for development and diagnostics.
+2. Autonomous Windows EXE build that runs on a Windows machine without Python installed.
+
+The Windows build must be reproducible through Windows GitHub Actions/PyInstaller or an equivalent documented process and include all required runtime files, localized resources and sound assets.
+
+Final handoff ZIP must contain:
+- autonomous Windows EXE build
+- Python/source build
+- README_ДЛЯ_NVDA.txt
+- HOTKEYS_UA.txt
+- HOTKEYS_EN.txt
+- CHANGELOG
+- TEST_REPORT
+- WINDOWS_BUILD_REPORT
+- SHA256SUMS.txt
 
 ## Accessibility acceptance
 Do not claim `NVDA VERIFIED` from Linux, Xvfb, unit tests, or generic UI automation.
@@ -176,7 +212,9 @@ Allowed status labels include:
 - NOT IMPLEMENTED
 - BLOCKED
 
-Release-candidate exit condition is `WAITING FOR USER NVDA TEST`. Stage 2 must not start until the user tests the Windows build with NVDA and explicitly approves Stage 1.
+Before user handoff, require automated regression/perft tests, GUI startup tests, Stage 1 interaction tests and Windows CI/build PASS with no known P0/P1 blockers.
+
+Release-candidate exit condition is `RELEASE CANDIDATE — WAITING FOR USER NVDA TEST`. Stage 2 must not start until the user tests the Windows build with NVDA and explicitly approves Stage 1.
 
 ## Out of scope until approval
 - CBH/CBV/CBF
