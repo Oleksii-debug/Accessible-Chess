@@ -1,0 +1,66 @@
+name: Bootstrap Stage1 Source
+
+on:
+  push:
+    branches:
+      - agent/stage1-final-0.3.1
+    paths:
+      - '.github/workflows/bootstrap-stage1-source.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  import-source:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/stage1-final-0.3.1
+          fetch-depth: 0
+      - name: Download Stage1 baseline from Drive
+        shell: bash
+        run: |
+          set -euxo pipefail
+          python -m pip install --disable-pip-version-check gdown
+          gdown --id 1Jl_7ALdkZmuru2TlEixsY446W8IkuHlq -O baseline.zip
+          python - <<'PY'
+          import zipfile
+          z=zipfile.ZipFile('baseline.zip')
+          bad=z.testzip()
+          if bad:
+              raise SystemExit(f'Corrupt ZIP member: {bad}')
+          print('ZIP OK, members:', len(z.namelist()))
+          PY
+      - name: Import exact baseline contents
+        shell: bash
+        run: |
+          set -euxo pipefail
+          rm -rf _baseline
+          mkdir _baseline
+          unzip -q baseline.zip -d _baseline
+          rm -f baseline.zip
+          shopt -s dotglob nullglob
+          for item in _baseline/*; do
+            base=$(basename "$item")
+            if [[ "$base" == ".git" || "$base" == ".github" ]]; then
+              continue
+            fi
+            rm -rf "$base"
+            cp -a "$item" "$base"
+          done
+          rm -rf _baseline
+      - name: Commit imported baseline
+        shell: bash
+        run: |
+          set -euxo pipefail
+          git config user.name 'accessible-chess-ci'
+          git config user.email 'actions@users.noreply.github.com'
+          git add -A
+          if git diff --cached --quiet; then
+            echo 'No source changes to commit.'
+            exit 0
+          fi
+          git commit -m 'Import exact Stage 1 0.3.1 source baseline from Drive'
+          git push origin HEAD:agent/stage1-final-0.3.1
