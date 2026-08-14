@@ -19,5 +19,11 @@ jobs:
           python-version: '3.12'
       - name: Compile integrated Python modules
         run: python -m compileall -q acs tests
-      - name: Run integrated source tests
-        run: python -m unittest discover -s tests -v
+      - name: Data and history integration gate
+        run: python -m unittest -v tests.test_data_integration
+      - name: Analysis service gate
+        run: python -m unittest -v tests.test_analysis_service
+      - name: Accessible Web UI gate
+        run: python -m unittest -v tests.test_accessible_webui
+      - name: NVDA P0 semantic contract gate
+        run: python -m unittest -v tests.test_nvda_p0_contract
