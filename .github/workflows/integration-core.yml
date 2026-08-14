@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - integration/accessible-chess-next
+      - integration/data-sync-*
 
 permissions:
   contents: read
@@ -52,33 +53,41 @@ jobs:
       - name: Apply integrated overlays
         run: |
           mkdir -p work/acs work/web work/tests
-          cp acs/webapp.py work/acs/webapp.py
-          cp acs/analysis_service.py work/acs/analysis_service.py
-          cp acs/history.py work/acs/history.py
-          cp acs/gametree.py work/acs/gametree.py
-          cp acs/acsdb.py work/acs/acsdb.py
-          cp acs/import_contract.py work/acs/import_contract.py
-          cp acs/bookdocument.py work/acs/bookdocument.py
-          cp acs/chessbase_adapter.py work/acs/chessbase_adapter.py
+          for file in \
+            webapp.py analysis_service.py history.py keybindings.py notation.py \
+            engine_ports.py engine_play_service.py clock_service.py gametree.py \
+            acsdb.py import_contract.py import_registry.py bookdocument.py chessbase_adapter.py
+          do
+            cp "acs/$file" "work/acs/$file"
+          done
           cp web/index.html work/web/index.html
-          cp tests/test_accessible_webui.py work/tests/test_accessible_webui.py
-          cp tests/test_analysis_service.py work/tests/test_analysis_service.py
-          cp tests/test_nvda_p0_contract.py work/tests/test_nvda_p0_contract.py
-          cp tests/test_data_integration.py work/tests/test_data_integration.py
-          cp tests/test_chessbase_adapter.py work/tests/test_chessbase_adapter.py
+          for file in \
+            test_accessible_webui.py test_analysis_service.py test_nvda_p0_contract.py \
+            test_data_integration.py test_chessbase_adapter.py test_import_registry.py \
+            test_architecture.py test_history.py test_keybindings.py test_notation.py \
+            test_engine_play_service.py test_clock_service.py
+          do
+            cp "tests/$file" "work/tests/$file"
+          done
           cp run_accessible_chess.py work/run_accessible_chess.py
       - name: Compile integrated Python modules
         working-directory: work
         run: python -m compileall -q acs tests run_accessible_chess.py
+      - name: Architecture boundary gate
+        working-directory: work
+        run: python -m unittest -v tests.test_architecture
       - name: Data and history integration gate
         working-directory: work
-        run: python -m unittest -v tests.test_data_integration
-      - name: ChessBase read-only adapter gate
+        run: python -m unittest -v tests.test_data_integration tests.test_history
+      - name: Import registry and read-only adapter gates
         working-directory: work
-        run: python -m unittest -v tests.test_chessbase_adapter
-      - name: Analysis service gate
+        run: python -m unittest -v tests.test_import_registry tests.test_chessbase_adapter
+      - name: Engine service contract gates
         working-directory: work
-        run: python -m unittest -v tests.test_analysis_service
+        run: python -m unittest -v tests.test_analysis_service tests.test_engine_play_service tests.test_clock_service
+      - name: Remappable actions and notation gates
+        working-directory: work
+        run: python -m unittest -v tests.test_keybindings tests.test_notation
       - name: Accessible Web UI gate
         working-directory: work
         run: python -m unittest -v tests.test_accessible_webui
