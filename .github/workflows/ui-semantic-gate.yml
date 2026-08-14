@@ -25,9 +25,42 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+
+      - name: Reconstruct verified Stage 1 baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat \
+            build_snapshot_exact/group00.b64 \
+            build_snapshot_exact/group01.b64 \
+            build_parts10k/part04.b64 \
+            build_parts10k/part05.b64 \
+            build_parts10k/part06.b64 \
+            build_parts10k/part07.b64 \
+            | tr -cd 'A-Za-z0-9+/=' > stage1_source.b64
+          test "$(wc -c < stage1_source.b64)" -eq 77128
+          base64 -d stage1_source.b64 > stage1_source.zip
+          test "$(wc -c < stage1_source.zip)" -eq 57844
+          test "$(sha256sum stage1_source.zip | awk '{print $1}')" = "cb0a89778b436cdf44c42e3207ef9638160a992b372156bc4d901391717a1e6a"
+          python - <<'PY'
+          import zipfile
+          with zipfile.ZipFile('stage1_source.zip') as z:
+              z.extractall('work')
+          PY
+          mkdir -p work/acs work/web work/tests
+          cp acs/webapp.py work/acs/webapp.py
+          cp acs/analysis_service.py work/acs/analysis_service.py
+          cp web/index.html work/web/index.html
+          cp web/keybindings.json work/web/keybindings.json
+          cp tests/test_accessible_webui.py work/tests/test_accessible_webui.py
+          cp tests/test_history_review_ui.py work/tests/test_history_review_ui.py
+          cp tests/test_nvda_p0_contract.py work/tests/test_nvda_p0_contract.py
+
       - name: Install lightweight test dependency
         run: python -m pip install -q pytest
+
       - name: Compile and run UI semantic tests
+        working-directory: work
         run: |
           python -m compileall -q acs tests
           python -m unittest discover -s tests -p 'test_accessible_webui.py' -v
