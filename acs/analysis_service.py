@@ -1,15 +1,17 @@
 from __future__ import annotations
 
-"""Presentation-neutral Stockfish analysis coordinator for the 0.4 UI.
+"""Presentation-neutral engine analysis coordinator.
 
-The WebView document must never announce analysis that belongs to an older
-position.  This service gives every request a generation and discards the
-result when the position has changed while Stockfish was thinking.
+The UI must never announce analysis that belongs to an older position. This
+service gives every request a generation and discards the result when the
+position has changed while an engine provider was thinking.
 """
 
 from dataclasses import dataclass
 from threading import Lock
 from typing import Any, Callable
+
+from .engine_ports import AnalysisEnginePort, RawAnalysisLine
 
 
 @dataclass(frozen=True)
@@ -49,15 +51,16 @@ class AnalysisResult:
 
 
 class AnalysisService:
-    """Coordinates one Stockfish instance and invalidates stale results.
+    """Coordinates one engine provider and invalidates stale results.
 
-    ``engine_factory`` is intentionally injectable so source tests never need
-    a Stockfish binary.  The real application supplies ``UCIEngine``.
+    ``engine_factory`` is injectable so source tests never need a Stockfish
+    binary. The real composition root may supply UCIEngine or another adapter
+    implementing ``AnalysisEnginePort``.
     """
 
-    def __init__(self, engine_factory: Callable[[], Any]) -> None:
+    def __init__(self, engine_factory: Callable[[], AnalysisEnginePort]) -> None:
         self._engine_factory = engine_factory
-        self._engine: Any | None = None
+        self._engine: AnalysisEnginePort | None = None
         self._generation = 0
         self._current_fen: str | None = None
         self._state_lock = Lock()
@@ -79,6 +82,28 @@ class AnalysisService:
         with self._state_lock:
             return generation != self._generation or fen != self._current_fen
 
+    @staticmethod
+    def _coerce_line(item: object, multipv: int) -> AnalysisLine:
+        if isinstance(item, RawAnalysisLine):
+            return AnalysisLine(
+                multipv=multipv,
+                depth=int(item.depth),
+                score_kind=str(item.score_kind),
+                score_value=int(item.score_value),
+                pv=tuple(str(move) for move in item.pv),
+            )
+
+        # Compatibility adapter for the existing UCIEngine tuple contract.
+        item_depth, score, pv = item  # type: ignore[misc]
+        score_kind, score_value = score
+        return AnalysisLine(
+            multipv=multipv,
+            depth=int(item_depth),
+            score_kind=str(score_kind),
+            score_value=int(score_value),
+            pv=tuple(str(move) for move in pv),
+        )
+
     def analyze(self, fen: str, multipv: int = 5, depth: int = 16) -> AnalysisResult:
         multipv = max(1, min(10, int(multipv)))
         depth = max(1, min(40, int(depth)))
@@ -89,20 +114,8 @@ class AnalysisService:
             raw = self._engine.analyze(fen, multipv=multipv, depth=depth)
             if self._is_stale(generation, fen):
                 return AnalysisResult(fen, generation, True, ())
-            lines: list[AnalysisLine] = []
-            for index, item in enumerate(raw, start=1):
-                item_depth, score, pv = item
-                score_kind, score_value = score
-                lines.append(
-                    AnalysisLine(
-                        multipv=index,
-                        depth=int(item_depth),
-                        score_kind=str(score_kind),
-                        score_value=int(score_value),
-                        pv=tuple(str(move) for move in pv),
-                    )
-                )
-            return AnalysisResult(fen, generation, False, tuple(lines))
+            lines = tuple(self._coerce_line(item, index) for index, item in enumerate(raw, start=1))
+            return AnalysisResult(fen, generation, False, lines)
         except Exception as exc:
             if self._is_stale(generation, fen):
                 return AnalysisResult(fen, generation, True, ())
