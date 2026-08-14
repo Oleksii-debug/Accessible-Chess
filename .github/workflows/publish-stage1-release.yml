@@ -37,7 +37,7 @@ jobs:
           [IO.File]::WriteAllBytes('stage1_source.zip', [Convert]::FromBase64String($b64))
           if ((Get-Item 'stage1_source.zip').Length -ne 57844) { throw 'Source ZIP size mismatch' }
           $hash = (Get-FileHash 'stage1_source.zip' -Algorithm SHA256).Hash.ToLowerInvariant()
-          if ($hash -ne 'cb0a897286d0dce6ff9d05d985169d42e4f9540203115611356e6f831de2bce7') { throw "Source ZIP hash mismatch: $hash" }
+          if ($hash -ne 'cb0a89778b436cdf44c42e3207ef9638160a992b372156bc4d901391717a1e6a') { throw "Source ZIP hash mismatch: $hash" }
           Expand-Archive 'stage1_source.zip' 'work' -Force
 
       - uses: actions/setup-python@v5
