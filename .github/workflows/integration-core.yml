@@ -55,8 +55,10 @@ jobs:
           mkdir -p work/acs work/web work/tests
           for file in \
             webapp.py analysis_service.py history.py keybindings.py notation.py \
-            engine_ports.py engine_play_service.py clock_service.py gametree.py \
-            acsdb.py import_contract.py import_registry.py bookdocument.py chessbase_adapter.py
+            ui_keymap_adapter.py ui_keymap_editor.py \
+            engine_ports.py engine_play_service.py clock_service.py game_lifecycle.py \
+            gametree.py acsdb.py import_contract.py import_registry.py pgn_service.py \
+            bookdocument.py chessbase_adapter.py
           do
             cp "acs/$file" "work/acs/$file"
           done
@@ -65,8 +67,9 @@ jobs:
           for file in \
             test_accessible_webui.py test_analysis_service.py test_nvda_p0_contract.py \
             test_data_integration.py test_chessbase_adapter.py test_import_registry.py \
-            test_architecture.py test_history.py test_keybindings.py test_notation.py \
-            test_engine_play_service.py test_clock_service.py
+            test_pgn_service.py test_architecture.py test_history.py test_keybindings.py \
+            test_ui_keymap_editor.py test_notation.py test_engine_play_service.py \
+            test_clock_service.py test_game_lifecycle.py
           do
             cp "tests/$file" "work/tests/$file"
           done
@@ -77,18 +80,18 @@ jobs:
       - name: Architecture boundary gate
         working-directory: work
         run: python -m unittest -v tests.test_architecture
-      - name: Data and history integration gate
+      - name: Data, PGN and history integration gate
         working-directory: work
-        run: python -m unittest -v tests.test_data_integration tests.test_history
+        run: python -m unittest -v tests.test_data_integration tests.test_pgn_service tests.test_history
       - name: Import registry and read-only adapter gates
         working-directory: work
         run: python -m unittest -v tests.test_import_registry tests.test_chessbase_adapter
-      - name: Engine service contract gates
+      - name: Engine service and game lifecycle gates
         working-directory: work
-        run: python -m unittest -v tests.test_analysis_service tests.test_engine_play_service tests.test_clock_service
-      - name: Remappable actions and notation gates
+        run: python -m unittest -v tests.test_analysis_service tests.test_engine_play_service tests.test_clock_service tests.test_game_lifecycle
+      - name: Remappable actions, editor and notation gates
         working-directory: work
-        run: python -m unittest -v tests.test_keybindings tests.test_notation
+        run: python -m unittest -v tests.test_keybindings tests.test_ui_keymap_editor tests.test_notation
       - name: Accessible Web UI gate
         working-directory: work
         run: python -m unittest -v tests.test_accessible_webui
