@@ -14,8 +14,9 @@ import sys
 from typing import Any
 
 from .chesscore import Board, parse_sq, sq_name, color_of
+from .position_text import parse_position_text
 
-VERSION = "0.4.0-dev1"
+VERSION = "0.4.0-dev2"
 
 PIECE_UK = {
     "K": "білий король", "Q": "білий ферзь", "R": "біла тура",
@@ -74,6 +75,7 @@ class AccessibleChessAPI:
             "no_moves": "Ходів ще немає", "no_last": "Останнього ходу немає",
             "selected": "вибрано", "illegal": "Нелегальний хід",
             "undo_none": "Немає ходу для скасування", "redo_none": "Немає ходу для повторення",
+            "setup_incomplete": "Редактор позиції. Додайте рівно по одному білому і чорному королю.",
         }
         en = {
             "ready": "Ready. Accessible document loaded.",
@@ -81,11 +83,15 @@ class AccessibleChessAPI:
             "no_moves": "No moves yet", "no_last": "No last move",
             "selected": "selected", "illegal": "Illegal move",
             "undo_none": "No move to undo", "redo_none": "No move to redo",
+            "setup_incomplete": "Position editor. Add exactly one white king and one black king.",
         }
         return (uk if self.lang == "uk" else en).get(key, key)
 
     def _piece_name(self, p: str) -> str:
         return (PIECE_UK if self.lang == "uk" else PIECE_EN)[p]
+
+    def _position_complete(self) -> bool:
+        return self.board.board.count("K") == 1 and self.board.board.count("k") == 1
 
     def square_label(self, square: int | str) -> str:
         s = parse_sq(square) if isinstance(square, str) else int(square)
@@ -128,6 +134,8 @@ class AccessibleChessAPI:
 
     def _game_status(self) -> str:
         turn_text = self._t("white_turn") if self.board.turn == "w" else self._t("black_turn")
+        if not self._position_complete():
+            return f"{self._t('setup_incomplete')} {turn_text}"
         legal = self.board.legal_moves()
         if legal:
             if self.board.in_check(self.board.turn):
@@ -145,16 +153,28 @@ class AccessibleChessAPI:
                 cells.append({"square": sq_name(sq), "label": self.square_label(sq), "occupied": bool(self.board.board[sq]), "selected": sq == self.selected_source})
         return cells
 
+    def _reset_history(self) -> None:
+        self.sans.clear(); self.move_sides.clear(); self.redo_meta.clear(); self.selected_source = None
+        self.board.undo_stack = []; self.board.redo_stack = []; self.board.last_move = None
+
     def get_state(self) -> dict[str, Any]:
         last = _spoken_san(self.sans[-1], self.lang) if self.sans else self._t("no_last")
+        status = self._game_status()
+        engine_status = (
+            "Stockfish увімкнено. Перенесення MultiPV 5 ще триває." if self.lang == "uk" else
+            "Stockfish enabled. MultiPV 5 migration is still in progress."
+        ) if self.engine_enabled else (
+            "Stockfish вимкнено." if self.lang == "uk" else "Stockfish disabled."
+        )
         return {
             "version": VERSION, "lang": self.lang, "mode": self.mode,
-            "gameInfo": f"Version: {VERSION}\n{self._game_status()}",
+            "gameInfo": f"Version: {VERSION}\n{status}",
             "moves": self._moves_text(), "whitePieces": self._pieces_text("w"), "blackPieces": self._pieces_text("b"),
-            "gameStatus": self._game_status(), "lastMove": last, "announcement": self.announcement,
+            "gameStatus": status, "lastMove": last, "announcement": self.announcement,
             "fen": self.board.fen(), "board": self._board_cells(),
             "selectedSquare": sq_name(self.selected_source) if self.selected_source is not None else None,
-            "engineEnabled": self.engine_enabled,
+            "engineEnabled": self.engine_enabled, "engineStatus": engine_status,
+            "positionComplete": self._position_complete(),
         }
 
     def _ok(self, message: str) -> dict[str, Any]:
@@ -168,9 +188,30 @@ class AccessibleChessAPI:
         return state
 
     def new_game(self) -> dict[str, Any]:
-        self.board = Board(); self.start_fen = self.board.fen()
-        self.sans.clear(); self.move_sides.clear(); self.redo_meta.clear(); self.selected_source = None
+        self.board = Board(); self.start_fen = self.board.fen(); self._reset_history()
         return self._ok("Стандартну позицію встановлено." if self.lang == "uk" else "Standard position loaded.")
+
+    def clear_board(self) -> dict[str, Any]:
+        self.board.board = [None] * 64
+        self.board.turn = "w"; self.board.castling = ""; self.board.ep = None
+        self.board.halfmove = 0; self.board.fullmove = 1
+        self._reset_history(); self.start_fen = self.board.fen()
+        return self._ok("Дошку очищено. Введіть позицію в редакторі." if self.lang == "uk" else "Board cleared. Enter a position in the editor.")
+
+    def set_position_text(self, text: str, turn: str | None = None) -> dict[str, Any]:
+        try:
+            side = turn if turn in ("w", "b") else self.board.turn
+            fen = parse_position_text(text or "", side)
+            self.board = Board(fen); self.start_fen = self.board.fen(); self._reset_history()
+            return self._ok("Позицію завантажено з текстового редактора." if self.lang == "uk" else "Position loaded from text editor.")
+        except Exception as exc:
+            return self._error(str(exc))
+
+    def toggle_engine(self) -> dict[str, Any]:
+        self.engine_enabled = not self.engine_enabled
+        if self.engine_enabled:
+            return self._ok("Аналіз Stockfish увімкнено. MultiPV ще переноситься." if self.lang == "uk" else "Stockfish analysis enabled. MultiPV migration is still in progress.")
+        return self._ok("Аналіз Stockfish вимкнено." if self.lang == "uk" else "Stockfish analysis disabled.")
 
     def make_move(self, text: str) -> dict[str, Any]:
         text = (text or "").strip()
@@ -179,10 +220,13 @@ class AccessibleChessAPI:
         commands = {
             "u": self.undo, "y": self.redo,
             "l": lambda: self._ok(("Останній хід: " if self.lang == "uk" else "Last move: ") + self.get_state()["lastMove"]),
-            "w": lambda: self.set_turn("w"), "b": lambda: self.set_turn("b"), "s": self.new_game,
+            "w": lambda: self.set_turn("w"), "d": lambda: self.set_turn("b"), "x": self.clear_board,
+            "s": self.new_game, "e": self.toggle_engine,
         }
-        if len(text) == 1 and text.lower() in commands:
-            return commands[text.lower()]()
+        if len(text) == 1 and text in commands:
+            return commands[text]()
+        if not self._position_complete():
+            return self._error(self._t("setup_incomplete"))
         try:
             side = self.board.turn
             san = self.board.push_text(text)
@@ -196,6 +240,8 @@ class AccessibleChessAPI:
             target = parse_sq(square)
         except Exception as exc:
             return self._error(str(exc))
+        if not self._position_complete():
+            return self._error(self._t("setup_incomplete"))
         p = self.board.board[target]
         if self.selected_source is None:
             if not p:
@@ -254,8 +300,7 @@ class AccessibleChessAPI:
 
     def set_fen(self, fen: str) -> dict[str, Any]:
         try:
-            self.board = Board(fen); self.start_fen = self.board.fen()
-            self.sans.clear(); self.move_sides.clear(); self.redo_meta.clear(); self.selected_source = None
+            self.board = Board(fen); self.start_fen = self.board.fen(); self._reset_history()
             return self._ok("FEN завантажено." if self.lang == "uk" else "FEN loaded.")
         except Exception as exc:
             return self._error(str(exc))
@@ -267,7 +312,7 @@ class AccessibleChessAPI:
         return self._ok("Мову змінено." if lang == "uk" else "Language changed.")
 
     def diagnostic(self) -> dict[str, Any]:
-        before = self.board.fen(); test = Board(before); test.push_text("e4")
+        test = Board(); test.push_text("e4")
         label_empty = self.square_label("e4") if self.board.board[parse_sq("e4")] else "e 4"
         html = _asset_root() / "web" / "index.html"
         semantic = False
@@ -275,6 +320,7 @@ class AccessibleChessAPI:
             text = html.read_text(encoding="utf-8")
             semantic = all(marker in text for marker in (
                 '<main id="main-content">', '<h2 id="h-game-info">', 'id="move-input" type="text"',
+                'id="position-input"', 'id="empty-board" type="button"',
                 'role="status" aria-live="polite"', 'role="application" aria-label="Шахова дошка"',
             ))
         return {"ok": True, "version": VERSION, "boardCells": len(self._board_cells()),
@@ -293,10 +339,10 @@ def _make_menu(webview: Any, api: AccessibleChessAPI, window_holder: dict[str, A
         def wrapped(): fn(); js("refreshState()")
         return wrapped
     return [
-        Menu("Файл", [MenuAction("Нова стандартна позиція", refresh_action(api.new_game)), MenuSeparator(), MenuAction("Вихід", lambda: window_holder.get("window") and window_holder["window"].destroy())]),
+        Menu("Файл", [MenuAction("Нова стандартна позиція", refresh_action(api.new_game)), MenuAction("Порожня дошка", refresh_action(api.clear_board)), MenuSeparator(), MenuAction("Вихід", lambda: window_holder.get("window") and window_holder["window"].destroy())]),
         Menu("Гра", [MenuAction("Скасувати хід", refresh_action(api.undo)), MenuAction("Повторити хід", refresh_action(api.redo))]),
-        Menu("Дошка", [MenuAction("Перейти на дошку", lambda: js("enterBoard()")), MenuAction("Поле введення ходу", lambda: js("document.getElementById('move-input').focus()"))]),
-        Menu("Аналіз", [MenuAction("Аналіз Stockfish — переноситься в 0.4.x", lambda: None)]),
+        Menu("Дошка", [MenuAction("Перейти на дошку", lambda: js("enterBoard()")), MenuAction("Поле введення ходу", lambda: js("document.getElementById('move-input').focus()")), MenuAction("Текстовий редактор позиції", lambda: js("document.getElementById('position-input').focus()"))]),
+        Menu("Аналіз", [MenuAction("Увімкнути / вимкнути Stockfish", refresh_action(api.toggle_engine))]),
         Menu("Налаштування", [MenuAction("Доступність — семантичний WebView2 документ", lambda: None)]),
         Menu("Довідка", [MenuAction("Клавіші", lambda: js("document.getElementById('help').focus()"))]),
     ]
