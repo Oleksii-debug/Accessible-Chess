@@ -1,5 +1,5 @@
 name: Windows Stage 1 RC3 Build
-# Retry after all four verified source groups were uploaded.
+# Uses verified source chunks after two larger chunks were found truncated.
 
 on:
   workflow_dispatch:
@@ -8,7 +8,9 @@ on:
       - agent/stage1-final-0.3.3
     paths:
       - '.github/workflows/windows-stage1-build.yml'
-      - 'build_snapshot_exact/**'
+      - 'build_snapshot_exact/group00.b64'
+      - 'build_snapshot_exact/group01.b64'
+      - 'build_parts10k/**'
 
 permissions:
   contents: read
@@ -28,10 +30,18 @@ jobs:
       - name: Reconstruct exact verified Stage 1 source
         shell: pwsh
         run: |
-          $groups = Get-ChildItem -Path 'build_snapshot_exact' -Filter 'group*.b64' | Sort-Object Name
-          if ($groups.Count -ne 4) { throw "Expected 4 source groups, found $($groups.Count)" }
-          $b64 = ($groups | ForEach-Object { Get-Content -LiteralPath $_.FullName -Raw }) -join ''
+          $ordered = @(
+            'build_snapshot_exact\group00.b64',
+            'build_snapshot_exact\group01.b64',
+            'build_parts10k\part04.b64',
+            'build_parts10k\part05.b64',
+            'build_parts10k\part06.b64',
+            'build_parts10k\part07.b64'
+          )
+          foreach ($f in $ordered) { if (-not (Test-Path $f)) { throw "Missing source chunk: $f" } }
+          $b64 = ($ordered | ForEach-Object { Get-Content -LiteralPath $_ -Raw }) -join ''
           $b64 = $b64 -replace '\s',''
+          if ($b64.Length -ne 77128) { throw "Unexpected Base64 length: $($b64.Length)" }
           [IO.File]::WriteAllBytes('stage1_source.zip', [Convert]::FromBase64String($b64))
           $size = (Get-Item 'stage1_source.zip').Length
           if ($size -ne 57844) { throw "Unexpected source ZIP size: $size" }
@@ -42,7 +52,7 @@ jobs:
           foreach ($required in @('work\acs\main.py','work\acs\chesscore.py','work\acs\engine.py','work\acs\accessibility.py','work\acs\hotkeys.py','work\acs\threats.py','work\run_accessible_chess.py')) {
             if (-not (Test-Path $required)) { throw "Missing required source file: $required" }
           }
-          Write-Host "Exact Stage 1 source reconstructed and verified."
+          Write-Host 'Exact Stage 1 source reconstructed and verified.'
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -118,7 +128,7 @@ jobs:
           Built EXE diagnostic: PASS
           Source tests: PASS
           Stockfish 18 generic x86-64 bundled: PASS
-          NVDA direct-controller DLL is not bundled in this candidate; native accessible Windows controls remain the fallback. Real user NVDA verification is still required.
+          Direct NVDA controller DLL is not bundled in this candidate; native accessible controls remain available. Real user NVDA verification is still required.
           "@ | Set-Content -Encoding UTF8 'package\WINDOWS_BUILD_REPORT.txt'
           Get-ChildItem 'package' -Recurse -File | ForEach-Object {
             $h = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
