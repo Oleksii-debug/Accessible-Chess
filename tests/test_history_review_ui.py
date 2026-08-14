@@ -81,6 +81,7 @@ def test_history_shortcuts_come_from_central_keymap_not_hardcoded_handler():
     assert '"binding":"Shift+A"' in compact
     assert '"id":"history.next"' in compact
     assert '"binding":"Shift+D"' in compact
-    assert '"id":"history.goto"' in compact
+    assert '"id":"history.go_to_move"' in compact
     assert '"binding":"Ctrl+G"' in compact
+    assert '"id":"history.goto"' not in compact
     assert "actionByChord(eventChord(e),'document')" in html
