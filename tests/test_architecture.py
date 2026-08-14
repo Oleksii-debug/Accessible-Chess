@@ -22,26 +22,31 @@ FORBIDDEN_PREFIXES = (
 
 
 class ArchitectureBoundaryTests(unittest.TestCase):
+    @staticmethod
+    def imports_for(relative):
+        path = Path(relative)
+        tree = ast.parse(path.read_text(encoding='utf-8'), filename=relative)
+        imports = []
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                imports.extend(alias.name for alias in node.names)
+            elif isinstance(node, ast.ImportFrom) and node.module:
+                imports.append(node.module)
+        return imports
+
     def test_engine_core_modules_do_not_depend_on_presentation_or_database_implementations(self):
         violations = []
         for relative in CORE_MODULES:
-            path = Path(relative)
-            tree = ast.parse(path.read_text(encoding='utf-8'), filename=relative)
-            for node in ast.walk(tree):
-                names = []
-                if isinstance(node, ast.Import):
-                    names.extend(alias.name for alias in node.names)
-                elif isinstance(node, ast.ImportFrom) and node.module:
-                    names.append(node.module)
-                for name in names:
-                    if name.startswith(FORBIDDEN_PREFIXES):
-                        violations.append(f'{relative}: forbidden dependency {name}')
+            for name in self.imports_for(relative):
+                if name.startswith(FORBIDDEN_PREFIXES):
+                    violations.append(f'{relative}: forbidden dependency {name}')
         self.assertEqual(violations, [], '\n'.join(violations))
 
-    def test_engine_provider_port_does_not_import_subprocess_adapter(self):
-        text = Path('acs/engine_ports.py').read_text(encoding='utf-8')
-        self.assertNotIn('subprocess', text)
-        self.assertNotIn('UCIEngine', text)
+    def test_engine_provider_port_does_not_import_concrete_engine_adapter(self):
+        imports = self.imports_for('acs/engine_ports.py')
+        self.assertNotIn('subprocess', imports)
+        self.assertNotIn('acs.engine', imports)
+        self.assertNotIn('engine', imports)
 
 
 if __name__ == '__main__':
