@@ -10,7 +10,9 @@ body { margin: 0; padding: 1rem 1.4rem 4rem; line-height: 1.4; background: Canva
 main { max-width: 70rem; } h1,h2 { margin-top: 1.4rem; }
 .block { white-space: pre-wrap; border: 1px solid GrayText; padding: .7rem; min-height: 2rem; }
 .row { display:flex; gap:.5rem; flex-wrap:wrap; align-items:center; }
-input[type=text] { min-width:18rem; font:inherit; padding:.45rem; } button { font:inherit; padding:.45rem .7rem; }
+input[type=text], textarea { min-width:18rem; font:inherit; padding:.45rem; } textarea { width:min(60rem,95%); min-height:6rem; }
+button, select { font:inherit; padding:.45rem .7rem; }
+fieldset { margin-top:1rem; padding:.8rem; }
 #board-application[hidden] { display:none; }
 #board-grid { display:grid; grid-template-columns:repeat(8,minmax(4.5rem,1fr)); max-width:52rem; gap:2px; }
 [role=gridcell] { border:1px solid GrayText; padding:.65rem .25rem; text-align:center; outline-offset:2px; }
@@ -35,10 +37,16 @@ input[type=text] { min-width:18rem; font:inherit; padding:.45rem; } button { fon
 <h2 id="h-input">Введення ходу</h2>
 <p class="sr-note">У режимі огляду NVDA: E — поле редагування, F — поле форми, B — кнопка. Enter у полі виконує хід.</p>
 <div class="row"><label for="move-input">Хід</label><input id="move-input" type="text" autocomplete="off" spellcheck="false" aria-describedby="move-help"><button id="move-submit" type="button">Зробити хід</button></div>
-<p id="move-help">Приклади: e4, Nf3, Bc4, O-O. Команди: u — undo, y — redo, l — останній хід, w — хід білих, b — хід чорних, s — стандартна позиція.</p>
+<p id="move-help">Приклади: e4, Nf3, Bc4, O-O. Команди: u — undo, y — redo, l — останній хід, w — хід білих, d — хід чорних, x — очистити дошку, s — стандартна позиція, e — Stockfish.</p>
 <div class="row"><label for="fen-input">FEN</label><input id="fen-input" type="text" aria-label="FEN позиції"><button id="fen-load" type="button">Завантажити FEN</button></div>
+<fieldset>
+<legend>Текстовий редактор позиції</legend>
+<p id="position-help">Формат: W: K g1 Q d1 R a1 R f1 B c4 N f3 P e4 B: K g8 Q d8 N f6. Для композиції дозволено кілька однакових фігур; потрібен рівно один король кожного кольору.</p>
+<label for="position-input">Позиція</label><br><textarea id="position-input" aria-describedby="position-help" spellcheck="false"></textarea>
+<div class="row"><label for="position-turn">Хід</label><select id="position-turn"><option value="w">Білих</option><option value="b">Чорних</option></select><button id="position-load" type="button">Завантажити позицію</button><button id="empty-board" type="button">Очистити дошку</button></div>
+</fieldset>
 </section>
-<section aria-labelledby="h-engine"><h2 id="h-engine">Аналіз Stockfish</h2><div id="engine-status" class="block">Модуль Stockfish переноситься на новий доступний presentation layer. Не вважати завершеним.</div></section>
+<section aria-labelledby="h-engine"><h2 id="h-engine">Аналіз Stockfish</h2><div id="engine-status" class="block"></div><button id="engine-toggle" type="button">Увімкнути / вимкнути Stockfish</button></section>
 <section aria-labelledby="h-board">
 <h2 id="h-board">Дошка</h2>
 <p id="board-help" class="sr-note">Кнопка переводить фокус у режим дошки. Стрілки — поля, Enter/Пробіл — вибрати або виконати хід, Escape — повернутися в документ. Порожнє поле озвучується тільки координатою.</p>
@@ -54,7 +62,7 @@ const el=id=>document.getElementById(id); const setText=(id,text)=>{el(id).textC
 function announce(text){const live=el('live');live.textContent='';setTimeout(()=>{live.textContent=text||''},15)}
 function boardIndexForSquare(square){if(!square)return 56;const file=square.charCodeAt(0)-97;const rank=Number(square[1]);return(8-rank)*8+file}
 function renderBoard(){const grid=el('board-grid');grid.textContent='';state.board.forEach((cell,index)=>{const node=document.createElement('div');node.setAttribute('role','gridcell');node.setAttribute('tabindex',index===boardIndex?'0':'-1');node.setAttribute('aria-label',cell.label);node.setAttribute('aria-selected',cell.selected?'true':'false');node.dataset.square=cell.square;node.textContent=cell.label;node.addEventListener('keydown',onBoardKeyDown);node.addEventListener('click',()=>activateSquare(index));grid.appendChild(node)})}
-function applyState(next,speak=true){state=next;document.documentElement.lang=state.lang==='en'?'en':'uk';setText('game-info',state.gameInfo);setText('moves',state.moves);setText('white-pieces',state.whitePieces);setText('black-pieces',state.blackPieces);setText('game-status',state.gameStatus);setText('last-move',state.lastMove);el('fen-input').value=state.fen||'';if(state.selectedSquare)boardIndex=boardIndexForSquare(state.selectedSquare);renderBoard();if(speak&&state.announcement)announce(state.announcement)}
+function applyState(next,speak=true){state=next;document.documentElement.lang=state.lang==='en'?'en':'uk';setText('game-info',state.gameInfo);setText('moves',state.moves);setText('white-pieces',state.whitePieces);setText('black-pieces',state.blackPieces);setText('game-status',state.gameStatus);setText('last-move',state.lastMove);setText('engine-status',state.engineStatus);el('fen-input').value=state.fen||'';el('position-turn').value=(state.fen||' w ').split(' ')[1]||'w';if(state.selectedSquare)boardIndex=boardIndexForSquare(state.selectedSquare);renderBoard();if(speak&&state.announcement)announce(state.announcement)}
 async function refreshState(speak=false){if(!window.pywebview||!window.pywebview.api)return;applyState(await window.pywebview.api.get_state(),speak)}
 async function apiAction(name,...args){const result=await window.pywebview.api[name](...args);applyState(result,true);return result}
 function focusBoardCell(){const cells=el('board-grid').querySelectorAll('[role=gridcell]');if(!cells.length)return;boardIndex=Math.max(0,Math.min(63,boardIndex));cells.forEach((c,i)=>c.setAttribute('tabindex',i===boardIndex?'0':'-1'));cells[boardIndex].focus()}
@@ -65,7 +73,7 @@ async function activateSquare(index){boardIndex=index;await apiAction('activate_
 function onBoardKeyDown(event){const key=event.key;if(key==='ArrowLeft'){event.preventDefault();moveBoardFocus(-1,0)}else if(key==='ArrowRight'){event.preventDefault();moveBoardFocus(1,0)}else if(key==='ArrowUp'){event.preventDefault();moveBoardFocus(0,1)}else if(key==='ArrowDown'){event.preventDefault();moveBoardFocus(0,-1)}else if(key==='Enter'||key===' '){event.preventDefault();activateSquare(boardIndex)}else if(key==='Escape'){event.preventDefault();window.pywebview.api.cancel_selection().then(r=>{applyState(r,false);exitBoard()})}else if(/^[1-8]$/.test(key)){event.preventDefault();const file=state.board[boardIndex].square[0];boardIndex=boardIndexForSquare(file+key);focusBoardCell()}}
 async function submitMove(){const input=el('move-input');const result=await apiAction('make_move',input.value);if(result.ok)input.value='';input.focus()}
 window.addEventListener('pywebviewready',()=>refreshState(false));
-window.addEventListener('DOMContentLoaded',()=>{el('move-submit').addEventListener('click',submitMove);el('move-input').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();submitMove()}});el('fen-load').addEventListener('click',()=>apiAction('set_fen',el('fen-input').value));el('board-launcher').addEventListener('click',enterBoard);el('new-game').addEventListener('click',()=>apiAction('new_game'));el('undo').addEventListener('click',()=>apiAction('undo'));el('redo').addEventListener('click',()=>apiAction('redo'));el('white-turn').addEventListener('click',()=>apiAction('set_turn','w'));el('black-turn').addEventListener('click',()=>apiAction('set_turn','b'))});
+window.addEventListener('DOMContentLoaded',()=>{el('move-submit').addEventListener('click',submitMove);el('move-input').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();submitMove()}});el('fen-load').addEventListener('click',()=>apiAction('set_fen',el('fen-input').value));el('position-load').addEventListener('click',()=>apiAction('set_position_text',el('position-input').value,el('position-turn').value));el('empty-board').addEventListener('click',()=>apiAction('clear_board'));el('engine-toggle').addEventListener('click',()=>apiAction('toggle_engine'));el('board-launcher').addEventListener('click',enterBoard);el('new-game').addEventListener('click',()=>apiAction('new_game'));el('undo').addEventListener('click',()=>apiAction('undo'));el('redo').addEventListener('click',()=>apiAction('redo'));el('white-turn').addEventListener('click',()=>apiAction('set_turn','w'));el('black-turn').addEventListener('click',()=>apiAction('set_turn','b'))});
 </script>
 </body>
 </html>
