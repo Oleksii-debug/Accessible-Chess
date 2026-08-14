@@ -18,12 +18,16 @@ def test_rows_are_searchable_localized_and_expose_context_and_defaults():
     assert row.default_value == "Ctrl+G"
     assert row.value_kind == "shortcut"
     assert row.changed is False
+    assert row.status == "ok"
+    assert row.status_text == "Конфліктів немає."
 
     found = model.rows(query="перейти")
     assert [x.action_id for x in found] == ["history.go_to_move"]
 
     model.set_language("en")
-    assert _row(model, "history.go_to_move").label == "Go to move"
+    row_en = _row(model, "history.go_to_move")
+    assert row_en.label == "Go to move"
+    assert row_en.status_text == "No conflicts."
 
 
 def test_board_context_can_be_filtered_without_visual_table_semantics():
@@ -32,6 +36,68 @@ def test_board_context_can_be_filtered_without_visual_table_semantics():
     assert rows
     assert all(row.context == "board" for row in rows)
     assert {row.action_id for row in rows} >= {"board.attackers", "board.defenders", "board.input"}
+
+
+def test_preview_is_non_mutating_and_reports_exact_conflict_before_save():
+    registry = ActionRegistry()
+    model = KeymapEditorModel(registry)
+
+    preview = model.preview("history.next", "Shift+A")
+
+    assert preview.status == "error"
+    assert preview.can_save is False
+    assert preview.requires_confirmation is False
+    assert preview.value_kind == "shortcut"
+    assert any(item.kind == "duplicate" for item in preview.conflicts)
+    assert "Конфлікт:" in preview.message
+    assert registry.get_binding("history.next") == "Shift+D"
+
+
+def test_preview_reports_reserved_or_nvda_shortcut_as_confirmable_warning():
+    registry = ActionRegistry()
+    model = KeymapEditorModel(registry, lang="en")
+
+    webview = model.preview("history.go_to_move", "Ctrl+L")
+    assert webview.status == "warning"
+    assert webview.can_save is True
+    assert webview.requires_confirmation is True
+    assert any(item.kind == "webview_reserved" for item in webview.conflicts)
+    assert webview.message.startswith("Warning: ")
+
+    nvda = model.preview("history.go_to_move", "NVDA+F1")
+    assert nvda.status == "warning"
+    assert nvda.requires_confirmation is True
+    assert any(item.kind == "nvda_likely" for item in nvda.conflicts)
+
+    assert registry.get_binding("history.go_to_move") == "Ctrl+G"
+
+
+def test_preview_reports_alias_collision_without_mutating_alias():
+    registry = ActionRegistry()
+    model = KeymapEditorModel(registry)
+
+    preview = model.preview("move.clear", "u")
+
+    assert preview.status == "error"
+    assert preview.value_kind == "alias"
+    assert preview.can_save is False
+    assert any(item.kind == "alias_duplicate" for item in preview.conflicts)
+    assert registry.get_alias("move.clear") == "c"
+
+
+def test_preview_reports_clean_value_and_invalid_capture():
+    model = KeymapEditorModel()
+
+    clean = model.preview("board.attackers", "Ctrl+Shift+A")
+    assert clean.status == "ok"
+    assert clean.can_save is True
+    assert clean.requires_confirmation is False
+    assert clean.conflicts == ()
+
+    invalid = model.preview("board.attackers", "Ctrl+Alt")
+    assert invalid.status == "error"
+    assert invalid.can_save is False
+    assert "non-modifier" in invalid.message
 
 
 def test_save_remaps_shortcut_through_registry_and_marks_changed():
