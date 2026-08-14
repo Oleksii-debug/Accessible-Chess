@@ -31,6 +31,26 @@ class KeymapService:
         parsed_context = BindingContext(context) if context else None
         return [row.__dict__.copy() for row in self.editor.rows(query=query, context=parsed_context)]
 
+    def preview(self, action_id: str, value: str) -> dict[str, Any]:
+        """Return live validation for a captured value without mutating state.
+
+        This is the single WebView bridge for pre-save validation. JavaScript may
+        render the returned status in an aria-live region, but normalization and
+        conflict policy stay in the central registry/editor model.
+        """
+
+        preview = self.editor.preview(action_id, value)
+        return {
+            "actionId": preview.action_id,
+            "value": preview.value,
+            "valueKind": preview.value_kind,
+            "canSave": preview.can_save,
+            "requiresConfirmation": preview.requires_confirmation,
+            "status": preview.status,
+            "message": preview.message,
+            "conflicts": [self._conflict(item) for item in preview.conflicts],
+        }
+
     def save(self, action_id: str, value: str, *, allow_warnings: bool = False) -> dict[str, Any]:
         result = self.editor.save(action_id, value, allow_warnings=allow_warnings)
         if result.ok:
@@ -70,20 +90,21 @@ class KeymapService:
         self.recovery_message = None
 
     @staticmethod
-    def _result(result) -> dict[str, Any]:
+    def _conflict(item) -> dict[str, Any]:
+        return {
+            "kind": item.kind,
+            "actionId": item.action_id,
+            "otherActionId": item.other_action_id,
+            "context": item.context.value,
+            "value": item.value,
+            "message": item.message,
+            "severity": item.severity,
+        }
+
+    @classmethod
+    def _result(cls, result) -> dict[str, Any]:
         return {
             "ok": result.ok,
             "message": result.message,
-            "conflicts": [
-                {
-                    "kind": item.kind,
-                    "actionId": item.action_id,
-                    "otherActionId": item.other_action_id,
-                    "context": item.context.value,
-                    "value": item.value,
-                    "message": item.message,
-                    "severity": item.severity,
-                }
-                for item in result.conflicts
-            ],
+            "conflicts": [cls._conflict(item) for item in result.conflicts],
         }
