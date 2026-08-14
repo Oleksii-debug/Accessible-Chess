@@ -45,8 +45,10 @@ jobs:
           New-Item -ItemType Directory -Force -Path 'work\web' | Out-Null
           New-Item -ItemType Directory -Force -Path 'work\tests' | Out-Null
           Copy-Item 'acs\webapp.py' 'work\acs\webapp.py' -Force
+          Copy-Item 'acs\analysis_service.py' 'work\acs\analysis_service.py' -Force
           Copy-Item 'web\index.html' 'work\web\index.html' -Force
           Copy-Item 'tests\test_accessible_webui.py' 'work\tests\test_accessible_webui.py' -Force
+          Copy-Item 'tests\test_analysis_service.py' 'work\tests\test_analysis_service.py' -Force
           Copy-Item 'run_accessible_chess.py' 'work\run_accessible_chess.py' -Force
           Copy-Item 'ACCESSIBILITY_0.4_ARCHITECTURE.md' 'work\ACCESSIBILITY_0.4_ARCHITECTURE.md' -Force
           Copy-Item 'VERSION.txt' 'work\VERSION.txt' -Force
@@ -107,6 +109,7 @@ jobs:
           ACCESSIBLE CHESS 0.4 DEVELOPMENT BUILD
           WebView2 semantic document architecture: BUILD PASS
           Automated semantic/core tests: PASS
+          Stale-safe MultiPV analysis coordinator tests: PASS
           Built EXE diagnostic: PASS
           WebView2 process startup smoke: PASS
           Real NVDA browse/focus verification: REQUIRED BEFORE USER RELEASE
