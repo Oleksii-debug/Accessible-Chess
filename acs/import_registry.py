@@ -2,9 +2,9 @@ from __future__ import annotations
 
 """Registration-based external import routing for Accessible Chess.
 
-The registry is deliberately presentation-neutral.  It maps source suffixes to
+The registry is deliberately presentation-neutral. It maps source suffixes to
 read-only importer adapters without exposing format-specific binary structures
-to UI or ACSDB code.  Adding a new verified importer should require
+to UI or ACSDB code. Adding a new verified importer should require
 registration, not editing unrelated chess/database logic.
 """
 
@@ -23,6 +23,38 @@ class ImportRegistryError(ValueError):
 class ImporterRegistration:
     importer: ReadOnlyImporter
     suffixes: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class BatchInspectionItem:
+    """One source result from a non-aborting multi-file import preflight."""
+
+    path: Path
+    report: ImportReport | None = None
+    error: str = ""
+
+    @property
+    def ok(self) -> bool:
+        return self.report is not None and not self.error
+
+
+@dataclass(frozen=True)
+class BatchInspection:
+    """Ordered results for every requested source, including routing failures."""
+
+    items: tuple[BatchInspectionItem, ...]
+
+    @property
+    def reports(self) -> tuple[ImportReport, ...]:
+        return tuple(item.report for item in self.items if item.report is not None)
+
+    @property
+    def errors(self) -> tuple[BatchInspectionItem, ...]:
+        return tuple(item for item in self.items if not item.ok)
+
+    @property
+    def all_ok(self) -> bool:
+        return bool(self.items) and not self.errors
 
 
 class ImportRegistry:
@@ -69,9 +101,27 @@ class ImportRegistry:
         return importer.inspect(source)
 
     def inspect_many(self, paths: Iterable[str | Path]) -> list[ImportReport]:
-        # Never collapse or skip a source: callers receive one report or one
-        # explicit routing error for every requested path.
+        """Strict multi-source inspection; aborts on the first source error."""
         return [self.inspect(path) for path in paths]
+
+    def inspect_batch(self, paths: Iterable[str | Path]) -> BatchInspection:
+        """Inspect every requested source without hiding later results.
+
+        This is the preferred preflight for multi-file families such as classic
+        ChessBase databases. An unknown suffix, missing file, or adapter error
+        is recorded against that exact source while remaining sources are still
+        inspected. No source is silently skipped and no mutation is attempted.
+        """
+        items: list[BatchInspectionItem] = []
+        for raw_path in paths:
+            source = Path(raw_path)
+            try:
+                report = self.inspect(source)
+            except (ImportRegistryError, OSError, ValueError) as exc:
+                items.append(BatchInspectionItem(path=source, error=str(exc)))
+            else:
+                items.append(BatchInspectionItem(path=source, report=report))
+        return BatchInspection(items=tuple(items))
 
     @property
     def registered_suffixes(self) -> tuple[str, ...]:
