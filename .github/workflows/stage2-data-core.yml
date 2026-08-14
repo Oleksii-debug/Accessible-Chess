@@ -18,6 +18,6 @@ jobs:
         with:
           python-version: '3.12'
       - name: Compile Stage 2 data core
-        run: python -m compileall -q acs/gametree.py acs/acsdb.py tests
+        run: python -m compileall -q acs/gametree.py acs/acsdb.py acs/import_contract.py tests
       - name: Run Stage 2 data-core tests
         run: python -m unittest discover -s tests -v
