@@ -17,7 +17,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Compile GameTree
-        run: python -m compileall -q acs/gametree.py tests/test_gametree.py
-      - name: Run Stage 2 structural PGN tests
-        run: python -m unittest tests.test_gametree -v
+      - name: Compile Stage 2 data core
+        run: python -m compileall -q acs/gametree.py acs/acsdb.py tests
+      - name: Run Stage 2 data-core tests
+        run: python -m unittest discover -s tests -v
