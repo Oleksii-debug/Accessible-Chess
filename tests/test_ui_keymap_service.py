@@ -98,6 +98,58 @@ def test_preview_bridge_reports_clean_alias_without_persisting(tmp_path):
     assert not path.exists()
 
 
+def test_capture_shortcut_builds_normalized_chord_and_previews_warning(tmp_path):
+    service = KeymapService(tmp_path / "keymap.json", lang="en")
+
+    result = service.capture_shortcut(
+        "history.go_to_move",
+        "l",
+        ctrl=True,
+    )
+
+    assert result["captured"] is True
+    assert result["reason"] == "captured"
+    assert result["binding"] == "Ctrl+L"
+    assert result["value"] == "Ctrl+L"
+    assert result["status"] == "warning"
+    assert result["canSave"] is True
+    assert result["requiresConfirmation"] is True
+    assert any(item["kind"] == "webview_reserved" for item in result["conflicts"])
+    assert service.editor.registry.get_binding("history.go_to_move") == "Ctrl+G"
+
+
+def test_capture_shortcut_preserves_tab_navigation_and_escape_cancel(tmp_path):
+    service = KeymapService(tmp_path / "keymap.json", lang="uk")
+
+    tab = service.capture_shortcut("history.go_to_move", "Tab")
+    escape = service.capture_shortcut("history.go_to_move", "Escape")
+
+    assert tab["captured"] is False
+    assert tab["reason"] == "navigation"
+    assert tab["canSave"] is False
+    assert "Tab" in tab["message"]
+    assert escape["captured"] is False
+    assert escape["reason"] == "cancelled"
+    assert escape["canSave"] is False
+    assert "скасовано" in escape["message"]
+
+
+def test_capture_shortcut_rejects_modifier_only_event(tmp_path):
+    service = KeymapService(tmp_path / "keymap.json", lang="en")
+
+    result = service.capture_shortcut(
+        "history.go_to_move",
+        "Shift",
+        shift=True,
+    )
+
+    assert result["captured"] is False
+    assert result["reason"] == "incomplete"
+    assert result["status"] == "pending"
+    assert result["canSave"] is False
+    assert "non-modifier" in result["message"]
+
+
 def test_live_binding_resolution_tracks_remap_immediately(tmp_path):
     service = KeymapService(tmp_path / "keymap.json")
 
