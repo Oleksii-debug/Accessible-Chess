@@ -7,16 +7,20 @@ on:
     paths:
       - 'acs/security_contracts.py'
       - 'acs/security_redaction.py'
+      - 'acs/logging_setup.py'
       - 'tests/test_security_contracts.py'
       - 'tests/test_security_redaction.py'
+      - 'tests/test_logging_redaction.py'
       - 'tests/test_architecture.py'
       - '.github/workflows/qa-release-security.yml'
   pull_request:
     paths:
       - 'acs/security_contracts.py'
       - 'acs/security_redaction.py'
+      - 'acs/logging_setup.py'
       - 'tests/test_security_contracts.py'
       - 'tests/test_security_redaction.py'
+      - 'tests/test_logging_redaction.py'
       - 'tests/test_architecture.py'
       - '.github/workflows/qa-release-security.yml'
   workflow_dispatch:
@@ -26,7 +30,7 @@ permissions:
 
 jobs:
   security-contracts:
-    name: Security contracts, redaction, and architecture boundaries
+    name: Security contracts, persisted-diagnostic redaction, and architecture boundaries
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -39,13 +43,16 @@ jobs:
           python-version: '3.11'
 
       - name: Compile security modules
-        run: python -m py_compile acs/security_contracts.py acs/security_redaction.py tests/test_security_contracts.py tests/test_security_redaction.py tests/test_architecture.py
+        run: python -m py_compile acs/security_contracts.py acs/security_redaction.py acs/logging_setup.py tests/test_security_contracts.py tests/test_security_redaction.py tests/test_logging_redaction.py tests/test_architecture.py
 
       - name: Run entitlement contract tests
         run: python -m unittest -v tests.test_security_contracts
 
       - name: Run diagnostic redaction tests
         run: python -m unittest -v tests.test_security_redaction
+
+      - name: Run persisted logging and crash redaction tests
+        run: python -m unittest -v tests.test_logging_redaction
 
       - name: Run architecture boundary tests
         run: python -m unittest -v tests.test_architecture
