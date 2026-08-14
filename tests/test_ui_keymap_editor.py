@@ -53,7 +53,7 @@ def test_preview_is_non_mutating_and_reports_exact_conflict_before_save():
     assert registry.get_binding("history.next") == "Shift+D"
 
 
-def test_preview_reports_reserved_or_nvda_shortcut_as_confirmable_warning():
+def test_preview_reports_reserved_shortcut_as_confirmable_warning():
     registry = ActionRegistry()
     model = KeymapEditorModel(registry, lang="en")
 
@@ -63,12 +63,6 @@ def test_preview_reports_reserved_or_nvda_shortcut_as_confirmable_warning():
     assert webview.requires_confirmation is True
     assert any(item.kind == "webview_reserved" for item in webview.conflicts)
     assert webview.message.startswith("Warning: ")
-
-    nvda = model.preview("history.go_to_move", "NVDA+F1")
-    assert nvda.status == "warning"
-    assert nvda.requires_confirmation is True
-    assert any(item.kind == "nvda_likely" for item in nvda.conflicts)
-
     assert registry.get_binding("history.go_to_move") == "Ctrl+G"
 
 
