@@ -45,6 +45,59 @@ def test_service_requires_explicit_confirmation_for_reserved_warning(tmp_path):
     assert ActionRegistry.load(path)[0].get_binding("history.go_to_move") == "Ctrl+L"
 
 
+def test_preview_bridge_is_non_mutating_and_blocks_exact_conflict(tmp_path):
+    path = tmp_path / "keymap.json"
+    service = KeymapService(path, lang="uk")
+
+    before = service.snapshot()
+    preview = service.preview("history.next", "Shift+A")
+    after = service.snapshot()
+
+    assert preview["actionId"] == "history.next"
+    assert preview["value"] == "Shift+A"
+    assert preview["valueKind"] == "shortcut"
+    assert preview["status"] == "error"
+    assert preview["canSave"] is False
+    assert preview["requiresConfirmation"] is False
+    assert preview["message"].startswith("Конфлікт: ")
+    assert any(c["kind"] == "duplicate" and c["severity"] == "error" for c in preview["conflicts"])
+    assert before == after
+    assert not path.exists()
+
+
+def test_preview_bridge_exposes_confirmable_reserved_warning(tmp_path):
+    service = KeymapService(tmp_path / "keymap.json", lang="en")
+
+    preview = service.preview("history.go_to_move", "Ctrl+L")
+
+    assert preview["status"] == "warning"
+    assert preview["canSave"] is True
+    assert preview["requiresConfirmation"] is True
+    assert preview["message"].startswith("Warning: ")
+    assert any(c["kind"] == "webview_reserved" and c["severity"] == "warning" for c in preview["conflicts"])
+    assert service.snapshot()["actions"][2]["binding"] == "Ctrl+G"
+
+
+def test_preview_bridge_reports_clean_alias_without_persisting(tmp_path):
+    path = tmp_path / "keymap.json"
+    service = KeymapService(path)
+
+    preview = service.preview("move.black_to_move", "z")
+
+    assert preview == {
+        "actionId": "move.black_to_move",
+        "value": "z",
+        "valueKind": "alias",
+        "canSave": True,
+        "requiresConfirmation": False,
+        "status": "ok",
+        "message": "Конфліктів немає.",
+        "conflicts": [],
+    }
+    assert service.editor.registry.get_alias("move.black_to_move") == "b"
+    assert not path.exists()
+
+
 def test_reset_context_preserves_other_contexts(tmp_path):
     path = tmp_path / "keymap.json"
     service = KeymapService(path)
