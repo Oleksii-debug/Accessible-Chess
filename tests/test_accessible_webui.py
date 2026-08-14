@@ -131,10 +131,23 @@ class AccessibleWebUiTests(unittest.TestCase):
         by_id = {x["id"]: x for x in data["actions"]}
         self.assertEqual(by_id["history.previous"]["binding"], "Shift+A")
         self.assertEqual(by_id["history.next"]["binding"], "Shift+D")
-        self.assertEqual(by_id["history.goto"]["binding"], "Ctrl+G")
-        self.assertEqual(by_id["move.black"]["alias"], "b")
+        self.assertEqual(by_id["history.go_to_move"]["binding"], "Ctrl+G")
+        self.assertEqual(by_id["move.black_to_move"]["alias"], "b")
         self.assertEqual(by_id["move.clear"]["alias"], "c")
+        self.assertNotIn("history.goto", by_id)
+        self.assertNotIn("game.undo", by_id)
+        self.assertNotIn("move.engine", by_id)
         self.assertTrue(compact)
+
+    def test_ui_dispatch_uses_stable_central_action_ids(self):
+        for action_id in (
+            "history.go_to_move", "edit.undo", "edit.redo",
+            "move.white_to_move", "move.black_to_move", "move.empty",
+            "board.last_captured", "board.best_move", "board.play_best",
+        ):
+            self.assertIn(action_id, self.html if action_id in {"history.go_to_move", "edit.undo", "edit.redo", "move.white_to_move", "move.black_to_move", "move.empty"} else (self.root / "web" / "keybindings.json").read_text(encoding="utf-8"))
+        for legacy in ("history.goto", "game.undo", "game.redo", "move.white'", "move.black'", "move.engine"):
+            self.assertNotIn(legacy, self.html)
 
     def test_live_region_contract_avoids_background_speech_spam(self):
         self.assertIn('role="status" aria-live="polite" aria-atomic="true" aria-relevant="text"', self.html)
