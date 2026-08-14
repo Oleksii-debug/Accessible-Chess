@@ -15,6 +15,7 @@ on:
       - 'tests/test_game_lifecycle.py'
       - 'tests/test_board_service.py'
       - 'tests/test_entitlements.py'
+      - 'tests/test_position_editor.py'
       - 'tests/test_architecture.py'
       - 'build_snapshot_exact/**'
       - 'build_parts10k/**'
@@ -82,6 +83,7 @@ jobs:
           cp acs/game_lifecycle.py work/acs/game_lifecycle.py
           cp acs/board_service.py work/acs/board_service.py
           cp acs/entitlements.py work/acs/entitlements.py
+          cp acs/position_editor.py work/acs/position_editor.py
           cp tests/test_history.py work/tests/test_history.py
           cp tests/test_analysis_service.py work/tests/test_analysis_service.py
           cp tests/test_keybindings.py work/tests/test_keybindings.py
@@ -91,6 +93,7 @@ jobs:
           cp tests/test_game_lifecycle.py work/tests/test_game_lifecycle.py
           cp tests/test_board_service.py work/tests/test_board_service.py
           cp tests/test_entitlements.py work/tests/test_entitlements.py
+          cp tests/test_position_editor.py work/tests/test_position_editor.py
           cp tests/test_architecture.py work/tests/test_architecture.py
 
       - name: Compile core modules
@@ -132,6 +135,10 @@ jobs:
       - name: Entitlement and feature-gate tests
         working-directory: work
         run: python -m unittest discover -s tests -p 'test_entitlements.py' -v
+
+      - name: FEN position editor contract tests
+        working-directory: work
+        run: python -m unittest discover -s tests -p 'test_position_editor.py' -v
 
       - name: Stale-safe analysis service tests
         working-directory: work
