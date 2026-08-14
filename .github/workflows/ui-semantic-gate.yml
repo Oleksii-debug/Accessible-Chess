@@ -12,12 +12,14 @@ on:
       - 'tests/test_keybindings.py'
       - 'tests/test_ui_keymap_adapter.py'
       - 'tests/test_ui_keymap_editor.py'
+      - 'tests/test_ui_keymap_service.py'
       - 'tests/test_history.py'
       - 'tests/test_notation.py'
       - 'acs/webapp.py'
       - 'acs/keybindings.py'
       - 'acs/ui_keymap_adapter.py'
       - 'acs/ui_keymap_editor.py'
+      - 'acs/ui_keymap_service.py'
       - 'acs/history.py'
       - 'acs/notation.py'
       - '.github/workflows/ui-semantic-gate.yml'
@@ -56,6 +58,7 @@ jobs:
           cp acs/keybindings.py work/acs/keybindings.py
           cp acs/ui_keymap_adapter.py work/acs/ui_keymap_adapter.py
           cp acs/ui_keymap_editor.py work/acs/ui_keymap_editor.py
+          cp acs/ui_keymap_service.py work/acs/ui_keymap_service.py
           cp acs/history.py work/acs/history.py
           cp acs/notation.py work/acs/notation.py
           cp web/index.html work/web/index.html
@@ -66,6 +69,7 @@ jobs:
           cp tests/test_keybindings.py work/tests/test_keybindings.py
           cp tests/test_ui_keymap_adapter.py work/tests/test_ui_keymap_adapter.py
           cp tests/test_ui_keymap_editor.py work/tests/test_ui_keymap_editor.py
+          cp tests/test_ui_keymap_service.py work/tests/test_ui_keymap_service.py
           cp tests/test_history.py work/tests/test_history.py
           cp tests/test_notation.py work/tests/test_notation.py
 
@@ -90,4 +94,4 @@ jobs:
 
       - name: Shared command, history, notation and UI keymap contracts
         working-directory: work
-        run: python -m pytest -q tests/test_keybindings.py tests/test_ui_keymap_adapter.py tests/test_ui_keymap_editor.py tests/test_history.py tests/test_notation.py
+        run: python -m pytest -q tests/test_keybindings.py tests/test_ui_keymap_adapter.py tests/test_ui_keymap_editor.py tests/test_ui_keymap_service.py tests/test_history.py tests/test_notation.py
