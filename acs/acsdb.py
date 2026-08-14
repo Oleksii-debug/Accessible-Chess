@@ -1,0 +1,233 @@
+from __future__ import annotations
+
+"""SQLite data core for Accessible Chess Stage 2.
+
+The database layer is presentation-neutral. It stores source provenance,
+loss-preserving PGN text, import quality status and exact-position references.
+It never modifies source files in place.
+"""
+
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
+import hashlib
+import json
+from pathlib import Path
+import sqlite3
+from typing import Iterable
+
+from .gametree import PgnGame, parse_games, serialize_game
+
+IMPORT_STATUSES = {"full", "partial", "damaged", "warning"}
+
+
+@dataclass(slots=True)
+class ImportReport:
+    source_id: int
+    game_ids: list[int] = field(default_factory=list)
+    full: int = 0
+    partial: int = 0
+    damaged: int = 0
+    warning: int = 0
+
+    @property
+    def total(self) -> int:
+        return self.full + self.partial + self.damaged + self.warning
+
+
+class AcsDatabase:
+    def __init__(self, path: str | Path = ":memory:") -> None:
+        self.path = str(path)
+        self.conn = sqlite3.connect(self.path)
+        self.conn.row_factory = sqlite3.Row
+        self.conn.execute("PRAGMA foreign_keys = ON")
+        self._create_schema()
+
+    def close(self) -> None:
+        self.conn.close()
+
+    def __enter__(self) -> "AcsDatabase":
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        self.close()
+
+    def _create_schema(self) -> None:
+        self.conn.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS sources (
+                id INTEGER PRIMARY KEY,
+                source_name TEXT NOT NULL,
+                source_format TEXT NOT NULL,
+                sha256 TEXT,
+                imported_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS games (
+                id INTEGER PRIMARY KEY,
+                source_id INTEGER NOT NULL REFERENCES sources(id) ON DELETE CASCADE,
+                source_index INTEGER NOT NULL,
+                import_status TEXT NOT NULL CHECK(import_status IN ('full','partial','damaged','warning')),
+                warnings_json TEXT NOT NULL DEFAULT '[]',
+                event TEXT,
+                site TEXT,
+                game_date TEXT,
+                round TEXT,
+                white TEXT,
+                black TEXT,
+                result TEXT,
+                eco TEXT,
+                opening TEXT,
+                start_fen TEXT,
+                pgn_text TEXT NOT NULL,
+                UNIQUE(source_id, source_index)
+            );
+
+            CREATE TABLE IF NOT EXISTS positions (
+                game_id INTEGER NOT NULL REFERENCES games(id) ON DELETE CASCADE,
+                ply INTEGER NOT NULL,
+                fen TEXT NOT NULL,
+                position_key TEXT NOT NULL,
+                PRIMARY KEY(game_id, ply)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_games_white ON games(white);
+            CREATE INDEX IF NOT EXISTS idx_games_black ON games(black);
+            CREATE INDEX IF NOT EXISTS idx_games_event ON games(event);
+            CREATE INDEX IF NOT EXISTS idx_games_eco ON games(eco);
+            CREATE INDEX IF NOT EXISTS idx_games_result ON games(result);
+            CREATE INDEX IF NOT EXISTS idx_games_source ON games(source_id);
+            CREATE INDEX IF NOT EXISTS idx_positions_key ON positions(position_key);
+            """
+        )
+        self.conn.commit()
+
+    @staticmethod
+    def _now() -> str:
+        return datetime.now(timezone.utc).isoformat()
+
+    @staticmethod
+    def position_key(fen: str) -> str:
+        parts = (fen or "").strip().split()
+        if len(parts) < 4:
+            raise ValueError("FEN must contain at least placement, turn, castling and en-passant fields")
+        return " ".join(parts[:4])
+
+    def add_source(self, source_name: str, source_format: str, sha256: str | None = None) -> int:
+        cur = self.conn.execute(
+            "INSERT INTO sources(source_name, source_format, sha256, imported_at) VALUES(?,?,?,?)",
+            (source_name, source_format.lower(), sha256, self._now()),
+        )
+        self.conn.commit()
+        return int(cur.lastrowid)
+
+    def store_game(
+        self,
+        game: PgnGame,
+        source_id: int,
+        *,
+        raw_pgn: str | None = None,
+        import_status: str | None = None,
+    ) -> int:
+        status = import_status or ("warning" if game.warnings else "full")
+        if status not in IMPORT_STATUSES:
+            raise ValueError(f"Unsupported import status: {status}")
+        tags = game.tags
+        pgn_text = raw_pgn if raw_pgn is not None else serialize_game(game)
+        cur = self.conn.execute(
+            """
+            INSERT INTO games(
+                source_id, source_index, import_status, warnings_json,
+                event, site, game_date, round, white, black, result, eco,
+                opening, start_fen, pgn_text
+            ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                source_id, game.source_index, status, json.dumps(game.warnings, ensure_ascii=False),
+                tags.get("Event"), tags.get("Site"), tags.get("Date"), tags.get("Round"),
+                tags.get("White"), tags.get("Black"), game.result, tags.get("ECO"),
+                tags.get("Opening"), tags.get("FEN") if tags.get("SetUp") == "1" else None,
+                pgn_text,
+            ),
+        )
+        self.conn.commit()
+        return int(cur.lastrowid)
+
+    def import_pgn_text(self, text: str, source_name: str = "memory.pgn") -> ImportReport:
+        digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
+        source_id = self.add_source(source_name, "pgn", digest)
+        report = ImportReport(source_id=source_id)
+        games = parse_games(text)
+        if not games:
+            report.damaged = 1
+            return report
+        for game in games:
+            status = "warning" if game.warnings else "full"
+            game_id = self.store_game(game, source_id, import_status=status)
+            report.game_ids.append(game_id)
+            setattr(report, status, getattr(report, status) + 1)
+        return report
+
+    def get_game(self, game_id: int) -> dict | None:
+        row = self.conn.execute("SELECT * FROM games WHERE id=?", (game_id,)).fetchone()
+        return dict(row) if row else None
+
+    def get_source(self, source_id: int) -> dict | None:
+        row = self.conn.execute("SELECT * FROM sources WHERE id=?", (source_id,)).fetchone()
+        return dict(row) if row else None
+
+    def search_games(
+        self,
+        *,
+        player: str | None = None,
+        event: str | None = None,
+        eco: str | None = None,
+        result: str | None = None,
+        source_id: int | None = None,
+        limit: int = 100,
+    ) -> list[dict]:
+        clauses: list[str] = []
+        params: list[object] = []
+        if player:
+            clauses.append("(white LIKE ? COLLATE NOCASE OR black LIKE ? COLLATE NOCASE)")
+            needle = f"%{player}%"; params.extend([needle, needle])
+        if event:
+            clauses.append("event LIKE ? COLLATE NOCASE"); params.append(f"%{event}%")
+        if eco:
+            clauses.append("eco LIKE ? COLLATE NOCASE"); params.append(f"{eco}%")
+        if result:
+            clauses.append("result=?"); params.append(result)
+        if source_id is not None:
+            clauses.append("source_id=?"); params.append(source_id)
+        sql = "SELECT * FROM games"
+        if clauses:
+            sql += " WHERE " + " AND ".join(clauses)
+        sql += " ORDER BY id LIMIT ?"; params.append(max(1, min(int(limit), 1000)))
+        return [dict(row) for row in self.conn.execute(sql, params).fetchall()]
+
+    def record_position(self, game_id: int, ply: int, fen: str) -> None:
+        key = self.position_key(fen)
+        self.conn.execute(
+            "INSERT OR REPLACE INTO positions(game_id, ply, fen, position_key) VALUES(?,?,?,?)",
+            (game_id, int(ply), fen, key),
+        )
+        self.conn.commit()
+
+    def record_positions(self, game_id: int, positions: Iterable[tuple[int, str]]) -> None:
+        rows = [(game_id, int(ply), fen, self.position_key(fen)) for ply, fen in positions]
+        self.conn.executemany(
+            "INSERT OR REPLACE INTO positions(game_id, ply, fen, position_key) VALUES(?,?,?,?)",
+            rows,
+        )
+        self.conn.commit()
+
+    def search_position(self, fen: str, limit: int = 100) -> list[dict]:
+        key = self.position_key(fen)
+        rows = self.conn.execute(
+            """
+            SELECT g.*, p.ply AS matched_ply, p.fen AS matched_fen
+            FROM positions p JOIN games g ON g.id=p.game_id
+            WHERE p.position_key=? ORDER BY g.id, p.ply LIMIT ?
+            """,
+            (key, max(1, min(int(limit), 1000))),
+        ).fetchall()
+        return [dict(row) for row in rows]
