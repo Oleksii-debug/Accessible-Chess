@@ -27,6 +27,38 @@ class AccessibleWebUiTests(unittest.TestCase):
         self.assertTrue(r['ok'])
         self.assertIn('e 4', r['lastMove'])
 
+    def test_locked_single_letter_commands(self):
+        self.assertTrue(self.api.make_move('d')['ok'])
+        self.assertEqual(self.api.board.turn, 'b')
+        self.assertTrue(self.api.make_move('w')['ok'])
+        self.assertEqual(self.api.board.turn, 'w')
+        self.assertTrue(self.api.make_move('e')['ok'])
+        self.assertTrue(self.api.engine_enabled)
+        self.assertTrue(self.api.make_move('x')['ok'])
+        self.assertFalse(self.api.get_state()['positionComplete'])
+        self.assertTrue(self.api.make_move('s')['ok'])
+        self.assertTrue(self.api.get_state()['positionComplete'])
+
+    def test_text_position_editor_round_trip(self):
+        text = 'W: K g1 Q d1 R a1 R f1 B c4 N f3 P e4 B: K g8 Q d8 N f6'
+        r = self.api.set_position_text(text, 'b')
+        self.assertTrue(r['ok'])
+        self.assertEqual(self.api.board.turn, 'b')
+        self.assertEqual(self.api.square_label('g1'), 'g 1, білий король')
+        self.assertEqual(self.api.square_label('g8'), 'g 8, чорний король')
+        self.assertTrue(r['positionComplete'])
+
+    def test_clear_board_is_safe_in_accessible_state(self):
+        r = self.api.clear_board()
+        self.assertTrue(r['ok'])
+        self.assertEqual(len(r['board']), 64)
+        self.assertEqual(r['whitePieces'], 'фігур немає')
+        self.assertIn('Редактор позиції', r['gameStatus'])
+        self.assertFalse(r['positionComplete'])
+        illegal = self.api.make_move('e4')
+        self.assertFalse(illegal['ok'])
+        self.assertIn('королю', illegal['announcement'])
+
     def test_semantic_html_contract(self):
         html = (Path(__file__).resolve().parents[1] / 'web' / 'index.html').read_text(encoding='utf-8')
         for heading in [
@@ -36,6 +68,9 @@ class AccessibleWebUiTests(unittest.TestCase):
         ]:
             self.assertIn(f'>{heading}<', html)
         self.assertIn('id="move-input" type="text"', html)
+        self.assertIn('id="position-input"', html)
+        self.assertIn('id="position-load" type="button"', html)
+        self.assertIn('id="empty-board" type="button"', html)
         self.assertIn('id="board-launcher" type="button"', html)
         self.assertIn('role="application" aria-label="Шахова дошка"', html)
         self.assertIn('role="status" aria-live="polite"', html)
