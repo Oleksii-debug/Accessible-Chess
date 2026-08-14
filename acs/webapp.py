@@ -220,7 +220,7 @@ class AccessibleChessAPI:
         commands = {
             "u": self.undo, "y": self.redo,
             "l": lambda: self._ok(("Останній хід: " if self.lang == "uk" else "Last move: ") + self.get_state()["lastMove"]),
-            "w": lambda: self.set_turn("w"), "d": lambda: self.set_turn("b"), "x": self.clear_board,
+            "w": lambda: self.set_turn("w"), "b": lambda: self.set_turn("b"), "c": self.clear_board,
             "s": self.new_game, "e": self.toggle_engine,
         }
         if len(text) == 1 and text in commands:
