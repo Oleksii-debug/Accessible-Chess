@@ -1,6 +1,9 @@
+import os
+import sqlite3
+import tempfile
 import unittest
 
-from acs.acsdb import AcsDatabase
+from acs.acsdb import ACSDB_SCHEMA_VERSION, AcsDatabase
 
 
 class AcsDatabaseTests(unittest.TestCase):
@@ -9,6 +12,47 @@ class AcsDatabaseTests(unittest.TestCase):
 
     def tearDown(self):
         self.db.close()
+
+    def test_schema_version_is_explicit(self):
+        self.assertEqual(self.db.schema_version, ACSDB_SCHEMA_VERSION)
+        self.assertGreaterEqual(ACSDB_SCHEMA_VERSION, 1)
+
+    def test_schema_version_persists_across_reopen(self):
+        fd, path = tempfile.mkstemp(suffix='.acsdb')
+        os.close(fd)
+        try:
+            with AcsDatabase(path) as first:
+                self.assertEqual(first.schema_version, ACSDB_SCHEMA_VERSION)
+                first.add_source('persist.pgn', 'pgn')
+            with AcsDatabase(path) as reopened:
+                self.assertEqual(reopened.schema_version, ACSDB_SCHEMA_VERSION)
+                self.assertEqual(len(reopened.search_games()), 0)
+                source_count = reopened.conn.execute('SELECT COUNT(*) FROM sources').fetchone()[0]
+                self.assertEqual(source_count, 1)
+        finally:
+            os.unlink(path)
+
+    def test_newer_schema_is_rejected_without_rewriting_database(self):
+        fd, path = tempfile.mkstemp(suffix='.acsdb')
+        os.close(fd)
+        future_version = ACSDB_SCHEMA_VERSION + 1
+        try:
+            conn = sqlite3.connect(path)
+            conn.execute(f'PRAGMA user_version = {future_version}')
+            conn.execute('CREATE TABLE future_marker(value TEXT NOT NULL)')
+            conn.execute("INSERT INTO future_marker(value) VALUES('keep-me')")
+            conn.commit()
+            conn.close()
+
+            with self.assertRaisesRegex(RuntimeError, 'newer than supported'):
+                AcsDatabase(path)
+
+            verify = sqlite3.connect(path)
+            self.assertEqual(verify.execute('PRAGMA user_version').fetchone()[0], future_version)
+            self.assertEqual(verify.execute('SELECT value FROM future_marker').fetchone()[0], 'keep-me')
+            verify.close()
+        finally:
+            os.unlink(path)
 
     def test_import_report_and_provenance_are_explicit(self):
         text = '''[Event "Match"]
