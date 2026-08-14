@@ -119,6 +119,32 @@ class Note(BookBlock):
 
 
 SemanticBlock = Heading | Paragraph | Position | Diagram | Game | VariationTree | Exercise | Note
+_BLOCK_TYPES = {
+    "Heading": Heading,
+    "Paragraph": Paragraph,
+    "Position": Position,
+    "Diagram": Diagram,
+    "Game": Game,
+    "VariationTree": VariationTree,
+    "Exercise": Exercise,
+    "Note": Note,
+}
+
+
+def block_from_dict(data: dict[str, Any]) -> SemanticBlock:
+    """Rebuild one semantic block, rejecting unknown kinds instead of losing data silently."""
+    if not isinstance(data, dict):
+        raise TypeError("Book block must be a mapping")
+    kind = data.get("kind")
+    cls = _BLOCK_TYPES.get(kind)
+    if cls is None:
+        raise ValueError(f"Unsupported BookDocument block kind: {kind!r}")
+    payload = {key: value for key, value in data.items() if key != "kind"}
+    allowed = set(cls.__dataclass_fields__)
+    unknown = sorted(set(payload) - allowed)
+    if unknown:
+        raise ValueError(f"Unsupported fields for {kind}: {', '.join(unknown)}")
+    return cls(**payload)
 
 
 @dataclass(slots=True)
@@ -181,3 +207,27 @@ class BookDocument:
             "warnings": list(self.warnings),
             "blocks": [block.as_dict() for block in self.blocks],
         }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "BookDocument":
+        """Loss-aware semantic round-trip entry point for future import/export adapters."""
+        if not isinstance(data, dict):
+            raise TypeError("BookDocument must be a mapping")
+        allowed = {"title", "language", "author", "source_name", "warnings", "blocks"}
+        unknown = sorted(set(data) - allowed)
+        if unknown:
+            raise ValueError(f"Unsupported BookDocument fields: {', '.join(unknown)}")
+        raw_blocks = data.get("blocks", [])
+        if not isinstance(raw_blocks, list):
+            raise TypeError("BookDocument blocks must be a list")
+        warnings = data.get("warnings", [])
+        if not isinstance(warnings, list) or not all(isinstance(item, str) for item in warnings):
+            raise TypeError("BookDocument warnings must be a list of strings")
+        return cls(
+            title=data.get("title", ""),
+            language=data.get("language"),
+            author=data.get("author"),
+            source_name=data.get("source_name"),
+            warnings=list(warnings),
+            blocks=[block_from_dict(item) for item in raw_blocks],
+        )
