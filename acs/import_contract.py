@@ -1,6 +1,12 @@
 from __future__ import annotations
 
-"""Read-only import contract for external chess database families."""
+"""Read-only import contract for external chess database families.
+
+This module deliberately does not decode proprietary ChessBase formats yet.
+It establishes the safety and reporting boundary every future decoder must
+obey: never mutate the source, preserve provenance, and report full/partial/
+damaged outcomes explicitly instead of silently dropping records.
+"""
 
 from dataclasses import dataclass, field
 from enum import Enum
@@ -77,7 +83,12 @@ def fingerprint(path: str | Path, chunk_size: int = 1024 * 1024) -> SourceFinger
                 break
             digest.update(chunk)
     stat = p.stat()
-    return SourceFingerprint(path=str(p.resolve()), size=stat.st_size, sha256=digest.hexdigest(), suffix=p.suffix.lower())
+    return SourceFingerprint(
+        path=str(p.resolve()),
+        size=stat.st_size,
+        sha256=digest.hexdigest(),
+        suffix=p.suffix.lower(),
+    )
 
 
 def verify_source_unchanged(before: SourceFingerprint, path: str | Path) -> bool:
@@ -86,8 +97,15 @@ def verify_source_unchanged(before: SourceFingerprint, path: str | Path) -> bool
 
 
 class UnsupportedChessBaseImporter:
+    """Safety placeholder until a verified decoder exists.
+
+    It recognizes ChessBase-family suffixes but intentionally refuses to claim
+    successful decoding.  This prevents future UI code from treating an
+    unimplemented or heuristic parser as full compatibility.
+    """
+
     format_name = "ChessBase family (decoder pending verification)"
-    suffixes = (".cbh", ".cbv", ".cbf", ".2cbh", ".cbone")
+    suffixes = (".cbh", ".cbv", ".cbf", ".2cbh")
 
     def inspect(self, path: Path) -> ImportReport:
         source = fingerprint(path)

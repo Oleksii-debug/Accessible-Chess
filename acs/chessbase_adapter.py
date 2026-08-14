@@ -22,6 +22,10 @@ _PRIMARY_EXTENSIONS = {
     ".cbone": "ChessBase single-file database",
 }
 
+# Classic CBH databases are multi-file families.  These names are intentionally
+# descriptive rather than decoding claims.  In particular CBG is treated as a
+# move/variation-data component, never as a standalone database that we can
+# safely import without verified format support.
 _COMPONENT_EXTENSIONS = {
     ".cbg": "game/move and variation data component",
     ".cba": "annotations/auxiliary component",
@@ -66,6 +70,7 @@ class ChessBaseSourceProbe:
 
     @property
     def safe_to_import(self) -> bool:
+        """True only when a verified decoder exists, not merely on suffix match."""
         return (
             self.recognized
             and self.is_primary_source
@@ -95,19 +100,24 @@ class ChessBaseSourceProbe:
 
 
 def _suffix(path: Path) -> str:
+    # Path.suffix returns '.2cbh' correctly for database.2cbh.
     return path.suffix.lower()
 
 
 def _case_insensitive_directory_index(directory: Path) -> dict[str, Path]:
+    """Return lowercase filename -> real path without mutating or opening files."""
     if not directory.exists() or not directory.is_dir():
         return {}
     try:
         return {entry.name.lower(): entry for entry in directory.iterdir() if entry.is_file()}
     except OSError:
+        # Permission/I/O problems are represented as unavailable companions.  A
+        # future importer may surface richer filesystem errors before decoding.
         return {}
 
 
 def _classic_cbh_components(source: Path) -> tuple[ChessBaseComponent, ...]:
+    """Discover same-stem classic CBH companion files case-insensitively."""
     directory_index = _case_insensitive_directory_index(source.parent)
     stem = source.stem
     items: list[ChessBaseComponent] = []
@@ -197,6 +207,7 @@ def probe_chessbase_source(path: str | Path) -> ChessBaseSourceProbe:
 
 
 def probe_many(paths: Iterable[str | Path]) -> list[ChessBaseSourceProbe]:
+    """Probe sources independently so one damaged/unknown record cannot hide others."""
     return [probe_chessbase_source(path) for path in paths]
 
 

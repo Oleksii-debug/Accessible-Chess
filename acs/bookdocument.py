@@ -132,6 +132,7 @@ _BLOCK_TYPES = {
 
 
 def block_from_dict(data: dict[str, Any]) -> SemanticBlock:
+    """Rebuild one semantic block, rejecting unknown kinds instead of losing data silently."""
     if not isinstance(data, dict):
         raise TypeError("Book block must be a mapping")
     kind = data.get("kind")
@@ -178,6 +179,7 @@ class BookDocument:
         return [block for block in self.blocks if isinstance(block, Exercise)]
 
     def validate_structure(self) -> list[str]:
+        """Return non-destructive semantic warnings suitable for import reports."""
         warnings = list(self.warnings)
         previous_level = 0
         seen_ids: set[str] = set()
@@ -208,6 +210,7 @@ class BookDocument:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "BookDocument":
+        """Loss-aware semantic round-trip entry point for future import/export adapters."""
         if not isinstance(data, dict):
             raise TypeError("BookDocument must be a mapping")
         allowed = {"title", "language", "author", "source_name", "warnings", "blocks"}

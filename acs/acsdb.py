@@ -61,17 +61,27 @@ class AcsDatabase:
                 sha256 TEXT,
                 imported_at TEXT NOT NULL
             );
+
             CREATE TABLE IF NOT EXISTS games (
                 id INTEGER PRIMARY KEY,
                 source_id INTEGER NOT NULL REFERENCES sources(id) ON DELETE CASCADE,
                 source_index INTEGER NOT NULL,
                 import_status TEXT NOT NULL CHECK(import_status IN ('full','partial','damaged','warning')),
                 warnings_json TEXT NOT NULL DEFAULT '[]',
-                event TEXT, site TEXT, game_date TEXT, round TEXT,
-                white TEXT, black TEXT, result TEXT, eco TEXT, opening TEXT,
-                start_fen TEXT, pgn_text TEXT NOT NULL,
+                event TEXT,
+                site TEXT,
+                game_date TEXT,
+                round TEXT,
+                white TEXT,
+                black TEXT,
+                result TEXT,
+                eco TEXT,
+                opening TEXT,
+                start_fen TEXT,
+                pgn_text TEXT NOT NULL,
                 UNIQUE(source_id, source_index)
             );
+
             CREATE TABLE IF NOT EXISTS positions (
                 game_id INTEGER NOT NULL REFERENCES games(id) ON DELETE CASCADE,
                 ply INTEGER NOT NULL,
@@ -79,6 +89,7 @@ class AcsDatabase:
                 position_key TEXT NOT NULL,
                 PRIMARY KEY(game_id, ply)
             );
+
             CREATE INDEX IF NOT EXISTS idx_sources_name ON sources(source_name);
             CREATE INDEX IF NOT EXISTS idx_sources_sha256 ON sources(sha256);
             CREATE INDEX IF NOT EXISTS idx_games_white ON games(white);
@@ -115,29 +126,69 @@ class AcsDatabase:
         with self.conn:
             return self._insert_source(source_name, source_format, sha256)
 
-    def _insert_game(self, game: PgnGame, source_id: int, *, raw_pgn: str | None = None, import_status: str | None = None) -> int:
+    def _insert_game(
+        self,
+        game: PgnGame,
+        source_id: int,
+        *,
+        raw_pgn: str | None = None,
+        import_status: str | None = None,
+    ) -> int:
         status = import_status or ("warning" if game.warnings else "full")
         if status not in IMPORT_STATUSES:
             raise ValueError(f"Unsupported import status: {status}")
         tags = game.tags
         pgn_text = raw_pgn if raw_pgn is not None else serialize_game(game)
         cur = self.conn.execute(
-            """INSERT INTO games(source_id,source_index,import_status,warnings_json,event,site,game_date,round,white,black,result,eco,opening,start_fen,pgn_text)
-            VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-            (source_id, game.source_index, status, json.dumps(game.warnings, ensure_ascii=False), tags.get("Event"), tags.get("Site"), tags.get("Date"), tags.get("Round"), tags.get("White"), tags.get("Black"), game.result, tags.get("ECO"), tags.get("Opening"), tags.get("FEN") if tags.get("SetUp") == "1" else None, pgn_text),
+            """
+            INSERT INTO games(
+                source_id, source_index, import_status, warnings_json,
+                event, site, game_date, round, white, black, result, eco,
+                opening, start_fen, pgn_text
+            ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                source_id, game.source_index, status, json.dumps(game.warnings, ensure_ascii=False),
+                tags.get("Event"), tags.get("Site"), tags.get("Date"), tags.get("Round"),
+                tags.get("White"), tags.get("Black"), game.result, tags.get("ECO"),
+                tags.get("Opening"), tags.get("FEN") if tags.get("SetUp") == "1" else None,
+                pgn_text,
+            ),
         )
         return int(cur.lastrowid)
 
-    def store_game(self, game: PgnGame, source_id: int, *, raw_pgn: str | None = None, import_status: str | None = None) -> int:
+    def store_game(
+        self,
+        game: PgnGame,
+        source_id: int,
+        *,
+        raw_pgn: str | None = None,
+        import_status: str | None = None,
+    ) -> int:
         with self.conn:
-            return self._insert_game(game, source_id, raw_pgn=raw_pgn, import_status=import_status)
+            return self._insert_game(
+                game,
+                source_id,
+                raw_pgn=raw_pgn,
+                import_status=import_status,
+            )
 
     def import_pgn_text(self, text: str, source_name: str = "memory.pgn") -> ImportReport:
+        """Import one PGN source atomically.
+
+        A source containing no parseable games is still recorded for provenance and
+        reported as damaged. For a non-empty batch, source creation and all game rows
+        are one SQLite transaction: a failure while storing any game rolls back the
+        source and every earlier game from that same import, preventing half-imported
+        collections from becoming searchable.
+        """
         digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
         games = parse_games(text)
+
         if not games:
             source_id = self.add_source(source_name, "pgn", digest)
             return ImportReport(source_id=source_id, damaged=1)
+
         report = ImportReport(source_id=-1)
         with self.conn:
             source_id = self._insert_source(source_name, "pgn", digest)
@@ -157,46 +208,73 @@ class AcsDatabase:
         row = self.conn.execute("SELECT * FROM sources WHERE id=?", (source_id,)).fetchone()
         return dict(row) if row else None
 
-    def search_games(self, *, player: str | None = None, event: str | None = None, eco: str | None = None, opening: str | None = None, result: str | None = None, source_id: int | None = None, source_name: str | None = None, limit: int = 100) -> list[dict]:
+    def search_games(
+        self,
+        *,
+        player: str | None = None,
+        event: str | None = None,
+        eco: str | None = None,
+        opening: str | None = None,
+        result: str | None = None,
+        source_id: int | None = None,
+        source_name: str | None = None,
+        limit: int = 100,
+    ) -> list[dict]:
         clauses: list[str] = []
         params: list[object] = []
         if player:
             clauses.append("(g.white LIKE ? COLLATE NOCASE OR g.black LIKE ? COLLATE NOCASE)")
-            needle = f"%{player}%"; params.extend([needle, needle])
+            needle = f"%{player}%"
+            params.extend([needle, needle])
         if event:
-            clauses.append("g.event LIKE ? COLLATE NOCASE"); params.append(f"%{event}%")
+            clauses.append("g.event LIKE ? COLLATE NOCASE")
+            params.append(f"%{event}%")
         if eco:
-            clauses.append("g.eco LIKE ? COLLATE NOCASE"); params.append(f"{eco}%")
+            clauses.append("g.eco LIKE ? COLLATE NOCASE")
+            params.append(f"{eco}%")
         if opening:
-            clauses.append("g.opening LIKE ? COLLATE NOCASE"); params.append(f"%{opening}%")
+            clauses.append("g.opening LIKE ? COLLATE NOCASE")
+            params.append(f"%{opening}%")
         if result:
-            clauses.append("g.result=?"); params.append(result)
+            clauses.append("g.result=?")
+            params.append(result)
         if source_id is not None:
-            clauses.append("g.source_id=?"); params.append(source_id)
+            clauses.append("g.source_id=?")
+            params.append(source_id)
         if source_name:
-            clauses.append("s.source_name LIKE ? COLLATE NOCASE"); params.append(f"%{source_name}%")
+            clauses.append("s.source_name LIKE ? COLLATE NOCASE")
+            params.append(f"%{source_name}%")
         sql = "SELECT g.* FROM games g JOIN sources s ON s.id=g.source_id"
         if clauses:
             sql += " WHERE " + " AND ".join(clauses)
-        sql += " ORDER BY g.id LIMIT ?"; params.append(max(1, min(int(limit), 1000)))
+        sql += " ORDER BY g.id LIMIT ?"
+        params.append(max(1, min(int(limit), 1000)))
         return [dict(row) for row in self.conn.execute(sql, params).fetchall()]
 
     def record_position(self, game_id: int, ply: int, fen: str) -> None:
         key = self.position_key(fen)
         with self.conn:
-            self.conn.execute("INSERT OR REPLACE INTO positions(game_id, ply, fen, position_key) VALUES(?,?,?,?)", (game_id, int(ply), fen, key))
+            self.conn.execute(
+                "INSERT OR REPLACE INTO positions(game_id, ply, fen, position_key) VALUES(?,?,?,?)",
+                (game_id, int(ply), fen, key),
+            )
 
     def record_positions(self, game_id: int, positions: Iterable[tuple[int, str]]) -> None:
         rows = [(game_id, int(ply), fen, self.position_key(fen)) for ply, fen in positions]
         with self.conn:
-            self.conn.executemany("INSERT OR REPLACE INTO positions(game_id, ply, fen, position_key) VALUES(?,?,?,?)", rows)
+            self.conn.executemany(
+                "INSERT OR REPLACE INTO positions(game_id, ply, fen, position_key) VALUES(?,?,?,?)",
+                rows,
+            )
 
     def search_position(self, fen: str, limit: int = 100) -> list[dict]:
         key = self.position_key(fen)
         rows = self.conn.execute(
-            """SELECT g.*, p.ply AS matched_ply, p.fen AS matched_fen
+            """
+            SELECT g.*, p.ply AS matched_ply, p.fen AS matched_fen
             FROM positions p JOIN games g ON g.id=p.game_id
-            WHERE p.position_key=? ORDER BY g.id, p.ply LIMIT ?""",
+            WHERE p.position_key=? ORDER BY g.id, p.ply LIMIT ?
+            """,
             (key, max(1, min(int(limit), 1000))),
         ).fetchall()
         return [dict(row) for row in rows]
