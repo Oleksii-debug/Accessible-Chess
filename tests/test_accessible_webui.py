@@ -88,6 +88,10 @@ class AccessibleWebUiTests(unittest.TestCase):
         self.assertIn('role="grid" aria-label="64 поля шахової дошки" aria-rowcount="8" aria-colcount="8"', html)
         self.assertIn("node.setAttribute('aria-rowindex'", html)
         self.assertIn("node.setAttribute('aria-colindex'", html)
+        self.assertIn('b — хід чорних, c — очистити дошку', html)
+        self.assertIn('b — Black to move, c — clear board', html)
+        self.assertNotIn('d — хід чорних, x — очистити дошку', html)
+        self.assertNotIn('d — Black to move, x — clear board', html)
 
     def test_semantic_document_has_runtime_ua_en_language_contract(self):
         html = (Path(__file__).resolve().parents[1] / 'web' / 'index.html').read_text(encoding='utf-8')
