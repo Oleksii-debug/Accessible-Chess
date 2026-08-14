@@ -68,7 +68,7 @@ class AccessibleWebUiTests(unittest.TestCase):
         ]:
             self.assertIn(f'>{heading}<', html)
         self.assertIn('class="skip-link" href="#main-content"', html)
-        self.assertIn('id="main-content" tabindex="-1"', html)
+        self.assertIn('<main id="main-content">', html)
         self.assertIn('id="move-input" type="text"', html)
         self.assertIn('id="position-input"', html)
         self.assertIn('id="position-load" type="button"', html)
