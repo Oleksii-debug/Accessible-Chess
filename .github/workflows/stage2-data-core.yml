@@ -1,0 +1,23 @@
+name: Stage 2 Data Core
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - dev/stage2-data-core
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Compile GameTree
+        run: python -m compileall -q acs/gametree.py tests/test_gametree.py
+      - name: Run Stage 2 structural PGN tests
+        run: python -m unittest tests.test_gametree -v
