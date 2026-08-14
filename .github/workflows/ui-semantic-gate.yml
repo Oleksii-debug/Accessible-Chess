@@ -1,0 +1,32 @@
+name: UI Semantic Gate
+
+on:
+  push:
+    branches:
+      - dev/stage1-nvda-webview-0.4.0
+    paths:
+      - 'web/**'
+      - 'tests/test_accessible_webui.py'
+      - 'tests/test_history_review_ui.py'
+      - 'tests/test_nvda_p0_contract.py'
+      - 'acs/webapp.py'
+      - '.github/workflows/ui-semantic-gate.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  semantic:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Compile and run UI semantic tests
+        run: |
+          python -m compileall -q acs tests
+          python -m unittest tests.test_accessible_webui tests.test_nvda_p0_contract -v
+          python -m pytest -q tests/test_history_review_ui.py
