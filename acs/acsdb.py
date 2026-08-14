@@ -18,6 +18,7 @@ from typing import Iterable
 from .gametree import PgnGame, parse_games, serialize_game
 
 IMPORT_STATUSES = {"full", "partial", "damaged", "warning"}
+ACSDB_SCHEMA_VERSION = 1
 
 
 @dataclass(slots=True)
@@ -40,7 +41,7 @@ class AcsDatabase:
         self.conn = sqlite3.connect(self.path)
         self.conn.row_factory = sqlite3.Row
         self.conn.execute("PRAGMA foreign_keys = ON")
-        self._create_schema()
+        self._migrate_schema()
 
     def close(self) -> None:
         self.conn.close()
@@ -51,7 +52,33 @@ class AcsDatabase:
     def __exit__(self, exc_type, exc, tb) -> None:
         self.close()
 
-    def _create_schema(self) -> None:
+    @property
+    def schema_version(self) -> int:
+        return int(self.conn.execute("PRAGMA user_version").fetchone()[0])
+
+    def _migrate_schema(self) -> None:
+        """Apply forward-only, transaction-safe ACSDB migrations.
+
+        SQLite ``user_version`` is the persisted source of truth for ACSDB schema
+        compatibility. A database created by a newer build is rejected rather than
+        guessed at or rewritten. Each migration is committed atomically.
+        """
+        current = self.schema_version
+        if current > ACSDB_SCHEMA_VERSION:
+            raise RuntimeError(
+                f"ACSDB schema {current} is newer than supported schema {ACSDB_SCHEMA_VERSION}"
+            )
+        while current < ACSDB_SCHEMA_VERSION:
+            target = current + 1
+            migration = getattr(self, f"_migrate_to_v{target}", None)
+            if migration is None:
+                raise RuntimeError(f"Missing ACSDB migration from {current} to {target}")
+            with self.conn:
+                migration()
+                self.conn.execute(f"PRAGMA user_version = {target}")
+            current = target
+
+    def _migrate_to_v1(self) -> None:
         self.conn.executescript(
             """
             CREATE TABLE IF NOT EXISTS sources (
@@ -102,7 +129,6 @@ class AcsDatabase:
             CREATE INDEX IF NOT EXISTS idx_positions_key ON positions(position_key);
             """
         )
-        self.conn.commit()
 
     @staticmethod
     def _now() -> str:
