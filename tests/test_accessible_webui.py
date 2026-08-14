@@ -79,6 +79,18 @@ class AccessibleWebUiTests(unittest.TestCase):
         self.assertIn("node.setAttribute('aria-rowindex'", html)
         self.assertIn("node.setAttribute('aria-colindex'", html)
 
+    def test_board_has_direct_coordinate_navigation_contract(self):
+        html = (Path(__file__).resolve().parents[1] / 'web' / 'index.html').read_text(encoding='utf-8')
+        self.assertIn("/^[a-hA-H]$/.test(key)", html)
+        self.assertIn("jumpBoardFocus(key.toLowerCase()+sq[1])", html)
+        self.assertIn("/^[1-8]$/.test(key)", html)
+        self.assertIn("jumpBoardFocus(sq[0]+key)", html)
+        self.assertIn("key==='Home'", html)
+        self.assertIn("jumpBoardFocus('a1')", html)
+        self.assertIn("key==='End'", html)
+        self.assertIn("jumpBoardFocus('h8')", html)
+        self.assertIn('Літери a–h — перейти на відповідну вертикаль', html)
+
     def test_live_region_contract_avoids_background_speech_spam(self):
         html = (Path(__file__).resolve().parents[1] / 'web' / 'index.html').read_text(encoding='utf-8')
         self.assertIn('role="status" aria-live="polite" aria-atomic="true" aria-relevant="text"', html)
