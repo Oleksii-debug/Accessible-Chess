@@ -10,6 +10,8 @@ on:
       - 'tests/test_analysis_service.py'
       - 'tests/test_keybindings.py'
       - 'tests/test_notation.py'
+      - 'tests/test_engine_play_service.py'
+      - 'tests/test_architecture.py'
       - 'build_snapshot_exact/**'
       - 'build_parts10k/**'
       - '.github/workflows/engine-core-ci.yml'
@@ -70,14 +72,22 @@ jobs:
           cp acs/analysis_service.py work/acs/analysis_service.py
           cp acs/keybindings.py work/acs/keybindings.py
           cp acs/notation.py work/acs/notation.py
+          cp acs/engine_ports.py work/acs/engine_ports.py
+          cp acs/engine_play_service.py work/acs/engine_play_service.py
           cp tests/test_history.py work/tests/test_history.py
           cp tests/test_analysis_service.py work/tests/test_analysis_service.py
           cp tests/test_keybindings.py work/tests/test_keybindings.py
           cp tests/test_notation.py work/tests/test_notation.py
+          cp tests/test_engine_play_service.py work/tests/test_engine_play_service.py
+          cp tests/test_architecture.py work/tests/test_architecture.py
 
       - name: Compile core modules
         working-directory: work
         run: python -m compileall -q acs tests
+
+      - name: Architecture dependency gate
+        working-directory: work
+        run: python -m unittest discover -s tests -p 'test_architecture.py' -v
 
       - name: Keybinding registry tests
         working-directory: work
@@ -90,6 +100,10 @@ jobs:
       - name: Shared notation formatter tests
         working-directory: work
         run: python -m unittest discover -s tests -p 'test_notation.py' -v
+
+      - name: Engine provider/play policy tests
+        working-directory: work
+        run: python -m unittest discover -s tests -p 'test_engine_play_service.py' -v
 
       - name: Stale-safe analysis service tests
         working-directory: work
