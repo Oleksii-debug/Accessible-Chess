@@ -1,4 +1,5 @@
 name: Windows Stage 1 RC3 Build
+# Retry after all four verified source groups were uploaded.
 
 on:
   workflow_dispatch:
