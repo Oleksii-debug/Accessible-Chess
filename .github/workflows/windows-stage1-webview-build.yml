@@ -1,0 +1,121 @@
+name: Windows Stage 1 0.4 WebView2 Build
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - dev/stage1-nvda-webview-0.4.0
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout overlay branch
+        uses: actions/checkout@v4
+
+      - name: Reconstruct verified 0.3.3 functional baseline
+        shell: pwsh
+        run: |
+          $ordered = @(
+            'build_snapshot_exact\group00.b64',
+            'build_snapshot_exact\group01.b64',
+            'build_parts10k\part04.b64',
+            'build_parts10k\part05.b64',
+            'build_parts10k\part06.b64',
+            'build_parts10k\part07.b64'
+          )
+          foreach ($f in $ordered) { if (-not (Test-Path $f)) { throw "Missing source chunk: $f" } }
+          $b64 = ($ordered | ForEach-Object { Get-Content -LiteralPath $_ -Raw }) -join ''
+          $b64 = $b64 -replace '[^A-Za-z0-9+/=]',''
+          if ($b64.Length -ne 77128) { throw "Unexpected Base64 length: $($b64.Length)" }
+          [IO.File]::WriteAllBytes('stage1_source.zip', [Convert]::FromBase64String($b64))
+          if ((Get-Item 'stage1_source.zip').Length -ne 57844) { throw 'Source ZIP size mismatch' }
+          $hash = (Get-FileHash 'stage1_source.zip' -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($hash -ne 'cb0a89778b436cdf44c42e3207ef9638160a992b372156bc4d901391717a1e6a') { throw "Source ZIP hash mismatch: $hash" }
+          Expand-Archive 'stage1_source.zip' 'work' -Force
+
+      - name: Apply 0.4 accessibility overlay
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path 'work\acs' | Out-Null
+          New-Item -ItemType Directory -Force -Path 'work\web' | Out-Null
+          New-Item -ItemType Directory -Force -Path 'work\tests' | Out-Null
+          Copy-Item 'acs\webapp.py' 'work\acs\webapp.py' -Force
+          Copy-Item 'web\index.html' 'work\web\index.html' -Force
+          Copy-Item 'tests\test_accessible_webui.py' 'work\tests\test_accessible_webui.py' -Force
+          Copy-Item 'run_accessible_chess.py' 'work\run_accessible_chess.py' -Force
+          Copy-Item 'ACCESSIBILITY_0.4_ARCHITECTURE.md' 'work\ACCESSIBILITY_0.4_ARCHITECTURE.md' -Force
+          Copy-Item 'VERSION.txt' 'work\VERSION.txt' -Force
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Test semantic UI and chess core
+        shell: pwsh
+        working-directory: work
+        run: |
+          python -m pip install --upgrade pip
+          python -m compileall -q acs tests run_accessible_chess.py
+          python -m unittest discover -s tests -v
+          python run_accessible_chess.py --diagnostic
+
+      - name: Install Windows WebView dependencies
+        shell: pwsh
+        working-directory: work
+        run: |
+          python -m pip install "pywebview==6.2.1" pyinstaller
+          python -c "import webview; print('PYWEBVIEW IMPORT PASS')"
+
+      - name: Build autonomous Windows EXE
+        shell: pwsh
+        working-directory: work
+        run: |
+          python -m PyInstaller --noconfirm --clean --onefile --windowed `
+            --name AccessibleChess `
+            --add-data "web;web" `
+            --collect-all webview `
+            --hidden-import webview.platforms.edgechromium `
+            run_accessible_chess.py
+          if (-not (Test-Path 'dist\AccessibleChess.exe')) { throw 'AccessibleChess.exe missing' }
+          $p = Start-Process '.\dist\AccessibleChess.exe' -ArgumentList '--diagnostic' -PassThru -Wait
+          if ($p.ExitCode -ne 0) { throw "EXE diagnostic failed: $($p.ExitCode)" }
+
+      - name: WebView2 startup smoke
+        shell: pwsh
+        working-directory: work
+        run: |
+          $p = Start-Process '.\dist\AccessibleChess.exe' -PassThru
+          Start-Sleep -Seconds 10
+          if ($p.HasExited) { throw "GUI exited during WebView2 startup smoke with code $($p.ExitCode)" }
+          Stop-Process -Id $p.Id -Force
+          'WEBVIEW2 STARTUP SMOKE PASS'
+
+      - name: Assemble internal NVDA test artifact
+        shell: pwsh
+        working-directory: work
+        run: |
+          New-Item -ItemType Directory -Force -Path 'package\WINDOWS_EXE' | Out-Null
+          Copy-Item 'dist\AccessibleChess.exe' 'package\WINDOWS_EXE\AccessibleChess.exe' -Force
+          Copy-Item 'ACCESSIBILITY_0.4_ARCHITECTURE.md' 'package' -Force
+          Copy-Item 'VERSION.txt' 'package' -Force
+          @"
+          ACCESSIBLE CHESS 0.4 DEVELOPMENT BUILD
+          WebView2 semantic document architecture: BUILD PASS
+          Automated semantic/core tests: PASS
+          Built EXE diagnostic: PASS
+          WebView2 process startup smoke: PASS
+          Real NVDA browse/focus verification: REQUIRED BEFORE USER RELEASE
+          "@ | Set-Content -Encoding UTF8 'package\WINDOWS_BUILD_REPORT.txt'
+          Compress-Archive 'package\*' 'Accessible-Chess-0.4-dev-WebView2.zip' -Force
+
+      - name: Upload internal build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Accessible-Chess-0.4-dev-WebView2
+          path: work/Accessible-Chess-0.4-dev-WebView2.zip
+          retention-days: 14

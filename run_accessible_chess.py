@@ -1,11 +1,19 @@
+import json
 import sys
 
 if '--diagnostic' in sys.argv:
+    # Diagnostic is deliberately presentation-toolkit independent. The old
+    # Tkinter smoke test is not an accessibility gate and also requires a
+    # desktop session. Windows CI separately verifies that the WebView2 build
+    # can start; real NVDA acceptance remains a human test.
     from acs.selftest import run as core_run
-    from acs.gui_smoketest import run as gui_run
-    from acs.stage1_smoketest import run as stage1_run
-    core_run(); gui_run(); stage1_run()
-    print('ACCESSIBLE CHESS EXE DIAGNOSTIC PASS')
+    from acs.webapp import AccessibleChessAPI
+
+    core_run()
+    result = AccessibleChessAPI().diagnostic()
+    if not result.get('ok') or result.get('boardCells') != 64 or not result.get('semanticDocumentPresent'):
+        raise SystemExit('ACCESSIBLE WEB UI DIAGNOSTIC FAILED: ' + json.dumps(result, ensure_ascii=False))
+    print('ACCESSIBLE CHESS 0.4 WEBVIEW2 DIAGNOSTIC PASS')
 else:
-    from acs.main import main
+    from acs.webapp import main
     main()
