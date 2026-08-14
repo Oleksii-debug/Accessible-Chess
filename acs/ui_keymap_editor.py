@@ -52,11 +52,27 @@ class EditorRow:
     default_value: str
     value_kind: str
     changed: bool
+    status: str = "ok"
+    status_text: str = ""
 
 
 @dataclass(frozen=True)
 class EditorResult:
     ok: bool
+    message: str
+    conflicts: tuple[Conflict, ...] = ()
+
+
+@dataclass(frozen=True)
+class EditorPreview:
+    """Live, non-mutating validation result for a value being captured in UI."""
+
+    action_id: str
+    value: str
+    value_kind: str
+    can_save: bool
+    requires_confirmation: bool
+    status: str
     message: str
     conflicts: tuple[Conflict, ...] = ()
 
@@ -93,6 +109,7 @@ class KeymapEditorModel:
             if term and term not in haystack:
                 continue
             context_labels = _CONTEXT_LABELS_EN if self.lang == "en" else _CONTEXT_LABELS_UK
+            preview = self.preview(str(item["id"]), current_text)
             rows.append(
                 EditorRow(
                     action_id=str(item["id"]),
@@ -103,9 +120,76 @@ class KeymapEditorModel:
                     default_value=default_text,
                     value_kind="shortcut" if item["binding"] is not None else "alias",
                     changed=current_text != default_text,
+                    status=preview.status,
+                    status_text=preview.message,
                 )
             )
         return tuple(rows)
+
+    def preview(self, action_id: str, value: str) -> EditorPreview:
+        """Validate a captured shortcut/alias without mutating the registry.
+
+        The UI calls this while the user edits a value so an exact collision is
+        announced before Save and reserved Windows/WebView2/NVDA combinations
+        are exposed as warnings requiring explicit confirmation.  This keeps
+        conflict semantics out of JavaScript and prevents silent overwrite.
+        """
+
+        definition = self.registry.definition(action_id)
+        is_shortcut = definition.default_binding is not None or self.registry.get_binding(action_id) is not None
+        try:
+            conflicts = (
+                self.registry.binding_conflicts(action_id, value)
+                if is_shortcut
+                else self.registry.alias_conflicts(action_id, value)
+            )
+        except ValueError as exc:
+            message = str(exc)
+            return EditorPreview(
+                action_id=action_id,
+                value=value,
+                value_kind="shortcut" if is_shortcut else "alias",
+                can_save=False,
+                requires_confirmation=False,
+                status="error",
+                message=message,
+            )
+
+        errors = tuple(item for item in conflicts if item.severity == "error")
+        warnings = tuple(item for item in conflicts if item.severity != "error")
+        if errors:
+            return EditorPreview(
+                action_id=action_id,
+                value=value,
+                value_kind="shortcut" if is_shortcut else "alias",
+                can_save=False,
+                requires_confirmation=False,
+                status="error",
+                message=self._conflict_message(errors),
+                conflicts=conflicts,
+            )
+        if warnings:
+            prefix = "Warning: " if self.lang == "en" else "Попередження: "
+            return EditorPreview(
+                action_id=action_id,
+                value=value,
+                value_kind="shortcut" if is_shortcut else "alias",
+                can_save=True,
+                requires_confirmation=True,
+                status="warning",
+                message=prefix + "; ".join(item.message for item in warnings),
+                conflicts=conflicts,
+            )
+        return EditorPreview(
+            action_id=action_id,
+            value=value,
+            value_kind="shortcut" if is_shortcut else "alias",
+            can_save=True,
+            requires_confirmation=False,
+            status="ok",
+            message="No conflicts." if self.lang == "en" else "Конфліктів немає.",
+            conflicts=conflicts,
+        )
 
     def save(self, action_id: str, value: str, *, allow_warnings: bool = False) -> EditorResult:
         definition = self.registry.definition(action_id)
