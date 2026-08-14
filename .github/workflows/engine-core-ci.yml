@@ -13,6 +13,7 @@ on:
       - 'tests/test_engine_play_service.py'
       - 'tests/test_clock_service.py'
       - 'tests/test_game_lifecycle.py'
+      - 'tests/test_board_service.py'
       - 'tests/test_architecture.py'
       - 'build_snapshot_exact/**'
       - 'build_parts10k/**'
@@ -78,6 +79,7 @@ jobs:
           cp acs/engine_play_service.py work/acs/engine_play_service.py
           cp acs/clock_service.py work/acs/clock_service.py
           cp acs/game_lifecycle.py work/acs/game_lifecycle.py
+          cp acs/board_service.py work/acs/board_service.py
           cp tests/test_history.py work/tests/test_history.py
           cp tests/test_analysis_service.py work/tests/test_analysis_service.py
           cp tests/test_keybindings.py work/tests/test_keybindings.py
@@ -85,6 +87,7 @@ jobs:
           cp tests/test_engine_play_service.py work/tests/test_engine_play_service.py
           cp tests/test_clock_service.py work/tests/test_clock_service.py
           cp tests/test_game_lifecycle.py work/tests/test_game_lifecycle.py
+          cp tests/test_board_service.py work/tests/test_board_service.py
           cp tests/test_architecture.py work/tests/test_architecture.py
 
       - name: Compile core modules
@@ -118,6 +121,10 @@ jobs:
       - name: Game lifecycle draw/resign/takeback/result tests
         working-directory: work
         run: python -m unittest discover -s tests -p 'test_game_lifecycle.py' -v
+
+      - name: Accessible board command service tests
+        working-directory: work
+        run: python -m unittest discover -s tests -p 'test_board_service.py' -v
 
       - name: Stale-safe analysis service tests
         working-directory: work
