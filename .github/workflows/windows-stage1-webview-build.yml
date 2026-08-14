@@ -1,10 +1,9 @@
 name: Windows Stage 1 0.4 WebView2 Build
 
+# Deliberately manual: normal UI development uses cheap semantic/unit tests.
+# Run this expensive Windows build only at meaningful integration checkpoints.
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - dev/stage1-nvda-webview-0.4.0
 
 permissions:
   contents: read
@@ -47,8 +46,8 @@ jobs:
           Copy-Item 'acs\webapp.py' 'work\acs\webapp.py' -Force
           Copy-Item 'acs\analysis_service.py' 'work\acs\analysis_service.py' -Force
           Copy-Item 'web\index.html' 'work\web\index.html' -Force
-          Copy-Item 'tests\test_accessible_webui.py' 'work\tests\test_accessible_webui.py' -Force
-          Copy-Item 'tests\test_analysis_service.py' 'work\tests\test_analysis_service.py' -Force
+          Copy-Item 'web\keybindings.json' 'work\web\keybindings.json' -Force
+          Copy-Item 'tests\*.py' 'work\tests\' -Force
           Copy-Item 'run_accessible_chess.py' 'work\run_accessible_chess.py' -Force
           Copy-Item 'ACCESSIBILITY_0.4_ARCHITECTURE.md' 'work\ACCESSIBILITY_0.4_ARCHITECTURE.md' -Force
           Copy-Item 'VERSION.txt' 'work\VERSION.txt' -Force
@@ -109,6 +108,7 @@ jobs:
           ACCESSIBLE CHESS 0.4 DEVELOPMENT BUILD
           WebView2 semantic document architecture: BUILD PASS
           Automated semantic/core tests: PASS
+          Remappable keyboard/command UI contract: PASS
           Stale-safe MultiPV analysis coordinator tests: PASS
           Built EXE diagnostic: PASS
           WebView2 process startup smoke: PASS
