@@ -30,6 +30,29 @@ class ActionRegistryTests(unittest.TestCase):
         self.assertEqual(normalize_binding("alt+1"), "Alt+1")
         self.assertEqual(normalize_binding("esc"), "Escape")
 
+    def test_nvda_pseudo_modifier_normalizes_for_conflict_diagnostics(self):
+        self.assertEqual(normalize_binding("nvda+f1"), "NVDA+F1")
+        self.assertEqual(normalize_binding("NVDA+Space"), "NVDA+Space")
+        self.assertEqual(normalize_binding("ctrl+nvda+f2"), "NVDA+Ctrl+F2")
+
+    def test_nvda_binding_warns_instead_of_failing_parser(self):
+        registry = ActionRegistry()
+        conflicts = registry.binding_conflicts("history.go_to_move", "NVDA+F1")
+        self.assertTrue(any(c.kind == "nvda_likely" and c.severity == "warning" for c in conflicts))
+        with self.assertRaisesRegex(ValueError, "likely to conflict with NVDA"):
+            registry.set_binding("history.go_to_move", "NVDA+F1", allow_warnings=False)
+        self.assertEqual(registry.get_binding("history.go_to_move"), "Ctrl+G")
+
+    def test_nvda_binding_can_be_stored_after_warning_is_accepted(self):
+        registry = ActionRegistry()
+        conflicts = registry.set_binding("history.go_to_move", "NVDA+F1")
+        self.assertEqual(registry.get_binding("history.go_to_move"), "NVDA+F1")
+        self.assertTrue(any(c.kind == "nvda_likely" for c in conflicts))
+        self.assertEqual(
+            registry.resolve_binding(BindingContext.HISTORY, "nvda+f1").action_id,
+            "history.go_to_move",
+        )
+
     def test_context_specific_duplicates_are_allowed(self):
         definitions = [
             ActionDefinition("board.x", BindingContext.BOARD, "Board x", "X"),
