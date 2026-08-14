@@ -98,6 +98,45 @@ def test_preview_bridge_reports_clean_alias_without_persisting(tmp_path):
     assert not path.exists()
 
 
+def test_live_binding_resolution_tracks_remap_immediately(tmp_path):
+    service = KeymapService(tmp_path / "keymap.json")
+
+    initial = service.resolve_binding("history", "Ctrl+G")
+    assert initial == {
+        "actionId": "history.go_to_move",
+        "context": "history",
+        "binding": "Ctrl+G",
+        "alias": None,
+    }
+
+    assert service.save("history.go_to_move", "Alt+J")["ok"] is True
+    assert service.resolve_binding("history", "Ctrl+G") is None
+    assert service.resolve_binding("history", "alt+j")["actionId"] == "history.go_to_move"
+
+
+def test_live_alias_resolution_tracks_remap_without_touching_chess_syntax(tmp_path):
+    service = KeymapService(tmp_path / "keymap.json")
+
+    assert service.resolve_alias("move_entry", "u")["actionId"] == "move.undo"
+    assert service.save("move.undo", "z")["ok"] is True
+    assert service.resolve_alias("move_entry", "u") is None
+    resolved = service.resolve_alias("move_entry", "Z")
+    assert resolved["actionId"] == "move.undo"
+    assert resolved["alias"] == "z"
+    assert service.resolve_alias("position_editor", "W:") is None
+    assert service.resolve_alias("position_editor", "B:") is None
+
+
+def test_live_binding_resolution_preserves_global_context_fallback(tmp_path):
+    service = KeymapService(tmp_path / "keymap.json")
+
+    resolved = service.resolve_binding("board", "Ctrl+Z")
+
+    assert resolved["actionId"] == "edit.undo"
+    assert resolved["context"] == "global"
+    assert resolved["binding"] == "Ctrl+Z"
+
+
 def test_reset_context_preserves_other_contexts(tmp_path):
     path = tmp_path / "keymap.json"
     service = KeymapService(path)
