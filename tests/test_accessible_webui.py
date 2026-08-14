@@ -28,16 +28,18 @@ class AccessibleWebUiTests(unittest.TestCase):
         self.assertIn('e 4', r['lastMove'])
 
     def test_locked_single_letter_commands(self):
-        self.assertTrue(self.api.make_move('d')['ok'])
+        self.assertTrue(self.api.make_move('b')['ok'])
         self.assertEqual(self.api.board.turn, 'b')
         self.assertTrue(self.api.make_move('w')['ok'])
         self.assertEqual(self.api.board.turn, 'w')
         self.assertTrue(self.api.make_move('e')['ok'])
         self.assertTrue(self.api.engine_enabled)
-        self.assertTrue(self.api.make_move('x')['ok'])
+        self.assertTrue(self.api.make_move('c')['ok'])
         self.assertFalse(self.api.get_state()['positionComplete'])
         self.assertTrue(self.api.make_move('s')['ok'])
         self.assertTrue(self.api.get_state()['positionComplete'])
+        self.assertFalse(self.api.make_move('d')['ok'])
+        self.assertFalse(self.api.make_move('x')['ok'])
 
     def test_text_position_editor_round_trip(self):
         text = 'W: K g1 Q d1 R a1 R f1 B c4 N f3 P e4 B: K g8 Q d8 N f6'
