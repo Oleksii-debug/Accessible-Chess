@@ -9,7 +9,8 @@ on:
       - 'tests/test_history.py'
       - 'tests/test_analysis_service.py'
       - 'tests/test_keybindings.py'
-      - 'source_snapshot_parts/**'
+      - 'build_snapshot_exact/**'
+      - 'build_parts10k/**'
       - '.github/workflows/engine-core-ci.yml'
   workflow_dispatch:
 
@@ -33,35 +34,62 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Restore direct chess core from committed source snapshot
+      - name: Reconstruct verified Stage 1 functional baseline
         shell: bash
         run: |
           set -euo pipefail
-          if [ ! -f acs/chesscore.py ]; then
-            cat source_snapshot_parts/part*.b64 | base64 --decode > "$RUNNER_TEMP/stage1-source.zip"
-            mkdir -p "$RUNNER_TEMP/stage1-source"
-            unzip -q "$RUNNER_TEMP/stage1-source.zip" -d "$RUNNER_TEMP/stage1-source"
-            CHESSCORE="$(find "$RUNNER_TEMP/stage1-source" -type f -path '*/acs/chesscore.py' -print -quit)"
-            if [ -z "$CHESSCORE" ]; then
-              echo 'Committed source snapshot does not contain acs/chesscore.py' >&2
-              exit 1
-            fi
-            cp "$CHESSCORE" acs/chesscore.py
-          fi
+          ordered=(
+            build_snapshot_exact/group00.b64
+            build_snapshot_exact/group01.b64
+            build_parts10k/part04.b64
+            build_parts10k/part05.b64
+            build_parts10k/part06.b64
+            build_parts10k/part07.b64
+          )
+          for file in "${ordered[@]}"; do
+            test -f "$file" || { echo "Missing source chunk: $file" >&2; exit 1; }
+          done
+          cat "${ordered[@]}" | tr -cd 'A-Za-z0-9+/=\n' | tr -d '\n' > "$RUNNER_TEMP/stage1.b64"
+          length="$(wc -c < "$RUNNER_TEMP/stage1.b64")"
+          test "$length" -eq 77128 || { echo "Unexpected Base64 length: $length" >&2; exit 1; }
+          base64 --decode "$RUNNER_TEMP/stage1.b64" > "$RUNNER_TEMP/stage1_source.zip"
+          size="$(wc -c < "$RUNNER_TEMP/stage1_source.zip")"
+          test "$size" -eq 57844 || { echo "Unexpected source ZIP size: $size" >&2; exit 1; }
+          hash="$(sha256sum "$RUNNER_TEMP/stage1_source.zip" | awk '{print $1}')"
+          test "$hash" = 'cb0a89778b436cdf44c42e3207ef9638160a992b372156bc4d901391717a1e6a' || { echo "Source ZIP hash mismatch: $hash" >&2; exit 1; }
+          rm -rf work
+          mkdir work
+          unzip -q "$RUNNER_TEMP/stage1_source.zip" -d work
+
+      - name: Overlay current engine/core modules and tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp acs/history.py work/acs/history.py
+          cp acs/analysis_service.py work/acs/analysis_service.py
+          cp acs/keybindings.py work/acs/keybindings.py
+          cp tests/test_history.py work/tests/test_history.py
+          cp tests/test_analysis_service.py work/tests/test_analysis_service.py
+          cp tests/test_keybindings.py work/tests/test_keybindings.py
 
       - name: Compile core modules
-        run: python -m compileall -q acs
+        working-directory: work
+        run: python -m compileall -q acs tests
 
       - name: Keybinding registry tests
-        run: python -m unittest -v tests.test_keybindings
+        working-directory: work
+        run: python -m unittest discover -s tests -p 'test_keybindings.py' -v
 
       - name: Non-destructive history tests
-        run: python -m unittest -v tests.test_history
+        working-directory: work
+        run: python -m unittest discover -s tests -p 'test_history.py' -v
 
       - name: Stale-safe analysis service tests
-        run: python -m unittest -v tests.test_analysis_service
+        working-directory: work
+        run: python -m unittest discover -s tests -p 'test_analysis_service.py' -v
 
       - name: Chess legal-move and special-rule diagnostic
+        working-directory: work
         shell: bash
         run: |
           python - <<'PY'
@@ -85,4 +113,5 @@ jobs:
           PY
 
       - name: Stage 1 core selftest
+        working-directory: work
         run: python -m acs.selftest
