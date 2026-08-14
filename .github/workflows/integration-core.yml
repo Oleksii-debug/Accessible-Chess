@@ -65,6 +65,7 @@ jobs:
           cp tests/test_analysis_service.py work/tests/test_analysis_service.py
           cp tests/test_nvda_p0_contract.py work/tests/test_nvda_p0_contract.py
           cp tests/test_data_integration.py work/tests/test_data_integration.py
+          cp tests/test_chessbase_adapter.py work/tests/test_chessbase_adapter.py
           cp run_accessible_chess.py work/run_accessible_chess.py
       - name: Compile integrated Python modules
         working-directory: work
@@ -72,6 +73,9 @@ jobs:
       - name: Data and history integration gate
         working-directory: work
         run: python -m unittest -v tests.test_data_integration
+      - name: ChessBase read-only adapter gate
+        working-directory: work
+        run: python -m unittest -v tests.test_chessbase_adapter
       - name: Analysis service gate
         working-directory: work
         run: python -m unittest -v tests.test_analysis_service
