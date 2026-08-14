@@ -51,6 +51,27 @@ class KeymapService:
             "conflicts": [self._conflict(item) for item in preview.conflicts],
         }
 
+    def resolve_binding(self, context: str, binding: str) -> dict[str, Any] | None:
+        """Resolve a live keyboard chord to its current action for WebView dispatch.
+
+        The browser must not cache default shortcuts or reproduce context fallback
+        rules. Every keydown can ask this bridge for the action that is active in
+        the user's current persisted keymap, so remapping takes effect immediately.
+        """
+
+        resolution = self.editor.registry.resolve_binding(BindingContext(context), binding)
+        return self._resolution(resolution)
+
+    def resolve_alias(self, context: str, alias: str) -> dict[str, Any] | None:
+        """Resolve a typed command alias through the current central registry.
+
+        This keeps move-entry commands remappable without conflating command
+        aliases with literal chess syntax such as W:/B: in the position editor.
+        """
+
+        resolution = self.editor.registry.resolve_alias(BindingContext(context), alias)
+        return self._resolution(resolution)
+
     def save(self, action_id: str, value: str, *, allow_warnings: bool = False) -> dict[str, Any]:
         result = self.editor.save(action_id, value, allow_warnings=allow_warnings)
         if result.ok:
@@ -88,6 +109,17 @@ class KeymapService:
     def _persist(self) -> None:
         self.editor.registry.save(self.path)
         self.recovery_message = None
+
+    @staticmethod
+    def _resolution(item) -> dict[str, Any] | None:
+        if item is None:
+            return None
+        return {
+            "actionId": item.action_id,
+            "context": item.context.value,
+            "binding": item.binding,
+            "alias": item.alias,
+        }
 
     @staticmethod
     def _conflict(item) -> dict[str, Any]:
