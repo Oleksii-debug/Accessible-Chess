@@ -32,6 +32,36 @@ class BookDocumentTests(unittest.TestCase):
         self.assertEqual(book.headings()[0].text, "Розділ 1")
         self.assertEqual(book.as_dict()["blocks"][2]["fen"], FEN)
 
+    def test_semantic_dict_round_trip_preserves_block_types_and_source_anchors(self):
+        original = BookDocument(
+            "Round trip",
+            language="uk",
+            author="Author",
+            source_name="source.docx",
+            warnings=["source warning"],
+            blocks=[
+                Heading(text="Розділ", level=1, block_id="h1", source_anchor="p12"),
+                Diagram(fen=FEN, caption="Diagram", alt_text="White king e2; black king h1", source_anchor="p13"),
+                VariationTree(root_fen=FEN, pgn="1. Kf3 (1. Kd3) *", title="Line", source_anchor="p14"),
+                Exercise(fen=FEN, prompt="Find a move", answer_text="Kf3", difficulty="beginner", source_anchor="p15"),
+            ],
+        )
+        restored = BookDocument.from_dict(original.as_dict())
+        self.assertEqual(restored.as_dict(), original.as_dict())
+        self.assertIsInstance(restored.blocks[0], Heading)
+        self.assertIsInstance(restored.blocks[1], Diagram)
+        self.assertIsInstance(restored.blocks[2], VariationTree)
+        self.assertIsInstance(restored.blocks[3], Exercise)
+        self.assertEqual(restored.blocks[1].source_anchor, "p13")
+
+    def test_unknown_semantic_data_is_rejected_not_silently_dropped(self):
+        with self.assertRaisesRegex(ValueError, "Unsupported BookDocument fields"):
+            BookDocument.from_dict({"title": "Book", "mystery": 1})
+        with self.assertRaisesRegex(ValueError, "Unsupported BookDocument block kind"):
+            BookDocument.from_dict({"title": "Book", "blocks": [{"kind": "Video", "url": "x"}]})
+        with self.assertRaisesRegex(ValueError, "Unsupported fields for Paragraph"):
+            BookDocument.from_dict({"title": "Book", "blocks": [{"kind": "Paragraph", "text": "ok", "lost": "no"}]})
+
     def test_diagram_requires_accessibility_warning_when_alt_missing(self):
         book = BookDocument("Book")
         book.append(Diagram(fen=FEN, caption="Diagram"))
