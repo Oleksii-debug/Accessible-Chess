@@ -67,13 +67,27 @@ class AccessibleWebUiTests(unittest.TestCase):
             'Дошка', 'Дії'
         ]:
             self.assertIn(f'>{heading}<', html)
+        self.assertIn('class="skip-link" href="#main-content"', html)
+        self.assertIn('id="main-content" tabindex="-1"', html)
         self.assertIn('id="move-input" type="text"', html)
         self.assertIn('id="position-input"', html)
         self.assertIn('id="position-load" type="button"', html)
         self.assertIn('id="empty-board" type="button"', html)
         self.assertIn('id="board-launcher" type="button"', html)
-        self.assertIn('role="application" aria-label="Шахова дошка"', html)
-        self.assertIn('role="status" aria-live="polite"', html)
+        self.assertIn('role="application" aria-label="Шахова дошка" aria-describedby="board-help"', html)
+        self.assertIn('role="grid" aria-label="64 поля шахової дошки" aria-rowcount="8" aria-colcount="8"', html)
+        self.assertIn("node.setAttribute('aria-rowindex'", html)
+        self.assertIn("node.setAttribute('aria-colindex'", html)
+
+    def test_live_region_contract_avoids_background_speech_spam(self):
+        html = (Path(__file__).resolve().parents[1] / 'web' / 'index.html').read_text(encoding='utf-8')
+        self.assertIn('role="status" aria-live="polite" aria-atomic="true" aria-relevant="text"', html)
+        self.assertIn('id="game-info" class="block" aria-live="off"', html)
+        self.assertIn('id="moves" class="block" aria-live="off"', html)
+        self.assertIn('id="engine-status" class="block" aria-live="off"', html)
+        self.assertIn('message===lastAnnouncement&&now-lastAnnouncementAt<500', html)
+        self.assertIn("live.setAttribute('aria-busy','true')", html)
+        self.assertIn("live.setAttribute('aria-busy','false')", html)
 
 
 if __name__ == '__main__':
