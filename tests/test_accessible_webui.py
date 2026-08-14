@@ -59,12 +59,20 @@ class AccessibleWebUiTests(unittest.TestCase):
         self.assertFalse(illegal['ok'])
         self.assertIn('королю', illegal['announcement'])
 
+    def test_api_language_switch_changes_state_and_square_speech(self):
+        r = self.api.set_language('en')
+        self.assertTrue(r['ok'])
+        self.assertEqual(r['lang'], 'en')
+        self.assertEqual(self.api.square_label('e2'), 'e 2, white pawn')
+        self.assertEqual(r['gameStatus'], 'White to move')
+        self.assertEqual(r['announcement'], 'Language changed.')
+
     def test_semantic_html_contract(self):
         html = (Path(__file__).resolve().parents[1] / 'web' / 'index.html').read_text(encoding='utf-8')
         for heading in [
             'Інформація про гру', 'Список ходів', 'Білі фігури', 'Чорні фігури',
             'Стан гри / позиції', 'Останній хід', 'Введення ходу', 'Аналіз Stockfish',
-            'Дошка', 'Дії'
+            'Дошка', 'Дії', 'Налаштування'
         ]:
             self.assertIn(f'>{heading}<', html)
         self.assertIn('class="skip-link" href="#main-content"', html)
@@ -78,6 +86,20 @@ class AccessibleWebUiTests(unittest.TestCase):
         self.assertIn('role="grid" aria-label="64 поля шахової дошки" aria-rowcount="8" aria-colcount="8"', html)
         self.assertIn("node.setAttribute('aria-rowindex'", html)
         self.assertIn("node.setAttribute('aria-colindex'", html)
+
+    def test_semantic_document_has_runtime_ua_en_language_contract(self):
+        html = (Path(__file__).resolve().parents[1] / 'web' / 'index.html').read_text(encoding='utf-8')
+        self.assertIn('id="language-select"', html)
+        self.assertIn("el('language-select').addEventListener('change'", html)
+        self.assertIn("apiAction('set_language',e.target.value)", html)
+        self.assertIn("function applyUiLanguage(lang)", html)
+        self.assertIn("'Game information'", html)
+        self.assertIn("'Move list'", html)
+        self.assertIn("'Enter board'", html)
+        self.assertIn("'NVDA help'", html)
+        self.assertIn("document.documentElement.lang=lang==='en'?'en':'uk'", html)
+        self.assertIn("el('board-application').setAttribute('aria-label',t.boardLabel)", html)
+        self.assertIn("el('board-grid').setAttribute('aria-label',t.gridLabel)", html)
 
     def test_board_has_direct_coordinate_navigation_contract(self):
         html = (Path(__file__).resolve().parents[1] / 'web' / 'index.html').read_text(encoding='utf-8')
