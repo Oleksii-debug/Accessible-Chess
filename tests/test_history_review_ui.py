@@ -19,13 +19,13 @@ def test_review_navigation_is_non_destructive_and_reversible():
     assert previous["reviewCursor"] == 3
     assert api.sans == end_sans
     assert api.board.fen() != end_fen
-    assert "Nc6" not in previous["moves"]
+    assert "N c 6" not in previous["moves"]
     forward = api.review_next()
     assert forward["ok"]
     assert forward["reviewCursor"] == 4
     assert api.board.fen() == end_fen
     assert api.sans == end_sans
-    assert "Nc6" in forward["moves"]
+    assert "N c 6" in forward["moves"]
 
 
 def test_direct_history_jump_supports_locked_forms():
@@ -76,10 +76,11 @@ def test_history_shortcuts_come_from_central_keymap_not_hardcoded_handler():
     root = Path(__file__).resolve().parents[1]
     html = (root / "web" / "index.html").read_text(encoding="utf-8")
     keymap = (root / "web" / "keybindings.json").read_text(encoding="utf-8")
-    assert '"id":"history.previous"' in keymap.replace(" ", "").replace("\n", "")
-    assert '"binding":"Shift+A"' in keymap.replace(" ", "").replace("\n", "")
-    assert '"id":"history.next"' in keymap.replace(" ", "").replace("\n", "")
-    assert '"binding":"Shift+D"' in keymap.replace(" ", "").replace("\n", "")
-    assert '"id":"history.goto"' in keymap.replace(" ", "").replace("\n", "")
-    assert '"binding":"Ctrl+G"' in keymap.replace(" ", "").replace("\n", "")
+    compact = keymap.replace(" ", "").replace("\n", "")
+    assert '"id":"history.previous"' in compact
+    assert '"binding":"Shift+A"' in compact
+    assert '"id":"history.next"' in compact
+    assert '"binding":"Shift+D"' in compact
+    assert '"id":"history.goto"' in compact
+    assert '"binding":"Ctrl+G"' in compact
     assert "actionByChord(eventChord(e),'document')" in html
