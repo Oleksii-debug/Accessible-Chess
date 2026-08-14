@@ -103,6 +103,7 @@ def normalize_binding(value: str | None) -> str | None:
         "win": "Win",
         "windows": "Win",
         "meta": "Win",
+        "nvda": "NVDA",
         "escape": "Escape",
         "esc": "Escape",
         "spacebar": "Space",
@@ -125,7 +126,7 @@ def normalize_binding(value: str | None) -> str | None:
     key = None
     for token in tokens:
         canonical = aliases.get(token.casefold())
-        if canonical in {"Ctrl", "Shift", "Alt", "Win"}:
+        if canonical in {"NVDA", "Ctrl", "Shift", "Alt", "Win"}:
             if canonical not in modifiers:
                 modifiers.append(canonical)
             continue
@@ -143,7 +144,7 @@ def normalize_binding(value: str | None) -> str | None:
     if key is None:
         raise ValueError(f"binding must contain a non-modifier key: {value!r}")
 
-    order = ["Ctrl", "Alt", "Shift", "Win"]
+    order = ["NVDA", "Ctrl", "Alt", "Shift", "Win"]
     modifiers.sort(key=order.index)
     return "+".join([*modifiers, key])
 
