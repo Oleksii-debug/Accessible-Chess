@@ -17,13 +17,70 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - name: Reconstruct verified 0.3.3 functional baseline
+        run: |
+          python - <<'PY'
+          import base64, hashlib, pathlib, re, zipfile
+          ordered = [
+              'build_snapshot_exact/group00.b64',
+              'build_snapshot_exact/group01.b64',
+              'build_parts10k/part04.b64',
+              'build_parts10k/part05.b64',
+              'build_parts10k/part06.b64',
+              'build_parts10k/part07.b64',
+          ]
+          chunks = []
+          for name in ordered:
+              path = pathlib.Path(name)
+              if not path.exists():
+                  raise SystemExit(f'Missing source chunk: {name}')
+              chunks.append(path.read_text(encoding='utf-8'))
+          encoded = re.sub(r'[^A-Za-z0-9+/=]', '', ''.join(chunks))
+          if len(encoded) != 77128:
+              raise SystemExit(f'Unexpected Base64 length: {len(encoded)}')
+          payload = base64.b64decode(encoded)
+          if len(payload) != 57844:
+              raise SystemExit(f'Source ZIP size mismatch: {len(payload)}')
+          digest = hashlib.sha256(payload).hexdigest()
+          expected = 'cb0a89778b436cdf44c42e3207ef9638160a992b372156bc4d901391717a1e6a'
+          if digest != expected:
+              raise SystemExit(f'Source ZIP hash mismatch: {digest}')
+          pathlib.Path('stage1_source.zip').write_bytes(payload)
+          with zipfile.ZipFile('stage1_source.zip') as archive:
+              archive.extractall('work')
+          PY
+      - name: Apply integrated overlays
+        run: |
+          mkdir -p work/acs work/web work/tests
+          cp acs/webapp.py work/acs/webapp.py
+          cp acs/analysis_service.py work/acs/analysis_service.py
+          cp acs/history.py work/acs/history.py
+          cp acs/gametree.py work/acs/gametree.py
+          cp acs/acsdb.py work/acs/acsdb.py
+          cp acs/import_contract.py work/acs/import_contract.py
+          cp acs/bookdocument.py work/acs/bookdocument.py
+          cp acs/chessbase_adapter.py work/acs/chessbase_adapter.py
+          cp web/index.html work/web/index.html
+          cp tests/test_accessible_webui.py work/tests/test_accessible_webui.py
+          cp tests/test_analysis_service.py work/tests/test_analysis_service.py
+          cp tests/test_nvda_p0_contract.py work/tests/test_nvda_p0_contract.py
+          cp tests/test_data_integration.py work/tests/test_data_integration.py
+          cp run_accessible_chess.py work/run_accessible_chess.py
       - name: Compile integrated Python modules
-        run: python -m compileall -q acs tests
+        working-directory: work
+        run: python -m compileall -q acs tests run_accessible_chess.py
       - name: Data and history integration gate
+        working-directory: work
         run: python -m unittest -v tests.test_data_integration
       - name: Analysis service gate
+        working-directory: work
         run: python -m unittest -v tests.test_analysis_service
       - name: Accessible Web UI gate
+        working-directory: work
         run: python -m unittest -v tests.test_accessible_webui
       - name: NVDA P0 semantic contract gate
+        working-directory: work
         run: python -m unittest -v tests.test_nvda_p0_contract
+      - name: Baseline diagnostic
+        working-directory: work
+        run: python run_accessible_chess.py --diagnostic
