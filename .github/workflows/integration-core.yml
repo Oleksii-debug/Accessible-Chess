@@ -1,0 +1,23 @@
+name: Accessible Chess Integration Core
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - integration/accessible-chess-next
+
+permissions:
+  contents: read
+
+jobs:
+  source-integration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Compile integrated Python modules
+        run: python -m compileall -q acs tests
+      - name: Run integrated source tests
+        run: python -m unittest discover -s tests -v
