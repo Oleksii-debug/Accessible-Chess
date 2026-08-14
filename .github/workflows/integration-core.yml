@@ -61,6 +61,7 @@ jobs:
             cp "acs/$file" "work/acs/$file"
           done
           cp web/index.html work/web/index.html
+          cp web/keybindings.json work/web/keybindings.json
           for file in \
             test_accessible_webui.py test_analysis_service.py test_nvda_p0_contract.py \
             test_data_integration.py test_chessbase_adapter.py test_import_registry.py \
