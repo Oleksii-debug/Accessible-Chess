@@ -14,8 +14,8 @@ from typing import Any
 
 REDACTED = "[REDACTED]"
 
-# Keys are normalized before comparison so token/access_token/access-token and
-# case variants follow one policy.  Keep this conservative: false positives in
+# Keys are separator-insensitive so token/access_token/access-token and case
+# variants follow one policy.  Keep this conservative: false positives in
 # diagnostics are preferable to leaking credentials.
 _SENSITIVE_KEYS = frozenset(
     {
@@ -27,7 +27,6 @@ _SENSITIVE_KEYS = frozenset(
         "secret",
         "clientsecret",
         "apikey",
-        "api_key",
         "token",
         "accesstoken",
         "refreshtoken",
@@ -51,7 +50,7 @@ _ASSIGNMENT_RE = re.compile(
 
 
 def _normalize_key(value: Any) -> str:
-    return re.sub(r"[^a-z0-9_]", "", str(value).casefold())
+    return re.sub(r"[^a-z0-9]", "", str(value).casefold())
 
 
 def is_sensitive_key(key: Any) -> bool:
