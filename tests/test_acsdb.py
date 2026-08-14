@@ -46,12 +46,15 @@ class AcsDatabaseTests(unittest.TestCase):
 [Black "Nepomniachtchi, Ian"]
 [Result "1/2-1/2"]
 [ECO "B30"]
+[Opening "Sicilian Defense"]
 
 1. e4 c5 1/2-1/2
 '''
         self.db.import_pgn_text(text, 'players.pgn')
         self.assertEqual(len(self.db.search_games(player='carlsen')), 1)
         self.assertEqual(len(self.db.search_games(event='candidates', eco='B3')), 1)
+        self.assertEqual(len(self.db.search_games(opening='sicilian')), 1)
+        self.assertEqual(len(self.db.search_games(source_name='PLAYERS')), 1)
         self.assertEqual(len(self.db.search_games(result='1-0')), 0)
 
     def test_exact_position_reference_ignores_move_counters_only(self):
@@ -71,6 +74,7 @@ class AcsDatabaseTests(unittest.TestCase):
         self.assertEqual(report.total, 1)
         self.assertEqual(report.damaged, 1)
         self.assertEqual(report.game_ids, [])
+        self.assertEqual(self.db.get_source(report.source_id)['source_name'], 'empty.pgn')
 
     def test_invalid_status_is_rejected(self):
         from acs.gametree import parse_games
@@ -78,6 +82,48 @@ class AcsDatabaseTests(unittest.TestCase):
         source_id = self.db.add_source('x.pgn', 'pgn')
         with self.assertRaises(ValueError):
             self.db.store_game(game, source_id, import_status='magic')
+
+    def test_multi_game_import_is_atomic_on_storage_failure(self):
+        text = '''[Event "First"]
+[Result "*"]
+
+1. e4 *
+
+[Event "Second"]
+[Result "*"]
+
+1. d4 *
+'''
+        self.db.conn.execute(
+            '''
+            CREATE TRIGGER fail_second_game
+            BEFORE INSERT ON games
+            WHEN NEW.source_index = 1
+            BEGIN
+                SELECT RAISE(ABORT, 'synthetic second-game failure');
+            END;
+            '''
+        )
+        with self.assertRaises(Exception):
+            self.db.import_pgn_text(text, 'atomic.pgn')
+
+        source_count = self.db.conn.execute(
+            "SELECT COUNT(*) FROM sources WHERE source_name='atomic.pgn'"
+        ).fetchone()[0]
+        game_count = self.db.conn.execute("SELECT COUNT(*) FROM games").fetchone()[0]
+        self.assertEqual(source_count, 0)
+        self.assertEqual(game_count, 0)
+
+    def test_position_batch_is_atomic_if_one_row_is_invalid(self):
+        report = self.db.import_pgn_text('[Result "*"]\n\n1. e4 *', 'positions.pgn')
+        game_id = report.game_ids[0]
+        valid = '8/8/8/8/8/8/8/8 w - - 0 1'
+        with self.assertRaises(ValueError):
+            self.db.record_positions(game_id, [(0, valid), (1, 'not a fen')])
+        count = self.db.conn.execute(
+            'SELECT COUNT(*) FROM positions WHERE game_id=?', (game_id,)
+        ).fetchone()[0]
+        self.assertEqual(count, 0)
 
 
 if __name__ == '__main__':
