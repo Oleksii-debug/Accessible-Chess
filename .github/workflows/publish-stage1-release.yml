@@ -32,7 +32,7 @@ jobs:
           )
           foreach ($f in $ordered) { if (-not (Test-Path $f)) { throw "Missing source chunk: $f" } }
           $b64 = ($ordered | ForEach-Object { Get-Content -LiteralPath $_ -Raw }) -join ''
-          $b64 = $b64 -replace '\s',''
+          $b64 = $b64 -replace '[^A-Za-z0-9+/=]',''
           if ($b64.Length -ne 77128) { throw "Unexpected Base64 length: $($b64.Length)" }
           [IO.File]::WriteAllBytes('stage1_source.zip', [Convert]::FromBase64String($b64))
           if ((Get-Item 'stage1_source.zip').Length -ne 57844) { throw 'Source ZIP size mismatch' }
