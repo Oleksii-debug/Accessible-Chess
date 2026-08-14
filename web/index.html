@@ -13,6 +13,8 @@ main { max-width: 70rem; } h1,h2 { margin-top: 1.4rem; }
 input[type=text], textarea { min-width:18rem; font:inherit; padding:.45rem; } textarea { width:min(60rem,95%); min-height:6rem; }
 button, select { font:inherit; padding:.45rem .7rem; }
 fieldset { margin-top:1rem; padding:.8rem; }
+.skip-link { position:absolute; left:.5rem; top:-4rem; padding:.5rem .75rem; background:Canvas; color:CanvasText; border:2px solid Highlight; z-index:10; }
+.skip-link:focus { top:.5rem; }
 #board-application[hidden] { display:none; }
 #board-grid { display:grid; grid-template-columns:repeat(8,minmax(4.5rem,1fr)); max-width:52rem; gap:2px; }
 [role=gridcell] { border:1px solid GrayText; padding:.65rem .25rem; text-align:center; outline-offset:2px; }
@@ -21,18 +23,19 @@ fieldset { margin-top:1rem; padding:.8rem; }
 </style>
 </head>
 <body>
+<a class="skip-link" href="#main-content">Перейти до основного вмісту</a>
 <header>
 <h1>Accessible Chess</h1>
 <p>Версія 0.4: основний інтерфейс є семантичним документом Edge/WebView2 для NVDA. Режим огляду використовується для читання; режим фокуса — для полів і дошки.</p>
 </header>
-<div id="live" role="status" aria-live="polite" aria-atomic="true"></div>
-<main id="main-content">
-<section aria-labelledby="h-game-info"><h2 id="h-game-info">Інформація про гру</h2><div id="game-info" class="block"></div></section>
-<section aria-labelledby="h-moves"><h2 id="h-moves">Список ходів</h2><div id="moves" class="block"></div></section>
-<section aria-labelledby="h-white"><h2 id="h-white">Білі фігури</h2><div id="white-pieces" class="block"></div></section>
-<section aria-labelledby="h-black"><h2 id="h-black">Чорні фігури</h2><div id="black-pieces" class="block"></div></section>
-<section aria-labelledby="h-status"><h2 id="h-status">Стан гри / позиції</h2><div id="game-status" class="block"></div></section>
-<section aria-labelledby="h-last"><h2 id="h-last">Останній хід</h2><div id="last-move" class="block"></div></section>
+<div id="live" role="status" aria-live="polite" aria-atomic="true" aria-relevant="text"></div>
+<main id="main-content" tabindex="-1">
+<section aria-labelledby="h-game-info"><h2 id="h-game-info">Інформація про гру</h2><div id="game-info" class="block" aria-live="off"></div></section>
+<section aria-labelledby="h-moves"><h2 id="h-moves">Список ходів</h2><div id="moves" class="block" aria-live="off"></div></section>
+<section aria-labelledby="h-white"><h2 id="h-white">Білі фігури</h2><div id="white-pieces" class="block" aria-live="off"></div></section>
+<section aria-labelledby="h-black"><h2 id="h-black">Чорні фігури</h2><div id="black-pieces" class="block" aria-live="off"></div></section>
+<section aria-labelledby="h-status"><h2 id="h-status">Стан гри / позиції</h2><div id="game-status" class="block" aria-live="off"></div></section>
+<section aria-labelledby="h-last"><h2 id="h-last">Останній хід</h2><div id="last-move" class="block" aria-live="off"></div></section>
 <section aria-labelledby="h-input">
 <h2 id="h-input">Введення ходу</h2>
 <p class="sr-note">У режимі огляду NVDA: E — поле редагування, F — поле форми, B — кнопка. Enter у полі виконує хід.</p>
@@ -46,22 +49,22 @@ fieldset { margin-top:1rem; padding:.8rem; }
 <div class="row"><label for="position-turn">Хід</label><select id="position-turn"><option value="w">Білих</option><option value="b">Чорних</option></select><button id="position-load" type="button">Завантажити позицію</button><button id="empty-board" type="button">Очистити дошку</button></div>
 </fieldset>
 </section>
-<section aria-labelledby="h-engine"><h2 id="h-engine">Аналіз Stockfish</h2><div id="engine-status" class="block"></div><button id="engine-toggle" type="button">Увімкнути / вимкнути Stockfish</button></section>
+<section aria-labelledby="h-engine"><h2 id="h-engine">Аналіз Stockfish</h2><div id="engine-status" class="block" aria-live="off"></div><button id="engine-toggle" type="button">Увімкнути / вимкнути Stockfish</button></section>
 <section aria-labelledby="h-board">
 <h2 id="h-board">Дошка</h2>
 <p id="board-help" class="sr-note">Кнопка переводить фокус у режим дошки. Стрілки — поля, Enter/Пробіл — вибрати або виконати хід, Escape — повернутися в документ. Порожнє поле озвучується тільки координатою.</p>
 <button id="board-launcher" type="button" aria-describedby="board-help">Увійти на дошку</button>
-<div id="board-application" role="application" aria-label="Шахова дошка" hidden><div id="board-grid" role="grid" aria-label="64 поля шахової дошки"></div></div>
+<div id="board-application" role="application" aria-label="Шахова дошка" aria-describedby="board-help" hidden><div id="board-grid" role="grid" aria-label="64 поля шахової дошки" aria-rowcount="8" aria-colcount="8"></div></div>
 </section>
 <section aria-labelledby="h-actions"><h2 id="h-actions">Дії</h2><div class="row"><button id="new-game" type="button">Стандартна позиція</button><button id="undo" type="button">Скасувати хід</button><button id="redo" type="button">Повторити хід</button><button id="white-turn" type="button">Хід білих</button><button id="black-turn" type="button">Хід чорних</button></div></section>
-<section aria-labelledby="h-help"><h2 id="h-help" tabindex="-1">Довідка NVDA</h2><div id="help" tabindex="-1" class="block">H / Shift+H — заголовки. B / Shift+B — кнопки. E / Shift+E — поля редагування. F / Shift+F — поля форми. NVDA+Space — режим огляду/фокуса. На дошку входьте кнопкою «Увійти на дошку»; Escape повертає у документ.</div></section>
+<section aria-labelledby="h-help"><h2 id="h-help" tabindex="-1">Довідка NVDA</h2><div id="help" tabindex="-1" class="block" aria-live="off">H / Shift+H — заголовки. B / Shift+B — кнопки. E / Shift+E — поля редагування. F / Shift+F — поля форми. NVDA+Space — режим огляду/фокуса. На дошку входьте кнопкою «Увійти на дошку»; Escape повертає у документ.</div></section>
 </main>
 <script>
-let state=null; let boardIndex=56;
+let state=null; let boardIndex=56; let announceTimer=null; let lastAnnouncement=''; let lastAnnouncementAt=0;
 const el=id=>document.getElementById(id); const setText=(id,text)=>{el(id).textContent=text||''};
-function announce(text){const live=el('live');live.textContent='';setTimeout(()=>{live.textContent=text||''},15)}
+function announce(text){const message=text||'';if(!message)return;const now=Date.now();if(message===lastAnnouncement&&now-lastAnnouncementAt<500)return;lastAnnouncement=message;lastAnnouncementAt=now;if(announceTimer)clearTimeout(announceTimer);const live=el('live');live.setAttribute('aria-busy','true');live.textContent='';announceTimer=setTimeout(()=>{live.textContent=message;live.setAttribute('aria-busy','false');announceTimer=null},40)}
 function boardIndexForSquare(square){if(!square)return 56;const file=square.charCodeAt(0)-97;const rank=Number(square[1]);return(8-rank)*8+file}
-function renderBoard(){const grid=el('board-grid');grid.textContent='';state.board.forEach((cell,index)=>{const node=document.createElement('div');node.setAttribute('role','gridcell');node.setAttribute('tabindex',index===boardIndex?'0':'-1');node.setAttribute('aria-label',cell.label);node.setAttribute('aria-selected',cell.selected?'true':'false');node.dataset.square=cell.square;node.textContent=cell.label;node.addEventListener('keydown',onBoardKeyDown);node.addEventListener('click',()=>activateSquare(index));grid.appendChild(node)})}
+function renderBoard(){const grid=el('board-grid');grid.textContent='';state.board.forEach((cell,index)=>{const node=document.createElement('div');node.setAttribute('role','gridcell');node.setAttribute('tabindex',index===boardIndex?'0':'-1');node.setAttribute('aria-label',cell.label);node.setAttribute('aria-selected',cell.selected?'true':'false');node.setAttribute('aria-rowindex',String(Math.floor(index/8)+1));node.setAttribute('aria-colindex',String((index%8)+1));node.dataset.square=cell.square;node.textContent=cell.label;node.addEventListener('keydown',onBoardKeyDown);node.addEventListener('click',()=>activateSquare(index));grid.appendChild(node)})}
 function applyState(next,speak=true){state=next;document.documentElement.lang=state.lang==='en'?'en':'uk';setText('game-info',state.gameInfo);setText('moves',state.moves);setText('white-pieces',state.whitePieces);setText('black-pieces',state.blackPieces);setText('game-status',state.gameStatus);setText('last-move',state.lastMove);setText('engine-status',state.engineStatus);el('fen-input').value=state.fen||'';el('position-turn').value=(state.fen||' w ').split(' ')[1]||'w';if(state.selectedSquare)boardIndex=boardIndexForSquare(state.selectedSquare);renderBoard();if(speak&&state.announcement)announce(state.announcement)}
 async function refreshState(speak=false){if(!window.pywebview||!window.pywebview.api)return;applyState(await window.pywebview.api.get_state(),speak)}
 async function apiAction(name,...args){const result=await window.pywebview.api[name](...args);applyState(result,true);return result}
