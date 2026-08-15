@@ -18,10 +18,12 @@ from pathlib import Path
 from typing import Any
 
 from . import webapp as _legacy_webapp
+from .history import ReviewHistory
 from .keybindings import BindingContext
 from .notation import NotationError, format_san
 from .ui_keymap_service import KeymapService
 from .ui_native_menu import make_keymap_menu
+from .ui_review_adapter import ReviewPresentationAdapter, ReviewCommandResult, ReviewView
 
 
 AccessibleChessAPI = _legacy_webapp.AccessibleChessAPI
@@ -29,28 +31,17 @@ _asset_root = _legacy_webapp._asset_root
 
 
 def _shared_spoken_san(san: str, lang: str = "uk") -> str:
-    """Render SAN through the one shared notation layer used by release UI.
+    """Render SAN through the shared compact accessibility notation profile."""
 
-    ``AccessibleChessAPI`` still calls its historical module-level helper from
-    several inherited methods. Rebinding that helper here is a bounded
-    compatibility shim: it fixes the release-facing WebView without copying
-    notation rules into presentation code or forcing a big-bang rewrite of the
-    legacy module. Once the legacy API is retired this shim can disappear.
-    """
-
-    profile = "uk_literal" if lang == "uk" else "en_literal"
     try:
-        return format_san(san, profile)
+        return format_san(san, "compact_accessible")
     except NotationError:
-        # A Board-produced SAN token should normally be supported. Keep the UI
-        # readable if an unexpected future SAN extension appears, while leaving
-        # the canonical formatter as the only place that interprets notation.
         return str(san).strip().replace("0-0-0", "O-O-O").replace("0-0", "O-O")
 
 
 # The inherited API resolves ``_spoken_san`` in acs.webapp globals. Patch that
-# single compatibility seam at the composition root rather than forking every
-# inherited move/history method. No chess/domain rule is changed here.
+# single compatibility seam at the release composition root rather than forking
+# every inherited move/history method. Chess/domain rules remain in Core.
 _legacy_webapp._spoken_san = _shared_spoken_san
 
 
@@ -63,7 +54,7 @@ def default_keymap_path() -> Path:
 
 
 class KeymapAwareAccessibleChessAPI(AccessibleChessAPI):
-    """Release API that makes the central registry authoritative for commands."""
+    """Release API with central commands and non-destructive history review."""
 
     def __init__(
         self,
@@ -73,6 +64,113 @@ class KeymapAwareAccessibleChessAPI(AccessibleChessAPI):
     ) -> None:
         super().__init__(lang)
         self.keymap_service = KeymapService(keymap_path or default_keymap_path(), lang=self.lang)
+        self._rebuild_review_model()
+
+    def _rebuild_review_model(self) -> None:
+        start = self.history_fens[0] if self.history_fens else self.board.fen()
+        history = ReviewHistory(start)
+        for index, san in enumerate(self.sans):
+            if index + 1 >= len(self.history_fens):
+                break
+            history.append(
+                self.history_fens[index + 1],
+                san=san,
+                side=self.move_sides[index] if index < len(self.move_sides) else None,
+                last_move=san,
+            )
+        history.jump("end")
+        self.review_history = history
+        self.review_adapter = ReviewPresentationAdapter(history, language=self.lang)
+        self.review_cursor = self.review_adapter.current().ply
+
+    def _reset_history(self) -> None:
+        super()._reset_history()
+        self._rebuild_review_model()
+
+    def _record_position_after_move(self) -> None:
+        super()._record_position_after_move()
+        if hasattr(self, "review_history") and self.sans:
+            self.review_history.append(
+                self.board.fen(),
+                san=self.sans[-1],
+                side=self.move_sides[-1] if self.move_sides else None,
+                last_move=self.sans[-1],
+            )
+            self.review_cursor = self.review_history.current().ply
+
+    def _review_response(self, result: ReviewCommandResult) -> dict[str, Any]:
+        self.review_cursor = result.view.ply
+        self.selected_source = None
+        self.announcement = result.announcement
+        state = self.get_state()
+        state["ok"] = result.ok
+        return state
+
+    def review_previous(self) -> dict[str, Any]:
+        return self._review_response(self.review_adapter.previous())
+
+    def review_next(self) -> dict[str, Any]:
+        return self._review_response(self.review_adapter.next())
+
+    def go_to_move(self, target: str) -> dict[str, Any]:
+        return self._review_response(self.review_adapter.jump(target))
+
+    def _project_historical_state(self, state: dict[str, Any], view: ReviewView) -> dict[str, Any]:
+        """Overlay render-only history fields without touching the live Board.
+
+        The compatibility presenter receives a separate Board constructed from
+        the immutable history FEN. The release API's ``self.board`` identity,
+        live FEN and undo/redo stacks are never replaced or mutated.
+        """
+
+        projection = AccessibleChessAPI(self.lang)
+        projection.board = _legacy_webapp.Board(view.fen)
+        projection.selected_source = None
+        projection.sans = list(self.sans)
+        projection.move_sides = list(self.move_sides)
+        projection.review_cursor = view.ply
+        projection.history_fens = list(self.history_fens)
+
+        status = projection._game_status()
+        state["fen"] = view.fen
+        state["board"] = projection._board_cells()
+        state["whitePieces"] = projection._pieces_text("w")
+        state["blackPieces"] = projection._pieces_text("b")
+        state["gameStatus"] = status
+        state["gameInfo"] = f"Version: {state['version']}\n{status}"
+        state["positionComplete"] = projection._position_complete()
+        state["selectedSquare"] = None
+        state["lastMove"] = _shared_spoken_san(view.last_move, self.lang) if view.last_move else self._t("no_last")
+        state["reviewCursor"] = view.ply
+        state["reviewStatus"] = view.status.rstrip(".")
+        state["atHistoryEnd"] = view.at_end
+        return state
+
+    def get_state(self) -> dict[str, Any]:
+        state = super().get_state()
+        if hasattr(self, "review_adapter"):
+            view = self.review_adapter.current()
+            self.review_cursor = view.ply
+            if not view.at_end:
+                return self._project_historical_state(state, view)
+            state["reviewCursor"] = view.ply
+            state["reviewStatus"] = view.status.rstrip(".")
+            state["atHistoryEnd"] = True
+        return state
+
+    def undo(self) -> dict[str, Any]:
+        result = super().undo()
+        if result.get("ok"):
+            self._rebuild_review_model()
+            result = self._ok(result.get("announcement", ""))
+        return result
+
+    def redo(self) -> dict[str, Any]:
+        result = super().redo()
+        if result.get("ok"):
+            self._rebuild_review_model()
+            result = self._ok(result.get("announcement", ""))
+        return result
 
     # JSON-friendly bridge methods. WebView2 must call these rather than
     # reproducing normalization/conflict/persistence rules in JavaScript.
@@ -128,6 +226,15 @@ class KeymapAwareAccessibleChessAPI(AccessibleChessAPI):
         result = super().set_language(lang)
         if result.get("ok"):
             self.keymap_service.set_language(self.lang)
+            self.review_adapter = ReviewPresentationAdapter(self.review_history, language=self.lang)
+            result = self._ok(result.get("announcement", ""))
+        return result
+
+    def set_turn(self, color: str) -> dict[str, Any]:
+        result = super().set_turn(color)
+        if result.get("ok"):
+            self._rebuild_review_model()
+            result = self._ok(result.get("announcement", ""))
         return result
 
     def make_move(self, text: str) -> dict[str, Any]:
