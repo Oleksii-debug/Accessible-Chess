@@ -1,10 +1,10 @@
 from pathlib import Path
 import unittest
 
-from acs.webapp import AccessibleChessAPI
+from acs.webapp_keymap import KeymapAwareAccessibleChessAPI
 
 
-def _play_opening(api: AccessibleChessAPI) -> None:
+def _play_opening(api: KeymapAwareAccessibleChessAPI) -> None:
     for move in ("e4", "e5", "Nf3", "Nc6"):
         result = api.make_move(move)
         assert result["ok"], result["announcement"]
@@ -12,25 +12,43 @@ def _play_opening(api: AccessibleChessAPI) -> None:
 
 class HistoryReviewUiIntegrationTests(unittest.TestCase):
     def test_review_navigation_is_non_destructive_and_reversible(self):
-        api = AccessibleChessAPI("uk")
+        api = KeymapAwareAccessibleChessAPI("uk")
         _play_opening(api)
+        live_board = api.board
         end_fen = api.board.fen()
         end_sans = list(api.sans)
+        undo_depth = len(api.board.undo_stack)
+        redo_depth = len(api.board.redo_stack)
+
         previous = api.review_previous()
         self.assertTrue(previous["ok"])
         self.assertEqual(previous["reviewCursor"], 3)
         self.assertEqual(api.sans, end_sans)
-        self.assertNotEqual(api.board.fen(), end_fen)
+        self.assertIs(api.board, live_board)
+        self.assertEqual(api.board.fen(), end_fen)
+        self.assertEqual(len(api.board.undo_stack), undo_depth)
+        self.assertEqual(len(api.board.redo_stack), redo_depth)
+        self.assertNotEqual(previous["fen"], end_fen)
         self.assertNotIn("N c 6", previous["moves"])
+
         forward = api.review_next()
         self.assertTrue(forward["ok"])
         self.assertEqual(forward["reviewCursor"], 4)
+        self.assertIs(api.board, live_board)
         self.assertEqual(api.board.fen(), end_fen)
         self.assertEqual(api.sans, end_sans)
         self.assertIn("N c 6", forward["moves"])
 
+        undone = api.undo()
+        self.assertTrue(undone["ok"])
+        after_undo = api.board.fen()
+        redone = api.redo()
+        self.assertTrue(redone["ok"])
+        self.assertNotEqual(after_undo, api.board.fen())
+        self.assertEqual(api.board.fen(), end_fen)
+
     def test_direct_history_jump_supports_locked_forms(self):
-        api = AccessibleChessAPI("en")
+        api = KeymapAwareAccessibleChessAPI("en")
         _play_opening(api)
         self.assertEqual(api.go_to_move("start")["reviewCursor"], 0)
         white_two = api.go_to_move("2w")
@@ -42,12 +60,14 @@ class HistoryReviewUiIntegrationTests(unittest.TestCase):
         self.assertEqual(api.go_to_move("end")["reviewCursor"], 4)
 
     def test_invalid_jump_preserves_current_review_state(self):
-        api = AccessibleChessAPI("uk")
+        api = KeymapAwareAccessibleChessAPI("uk")
         _play_opening(api)
+        live_board = api.board
         before_fen, before_cursor = api.board.fen(), api.review_cursor
         invalid = api.go_to_move("99")
         self.assertFalse(invalid["ok"])
         self.assertEqual(api.review_cursor, before_cursor)
+        self.assertIs(api.board, live_board)
         self.assertEqual(api.board.fen(), before_fen)
 
     def test_history_ui_is_semantic_but_does_not_break_locked_h2_order(self):
