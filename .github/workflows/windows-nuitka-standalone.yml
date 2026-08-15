@@ -1,0 +1,164 @@
+name: Windows Nuitka Standalone Release Gate
+
+# Expensive and deliberately manual. Standalone is validated before any future
+# onefile packaging because missing runtime/data dependencies are diagnosable in
+# the directory form. This workflow does not claim NVDA verification.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  standalone:
+    name: Compile and validate standalone Windows distribution
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout selected revision
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install build dependencies
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install "pywebview==6.2.1" nuitka ordered-set zstandard
+          python -m nuitka --version
+
+      - name: Run cheap release gates before compilation
+        shell: pwsh
+        run: |
+          python -m compileall -q acs tests run_accessible_chess.py
+          python -m unittest -v tests.test_architecture
+          if (Test-Path 'tests\test_release_manifest.py') {
+            python -m unittest -v tests.test_release_manifest
+          }
+          python run_accessible_chess.py --diagnostic
+
+      - name: Compile standalone application with Nuitka
+        shell: pwsh
+        run: |
+          $args = @(
+            '--mode=standalone',
+            '--assume-yes-for-downloads',
+            '--windows-console-mode=disable',
+            '--output-dir=build-nuitka',
+            '--output-filename=AccessibleChess.exe',
+            '--include-data-dir=web=web',
+            '--include-package=webview',
+            '--include-module=webview.platforms.edgechromium',
+            '--report=build-nuitka\nuitka-compilation-report.xml',
+            'run_accessible_chess.py'
+          )
+          python -m nuitka @args
+
+          $exe = @(Get-ChildItem 'build-nuitka' -Recurse -File -Filter 'AccessibleChess.exe')
+          if ($exe.Count -ne 1) {
+            throw "Expected exactly one standalone AccessibleChess.exe; found $($exe.Count)"
+          }
+          $dist = $exe[0].Directory.FullName
+          Set-Content -Encoding UTF8 'build-nuitka\DIST_ROOT.txt' $dist
+          "Standalone distribution: $dist"
+
+      - name: Validate compiled program without source checkout on PYTHONPATH
+        shell: pwsh
+        run: |
+          $dist = (Get-Content 'build-nuitka\DIST_ROOT.txt' -Raw).Trim()
+          $exe = Join-Path $dist 'AccessibleChess.exe'
+          if (-not (Test-Path $exe)) { throw 'Standalone executable missing' }
+
+          $oldPythonPath = $env:PYTHONPATH
+          $env:PYTHONPATH = ''
+          try {
+            $p = Start-Process $exe -ArgumentList '--diagnostic' -WorkingDirectory $dist -PassThru -Wait
+            if ($p.ExitCode -ne 0) { throw "Standalone diagnostic failed: $($p.ExitCode)" }
+          }
+          finally {
+            $env:PYTHONPATH = $oldPythonPath
+          }
+
+      - name: WebView2 standalone startup smoke
+        shell: pwsh
+        run: |
+          $dist = (Get-Content 'build-nuitka\DIST_ROOT.txt' -Raw).Trim()
+          $exe = Join-Path $dist 'AccessibleChess.exe'
+          $p = Start-Process $exe -WorkingDirectory $dist -PassThru
+          Start-Sleep -Seconds 10
+          if ($p.HasExited) { throw "GUI exited during standalone WebView2 smoke: $($p.ExitCode)" }
+          Stop-Process -Id $p.Id -Force
+          'WEBVIEW2 STANDALONE STARTUP SMOKE PASS'
+
+      - name: Enforce production package source-hiding and generate manifest
+        shell: pwsh
+        run: |
+          $dist = (Get-Content 'build-nuitka\DIST_ROOT.txt' -Raw).Trim()
+          $version = (Get-Content 'VERSION.txt' -Raw).Trim()
+          $env:ACS_DIST = $dist
+          $env:ACS_VERSION = $version
+          @'
+          import json
+          import os
+          from pathlib import Path
+          from acs.release_manifest import build_release_manifest, validate_distribution
+
+          root = Path(os.environ['ACS_DIST'])
+          version = os.environ['ACS_VERSION']
+          defects = validate_distribution(
+              root,
+              executable='AccessibleChess.exe',
+              require_stockfish=False,
+              prohibit_python_source=True,
+          )
+          if defects:
+              raise SystemExit('RELEASE DISTRIBUTION INVALID:\n' + '\n'.join(defects))
+          manifest = build_release_manifest(root, version=version)
+          (root / 'RELEASE-MANIFEST.json').write_text(manifest.to_json(), encoding='utf-8')
+          print(json.dumps({'version': version, 'files': len(manifest.files)}, sort_keys=True))
+          '@ | python -
+
+          $leaked = @(Get-ChildItem $dist -Recurse -File | Where-Object { $_.Extension -in '.py','.pyc','.pyo' })
+          if ($leaked.Count -gt 0) {
+            $names = ($leaked | Select-Object -First 20 -ExpandProperty FullName) -join "`n"
+            throw "Raw Python source/bytecode leaked into standalone distribution:`n$names"
+          }
+
+      - name: Generate checksums and release metadata
+        shell: pwsh
+        run: |
+          $dist = (Get-Content 'build-nuitka\DIST_ROOT.txt' -Raw).Trim()
+          $version = (Get-Content 'VERSION.txt' -Raw).Trim()
+          $exe = Join-Path $dist 'AccessibleChess.exe'
+          $exeHash = (Get-FileHash $exe -Algorithm SHA256).Hash.ToLowerInvariant()
+          $manifest = Join-Path $dist 'RELEASE-MANIFEST.json'
+          $manifestHash = (Get-FileHash $manifest -Algorithm SHA256).Hash.ToLowerInvariant()
+          @"
+          product=Accessible Chess
+          version=$version
+          executable_sha256=$exeHash
+          manifest_sha256=$manifestHash
+          nvda_status=NVDA TEST CANDIDATE — WAITING FOR USER TEST
+          packaging=nuitka-standalone
+          signing_status=UNSIGNED_INTERNAL_BUILD
+          stockfish_bundle_status=NOT_RELEASE_GATED_BY_THIS_WORKFLOW
+          "@ | Set-Content -Encoding UTF8 (Join-Path $dist 'RELEASE-BUILD.txt')
+
+      - name: Archive internal standalone artifact
+        shell: pwsh
+        run: |
+          $dist = (Get-Content 'build-nuitka\DIST_ROOT.txt' -Raw).Trim()
+          $version = (Get-Content 'VERSION.txt' -Raw).Trim()
+          Compress-Archive -Path (Join-Path $dist '*') -DestinationPath "Accessible-Chess-$version-Nuitka-Standalone.zip" -Force
+
+      - name: Upload internal standalone artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Accessible-Chess-Nuitka-Standalone
+          path: |
+            Accessible-Chess-*-Nuitka-Standalone.zip
+            build-nuitka/nuitka-compilation-report.xml
+          retention-days: 14
