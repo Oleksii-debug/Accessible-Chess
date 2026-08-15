@@ -22,6 +22,7 @@ on:
       - 'tests/test_ui_entitlement.py'
       - 'tests/test_ui_entitlement_webapp.py'
       - 'tests/test_ui_analysis_webapp.py'
+      - 'tests/test_analysis_webview_bridge.py'
       - 'tests/test_history.py'
       - 'tests/test_notation.py'
       - 'acs/webapp.py'
@@ -102,6 +103,7 @@ jobs:
           cp tests/test_ui_entitlement.py work/tests/test_ui_entitlement.py
           cp tests/test_ui_entitlement_webapp.py work/tests/test_ui_entitlement_webapp.py
           cp tests/test_ui_analysis_webapp.py work/tests/test_ui_analysis_webapp.py
+          cp tests/test_analysis_webview_bridge.py work/tests/test_analysis_webview_bridge.py
           cp tests/test_history.py work/tests/test_history.py
           cp tests/test_notation.py work/tests/test_notation.py
 
@@ -130,7 +132,7 @@ jobs:
 
       - name: Stockfish analysis presentation contracts
         working-directory: work
-        run: python -m pytest -q tests/test_ui_analysis_webapp.py
+        run: python -m pytest -q tests/test_ui_analysis_webapp.py tests/test_analysis_webview_bridge.py
 
       - name: Shared command, history, notation and UI keymap contracts
         working-directory: work
