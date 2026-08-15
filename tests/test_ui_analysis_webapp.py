@@ -76,6 +76,16 @@ class UIAnalysisWebAppTests(unittest.TestCase):
         )
         return api, fake
 
+    def test_missing_composed_engine_is_explicit_not_fake_enabled_state(self):
+        with tempfile.TemporaryDirectory() as temp:
+            api = KeymapAwareAccessibleChessAPI(keymap_path=Path(temp) / "keymap.json")
+            state = api.get_state()
+            self.assertFalse(state["engineEnabled"])
+            self.assertIn("не підключено", state["engineStatus"])
+            result = api.toggle_engine()
+            self.assertFalse(result["ok"])
+            self.assertFalse(result["engineEnabled"])
+
     def test_engine_enable_starts_real_service_with_multipv_five(self):
         api, fake = self.make_api()
         result = api.toggle_engine()
@@ -95,8 +105,6 @@ class UIAnalysisWebAppTests(unittest.TestCase):
         state = api.get_state()
         self.assertEqual(len(state["analysis"]["lines"]), 5)
         self.assertIn("Варіант 5", state["engineStatus"])
-        # get_state projects analysis into aria-live=off engine content; it must
-        # not overwrite the user's latest explicit announcement.
         prior = api.announcement
         api.get_state()
         self.assertEqual(api.announcement, prior)
