@@ -64,7 +64,20 @@ class ImportHistoryService:
         if int(attempt_id) < 1:
             raise ValueError("attempt_id must be positive")
         row = self._db.get_import_attempt(int(attempt_id))
-        return self._item(row) if row else None
+        if row is None:
+            return None
+        source_id = row.get("source_id")
+        if source_id is not None:
+            source = self._db.get_source(int(source_id))
+            if source is not None:
+                row = dict(row)
+                row.update(
+                    linked_source_name=source["source_name"],
+                    linked_source_format=source["source_format"],
+                    linked_source_sha256=source["sha256"],
+                    linked_source_imported_at=source["imported_at"],
+                )
+        return self._item(row)
 
     def search(self, query: ImportHistoryQuery | None = None) -> ImportHistoryPage:
         query = query or ImportHistoryQuery()
@@ -114,15 +127,14 @@ class ImportHistoryService:
     def _item(row: dict) -> ImportAttemptItem:
         source: ImportSourceRef | None = None
         source_id = row.get("source_id")
-        if source_id is not None:
-            if "linked_source_name" in row:
-                source = ImportSourceRef(
-                    source_id=int(source_id),
-                    source_name=row["linked_source_name"],
-                    source_format=row["linked_source_format"],
-                    sha256=row["linked_source_sha256"],
-                    imported_at=row["linked_source_imported_at"],
-                )
+        if source_id is not None and row.get("linked_source_name") is not None:
+            source = ImportSourceRef(
+                source_id=int(source_id),
+                source_name=row["linked_source_name"],
+                source_format=row["linked_source_format"],
+                sha256=row["linked_source_sha256"],
+                imported_at=row["linked_source_imported_at"],
+            )
         return ImportAttemptItem(
             attempt_id=int(row["id"]),
             source_name=row["source_name"],
