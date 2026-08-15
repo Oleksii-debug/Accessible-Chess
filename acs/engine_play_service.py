@@ -16,6 +16,7 @@ from typing import Callable
 
 from .clock_service import TimeControl
 from .engine_ports import EngineMoveRequest, EngineMoveResult, MoveEnginePort
+from .game_lifecycle import GameLifecycle, LifecycleSnapshot
 
 
 @dataclass(frozen=True)
@@ -26,7 +27,7 @@ class EngineLevel:
 
 
 # User-facing levels 1..10 map to Stockfish/UCI skill 0..20 and bounded think
-# times.  The policy is centralized here so UI code never embeds engine tuning.
+# times. The policy is centralized here so UI code never embeds engine tuning.
 _LEVELS: tuple[EngineLevel, ...] = (
     EngineLevel(1, 0, 100),
     EngineLevel(2, 2, 150),
@@ -52,7 +53,7 @@ class EngineGameIntent(str, Enum):
 
     Lifecycle intents are consumed by the existing ``GameLifecycle`` service;
     analysis and review intents are handoffs to their respective application
-    services.  No intent here mutates board/history/UI state by itself.
+    services. No intent here mutates board/history/UI state by itself.
     """
 
     REQUEST_TAKEBACK = "request_takeback"
@@ -200,6 +201,38 @@ def resolve_engine_game_config(
         level=level_policy(config.level),
         time_control=config.time_control,
     )
+
+
+def dispatch_lifecycle_handoff(
+    lifecycle: GameLifecycle,
+    handoff: EngineGameHandoff,
+) -> LifecycleSnapshot:
+    """Apply an engine-game lifecycle intent to the canonical lifecycle service.
+
+    Accepted takeback clears the lifecycle request only. Destructive undo remains
+    owned by the canonical game/history service, so this dispatcher never creates
+    a second board or history source of truth.
+    """
+
+    if not isinstance(lifecycle, GameLifecycle):
+        raise TypeError("lifecycle must be GameLifecycle")
+    if not isinstance(handoff, EngineGameHandoff):
+        raise TypeError("handoff must be EngineGameHandoff")
+    if handoff.intent not in _PLAYER_INTENTS:
+        raise ValueError("handoff is not a lifecycle intent")
+
+    actor = handoff.actor
+    assert actor in {"w", "b"}
+    operations = {
+        EngineGameIntent.REQUEST_TAKEBACK: lifecycle.request_takeback,
+        EngineGameIntent.ACCEPT_TAKEBACK: lifecycle.accept_takeback,
+        EngineGameIntent.DECLINE_TAKEBACK: lifecycle.decline_takeback,
+        EngineGameIntent.OFFER_DRAW: lifecycle.offer_draw,
+        EngineGameIntent.ACCEPT_DRAW: lifecycle.accept_draw,
+        EngineGameIntent.DECLINE_DRAW: lifecycle.decline_draw,
+        EngineGameIntent.RESIGN: lifecycle.resign,
+    }
+    return operations[handoff.intent](actor)
 
 
 class EnginePlayService:
