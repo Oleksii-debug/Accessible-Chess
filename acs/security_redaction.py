@@ -1,8 +1,8 @@
 """Deterministic redaction for logs, diagnostics, and crash payloads.
 
-This module is deliberately dependency-free and presentation-neutral.  It must
+This module is deliberately dependency-free and presentation-neutral. It must
 be safe to call before untrusted diagnostic text reaches a log file, support
-bundle, issue attachment, or crash reporter.  It is not a credential store and
+bundle, issue attachment, or crash reporter. It is not a credential store and
 must never be used as a substitute for DPAPI/OS-backed secret storage.
 """
 from __future__ import annotations
@@ -15,7 +15,7 @@ from typing import Any
 REDACTED = "[REDACTED]"
 
 # Keys are separator-insensitive so token/access_token/access-token and case
-# variants follow one policy.  Keep this conservative: false positives in
+# variants follow one policy. Keep this conservative: false positives in
 # diagnostics are preferable to leaking credentials.
 _SENSITIVE_KEYS = frozenset(
     {
@@ -40,12 +40,28 @@ _SENSITIVE_KEYS = frozenset(
 
 _BEARER_RE = re.compile(r"(?i)(\bBearer\s+)[A-Za-z0-9._~+/=-]{8,}")
 _BASIC_RE = re.compile(r"(?i)(\bBasic\s+)[A-Za-z0-9+/=]{8,}")
-_JWT_RE = re.compile(r"(?<![A-Za-z0-9_-])eyJ[A-Za-z0-9_-]{6,}\.[A-Za-z0-9_-]{6,}\.[A-Za-z0-9_-]{6,}(?![A-Za-z0-9_-])")
-_URL_SECRET_RE = re.compile(
-    r"(?i)([?&](?:access_token|refresh_token|id_token|token|api_key|license_key)=)([^&#\s]+)"
+_JWT_RE = re.compile(
+    r"(?<![A-Za-z0-9_-])eyJ[A-Za-z0-9_-]{6,}\.[A-Za-z0-9_-]{6,}\.[A-Za-z0-9_-]{6,}(?![A-Za-z0-9_-])"
 )
+
+# Query-string coverage mirrors the sensitive credential families used by the
+# structured-payload policy. Values stop at URL/query delimiters or whitespace.
+_URL_SECRET_RE = re.compile(
+    r"(?i)([?&](?:access[_-]?token|refresh[_-]?token|id[_-]?token|session[_-]?(?:token|id)|token|api[_-]?key|client[_-]?secret|license[_-]?key|activation[_-]?key|secret)=)([^&#\s]+)"
+)
+
+# Assignment-style diagnostics are common in startup/crash logs. Keep the key
+# visible for debugging but remove the value. The optional quote is consumed so
+# JSON-ish text cannot leak merely because a value was quoted.
 _ASSIGNMENT_RE = re.compile(
-    r"(?i)(\b(?:access[_-]?token|refresh[_-]?token|id[_-]?token|api[_-]?key|client[_-]?secret|license[_-]?key|activation[_-]?key|password|passwd)\b\s*[:=]\s*)([^\s,;]+)"
+    r"(?i)(\b(?:access[_-]?token|refresh[_-]?token|id[_-]?token|session[_-]?(?:token|id)|api[_-]?key|client[_-]?secret|license[_-]?key|activation[_-]?key|password|passwd|token|secret|cookie)\b\s*[:=]\s*)(?:['\"]?)([^\s,;\"']+)(?:['\"]?)"
+)
+
+# Authorization values that are not standard Bearer/Basic schemes still must
+# not reach persistent diagnostics. Standard schemes are handled above so their
+# useful scheme name remains visible.
+_OPAQUE_AUTH_RE = re.compile(
+    r"(?i)(\bAuthorization\b\s*[:=]\s*)(?!Bearer\b|Basic\b)(?:['\"]?)([^\s,;\"']+)(?:['\"]?)"
 )
 
 
@@ -61,9 +77,8 @@ def is_sensitive_key(key: Any) -> bool:
 def redact_text(value: Any) -> str:
     """Return text with common credential forms removed.
 
-    The function intentionally preserves prefixes such as ``Bearer`` and query
-    parameter names because those are useful in diagnostics while the secret
-    value itself is not.
+    The function intentionally preserves diagnostic labels and standard auth
+    scheme names where possible while removing the secret value itself.
     """
 
     text = str(value)
@@ -72,6 +87,7 @@ def redact_text(value: Any) -> str:
     text = _JWT_RE.sub(REDACTED, text)
     text = _URL_SECRET_RE.sub(lambda match: match.group(1) + REDACTED, text)
     text = _ASSIGNMENT_RE.sub(lambda match: match.group(1) + REDACTED, text)
+    text = _OPAQUE_AUTH_RE.sub(lambda match: match.group(1) + REDACTED, text)
     return text
 
 
