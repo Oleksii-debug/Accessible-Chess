@@ -54,8 +54,8 @@ jobs:
         run: |
           mkdir -p work/acs work/web work/tests
           for file in \
-            webapp.py analysis_service.py history.py keybindings.py notation.py \
-            ui_keymap_adapter.py ui_keymap_editor.py \
+            webapp.py webapp_keymap.py analysis_service.py history.py keybindings.py notation.py \
+            ui_keymap_adapter.py ui_keymap_editor.py ui_keymap_service.py ui_native_menu.py \
             engine_ports.py engine_play_service.py clock_service.py game_lifecycle.py \
             gametree.py acsdb.py import_contract.py import_registry.py pgn_service.py \
             bookdocument.py chessbase_adapter.py
