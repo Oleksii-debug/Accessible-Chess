@@ -1,6 +1,11 @@
 import unittest
+from dataclasses import replace
 
-from acs.history import HistoryError, ReviewHistory
+from acs.history import (
+    HISTORY_TREE_SCHEMA_VERSION,
+    HistoryError,
+    ReviewHistory,
+)
 
 
 class ReviewHistoryTests(unittest.TestCase):
@@ -111,6 +116,83 @@ class ReviewHistoryTests(unittest.TestCase):
         h.next()
         self.assertEqual(external_undo_stack, ["a", "b", "c"])
         self.assertEqual(external_redo_stack, ["d"])
+
+    def test_tree_snapshot_round_trip_preserves_exact_branch_identity_and_cursor(self):
+        h = self.make_history(6)
+        h.jump("2")
+        h.append(
+            "branch-fen-5",
+            san="branch",
+            side="w",
+            last_move="3w",
+            context={"token": "branch"},
+        )
+        branch_node = h.cursor_node_id
+        h.previous()
+        h.select_variation(0)
+        h.next()
+        old_line_end = h.cursor_node_id
+        h.select_node(branch_node)
+
+        exported = h.export_tree()
+        restored = ReviewHistory.from_tree(exported)
+
+        self.assertEqual(exported.schema_version, HISTORY_TREE_SCHEMA_VERSION)
+        self.assertEqual(restored.export_tree(), exported)
+        self.assertEqual(restored.cursor_node_id, branch_node)
+        restored.select_node(old_line_end)
+        self.assertEqual(restored.current().snapshot.fen, "fen-6")
+
+    def test_tree_nodes_are_detached_from_mutable_tree_ownership(self):
+        h = self.make_history(2)
+        records = h.tree_nodes()
+        self.assertEqual(records[1].parent_id, 0)
+        self.assertEqual(records[0].child_ids, (1,))
+        self.assertEqual(records[1].snapshot.context["token"], 1)
+        self.assertIsNot(records[1].snapshot.context, h.tree_nodes()[1].snapshot.context)
+
+    def test_select_node_activates_existing_branch_without_creating_nodes(self):
+        h = self.make_history(4)
+        h.jump("1")
+        old_child = h.tree_nodes()[2].child_ids[0]
+        h.append("branch-3", san="b3", side="w")
+        count = h.node_count
+        selected = h.select_node(old_child)
+        self.assertEqual(selected.node_id, old_child)
+        self.assertEqual(h.node_count, count)
+        self.assertEqual(h.next().snapshot.fen, "fen-4")
+
+    def test_tree_import_rejects_unsupported_schema_without_partial_state(self):
+        tree = self.make_history(2).export_tree()
+        bad = replace(tree, schema_version=999)
+        with self.assertRaisesRegex(HistoryError, "unsupported history tree schema"):
+            ReviewHistory.from_tree(bad)
+
+    def test_tree_import_rejects_parent_child_disagreement(self):
+        tree = self.make_history(2).export_tree()
+        records = list(tree.nodes)
+        records[1] = replace(records[1], parent_id=2)
+        bad = replace(tree, nodes=tuple(records))
+        with self.assertRaisesRegex(HistoryError, "parent/child links disagree"):
+            ReviewHistory.from_tree(bad)
+
+    def test_tree_import_rejects_active_child_outside_children(self):
+        tree = self.make_history(2).export_tree()
+        records = list(tree.nodes)
+        records[0] = replace(records[0], active_child=2)
+        bad = replace(tree, nodes=tuple(records))
+        with self.assertRaisesRegex(HistoryError, "active child"):
+            ReviewHistory.from_tree(bad)
+
+    def test_tree_import_rejects_cursor_off_exported_active_line(self):
+        h = self.make_history(4)
+        h.jump("1")
+        old_child = h.tree_nodes()[2].child_ids[0]
+        h.append("branch-3", san="b3", side="w")
+        tree = h.export_tree()
+        bad = replace(tree, cursor_node_id=old_child)
+        with self.assertRaisesRegex(HistoryError, "active line"):
+            ReviewHistory.from_tree(bad)
 
 
 if __name__ == "__main__":
