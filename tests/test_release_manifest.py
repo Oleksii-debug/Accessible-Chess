@@ -1,14 +1,18 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
 
 from acs.release_manifest import (
+    ReleaseManifest,
     build_release_manifest,
+    load_release_manifest,
     read_project_version,
     validate_distribution,
+    verify_release_manifest,
 )
 
 
@@ -45,6 +49,24 @@ class ReleaseManifestTests(unittest.TestCase):
             self.assertEqual(manifest.as_dict()["schema_version"], 1)
             self.assertTrue(manifest.to_json().endswith("\n"))
 
+    def test_manifest_round_trip_parser_is_strict_and_canonical(self):
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            self._good_package(root)
+            manifest = build_release_manifest(root, version="0.4.0-dev3")
+            parsed = ReleaseManifest.from_json(manifest.to_json())
+            self.assertEqual(parsed, manifest)
+
+            value = manifest.as_dict()
+            value["files"] = list(reversed(value["files"]))
+            with self.assertRaisesRegex(ValueError, "canonical sorted order"):
+                ReleaseManifest.from_json(json.dumps(value))
+
+            value = manifest.as_dict()
+            value["files"][0]["path"] = "../escape.dll"
+            with self.assertRaisesRegex(ValueError, "unsafe release manifest path"):
+                ReleaseManifest.from_json(json.dumps(value))
+
     def test_manifest_checksum_changes_when_binary_changes(self):
         with TemporaryDirectory() as temp:
             root = Path(temp)
@@ -55,6 +77,56 @@ class ReleaseManifestTests(unittest.TestCase):
             first_hash = next(x.sha256 for x in first.files if x.path == "AccessibleChess.exe")
             second_hash = next(x.sha256 for x in second.files if x.path == "AccessibleChess.exe")
             self.assertNotEqual(first_hash, second_hash)
+
+    def test_manifest_verifier_detects_modified_missing_and_untracked_payload(self):
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            self._good_package(root)
+            manifest = build_release_manifest(root, version="0.4.0-dev3")
+            self.assertEqual(
+                verify_release_manifest(root, manifest, expected_version="0.4.0-dev3"),
+                (),
+            )
+
+            (root / "AccessibleChess.exe").write_bytes(b"tampered-binary")
+            (root / "assets" / "move.wav").unlink()
+            (root / "runtime" / "injected.dll").write_bytes(b"unexpected")
+            defects = verify_release_manifest(root, manifest, expected_version="0.4.0-dev3")
+            self.assertTrue(any("size mismatch" in item or "SHA-256 mismatch" in item for item in defects), defects)
+            self.assertTrue(any("manifest file missing: assets/move.wav" in item for item in defects), defects)
+            self.assertTrue(any("unexpected unmanifested release file: runtime/injected.dll" in item for item in defects), defects)
+
+    def test_release_metadata_created_after_manifest_is_explicitly_allowed(self):
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            self._good_package(root)
+            manifest = build_release_manifest(root, version="0.4.0-dev3")
+            (root / "RELEASE-MANIFEST.json").write_text(manifest.to_json(), encoding="utf-8")
+            (root / "RELEASE-BUILD.txt").write_text("signing_status=UNSIGNED_INTERNAL_BUILD\n", encoding="utf-8")
+            self.assertEqual(
+                verify_release_manifest(root, manifest, expected_version="0.4.0-dev3"),
+                (),
+            )
+
+    def test_manifest_verifier_rejects_wrong_product_or_version(self):
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            self._good_package(root)
+            manifest = build_release_manifest(root, version="0.4.0-dev3", product="Wrong Product")
+            defects = verify_release_manifest(root, manifest, expected_version="0.4.0-dev4")
+            self.assertTrue(any("product mismatch" in item for item in defects), defects)
+            self.assertTrue(any("version mismatch" in item for item in defects), defects)
+
+    def test_manifest_file_loader_accepts_utf8_bom_and_rejects_missing_file(self):
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            self._good_package(root)
+            manifest = build_release_manifest(root, version="0.4.0-dev3")
+            path = root / "RELEASE-MANIFEST.json"
+            path.write_text("\ufeff" + manifest.to_json(), encoding="utf-8")
+            self.assertEqual(load_release_manifest(path), manifest)
+            with self.assertRaisesRegex(ValueError, "release manifest is missing"):
+                load_release_manifest(root / "missing.json")
 
     def test_production_gate_rejects_raw_python_source_and_bytecode(self):
         with TemporaryDirectory() as temp:
