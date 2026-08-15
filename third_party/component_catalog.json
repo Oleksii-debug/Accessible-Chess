@@ -1,0 +1,148 @@
+{
+  "schema_version": 1,
+  "policy": "reuse-first-permissive-by-default",
+  "components": [
+    {
+      "id": "cbh2pgn",
+      "upstream": "https://github.com/asdfjkl/cbh2pgn",
+      "pin": "42b3592738062db1f768239e85df1b98cb1cead9",
+      "license": "MIT",
+      "purpose": ["cbh", "cbg", "chessbase-decoder"],
+      "decision": "adapt",
+      "integration": "read-only format adapter -> Accessible Chess GameTree/Core/ACSDB",
+      "constraints": ["do not introduce GPL python-chess runtime dependency", "standard chess only upstream", "annotations unsupported upstream", "validate with lawful samples"]
+    },
+    {
+      "id": "stockfish",
+      "upstream": "https://github.com/official-stockfish/Stockfish",
+      "license": "GPL-3.0",
+      "purpose": ["analysis", "engine-play"],
+      "decision": "keep-separate-process",
+      "integration": "UCI executable adapter",
+      "constraints": ["preserve GPL distribution obligations", "do not link engine source into proprietary core"]
+    },
+    {
+      "id": "sqlite",
+      "upstream": "https://www.sqlite.org/",
+      "license": "public-domain",
+      "purpose": ["acsdb", "search", "indexes"],
+      "decision": "keep",
+      "integration": "storage infrastructure"
+    },
+    {
+      "id": "chess-js",
+      "upstream": "https://github.com/jhlywa/chess.js",
+      "pin": "1.4.0",
+      "license": "BSD-2-Clause",
+      "purpose": ["web-chess-rules", "fen", "pgn", "move-validation"],
+      "decision": "preferred-web-candidate",
+      "integration": "browser chess service; server remains authoritative"
+    },
+    {
+      "id": "cm-pgn",
+      "upstream": "https://github.com/shaack/cm-pgn",
+      "license": "MIT",
+      "purpose": ["web-pgn", "variations", "comments", "nags", "multi-game"],
+      "decision": "preferred-web-candidate",
+      "integration": "browser PGN adapter and differential test oracle"
+    },
+    {
+      "id": "gchessboard",
+      "upstream": "https://github.com/mganjoo/gchessboard",
+      "license": "MIT-code",
+      "purpose": ["web-board", "keyboard-board"],
+      "decision": "conditional-accessibility-evaluation",
+      "integration": "presentation-only Web Component",
+      "constraints": ["must pass Accessible Chess NVDA/keyboard semantics", "prefer own piece assets because bundled artwork has separate attribution/license provenance"]
+    },
+    {
+      "id": "workbox",
+      "upstream": "https://github.com/GoogleChrome/workbox",
+      "pin": "7.4.0",
+      "license": "MIT",
+      "purpose": ["pwa", "service-worker", "offline-cache"],
+      "decision": "preferred-web-candidate",
+      "integration": "web build/offline infrastructure"
+    },
+    {
+      "id": "mammoth-js",
+      "upstream": "https://github.com/mwilliamson/mammoth.js",
+      "license": "BSD-2-Clause",
+      "purpose": ["docx-ingestion", "semantic-html"],
+      "decision": "preferred-book-source-adapter",
+      "integration": "DOCX -> sanitized semantic HTML -> BookDocument",
+      "constraints": ["never replace BookDocument source-of-truth", "sanitize untrusted converted HTML"]
+    },
+    {
+      "id": "pdf-js",
+      "upstream": "https://github.com/mozilla/pdf.js",
+      "license": "Apache-2.0",
+      "purpose": ["pdf-source", "pdf-viewer", "pdf-parser"],
+      "decision": "preferred-book-source-adapter",
+      "integration": "source inspection/rendering; BookDocument remains accessible representation"
+    },
+    {
+      "id": "fastapi",
+      "upstream": "https://github.com/fastapi/fastapi",
+      "license": "MIT",
+      "purpose": ["backend-api", "websocket", "desktop-web-shared-core"],
+      "decision": "preferred-backend-candidate",
+      "integration": "API/WebSocket adapter around existing Python application core"
+    },
+    {
+      "id": "keycloak",
+      "upstream": "https://github.com/keycloak/keycloak",
+      "license": "Apache-2.0",
+      "purpose": ["accounts", "oidc", "oauth", "device-activation"],
+      "decision": "preferred-identity-candidate",
+      "integration": "separate identity service; Accessible Chess owns entitlement/billing policy"
+    },
+    {
+      "id": "livekit",
+      "upstream": "https://github.com/livekit/livekit",
+      "license": "Apache-2.0",
+      "purpose": ["voice", "video", "classroom", "realtime-data"],
+      "decision": "preferred-media-candidate",
+      "integration": "separate WebRTC SFU/media service and client SDKs"
+    },
+    {
+      "id": "coturn",
+      "upstream": "https://github.com/coturn/coturn",
+      "license": "BSD-3-Clause-style",
+      "purpose": ["turn", "stun", "nat-traversal"],
+      "decision": "preferred-media-infrastructure",
+      "integration": "separate TURN/STUN service"
+    },
+    {
+      "id": "lichess-chess-openings",
+      "upstream": "https://github.com/lichess-org/chess-openings",
+      "license": "CC0-1.0",
+      "purpose": ["eco", "opening-names", "opening-lines"],
+      "decision": "approved-data-source",
+      "integration": "pinned data snapshot with provenance"
+    },
+    {
+      "id": "lichess-open-database",
+      "upstream": "https://database.lichess.org/",
+      "license": "CC0",
+      "purpose": ["games", "puzzles", "evaluations", "openings", "training-data"],
+      "decision": "approved-data-source",
+      "integration": "selected pinned datasets with provenance"
+    },
+    {
+      "id": "python-tuf",
+      "upstream": "https://github.com/theupdateframework/python-tuf",
+      "license": "MIT OR Apache-2.0",
+      "purpose": ["secure-updates", "signed-metadata", "supply-chain"],
+      "decision": "preferred-update-security-candidate",
+      "integration": "update trust/verification layer"
+    }
+  ],
+  "excluded_default_embedding": [
+    {"id": "lichess-lila", "reason": "AGPL; prior art unless product licensing strategy changes"},
+    {"id": "lichess-chessground", "reason": "GPL; not embedded into proprietary website by default"},
+    {"id": "python-chess", "reason": "GPL-3.0-or-later; not a default imported runtime dependency for closed-source-capable product"},
+    {"id": "scid", "reason": "GPL; behavioral/test prior art only"},
+    {"id": "proprietary-chessbase-fritz-chesscom-code", "reason": "no permission to copy implementation code"}
+  ]
+}
