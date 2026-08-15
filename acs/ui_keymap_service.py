@@ -192,11 +192,55 @@ class KeymapService:
     def export_profile(self) -> str:
         return self.editor.export_profile()
 
-    def import_profile(self, text: str) -> dict[str, Any]:
+    def import_profile(self, text: str, *, allow_warnings: bool = False) -> dict[str, Any]:
+        """Import a profile atomically and never silently accept risky shortcuts.
+
+        A profile may be structurally valid while containing browser/WebView2,
+        Windows, or likely NVDA shortcut warnings. Direct per-action editing already
+        requires explicit confirmation for those values; profile import must not be
+        a back door around the same safety policy. The first call therefore leaves
+        the current registry and persisted file untouched and returns
+        ``requiresConfirmation=True``. A UI may repeat the same import with
+        ``allow_warnings=True`` only after announcing the warnings and receiving an
+        explicit user confirmation.
+        """
+
+        try:
+            candidate = ActionRegistry.import_json(text, self.editor.registry.definitions())
+            conflicts = candidate.validate()
+        except (ValueError, TypeError) as exc:
+            return {
+                "ok": False,
+                "message": str(exc),
+                "conflicts": [],
+                "requiresConfirmation": False,
+            }
+
+        blocking = tuple(item for item in conflicts if item.severity == "error")
+        warnings = tuple(item for item in conflicts if item.severity != "error")
+        if blocking:
+            return {
+                "ok": False,
+                "message": self.editor.conflict_summary(blocking),
+                "conflicts": [self._conflict(item) for item in conflicts],
+                "requiresConfirmation": False,
+            }
+        if warnings and not allow_warnings:
+            message = self.editor.conflict_summary(warnings)
+            prefix = "Import requires confirmation. " if self.editor.lang == "en" else "Імпорт потребує підтвердження. "
+            return {
+                "ok": False,
+                "message": prefix + message,
+                "conflicts": [self._conflict(item) for item in conflicts],
+                "requiresConfirmation": True,
+            }
+
         result = self.editor.import_profile(text)
         if result.ok:
             self._persist()
-        return self._result(result)
+        response = self._result(result)
+        response["requiresConfirmation"] = False
+        return response
 
     def set_language(self, lang: str) -> dict[str, Any]:
         self.editor.set_language(lang)
