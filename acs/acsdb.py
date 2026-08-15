@@ -46,9 +46,6 @@ class AcsDatabase:
         try:
             self._migrate_schema()
         except Exception:
-            # SQLite keeps an open file handle on Windows. A failed schema
-            # preflight must not leave the database locked merely because
-            # construction did not return a usable AcsDatabase instance.
             self.conn.close()
             raise
 
@@ -185,107 +182,161 @@ class AcsDatabase:
     def _finish_import_attempt(self, attempt_id: int, *, status: str, source_id: int | None = None,
                                game_count: int = 0, warning_count: int = 0,
                                error_message: str | None = None) -> None:
-        if status not in IMPORT_ATTEMPT_STATUSES:
+        if status not in IMPORT_ATTEMPT_STATUSES - {"pending"}:
             raise ValueError(f"Unsupported import attempt status: {status}")
-        with self.conn:
-            self.conn.execute(
-                "UPDATE import_attempts SET finished_at=?, status=?, source_id=?, game_count=?, warning_count=?, error_message=? WHERE id=?",
-                (self._now(), status, source_id, game_count, warning_count, error_message, attempt_id),
-            )
+        self.conn.execute(
+            """UPDATE import_attempts
+               SET finished_at=?, status=?, source_id=?, game_count=?, warning_count=?, error_message=?
+               WHERE id=?""",
+            (self._now(), status, source_id, int(game_count), int(warning_count), error_message, int(attempt_id)),
+        )
 
-    def import_pgn(self, source_name: str, pgn_text: str, source_format: str = "pgn") -> ImportReport:
-        raw = pgn_text.encode("utf-8")
-        digest = hashlib.sha256(raw).hexdigest()
-        attempt_id = self._create_import_attempt(source_name, source_format, digest)
-        try:
-            games = parse_games(pgn_text)
-            if not games:
-                self._finish_import_attempt(attempt_id, status="damaged", error_message="No PGN game found")
-                return ImportReport(source_id=0, attempt_id=attempt_id, damaged=1)
-            with self.conn:
-                source_id = self._insert_source(source_name, source_format, digest)
-                report = ImportReport(source_id=source_id, attempt_id=attempt_id)
-                for index, game in enumerate(games):
-                    warnings = list(game.warnings)
-                    status = "warning" if warnings else "full"
-                    game_id = self._insert_game(source_id, index, game, status=status, warnings=warnings)
-                    report.game_ids.append(game_id)
-                    if status == "warning":
-                        report.warning += 1
-                    else:
-                        report.full += 1
-            self._finish_import_attempt(
-                attempt_id,
-                status="warning" if report.warning else "full",
-                source_id=source_id,
-                game_count=len(report.game_ids),
-                warning_count=report.warning,
-            )
-            return report
-        except Exception as exc:
-            self._finish_import_attempt(attempt_id, status="failed", error_message=str(exc))
-            raise
-
-    def _insert_game(self, source_id: int, source_index: int, game: PgnGame, *, status: str,
-                     warnings: Iterable[str]) -> int:
+    def _insert_game(self, game: PgnGame, source_id: int, *, raw_pgn: str | None = None,
+                     import_status: str | None = None) -> int:
+        status = import_status or ("warning" if game.warnings else "full")
         if status not in IMPORT_STATUSES:
             raise ValueError(f"Unsupported import status: {status}")
         tags = game.tags
+        pgn_text = raw_pgn if raw_pgn is not None else serialize_game(game)
         cur = self.conn.execute(
-            """
-            INSERT INTO games(source_id, source_index, import_status, warnings_json,
-                              event, site, game_date, round, white, black, result, eco, opening,
-                              start_fen, pgn_text)
-            VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-            """,
-            (
-                source_id, source_index, status, json.dumps(list(warnings), ensure_ascii=False),
-                tags.get("Event"), tags.get("Site"), tags.get("Date"), tags.get("Round"),
-                tags.get("White"), tags.get("Black"), tags.get("Result"), tags.get("ECO"),
-                tags.get("Opening"), tags.get("FEN"), serialize_game(game),
-            ),
+            """INSERT INTO games(source_id, source_index, import_status, warnings_json,
+               event, site, game_date, round, white, black, result, eco, opening, start_fen, pgn_text)
+               VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (source_id, game.source_index, status, json.dumps(game.warnings, ensure_ascii=False),
+             tags.get("Event"), tags.get("Site"), tags.get("Date"), tags.get("Round"),
+             tags.get("White"), tags.get("Black"), game.result, tags.get("ECO"), tags.get("Opening"),
+             tags.get("FEN") if tags.get("SetUp") == "1" else None, pgn_text),
         )
         return int(cur.lastrowid)
 
-    def add_position(self, game_id: int, ply: int, fen: str) -> None:
-        self.add_positions([(game_id, ply, fen)])
-
-    def add_positions(self, rows: Iterable[tuple[int, int, str]]) -> None:
-        prepared = [(int(game_id), int(ply), fen, self.position_key(fen)) for game_id, ply, fen in rows]
+    def store_game(self, game: PgnGame, source_id: int, *, raw_pgn: str | None = None,
+                   import_status: str | None = None) -> int:
         with self.conn:
-            self.conn.executemany(
-                "INSERT OR REPLACE INTO positions(game_id, ply, fen, position_key) VALUES(?,?,?,?)",
-                prepared,
-            )
+            return self._insert_game(game, source_id, raw_pgn=raw_pgn, import_status=import_status)
+
+    def import_pgn_text(self, text: str, source_name: str = "memory.pgn") -> ImportReport:
+        digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
+        attempt_id = self._create_import_attempt(source_name, "pgn", digest)
+        try:
+            games = parse_games(text)
+            if not games:
+                with self.conn:
+                    source_id = self._insert_source(source_name, "pgn", digest)
+                    self._finish_import_attempt(attempt_id, status="damaged", source_id=source_id)
+                return ImportReport(source_id=source_id, attempt_id=attempt_id, damaged=1)
+            report = ImportReport(source_id=-1, attempt_id=attempt_id)
+            with self.conn:
+                source_id = self._insert_source(source_name, "pgn", digest)
+                report.source_id = source_id
+                for game in games:
+                    status = "warning" if game.warnings else "full"
+                    game_id = self._insert_game(game, source_id, import_status=status)
+                    report.game_ids.append(game_id)
+                    setattr(report, status, getattr(report, status) + 1)
+                self._finish_import_attempt(
+                    attempt_id,
+                    status="warning" if report.warning else "full",
+                    source_id=source_id,
+                    game_count=len(report.game_ids),
+                    warning_count=report.warning,
+                )
+            return report
+        except Exception as exc:
+            with self.conn:
+                self._finish_import_attempt(
+                    attempt_id,
+                    status="failed",
+                    error_message=f"{type(exc).__name__}: {exc}",
+                )
+            raise
+
+    def get_game(self, game_id: int) -> dict | None:
+        row = self.conn.execute("SELECT * FROM games WHERE id=?", (game_id,)).fetchone()
+        return dict(row) if row else None
+
+    def get_source(self, source_id: int) -> dict | None:
+        row = self.conn.execute("SELECT * FROM sources WHERE id=?", (source_id,)).fetchone()
+        return dict(row) if row else None
+
+    def get_import_attempt(self, attempt_id: int) -> dict | None:
+        row = self.conn.execute("SELECT * FROM import_attempts WHERE id=?", (int(attempt_id),)).fetchone()
+        return dict(row) if row else None
+
+    def list_import_attempts(self, *, status: str | None = None, sha256: str | None = None,
+                             limit: int = 100) -> list[dict]:
+        clauses: list[str] = []
+        params: list[object] = []
+        if status is not None:
+            if status not in IMPORT_ATTEMPT_STATUSES:
+                raise ValueError(f"Unsupported import attempt status: {status}")
+            clauses.append("status=?")
+            params.append(status)
+        if sha256:
+            clauses.append("sha256=?")
+            params.append(sha256)
+        sql = "SELECT * FROM import_attempts"
+        if clauses:
+            sql += " WHERE " + " AND ".join(clauses)
+        sql += " ORDER BY id DESC LIMIT ?"
+        params.append(max(1, min(int(limit), 1000)))
+        return [dict(row) for row in self.conn.execute(sql, params).fetchall()]
 
     def search_games(self, *, player: str | None = None, event: str | None = None,
-                     eco: str | None = None, result: str | None = None,
-                     tag: str | None = None) -> list[sqlite3.Row]:
+                     eco: str | None = None, opening: str | None = None,
+                     result: str | None = None, source_id: int | None = None,
+                     source_name: str | None = None, limit: int = 100) -> list[dict]:
         clauses: list[str] = []
-        params: list[str] = []
+        params: list[object] = []
         if player:
-            clauses.append("(white LIKE ? COLLATE NOCASE OR black LIKE ? COLLATE NOCASE)")
-            params.extend([f"%{player}%", f"%{player}%"])
+            clauses.append("(g.white LIKE ? COLLATE NOCASE OR g.black LIKE ? COLLATE NOCASE)")
+            needle = f"%{player}%"
+            params.extend([needle, needle])
         if event:
-            clauses.append("event LIKE ? COLLATE NOCASE")
+            clauses.append("g.event LIKE ? COLLATE NOCASE")
             params.append(f"%{event}%")
         if eco:
-            clauses.append("eco = ? COLLATE NOCASE")
-            params.append(eco)
+            clauses.append("g.eco LIKE ? COLLATE NOCASE")
+            params.append(f"{eco}%")
+        if opening:
+            clauses.append("g.opening LIKE ? COLLATE NOCASE")
+            params.append(f"%{opening}%")
         if result:
-            clauses.append("result = ?")
+            clauses.append("g.result=?")
             params.append(result)
-        if tag:
-            clauses.append("pgn_text LIKE ? COLLATE NOCASE")
-            params.append(f"%{tag}%")
-        query = "SELECT * FROM games"
+        if source_id is not None:
+            clauses.append("g.source_id=?")
+            params.append(source_id)
+        if source_name:
+            clauses.append("s.source_name LIKE ? COLLATE NOCASE")
+            params.append(f"%{source_name}%")
+        sql = "SELECT g.* FROM games g JOIN sources s ON s.id=g.source_id"
         if clauses:
-            query += " WHERE " + " AND ".join(clauses)
-        query += " ORDER BY id"
-        return list(self.conn.execute(query, params))
+            sql += " WHERE " + " AND ".join(clauses)
+        sql += " ORDER BY g.id LIMIT ?"
+        params.append(max(1, min(int(limit), 1000)))
+        return [dict(row) for row in self.conn.execute(sql, params).fetchall()]
 
-    def find_position(self, fen: str) -> list[sqlite3.Row]:
-        return list(self.conn.execute(
-            "SELECT * FROM positions WHERE position_key=? ORDER BY game_id, ply",
-            (self.position_key(fen),),
-        ))
+    def record_position(self, game_id: int, ply: int, fen: str) -> None:
+        key = self.position_key(fen)
+        with self.conn:
+            self.conn.execute(
+                "INSERT OR REPLACE INTO positions(game_id, ply, fen, position_key) VALUES(?,?,?,?)",
+                (game_id, int(ply), fen, key),
+            )
+
+    def record_positions(self, game_id: int, positions: Iterable[tuple[int, str]]) -> None:
+        rows = [(game_id, int(ply), fen, self.position_key(fen)) for ply, fen in positions]
+        with self.conn:
+            self.conn.executemany(
+                "INSERT OR REPLACE INTO positions(game_id, ply, fen, position_key) VALUES(?,?,?,?)", rows
+            )
+
+    def search_position(self, fen: str, limit: int = 100) -> list[dict]:
+        key = self.position_key(fen)
+        rows = self.conn.execute(
+            """SELECT g.*, p.ply AS matched_ply, p.fen AS matched_fen
+               FROM positions p JOIN games g ON g.id=p.game_id
+               WHERE p.position_key=? ORDER BY g.id, p.ply LIMIT ?""",
+            (key, max(1, min(int(limit), 1000))),
+        ).fetchall()
+        return [dict(row) for row in rows]
