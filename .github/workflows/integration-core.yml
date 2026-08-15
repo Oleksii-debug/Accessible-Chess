@@ -71,7 +71,8 @@ jobs:
             test_pgn_service.py test_architecture.py test_history.py test_keybindings.py \
             test_ui_keymap_editor.py test_keymap_import_warning_confirmation_integration.py test_notation.py test_engine_play_service.py \
             test_clock_service.py test_game_lifecycle.py test_board_service.py test_move_entry.py test_position_editor.py \
-            test_sound_events.py test_training.py test_settings.py test_entitlements.py
+            test_sound_events.py test_training.py test_settings.py test_entitlements.py \
+            test_history_review_ui.py test_keymap_import_warning_confirmation.py test_webview_keymap_bridge_contract.py
           do
             cp "tests/$file" "work/tests/$file"
           done
@@ -100,6 +101,9 @@ jobs:
       - name: Remappable actions, editor, import safety and notation gates
         working-directory: work
         run: python -m unittest -v tests.test_keybindings tests.test_ui_keymap_editor tests.test_keymap_import_warning_confirmation_integration tests.test_notation
+      - name: UI keymap bridge and history gates
+        working-directory: work
+        run: python -m unittest -v tests.test_history_review_ui tests.test_keymap_import_warning_confirmation tests.test_webview_keymap_bridge_contract
       - name: Accessible Web UI gate
         working-directory: work
         run: python -m unittest -v tests.test_accessible_webui

@@ -105,7 +105,7 @@ class AccessibleWebUiTests(unittest.TestCase):
         self.assertNotIn("/^[a-hA-H]$/.test(key)", self.html)
         self.assertNotIn("/^[1-8]$/.test(key)&&!e.shiftKey", self.html)
         self.assertNotIn("/^[1-8]$/.test(key)&&e.shiftKey", self.html)
-        self.assertIn("actionByChord(eventChord(e),'board')", self.html)
+        self.assertIn("resolveBinding(eventChord(e),'board','board')", self.html)
         self.assertIn("id.match(/^board\\.rank_([1-8])$/)", self.html)
         self.assertIn("id.match(/^board\\.file_([1-8])$/)", self.html)
         data = json.loads((self.root / "web" / "keybindings.json").read_text(encoding="utf-8"))
@@ -123,7 +123,11 @@ class AccessibleWebUiTests(unittest.TestCase):
             'id="key-reset-context" type="button"', 'id="key-reset-all" type="button"',
             'id="key-export" type="button"', 'id="key-import" type="file"',
             'id="key-capture-help" class="sr-note"', 'id="key-list" class="binding-list"',
-            "localStorage.setItem(storageKey()", "function conflictsFor(item,value)",
+            "typeof a.keymap_snapshot==='function'", "typeof a.keymap_preview==='function'",
+            "typeof a.keymap_capture_shortcut==='function'", "typeof a.keymap_save==='function'",
+            "typeof a.keymap_reset_action==='function'", "typeof a.keymap_reset_context==='function'",
+            "typeof a.keymap_reset_all==='function'", "typeof a.keymap_export_profile==='function'",
+            "typeof a.keymap_import_profile==='function'", "typeof a.keymap_resolve_binding==='function'",
             "function renderHelp()", "function beginCapture(item,inp,status,button)",
             "function stopCapture(cancelled=false)", "captureButton.setAttribute('aria-pressed','false')",
             "if(e.key==='Escape')", "if(e.key==='Tab')return",
@@ -131,6 +135,21 @@ class AccessibleWebUiTests(unittest.TestCase):
             self.assertIn(marker, self.html)
         self.assertIn("NVDA", self.html)
         self.assertIn("H/B/E/F", self.html)
+
+    def test_webview_does_not_own_release_keymap_persistence_or_conflict_policy(self):
+        self.assertNotIn("localStorage.setItem", self.html)
+        self.assertNotIn("localStorage.getItem", self.html)
+        self.assertNotIn("function conflictsFor", self.html)
+        self.assertNotIn("['Alt+F4','Ctrl+Alt+Delete','Ctrl+L'", self.html)
+        self.assertIn("await a.keymap_preview(item.id,value)", self.html)
+        self.assertIn("await a.keymap_save(item.id,inp.value,allowWarnings)", self.html)
+        self.assertIn("await a.keymap_import_profile(text,false)", self.html)
+        self.assertIn("await a.keymap_import_profile(text,true)", self.html)
+
+    def test_move_entry_alias_dispatch_is_owned_by_release_api(self):
+        self.assertIn("await apiAction('make_move',v)", self.html)
+        self.assertNotIn("const alias=keymap.find", self.html)
+        self.assertNotIn("'move.white_to_move':'set_turn'", self.html)
 
     def test_shortcut_capture_does_not_claim_nvda_browse_keys(self):
         self.assertIn("Press new shortcut", self.html)
@@ -143,8 +162,8 @@ class AccessibleWebUiTests(unittest.TestCase):
         self.assertIn("el('key-context').addEventListener('change',renderKeymap)", self.html)
         self.assertIn("el('key-reset-context').addEventListener('click'", self.html)
         self.assertIn("if(!ctx){announce(en?'Choose a context first.'", self.html)
-        self.assertIn("(item.registryContext||item.context)===ctx", self.html)
-        self.assertIn("keymap=keymapBase.actions.map", self.html)
+        self.assertIn("await a.keymap_reset_context(ctx)", self.html)
+        self.assertIn("await a.keymap_reset_all()", self.html)
 
     def test_keybinding_defaults_are_centralized_outside_main_html(self):
         compact = self.html.replace(" ", "").replace("\n", "")
@@ -163,14 +182,17 @@ class AccessibleWebUiTests(unittest.TestCase):
         self.assertTrue(compact)
 
     def test_ui_dispatch_uses_stable_central_action_ids(self):
-        for action_id in (
-            "history.go_to_move", "edit.undo", "edit.redo",
-            "move.white_to_move", "move.black_to_move", "move.empty",
-            "board.last_captured", "board.best_move", "board.play_best",
-        ):
-            self.assertIn(action_id, self.html if action_id in {"history.go_to_move", "edit.undo", "edit.redo", "move.white_to_move", "move.black_to_move", "move.empty"} else (self.root / "web" / "keybindings.json").read_text(encoding="utf-8"))
+        keymap_text = (self.root / "web" / "keybindings.json").read_text(encoding="utf-8")
+        release_api = (self.root / "acs" / "webapp_keymap.py").read_text(encoding="utf-8")
+        for action_id in ("history.go_to_move", "edit.undo", "edit.redo"):
+            self.assertIn(action_id, self.html)
+        for action_id in ("move.white_to_move", "move.black_to_move", "move.empty"):
+            self.assertIn(action_id, release_api)
+        for action_id in ("board.last_captured", "board.best_move", "board.play_best"):
+            self.assertIn(action_id, keymap_text)
         for legacy in ("history.goto", "game.undo", "game.redo", "move.white'", "move.black'", "move.engine"):
             self.assertNotIn(legacy, self.html)
+            self.assertNotIn(legacy, release_api)
 
     def test_live_region_contract_avoids_background_speech_spam(self):
         self.assertIn('role="status" aria-live="polite" aria-atomic="true" aria-relevant="text"', self.html)
