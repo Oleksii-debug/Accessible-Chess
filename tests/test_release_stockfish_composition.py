@@ -53,9 +53,9 @@ class ReleaseStockfishCompositionTests(unittest.TestCase):
             try:
                 result = api.toggle_engine()
                 self.assertTrue(result['ok'])
-                self.assertIn('MultiPV 5', result['announcement'])
-                # Continuous worker is asynchronous; composition itself must be live
-                # and not the old Boolean-only placeholder.
+                # User-facing speech stays concise; the semantic contract below
+                # is what proves this is real MultiPV 5 rather than a Boolean placeholder.
+                self.assertEqual(result['announcement'], 'Аналіз Stockfish увімкнено.')
                 state = api.get_state()
                 self.assertTrue(state['engineEnabled'])
                 self.assertEqual(state['analysis']['multipv'], 5)
