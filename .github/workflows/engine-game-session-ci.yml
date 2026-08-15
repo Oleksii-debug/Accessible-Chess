@@ -1,0 +1,46 @@
+name: Engine Game Session CI
+
+on:
+  push:
+    branches:
+      - dev/stage1-engine-core-0.4.0
+    paths:
+      - 'acs/engine_game_session.py'
+      - 'acs/engine_play_service.py'
+      - 'acs/engine_ports.py'
+      - 'acs/clock_service.py'
+      - 'acs/game_lifecycle.py'
+      - 'tests/test_engine_game_session.py'
+      - '.github/workflows/engine-game-session-ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: engine-game-session-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  session-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Compile session contract
+        run: python -m compileall -q acs/engine_game_session.py acs/engine_play_service.py acs/engine_ports.py acs/clock_service.py acs/game_lifecycle.py tests/test_engine_game_session.py
+      - name: Engine game session regressions
+        run: python -m unittest discover -s tests -p 'test_engine_game_session.py' -v
+      - name: Presentation-neutral dependency gate
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          text = Path('acs/engine_game_session.py').read_text(encoding='utf-8').lower()
+          forbidden = ('webview2', 'tkinter', 'sqlite', 'subprocess', 'chessbase')
+          found = [name for name in forbidden if name in text]
+          assert not found, f'forbidden presentation/infrastructure dependency: {found}'
+          print('ENGINE GAME SESSION ARCHITECTURE PASS')
+          PY
