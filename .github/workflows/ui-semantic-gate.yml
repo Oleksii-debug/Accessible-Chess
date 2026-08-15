@@ -23,6 +23,7 @@ on:
       - 'acs/ui_keymap_adapter.py'
       - 'acs/ui_keymap_editor.py'
       - 'acs/ui_keymap_service.py'
+      - 'acs/ui_native_menu.py'
       - 'acs/history.py'
       - 'acs/notation.py'
       - '.github/workflows/ui-semantic-gate.yml'
@@ -63,6 +64,7 @@ jobs:
           cp acs/ui_keymap_adapter.py work/acs/ui_keymap_adapter.py
           cp acs/ui_keymap_editor.py work/acs/ui_keymap_editor.py
           cp acs/ui_keymap_service.py work/acs/ui_keymap_service.py
+          cp acs/ui_native_menu.py work/acs/ui_native_menu.py
           cp acs/history.py work/acs/history.py
           cp acs/notation.py work/acs/notation.py
           cp web/index.html work/web/index.html
