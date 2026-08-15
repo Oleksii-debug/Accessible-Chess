@@ -52,9 +52,10 @@ _URL_SECRET_RE = re.compile(
 
 # Assignment-style diagnostics are common in startup/crash logs. Keep the key
 # visible for debugging but remove the value. The optional quote is consumed so
-# JSON-ish text cannot leak merely because a value was quoted.
+# JSON-ish text cannot leak merely because a value was quoted. Stop at '&' as
+# well so chained URL query labels survive after URL-specific redaction.
 _ASSIGNMENT_RE = re.compile(
-    r"(?i)(\b(?:access[_-]?token|refresh[_-]?token|id[_-]?token|session[_-]?(?:token|id)|api[_-]?key|client[_-]?secret|license[_-]?key|activation[_-]?key|password|passwd|token|secret|cookie)\b\s*[:=]\s*)(?:['\"]?)([^\s,;\"']+)(?:['\"]?)"
+    r"(?i)(\b(?:access[_-]?token|refresh[_-]?token|id[_-]?token|session[_-]?(?:token|id)|api[_-]?key|client[_-]?secret|license[_-]?key|activation[_-]?key|password|passwd|token|secret|cookie)\b\s*[:=]\s*)(?:['\"]?)([^&\s,;\"']+)(?:['\"]?)"
 )
 
 # Authorization values that are not standard Bearer/Basic schemes still must
