@@ -11,6 +11,7 @@ on:
       - 'tests/test_keybindings.py'
       - 'tests/test_notation.py'
       - 'tests/test_engine_play_service.py'
+      - 'tests/test_engine_registry.py'
       - 'tests/test_clock_service.py'
       - 'tests/test_game_lifecycle.py'
       - 'tests/test_board_service.py'
@@ -80,6 +81,7 @@ jobs:
           cp acs/keybindings.py work/acs/keybindings.py
           cp acs/notation.py work/acs/notation.py
           cp acs/engine_ports.py work/acs/engine_ports.py
+          cp acs/engine_registry.py work/acs/engine_registry.py
           cp acs/engine_play_service.py work/acs/engine_play_service.py
           cp acs/clock_service.py work/acs/clock_service.py
           cp acs/game_lifecycle.py work/acs/game_lifecycle.py
@@ -93,6 +95,7 @@ jobs:
           cp tests/test_keybindings.py work/tests/test_keybindings.py
           cp tests/test_notation.py work/tests/test_notation.py
           cp tests/test_engine_play_service.py work/tests/test_engine_play_service.py
+          cp tests/test_engine_registry.py work/tests/test_engine_registry.py
           cp tests/test_clock_service.py work/tests/test_clock_service.py
           cp tests/test_game_lifecycle.py work/tests/test_game_lifecycle.py
           cp tests/test_board_service.py work/tests/test_board_service.py
@@ -129,6 +132,10 @@ jobs:
       - name: Engine provider/play policy tests
         working-directory: work
         run: python -m unittest discover -s tests -p 'test_engine_play_service.py' -v
+
+      - name: Engine provider registry contract tests
+        working-directory: work
+        run: python -m unittest discover -s tests -p 'test_engine_registry.py' -v
 
       - name: Game clock and increment tests
         working-directory: work
