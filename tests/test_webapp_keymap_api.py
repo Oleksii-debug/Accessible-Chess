@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
+from acs.ui_native_menu import make_keymap_menu, menu_caption
 from acs.webapp_keymap import KeymapAwareAccessibleChessAPI, _shared_spoken_san
 
 
@@ -127,3 +129,81 @@ def test_shared_release_formatter_covers_capture_castling_promotion_and_mate() -
     assert _shared_spoken_san("O-O", "uk") == "коротка рокіровка"
     assert _shared_spoken_san("e8=Q#", "uk") == "пішак e 8 перетворення на ферзь, мат"
     assert _shared_spoken_san("R1e2", "en") == "rook from rank 1 e 2"
+
+
+def test_native_menu_caption_comes_from_current_persisted_binding(tmp_path: Path) -> None:
+    api = KeymapAwareAccessibleChessAPI(keymap_path=tmp_path / "keymap.json")
+
+    assert menu_caption(api, "Наступна позиція", "history.next") == "Наступна позиція\tShift+D"
+
+    saved = api.keymap_save("history.next", "Ctrl+Shift+J")
+    assert saved["ok"] is True
+    assert menu_caption(api, "Наступна позиція", "history.next") == "Наступна позиція\tCtrl+Shift+J"
+
+    api.keymap_save("history.next", "")
+    assert menu_caption(api, "Наступна позиція", "history.next") == "Наступна позиція"
+
+
+def test_native_alt_menu_projects_live_history_and_edit_bindings(tmp_path: Path) -> None:
+    api = KeymapAwareAccessibleChessAPI(keymap_path=tmp_path / "keymap.json", lang="en")
+    assert api.keymap_save("history.previous", "Ctrl+Alt+Left")["ok"] is True
+    assert api.keymap_save("edit.undo", "Ctrl+U")["ok"] is True
+
+    class FakeMenuAction:
+        def __init__(self, title, callback):
+            self.title = title
+            self.callback = callback
+
+    class FakeMenu:
+        def __init__(self, title, items):
+            self.title = title
+            self.items = items
+
+    class FakeSeparator:
+        pass
+
+    fake_webview = SimpleNamespace(
+        menu=SimpleNamespace(Menu=FakeMenu, MenuAction=FakeMenuAction, MenuSeparator=FakeSeparator)
+    )
+
+    menus = make_keymap_menu(fake_webview, api, {})
+    game = next(menu for menu in menus if menu.title == "Game")
+    titles = [item.title for item in game.items if isinstance(item, FakeMenuAction)]
+
+    assert "Undo move\tCtrl+U" in titles
+    assert "Previous history position\tCtrl+Alt+Left" in titles
+    assert "Next history position\tShift+D" in titles
+    assert "Go to move\tCtrl+G" in titles
+
+
+def test_settings_native_menu_entry_targets_keyboard_and_commands(tmp_path: Path) -> None:
+    api = KeymapAwareAccessibleChessAPI(keymap_path=tmp_path / "keymap.json", lang="uk")
+    calls: list[str] = []
+
+    class FakeWindow:
+        def evaluate_js(self, code):
+            calls.append(code)
+
+    class FakeMenuAction:
+        def __init__(self, title, callback):
+            self.title = title
+            self.callback = callback
+
+    class FakeMenu:
+        def __init__(self, title, items):
+            self.title = title
+            self.items = items
+
+    class FakeSeparator:
+        pass
+
+    fake_webview = SimpleNamespace(
+        menu=SimpleNamespace(Menu=FakeMenu, MenuAction=FakeMenuAction, MenuSeparator=FakeSeparator)
+    )
+    menus = make_keymap_menu(fake_webview, api, {"window": FakeWindow()})
+    settings = next(menu for menu in menus if menu.title == "Налаштування")
+    action = next(item for item in settings.items if isinstance(item, FakeMenuAction))
+
+    assert action.title == "Клавіатура і команди"
+    action.callback()
+    assert calls == ["document.getElementById('key-search').focus()"]
