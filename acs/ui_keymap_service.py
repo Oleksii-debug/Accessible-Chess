@@ -83,9 +83,15 @@ class KeymapService:
         decide conflicts, or persist anything. Tab remains native focus navigation,
         Escape cancels capture, and modifier-only events stay incomplete so a
         keyboard-only user cannot accidentally save an unusable binding.
+
+        Browser KeyboardEvent.key represents the Space key as a literal single
+        space in some WebView/Chromium versions. Preserve that exact value before
+        trimming other key names, otherwise Space becomes an empty key and cannot
+        be assigned by a keyboard-only user.
         """
 
-        raw_key = str(key or "").strip()
+        event_key = str(key or "")
+        raw_key = event_key if event_key == " " else event_key.strip()
         if raw_key == "Tab":
             return self._capture_control("navigation", "Tab")
         if raw_key in {"Escape", "Esc"}:
