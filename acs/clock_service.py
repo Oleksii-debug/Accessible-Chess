@@ -169,6 +169,41 @@ class ChessClock:
             self._state = ClockState.PAUSED if self._active is not None else ClockState.STOPPED
         return self.snapshot()
 
+    def restore(self, snapshot: ClockSnapshot, *, resume_running: bool = False) -> ClockSnapshot:
+        """Restore a validated historical clock snapshot without owning history.
+
+        A snapshot captured while running is restored paused by default so time
+        cannot leak while a destructive undo/redo operation is still being
+        coordinated. ``resume_running=True`` resumes it from the current
+        monotonic instant after the restore is complete.
+        """
+        if not isinstance(snapshot, ClockSnapshot):
+            raise ClockError("snapshot must be a ClockSnapshot")
+        self._validate_snapshot(snapshot)
+        if self.control.untimed:
+            if snapshot.white_ms != 0 or snapshot.black_ms != 0:
+                raise ClockError("untimed clock snapshots must have zero remaining time")
+            self._remaining = {"w": 0, "b": 0}
+            self._active = None
+            self._flagged = None
+            self._state = ClockState.STOPPED
+            self._last_tick = None
+            return self.snapshot()
+
+        self._remaining = {"w": int(snapshot.white_ms), "b": int(snapshot.black_ms)}
+        self._active = snapshot.active
+        self._flagged = snapshot.flagged
+        self._last_tick = None
+
+        if snapshot.state is ClockState.RUNNING:
+            self._state = ClockState.PAUSED
+            if resume_running:
+                self._state = ClockState.RUNNING
+                self._last_tick = self._now()
+        else:
+            self._state = snapshot.state
+        return self.snapshot()
+
     def reset(self, *, side_to_move: str | None = None) -> ClockSnapshot:
         if side_to_move is not None:
             self._validate_side(side_to_move)
@@ -201,6 +236,26 @@ class ChessClock:
             self._last_tick = None
         else:
             self._remaining[side] = remaining
+
+    @classmethod
+    def _validate_snapshot(cls, snapshot: ClockSnapshot) -> None:
+        if snapshot.white_ms < 0 or snapshot.black_ms < 0:
+            raise ClockError("snapshot remaining time must not be negative")
+        if snapshot.active is not None:
+            cls._validate_side(snapshot.active)
+        if snapshot.flagged is not None:
+            cls._validate_side(snapshot.flagged)
+        if snapshot.state in {ClockState.RUNNING, ClockState.PAUSED} and snapshot.active is None:
+            raise ClockError("running or paused snapshot requires an active side")
+        if snapshot.state is ClockState.STOPPED and snapshot.active is not None:
+            raise ClockError("stopped snapshot must not have an active side")
+        if snapshot.state is ClockState.FLAGGED:
+            if snapshot.flagged is None or snapshot.active is not None:
+                raise ClockError("flagged snapshot requires flagged side and no active side")
+            if snapshot.remaining(snapshot.flagged) != 0:
+                raise ClockError("flagged side must have zero remaining time")
+        elif snapshot.flagged is not None:
+            raise ClockError("only flagged snapshots may carry flagged side")
 
     @staticmethod
     def _validate_side(side: str) -> None:
