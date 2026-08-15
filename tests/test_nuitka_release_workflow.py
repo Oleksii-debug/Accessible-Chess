@@ -42,6 +42,16 @@ class NuitkaReleaseWorkflowContractTests(unittest.TestCase):
         self.assertIn('NVDA TEST CANDIDATE — WAITING FOR USER TEST', self.text)
         self.assertNotIn('NVDA VERIFIED', self.text)
 
+    def test_final_zip_is_verified_before_artifact_upload(self) -> None:
+        archive_step = self.text.index('- name: Archive internal standalone artifact')
+        verify_step = self.text.index('- name: Verify final ZIP artifact against release manifest')
+        upload_step = self.text.index('- name: Upload internal standalone artifact')
+        self.assertLess(archive_step, verify_step)
+        self.assertLess(verify_step, upload_step)
+        self.assertIn('from acs.release_archive import verify_release_archive', self.text)
+        self.assertIn('FINAL ZIP VERIFICATION FAILED', self.text)
+        self.assertIn('expected_version=version', self.text)
+
     def test_does_not_claim_signing_or_stockfish_release_readiness(self) -> None:
         self.assertIn('signing_status=UNSIGNED_INTERNAL_BUILD', self.text)
         self.assertIn('stockfish_bundle_status=NOT_RELEASE_GATED_BY_THIS_WORKFLOW', self.text)
