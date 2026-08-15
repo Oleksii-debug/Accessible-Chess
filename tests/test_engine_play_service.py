@@ -8,10 +8,12 @@ from acs.engine_play_service import (
     EnginePlayService,
     EngineSideMode,
     choose_engine_side,
+    dispatch_lifecycle_handoff,
     level_policy,
     resolve_engine_game_config,
 )
 from acs.engine_ports import EngineMoveRequest
+from acs.game_lifecycle import EndReason, GameLifecycle, GameStatus
 
 
 class FakeMoveEngine:
@@ -99,6 +101,49 @@ class EnginePlayServiceTests(unittest.TestCase):
                 self.assertEqual(handoff.actor, 'w')
                 with self.assertRaisesRegex(ValueError, 'requires actor'):
                     EngineGameHandoff(intent)
+
+    def test_lifecycle_dispatch_routes_takeback_without_mutating_board_or_history(self):
+        lifecycle = GameLifecycle()
+        requested = dispatch_lifecycle_handoff(
+            lifecycle,
+            EngineGameHandoff(EngineGameIntent.REQUEST_TAKEBACK, actor='w'),
+        )
+        self.assertEqual(requested.takeback_requested_by, 'w')
+        accepted = dispatch_lifecycle_handoff(
+            lifecycle,
+            EngineGameHandoff(EngineGameIntent.ACCEPT_TAKEBACK, actor='b'),
+        )
+        self.assertIsNone(accepted.takeback_requested_by)
+        self.assertEqual(accepted.status, GameStatus.ACTIVE)
+        self.assertIsNone(accepted.outcome)
+
+    def test_lifecycle_dispatch_routes_draw_and_resign_to_canonical_service(self):
+        draw = GameLifecycle()
+        dispatch_lifecycle_handoff(draw, EngineGameHandoff(EngineGameIntent.OFFER_DRAW, actor='w'))
+        drawn = dispatch_lifecycle_handoff(draw, EngineGameHandoff(EngineGameIntent.ACCEPT_DRAW, actor='b'))
+        self.assertEqual(drawn.status, GameStatus.FINISHED)
+        self.assertEqual(drawn.outcome.reason, EndReason.DRAW_AGREEMENT)
+        self.assertEqual(drawn.outcome.result, '1/2-1/2')
+
+        resignation = GameLifecycle()
+        resigned = dispatch_lifecycle_handoff(
+            resignation,
+            EngineGameHandoff(EngineGameIntent.RESIGN, actor='b'),
+        )
+        self.assertEqual(resigned.status, GameStatus.FINISHED)
+        self.assertEqual(resigned.outcome.reason, EndReason.RESIGNATION)
+        self.assertEqual(resigned.outcome.result, '1-0')
+        self.assertEqual(resigned.outcome.winner, 'w')
+
+    def test_lifecycle_dispatch_rejects_non_lifecycle_handoff_and_wrong_types(self):
+        lifecycle = GameLifecycle()
+        analysis = EngineGameHandoff(EngineGameIntent.ANALYZE_CURRENT_GAME, fen='fen')
+        with self.assertRaisesRegex(ValueError, 'not a lifecycle intent'):
+            dispatch_lifecycle_handoff(lifecycle, analysis)
+        with self.assertRaisesRegex(TypeError, 'GameLifecycle'):
+            dispatch_lifecycle_handoff(object(), EngineGameHandoff(EngineGameIntent.RESIGN, actor='w'))
+        with self.assertRaisesRegex(TypeError, 'EngineGameHandoff'):
+            dispatch_lifecycle_handoff(lifecycle, object())
 
     def test_analyze_current_game_handoff_requires_and_normalizes_fen(self):
         handoff = EngineGameHandoff(EngineGameIntent.ANALYZE_CURRENT_GAME, fen='  fen-current  ')
