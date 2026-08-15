@@ -8,10 +8,12 @@ on:
       - 'acs/security_contracts.py'
       - 'acs/security_redaction.py'
       - 'acs/release_manifest.py'
+      - 'acs/release_archive.py'
       - 'acs/logging_setup.py'
       - 'tests/test_security_contracts.py'
       - 'tests/test_security_redaction.py'
       - 'tests/test_release_manifest.py'
+      - 'tests/test_release_archive.py'
       - 'tests/test_logging_redaction.py'
       - 'tests/test_architecture.py'
       - 'tests/test_nuitka_release_workflow.py'
@@ -22,10 +24,12 @@ on:
       - 'acs/security_contracts.py'
       - 'acs/security_redaction.py'
       - 'acs/release_manifest.py'
+      - 'acs/release_archive.py'
       - 'acs/logging_setup.py'
       - 'tests/test_security_contracts.py'
       - 'tests/test_security_redaction.py'
       - 'tests/test_release_manifest.py'
+      - 'tests/test_release_archive.py'
       - 'tests/test_logging_redaction.py'
       - 'tests/test_architecture.py'
       - 'tests/test_nuitka_release_workflow.py'
@@ -51,13 +55,16 @@ jobs:
           python-version: '3.11'
 
       - name: Compile QA and security modules
-        run: python -m py_compile acs/security_contracts.py acs/security_redaction.py acs/release_manifest.py acs/logging_setup.py tests/test_security_contracts.py tests/test_security_redaction.py tests/test_release_manifest.py tests/test_logging_redaction.py tests/test_architecture.py tests/test_nuitka_release_workflow.py
+        run: python -m py_compile acs/security_contracts.py acs/security_redaction.py acs/release_manifest.py acs/release_archive.py acs/logging_setup.py tests/test_security_contracts.py tests/test_security_redaction.py tests/test_release_manifest.py tests/test_release_archive.py tests/test_logging_redaction.py tests/test_architecture.py tests/test_nuitka_release_workflow.py
 
       - name: Run entitlement contract tests
         run: python -m unittest -v tests.test_security_contracts
 
       - name: Run release manifest and packaged-distribution tests
         run: python -m unittest -v tests.test_release_manifest
+
+      - name: Run final release archive integrity tests
+        run: python -m unittest -v tests.test_release_archive
 
       - name: Run standalone-first Nuitka workflow contract tests
         run: python -m unittest -v tests.test_nuitka_release_workflow
