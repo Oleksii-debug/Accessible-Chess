@@ -8,8 +8,12 @@ from acs.sound_events import SoundEvent, SoundEventPolicy, MoveSoundFacts
 class NotationProfileRegistryTests(unittest.TestCase):
     def test_builtins_delegate_to_canonical_formatter(self):
         registry = NotationProfileRegistry()
-        self.assertEqual(registry.profile_ids(), ("san", "uk_literal", "en_literal"))
+        self.assertEqual(
+            registry.profile_ids(),
+            ("san", "accessible_compact", "uk_literal", "en_literal"),
+        )
         self.assertEqual(registry.format("Nf3", "SAN"), "Nf3")
+        self.assertEqual(registry.format("Nf3", "ACCESSIBLE_COMPACT"), "N f 3")
         self.assertEqual(registry.format("Bb5+", "uk_literal"), "слон b 5, шах")
         self.assertEqual(registry.format("Rxe7+", "en_literal"), "rook takes e 7, check")
 
@@ -26,6 +30,8 @@ class NotationProfileRegistryTests(unittest.TestCase):
         registry = NotationProfileRegistry()
         self.assertEqual(registry.profile_ids(locale="UK"), ("uk_literal",))
         self.assertTrue(registry.descriptor("san").built_in)
+        self.assertTrue(registry.descriptor("accessible_compact").built_in)
+        self.assertIsNone(registry.descriptor("accessible_compact").locale)
 
     def test_duplicate_and_builtin_removal_are_rejected(self):
         registry = NotationProfileRegistry()
@@ -33,6 +39,8 @@ class NotationProfileRegistryTests(unittest.TestCase):
             registry.register(NotationProfileDescriptor("san", "Other"), str)
         with self.assertRaisesRegex(ValueError, "cannot be unregistered"):
             registry.unregister("SAN")
+        with self.assertRaisesRegex(ValueError, "cannot be unregistered"):
+            registry.unregister("ACCESSIBLE_COMPACT")
 
     def test_external_profile_can_be_unregistered(self):
         registry = NotationProfileRegistry(include_builtins=False)
