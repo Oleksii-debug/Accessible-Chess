@@ -14,6 +14,8 @@ on:
       - 'tests/test_release_manifest.py'
       - 'tests/test_logging_redaction.py'
       - 'tests/test_architecture.py'
+      - 'tests/test_nuitka_release_workflow.py'
+      - '.github/workflows/windows-nuitka-standalone.yml'
       - '.github/workflows/qa-release-security.yml'
   pull_request:
     paths:
@@ -26,6 +28,8 @@ on:
       - 'tests/test_release_manifest.py'
       - 'tests/test_logging_redaction.py'
       - 'tests/test_architecture.py'
+      - 'tests/test_nuitka_release_workflow.py'
+      - '.github/workflows/windows-nuitka-standalone.yml'
       - '.github/workflows/qa-release-security.yml'
   workflow_dispatch:
 
@@ -34,7 +38,7 @@ permissions:
 
 jobs:
   security-contracts:
-    name: Security, release integrity, redaction, and architecture boundaries
+    name: Security, release integrity, redaction, architecture, and packaging boundaries
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -47,13 +51,16 @@ jobs:
           python-version: '3.11'
 
       - name: Compile QA and security modules
-        run: python -m py_compile acs/security_contracts.py acs/security_redaction.py acs/release_manifest.py acs/logging_setup.py tests/test_security_contracts.py tests/test_security_redaction.py tests/test_release_manifest.py tests/test_logging_redaction.py tests/test_architecture.py
+        run: python -m py_compile acs/security_contracts.py acs/security_redaction.py acs/release_manifest.py acs/logging_setup.py tests/test_security_contracts.py tests/test_security_redaction.py tests/test_release_manifest.py tests/test_logging_redaction.py tests/test_architecture.py tests/test_nuitka_release_workflow.py
 
       - name: Run entitlement contract tests
         run: python -m unittest -v tests.test_security_contracts
 
       - name: Run release manifest and packaged-distribution tests
         run: python -m unittest -v tests.test_release_manifest
+
+      - name: Run standalone-first Nuitka workflow contract tests
+        run: python -m unittest -v tests.test_nuitka_release_workflow
 
       - name: Run diagnostic redaction tests
         run: python -m unittest -v tests.test_security_redaction
