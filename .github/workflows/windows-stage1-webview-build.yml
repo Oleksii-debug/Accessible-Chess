@@ -26,13 +26,11 @@ jobs:
       - name: Reconstruct verified 0.3.3 functional baseline
         shell: pwsh
         run: |
+          $ErrorActionPreference = 'Stop'
           $ordered = @(
-            'build_snapshot_exact\group00.b64',
-            'build_snapshot_exact\group01.b64',
-            'build_parts10k\part04.b64',
-            'build_parts10k\part05.b64',
-            'build_parts10k\part06.b64',
-            'build_parts10k\part07.b64'
+            'build_snapshot_exact\group00.b64','build_snapshot_exact\group01.b64',
+            'build_parts10k\part04.b64','build_parts10k\part05.b64',
+            'build_parts10k\part06.b64','build_parts10k\part07.b64'
           )
           foreach ($f in $ordered) { if (-not (Test-Path $f)) { throw "Missing source chunk: $f" } }
           $b64 = ($ordered | ForEach-Object { Get-Content -LiteralPath $_ -Raw }) -join ''
@@ -47,6 +45,7 @@ jobs:
       - name: Apply complete current integration overlay
         shell: pwsh
         run: |
+          $ErrorActionPreference = 'Stop'
           New-Item -ItemType Directory -Force -Path 'work\acs','work\web','work\tests' | Out-Null
           Copy-Item 'acs\*.py' 'work\acs\' -Force
           Copy-Item 'web\*' 'work\web\' -Recurse -Force
@@ -65,30 +64,40 @@ jobs:
         shell: pwsh
         working-directory: work
         run: |
-          python -m pip install --upgrade pip
+          $ErrorActionPreference = 'Stop'
+          python -m pip install --upgrade pip pytest
+          if ($LASTEXITCODE -ne 0) { throw 'Test dependency installation failed' }
           python -m compileall -q acs tests run_accessible_chess.py
+          if ($LASTEXITCODE -ne 0) { throw 'Compile gate failed' }
           python -m unittest discover -s tests -v
+          if ($LASTEXITCODE -ne 0) { throw 'Windows regression suite failed' }
           python run_accessible_chess.py --diagnostic
+          if ($LASTEXITCODE -ne 0) { throw 'Source diagnostic failed' }
 
       - name: Install WebView2 and standalone build dependencies
         shell: pwsh
         working-directory: work
         run: |
+          $ErrorActionPreference = 'Stop'
           python -m pip install "pywebview==6.2.1" "nuitka>=2.7,<3" ordered-set zstandard
+          if ($LASTEXITCODE -ne 0) { throw 'Build dependency installation failed' }
           python -c "import webview; print('PYWEBVIEW IMPORT PASS')"
+          if ($LASTEXITCODE -ne 0) { throw 'pywebview import failed' }
 
       - name: Build autonomous Nuitka standalone WebView2 app
         shell: pwsh
         working-directory: work
         run: |
+          $ErrorActionPreference = 'Stop'
           python -m nuitka `
             --mode=standalone `
             --assume-yes-for-downloads `
             --windows-console-mode=disable `
             --output-filename=AccessibleChess.exe `
-            --include-package=webview `
+            --enable-plugin=pywebview `
             --include-data-dir=web=web `
             run_accessible_chess.py
+          if ($LASTEXITCODE -ne 0) { throw 'Nuitka standalone compilation failed' }
           if (-not (Test-Path 'run_accessible_chess.dist\AccessibleChess.exe')) { throw 'Nuitka standalone AccessibleChess.exe missing' }
           $rawPy = Get-ChildItem 'run_accessible_chess.dist' -Recurse -Filter '*.py' -File
           if ($rawPy) { throw "Raw Python source leaked into standalone package: $($rawPy.FullName -join ', ')" }
@@ -111,15 +120,15 @@ jobs:
           Stop-Process -Id $p.Id -Force
           'WEBVIEW2 STARTUP SMOKE PASS'
 
-      - name: Add official Stockfish 18 and GPL source offer material
+      - name: Add official Stockfish 18 and GPL source material
         shell: pwsh
         working-directory: work
         run: |
+          $ErrorActionPreference = 'Stop'
           New-Item -ItemType Directory -Force -Path 'package\WINDOWS_EXE','package\THIRD_PARTY' | Out-Null
           Copy-Item 'run_accessible_chess.dist\*' 'package\WINDOWS_EXE\' -Recurse -Force
           New-Item -ItemType Directory -Force -Path 'package\WINDOWS_EXE\engine' | Out-Null
-          $engineUrl = 'https://github.com/official-stockfish/Stockfish/releases/download/sf_18/stockfish-windows-x86-64.zip'
-          Invoke-WebRequest -Uri $engineUrl -OutFile 'stockfish18-windows.zip'
+          Invoke-WebRequest -Uri 'https://github.com/official-stockfish/Stockfish/releases/download/sf_18/stockfish-windows-x86-64.zip' -OutFile 'stockfish18-windows.zip'
           Expand-Archive 'stockfish18-windows.zip' -DestinationPath 'stockfish18' -Force
           $engine = Get-ChildItem 'stockfish18' -Recurse -Filter '*.exe' | Where-Object { $_.Name -match 'stockfish.*x86-64' } | Select-Object -First 1
           if (-not $engine) { throw 'Official Stockfish 18 generic Windows executable not found' }
@@ -135,6 +144,7 @@ jobs:
         shell: pwsh
         working-directory: work
         run: |
+          $ErrorActionPreference = 'Stop'
           Copy-Item 'ACCESSIBILITY_0.4_ARCHITECTURE.md' 'package' -Force
           Copy-Item 'VERSION.txt' 'package' -Force
           if (Test-Path 'HOTKEYS_UA.txt') { Copy-Item 'HOTKEYS_UA.txt' 'package' -Force }
@@ -143,7 +153,7 @@ jobs:
           @"
           ACCESSIBLE CHESS 0.4 — WINDOWS/NVDA TEST CANDIDATE
           Exact Git head: $head
-          Current integration release regression suite: PASS
+          Current Windows regression suite: PASS
           Non-destructive history review boundary: PASS
           Shared compact accessible SAN spacing: PASS
           Nuitka standalone build: PASS
