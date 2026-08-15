@@ -14,25 +14,63 @@ class HistoryReviewUiIntegrationTests(unittest.TestCase):
     def test_review_navigation_is_non_destructive_and_reversible(self):
         api = AccessibleChessAPI("uk")
         _play_opening(api)
+        live_board = api.board
         end_fen = api.board.fen()
         end_sans = list(api.sans)
+        undo_len = len(api.board.undo_stack)
+        redo_len = len(api.board.redo_stack)
+
         previous = api.review_previous()
         self.assertTrue(previous["ok"])
         self.assertEqual(previous["reviewCursor"], 3)
         self.assertEqual(api.sans, end_sans)
-        self.assertNotEqual(api.board.fen(), end_fen)
+        self.assertIs(api.board, live_board)
+        self.assertEqual(api.board.fen(), end_fen)
+        self.assertEqual(len(api.board.undo_stack), undo_len)
+        self.assertEqual(len(api.board.redo_stack), redo_len)
+        self.assertNotEqual(previous["fen"], end_fen)
         self.assertNotIn("N c 6", previous["moves"])
+
         forward = api.review_next()
         self.assertTrue(forward["ok"])
         self.assertEqual(forward["reviewCursor"], 4)
+        self.assertIs(api.board, live_board)
         self.assertEqual(api.board.fen(), end_fen)
         self.assertEqual(api.sans, end_sans)
         self.assertIn("N c 6", forward["moves"])
 
+    def test_review_end_then_undo_redo_restores_exact_live_position_and_history(self):
+        api = AccessibleChessAPI("en")
+        _play_opening(api)
+        live_board = api.board
+        end_fen = api.board.fen()
+        end_sans = list(api.sans)
+
+        self.assertTrue(api.review_previous()["ok"])
+        self.assertTrue(api.review_previous()["ok"])
+        self.assertTrue(api.go_to_move("end")["ok"])
+        self.assertIs(api.board, live_board)
+        self.assertEqual(api.board.fen(), end_fen)
+
+        undone = api.undo()
+        self.assertTrue(undone["ok"])
+        self.assertIs(api.board, live_board)
+        self.assertEqual(len(api.sans), len(end_sans) - 1)
+        self.assertNotEqual(api.board.fen(), end_fen)
+
+        redone = api.redo()
+        self.assertTrue(redone["ok"])
+        self.assertIs(api.board, live_board)
+        self.assertEqual(api.board.fen(), end_fen)
+        self.assertEqual(api.sans, end_sans)
+        self.assertTrue(redone["atHistoryEnd"])
+
     def test_direct_history_jump_supports_locked_forms(self):
         api = AccessibleChessAPI("en")
         _play_opening(api)
+        live_fen = api.board.fen()
         self.assertEqual(api.go_to_move("start")["reviewCursor"], 0)
+        self.assertEqual(api.board.fen(), live_fen)
         white_two = api.go_to_move("2w")
         self.assertTrue(white_two["ok"])
         self.assertEqual(white_two["reviewCursor"], 3)
@@ -40,15 +78,34 @@ class HistoryReviewUiIntegrationTests(unittest.TestCase):
         self.assertEqual(api.go_to_move("2...")["reviewCursor"], 4)
         self.assertEqual(api.go_to_move("2")["reviewCursor"], 4)
         self.assertEqual(api.go_to_move("end")["reviewCursor"], 4)
+        self.assertEqual(api.board.fen(), live_fen)
 
-    def test_invalid_jump_preserves_current_review_state(self):
+    def test_invalid_jump_preserves_current_review_state_and_live_board(self):
         api = AccessibleChessAPI("uk")
         _play_opening(api)
-        before_fen, before_cursor = api.board.fen(), api.review_cursor
+        live_board = api.board
+        live_fen = api.board.fen()
+        api.review_previous()
+        before_display_fen, before_cursor = api.get_state()["fen"], api.review_cursor
         invalid = api.go_to_move("99")
         self.assertFalse(invalid["ok"])
         self.assertEqual(api.review_cursor, before_cursor)
-        self.assertEqual(api.board.fen(), before_fen)
+        self.assertEqual(api.get_state()["fen"], before_display_fen)
+        self.assertIs(api.board, live_board)
+        self.assertEqual(api.board.fen(), live_fen)
+
+    def test_undo_then_new_move_creates_live_variation_without_reusing_redo_branch(self):
+        api = AccessibleChessAPI("en")
+        _play_opening(api)
+        old_end = api.board.fen()
+        self.assertTrue(api.undo()["ok"])
+        self.assertTrue(api.make_move("d6")["ok"])
+        self.assertNotEqual(api.board.fen(), old_end)
+        self.assertFalse(api.redo_meta)
+        self.assertTrue(api.get_state()["atHistoryEnd"])
+        self.assertTrue(api.review_previous()["ok"])
+        self.assertTrue(api.review_next()["ok"])
+        self.assertEqual(api.get_state()["fen"], api.board.fen())
 
     def test_history_ui_is_semantic_but_does_not_break_locked_h2_order(self):
         html = (Path(__file__).resolve().parents[1] / "web" / "index.html").read_text(encoding="utf-8")

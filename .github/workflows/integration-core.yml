@@ -54,10 +54,10 @@ jobs:
         run: |
           mkdir -p work/acs work/web work/tests
           for file in \
-            webapp.py webapp_keymap.py analysis_service.py continuous_analysis.py history.py keybindings.py notation.py \
+            webapp.py webapp_keymap.py analysis_service.py continuous_analysis.py history.py keybindings.py notation.py notation_registry.py \
             ui_keymap_adapter.py ui_keymap_editor.py ui_keymap_service.py ui_native_menu.py ui_review_adapter.py \
             engine_ports.py engine_play_service.py engine_registry.py engine_game_session.py clock_service.py game_lifecycle.py \
-            board_service.py move_entry.py position_editor.py sound_events.py training.py settings.py entitlements.py \
+            board_service.py move_entry.py position_editor.py sound_events.py sound_dispatch.py training.py settings.py entitlements.py \
             gametree.py acsdb.py import_contract.py import_registry.py pgn_service.py \
             bookdocument.py chessbase_adapter.py
           do
@@ -69,7 +69,7 @@ jobs:
             test_accessible_webui.py test_analysis_service.py test_continuous_analysis.py test_nvda_p0_contract.py \
             test_data_integration.py test_chessbase_adapter.py test_import_registry.py \
             test_pgn_service.py test_architecture.py test_history.py test_keybindings.py \
-            test_ui_keymap_editor.py test_keymap_import_warning_confirmation_integration.py test_notation.py test_engine_play_service.py \
+            test_ui_keymap_editor.py test_keymap_import_warning_confirmation_integration.py test_notation.py test_extension_registries.py test_engine_play_service.py \
             test_engine_game_session.py test_ui_review_adapter.py \
             test_clock_service.py test_game_lifecycle.py test_board_service.py test_move_entry.py test_position_editor.py \
             test_sound_events.py test_training.py test_settings.py test_entitlements.py \
@@ -105,24 +105,15 @@ jobs:
       - name: Sound, training, settings and entitlement gates
         working-directory: work
         run: python -m unittest -v tests.test_sound_events tests.test_training tests.test_settings tests.test_entitlements
+      - name: Extension registry gates
+        working-directory: work
+        run: python -m unittest -v tests.test_extension_registries
       - name: Remappable actions, editor, import safety and notation gates
         working-directory: work
         run: python -m unittest -v tests.test_keybindings tests.test_ui_keymap_editor tests.test_keymap_import_warning_confirmation_integration tests.test_notation
-      - name: History review state gate
+      - name: Full non-destructive history runtime and presentation gate
         working-directory: work
-        run: python -m unittest -v tests.test_history_review_ui.HistoryReviewUiIntegrationTests.test_review_navigation_is_non_destructive_and_reversible
-      - name: History direct jump gate
-        working-directory: work
-        run: python -m unittest -v tests.test_history_review_ui.HistoryReviewUiIntegrationTests.test_direct_history_jump_supports_locked_forms
-      - name: History invalid jump gate
-        working-directory: work
-        run: python -m unittest -v tests.test_history_review_ui.HistoryReviewUiIntegrationTests.test_invalid_jump_preserves_current_review_state
-      - name: History semantic H2 gate
-        working-directory: work
-        run: python -m unittest -v tests.test_history_review_ui.HistoryReviewUiIntegrationTests.test_history_ui_is_semantic_but_does_not_break_locked_h2_order
-      - name: History central shortcut authority gate
-        working-directory: work
-        run: python -m unittest -v tests.test_history_review_ui.HistoryReviewUiIntegrationTests.test_history_shortcuts_come_from_central_keymap_not_hardcoded_handler
+        run: python -m unittest -v tests.test_history_review_ui
       - name: Keymap import warning contract gate
         working-directory: work
         run: python -m unittest -v tests.test_keymap_import_warning_confirmation

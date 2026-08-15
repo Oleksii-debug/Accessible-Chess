@@ -2,56 +2,37 @@ from __future__ import annotations
 
 """Keymap-aware composition root for the semantic WebView2 UI.
 
-The legacy :mod:`acs.webapp` class still contains compatibility shortcut logic.
-This module is the release-facing API used by the launcher: it routes move-entry
+This is the release-facing API used by the launcher. It routes move-entry
 aliases through :class:`KeymapService`, persists the user's profile outside the
-installation directory, and exposes JSON-friendly keymap operations to WebView2.
+installation directory, and projects the chosen literal notation profile
+through the shared notation formatter.
 
 Action IDs remain stable; only their user-facing bindings/aliases are mutable.
-The release composition root also redirects the legacy presentation SAN helper
-to the shared notation formatter so move lists, last-move text and announcements
-do not maintain a second notation implementation.
 """
 
 import os
 from pathlib import Path
 from typing import Any
 
-from . import webapp as _legacy_webapp
+from . import webapp as _webapp
 from .keybindings import BindingContext
 from .notation import NotationError, format_san
 from .ui_keymap_service import KeymapService
 from .ui_native_menu import make_keymap_menu
 
 
-AccessibleChessAPI = _legacy_webapp.AccessibleChessAPI
-_asset_root = _legacy_webapp._asset_root
+AccessibleChessAPI = _webapp.AccessibleChessAPI
+_asset_root = _webapp._asset_root
 
 
 def _shared_spoken_san(san: str, lang: str = "uk") -> str:
-    """Render SAN through the one shared notation layer used by release UI.
-
-    ``AccessibleChessAPI`` still calls its historical module-level helper from
-    several inherited methods. Rebinding that helper here is a bounded
-    compatibility shim: it fixes the release-facing WebView without copying
-    notation rules into presentation code or forcing a big-bang rewrite of the
-    legacy module. Once the legacy API is retired this shim can disappear.
-    """
+    """Render SAN through the shared literal notation layer used by release UI."""
 
     profile = "uk_literal" if lang == "uk" else "en_literal"
     try:
         return format_san(san, profile)
     except NotationError:
-        # A Board-produced SAN token should normally be supported. Keep the UI
-        # readable if an unexpected future SAN extension appears, while leaving
-        # the canonical formatter as the only place that interprets notation.
         return str(san).strip().replace("0-0-0", "O-O-O").replace("0-0", "O-O")
-
-
-# The inherited API resolves ``_spoken_san`` in acs.webapp globals. Patch that
-# single compatibility seam at the composition root rather than forking every
-# inherited move/history method. No chess/domain rule is changed here.
-_legacy_webapp._spoken_san = _shared_spoken_san
 
 
 def default_keymap_path() -> Path:
@@ -74,8 +55,6 @@ class KeymapAwareAccessibleChessAPI(AccessibleChessAPI):
         super().__init__(lang)
         self.keymap_service = KeymapService(keymap_path or default_keymap_path(), lang=self.lang)
 
-    # JSON-friendly bridge methods. WebView2 must call these rather than
-    # reproducing normalization/conflict/persistence rules in JavaScript.
     def keymap_snapshot(self) -> dict[str, Any]:
         return self.keymap_service.snapshot()
 
@@ -114,8 +93,6 @@ class KeymapAwareAccessibleChessAPI(AccessibleChessAPI):
         return self.keymap_service.export_profile()
 
     def keymap_import_profile(self, text: str, allow_warnings: bool = False) -> dict[str, Any]:
-        """Import a profile through the same warning-confirmation policy as edits."""
-
         return self.keymap_service.import_profile(text, allow_warnings=allow_warnings)
 
     def keymap_resolve_binding(self, context: str, binding: str) -> dict[str, Any] | None:
@@ -123,6 +100,44 @@ class KeymapAwareAccessibleChessAPI(AccessibleChessAPI):
 
     def keymap_resolve_alias(self, context: str, alias: str) -> dict[str, Any] | None:
         return self.keymap_service.resolve_alias(context, alias)
+
+    def _moves_text(self) -> str:
+        """Release move list uses the shared UA/EN literal notation profile."""
+
+        count = self._visible_ply_count()
+        if count == 0:
+            return self._t("no_moves")
+        sans = self.sans[:count]
+        sides = self.move_sides[:count]
+        out: list[str] = []
+        move_no = 1
+        i = 0
+        while i < len(sans):
+            if sides[i] == "w":
+                white = _shared_spoken_san(sans[i], self.lang)
+                if i + 1 < len(sans) and sides[i + 1] == "b":
+                    black = _shared_spoken_san(sans[i + 1], self.lang)
+                    out.append(f"{move_no}. {white}, {black}.")
+                    i += 2
+                else:
+                    out.append(f"{move_no}. {white}.")
+                    i += 1
+                move_no += 1
+            else:
+                out.append(f"{move_no}... {_shared_spoken_san(sans[i], self.lang)}.")
+                move_no += 1
+                i += 1
+        return "\n".join(out)
+
+    def get_state(self) -> dict[str, Any]:
+        state = super().get_state()
+        visible = self._visible_ply_count()
+        state["lastMove"] = (
+            _shared_spoken_san(self.sans[visible - 1], self.lang)
+            if visible else self._t("no_last")
+        )
+        state["moves"] = self._moves_text()
+        return state
 
     def set_language(self, lang: str) -> dict[str, Any]:
         result = super().set_language(lang)
@@ -134,9 +149,9 @@ class KeymapAwareAccessibleChessAPI(AccessibleChessAPI):
         """Execute a remappable move-entry command or parse literal chess input.
 
         This deliberately does not call ``AccessibleChessAPI.make_move`` because
-        that compatibility method contains the old hardcoded one-letter command
-        dictionary. A removed/remapped alias must become ordinary chess input,
-        never remain a hidden second shortcut.
+        that compatibility method contains its legacy one-letter command map. A
+        removed/remapped alias must become ordinary chess input, never remain a
+        hidden second shortcut.
         """
 
         text = (text or "").strip()
@@ -149,7 +164,7 @@ class KeymapAwareAccessibleChessAPI(AccessibleChessAPI):
 
         if not self._at_history_end():
             return self._error(self._t("review_before_move"))
-        if not self._position_complete():
+        if not self._position_complete(self.board):
             return self._error(self._t("setup_incomplete"))
         try:
             side = self.board.turn
@@ -158,8 +173,11 @@ class KeymapAwareAccessibleChessAPI(AccessibleChessAPI):
             self.move_sides.append(side)
             self.redo_meta.clear()
             self.selected_source = None
-            self._record_position_after_move()
-            return self._ok(("Зіграно: " if self.lang == "uk" else "Played: ") + _shared_spoken_san(san, self.lang))
+            self._record_position_after_move(san, side)
+            return self._ok(
+                ("Зіграно: " if self.lang == "uk" else "Played: ")
+                + _shared_spoken_san(san, self.lang)
+            )
         except Exception as exc:
             return self._error(str(exc))
 
