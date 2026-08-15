@@ -1,0 +1,72 @@
+name: Windows WebView2 Environment Characterization
+
+on:
+  push:
+    branches:
+      - qa/review-history-p0-fix
+    paths:
+      - '.github/workflows/windows-webview-env-characterization.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  characterize:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Reconstruct current source
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $ordered = @(
+            'build_snapshot_exact\group00.b64','build_snapshot_exact\group01.b64',
+            'build_parts10k\part04.b64','build_parts10k\part05.b64',
+            'build_parts10k\part06.b64','build_parts10k\part07.b64'
+          )
+          $b64 = ($ordered | ForEach-Object { Get-Content -LiteralPath $_ -Raw }) -join ''
+          $b64 = $b64 -replace '[^A-Za-z0-9+/=]',''
+          [IO.File]::WriteAllBytes('stage1_source.zip', [Convert]::FromBase64String($b64))
+          Expand-Archive 'stage1_source.zip' 'work' -Force
+          New-Item -ItemType Directory -Force -Path 'work\acs','work\web','work\tests' | Out-Null
+          Copy-Item 'acs\*.py' 'work\acs\' -Force
+          Copy-Item 'web\*' 'work\web\' -Recurse -Force
+          Copy-Item 'run_accessible_chess.py' 'work\run_accessible_chess.py' -Force
+      - name: Install pywebview and inspect WebView2 runtime
+        shell: pwsh
+        working-directory: work
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python -m pip install "pywebview==6.2.1"
+          if ($LASTEXITCODE -ne 0) { throw 'pywebview install failed' }
+          python -c "import webview; print('PYWEBVIEW IMPORT PASS')"
+          if ($LASTEXITCODE -ne 0) { throw 'pywebview import failed' }
+          Write-Host '--- Edge/WebView2 registry hints ---'
+          Get-ChildItem 'HKLM:\SOFTWARE\Microsoft\EdgeUpdate\Clients' -ErrorAction SilentlyContinue | ForEach-Object {
+            Get-ItemProperty $_.PSPath -ErrorAction SilentlyContinue | Select-Object name,pv
+          } | Format-List
+          Get-ChildItem 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients' -ErrorAction SilentlyContinue | ForEach-Object {
+            Get-ItemProperty $_.PSPath -ErrorAction SilentlyContinue | Select-Object name,pv
+          } | Format-List
+      - name: Characterize source GUI startup
+        shell: pwsh
+        working-directory: work
+        run: |
+          $ErrorActionPreference = 'Continue'
+          Remove-Item source-ui.out,source-ui.err -ErrorAction SilentlyContinue
+          $p = Start-Process python -ArgumentList 'run_accessible_chess.py' -PassThru -RedirectStandardOutput source-ui.out -RedirectStandardError source-ui.err
+          Start-Sleep -Seconds 10
+          if ($p.HasExited) {
+            Write-Host "SOURCE_GUI_EXIT_CODE=$($p.ExitCode)"
+            Write-Host '--- stdout ---'
+            if (Test-Path source-ui.out) { Get-Content source-ui.out }
+            Write-Host '--- stderr ---'
+            if (Test-Path source-ui.err) { Get-Content source-ui.err }
+            throw 'Source WebView2 GUI cannot stay alive on this hosted Windows runner'
+          }
+          Stop-Process -Id $p.Id -Force
+          Write-Host 'SOURCE_WEBVIEW2_STARTUP_STAYS_ALIVE'
