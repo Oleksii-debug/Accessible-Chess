@@ -71,7 +71,7 @@ jobs:
           cp web/keybindings.json work/web/keybindings.json
           for file in \
             test_accessible_webui.py test_analysis_service.py test_continuous_analysis.py test_nvda_p0_contract.py \
-            test_data_integration.py test_chessbase_adapter.py test_import_registry.py \
+            test_data_integration.py test_chessbase_adapter.py test_import_registry.py test_windows_data_release_regressions.py \
             test_pgn_service.py test_architecture.py test_history.py test_keybindings.py \
             test_ui_keymap_editor.py test_keymap_import_warning_confirmation_integration.py test_notation.py test_extension_registries.py test_engine_play_service.py \
             test_engine_game_session.py test_ui_review_adapter.py test_ui_entitlement_integration.py \
@@ -93,7 +93,7 @@ jobs:
         run: python -m unittest -v tests.test_data_integration tests.test_pgn_service tests.test_history
       - name: Import registry and read-only adapter gates
         working-directory: work
-        run: python -m unittest -v tests.test_import_registry tests.test_chessbase_adapter
+        run: python -m unittest -v tests.test_import_registry tests.test_chessbase_adapter tests.test_windows_data_release_regressions
       - name: Engine service, continuous analysis and game lifecycle gates
         working-directory: work
         run: python -m unittest -v tests.test_analysis_service tests.test_continuous_analysis tests.test_engine_play_service tests.test_clock_service tests.test_game_lifecycle
