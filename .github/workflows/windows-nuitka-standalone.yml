@@ -147,6 +147,27 @@ jobs:
           stockfish_bundle_status=NOT_RELEASE_GATED_BY_THIS_WORKFLOW
           "@ | Set-Content -Encoding UTF8 (Join-Path $dist 'RELEASE-BUILD.txt')
 
+      - name: Verify final package tree against release manifest
+        shell: pwsh
+        run: |
+          $dist = (Get-Content 'build-nuitka\DIST_ROOT.txt' -Raw).Trim()
+          $version = (Get-Content 'VERSION.txt' -Raw).Trim()
+          $env:ACS_DIST = $dist
+          $env:ACS_VERSION = $version
+          @'
+          import os
+          from pathlib import Path
+          from acs.release_manifest import load_release_manifest, verify_release_manifest
+
+          root = Path(os.environ['ACS_DIST'])
+          version = os.environ['ACS_VERSION']
+          manifest = load_release_manifest(root / 'RELEASE-MANIFEST.json')
+          defects = verify_release_manifest(root, manifest, expected_version=version)
+          if defects:
+              raise SystemExit('RELEASE MANIFEST VERIFICATION FAILED:\n' + '\n'.join(defects))
+          print(f'RELEASE MANIFEST VERIFICATION PASS: {len(manifest.files)} payload files')
+          '@ | python -
+
       - name: Archive internal standalone artifact
         shell: pwsh
         run: |
