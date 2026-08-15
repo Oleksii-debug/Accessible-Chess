@@ -54,13 +54,20 @@ class AnalysisService:
     """Coordinates one engine provider and invalidates stale results.
 
     ``engine_factory`` is injectable so source tests never need a Stockfish
-    binary. The real composition root may supply UCIEngine or another adapter
-    implementing ``AnalysisEnginePort``.
+    binary. ``owns_engine=False`` is used by the production shared runtime: the
+    runtime then owns provider shutdown and multiple services cannot close each
+    other's subprocess.
     """
 
-    def __init__(self, engine_factory: Callable[[], AnalysisEnginePort]) -> None:
+    def __init__(
+        self,
+        engine_factory: Callable[[], AnalysisEnginePort],
+        *,
+        owns_engine: bool = True,
+    ) -> None:
         self._engine_factory = engine_factory
         self._engine: AnalysisEnginePort | None = None
+        self._owns_engine = bool(owns_engine)
         self._generation = 0
         self._current_fen: str | None = None
         self._state_lock = Lock()
@@ -93,7 +100,6 @@ class AnalysisService:
                 pv=tuple(str(move) for move in item.pv),
             )
 
-        # Compatibility adapter for the existing UCIEngine tuple contract.
         item_depth, score, pv = item  # type: ignore[misc]
         score_kind, score_value = score
         return AnalysisLine(
@@ -124,7 +130,7 @@ class AnalysisService:
     def close(self) -> None:
         engine = self._engine
         self._engine = None
-        if engine is not None:
+        if self._owns_engine and engine is not None:
             try:
                 engine.close()
             except Exception:
