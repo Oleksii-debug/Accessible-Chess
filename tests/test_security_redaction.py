@@ -50,8 +50,62 @@ class SecurityRedactionTests(unittest.TestCase):
         self.assertNotIn("abc123456789", sanitized)
         self.assertNotIn("hunter2", sanitized)
 
+    def test_session_activation_generic_and_quoted_assignments_are_redacted(self):
+        secrets = {
+            "session-token-value",
+            "session-id-value",
+            "activation-key-value",
+            "generic-token-value",
+            "generic-secret-value",
+            "cookie-value",
+            "quoted-refresh-value",
+        }
+        source = (
+            "session_token=session-token-value "
+            "session-id: session-id-value "
+            "activation_key=activation-key-value "
+            "token=generic-token-value "
+            "secret=generic-secret-value "
+            "cookie=cookie-value "
+            'refresh_token="quoted-refresh-value" status=ready'
+        )
+
+        sanitized = redact_text(source)
+
+        for secret in secrets:
+            self.assertNotIn(secret, sanitized)
+        self.assertIn("status=ready", sanitized)
+        self.assertGreaterEqual(sanitized.count(REDACTED), len(secrets))
+
+    def test_sensitive_url_families_and_opaque_authorization_are_redacted(self):
+        source = (
+            "Authorization: opaque-license-credential "
+            "https://example.invalid/?session_token=session-url-secret"
+            "&activation_key=activation-url-secret&client_secret=client-url-secret"
+        )
+
+        sanitized = redact_text(source)
+
+        self.assertNotIn("opaque-license-credential", sanitized)
+        self.assertNotIn("session-url-secret", sanitized)
+        self.assertNotIn("activation-url-secret", sanitized)
+        self.assertNotIn("client-url-secret", sanitized)
+        self.assertIn("Authorization: " + REDACTED, sanitized)
+        self.assertIn("session_token=" + REDACTED, sanitized)
+        self.assertIn("activation_key=" + REDACTED, sanitized)
+        self.assertIn("client_secret=" + REDACTED, sanitized)
+
     def test_sensitive_key_policy_handles_common_variants(self):
-        for key in ("Authorization", "refresh-token", "refreshToken", "license_key", "mySecret"):
+        for key in (
+            "Authorization",
+            "refresh-token",
+            "refreshToken",
+            "license_key",
+            "session_id",
+            "sessionToken",
+            "activation-key",
+            "mySecret",
+        ):
             self.assertTrue(is_sensitive_key(key), key)
         self.assertFalse(is_sensitive_key("account_id"))
         self.assertFalse(is_sensitive_key("engine_depth"))
