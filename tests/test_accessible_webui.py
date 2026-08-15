@@ -114,14 +114,32 @@ class AccessibleWebUiTests(unittest.TestCase):
     def test_remappable_keybinding_editor_is_accessible_and_recoverable(self):
         for marker in (
             '<h3 id="h-keyboard">Клавіатура і команди</h3>',
-            'id="key-search" type="search"', 'id="key-reset-all" type="button"',
+            'id="key-search" type="search"', 'id="key-context"',
+            'id="key-reset-context" type="button"', 'id="key-reset-all" type="button"',
             'id="key-export" type="button"', 'id="key-import" type="file"',
-            'id="key-list" class="binding-list"', "localStorage.setItem(storageKey()",
-            "function conflictsFor(item,value)", "function renderHelp()",
+            'id="key-capture-help" class="sr-note"', 'id="key-list" class="binding-list"',
+            "localStorage.setItem(storageKey()", "function conflictsFor(item,value)",
+            "function renderHelp()", "function beginCapture(item,inp,status,button)",
+            "function stopCapture(cancelled=false)", "captureButton.setAttribute('aria-pressed','false')",
+            "if(e.key==='Escape')", "if(e.key==='Tab')return",
         ):
             self.assertIn(marker, self.html)
         self.assertIn("NVDA", self.html)
         self.assertIn("H/B/E/F", self.html)
+
+    def test_shortcut_capture_does_not_claim_nvda_browse_keys(self):
+        self.assertIn("Press new shortcut", self.html)
+        self.assertIn("Натиснути нову комбінацію", self.html)
+        self.assertIn("Escape скасовує захоплення", self.html)
+        self.assertIn("NVDA browse keys H/B/E/F belong to NVDA", self.html)
+        self.assertNotIn("H/B/E/F can be remapped", self.html)
+
+    def test_context_reset_is_scoped_and_has_recovery_when_no_context_selected(self):
+        self.assertIn("el('key-context').addEventListener('change',renderKeymap)", self.html)
+        self.assertIn("el('key-reset-context').addEventListener('click'", self.html)
+        self.assertIn("if(!ctx){announce(en?'Choose a context first.'", self.html)
+        self.assertIn("(item.registryContext||item.context)===ctx", self.html)
+        self.assertIn("keymap=keymapBase.actions.map", self.html)
 
     def test_keybinding_defaults_are_centralized_outside_main_html(self):
         compact = self.html.replace(" ", "").replace("\n", "")
