@@ -149,6 +149,29 @@ def normalize_binding(value: str | None) -> str | None:
     return "+".join([*modifiers, key])
 
 
+BOARD_RANK_ACTIONS: tuple[ActionDefinition, ...] = tuple(
+    ActionDefinition(
+        f"board.rank_{number}",
+        BindingContext.BOARD,
+        f"Read rank {number}",
+        str(number),
+        description=f"Read board rank {number} from file a through h",
+    )
+    for number in range(1, 9)
+)
+
+BOARD_FILE_ACTIONS: tuple[ActionDefinition, ...] = tuple(
+    ActionDefinition(
+        f"board.file_{number}",
+        BindingContext.BOARD,
+        f"Read file {chr(ord('a') + number - 1)}",
+        f"Shift+{number}",
+        description=f"Read board file {chr(ord('a') + number - 1)} from rank 1 through 8",
+    )
+    for number in range(1, 9)
+)
+
+
 DEFAULT_ACTIONS: tuple[ActionDefinition, ...] = (
     ActionDefinition("history.previous", BindingContext.HISTORY, "Previous historical position", "Shift+A"),
     ActionDefinition("history.next", BindingContext.HISTORY, "Next historical position", "Shift+D"),
@@ -185,6 +208,8 @@ DEFAULT_ACTIONS: tuple[ActionDefinition, ...] = (
     ActionDefinition("board.previous_bishop", BindingContext.BOARD, "Previous bishop", "Shift+B"),
     ActionDefinition("board.previous_knight", BindingContext.BOARD, "Previous knight", "Shift+N"),
     ActionDefinition("board.previous_pawn", BindingContext.BOARD, "Previous pawn", "Shift+P"),
+    *BOARD_RANK_ACTIONS,
+    *BOARD_FILE_ACTIONS,
     ActionDefinition("board.input", BindingContext.BOARD, "Move input", "I"),
     ActionDefinition("move.undo", BindingContext.MOVE_ENTRY, "Undo move command", default_alias="u"),
     ActionDefinition("move.redo", BindingContext.MOVE_ENTRY, "Redo move command", default_alias="y"),
