@@ -4,6 +4,7 @@ from pathlib import Path
 
 from acs.chessbase_cbg import (
     CbgDecodeError,
+    decode_cbg_setup_pieces,
     parse_cbg_custom_setup,
     parse_cbg_game_header,
     read_cbg_custom_setup,
@@ -18,6 +19,23 @@ def _cbg_image(*, offset=0, game_length=12, flags=0, suffix=0):
     return bytes(data)
 
 
+def _setup_bytes(*pieces):
+    """Encode test-only square/code pairs using the pinned setup token framing."""
+
+    by_square = dict(pieces)
+    bits = []
+    for file_index in range(8):
+        for rank in range(1, 9):
+            square = f"{chr(ord('a') + file_index)}{rank}"
+            code = by_square.get(square)
+            bits.append("0" if code is None else f"{code:05b}")
+    payload = "".join(bits)
+    if len(payload) > 192:
+        raise ValueError("test setup exceeds fixed 24-byte bitstream")
+    payload += "0" * (192 - len(payload))
+    return bytes(int(payload[index:index + 8], 2) for index in range(0, 192, 8))
+
+
 def _cbg_custom_setup_image(
     *,
     offset=0,
@@ -29,7 +47,7 @@ def _cbg_custom_setup_image(
     game_length=32,
 ):
     if setup_bytes is None:
-        setup_bytes = bytes(range(24))
+        setup_bytes = bytes(24)
     data = bytearray(
         _cbg_image(
             offset=offset,
@@ -138,9 +156,58 @@ class ClassicCbgHeaderTests(unittest.TestCase):
             self.assertEqual(path.read_bytes(), original)
 
 
+class ClassicCbgSetupPieceTests(unittest.TestCase):
+    def test_decodes_pinned_piece_codes_and_square_order(self):
+        setup_bytes = _setup_bytes(
+            ("a1", 0b10001),
+            ("a8", 0b10110),
+            ("b1", 0b11001),
+            ("h8", 0b11110),
+        )
+
+        pieces = decode_cbg_setup_pieces(setup_bytes)
+
+        self.assertEqual(
+            [(item.square, item.color, item.role, item.raw_code) for item in pieces],
+            [
+                ("a1", "white", "king", 0b10001),
+                ("a8", "white", "pawn", 0b10110),
+                ("b1", "black", "king", 0b11001),
+                ("h8", "black", "pawn", 0b11110),
+            ],
+        )
+
+    def test_rejects_unknown_piece_code_instead_of_guessing(self):
+        bits = "10111" + "0" * 187
+        setup_bytes = bytes(
+            int(bits[index:index + 8], 2) for index in range(0, 192, 8)
+        )
+
+        with self.assertRaisesRegex(CbgDecodeError, "unsupported.*piece code"):
+            decode_cbg_setup_pieces(setup_bytes)
+
+    def test_rejects_bitstream_that_ends_inside_piece_code(self):
+        bits = ("10001" * 38) + "10"
+        setup_bytes = bytes(
+            int(bits[index:index + 8], 2) for index in range(0, 192, 8)
+        )
+
+        with self.assertRaisesRegex(CbgDecodeError, "ends inside a five-bit piece code"):
+            decode_cbg_setup_pieces(setup_bytes)
+
+    def test_requires_exact_fixed_bitstream_size(self):
+        for payload in (b"", bytes(23), bytes(25)):
+            with self.subTest(length=len(payload)):
+                with self.assertRaisesRegex(CbgDecodeError, "exactly 24 bytes"):
+                    decode_cbg_setup_pieces(payload)
+
+
 class ClassicCbgSetupTests(unittest.TestCase):
     def test_extracts_only_evidence_backed_setup_prefix(self):
-        setup_bytes = bytes(reversed(range(24)))
+        setup_bytes = _setup_bytes(
+            ("c3", 0b10011),
+            ("f6", 0b11100),
+        )
         data = _cbg_custom_setup_image(
             offset=9,
             metadata=0x10 | 0x05,
@@ -160,6 +227,10 @@ class ClassicCbgSetupTests(unittest.TestCase):
         self.assertTrue(setup.black_castle_short)
         self.assertEqual(setup.next_move_number, 37)
         self.assertEqual(setup.setup_bytes, setup_bytes)
+        self.assertEqual(
+            [(item.square, item.color, item.role) for item in setup.pieces],
+            [("c3", "white", "knight"), ("f6", "black", "bishop")],
+        )
 
     def test_metadata_ignores_unverified_bits(self):
         data = _cbg_custom_setup_image(metadata=0xE8, castling=0xF0)
@@ -172,6 +243,7 @@ class ClassicCbgSetupTests(unittest.TestCase):
         self.assertFalse(setup.white_castle_short)
         self.assertFalse(setup.black_castle_long)
         self.assertFalse(setup.black_castle_short)
+        self.assertEqual(setup.pieces, ())
 
     def test_non_custom_start_is_rejected(self):
         data = _cbg_image(game_length=32)
@@ -204,6 +276,7 @@ class ClassicCbgSetupTests(unittest.TestCase):
                 metadata=0x12,
                 castling=0x0F,
                 next_move_number=12,
+                setup_bytes=_setup_bytes(("e1", 0b10001), ("e8", 0b11001)),
             )
             path.write_bytes(original)
 
@@ -212,6 +285,7 @@ class ClassicCbgSetupTests(unittest.TestCase):
             self.assertTrue(setup.black_to_move)
             self.assertEqual(setup.en_passant_file_code, 2)
             self.assertEqual(setup.next_move_number, 12)
+            self.assertEqual([item.square for item in setup.pieces], ["e1", "e8"])
             self.assertEqual(path.read_bytes(), original)
 
 
