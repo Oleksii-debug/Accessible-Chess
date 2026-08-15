@@ -12,11 +12,12 @@ Action IDs remain stable; only their user-facing bindings/aliases are mutable.
 
 import os
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 from . import webapp as _webapp
 from .keybindings import BindingContext
 from .notation import NotationError, format_san
+from .ui_entitlement import project_entitlement, semantic_contract
 from .ui_keymap_service import KeymapService
 from .ui_native_menu import make_keymap_menu
 
@@ -51,9 +52,15 @@ class KeymapAwareAccessibleChessAPI(AccessibleChessAPI):
         lang: str = "uk",
         *,
         keymap_path: str | Path | None = None,
+        entitlement_payload: Mapping[str, Any] | None = None,
     ) -> None:
         super().__init__(lang)
         self.keymap_service = KeymapService(keymap_path or default_keymap_path(), lang=self.lang)
+        # Presentation receives only the neutral entitlement value object. It is
+        # deliberately not a billing/auth provider and cannot mutate user data.
+        self._entitlement_payload: dict[str, Any] = dict(
+            entitlement_payload if entitlement_payload is not None else {"state": "free_beta"}
+        )
 
     def keymap_snapshot(self) -> dict[str, Any]:
         return self.keymap_service.snapshot()
@@ -137,6 +144,14 @@ class KeymapAwareAccessibleChessAPI(AccessibleChessAPI):
             if visible else self._t("no_last")
         )
         state["moves"] = self._moves_text()
+        entitlement_view = project_entitlement(self._entitlement_payload, lang=self.lang)
+        entitlement = semantic_contract(entitlement_view)
+        state["entitlement"] = entitlement
+        # Keep the locked first-ten heading order unchanged while making the
+        # access state visible in the existing semantic Game information block.
+        state["gameInfo"] = (
+            f"{state['gameInfo']}\n{entitlement_view.heading}: {entitlement_view.summary}"
+        )
         return state
 
     def set_language(self, lang: str) -> dict[str, Any]:
