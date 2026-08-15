@@ -6,6 +6,7 @@ on:
     branches:
       - integration/accessible-chess-next
       - integration/data-sync-*
+      - qa/review-history-p0-fix
 
 permissions:
   contents: read
@@ -70,7 +71,7 @@ jobs:
             test_data_integration.py test_chessbase_adapter.py test_import_registry.py \
             test_pgn_service.py test_architecture.py test_history.py test_keybindings.py \
             test_ui_keymap_editor.py test_keymap_import_warning_confirmation_integration.py test_notation.py test_engine_play_service.py \
-            test_engine_game_session.py test_ui_review_adapter.py \
+            test_engine_game_session.py test_ui_review_adapter.py test_release_history_p0.py \
             test_clock_service.py test_game_lifecycle.py test_board_service.py test_move_entry.py test_position_editor.py \
             test_sound_events.py test_training.py test_settings.py test_entitlements.py \
             test_history_review_ui.py test_keymap_import_warning_confirmation.py test_webview_keymap_bridge_contract.py
@@ -99,6 +100,9 @@ jobs:
       - name: Non-destructive ReviewHistory adapter gate
         working-directory: work
         run: python -m unittest -v tests.test_ui_review_adapter
+      - name: Release P0 history boundary gate
+        working-directory: work
+        run: python -m unittest -v tests.test_release_history_p0
       - name: Board, move-entry and position-editor gates
         working-directory: work
         run: python -m unittest -v tests.test_board_service tests.test_move_entry tests.test_position_editor
