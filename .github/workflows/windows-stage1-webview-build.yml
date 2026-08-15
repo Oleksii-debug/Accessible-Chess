@@ -198,17 +198,17 @@ jobs:
         run: |
           Add-Type -AssemblyName UIAutomationClient
           Add-Type -AssemblyName UIAutomationTypes
-          $pid=[int](Get-Content 'gui_pid.txt' -Raw)
-          $proc=Get-Process -Id $pid -ErrorAction Stop
+          $appPid=[int](Get-Content 'gui_pid.txt' -Raw)
+          $proc=Get-Process -Id $appPid -ErrorAction Stop
           $root=[System.Windows.Automation.AutomationElement]::RootElement
-          $cond=New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::ProcessIdProperty,$pid)
+          $cond=New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::ProcessIdProperty,$appPid)
           $win=$root.FindFirst([System.Windows.Automation.TreeScope]::Children,$cond)
           if (-not $win) { throw 'UIA top-level window not found' }
           $menuCond=New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::ControlTypeProperty,[System.Windows.Automation.ControlType]::MenuBar)
           $menu=$win.FindFirst([System.Windows.Automation.TreeScope]::Descendants,$menuCond)
           if (-not $menu) { throw 'Native menu bar not exposed in Windows UIA tree' }
           $ws=New-Object -ComObject WScript.Shell
-          $null=$ws.AppActivate($pid); Start-Sleep -Milliseconds 500
+          $null=$ws.AppActivate($appPid); Start-Sleep -Milliseconds 500
           $ws.SendKeys('%'); Start-Sleep -Milliseconds 500; $ws.SendKeys('{DOWN}'); $ws.SendKeys('{RIGHT}'); $ws.SendKeys('{ESC}')
           $editCond=New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::ControlTypeProperty,[System.Windows.Automation.ControlType]::Edit)
           $edits=$win.FindAll([System.Windows.Automation.TreeScope]::Descendants,$editCond)
@@ -219,7 +219,7 @@ jobs:
           $vp=$move.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern)
           if($vp.Current.Value -ne ''){ throw "Move input did not clear after e4 Enter: '$($vp.Current.Value)'" }
           'NATIVE MENU + PACKAGED MOVE E2E PASS'
-          Stop-Process -Id $pid -Force
+          Stop-Process -Id $appPid -Force
 
       - name: Packaged sound playback and no-orphan Stockfish smoke
         shell: pwsh
