@@ -103,6 +103,12 @@ def menu_caption(api: Any, label: str, action_id: str | None = None) -> str:
     return f"{label}\t{binding}" if binding else label
 
 
+def _js_string(value: str) -> str:
+    """Encode human-facing text as a readable, safe JavaScript string literal."""
+
+    return json.dumps(value, ensure_ascii=False)
+
+
 def reset_all_keybindings(api: Any, js: Callable[[str], None], *, lang: str = "uk") -> bool:
     """Restore the authoritative keymap through a non-remappable native path.
 
@@ -119,14 +125,14 @@ def reset_all_keybindings(api: Any, js: Callable[[str], None], *, lang: str = "u
     try:
         result = api.keymap_reset_all()
     except Exception:
-        js(f"announce({json.dumps(text['keyboard_reset_failed'])})")
+        js(f"announce({_js_string(text['keyboard_reset_failed'])})")
         return False
 
     if not isinstance(result, dict) or not result.get("ok"):
-        js(f"announce({json.dumps(text['keyboard_reset_failed'])})")
+        js(f"announce({_js_string(text['keyboard_reset_failed'])})")
         return False
 
-    message = json.dumps(text["keyboard_reset_done"])
+    message = _js_string(text["keyboard_reset_done"])
     js(
         "localStorage.removeItem('accessibleChess.keymap.v1');"
         f"announce({message});"
