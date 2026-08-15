@@ -9,6 +9,7 @@ on:
       - 'tests/test_history.py'
       - 'tests/test_analysis_service.py'
       - 'tests/test_continuous_analysis.py'
+      - 'tests/test_stockfish_runtime.py'
       - 'tests/test_keybindings.py'
       - 'tests/test_notation.py'
       - 'tests/test_extension_registries.py'
@@ -83,10 +84,12 @@ jobs:
           cp acs/history.py work/acs/history.py
           cp acs/analysis_service.py work/acs/analysis_service.py
           cp acs/continuous_analysis.py work/acs/continuous_analysis.py
+          cp acs/engine.py work/acs/engine.py
+          cp acs/engine_ports.py work/acs/engine_ports.py
+          cp acs/stockfish_runtime.py work/acs/stockfish_runtime.py
           cp acs/keybindings.py work/acs/keybindings.py
           cp acs/notation.py work/acs/notation.py
           cp acs/notation_registry.py work/acs/notation_registry.py
-          cp acs/engine_ports.py work/acs/engine_ports.py
           cp acs/engine_registry.py work/acs/engine_registry.py
           cp acs/engine_play_service.py work/acs/engine_play_service.py
           cp acs/engine_game_session.py work/acs/engine_game_session.py
@@ -101,6 +104,7 @@ jobs:
           cp tests/test_history.py work/tests/test_history.py
           cp tests/test_analysis_service.py work/tests/test_analysis_service.py
           cp tests/test_continuous_analysis.py work/tests/test_continuous_analysis.py
+          cp tests/test_stockfish_runtime.py work/tests/test_stockfish_runtime.py
           cp tests/test_keybindings.py work/tests/test_keybindings.py
           cp tests/test_notation.py work/tests/test_notation.py
           cp tests/test_extension_registries.py work/tests/test_extension_registries.py
@@ -157,6 +161,10 @@ jobs:
         working-directory: work
         run: python -m unittest discover -s tests -p 'test_engine_registry.py' -v
 
+      - name: Production Stockfish runtime composition tests
+        working-directory: work
+        run: python -m unittest discover -s tests -p 'test_stockfish_runtime.py' -v
+
       - name: Engine game session orchestration tests
         working-directory: work
         run: python -m unittest discover -s tests -p 'test_engine_game_session.py' -v
@@ -199,19 +207,16 @@ jobs:
         run: |
           python - <<'PY'
           from acs.chesscore import Board
-
           board = Board()
           assert len(board.legal_moves()) == 20, 'initial position must have 20 legal moves'
           for san in ('e4', 'e5', 'Nf3', 'Nc6'):
               board.push_text(san)
           assert board.turn == 'w'
           Board(board.fen())
-
           board = Board()
           board.push_text('e4')
           board.push_text('d5')
           assert board.push_text('exd5') == 'exd5'
-
           promotion = Board('4k3/P7/8/8/8/8/8/4K3 w - - 0 1')
           assert promotion.push_text('a8=Q+') == 'a8=Q+'
           print('CHESS CORE DIAGNOSTIC PASS')
