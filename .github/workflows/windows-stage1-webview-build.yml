@@ -1,19 +1,26 @@
 name: Windows Stage 1 0.4 WebView2 Build
 
-# Deliberately manual: normal UI development uses cheap semantic/unit tests.
-# Run this expensive Windows build only at meaningful integration checkpoints.
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - qa/review-history-p0-fix
+    paths:
+      - '.github/workflows/windows-stage1-webview-build.yml'
 
 permissions:
   contents: read
+
+concurrency:
+  group: accessible-chess-current-windows-candidate
+  cancel-in-progress: true
 
 jobs:
   build:
     runs-on: windows-latest
     timeout-minutes: 45
     steps:
-      - name: Checkout overlay branch
+      - name: Checkout exact candidate head
         uses: actions/checkout@v4
 
       - name: Reconstruct verified 0.3.3 functional baseline
@@ -37,26 +44,24 @@ jobs:
           if ($hash -ne 'cb0a89778b436cdf44c42e3207ef9638160a992b372156bc4d901391717a1e6a') { throw "Source ZIP hash mismatch: $hash" }
           Expand-Archive 'stage1_source.zip' 'work' -Force
 
-      - name: Apply 0.4 accessibility overlay
+      - name: Apply complete current integration overlay
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force -Path 'work\acs' | Out-Null
-          New-Item -ItemType Directory -Force -Path 'work\web' | Out-Null
-          New-Item -ItemType Directory -Force -Path 'work\tests' | Out-Null
-          Copy-Item 'acs\webapp.py' 'work\acs\webapp.py' -Force
-          Copy-Item 'acs\analysis_service.py' 'work\acs\analysis_service.py' -Force
-          Copy-Item 'web\index.html' 'work\web\index.html' -Force
-          Copy-Item 'web\keybindings.json' 'work\web\keybindings.json' -Force
+          New-Item -ItemType Directory -Force -Path 'work\acs','work\web','work\tests' | Out-Null
+          Copy-Item 'acs\*.py' 'work\acs\' -Force
+          Copy-Item 'web\*' 'work\web\' -Recurse -Force
           Copy-Item 'tests\*.py' 'work\tests\' -Force
           Copy-Item 'run_accessible_chess.py' 'work\run_accessible_chess.py' -Force
           Copy-Item 'ACCESSIBILITY_0.4_ARCHITECTURE.md' 'work\ACCESSIBILITY_0.4_ARCHITECTURE.md' -Force
           Copy-Item 'VERSION.txt' 'work\VERSION.txt' -Force
+          if (Test-Path 'HOTKEYS_UA.txt') { Copy-Item 'HOTKEYS_UA.txt' 'work\HOTKEYS_UA.txt' -Force }
+          if (Test-Path 'HOTKEYS_EN.txt') { Copy-Item 'HOTKEYS_EN.txt' 'work\HOTKEYS_EN.txt' -Force }
 
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
 
-      - name: Test semantic UI and chess core
+      - name: Run exact-head release regression suite
         shell: pwsh
         working-directory: work
         run: |
@@ -65,60 +70,102 @@ jobs:
           python -m unittest discover -s tests -v
           python run_accessible_chess.py --diagnostic
 
-      - name: Install Windows WebView dependencies
+      - name: Install WebView2 and standalone build dependencies
         shell: pwsh
         working-directory: work
         run: |
-          python -m pip install "pywebview==6.2.1" pyinstaller
+          python -m pip install "pywebview==6.2.1" "nuitka>=2.7,<3" ordered-set zstandard
           python -c "import webview; print('PYWEBVIEW IMPORT PASS')"
 
-      - name: Build autonomous Windows EXE
+      - name: Build autonomous Nuitka standalone WebView2 app
         shell: pwsh
         working-directory: work
         run: |
-          python -m PyInstaller --noconfirm --clean --onefile --windowed `
-            --name AccessibleChess `
-            --add-data "web;web" `
-            --collect-all webview `
-            --hidden-import webview.platforms.edgechromium `
+          python -m nuitka `
+            --mode=standalone `
+            --assume-yes-for-downloads `
+            --windows-console-mode=disable `
+            --output-filename=AccessibleChess.exe `
+            --include-package=webview `
+            --include-data-dir=web=web `
             run_accessible_chess.py
-          if (-not (Test-Path 'dist\AccessibleChess.exe')) { throw 'AccessibleChess.exe missing' }
-          $p = Start-Process '.\dist\AccessibleChess.exe' -ArgumentList '--diagnostic' -PassThru -Wait
-          if ($p.ExitCode -ne 0) { throw "EXE diagnostic failed: $($p.ExitCode)" }
+          if (-not (Test-Path 'run_accessible_chess.dist\AccessibleChess.exe')) { throw 'Nuitka standalone AccessibleChess.exe missing' }
+          $rawPy = Get-ChildItem 'run_accessible_chess.dist' -Recurse -Filter '*.py' -File
+          if ($rawPy) { throw "Raw Python source leaked into standalone package: $($rawPy.FullName -join ', ')" }
 
-      - name: WebView2 startup smoke
+      - name: Run built standalone diagnostic
         shell: pwsh
         working-directory: work
         run: |
-          $p = Start-Process '.\dist\AccessibleChess.exe' -PassThru
+          $p = Start-Process '.\run_accessible_chess.dist\AccessibleChess.exe' -ArgumentList '--diagnostic' -PassThru -Wait
+          if ($p.ExitCode -ne 0) { throw "Standalone EXE diagnostic failed: $($p.ExitCode)" }
+          'STANDALONE EXE DIAGNOSTIC PASS'
+
+      - name: WebView2 process startup smoke
+        shell: pwsh
+        working-directory: work
+        run: |
+          $p = Start-Process '.\run_accessible_chess.dist\AccessibleChess.exe' -PassThru
           Start-Sleep -Seconds 10
           if ($p.HasExited) { throw "GUI exited during WebView2 startup smoke with code $($p.ExitCode)" }
           Stop-Process -Id $p.Id -Force
           'WEBVIEW2 STARTUP SMOKE PASS'
 
-      - name: Assemble internal NVDA test artifact
+      - name: Add official Stockfish 18 and GPL source offer material
         shell: pwsh
         working-directory: work
         run: |
-          New-Item -ItemType Directory -Force -Path 'package\WINDOWS_EXE' | Out-Null
-          Copy-Item 'dist\AccessibleChess.exe' 'package\WINDOWS_EXE\AccessibleChess.exe' -Force
+          New-Item -ItemType Directory -Force -Path 'package\WINDOWS_EXE','package\THIRD_PARTY' | Out-Null
+          Copy-Item 'run_accessible_chess.dist\*' 'package\WINDOWS_EXE\' -Recurse -Force
+          New-Item -ItemType Directory -Force -Path 'package\WINDOWS_EXE\engine' | Out-Null
+          $engineUrl = 'https://github.com/official-stockfish/Stockfish/releases/download/sf_18/stockfish-windows-x86-64.zip'
+          Invoke-WebRequest -Uri $engineUrl -OutFile 'stockfish18-windows.zip'
+          Expand-Archive 'stockfish18-windows.zip' -DestinationPath 'stockfish18' -Force
+          $engine = Get-ChildItem 'stockfish18' -Recurse -Filter '*.exe' | Where-Object { $_.Name -match 'stockfish.*x86-64' } | Select-Object -First 1
+          if (-not $engine) { throw 'Official Stockfish 18 generic Windows executable not found' }
+          Copy-Item $engine.FullName 'package\WINDOWS_EXE\engine\stockfish.exe' -Force
+          Invoke-WebRequest -Uri 'https://github.com/official-stockfish/Stockfish/archive/refs/tags/sf_18.zip' -OutFile 'package\THIRD_PARTY\Stockfish-18-source.zip'
+          @"
+          Stockfish 18 is a separate UCI chess engine licensed under GNU GPL v3.
+          Upstream: official-stockfish/Stockfish, release sf_18.
+          Corresponding source archive is included as Stockfish-18-source.zip.
+          "@ | Set-Content -Encoding UTF8 'package\THIRD_PARTY\STOCKFISH_LICENSE_NOTICE.txt'
+
+      - name: Assemble candidate with provenance and checksums
+        shell: pwsh
+        working-directory: work
+        run: |
           Copy-Item 'ACCESSIBILITY_0.4_ARCHITECTURE.md' 'package' -Force
           Copy-Item 'VERSION.txt' 'package' -Force
+          if (Test-Path 'HOTKEYS_UA.txt') { Copy-Item 'HOTKEYS_UA.txt' 'package' -Force }
+          if (Test-Path 'HOTKEYS_EN.txt') { Copy-Item 'HOTKEYS_EN.txt' 'package' -Force }
+          $head = $env:GITHUB_SHA
           @"
-          ACCESSIBLE CHESS 0.4 DEVELOPMENT BUILD
-          WebView2 semantic document architecture: BUILD PASS
-          Automated semantic/core tests: PASS
-          Remappable keyboard/command UI contract: PASS
-          Stale-safe MultiPV analysis coordinator tests: PASS
+          ACCESSIBLE CHESS 0.4 — WINDOWS/NVDA TEST CANDIDATE
+          Exact Git head: $head
+          Current integration release regression suite: PASS
+          Non-destructive history review boundary: PASS
+          Shared compact accessible SAN spacing: PASS
+          Nuitka standalone build: PASS
+          Raw proprietary .py files in runtime package: NONE
           Built EXE diagnostic: PASS
           WebView2 process startup smoke: PASS
-          Real NVDA browse/focus verification: REQUIRED BEFORE USER RELEASE
+          Stockfish 18 UCI executable + GPL source material: INCLUDED
+          Real NVDA browse/focus verification: REQUIRED — NOT AUTOMATICALLY VERIFIED
           "@ | Set-Content -Encoding UTF8 'package\WINDOWS_BUILD_REPORT.txt'
-          Compress-Archive 'package\*' 'Accessible-Chess-0.4-dev-WebView2.zip' -Force
+          Get-ChildItem 'package' -Recurse -File | ForEach-Object {
+            $h = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            $rel = $_.FullName.Substring((Resolve-Path 'package').Path.Length + 1)
+            "$h  $rel"
+          } | Set-Content -Encoding UTF8 'package\SHA256SUMS.txt'
+          $sourceLeak = Get-ChildItem 'package\WINDOWS_EXE' -Recurse -Filter '*.py' -File
+          if ($sourceLeak) { throw 'Runtime package contains raw proprietary Python source' }
+          Compress-Archive 'package\*' 'Accessible-Chess-0.4-Windows-NVDA-Test-Candidate.zip' -Force
 
-      - name: Upload internal build artifact
+      - name: Upload exact-head Windows candidate
         uses: actions/upload-artifact@v4
         with:
-          name: Accessible-Chess-0.4-dev-WebView2
-          path: work/Accessible-Chess-0.4-dev-WebView2.zip
+          name: Accessible-Chess-0.4-Windows-NVDA-Test-Candidate
+          path: work/Accessible-Chess-0.4-Windows-NVDA-Test-Candidate.zip
+          if-no-files-found: error
           retention-days: 14
