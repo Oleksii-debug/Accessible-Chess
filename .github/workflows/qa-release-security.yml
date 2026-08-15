@@ -9,11 +9,13 @@ on:
       - 'acs/security_redaction.py'
       - 'acs/release_manifest.py'
       - 'acs/release_archive.py'
+      - 'acs/release_preflight.py'
       - 'acs/logging_setup.py'
       - 'tests/test_security_contracts.py'
       - 'tests/test_security_redaction.py'
       - 'tests/test_release_manifest.py'
       - 'tests/test_release_archive.py'
+      - 'tests/test_release_preflight.py'
       - 'tests/test_logging_redaction.py'
       - 'tests/test_architecture.py'
       - 'tests/test_nuitka_release_workflow.py'
@@ -25,11 +27,13 @@ on:
       - 'acs/security_redaction.py'
       - 'acs/release_manifest.py'
       - 'acs/release_archive.py'
+      - 'acs/release_preflight.py'
       - 'acs/logging_setup.py'
       - 'tests/test_security_contracts.py'
       - 'tests/test_security_redaction.py'
       - 'tests/test_release_manifest.py'
       - 'tests/test_release_archive.py'
+      - 'tests/test_release_preflight.py'
       - 'tests/test_logging_redaction.py'
       - 'tests/test_architecture.py'
       - 'tests/test_nuitka_release_workflow.py'
@@ -55,7 +59,7 @@ jobs:
           python-version: '3.11'
 
       - name: Compile QA and security modules
-        run: python -m py_compile acs/security_contracts.py acs/security_redaction.py acs/release_manifest.py acs/release_archive.py acs/logging_setup.py tests/test_security_contracts.py tests/test_security_redaction.py tests/test_release_manifest.py tests/test_release_archive.py tests/test_logging_redaction.py tests/test_architecture.py tests/test_nuitka_release_workflow.py
+        run: python -m py_compile acs/security_contracts.py acs/security_redaction.py acs/release_manifest.py acs/release_archive.py acs/release_preflight.py acs/logging_setup.py tests/test_security_contracts.py tests/test_security_redaction.py tests/test_release_manifest.py tests/test_release_archive.py tests/test_release_preflight.py tests/test_logging_redaction.py tests/test_architecture.py tests/test_nuitka_release_workflow.py
 
       - name: Run entitlement contract tests
         run: python -m unittest -v tests.test_security_contracts
@@ -65,6 +69,12 @@ jobs:
 
       - name: Run final release archive integrity tests
         run: python -m unittest -v tests.test_release_archive
+
+      - name: Run source-tree commercial security preflight tests
+        run: python -m unittest -v tests.test_release_preflight
+
+      - name: Scan current candidate source tree for release blockers
+        run: python -c "from acs.release_preflight import assert_release_source_tree; assert_release_source_tree('.')"
 
       - name: Run standalone-first Nuitka workflow contract tests
         run: python -m unittest -v tests.test_nuitka_release_workflow
