@@ -12,13 +12,14 @@ from dataclasses import dataclass
 import hashlib
 import json
 from pathlib import Path
-from typing import Iterable
+from typing import Iterable, Mapping
 
 
 MANIFEST_SCHEMA_VERSION = 1
 DEFAULT_PRODUCT_NAME = "Accessible Chess"
 DEFAULT_EXECUTABLE = "AccessibleChess.exe"
 _SOURCE_SUFFIXES = frozenset({".py", ".pyc", ".pyo"})
+_DEFAULT_UNTRACKED_METADATA = frozenset({"RELEASE-MANIFEST.json", "RELEASE-BUILD.txt"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -48,6 +49,64 @@ class ReleaseManifest:
 
     def to_json(self) -> str:
         return json.dumps(self.as_dict(), ensure_ascii=False, indent=2, sort_keys=True) + "\n"
+
+    @classmethod
+    def from_dict(cls, value: Mapping[str, object]) -> "ReleaseManifest":
+        schema = value.get("schema_version")
+        if schema != MANIFEST_SCHEMA_VERSION:
+            raise ValueError(f"unsupported release manifest schema: {schema!r}")
+
+        product = value.get("product")
+        version = value.get("version")
+        raw_files = value.get("files")
+        if not isinstance(product, str) or not product.strip():
+            raise ValueError("release manifest product must be a non-empty string")
+        if not isinstance(version, str) or not version.strip():
+            raise ValueError("release manifest version must be a non-empty string")
+        if not isinstance(raw_files, list) or not raw_files:
+            raise ValueError("release manifest files must be a non-empty list")
+
+        files: list[ReleaseFile] = []
+        seen: set[str] = set()
+        for index, raw in enumerate(raw_files):
+            if not isinstance(raw, Mapping):
+                raise ValueError(f"release manifest file #{index} must be an object")
+            path = raw.get("path")
+            size = raw.get("size")
+            sha256 = raw.get("sha256")
+            if not isinstance(path, str) or not path or "\\" in path:
+                raise ValueError(f"invalid release manifest path at index {index}: {path!r}")
+            normalized = Path(path)
+            if normalized.is_absolute() or ".." in normalized.parts or normalized.as_posix() != path:
+                raise ValueError(f"unsafe release manifest path at index {index}: {path!r}")
+            folded = path.casefold()
+            if folded in seen:
+                raise ValueError(f"duplicate release manifest path: {path}")
+            seen.add(folded)
+            if not isinstance(size, int) or isinstance(size, bool) or size < 0:
+                raise ValueError(f"invalid release manifest size for {path}: {size!r}")
+            if (
+                not isinstance(sha256, str)
+                or len(sha256) != 64
+                or any(ch not in "0123456789abcdef" for ch in sha256)
+            ):
+                raise ValueError(f"invalid SHA-256 for {path}")
+            files.append(ReleaseFile(path, size, sha256))
+
+        expected_order = sorted(files, key=lambda item: item.path.casefold())
+        if files != expected_order:
+            raise ValueError("release manifest files are not in canonical sorted order")
+        return cls(schema, product.strip(), version.strip(), tuple(files))
+
+    @classmethod
+    def from_json(cls, text: str) -> "ReleaseManifest":
+        try:
+            value = json.loads(text)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"invalid release manifest JSON: {exc}") from exc
+        if not isinstance(value, Mapping):
+            raise ValueError("release manifest root must be an object")
+        return cls.from_dict(value)
 
 
 def _sha256(path: Path, *, chunk_size: int = 1024 * 1024) -> str:
@@ -94,6 +153,84 @@ def build_release_manifest(
     if not files:
         raise ValueError("release package is empty")
     return ReleaseManifest(MANIFEST_SCHEMA_VERSION, product, normalized_version, tuple(files))
+
+
+def verify_release_manifest(
+    root: str | Path,
+    manifest: ReleaseManifest,
+    *,
+    expected_product: str = DEFAULT_PRODUCT_NAME,
+    expected_version: str | None = None,
+    allowed_untracked: Iterable[str] = _DEFAULT_UNTRACKED_METADATA,
+) -> tuple[str, ...]:
+    """Verify a finished package against a previously generated manifest.
+
+    This is deliberately strict: listed files must exist with the exact size and
+    SHA-256, and unexpected payload files are rejected. Release metadata created
+    after the manifest is generated is explicitly allowlisted because a manifest
+    cannot checksum itself. A future signature should cover the manifest bytes.
+    """
+
+    package_root = Path(root)
+    if not package_root.is_dir():
+        return (f"release root is not a directory: {package_root}",)
+
+    defects: list[str] = []
+    if manifest.product != expected_product:
+        defects.append(
+            f"release product mismatch: manifest={manifest.product!r}, expected={expected_product!r}"
+        )
+    if expected_version is not None and manifest.version != str(expected_version).strip():
+        defects.append(
+            f"release version mismatch: manifest={manifest.version!r}, expected={str(expected_version).strip()!r}"
+        )
+
+    listed = {item.path.casefold(): item for item in manifest.files}
+    for item in manifest.files:
+        path = package_root / Path(item.path)
+        try:
+            resolved = path.resolve()
+            resolved.relative_to(package_root.resolve())
+        except ValueError:
+            defects.append(f"manifest path escapes package root: {item.path}")
+            continue
+        if not path.is_file():
+            defects.append(f"manifest file missing: {item.path}")
+            continue
+        current_size = path.stat().st_size
+        if current_size != item.size:
+            defects.append(
+                f"manifest size mismatch for {item.path}: expected {item.size}, found {current_size}"
+            )
+            continue
+        current_hash = _sha256(path)
+        if current_hash != item.sha256:
+            defects.append(f"manifest SHA-256 mismatch for {item.path}")
+
+    allowed = {Path(value).as_posix().casefold() for value in allowed_untracked}
+    try:
+        actual_paths = {
+            path.relative_to(package_root).as_posix().casefold(): path
+            for path in _relative_packaged_files(package_root)
+        }
+    except ValueError as exc:
+        defects.append(str(exc))
+        return tuple(defects)
+
+    unexpected = sorted(
+        relative for relative in actual_paths if relative not in listed and relative not in allowed
+    )
+    for relative in unexpected:
+        defects.append(f"unexpected unmanifested release file: {relative}")
+
+    return tuple(defects)
+
+
+def load_release_manifest(path: str | Path) -> ReleaseManifest:
+    manifest_path = Path(path)
+    if not manifest_path.is_file():
+        raise ValueError(f"release manifest is missing: {manifest_path}")
+    return ReleaseManifest.from_json(manifest_path.read_text(encoding="utf-8-sig"))
 
 
 def validate_distribution(
