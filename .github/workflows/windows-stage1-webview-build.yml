@@ -148,8 +148,8 @@ jobs:
           '@ | Set-Content -Encoding UTF8 'stockfish_smoke.py'
           python stockfish_smoke.py
           if ($LASTEXITCODE -ne 0) { throw 'Stockfish live smoke failed' }
-          python -c "from acs.stockfish_runtime import StockfishRuntimeResolver; from pathlib import Path; r=StockfishRuntimeResolver(application_dir=Path('release-assets')); p=r.resolve(); assert p.name.lower()=='stockfish.exe' and p.is_file(); print('PRODUCTION STOCKFISH RESOLVER PASS',p)"
-          if ($LASTEXITCODE -ne 0) { throw 'Production Stockfish resolver failed' }
+          python -c "from acs.stockfish_runtime import StockfishRuntimeConfig,resolve_stockfish_path,PACKAGED_STOCKFISH_RELATIVE_PATH; from pathlib import Path; app=Path('release-assets').resolve(); cfg=StockfishRuntimeConfig(application_dir=app); p=resolve_stockfish_path(cfg); expected=(app/PACKAGED_STOCKFISH_RELATIVE_PATH).resolve(); assert p==expected and p.is_file() and p.stat().st_size>0, (p,expected); print('PRODUCTION STOCKFISH PATH PASS',p)"
+          if ($LASTEXITCODE -ne 0) { throw 'Production Stockfish path resolution failed' }
 
       - name: Install pinned Windows runtime and patched Nuitka
         shell: pwsh
@@ -230,11 +230,11 @@ jobs:
           python -c "from acs.sound_windows import PackagedSoundAssetResolver,WindowsSoundPlaybackAdapter; from acs.sound_runtime import SoundRuntime,GameSoundRuntime,SoundRuntimeSettings; from acs.sound_events import SoundEvent,MoveSoundFacts; from pathlib import Path; import tempfile; app=Path(r'$($dist.FullName)'); rt=GameSoundRuntime(SoundRuntime(WindowsSoundPlaybackAdapter(PackagedSoundAssetResolver(app),cache_dir=Path(tempfile.gettempdir())/'acs-sound-qa'),settings=SoundRuntimeSettings(volume=100))); reps=[rt.start(),rt.move(MoveSoundFacts()),rt.illegal(),rt.tick(),rt.end()]; assert all(r.ok for r in reps); print('PACKAGED WINDOWS SOUND PLAYBACK PASS')"
           if ($LASTEXITCODE -ne 0) { throw 'Packaged sound playback failed' }
           $before=@(Get-Process stockfish* -ErrorAction SilentlyContinue).Count
-          python -c "from acs.stockfish_runtime import StockfishRuntimeResolver; from acs.engine import UCIEngine; from pathlib import Path; p=StockfishRuntimeResolver(application_dir=Path(r'$($dist.FullName)')).resolve(); e=UCIEngine(str(p)); e.start(); r=e.analyse('rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',depth=8,multipv=5); assert len(r)>=5; e.close(); print('PACKAGED STOCKFISH ANALYSIS PASS')"
-          if ($LASTEXITCODE -ne 0) { throw 'Packaged Stockfish production analysis failed' }
+          python -c "from acs.stockfish_runtime import StockfishRuntime,StockfishRuntimeConfig,resolve_stockfish_path,PACKAGED_STOCKFISH_RELATIVE_PATH; from pathlib import Path; app=Path(r'$($dist.FullName)').resolve(); cfg=StockfishRuntimeConfig(application_dir=app); expected=(app/PACKAGED_STOCKFISH_RELATIVE_PATH).resolve(); p=resolve_stockfish_path(cfg); assert p==expected and p.is_file() and p.stat().st_size>0; rt=StockfishRuntime(cfg); e=rt.provider(); r=e.analyze('rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',multipv=5,depth=8); assert len(r)>=5; assert rt.provider() is e; rt.close(); print('PACKAGED STOCKFISH RUNTIME/ANALYSIS PASS')"
+          if ($LASTEXITCODE -ne 0) { throw 'Packaged Stockfish production runtime analysis failed' }
           Start-Sleep -Seconds 1
           $after=@(Get-Process stockfish* -ErrorAction SilentlyContinue).Count
-          if($after -gt $before){ throw 'Orphan Stockfish process remains after close' }
+          if($after -gt $before){ throw 'Orphan Stockfish process remains after runtime close' }
 
       - name: Reject raw proprietary source and assemble signed-by-checksum candidate
         shell: pwsh
