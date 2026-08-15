@@ -101,9 +101,15 @@ jobs:
       - name: Remappable actions, editor, import safety and notation gates
         working-directory: work
         run: python -m unittest -v tests.test_keybindings tests.test_ui_keymap_editor tests.test_keymap_import_warning_confirmation_integration tests.test_notation
-      - name: UI keymap bridge and history gates
+      - name: History review UI contract gate
         working-directory: work
-        run: python -m unittest -v tests.test_history_review_ui tests.test_keymap_import_warning_confirmation tests.test_webview_keymap_bridge_contract
+        run: python -m unittest -v tests.test_history_review_ui
+      - name: Keymap import warning contract gate
+        working-directory: work
+        run: python -m unittest -v tests.test_keymap_import_warning_confirmation
+      - name: WebView keymap bridge contract gate
+        working-directory: work
+        run: python -m unittest -v tests.test_webview_keymap_bridge_contract
       - name: Accessible Web UI gate
         working-directory: work
         run: python -m unittest -v tests.test_accessible_webui
