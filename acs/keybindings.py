@@ -313,6 +313,11 @@ class ActionRegistry:
                     return Resolution(action_id, definition.context, self._bindings[action_id], normalized)
         return None
 
+    @staticmethod
+    def _contexts_overlap(left: BindingContext, right: BindingContext) -> bool:
+        """Return whether two action contexts can compete during resolution."""
+        return left == right or BindingContext.GLOBAL in {left, right}
+
     def binding_conflicts(self, action_id: str, binding: str | None) -> tuple[Conflict, ...]:
         definition = self.definition(action_id)
         normalized = normalize_binding(binding)
@@ -322,14 +327,23 @@ class ActionRegistry:
         for other_id, other_def in self._definitions.items():
             if other_id == action_id or other_def.external:
                 continue
-            if other_def.context == definition.context and self._bindings[other_id] == normalized:
+            if (
+                self._contexts_overlap(definition.context, other_def.context)
+                and self._bindings[other_id] == normalized
+            ):
+                kind = "global_overlap" if definition.context != other_def.context else "duplicate"
                 result.append(Conflict(
-                    "duplicate",
+                    kind,
                     action_id,
                     other_id,
                     definition.context,
                     normalized,
-                    f"{normalized} is already assigned to {other_id} in {definition.context.value}",
+                    (
+                        f"{normalized} overlaps {other_id}: global bindings are active in "
+                        f"{other_def.context.value if definition.context is BindingContext.GLOBAL else definition.context.value}"
+                        if kind == "global_overlap"
+                        else f"{normalized} is already assigned to {other_id} in {definition.context.value}"
+                    ),
                 ))
         if normalized in _RESERVED_WINDOWS:
             result.append(Conflict(
@@ -357,14 +371,23 @@ class ActionRegistry:
         for other_id, other_def in self._definitions.items():
             if other_id == action_id or other_def.external:
                 continue
-            if other_def.context == definition.context and self._aliases[other_id] == normalized:
+            if (
+                self._contexts_overlap(definition.context, other_def.context)
+                and self._aliases[other_id] == normalized
+            ):
+                kind = "global_alias_overlap" if definition.context != other_def.context else "alias_duplicate"
                 result.append(Conflict(
-                    "alias_duplicate",
+                    kind,
                     action_id,
                     other_id,
                     definition.context,
                     normalized,
-                    f"alias {normalized!r} is already assigned to {other_id} in {definition.context.value}",
+                    (
+                        f"alias {normalized!r} overlaps {other_id}: global aliases are active in "
+                        f"{other_def.context.value if definition.context is BindingContext.GLOBAL else definition.context.value}"
+                        if kind == "global_alias_overlap"
+                        else f"alias {normalized!r} is already assigned to {other_id} in {definition.context.value}"
+                    ),
                 ))
         return tuple(result)
 
@@ -422,7 +445,10 @@ class ActionRegistry:
         if not isinstance(bindings, Mapping) or not isinstance(aliases, Mapping):
             raise ValueError("invalid keymap profile")
         registry = cls(definitions, bindings=bindings, aliases=aliases)
-        registry.validate()
+        conflicts = registry.validate()
+        errors = [item for item in conflicts if item.severity == "error"]
+        if errors:
+            raise ValueError("; ".join(item.message for item in errors))
         return registry
 
     @classmethod
@@ -442,9 +468,10 @@ class ActionRegistry:
             conflicts.extend(self.binding_conflicts(action_id, self._bindings[action_id]))
             conflicts.extend(self.alias_conflicts(action_id, self._aliases[action_id]))
         unique: dict[tuple[str, str, str | None, str], Conflict] = {}
+        duplicate_kinds = {"duplicate", "alias_duplicate", "global_overlap", "global_alias_overlap"}
         for item in conflicts:
             left, right = item.action_id, item.other_action_id
-            if right is not None and item.kind in {"duplicate", "alias_duplicate"}:
+            if right is not None and item.kind in duplicate_kinds:
                 a, b = sorted((left, right))
                 key = (item.kind, a, b, item.value)
             else:
