@@ -55,8 +55,8 @@ jobs:
           mkdir -p work/acs work/web work/tests
           for file in \
             webapp.py webapp_keymap.py analysis_service.py continuous_analysis.py history.py keybindings.py notation.py \
-            ui_keymap_adapter.py ui_keymap_editor.py ui_keymap_service.py ui_native_menu.py \
-            engine_ports.py engine_play_service.py engine_registry.py clock_service.py game_lifecycle.py \
+            ui_keymap_adapter.py ui_keymap_editor.py ui_keymap_service.py ui_native_menu.py ui_review_adapter.py \
+            engine_ports.py engine_play_service.py engine_registry.py engine_game_session.py clock_service.py game_lifecycle.py \
             board_service.py move_entry.py position_editor.py sound_events.py training.py settings.py entitlements.py \
             gametree.py acsdb.py import_contract.py import_registry.py pgn_service.py \
             bookdocument.py chessbase_adapter.py
@@ -70,6 +70,7 @@ jobs:
             test_data_integration.py test_chessbase_adapter.py test_import_registry.py \
             test_pgn_service.py test_architecture.py test_history.py test_keybindings.py \
             test_ui_keymap_editor.py test_keymap_import_warning_confirmation_integration.py test_notation.py test_engine_play_service.py \
+            test_engine_game_session.py test_ui_review_adapter.py \
             test_clock_service.py test_game_lifecycle.py test_board_service.py test_move_entry.py test_position_editor.py \
             test_sound_events.py test_training.py test_settings.py test_entitlements.py \
             test_history_review_ui.py test_keymap_import_warning_confirmation.py test_webview_keymap_bridge_contract.py
@@ -92,6 +93,12 @@ jobs:
       - name: Engine service, continuous analysis and game lifecycle gates
         working-directory: work
         run: python -m unittest -v tests.test_analysis_service tests.test_continuous_analysis tests.test_engine_play_service tests.test_clock_service tests.test_game_lifecycle
+      - name: Engine game session coordinator gate
+        working-directory: work
+        run: python -m unittest -v tests.test_engine_game_session
+      - name: Non-destructive ReviewHistory adapter gate
+        working-directory: work
+        run: python -m pytest -q tests/test_ui_review_adapter.py
       - name: Board, move-entry and position-editor gates
         working-directory: work
         run: python -m unittest -v tests.test_board_service tests.test_move_entry tests.test_position_editor
