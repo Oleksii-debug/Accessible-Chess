@@ -23,6 +23,7 @@ on:
       - 'tests/test_move_entry.py'
       - 'tests/test_sound_events.py'
       - 'tests/test_architecture.py'
+      - 'tests/test_core_release_contracts.py'
       - 'build_snapshot_exact/**'
       - 'build_parts10k/**'
       - '.github/workflows/engine-core-ci.yml'
@@ -114,6 +115,7 @@ jobs:
           cp tests/test_move_entry.py work/tests/test_move_entry.py
           cp tests/test_sound_events.py work/tests/test_sound_events.py
           cp tests/test_architecture.py work/tests/test_architecture.py
+          cp tests/test_core_release_contracts.py work/tests/test_core_release_contracts.py
 
       - name: Compile core modules
         working-directory: work
@@ -122,6 +124,10 @@ jobs:
       - name: Architecture dependency gate
         working-directory: work
         run: python -m unittest discover -s tests -p 'test_architecture.py' -v
+
+      - name: Core release cross-contract audit
+        working-directory: work
+        run: python -m unittest discover -s tests -p 'test_core_release_contracts.py' -v
 
       - name: Keybinding registry tests
         working-directory: work
