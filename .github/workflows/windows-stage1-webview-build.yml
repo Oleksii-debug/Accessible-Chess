@@ -1,3 +1,4 @@
+# Diagnostic console is temporary until packaged WebView2 startup is green.
 name: Windows Stage 1 0.4 WebView2 Build
 
 on:
