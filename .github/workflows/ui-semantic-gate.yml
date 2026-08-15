@@ -105,9 +105,9 @@ jobs:
         working-directory: work
         run: python -m unittest discover -s tests -p 'test_nvda_p0_contract.py' -v
 
-      - name: History presentation contract tests
+      - name: History runtime and presentation contract tests
         working-directory: work
-        run: python -m pytest -q tests/test_history_review_ui.py -k 'history_ui_is_semantic or history_shortcuts_come_from_central_keymap'
+        run: python -m pytest -q tests/test_history_review_ui.py
 
       - name: Shared command, history, notation and UI keymap contracts
         working-directory: work
