@@ -21,11 +21,11 @@ from . import webapp as _legacy_webapp
 from .keybindings import BindingContext
 from .notation import NotationError, format_san
 from .ui_keymap_service import KeymapService
+from .ui_native_menu import make_keymap_menu
 
 
 AccessibleChessAPI = _legacy_webapp.AccessibleChessAPI
 _asset_root = _legacy_webapp._asset_root
-_make_menu = _legacy_webapp._make_menu
 
 
 def _shared_spoken_san(san: str, lang: str = "uk") -> str:
@@ -191,7 +191,7 @@ def main() -> None:
     html = _asset_root() / "web" / "index.html"
     if not html.exists():
         raise RuntimeError(f"Accessible HTML UI not found: {html}")
-    menu = _make_menu(webview, api, window_holder)
+    menu = make_keymap_menu(webview, api, window_holder)
     window = webview.create_window(
         "Accessible Chess — 0.4 NVDA architecture",
         url=str(html),
