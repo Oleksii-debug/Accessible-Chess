@@ -21,10 +21,13 @@ on:
       - 'tests/test_ui_review_adapter.py'
       - 'tests/test_ui_entitlement.py'
       - 'tests/test_ui_entitlement_webapp.py'
+      - 'tests/test_ui_analysis_webapp.py'
       - 'tests/test_history.py'
       - 'tests/test_notation.py'
       - 'acs/webapp.py'
       - 'acs/webapp_keymap.py'
+      - 'acs/analysis_service.py'
+      - 'acs/ui_analysis_adapter.py'
       - 'acs/keybindings.py'
       - 'acs/ui_keymap_adapter.py'
       - 'acs/ui_keymap_editor.py'
@@ -72,6 +75,7 @@ jobs:
           cp acs/webapp.py work/acs/webapp.py
           cp acs/webapp_keymap.py work/acs/webapp_keymap.py
           cp acs/analysis_service.py work/acs/analysis_service.py
+          cp acs/ui_analysis_adapter.py work/acs/ui_analysis_adapter.py
           cp acs/keybindings.py work/acs/keybindings.py
           cp acs/ui_keymap_adapter.py work/acs/ui_keymap_adapter.py
           cp acs/ui_keymap_editor.py work/acs/ui_keymap_editor.py
@@ -97,6 +101,7 @@ jobs:
           cp tests/test_ui_review_adapter.py work/tests/test_ui_review_adapter.py
           cp tests/test_ui_entitlement.py work/tests/test_ui_entitlement.py
           cp tests/test_ui_entitlement_webapp.py work/tests/test_ui_entitlement_webapp.py
+          cp tests/test_ui_analysis_webapp.py work/tests/test_ui_analysis_webapp.py
           cp tests/test_history.py work/tests/test_history.py
           cp tests/test_notation.py work/tests/test_notation.py
 
@@ -122,6 +127,10 @@ jobs:
       - name: Entitlement presentation and WebView projection contracts
         working-directory: work
         run: python -m pytest -q tests/test_ui_entitlement.py tests/test_ui_entitlement_webapp.py
+
+      - name: Stockfish analysis presentation contracts
+        working-directory: work
+        run: python -m pytest -q tests/test_ui_analysis_webapp.py
 
       - name: Shared command, history, notation and UI keymap contracts
         working-directory: work
