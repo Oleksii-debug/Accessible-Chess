@@ -6,17 +6,31 @@ The registry is deliberately presentation-neutral. It maps source suffixes to
 read-only importer adapters without exposing format-specific binary structures
 to UI or ACSDB code. Adding a new verified importer should require
 registration, not editing unrelated chess/database logic.
+
+All inspections are guarded by immutable-source verification. Adapters receive
+an existing source path, but the registry independently fingerprints the source
+before and after inspection and rejects mismatched provenance. A decoder that
+mutates its input or reports evidence for different bytes cannot silently pass
+through the shared import boundary.
 """
 
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
 
-from .import_contract import ImportReport, ReadOnlyImporter
+from .import_contract import ImportReport, ReadOnlyImporter, SourceFingerprint, fingerprint
 
 
 class ImportRegistryError(ValueError):
     pass
+
+
+class SourceMutationError(ImportRegistryError):
+    """Raised when a supposedly read-only adapter changes source bytes."""
+
+
+class SourceProvenanceError(ImportRegistryError):
+    """Raised when an adapter report does not describe the inspected source."""
 
 
 @dataclass(frozen=True)
@@ -55,6 +69,16 @@ class BatchInspection:
     @property
     def all_ok(self) -> bool:
         return bool(self.items) and not self.errors
+
+
+def _same_source(left: SourceFingerprint, right: SourceFingerprint) -> bool:
+    """Compare source identity without trusting adapter-generated path spelling."""
+    return (
+        Path(left.path).resolve() == Path(right.path).resolve()
+        and left.size == right.size
+        and left.sha256 == right.sha256
+        and left.suffix.lower() == right.suffix.lower()
+    )
 
 
 class ImportRegistry:
@@ -98,7 +122,20 @@ class ImportRegistry:
             raise ImportRegistryError(
                 f"No read-only importer registered for suffix: {source.suffix.lower() or '<none>'}"
             )
-        return importer.inspect(source)
+
+        before = fingerprint(source)
+        report = importer.inspect(source)
+        after = fingerprint(source)
+
+        if not _same_source(before, after):
+            raise SourceMutationError(
+                f"Read-only importer modified source bytes during inspection: {source}"
+            )
+        if not _same_source(before, report.source):
+            raise SourceProvenanceError(
+                f"Importer report provenance does not match inspected source: {source}"
+            )
+        return report
 
     def inspect_many(self, paths: Iterable[str | Path]) -> list[ImportReport]:
         """Strict multi-source inspection; aborts on the first source error."""
@@ -108,9 +145,10 @@ class ImportRegistry:
         """Inspect every requested source without hiding later results.
 
         This is the preferred preflight for multi-file families such as classic
-        ChessBase databases. An unknown suffix, missing file, or adapter error
-        is recorded against that exact source while remaining sources are still
-        inspected. No source is silently skipped and no mutation is attempted.
+        ChessBase databases. An unknown suffix, missing file, adapter error,
+        source mutation, or provenance mismatch is recorded against that exact
+        source while remaining sources are still inspected. No source is
+        silently skipped and no mutation is accepted as a successful result.
         """
         items: list[BatchInspectionItem] = []
         for raw_path in paths:
