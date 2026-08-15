@@ -3,9 +3,13 @@ from datetime import datetime, timedelta, timezone
 
 from acs.entitlements import (
     AccountSession,
+    CORE_FEATURE_IDS,
     EntitlementSnapshot,
     EntitlementState,
     FeatureGate,
+    FeatureId,
+    FreeBetaLicensePolicy,
+    LicensePolicy,
     ProductVersion,
     RemotePolicy,
 )
@@ -54,6 +58,44 @@ class EntitlementTests(unittest.TestCase):
         self.assertTrue(self.gate().evaluate("PLAY.ENGINE", snapshot, now=NOW).allowed)
         with self.assertRaises(ValueError):
             EntitlementSnapshot(EntitlementState.FREE_BETA, frozenset({"bad id"}))
+
+    def test_feature_catalog_values_are_unique_and_gate_accepts_enum(self):
+        values = [feature.value for feature in FeatureId]
+        self.assertEqual(len(values), len(set(values)))
+        self.assertEqual(CORE_FEATURE_IDS, frozenset(values))
+        decision = self.gate().evaluate(FeatureId.PLAY_ENGINE, self.snapshot(), now=NOW)
+        self.assertTrue(decision.allowed)
+        self.assertEqual(decision.feature_id, "play.engine")
+
+    def test_free_beta_policy_enables_known_features_without_provider_or_network(self):
+        policy = FreeBetaLicensePolicy()
+        self.assertIsInstance(policy, LicensePolicy)
+        snapshot = policy.entitlement_for()
+        self.assertEqual(snapshot.state, EntitlementState.FREE_BETA)
+        self.assertEqual(snapshot.feature_ids, CORE_FEATURE_IDS)
+        self.assertEqual(snapshot.source, "local_free_beta")
+        for feature in FeatureId:
+            with self.subTest(feature=feature):
+                self.assertTrue(self.gate().evaluate(feature, snapshot, now=NOW).allowed)
+
+    def test_free_beta_policy_carries_only_non_secret_signed_in_identity(self):
+        session = AccountSession("acct-1", True, "org-1")
+        snapshot = FreeBetaLicensePolicy().entitlement_for(session)
+        self.assertEqual(snapshot.account_id, "acct-1")
+        self.assertEqual(snapshot.organization_id, "org-1")
+
+        signed_out = FreeBetaLicensePolicy().entitlement_for(
+            AccountSession("stale-account", False, "stale-org")
+        )
+        self.assertIsNone(signed_out.account_id)
+        self.assertIsNone(signed_out.organization_id)
+
+    def test_free_beta_policy_can_be_narrowed_for_characterization(self):
+        snapshot = FreeBetaLicensePolicy(
+            feature_ids=frozenset({FeatureId.DATA_EXPORT.value})
+        ).entitlement_for()
+        self.assertTrue(self.gate().evaluate(FeatureId.DATA_EXPORT, snapshot, now=NOW).allowed)
+        self.assertFalse(self.gate().evaluate(FeatureId.PLAY_ENGINE, snapshot, now=NOW).allowed)
 
     def test_missing_feature_is_denied_without_provider_specific_logic(self):
         decision = self.gate().evaluate("cloud.sync", self.snapshot(), now=NOW)
