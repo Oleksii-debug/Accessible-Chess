@@ -23,6 +23,7 @@ on:
       - 'tests/test_position_editor.py'
       - 'tests/test_move_entry.py'
       - 'tests/test_sound_events.py'
+      - 'tests/test_sound_runtime.py'
       - 'tests/test_architecture.py'
       - 'tests/test_core_release_contracts.py'
       - 'build_snapshot_exact/**'
@@ -101,6 +102,8 @@ jobs:
           cp acs/move_entry.py work/acs/move_entry.py
           cp acs/sound_events.py work/acs/sound_events.py
           cp acs/sound_dispatch.py work/acs/sound_dispatch.py
+          cp acs/sound_runtime.py work/acs/sound_runtime.py
+          cp acs/sound_windows.py work/acs/sound_windows.py
           cp tests/test_history.py work/tests/test_history.py
           cp tests/test_analysis_service.py work/tests/test_analysis_service.py
           cp tests/test_continuous_analysis.py work/tests/test_continuous_analysis.py
@@ -118,6 +121,7 @@ jobs:
           cp tests/test_position_editor.py work/tests/test_position_editor.py
           cp tests/test_move_entry.py work/tests/test_move_entry.py
           cp tests/test_sound_events.py work/tests/test_sound_events.py
+          cp tests/test_sound_runtime.py work/tests/test_sound_runtime.py
           cp tests/test_architecture.py work/tests/test_architecture.py
           cp tests/test_core_release_contracts.py work/tests/test_core_release_contracts.py
 
@@ -192,6 +196,10 @@ jobs:
       - name: Semantic chess sound event tests
         working-directory: work
         run: python -m unittest discover -s tests -p 'test_sound_events.py' -v
+
+      - name: Production sound runtime and packaged asset contract tests
+        working-directory: work
+        run: python -m unittest discover -s tests -p 'test_sound_runtime.py' -v
 
       - name: Stale-safe analysis service tests
         working-directory: work
