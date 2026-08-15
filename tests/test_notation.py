@@ -8,6 +8,22 @@ class NotationFormatterTests(unittest.TestCase):
         self.assertEqual(format_san("Nf3", "san"), "Nf3")
         self.assertEqual(format_san("0-0+", "san"), "O-O+")
 
+    def test_accessible_compact_separates_piece_and_square_tokens(self):
+        self.assertEqual(format_san("Nf3", "accessible_compact"), "N f 3")
+        self.assertEqual(format_san("Nc6", "accessible_compact"), "N c 6")
+        self.assertEqual(format_san("e4", "accessible_compact"), "e 4")
+        self.assertEqual(format_san("Bb5+", "accessible_compact"), "B b 5 +")
+
+    def test_accessible_compact_preserves_capture_disambiguation_and_promotion(self):
+        self.assertEqual(format_san("Rxe7+", "accessible_compact"), "R x e 7 +")
+        self.assertEqual(format_san("Nbd2", "accessible_compact"), "N b d 2")
+        self.assertEqual(format_san("Qh4e1", "accessible_compact"), "Q h 4 e 1")
+        self.assertEqual(format_san("exd8=Q+", "accessible_compact"), "e x d 8 = Q +")
+
+    def test_accessible_compact_castling_is_short_and_unambiguous(self):
+        self.assertEqual(format_san("O-O", "accessible_compact"), "O-O")
+        self.assertEqual(format_san("0-0-0+", "accessible_compact"), "O-O-O +")
+
     def test_ukrainian_piece_names_replace_san_letters(self):
         self.assertEqual(format_san("Nf3", "uk_literal"), "кінь f 3")
         self.assertEqual(format_san("Bb5+", "uk_literal"), "слон b 5, шах")
@@ -53,6 +69,8 @@ class NotationFormatterTests(unittest.TestCase):
             format_san("e4", "robot")
         with self.assertRaisesRegex(NotationError, "unsupported SAN token"):
             format_san("not-a-move", "uk_literal")
+        with self.assertRaisesRegex(NotationError, "unsupported SAN token"):
+            format_san("not-a-move", "accessible_compact")
 
 
 if __name__ == "__main__":
