@@ -101,9 +101,21 @@ jobs:
       - name: Remappable actions, editor, import safety and notation gates
         working-directory: work
         run: python -m unittest -v tests.test_keybindings tests.test_ui_keymap_editor tests.test_keymap_import_warning_confirmation_integration tests.test_notation
-      - name: History review UI contract gate
+      - name: History review state gate
         working-directory: work
-        run: python -m unittest -v tests.test_history_review_ui
+        run: python -m unittest -v tests.test_history_review_ui.HistoryReviewUiIntegrationTests.test_review_navigation_is_non_destructive_and_reversible
+      - name: History direct jump gate
+        working-directory: work
+        run: python -m unittest -v tests.test_history_review_ui.HistoryReviewUiIntegrationTests.test_direct_history_jump_supports_locked_forms
+      - name: History invalid jump gate
+        working-directory: work
+        run: python -m unittest -v tests.test_history_review_ui.HistoryReviewUiIntegrationTests.test_invalid_jump_preserves_current_review_state
+      - name: History semantic H2 gate
+        working-directory: work
+        run: python -m unittest -v tests.test_history_review_ui.HistoryReviewUiIntegrationTests.test_history_ui_is_semantic_but_does_not_break_locked_h2_order
+      - name: History central shortcut authority gate
+        working-directory: work
+        run: python -m unittest -v tests.test_history_review_ui.HistoryReviewUiIntegrationTests.test_history_shortcuts_come_from_central_keymap_not_hardcoded_handler
       - name: Keymap import warning contract gate
         working-directory: work
         run: python -m unittest -v tests.test_keymap_import_warning_confirmation
