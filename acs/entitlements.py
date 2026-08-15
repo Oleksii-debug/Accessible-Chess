@@ -18,6 +18,27 @@ class EntitlementState(str, Enum):
     UPDATE_REQUIRED = "update_required"
 
 
+class FeatureId(str, Enum):
+    """Stable product-facing feature identifiers.
+
+    These values are intentionally provider-neutral. Product code may depend on
+    them, while billing/network adapters translate their own plans and claims to
+    these IDs at the infrastructure boundary.
+    """
+
+    PLAY_ENGINE = "play.engine"
+    ANALYSIS_ENGINE = "analysis.engine"
+    POSITION_EDITOR = "position.editor"
+    HISTORY_REVIEW = "history.review"
+    DATA_IMPORT = "data.import"
+    DATA_EXPORT = "data.export"
+    TRAINING_LOCAL = "training.local"
+    SETTINGS_PROFILES = "settings.profiles"
+
+
+CORE_FEATURE_IDS: FrozenSet[str] = frozenset(feature.value for feature in FeatureId)
+
+
 ACTIVE_STATES = frozenset(
     {
         EntitlementState.FREE_BETA,
@@ -134,6 +155,43 @@ class BillingProvider(Protocol):
         ...
 
 
+@runtime_checkable
+class LicensePolicy(Protocol):
+    """Application policy port that produces provider-neutral entitlements.
+
+    Implementations may represent the current free beta, a cached signed-in
+    account, an organization deployment, or a future commercial policy. Chess,
+    UI and data code consume only the resulting EntitlementSnapshot.
+    """
+
+    def entitlement_for(self, session: AccountSession | None = None) -> EntitlementSnapshot:
+        ...
+
+
+@dataclass(frozen=True)
+class FreeBetaLicensePolicy:
+    """Current development policy: all known local product features are enabled.
+
+    This is deliberately local and deterministic. Replacing it with a commercial
+    policy later does not require edits to chess rules, UI actions or data models.
+    """
+
+    feature_ids: FrozenSet[str] = CORE_FEATURE_IDS
+
+    def __post_init__(self) -> None:
+        normalized = frozenset(_normalize_feature_id(value) for value in self.feature_ids)
+        object.__setattr__(self, "feature_ids", normalized)
+
+    def entitlement_for(self, session: AccountSession | None = None) -> EntitlementSnapshot:
+        return EntitlementSnapshot(
+            state=EntitlementState.FREE_BETA,
+            feature_ids=self.feature_ids,
+            account_id=session.account_id if session and session.signed_in else None,
+            organization_id=session.organization_id if session and session.signed_in else None,
+            source="local_free_beta",
+        )
+
+
 class FeatureGate:
     """Pure policy evaluator for stable feature IDs.
 
@@ -151,7 +209,7 @@ class FeatureGate:
 
     def evaluate(
         self,
-        feature_id: str,
+        feature_id: str | FeatureId,
         snapshot: EntitlementSnapshot | None,
         *,
         now: datetime | None = None,
@@ -226,8 +284,8 @@ class FeatureGate:
         return AccessDecision(False, snapshot.state, "not_active", feature)
 
 
-def _normalize_feature_id(value: str) -> str:
-    text = str(value).strip().lower()
+def _normalize_feature_id(value: str | FeatureId) -> str:
+    text = value.value if isinstance(value, FeatureId) else str(value).strip().lower()
     if not text:
         raise ValueError("feature ID must not be empty")
     if any(ch.isspace() for ch in text):
