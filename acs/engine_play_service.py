@@ -1,16 +1,22 @@
 from __future__ import annotations
 
-"""Presentation-neutral engine-play application service.
+"""Presentation-neutral engine-play application contracts and service.
 
-This module owns policy (levels, side selection and move-time defaults) while
-leaving the concrete UCI/Stockfish process behind ``MoveEnginePort``.
+This module owns engine-game policy (levels, side selection and game handoff
+intents) while leaving the concrete UCI/Stockfish process behind
+``MoveEnginePort``.  The canonical chess-clock DTO remains ``TimeControl`` from
+``clock_service``; this module deliberately does not create a second clock
+model.
 """
 
 from dataclasses import dataclass
+from enum import Enum
 import random
 from typing import Callable
 
+from .clock_service import TimeControl
 from .engine_ports import EngineMoveRequest, EngineMoveResult, MoveEnginePort
+from .game_lifecycle import GameLifecycle, LifecycleSnapshot
 
 
 @dataclass(frozen=True)
@@ -21,7 +27,7 @@ class EngineLevel:
 
 
 # User-facing levels 1..10 map to Stockfish/UCI skill 0..20 and bounded think
-# times.  The policy is centralized here so UI code never embeds engine tuning.
+# times. The policy is centralized here so UI code never embeds engine tuning.
 _LEVELS: tuple[EngineLevel, ...] = (
     EngineLevel(1, 0, 100),
     EngineLevel(2, 2, 150),
@@ -36,29 +42,197 @@ _LEVELS: tuple[EngineLevel, ...] = (
 )
 
 
+class EngineSideMode(str, Enum):
+    WHITE = "white"
+    BLACK = "black"
+    RANDOM = "random"
+
+
+class EngineGameIntent(str, Enum):
+    """Stable application intents emitted by an engine-game presentation.
+
+    Lifecycle intents are consumed by the existing ``GameLifecycle`` service;
+    analysis and review intents are handoffs to their respective application
+    services. No intent here mutates board/history/UI state by itself.
+    """
+
+    REQUEST_TAKEBACK = "request_takeback"
+    ACCEPT_TAKEBACK = "accept_takeback"
+    DECLINE_TAKEBACK = "decline_takeback"
+    OFFER_DRAW = "offer_draw"
+    ACCEPT_DRAW = "accept_draw"
+    DECLINE_DRAW = "decline_draw"
+    RESIGN = "resign"
+    ANALYZE_CURRENT_GAME = "analyze_current_game"
+    OPEN_FINAL_REVIEW = "open_final_review"
+
+
+_PLAYER_INTENTS = frozenset(
+    {
+        EngineGameIntent.REQUEST_TAKEBACK,
+        EngineGameIntent.ACCEPT_TAKEBACK,
+        EngineGameIntent.DECLINE_TAKEBACK,
+        EngineGameIntent.OFFER_DRAW,
+        EngineGameIntent.ACCEPT_DRAW,
+        EngineGameIntent.DECLINE_DRAW,
+        EngineGameIntent.RESIGN,
+    }
+)
+
+
+@dataclass(frozen=True)
+class EngineGameConfig:
+    """Stable request DTO for starting a local game against an engine."""
+
+    level: int = 5
+    engine_side: EngineSideMode | str = EngineSideMode.BLACK
+    time_control: TimeControl = TimeControl(0, 0)
+
+    def __post_init__(self) -> None:
+        level = int(self.level)
+        if level < 1 or level > 10:
+            raise ValueError("engine game level must be between 1 and 10")
+        object.__setattr__(self, "level", level)
+        mode = _normalize_side_mode(self.engine_side)
+        object.__setattr__(self, "engine_side", mode)
+        if not isinstance(self.time_control, TimeControl):
+            raise TypeError("time_control must be clock_service.TimeControl")
+
+
+@dataclass(frozen=True)
+class ResolvedEngineGameConfig:
+    """Concrete side + engine policy after resolving a start request."""
+
+    engine_side: str
+    level: EngineLevel
+    time_control: TimeControl
+
+
+@dataclass(frozen=True)
+class EngineGameHandoff:
+    """Validated neutral handoff for local engine-game secondary actions."""
+
+    intent: EngineGameIntent
+    actor: str | None = None
+    fen: str | None = None
+    history_node_id: str | None = None
+
+    def __post_init__(self) -> None:
+        try:
+            intent = self.intent if isinstance(self.intent, EngineGameIntent) else EngineGameIntent(str(self.intent))
+        except ValueError as exc:
+            raise ValueError("unknown engine game intent") from exc
+        object.__setattr__(self, "intent", intent)
+
+        if intent in _PLAYER_INTENTS:
+            if self.actor not in {"w", "b"}:
+                raise ValueError("player lifecycle intent requires actor 'w' or 'b'")
+        elif self.actor is not None and self.actor not in {"w", "b"}:
+            raise ValueError("actor must be 'w', 'b', or None")
+
+        if intent is EngineGameIntent.ANALYZE_CURRENT_GAME:
+            fen = "" if self.fen is None else str(self.fen).strip()
+            if not fen:
+                raise ValueError("analyze-current-game handoff requires fen")
+            object.__setattr__(self, "fen", fen)
+
+        if intent is EngineGameIntent.OPEN_FINAL_REVIEW:
+            node_id = "" if self.history_node_id is None else str(self.history_node_id).strip()
+            if not node_id:
+                raise ValueError("final-review handoff requires history_node_id")
+            object.__setattr__(self, "history_node_id", node_id)
+
+
 def level_policy(level: int) -> EngineLevel:
     level = max(1, min(10, int(level)))
     return _LEVELS[level - 1]
 
 
-def choose_engine_side(mode: str, *, random_choice: Callable[[tuple[str, str]], str] | None = None) -> str:
+def _normalize_side_mode(mode: EngineSideMode | str) -> EngineSideMode:
+    if isinstance(mode, EngineSideMode):
+        return mode
+    normalized = str(mode).strip().lower()
+    aliases = {
+        "white": EngineSideMode.WHITE,
+        "w": EngineSideMode.WHITE,
+        "black": EngineSideMode.BLACK,
+        "b": EngineSideMode.BLACK,
+        "random": EngineSideMode.RANDOM,
+    }
+    try:
+        return aliases[normalized]
+    except KeyError as exc:
+        raise ValueError("engine side must be white, black, or random") from exc
+
+
+def choose_engine_side(
+    mode: EngineSideMode | str,
+    *,
+    random_choice: Callable[[tuple[str, str]], str] | None = None,
+) -> str:
     """Resolve ``white``, ``black`` or ``random`` to ``w``/``b``.
 
     ``random_choice`` is injectable for deterministic tests.
     """
 
-    normalized = str(mode).strip().lower()
-    if normalized in {"white", "w"}:
+    resolved_mode = _normalize_side_mode(mode)
+    if resolved_mode is EngineSideMode.WHITE:
         return "w"
-    if normalized in {"black", "b"}:
+    if resolved_mode is EngineSideMode.BLACK:
         return "b"
-    if normalized == "random":
-        chooser = random_choice or random.choice
-        result = chooser(("w", "b"))
-        if result not in {"w", "b"}:
-            raise ValueError("random side chooser must return 'w' or 'b'")
-        return result
-    raise ValueError("engine side must be white, black, or random")
+    chooser = random_choice or random.choice
+    result = chooser(("w", "b"))
+    if result not in {"w", "b"}:
+        raise ValueError("random side chooser must return 'w' or 'b'")
+    return result
+
+
+def resolve_engine_game_config(
+    config: EngineGameConfig,
+    *,
+    random_choice: Callable[[tuple[str, str]], str] | None = None,
+) -> ResolvedEngineGameConfig:
+    """Resolve a start request without creating an engine or mutating a game."""
+
+    if not isinstance(config, EngineGameConfig):
+        raise TypeError("config must be EngineGameConfig")
+    return ResolvedEngineGameConfig(
+        engine_side=choose_engine_side(config.engine_side, random_choice=random_choice),
+        level=level_policy(config.level),
+        time_control=config.time_control,
+    )
+
+
+def dispatch_lifecycle_handoff(
+    lifecycle: GameLifecycle,
+    handoff: EngineGameHandoff,
+) -> LifecycleSnapshot:
+    """Apply an engine-game lifecycle intent to the canonical lifecycle service.
+
+    Accepted takeback clears the lifecycle request only. Destructive undo remains
+    owned by the canonical game/history service, so this dispatcher never creates
+    a second board or history source of truth.
+    """
+
+    if not isinstance(lifecycle, GameLifecycle):
+        raise TypeError("lifecycle must be GameLifecycle")
+    if not isinstance(handoff, EngineGameHandoff):
+        raise TypeError("handoff must be EngineGameHandoff")
+    if handoff.intent not in _PLAYER_INTENTS:
+        raise ValueError("handoff is not a lifecycle intent")
+
+    actor = handoff.actor
+    assert actor in {"w", "b"}
+    operations = {
+        EngineGameIntent.REQUEST_TAKEBACK: lifecycle.request_takeback,
+        EngineGameIntent.ACCEPT_TAKEBACK: lifecycle.accept_takeback,
+        EngineGameIntent.DECLINE_TAKEBACK: lifecycle.decline_takeback,
+        EngineGameIntent.OFFER_DRAW: lifecycle.offer_draw,
+        EngineGameIntent.ACCEPT_DRAW: lifecycle.accept_draw,
+        EngineGameIntent.DECLINE_DRAW: lifecycle.decline_draw,
+        EngineGameIntent.RESIGN: lifecycle.resign,
+    }
+    return operations[handoff.intent](actor)
 
 
 class EnginePlayService:
