@@ -99,6 +99,49 @@ class ActionRegistryTests(unittest.TestCase):
             registry.set_binding("board.defenders", "A")
         self.assertEqual(registry.get_binding("board.defenders"), "D")
 
+    def test_global_binding_cannot_be_shadowed_by_context_binding(self):
+        definitions = [
+            ActionDefinition("edit.undo", BindingContext.GLOBAL, "Undo", "Ctrl+Z"),
+            ActionDefinition("board.local", BindingContext.BOARD, "Board local", "X"),
+        ]
+        registry = ActionRegistry(definitions)
+        with self.assertRaisesRegex(ValueError, "global bindings are active in board"):
+            registry.set_binding("board.local", "Ctrl+Z")
+        self.assertEqual(registry.get_binding("board.local"), "X")
+
+    def test_global_binding_cannot_shadow_existing_context_binding(self):
+        definitions = [
+            ActionDefinition("global.action", BindingContext.GLOBAL, "Global", "Ctrl+J"),
+            ActionDefinition("history.local", BindingContext.HISTORY, "History", "H"),
+        ]
+        registry = ActionRegistry(definitions)
+        with self.assertRaisesRegex(ValueError, "global bindings are active in history"):
+            registry.set_binding("global.action", "H")
+        self.assertEqual(registry.get_binding("global.action"), "Ctrl+J")
+
+    def test_import_rejects_ambiguous_global_binding_overlap(self):
+        definitions = [
+            ActionDefinition("global.action", BindingContext.GLOBAL, "Global", "Ctrl+J"),
+            ActionDefinition("board.local", BindingContext.BOARD, "Board", "X"),
+        ]
+        profile = {
+            "schema_version": 1,
+            "bindings": {"global.action": "X", "board.local": "X"},
+            "aliases": {},
+        }
+        with self.assertRaisesRegex(ValueError, "global bindings are active in board"):
+            ActionRegistry.from_profile(profile, definitions)
+
+    def test_global_alias_overlap_is_rejected(self):
+        definitions = [
+            ActionDefinition("global.command", BindingContext.GLOBAL, "Global", default_alias="g"),
+            ActionDefinition("move.command", BindingContext.MOVE_ENTRY, "Move", default_alias="m"),
+        ]
+        registry = ActionRegistry(definitions)
+        with self.assertRaisesRegex(ValueError, "global aliases are active in move_entry"):
+            registry.set_alias("move.command", "g")
+        self.assertEqual(registry.get_alias("move.command"), "m")
+
     def test_alias_duplicate_is_rejected(self):
         registry = ActionRegistry()
         with self.assertRaisesRegex(ValueError, "already assigned"):
