@@ -2,8 +2,19 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from acs.import_contract import ImportQuality, ImportReport, ImportedRecord, fingerprint
-from acs.import_registry import ImportRegistry, ImportRegistryError
+from acs.import_contract import (
+    ImportQuality,
+    ImportReport,
+    ImportedRecord,
+    SourceFingerprint,
+    fingerprint,
+)
+from acs.import_registry import (
+    ImportRegistry,
+    ImportRegistryError,
+    SourceMutationError,
+    SourceProvenanceError,
+)
 
 
 class FakeImporter:
@@ -22,6 +33,31 @@ class SecondFooImporter:
 
     def inspect(self, path: Path) -> ImportReport:
         return ImportReport(source=fingerprint(path), format_name=self.format_name)
+
+
+class MutatingImporter:
+    format_name = 'Unsafe mutating fake'
+    suffixes = ('.mut',)
+
+    def inspect(self, path: Path) -> ImportReport:
+        before = fingerprint(path)
+        path.write_bytes(path.read_bytes() + b' changed')
+        return ImportReport(source=before, format_name=self.format_name)
+
+
+class FalseProvenanceImporter:
+    format_name = 'False provenance fake'
+    suffixes = ('.lie',)
+
+    def inspect(self, path: Path) -> ImportReport:
+        actual = fingerprint(path)
+        false_source = SourceFingerprint(
+            path=actual.path,
+            size=actual.size,
+            sha256='0' * 64,
+            suffix=actual.suffix,
+        )
+        return ImportReport(source=false_source, format_name=self.format_name)
 
 
 class ImportRegistryTests(unittest.TestCase):
@@ -70,6 +106,48 @@ class ImportRegistryTests(unittest.TestCase):
             self.assertEqual(report.counts['full'], 1)
             self.assertEqual(report.source.path, str(path.resolve()))
             self.assertEqual(report.source.sha256, fingerprint(path).sha256)
+
+    def test_registry_detects_source_mutation_even_when_adapter_reports_old_fingerprint(self):
+        registry = ImportRegistry()
+        registry.register(MutatingImporter())
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / 'sample.mut'
+            path.write_bytes(b'original')
+            with self.assertRaises(SourceMutationError):
+                registry.inspect(path)
+            self.assertEqual(path.read_bytes(), b'original changed')
+
+    def test_registry_rejects_report_for_bytes_other_than_inspected_source(self):
+        registry = ImportRegistry()
+        registry.register(FalseProvenanceImporter())
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / 'sample.lie'
+            path.write_bytes(b'original')
+            with self.assertRaises(SourceProvenanceError):
+                registry.inspect(path)
+            self.assertEqual(path.read_bytes(), b'original')
+
+    def test_batch_records_mutation_and_provenance_failures_without_hiding_later_sources(self):
+        registry = ImportRegistry()
+        registry.register(FakeImporter())
+        registry.register(MutatingImporter())
+        registry.register(FalseProvenanceImporter())
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            mutating = root / 'bad.mut'
+            lying = root / 'bad.lie'
+            valid = root / 'good.foo'
+            mutating.write_bytes(b'm')
+            lying.write_bytes(b'l')
+            valid.write_bytes(b'good')
+
+            batch = registry.inspect_batch([mutating, lying, valid])
+
+            self.assertEqual([item.ok for item in batch.items], [False, False, True])
+            self.assertIn('modified source bytes', batch.items[0].error)
+            self.assertIn('provenance does not match', batch.items[1].error)
+            self.assertEqual(len(batch.reports), 1)
+            self.assertEqual(batch.reports[0].source.sha256, fingerprint(valid).sha256)
 
     def test_unregister_removes_only_that_importers_suffixes(self):
         registry = ImportRegistry()
