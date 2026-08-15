@@ -2,9 +2,10 @@ from __future__ import annotations
 
 """Registration-based presentation-neutral notation profiles.
 
-Built-in SAN/Ukrainian/English profiles delegate to the canonical formatter in
-``acs.notation``. Additional profiles can be registered at the composition
-root without adding provider-specific conditionals to chess or UI code.
+Built-in SAN/compact/Ukrainian/English profiles delegate to the canonical
+formatter in ``acs.notation``. Additional profiles can be registered at the
+composition root without adding provider-specific conditionals to chess or UI
+code.
 """
 
 from dataclasses import dataclass
@@ -46,6 +47,7 @@ class NotationProfileRegistry:
         self._formatters: dict[str, NotationFormatter] = {}
         if include_builtins:
             self._register_builtin("san", "SAN", None)
+            self._register_builtin("accessible_compact", "Accessible compact", None)
             self._register_builtin("uk_literal", "Українська буквальна", "uk")
             self._register_builtin("en_literal", "English literal", "en")
 
