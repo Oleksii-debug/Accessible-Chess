@@ -54,7 +54,7 @@ jobs:
         run: |
           mkdir -p work/acs work/web work/tests
           for file in \
-            webapp.py webapp_keymap.py analysis_service.py history.py keybindings.py notation.py \
+            webapp.py webapp_keymap.py analysis_service.py continuous_analysis.py history.py keybindings.py notation.py \
             ui_keymap_adapter.py ui_keymap_editor.py ui_keymap_service.py ui_native_menu.py \
             engine_ports.py engine_play_service.py clock_service.py game_lifecycle.py \
             gametree.py acsdb.py import_contract.py import_registry.py pgn_service.py \
@@ -65,10 +65,10 @@ jobs:
           cp web/index.html work/web/index.html
           cp web/keybindings.json work/web/keybindings.json
           for file in \
-            test_accessible_webui.py test_analysis_service.py test_nvda_p0_contract.py \
+            test_accessible_webui.py test_analysis_service.py test_continuous_analysis.py test_nvda_p0_contract.py \
             test_data_integration.py test_chessbase_adapter.py test_import_registry.py \
             test_pgn_service.py test_architecture.py test_history.py test_keybindings.py \
-            test_ui_keymap_editor.py test_notation.py test_engine_play_service.py \
+            test_ui_keymap_editor.py test_keymap_import_warning_confirmation_integration.py test_notation.py test_engine_play_service.py \
             test_clock_service.py test_game_lifecycle.py
           do
             cp "tests/$file" "work/tests/$file"
@@ -86,12 +86,12 @@ jobs:
       - name: Import registry and read-only adapter gates
         working-directory: work
         run: python -m unittest -v tests.test_import_registry tests.test_chessbase_adapter
-      - name: Engine service and game lifecycle gates
+      - name: Engine service, continuous analysis and game lifecycle gates
         working-directory: work
-        run: python -m unittest -v tests.test_analysis_service tests.test_engine_play_service tests.test_clock_service tests.test_game_lifecycle
-      - name: Remappable actions, editor and notation gates
+        run: python -m unittest -v tests.test_analysis_service tests.test_continuous_analysis tests.test_engine_play_service tests.test_clock_service tests.test_game_lifecycle
+      - name: Remappable actions, editor, import safety and notation gates
         working-directory: work
-        run: python -m unittest -v tests.test_keybindings tests.test_ui_keymap_editor tests.test_notation
+        run: python -m unittest -v tests.test_keybindings tests.test_ui_keymap_editor tests.test_keymap_import_warning_confirmation_integration tests.test_notation
       - name: Accessible Web UI gate
         working-directory: work
         run: python -m unittest -v tests.test_accessible_webui
