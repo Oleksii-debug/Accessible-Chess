@@ -38,6 +38,11 @@ _COMPONENT_EXTENSIONS = {
 _ALL_EXTENSIONS = {**_PRIMARY_EXTENSIONS, **_COMPONENT_EXTENSIONS}
 
 
+def _portable_path(path: Path) -> str:
+    """Serialize provenance with stable separators without resolving or rewriting it."""
+    return str(path).replace("\\", "/")
+
+
 @dataclass(frozen=True)
 class ChessBaseComponent:
     path: Path
@@ -47,7 +52,7 @@ class ChessBaseComponent:
 
     def as_report_fields(self) -> dict[str, object]:
         return {
-            "path": str(self.path),
+            "path": _portable_path(self.path),
             "extension": self.extension,
             "role": self.role,
             "exists": self.exists,
@@ -84,7 +89,7 @@ class ChessBaseSourceProbe:
 
     def as_report_fields(self) -> dict[str, object]:
         return {
-            "source_path": str(self.path),
+            "source_path": _portable_path(self.path),
             "extension": self.extension,
             "family_name": self.family_name,
             "recognized": self.recognized,
