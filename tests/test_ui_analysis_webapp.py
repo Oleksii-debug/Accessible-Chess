@@ -81,7 +81,7 @@ class UIAnalysisWebAppTests(unittest.TestCase):
             api = KeymapAwareAccessibleChessAPI(keymap_path=Path(temp) / "keymap.json")
             state = api.get_state()
             self.assertFalse(state["engineEnabled"])
-            self.assertIn("не підключено", state["engineStatus"])
+            self.assertIn("недоступний", state["engineStatus"])
             result = api.toggle_engine()
             self.assertFalse(result["ok"])
             self.assertFalse(result["engineEnabled"])
@@ -142,10 +142,7 @@ class UIAnalysisWebAppTests(unittest.TestCase):
         self.assertTrue(result["ok"])
         self.assertIn("Варіант 3", result["announcement"])
         self.assertIn("move3a move3b", result["announcement"])
-        self.assertEqual(
-            api.keymap_resolve_binding("analysis", "Alt+3")["actionId"],
-            "analysis.pv3",
-        )
+        self.assertEqual(api.keymap_resolve_binding("analysis", "Alt+3")["actionId"], "analysis.pv3")
 
     def test_evaluation_and_best_move_use_current_analysis(self):
         api, fake = self.make_api()
@@ -157,22 +154,23 @@ class UIAnalysisWebAppTests(unittest.TestCase):
         self.assertIn("Оцінка", evaluation["announcement"])
         self.assertIn("move1a", best["announcement"])
 
-    def test_play_best_is_explicitly_unwired_not_faked(self):
+    def test_play_best_is_explicitly_unavailable_not_faked(self):
         api, fake = self.make_api()
         api.toggle_engine()
         fen = api.get_state()["fen"]
         fake.set_result(fen)
         result = api.dispatch_action("board.play_best")
         self.assertFalse(result["ok"])
-        self.assertIn("контракт", result["announcement"])
+        self.assertIn("недоступна", result["announcement"])
 
-    def test_engine_error_is_visible_and_disable_stops_service(self):
+    def test_engine_error_is_concise_and_disable_stops_service(self):
         api, fake = self.make_api()
         api.toggle_engine()
         fen = api.get_state()["fen"]
         fake.set_result(fen, error="engine unavailable")
         state = api.get_state()
-        self.assertIn("engine unavailable", state["engineStatus"])
+        self.assertEqual(state["engineStatus"], "Помилка Stockfish.")
+        self.assertNotIn("engine unavailable", state["engineStatus"])
         disabled = api.toggle_engine()
         self.assertTrue(disabled["ok"])
         self.assertEqual(fake.stopped, 1)
