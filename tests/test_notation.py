@@ -1,6 +1,6 @@
 import unittest
 
-from acs.notation import NotationError, format_san
+from acs.notation import NotationError, format_accessible_compact_san, format_san
 
 
 class NotationFormatterTests(unittest.TestCase):
@@ -47,6 +47,13 @@ class NotationFormatterTests(unittest.TestCase):
         self.assertEqual(format_san("O-O", "uk_literal"), "коротка рокіровка")
         self.assertEqual(format_san("O-O-O+", "uk_literal"), "довга рокіровка, шах")
         self.assertEqual(format_san("0-0#", "en_literal"), "kingside castling, checkmate")
+
+    def test_compact_accessible_profile_spaces_piece_file_rank(self):
+        self.assertEqual(format_accessible_compact_san("Nf3", "en"), "N f 3")
+        self.assertEqual(format_accessible_compact_san("Nc6", "uk"), "N c 6")
+        self.assertEqual(format_accessible_compact_san("Rxe7+", "en"), "R captures e 7, check")
+        self.assertEqual(format_accessible_compact_san("exd5", "uk"), "e б’є d 5")
+        self.assertEqual(format_accessible_compact_san("O-O#", "uk"), "коротка рокіровка, мат")
 
     def test_invalid_profile_or_token_fails_precisely(self):
         with self.assertRaisesRegex(NotationError, "unknown notation profile"):
