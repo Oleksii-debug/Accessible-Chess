@@ -101,15 +101,20 @@ class AccessibleWebUiTests(unittest.TestCase):
         self.assertIn("function applyUiLanguage(lang)", self.html)
         self.assertIn("document.documentElement.lang=lang==='en'?'en':'uk'", self.html)
 
-    def test_board_coordinate_navigation_no_longer_steals_a_or_d(self):
+    def test_board_coordinate_navigation_no_longer_steals_a_or_d_and_is_remappable(self):
         self.assertNotIn("/^[a-hA-H]$/.test(key)", self.html)
-        self.assertIn("/^[1-8]$/.test(key)&&!e.shiftKey", self.html)
-        self.assertIn("/^[1-8]$/.test(key)&&e.shiftKey", self.html)
+        self.assertNotIn("/^[1-8]$/.test(key)&&!e.shiftKey", self.html)
+        self.assertNotIn("/^[1-8]$/.test(key)&&e.shiftKey", self.html)
         self.assertIn("actionByChord(eventChord(e),'board')", self.html)
+        self.assertIn("id.match(/^board\\.rank_([1-8])$/)", self.html)
+        self.assertIn("id.match(/^board\\.file_([1-8])$/)", self.html)
         data = json.loads((self.root / "web" / "keybindings.json").read_text(encoding="utf-8"))
         by_id = {x["id"]: x for x in data["actions"]}
         self.assertEqual(by_id["board.attackers"]["binding"], "A")
         self.assertEqual(by_id["board.defenders"]["binding"], "D")
+        for number in range(1, 9):
+            self.assertEqual(by_id[f"board.rank_{number}"]["binding"], str(number))
+            self.assertEqual(by_id[f"board.file_{number}"]["binding"], f"Shift+{number}")
 
     def test_remappable_keybinding_editor_is_accessible_and_recoverable(self):
         for marker in (
