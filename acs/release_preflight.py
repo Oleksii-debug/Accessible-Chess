@@ -40,6 +40,9 @@ _SECRET_ASSIGNMENT_NAMES = frozenset(
 )
 _SECRET_FILE_SUFFIXES = frozenset({".p12", ".pfx", ".pem", ".key", ".jks"})
 _PRIVATE_KEY_MARKER = re.compile(r"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----")
+_EXCLUDED_SOURCE_PARTS = frozenset(
+    {".git", ".venv", "venv", "build", "dist", "build-nuitka", "tests", "docs", "examples"}
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -54,8 +57,11 @@ class PreflightDefect:
 
 
 def _python_files(root: Path) -> Iterable[Path]:
+    """Yield production Python sources, excluding test/docs/build fixtures."""
+
     for path in sorted(root.rglob("*.py"), key=lambda item: item.as_posix().casefold()):
-        if any(part in {".git", ".venv", "venv", "build", "dist", "build-nuitka"} for part in path.parts):
+        relative_parts = path.relative_to(root).parts
+        if any(part in _EXCLUDED_SOURCE_PARTS for part in relative_parts):
             continue
         yield path
 
