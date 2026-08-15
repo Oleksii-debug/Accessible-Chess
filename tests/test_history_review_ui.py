@@ -84,4 +84,6 @@ def test_history_shortcuts_come_from_central_keymap_not_hardcoded_handler():
     assert '"id":"history.go_to_move"' in compact
     assert '"binding":"Ctrl+G"' in compact
     assert '"id":"history.goto"' not in compact
-    assert "actionByChord(eventChord(e),'document')" in html
+    assert "resolveBinding(chord,'history','document')" in html
+    assert "typeof a.keymap_resolve_binding==='function'" in html
+    assert "actionByChord(eventChord(e),'document')" not in html

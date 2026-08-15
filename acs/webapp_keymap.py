@@ -113,8 +113,10 @@ class KeymapAwareAccessibleChessAPI(AccessibleChessAPI):
     def keymap_export_profile(self) -> str:
         return self.keymap_service.export_profile()
 
-    def keymap_import_profile(self, text: str) -> dict[str, Any]:
-        return self.keymap_service.import_profile(text)
+    def keymap_import_profile(self, text: str, allow_warnings: bool = False) -> dict[str, Any]:
+        """Import a profile through the same warning-confirmation policy as edits."""
+
+        return self.keymap_service.import_profile(text, allow_warnings=allow_warnings)
 
     def keymap_resolve_binding(self, context: str, binding: str) -> dict[str, Any] | None:
         return self.keymap_service.resolve_binding(context, binding)
