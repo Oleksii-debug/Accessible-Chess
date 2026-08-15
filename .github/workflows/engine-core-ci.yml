@@ -8,6 +8,7 @@ on:
       - 'acs/**'
       - 'tests/test_history.py'
       - 'tests/test_analysis_service.py'
+      - 'tests/test_continuous_analysis.py'
       - 'tests/test_keybindings.py'
       - 'tests/test_notation.py'
       - 'tests/test_engine_play_service.py'
@@ -78,6 +79,7 @@ jobs:
           set -euo pipefail
           cp acs/history.py work/acs/history.py
           cp acs/analysis_service.py work/acs/analysis_service.py
+          cp acs/continuous_analysis.py work/acs/continuous_analysis.py
           cp acs/keybindings.py work/acs/keybindings.py
           cp acs/notation.py work/acs/notation.py
           cp acs/engine_ports.py work/acs/engine_ports.py
@@ -92,6 +94,7 @@ jobs:
           cp acs/sound_events.py work/acs/sound_events.py
           cp tests/test_history.py work/tests/test_history.py
           cp tests/test_analysis_service.py work/tests/test_analysis_service.py
+          cp tests/test_continuous_analysis.py work/tests/test_continuous_analysis.py
           cp tests/test_keybindings.py work/tests/test_keybindings.py
           cp tests/test_notation.py work/tests/test_notation.py
           cp tests/test_engine_play_service.py work/tests/test_engine_play_service.py
@@ -164,6 +167,10 @@ jobs:
       - name: Stale-safe analysis service tests
         working-directory: work
         run: python -m unittest discover -s tests -p 'test_analysis_service.py' -v
+
+      - name: Continuous analysis lifecycle and coalescing tests
+        working-directory: work
+        run: python -m unittest discover -s tests -p 'test_continuous_analysis.py' -v
 
       - name: Chess legal-move and special-rule diagnostic
         working-directory: work
