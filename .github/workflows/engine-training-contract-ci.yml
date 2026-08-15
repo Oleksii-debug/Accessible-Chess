@@ -1,0 +1,49 @@
+name: Engine Training Contract CI
+
+on:
+  push:
+    branches:
+      - dev/stage1-engine-core-0.4.0
+    paths:
+      - 'acs/training.py'
+      - 'tests/test_training.py'
+      - '.github/workflows/engine-training-contract-ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: engine-training-contract-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  training-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Compile training contract
+        run: python -m py_compile acs/training.py tests/test_training.py
+
+      - name: Run training/exercise contract tests
+        run: python -m unittest -v tests.test_training
+
+      - name: Enforce presentation-neutral dependencies
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          text = Path('acs/training.py').read_text(encoding='utf-8').lower()
+          forbidden = ('webview', 'tkinter', 'sqlite3', 'subprocess', 'stockfish', 'pywebview')
+          found = [name for name in forbidden if name in text]
+          assert not found, f'forbidden dependency tokens in training contract: {found}'
+          print('TRAINING ARCHITECTURE GATE PASS')
+          PY
