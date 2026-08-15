@@ -2,40 +2,50 @@ from __future__ import annotations
 
 """Windows-native menu for Accessible Chess.
 
-The pywebview MenuStrip projection looked like a menu visually, but the real
-NVDA acceptance test could not operate it with normal Alt/arrow/Enter/Escape
-semantics. On Windows we attach a classic System.Windows.Forms.MainMenu to the
-actual native Form. That control is owned by Windows rather than the WebView
-DOM and exposes standard menu keyboard behaviour to accessibility clients.
+Production attaches a classic System.Windows.Forms.MainMenu to the actual
+Windows Form after WebView startup. A small legacy projection remains only as a
+presentation/test helper; the release launcher never passes it to pywebview.
 """
 
+import json
 from typing import Any, Callable
 
 
 _LABELS_UK = {
-    "file": "&Файл", "game": "&Гра", "board": "&Дошка", "analysis": "&Аналіз",
-    "settings": "&Налаштування", "help": "&Довідка",
-    "new": "Нова партія", "empty": "Порожня дошка", "exit": "Вихід",
+    "file": "Файл", "game": "Гра", "board": "Дошка", "analysis": "Аналіз",
+    "settings": "Налаштування", "help": "Довідка",
+    "new": "Нова стандартна позиція", "empty": "Порожня дошка", "exit": "Вихід",
     "undo": "Скасувати хід", "redo": "Повторити хід",
-    "history_previous": "Попередня позиція", "history_next": "Наступна позиція",
+    "history_previous": "Попередня позиція в історії", "history_next": "Наступна позиція в історії",
     "history_go": "Перейти до ходу", "board_go": "Перейти на дошку",
-    "move_input": "Введення ходу", "position_input": "Редактор позиції",
+    "move_input": "Поле введення ходу", "position_input": "Текстовий редактор позиції",
     "engine_toggle": "Увімкнути / вимкнути Stockfish",
-    "keyboard": "Клавіатура і команди", "keyboard_reset": "Відновити стандартні клавіші",
-    "help_open": "Довідка",
+    "keyboard": "Клавіатура і команди",
+    "keyboard_reset": "Відновити всі клавіші та команди",
+    "keyboard_reset_done": "Усі клавіші та команди відновлено за замовчуванням.",
+    "keyboard_reset_failed": "Не вдалося відновити клавіші та команди.",
+    "help_open": "Клавіші та довідка NVDA",
 }
 
 _LABELS_EN = {
-    "file": "&File", "game": "&Game", "board": "&Board", "analysis": "&Analysis",
-    "settings": "&Settings", "help": "&Help",
-    "new": "New game", "empty": "Empty board", "exit": "Exit",
+    "file": "File", "game": "Game", "board": "Board", "analysis": "Analysis",
+    "settings": "Settings", "help": "Help",
+    "new": "New standard position", "empty": "Empty board", "exit": "Exit",
     "undo": "Undo move", "redo": "Redo move",
-    "history_previous": "Previous position", "history_next": "Next position",
+    "history_previous": "Previous history position", "history_next": "Next history position",
     "history_go": "Go to move", "board_go": "Go to board",
-    "move_input": "Move input", "position_input": "Position editor",
+    "move_input": "Move input", "position_input": "Position text editor",
     "engine_toggle": "Enable / disable Stockfish",
-    "keyboard": "Keyboard and commands", "keyboard_reset": "Reset keyboard defaults",
-    "help_open": "Help",
+    "keyboard": "Keyboard and commands",
+    "keyboard_reset": "Reset all keyboard commands",
+    "keyboard_reset_done": "All keyboard commands were reset to defaults.",
+    "keyboard_reset_failed": "Keyboard commands could not be reset.",
+    "help_open": "Keys and NVDA help",
+}
+
+_MNEMONIC = {
+    "uk": {"file": "&Файл", "game": "&Гра", "board": "&Дошка", "analysis": "&Аналіз", "settings": "&Налаштування", "help": "&Довідка"},
+    "en": {"file": "&File", "game": "&Game", "board": "&Board", "analysis": "&Analysis", "settings": "&Settings", "help": "&Help"},
 }
 
 
@@ -43,7 +53,50 @@ def _labels(lang: str) -> dict[str, str]:
     return _LABELS_EN if lang == "en" else _LABELS_UK
 
 
+def active_binding(api: Any, action_id: str) -> str | None:
+    try:
+        rows = api.keymap_search("", None)
+    except Exception:
+        return None
+    for row in rows:
+        if str(row.get("action_id")) == action_id and str(row.get("value_kind")) == "shortcut":
+            value = row.get("value")
+            return str(value) if value else None
+    return None
+
+
+def menu_caption(api: Any, label: str, action_id: str | None = None) -> str:
+    if not action_id:
+        return label
+    binding = active_binding(api, action_id)
+    return f"{label}\t{binding}" if binding else label
+
+
+def _js_string(value: str) -> str:
+    return json.dumps(value, ensure_ascii=False)
+
+
+def reset_all_keybindings(api: Any, js: Callable[[str], None], *, lang: str = "uk") -> bool:
+    text = _labels(lang)
+    try:
+        result = api.keymap_reset_all()
+    except Exception:
+        js(f"announce({_js_string(text['keyboard_reset_failed'])})")
+        return False
+    if not isinstance(result, dict) or not result.get("ok"):
+        js(f"announce({_js_string(text['keyboard_reset_failed'])})")
+        return False
+    js(
+        "localStorage.removeItem('accessibleChess.keymap.v1');"
+        f"announce({_js_string(text['keyboard_reset_done'])});"
+        "location.reload()"
+    )
+    return True
+
+
 def _safe_js(window: Any, code: str) -> None:
+    if window is None:
+        return
     try:
         window.evaluate_js(code)
     except Exception:
@@ -57,15 +110,58 @@ def _invoke_api(window: Any, fn: Callable[[], Any]) -> None:
         _safe_js(window, "refreshState()")
 
 
-def install_windows_native_menu(window: Any, api: Any) -> bool:
-    """Attach a classic native WinForms MainMenu to ``window.native``.
+def make_keymap_menu(webview: Any, api: Any, window_holder: dict[str, Any]):
+    """Legacy presentation projection for tests/compatibility only.
 
-    This function is intentionally called only after pywebview has started,
-    because ``window.native`` is guaranteed only after the native Form exists.
-    It returns False on non-Windows/non-WinForms hosts so tests and other
-    platforms can fail closed without pretending an accessible Alt menu exists.
+    The production launcher does not install this pywebview MenuStrip. It uses
+    :func:`install_windows_native_menu` after the real WinForms Form exists.
     """
+    Menu = webview.menu.Menu
+    MenuAction = webview.menu.MenuAction
+    MenuSeparator = webview.menu.MenuSeparator
+    text = _labels(getattr(api, "lang", "uk"))
 
+    def window():
+        return window_holder.get("window")
+
+    def js(code: str) -> None:
+        _safe_js(window(), code)
+
+    def refresh(fn):
+        return lambda: _invoke_api(window(), fn)
+
+    return [
+        Menu(text["file"], [
+            MenuAction(text["new"], refresh(api.new_game)),
+            MenuAction(text["empty"], refresh(api.clear_board)),
+            MenuSeparator(),
+            MenuAction(text["exit"], lambda: window() and window().destroy()),
+        ]),
+        Menu(text["game"], [
+            MenuAction(menu_caption(api, text["undo"], "edit.undo"), refresh(api.undo)),
+            MenuAction(menu_caption(api, text["redo"], "edit.redo"), refresh(api.redo)),
+            MenuSeparator(),
+            MenuAction(menu_caption(api, text["history_previous"], "history.previous"), refresh(api.review_previous)),
+            MenuAction(menu_caption(api, text["history_next"], "history.next"), refresh(api.review_next)),
+            MenuAction(menu_caption(api, text["history_go"], "history.go_to_move"), lambda: js("focusHistoryJump()")),
+        ]),
+        Menu(text["board"], [
+            MenuAction(text["board_go"], lambda: js("enterBoard()")),
+            MenuAction(text["move_input"], lambda: js("document.getElementById('move-input').focus()")),
+            MenuAction(text["position_input"], lambda: js("document.getElementById('position-input').focus()")),
+        ]),
+        Menu(text["analysis"], [MenuAction(text["engine_toggle"], refresh(api.toggle_engine))]),
+        Menu(text["settings"], [
+            MenuAction(text["keyboard"], lambda: js("document.getElementById('key-search').focus()")),
+            MenuSeparator(),
+            MenuAction(text["keyboard_reset"], lambda: reset_all_keybindings(api, js, lang=getattr(api, "lang", "uk"))),
+        ]),
+        Menu(text["help"], [MenuAction(text["help_open"], lambda: js("document.getElementById('help').focus()"))]),
+    ]
+
+
+def install_windows_native_menu(window: Any, api: Any) -> bool:
+    """Attach a classic WinForms MainMenu to the actual native Form."""
     try:
         import clr  # type: ignore
         clr.AddReference("System.Windows.Forms")
@@ -78,7 +174,9 @@ def install_windows_native_menu(window: Any, api: Any) -> bool:
     if form is None or not hasattr(form, "Menu"):
         return False
 
-    text = _labels(getattr(api, "lang", "uk"))
+    lang = "en" if getattr(api, "lang", "uk") == "en" else "uk"
+    text = _labels(lang)
+    mn = _MNEMONIC[lang]
     handlers: list[Any] = []
 
     def item(label: str, callback: Callable[[], Any] | None = None) -> Any:
@@ -100,45 +198,40 @@ def install_windows_native_menu(window: Any, api: Any) -> bool:
         return MenuItem("-")
 
     menu = MainMenu()
-    file_menu = submenu(text["file"], [
-        item(text["new"], lambda: _invoke_api(window, api.new_game)),
-        item(text["empty"], lambda: _invoke_api(window, api.clear_board)),
-        separator(),
-        item(text["exit"], window.destroy),
-    ])
-    game_menu = submenu(text["game"], [
-        item(text["undo"], lambda: _invoke_api(window, api.undo)),
-        item(text["redo"], lambda: _invoke_api(window, api.redo)),
-        separator(),
-        item(text["history_previous"], lambda: _invoke_api(window, api.review_previous)),
-        item(text["history_next"], lambda: _invoke_api(window, api.review_next)),
-        item(text["history_go"], lambda: _safe_js(window, "focusHistoryJump()")),
-    ])
-    board_menu = submenu(text["board"], [
-        item(text["board_go"], lambda: _safe_js(window, "enterBoard()")),
-        item(text["move_input"], lambda: _safe_js(window, "document.getElementById('move-input').focus()")),
-        item(text["position_input"], lambda: _safe_js(window, "document.getElementById('position-input').focus()")),
-    ])
-    analysis_menu = submenu(text["analysis"], [
-        item(text["engine_toggle"], lambda: _invoke_api(window, api.toggle_engine)),
-    ])
-    settings_menu = submenu(text["settings"], [
-        item(text["keyboard"], lambda: _safe_js(window, "document.getElementById('keymap-dialog').showModal();document.getElementById('key-search').focus()")),
-        item(text["keyboard_reset"], lambda: _invoke_api(window, api.keymap_reset_all)),
-    ])
-    help_menu = submenu(text["help"], [
-        item(text["help_open"], lambda: _safe_js(window, "document.getElementById('help-dialog').showModal();document.getElementById('help').focus()")),
-    ])
-    for top in (file_menu, game_menu, board_menu, analysis_menu, settings_menu, help_menu):
+    top_menus = (
+        submenu(mn["file"], [
+            item(text["new"], lambda: _invoke_api(window, api.new_game)),
+            item(text["empty"], lambda: _invoke_api(window, api.clear_board)),
+            separator(), item(text["exit"], window.destroy),
+        ]),
+        submenu(mn["game"], [
+            item(menu_caption(api, text["undo"], "edit.undo"), lambda: _invoke_api(window, api.undo)),
+            item(menu_caption(api, text["redo"], "edit.redo"), lambda: _invoke_api(window, api.redo)),
+            separator(),
+            item(menu_caption(api, text["history_previous"], "history.previous"), lambda: _invoke_api(window, api.review_previous)),
+            item(menu_caption(api, text["history_next"], "history.next"), lambda: _invoke_api(window, api.review_next)),
+            item(menu_caption(api, text["history_go"], "history.go_to_move"), lambda: _safe_js(window, "focusHistoryJump()")),
+        ]),
+        submenu(mn["board"], [
+            item(text["board_go"], lambda: _safe_js(window, "enterBoard()")),
+            item(text["move_input"], lambda: _safe_js(window, "document.getElementById('move-input').focus()")),
+            item(text["position_input"], lambda: _safe_js(window, "document.getElementById('position-input').focus()")),
+        ]),
+        submenu(mn["analysis"], [item(text["engine_toggle"], lambda: _invoke_api(window, api.toggle_engine))]),
+        submenu(mn["settings"], [
+            item(text["keyboard"], lambda: _safe_js(window, "document.getElementById('keymap-dialog').showModal();document.getElementById('key-search').focus()")),
+            item(text["keyboard_reset"], lambda: reset_all_keybindings(api, lambda code: _safe_js(window, code), lang=lang)),
+        ]),
+        submenu(mn["help"], [item(text["help_open"], lambda: _safe_js(window, "document.getElementById('help-dialog').showModal();document.getElementById('help').focus()"))]),
+    )
+    for top in top_menus:
         menu.MenuItems.Add(top)
 
-    # Keep managed objects and Python event handlers alive for the Form lifetime.
     setattr(window, "_accessible_chess_native_menu", menu)
     setattr(window, "_accessible_chess_native_menu_handlers", handlers)
 
     def attach() -> None:
         form.Menu = menu
-        form.MainMenuStrip = None if hasattr(form, "MainMenuStrip") else getattr(form, "MainMenuStrip", None)
 
     try:
         if getattr(form, "InvokeRequired", False):
@@ -148,9 +241,3 @@ def install_windows_native_menu(window: Any, api: Any) -> bool:
     except Exception:
         return False
     return True
-
-
-# Backward-compatible name for tests/importers. It deliberately does not build
-# the old pywebview MenuStrip anymore.
-def make_keymap_menu(*args, **kwargs):
-    raise RuntimeError("Use install_windows_native_menu after the native window is created")
