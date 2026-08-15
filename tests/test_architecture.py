@@ -8,8 +8,17 @@ CORE_MODULES = (
     'acs/keybindings.py',
     'acs/notation.py',
     'acs/engine_ports.py',
+    'acs/engine_registry.py',
     'acs/engine_play_service.py',
     'acs/analysis_service.py',
+    'acs/continuous_analysis.py',
+    'acs/clock_service.py',
+    'acs/game_lifecycle.py',
+    'acs/board_service.py',
+    'acs/entitlements.py',
+    'acs/position_editor.py',
+    'acs/move_entry.py',
+    'acs/sound_events.py',
 )
 
 FORBIDDEN_PREFIXES = (
@@ -47,6 +56,13 @@ class ArchitectureBoundaryTests(unittest.TestCase):
         self.assertNotIn('subprocess', imports)
         self.assertNotIn('acs.engine', imports)
         self.assertNotIn('engine', imports)
+
+    def test_analysis_coordinators_do_not_import_concrete_engine_adapter(self):
+        for relative in ('acs/analysis_service.py', 'acs/continuous_analysis.py'):
+            imports = self.imports_for(relative)
+            self.assertNotIn('subprocess', imports)
+            self.assertNotIn('acs.engine', imports)
+            self.assertNotIn('engine', imports)
 
 
 if __name__ == '__main__':
