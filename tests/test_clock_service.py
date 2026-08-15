@@ -1,6 +1,6 @@
 import unittest
 
-from acs.clock_service import ChessClock, ClockError, ClockState, TimeControl
+from acs.clock_service import ChessClock, ClockError, ClockSnapshot, ClockState, TimeControl
 
 
 class FakeTime:
@@ -117,6 +117,53 @@ class ChessClockTests(unittest.TestCase):
         self.assertEqual(snap.state, ClockState.STOPPED)
         self.now.advance(50)
         self.assertEqual(clock.snapshot().white_ms, 27_000)
+
+    def test_restore_running_snapshot_is_paused_by_default(self):
+        clock = ChessClock(TimeControl(60_000), now=self.now)
+        restored = clock.restore(ClockSnapshot(41_000, 55_000, "b", ClockState.RUNNING))
+        self.assertEqual(restored.white_ms, 41_000)
+        self.assertEqual(restored.black_ms, 55_000)
+        self.assertEqual(restored.active, "b")
+        self.assertEqual(restored.state, ClockState.PAUSED)
+        self.now.advance(20)
+        self.assertEqual(clock.snapshot().black_ms, 55_000)
+
+    def test_restore_can_resume_from_current_monotonic_instant(self):
+        clock = ChessClock(TimeControl(60_000), now=self.now)
+        clock.restore(ClockSnapshot(41_000, 55_000, "b", ClockState.RUNNING), resume_running=True)
+        self.now.advance(2)
+        restored = clock.snapshot()
+        self.assertEqual(restored.black_ms, 53_000)
+        self.assertEqual(restored.state, ClockState.RUNNING)
+
+    def test_restore_flagged_snapshot_preserves_terminal_clock_state(self):
+        clock = ChessClock(TimeControl(60_000), now=self.now)
+        restored = clock.restore(ClockSnapshot(0, 17_000, None, ClockState.FLAGGED, "w"))
+        self.assertEqual(restored.flagged, "w")
+        self.assertEqual(restored.state, ClockState.FLAGGED)
+        self.now.advance(30)
+        self.assertEqual(clock.snapshot().black_ms, 17_000)
+
+    def test_restore_rejects_inconsistent_or_negative_snapshots(self):
+        clock = ChessClock(TimeControl(60_000), now=self.now)
+        invalid = (
+            ClockSnapshot(-1, 1_000, None, ClockState.STOPPED),
+            ClockSnapshot(1_000, 1_000, None, ClockState.RUNNING),
+            ClockSnapshot(1_000, 1_000, "w", ClockState.STOPPED),
+            ClockSnapshot(1_000, 1_000, None, ClockState.FLAGGED, "w"),
+            ClockSnapshot(1_000, 1_000, None, ClockState.STOPPED, "w"),
+        )
+        for snapshot in invalid:
+            with self.subTest(snapshot=snapshot):
+                with self.assertRaises(ClockError):
+                    clock.restore(snapshot)
+
+    def test_untimed_restore_rejects_timed_state_and_normalizes_zero_snapshot(self):
+        clock = ChessClock(TimeControl(0), now=self.now)
+        with self.assertRaises(ClockError):
+            clock.restore(ClockSnapshot(1, 0, None, ClockState.STOPPED))
+        restored = clock.restore(ClockSnapshot(0, 0, None, ClockState.STOPPED))
+        self.assertEqual(restored, ClockSnapshot(0, 0, None, ClockState.STOPPED))
 
     def test_invalid_controls_and_sides_are_rejected(self):
         with self.assertRaises(ClockError):
