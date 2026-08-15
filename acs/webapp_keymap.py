@@ -8,15 +8,50 @@ aliases through :class:`KeymapService`, persists the user's profile outside the
 installation directory, and exposes JSON-friendly keymap operations to WebView2.
 
 Action IDs remain stable; only their user-facing bindings/aliases are mutable.
+The release composition root also redirects the legacy presentation SAN helper
+to the shared notation formatter so move lists, last-move text and announcements
+do not maintain a second notation implementation.
 """
 
 import os
 from pathlib import Path
 from typing import Any
 
+from . import webapp as _legacy_webapp
 from .keybindings import BindingContext
+from .notation import NotationError, format_san
 from .ui_keymap_service import KeymapService
-from .webapp import AccessibleChessAPI, _asset_root, _make_menu, _spoken_san
+
+
+AccessibleChessAPI = _legacy_webapp.AccessibleChessAPI
+_asset_root = _legacy_webapp._asset_root
+_make_menu = _legacy_webapp._make_menu
+
+
+def _shared_spoken_san(san: str, lang: str = "uk") -> str:
+    """Render SAN through the one shared notation layer used by release UI.
+
+    ``AccessibleChessAPI`` still calls its historical module-level helper from
+    several inherited methods. Rebinding that helper here is a bounded
+    compatibility shim: it fixes the release-facing WebView without copying
+    notation rules into presentation code or forcing a big-bang rewrite of the
+    legacy module. Once the legacy API is retired this shim can disappear.
+    """
+
+    profile = "uk_literal" if lang == "uk" else "en_literal"
+    try:
+        return format_san(san, profile)
+    except NotationError:
+        # A Board-produced SAN token should normally be supported. Keep the UI
+        # readable if an unexpected future SAN extension appears, while leaving
+        # the canonical formatter as the only place that interprets notation.
+        return str(san).strip().replace("0-0-0", "O-O-O").replace("0-0", "O-O")
+
+
+# The inherited API resolves ``_spoken_san`` in acs.webapp globals. Patch that
+# single compatibility seam at the composition root rather than forking every
+# inherited move/history method. No chess/domain rule is changed here.
+_legacy_webapp._spoken_san = _shared_spoken_san
 
 
 def default_keymap_path() -> Path:
@@ -39,7 +74,7 @@ class KeymapAwareAccessibleChessAPI(AccessibleChessAPI):
         super().__init__(lang)
         self.keymap_service = KeymapService(keymap_path or default_keymap_path(), lang=self.lang)
 
-    # JSON-friendly bridge methods.  WebView2 must call these rather than
+    # JSON-friendly bridge methods. WebView2 must call these rather than
     # reproducing normalization/conflict/persistence rules in JavaScript.
     def keymap_snapshot(self) -> dict[str, Any]:
         return self.keymap_service.snapshot()
@@ -98,7 +133,7 @@ class KeymapAwareAccessibleChessAPI(AccessibleChessAPI):
 
         This deliberately does not call ``AccessibleChessAPI.make_move`` because
         that compatibility method contains the old hardcoded one-letter command
-        dictionary.  A removed/remapped alias must become ordinary chess input,
+        dictionary. A removed/remapped alias must become ordinary chess input,
         never remain a hidden second shortcut.
         """
 
@@ -122,7 +157,7 @@ class KeymapAwareAccessibleChessAPI(AccessibleChessAPI):
             self.redo_meta.clear()
             self.selected_source = None
             self._record_position_after_move()
-            return self._ok(("Зіграно: " if self.lang == "uk" else "Played: ") + _spoken_san(san, self.lang))
+            return self._ok(("Зіграно: " if self.lang == "uk" else "Played: ") + _shared_spoken_san(san, self.lang))
         except Exception as exc:
             return self._error(str(exc))
 
