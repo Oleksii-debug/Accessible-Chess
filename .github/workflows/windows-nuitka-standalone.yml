@@ -38,6 +38,9 @@ jobs:
           if (Test-Path 'tests\test_release_manifest.py') {
             python -m unittest -v tests.test_release_manifest
           }
+          if (Test-Path 'tests\test_release_archive.py') {
+            python -m unittest -v tests.test_release_archive
+          }
           python run_accessible_chess.py --diagnostic
 
       - name: Compile standalone application with Nuitka
@@ -174,6 +177,31 @@ jobs:
           $dist = (Get-Content 'build-nuitka\DIST_ROOT.txt' -Raw).Trim()
           $version = (Get-Content 'VERSION.txt' -Raw).Trim()
           Compress-Archive -Path (Join-Path $dist '*') -DestinationPath "Accessible-Chess-$version-Nuitka-Standalone.zip" -Force
+
+      - name: Verify final ZIP artifact against release manifest
+        shell: pwsh
+        run: |
+          $dist = (Get-Content 'build-nuitka\DIST_ROOT.txt' -Raw).Trim()
+          $version = (Get-Content 'VERSION.txt' -Raw).Trim()
+          $archive = "Accessible-Chess-$version-Nuitka-Standalone.zip"
+          $env:ACS_DIST = $dist
+          $env:ACS_VERSION = $version
+          $env:ACS_ARCHIVE = $archive
+          @'
+          import os
+          from pathlib import Path
+          from acs.release_archive import verify_release_archive
+          from acs.release_manifest import load_release_manifest
+
+          root = Path(os.environ['ACS_DIST'])
+          version = os.environ['ACS_VERSION']
+          archive = os.environ['ACS_ARCHIVE']
+          manifest = load_release_manifest(root / 'RELEASE-MANIFEST.json')
+          defects = verify_release_archive(archive, manifest, expected_version=version)
+          if defects:
+              raise SystemExit('FINAL ZIP VERIFICATION FAILED:\n' + '\n'.join(defects))
+          print(f'FINAL ZIP VERIFICATION PASS: {archive}')
+          '@ | python -
 
       - name: Upload internal standalone artifact
         uses: actions/upload-artifact@v4
