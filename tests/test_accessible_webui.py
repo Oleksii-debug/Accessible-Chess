@@ -182,14 +182,17 @@ class AccessibleWebUiTests(unittest.TestCase):
         self.assertTrue(compact)
 
     def test_ui_dispatch_uses_stable_central_action_ids(self):
-        for action_id in (
-            "history.go_to_move", "edit.undo", "edit.redo",
-            "move.white_to_move", "move.black_to_move", "move.empty",
-            "board.last_captured", "board.best_move", "board.play_best",
-        ):
-            self.assertIn(action_id, self.html if action_id in {"history.go_to_move", "edit.undo", "edit.redo", "move.white_to_move", "move.black_to_move", "move.empty"} else (self.root / "web" / "keybindings.json").read_text(encoding="utf-8"))
+        keymap_text = (self.root / "web" / "keybindings.json").read_text(encoding="utf-8")
+        release_api = (self.root / "acs" / "webapp_keymap.py").read_text(encoding="utf-8")
+        for action_id in ("history.go_to_move", "edit.undo", "edit.redo"):
+            self.assertIn(action_id, self.html)
+        for action_id in ("move.white_to_move", "move.black_to_move", "move.empty"):
+            self.assertIn(action_id, release_api)
+        for action_id in ("board.last_captured", "board.best_move", "board.play_best"):
+            self.assertIn(action_id, keymap_text)
         for legacy in ("history.goto", "game.undo", "game.redo", "move.white'", "move.black'", "move.engine"):
             self.assertNotIn(legacy, self.html)
+            self.assertNotIn(legacy, release_api)
 
     def test_live_region_contract_avoids_background_speech_spam(self):
         self.assertIn('role="status" aria-live="polite" aria-atomic="true" aria-relevant="text"', self.html)
