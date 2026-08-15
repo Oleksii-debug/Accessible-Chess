@@ -8,7 +8,7 @@ class NotationError(ValueError):
     """Raised when a notation profile or SAN token cannot be formatted."""
 
 
-PROFILES = {"san", "uk_literal", "en_literal"}
+PROFILES = {"san", "accessible_compact", "uk_literal", "en_literal"}
 
 _PIECES = {
     "uk": {
@@ -110,11 +110,49 @@ def parse_san(san: str) -> ParsedSan:
     return ParsedSan(piece, disamb, capture, destination, promotion, suffix)
 
 
+def _format_accessible_compact(token: str) -> str:
+    """Render SAN as short screen-reader-friendly tokens without losing meaning.
+
+    The profile intentionally stays close to canonical SAN while separating
+    piece letters, files and ranks so consumers can announce ``N f 3`` instead
+    of relying on a screen reader to infer how ``Nf3`` should be pronounced.
+    SAN operators remain explicit tokens (``x``, ``=``, ``+``, ``#``), making
+    the output compact, deterministic and presentation-neutral.
+    """
+
+    for castle in ("O-O-O", "O-O"):
+        if token.startswith(castle) and token[len(castle):] in {"", "+", "#"}:
+            suffix = token[len(castle):]
+            return castle if not suffix else f"{castle} {suffix}"
+
+    parsed = parse_san(token)
+    parts: list[str] = []
+    if parsed.piece != "P":
+        parts.append(parsed.piece)
+
+    if parsed.disambiguation:
+        parts.extend(parsed.disambiguation)
+
+    if parsed.capture:
+        parts.append("x")
+
+    parts.extend(parsed.destination)
+
+    if parsed.promotion:
+        parts.extend(["=", parsed.promotion])
+
+    if parsed.suffix:
+        parts.append(parsed.suffix)
+
+    return " ".join(parts)
+
+
 def format_san(san: str, profile: str = "san") -> str:
     """Format a SAN move using one shared presentation-neutral formatter.
 
     Profiles:
-      * ``san``: return canonical SAN unchanged except 0-0 is normalised to O-O.
+      * ``san``: canonical SAN, except 0-0 is normalised to O-O.
+      * ``accessible_compact``: compact SAN tokens with piece/square separation.
       * ``uk_literal``: Ukrainian spoken/literal form suitable for screen readers.
       * ``en_literal``: English spoken/literal form suitable for screen readers.
 
@@ -130,6 +168,8 @@ def format_san(san: str, profile: str = "san") -> str:
         raise NotationError("SAN token must not be empty")
     if profile == "san":
         return token
+    if profile == "accessible_compact":
+        return _format_accessible_compact(token)
 
     lang = "uk" if profile == "uk_literal" else "en"
     words = _WORDS[lang]
