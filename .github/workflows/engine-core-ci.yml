@@ -11,6 +11,7 @@ on:
       - 'tests/test_continuous_analysis.py'
       - 'tests/test_keybindings.py'
       - 'tests/test_notation.py'
+      - 'tests/test_extension_registries.py'
       - 'tests/test_engine_play_service.py'
       - 'tests/test_engine_registry.py'
       - 'tests/test_engine_game_session.py'
@@ -83,6 +84,7 @@ jobs:
           cp acs/continuous_analysis.py work/acs/continuous_analysis.py
           cp acs/keybindings.py work/acs/keybindings.py
           cp acs/notation.py work/acs/notation.py
+          cp acs/notation_registry.py work/acs/notation_registry.py
           cp acs/engine_ports.py work/acs/engine_ports.py
           cp acs/engine_registry.py work/acs/engine_registry.py
           cp acs/engine_play_service.py work/acs/engine_play_service.py
@@ -94,11 +96,13 @@ jobs:
           cp acs/position_editor.py work/acs/position_editor.py
           cp acs/move_entry.py work/acs/move_entry.py
           cp acs/sound_events.py work/acs/sound_events.py
+          cp acs/sound_dispatch.py work/acs/sound_dispatch.py
           cp tests/test_history.py work/tests/test_history.py
           cp tests/test_analysis_service.py work/tests/test_analysis_service.py
           cp tests/test_continuous_analysis.py work/tests/test_continuous_analysis.py
           cp tests/test_keybindings.py work/tests/test_keybindings.py
           cp tests/test_notation.py work/tests/test_notation.py
+          cp tests/test_extension_registries.py work/tests/test_extension_registries.py
           cp tests/test_engine_play_service.py work/tests/test_engine_play_service.py
           cp tests/test_engine_registry.py work/tests/test_engine_registry.py
           cp tests/test_engine_game_session.py work/tests/test_engine_game_session.py
@@ -134,6 +138,10 @@ jobs:
       - name: Shared notation formatter tests
         working-directory: work
         run: python -m unittest discover -s tests -p 'test_notation.py' -v
+
+      - name: Notation and sound extension registry tests
+        working-directory: work
+        run: python -m unittest discover -s tests -p 'test_extension_registries.py' -v
 
       - name: Engine provider/play policy tests
         working-directory: work

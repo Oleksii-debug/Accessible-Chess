@@ -7,6 +7,7 @@ CORE_MODULES = (
     'acs/history.py',
     'acs/keybindings.py',
     'acs/notation.py',
+    'acs/notation_registry.py',
     'acs/engine_ports.py',
     'acs/engine_registry.py',
     'acs/engine_play_service.py',
@@ -19,6 +20,7 @@ CORE_MODULES = (
     'acs/position_editor.py',
     'acs/move_entry.py',
     'acs/sound_events.py',
+    'acs/sound_dispatch.py',
 )
 
 FORBIDDEN_PREFIXES = (
@@ -63,6 +65,13 @@ class ArchitectureBoundaryTests(unittest.TestCase):
             self.assertNotIn('subprocess', imports)
             self.assertNotIn('acs.engine', imports)
             self.assertNotIn('engine', imports)
+
+    def test_extension_registries_stay_presentation_and_infrastructure_neutral(self):
+        for relative in ('acs/notation_registry.py', 'acs/sound_dispatch.py'):
+            imports = self.imports_for(relative)
+            self.assertNotIn('subprocess', imports)
+            self.assertNotIn('pathlib', imports)
+            self.assertNotIn('os', imports)
 
 
 if __name__ == '__main__':
