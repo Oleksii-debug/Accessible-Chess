@@ -1,32 +1,51 @@
 name: Windows Stage 1 0.4 WebView2 Build
 
-# Deliberately manual: normal UI development uses cheap semantic/unit tests.
-# Run this expensive Windows build only at meaningful integration checkpoints.
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - qa/windows-current-integration-candidate-20260815
+    paths:
+      - '.github/workflows/windows-stage1-webview-build.yml'
 
 permissions:
   contents: read
 
+concurrency:
+  group: accessible-chess-stage1-webview-current
+  cancel-in-progress: false
+
+env:
+  SOURCE_INTEGRATION_SHA: 7594d1eb6cd833e53032295d73f6cf1a91a180f6
+  PYWEBVIEW_VERSION: '6.2.1'
+  NUITKA_UPSTREAM_FIX_COMMIT: b7ea05bf570e0b6950de6db7c4c8e579e1b77d29
+  STOCKFISH_VERSION: '18'
+
 jobs:
   build:
     runs-on: windows-latest
-    timeout-minutes: 45
+    timeout-minutes: 55
     steps:
-      - name: Checkout overlay branch
+      - name: Checkout exact QA snapshot
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      - name: Reconstruct verified 0.3.3 functional baseline
+      - name: Verify exact source lock
         shell: pwsh
         run: |
-          $ordered = @(
-            'build_snapshot_exact\group00.b64',
-            'build_snapshot_exact\group01.b64',
-            'build_parts10k\part04.b64',
-            'build_parts10k\part05.b64',
-            'build_parts10k\part06.b64',
-            'build_parts10k\part07.b64'
-          )
+          git merge-base --is-ancestor $env:SOURCE_INTEGRATION_SHA HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'Locked integration SHA is not an ancestor of QA branch' }
+          $changed = @(git diff --name-only $env:SOURCE_INTEGRATION_SHA HEAD)
+          $allowed = @('.github/workflows/windows-stage1-webview-build.yml')
+          $unexpected = @($changed | Where-Object { $_ -notin $allowed })
+          if ($unexpected.Count -ne 0) { throw "QA branch changed product files beyond locked source: $($unexpected -join ', ')" }
+          "SOURCE LOCK PASS: $env:SOURCE_INTEGRATION_SHA"
+
+      - name: Reconstruct verified baseline and apply complete integration overlay
+        shell: pwsh
+        run: |
+          $ordered = @('build_snapshot_exact\group00.b64','build_snapshot_exact\group01.b64','build_parts10k\part04.b64','build_parts10k\part05.b64','build_parts10k\part06.b64','build_parts10k\part07.b64')
           foreach ($f in $ordered) { if (-not (Test-Path $f)) { throw "Missing source chunk: $f" } }
           $b64 = ($ordered | ForEach-Object { Get-Content -LiteralPath $_ -Raw }) -join ''
           $b64 = $b64 -replace '[^A-Za-z0-9+/=]',''
@@ -36,89 +55,215 @@ jobs:
           $hash = (Get-FileHash 'stage1_source.zip' -Algorithm SHA256).Hash.ToLowerInvariant()
           if ($hash -ne 'cb0a89778b436cdf44c42e3207ef9638160a992b372156bc4d901391717a1e6a') { throw "Source ZIP hash mismatch: $hash" }
           Expand-Archive 'stage1_source.zip' 'work' -Force
-
-      - name: Apply 0.4 accessibility overlay
-        shell: pwsh
-        run: |
-          New-Item -ItemType Directory -Force -Path 'work\acs' | Out-Null
-          New-Item -ItemType Directory -Force -Path 'work\web' | Out-Null
-          New-Item -ItemType Directory -Force -Path 'work\tests' | Out-Null
-          Copy-Item 'acs\webapp.py' 'work\acs\webapp.py' -Force
-          Copy-Item 'acs\analysis_service.py' 'work\acs\analysis_service.py' -Force
-          Copy-Item 'web\index.html' 'work\web\index.html' -Force
-          Copy-Item 'web\keybindings.json' 'work\web\keybindings.json' -Force
+          New-Item -ItemType Directory -Force -Path 'work\acs','work\web','work\tests' | Out-Null
+          Copy-Item 'acs\*.py' 'work\acs\' -Force
+          Copy-Item 'web\*' 'work\web\' -Recurse -Force
           Copy-Item 'tests\*.py' 'work\tests\' -Force
           Copy-Item 'run_accessible_chess.py' 'work\run_accessible_chess.py' -Force
-          Copy-Item 'ACCESSIBILITY_0.4_ARCHITECTURE.md' 'work\ACCESSIBILITY_0.4_ARCHITECTURE.md' -Force
-          Copy-Item 'VERSION.txt' 'work\VERSION.txt' -Force
+          foreach ($f in @('ACCESSIBILITY_0.4_ARCHITECTURE.md','VERSION.txt','HOTKEYS_UA.txt','HOTKEYS_EN.txt')) { if (Test-Path $f) { Copy-Item $f 'work' -Force } }
 
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
 
-      - name: Test semantic UI and chess core
+      - name: Full integrated product and Issue 22 release gate
         shell: pwsh
         working-directory: work
         run: |
-          python -m pip install --upgrade pip
+          python -m pip install --upgrade pip pytest
           python -m compileall -q acs tests run_accessible_chess.py
+          if ($LASTEXITCODE -ne 0) { throw "compileall failed: $LASTEXITCODE" }
           python -m unittest discover -s tests -v
+          if ($LASTEXITCODE -ne 0) { throw "full unittest suite failed: $LASTEXITCODE" }
+          python -m unittest tests.test_issue22_release_contract tests.test_nvda_p0_contract tests.test_ui_native_menu_recovery tests.test_sound_runtime tests.test_release_stockfish_composition -v
+          if ($LASTEXITCODE -ne 0) { throw "Issue 22/P0 contract gate failed: $LASTEXITCODE" }
           python run_accessible_chess.py --diagnostic
+          if ($LASTEXITCODE -ne 0) { throw "source diagnostic failed: $LASTEXITCODE" }
 
-      - name: Install Windows WebView dependencies
+      - name: Build QA-owned real WAV sound pack and validate manifest
         shell: pwsh
         working-directory: work
         run: |
-          python -m pip install "pywebview==6.2.1" pyinstaller
-          python -c "import webview; print('PYWEBVIEW IMPORT PASS')"
+          New-Item -ItemType Directory -Force -Path 'release-assets\assets\sounds' | Out-Null
+          @'
+          import json, math, struct, wave
+          from pathlib import Path
+          root=Path('release-assets/assets/sounds')
+          events=['move','capture','check','castle','promotion','illegal','start','end','tick']
+          freqs=[330,220,660,440,550,140,392,196,880]
+          for name,f in zip(events,freqs):
+              p=root/f'{name}.wav'
+              sr=22050; dur=0.12 if name=='tick' else 0.18
+              frames=[]
+              for i in range(int(sr*dur)):
+                  env=max(0.0,1.0-i/(sr*dur))
+                  v=int(9000*env*math.sin(2*math.pi*f*i/sr))
+                  frames.append(struct.pack('<h',v))
+              with wave.open(str(p),'wb') as w:
+                  w.setnchannels(1); w.setsampwidth(2); w.setframerate(sr); w.writeframes(b''.join(frames))
+          (root/'manifest.json').write_text(json.dumps({'schema_version':1,'files':{e:f'{e}.wav' for e in events}},ensure_ascii=False,indent=2),encoding='utf-8')
+          '@ | Set-Content -Encoding UTF8 'make_sounds.py'
+          python make_sounds.py
+          python -c "from acs.sound_windows import PackagedSoundAssetResolver; from pathlib import Path; import wave; r=PackagedSoundAssetResolver(Path('release-assets')); m=r.load_manifest(); [wave.open(str(p),'rb').close() for p in m.files.values()]; print('SOUND ASSET MANIFEST/WAV PASS')"
+          if ($LASTEXITCODE -ne 0) { throw 'Sound asset validation failed' }
 
-      - name: Build autonomous Windows EXE
+      - name: Acquire official Stockfish 18 and verify live UCI/MultiPV
         shell: pwsh
         working-directory: work
         run: |
-          python -m PyInstaller --noconfirm --clean --onefile --windowed `
-            --name AccessibleChess `
-            --add-data "web;web" `
-            --collect-all webview `
-            --hidden-import webview.platforms.edgechromium `
+          New-Item -ItemType Directory -Force -Path 'release-assets\engines\stockfish','release-assets\THIRD_PARTY\Stockfish' | Out-Null
+          Invoke-WebRequest -Uri 'https://github.com/official-stockfish/Stockfish/releases/download/sf_18/stockfish-windows-x86-64.zip' -OutFile 'stockfish18.zip'
+          Expand-Archive 'stockfish18.zip' 'stockfish18' -Force
+          $engine = Get-ChildItem 'stockfish18' -Recurse -Filter '*.exe' | Where-Object { $_.Name -match 'stockfish.*x86-64' } | Select-Object -First 1
+          if (-not $engine) { throw 'Official Stockfish 18 executable not found' }
+          Copy-Item $engine.FullName 'release-assets\engines\stockfish\stockfish.exe' -Force
+          Invoke-WebRequest -Uri 'https://github.com/official-stockfish/Stockfish/archive/refs/tags/sf_18.zip' -OutFile 'release-assets\THIRD_PARTY\Stockfish\Stockfish-18-source.zip'
+          @"
+          Stockfish 18 is distributed under GNU GPL v3. Official upstream: official-stockfish/Stockfish, tag sf_18.
+          Complete corresponding source archive is included in this package.
+          "@ | Set-Content -Encoding UTF8 'release-assets\THIRD_PARTY\Stockfish\NOTICE.txt'
+          @'
+          import subprocess, pathlib, time
+          exe=pathlib.Path('release-assets/engines/stockfish/stockfish.exe').resolve()
+          p=subprocess.Popen([str(exe)],stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True,bufsize=1)
+          def send(x): p.stdin.write(x+'\n'); p.stdin.flush()
+          def until(token,limit=15):
+              end=time.time()+limit; lines=[]
+              while time.time()<end:
+                  line=p.stdout.readline()
+                  if line:
+                      lines.append(line.strip())
+                      if token in line: return lines
+              raise RuntimeError(f'missing {token}: {lines[-20:]}')
+          send('uci'); until('uciok'); send('isready'); until('readyok')
+          send('setoption name MultiPV value 5'); send('position startpos'); send('go depth 10')
+          lines=until('bestmove',30)
+          multipv={}
+          for line in lines:
+              if line.startswith('info ') and ' multipv ' in line and ' pv ' in line:
+                  parts=line.split(); multipv[int(parts[parts.index('multipv')+1])]=line
+          assert len(multipv)>=5, multipv
+          send('quit'); p.wait(timeout=5)
+          print('STOCKFISH UCI/MULTIPV5 PASS')
+          '@ | Set-Content -Encoding UTF8 'stockfish_smoke.py'
+          python stockfish_smoke.py
+          if ($LASTEXITCODE -ne 0) { throw 'Stockfish live smoke failed' }
+          python -c "from acs.stockfish_runtime import StockfishRuntimeResolver; from pathlib import Path; r=StockfishRuntimeResolver(application_dir=Path('release-assets')); p=r.resolve(); assert p.name.lower()=='stockfish.exe' and p.is_file(); print('PRODUCTION STOCKFISH RESOLVER PASS',p)"
+          if ($LASTEXITCODE -ne 0) { throw 'Production Stockfish resolver failed' }
+
+      - name: Install pinned Windows runtime and patched Nuitka
+        shell: pwsh
+        working-directory: work
+        run: |
+          $nuitkaUrl = "https://github.com/Nuitka/Nuitka/archive/$env:NUITKA_UPSTREAM_FIX_COMMIT.zip"
+          python -m pip install "pywebview==$env:PYWEBVIEW_VERSION" "Nuitka @ $nuitkaUrl" ordered-set zstandard
+          if ($LASTEXITCODE -ne 0) { throw 'Pinned runtime/compiler install failed' }
+          python -c "import webview; from pathlib import Path; import nuitka; p=Path(nuitka.__file__).parent/'plugins'/'standard'/'PywebViewPlugin.py'; assert 'webview.platforms.win32' in p.read_text(encoding='utf-8'); print('PATCHED NUITKA/PYWEBVIEW PASS')"
+
+      - name: Build standalone Windows application with release assets
+        shell: pwsh
+        working-directory: work
+        run: |
+          python -m nuitka `
+            --standalone `
+            --assume-yes-for-downloads `
+            --windows-console-mode=disable `
+            --output-filename=AccessibleChess.exe `
+            --include-data-dir=web=web `
+            --include-data-dir=release-assets\assets=assets `
+            --include-data-dir=release-assets\engines=engines `
+            --report=nuitka-compilation-report.xml `
             run_accessible_chess.py
-          if (-not (Test-Path 'dist\AccessibleChess.exe')) { throw 'AccessibleChess.exe missing' }
-          $p = Start-Process '.\dist\AccessibleChess.exe' -ArgumentList '--diagnostic' -PassThru -Wait
-          if ($p.ExitCode -ne 0) { throw "EXE diagnostic failed: $($p.ExitCode)" }
+          if ($LASTEXITCODE -ne 0) { throw "Nuitka standalone compile failed: $LASTEXITCODE" }
+          $exe = Get-ChildItem -Path . -Recurse -Filter 'AccessibleChess.exe' | Where-Object { $_.FullName -match 'dist' } | Select-Object -First 1
+          if (-not $exe) { throw 'Nuitka standalone AccessibleChess.exe missing' }
+          $exe.FullName | Set-Content -Encoding UTF8 'built_exe_path.txt'
 
-      - name: WebView2 startup smoke
+      - name: Built EXE diagnostic and WebView2 startup smoke
         shell: pwsh
         working-directory: work
         run: |
-          $p = Start-Process '.\dist\AccessibleChess.exe' -PassThru
-          Start-Sleep -Seconds 10
+          $exe=(Get-Content 'built_exe_path.txt' -Raw).Trim()
+          $p=Start-Process $exe -ArgumentList '--diagnostic' -PassThru -Wait
+          if ($p.ExitCode -ne 0) { throw "Standalone diagnostic failed: $($p.ExitCode)" }
+          $p=Start-Process $exe -PassThru
+          Start-Sleep -Seconds 12
           if ($p.HasExited) { throw "GUI exited during WebView2 startup smoke with code $($p.ExitCode)" }
-          Stop-Process -Id $p.Id -Force
+          $p.Id | Set-Content 'gui_pid.txt'
           'WEBVIEW2 STARTUP SMOKE PASS'
 
-      - name: Assemble internal NVDA test artifact
+      - name: Windows UIA Alt-menu and packaged move-entry E2E
         shell: pwsh
         working-directory: work
         run: |
-          New-Item -ItemType Directory -Force -Path 'package\WINDOWS_EXE' | Out-Null
-          Copy-Item 'dist\AccessibleChess.exe' 'package\WINDOWS_EXE\AccessibleChess.exe' -Force
-          Copy-Item 'ACCESSIBILITY_0.4_ARCHITECTURE.md' 'package' -Force
-          Copy-Item 'VERSION.txt' 'package' -Force
-          @"
-          ACCESSIBLE CHESS 0.4 DEVELOPMENT BUILD
-          WebView2 semantic document architecture: BUILD PASS
-          Automated semantic/core tests: PASS
-          Remappable keyboard/command UI contract: PASS
-          Stale-safe MultiPV analysis coordinator tests: PASS
-          Built EXE diagnostic: PASS
-          WebView2 process startup smoke: PASS
-          Real NVDA browse/focus verification: REQUIRED BEFORE USER RELEASE
-          "@ | Set-Content -Encoding UTF8 'package\WINDOWS_BUILD_REPORT.txt'
-          Compress-Archive 'package\*' 'Accessible-Chess-0.4-dev-WebView2.zip' -Force
+          Add-Type -AssemblyName UIAutomationClient
+          Add-Type -AssemblyName UIAutomationTypes
+          $pid=[int](Get-Content 'gui_pid.txt' -Raw)
+          $proc=Get-Process -Id $pid -ErrorAction Stop
+          $root=[System.Windows.Automation.AutomationElement]::RootElement
+          $cond=New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::ProcessIdProperty,$pid)
+          $win=$root.FindFirst([System.Windows.Automation.TreeScope]::Children,$cond)
+          if (-not $win) { throw 'UIA top-level window not found' }
+          $menuCond=New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::ControlTypeProperty,[System.Windows.Automation.ControlType]::MenuBar)
+          $menu=$win.FindFirst([System.Windows.Automation.TreeScope]::Descendants,$menuCond)
+          if (-not $menu) { throw 'Native menu bar not exposed in Windows UIA tree' }
+          $ws=New-Object -ComObject WScript.Shell
+          $null=$ws.AppActivate($pid); Start-Sleep -Milliseconds 500
+          $ws.SendKeys('%'); Start-Sleep -Milliseconds 500; $ws.SendKeys('{DOWN}'); $ws.SendKeys('{RIGHT}'); $ws.SendKeys('{ESC}')
+          $editCond=New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::ControlTypeProperty,[System.Windows.Automation.ControlType]::Edit)
+          $edits=$win.FindAll([System.Windows.Automation.TreeScope]::Descendants,$editCond)
+          $move=$null
+          foreach($e in $edits){ if($e.Current.Name -match 'Хід|Move'){ $move=$e; break } }
+          if(-not $move){ throw 'Move input not found through UIA' }
+          $move.SetFocus(); Start-Sleep -Milliseconds 300; $ws.SendKeys('e4'); $ws.SendKeys('{ENTER}'); Start-Sleep -Seconds 2
+          $vp=$move.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern)
+          if($vp.Current.Value -ne ''){ throw "Move input did not clear after e4 Enter: '$($vp.Current.Value)'" }
+          'NATIVE MENU + PACKAGED MOVE E2E PASS'
+          Stop-Process -Id $pid -Force
 
-      - name: Upload internal build artifact
+      - name: Packaged sound playback and no-orphan Stockfish smoke
+        shell: pwsh
+        working-directory: work
+        run: |
+          $dist=Get-ChildItem -Directory -Filter '*.dist' | Select-Object -First 1
+          if(-not $dist){ throw 'Distribution directory missing' }
+          python -c "from acs.sound_windows import PackagedSoundAssetResolver,WindowsSoundPlaybackAdapter; from acs.sound_runtime import SoundRuntime,GameSoundRuntime,SoundRuntimeSettings; from acs.sound_events import SoundEvent,MoveSoundFacts; from pathlib import Path; import tempfile; app=Path(r'$($dist.FullName)'); rt=GameSoundRuntime(SoundRuntime(WindowsSoundPlaybackAdapter(PackagedSoundAssetResolver(app),cache_dir=Path(tempfile.gettempdir())/'acs-sound-qa'),settings=SoundRuntimeSettings(volume=100))); reps=[rt.start(),rt.move(MoveSoundFacts()),rt.illegal(),rt.tick(),rt.end()]; assert all(r.ok for r in reps); print('PACKAGED WINDOWS SOUND PLAYBACK PASS')"
+          if ($LASTEXITCODE -ne 0) { throw 'Packaged sound playback failed' }
+          $before=@(Get-Process stockfish* -ErrorAction SilentlyContinue).Count
+          python -c "from acs.stockfish_runtime import StockfishRuntimeResolver; from acs.engine import UCIEngine; from pathlib import Path; p=StockfishRuntimeResolver(application_dir=Path(r'$($dist.FullName)')).resolve(); e=UCIEngine(str(p)); e.start(); r=e.analyse('rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',depth=8,multipv=5); assert len(r)>=5; e.close(); print('PACKAGED STOCKFISH ANALYSIS PASS')"
+          if ($LASTEXITCODE -ne 0) { throw 'Packaged Stockfish production analysis failed' }
+          Start-Sleep -Seconds 1
+          $after=@(Get-Process stockfish* -ErrorAction SilentlyContinue).Count
+          if($after -gt $before){ throw 'Orphan Stockfish process remains after close' }
+
+      - name: Reject raw proprietary source and assemble signed-by-checksum candidate
+        shell: pwsh
+        working-directory: work
+        run: |
+          $dist=Get-ChildItem -Directory -Filter '*.dist' | Select-Object -First 1
+          $raw=Get-ChildItem $dist.FullName -Recurse -File -Filter '*.py' | Where-Object { $_.FullName -match '\\acs\\' -or $_.Name -eq 'run_accessible_chess.py' }
+          if($raw){ throw "Raw proprietary Python source leaked: $($raw.FullName -join ', ')" }
+          New-Item -ItemType Directory -Force -Path 'package\AccessibleChess','package\THIRD_PARTY_NOTICES' | Out-Null
+          Copy-Item "$($dist.FullName)\*" 'package\AccessibleChess\' -Recurse -Force
+          Copy-Item 'release-assets\THIRD_PARTY\Stockfish\*' 'package\THIRD_PARTY_NOTICES\' -Recurse -Force
+          if(Test-Path 'nuitka-compilation-report.xml'){ Copy-Item 'nuitka-compilation-report.xml' 'package\' -Force }
+          @"
+          Accessible Chess third-party runtime/build notices
+          pywebview $env:PYWEBVIEW_VERSION — BSD-3-Clause runtime dependency.
+          Nuitka upstream commit $env:NUITKA_UPSTREAM_FIX_COMMIT — compiler used for packaging.
+          Stockfish $env:STOCKFISH_VERSION — GPLv3; complete corresponding source archive included.
+          "@ | Set-Content -Encoding UTF8 'package\THIRD_PARTY_NOTICES\README.txt'
+          $manifest=[ordered]@{product='Accessible Chess';label='NVDA TEST CANDIDATE — WAITING FOR USER TEST';integration_sha=$env:SOURCE_INTEGRATION_SHA;qa_commit=(git rev-parse HEAD);python='3.12';pywebview=$env:PYWEBVIEW_VERSION;nuitka_upstream_fix_commit=$env:NUITKA_UPSTREAM_FIX_COMMIT;stockfish='18';sound_pack='QA deterministic WAV set';nvda_verified=$false}
+          $manifest|ConvertTo-Json|Set-Content -Encoding UTF8 'package\RELEASE_MANIFEST.json'
+          Get-ChildItem 'package' -Recurse -File | Get-FileHash -Algorithm SHA256 | ForEach-Object { "$($_.Hash.ToLowerInvariant())  $($_.Path.Substring((Resolve-Path 'package').Path.Length+1))" } | Set-Content -Encoding UTF8 'package\SHA256SUMS.txt'
+          Compress-Archive 'package\*' 'Accessible-Chess-0.4-post-Issue22-NVDA-test-candidate.zip' -Force
+          (Get-FileHash 'Accessible-Chess-0.4-post-Issue22-NVDA-test-candidate.zip' -Algorithm SHA256).Hash.ToLowerInvariant() | Set-Content -Encoding UTF8 'candidate-zip.sha256'
+
+      - name: Upload repaired NVDA test candidate
         uses: actions/upload-artifact@v4
         with:
-          name: Accessible-Chess-0.4-dev-WebView2
-          path: work/Accessible-Chess-0.4-dev-WebView2.zip
+          name: Accessible-Chess-0.4-post-Issue22-NVDA-test-candidate
+          path: |
+            work/Accessible-Chess-0.4-post-Issue22-NVDA-test-candidate.zip
+            work/candidate-zip.sha256
           retention-days: 14
