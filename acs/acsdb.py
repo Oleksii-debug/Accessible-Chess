@@ -41,9 +41,13 @@ class AcsDatabase:
     def __init__(self, path: str | Path = ":memory:") -> None:
         self.path = str(path)
         self.conn = sqlite3.connect(self.path)
-        self.conn.row_factory = sqlite3.Row
-        self.conn.execute("PRAGMA foreign_keys = ON")
-        self._migrate_schema()
+        try:
+            self.conn.row_factory = sqlite3.Row
+            self.conn.execute("PRAGMA foreign_keys = ON")
+            self._migrate_schema()
+        except Exception:
+            self.conn.close()
+            raise
 
     def close(self) -> None:
         self.conn.close()
