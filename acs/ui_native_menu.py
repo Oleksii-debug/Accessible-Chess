@@ -3,10 +3,15 @@ from __future__ import annotations
 """Native pywebview menu projection for the semantic Accessible Chess UI.
 
 The WebView document and the Windows Alt menu must describe the same active
-bindings.  This module only projects stable action IDs into captions and menu
+bindings. This module only projects stable action IDs into captions and menu
 callbacks; normalization, persistence and conflict policy stay in KeymapService.
+
+The native Settings menu also carries an emergency keymap recovery action. It is
+intentionally independent from configurable application shortcuts so a broken
+custom profile can never lock a keyboard/NVDA user out of restoring defaults.
 """
 
+import json
 from typing import Any, Callable
 
 
@@ -30,6 +35,9 @@ _MENU_LABELS_UK = {
     "position_input": "Текстовий редактор позиції",
     "engine_toggle": "Увімкнути / вимкнути Stockfish",
     "keyboard": "Клавіатура і команди",
+    "keyboard_reset_all": "Відновити всі клавіші та команди",
+    "keyboard_reset_done": "Усі клавіші та команди відновлено за замовчуванням.",
+    "keyboard_reset_failed": "Не вдалося відновити клавіші та команди.",
     "nvda_help": "Клавіші та довідка NVDA",
 }
 
@@ -53,6 +61,9 @@ _MENU_LABELS_EN = {
     "position_input": "Position text editor",
     "engine_toggle": "Enable / disable Stockfish",
     "keyboard": "Keyboard and commands",
+    "keyboard_reset_all": "Reset all keyboard commands",
+    "keyboard_reset_done": "All keyboard commands were reset to defaults.",
+    "keyboard_reset_failed": "Keyboard commands could not be reset.",
     "nvda_help": "Keys and NVDA help",
 }
 
@@ -81,8 +92,8 @@ def menu_caption(api: Any, label: str, action_id: str | None = None) -> str:
     """Append the current shortcut as a native-menu accelerator hint.
 
     A tab is the conventional Windows menu separator between the command caption
-    and its accelerator hint.  If an action has no shortcut, the plain label is
-    returned.  The hint is descriptive only; dispatch still goes through the
+    and its accelerator hint. If an action has no shortcut, the plain label is
+    returned. The hint is descriptive only; dispatch still goes through the
     central action registry/WebView bridge.
     """
 
@@ -92,13 +103,46 @@ def menu_caption(api: Any, label: str, action_id: str | None = None) -> str:
     return f"{label}\t{binding}" if binding else label
 
 
+def reset_all_keybindings(api: Any, js: Callable[[str], None], *, lang: str = "uk") -> bool:
+    """Restore the authoritative keymap through a non-remappable native path.
+
+    The current HTML still contains a legacy localStorage compatibility cache.
+    After the central service resets successfully we clear only that obsolete
+    keymap cache and reload the document so it cannot shadow the recovered Core
+    profile. No game, database, PGN, book, account or other user data is touched.
+
+    Once the WebView keymap screen is fully API-backed, the localStorage cleanup
+    can be removed while this native recovery action remains valid.
+    """
+
+    text = _labels(lang)
+    try:
+        result = api.keymap_reset_all()
+    except Exception:
+        js(f"announce({json.dumps(text['keyboard_reset_failed'])})")
+        return False
+
+    if not isinstance(result, dict) or not result.get("ok"):
+        js(f"announce({json.dumps(text['keyboard_reset_failed'])})")
+        return False
+
+    message = json.dumps(text["keyboard_reset_done"])
+    js(
+        "localStorage.removeItem('accessibleChess.keymap.v1');"
+        f"announce({message});"
+        "location.reload()"
+    )
+    return True
+
+
 def make_keymap_menu(webview: Any, api: Any, window_holder: dict[str, Any]):
     """Build the Windows Alt menu from live keymap state at window creation."""
 
     Menu = webview.menu.Menu
     MenuAction = webview.menu.MenuAction
     MenuSeparator = webview.menu.MenuSeparator
-    text = _labels(getattr(api, "lang", "uk"))
+    lang = getattr(api, "lang", "uk")
+    text = _labels(lang)
 
     def js(code: str) -> None:
         window = window_holder.get("window")
@@ -139,6 +183,11 @@ def make_keymap_menu(webview: Any, api: Any, window_holder: dict[str, Any]):
         ]),
         Menu(text["settings"], [
             MenuAction(text["keyboard"], lambda: js("document.getElementById('key-search').focus()")),
+            MenuSeparator(),
+            MenuAction(
+                text["keyboard_reset_all"],
+                lambda: reset_all_keybindings(api, js, lang=lang),
+            ),
         ]),
         Menu(text["help"], [
             MenuAction(text["nvda_help"], lambda: js("document.getElementById('help').focus()")),
