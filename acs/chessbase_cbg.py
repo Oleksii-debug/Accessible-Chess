@@ -34,6 +34,21 @@ _SETUP_BITSTREAM_OFFSET = 8
 _SETUP_BITSTREAM_SIZE = 24
 _SETUP_END = _SETUP_BITSTREAM_OFFSET + _SETUP_BITSTREAM_SIZE
 
+_PIECE_CODES = {
+    0b10001: ("white", "king"),
+    0b10010: ("white", "queen"),
+    0b10011: ("white", "knight"),
+    0b10100: ("white", "bishop"),
+    0b10101: ("white", "rook"),
+    0b10110: ("white", "pawn"),
+    0b11001: ("black", "king"),
+    0b11010: ("black", "queen"),
+    0b11011: ("black", "knight"),
+    0b11100: ("black", "bishop"),
+    0b11101: ("black", "rook"),
+    0b11110: ("black", "pawn"),
+}
+
 
 class CbgDecodeError(ValueError):
     """Raised when classic CBG bytes are invalid or structurally unsafe."""
@@ -70,12 +85,22 @@ class ClassicCbgGameHeader:
 
 
 @dataclass(frozen=True)
+class ClassicCbgSetupPiece:
+    """One evidence-backed piece token decoded from a classic setup bitstream."""
+
+    square: str
+    color: str
+    role: str
+    raw_code: int
+
+
+@dataclass(frozen=True)
 class ClassicCbgSetup:
     """Neutral evidence from the fixed classic custom-position setup prefix.
 
-    Piece-placement semantics are intentionally not decoded here. ``setup_bytes``
-    preserves the exact 24-byte setup bitstream consumed by the pinned decoder so
-    later slices can specialize it without changing this read-only boundary.
+    ``setup_bytes`` preserves the exact 24-byte setup bitstream consumed by the
+    pinned decoder. ``pieces`` exposes only the pinned decoder's documented
+    square/color/role mapping; it does not infer FEN, legality or move semantics.
     """
 
     offset: int
@@ -87,6 +112,64 @@ class ClassicCbgSetup:
     black_castle_short: bool
     next_move_number: int
     setup_bytes: bytes
+    pieces: tuple[ClassicCbgSetupPiece, ...]
+
+
+def decode_cbg_setup_pieces(setup_bytes: bytes) -> tuple[ClassicCbgSetupPiece, ...]:
+    """Decode only the pinned classic setup square/piece token mapping.
+
+    The pinned decoder scans squares in ``a1..a8, b1..b8, ... h1..h8`` order.
+    A zero bit denotes an empty square; a one bit begins a five-bit piece code.
+    Unknown or truncated codes are rejected rather than guessed.
+    """
+
+    if not isinstance(setup_bytes, bytes) or len(setup_bytes) != _SETUP_BITSTREAM_SIZE:
+        raise CbgDecodeError(
+            f"classic CBG setup bitstream must be exactly {_SETUP_BITSTREAM_SIZE} bytes"
+        )
+
+    bits = "".join(f"{value:08b}" for value in setup_bytes)
+    bit_index = 0
+    board_index = 0
+    pieces: list[ClassicCbgSetupPiece] = []
+
+    while board_index < 64:
+        if bit_index >= len(bits):
+            raise CbgDecodeError(
+                "classic CBG setup bitstream ended before all 64 squares were described"
+            )
+        if bits[bit_index] == "0":
+            bit_index += 1
+            board_index += 1
+            continue
+
+        if len(bits) - bit_index < 5:
+            raise CbgDecodeError(
+                "classic CBG setup bitstream ends inside a five-bit piece code"
+            )
+        raw_code = int(bits[bit_index:bit_index + 5], 2)
+        piece = _PIECE_CODES.get(raw_code)
+        if piece is None:
+            raise CbgDecodeError(
+                f"unsupported classic CBG setup piece code {raw_code:#07b} "
+                f"at bit {bit_index}"
+            )
+
+        file_name = chr(ord("a") + (board_index // 8))
+        rank = (board_index % 8) + 1
+        color, role = piece
+        pieces.append(
+            ClassicCbgSetupPiece(
+                square=f"{file_name}{rank}",
+                color=color,
+                role=role,
+                raw_code=raw_code,
+            )
+        )
+        bit_index += 5
+        board_index += 1
+
+    return tuple(pieces)
 
 
 def parse_cbg_game_header(data: bytes, *, offset: int) -> ClassicCbgGameHeader:
@@ -134,8 +217,8 @@ def parse_cbg_custom_setup(data: bytes, *, offset: int) -> ClassicCbgSetup:
     """Inspect the fixed setup prefix for one supported classic custom position.
 
     This mirrors only the byte/bit extraction performed by pinned cbh2pgn
-    ``decode_start_position``. It deliberately does not infer piece placement,
-    FEN, move semantics, annotations, Chess960 or special encodings.
+    ``decode_start_position``. It deliberately does not infer FEN, move semantics,
+    annotations, Chess960 or special encodings.
     """
 
     header = parse_cbg_game_header(data, offset=offset)
@@ -171,6 +254,7 @@ def parse_cbg_custom_setup(data: bytes, *, offset: int) -> ClassicCbgSetup:
         black_castle_short=bool(castling & _MASK_BLACK_CASTLE_SHORT),
         next_move_number=next_move_number,
         setup_bytes=setup_bytes,
+        pieces=decode_cbg_setup_pieces(setup_bytes),
     )
 
 
