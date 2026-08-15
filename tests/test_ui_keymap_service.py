@@ -118,6 +118,31 @@ def test_capture_shortcut_builds_normalized_chord_and_previews_warning(tmp_path)
     assert service.editor.registry.get_binding("history.go_to_move") == "Ctrl+G"
 
 
+def test_capture_shortcut_preserves_literal_space_from_keyboard_event(tmp_path):
+    service = KeymapService(tmp_path / "keymap.json", lang="en")
+
+    result = service.capture_shortcut("board.current", " ", ctrl=True)
+
+    assert result["captured"] is True
+    assert result["reason"] == "captured"
+    assert result["binding"] == "Ctrl+Space"
+    assert result["value"] == "Ctrl+Space"
+    assert result["status"] == "ok"
+    assert result["canSave"] is True
+    assert service.editor.registry.get_binding("board.current") == "O"
+
+
+def test_capture_shortcut_normalizes_legacy_spacebar_key_name(tmp_path):
+    service = KeymapService(tmp_path / "keymap.json", lang="uk")
+
+    result = service.capture_shortcut("board.current", "Spacebar", alt=True, shift=True)
+
+    assert result["captured"] is True
+    assert result["binding"] == "Alt+Shift+Space"
+    assert result["status"] == "ok"
+    assert result["canSave"] is True
+
+
 def test_capture_shortcut_preserves_tab_navigation_and_escape_cancel(tmp_path):
     service = KeymapService(tmp_path / "keymap.json", lang="uk")
 
