@@ -92,9 +92,8 @@ jobs:
           python -m nuitka `
             --mode=standalone `
             --assume-yes-for-downloads `
-            --windows-console-mode=disable `
+            --windows-console-mode=force `
             --output-filename=AccessibleChess.exe `
-            --enable-plugin=pywebview `
             --include-data-dir=web=web `
             run_accessible_chess.py
           if ($LASTEXITCODE -ne 0) { throw 'Nuitka standalone compilation failed' }
@@ -106,17 +105,26 @@ jobs:
         shell: pwsh
         working-directory: work
         run: |
-          $p = Start-Process '.\run_accessible_chess.dist\AccessibleChess.exe' -ArgumentList '--diagnostic' -PassThru -Wait
-          if ($p.ExitCode -ne 0) { throw "Standalone EXE diagnostic failed: $($p.ExitCode)" }
+          .\run_accessible_chess.dist\AccessibleChess.exe --diagnostic
+          if ($LASTEXITCODE -ne 0) { throw "Standalone EXE diagnostic failed: $LASTEXITCODE" }
           'STANDALONE EXE DIAGNOSTIC PASS'
 
-      - name: WebView2 process startup smoke
+      - name: WebView2 process startup smoke with captured traceback
         shell: pwsh
         working-directory: work
         run: |
-          $p = Start-Process '.\run_accessible_chess.dist\AccessibleChess.exe' -PassThru
+          $ErrorActionPreference = 'Continue'
+          Remove-Item packaged-ui.out,packaged-ui.err -ErrorAction SilentlyContinue
+          $p = Start-Process '.\run_accessible_chess.dist\AccessibleChess.exe' -PassThru -RedirectStandardOutput packaged-ui.out -RedirectStandardError packaged-ui.err
           Start-Sleep -Seconds 10
-          if ($p.HasExited) { throw "GUI exited during WebView2 startup smoke with code $($p.ExitCode)" }
+          if ($p.HasExited) {
+            Write-Host "PACKAGED_GUI_EXIT_CODE=$($p.ExitCode)"
+            Write-Host '--- stdout ---'
+            if (Test-Path packaged-ui.out) { Get-Content packaged-ui.out }
+            Write-Host '--- stderr ---'
+            if (Test-Path packaged-ui.err) { Get-Content packaged-ui.err }
+            throw "GUI exited during WebView2 startup smoke with code $($p.ExitCode)"
+          }
           Stop-Process -Id $p.Id -Force
           'WEBVIEW2 STARTUP SMOKE PASS'
 
