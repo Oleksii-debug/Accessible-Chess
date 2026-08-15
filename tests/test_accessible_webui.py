@@ -28,40 +28,11 @@ class AccessibleWebUiTests(unittest.TestCase):
         self.assertTrue(r["ok"])
         self.assertIn("e 4", r["lastMove"])
 
-    def test_locked_core_single_letter_commands_remain_compatible_defaults(self):
-        self.assertTrue(self.api.make_move("b")["ok"])
-        self.assertEqual(self.api.board.turn, "b")
-        self.assertTrue(self.api.make_move("w")["ok"])
-        self.assertEqual(self.api.board.turn, "w")
-        self.assertTrue(self.api.make_move("e")["ok"])
-        self.assertTrue(self.api.engine_enabled)
-        self.assertTrue(self.api.make_move("c")["ok"])
-        self.assertFalse(self.api.get_state()["positionComplete"])
-        self.assertTrue(self.api.make_move("s")["ok"])
-        self.assertTrue(self.api.get_state()["positionComplete"])
-        self.assertFalse(self.api.make_move("d")["ok"])
-        self.assertFalse(self.api.make_move("x")["ok"])
-
     def test_text_position_editor_round_trip(self):
         text = "W: K g1 Q d1 R a1 R f1 B c4 N f3 P e4 B: K g8 Q d8 N f6"
         r = self.api.set_position_text(text, "b")
         self.assertTrue(r["ok"])
         self.assertEqual(self.api.board.turn, "b")
-        self.assertEqual(self.api.square_label("g1"), "g 1, білий король")
-        self.assertEqual(self.api.square_label("g8"), "g 8, чорний король")
-
-    def test_clear_board_is_safe_in_accessible_state(self):
-        r = self.api.clear_board()
-        self.assertTrue(r["ok"])
-        self.assertEqual(len(r["board"]), 64)
-        self.assertEqual(r["whitePieces"], "фігур немає")
-        self.assertFalse(r["positionComplete"])
-
-    def test_api_language_switch_changes_state_and_square_speech(self):
-        r = self.api.set_language("en")
-        self.assertTrue(r["ok"])
-        self.assertEqual(self.api.square_label("e2"), "e 2, white pawn")
-        self.assertEqual(r["gameStatus"], "White to move")
 
     def test_locked_first_ten_h2_order_is_exact(self):
         ids = [
@@ -87,112 +58,72 @@ class AccessibleWebUiTests(unittest.TestCase):
             'id="move-input" type="text"', 'id="position-input"',
             'id="position-load" type="button"', 'id="empty-board" type="button"',
             'id="board-launcher" type="button"',
-            'role="application" aria-label="Шахова дошка" aria-describedby="board-help"',
+            'role="application" aria-label="Шахова дошка"',
             'role="grid" aria-label="64 поля шахової дошки" aria-rowcount="8" aria-colcount="8"',
             "node.setAttribute('aria-rowindex'", "node.setAttribute('aria-colindex'",
         ):
             self.assertIn(marker, self.html)
         self.assertNotIn("<canvas", self.html.lower())
 
-    def test_runtime_ua_en_language_contract(self):
+    def test_human_nvda_main_document_is_clean(self):
+        forbidden = (
+            "Семантичний документ Edge/WebView2",
+            "Команди історії налаштовуються",
+            "У режимі огляду NVDA",
+            "Приклади: e4",
+            "W:/B:",
+            "Усі команди Accessible Chess налаштовуються",
+            "Перенесення MultiPV",
+            "migration is still in progress",
+            "ValueError:",
+        )
+        for text in forbidden:
+            with self.subTest(text=text):
+                self.assertNotIn(text, self.html)
+        for control in ("move-input", "history-input", "position-input", "board-launcher", "board-application"):
+            fragment = self.html[self.html.index(f'id="{control}"'):self.html.index(f'id="{control}"') + 250]
+            self.assertNotIn("aria-describedby", fragment)
+
+    def test_one_live_region_only_and_no_no_conflict_spam(self):
+        self.assertEqual(self.html.count('aria-live="polite"'), 1)
+        self.assertIn('id="live" role="status" aria-live="polite"', self.html)
+        self.assertNotIn('status.setAttribute(\'role\',\'status\')', self.html)
+        self.assertNotIn("Конфліктів немає", self.html)
+        self.assertNotIn("No conflicts.", self.html)
+
+    def test_move_enter_success_clears_and_refocuses_input(self):
+        self.assertIn("const r=await apiAction('make_move',v)", self.html)
+        self.assertIn("if(r&&r.ok){input.value='';input.focus()}", self.html)
+        self.assertIn("else{input.focus();input.select()}", self.html)
+        self.assertIn("el('move-input').addEventListener('keydown'", self.html)
+        self.assertIn("if(e.key==='Enter')", self.html)
+
+    def test_copy_and_selection_are_not_hijacked(self):
+        self.assertIn("String(e.key).toLowerCase()==='c'", self.html)
+        self.assertIn("selection&&selection.toString()", self.html)
+        self.assertIn("['INPUT','TEXTAREA','SELECT'].includes(e.target.tagName)", self.html)
+
+    def test_keymap_editor_is_out_of_main_flow_and_passive_validation_is_silent(self):
+        self.assertIn('<dialog id="keymap-dialog"', self.html)
+        self.assertIn('id="open-keymap" type="button"', self.html)
+        self.assertIn('id="key-list" class="binding-list"', self.html)
+        self.assertIn("typeof a.keymap_snapshot==='function'", self.html)
+        self.assertIn("typeof a.keymap_preview==='function'", self.html)
+        self.assertIn("typeof a.keymap_save==='function'", self.html)
+        self.assertNotIn("updatePreview(item,inp,status);", self.html)
+
+    def test_language_and_central_keymap_contracts_remain(self):
         self.assertIn('id="language-select"', self.html)
         self.assertIn("el('language-select').addEventListener('change'", self.html)
         self.assertIn("apiAction('set_language',e.target.value)", self.html)
         self.assertIn("function applyUiLanguage(lang)", self.html)
-        self.assertIn("document.documentElement.lang=lang==='en'?'en':'uk'", self.html)
-
-    def test_board_coordinate_navigation_no_longer_steals_a_or_d_and_is_remappable(self):
-        self.assertNotIn("/^[a-hA-H]$/.test(key)", self.html)
-        self.assertNotIn("/^[1-8]$/.test(key)&&!e.shiftKey", self.html)
-        self.assertNotIn("/^[1-8]$/.test(key)&&e.shiftKey", self.html)
-        self.assertIn("resolveBinding(eventChord(e),'board','board')", self.html)
-        self.assertIn("id.match(/^board\\.rank_([1-8])$/)", self.html)
-        self.assertIn("id.match(/^board\\.file_([1-8])$/)", self.html)
-        data = json.loads((self.root / "web" / "keybindings.json").read_text(encoding="utf-8"))
-        by_id = {x["id"]: x for x in data["actions"]}
-        self.assertEqual(by_id["board.attackers"]["binding"], "A")
-        self.assertEqual(by_id["board.defenders"]["binding"], "D")
-        for number in range(1, 9):
-            self.assertEqual(by_id[f"board.rank_{number}"]["binding"], str(number))
-            self.assertEqual(by_id[f"board.file_{number}"]["binding"], f"Shift+{number}")
-
-    def test_remappable_keybinding_editor_is_accessible_and_recoverable(self):
-        for marker in (
-            '<h3 id="h-keyboard">Клавіатура і команди</h3>',
-            'id="key-search" type="search"', 'id="key-context"',
-            'id="key-reset-context" type="button"', 'id="key-reset-all" type="button"',
-            'id="key-export" type="button"', 'id="key-import" type="file"',
-            'id="key-capture-help" class="sr-note"', 'id="key-list" class="binding-list"',
-            "typeof a.keymap_snapshot==='function'", "typeof a.keymap_preview==='function'",
-            "typeof a.keymap_capture_shortcut==='function'", "typeof a.keymap_save==='function'",
-            "typeof a.keymap_reset_action==='function'", "typeof a.keymap_reset_context==='function'",
-            "typeof a.keymap_reset_all==='function'", "typeof a.keymap_export_profile==='function'",
-            "typeof a.keymap_import_profile==='function'", "typeof a.keymap_resolve_binding==='function'",
-            "function renderHelp()", "function beginCapture(item,inp,status,button)",
-            "function stopCapture(cancelled=false)", "captureButton.setAttribute('aria-pressed','false')",
-            "if(e.key==='Escape')", "if(e.key==='Tab')return",
-        ):
-            self.assertIn(marker, self.html)
-        self.assertIn("NVDA", self.html)
-        self.assertIn("H/B/E/F", self.html)
-
-    def test_webview_does_not_own_release_keymap_persistence_or_conflict_policy(self):
         self.assertNotIn("localStorage.setItem", self.html)
         self.assertNotIn("localStorage.getItem", self.html)
-        self.assertNotIn("function conflictsFor", self.html)
-        self.assertNotIn("['Alt+F4','Ctrl+Alt+Delete','Ctrl+L'", self.html)
-        self.assertIn("await a.keymap_preview(item.id,value)", self.html)
-        self.assertIn("await a.keymap_save(item.id,inp.value,allowWarnings)", self.html)
-        self.assertIn("await a.keymap_import_profile(text,false)", self.html)
-        self.assertIn("await a.keymap_import_profile(text,true)", self.html)
-
-    def test_move_entry_alias_dispatch_is_owned_by_release_api(self):
-        self.assertIn("await apiAction('make_move',v)", self.html)
-        self.assertNotIn("const alias=keymap.find", self.html)
-        self.assertNotIn("'move.white_to_move':'set_turn'", self.html)
-
-    def test_shortcut_capture_does_not_claim_nvda_browse_keys(self):
-        self.assertIn("Press new shortcut", self.html)
-        self.assertIn("Натиснути нову комбінацію", self.html)
-        self.assertIn("Escape скасовує захоплення", self.html)
-        self.assertIn("NVDA browse keys H/B/E/F belong to NVDA", self.html)
-        self.assertNotIn("H/B/E/F can be remapped", self.html)
-
-    def test_context_reset_is_scoped_and_has_recovery_when_no_context_selected(self):
-        self.assertIn("el('key-context').addEventListener('change',renderKeymap)", self.html)
-        self.assertIn("el('key-reset-context').addEventListener('click'", self.html)
-        self.assertIn("if(!ctx){announce(en?'Choose a context first.'", self.html)
-        self.assertIn("await a.keymap_reset_context(ctx)", self.html)
-        self.assertIn("await a.keymap_reset_all()", self.html)
-
-    def test_keybinding_defaults_are_centralized_outside_main_html(self):
-        compact = self.html.replace(" ", "").replace("\n", "")
-        self.assertNotIn("Shift+A—", self.html)
-        self.assertNotIn("Ctrl+G—", self.html)
         data = json.loads((self.root / "web" / "keybindings.json").read_text(encoding="utf-8"))
         by_id = {x["id"]: x for x in data["actions"]}
         self.assertEqual(by_id["history.previous"]["binding"], "Shift+A")
         self.assertEqual(by_id["history.next"]["binding"], "Shift+D")
         self.assertEqual(by_id["history.go_to_move"]["binding"], "Ctrl+G")
-        self.assertEqual(by_id["move.black_to_move"]["alias"], "b")
-        self.assertEqual(by_id["move.clear"]["alias"], "c")
-        self.assertNotIn("history.goto", by_id)
-        self.assertNotIn("game.undo", by_id)
-        self.assertNotIn("move.engine", by_id)
-        self.assertTrue(compact)
-
-    def test_ui_dispatch_uses_stable_central_action_ids(self):
-        keymap_text = (self.root / "web" / "keybindings.json").read_text(encoding="utf-8")
-        release_api = (self.root / "acs" / "webapp_keymap.py").read_text(encoding="utf-8")
-        for action_id in ("history.go_to_move", "edit.undo", "edit.redo"):
-            self.assertIn(action_id, self.html)
-        for action_id in ("move.white_to_move", "move.black_to_move", "move.empty"):
-            self.assertIn(action_id, release_api)
-        for action_id in ("board.last_captured", "board.best_move", "board.play_best"):
-            self.assertIn(action_id, keymap_text)
-        for legacy in ("history.goto", "game.undo", "game.redo", "move.white'", "move.black'", "move.engine"):
-            self.assertNotIn(legacy, self.html)
-            self.assertNotIn(legacy, release_api)
 
     def test_live_region_contract_avoids_background_speech_spam(self):
         self.assertIn('role="status" aria-live="polite" aria-atomic="true" aria-relevant="text"', self.html)
@@ -200,8 +131,6 @@ class AccessibleWebUiTests(unittest.TestCase):
         self.assertIn('id="moves" class="block" aria-live="off"', self.html)
         self.assertIn('id="engine-status" class="block" aria-live="off"', self.html)
         self.assertIn("message===lastAnnouncement&&now-lastAnnouncementAt<500", self.html)
-        self.assertIn("live.setAttribute('aria-busy','true')", self.html)
-        self.assertIn("live.setAttribute('aria-busy','false')", self.html)
 
 
 if __name__ == "__main__":

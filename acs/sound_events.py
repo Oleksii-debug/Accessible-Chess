@@ -9,8 +9,8 @@ class SoundEvent(str, Enum):
 
     These values are stable application event IDs. They deliberately contain no
     file paths, audio APIs, platform checks, localization, or playback policy.
-    Infrastructure may map them to WAV assets, system sounds, haptics, or other
-    output without changing chess/domain code.
+    Infrastructure maps them to packaged assets or other output without changing
+    chess/domain code.
     """
 
     MOVE = "move"
@@ -21,6 +21,7 @@ class SoundEvent(str, Enum):
     ILLEGAL = "illegal"
     START = "start"
     END = "end"
+    TICK = "tick"
 
 
 @dataclass(frozen=True)
@@ -29,8 +30,8 @@ class MoveSoundFacts:
 
     A successful move always produces one primary mechanical event (move,
     capture, castle, or promotion). Check and game-end are additional semantic
-    events so presentation code can decide whether to play, queue, speak, or
-    otherwise expose them.
+    events. Playback ordering is defined by ``SoundEventPolicy`` and preserved by
+    the runtime dispatcher.
     """
 
     legal: bool = True
@@ -52,7 +53,12 @@ class MoveSoundFacts:
 
 
 class SoundEventPolicy:
-    """Pure deterministic mapping from chess facts to semantic sound events."""
+    """Pure deterministic mapping from chess facts to semantic sound events.
+
+    Queue order is primary move sound first, then check, then game end. This makes
+    capture+check, promotion+check and mate sequences deterministic across UI and
+    Windows playback adapters.
+    """
 
     @staticmethod
     def game_start() -> tuple[SoundEvent, ...]:
@@ -67,6 +73,10 @@ class SoundEventPolicy:
         return (SoundEvent.ILLEGAL,)
 
     @staticmethod
+    def clock_tick() -> tuple[SoundEvent, ...]:
+        return (SoundEvent.TICK,)
+
+    @staticmethod
     def for_move(facts: MoveSoundFacts) -> tuple[SoundEvent, ...]:
         if not facts.legal:
             return (SoundEvent.ILLEGAL,)
@@ -75,7 +85,7 @@ class SoundEventPolicy:
 
         # Exactly one primary physical-action event. Promotion outranks capture
         # because a capturing promotion is still semantically a promotion; the
-        # capture fact remains available to any richer presentation separately.
+        # capture fact remains available to richer presentation if needed.
         if facts.promotion:
             events.append(SoundEvent.PROMOTION)
         elif facts.castle:
