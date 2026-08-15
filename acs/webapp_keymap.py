@@ -17,6 +17,7 @@ from typing import Any, Mapping
 from . import webapp as _webapp
 from .keybindings import BindingContext
 from .notation import NotationError, format_san
+from .ui_analysis_adapter import AnalysisPresentationAdapter
 from .ui_entitlement import project_entitlement, semantic_contract
 from .ui_keymap_service import KeymapService
 from .ui_native_menu import make_keymap_menu
@@ -53,9 +54,11 @@ class KeymapAwareAccessibleChessAPI(AccessibleChessAPI):
         *,
         keymap_path: str | Path | None = None,
         entitlement_payload: Mapping[str, Any] | None = None,
+        continuous_analysis: Any | None = None,
     ) -> None:
         super().__init__(lang)
         self.keymap_service = KeymapService(keymap_path or default_keymap_path(), lang=self.lang)
+        self.analysis_ui = AnalysisPresentationAdapter(continuous_analysis, multipv=5, depth=16)
         # Presentation receives only the neutral entitlement value object. It is
         # deliberately not a billing/auth provider and cannot mutate user data.
         self._entitlement_payload: dict[str, Any] = dict(
@@ -136,6 +139,41 @@ class KeymapAwareAccessibleChessAPI(AccessibleChessAPI):
                 i += 1
         return "\n".join(out)
 
+    def _analysis_status_text(self, analysis: dict[str, Any]) -> str:
+        if not analysis["enabled"]:
+            if analysis.get("error") == "analysis service is not configured":
+                return (
+                    "Stockfish ще не підключено до запуску програми." if self.lang == "uk" else
+                    "Stockfish is not connected to the application composition yet."
+                )
+            return "Stockfish вимкнено." if self.lang == "uk" else "Stockfish disabled."
+        if analysis.get("error"):
+            prefix = "Помилка Stockfish: " if self.lang == "uk" else "Stockfish error: "
+            return prefix + str(analysis["error"])
+        if analysis.get("stale"):
+            return (
+                "Позиція змінилася. Очікую новий аналіз." if self.lang == "uk" else
+                "Position changed. Waiting for fresh analysis."
+            )
+        lines = analysis.get("lines") or []
+        if not lines:
+            return "Stockfish аналізує позицію." if self.lang == "uk" else "Stockfish is analysing the position."
+        rendered: list[str] = []
+        for line in lines[:5]:
+            idx = line.get("multipv", len(rendered) + 1)
+            pv = " ".join(str(move) for move in line.get("pv", ()))
+            if self.lang == "uk":
+                rendered.append(
+                    f"Варіант {idx}: глибина {line.get('depth', 0)}, "
+                    f"оцінка {line.get('scoreKind', 'cp')} {line.get('scoreValue', 0)}. {pv}".strip()
+                )
+            else:
+                rendered.append(
+                    f"Variation {idx}: depth {line.get('depth', 0)}, "
+                    f"evaluation {line.get('scoreKind', 'cp')} {line.get('scoreValue', 0)}. {pv}".strip()
+                )
+        return "\n".join(rendered)
+
     def get_state(self) -> dict[str, Any]:
         state = super().get_state()
         visible = self._visible_ply_count()
@@ -152,6 +190,31 @@ class KeymapAwareAccessibleChessAPI(AccessibleChessAPI):
         state["gameInfo"] = (
             f"{state['gameInfo']}\n{entitlement_view.heading}: {entitlement_view.summary}"
         )
+
+        # Analysis follows the DISPLAYED FEN.  Historical review therefore gets
+        # engine analysis without mutating the live Board or ReviewHistory.
+        displayed_fen = str(state["fen"])
+        try:
+            self.analysis_ui.sync_position(displayed_fen)
+        except Exception as exc:
+            state["engineEnabled"] = self.analysis_ui.enabled
+            state["analysis"] = {
+                "enabled": self.analysis_ui.enabled,
+                "fen": displayed_fen,
+                "running": False,
+                "multipv": 5,
+                "depth": 16,
+                "lines": [],
+                "error": str(exc),
+                "stale": False,
+            }
+            state["engineStatus"] = self._analysis_status_text(state["analysis"])
+            return state
+
+        analysis = self.analysis_ui.snapshot(displayed_fen).as_dict()
+        state["analysis"] = analysis
+        state["engineEnabled"] = analysis["enabled"]
+        state["engineStatus"] = self._analysis_status_text(analysis)
         return state
 
     def set_language(self, lang: str) -> dict[str, Any]:
@@ -159,6 +222,52 @@ class KeymapAwareAccessibleChessAPI(AccessibleChessAPI):
         if result.get("ok"):
             self.keymap_service.set_language(self.lang)
         return result
+
+    def toggle_engine(self) -> dict[str, Any]:
+        displayed_fen = self._display_review().fen
+        try:
+            if self.analysis_ui.enabled:
+                self.analysis_ui.disable()
+                return self._ok(
+                    "Аналіз Stockfish вимкнено." if self.lang == "uk" else
+                    "Stockfish analysis disabled."
+                )
+            self.analysis_ui.enable(displayed_fen)
+            return self._ok(
+                "Аналіз Stockfish увімкнено. MultiPV 5." if self.lang == "uk" else
+                "Stockfish analysis enabled. MultiPV 5."
+            )
+        except Exception as exc:
+            return self._error(str(exc))
+
+    def read_analysis_pv(self, index: int) -> dict[str, Any]:
+        message = self.analysis_ui.read_pv(int(index), self._display_review().fen, lang=self.lang)
+        return self._ok(message)
+
+    def dispatch_action(self, action_id: str) -> dict[str, Any]:
+        """Execute a central-registry action without hard-coded key ownership."""
+
+        action_id = str(action_id or "")
+        pv_actions = {f"analysis.pv{i}": i for i in range(1, 6)}
+        if action_id in pv_actions:
+            return self.read_analysis_pv(pv_actions[action_id])
+        if action_id == "board.evaluation":
+            return self._ok(
+                self.analysis_ui.evaluation_text(self._display_review().fen, lang=self.lang)
+            )
+        if action_id == "board.best_move":
+            return self._ok(
+                self.analysis_ui.best_move_text(self._display_review().fen, lang=self.lang)
+            )
+        if action_id == "board.play_best":
+            return self._error(
+                "Автоматичне виконання найкращого ходу ще не має безпечного UI/Core контракту." if self.lang == "uk" else
+                "Playing the best move still has no safe UI/Core contract."
+            )
+        return self._error(
+            ("Команда ще не підключена до інтерфейсу: " if self.lang == "uk" else
+             "Command is not wired to the UI yet: ") + action_id
+        )
 
     def make_move(self, text: str) -> dict[str, Any]:
         """Execute a remappable move-entry command or parse literal chess input.
@@ -217,10 +326,17 @@ class KeymapAwareAccessibleChessAPI(AccessibleChessAPI):
             )
         return handler()
 
+    def close_analysis(self) -> dict[str, Any]:
+        self.analysis_ui.close()
+        return {"ok": True}
+
 
 def main() -> None:
     import webview
 
+    # Worker 2 supplies the production analysis service through composition.
+    # Until that handoff is integrated, the UI fails explicitly rather than
+    # pretending the legacy Boolean toggle is real Stockfish analysis.
     api = KeymapAwareAccessibleChessAPI()
     window_holder: dict[str, Any] = {}
     html = _asset_root() / "web" / "index.html"
