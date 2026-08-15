@@ -24,6 +24,36 @@ class ActionRegistryTests(unittest.TestCase):
         self.assertEqual(registry.resolve_alias(BindingContext.MOVE_ENTRY, "b").action_id, "move.black_to_move")
         self.assertEqual(registry.resolve_alias(BindingContext.MOVE_ENTRY, "c").action_id, "move.clear")
 
+    def test_board_rank_and_file_navigation_defaults_are_registered(self):
+        registry = ActionRegistry()
+        for number in range(1, 9):
+            rank = registry.resolve_binding(BindingContext.BOARD, str(number))
+            file_ = registry.resolve_binding(BindingContext.BOARD, f"Shift+{number}")
+            self.assertIsNotNone(rank)
+            self.assertIsNotNone(file_)
+            self.assertEqual(rank.action_id, f"board.rank_{number}")
+            self.assertEqual(file_.action_id, f"board.file_{number}")
+
+        board_help = {item["action_id"]: item for item in registry.help_items(context=BindingContext.BOARD)}
+        self.assertEqual(board_help["board.rank_1"]["binding"], "1")
+        self.assertEqual(board_help["board.rank_8"]["binding"], "8")
+        self.assertEqual(board_help["board.file_1"]["binding"], "Shift+1")
+        self.assertEqual(board_help["board.file_8"]["binding"], "Shift+8")
+        self.assertIn("rank 1", board_help["board.rank_1"]["description"].lower())
+        self.assertIn("file a", board_help["board.file_1"]["description"].lower())
+        self.assertEqual(registry.validate(), ())
+
+    def test_board_rank_and_file_bindings_are_remappable_and_resettable(self):
+        registry = ActionRegistry()
+        registry.set_binding("board.rank_1", "Ctrl+1")
+        registry.set_binding("board.file_1", "Ctrl+Shift+1")
+        self.assertEqual(registry.resolve_binding(BindingContext.BOARD, "Ctrl+1").action_id, "board.rank_1")
+        self.assertEqual(registry.resolve_binding(BindingContext.BOARD, "Ctrl+Shift+1").action_id, "board.file_1")
+        registry.reset_action("board.rank_1")
+        registry.reset_action("board.file_1")
+        self.assertEqual(registry.get_binding("board.rank_1"), "1")
+        self.assertEqual(registry.get_binding("board.file_1"), "Shift+1")
+
     def test_normalization_is_stable(self):
         self.assertEqual(normalize_binding("control-shift-z"), "Ctrl+Shift+Z")
         self.assertEqual(normalize_binding("shift+a"), "Shift+A")
