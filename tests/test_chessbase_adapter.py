@@ -50,6 +50,12 @@ class ChessBaseAdapterContractTests(unittest.TestCase):
         self.assertTrue(report["read_only"])
         self.assertFalse(report["safe_to_import"])
 
+        windows_spelling = probe_chessbase_source(r"incoming\Training Database.CBH")
+        self.assertEqual(
+            windows_spelling.as_report_fields()["source_path"],
+            "incoming/Training Database.CBH",
+        )
+
     def test_cbh_probe_discovers_same_stem_companions_case_insensitively(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)

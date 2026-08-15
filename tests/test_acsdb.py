@@ -2,8 +2,30 @@ import os
 import sqlite3
 import tempfile
 import unittest
+from unittest import mock
 
 from acs.acsdb import ACSDB_SCHEMA_VERSION, AcsDatabase
+
+
+class _TrackingConnection:
+    def __init__(self, connection):
+        self._connection = connection
+        self.closed = False
+
+    @property
+    def row_factory(self):
+        return self._connection.row_factory
+
+    @row_factory.setter
+    def row_factory(self, value):
+        self._connection.row_factory = value
+
+    def execute(self, *args, **kwargs):
+        return self._connection.execute(*args, **kwargs)
+
+    def close(self):
+        self.closed = True
+        self._connection.close()
 
 
 class AcsDatabaseTests(unittest.TestCase):
@@ -95,8 +117,20 @@ class AcsDatabaseTests(unittest.TestCase):
             conn.commit()
             conn.close()
 
-            with self.assertRaisesRegex(RuntimeError, 'newer than supported'):
-                AcsDatabase(path)
+            original_connect = sqlite3.connect
+            tracked = []
+
+            def connect_with_tracking(*args, **kwargs):
+                wrapper = _TrackingConnection(original_connect(*args, **kwargs))
+                tracked.append(wrapper)
+                return wrapper
+
+            with mock.patch('acs.acsdb.sqlite3.connect', side_effect=connect_with_tracking):
+                with self.assertRaisesRegex(RuntimeError, 'newer than supported'):
+                    AcsDatabase(path)
+
+            self.assertEqual(len(tracked), 1)
+            self.assertTrue(tracked[0].closed, 'schema rejection must close SQLite handle')
 
             verify = sqlite3.connect(path)
             self.assertEqual(verify.execute('PRAGMA user_version').fetchone()[0], future_version)
