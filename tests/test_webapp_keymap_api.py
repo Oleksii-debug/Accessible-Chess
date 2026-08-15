@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from acs.webapp_keymap import KeymapAwareAccessibleChessAPI
+from acs.webapp_keymap import KeymapAwareAccessibleChessAPI, _shared_spoken_san
 
 
 def test_move_entry_alias_remap_is_authoritative_and_persists(tmp_path: Path) -> None:
@@ -92,3 +92,38 @@ def test_malformed_persisted_profile_has_recovery_path(tmp_path: Path) -> None:
     assert result["ok"] is True
     json.loads(profile.read_text(encoding="utf-8"))
     assert api.keymap_snapshot()["recoveryMessage"] is None
+
+
+def test_release_api_uses_shared_ukrainian_literal_notation_everywhere(tmp_path: Path) -> None:
+    api = KeymapAwareAccessibleChessAPI(keymap_path=tmp_path / "keymap.json", lang="uk")
+
+    assert api.make_move("e4")["ok"] is True
+    assert api.make_move("e5")["ok"] is True
+    result = api.make_move("Nf3")
+
+    assert result["ok"] is True
+    assert result["announcement"] == "Зіграно: кінь f 3"
+    assert result["lastMove"] == "кінь f 3"
+    assert "кінь f 3" in result["moves"]
+    assert "Nf3" not in result["lastMove"]
+    assert "Nf3" not in result["moves"]
+
+
+def test_release_notation_switches_with_interface_language(tmp_path: Path) -> None:
+    api = KeymapAwareAccessibleChessAPI(keymap_path=tmp_path / "keymap.json", lang="uk")
+    api.make_move("e4")
+    api.make_move("e5")
+    api.make_move("Nf3")
+
+    changed = api.set_language("en")
+
+    assert changed["ok"] is True
+    assert changed["lastMove"] == "knight f 3"
+    assert "knight f 3" in changed["moves"]
+
+
+def test_shared_release_formatter_covers_capture_castling_promotion_and_mate() -> None:
+    assert _shared_spoken_san("Bxc6+", "uk") == "слон бере c 6, шах"
+    assert _shared_spoken_san("O-O", "uk") == "коротка рокіровка"
+    assert _shared_spoken_san("e8=Q#", "uk") == "пішак e 8 перетворення на ферзь, мат"
+    assert _shared_spoken_san("R1e2", "en") == "rook from rank 1 e 2"
