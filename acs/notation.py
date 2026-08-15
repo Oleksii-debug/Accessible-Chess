@@ -8,7 +8,7 @@ class NotationError(ValueError):
     """Raised when a notation profile or SAN token cannot be formatted."""
 
 
-PROFILES = {"san", "uk_literal", "en_literal"}
+PROFILES = {"san", "uk_literal", "en_literal", "compact_accessible"}
 
 _PIECES = {
     "uk": {
@@ -103,11 +103,27 @@ def parse_san(san: str) -> ParsedSan:
     promotion = match.group("promo")
     suffix = match.group("suffix")
 
-    # In pawn captures SAN encodes the origin file before x, e.g. exd5.
     if piece == "P" and capture and len(disamb) != 1:
         raise NotationError(f"invalid pawn capture SAN: {san!r}")
 
     return ParsedSan(piece, disamb, capture, destination, promotion, suffix)
+
+
+def _format_compact_accessible(token: str) -> str:
+    """Return reversible letter/file/rank spacing for screen-reader move lists.
+
+    This profile intentionally keeps canonical SAN symbols recognizable while
+    separating piece letters and coordinates so NVDA does not collapse tokens
+    such as ``Nf3`` into an opaque word. It is presentation-neutral and shared
+    by the release WebView composition root.
+    """
+
+    if token.startswith("O-O"):
+        return token
+    result = re.sub(r"^([KQRBN])", r"\1 ", token)
+    result = re.sub(r"([a-h])([1-8])", r"\1 \2", result)
+    result = result.replace("x", " x ")
+    return re.sub(r"\s+", " ", result).strip()
 
 
 def format_san(san: str, profile: str = "san") -> str:
@@ -115,6 +131,7 @@ def format_san(san: str, profile: str = "san") -> str:
 
     Profiles:
       * ``san``: return canonical SAN unchanged except 0-0 is normalised to O-O.
+      * ``compact_accessible``: keep SAN symbols but separate piece/file/rank.
       * ``uk_literal``: Ukrainian spoken/literal form suitable for screen readers.
       * ``en_literal``: English spoken/literal form suitable for screen readers.
 
@@ -130,6 +147,8 @@ def format_san(san: str, profile: str = "san") -> str:
         raise NotationError("SAN token must not be empty")
     if profile == "san":
         return token
+    if profile == "compact_accessible":
+        return _format_compact_accessible(token)
 
     lang = "uk" if profile == "uk_literal" else "en"
     words = _WORDS[lang]
@@ -151,8 +170,6 @@ def format_san(san: str, profile: str = "san") -> str:
         if len(dis) == 2 and dis[0] in "abcdefgh" and dis[1] in "12345678":
             parts.extend([words["from_square"], _square_spoken(dis)])
         elif len(dis) == 1 and dis in "abcdefgh":
-            # For pawn captures this is the origin file; for pieces it is SAN
-            # disambiguation. The spoken form remains explicit and reversible.
             if parsed.piece == "P" and parsed.capture:
                 parts.append(dis)
             else:
