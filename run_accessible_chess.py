@@ -7,13 +7,13 @@ if '--diagnostic' in sys.argv:
     # desktop session. Windows CI separately verifies that the WebView2 build
     # can start; real NVDA acceptance remains a human test.
     from acs.selftest import run as core_run
-    from acs.webapp import AccessibleChessAPI
+    from acs.webapp_keymap import KeymapAwareAccessibleChessAPI
 
     core_run()
-    result = AccessibleChessAPI().diagnostic()
+    result = KeymapAwareAccessibleChessAPI().diagnostic()
     if not result.get('ok') or result.get('boardCells') != 64 or not result.get('semanticDocumentPresent'):
         raise SystemExit('ACCESSIBLE WEB UI DIAGNOSTIC FAILED: ' + json.dumps(result, ensure_ascii=False))
     print('ACCESSIBLE CHESS 0.4 WEBVIEW2 DIAGNOSTIC PASS')
 else:
-    from acs.webapp import main
+    from acs.webapp_keymap import main
     main()
