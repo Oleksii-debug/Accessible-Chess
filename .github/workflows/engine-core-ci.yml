@@ -13,6 +13,7 @@ on:
       - 'tests/test_notation.py'
       - 'tests/test_engine_play_service.py'
       - 'tests/test_engine_registry.py'
+      - 'tests/test_engine_game_session.py'
       - 'tests/test_clock_service.py'
       - 'tests/test_game_lifecycle.py'
       - 'tests/test_board_service.py'
@@ -85,6 +86,7 @@ jobs:
           cp acs/engine_ports.py work/acs/engine_ports.py
           cp acs/engine_registry.py work/acs/engine_registry.py
           cp acs/engine_play_service.py work/acs/engine_play_service.py
+          cp acs/engine_game_session.py work/acs/engine_game_session.py
           cp acs/clock_service.py work/acs/clock_service.py
           cp acs/game_lifecycle.py work/acs/game_lifecycle.py
           cp acs/board_service.py work/acs/board_service.py
@@ -99,6 +101,7 @@ jobs:
           cp tests/test_notation.py work/tests/test_notation.py
           cp tests/test_engine_play_service.py work/tests/test_engine_play_service.py
           cp tests/test_engine_registry.py work/tests/test_engine_registry.py
+          cp tests/test_engine_game_session.py work/tests/test_engine_game_session.py
           cp tests/test_clock_service.py work/tests/test_clock_service.py
           cp tests/test_game_lifecycle.py work/tests/test_game_lifecycle.py
           cp tests/test_board_service.py work/tests/test_board_service.py
@@ -139,6 +142,10 @@ jobs:
       - name: Engine provider registry contract tests
         working-directory: work
         run: python -m unittest discover -s tests -p 'test_engine_registry.py' -v
+
+      - name: Engine game session orchestration tests
+        working-directory: work
+        run: python -m unittest discover -s tests -p 'test_engine_game_session.py' -v
 
       - name: Game clock and increment tests
         working-directory: work
