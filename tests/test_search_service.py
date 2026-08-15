@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import pytest
+import unittest
 
 from acs.acsdb import AcsDatabase
 from acs.search_service import GameSearchQuery, GameSearchService
@@ -44,78 +44,64 @@ PGN = """[Event \"Kyiv Open\"]
 """
 
 
-def seeded_database() -> AcsDatabase:
-    db = AcsDatabase()
-    db.import_pgn_text(PGN, source_name="tournament-2026.pgn")
-    return db
+class SearchServiceTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.db = AcsDatabase()
+        self.db.import_pgn_text(PGN, source_name="tournament-2026.pgn")
+        self.service = GameSearchService(self.db)
 
+    def tearDown(self) -> None:
+        self.db.close()
 
-def test_search_returns_neutral_dtos_with_source_provenance() -> None:
-    db = seeded_database()
-    try:
-        page = GameSearchService(db).search(GameSearchQuery(player=" alpha "))
-        assert [item.white for item in page.items] == ["Alpha", "Gamma"]
-        assert [item.black for item in page.items] == ["Beta", "Alpha"]
-        assert all(item.source_name == "tournament-2026.pgn" for item in page.items)
-        assert all(item.source_format == "pgn" for item in page.items)
-        assert all(item.source_id > 0 for item in page.items)
-    finally:
-        db.close()
+    def test_search_returns_neutral_dtos_with_source_provenance(self) -> None:
+        page = self.service.search(GameSearchQuery(player=" alpha "))
+        self.assertEqual([item.white for item in page.items], ["Alpha", "Gamma"])
+        self.assertEqual([item.black for item in page.items], ["Beta", "Alpha"])
+        self.assertTrue(all(item.source_name == "tournament-2026.pgn" for item in page.items))
+        self.assertTrue(all(item.source_format == "pgn" for item in page.items))
+        self.assertTrue(all(item.source_id > 0 for item in page.items))
 
-
-def test_search_combines_filters_without_exposing_sql() -> None:
-    db = seeded_database()
-    try:
-        page = GameSearchService(db).search(
+    def test_search_combines_filters_without_exposing_sql(self) -> None:
+        page = self.service.search(
             GameSearchQuery(event="lviv", eco="B", result="1/2-1/2", source_name="tournament")
         )
-        assert len(page.items) == 1
+        self.assertEqual(len(page.items), 1)
         item = page.items[0]
-        assert item.event == "Lviv Open"
-        assert item.eco == "B12"
-        assert item.opening == "Caro-Kann Defense"
-    finally:
-        db.close()
+        self.assertEqual(item.event, "Lviv Open")
+        self.assertEqual(item.eco, "B12")
+        self.assertEqual(item.opening, "Caro-Kann Defense")
 
+    def test_keyset_paging_is_stable_and_has_no_duplicate_game_ids(self) -> None:
+        first = self.service.search(GameSearchQuery(limit=2))
+        self.assertEqual(len(first.items), 2)
+        self.assertTrue(first.has_more)
+        self.assertEqual(first.next_after_game_id, first.items[-1].game_id)
 
-def test_keyset_paging_is_stable_and_has_no_duplicate_game_ids() -> None:
-    db = seeded_database()
-    try:
-        service = GameSearchService(db)
-        first = service.search(GameSearchQuery(limit=2))
-        assert len(first.items) == 2
-        assert first.has_more is True
-        assert first.next_after_game_id == first.items[-1].game_id
-
-        second = service.search(
+        second = self.service.search(
             GameSearchQuery(limit=2, after_game_id=first.next_after_game_id)
         )
-        assert len(second.items) == 1
-        assert second.has_more is False
-        assert second.next_after_game_id is None
-        assert {item.game_id for item in first.items}.isdisjoint(
-            {item.game_id for item in second.items}
+        self.assertEqual(len(second.items), 1)
+        self.assertFalse(second.has_more)
+        self.assertIsNone(second.next_after_game_id)
+        self.assertTrue(
+            {item.game_id for item in first.items}.isdisjoint(
+                {item.game_id for item in second.items}
+            )
         )
-    finally:
-        db.close()
+
+    def test_query_validation_rejects_unsafe_or_ambiguous_bounds(self) -> None:
+        with self.assertRaisesRegex(ValueError, "between 1 and 200"):
+            GameSearchQuery(limit=0).normalized()
+        with self.assertRaisesRegex(ValueError, "positive integer"):
+            GameSearchQuery(source_id=0).normalized()
+        with self.assertRaisesRegex(ValueError, "zero or a positive"):
+            GameSearchQuery(after_game_id=-1).normalized()
+
+    def test_search_values_are_parameters_not_sql_fragments(self) -> None:
+        page = self.service.search(GameSearchQuery(player="Alpha' OR 1=1 --"))
+        self.assertEqual(page.items, ())
+        self.assertEqual(self.db.conn.execute("SELECT COUNT(*) FROM games").fetchone()[0], 3)
 
 
-def test_query_validation_rejects_unsafe_or_ambiguous_bounds() -> None:
-    with pytest.raises(ValueError, match="between 1 and 200"):
-        GameSearchQuery(limit=0).normalized()
-    with pytest.raises(ValueError, match="positive integer"):
-        GameSearchQuery(source_id=0).normalized()
-    with pytest.raises(ValueError, match="zero or a positive"):
-        GameSearchQuery(after_game_id=-1).normalized()
-
-
-def test_search_values_are_parameters_not_sql_fragments() -> None:
-    db = seeded_database()
-    try:
-        page = GameSearchService(db).search(
-            GameSearchQuery(player="Alpha' OR 1=1 --")
-        )
-        assert page.items == ()
-        assert db.conn.execute("SELECT COUNT(*) FROM games").fetchone()[0] == 3
-    finally:
-        db.close()
+if __name__ == "__main__":
+    unittest.main()
