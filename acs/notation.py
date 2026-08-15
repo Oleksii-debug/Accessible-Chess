@@ -103,7 +103,6 @@ def parse_san(san: str) -> ParsedSan:
     promotion = match.group("promo")
     suffix = match.group("suffix")
 
-    # In pawn captures SAN encodes the origin file before x, e.g. exd5.
     if piece == "P" and capture and len(disamb) != 1:
         raise NotationError(f"invalid pawn capture SAN: {san!r}")
 
@@ -151,8 +150,6 @@ def format_san(san: str, profile: str = "san") -> str:
         if len(dis) == 2 and dis[0] in "abcdefgh" and dis[1] in "12345678":
             parts.extend([words["from_square"], _square_spoken(dis)])
         elif len(dis) == 1 and dis in "abcdefgh":
-            # For pawn captures this is the origin file; for pieces it is SAN
-            # disambiguation. The spoken form remains explicit and reversible.
             if parsed.piece == "P" and parsed.capture:
                 parts.append(dis)
             else:
@@ -174,3 +171,41 @@ def format_san(san: str, profile: str = "san") -> str:
     if parsed.suffix:
         result += f", {_SUFFIX_WORDS[lang][parsed.suffix]}"
     return result
+
+
+def format_accessible_compact_san(san: str, lang: str = "uk") -> str:
+    """Return compact SAN with screen-reader-safe piece/file/rank spacing.
+
+    This is the shared compact presentation profile used by move-list/history
+    surfaces.  It deliberately keeps SAN piece letters (``N f 3`` rather than
+    translating them to words) while spacing coordinates so NVDA does not read
+    tokens such as ``Nf3`` or ``Nc6`` as opaque strings.  Literal Ukrainian and
+    English profiles remain available through :func:`format_san`.
+    """
+
+    language = "en" if lang == "en" else "uk"
+    token = format_san(san, "san")
+
+    for castle, label_uk, label_en in (
+        ("O-O-O", "довга рокіровка", "long castle"),
+        ("O-O", "коротка рокіровка", "short castle"),
+    ):
+        if token.startswith(castle) and token[len(castle):] in {"", "+", "#"}:
+            suffix = token[len(castle):] or None
+            result = label_en if language == "en" else label_uk
+            if suffix:
+                result += f", {_SUFFIX_WORDS[language][suffix]}"
+            return result
+
+    suffix = token[-1] if token[-1:] in {"+", "#"} else None
+    if suffix:
+        token = token[:-1]
+
+    token = re.sub(r"^([KQRBN])(?=[a-h1-8])", r"\1 ", token)
+    token = re.sub(r"([a-h])([1-8])", r"\1 \2", token)
+    token = token.replace("x", " captures " if language == "en" else " б’є ")
+    token = re.sub(r"\s+", " ", token).strip()
+
+    if suffix:
+        token += f", {_SUFFIX_WORDS[language][suffix]}"
+    return token
