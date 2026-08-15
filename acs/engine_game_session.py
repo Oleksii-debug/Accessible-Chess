@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Callable
 
-from .clock_service import ChessClock, ClockSnapshot
+from .clock_service import ChessClock, ClockSnapshot, ClockState
 from .engine_play_service import (
     EngineGameConfig,
     EngineGameHandoff,
@@ -42,6 +42,24 @@ class EngineGameSessionSnapshot:
     clock: ClockSnapshot
 
 
+@dataclass(frozen=True)
+class EngineNoMoveHandoff:
+    """Neutral request to resolve why an engine position has no legal move."""
+
+    fen: str
+    side_to_move: str
+    history_node_id: str
+
+
+@dataclass(frozen=True)
+class EngineNoMoveResolution:
+    """Canonical lifecycle outcome supplied by the chess-state owner."""
+
+    result: str
+    reason: EndReason
+    winner: str | None = None
+
+
 class EngineGameSessionCoordinator:
     """Coordinate engine-game flow without taking ownership of board/history."""
 
@@ -54,6 +72,8 @@ class EngineGameSessionCoordinator:
         commit_engine_move: Callable[[str], None],
         history_node_provider: Callable[[], str],
         undo_committed_move: Callable[[], None] | None = None,
+        clock_restore_provider: Callable[[], ClockSnapshot] | None = None,
+        no_move_resolver: Callable[[EngineNoMoveHandoff], EngineNoMoveResolution | None] | None = None,
         analysis_handoff: Callable[[EngineGameHandoff], None] | None = None,
         review_handoff: Callable[[EngineGameHandoff], None] | None = None,
         lifecycle: GameLifecycle | None = None,
@@ -65,6 +85,8 @@ class EngineGameSessionCoordinator:
         self._commit_engine_move = commit_engine_move
         self._history_node_provider = history_node_provider
         self._undo_committed_move = undo_committed_move
+        self._clock_restore_provider = clock_restore_provider
+        self._no_move_resolver = no_move_resolver
         self._analysis_handoff = analysis_handoff
         self._review_handoff = review_handoff
         self._lifecycle = lifecycle or GameLifecycle()
@@ -82,7 +104,7 @@ class EngineGameSessionCoordinator:
 
     def reset(self) -> EngineGameSessionSnapshot:
         self._require_started()
-        assert self._clock is not None
+        assert self._clock is not None and self._config is not None
         self._lifecycle.reset_for_new_game()
         self._clock.reset(side_to_move=self._side_to_move())
         if not self._config.time_control.untimed:
@@ -93,6 +115,10 @@ class EngineGameSessionCoordinator:
         self._require_started()
         assert self._config is not None and self._clock is not None
         lifecycle = self._lifecycle.snapshot()
+        clock = self._clock.snapshot()
+        if clock.flagged is not None and lifecycle.status is GameStatus.ACTIVE:
+            self._lifecycle.record_timeout(clock.flagged, opponent_can_mate=True)
+            lifecycle = self._lifecycle.snapshot()
         side = self._side_to_move()
         if lifecycle.status is GameStatus.FINISHED:
             turn_state = EngineTurnState.FINISHED
@@ -100,17 +126,37 @@ class EngineGameSessionCoordinator:
             turn_state = EngineTurnState.ENGINE
         else:
             turn_state = EngineTurnState.HUMAN
-        return EngineGameSessionSnapshot(self._config, side, turn_state, lifecycle, self._clock.snapshot())
+        return EngineGameSessionSnapshot(self._config, side, turn_state, lifecycle, clock)
+
+    def assert_move_allowed(self, moved_side: str) -> ClockSnapshot:
+        """Pre-commit guard for integrations that own the canonical Board."""
+        self._require_active()
+        if moved_side not in {"w", "b"}:
+            raise ValueError("moved_side must be 'w' or 'b'")
+        if moved_side != self._side_to_move():
+            raise ValueError("moved_side does not match side to move")
+        assert self._clock is not None
+        clock = self._clock.snapshot()
+        if clock.flagged is not None:
+            self._lifecycle.record_timeout(clock.flagged, opponent_can_mate=True)
+            raise ValueError("clock flagged before move commit")
+        if clock.state is ClockState.RUNNING and clock.active != moved_side:
+            raise ValueError("active clock does not match moved side")
+        return clock
 
     def request_engine_move(self) -> EngineMoveResult:
         snap = self.snapshot()
+        if snap.turn_state is EngineTurnState.FINISHED:
+            raise ValueError("engine game session is finished")
         if snap.turn_state is not EngineTurnState.ENGINE:
             raise ValueError("engine move requested when it is not the engine turn")
+        self.assert_move_allowed(snap.side_to_move)
         fen = str(self._fen_provider()).strip()
         if not fen:
             raise ValueError("fen provider returned empty position")
         result = self._play_service.choose_move(EngineMoveRequest(fen, level=snap.config.level.level))
         if result.move is None:
+            self._resolve_no_engine_move(fen, snap.side_to_move)
             return result
         moved_side = snap.side_to_move
         self._commit_engine_move(result.move)
@@ -123,8 +169,14 @@ class EngineGameSessionCoordinator:
         self._require_active()
         if moved_side not in {"w", "b"}:
             raise ValueError("moved_side must be 'w' or 'b'")
-        self._lifecycle.on_move_committed()
         assert self._clock is not None
+        clock = self._clock.snapshot()
+        if clock.flagged is not None:
+            self._lifecycle.record_timeout(clock.flagged, opponent_can_mate=True)
+            raise ValueError("clock flagged before move commit")
+        if clock.state is ClockState.RUNNING and clock.active != moved_side:
+            raise ValueError("active clock does not match moved side")
+        self._lifecycle.on_move_committed()
         self._clock.switch_after_move(moved_side)
         return self.snapshot()
 
@@ -139,7 +191,8 @@ class EngineGameSessionCoordinator:
         flagged = self._clock.snapshot().flagged
         if flagged is None:
             raise ValueError("clock has not flagged")
-        self._lifecycle.record_timeout(flagged, opponent_can_mate=opponent_can_mate)
+        if self._lifecycle.snapshot().status is GameStatus.ACTIVE:
+            self._lifecycle.record_timeout(flagged, opponent_can_mate=opponent_can_mate)
         return self.snapshot()
 
     def handle_handoff(self, handoff: EngineGameHandoff) -> EngineGameSessionSnapshot:
@@ -154,14 +207,17 @@ class EngineGameSessionCoordinator:
                 raise ValueError("review handoff is not configured")
             self._review_handoff(handoff)
             return self.snapshot()
+        if handoff.intent is EngineGameIntent.ACCEPT_TAKEBACK and self._undo_committed_move is None:
+            raise ValueError("takeback undo hook is not configured")
 
         before = self._lifecycle.snapshot()
         after = dispatch_lifecycle_handoff(self._lifecycle, handoff)
         if handoff.intent is EngineGameIntent.ACCEPT_TAKEBACK:
-            if self._undo_committed_move is None:
-                raise ValueError("takeback undo hook is not configured")
+            assert self._undo_committed_move is not None
             self._undo_committed_move()
             self._lifecycle.invalidate_position_outcome()
+            self._restore_clock_after_takeback()
+            after = self._lifecycle.snapshot()
         if after.status is GameStatus.FINISHED and before.status is GameStatus.ACTIVE:
             self._stop_clock()
         return self.snapshot()
@@ -175,6 +231,31 @@ class EngineGameSessionCoordinator:
         handoff = EngineGameHandoff(EngineGameIntent.OPEN_FINAL_REVIEW, history_node_id=self._history_node_provider())
         self.handle_handoff(handoff)
         return handoff
+
+    def _resolve_no_engine_move(self, fen: str, side_to_move: str) -> None:
+        if self._no_move_resolver is None:
+            return
+        handoff = EngineNoMoveHandoff(
+            fen=fen,
+            side_to_move=side_to_move,
+            history_node_id=str(self._history_node_provider()),
+        )
+        resolution = self._no_move_resolver(handoff)
+        if resolution is None:
+            return
+        self._lifecycle.record_position_outcome(
+            resolution.result,
+            resolution.reason,
+            winner=resolution.winner,
+        )
+        self._stop_clock()
+
+    def _restore_clock_after_takeback(self) -> None:
+        if self._clock_restore_provider is None or self._clock is None:
+            return
+        restored = self._clock_restore_provider()
+        resume = self._lifecycle.snapshot().status is GameStatus.ACTIVE
+        self._clock.restore(restored, resume_running=resume)
 
     def _stop_clock(self) -> None:
         if self._clock is not None:
