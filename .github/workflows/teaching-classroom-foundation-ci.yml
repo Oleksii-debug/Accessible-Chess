@@ -1,0 +1,70 @@
+name: Teaching Classroom Foundation CI
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/teaching-classroom-foundation
+    paths:
+      - 'acs/visual_preferences.py'
+      - 'acs/teaching_controls.py'
+      - 'acs/sound_profiles.py'
+      - 'acs/classroom.py'
+      - 'acs/lesson_plan.py'
+      - 'acs/local_profile.py'
+      - 'acs/usage_statistics.py'
+      - 'tests/test_visual_preferences.py'
+      - 'tests/test_teaching_controls.py'
+      - 'tests/test_sound_profiles.py'
+      - 'tests/test_classroom.py'
+      - 'tests/test_lesson_plan.py'
+      - 'tests/test_local_profile.py'
+      - 'tests/test_usage_statistics.py'
+      - '.github/workflows/teaching-classroom-foundation-ci.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  foundation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Compile new contracts
+        run: >-
+          python -m compileall -q
+          acs/visual_preferences.py
+          acs/teaching_controls.py
+          acs/sound_profiles.py
+          acs/classroom.py
+          acs/lesson_plan.py
+          acs/local_profile.py
+          acs/usage_statistics.py
+          tests/test_visual_preferences.py
+          tests/test_teaching_controls.py
+          tests/test_sound_profiles.py
+          tests/test_classroom.py
+          tests/test_lesson_plan.py
+          tests/test_local_profile.py
+          tests/test_usage_statistics.py
+      - name: Run feature contract tests
+        run: >-
+          python -m unittest -v
+          tests.test_visual_preferences
+          tests.test_teaching_controls
+          tests.test_sound_profiles
+          tests.test_classroom
+          tests.test_lesson_plan
+          tests.test_local_profile
+          tests.test_usage_statistics
+      - name: Run adjacent architecture regressions
+        run: >-
+          python -m unittest -v
+          tests.test_architecture
+          tests.test_settings
+          tests.test_training
+          tests.test_keybindings
