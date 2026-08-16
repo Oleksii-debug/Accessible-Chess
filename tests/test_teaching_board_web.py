@@ -21,11 +21,10 @@ class TeachingBoardWebSemanticTests(unittest.TestCase):
         self.assertIn('role="grid"', self.html)
         self.assertIn('aria-rowcount="8"', self.html)
         self.assertIn('aria-colcount="8"', self.html)
-        self.assertIn("for(let rank=8;rank>=1;rank--)", self.html)
-        self.assertIn("for(const file of 'abcdefgh')", self.html)
+        self.assertIn("for(const row of visualBoard.squares)", self.html)
         self.assertIn("cell.setAttribute('role','gridcell')", self.html)
-        self.assertIn("cell.setAttribute('aria-rowindex'", self.html)
-        self.assertIn("cell.setAttribute('aria-colindex'", self.html)
+        self.assertIn("cell.setAttribute('aria-rowindex',String(row.row))", self.html)
+        self.assertIn("cell.setAttribute('aria-colindex',String(row.column))", self.html)
         self.assertEqual(self.html.count('role="status"'), 1)
 
     def test_board_consumes_reusable_keyboard_primitive(self) -> None:
@@ -60,19 +59,37 @@ class TeachingBoardWebSemanticTests(unittest.TestCase):
         self.assertIn("normalizeSquare(raw)", self.html)
         self.assertIn("const SQUARE_RE = /^[a-h][1-8]$/", self.keyboard)
 
-    def test_accessible_square_name_is_independent_from_visual_theme_and_coordinates(self) -> None:
-        self.assertIn("cell.setAttribute('aria-label',squareName(square))", self.html)
+    def test_accessible_square_name_is_renderer_owned_and_theme_independent(self) -> None:
+        self.assertIn("cell.setAttribute('aria-label',row.accessibleName)", self.html)
         self.assertIn("coord.setAttribute('aria-hidden','true')", self.html)
-        self.assertIn("snapshot.visual.coordinate_mode", self.html)
-        self.assertIn("snapshot.visual.board_scale_percent", self.html)
-        self.assertNotIn("board_theme_id+' '+square", self.html)
-        self.assertNotIn("piece_theme_id+' '+square", self.html)
+        self.assertIn("teaching_board_visual_snapshot", self.html)
+        self.assertNotIn("board_theme_id+' '+row.square", self.html)
+        self.assertNotIn("piece_theme_id+' '+row.square", self.html)
 
     def test_pointer_and_annotations_are_exposed_without_background_live_spam(self) -> None:
         self.assertIn("cell.setAttribute('aria-current','true')", self.html)
-        self.assertIn("cell.setAttribute('aria-description'", self.html)
-        self.assertIn('id="pointer-summary" aria-live="off"', self.html)
+        self.assertIn("cell.setAttribute('aria-description',row.accessibleDescription)", self.html)
+        self.assertIn('id="pointer-summary" class="status" aria-live="off"', self.html)
         self.assertEqual(self.html.count('aria-live="polite"'), 1)
+
+    def test_full_visual_cluster_is_keyboard_native_and_independent(self) -> None:
+        for control_id in ("board-theme", "piece-theme", "coordinate-mode", "board-scale", "piece-scale"):
+            self.assertIn(f'id="{control_id}"', self.html)
+        self.assertIn("board_theme_id:el('board-theme').value", self.html)
+        self.assertIn("piece_theme_id:el('piece-theme').value", self.html)
+        self.assertIn("board_scale_percent:Number(el('board-scale').value)", self.html)
+        self.assertIn("piece_scale_percent:Number(el('piece-scale').value)", self.html)
+
+    def test_piece_art_is_visual_only_and_never_replaces_semantic_piece_name(self) -> None:
+        self.assertIn("row.pieceAssetUrl", self.html)
+        self.assertIn("img.alt=''", self.html)
+        self.assertIn("wrap.setAttribute('aria-hidden','true')", self.html)
+        self.assertIn("glyphs[row.pieceId]", self.html)
+
+    def test_missing_visual_pack_fallback_is_passive(self) -> None:
+        self.assertIn("visualBoard.boardFallbackUsed", self.html)
+        self.assertIn("visualBoard.pieceFallbackUsed", self.html)
+        self.assertIn('id="visual-fallback" class="fallback" aria-live="off"', self.html)
 
     def test_normal_copy_and_selection_are_not_globally_hijacked(self) -> None:
         lowered = (self.html + self.keyboard).lower()
@@ -93,8 +110,9 @@ class TeachingBoardWebSemanticTests(unittest.TestCase):
         self.assertNotIn("localstorage", lowered)
         self.assertNotIn("indexeddb", lowered)
 
-    def test_launcher_reuses_existing_teaching_api_and_stays_out_of_release_app(self) -> None:
+    def test_launcher_subclasses_existing_teaching_api_and_stays_out_of_release_app(self) -> None:
         self.assertIn("from .teaching_webapp import TeachingAccessibleChessAPI", self.launcher)
+        self.assertIn("class TeachingBoardAPI(TeachingAccessibleChessAPI)", self.launcher)
         self.assertIn('"web" / "teaching_board.html"', self.launcher)
         self.assertNotIn("chesscore", self.launcher.lower())
         self.assertNotIn("from . import webapp", self.launcher)
