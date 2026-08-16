@@ -2,9 +2,12 @@ from __future__ import annotations
 
 """Windows-native menu for Accessible Chess.
 
-Production attaches a classic System.Windows.Forms.MainMenu to the actual
-Windows Form after WebView startup. A small legacy projection remains only as a
-presentation/test helper; the release launcher never passes it to pywebview.
+Production attaches a real System.Windows.Forms.MenuStrip to the actual
+Windows Form after WebView startup. MenuStrip is a native WinForms control that
+participates in Windows accessibility/UIA as the application menu bar and keeps
+standard Alt/arrow/Enter/Esc keyboard semantics. A small legacy projection
+remains only as a presentation/test helper; the release launcher never passes
+it to pywebview.
 """
 
 import json
@@ -161,17 +164,30 @@ def make_keymap_menu(webview: Any, api: Any, window_holder: dict[str, Any]):
 
 
 def install_windows_native_menu(window: Any, api: Any) -> bool:
-    """Attach a classic WinForms MainMenu to the actual native Form."""
+    """Attach a native WinForms MenuStrip to the actual top-level Form.
+
+    MainMenu/MenuItem can be visible and keyboard-operable yet fail to surface
+    as a UIA MenuBar in the packaged pywebview host. MenuStrip is a real child
+    control of the Form, is assigned as MainMenuStrip, and explicitly carries
+    the MenuBar accessibility role. The Windows package gate must still verify
+    ControlType.MenuBar plus Alt/arrows/Enter/Esc on the built executable.
+    """
     try:
         import clr  # type: ignore
         clr.AddReference("System.Windows.Forms")
         from System import Action  # type: ignore
-        from System.Windows.Forms import MainMenu, MenuItem  # type: ignore
+        from System.Windows.Forms import (  # type: ignore
+            AccessibleRole,
+            DockStyle,
+            MenuStrip,
+            ToolStripMenuItem,
+            ToolStripSeparator,
+        )
     except Exception:
         return False
 
     form = getattr(window, "native", None)
-    if form is None or not hasattr(form, "Menu"):
+    if form is None or not hasattr(form, "Controls") or not hasattr(form, "MainMenuStrip"):
         return False
 
     lang = "en" if getattr(api, "lang", "uk") == "en" else "uk"
@@ -180,7 +196,7 @@ def install_windows_native_menu(window: Any, api: Any) -> bool:
     handlers: list[Any] = []
 
     def item(label: str, callback: Callable[[], Any] | None = None) -> Any:
-        menu_item = MenuItem(label)
+        menu_item = ToolStripMenuItem(label)
         if callback is not None:
             def on_click(sender, event, cb=callback):
                 cb()
@@ -189,15 +205,21 @@ def install_windows_native_menu(window: Any, api: Any) -> bool:
         return menu_item
 
     def submenu(label: str, children: list[Any]) -> Any:
-        parent = MenuItem(label)
+        parent = ToolStripMenuItem(label)
         for child in children:
-            parent.MenuItems.Add(child)
+            parent.DropDownItems.Add(child)
         return parent
 
     def separator() -> Any:
-        return MenuItem("-")
+        return ToolStripSeparator()
 
-    menu = MainMenu()
+    menu = MenuStrip()
+    menu.Name = "AccessibleChessMainMenu"
+    menu.AccessibleName = "Application menu" if lang == "en" else "Меню програми"
+    menu.AccessibleRole = AccessibleRole.MenuBar
+    menu.Dock = DockStyle.Top
+    menu.TabStop = False
+
     top_menus = (
         submenu(mn["file"], [
             item(text["new"], lambda: _invoke_api(window, api.new_game)),
@@ -225,13 +247,24 @@ def install_windows_native_menu(window: Any, api: Any) -> bool:
         submenu(mn["help"], [item(text["help_open"], lambda: _safe_js(window, "document.getElementById('help-dialog').showModal();document.getElementById('help').focus()"))]),
     )
     for top in top_menus:
-        menu.MenuItems.Add(top)
+        menu.Items.Add(top)
 
     setattr(window, "_accessible_chess_native_menu", menu)
     setattr(window, "_accessible_chess_native_menu_handlers", handlers)
 
     def attach() -> None:
-        form.Menu = menu
+        # A MenuStrip must be a child of the actual top-level Form for Windows
+        # UIA/NVDA to discover it. MainMenuStrip establishes standard WinForms
+        # menu keyboard routing; BringToFront keeps it above the dock-fill
+        # WebView2 control without introducing a second fake/web menu.
+        form.SuspendLayout()
+        try:
+            form.MainMenuStrip = menu
+            form.Controls.Add(menu)
+            menu.BringToFront()
+            form.PerformLayout()
+        finally:
+            form.ResumeLayout(True)
 
     try:
         if getattr(form, "InvokeRequired", False):
