@@ -67,7 +67,7 @@ class RecordingStdin:
 
 
 class ShutdownProcess:
-    """Process fake that can ignore quit/terminate until kill escalation."""
+    """Release-facing fake that can ignore quit/terminate until kill escalation."""
 
     def __init__(self, *, waits_before_exit=0, stdout=()):
         self.stdin = RecordingStdin()
