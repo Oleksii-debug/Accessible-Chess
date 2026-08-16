@@ -10,6 +10,10 @@ on:
       - '.github/workflows/worddeck-windows.yml'
   workflow_dispatch:
 
+concurrency:
+  group: worddeck-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: windows-latest
