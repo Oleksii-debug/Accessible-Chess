@@ -17,6 +17,7 @@ CORE_SOUND_EVENTS = (
     "illegal",
     "end",
     "tick",
+    "low_time",
 )
 
 OPTIONAL_CLASSROOM_SOUND_EVENTS = (
