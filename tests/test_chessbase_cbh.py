@@ -6,6 +6,7 @@ from acs.chessbase_cbh import (
     CBH_FILE_HEADER_SIZE,
     CBH_RECORD_SIZE,
     CbhDecodeError,
+    iter_cbh_record_window,
     iter_cbh_records,
     parse_cbh_record,
 )
@@ -109,6 +110,99 @@ class ClassicCbhRecordTests(unittest.TestCase):
             self.assertEqual([item.record_index for item in records], [1, 2])
             self.assertEqual([item.game_offset for item in records], [10, 20])
             self.assertEqual(path.read_bytes(), original)
+
+    def test_record_window_preserves_exact_indices_and_bounds_read_count(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "window.cbh"
+            original = bytes(CBH_FILE_HEADER_SIZE) + b"".join(
+                _record(game_offset=value) for value in (10, 20, 30, 40, 50)
+            )
+            path.write_bytes(original)
+
+            records = list(
+                iter_cbh_record_window(
+                    path,
+                    start_record_index=3,
+                    max_records=2,
+                )
+            )
+
+            self.assertEqual([item.record_index for item in records], [3, 4])
+            self.assertEqual([item.game_offset for item in records], [30, 40])
+            self.assertEqual(path.read_bytes(), original)
+
+    def test_record_window_zero_count_validates_header_but_returns_no_records(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "zero.cbh"
+            path.write_bytes(bytes(CBH_FILE_HEADER_SIZE) + _record())
+
+            self.assertEqual(
+                list(
+                    iter_cbh_record_window(
+                        path,
+                        start_record_index=1,
+                        max_records=0,
+                    )
+                ),
+                [],
+            )
+
+    def test_record_window_past_end_is_empty_without_guessing_indices(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "past-end.cbh"
+            path.write_bytes(bytes(CBH_FILE_HEADER_SIZE) + _record())
+
+            self.assertEqual(
+                list(
+                    iter_cbh_record_window(
+                        path,
+                        start_record_index=5,
+                        max_records=3,
+                    )
+                ),
+                [],
+            )
+
+    def test_record_window_rejects_invalid_bounds(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "bounds.cbh"
+            path.write_bytes(bytes(CBH_FILE_HEADER_SIZE))
+
+            with self.assertRaisesRegex(ValueError, "start_record_index"):
+                list(
+                    iter_cbh_record_window(
+                        path,
+                        start_record_index=0,
+                        max_records=1,
+                    )
+                )
+            with self.assertRaisesRegex(ValueError, "max_records"):
+                list(
+                    iter_cbh_record_window(
+                        path,
+                        start_record_index=1,
+                        max_records=-1,
+                    )
+                )
+
+    def test_record_window_rejects_partial_record_inside_requested_range(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "partial-window.cbh"
+            path.write_bytes(
+                bytes(CBH_FILE_HEADER_SIZE) + _record(game_offset=10) + b"partial"
+            )
+
+            with self.assertRaisesRegex(
+                CbhDecodeError,
+                "partial CBH record inside requested window at index 2",
+            ):
+                list(
+                    iter_cbh_record_window(
+                        path,
+                        start_record_index=2,
+                        max_records=1,
+                    )
+                )
 
     def test_trailing_partial_record_is_explicitly_rejected(self):
         with tempfile.TemporaryDirectory() as td:
