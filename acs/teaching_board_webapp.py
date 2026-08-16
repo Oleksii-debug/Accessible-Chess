@@ -36,7 +36,8 @@ class TeachingBoardAPI(TeachingAccessibleChessAPI):
 
     The preview piece map is presentation-only and exists to make board/piece
     themes inspectable. It is not a chess game and never becomes canonical game
-    state. Square semantics and CoachPointer remain owned by existing contracts.
+    state. Square semantics, CoachPointer and annotations remain owned by the
+    existing teaching contracts.
     """
 
     def __init__(
@@ -52,11 +53,26 @@ class TeachingBoardAPI(TeachingAccessibleChessAPI):
         self._preview_pieces = dict(_START_PIECES if preview_pieces is None else preview_pieces)
 
     def teaching_board_visual_snapshot(self) -> dict[str, object]:
-        return self._board.snapshot(
+        teaching_snapshot = self.teaching.snapshot()
+        board = self._board.snapshot(
             self.teaching.visual,
             pieces=self._preview_pieces,
             pointer_square=self.teaching.pointer.square,
         )
+        descriptions: dict[str, list[str]] = {}
+        for item in teaching_snapshot.get("annotations", []):
+            kind = str(item.get("kind", ""))
+            source = str(item.get("source", ""))
+            target = item.get("target")
+            if kind == "arrow" and target:
+                text = f"Стрілка {source[0]} {source[1]} — {str(target)[0]} {str(target)[1]}."
+                descriptions.setdefault(source, []).append(text)
+                descriptions.setdefault(str(target), []).append(text)
+            elif kind == "square" and source:
+                descriptions.setdefault(source, []).append(f"Виділене поле {source[0]} {source[1]}.")
+        for square in board["squares"]:
+            square["accessibleDescription"] = " ".join(descriptions.get(str(square["square"]), ()))
+        return board
 
 
 def main() -> None:
