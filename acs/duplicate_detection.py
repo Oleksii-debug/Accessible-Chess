@@ -1,14 +1,10 @@
 from __future__ import annotations
 
-"""Neutral duplicate detection for PGN/ACSDB records.
+"""Indexed duplicate detection for PGN/ACSDB records.
 
-The service deliberately separates source-byte identity from semantic game
-identity. Exact-source matches use the already indexed ``sources.sha256`` value;
-semantic matches are derived from versioned ``GameTree`` identities and never
-from SQLite row ids, PGN whitespace, or UI state.
-
-No duplicate is deleted or silently coalesced. Callers receive evidence and can
-choose policy at the application layer.
+Exact-source identity and versioned semantic identities are queried from ACSDB
+indexes. No duplicate is deleted or silently coalesced; callers choose import
+policy explicitly.
 """
 
 from dataclasses import dataclass
@@ -47,69 +43,63 @@ class DuplicateReport:
 
 
 def detect_pgn_duplicates(database: AcsDatabase, text: str) -> DuplicateReport:
-    """Return duplicate evidence without mutating the database.
-
-    ``record`` is stronger than ``tree``: when record identity matches, only a
-    record match is emitted for that pair. A tree match therefore means the
-    recursive chess/document content is equal while semantic tags differ.
-    Malformed stored PGN is skipped rather than guessed at; its import warning
-    remains the authoritative quality signal in ACSDB.
-    """
-
     source_sha256 = hashlib.sha256(text.encode("utf-8")).hexdigest()
     matches: list[DuplicateMatch] = []
 
-    exact_sources = database.conn.execute(
+    for row in database.conn.execute(
         "SELECT id FROM sources WHERE sha256=? ORDER BY id", (source_sha256,)
-    ).fetchall()
-    matches.extend(
-        DuplicateMatch(
-            kind="exact_source",
-            existing_source_id=int(row[0]),
-            digest=source_sha256,
+    ).fetchall():
+        matches.append(
+            DuplicateMatch(
+                kind="exact_source",
+                existing_source_id=int(row[0]),
+                digest=source_sha256,
+            )
         )
-        for row in exact_sources
-    )
 
-    incoming_games = parse_games(text)
-    if not incoming_games:
-        return DuplicateReport(source_sha256=source_sha256, matches=tuple(matches))
-
-    incoming = [(game.source_index, identity_for_game(game)) for game in incoming_games]
-    stored_rows = database.conn.execute(
-        "SELECT id, source_id, pgn_text FROM games ORDER BY id"
-    ).fetchall()
-
-    for row in stored_rows:
-        try:
-            stored_games = parse_games(str(row["pgn_text"]))
-        except Exception:
-            continue
-        if len(stored_games) != 1:
-            continue
-        stored_identity = identity_for_game(stored_games[0])
-        for incoming_index, incoming_identity in incoming:
-            if stored_identity.record_digest == incoming_identity.record_digest:
+    for game in parse_games(text):
+        identity = identity_for_game(game)
+        record_rows = database.conn.execute(
+            """
+            SELECT c.game_id, g.source_id
+            FROM game_catalog c JOIN games g ON g.id=c.game_id
+            WHERE c.identity_schema_version=? AND c.record_digest=?
+            ORDER BY c.game_id
+            """,
+            (IDENTITY_SCHEMA_VERSION, identity.record_digest),
+        ).fetchall()
+        if record_rows:
+            for row in record_rows:
                 matches.append(
                     DuplicateMatch(
                         kind="record",
                         existing_source_id=int(row["source_id"]),
-                        existing_game_id=int(row["id"]),
-                        incoming_game_index=int(incoming_index),
+                        existing_game_id=int(row["game_id"]),
+                        incoming_game_index=int(game.source_index),
                         identity_schema_version=IDENTITY_SCHEMA_VERSION,
-                        digest=incoming_identity.record_digest,
+                        digest=identity.record_digest,
                     )
                 )
-            elif stored_identity.tree_digest == incoming_identity.tree_digest:
-                matches.append(
-                    DuplicateMatch(
-                        kind="tree",
-                        existing_source_id=int(row["source_id"]),
-                        existing_game_id=int(row["id"]),
-                        incoming_game_index=int(incoming_index),
-                        identity_schema_version=IDENTITY_SCHEMA_VERSION,
-                        digest=incoming_identity.tree_digest,
-                    )
+            continue
+
+        for row in database.conn.execute(
+            """
+            SELECT c.game_id, g.source_id
+            FROM game_catalog c JOIN games g ON g.id=c.game_id
+            WHERE c.identity_schema_version=? AND c.tree_digest=?
+            ORDER BY c.game_id
+            """,
+            (IDENTITY_SCHEMA_VERSION, identity.tree_digest),
+        ).fetchall():
+            matches.append(
+                DuplicateMatch(
+                    kind="tree",
+                    existing_source_id=int(row["source_id"]),
+                    existing_game_id=int(row["game_id"]),
+                    incoming_game_index=int(game.source_index),
+                    identity_schema_version=IDENTITY_SCHEMA_VERSION,
+                    digest=identity.tree_digest,
                 )
+            )
 
     return DuplicateReport(source_sha256=source_sha256, matches=tuple(matches))
