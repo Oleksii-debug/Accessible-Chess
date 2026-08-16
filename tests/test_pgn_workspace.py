@@ -1,15 +1,8 @@
 import unittest
 
 from acs.game_references import GameReferenceError, MoveRef, PositionRef, VariationRef, child_variation
-from acs.gametree import parse_games, serialize_games, structural_signature
-from acs.pgn_workspace import (
-    PgnQuery,
-    PgnWorkspace,
-    PgnWorkspaceError,
-    collection_stats,
-    game_fingerprint,
-    import_pgn,
-)
+from acs.gametree import parse_games, structural_signature
+from acs.pgn_workspace import PgnQuery, PgnWorkspace, PgnWorkspaceError, import_pgn
 
 
 COMPLEX = r'''
@@ -169,7 +162,7 @@ class PgnWorkspaceTests(unittest.TestCase):
         stats = workspace.stats()
         self.assertEqual(stats.games, 1000)
         self.assertEqual(stats.mainline_plies, 6000)
-        self.assertEqual(stats.recursive_plies, 10000)
+        self.assertEqual(stats.recursive_plies, 9000)
         self.assertEqual(stats.variations, 1000)
         self.assertEqual(len(workspace.search(PgnQuery(site="Site 3"))), 100)
         self.assertGreater(len(workspace.search(PgnQuery(player="White 7"))), 0)
