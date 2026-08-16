@@ -1,0 +1,207 @@
+name: Windows Native Menu Root-Cause Matrix
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - qa/windows-current-integration-candidate-20260815
+    paths:
+      - '.github/workflows/windows-menu-root-cause-probe.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: accessible-chess-windows-menu-root-cause
+  cancel-in-progress: false
+
+env:
+  SOURCE_INTEGRATION_SHA: 9e80b385fded1d26fb9cc71a142f4719393c40ea
+  PYWEBVIEW_VERSION: '6.2.1'
+  PYTHONNET_VERSION: '3.0.5'
+
+jobs:
+  menu-matrix:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout QA harness
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Verify exact frozen product and install pinned probe runtime
+        shell: pwsh
+        run: |
+          git cat-file -e "$env:SOURCE_INTEGRATION_SHA^{commit}"
+          if ($LASTEXITCODE -ne 0) { throw 'Frozen integration SHA unavailable' }
+          $resolved=(git rev-parse "$env:SOURCE_INTEGRATION_SHA^{commit}").Trim()
+          if ($resolved -ne $env:SOURCE_INTEGRATION_SHA) { throw "Frozen SHA mismatch: $resolved" }
+          git archive --format=zip --output=product.zip $env:SOURCE_INTEGRATION_SHA -- acs
+          if ($LASTEXITCODE -ne 0 -or -not (Test-Path product.zip)) { throw 'Could not export frozen product menu code' }
+          Expand-Archive product.zip product -Force
+          python -m pip install --upgrade pip
+          python -m pip install "pywebview==$env:PYWEBVIEW_VERSION" "pythonnet==$env:PYTHONNET_VERSION"
+          if ($LASTEXITCODE -ne 0) { throw 'Pinned Windows probe runtime install failed' }
+          python -c "import webview, clr; print('PINNED PROBE RUNTIME PASS')"
+
+      - name: Create A/B/C probe applications
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path probe-results | Out-Null
+          @'
+          import clr
+          clr.AddReference('System.Windows.Forms')
+          from System import Action
+          from System.Windows.Forms import Application, Form, MenuStrip, ToolStripMenuItem
+          from pathlib import Path
+
+          signal=Path('probe-results/a_action.txt').resolve()
+          form=Form(); form.Text='AC Menu Probe A - Pure WinForms'; form.Width=640; form.Height=400
+          menu=MenuStrip(); menu.Name='ProbeAMenu'; menu.AccessibleName='Probe A application menu'
+          file_item=ToolStripMenuItem('&File'); safe=ToolStripMenuItem('&Safe Action')
+          def clicked(sender,event): signal.write_text('activated',encoding='utf-8')
+          safe.Click += clicked; file_item.DropDownItems.Add(safe); menu.Items.Add(file_item)
+          form.MainMenuStrip=menu; form.Controls.Add(menu); menu.BringToFront()
+          Application.Run(form)
+          '@ | Set-Content -Encoding UTF8 probe_a.py
+
+          @'
+          import webview
+          from pathlib import Path
+          from webview.menu import Menu, MenuAction
+          signal=Path('probe-results/b_action.txt').resolve()
+          def safe_action(): signal.write_text('activated',encoding='utf-8')
+          menu=[Menu('File',[MenuAction('Safe Action',safe_action)]), Menu('Help',[MenuAction('Safe Help',lambda: None)])]
+          webview.create_window('AC Menu Probe B - pywebview official menu', html='<h1>Probe B</h1>', menu=menu)
+          webview.start(gui='edgechromium', private_mode=True)
+          '@ | Set-Content -Encoding UTF8 probe_b.py
+
+          @'
+          import sys
+          from pathlib import Path
+          sys.path.insert(0,str(Path('product').resolve()))
+          import webview
+          from acs.ui_native_menu import install_windows_native_menu
+          signal=Path('probe-results/c_action.txt').resolve()
+          class DummyApi:
+              lang='en'
+              def keymap_search(self,*a,**k): return []
+              def _hit(self,*a,**k): signal.write_text('activated',encoding='utf-8'); return {'ok':True}
+              new_game=_hit; clear_board=_hit; undo=_hit; redo=_hit; review_previous=_hit; review_next=_hit; toggle_engine=_hit
+              def keymap_reset_all(self): return {'ok':True}
+          api=DummyApi()
+          window=webview.create_window('AC Menu Probe C - Accessible Chess custom path', html='<h1>Probe C</h1>', js_api=api)
+          def install():
+              ok=install_windows_native_menu(window,api)
+              Path('probe-results/c_install.txt').write_text('true' if ok else 'false',encoding='utf-8')
+              if not ok: raise RuntimeError('Accessible Chess custom native menu installation returned false')
+          webview.start(install,gui='edgechromium',private_mode=True)
+          '@ | Set-Content -Encoding UTF8 probe_c.py
+
+      - name: Create corrected UIA enumeration harness
+        shell: pwsh
+        run: |
+          @'
+          param(
+            [Parameter(Mandatory=$true)][int]$AppPid,
+            [Parameter(Mandatory=$true)][string]$Label,
+            [Parameter(Mandatory=$true)][string]$SignalPath
+          )
+          $ErrorActionPreference='Stop'
+          Add-Type -AssemblyName UIAutomationClient
+          Add-Type -AssemblyName UIAutomationTypes
+          Start-Sleep -Seconds 5
+          $root=[System.Windows.Automation.AutomationElement]::RootElement
+          $pidCond=New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::ProcessIdProperty,$AppPid)
+          $wins=$root.FindAll([System.Windows.Automation.TreeScope]::Children,$pidCond)
+          $out=Join-Path 'probe-results' ($Label + '_uia.txt')
+          "PID=$AppPid topLevelCount=$($wins.Count)" | Set-Content -Encoding UTF8 $out
+          $menuCond=New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::ControlTypeProperty,[System.Windows.Automation.ControlType]::MenuBar)
+          $winner=$null; $menu=$null
+          for($i=0;$i -lt $wins.Count;$i++){
+            $w=$wins.Item($i)
+            $name=$w.Current.Name; $class=$w.Current.ClassName; $off=$w.Current.IsOffscreen
+            "TOP[$i] name=[$name] class=[$class] offscreen=$off hwnd=$($w.Current.NativeWindowHandle)" | Add-Content -Encoding UTF8 $out
+            $m=$w.FindFirst([System.Windows.Automation.TreeScope]::Descendants,$menuCond)
+            if($m -and -not $off -and -not $winner){ $winner=$w; $menu=$m }
+          }
+          if(-not $winner){
+            function Dump-Tree($node,[int]$depth,[ref]$count){
+              if($depth -gt 4 -or $count.Value -ge 160){ return }
+              $count.Value++
+              $indent='  '*$depth
+              "$indent type=[$($node.Current.ControlType.ProgrammaticName)] name=[$($node.Current.Name)] class=[$($node.Current.ClassName)] offscreen=$($node.Current.IsOffscreen)" | Add-Content -Encoding UTF8 $out
+              $walker=[System.Windows.Automation.TreeWalker]::ControlViewWalker
+              $child=$walker.GetFirstChild($node)
+              while($child -and $count.Value -lt 160){ Dump-Tree $child ($depth+1) $count; $child=$walker.GetNextSibling($child) }
+            }
+            for($i=0;$i -lt $wins.Count;$i++){ $count=0; "TREE TOP[$i]" | Add-Content -Encoding UTF8 $out; Dump-Tree $wins.Item($i) 0 ([ref]$count) }
+            Get-Content $out
+            throw "$Label: no visible top-level window exposed a descendant ControlType.MenuBar"
+          }
+          "MENU name=[$($menu.Current.Name)] class=[$($menu.Current.ClassName)]" | Add-Content -Encoding UTF8 $out
+          $ws=New-Object -ComObject WScript.Shell
+          $null=$ws.AppActivate($AppPid); Start-Sleep -Milliseconds 700
+          $ws.SendKeys('%'); Start-Sleep -Milliseconds 500
+          $ws.SendKeys('{DOWN}'); Start-Sleep -Milliseconds 300
+          $ws.SendKeys('{ENTER}'); Start-Sleep -Milliseconds 700
+          if(-not (Test-Path $SignalPath)){ Get-Content $out; throw "$Label: Alt/Down/Enter did not activate safe menu command" }
+          $ws.SendKeys('{ESC}'); Start-Sleep -Milliseconds 200
+          "KEYBOARD_ALT_ARROWS_ENTER_ESC_PASS" | Add-Content -Encoding UTF8 $out
+          Get-Content $out
+          '@ | Set-Content -Encoding UTF8 uia_probe.ps1
+
+      - name: Matrix A - pure WinForms MenuStrip
+        shell: pwsh
+        run: |
+          Remove-Item probe-results\a_action.txt -ErrorAction SilentlyContinue
+          $p=Start-Process python -ArgumentList 'probe_a.py' -PassThru
+          try { .\uia_probe.ps1 -AppPid $p.Id -Label 'A_pure_winforms' -SignalPath 'probe-results\a_action.txt' }
+          finally { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue }
+
+      - name: Matrix B - official pywebview 6.2.1 window menu
+        shell: pwsh
+        run: |
+          Remove-Item probe-results\b_action.txt -ErrorAction SilentlyContinue
+          $p=Start-Process python -ArgumentList 'probe_b.py' -PassThru
+          try { .\uia_probe.ps1 -AppPid $p.Id -Label 'B_pywebview_official' -SignalPath 'probe-results\b_action.txt' }
+          finally { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue }
+
+      - name: Matrix C - current Accessible Chess custom menu path
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          Remove-Item probe-results\c_action.txt -ErrorAction SilentlyContinue
+          $p=Start-Process python -ArgumentList 'probe_c.py' -PassThru
+          try {
+            .\uia_probe.ps1 -AppPid $p.Id -Label 'C_accessible_chess_custom' -SignalPath 'probe-results\c_action.txt'
+          } finally { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue }
+
+      - name: Classify root cause fail closed
+        shell: pwsh
+        run: |
+          $a=Test-Path 'probe-results\a_action.txt'
+          $b=Test-Path 'probe-results\b_action.txt'
+          $c=Test-Path 'probe-results\c_action.txt'
+          "A_PURE_WINFORMS=$a B_PYWEBVIEW_OFFICIAL=$b C_CUSTOM=$c" | Tee-Object -FilePath 'probe-results\classification.txt'
+          if(-not $a){ throw 'ROOT CAUSE: Windows runner/UIA baseline is broken; do not change product' }
+          if(-not $b){ throw 'ROOT CAUSE: pinned pywebview official menu path does not satisfy Windows UIA/keyboard gate; do not migrate product to it' }
+          if(-not $c){
+            'ROOT CAUSE: Accessible Chess custom menu adapter differs from working upstream-supported pywebview path. Route evidence to UI worker; next product fix should reuse official path.' | Add-Content 'probe-results\classification.txt'
+            throw 'Accessible Chess custom menu path failed while A and B passed'
+          }
+          'ROOT CAUSE: all source-level menu mechanisms pass; prior packaged failure is packaging/window-selection/timing specific. Fix QA/package evidence before product changes.' | Add-Content 'probe-results\classification.txt'
+
+      - name: Upload bounded UIA evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-menu-root-cause-evidence
+          path: probe-results/
+          if-no-files-found: error
+          retention-days: 14
