@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Accessible Chess — Дошка тренера</title>
 <style>
-:root{font-family:"Segoe UI",system-ui,sans-serif;font-size:18px}body{margin:0;padding:1rem 1.3rem 3rem;line-height:1.4;background:Canvas;color:CanvasText}main{max-width:68rem}.panel{border:1px solid GrayText;padding:.8rem;margin:.8rem 0}.board{display:grid;grid-template-columns:repeat(8,minmax(3.6rem,1fr));max-width:46rem;gap:2px}.sq{position:relative;border:1px solid GrayText;min-height:3.6rem;padding:.3rem;background:Canvas;color:CanvasText}.sq:focus{outline:4px solid Highlight;outline-offset:1px}.sq[data-pointer=true]{box-shadow:inset 0 0 0 4px Highlight}.coord{font-size:.75rem}.marker{font-weight:700}.row{display:flex;gap:.55rem;flex-wrap:wrap;align-items:center}button,select,input{font:inherit;padding:.4rem}#live{position:absolute;left:-10000px}.help{max-width:54rem}
+:root{font-family:"Segoe UI",system-ui,sans-serif;font-size:18px}body{margin:0;padding:1rem 1.3rem 3rem;line-height:1.4;background:Canvas;color:CanvasText}main{max-width:72rem}.panel{border:1px solid GrayText;padding:.8rem;margin:.8rem 0}.row{display:flex;gap:.7rem;flex-wrap:wrap;align-items:end}.board{display:grid;grid-template-columns:repeat(8,minmax(3.6rem,1fr));max-width:46rem;gap:2px}.sq{position:relative;border:1px solid GrayText;min-height:3.6rem;padding:.3rem;background:Canvas;color:CanvasText;overflow:hidden}.sq:focus{outline:4px solid Highlight;outline-offset:1px}.sq[data-pointer=true]{box-shadow:inset 0 0 0 4px Highlight}.sq[data-last-move=true]{text-decoration:underline}.coord{position:absolute;left:.2rem;bottom:.1rem;font-size:.72rem}.piece{display:flex;min-height:3rem;align-items:center;justify-content:center;font-size:2.2rem}.piece img{max-width:100%;max-height:3.1rem;object-fit:contain}.marker{position:absolute;right:.2rem;top:.1rem;font-weight:700}button,select,input{font:inherit;padding:.4rem}label{display:flex;flex-direction:column;gap:.2rem}#live{position:absolute;left:-10000px}.help{max-width:56rem}.status{margin:.35rem 0}.fallback{font-size:.9rem}
 </style>
 </head>
 <body>
@@ -14,39 +14,47 @@
 <main>
 <section class="panel" aria-labelledby="board-title">
 <h2 id="board-title">64 поля</h2>
-<p class="help">Tab входить на дошку. Стрілки переходять між полями. Home переходить на a1, End — на h8. Enter або Пробіл ставить семантичний вказівник тренера на поточне поле. Візуальна тема не змінює назви полів для скрінрідера.</p>
+<p class="help">Tab входить на дошку. Стрілки рухаються між полями. Home — a1, End — h8. Enter або Пробіл ставить вказівник тренера. Візуальні теми не змінюють назви полів для скрінрідера.</p>
+<div id="visual-fallback" class="fallback" aria-live="off"></div>
 <div id="board" class="board" role="grid" aria-label="Демонстраційна шахова дошка, 64 поля" aria-rowcount="8" aria-colcount="8"></div>
 </section>
 <section class="panel" aria-labelledby="pointer-title">
 <h2 id="pointer-title">Вказівник</h2>
-<div class="row"><label for="pointer-input">Перейти на поле</label><input id="pointer-input" type="text" maxlength="2" autocomplete="off" inputmode="text"><button id="pointer-clear" type="button">Прибрати вказівник</button></div>
-<div id="pointer-summary" aria-live="off"></div>
+<div class="row"><label for="pointer-input">Перейти на поле<input id="pointer-input" type="text" maxlength="2" autocomplete="off" inputmode="text"></label><button id="pointer-clear" type="button">Прибрати вказівник</button></div>
+<div id="pointer-summary" class="status" aria-live="off"></div>
 </section>
 <section class="panel" aria-labelledby="visual-title">
-<h2 id="visual-title">Візуальні параметри</h2>
-<div class="row"><label>Координати <select id="coordinate-mode"><option value="off">Вимкнено</option><option value="edges">По краях</option><option value="every_square">На кожному полі</option></select></label><label>Масштаб дошки <input id="board-scale" type="number" min="50" max="200" value="100"></label><button id="apply-visual" type="button">Застосувати</button></div>
+<h2 id="visual-title">Вигляд дошки</h2>
+<div class="row">
+<label for="board-theme">Тема дошки<select id="board-theme"><option value="classic">Classic</option></select></label>
+<label for="piece-theme">Комплект фігур<select id="piece-theme"><option value="classic">Classic</option></select></label>
+<label for="coordinate-mode">Координати<select id="coordinate-mode"><option value="off">Вимкнено</option><option value="edges">По краях</option><option value="every_square">На кожному полі</option></select></label>
+<label for="board-scale">Масштаб дошки, %<input id="board-scale" type="number" min="50" max="200" value="100"></label>
+<label for="piece-scale">Масштаб фігур, %<input id="piece-scale" type="number" min="50" max="150" value="92"></label>
+<button id="apply-visual" type="button">Застосувати</button>
+</div>
+<p class="help">Тема дошки й комплект фігур вибираються незалежно. Якщо пакет недоступний, використовується вбудований резервний вигляд без зміни шахової семантики.</p>
 </section>
 </main>
 <script src="accessible_board_keyboard.js"></script>
 <script>
 const el=id=>document.getElementById(id),api=()=>window.pywebview&&window.pywebview.api;
-let snapshot=null;
-const boardKeyboard=AccessibleChessBoardKeyboard.create({
-  board:el('board'),
-  initialSquare:'a1',
-  onActivate:async square=>{await commitPointer(square,{returnBoardFocus:true})}
-});
+let snapshot=null,visualBoard=null;
+const glyphs={white_king:'♔',white_queen:'♕',white_rook:'♖',white_bishop:'♗',white_knight:'♘',white_pawn:'♙',black_king:'♚',black_queen:'♛',black_rook:'♜',black_bishop:'♝',black_knight:'♞',black_pawn:'♟'};
+const boardKeyboard=AccessibleChessBoardKeyboard.create({board:el('board'),initialSquare:'a1',onActivate:async square=>{await commitPointer(square,{returnBoardFocus:true})}});
 function announce(text){el('live').textContent='';setTimeout(()=>el('live').textContent=text||'',20)}
 async function call(name,...args){const a=api();if(!a||typeof a[name]!=='function'){announce('Функція недоступна.');return null}try{return await a[name](...args)}catch(_){announce('Не вдалося виконати дію.');return null}}
 function normalizeSquare(value){return boardKeyboard.normalizeSquare(value)}
-function squareName(square){return boardKeyboard.squareName(square)}
-function renderBoard({restoreFocus=false}={}){const board=el('board'),active=document.activeElement&&document.activeElement.dataset&&document.activeElement.dataset.square;if(active)boardKeyboard.setCurrentSquare(active);board.textContent='';const pointer=snapshot&&snapshot.pointer&&snapshot.pointer.square;const annotations=(snapshot&&snapshot.annotations)||[];for(let rank=8;rank>=1;rank--){for(const file of 'abcdefgh'){const square=file+rank,cell=document.createElement('div');cell.className='sq';cell.setAttribute('role','gridcell');cell.setAttribute('aria-label',squareName(square));cell.setAttribute('aria-rowindex',String(9-rank));cell.setAttribute('aria-colindex',String(file.charCodeAt(0)-96));cell.dataset.square=square;cell.dataset.pointer=pointer===square?'true':'false';if(pointer===square)cell.setAttribute('aria-current','true');const coord=document.createElement('span');coord.className='coord';coord.setAttribute('aria-hidden','true');const mode=snapshot.visual.coordinate_mode,show=mode==='every_square'||(mode==='edges'&&(file==='a'||rank===1));coord.textContent=show?square:'';cell.appendChild(coord);if(pointer===square){const mark=document.createElement('span');mark.className='marker';mark.setAttribute('aria-hidden','true');mark.textContent=' ●';cell.appendChild(mark)}const labels=annotations.filter(a=>a.source===square||a.target===square);if(labels.length)cell.setAttribute('aria-description',labels.map(a=>a.kind==='arrow'?`Стрілка ${a.source}–${a.target}`:`Виділене поле ${a.source}`).join('. '));board.appendChild(cell)}}boardKeyboard.syncRovingTabindex();board.style.transform=`scale(${snapshot.visual.board_scale_percent/100})`;board.style.transformOrigin='top left';if(restoreFocus)boardKeyboard.focus(boardKeyboard.currentSquare)}
-async function commitPointer(square,{returnBoardFocus=false}={}){const normalized=normalizeSquare(square);if(!normalized){announce('Некоректне поле.');return false}const result=await call('teaching_pointer_commit',normalized);if(!result||!result.ok)return false;snapshot=await call('teaching_snapshot');if(snapshot){boardKeyboard.setCurrentSquare(normalized);render();if(returnBoardFocus)boardKeyboard.focus(normalized)}announce(result.accessibleText);return true}
-function render(){el('coordinate-mode').value=snapshot.visual.coordinate_mode;el('board-scale').value=snapshot.visual.board_scale_percent;el('pointer-summary').textContent=snapshot.pointer.square?'Вказівник: '+squareName(snapshot.pointer.square)+'.':'Вказівник вимкнено.';renderBoard()}
-async function refresh(){snapshot=await call('teaching_snapshot');if(snapshot)render()}
+function option(select,value,label){if([...select.options].some(x=>x.value===value))return;const o=document.createElement('option');o.value=value;o.textContent=label;select.appendChild(o)}
+function populateThemes(){const board=el('board-theme'),pieces=el('piece-theme');for(const pack of snapshot.availablePacks||[]){if(pack.kind==='board')option(board,pack.id,pack.title);if(pack.kind==='pieces')option(pieces,pack.id,pack.title)}board.value=snapshot.visual.board_theme_id;pieces.value=snapshot.visual.piece_theme_id}
+function renderPiece(cell,row){if(!row.pieceId)return;const wrap=document.createElement('span');wrap.className='piece';wrap.setAttribute('aria-hidden','true');if(row.pieceAssetUrl){const img=document.createElement('img');img.src=row.pieceAssetUrl;img.alt='';img.draggable=false;wrap.appendChild(img)}else{wrap.textContent=glyphs[row.pieceId]||'●'}wrap.style.fontSize=`${2.2*(visualBoard.pieceScalePercent/100)}rem`;cell.appendChild(wrap)}
+function renderBoard({restoreFocus=false}={}){const board=el('board'),active=document.activeElement&&document.activeElement.dataset&&document.activeElement.dataset.square;if(active)boardKeyboard.setCurrentSquare(active);board.textContent='';board.dataset.boardTheme=visualBoard.boardThemeId;board.dataset.pieceTheme=visualBoard.pieceThemeId;board.style.maxWidth=`${46*(visualBoard.boardScalePercent/100)}rem`;for(const row of visualBoard.squares){const cell=document.createElement('div');cell.className='sq';cell.setAttribute('role','gridcell');cell.setAttribute('aria-label',row.accessibleName);cell.setAttribute('aria-rowindex',String(row.row));cell.setAttribute('aria-colindex',String(row.column));cell.dataset.square=row.square;cell.dataset.pointer=row.isPointer?'true':'false';cell.dataset.lastMove=row.isLastMove?'true':'false';if(row.isPointer)cell.setAttribute('aria-current','true');renderPiece(cell,row);if(row.coordinateText){const coord=document.createElement('span');coord.className='coord';coord.setAttribute('aria-hidden','true');coord.textContent=row.coordinateText;cell.appendChild(coord)}if(row.isPointer){const mark=document.createElement('span');mark.className='marker';mark.setAttribute('aria-hidden','true');mark.textContent='●';cell.appendChild(mark)}board.appendChild(cell)}boardKeyboard.syncRovingTabindex();if(restoreFocus)boardKeyboard.focus(boardKeyboard.currentSquare);const fallback=[];if(visualBoard.boardFallbackUsed)fallback.push('тема дошки');if(visualBoard.pieceFallbackUsed)fallback.push('комплект фігур');el('visual-fallback').textContent=fallback.length?`Використано резервний вигляд: ${fallback.join(' і ')}.`:''}
+function render(){populateThemes();el('coordinate-mode').value=snapshot.visual.coordinate_mode;el('board-scale').value=snapshot.visual.board_scale_percent;el('piece-scale').value=snapshot.visual.piece_scale_percent;el('pointer-summary').textContent=snapshot.pointer.square?'Вказівник: '+snapshot.pointer.spokenSquare+'.':'Вказівник вимкнено.';renderBoard()}
+async function refresh(){snapshot=await call('teaching_snapshot');visualBoard=await call('teaching_board_visual_snapshot');if(snapshot&&visualBoard)render()}
+async function commitPointer(square,{returnBoardFocus=false}={}){const normalized=normalizeSquare(square);if(!normalized){announce('Некоректне поле.');return false}const result=await call('teaching_pointer_commit',normalized);if(!result||!result.ok)return false;snapshot=await call('teaching_snapshot');visualBoard=await call('teaching_board_visual_snapshot');if(snapshot&&visualBoard){boardKeyboard.setCurrentSquare(normalized);render();if(returnBoardFocus)boardKeyboard.focus(normalized)}announce(result.accessibleText);return true}
 el('pointer-input').addEventListener('input',async event=>{const raw=event.target.value.replace(/\s/g,'').toLowerCase();if(raw.length<2)return;if(!normalizeSquare(raw)){announce('Некоректне поле.');return}if(await commitPointer(raw)){event.target.value='';event.target.focus()}});
-el('pointer-clear').onclick=async()=>{const result=await call('teaching_pointer_clear');if(result){snapshot=await call('teaching_snapshot');if(snapshot)render();announce('Вказівник прибрано.')}};
-el('apply-visual').onclick=async()=>{if(!snapshot)return;const wasBoardFocused=document.activeElement&&document.activeElement.closest&&document.activeElement.closest('#board')!==null;const result=await call('teaching_set_visual_preferences',{board_theme_id:snapshot.visual.board_theme_id,piece_theme_id:snapshot.visual.piece_theme_id,coordinate_mode:el('coordinate-mode').value,board_scale_percent:Number(el('board-scale').value),piece_scale_percent:snapshot.visual.piece_scale_percent});if(result){snapshot=result;renderBoard({restoreFocus:wasBoardFocused});announce('Вигляд дошки змінено.')}};
+el('pointer-clear').onclick=async()=>{const result=await call('teaching_pointer_clear');if(result){await refresh();announce('Вказівник прибрано.')}};
+el('apply-visual').onclick=async()=>{if(!snapshot)return;const wasBoardFocused=document.activeElement&&document.activeElement.closest&&document.activeElement.closest('#board')!==null;const result=await call('teaching_set_visual_preferences',{board_theme_id:el('board-theme').value,piece_theme_id:el('piece-theme').value,coordinate_mode:el('coordinate-mode').value,board_scale_percent:Number(el('board-scale').value),piece_scale_percent:Number(el('piece-scale').value)});if(result){snapshot=result;visualBoard=await call('teaching_board_visual_snapshot');if(visualBoard){populateThemes();renderBoard({restoreFocus:wasBoardFocused});announce('Вигляд дошки змінено.')}}};
 window.addEventListener('pywebviewready',refresh);if(api())refresh();
 </script>
 </body>
