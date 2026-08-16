@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import Iterable, Protocol
+from typing import Protocol
 
 from .visual_preferences import VisualPackKind, VisualPackManifest
 
@@ -100,15 +100,16 @@ class VisualPackCatalogPresentation:
         return self._operate("update", pack_id)
 
     def uninstall(self, pack_id: str) -> dict[str, object]:
-        normalized = str(pack_id).strip().lower()
-        entry = self._find(normalized)
+        entry = self._safe_find(pack_id)
+        if entry is None:
+            return self._unknown_pack_result()
         if entry.manifest.pack_id == self._built_in[entry.manifest.kind]:
             return {
                 "ok": False,
                 "accessibleText": "Вбудований резервний пакет не можна видалити.",
                 "entry": self._view(entry),
             }
-        return self._operate("uninstall", normalized)
+        return self._operate("uninstall", entry.manifest.pack_id)
 
     def _operate(self, operation: str, pack_id: str) -> dict[str, object]:
         if self._port is None:
@@ -116,7 +117,9 @@ class VisualPackCatalogPresentation:
                 "ok": False,
                 "accessibleText": "Керування пакетами оформлення недоступне.",
             }
-        entry = self._find(pack_id)
+        entry = self._safe_find(pack_id)
+        if entry is None:
+            return self._unknown_pack_result()
         if not entry.compatible or entry.state in {
             VisualPackInstallState.INCOMPATIBLE,
             VisualPackInstallState.DAMAGED,
@@ -124,6 +127,20 @@ class VisualPackCatalogPresentation:
             return {
                 "ok": False,
                 "accessibleText": f"Пакет {entry.manifest.title} не можна застосувати.",
+                "entry": self._view(entry),
+            }
+        expected_states = {
+            "install": {VisualPackInstallState.AVAILABLE},
+            "update": {VisualPackInstallState.UPDATE_AVAILABLE},
+            "uninstall": {
+                VisualPackInstallState.INSTALLED,
+                VisualPackInstallState.UPDATE_AVAILABLE,
+            },
+        }
+        if entry.state not in expected_states[operation]:
+            return {
+                "ok": False,
+                "accessibleText": "Ця дія зараз недоступна для вибраного пакета.",
                 "entry": self._view(entry),
             }
         method = getattr(self._port, operation)
@@ -152,27 +169,38 @@ class VisualPackCatalogPresentation:
         return tuple(
             sorted(
                 self._port.list_entries(),
-                key=lambda item: (item.manifest.kind.value, item.manifest.title.casefold(), item.manifest.pack_id),
+                key=lambda item: (
+                    item.manifest.kind.value,
+                    item.manifest.title.casefold(),
+                    item.manifest.pack_id,
+                ),
             )
         )
 
-    def _find(self, pack_id: str) -> VisualPackCatalogEntry:
+    def _safe_find(self, pack_id: str) -> VisualPackCatalogEntry | None:
         normalized = str(pack_id).strip().lower()
         for item in self._entries():
             if item.manifest.pack_id == normalized:
                 return item
-        raise ValueError("unknown visual pack")
+        return None
+
+    @staticmethod
+    def _unknown_pack_result() -> dict[str, object]:
+        return {
+            "ok": False,
+            "accessibleText": "Пакет оформлення не знайдено.",
+        }
 
     def installed_manifests(self) -> tuple[VisualPackManifest, ...]:
         return tuple(
             item.manifest
             for item in self._entries()
             if item.compatible
-            and item.state in {VisualPackInstallState.INSTALLED, VisualPackInstallState.UPDATE_AVAILABLE}
+            and item.state
+            in {VisualPackInstallState.INSTALLED, VisualPackInstallState.UPDATE_AVAILABLE}
         )
 
-    @staticmethod
-    def _view(entry: VisualPackCatalogEntry) -> dict[str, object]:
+    def _view(self, entry: VisualPackCatalogEntry) -> dict[str, object]:
         manifest = entry.manifest
         installed = entry.state in {
             VisualPackInstallState.INSTALLED,
@@ -180,7 +208,7 @@ class VisualPackCatalogPresentation:
         }
         can_install = entry.compatible and entry.state is VisualPackInstallState.AVAILABLE
         can_update = entry.compatible and entry.state is VisualPackInstallState.UPDATE_AVAILABLE
-        can_uninstall = installed
+        can_uninstall = installed and manifest.pack_id != self._built_in[manifest.kind]
         status_text = {
             VisualPackInstallState.AVAILABLE: "Доступний для встановлення",
             VisualPackInstallState.INSTALLED: "Встановлено",
