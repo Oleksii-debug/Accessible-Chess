@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Mapping
 
+from .child_coaching_ui import ChildCoachingPresentationState
 from .classroom_collaboration_storage import AttachmentMetadata, ChatMessageMetadata
 from .classroom_presentation import ClassroomPresentationState
 from .local_profile import LocalProfileStore
@@ -21,9 +22,11 @@ class TeachingAccessibleChessAPI:
         self,
         state: TeachingUiState | None = None,
         collaboration: ClassroomPresentationState | None = None,
+        coaching: ChildCoachingPresentationState | None = None,
     ) -> None:
         self.teaching = state or TeachingUiState()
         self.collaboration = collaboration or ClassroomPresentationState()
+        self.coaching = coaching or ChildCoachingPresentationState()
 
     def teaching_snapshot(self) -> dict[str, Any]:
         return self.teaching.snapshot()
@@ -83,6 +86,77 @@ class TeachingAccessibleChessAPI:
 
     def teaching_coordinate_labels_for(self, square: str) -> dict[str, bool]:
         return self.teaching.coordinate_labels_for(square)
+
+    def coaching_snapshot(self) -> dict[str, Any]:
+        return self.coaching.snapshot()
+
+    def coaching_select_template(self, template_id: str) -> dict[str, Any]:
+        return self.coaching.select_template(template_id)
+
+    def coaching_edit_template_block(
+        self,
+        block_id: str,
+        title: str | None = None,
+        duration_minutes: int | None = None,
+    ) -> dict[str, Any]:
+        return self.coaching.edit_template_block(
+            block_id,
+            title=title,
+            duration_minutes=duration_minutes,
+        )
+
+    def coaching_previous_position(self) -> dict[str, Any]:
+        return self.coaching.previous_position()
+
+    def coaching_next_position(self) -> dict[str, Any]:
+        return self.coaching.next_position()
+
+    def coaching_deploy_position(
+        self,
+        target: str = "all",
+        participant_ids: list[str] | None = None,
+        group_id: str | None = None,
+    ) -> dict[str, Any]:
+        return self.coaching.deploy_selected(
+            target,
+            participant_ids=tuple(participant_ids or ()),
+            group_id=group_id,
+        )
+
+    def coaching_pointer_answer(self, display_name: str, square: str) -> dict[str, Any]:
+        return self.coaching.pointer_only_answer(display_name, square)
+
+    def coaching_start_rotation(
+        self,
+        participant_ids: list[str],
+        mode: str = "sequential",
+        base_seconds: int = 600,
+        increment_seconds: int = 0,
+    ) -> dict[str, Any]:
+        return self.coaching.start_rotation(
+            participant_ids,
+            mode=mode,
+            base_seconds=base_seconds,
+            increment_seconds=increment_seconds,
+        )
+
+    def coaching_previous_board(self) -> dict[str, Any]:
+        return self.coaching.previous_board()
+
+    def coaching_next_board(self) -> dict[str, Any]:
+        return self.coaching.next_board()
+
+    def coaching_next_rotation_round(self) -> dict[str, Any]:
+        return self.coaching.next_rotation_round()
+
+    def coaching_return_demo(self) -> dict[str, Any]:
+        return self.coaching.return_to_demonstration()
+
+    def coaching_dispatch(self, action_id: str, payload: Mapping[str, object] | None = None) -> dict[str, Any]:
+        return self.coaching.dispatch(action_id, payload)
+
+    def coaching_dispatch_binding(self, binding: str, payload: Mapping[str, object] | None = None) -> dict[str, Any]:
+        return self.coaching.dispatch_binding(binding, payload)
 
     def classroom_snapshot(self) -> dict[str, Any]:
         return self.collaboration.snapshot()
@@ -165,7 +239,7 @@ def main() -> None:
     html = Path(__file__).resolve().parents[1] / "web" / "teaching.html"
     if not html.exists():
         raise RuntimeError(f"Teaching UI not found: {html}")
-    webview.create_window(
+    window = webview.create_window(
         "Accessible Chess — Teaching Lab",
         url=str(html),
         js_api=TeachingAccessibleChessAPI(collaboration=_default_collaboration_state()),
@@ -174,6 +248,22 @@ def main() -> None:
         min_size=(820, 620),
         text_select=True,
     )
+
+    def add_child_coaching_link() -> None:
+        window.evaluate_js(
+            """
+            if (document.title.includes('Teaching Lab') && !document.getElementById('child-coaching-link')) {
+              const link = document.createElement('a');
+              link.id = 'child-coaching-link';
+              link.href = 'child_coaching.html';
+              link.textContent = 'План уроку й робота з групою';
+              const header = document.querySelector('header');
+              if (header) { header.append(' — ', link); }
+            }
+            """
+        )
+
+    window.events.loaded += add_child_coaching_link
     webview.start(gui="edgechromium", private_mode=True)
 
 
