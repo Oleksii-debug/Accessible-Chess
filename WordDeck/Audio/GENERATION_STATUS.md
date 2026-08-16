@@ -26,8 +26,36 @@ This file is the durable checkpoint for offline pronunciation generation on `wor
 - Last entry: `oxford-a1-0500` — `museum`
 - Status: `VERIFIED_GENERATION_OUTPUT`
 
-This checkpoint verifies file count, manifest coverage, configured accent/speed/sample rate, voice distribution and nontrivial file sizes. It does not by itself assert human listening QA of every pronunciation. Homographs, acronyms, punctuation, multiword phrases and sense-marker overrides remain subject to pronunciation QA before final release.
+### Oxford 3000 — entries 500–999
+
+- Workflow run: `31975457181`
+- GitHub artifact: `worddeck-oxford3000-en-gb-500-500`
+- Artifact id: `9271048958`
+- Artifact digest: `sha256:f7f451f1eb907d1dc43fbb47f374e44572b4bdb0df7fd0680bd2b8e9fed840ab`
+- Artifact container size: 4,552,936 bytes
+- Inner archive inspected after download.
+- MP3 files: exactly 500
+- Manifest records: exactly 500, indexes 500 through 999
+- Smallest MP3: 4,077 bytes
+- Largest MP3: 23,085 bytes
+- Median MP3 size: 8,877 bytes
+- Files below 512 bytes: 0
+- Accent: `en-GB` for all 500 manifest records
+- Speed: `1.0` for all 500 manifest records
+- Sample rate: `24000` Hz for all 500 manifest records
+- Voices: `bf_emma` 262 files; `bm_george` 238 files
+- Missing manifest-referenced audio files: 0
+- Duplicate manifest entry IDs: 0
+- Status: `VERIFIED_GENERATION_OUTPUT`
+
+The checkpoints above verify file count, manifest coverage, configured accent/speed/sample rate, voice distribution, ID uniqueness and nontrivial file sizes. They do not by themselves assert human listening QA of every pronunciation. Homographs, acronyms, punctuation, multiword phrases and sense-marker overrides remain subject to pronunciation QA before final release.
+
+## Aggregate verified generation coverage
+
+- Oxford 3000 verified generated entries: 1,000 / 3,308 currently embedded positions.
+- Verified index range: 0–999 inclusive.
+- No verified range should be regenerated unless the TTS model, voices, pronunciation override rules, codec parameters or source text changes materially.
 
 ## Next generation request
 
-Continue with Oxford 3000 indexes 500–999 as the next 500-entry batch. Do not regenerate verified indexes 0–499 unless the TTS model, voices, pronunciation override rules, codec parameters or source text changes materially.
+Continue with Oxford 3000 indexes 1000–1499 as the next 500-entry batch.
