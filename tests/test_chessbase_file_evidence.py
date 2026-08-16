@@ -82,7 +82,7 @@ class ClassicChessBaseFileEvidenceTests(unittest.TestCase):
 
             with self.assertRaises(FileNotFoundError) as caught:
                 file_evidence.project_classic_chessbase_file_evidence(cbh)
-            self.assertEqual(Path(caught.exception.filename), missing)
+            self.assertEqual(caught.exception.args[0], missing)
 
     def test_non_cbh_entry_point_is_rejected(self):
         with tempfile.TemporaryDirectory() as tmp:
