@@ -56,12 +56,11 @@ jobs:
           @'
           import clr
           clr.AddReference('System.Windows.Forms')
-          from System.Windows.Forms import Application, Form, MenuStrip, ToolStripMenuItem
+          from System.Windows.Forms import AccessibleRole, Application, Form, MenuStrip, ToolStripMenuItem
           from pathlib import Path
-
           signal=Path('probe-results/a_action.txt').resolve()
           form=Form(); form.Text='AC Menu Probe A - Pure WinForms'; form.Width=640; form.Height=400
-          menu=MenuStrip(); menu.Name='ProbeAMenu'; menu.AccessibleName='Probe A application menu'
+          menu=MenuStrip(); menu.Name='ProbeAMenu'; menu.AccessibleName='Probe A application menu'; menu.AccessibleRole=AccessibleRole.MenuBar
           file_item=ToolStripMenuItem('&File'); safe=ToolStripMenuItem('&Safe Action')
           def clicked(sender,event): signal.write_text('activated',encoding='utf-8')
           safe.Click += clicked; file_item.DropDownItems.Add(safe); menu.Items.Add(file_item)
@@ -102,7 +101,7 @@ jobs:
           webview.start(install,gui='edgechromium',private_mode=True)
           '@ | Set-Content -Encoding UTF8 probe_c.py
 
-      - name: Create corrected UIA enumeration harness
+      - name: Create corrected UIA and physical-key harness
         shell: pwsh
         run: |
           @'
@@ -114,44 +113,60 @@ jobs:
           $ErrorActionPreference='Stop'
           Add-Type -AssemblyName UIAutomationClient
           Add-Type -AssemblyName UIAutomationTypes
+          Add-Type @"
+          using System;
+          using System.Runtime.InteropServices;
+          public static class ACKeys {
+            [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
+            [DllImport("user32.dll")] public static extern void keybd_event(byte vk, byte scan, uint flags, UIntPtr extra);
+            public const uint KEYUP=0x0002;
+            public static void Tap(byte vk) { keybd_event(vk,0,0,UIntPtr.Zero); System.Threading.Thread.Sleep(100); keybd_event(vk,0,KEYUP,UIntPtr.Zero); }
+          }
+          "@
           Start-Sleep -Seconds 5
           $root=[System.Windows.Automation.AutomationElement]::RootElement
           $pidCond=New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::ProcessIdProperty,$AppPid)
-          $wins=$root.FindAll([System.Windows.Automation.TreeScope]::Children,$pidCond)
-          $out=Join-Path 'probe-results' ($Label + '_uia.txt')
-          "PID=$AppPid topLevelCount=$($wins.Count)" | Set-Content -Encoding UTF8 $out
           $menuCond=New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::ControlTypeProperty,[System.Windows.Automation.ControlType]::MenuBar)
+          $out=Join-Path 'probe-results' ($Label + '_uia.txt')
           $winner=$null; $menu=$null
-          for($i=0;$i -lt $wins.Count;$i++){
-            $w=$wins.Item($i)
-            $name=$w.Current.Name; $class=$w.Current.ClassName; $off=$w.Current.IsOffscreen
-            "TOP[$i] name=[$name] class=[$class] offscreen=$off hwnd=$($w.Current.NativeWindowHandle)" | Add-Content -Encoding UTF8 $out
-            $m=$w.FindFirst([System.Windows.Automation.TreeScope]::Descendants,$menuCond)
-            if($m -and -not $off -and -not $winner){ $winner=$w; $menu=$m }
+          for($attempt=0;$attempt -lt 10 -and -not $winner;$attempt++){
+            $wins=$root.FindAll([System.Windows.Automation.TreeScope]::Children,$pidCond)
+            if($attempt -eq 0){ "PID=$AppPid" | Set-Content -Encoding UTF8 $out }
+            "attempt=$attempt topLevelCount=$($wins.Count)" | Add-Content -Encoding UTF8 $out
+            for($i=0;$i -lt $wins.Count;$i++){
+              $w=$wins.Item($i); $off=$w.Current.IsOffscreen
+              "TOP[$i] name=[$($w.Current.Name)] class=[$($w.Current.ClassName)] offscreen=$off hwnd=$($w.Current.NativeWindowHandle)" | Add-Content -Encoding UTF8 $out
+              $m=$w.FindFirst([System.Windows.Automation.TreeScope]::Descendants,$menuCond)
+              if($m -and -not $off){ $winner=$w; $menu=$m; break }
+            }
+            if(-not $winner){ Start-Sleep -Milliseconds 500 }
           }
           if(-not $winner){
             function Dump-Tree($node,[int]$depth,[ref]$count){
-              if($depth -gt 4 -or $count.Value -ge 160){ return }
-              $count.Value++
-              $indent='  '*$depth
+              if($depth -gt 5 -or $count.Value -ge 200){ return }
+              $count.Value++; $indent='  '*$depth
               "$indent type=[$($node.Current.ControlType.ProgrammaticName)] name=[$($node.Current.Name)] class=[$($node.Current.ClassName)] offscreen=$($node.Current.IsOffscreen)" | Add-Content -Encoding UTF8 $out
               $walker=[System.Windows.Automation.TreeWalker]::ControlViewWalker
               $child=$walker.GetFirstChild($node)
-              while($child -and $count.Value -lt 160){ Dump-Tree $child ($depth+1) $count; $child=$walker.GetNextSibling($child) }
+              while($child -and $count.Value -lt 200){ Dump-Tree $child ($depth+1) $count; $child=$walker.GetNextSibling($child) }
             }
+            $wins=$root.FindAll([System.Windows.Automation.TreeScope]::Children,$pidCond)
             for($i=0;$i -lt $wins.Count;$i++){ $count=0; "TREE TOP[$i]" | Add-Content -Encoding UTF8 $out; Dump-Tree $wins.Item($i) 0 ([ref]$count) }
             Get-Content $out
             throw "${Label}: no visible top-level window exposed a descendant ControlType.MenuBar"
           }
-          "MENU name=[$($menu.Current.Name)] class=[$($menu.Current.ClassName)]" | Add-Content -Encoding UTF8 $out
-          $ws=New-Object -ComObject WScript.Shell
-          $null=$ws.AppActivate($AppPid); Start-Sleep -Milliseconds 700
-          $ws.SendKeys('%'); Start-Sleep -Milliseconds 500
-          $ws.SendKeys('{DOWN}'); Start-Sleep -Milliseconds 300
-          $ws.SendKeys('{ENTER}'); Start-Sleep -Milliseconds 700
-          if(-not (Test-Path $SignalPath)){ Get-Content $out; throw "${Label}: Alt/Down/Enter did not activate safe menu command" }
-          $ws.SendKeys('{ESC}'); Start-Sleep -Milliseconds 200
-          "KEYBOARD_ALT_ARROWS_ENTER_ESC_PASS" | Add-Content -Encoding UTF8 $out
+          "MENU name=[$($menu.Current.Name)] class=[$($menu.Current.ClassName)] hwnd=$($winner.Current.NativeWindowHandle)" | Add-Content -Encoding UTF8 $out
+          if(-not [ACKeys]::SetForegroundWindow([IntPtr]$winner.Current.NativeWindowHandle)){ throw "${Label}: SetForegroundWindow failed" }
+          Start-Sleep -Milliseconds 500
+          [ACKeys]::Tap(0x12); Start-Sleep -Milliseconds 500
+          try { $f=[System.Windows.Automation.AutomationElement]::FocusedElement; "FOCUS_AFTER_ALT type=[$($f.Current.ControlType.ProgrammaticName)] name=[$($f.Current.Name)]" | Add-Content -Encoding UTF8 $out } catch {}
+          [ACKeys]::Tap(0x28); Start-Sleep -Milliseconds 400
+          try { $f=[System.Windows.Automation.AutomationElement]::FocusedElement; "FOCUS_AFTER_DOWN type=[$($f.Current.ControlType.ProgrammaticName)] name=[$($f.Current.Name)]" | Add-Content -Encoding UTF8 $out } catch {}
+          [ACKeys]::Tap(0x0D); Start-Sleep -Milliseconds 1000
+          if(-not (Test-Path $SignalPath)){ Get-Content $out; throw "${Label}: physical Alt/Down/Enter did not activate safe menu command" }
+          [ACKeys]::Tap(0x1B); Start-Sleep -Milliseconds 200
+          "PHYSICAL_ALT_DOWN_ENTER_ESC_PASS" | Add-Content -Encoding UTF8 $out
+          ("ok") | Set-Content -Encoding UTF8 (Join-Path 'probe-results' ($Label + '_pass.txt'))
           Get-Content $out
           '@ | Set-Content -Encoding UTF8 uia_probe.ps1
 
@@ -159,7 +174,6 @@ jobs:
         shell: pwsh
         continue-on-error: true
         run: |
-          Remove-Item probe-results\a_action.txt -ErrorAction SilentlyContinue
           $p=Start-Process python -ArgumentList 'probe_a.py' -PassThru
           try { .\uia_probe.ps1 -AppPid $p.Id -Label 'A_pure_winforms' -SignalPath 'probe-results\a_action.txt' }
           finally { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue }
@@ -168,7 +182,6 @@ jobs:
         shell: pwsh
         continue-on-error: true
         run: |
-          Remove-Item probe-results\b_action.txt -ErrorAction SilentlyContinue
           $p=Start-Process python -ArgumentList 'probe_b.py' -PassThru
           try { .\uia_probe.ps1 -AppPid $p.Id -Label 'B_pywebview_official' -SignalPath 'probe-results\b_action.txt' }
           finally { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue }
@@ -177,7 +190,6 @@ jobs:
         shell: pwsh
         continue-on-error: true
         run: |
-          Remove-Item probe-results\c_action.txt -ErrorAction SilentlyContinue
           $p=Start-Process python -ArgumentList 'probe_c.py' -PassThru
           try { .\uia_probe.ps1 -AppPid $p.Id -Label 'C_accessible_chess_custom' -SignalPath 'probe-results\c_action.txt' }
           finally { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue }
@@ -185,17 +197,17 @@ jobs:
       - name: Classify root cause fail closed
         shell: pwsh
         run: |
-          $a=Test-Path 'probe-results\a_action.txt'
-          $b=Test-Path 'probe-results\b_action.txt'
-          $c=Test-Path 'probe-results\c_action.txt'
+          $a=Test-Path 'probe-results\A_pure_winforms_pass.txt'
+          $b=Test-Path 'probe-results\B_pywebview_official_pass.txt'
+          $c=Test-Path 'probe-results\C_accessible_chess_custom_pass.txt'
           "A_PURE_WINFORMS=$a B_PYWEBVIEW_OFFICIAL=$b C_CUSTOM=$c" | Tee-Object -FilePath 'probe-results\classification.txt'
-          if(-not $a){ throw 'ROOT CAUSE: Windows runner/UIA baseline or probe interaction is broken; do not change product' }
-          if(-not $b){ throw 'ROOT CAUSE: pinned pywebview official menu path does not satisfy Windows UIA/keyboard gate; do not migrate product to it' }
+          if(-not $a){ throw 'ROOT CAUSE: Windows runner/UIA or keyboard baseline failed; product conclusion forbidden' }
+          if(-not $b){ throw 'ROOT CAUSE: official pinned pywebview menu did not satisfy full UIA/physical-key gate; product migration conclusion forbidden' }
           if(-not $c){
-            'ROOT CAUSE: Accessible Chess custom menu adapter differs from working upstream-supported pywebview path. Route evidence to UI worker; next product fix should reuse official path.' | Add-Content 'probe-results\classification.txt'
-            throw 'Accessible Chess custom menu path failed while A and B passed'
+            'ROOT CAUSE: Accessible Chess custom adapter fails while pure WinForms and official pywebview pass. Route to UI owner.' | Add-Content 'probe-results\classification.txt'
+            throw 'Accessible Chess custom menu path failed A/B comparison'
           }
-          'ROOT CAUSE: all source-level menu mechanisms pass; prior packaged failure is packaging/window-selection/timing specific. Fix QA/package evidence before product changes.' | Add-Content 'probe-results\classification.txt'
+          'ROOT CAUSE: A/B/C all pass source-level UIA and physical-key semantics. Prior packaged failure is packaging/window-enumeration/timing specific; fix packaged QA harness before product changes.' | Add-Content 'probe-results\classification.txt'
 
       - name: Upload bounded UIA evidence
         if: always()
