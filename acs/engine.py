@@ -17,17 +17,20 @@ class UCIEngine:
     """Serialized UCI adapter used by both analysis and engine play.
 
     One instance owns one subprocess. Calls are serialized so analysis and move
-    requests cannot interleave commands on the same UCI stream.
+    requests cannot interleave commands on the same UCI stream. Reader output is
+    tagged with a process generation so a late line from a failed/replaced
+    Stockfish process can never satisfy a later handshake, analysis or bestmove.
     """
 
     def __init__(self, path: str, *, process_factory: ProcessFactory = subprocess.Popen):
         self.path = str(path)
         self.proc = None
-        self.q: queue.Queue[str] = queue.Queue()
+        self.q: queue.Queue[object] = queue.Queue()
         self.reader = None
         self._process_factory = process_factory
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
         self._closed = False
+        self._process_generation = 0
 
     def _shutdown_process(self, proc) -> None:
         """Best-effort bounded shutdown with escalation so no child is abandoned."""
@@ -38,7 +41,6 @@ class UCIEngine:
                 return
         except Exception:
             pass
-
         try:
             if proc.stdin:
                 proc.stdin.write("quit\n")
@@ -50,7 +52,6 @@ class UCIEngine:
             return
         except Exception:
             pass
-
         try:
             proc.terminate()
         except Exception:
@@ -60,7 +61,6 @@ class UCIEngine:
             return
         except Exception:
             pass
-
         try:
             proc.kill()
         except Exception:
@@ -68,55 +68,55 @@ class UCIEngine:
         try:
             proc.wait(timeout=2)
         except Exception:
-            # There is no further portable subprocess escalation beyond kill().
             pass
 
     def start(self) -> None:
-        if self._closed:
-            raise RuntimeError("Stockfish adapter is closed")
-        if self.proc and self.proc.poll() is None:
-            return
-        try:
-            proc = self._process_factory(
-                [self.path],
-                stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                bufsize=1,
-                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-            )
-        except (OSError, ValueError) as exc:
-            raise RuntimeError(f"Unable to start Stockfish: {exc}") from exc
+        with self._lock:
+            if self._closed:
+                raise RuntimeError("Stockfish adapter is closed")
+            if self.proc and self.proc.poll() is None:
+                return
+            try:
+                proc = self._process_factory(
+                    [self.path],
+                    stdin=subprocess.PIPE,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                    bufsize=1,
+                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                )
+            except (OSError, ValueError) as exc:
+                raise RuntimeError(f"Unable to start Stockfish: {exc}") from exc
 
-        self.proc = proc
-        try:
-            if not proc.stdout:
-                raise RuntimeError("Stockfish stdout pipe is unavailable")
+            self.proc = proc
+            self._process_generation += 1
+            generation = self._process_generation
+            try:
+                if not proc.stdout:
+                    raise RuntimeError("Stockfish stdout pipe is unavailable")
+                self._drain()
 
-            # A previous crashed process or failed handshake must not leak old UCI
-            # lines into a replacement provider.
-            self._drain()
+                def read() -> None:
+                    try:
+                        for line in proc.stdout:
+                            self.q.put((generation, line.strip()))
+                    except Exception:
+                        return
 
-            def read() -> None:
-                try:
-                    for line in proc.stdout:
-                        self.q.put(line.strip())
-                except Exception:
-                    return
-
-            self.reader = threading.Thread(target=read, daemon=True, name="acs-stockfish-reader")
-            self.reader.start()
-            self.send("uci")
-            self._wait("uciok", 5)
-            self.send("isready")
-            self._wait("readyok", 5)
-        except Exception:
-            self._shutdown_process(proc)
-            self.proc = None
-            raise
+                self.reader = threading.Thread(target=read, daemon=True, name="acs-stockfish-reader")
+                self.reader.start()
+                self.send("uci")
+                self._wait("uciok", 5)
+                self.send("isready")
+                self._wait("readyok", 5)
+            except Exception:
+                self._shutdown_process(proc)
+                self.proc = None
+                self.reader = None
+                raise
 
     def send(self, command: str) -> None:
         if self._closed:
@@ -126,11 +126,33 @@ class UCIEngine:
         self.proc.stdin.write(command + "\n")
         self.proc.stdin.flush()
 
+    def _get_line(self, timeout: float, *, generation: int | None = None) -> str:
+        """Return one line for the expected process generation.
+
+        Raw strings remain accepted for deterministic source tests that inject
+        scripted UCI output directly. Production reader threads always enqueue
+        ``(generation, line)`` records.
+        """
+        expected = self._process_generation if generation is None else int(generation)
+        end = time.monotonic() + max(0.0, float(timeout))
+        while True:
+            remaining = end - time.monotonic()
+            if remaining <= 0:
+                raise queue.Empty
+            item = self.q.get(timeout=remaining)
+            if isinstance(item, tuple) and len(item) == 2 and isinstance(item[0], int):
+                item_generation, line = item
+                if item_generation != expected:
+                    continue
+                return str(line)
+            return str(item)
+
     def _wait(self, token: str, timeout: float) -> str:
         end = time.monotonic() + timeout
+        generation = self._process_generation
         while time.monotonic() < end:
             try:
-                line = self.q.get(timeout=0.2)
+                line = self._get_line(min(0.2, max(0.0, end - time.monotonic())), generation=generation)
             except queue.Empty:
                 continue
             if token in line:
@@ -149,6 +171,7 @@ class UCIEngine:
         depth = max(1, min(40, int(depth)))
         with self._lock:
             self.start()
+            generation = self._process_generation
             self._drain()
             self.send(f"setoption name MultiPV value {multipv}")
             self.send("isready")
@@ -159,7 +182,7 @@ class UCIEngine:
             end = time.monotonic() + 60
             while time.monotonic() < end:
                 try:
-                    line = self.q.get(timeout=0.3)
+                    line = self._get_line(0.3, generation=generation)
                 except queue.Empty:
                     continue
                 if line.startswith("bestmove"):
@@ -184,6 +207,7 @@ class UCIEngine:
     def best_move(self, fen: str, skill_level: int = 10, movetime_ms: int = 500) -> str | None:
         with self._lock:
             self.start()
+            generation = self._process_generation
             self._drain()
             skill = max(0, min(20, int(skill_level)))
             movetime_ms = max(50, int(movetime_ms))
@@ -195,7 +219,7 @@ class UCIEngine:
             end = time.monotonic() + max(5, movetime_ms / 1000 + 5)
             while time.monotonic() < end:
                 try:
-                    line = self.q.get(timeout=0.2)
+                    line = self._get_line(0.2, generation=generation)
                 except queue.Empty:
                     continue
                 if line.startswith("bestmove"):
@@ -213,5 +237,7 @@ class UCIEngine:
                 return
             proc = self.proc
             self.proc = None
+            self.reader = None
             self._closed = True
+            self._process_generation += 1
             self._shutdown_process(proc)

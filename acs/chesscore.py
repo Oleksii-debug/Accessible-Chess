@@ -93,7 +93,6 @@ class Board:
     def king_square(self,c): return self.board.index('K' if c=='w' else 'k')
     def attacked(self,sq,by):
         f=sq%8; r=sq//8
-        # pawns: find pawn origins that attack sq
         dr=-1 if by=='w' else 1
         pawn='P' if by=='w' else 'p'
         for df in (-1,1):
@@ -200,7 +199,6 @@ class Board:
             elif m.to==2: self.board[3]=self.board[0]; self.board[0]=None
             elif m.to==62: self.board[61]=self.board[63]; self.board[63]=None
             elif m.to==58: self.board[59]=self.board[56]; self.board[56]=None
-        # rights
         rights=self.castling
         if p=='K': rights=rights.replace('K','').replace('Q','')
         if p=='k': rights=rights.replace('k','').replace('q','')
@@ -255,12 +253,29 @@ class Board:
         self.undo_stack.append((before,san)); self.redo_stack.clear(); self._apply(m)
         return san
     def push_text(self,t): return self.push(self.parse_move(t))
+    @staticmethod
+    def _move_from_history(before_fen,san):
+        """Rebuild the canonical Move represented by a stored history edge.
+
+        Undo/redo stores FEN+SAN as the canonical destructive history contract.
+        Reconstructing from that pair keeps ``last_move`` coherent without a
+        second parallel history source of truth.
+        """
+        history_board=Board(before_fen)
+        return history_board.parse_move(san)
     def undo(self):
         if not self.undo_stack: return None
-        current=self.fen(); before,san=self.undo_stack.pop(); self.redo_stack.append((current,san)); self.set_fen(before,clear_history=False); return san
+        current=self.fen(); before,san=self.undo_stack.pop(); self.redo_stack.append((current,san)); self.set_fen(before,clear_history=False)
+        if self.undo_stack:
+            previous_before,previous_san=self.undo_stack[-1]
+            self.last_move=self._move_from_history(previous_before,previous_san)
+        else:
+            self.last_move=None
+        return san
     def redo(self):
         if not self.redo_stack: return None
-        current=self.fen(); target,san=self.redo_stack.pop(); self.undo_stack.append((current,san)); self.set_fen(target,clear_history=False); return san
+        current=self.fen(); target,san=self.redo_stack.pop(); move=self._move_from_history(current,san)
+        self.undo_stack.append((current,san)); self.set_fen(target,clear_history=False); self.last_move=move; return san
     def square_description(self,sq):
         p=self.board[sq]; return f"{sq_name(sq)[0]} {sq_name(sq)[1]}, {PIECE_UA[p] if p else 'порожньо'}"
     def pieces_description(self,color=None):
