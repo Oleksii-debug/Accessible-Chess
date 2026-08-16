@@ -158,6 +158,20 @@ class Stage1ReleaseCompositionUiTests(unittest.TestCase):
         self.assertNotIn("document.addEventListener('keydown'", text)
         self.assertNotIn("window.addEventListener('keydown'", text)
 
+    def test_board_focus_survives_state_driven_grid_replacement_without_global_key_hijack(self) -> None:
+        text = self.bootstrap
+        self.assertIn("function installBoardFocusContinuity()", text)
+        self.assertIn("grid.addEventListener('focusin'", text)
+        self.assertIn("new MutationObserver(records =>", text)
+        self.assertIn("record.removedNodes", text)
+        self.assertIn("lastFocusedSquare", text)
+        self.assertIn("byId('sq-' + lastFocusedSquare)", text)
+        self.assertIn("target.focus({preventScroll: true})", text)
+        self.assertIn("stage1BoardFocusContinuityReady", text)
+        self.assertIn("installBoardFocusContinuity();", text)
+        self.assertNotIn("document.addEventListener('keydown'", text)
+        self.assertNotIn("window.addEventListener('keydown'", text)
+
     def test_webview_bootstrap_exposes_accessible_sound_controls_without_new_live_region(self) -> None:
         text = self.bootstrap
         for element_id in (
