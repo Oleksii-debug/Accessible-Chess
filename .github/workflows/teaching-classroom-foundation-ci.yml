@@ -13,6 +13,9 @@ on:
       - 'acs/lesson_plan.py'
       - 'acs/local_profile.py'
       - 'acs/usage_statistics.py'
+      - 'acs/teaching_ui.py'
+      - 'acs/teaching_webapp.py'
+      - 'web/teaching.html'
       - 'tests/test_visual_preferences.py'
       - 'tests/test_teaching_controls.py'
       - 'tests/test_sound_profiles.py'
@@ -20,6 +23,7 @@ on:
       - 'tests/test_lesson_plan.py'
       - 'tests/test_local_profile.py'
       - 'tests/test_usage_statistics.py'
+      - 'tests/test_teaching_ui.py'
       - '.github/workflows/teaching-classroom-foundation-ci.yml'
 
 permissions:
@@ -34,7 +38,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Compile new contracts
+      - name: Compile teaching and classroom contracts
         run: >-
           python -m compileall -q
           acs/visual_preferences.py
@@ -44,6 +48,8 @@ jobs:
           acs/lesson_plan.py
           acs/local_profile.py
           acs/usage_statistics.py
+          acs/teaching_ui.py
+          acs/teaching_webapp.py
           tests/test_visual_preferences.py
           tests/test_teaching_controls.py
           tests/test_sound_profiles.py
@@ -51,7 +57,8 @@ jobs:
           tests/test_lesson_plan.py
           tests/test_local_profile.py
           tests/test_usage_statistics.py
-      - name: Run feature contract tests
+          tests/test_teaching_ui.py
+      - name: Run feature contract and semantic UI tests
         run: >-
           python -m unittest -v
           tests.test_visual_preferences
@@ -61,6 +68,7 @@ jobs:
           tests.test_lesson_plan
           tests.test_local_profile
           tests.test_usage_statistics
+          tests.test_teaching_ui
       - name: Run adjacent architecture regressions
         run: >-
           python -m unittest -v
@@ -68,3 +76,5 @@ jobs:
           tests.test_settings
           tests.test_training
           tests.test_keybindings
+          tests.test_accessible_webui
+          tests.test_nvda_p0_contract
