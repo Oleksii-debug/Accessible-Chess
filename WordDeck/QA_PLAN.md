@@ -28,12 +28,13 @@ The target is an exhaustive review, not spot checking.
 
 ## Shortcut QA
 
-All 16 current actions must remain configurable:
+There are now 17 configurable actions. The original 16 must remain configurable, and undo move is configurable as well:
 
 - next random word;
 - previous word;
 - reveal translation;
 - repeat current English word;
+- undo last deck move;
 - open shortcut settings;
 - open help;
 - switch to decks 1 through 5;
@@ -57,6 +58,7 @@ Keep explicit regression coverage for:
 
 - five independent decks;
 - move current entry directly to any deck;
+- undo the most recent actual deck move without creating an undo record for a no-op move;
 - switching active deck;
 - shuffled-bag presentation with no repeats until the active deck is exhausted;
 - previous/forward session navigation without resurrecting entries moved out of the active deck;
@@ -74,7 +76,7 @@ Keep explicit regression coverage for:
 
 Prioritize additions that improve study flow without weakening accessibility or data integrity. Candidate improvements, in order:
 
-1. Undo the last accidental deck move.
+1. ~~Undo the last accidental deck move.~~ Implemented; keep regression-testing it.
 2. Export/import WordDeck progress and settings as a portable backup.
 3. Clear/reset a selected deck or dictionary progress with an explicit confirmation.
 4. Accessible session summary: cards seen, moved, and remaining in the active deck.
