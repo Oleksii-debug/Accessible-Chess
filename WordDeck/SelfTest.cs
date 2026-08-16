@@ -18,7 +18,8 @@ internal static class SelfTest
             TestEmbeddedOxford();
             TestImportParserFailsClosed();
             TestShortcutRegistryAndRebinding();
-            Console.WriteLine("WordDeck self-test passed: Oxford dictionary, strict imports, and all configurable shortcuts validated.");
+            TestStatePersistenceAndRecovery();
+            Console.WriteLine("WordDeck self-test passed: Oxford dictionary, strict imports, all configurable shortcuts, and persistent recovery state validated.");
             return 0;
         }
         catch (Exception ex)
@@ -129,6 +130,69 @@ internal static class SelfTest
                 $"Reset defaults failed for '{definition.Description}'.");
             Require(manager.FindAction(definition.DefaultKeys) == definition.Id,
                 $"Default shortcut does not dispatch to '{definition.Description}' after reset.");
+        }
+    }
+
+    private static void TestStatePersistenceAndRecovery()
+    {
+        string root = Path.Combine(Path.GetTempPath(), $"WordDeck-self-test-{Guid.NewGuid():N}");
+        try
+        {
+            var store = new AppStateStore(root);
+            var state = new AppState
+            {
+                ActiveDictionaryId = "oxford-3000-en-uk",
+                ActiveDeck = 4
+            };
+            state.DecksByDictionary["oxford-3000-en-uk"] = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["oxford-a1-0001"] = 3,
+                ["oxford-a1-0002"] = 5
+            };
+
+            var shortcuts = new ShortcutManager(state);
+            Keys persistedShortcut = Keys.Control | Keys.Shift | Keys.Z;
+            Require(shortcuts.TrySet(ActionIds.RevealTranslation, persistedShortcut, out string? shortcutError),
+                $"Could not prepare persisted shortcut: {shortcutError}");
+            store.Save(state);
+
+            AppState reloaded = new AppStateStore(root).Load();
+            Require(reloaded.ActiveDictionaryId == "oxford-3000-en-uk", "Active dictionary did not survive restart.");
+            Require(reloaded.ActiveDeck == 4, "Active deck did not survive restart.");
+            Require(reloaded.DecksByDictionary["oxford-3000-en-uk"]["oxford-a1-0001"] == 3,
+                "Deck assignment did not survive restart.");
+            var reloadedShortcuts = new ShortcutManager(reloaded);
+            Require(reloadedShortcuts.Get(ActionIds.RevealTranslation) == persistedShortcut,
+                "Rebound shortcut did not survive restart.");
+            Require(reloadedShortcuts.FindAction(persistedShortcut) == ActionIds.RevealTranslation,
+                "Persisted shortcut did not dispatch after restart.");
+
+            // A second valid save creates a recovery snapshot of the first state.
+            reloaded.ActiveDeck = 2;
+            reloaded.DecksByDictionary["oxford-3000-en-uk"]["oxford-a1-0001"] = 5;
+            store.Save(reloaded);
+
+            string primaryPath = Path.Combine(root, "state.json");
+            File.WriteAllText(primaryPath, "{ definitely not valid json");
+            AppState recovered = new AppStateStore(root).Load();
+            Require(recovered.ActiveDeck == 4, "Backup recovery did not restore the last known-good active deck.");
+            Require(recovered.DecksByDictionary["oxford-3000-en-uk"]["oxford-a1-0001"] == 3,
+                "Backup recovery did not restore the last known-good deck assignment.");
+            var recoveredShortcuts = new ShortcutManager(recovered);
+            Require(recoveredShortcuts.Get(ActionIds.RevealTranslation) == persistedShortcut,
+                "Backup recovery did not restore the rebound shortcut.");
+        }
+        finally
+        {
+            try
+            {
+                if (Directory.Exists(root))
+                    Directory.Delete(root, true);
+            }
+            catch
+            {
+                // A failed cleanup must not hide the actual self-test result.
+            }
         }
     }
 
