@@ -3,6 +3,9 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Mapping
 
+from .classroom_collaboration_storage import AttachmentMetadata, ChatMessageMetadata
+from .classroom_presentation import ClassroomPresentationState
+from .local_profile import LocalProfileStore
 from .teaching_ui import TeachingUiState
 
 
@@ -10,11 +13,17 @@ class TeachingAccessibleChessAPI:
     """Isolated feature-lane API for teaching controls.
 
     This is intentionally separate from the frozen release-facing launcher.
-    It exposes presentation-only teaching state and never owns chess legality.
+    It exposes presentation-only teaching/classroom state and never owns chess
+    legality, realtime transport, media bytes, or file execution.
     """
 
-    def __init__(self, state: TeachingUiState | None = None) -> None:
+    def __init__(
+        self,
+        state: TeachingUiState | None = None,
+        collaboration: ClassroomPresentationState | None = None,
+    ) -> None:
         self.teaching = state or TeachingUiState()
+        self.collaboration = collaboration or ClassroomPresentationState()
 
     def teaching_snapshot(self) -> dict[str, Any]:
         return self.teaching.snapshot()
@@ -75,6 +84,80 @@ class TeachingAccessibleChessAPI:
     def teaching_coordinate_labels_for(self, square: str) -> dict[str, bool]:
         return self.teaching.coordinate_labels_for(square)
 
+    def classroom_snapshot(self) -> dict[str, Any]:
+        return self.collaboration.snapshot()
+
+    def classroom_profile_ensure(self) -> dict[str, Any]:
+        return self.collaboration.ensure_profile()
+
+    def classroom_profile_set_display_name(self, value: str | None) -> dict[str, Any]:
+        return self.collaboration.set_display_name(value)
+
+    def classroom_chat_mark_read(self) -> dict[str, Any]:
+        return self.collaboration.mark_chat_read()
+
+    def classroom_receive_chat(
+        self,
+        message_id: str,
+        room_id: str,
+        sender_id: str,
+        sequence_no: int,
+        sender_display_name: str,
+        body: str,
+    ) -> dict[str, Any]:
+        message = ChatMessageMetadata(
+            str(message_id),
+            str(room_id),
+            str(sender_id),
+            int(sequence_no),
+            str(body),
+        )
+        return self.collaboration.append_message(
+            message,
+            sender_display_name=sender_display_name,
+            incoming=True,
+        )
+
+    def classroom_receive_attachment(
+        self,
+        attachment_id: str,
+        room_id: str,
+        sender_id: str,
+        sequence_no: int,
+        sender_display_name: str,
+        display_name: str,
+        size_bytes: int,
+        mime_type: str | None,
+        sha256: str,
+        object_key: str,
+        transfer_state: str,
+        scan_state: str,
+    ) -> dict[str, Any]:
+        item = AttachmentMetadata(
+            str(attachment_id),
+            str(room_id),
+            str(sender_id),
+            int(sequence_no),
+            str(display_name),
+            None if mime_type is None else str(mime_type),
+            int(size_bytes),
+            str(sha256),
+            str(object_key),
+            str(transfer_state),
+            "session",
+            str(scan_state),
+        )
+        return self.collaboration.register_attachment(
+            item,
+            sender_display_name=sender_display_name,
+        )
+
+
+def _default_collaboration_state() -> ClassroomPresentationState:
+    data_dir = Path.home() / ".accessible_chess"
+    profile_store = LocalProfileStore(data_dir / "teaching_profile.json")
+    return ClassroomPresentationState(profile_store=profile_store)
+
 
 def main() -> None:
     import webview
@@ -85,7 +168,7 @@ def main() -> None:
     webview.create_window(
         "Accessible Chess — Teaching Lab",
         url=str(html),
-        js_api=TeachingAccessibleChessAPI(),
+        js_api=TeachingAccessibleChessAPI(collaboration=_default_collaboration_state()),
         width=1180,
         height=840,
         min_size=(820, 620),
