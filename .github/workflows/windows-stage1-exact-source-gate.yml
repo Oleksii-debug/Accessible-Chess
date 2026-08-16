@@ -1,0 +1,89 @@
+name: Windows Stage 1 Exact Source Gate
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - qa/windows-current-integration-candidate-20260815
+    paths:
+      - '.github/workflows/windows-stage1-exact-source-gate.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: accessible-chess-stage1-exact-source-gate
+  cancel-in-progress: true
+
+env:
+  SOURCE_INTEGRATION_SHA: f6ad28fa3cbd9ed9fbd4ae0ac48e86f28fc80b87
+
+jobs:
+  exact-source:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout QA snapshot
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify exact repaired integration SHA
+        shell: pwsh
+        run: |
+          git cat-file -e "$env:SOURCE_INTEGRATION_SHA^{commit}"
+          if ($LASTEXITCODE -ne 0) { throw 'Repaired integration SHA unavailable' }
+          $resolved=(git rev-parse "$env:SOURCE_INTEGRATION_SHA^{commit}").Trim()
+          if ($resolved -ne $env:SOURCE_INTEGRATION_SHA) { throw "SHA mismatch: $resolved" }
+          "SOURCE LOCK PASS: $resolved"
+
+      - name: Materialize exact tracked product tree only
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path work | Out-Null
+          $paths=@('acs','web','tests','run_accessible_chess.py','ACCESSIBILITY_0.4_ARCHITECTURE.md','VERSION.txt','HOTKEYS_UA.txt','HOTKEYS_EN.txt')
+          git archive --format=zip --output=product.zip $env:SOURCE_INTEGRATION_SHA -- $paths
+          if ($LASTEXITCODE -ne 0) { throw 'Exact product export failed' }
+          Expand-Archive product.zip work -Force
+          if(-not (Test-Path 'work\acs\chesscore.py')) { throw 'Verified chesscore still missing from exact tracked source' }
+          $expected=(git ls-tree -r --name-only $env:SOURCE_INTEGRATION_SHA -- $paths)
+          foreach($rel in $expected){ if(-not (Test-Path (Join-Path work $rel))){ throw "Missing tracked file: $rel" } }
+          "EXACT TREE PASS: $env:SOURCE_INTEGRATION_SHA"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Compile exact tracked source
+        shell: pwsh
+        working-directory: work
+        run: |
+          python -m compileall -q acs tests run_accessible_chess.py
+          if ($LASTEXITCODE -ne 0) { throw 'compileall failed' }
+
+      - name: Full product tests on exact tracked source
+        shell: pwsh
+        working-directory: work
+        run: |
+          python -m unittest discover -s tests -v 2>&1 | Tee-Object -FilePath exact-source-unittest.log
+          if ($LASTEXITCODE -ne 0) { Get-Content exact-source-unittest.log -Tail 200; throw 'full exact-source tests failed' }
+
+      - name: Issue 22 and P0 contracts on exact tracked source
+        shell: pwsh
+        working-directory: work
+        run: |
+          python -m unittest tests.test_issue22_release_contract tests.test_nvda_p0_contract tests.test_ui_native_menu_recovery tests.test_sound_runtime tests.test_release_stockfish_composition -v 2>&1 | Tee-Object -FilePath exact-source-p0.log
+          if ($LASTEXITCODE -ne 0) { Get-Content exact-source-p0.log -Tail 200; throw 'Issue22/P0 exact-source gate failed' }
+          python run_accessible_chess.py --diagnostic
+          if ($LASTEXITCODE -ne 0) { throw 'source diagnostic failed' }
+
+      - name: Upload exact-source evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stage1-exact-source-evidence-${{ github.run_id }}
+          path: |
+            work/exact-source-unittest.log
+            work/exact-source-p0.log
+          if-no-files-found: ignore
+          retention-days: 7
