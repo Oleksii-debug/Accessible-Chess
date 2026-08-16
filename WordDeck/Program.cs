@@ -6,6 +6,7 @@ internal static class Program
     private static void Main()
     {
         ApplicationConfiguration.Initialize();
+        AccessibilityAnnouncer.Install();
         Application.Run(new MainForm());
     }
 }
