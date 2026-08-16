@@ -19,6 +19,7 @@ on:
       - 'acs/classroom_collaboration_storage.py'
       - 'acs/local_profile.py'
       - 'acs/usage_statistics.py'
+      - 'acs/usage_sync.py'
       - 'acs/teaching_ui.py'
       - 'acs/teaching_webapp.py'
       - 'web/teaching.html'
@@ -36,6 +37,7 @@ on:
       - 'tests/test_classroom_collaboration_storage.py'
       - 'tests/test_local_profile.py'
       - 'tests/test_usage_statistics.py'
+      - 'tests/test_usage_sync.py'
       - 'tests/test_teaching_ui.py'
       - '.github/workflows/teaching-classroom-foundation-ci.yml'
 
@@ -67,6 +69,7 @@ jobs:
           acs/classroom_collaboration_storage.py
           acs/local_profile.py
           acs/usage_statistics.py
+          acs/usage_sync.py
           acs/teaching_ui.py
           acs/teaching_webapp.py
           tests/test_visual_preferences.py
@@ -83,6 +86,7 @@ jobs:
           tests/test_classroom_collaboration_storage.py
           tests/test_local_profile.py
           tests/test_usage_statistics.py
+          tests/test_usage_sync.py
           tests/test_teaching_ui.py
       - name: Run feature contract and semantic UI tests
         run: >-
@@ -101,6 +105,7 @@ jobs:
           tests.test_classroom_collaboration_storage
           tests.test_local_profile
           tests.test_usage_statistics
+          tests.test_usage_sync
           tests.test_teaching_ui
       - name: Run adjacent Data regressions
         run: >-
