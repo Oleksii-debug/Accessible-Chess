@@ -285,10 +285,14 @@ def main() -> None:
         text_select=True,
     )
 
-    def install_menu() -> None:
-        # Human acceptance requires a Windows-native Alt menu. The installer
-        # returns False rather than silently falling back to the inaccessible
-        # pywebview MenuStrip.
-        install_windows_native_menu(window, api)
+    def install_menu_on_native_host(*_args: Any) -> None:
+        # pywebview's before_show event fires only after the platform BrowserForm
+        # exists and window.native has been assigned, but before that Form is
+        # shown. Attach the native MenuStrip at that exact lifecycle point so
+        # the first exposed Windows UIA tree already contains the application
+        # menu. Never fall back to a WebView/HTML menu.
+        if not install_windows_native_menu(window, api):
+            raise RuntimeError("Accessible native Windows menu could not be attached to the WebView2 host.")
 
-    webview.start(install_menu, gui="edgechromium", private_mode=True)
+    window.events.before_show += install_menu_on_native_host
+    webview.start(gui="edgechromium", private_mode=True)
