@@ -2,6 +2,8 @@ namespace WordDeck;
 
 internal sealed class MainForm : Form
 {
+    private sealed record MoveUndo(string DictionaryId, string EntryId, int FromDeck, int ToDeck);
+
     private readonly AppStateStore _store = new();
     private readonly AppState _state;
     private readonly ShortcutManager _shortcuts;
@@ -15,6 +17,7 @@ internal sealed class MainForm : Form
     private readonly List<string> _history = new();
     private int _historyIndex = -1;
     private DictionaryEntry? _current;
+    private MoveUndo? _lastMove;
 
     private readonly ComboBox _dictionaryCombo;
     private readonly ComboBox _deckCombo;
@@ -169,6 +172,10 @@ internal sealed class MainForm : Form
         file.DropDownItems.Add(exit);
 
         var decks = new ToolStripMenuItem("&Deck");
+        var undoMove = new ToolStripMenuItem("&Undo last deck move");
+        undoMove.Click += (_, _) => UndoLastMove();
+        decks.DropDownItems.Add(undoMove);
+        decks.DropDownItems.Add(new ToolStripSeparator());
         for (int i = 1; i <= 5; i++)
         {
             int deck = i;
@@ -245,6 +252,7 @@ internal sealed class MainForm : Form
     {
         _package = package;
         _state.ActiveDictionaryId = package.Id;
+        _lastMove = null;
 
         _entriesById.Clear();
         foreach (DictionaryEntry entry in package.Entries)
@@ -435,18 +443,67 @@ internal sealed class MainForm : Form
             return;
 
         targetDeck = Math.Clamp(targetDeck, 1, 5);
+        int fromDeck = _deckMap.GetValueOrDefault(_current.Id, 1);
         string movedWord = _current.Source;
+
+        if (targetDeck == fromDeck)
+        {
+            AnnounceStatus($"{movedWord} is already in deck {targetDeck}.");
+            RepeatCurrentWord();
+            return;
+        }
+
         _deckMap[_current.Id] = targetDeck;
+        _lastMove = new MoveUndo(_package.Id, _current.Id, fromDeck, targetDeck);
         _translationBox.Clear();
         UpdateCounts();
         SaveState();
-
-        if (targetDeck == _activeDeck)
-            AnnounceStatus($"{movedWord} remains in deck {targetDeck}.");
-        else
-            _statusLabel.Text = $"Moved {movedWord} to deck {targetDeck}.";
-
+        AnnounceStatus($"Moved {movedWord} from deck {fromDeck} to deck {targetDeck}. Undo is available.");
         NextWord();
+    }
+
+    private void UndoLastMove()
+    {
+        MoveUndo? undo = _lastMove;
+        if (undo is null || !string.Equals(undo.DictionaryId, _package.Id, StringComparison.OrdinalIgnoreCase))
+        {
+            AnnounceStatus("No deck move is available to undo.");
+            RepeatCurrentWord();
+            return;
+        }
+
+        if (!_entriesById.TryGetValue(undo.EntryId, out DictionaryEntry? entry))
+        {
+            _lastMove = null;
+            AnnounceStatus("The previous deck move can no longer be undone.");
+            RepeatCurrentWord();
+            return;
+        }
+
+        int currentDeck = _deckMap.GetValueOrDefault(undo.EntryId, 1);
+        if (currentDeck != undo.ToDeck)
+        {
+            _lastMove = null;
+            AnnounceStatus("The previous deck move has already changed and can no longer be undone.");
+            RepeatCurrentWord();
+            return;
+        }
+
+        _deckMap[undo.EntryId] = undo.FromDeck;
+        _lastMove = null;
+        UpdateCounts();
+        SaveState();
+
+        if (_activeDeck == undo.FromDeck)
+        {
+            ShowEntryById(undo.EntryId);
+            AnnounceStatus($"Undid move. {entry.Source} is back in deck {undo.FromDeck}.");
+        }
+        else
+        {
+            AnnounceStatus($"Undid move. {entry.Source} is back in deck {undo.FromDeck}.");
+            RepeatCurrentWord();
+        }
     }
 
     private void UpdateCounts()
@@ -504,8 +561,8 @@ internal sealed class MainForm : Form
             "WORDDECK HELP\r\n\r\n" +
             "WordDeck shows only the English side of a card by default. Reveal the Ukrainian translation only when you need it. " +
             "Words are drawn from the active deck in a shuffled bag: every word is presented once before the deck is reshuffled.\r\n\r\n" +
-            "Decks are user-controlled. Move the current word directly to any of the five decks. Switching decks changes which set you are training. " +
-            "All progress is saved locally in your Windows user profile and a recovery backup is maintained.\r\n\r\n" +
+            "Decks are user-controlled. Move the current word directly to any of the five decks. If you move a word accidentally, use Undo last deck move. " +
+            "Switching decks changes which set you are training. All progress is saved locally in your Windows user profile and a recovery backup is maintained.\r\n\r\n" +
             "KEYBOARD SHORTCUTS\r\n" + shortcutLines + "\r\n\r\n" +
             "Use Tools > Keyboard shortcuts to reassign shortcuts. Use File > Import dictionary to add another WordDeck TSV dictionary.";
 
@@ -547,6 +604,7 @@ internal sealed class MainForm : Form
         else if (action == ActionIds.PreviousWord) PreviousWord();
         else if (action == ActionIds.RevealTranslation) RevealTranslation();
         else if (action == ActionIds.RepeatWord) RepeatCurrentWord();
+        else if (action == ActionIds.UndoMove) UndoLastMove();
         else if (action == ActionIds.ShortcutSettings) OpenShortcutSettings();
         else if (action == ActionIds.Help) ShowHelp();
         else
