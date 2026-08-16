@@ -1,14 +1,10 @@
 from __future__ import annotations
 
-"""Windows-native menu for Accessible Chess.
+"""Windows-native application menu for Accessible Chess.
 
-Production attaches a real System.Windows.Forms.MenuStrip to the actual
-pywebview WinForms host. The important part is ownership: packaged WebView2
-builds can expose a different child/control hierarchy than source-level tests
-suggest, so the menu is resolved against the native WebView's real FindForm /
-TopLevelControl owner before attachment. A small legacy projection remains only
-as a presentation/test helper; the release launcher never passes it to
-pywebview.
+The release launcher attaches a real ``System.Windows.Forms.MenuStrip`` to the
+actual top-level pywebview WinForms owner.  The HTML document never substitutes
+for the Windows application menu.
 """
 
 import json
@@ -55,6 +51,37 @@ _MNEMONIC = {
 
 def _labels(lang: str) -> dict[str, str]:
     return _LABELS_EN if lang == "en" else _LABELS_UK
+
+
+def _same_managed_object(left: Any, right: Any) -> bool:
+    """Compare Python.NET managed objects without relying on proxy identity.
+
+    Python ``is`` is not a valid ownership check for CLR objects: repeated
+    property access may yield a different Python proxy for the same managed
+    instance.  Prefer CLR reference identity, then managed ``Equals``, then
+    normal equality for test doubles/non-CLR callers.
+    """
+    if left is right:
+        return True
+    if left is None or right is None:
+        return False
+    try:
+        from System import Object  # type: ignore
+
+        if bool(Object.ReferenceEquals(left, right)):
+            return True
+    except Exception:
+        pass
+    try:
+        equals = getattr(left, "Equals", None)
+        if callable(equals) and bool(equals(right)):
+            return True
+    except Exception:
+        pass
+    try:
+        return bool(left == right)
+    except Exception:
+        return False
 
 
 def active_binding(api: Any, action_id: str) -> str | None:
@@ -115,11 +142,7 @@ def _invoke_api(window: Any, fn: Callable[[], Any]) -> None:
 
 
 def make_keymap_menu(webview: Any, api: Any, window_holder: dict[str, Any]):
-    """Legacy presentation projection for tests/compatibility only.
-
-    The production launcher does not install this pywebview MenuStrip. It uses
-    :func:`install_windows_native_menu` against the real WinForms host.
-    """
+    """Legacy presentation projection used only by tests/compatibility."""
     Menu = webview.menu.Menu
     MenuAction = webview.menu.MenuAction
     MenuSeparator = webview.menu.MenuSeparator
@@ -165,15 +188,7 @@ def make_keymap_menu(webview: Any, api: Any, window_holder: dict[str, Any]):
 
 
 def _resolve_windows_host_form(window: Any) -> Any | None:
-    """Return the real top-level WinForms Form that owns the WebView2 control.
-
-    pywebview 5.x assigns ``window.native`` to BrowserForm, but packaged builds
-    must not rely on that implementation detail alone. Resolve through the
-    native WebView control's FindForm/TopLevelControl first when available and
-    only then fall back to the native object itself. This makes ownership
-    explicit and prevents attaching a MenuStrip to a detached/wrapper control
-    that is absent from the top-level UIA subtree.
-    """
+    """Resolve the top-level WinForms Form that actually owns WebView2."""
     native = getattr(window, "native", None)
     if native is None:
         return None
@@ -216,16 +231,28 @@ def _resolve_windows_host_form(window: Any) -> Any | None:
     return None
 
 
-def install_windows_native_menu(window: Any, api: Any) -> bool:
-    """Attach a native WinForms MenuStrip to the actual packaged host Form.
+def native_menu_attachment_state(window: Any) -> dict[str, bool]:
+    """Return proxy-safe structural ownership state for Windows diagnostics."""
+    host = getattr(window, "_accessible_chess_native_menu_host", None)
+    menu = getattr(window, "_accessible_chess_native_menu", None)
+    return {
+        "host_exists": host is not None,
+        "menu_exists": menu is not None,
+        "host_top_level": bool(getattr(host, "TopLevel", False)) if host is not None else False,
+        "parent_is_host": _same_managed_object(getattr(menu, "Parent", None), host) if menu is not None else False,
+        "main_menu_strip_is_menu": _same_managed_object(getattr(host, "MainMenuStrip", None), menu) if host is not None else False,
+    }
 
-    The menu is attached to the Form that actually owns the WebView2 control,
-    not merely to whichever object happens to be present on ``window.native``.
-    QA must still verify the built executable exposes ControlType.MenuBar and
-    supports Alt/arrows/Enter/Esc through normal Windows/NVDA semantics.
+
+def install_windows_native_menu(window: Any, api: Any) -> bool:
+    """Attach a real WinForms MenuStrip to the actual packaged host Form.
+
+    QA must still verify the built executable and Oleksii must personally verify
+    Alt/arrows/Enter/Esc with NVDA.  This function only owns native composition.
     """
     try:
         import clr  # type: ignore
+
         clr.AddReference("System.Windows.Forms")
         from System import Action  # type: ignore
         from System.Windows.Forms import (  # type: ignore
@@ -310,13 +337,12 @@ def install_windows_native_menu(window: Any, api: Any) -> bool:
     def attach() -> None:
         form.SuspendLayout()
         try:
-            # Remove only our own stale retry instance, never another app menu.
             stale = None
             for control in list(form.Controls):
                 if getattr(control, "Name", "") == "AccessibleChessMainMenu":
                     stale = control
                     break
-            if stale is not None and stale is not menu:
+            if stale is not None and not _same_managed_object(stale, menu):
                 form.Controls.Remove(stale)
                 try:
                     stale.Dispose()
@@ -328,11 +354,9 @@ def install_windows_native_menu(window: Any, api: Any) -> bool:
             menu.BringToFront()
             form.PerformLayout()
 
-            # Fail closed if the control was not attached to the exact owner
-            # resolved from the packaged WebView2 host hierarchy.
-            if getattr(menu, "Parent", None) is not form:
+            if not _same_managed_object(getattr(menu, "Parent", None), form):
                 raise RuntimeError("native menu attached to wrong WinForms owner")
-            if getattr(form, "MainMenuStrip", None) is not menu:
+            if not _same_managed_object(getattr(form, "MainMenuStrip", None), menu):
                 raise RuntimeError("native menu is not MainMenuStrip of host form")
         finally:
             form.ResumeLayout(True)
