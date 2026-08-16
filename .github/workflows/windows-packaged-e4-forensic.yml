@@ -1,0 +1,278 @@
+name: Windows Packaged e4 Forensic
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - qa/windows-current-integration-candidate-20260815
+    paths:
+      - '.github/workflows/windows-packaged-e4-forensic.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: accessible-chess-packaged-e4-forensic
+  cancel-in-progress: false
+
+env:
+  SOURCE_INTEGRATION_SHA: 9e20c9a0185b84cb148fbad33162a1f0f3e7f7ba
+  PYWEBVIEW_VERSION: '6.2.1'
+  NUITKA_UPSTREAM_FIX_COMMIT: b7ea05bf570e0b6950de6db7c4c8e579e1b77d29
+
+jobs:
+  forensic:
+    runs-on: windows-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout QA snapshot
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Materialize exact frozen product
+        shell: pwsh
+        run: |
+          git cat-file -e "$env:SOURCE_INTEGRATION_SHA^{commit}"
+          if ($LASTEXITCODE -ne 0) { throw 'Frozen integration SHA unavailable' }
+          $resolved=(git rev-parse "$env:SOURCE_INTEGRATION_SHA^{commit}").Trim()
+          if ($resolved -ne $env:SOURCE_INTEGRATION_SHA) { throw "Frozen SHA mismatch: $resolved" }
+          New-Item -ItemType Directory -Force -Path work | Out-Null
+          $paths=@('acs','web','tests','run_accessible_chess.py','VERSION.txt','HOTKEYS_UA.txt','HOTKEYS_EN.txt')
+          git archive --format=zip --output=product.zip $env:SOURCE_INTEGRATION_SHA -- $paths
+          if ($LASTEXITCODE -ne 0) { throw 'Exact product export failed' }
+          Expand-Archive product.zip work -Force
+          "SOURCE LOCK PASS: $resolved"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install pinned runtime and patched Nuitka
+        shell: pwsh
+        working-directory: work
+        run: |
+          $nuitkaUrl="https://github.com/Nuitka/Nuitka/archive/$env:NUITKA_UPSTREAM_FIX_COMMIT.zip"
+          python -m pip install "pywebview==$env:PYWEBVIEW_VERSION" "Nuitka @ $nuitkaUrl" ordered-set zstandard
+          if ($LASTEXITCODE -ne 0) { throw 'runtime/compiler install failed' }
+
+      - name: Build minimal exact standalone package
+        shell: pwsh
+        working-directory: work
+        run: |
+          # This is diagnostic-only. Reproduce the same executable composition needed for the move-entry boundary,
+          # but do not run the full release chain and do not create a candidate ZIP.
+          python -m nuitka --standalone --assume-yes-for-downloads --windows-console-mode=disable --output-filename=AccessibleChess.exe --include-data-dir=web=web --report=nuitka-forensic-report.xml run_accessible_chess.py
+          if ($LASTEXITCODE -ne 0) { throw 'Nuitka forensic standalone compile failed' }
+          $exe=Get-ChildItem -Recurse -Filter AccessibleChess.exe | Where-Object {$_.FullName -match 'dist'} | Select-Object -First 1
+          if(-not $exe){ throw 'AccessibleChess.exe missing' }
+          $exe.FullName | Set-Content -Encoding UTF8 built_exe_path.txt
+
+      - name: Start packaged app
+        shell: pwsh
+        working-directory: work
+        run: |
+          $exe=(Get-Content built_exe_path.txt -Raw).Trim()
+          $p=Start-Process $exe -PassThru
+          Start-Sleep -Seconds 12
+          if($p.HasExited){ throw "GUI exited during forensic startup: $($p.ExitCode)" }
+          $p.Id | Set-Content gui_pid.txt
+          "FORENSIC GUI PID=$($p.Id)"
+
+      - name: Forensic packaged e4 UIA probe
+        id: probe
+        continue-on-error: true
+        shell: pwsh
+        working-directory: work
+        run: |
+          $ErrorActionPreference='Stop'
+          Add-Type -AssemblyName UIAutomationClient
+          Add-Type -AssemblyName UIAutomationTypes
+          Add-Type -AssemblyName System.Windows.Forms
+
+          $result=[ordered]@{
+            schema_version=1
+            source_sha=$env:SOURCE_INTEGRATION_SHA
+            app_pid=$null
+            top_level_windows=@()
+            edits=@()
+            move_input_found=$false
+            move_input=$null
+            pre_submit_value=$null
+            legal_e4=[ordered]@{typed=$false; after_value=$null; focus=$null; canonical_state=@{}; passed=$false}
+            invalid_e9=[ordered]@{after_value=$null; passed=$false}
+            ctrl_a_c=[ordered]@{clipboard=$null; passed=$false}
+            exception=$null
+            bounded_uia_tree=@()
+          }
+
+          function SafeCurrent($el,$prop){
+            try { return $el.Current.$prop } catch { return $null }
+          }
+          function TryValue($el){
+            try {
+              $p=$el.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern)
+              return [string]$p.Current.Value
+            } catch { return $null }
+          }
+          function ElementInfo($el){
+            if(-not $el){ return $null }
+            $rid=$null
+            try { $rid=@($el.GetRuntimeId()) } catch {}
+            return [ordered]@{
+              name=[string](SafeCurrent $el 'Name')
+              automation_id=[string](SafeCurrent $el 'AutomationId')
+              control_type=[string](SafeCurrent $el 'ControlType')
+              class_name=[string](SafeCurrent $el 'ClassName')
+              framework_id=[string](SafeCurrent $el 'FrameworkId')
+              process_id=(SafeCurrent $el 'ProcessId')
+              runtime_id=$rid
+              value=(TryValue $el)
+            }
+          }
+          function SnapshotState($wins){
+            $state=[ordered]@{fen=@(); board=@(); move_list=@(); side_to_move=@(); status=@()}
+            foreach($win in $wins){
+              $all=$win.FindAll([System.Windows.Automation.TreeScope]::Descendants,[System.Windows.Automation.Condition]::TrueCondition)
+              foreach($el in $all){
+                $name=[string](SafeCurrent $el 'Name')
+                $aid=[string](SafeCurrent $el 'AutomationId')
+                $value=TryValue $el
+                $text=(($name+' '+$aid+' '+$value).Trim())
+                $info=ElementInfo $el
+                if($text -match '(?i)FEN'){ $state.fen += $info }
+                if($text -match '(?i)board|дошк'){ $state.board += $info }
+                if($text -match '(?i)moves|move list|ходи|список ход'){ $state.move_list += $info }
+                if($text -match '(?i)side.?to.?move|черга|хід (білих|чорних)|white to move|black to move'){ $state.side_to_move += $info }
+                if($text -match '(?i)status|стан|e4'){ $state.status += $info }
+              }
+            }
+            return $state
+          }
+          function DumpBoundedTree($wins,[int]$limit=350){
+            $dump=@()
+            foreach($win in $wins){
+              if($dump.Count -ge $limit){break}
+              $dump += (ElementInfo $win)
+              $all=$win.FindAll([System.Windows.Automation.TreeScope]::Descendants,[System.Windows.Automation.Condition]::TrueCondition)
+              foreach($el in $all){
+                if($dump.Count -ge $limit){break}
+                $dump += (ElementInfo $el)
+              }
+            }
+            return $dump
+          }
+
+          try {
+            $appPid=[int](Get-Content gui_pid.txt -Raw)
+            $result.app_pid=$appPid
+            $root=[System.Windows.Automation.AutomationElement]::RootElement
+            $cond=New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::ProcessIdProperty,$appPid)
+            $wins=$root.FindAll([System.Windows.Automation.TreeScope]::Children,$cond)
+            foreach($win in $wins){ $result.top_level_windows += (ElementInfo $win) }
+
+            $move=$null
+            foreach($win in $wins){
+              $editCond=New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::ControlTypeProperty,[System.Windows.Automation.ControlType]::Edit)
+              $edits=$win.FindAll([System.Windows.Automation.TreeScope]::Descendants,$editCond)
+              foreach($e in $edits){
+                $info=ElementInfo $e
+                $result.edits += $info
+                if(-not $move -and (($info.name -match '(?i)Хід|Move') -or ($info.automation_id -match '(?i)move'))){ $move=$e; $result.move_input=$info }
+              }
+            }
+            if(-not $move){ throw 'Move input not found in packaged app' }
+            $result.move_input_found=$true
+            $vp=$move.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern)
+            $result.pre_submit_value=[string]$vp.Current.Value
+
+            $before=SnapshotState $wins
+            $ws=New-Object -ComObject WScript.Shell
+            $null=$ws.AppActivate($appPid)
+            $move.SetFocus(); Start-Sleep -Milliseconds 350
+            $ws.SendKeys('e4'); $result.legal_e4.typed=$true
+            $ws.SendKeys('{ENTER}'); Start-Sleep -Seconds 2
+            $result.legal_e4.after_value=[string]$vp.Current.Value
+            $result.legal_e4.focus=ElementInfo ([System.Windows.Automation.AutomationElement]::FocusedElement)
+            $after=SnapshotState $wins
+            $result.legal_e4.canonical_state=[ordered]@{before=$before; after=$after}
+
+            $inputCleared=($result.legal_e4.after_value -eq '')
+            $focus=$result.legal_e4.focus
+            $sameFocus=$false
+            if($focus){
+              if($result.move_input.automation_id -and $focus.automation_id){ $sameFocus=($focus.automation_id -eq $result.move_input.automation_id) }
+              elseif($result.move_input.runtime_id -and $focus.runtime_id){ $sameFocus=((@($focus.runtime_id) -join ',') -eq (@($result.move_input.runtime_id) -join ',')) }
+              else { $sameFocus=($focus.control_type -match 'Edit' -and $focus.name -eq $result.move_input.name) }
+            }
+            $stateText=($after | ConvertTo-Json -Depth 12 -Compress)
+            $beforeText=($before | ConvertTo-Json -Depth 12 -Compress)
+            $canonicalChanged=($stateText -ne $beforeText) -and ($stateText -match '(?i)e4|e3|4P3| b ')
+            $result.legal_e4.passed=($inputCleared -and $sameFocus -and $canonicalChanged)
+
+            $move.SetFocus(); Start-Sleep -Milliseconds 200
+            $ws.SendKeys('e9'); $ws.SendKeys('{ENTER}'); Start-Sleep -Milliseconds 900
+            $result.invalid_e9.after_value=[string]$vp.Current.Value
+            $result.invalid_e9.passed=($result.invalid_e9.after_value -eq 'e9')
+
+            Set-Clipboard -Value '__ACS_SENTINEL__'
+            $move.SetFocus(); Start-Sleep -Milliseconds 150
+            $ws.SendKeys('^a'); $ws.SendKeys('^c'); Start-Sleep -Milliseconds 400
+            $clip=[string](Get-Clipboard -Raw)
+            $result.ctrl_a_c.clipboard=$clip
+            $result.ctrl_a_c.passed=($clip -eq 'e9')
+
+            if(-not $result.legal_e4.passed){ throw "Legal e4 packaged acceptance failed: cleared=$inputCleared sameFocus=$sameFocus canonicalChanged=$canonicalChanged" }
+            if(-not $result.invalid_e9.passed){ throw "Invalid e9 preservation failed: '$($result.invalid_e9.after_value)'" }
+            if(-not $result.ctrl_a_c.passed){ throw "Ctrl+A/C native selection failed: clipboard='$clip'" }
+          }
+          catch {
+            $result.exception=[ordered]@{
+              message=$_.Exception.Message
+              type=$_.Exception.GetType().FullName
+              script_stack=$_.ScriptStackTrace
+              position=[string]$_.InvocationInfo.PositionMessage
+            }
+            throw
+          }
+          finally {
+            try {
+              if($wins){ $result.bounded_uia_tree=DumpBoundedTree $wins 350 }
+            } catch {}
+            $result | ConvertTo-Json -Depth 20 | Set-Content -Encoding UTF8 packaged-e4-forensic.json
+            $result | ConvertTo-Json -Depth 20 | Write-Host
+            try { Stop-Process -Id $result.app_pid -Force -ErrorAction SilentlyContinue } catch {}
+          }
+
+      - name: Emit forensic summary
+        if: always()
+        shell: pwsh
+        working-directory: work
+        run: |
+          if(Test-Path packaged-e4-forensic.json){
+            $r=Get-Content packaged-e4-forensic.json -Raw | ConvertFrom-Json
+            "top_level_windows=$($r.top_level_windows.Count)"
+            foreach($w in $r.top_level_windows){ "WINDOW name='$($w.name)' type='$($w.control_type)' aid='$($w.automation_id)'" }
+            "edit_controls=$($r.edits.Count)"
+            foreach($e in $r.edits){ "EDIT name='$($e.name)' aid='$($e.automation_id)' value='$($e.value)'" }
+            "move_input_found=$($r.move_input_found)"
+            "pre_submit='$($r.pre_submit_value)'"
+            "legal_e4.after_value='$($r.legal_e4.after_value)' legal_e4.passed=$($r.legal_e4.passed)"
+            "legal_e4.focus=$($r.legal_e4.focus | ConvertTo-Json -Compress)"
+            "invalid_e9.after_value='$($r.invalid_e9.after_value)' passed=$($r.invalid_e9.passed)"
+            "ctrl_a_c.clipboard='$($r.ctrl_a_c.clipboard)' passed=$($r.ctrl_a_c.passed)"
+            if($r.exception){ "EXCEPTION=$($r.exception | ConvertTo-Json -Compress)" }
+          } else {
+            'FORENSIC JSON MISSING'
+          }
+
+      - name: Upload packaged e4 forensic evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: packaged-e4-forensic-${{ github.run_id }}
+          if-no-files-found: warn
+          path: |
+            work/packaged-e4-forensic.json
+            work/nuitka-forensic-report.xml
+            work/built_exe_path.txt
