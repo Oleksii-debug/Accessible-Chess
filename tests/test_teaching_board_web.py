@@ -67,7 +67,11 @@ class TeachingBoardWebSemanticTests(unittest.TestCase):
     def test_normal_copy_and_selection_are_not_globally_hijacked(self) -> None:
         lowered = self.html.lower()
         self.assertNotIn("ctrl+c", lowered)
-        self.assertNotIn("preventdefault()", lowered.split("addEventListener('keydown'", 1)[0])
+        self.assertNotIn("document.addeventlistener('keydown'", lowered)
+        self.assertNotIn("window.addeventlistener('keydown'", lowered)
+        self.assertNotIn("key==='c'", lowered)
+        self.assertIn("el('board').addeventlistener('keydown'", lowered)
+        self.assertIn("event.preventdefault()", lowered)
         self.assertIn("text_select=True", self.launcher)
 
     def test_launcher_reuses_existing_teaching_api_and_stays_out_of_release_app(self) -> None:
