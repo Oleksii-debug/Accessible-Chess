@@ -3,7 +3,9 @@ from __future__ import annotations
 import inspect
 from types import SimpleNamespace
 
+from acs import webapp_keymap
 from acs.ui_native_menu import (
+    _resolve_windows_host_form,
     install_windows_native_menu,
     make_keymap_menu,
     reset_all_keybindings,
@@ -146,22 +148,57 @@ def test_reset_helper_handles_bridge_failure_without_destroying_other_data() -> 
     assert "location.reload()" not in calls[0]
 
 
-def test_production_native_menu_is_a_real_form_child_menustrip_with_uia_role() -> None:
-    """Source-level contract for the Windows-only composition.
+def test_host_resolution_prefers_the_form_that_actually_owns_webview2() -> None:
+    """A wrapper/native object must not win over WebView2's real FindForm owner."""
+    real_form = SimpleNamespace(Controls=[], MainMenuStrip=None, TopLevel=True)
 
-    Linux unit CI cannot prove the Windows accessibility tree. This guards the
-    exact composition properties that QA must validate on the packaged EXE:
-    a native MenuStrip child, assigned as MainMenuStrip, with MenuBar role.
-    """
+    class WebViewControl:
+        TopLevelControl = real_form
+
+        def FindForm(self):
+            return real_form
+
+    detached_wrapper = SimpleNamespace(
+        Controls=[], MainMenuStrip=None, TopLevel=True, webview=WebViewControl()
+    )
+    window = SimpleNamespace(native=detached_wrapper)
+
+    assert _resolve_windows_host_form(window) is real_form
+
+
+def test_host_resolution_rejects_non_top_level_wrapper_when_real_form_missing() -> None:
+    wrapper = SimpleNamespace(Controls=[], MainMenuStrip=None, TopLevel=False)
+    window = SimpleNamespace(native=wrapper)
+
+    assert _resolve_windows_host_form(window) is None
+
+
+def test_production_native_menu_targets_actual_webview_owner_and_checks_parent() -> None:
     source = inspect.getsource(install_windows_native_menu)
+    resolver = inspect.getsource(_resolve_windows_host_form)
 
     assert "MenuStrip" in source
     assert "ToolStripMenuItem" in source
     assert "AccessibleRole.MenuBar" in source
+    assert "_resolve_windows_host_form(window)" in source
+    assert "webview_control.FindForm()" in resolver
+    assert "webview_control, \"TopLevelControl\"" in resolver
     assert "form.MainMenuStrip = menu" in source
     assert "form.Controls.Add(menu)" in source
     assert "menu.BringToFront()" in source
+    assert 'getattr(menu, "Parent", None) is not form' in source
+    assert 'getattr(form, "MainMenuStrip", None) is not menu' in source
     assert "MainMenu(" not in source
+
+
+def test_release_launcher_attaches_menu_at_before_show_host_lifecycle() -> None:
+    source = inspect.getsource(webapp_keymap.main)
+
+    assert "window.events.before_show += install_menu_on_native_host" in source
+    assert "install_windows_native_menu(window, api)" in source
+    assert "Accessible native Windows menu could not be attached" in source
+    assert 'webview.start(gui="edgechromium", private_mode=True)' in source
+    assert "webview.start(install_menu" not in source
 
 
 def test_windows_package_gate_must_still_verify_real_uia_and_keyboard_semantics() -> None:
