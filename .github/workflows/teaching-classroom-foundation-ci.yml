@@ -7,6 +7,7 @@ on:
       - feature/teaching-classroom-foundation
     paths:
       - 'acs/visual_preferences.py'
+      - 'acs/visual_pack_presentation.py'
       - 'acs/teaching_controls.py'
       - 'acs/teaching_actions.py'
       - 'acs/child_coaching_ui.py'
@@ -28,7 +29,9 @@ on:
       - 'acs/teaching_webapp.py'
       - 'web/teaching.html'
       - 'web/child_coaching.html'
+      - 'web/visual_packs.html'
       - 'tests/test_visual_preferences.py'
+      - 'tests/test_visual_pack_presentation.py'
       - 'tests/test_teaching_controls.py'
       - 'tests/test_child_coaching_ui.py'
       - 'tests/test_sound_profiles.py'
@@ -65,6 +68,7 @@ jobs:
         run: >-
           python -m compileall -q
           acs/visual_preferences.py
+          acs/visual_pack_presentation.py
           acs/teaching_controls.py
           acs/teaching_actions.py
           acs/child_coaching_ui.py
@@ -85,6 +89,7 @@ jobs:
           acs/teaching_ui.py
           acs/teaching_webapp.py
           tests/test_visual_preferences.py
+          tests/test_visual_pack_presentation.py
           tests/test_teaching_controls.py
           tests/test_child_coaching_ui.py
           tests/test_sound_profiles.py
@@ -107,6 +112,7 @@ jobs:
         run: >-
           python -m unittest -v
           tests.test_visual_preferences
+          tests.test_visual_pack_presentation
           tests.test_teaching_controls
           tests.test_child_coaching_ui
           tests.test_sound_profiles
