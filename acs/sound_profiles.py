@@ -39,9 +39,7 @@ class SoundEventPreference:
             raise ValueError("sound event volume_percent must be in 0..100")
         object.__setattr__(self, "volume_percent", int(self.volume_percent))
         if self.sound_id is not None:
-            sound_id = str(self.sound_id).strip().lower()
-            if not sound_id:
-                raise ValueError("sound_id cannot be blank")
+            sound_id = _stable_id(self.sound_id, allow_dot=True)
             object.__setattr__(self, "sound_id", sound_id)
 
 
@@ -55,7 +53,7 @@ class SoundPackManifest:
     author: str = ""
 
     def __post_init__(self) -> None:
-        pack_id = _stable_id(self.pack_id)
+        pack_id = _stable_id(self.pack_id, allow_dot=True)
         version = str(self.version).strip()
         title = str(self.title).strip()
         license_id = str(self.license_id).strip()
@@ -87,7 +85,7 @@ class SoundProfile:
     events: Mapping[str, SoundEventPreference] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        pack_id = _stable_id(self.pack_id)
+        pack_id = _stable_id(self.pack_id, allow_dot=True)
         if isinstance(self.master_volume_percent, bool) or not 0 <= int(self.master_volume_percent) <= 100:
             raise ValueError("master_volume_percent must be in 0..100")
         normalized: dict[str, SoundEventPreference] = {}
