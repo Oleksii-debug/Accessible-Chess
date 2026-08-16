@@ -242,7 +242,7 @@ class StockfishRuntimeTests(unittest.TestCase):
             engine.start()
 
         self.assertIsNone(engine.proc)
-        self.assertEqual(["quit\n"], first.stdin.writes)
+        self.assertEqual(["uci\n", "quit\n"], first.stdin.writes)
         self.assertEqual(1, first.terminate_calls)
         self.assertEqual(0, first.kill_calls)
         self.assertEqual(0, first.poll())
@@ -254,6 +254,7 @@ class StockfishRuntimeTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "forced handshake failure"):
             engine.start()
         self.assertIsNone(engine.proc)
+        self.assertEqual(["uci\n", "quit\n"], replacement.stdin.writes)
         self.assertEqual(0, replacement.poll())
         engine.close()
 
