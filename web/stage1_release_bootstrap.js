@@ -59,6 +59,49 @@ function installMoveForm() {
     document.body.dataset.stage1MoveFormReady = 'true';
 }
 
+function installBoardFocusContinuity() {
+    const grid = byId('board-grid');
+    const board = byId('board-application');
+    if (!grid || !board || grid.dataset.focusContinuityReady === 'true') return;
+
+    let lastFocusedNode = null;
+    let lastFocusedSquare = '';
+
+    grid.addEventListener('focusin', event => {
+        const cell = event.target && event.target.closest && event.target.closest('[role="gridcell"]');
+        if (!cell || !grid.contains(cell)) return;
+        lastFocusedNode = cell;
+        lastFocusedSquare = cell.dataset.square || '';
+    });
+
+    const observer = new MutationObserver(records => {
+        if (!lastFocusedNode || board.hidden) return;
+        const focusedCellWasReplaced = records.some(record =>
+            [...record.removedNodes].some(node =>
+                node === lastFocusedNode || (node.contains && node.contains(lastFocusedNode))
+            )
+        );
+        if (!focusedCellWasReplaced) return;
+
+        queueMicrotask(() => {
+            if (board.hidden) return;
+            const active = document.activeElement;
+            if (active && grid.contains(active)) return;
+            const sameSquare = lastFocusedSquare ? byId('sq-' + lastFocusedSquare) : null;
+            const rovingCell = grid.querySelector('[role="gridcell"][tabindex="0"]');
+            const target = sameSquare || rovingCell;
+            if (!target) return;
+            target.focus({preventScroll: true});
+            lastFocusedNode = target;
+            lastFocusedSquare = target.dataset.square || lastFocusedSquare;
+        });
+    });
+
+    observer.observe(grid, {childList: true});
+    grid.dataset.focusContinuityReady = 'true';
+    document.body.dataset.stage1BoardFocusContinuityReady = 'true';
+}
+
 const soundLabels = {
     uk: {
         legend: 'Звуки', enabled: 'Увімкнути звуки', volume: 'Гучність',
@@ -241,6 +284,7 @@ async function markReady() {
 }
 
 installMoveForm();
+installBoardFocusContinuity();
 installSoundSettings();
 new MutationObserver(applySoundLanguage).observe(document.documentElement, {attributes:true, attributeFilter:['lang']});
 if (api()) markReady();
