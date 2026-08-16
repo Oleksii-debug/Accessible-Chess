@@ -23,7 +23,7 @@ class _RecordingEngine:
 
 
 class Stage1CoreFullFlowTests(unittest.TestCase):
-    """One coherent Stage-1 chess-state/engine acceptance sequence.
+    """Coherent Stage-1 chess-state/engine acceptance sequences.
 
     Presentation delivers text and consumes snapshots; Core owns classification,
     legal mutation, exact FEN/turn/history, editor compatibility, engine-position
@@ -88,7 +88,7 @@ class Stage1CoreFullFlowTests(unittest.TestCase):
         self.assertFalse(redo_result.stale)
         self.assertEqual(engine.analysis_fens[-1], e4_fen)
 
-        # Invalid text is atomic: no board/history/editor/analysis state may move.
+        # Invalid move text is atomic: no board/history/editor/analysis state may move.
         before_fen = board.fen()
         before_turn = board.turn
         before_undo = tuple(board.undo_stack)
@@ -111,11 +111,81 @@ class Stage1CoreFullFlowTests(unittest.TestCase):
         self.assertEqual(PositionState.from_fen(board.fen()), before_editor)
         self.assertEqual(SoundEventPolicy.for_move(MoveSoundFacts(legal=False)), (SoundEvent.ILLEGAL,))
 
+        # Invalid editor/FEN input must be equally atomic. This particular FEN
+        # reaches castling validation only after board/turn fields have parsed,
+        # which protects against the old partial-mutation failure mode.
+        invalid_editor_fen = "4k3/8/8/8/8/8/4K3/8 b K - 0 1"
+        with self.assertRaises(ValueError):
+            board.set_fen(invalid_editor_fen)
+        self.assertEqual(board.fen(), before_fen)
+        self.assertEqual(board.turn, before_turn)
+        self.assertEqual(tuple(board.undo_stack), before_undo)
+        self.assertEqual(tuple(board.redo_stack), before_redo)
+        self.assertEqual(board.last_move, before_last)
+        self.assertEqual(tuple(engine.analysis_fens), before_engine_fens)
+
+        # A valid editor position may intentionally become the new canonical
+        # position. It clears destructive history, then analysis follows that
+        # exact FEN and side-to-move.
+        edited = before_editor.with_piece("a2", None).with_piece("a3", "P")
+        self.assertEqual(edited.validate_playable(), ())
+        edited_fen = edited.to_fen()
+        board.set_fen(edited_fen)
+        self.assertEqual(board.fen(), edited_fen)
+        self.assertEqual(board.turn, "b")
+        self.assertEqual(board.undo_stack, [])
+        self.assertEqual(board.redo_stack, [])
+        self.assertIsNone(board.last_move)
+        analysis.invalidate(edited_fen)
+        edited_result = analysis.analyze(edited_fen, multipv=5, depth=16)
+        self.assertFalse(edited_result.stale)
+        self.assertEqual(edited_result.fen, edited_fen)
+        self.assertEqual(engine.analysis_fens[-1], edited_fen)
+        self.assertEqual(PositionState.from_fen(board.fen()), edited)
+
         # Closing the owning analysis service is idempotent and closes its provider
         # exactly once, preventing an orphaned engine owner at application shutdown.
         analysis.close()
         analysis.close()
         self.assertEqual(engine.closed, 1)
+
+    def test_rejected_fen_never_mutates_existing_history_or_last_move(self) -> None:
+        board = Board()
+        board.push_text("e4")
+        board.push_text("e5")
+        board.undo()
+
+        snapshot = (
+            board.fen(),
+            board.turn,
+            tuple(board.undo_stack),
+            tuple(board.redo_stack),
+            board.last_move,
+        )
+        malformed_fens = (
+            # Castling right inconsistent with the parsed pieces.
+            "4k3/8/8/8/8/8/4K3/8 b K - 0 1",
+            # En-passant target rank inconsistent with side to move.
+            "4k3/8/8/8/8/8/4K3/8 b - e6 0 1",
+            # FEN digits are 1..8 only; zero must never be accepted as an empty run.
+            "4k3/8/8/8/8/8/4K3/08 b - - 0 1",
+            # Move counters are validated before canonical state is committed.
+            "4k3/8/8/8/8/8/4K3/8 b - - -1 1",
+        )
+        for fen in malformed_fens:
+            with self.subTest(fen=fen):
+                with self.assertRaises(ValueError):
+                    board.set_fen(fen, clear_history=False)
+                self.assertEqual(
+                    (
+                        board.fen(),
+                        board.turn,
+                        tuple(board.undo_stack),
+                        tuple(board.redo_stack),
+                        board.last_move,
+                    ),
+                    snapshot,
+                )
 
 
 if __name__ == "__main__":
