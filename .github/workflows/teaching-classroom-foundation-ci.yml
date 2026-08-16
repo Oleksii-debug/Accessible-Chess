@@ -11,6 +11,7 @@ on:
       - 'acs/teaching_controls.py'
       - 'acs/teaching_actions.py'
       - 'acs/teaching_action_presentation.py'
+      - 'acs/teaching_board_webapp.py'
       - 'acs/child_coaching_ui.py'
       - 'acs/sound_profiles.py'
       - 'acs/sound_runtime.py'
@@ -33,6 +34,7 @@ on:
       - 'acs/teaching_ui.py'
       - 'acs/teaching_webapp.py'
       - 'web/teaching.html'
+      - 'web/teaching_board.html'
       - 'web/teaching_actions.html'
       - 'web/child_coaching.html'
       - 'web/visual_packs.html'
@@ -40,6 +42,7 @@ on:
       - 'tests/test_visual_pack_presentation.py'
       - 'tests/test_teaching_controls.py'
       - 'tests/test_teaching_action_presentation.py'
+      - 'tests/test_teaching_board_web.py'
       - 'tests/test_child_coaching_ui.py'
       - 'tests/test_sound_profiles.py'
       - 'tests/test_sound_profile_runtime.py'
@@ -83,6 +86,7 @@ jobs:
           acs/teaching_controls.py
           acs/teaching_actions.py
           acs/teaching_action_presentation.py
+          acs/teaching_board_webapp.py
           acs/child_coaching_ui.py
           acs/sound_profiles.py
           acs/sound_runtime.py
@@ -108,6 +112,7 @@ jobs:
           tests/test_visual_pack_presentation.py
           tests/test_teaching_controls.py
           tests/test_teaching_action_presentation.py
+          tests/test_teaching_board_web.py
           tests/test_child_coaching_ui.py
           tests/test_sound_profiles.py
           tests/test_sound_profile_runtime.py
@@ -136,6 +141,7 @@ jobs:
           tests.test_visual_pack_presentation
           tests.test_teaching_controls
           tests.test_teaching_action_presentation
+          tests.test_teaching_board_web
           tests.test_child_coaching_ui
           tests.test_sound_profiles
           tests.test_sound_profile_runtime
