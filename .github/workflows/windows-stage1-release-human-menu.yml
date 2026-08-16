@@ -16,7 +16,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  SOURCE_INTEGRATION_SHA: 65612e2f71c1110f4cf4c56326e585627d567481
+  SOURCE_INTEGRATION_SHA: 82d9dd25002679e129de4aab0151431d95248d65
   PYWEBVIEW_VERSION: '6.2.1'
   NUITKA_UPSTREAM_FIX_COMMIT: b7ea05bf570e0b6950de6db7c4c8e579e1b77d29
   STOCKFISH_VERSION: '18'
@@ -65,7 +65,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'compileall failed' }
           python -m unittest discover -s tests -v
           if ($LASTEXITCODE -ne 0) { throw 'full product tests failed' }
-          python -m unittest tests.test_issue22_release_contract tests.test_nvda_p0_contract tests.test_ui_native_menu_recovery tests.test_sound_runtime tests.test_release_stockfish_composition -v
+          python -m unittest tests.test_issue22_release_contract tests.test_nvda_p0_contract tests.test_ui_native_menu_recovery tests.test_sound_runtime tests.test_release_stockfish_composition tests.test_stage1_core_full_flow tests.test_stage1_release_composition_ui -v
           if ($LASTEXITCODE -ne 0) { throw 'Issue 22/P0 contract gate failed' }
           python run_accessible_chess.py --diagnostic
           if ($LASTEXITCODE -ne 0) { throw 'source diagnostic failed' }
@@ -231,7 +231,7 @@ jobs:
           $p.Id | Set-Content gui_pid.txt
           'WEBVIEW2 STARTUP PASS'
 
-      - name: Packaged legal e4 E2E and native selection sanity
+      - name: Packaged legal e4 E2E, board focus continuity, and native selection sanity
         shell: pwsh
         working-directory: work
         run: |
@@ -241,12 +241,17 @@ jobs:
           $root=[System.Windows.Automation.AutomationElement]::RootElement
           $cond=New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::ProcessIdProperty,$appPid)
           $wins=$root.FindAll([System.Windows.Automation.TreeScope]::Children,$cond)
-          $move=$null
+          $move=$null; $submit=$null; $boardLauncher=$null
           foreach($win in $wins){
             $editCond=New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::ControlTypeProperty,[System.Windows.Automation.ControlType]::Edit)
             $edits=$win.FindAll([System.Windows.Automation.TreeScope]::Descendants,$editCond)
             foreach($e in $edits){ if($e.Current.Name -match 'Хід|Move'){ $move=$e; break } }
-            if($move){break}
+            $buttonCond=New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::ControlTypeProperty,[System.Windows.Automation.ControlType]::Button)
+            $buttons=$win.FindAll([System.Windows.Automation.TreeScope]::Descendants,$buttonCond)
+            foreach($b in $buttons){
+              if(-not $submit -and $b.Current.Name -match 'Зробити хід|Make move'){ $submit=$b }
+              if(-not $boardLauncher -and $b.Current.Name -match 'Увійти на дошку|Enter board'){ $boardLauncher=$b }
+            }
           }
           if(-not $move){ throw 'Move input not found in packaged app' }
           $ws=New-Object -ComObject WScript.Shell
@@ -259,8 +264,41 @@ jobs:
           $ws.SendKeys('e9'); $ws.SendKeys('{ENTER}'); Start-Sleep -Milliseconds 800
           if($vp.Current.Value -ne 'e9'){ throw 'Invalid move text was not preserved' }
           $ws.SendKeys('^a'); $ws.SendKeys('^c')
+
+          if(-not $boardLauncher -or -not $submit){ throw 'Board launcher or move submit button not found for packaged focus continuity gate' }
+          $vp.SetValue('')
+          $boardLauncher.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+          Start-Sleep -Milliseconds 500
+          $cellCond=New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::ControlTypeProperty,[System.Windows.Automation.ControlType]::DataItem)
+          $cells=@()
+          foreach($win in $wins){
+            $found=$win.FindAll([System.Windows.Automation.TreeScope]::Descendants,$cellCond)
+            foreach($c in $found){ $cells += $c }
+          }
+          if($cells.Count -lt 64){
+            $customCond=New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::ControlTypeProperty,[System.Windows.Automation.ControlType]::Custom)
+            $cells=@()
+            foreach($win in $wins){
+              $found=$win.FindAll([System.Windows.Automation.TreeScope]::Descendants,$customCond)
+              foreach($c in $found){ if($c.Current.AutomationId -match '^sq-' -or $c.Current.Name -match '(^|\s)a3(\s|$)'){ $cells += $c } }
+            }
+          }
+          $target=$null
+          foreach($c in $cells){ if($c.Current.AutomationId -eq 'sq-a3' -or $c.Current.Name -match '(^|\s)a3(\s|$)'){ $target=$c; break } }
+          if(-not $target){ throw 'Semantic board square a3 not found in packaged UIA tree' }
+          $targetId=$target.Current.AutomationId; $targetName=$target.Current.Name
+          $target.SetFocus(); Start-Sleep -Milliseconds 250
+          $vp.SetValue('e5')
+          $submit.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+          Start-Sleep -Seconds 2
+          $afterFocus=[System.Windows.Automation.AutomationElement]::FocusedElement
+          if(-not $afterFocus){ throw 'No focused element after state-driven board rerender' }
+          $sameSemantic=(($targetId -and $afterFocus.Current.AutomationId -eq $targetId) -or ($targetName -and $afterFocus.Current.Name -eq $targetName))
+          if(-not $sameSemantic){ throw "Board focus continuity failed: before id='$targetId' name='$targetName'; after id='$($afterFocus.Current.AutomationId)' name='$($afterFocus.Current.Name)'" }
+          'PACKAGED BOARD FOCUS CONTINUITY PASS'
+
           Stop-Process -Id $appPid -Force
-          'PACKAGED MOVE E2E + NATIVE CTRL+C INPUT PATH PASS'
+          'PACKAGED MOVE E2E + BOARD FOCUS CONTINUITY + NATIVE CTRL+C INPUT PATH PASS'
 
       - name: Packaged sound playback and Stockfish lifecycle
         shell: pwsh
