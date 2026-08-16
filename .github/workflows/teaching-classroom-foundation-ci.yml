@@ -87,6 +87,11 @@ jobs:
           tests.test_local_profile
           tests.test_usage_statistics
           tests.test_teaching_ui
+      - name: Run adjacent Data regressions
+        run: >-
+          python -m unittest -v
+          tests.test_data_integration
+          tests.test_acsdb
       - name: Run adjacent architecture regressions
         run: >-
           python -m unittest -v
