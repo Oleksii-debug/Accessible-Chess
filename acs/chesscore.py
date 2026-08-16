@@ -13,6 +13,15 @@ def parse_sq(t):
 
 def color_of(p): return 'w' if p and p.isupper() else ('b' if p else None)
 
+def capturable_by(p, color):
+    """Return True only for an opposing non-king piece.
+
+    Chess move generation must never model capture of the enemy king. Check,
+    mate and stalemate are represented by attacks plus the absence of legal
+    replies while both kings remain present in canonical state.
+    """
+    return bool(p) and color_of(p)!=color and p.upper()!='K'
+
 @dataclass(frozen=True)
 class Move:
     frm:int; to:int; promotion:str|None=None; en_passant:bool=False; castle:bool=False
@@ -72,6 +81,15 @@ class Board:
             er=ep//8
             if er not in (2,5): raise ValueError('FEN: неправильне поле en passant')
             if (turn=='w' and er!=5) or (turn=='b' and er!=2): raise ValueError('FEN: en passant не відповідає стороні ходу')
+            if bd[ep] is not None: raise ValueError('FEN: поле en passant має бути порожнім')
+            if turn=='b':
+                pawn_sq=ep+8; origin_sq=ep-8; expected='P'
+            else:
+                pawn_sq=ep-8; origin_sq=ep+8; expected='p'
+            if not (0<=pawn_sq<64) or bd[pawn_sq]!=expected:
+                raise ValueError('FEN: en passant не має відповідного пішака після подвійного ходу')
+            if not (0<=origin_sq<64) or bd[origin_sq] is not None:
+                raise ValueError('FEN: en passant не відповідає завершеному подвійного ходу пішака')
 
         # Commit only after every syntactic and structural check has passed.
         self.board=bd; self.turn=turn; self.castling=castling; self.ep=ep
@@ -142,17 +160,21 @@ class Board:
                         nf=f+df
                         if 0<=nf<8:
                             cap=nr*8+nf
-                            if self.board[cap] and color_of(self.board[cap])!=c:
+                            if capturable_by(self.board[cap],c):
                                 if nr==promo:
                                     for q in 'QRBN': yield Move(s,cap,q)
                                 else: yield Move(s,cap)
-                            elif self.ep==cap: yield Move(s,cap,None,True)
+                            elif self.ep==cap:
+                                cs=cap-8 if c=='w' else cap+8
+                                expected='p' if c=='w' else 'P'
+                                if self.board[cap] is None and 0<=cs<64 and self.board[cs]==expected:
+                                    yield Move(s,cap,None,True)
             elif typ=='N':
                 for df,dr in ((1,2),(2,1),(2,-1),(1,-2),(-1,-2),(-2,-1),(-2,1),(-1,2)):
                     nf=f+df; nr=r+dr
                     if 0<=nf<8 and 0<=nr<8:
-                        to=nr*8+nf
-                        if not self.board[to] or color_of(self.board[to])!=c: yield Move(s,to)
+                        to=nr*8+nf; q=self.board[to]
+                        if not q or capturable_by(q,c): yield Move(s,to)
             elif typ in ('B','R','Q'):
                 dirs=[]
                 if typ in ('B','Q'): dirs += [(1,1),(1,-1),(-1,1),(-1,-1)]
@@ -163,7 +185,7 @@ class Board:
                         to=nr*8+nf; q=self.board[to]
                         if not q: yield Move(s,to)
                         else:
-                            if color_of(q)!=c: yield Move(s,to)
+                            if capturable_by(q,c): yield Move(s,to)
                             break
                         nf+=df; nr+=dr
             elif typ=='K':
@@ -172,8 +194,8 @@ class Board:
                         if not df and not dr: continue
                         nf=f+df; nr=r+dr
                         if 0<=nf<8 and 0<=nr<8:
-                            to=nr*8+nf
-                            if not self.board[to] or color_of(self.board[to])!=c: yield Move(s,to)
+                            to=nr*8+nf; q=self.board[to]
+                            if not q or capturable_by(q,c): yield Move(s,to)
                 enemy='b' if c=='w' else 'w'
                 if c=='w' and s==4 and not self.in_check('w'):
                     if 'K' in self.castling and not self.board[5] and not self.board[6] and self.board[7]=='R' and not self.attacked(5,enemy) and not self.attacked(6,enemy): yield Move(4,6,None,False,True)
@@ -189,9 +211,16 @@ class Board:
             if not b.in_check(c): out.append(m)
         return out
     def _apply(self,m):
-        p=self.board[m.frm]; captured=self.board[m.to]
+        p=self.board[m.frm]
+        if not p: raise ValueError('Нелегальний хід: початкове поле порожнє')
+        captured=self.board[m.to]
+        if captured and captured.upper()=='K': raise ValueError('Нелегальний хід: короля не можна брати')
         if m.en_passant:
-            cs=m.to-8 if p=='P' else m.to+8; captured=self.board[cs]; self.board[cs]=None
+            cs=m.to-8 if p=='P' else m.to+8
+            expected='p' if p=='P' else 'P'
+            if self.board[m.to] is not None or not (0<=cs<64) or self.board[cs]!=expected:
+                raise ValueError('Нелегальний en passant')
+            captured=self.board[cs]; self.board[cs]=None
         self.board[m.to]=p; self.board[m.frm]=None
         if m.promotion: self.board[m.to]=m.promotion if p.isupper() else m.promotion.lower()
         if m.castle:
