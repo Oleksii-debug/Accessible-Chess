@@ -13,6 +13,7 @@ on:
       - 'acs/child_coaching_ui.py'
       - 'acs/sound_profiles.py'
       - 'acs/sound_runtime.py'
+      - 'acs/classroom_sound.py'
       - 'acs/sound_profile_store.py'
       - 'acs/sound_pack_catalog.py'
       - 'acs/sound_pack_profile.py'
@@ -39,6 +40,7 @@ on:
       - 'tests/test_child_coaching_ui.py'
       - 'tests/test_sound_profiles.py'
       - 'tests/test_sound_profile_runtime.py'
+      - 'tests/test_classroom_sound.py'
       - 'tests/test_sound_profile_store.py'
       - 'tests/test_sound_pack_catalog.py'
       - 'tests/test_sound_pack_profile.py'
@@ -80,6 +82,7 @@ jobs:
           acs/child_coaching_ui.py
           acs/sound_profiles.py
           acs/sound_runtime.py
+          acs/classroom_sound.py
           acs/sound_profile_store.py
           acs/sound_pack_catalog.py
           acs/sound_pack_profile.py
@@ -103,6 +106,7 @@ jobs:
           tests/test_child_coaching_ui.py
           tests/test_sound_profiles.py
           tests/test_sound_profile_runtime.py
+          tests/test_classroom_sound.py
           tests/test_sound_profile_store.py
           tests/test_sound_pack_catalog.py
           tests/test_sound_pack_profile.py
@@ -129,6 +133,7 @@ jobs:
           tests.test_child_coaching_ui
           tests.test_sound_profiles
           tests.test_sound_profile_runtime
+          tests.test_classroom_sound
           tests.test_sound_profile_store
           tests.test_sound_pack_catalog
           tests.test_sound_pack_profile
