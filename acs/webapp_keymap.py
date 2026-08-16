@@ -46,6 +46,9 @@ class KeymapAwareAccessibleChessAPI(AccessibleChessAPI):
 
     def keymap_snapshot(self) -> dict[str, Any]:
         data = self.keymap_service.snapshot()
+        # Never expose a Python exception or malformed persisted binding text to
+        # the normal user document. The service has already fallen back to sane
+        # defaults; the UI only needs to know that recovery happened.
         if data.get("recoveryMessage"):
             data["recoveryMessage"] = (
                 "Keyboard settings restored." if self.lang == "en"
@@ -60,14 +63,28 @@ class KeymapAwareAccessibleChessAPI(AccessibleChessAPI):
         try:
             return self.keymap_service.preview(action_id, value)
         except Exception:
-            return {"actionId": action_id, "value": value, "canSave": False, "requiresConfirmation": False, "status": "error", "message": "Invalid shortcut" if self.lang == "en" else "Некоректна комбінація.", "conflicts": []}
+            return {
+                "actionId": action_id,
+                "value": value,
+                "canSave": False,
+                "requiresConfirmation": False,
+                "status": "error",
+                "message": "Invalid shortcut" if self.lang == "en" else "Некоректна комбінація.",
+                "conflicts": [],
+            }
 
     def keymap_capture_shortcut(self, action_id: str, key: str, ctrl: bool = False, alt: bool = False,
                                 shift: bool = False, win: bool = False) -> dict[str, Any]:
         try:
-            return self.keymap_service.capture_shortcut(action_id, key, ctrl=ctrl, alt=alt, shift=shift, win=win)
+            return self.keymap_service.capture_shortcut(
+                action_id, key, ctrl=ctrl, alt=alt, shift=shift, win=win
+            )
         except Exception:
-            return {"captured": False, "reason": "invalid", "binding": "", "status": "error", "message": "Invalid shortcut" if self.lang == "en" else "Некоректна комбінація.", "canSave": False, "requiresConfirmation": False, "conflicts": []}
+            return {
+                "captured": False, "reason": "invalid", "binding": "", "status": "error",
+                "message": "Invalid shortcut" if self.lang == "en" else "Некоректна комбінація.",
+                "canSave": False, "requiresConfirmation": False, "conflicts": [],
+            }
 
     def keymap_save(self, action_id: str, value: str, allow_warnings: bool = False) -> dict[str, Any]:
         return self.keymap_service.save(action_id, value, allow_warnings=allow_warnings)
@@ -141,9 +158,15 @@ class KeymapAwareAccessibleChessAPI(AccessibleChessAPI):
             idx = line.get("multipv", len(rendered) + 1)
             pv = " ".join(str(move) for move in line.get("pv", ()))
             if self.lang == "uk":
-                rendered.append(f"Варіант {idx}: глибина {line.get('depth', 0)}, оцінка {line.get('scoreKind', 'cp')} {line.get('scoreValue', 0)}. {pv}".strip())
+                rendered.append(
+                    f"Варіант {idx}: глибина {line.get('depth', 0)}, оцінка "
+                    f"{line.get('scoreKind', 'cp')} {line.get('scoreValue', 0)}. {pv}".strip()
+                )
             else:
-                rendered.append(f"Variation {idx}: depth {line.get('depth', 0)}, evaluation {line.get('scoreKind', 'cp')} {line.get('scoreValue', 0)}. {pv}".strip())
+                rendered.append(
+                    f"Variation {idx}: depth {line.get('depth', 0)}, evaluation "
+                    f"{line.get('scoreKind', 'cp')} {line.get('scoreValue', 0)}. {pv}".strip()
+                )
         return "\n".join(rendered)
 
     def get_state(self) -> dict[str, Any]:
@@ -159,7 +182,10 @@ class KeymapAwareAccessibleChessAPI(AccessibleChessAPI):
             self.analysis_ui.sync_position(displayed_fen)
             analysis = self.analysis_ui.snapshot(displayed_fen).as_dict()
         except Exception:
-            analysis = {"enabled": self.analysis_ui.enabled, "fen": displayed_fen, "running": False, "multipv": 5, "depth": 16, "lines": [], "error": "analysis unavailable", "stale": False}
+            analysis = {
+                "enabled": self.analysis_ui.enabled, "fen": displayed_fen, "running": False,
+                "multipv": 5, "depth": 16, "lines": [], "error": "analysis unavailable", "stale": False,
+            }
         state["analysis"] = analysis
         state["engineEnabled"] = analysis["enabled"]
         state["engineStatus"] = self._analysis_status_text(analysis)
@@ -230,7 +256,12 @@ class KeymapAwareAccessibleChessAPI(AccessibleChessAPI):
             return self._error("Нелегальний хід." if self.lang == "uk" else "Illegal move.")
 
     def _dispatch_move_entry_action(self, action_id: str) -> dict[str, Any]:
-        handlers = {"move.undo": self.undo, "move.redo": self.redo, "move.white_to_move": lambda: self.set_turn("w"), "move.black_to_move": lambda: self.set_turn("b"), "move.clear": self.clear_board, "move.standard": self.new_game, "move.empty": self.clear_board}
+        handlers = {
+            "move.undo": self.undo, "move.redo": self.redo,
+            "move.white_to_move": lambda: self.set_turn("w"),
+            "move.black_to_move": lambda: self.set_turn("b"),
+            "move.clear": self.clear_board, "move.standard": self.new_game, "move.empty": self.clear_board,
+        }
         if action_id == "move.last":
             return self._ok(("Останній хід: " if self.lang == "uk" else "Last move: ") + self.get_state()["lastMove"])
         handler = handlers.get(action_id)
@@ -255,6 +286,11 @@ def main() -> None:
     )
 
     def install_menu_on_native_host(*_args: Any) -> None:
+        # pywebview's before_show event fires only after the platform BrowserForm
+        # exists and window.native has been assigned, but before that Form is
+        # shown. Attach the native MenuStrip at that exact lifecycle point so
+        # the first exposed Windows UIA tree already contains the application
+        # menu. Never fall back to a WebView/HTML menu.
         if not install_windows_native_menu(window, api):
             raise RuntimeError("Accessible native Windows menu could not be attached to the WebView2 host.")
 
