@@ -158,6 +158,21 @@ class Stage1ReleaseCompositionUiTests(unittest.TestCase):
         self.assertNotIn("document.addEventListener('keydown'", text)
         self.assertNotIn("window.addEventListener('keydown'", text)
 
+    def test_board_origin_move_preserves_board_focus_without_changing_input_semantics(self) -> None:
+        text = self.bootstrap
+        self.assertIn("function installMoveFocusPolicy()", text)
+        self.assertIn("const active = document.activeElement", text)
+        self.assertIn("active.closest('[role=\"gridcell\"]')", text)
+        self.assertIn("const boardSquare = activeCell && grid && grid.contains(activeCell)", text)
+        self.assertIn("const result = await baseSubmit.apply(this, args)", text)
+        self.assertIn("if (boardSquare && board && !board.hidden)", text)
+        self.assertIn("byId('sq-' + boardSquare)", text)
+        self.assertIn("target.focus({preventScroll: true})", text)
+        self.assertIn("stage1MoveFocusPolicyReady", text)
+        self.assertLess(text.index("installMoveFocusPolicy();"), text.index("installMoveForm();"))
+        self.assertNotIn("document.addEventListener('keydown'", text)
+        self.assertNotIn("window.addEventListener('keydown'", text)
+
     def test_board_focus_survives_state_driven_grid_replacement_without_global_key_hijack(self) -> None:
         text = self.bootstrap
         self.assertIn("function installBoardFocusContinuity()", text)
