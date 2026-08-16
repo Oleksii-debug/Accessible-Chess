@@ -21,6 +21,17 @@ def piece_assets() -> dict[str, str]:
     }
 
 
+class FakeSoundPlayback:
+    def __init__(self, *, fail: bool = False) -> None:
+        self.fail = fail
+        self.requests = []
+
+    def play_sound(self, request) -> None:
+        self.requests.append(request)
+        if self.fail:
+            raise RuntimeError("private adapter detail must stay out of UI")
+
+
 class TeachingUiStateTests(unittest.TestCase):
     def make_state(self) -> TeachingUiState:
         return TeachingUiState(
@@ -109,7 +120,7 @@ class TeachingUiStateTests(unittest.TestCase):
         self.assertEqual(rows[1]["source"], "f3")
         self.assertEqual(rows[1]["target"], "c6")
 
-    def test_sound_profile_is_per_event_and_preview_never_fakes_disabled_playback(self) -> None:
+    def test_sound_preview_without_playback_port_never_fakes_success(self) -> None:
         state = TeachingUiState(
             sound=SoundProfile(
                 master_enabled=True,
@@ -117,15 +128,56 @@ class TeachingUiStateTests(unittest.TestCase):
                 events={"check": SoundEventPreference(enabled=True, volume_percent=50, sound_id="soft.check")},
             )
         )
-        preview = state.preview_sound_event("check")
-        self.assertTrue(preview["ok"])
-        self.assertEqual(preview["soundId"], "soft.check")
-        self.assertEqual(preview["volumePercent"], 40)
-        state.set_sound_event("check", enabled=False)
+        self.assertFalse(state.snapshot()["sound"]["previewAvailable"])
         preview = state.preview_sound_event("check")
         self.assertFalse(preview["ok"])
-        self.assertEqual(preview["volumePercent"], 0)
-        self.assertIn("вимкнено", preview["accessibleText"])
+        self.assertFalse(preview["delivered"])
+        self.assertFalse(preview["available"])
+        self.assertEqual(preview["soundId"], "soft.check")
+        self.assertEqual(preview["volumePercent"], 40)
+        self.assertIn("недоступний", preview["accessibleText"])
+
+    def test_sound_preview_uses_profiled_runtime_and_current_profile(self) -> None:
+        playback = FakeSoundPlayback()
+        state = TeachingUiState(
+            sound=SoundProfile(
+                master_enabled=True,
+                master_volume_percent=80,
+                events={"check": SoundEventPreference(enabled=True, volume_percent=50, sound_id="soft.check")},
+            ),
+            sound_playback=playback,
+        )
+        self.assertTrue(state.snapshot()["sound"]["previewAvailable"])
+        preview = state.preview_sound_event("check")
+        self.assertTrue(preview["ok"])
+        self.assertTrue(preview["delivered"])
+        self.assertEqual(len(playback.requests), 1)
+        self.assertTrue(playback.requests[0].preview)
+        self.assertEqual(playback.requests[0].sound_id, "soft.check")
+        self.assertEqual(playback.requests[0].volume, 40)
+
+        state.set_sound_master(True, 60)
+        state.set_sound_event("check", volume_percent=25, sound_id="quiet.check")
+        preview = state.preview_sound_event("check")
+        self.assertTrue(preview["delivered"])
+        self.assertEqual(playback.requests[-1].sound_id, "quiet.check")
+        self.assertEqual(playback.requests[-1].volume, 15)
+
+    def test_sound_preview_disabled_or_failed_is_concise_and_safe(self) -> None:
+        playback = FakeSoundPlayback(fail=True)
+        state = TeachingUiState(sound_playback=playback)
+        failed = state.preview_sound_event("move")
+        self.assertFalse(failed["ok"])
+        self.assertFalse(failed["delivered"])
+        self.assertNotIn("RuntimeError", failed["accessibleText"])
+        self.assertNotIn("private adapter detail", failed["accessibleText"])
+
+        state.set_sound_event("move", enabled=False)
+        disabled = state.preview_sound_event("move")
+        self.assertFalse(disabled["ok"])
+        self.assertFalse(disabled["delivered"])
+        self.assertIn("вимкнено", disabled["accessibleText"])
+        self.assertEqual(len(playback.requests), 1)
 
 
 class TeachingWebSemanticTests(unittest.TestCase):
