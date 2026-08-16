@@ -33,6 +33,10 @@ class SoundPackResolverPort(Protocol):
     def resolve_usable_pack(self, requested_pack_id: str) -> str: ...
 
 
+class SoundProfileWriteBlockedError(RuntimeError):
+    """Raised when this version must not overwrite a newer profile schema."""
+
+
 class SoundProfileRecoveryReason(str, Enum):
     ABSENT = "absent"
     LEGACY_MIGRATED = "legacy_migrated"
@@ -46,6 +50,7 @@ class SoundProfileLoadResult:
     profile: SoundProfile
     recovery_reasons: tuple[SoundProfileRecoveryReason, ...] = ()
     persisted_canonical: bool = False
+    writes_blocked: bool = False
 
     @property
     def recovered(self) -> bool:
@@ -56,8 +61,11 @@ class SoundProfileManager:
     """Single application-level source for persisted ``SoundProfile`` state.
 
     Malformed/legacy payloads are normalized to the current schema. A payload
-    from a future schema is *not overwritten*: the current process uses a safe
-    in-memory default so downgrade/rollback cannot destroy newer user settings.
+    from a future schema is never implicitly overwritten: the current process
+    uses a safe in-memory default and locks ordinary mutations so downgrade or
+    rollback cannot destroy newer user settings. Only an explicit replacement
+    operation may clear that lock.
+
     Pack reconciliation changes only ``pack_id`` and therefore preserves master
     and per-event preferences.
     """
@@ -75,12 +83,19 @@ class SoundProfileManager:
         if not isinstance(self._default, SoundProfile):
             raise TypeError("default_profile must be SoundProfile")
         self._current: SoundProfile | None = None
+        self._writes_blocked = False
 
     @property
     def current(self) -> SoundProfile:
         if self._current is None:
             return self.load().profile
         return self._current
+
+    @property
+    def writes_blocked(self) -> bool:
+        """Whether a newer persisted schema currently protects storage from writes."""
+
+        return self._writes_blocked
 
     def profile_provider(self) -> SoundProfile:
         """Callable-compatible provider for ``ProfiledSoundRuntime``."""
@@ -91,6 +106,7 @@ class SoundProfileManager:
         raw = self._storage.read_profile()
         reasons: list[SoundProfileRecoveryReason] = []
         persist = False
+        self._writes_blocked = False
 
         if raw is None:
             profile = self._default
@@ -101,10 +117,12 @@ class SoundProfileManager:
             if isinstance(schema, int) and schema > SOUND_PROFILE_SCHEMA_VERSION:
                 profile = self._reconcile_pack(self._default, reasons)
                 self._current = profile
+                self._writes_blocked = True
                 return SoundProfileLoadResult(
                     profile,
                     (SoundProfileRecoveryReason.FUTURE_SCHEMA, *tuple(reasons)),
                     persisted_canonical=False,
+                    writes_blocked=True,
                 )
             try:
                 profile = SoundProfile.from_mapping(raw)
@@ -124,15 +142,42 @@ class SoundProfileManager:
         if persist:
             self._persist(profile)
         self._current = profile
-        return SoundProfileLoadResult(profile, tuple(reasons), persisted_canonical=persist)
+        return SoundProfileLoadResult(
+            profile,
+            tuple(reasons),
+            persisted_canonical=persist,
+            writes_blocked=False,
+        )
 
     def save(self, profile: SoundProfile) -> SoundProfile:
+        """Persist an ordinary current-schema edit.
+
+        This method intentionally refuses to write after a future schema was
+        detected. Call ``replace_future_profile`` only from an explicit reset or
+        migration flow where discarding the newer payload is deliberate.
+        """
+
+        self._ensure_writable()
+        return self._save_unlocked(profile)
+
+    def replace_future_profile(self, profile: SoundProfile) -> SoundProfile:
+        """Explicitly replace a protected future-schema payload.
+
+        The caller must surface this as an intentional reset/migration action.
+        Merely editing a volume, pack or event must never call this method.
+        """
+
+        if not self._writes_blocked:
+            raise SoundProfileWriteBlockedError(
+                "no future-schema sound profile is awaiting explicit replacement"
+            )
         if not isinstance(profile, SoundProfile):
             raise TypeError("profile must be SoundProfile")
         reasons: list[SoundProfileRecoveryReason] = []
         profile = self._reconcile_pack(profile, reasons)
         self._persist(profile)
         self._current = profile
+        self._writes_blocked = False
         return profile
 
     def set_master(self, *, enabled: bool | None = None, volume_percent: int | None = None) -> SoundProfile:
@@ -161,6 +206,21 @@ class SoundProfileManager:
         events = dict(self.current.events)
         events.pop(event_id, None)
         return self.save(replace(self.current, events=events))
+
+    def _ensure_writable(self) -> None:
+        if self._writes_blocked:
+            raise SoundProfileWriteBlockedError(
+                "sound profile uses a newer schema; explicit replacement is required"
+            )
+
+    def _save_unlocked(self, profile: SoundProfile) -> SoundProfile:
+        if not isinstance(profile, SoundProfile):
+            raise TypeError("profile must be SoundProfile")
+        reasons: list[SoundProfileRecoveryReason] = []
+        profile = self._reconcile_pack(profile, reasons)
+        self._persist(profile)
+        self._current = profile
+        return profile
 
     def _resolve_pack(self, requested_pack_id: str) -> str:
         resolver = self._pack_resolver
