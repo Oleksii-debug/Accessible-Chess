@@ -74,7 +74,8 @@ internal static class SelfTest
     private static void TestShortcutRegistryAndRebinding()
     {
         IReadOnlyList<ShortcutDefinition> definitions = ShortcutManager.Definitions;
-        Require(definitions.Count == 16, $"Expected 16 configurable actions, got {definitions.Count}.");
+        Require(definitions.Count == 17, $"Expected 17 configurable actions including undo move, got {definitions.Count}.");
+        Require(definitions.Any(def => def.Id == ActionIds.UndoMove), "Undo last deck move is missing from configurable shortcuts.");
         Require(definitions.Select(def => def.Id).Distinct(StringComparer.OrdinalIgnoreCase).Count() == definitions.Count,
             "Shortcut action IDs must be unique.");
         Require(definitions.Select(def => def.DefaultKeys).Distinct().Count() == definitions.Count,
