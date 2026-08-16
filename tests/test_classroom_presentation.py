@@ -18,6 +18,11 @@ from acs.local_profile import LocalProfileStore
 from acs.usage_statistics import UsageStatisticsSnapshot
 
 
+ROOT = Path(__file__).resolve().parents[1]
+HTML = ROOT / "web" / "teaching.html"
+APP = ROOT / "acs" / "teaching_webapp.py"
+
+
 class ClassroomPresentationTests(unittest.TestCase):
     def test_participant_projection_is_concise_and_exposes_missing_camera_contract_truthfully(self) -> None:
         roster = ClassroomRoster((
@@ -94,18 +99,8 @@ class ClassroomPresentationTests(unittest.TestCase):
     def test_attachment_projection_never_auto_opens_and_requires_safe_stored_item(self) -> None:
         state = ClassroomPresentationState(room_id="lesson-1")
         item = AttachmentMetadata(
-            "a1",
-            "lesson-1",
-            "student-1",
-            1,
-            "lesson.pdf",
-            "application/pdf",
-            4096,
-            "a" * 64,
-            "rooms/lesson-1/a1",
-            "stored",
-            "session",
-            "clean",
+            "a1", "lesson-1", "student-1", 1, "lesson.pdf", "application/pdf",
+            4096, "a" * 64, "rooms/lesson-1/a1", "stored", "session", "clean",
         )
         view = state.register_attachment(item, sender_display_name="Марко")
         self.assertEqual(view["name"], "lesson.pdf")
@@ -116,21 +111,47 @@ class ClassroomPresentationTests(unittest.TestCase):
     def test_unsafe_attachment_name_fails_visibly_at_presentation_boundary(self) -> None:
         state = ClassroomPresentationState(room_id="lesson-1")
         item = AttachmentMetadata(
-            "a1",
-            "lesson-1",
-            "student-1",
-            1,
-            "../evil.exe",
-            None,
-            10,
-            "b" * 64,
-            "rooms/lesson-1/a1",
-            "stored",
-            "session",
-            "clean",
+            "a1", "lesson-1", "student-1", 1, "../evil.exe", None,
+            10, "b" * 64, "rooms/lesson-1/a1", "stored", "session", "clean",
         )
         with self.assertRaises(ValueError):
             state.register_attachment(item, sender_display_name="Марко")
+
+
+class ClassroomWebSemanticTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.html = HTML.read_text(encoding="utf-8")
+        cls.app = APP.read_text(encoding="utf-8")
+
+    def test_profile_prompt_has_explicit_skip_and_no_visual_only_consent_blocker(self) -> None:
+        self.assertIn('id="display-name"', self.html)
+        self.assertIn('id="save-display-name"', self.html)
+        self.assertIn('id="skip-display-name"', self.html)
+        self.assertIn('classroom_profile_ensure', self.html)
+        self.assertIn('classroom_profile_set_display_name', self.html)
+
+    def test_chat_history_is_not_live_and_incoming_messages_do_not_move_focus(self) -> None:
+        self.assertIn('id="chat-history" aria-live="off"', self.html)
+        self.assertIn('id="chat-composer"', self.html)
+        self.assertIn('id="chat-send" type="button" disabled', self.html)
+        self.assertNotIn("chat-composer').focus()", self.html)
+        self.assertEqual(self.html.count('role="status"'), 1)
+
+    def test_file_picker_is_explicit_and_received_files_never_auto_open(self) -> None:
+        self.assertIn('id="attachment-picker" type="file"', self.html)
+        self.assertIn("open.disabled=true", self.html)
+        self.assertIn("Файли ніколи не відкриваються автоматично", self.html)
+        lowered = self.html.lower()
+        self.assertNotIn("shellexecute", lowered)
+        self.assertNotIn("window.open(f", lowered)
+
+    def test_launcher_composes_profile_store_but_no_transport_or_provider_secret(self) -> None:
+        self.assertIn("LocalProfileStore", self.app)
+        self.assertIn("ClassroomPresentationState", self.app)
+        self.assertNotIn("livekit", self.app.lower())
+        self.assertNotIn("api_key", self.app.lower())
+        self.assertNotIn("secret", self.app.lower())
 
 
 if __name__ == "__main__":
