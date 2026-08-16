@@ -54,7 +54,7 @@ class ProfiledSoundRuntimeTests(unittest.TestCase):
             master_volume_percent=60,
             events={
                 "classroom.join": SoundEventPreference(
-                    enabled=False,
+                    enabled=True,
                     volume_percent=50,
                     sound_id="room.join.soft",
                 )
@@ -75,6 +75,29 @@ class ProfiledSoundRuntimeTests(unittest.TestCase):
                 )
             ],
         )
+
+    def test_disabled_event_preview_is_silent_and_does_not_call_adapter(self) -> None:
+        assets = FakeAssetPlayback()
+        profile = SoundProfile(
+            events={"move": SoundEventPreference(enabled=False, sound_id="quiet.move")}
+        )
+        result = ProfiledSoundRuntime(assets, profile).preview("move")
+        self.assertTrue(result.ok)
+        self.assertFalse(result.delivered)
+        self.assertIsNone(result.request)
+        self.assertEqual(assets.requests, [])
+
+    def test_master_disabled_preview_is_silent_and_does_not_call_adapter(self) -> None:
+        assets = FakeAssetPlayback()
+        profile = SoundProfile(
+            master_enabled=False,
+            events={"move": SoundEventPreference(enabled=True, sound_id="quiet.move")},
+        )
+        result = ProfiledSoundRuntime(assets, profile).preview("move")
+        self.assertTrue(result.ok)
+        self.assertFalse(result.delivered)
+        self.assertIsNone(result.request)
+        self.assertEqual(assets.requests, [])
 
     def test_preview_failure_is_explicit_and_has_no_fallback(self) -> None:
         assets = FakeAssetPlayback(fail_sound_id="broken.move")
@@ -108,6 +131,69 @@ class ProfiledSoundRuntimeTests(unittest.TestCase):
             [(request.sound_id, request.volume) for request in assets.requests],
             [("move", 80), ("quiet.move", 10)],
         )
+
+    def test_one_profile_snapshot_is_used_for_entire_semantic_dispatch(self) -> None:
+        assets = FakeAssetPlayback()
+        profiles = [
+            SoundProfile(
+                pack_id="first.pack",
+                master_volume_percent=80,
+                events={
+                    "capture": SoundEventPreference(True, 50, "first.capture"),
+                    "check": SoundEventPreference(True, 25, "first.check"),
+                    "end": SoundEventPreference(True, 10, "first.end"),
+                },
+            ),
+            SoundProfile(
+                pack_id="second.pack",
+                master_volume_percent=20,
+                events={
+                    "capture": SoundEventPreference(True, 100, "second.capture"),
+                    "check": SoundEventPreference(True, 100, "second.check"),
+                    "end": SoundEventPreference(True, 100, "second.end"),
+                },
+            ),
+        ]
+        calls = {"count": 0}
+
+        def provider() -> SoundProfile:
+            index = min(calls["count"], len(profiles) - 1)
+            calls["count"] += 1
+            return profiles[index]
+
+        runtime = ProfiledSoundRuntime(assets, provider)
+        calls["count"] = 0  # constructor validation is not part of a dispatch snapshot
+        runtime.dispatch([SoundEvent.CAPTURE, SoundEvent.CHECK, SoundEvent.END])
+        self.assertEqual(calls["count"], 1)
+        self.assertEqual(
+            [(request.pack_id, request.sound_id, request.volume) for request in assets.requests],
+            [
+                ("first.pack", "first.capture", 40),
+                ("first.pack", "first.check", 20),
+                ("first.pack", "first.end", 8),
+            ],
+        )
+
+    def test_preview_resolves_one_current_profile_snapshot(self) -> None:
+        assets = FakeAssetPlayback()
+        calls = {"count": 0}
+        profile = SoundProfile(
+            pack_id="preview.pack",
+            master_volume_percent=70,
+            events={"move": SoundEventPreference(True, 50, "preview.move")},
+        )
+
+        def provider() -> SoundProfile:
+            calls["count"] += 1
+            return profile
+
+        runtime = ProfiledSoundRuntime(assets, provider)
+        calls["count"] = 0
+        result = runtime.preview("move")
+        self.assertEqual(calls["count"], 1)
+        self.assertTrue(result.delivered)
+        self.assertEqual(result.request.volume, 35)
+        self.assertEqual(result.request.sound_id, "preview.move")
 
 
 if __name__ == "__main__":
