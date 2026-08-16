@@ -200,8 +200,6 @@ class ProfiledSoundRuntime(SoundRuntime):
         self._profile_provider = profile if callable(profile) else lambda: profile
         self._asset_playback = playback
         self._profile_error_sink = error_sink
-        # Keep the base type fully initialized for substitutability. Profiled
-        # dispatch below binds a fresh immutable profile snapshot per call.
         initial = self._current_profile()
         super().__init__(
             _ResolvedProfilePlayback(playback, initial),
@@ -274,6 +272,9 @@ class GameSoundRuntime:
 
     def tick(self) -> SoundPlaybackReport:
         return self._runtime.dispatch(SoundEventPolicy.clock_tick())
+
+    def low_time(self) -> SoundPlaybackReport:
+        return self._runtime.dispatch(SoundEventPolicy.clock_low_time())
 
     def end(self) -> SoundPlaybackReport:
         if self._ended:
