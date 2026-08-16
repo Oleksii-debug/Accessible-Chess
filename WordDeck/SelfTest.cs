@@ -96,8 +96,15 @@ internal static class SelfTest
                 $"Could not rebind '{definition.Description}' to {replacement}: {error}");
             Require(manager.Get(definition.Id) == replacement,
                 $"Rebound shortcut was not returned for '{definition.Description}'.");
-            Require(manager.FindAction(replacement) == definition.Id,
-                $"Rebound shortcut did not dispatch to '{definition.Description}'.");
+
+            // Both navigation directions are intentionally separate rebindable
+            // bindings that dispatch to the same random-card action. All other
+            // definitions dispatch to their own action IDs.
+            string expectedDispatch = definition.Id == ActionIds.PreviousWord
+                ? ActionIds.NextWord
+                : definition.Id;
+            Require(manager.FindAction(replacement) == expectedDispatch,
+                $"Rebound shortcut did not dispatch correctly for '{definition.Description}'.");
         }
 
         Require(!manager.TrySet(definitions[1].Id, replacementKeys[0], out string? conflict) && !string.IsNullOrWhiteSpace(conflict),
@@ -129,8 +136,11 @@ internal static class SelfTest
         {
             Require(manager.Get(definition.Id) == definition.DefaultKeys,
                 $"Reset defaults failed for '{definition.Description}'.");
-            Require(manager.FindAction(definition.DefaultKeys) == definition.Id,
-                $"Default shortcut does not dispatch to '{definition.Description}' after reset.");
+            string expectedDispatch = definition.Id == ActionIds.PreviousWord
+                ? ActionIds.NextWord
+                : definition.Id;
+            Require(manager.FindAction(definition.DefaultKeys) == expectedDispatch,
+                $"Default shortcut does not dispatch correctly for '{definition.Description}' after reset.");
         }
     }
 
