@@ -3,7 +3,7 @@ name: UI Semantic Gate
 on:
   push:
     branches:
-      - dev/stage1-nvda-releaseflow-0.4.0
+      - dev/stage1-nvda-userflow-0.4.0
     paths:
       - 'web/**'
       - 'run_accessible_chess.py'
