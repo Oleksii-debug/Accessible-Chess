@@ -3,15 +3,15 @@ from __future__ import annotations
 """Practical collection/navigation services over the canonical PGN GameTree.
 
 This module deliberately does not parse chess legality or duplicate storage
-repositories.  ``acs.gametree`` remains the only PGN tree source of truth;
+repositories. ``acs.gametree`` remains the only PGN tree source of truth;
 this layer provides collection-scale import/export, stable references,
 search/indexing, diagnostics, fingerprints, navigation and bulk reporting for
 UI/database/book adapters.
 """
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from hashlib import sha256
-from typing import Iterable, Iterator, Mapping, Sequence
+from typing import Iterable, Iterator, Sequence
 
 from .game_references import (
     BranchContext,
@@ -26,17 +26,15 @@ from .game_references import (
     resolve_variation,
 )
 from .gametree import (
-    Comment,
     MoveNode,
     PgnGame,
     VariationLine,
-    iter_variations,
     parse_games,
     serialize_game,
     serialize_games,
     structural_signature,
 )
-from .pgn_semantics import DiagnosticSeverity, PgnSemanticRecord, analyze_game
+from .pgn_semantics import PgnSemanticRecord, analyze_game
 
 
 @dataclass(frozen=True, slots=True)
@@ -80,7 +78,7 @@ class PgnImportReport:
 
 @dataclass(frozen=True, slots=True)
 class PgnQuery:
-    """Case-insensitive metadata/mainline query for collection browsing."""
+    """Case-insensitive metadata/tree query for collection browsing."""
 
     text: str | None = None
     white: str | None = None
@@ -120,7 +118,7 @@ class NavigationItem:
     """One deterministic structural reading item.
 
     ``kind`` is one of ``move``, ``variation_enter``, ``variation_exit`` or
-    ``result``.  Move items always carry a stable ``MoveRef``.  Branch markers
+    ``result``. Move items always carry a stable ``MoveRef``. Branch markers
     carry the child variation ref and exact branch context.
     """
 
@@ -163,6 +161,26 @@ def _count_line(line: VariationLine) -> tuple[int, int, int, int, int]:
             nags += child_nags
             unsupported += child_unsupported
     return recursive_plies, variations, comments, nags, unsupported
+
+
+def _iter_line_text(line: VariationLine) -> Iterator[str]:
+    for comment in line.leading_comments:
+        yield comment.text
+    for token in line.unsupported_tokens:
+        yield token
+    for move in line.moves:
+        yield move.san
+        yield from move.nags
+        for comment in move.comments_before:
+            yield comment.text
+        for comment in move.comments_after:
+            yield comment.text
+        for child in move.variations:
+            yield from _iter_line_text(child)
+    for comment in line.trailing_comments:
+        yield comment.text
+    if line.result:
+        yield line.result
 
 
 def game_fingerprint(game: PgnGame) -> str:
@@ -255,8 +273,8 @@ def navigation_items(game: PgnGame) -> tuple[NavigationItem, ...]:
 class PgnWorkspace:
     """In-memory working set for PGN import/browse/export.
 
-    The workspace intentionally owns only the collection list.  Every game is
-    still the canonical ``PgnGame`` tree from :mod:`acs.gametree`.  Storage
+    The workspace intentionally owns only the collection list. Every game is
+    still the canonical ``PgnGame`` tree from :mod:`acs.gametree`. Storage
     adapters may consume reports/fingerprints/references without gaining a
     second mutable representation of moves or branches.
     """
@@ -346,8 +364,7 @@ class PgnWorkspace:
         for game in self._games:
             tags = game.tags
             semantic = analyze_game(game)
-            recursive, variation_count, comment_count, _nags, _unsupported = _count_line(game.line)
-            del recursive
+            _recursive, variation_count, comment_count, _nags, _unsupported = _count_line(game.line)
             if query.usable_only and not semantic.usable:
                 continue
             if not _contains(tags.get("White"), query.white):
@@ -366,7 +383,7 @@ class PgnWorkspace:
                 continue
             if not _contains(tags.get("ECO"), query.eco):
                 continue
-            if query.date_prefix is not None and not (tags.get("Date", "").startswith(query.date_prefix)):
+            if query.date_prefix is not None and not tags.get("Date", "").startswith(query.date_prefix):
                 continue
             if query.min_ply is not None and game.ply_count < query.min_ply:
                 continue
@@ -377,9 +394,7 @@ class PgnWorkspace:
             if query.has_comments is not None and (comment_count > 0) != query.has_comments:
                 continue
             if query.text:
-                haystack = "\n".join(
-                    [*tags.values(), *(move.san for move in game.iter_moves(recursive=True))]
-                ).casefold()
+                haystack = "\n".join([*tags.values(), *_iter_line_text(game.line)]).casefold()
                 if query.text.casefold() not in haystack:
                     continue
             hits.append(
