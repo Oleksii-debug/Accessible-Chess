@@ -48,33 +48,50 @@ jobs:
           python -m pip install "pywebview==$env:PYWEBVIEW_VERSION" "pythonnet==$env:PYTHONNET_VERSION"
           if ($LASTEXITCODE -ne 0) { throw 'Pinned Windows probe runtime install failed' }
           python -c "import webview, clr; print('PINNED PROBE RUNTIME PASS')"
+          dotnet --info
 
       - name: Create A/B/C applications
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force -Path probe-results | Out-Null
+          New-Item -ItemType Directory -Force -Path probe-results,probe_a | Out-Null
           @'
-          import clr
-          clr.AddReference('System.Windows.Forms')
-          from pathlib import Path
-          from System.Threading import ApartmentState, Thread, ThreadStart
-          from System.Windows.Forms import AccessibleRole, Application, DockStyle, Form, MenuStrip, ToolStripMenuItem
-          signal=Path('probe-results/a_action.txt').resolve()
-          # Mirror pywebview WinForms startup before any control is created.
-          Application.EnableVisualStyles()
-          Application.SetCompatibleTextRenderingDefault(False)
-          def run_ui():
-              form=Form(); form.Text='AC Menu Probe A - Pure WinForms'; form.Width=640; form.Height=400
-              menu=MenuStrip(); menu.Name='ProbeAMenu'; menu.AccessibleName='Probe A application menu'; menu.AccessibleRole=AccessibleRole.MenuBar; menu.Dock=DockStyle.Top
-              file_item=ToolStripMenuItem('&File'); file_item.AccessibleName='File'
-              safe=ToolStripMenuItem('&Safe Action'); safe.AccessibleName='Safe Action'
-              def clicked(sender,event): signal.write_text('activated',encoding='utf-8')
-              safe.Click += clicked; file_item.DropDownItems.Add(safe); menu.Items.Add(file_item)
-              form.MainMenuStrip=menu; form.Controls.Add(menu); menu.BringToFront()
-              form.Shown += lambda sender,event: menu.BringToFront()
-              Application.Run(form)
-          t=Thread(ThreadStart(run_ui)); t.SetApartmentState(ApartmentState.STA); t.Start(); t.Join()
-          '@ | Set-Content -Encoding UTF8 probe_a.py
+          <Project Sdk="Microsoft.NET.Sdk">
+            <PropertyGroup>
+              <OutputType>WinExe</OutputType>
+              <TargetFramework>net8.0-windows</TargetFramework>
+              <UseWindowsForms>true</UseWindowsForms>
+              <ImplicitUsings>enable</ImplicitUsings>
+              <Nullable>enable</Nullable>
+            </PropertyGroup>
+          </Project>
+          '@ | Set-Content -Encoding UTF8 probe_a/probe_a.csproj
+          @'
+          using System;
+          using System.IO;
+          using System.Windows.Forms;
+
+          internal static class Program
+          {
+              [STAThread]
+              static void Main()
+              {
+                  ApplicationConfiguration.Initialize();
+                  var form = new Form { Text = "AC Menu Probe A - Compiled WinForms", Width = 640, Height = 400 };
+                  var menu = new MenuStrip { Name = "ProbeAMenu", AccessibleName = "Probe A application menu" };
+                  var file = new ToolStripMenuItem("&File") { AccessibleName = "File" };
+                  var safe = new ToolStripMenuItem("&Safe Action") { AccessibleName = "Safe Action" };
+                  safe.Click += (_, _) => File.WriteAllText(Path.GetFullPath("probe-results/a_action.txt"), "activated");
+                  file.DropDownItems.Add(safe);
+                  menu.Items.Add(file);
+                  form.MainMenuStrip = menu;
+                  form.Controls.Add(menu);
+                  menu.BringToFront();
+                  Application.Run(form);
+              }
+          }
+          '@ | Set-Content -Encoding UTF8 probe_a/Program.cs
+          dotnet build probe_a/probe_a.csproj -c Release
+          if ($LASTEXITCODE -ne 0) { throw 'Compiled WinForms baseline build failed' }
 
           @'
           import webview
@@ -123,19 +140,28 @@ jobs:
           Add-Type -AssemblyName UIAutomationTypes
           Add-Type @"
           using System;
+          using System.ComponentModel;
           using System.Runtime.InteropServices;
           public static class ACInput {
-            [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
-            [StructLayout(LayoutKind.Sequential)] public struct INPUT { public uint type; public InputUnion U; }
-            [StructLayout(LayoutKind.Explicit)] public struct InputUnion { [FieldOffset(0)] public KEYBDINPUT ki; }
+            [DllImport("user32.dll", SetLastError=true)] public static extern bool SetForegroundWindow(IntPtr hWnd);
+            [StructLayout(LayoutKind.Sequential)] public struct MOUSEINPUT { public int dx; public int dy; public uint mouseData; public uint dwFlags; public uint time; public UIntPtr dwExtraInfo; }
             [StructLayout(LayoutKind.Sequential)] public struct KEYBDINPUT { public ushort wVk; public ushort wScan; public uint dwFlags; public uint time; public UIntPtr dwExtraInfo; }
+            [StructLayout(LayoutKind.Sequential)] public struct HARDWAREINPUT { public uint uMsg; public ushort wParamL; public ushort wParamH; }
+            [StructLayout(LayoutKind.Explicit)] public struct InputUnion {
+              [FieldOffset(0)] public MOUSEINPUT mi;
+              [FieldOffset(0)] public KEYBDINPUT ki;
+              [FieldOffset(0)] public HARDWAREINPUT hi;
+            }
+            [StructLayout(LayoutKind.Sequential)] public struct INPUT { public uint type; public InputUnion U; }
             [DllImport("user32.dll", SetLastError=true)] public static extern uint SendInput(uint nInputs, INPUT[] pInputs, int cbSize);
             public const uint INPUT_KEYBOARD=1; public const uint KEYEVENTF_KEYUP=0x0002;
             public static void Tap(ushort vk) {
               var a=new INPUT[2];
               a[0].type=INPUT_KEYBOARD; a[0].U.ki.wVk=vk;
               a[1].type=INPUT_KEYBOARD; a[1].U.ki.wVk=vk; a[1].U.ki.dwFlags=KEYEVENTF_KEYUP;
-              if(SendInput(2,a,Marshal.SizeOf(typeof(INPUT)))!=2) throw new InvalidOperationException("SendInput failed");
+              int size=Marshal.SizeOf(typeof(INPUT));
+              uint sent=SendInput(2,a,size);
+              if(sent!=2) throw new Win32Exception(Marshal.GetLastWin32Error(), "SendInput failed: sent="+sent+" size="+size);
             }
           }
           "@
@@ -176,7 +202,7 @@ jobs:
               }
               if(-not $appMenu -and $attempt -eq 11){
                 $nodes=$w.FindAll([System.Windows.Automation.TreeScope]::Descendants,$allCond)
-                $limit=[Math]::Min($nodes.Count,80)
+                $limit=[Math]::Min($nodes.Count,100)
                 for($n=0;$n -lt $limit;$n++){
                   $node=$nodes.Item($n)
                   "NODE[$n] type=[$($node.Current.ControlType.ProgrammaticName)] name=[$($node.Current.Name)] class=[$($node.Current.ClassName)]" | Add-Content -Encoding UTF8 $out
@@ -207,12 +233,14 @@ jobs:
           Get-Content $out
           '@ | Set-Content -Encoding UTF8 uia_probe.ps1
 
-      - name: Matrix A - pure STA WinForms MenuStrip
+      - name: Matrix A - compiled .NET WinForms MenuStrip
         shell: pwsh
         continue-on-error: true
         run: |
-          $p=Start-Process python -ArgumentList 'probe_a.py' -PassThru
-          try { .\uia_probe.ps1 -AppPid $p.Id -Label 'A_pure_winforms' -SignalPath 'probe-results\a_action.txt' }
+          $exe='probe_a\bin\Release\net8.0-windows\probe_a.exe'
+          if(-not (Test-Path $exe)){ throw 'Compiled WinForms baseline exe missing' }
+          $p=Start-Process $exe -PassThru
+          try { .\uia_probe.ps1 -AppPid $p.Id -Label 'A_compiled_winforms' -SignalPath 'probe-results\a_action.txt' }
           finally { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue }
 
       - name: Matrix B - official pywebview 6.2.1 menu
@@ -234,11 +262,11 @@ jobs:
       - name: Classify root cause fail closed
         shell: pwsh
         run: |
-          $a=Test-Path 'probe-results\A_pure_winforms_pass.txt'
+          $a=Test-Path 'probe-results\A_compiled_winforms_pass.txt'
           $b=Test-Path 'probe-results\B_pywebview_official_pass.txt'
           $c=Test-Path 'probe-results\C_accessible_chess_custom_pass.txt'
-          "A_PURE_WINFORMS=$a B_PYWEBVIEW_OFFICIAL=$b C_CUSTOM=$c" | Tee-Object -FilePath 'probe-results\classification.txt'
-          if(-not $a){ throw 'ROOT CAUSE INCONCLUSIVE: pure STA WinForms app-menu baseline failed; product conclusion forbidden' }
+          "A_COMPILED_WINFORMS=$a B_PYWEBVIEW_OFFICIAL=$b C_CUSTOM=$c" | Tee-Object -FilePath 'probe-results\classification.txt'
+          if(-not $a){ throw 'ROOT CAUSE INCONCLUSIVE: compiled native WinForms app-menu baseline failed; product conclusion forbidden' }
           if(-not $b){ throw 'ROOT CAUSE: pinned official pywebview app menu fails exact UIA/Alt semantics on runner; migration is not evidence-backed' }
           if(-not $c){
             'ROOT CAUSE: Accessible Chess custom menu fails while A/B pass. Route exact evidence to UI owner.' | Add-Content 'probe-results\classification.txt'
