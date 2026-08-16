@@ -5,6 +5,7 @@ import unittest
 from acs.sound_profile_store import (
     SoundProfileManager,
     SoundProfileRecoveryReason,
+    SoundProfileWriteBlockedError,
 )
 from acs.sound_profiles import SoundEventPreference, SoundProfile
 
@@ -43,6 +44,7 @@ class SoundProfileManagerTests(unittest.TestCase):
         self.assertEqual(result.profile, SoundProfile())
         self.assertEqual(result.recovery_reasons, (SoundProfileRecoveryReason.ABSENT,))
         self.assertTrue(result.persisted_canonical)
+        self.assertFalse(result.writes_blocked)
         self.assertEqual(len(store.writes), 1)
         self.assertEqual(store.writes[0], SoundProfile().to_mapping())
 
@@ -86,8 +88,65 @@ class SoundProfileManagerTests(unittest.TestCase):
             (SoundProfileRecoveryReason.FUTURE_SCHEMA,),
         )
         self.assertFalse(result.persisted_canonical)
+        self.assertTrue(result.writes_blocked)
+        self.assertTrue(manager.writes_blocked)
         self.assertEqual(store.writes, [])
         self.assertEqual(store.payload, raw)
+
+    def test_future_schema_blocks_all_ordinary_mutations_without_touching_payload(self) -> None:
+        raw = {"schema_version": 999, "pack_id": "future.pack", "opaque": {"x": 1}}
+        store = MemoryProfileStore(raw)
+        manager = SoundProfileManager(store, FakePackResolver())
+        manager.load()
+
+        mutations = (
+            lambda: manager.set_master(enabled=False),
+            lambda: manager.set_pack("wood"),
+            lambda: manager.set_event("move", SoundEventPreference(False, 44, "soft.move")),
+            lambda: manager.reset_event("move"),
+            lambda: manager.save(SoundProfile(master_volume_percent=12)),
+        )
+        for mutation in mutations:
+            with self.subTest(mutation=mutation):
+                with self.assertRaises(SoundProfileWriteBlockedError):
+                    mutation()
+
+        self.assertTrue(manager.writes_blocked)
+        self.assertEqual(store.writes, [])
+        self.assertEqual(store.payload, raw)
+
+    def test_explicit_future_profile_replacement_is_the_only_unlock_path(self) -> None:
+        raw = {"schema_version": 999, "pack_id": "future.pack", "opaque": {"x": 1}}
+        store = MemoryProfileStore(raw)
+        manager = SoundProfileManager(store, FakePackResolver())
+        manager.load()
+
+        replacement = SoundProfile(
+            pack_id="wood",
+            master_enabled=False,
+            master_volume_percent=37,
+            events={"check": SoundEventPreference(True, 70, "soft.check")},
+        )
+        saved = manager.replace_future_profile(replacement)
+
+        self.assertEqual(saved, replacement)
+        self.assertFalse(manager.writes_blocked)
+        self.assertEqual(store.writes, [replacement.to_mapping()])
+        self.assertEqual(store.payload, replacement.to_mapping())
+
+        edited = manager.set_master(volume_percent=21)
+        self.assertEqual(edited.master_volume_percent, 21)
+        self.assertEqual(len(store.writes), 2)
+
+    def test_explicit_replacement_fails_when_no_future_schema_is_protected(self) -> None:
+        store = MemoryProfileStore(SoundProfile().to_mapping())
+        manager = SoundProfileManager(store, FakePackResolver())
+        manager.load()
+
+        with self.assertRaises(SoundProfileWriteBlockedError):
+            manager.replace_future_profile(SoundProfile(master_volume_percent=12))
+
+        self.assertEqual(store.writes, [])
 
     def test_missing_pack_falls_back_without_losing_master_or_event_preferences(self) -> None:
         profile = SoundProfile(
