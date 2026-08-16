@@ -62,8 +62,11 @@ class LessonTemplatePresentation:
         }
 
     def open_template(self, template_id: str) -> dict[str, Any]:
+        value = str(template_id).strip()
+        if not value:
+            return self._error("Виберіть шаблон уроку.")
         try:
-            preset, revision = self._application.load_template(str(template_id).strip())
+            preset, revision = self._application.load_template(value)
         except Exception:
             return self._error("Не вдалося відкрити шаблон уроку.")
         self._current = EditableTemplateState(
@@ -92,6 +95,23 @@ class LessonTemplatePresentation:
         self._current = EditableTemplateState(template, new_level, None, False, False)
         return self.snapshot(accessible_text=f"Створено редаговану копію «{new_title}».")
 
+    def begin_copy_current(
+        self,
+        *,
+        template_id: str,
+        title: str,
+        level: str | None = None,
+    ) -> dict[str, Any]:
+        current = self._current
+        if current is None:
+            return self._error("Спочатку відкрийте шаблон уроку.")
+        return self.begin_copy(
+            current.template,
+            template_id=template_id,
+            title=title,
+            level=current.level if level is None else level,
+        )
+
     def edit_block(
         self,
         block_id: str,
@@ -99,7 +119,9 @@ class LessonTemplatePresentation:
         title: str | None = None,
         duration_minutes: int | None = None,
     ) -> dict[str, Any]:
-        current = self._require_current()
+        current = self._current
+        if current is None:
+            return self._error("Спочатку відкрийте шаблон уроку.")
         target = str(block_id).strip()
         updated: list[LessonTemplateBlock] = []
         found = False
@@ -129,7 +151,11 @@ class LessonTemplatePresentation:
         return self.snapshot(accessible_text="Блок шаблону змінено.")
 
     def save(self) -> dict[str, Any]:
-        current = self._require_current()
+        current = self._current
+        if current is None:
+            return self._error("Спочатку відкрийте шаблон уроку.")
+        if current.is_preset:
+            return self._error("Стандартний шаблон не змінюється. Створіть власну копію.")
         try:
             if current.persisted:
                 assert current.revision is not None
@@ -191,11 +217,6 @@ class LessonTemplatePresentation:
             },
             "accessibleText": accessible_text,
         }
-
-    def _require_current(self) -> EditableTemplateState:
-        if self._current is None:
-            raise ValueError("no template is open")
-        return self._current
 
     @staticmethod
     def _error(text: str) -> dict[str, Any]:
