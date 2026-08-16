@@ -1,0 +1,41 @@
+name: WordDeck Windows build
+
+on:
+  push:
+    branches:
+      - worddeck-bootstrap
+    paths:
+      - 'WordDeck/**'
+      - 'README-WORDDECK.md'
+      - '.github/workflows/worddeck-windows.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore
+        run: dotnet restore .\WordDeck\WordDeck.csproj
+
+      - name: Build
+        run: dotnet build .\WordDeck\WordDeck.csproj -c Release --no-restore
+
+      - name: Publish self-contained EXE
+        run: dotnet publish .\WordDeck\WordDeck.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:DebugType=None -p:DebugSymbols=false -o .\artifacts\WordDeck-win-x64
+
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: WordDeck-win-x64
+          path: .\artifacts\WordDeck-win-x64\WordDeck.exe
+          if-no-files-found: error
