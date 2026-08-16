@@ -14,6 +14,7 @@ on:
       - 'acs/lesson_plan.py'
       - 'acs/lesson_storage.py'
       - 'acs/lesson_session_storage.py'
+      - 'acs/classroom_collaboration_storage.py'
       - 'acs/local_profile.py'
       - 'acs/usage_statistics.py'
       - 'acs/teaching_ui.py'
@@ -28,6 +29,7 @@ on:
       - 'tests/test_lesson_plan.py'
       - 'tests/test_lesson_storage.py'
       - 'tests/test_lesson_session_storage.py'
+      - 'tests/test_classroom_collaboration_storage.py'
       - 'tests/test_local_profile.py'
       - 'tests/test_usage_statistics.py'
       - 'tests/test_teaching_ui.py'
@@ -56,6 +58,7 @@ jobs:
           acs/lesson_plan.py
           acs/lesson_storage.py
           acs/lesson_session_storage.py
+          acs/classroom_collaboration_storage.py
           acs/local_profile.py
           acs/usage_statistics.py
           acs/teaching_ui.py
@@ -69,6 +72,7 @@ jobs:
           tests/test_lesson_plan.py
           tests/test_lesson_storage.py
           tests/test_lesson_session_storage.py
+          tests/test_classroom_collaboration_storage.py
           tests/test_local_profile.py
           tests/test_usage_statistics.py
           tests/test_teaching_ui.py
@@ -84,6 +88,7 @@ jobs:
           tests.test_lesson_plan
           tests.test_lesson_storage
           tests.test_lesson_session_storage
+          tests.test_classroom_collaboration_storage
           tests.test_local_profile
           tests.test_usage_statistics
           tests.test_teaching_ui
