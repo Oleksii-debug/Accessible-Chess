@@ -105,7 +105,7 @@ jobs:
           if(-not $engine){ throw 'Stockfish 18 executable missing' }
           Copy-Item $engine.FullName 'release-assets\engines\stockfish\stockfish.exe' -Force
           Invoke-WebRequest -Uri 'https://github.com/official-stockfish/Stockfish/archive/refs/tags/sf_18.zip' -OutFile 'release-assets\THIRD_PARTY\Stockfish\Stockfish-18-source.zip'
-          @" 
+          @"
           Stockfish 18 — GNU GPL v3. Upstream: official-stockfish/Stockfish tag sf_18.
           Complete corresponding source archive is included.
           "@ | Set-Content -Encoding UTF8 'release-assets\THIRD_PARTY\Stockfish\NOTICE.txt'
@@ -149,8 +149,12 @@ jobs:
         working-directory: work
         run: |
           @'
-          import json, threading, webview
+          import json
+          import clr
+          clr.AddReference('System.Windows.Forms')
+          from System.Windows.Forms import Application, Form
           from acs.ui_native_menu import install_windows_native_menu
+
           class API:
               lang='en'
               def keymap_search(self,*a): return []
@@ -162,30 +166,49 @@ jobs:
               def review_next(self): return {'ok':True}
               def toggle_engine(self): return {'ok':True}
               def keymap_reset_all(self): return {'ok':True}
-          win=webview.create_window('Accessible Chess menu self diagnostic',html='<html><body>menu diagnostic</body></html>')
+
+          class FakeWindow:
+              def __init__(self, form):
+                  self.native=form
+              def evaluate_js(self,*a,**k): return None
+              def destroy(self): return None
+
+          Application.EnableVisualStyles()
+          Application.SetCompatibleTextRenderingDefault(False)
+          form=Form()
+          form.Name='AccessibleChessStructuralHost'
+          fake=FakeWindow(form)
           result={}
-          def before_show():
-              ok=install_windows_native_menu(win,API())
-              host=getattr(win,'_accessible_chess_native_menu_host',None)
-              menu=getattr(win,'_accessible_chess_native_menu',None)
-              result['installed']=bool(ok); result['host_exists']=host is not None; result['menu_exists']=menu is not None
-              if ok:
-                  result['host_top_level']=bool(getattr(host,'TopLevel',False))
-                  result['parent_is_host']=getattr(menu,'Parent',None) is host
-                  result['main_menu_strip_is_menu']=getattr(host,'MainMenuStrip',None) is menu
-                  result['menu_name']=str(getattr(menu,'Name',''))
-                  result['commands']=[str(x.Text).replace('&','') for x in list(menu.Items)]
+          menu=None
+          try:
+              ok=install_windows_native_menu(fake,API())
+              host=getattr(fake,'_accessible_chess_native_menu_host',None)
+              menu=getattr(fake,'_accessible_chess_native_menu',None)
+              result['installed']=bool(ok)
+              result['host_exists']=host is not None
+              result['menu_exists']=menu is not None
+              result['host_is_exact_form']=host is form
+              result['host_top_level']=bool(getattr(host,'TopLevel',False)) if host is not None else False
+              result['parent_is_host']=getattr(menu,'Parent',None) is host if menu is not None else False
+              result['main_menu_strip_is_menu']=getattr(host,'MainMenuStrip',None) is menu if host is not None else False
+              result['menu_name']=str(getattr(menu,'Name','')) if menu is not None else ''
+              result['accessible_role']=str(getattr(menu,'AccessibleRole','')) if menu is not None else ''
+              result['commands']=[str(x.Text).replace('&','') for x in list(menu.Items)] if menu is not None else []
               open('native-menu-self-diagnostic.json','w',encoding='utf-8').write(json.dumps(result,ensure_ascii=False,indent=2))
-              threading.Timer(1.0,win.destroy).start()
-          win.events.before_show += before_show
-          webview.start(gui='edgechromium',private_mode=True)
-          assert result.get('installed') and result.get('host_top_level') and result.get('parent_is_host') and result.get('main_menu_strip_is_menu'), result
-          assert result.get('menu_name')=='AccessibleChessMainMenu', result
-          assert result.get('commands')==['File','Game','Board','Analysis','Settings','Help'], result
-          print('NATIVE MENU SELF DIAGNOSTIC PASS',result)
+              assert result['installed'], result
+              assert result['host_is_exact_form'] and result['host_top_level'], result
+              assert result['parent_is_host'] and result['main_menu_strip_is_menu'], result
+              assert result['menu_name']=='AccessibleChessMainMenu', result
+              assert result['accessible_role'].endswith('MenuBar'), result
+              assert result['commands']==['File','Game','Board','Analysis','Settings','Help'], result
+              print('NATIVE MENU PURE WINFORMS STRUCTURAL SELF TEST PASS',result)
+          finally:
+              if menu is not None:
+                  menu.Dispose()
+              form.Dispose()
           '@ | Set-Content -Encoding UTF8 native_menu_self_diag.py
           python native_menu_self_diag.py
-          if ($LASTEXITCODE -ne 0) { throw 'Native menu self diagnostic failed' }
+          if ($LASTEXITCODE -ne 0) { throw 'Native menu structural self test failed' }
           'ALT/ARROWS/ENTER/ESC AND NVDA MENU USABILITY: HUMAN-ONLY UNPROVEN'
 
       - name: Build standalone Windows application
