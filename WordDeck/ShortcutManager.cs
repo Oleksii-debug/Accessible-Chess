@@ -20,7 +20,16 @@ internal sealed class ShortcutManager
 
     public string? FindAction(Keys keyData)
     {
-        return Definitions.FirstOrDefault(def => Get(def.Id) == keyData)?.Id;
+        ShortcutDefinition? definition = Definitions.FirstOrDefault(def => Get(def.Id) == keyData);
+        if (definition is null)
+            return null;
+
+        // The user explicitly wants both navigation directions to mean
+        // “show another random card”. Keep two independently rebindable
+        // shortcuts for ergonomics, but route both through the same
+        // shuffle-bag action. This avoids deterministic back/forward history
+        // when alternating Ctrl+Left and Ctrl+Right.
+        return definition.Id == ActionIds.PreviousWord ? ActionIds.NextWord : definition.Id;
     }
 
     public bool TrySet(string actionId, Keys keys, out string? errorDescription)
@@ -77,8 +86,8 @@ internal sealed class ShortcutManager
     {
         var defs = new List<ShortcutDefinition>
         {
-            new(ActionIds.NextWord, "Next random word", Keys.Control | Keys.Right),
-            new(ActionIds.PreviousWord, "Previous word", Keys.Control | Keys.Left),
+            new(ActionIds.NextWord, "Another random word (right)", Keys.Control | Keys.Right),
+            new(ActionIds.PreviousWord, "Another random word (left)", Keys.Control | Keys.Left),
             new(ActionIds.RevealTranslation, "Reveal translation", Keys.Control | Keys.T),
             new(ActionIds.RepeatWord, "Repeat current English word", Keys.Control | Keys.R),
             new(ActionIds.UndoMove, "Undo last deck move", Keys.Control | Keys.Z),
