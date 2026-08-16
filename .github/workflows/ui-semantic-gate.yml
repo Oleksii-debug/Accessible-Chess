@@ -14,6 +14,19 @@ on:
       - 'tests/test_accessible_webui.py'
       - 'tests/test_nvda_p0_contract.py'
       - '.github/workflows/ui-semantic-gate.yml'
+  pull_request:
+    branches:
+      - integration/accessible-chess-next
+    paths:
+      - 'web/**'
+      - 'run_accessible_chess.py'
+      - 'acs/stage1_release_ui.py'
+      - 'acs/release_app.py'
+      - 'tests/test_stage1_complete_user_flow.py'
+      - 'tests/test_stage1_release_composition_ui.py'
+      - 'tests/test_accessible_webui.py'
+      - 'tests/test_nvda_p0_contract.py'
+      - '.github/workflows/ui-semantic-gate.yml'
   workflow_dispatch:
 
 permissions:
