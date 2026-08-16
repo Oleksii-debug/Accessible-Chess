@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import sqlite3
 from dataclasses import dataclass
@@ -17,7 +18,7 @@ from .lesson_plan import (
 from .local_profile import LocalProfile
 from .usage_statistics import UsageStatisticsSnapshot
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 FenValidator = Callable[[str], None]
 
 
@@ -47,6 +48,29 @@ class DeploymentRecord:
     sequence_no: int
 
 
+@dataclass(frozen=True)
+class DeploymentTarget:
+    target_kind: str
+    target_id: str
+
+    def __post_init__(self) -> None:
+        if not self.target_kind.strip():
+            raise ValueError("target_kind must not be empty")
+        if not self.target_id.strip():
+            raise ValueError("target_id must not be empty")
+
+
+@dataclass(frozen=True)
+class DeploymentBatch:
+    batch_id: str
+    lesson_id: str
+    assignment_id: str | None
+    position_id: str
+    session_id: str
+    first_sequence_no: int
+    records: tuple[DeploymentRecord, ...]
+
+
 class LessonSQLiteStore:
     """Versioned local persistence for lesson/classroom data.
 
@@ -69,6 +93,14 @@ class LessonSQLiteStore:
         connection.execute("PRAGMA foreign_keys = ON")
         return connection
 
+    @staticmethod
+    def _set_schema_version(db: sqlite3.Connection, version: int) -> None:
+        db.execute(
+            "INSERT INTO schema_meta(key,value) VALUES('schema_version',?) "
+            "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+            (version,),
+        )
+
     def _migrate(self) -> None:
         with self._connect() as db:
             db.execute("CREATE TABLE IF NOT EXISTS schema_meta (key TEXT PRIMARY KEY, value INTEGER NOT NULL)")
@@ -78,10 +110,12 @@ class LessonSQLiteStore:
                 raise LessonStorageError(f"unsupported lesson database schema {version}")
             if version < 1:
                 self._migration_v1(db)
-                db.execute(
-                    "INSERT INTO schema_meta(key,value) VALUES('schema_version',1) "
-                    "ON CONFLICT(key) DO UPDATE SET value=excluded.value"
-                )
+                version = 1
+                self._set_schema_version(db, version)
+            if version < 2:
+                self._migration_v2(db)
+                version = 2
+                self._set_schema_version(db, version)
 
     @staticmethod
     def _migration_v1(db: sqlite3.Connection) -> None:
@@ -153,6 +187,32 @@ class LessonSQLiteStore:
                 installation_id TEXT PRIMARY KEY,
                 payload_json TEXT NOT NULL
             );
+            """
+        )
+
+    @staticmethod
+    def _migration_v2(db: sqlite3.Connection) -> None:
+        db.executescript(
+            """
+            CREATE TABLE deployment_batches(
+                batch_id TEXT PRIMARY KEY,
+                lesson_id TEXT NOT NULL REFERENCES lessons(lesson_id) ON DELETE CASCADE,
+                assignment_id TEXT,
+                position_id TEXT NOT NULL,
+                session_id TEXT NOT NULL,
+                first_sequence_no INTEGER NOT NULL CHECK(first_sequence_no >= 0),
+                target_count INTEGER NOT NULL CHECK(target_count > 0)
+            );
+            CREATE TABLE deployment_batch_targets(
+                batch_id TEXT NOT NULL REFERENCES deployment_batches(batch_id) ON DELETE CASCADE,
+                target_ordinal INTEGER NOT NULL CHECK(target_ordinal >= 0),
+                target_kind TEXT NOT NULL,
+                target_id TEXT NOT NULL,
+                deployment_id TEXT NOT NULL UNIQUE REFERENCES deployments(deployment_id) ON DELETE CASCADE,
+                PRIMARY KEY(batch_id, target_ordinal),
+                UNIQUE(batch_id, target_kind, target_id)
+            );
+            CREATE INDEX idx_deployment_batch_session ON deployment_batches(session_id, first_sequence_no);
             """
         )
 
@@ -296,23 +356,153 @@ class LessonSQLiteStore:
         if record.sequence_no < 0:
             raise ValueError("sequence_no must be non-negative")
         with self._connect() as db:
-            existing = db.execute("SELECT * FROM deployments WHERE deployment_id=?", (record.deployment_id,)).fetchone()
+            return self._record_deployment_in_transaction(db, record)
+
+    def _record_deployment_in_transaction(
+        self, db: sqlite3.Connection, record: DeploymentRecord
+    ) -> DeploymentRecord:
+        existing = db.execute("SELECT * FROM deployments WHERE deployment_id=?", (record.deployment_id,)).fetchone()
+        if existing is not None:
+            loaded = self._deployment_from_row(existing)
+            if loaded != record:
+                raise LessonConflictError(f"deployment identity reused with different payload: {record.deployment_id}")
+            return loaded
+        try:
+            db.execute(
+                "INSERT INTO deployments VALUES(?,?,?,?,?,?,?,?)",
+                (
+                    record.deployment_id, record.lesson_id, record.assignment_id, record.position_id,
+                    record.target_kind, record.target_id, record.session_id, record.sequence_no,
+                ),
+            )
+        except sqlite3.IntegrityError as exc:
+            raise LessonConflictError("deployment identity conflicts with existing timeline entry") from exc
+        return record
+
+    @staticmethod
+    def _deployment_id_for_batch_target(batch_id: str, target: DeploymentTarget) -> str:
+        identity = f"{batch_id}\0{target.target_kind}\0{target.target_id}".encode("utf-8")
+        return f"deploy.{hashlib.sha256(identity).hexdigest()}"
+
+    def record_deployment_batch(
+        self,
+        *,
+        batch_id: str,
+        lesson_id: str,
+        assignment_id: str | None,
+        position_id: str,
+        session_id: str,
+        targets: Iterable[DeploymentTarget],
+        first_sequence_no: int,
+    ) -> DeploymentBatch:
+        if not batch_id.strip():
+            raise ValueError("batch_id must not be empty")
+        if first_sequence_no < 0:
+            raise ValueError("first_sequence_no must be non-negative")
+        target_tuple = tuple(targets)
+        if not target_tuple:
+            raise ValueError("deployment batch must contain at least one target")
+        target_keys = tuple((target.target_kind, target.target_id) for target in target_tuple)
+        if len(set(target_keys)) != len(target_keys):
+            raise ValueError("deployment batch targets must be unique")
+
+        requested_header = (
+            lesson_id,
+            assignment_id,
+            position_id,
+            session_id,
+            first_sequence_no,
+            len(target_tuple),
+        )
+        with self._connect() as db:
+            existing = db.execute("SELECT * FROM deployment_batches WHERE batch_id=?", (batch_id,)).fetchone()
             if existing is not None:
-                loaded = self._deployment_from_row(existing)
-                if loaded != record:
-                    raise LessonConflictError(f"deployment identity reused with different payload: {record.deployment_id}")
-                return loaded
+                stored_header = (
+                    existing["lesson_id"],
+                    existing["assignment_id"],
+                    existing["position_id"],
+                    existing["session_id"],
+                    int(existing["first_sequence_no"]),
+                    int(existing["target_count"]),
+                )
+                if stored_header != requested_header:
+                    raise LessonConflictError(f"deployment batch identity reused with different payload: {batch_id}")
+                stored_targets = tuple(
+                    DeploymentTarget(row["target_kind"], row["target_id"])
+                    for row in db.execute(
+                        "SELECT target_kind,target_id FROM deployment_batch_targets "
+                        "WHERE batch_id=? ORDER BY target_ordinal",
+                        (batch_id,),
+                    )
+                )
+                if stored_targets != target_tuple:
+                    raise LessonConflictError(f"deployment batch target order changed: {batch_id}")
+                records = tuple(
+                    self._deployment_from_row(row)
+                    for row in db.execute(
+                        "SELECT d.* FROM deployment_batch_targets bt "
+                        "JOIN deployments d ON d.deployment_id=bt.deployment_id "
+                        "WHERE bt.batch_id=? ORDER BY bt.target_ordinal",
+                        (batch_id,),
+                    )
+                )
+                if len(records) != len(target_tuple):
+                    raise LessonStorageError(f"deployment batch is incomplete: {batch_id}")
+                return DeploymentBatch(
+                    batch_id, lesson_id, assignment_id, position_id, session_id, first_sequence_no, records
+                )
+
             try:
                 db.execute(
-                    "INSERT INTO deployments VALUES(?,?,?,?,?,?,?,?)",
-                    (
-                        record.deployment_id, record.lesson_id, record.assignment_id, record.position_id,
-                        record.target_kind, record.target_id, record.session_id, record.sequence_no,
+                    "INSERT INTO deployment_batches VALUES(?,?,?,?,?,?,?)",
+                    requested_header[:4] + (batch_id,) if False else (
+                        batch_id, lesson_id, assignment_id, position_id, session_id, first_sequence_no, len(target_tuple)
                     ),
                 )
+                records = []
+                for ordinal, target in enumerate(target_tuple):
+                    record = DeploymentRecord(
+                        self._deployment_id_for_batch_target(batch_id, target),
+                        lesson_id,
+                        assignment_id,
+                        position_id,
+                        target.target_kind,
+                        target.target_id,
+                        session_id,
+                        first_sequence_no + ordinal,
+                    )
+                    stored = self._record_deployment_in_transaction(db, record)
+                    db.execute(
+                        "INSERT INTO deployment_batch_targets VALUES(?,?,?,?,?)",
+                        (batch_id, ordinal, target.target_kind, target.target_id, stored.deployment_id),
+                    )
+                    records.append(stored)
             except sqlite3.IntegrityError as exc:
-                raise LessonConflictError("deployment identity conflicts with existing timeline entry") from exc
-        return record
+                raise LessonConflictError(f"deployment batch conflicts with existing timeline: {batch_id}") from exc
+        return DeploymentBatch(
+            batch_id, lesson_id, assignment_id, position_id, session_id, first_sequence_no, tuple(records)
+        )
+
+    def load_deployment_batch(self, batch_id: str) -> DeploymentBatch | None:
+        with self._connect() as db:
+            batch = db.execute("SELECT * FROM deployment_batches WHERE batch_id=?", (batch_id,)).fetchone()
+            if batch is None:
+                return None
+            records = tuple(
+                self._deployment_from_row(row)
+                for row in db.execute(
+                    "SELECT d.* FROM deployment_batch_targets bt "
+                    "JOIN deployments d ON d.deployment_id=bt.deployment_id "
+                    "WHERE bt.batch_id=? ORDER BY bt.target_ordinal",
+                    (batch_id,),
+                )
+            )
+            if len(records) != int(batch["target_count"]):
+                raise LessonStorageError(f"deployment batch is incomplete: {batch_id}")
+        return DeploymentBatch(
+            batch["batch_id"], batch["lesson_id"], batch["assignment_id"], batch["position_id"],
+            batch["session_id"], int(batch["first_sequence_no"]), records,
+        )
 
     def deployment_timeline(self, session_id: str) -> tuple[DeploymentRecord, ...]:
         with self._connect() as db:
