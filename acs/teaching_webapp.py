@@ -6,7 +6,13 @@ from typing import Any, Mapping
 from .child_coaching_ui import ChildCoachingPresentationState
 from .classroom_collaboration_storage import AttachmentMetadata, ChatMessageMetadata
 from .classroom_presentation import ClassroomPresentationState
+from .lesson_application_service import LessonApplicationService
+from .lesson_session_storage import LessonSessionSQLiteStore
+from .lesson_storage import LessonSQLiteStore
+from .lesson_template_presentation import LessonTemplatePresentation
+from .lesson_template_storage import LessonTemplateSQLiteStore
 from .local_profile import LocalProfileStore
+from .position_editor import PositionState
 from .teaching_ui import TeachingUiState
 from .visual_pack_presentation import VisualPackCatalogPresentation
 
@@ -25,11 +31,13 @@ class TeachingAccessibleChessAPI:
         collaboration: ClassroomPresentationState | None = None,
         coaching: ChildCoachingPresentationState | None = None,
         visual_packs: VisualPackCatalogPresentation | None = None,
+        lesson_templates: LessonTemplatePresentation | None = None,
     ) -> None:
         self.teaching = state or TeachingUiState()
         self.collaboration = collaboration or ClassroomPresentationState()
         self.coaching = coaching or ChildCoachingPresentationState()
         self.visual_packs = visual_packs or VisualPackCatalogPresentation()
+        self.lesson_templates = lesson_templates
 
     def teaching_snapshot(self) -> dict[str, Any]:
         return self.teaching.snapshot()
@@ -119,6 +127,54 @@ class TeachingAccessibleChessAPI:
             title=title,
             duration_minutes=duration_minutes,
         )
+
+    def coaching_template_prepare(self) -> dict[str, Any]:
+        if self.lesson_templates is None:
+            return self._template_unavailable()
+        return self.lesson_templates.ensure_presets()
+
+    def coaching_template_snapshot(self) -> dict[str, Any]:
+        if self.lesson_templates is None:
+            return self._template_unavailable()
+        return self.lesson_templates.snapshot()
+
+    def coaching_template_open(self, template_id: str) -> dict[str, Any]:
+        if self.lesson_templates is None:
+            return self._template_unavailable()
+        return self.lesson_templates.open_template(template_id)
+
+    def coaching_template_begin_copy(
+        self,
+        template_id: str,
+        title: str,
+        level: str | None = None,
+    ) -> dict[str, Any]:
+        if self.lesson_templates is None:
+            return self._template_unavailable()
+        return self.lesson_templates.begin_copy_current(
+            template_id=template_id,
+            title=title,
+            level=level,
+        )
+
+    def coaching_template_edit_block(
+        self,
+        block_id: str,
+        title: str | None = None,
+        duration_minutes: int | None = None,
+    ) -> dict[str, Any]:
+        if self.lesson_templates is None:
+            return self._template_unavailable()
+        return self.lesson_templates.edit_block(
+            block_id,
+            title=title,
+            duration_minutes=duration_minutes,
+        )
+
+    def coaching_template_save(self) -> dict[str, Any]:
+        if self.lesson_templates is None:
+            return self._template_unavailable()
+        return self.lesson_templates.save()
 
     def coaching_previous_position(self) -> dict[str, Any]:
         return self.coaching.previous_position()
@@ -241,11 +297,39 @@ class TeachingAccessibleChessAPI:
             sender_display_name=sender_display_name,
         )
 
+    @staticmethod
+    def _template_unavailable() -> dict[str, Any]:
+        return {
+            "ok": False,
+            "open": False,
+            "template": None,
+            "accessibleText": "Збережені шаблони уроків недоступні.",
+        }
+
 
 def _default_collaboration_state() -> ClassroomPresentationState:
     data_dir = Path.home() / ".accessible_chess"
     profile_store = LocalProfileStore(data_dir / "teaching_profile.json")
     return ClassroomPresentationState(profile_store=profile_store)
+
+
+def _validate_lesson_fen(fen: str) -> None:
+    position = PositionState.from_fen(fen)
+    problems = position.validate_playable()
+    if problems:
+        raise ValueError("position is not playable")
+
+
+def _default_lesson_template_presentation() -> LessonTemplatePresentation:
+    data_dir = Path.home() / ".accessible_chess"
+    db_path = data_dir / "teaching_lessons.sqlite3"
+    application = LessonApplicationService(
+        lesson_store=LessonSQLiteStore(db_path, fen_validator=_validate_lesson_fen),
+        template_store=LessonTemplateSQLiteStore(db_path),
+        session_store=LessonSessionSQLiteStore(db_path, fen_validator=_validate_lesson_fen),
+        fen_validator=_validate_lesson_fen,
+    )
+    return LessonTemplatePresentation(application)
 
 
 def main() -> None:
@@ -257,7 +341,10 @@ def main() -> None:
     window = webview.create_window(
         "Accessible Chess — Teaching Lab",
         url=str(html),
-        js_api=TeachingAccessibleChessAPI(collaboration=_default_collaboration_state()),
+        js_api=TeachingAccessibleChessAPI(
+            collaboration=_default_collaboration_state(),
+            lesson_templates=_default_lesson_template_presentation(),
+        ),
         width=1180,
         height=840,
         min_size=(820, 620),
