@@ -11,6 +11,7 @@ on:
       - 'acs/sound_profiles.py'
       - 'acs/sound_runtime.py'
       - 'acs/classroom.py'
+      - 'acs/classroom_presentation.py'
       - 'acs/lesson_plan.py'
       - 'acs/lesson_storage.py'
       - 'acs/lesson_session_storage.py'
@@ -26,6 +27,7 @@ on:
       - 'tests/test_sound_profile_runtime.py'
       - 'tests/test_sound_runtime.py'
       - 'tests/test_classroom.py'
+      - 'tests/test_classroom_presentation.py'
       - 'tests/test_lesson_plan.py'
       - 'tests/test_lesson_storage.py'
       - 'tests/test_lesson_session_storage.py'
@@ -55,6 +57,7 @@ jobs:
           acs/sound_profiles.py
           acs/sound_runtime.py
           acs/classroom.py
+          acs/classroom_presentation.py
           acs/lesson_plan.py
           acs/lesson_storage.py
           acs/lesson_session_storage.py
@@ -69,6 +72,7 @@ jobs:
           tests/test_sound_profile_runtime.py
           tests/test_sound_runtime.py
           tests/test_classroom.py
+          tests/test_classroom_presentation.py
           tests/test_lesson_plan.py
           tests/test_lesson_storage.py
           tests/test_lesson_session_storage.py
@@ -85,6 +89,7 @@ jobs:
           tests.test_sound_profile_runtime
           tests.test_sound_runtime
           tests.test_classroom
+          tests.test_classroom_presentation
           tests.test_lesson_plan
           tests.test_lesson_storage
           tests.test_lesson_session_storage
