@@ -2,7 +2,7 @@ from __future__ import annotations
 
 """Presentation-neutral PGN semantic boundary over the canonical GameTree model.
 
-This module does not parse chess moves and does not own chess legality.  It
+This module does not parse chess moves and does not own chess legality. It
 projects existing :mod:`acs.gametree` records into stable metadata/setup/result
 values and typed diagnostics that storage, import and UI adapters can consume
 without scraping human warning strings.
@@ -26,6 +26,14 @@ class PgnDiagnosticCode(str, Enum):
     INVALID_SETUP = "invalid_setup"
     SETUP_REQUIRES_FEN = "setup_requires_fen"
     FEN_WITHOUT_SETUP = "fen_without_setup"
+    DUPLICATE_TAG = "duplicate_tag"
+    DUPLICATE_RESULT = "duplicate_result"
+    UNTERMINATED_COMMENT = "unterminated_comment"
+    UNTERMINATED_VARIATION = "unterminated_variation"
+    UNMATCHED_PARENTHESES = "unmatched_parentheses"
+    ORPHAN_ANNOTATION = "orphan_annotation"
+    UNSUPPORTED_TOKEN = "unsupported_token"
+    TRAILING_MOVETEXT = "trailing_movetext"
     MALFORMED_RECORD = "malformed_record"
 
 
@@ -36,6 +44,7 @@ class PgnDiagnostic:
     message: str
     source_index: int
     field: str | None = None
+    token_index: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -76,6 +85,14 @@ class PgnSemanticRecord:
     def usable(self) -> bool:
         return not any(item.severity is DiagnosticSeverity.ERROR for item in self.diagnostics)
 
+    @property
+    def warning_count(self) -> int:
+        return sum(item.severity is DiagnosticSeverity.WARNING for item in self.diagnostics)
+
+    @property
+    def error_count(self) -> int:
+        return sum(item.severity is DiagnosticSeverity.ERROR for item in self.diagnostics)
+
 
 def _diagnostic(
     game: PgnGame,
@@ -84,6 +101,7 @@ def _diagnostic(
     *,
     field: str | None = None,
     severity: DiagnosticSeverity = DiagnosticSeverity.WARNING,
+    token_index: int | None = None,
 ) -> PgnDiagnostic:
     return PgnDiagnostic(
         code=code,
@@ -91,6 +109,7 @@ def _diagnostic(
         message=message,
         source_index=game.source_index,
         field=field,
+        token_index=token_index,
     )
 
 
@@ -136,14 +155,57 @@ def _setup_semantics(game: PgnGame, diagnostics: list[PgnDiagnostic]) -> PgnSetu
     return PgnSetup(enabled=enabled, fen=fen)
 
 
-def analyze_game(game: PgnGame) -> PgnSemanticRecord:
-    """Return a typed semantic projection without mutating ``game``.
+_PARSER_CODE_MAP: dict[str, PgnDiagnosticCode] = {
+    "result-mismatch": PgnDiagnosticCode.RESULT_MISMATCH,
+    "duplicate-tag": PgnDiagnosticCode.DUPLICATE_TAG,
+    "duplicate-result": PgnDiagnosticCode.DUPLICATE_RESULT,
+    "unterminated-rav": PgnDiagnosticCode.UNTERMINATED_VARIATION,
+    "unmatched-rparen": PgnDiagnosticCode.UNMATCHED_PARENTHESES,
+    "orphan-nag": PgnDiagnosticCode.ORPHAN_ANNOTATION,
+    "orphan-move-number": PgnDiagnosticCode.ORPHAN_ANNOTATION,
+    "orphan-rav": PgnDiagnosticCode.ORPHAN_ANNOTATION,
+    "unsupported-token": PgnDiagnosticCode.UNSUPPORTED_TOKEN,
+    "movetext-after-result": PgnDiagnosticCode.TRAILING_MOVETEXT,
+}
 
-    Existing parser warnings are preserved as diagnostics.  Known result
-    mismatch warnings receive a stable diagnostic code; other malformed-source
-    warnings remain available under ``MALFORMED_RECORD`` rather than being
-    discarded or converted into guessed structure.
-    """
+
+def _project_parser_diagnostics(game: PgnGame) -> list[PgnDiagnostic]:
+    projected: list[PgnDiagnostic] = []
+    if game.diagnostics:
+        for item in game.diagnostics:
+            if item.code == "token-warning" and item.message == "unterminated brace comment":
+                code = PgnDiagnosticCode.UNTERMINATED_COMMENT
+            else:
+                code = _PARSER_CODE_MAP.get(item.code, PgnDiagnosticCode.MALFORMED_RECORD)
+            field = "Result" if code in {PgnDiagnosticCode.RESULT_MISMATCH, PgnDiagnosticCode.DUPLICATE_RESULT} else None
+            projected.append(
+                _diagnostic(
+                    game,
+                    code,
+                    item.message,
+                    field=field,
+                    token_index=item.token_index,
+                )
+            )
+        return projected
+
+    # Backward compatibility for PgnGame objects constructed by older callers.
+    for warning in game.warnings:
+        if warning.startswith("header Result ") and " differs from movetext " in warning:
+            code = PgnDiagnosticCode.RESULT_MISMATCH
+            field = "Result"
+        elif warning == "unterminated brace comment":
+            code = PgnDiagnosticCode.UNTERMINATED_COMMENT
+            field = None
+        else:
+            code = PgnDiagnosticCode.MALFORMED_RECORD
+            field = None
+        projected.append(_diagnostic(game, code, warning, field=field))
+    return projected
+
+
+def analyze_game(game: PgnGame) -> PgnSemanticRecord:
+    """Return a typed semantic projection without mutating ``game``."""
 
     diagnostics: list[PgnDiagnostic] = []
     tags = PgnTagSet.from_game(game)
@@ -160,15 +222,7 @@ def analyze_game(game: PgnGame) -> PgnSemanticRecord:
             )
         )
 
-    for warning in game.warnings:
-        if warning.startswith("header Result ") and " differs from movetext " in warning:
-            code = PgnDiagnosticCode.RESULT_MISMATCH
-            field = "Result"
-        else:
-            code = PgnDiagnosticCode.MALFORMED_RECORD
-            field = None
-        diagnostics.append(_diagnostic(game, code, warning, field=field))
-
+    diagnostics.extend(_project_parser_diagnostics(game))
     setup = _setup_semantics(game, diagnostics)
     return PgnSemanticRecord(
         source_index=game.source_index,
