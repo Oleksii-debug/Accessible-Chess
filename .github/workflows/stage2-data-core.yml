@@ -6,6 +6,7 @@ on:
     branches:
       - dev/stage2-data-core
       - feature/core-forward-foundation
+      - integration/data-forward-vertical-20260816
 
 permissions:
   contents: read
@@ -23,7 +24,7 @@ jobs:
         with:
           python-version: '3.12'
       - name: Compile Stage 2 data core
-        run: python -m compileall -q acs/gametree.py acs/pgn_semantics.py acs/game_references.py acs/pgn_workspace.py acs/acsdb.py acs/import_contract.py tests
+        run: python -m compileall -q acs/gametree.py acs/pgn_semantics.py acs/game_references.py acs/pgn_workspace.py acs/pgn_collection.py acs/acsdb.py acs/acsdb_catalog.py acs/import_contract.py tests
       - name: Run Stage 2 data-core tests
         shell: bash
         run: |
@@ -33,7 +34,6 @@ jobs:
           if [ "$status" -ne 0 ]; then
             python - <<'PY'
           from pathlib import Path
-          import re
 
           lines = Path('unittest.log').read_text(encoding='utf-8', errors='replace').splitlines()
           interesting = []
