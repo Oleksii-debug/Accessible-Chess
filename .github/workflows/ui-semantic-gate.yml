@@ -11,6 +11,7 @@ on:
       - 'tests/test_accessible_webui.py'
       - 'tests/test_history_review_ui.py'
       - 'tests/test_nvda_p0_contract.py'
+      - 'tests/test_stage1_complete_user_flow.py'
       - 'tests/test_keybindings.py'
       - 'tests/test_ui_keymap_adapter.py'
       - 'tests/test_ui_keymap_editor.py'
@@ -29,6 +30,7 @@ on:
       - 'tests/test_notation.py'
       - 'acs/webapp.py'
       - 'acs/webapp_keymap.py'
+      - 'acs/stage1_release_ui.py'
       - 'acs/analysis_service.py'
       - 'acs/ui_analysis_adapter.py'
       - 'acs/keybindings.py'
@@ -77,6 +79,7 @@ jobs:
           mkdir -p work/acs work/web work/tests work/docs
           cp acs/webapp.py work/acs/webapp.py
           cp acs/webapp_keymap.py work/acs/webapp_keymap.py
+          cp acs/stage1_release_ui.py work/acs/stage1_release_ui.py
           cp acs/analysis_service.py work/acs/analysis_service.py
           cp acs/ui_analysis_adapter.py work/acs/ui_analysis_adapter.py
           cp acs/keybindings.py work/acs/keybindings.py
@@ -88,12 +91,14 @@ jobs:
           cp acs/ui_entitlement.py work/acs/ui_entitlement.py
           cp acs/history.py work/acs/history.py
           cp acs/notation.py work/acs/notation.py
+          cp run_accessible_chess.py work/run_accessible_chess.py
           cp web/index.html work/web/index.html
           cp web/keybindings.json work/web/keybindings.json
           cp docs/WINDOWS_NATIVE_MENU_SMOKE.md work/docs/WINDOWS_NATIVE_MENU_SMOKE.md
           cp tests/test_accessible_webui.py work/tests/test_accessible_webui.py
           cp tests/test_history_review_ui.py work/tests/test_history_review_ui.py
           cp tests/test_nvda_p0_contract.py work/tests/test_nvda_p0_contract.py
+          cp tests/test_stage1_complete_user_flow.py work/tests/test_stage1_complete_user_flow.py
           cp tests/test_keybindings.py work/tests/test_keybindings.py
           cp tests/test_ui_keymap_adapter.py work/tests/test_ui_keymap_adapter.py
           cp tests/test_ui_keymap_editor.py work/tests/test_ui_keymap_editor.py
@@ -116,7 +121,7 @@ jobs:
 
       - name: Compile overlay
         working-directory: work
-        run: python -m compileall -q acs tests
+        run: python -m compileall -q acs tests run_accessible_chess.py
 
       - name: Accessible Web UI tests
         working-directory: work
@@ -125,6 +130,14 @@ jobs:
       - name: NVDA P0 semantic contract tests
         working-directory: work
         run: python -m unittest discover -s tests -p 'test_nvda_p0_contract.py' -v
+
+      - name: Complete Stage 1 user-flow contract
+        working-directory: work
+        run: python -m unittest discover -s tests -p 'test_stage1_complete_user_flow.py' -v
+
+      - name: Complete release diagnostic
+        working-directory: work
+        run: python run_accessible_chess.py --diagnostic
 
       - name: History runtime and presentation contract tests
         working-directory: work
