@@ -22,6 +22,7 @@ class SoundEvent(str, Enum):
     START = "start"
     END = "end"
     TICK = "tick"
+    LOW_TIME = "low_time"
 
 
 @dataclass(frozen=True)
@@ -57,7 +58,8 @@ class SoundEventPolicy:
 
     Queue order is primary move sound first, then check, then game end. This makes
     capture+check, promotion+check and mate sequences deterministic across UI and
-    Windows playback adapters.
+    Windows playback adapters. Clock notifications are independent single-event
+    signals and never enter move-event ordering.
     """
 
     @staticmethod
@@ -75,6 +77,10 @@ class SoundEventPolicy:
     @staticmethod
     def clock_tick() -> tuple[SoundEvent, ...]:
         return (SoundEvent.TICK,)
+
+    @staticmethod
+    def clock_low_time() -> tuple[SoundEvent, ...]:
+        return (SoundEvent.LOW_TIME,)
 
     @staticmethod
     def for_move(facts: MoveSoundFacts) -> tuple[SoundEvent, ...]:
