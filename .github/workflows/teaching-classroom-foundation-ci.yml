@@ -8,6 +8,8 @@ on:
     paths:
       - 'acs/visual_preferences.py'
       - 'acs/teaching_controls.py'
+      - 'acs/teaching_actions.py'
+      - 'acs/child_coaching_ui.py'
       - 'acs/sound_profiles.py'
       - 'acs/sound_runtime.py'
       - 'acs/sound_pack_catalog.py'
@@ -23,8 +25,10 @@ on:
       - 'acs/teaching_ui.py'
       - 'acs/teaching_webapp.py'
       - 'web/teaching.html'
+      - 'web/child_coaching.html'
       - 'tests/test_visual_preferences.py'
       - 'tests/test_teaching_controls.py'
+      - 'tests/test_child_coaching_ui.py'
       - 'tests/test_sound_profiles.py'
       - 'tests/test_sound_profile_runtime.py'
       - 'tests/test_sound_pack_catalog.py'
@@ -58,6 +62,8 @@ jobs:
           python -m compileall -q
           acs/visual_preferences.py
           acs/teaching_controls.py
+          acs/teaching_actions.py
+          acs/child_coaching_ui.py
           acs/sound_profiles.py
           acs/sound_runtime.py
           acs/sound_pack_catalog.py
@@ -74,6 +80,7 @@ jobs:
           acs/teaching_webapp.py
           tests/test_visual_preferences.py
           tests/test_teaching_controls.py
+          tests/test_child_coaching_ui.py
           tests/test_sound_profiles.py
           tests/test_sound_profile_runtime.py
           tests/test_sound_pack_catalog.py
@@ -93,6 +100,7 @@ jobs:
           python -m unittest -v
           tests.test_visual_preferences
           tests.test_teaching_controls
+          tests.test_child_coaching_ui
           tests.test_sound_profiles
           tests.test_sound_profile_runtime
           tests.test_sound_pack_catalog
