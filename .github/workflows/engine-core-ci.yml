@@ -26,6 +26,7 @@ on:
       - 'tests/test_sound_runtime.py'
       - 'tests/test_architecture.py'
       - 'tests/test_core_release_contracts.py'
+      - 'tests/test_stage1_core_full_flow.py'
       - 'build_snapshot_exact/**'
       - 'build_parts10k/**'
       - '.github/workflows/engine-core-ci.yml'
@@ -82,6 +83,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          cp acs/chesscore.py work/acs/chesscore.py
           cp acs/history.py work/acs/history.py
           cp acs/analysis_service.py work/acs/analysis_service.py
           cp acs/continuous_analysis.py work/acs/continuous_analysis.py
@@ -124,6 +126,7 @@ jobs:
           cp tests/test_sound_runtime.py work/tests/test_sound_runtime.py
           cp tests/test_architecture.py work/tests/test_architecture.py
           cp tests/test_core_release_contracts.py work/tests/test_core_release_contracts.py
+          cp tests/test_stage1_core_full_flow.py work/tests/test_stage1_core_full_flow.py
 
       - name: Compile core modules
         working-directory: work
@@ -136,6 +139,10 @@ jobs:
       - name: Core release cross-contract audit
         working-directory: work
         run: python -m unittest discover -s tests -p 'test_core_release_contracts.py' -v
+
+      - name: Full Stage 1 chess-state and engine flow regression
+        working-directory: work
+        run: python -m unittest discover -s tests -p 'test_stage1_core_full_flow.py' -v
 
       - name: Keybinding registry tests
         working-directory: work
