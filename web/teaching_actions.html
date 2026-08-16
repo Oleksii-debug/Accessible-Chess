@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Accessible Chess — Команди навчання</title>
+<style>
+:root{font-family:"Segoe UI",system-ui,sans-serif;font-size:18px}body{margin:0;padding:1rem 1.3rem 3rem;line-height:1.45;background:Canvas;color:CanvasText}main{max-width:64rem}.panel{border:1px solid GrayText;padding:.8rem;margin:.8rem 0}.row{display:flex;gap:.55rem;flex-wrap:wrap;align-items:center}.action{border-top:1px solid GrayText;padding:.7rem 0}button,input{font:inherit;padding:.4rem}#live{position:absolute;left:-10000px}.muted{opacity:.8}
+</style>
+</head>
+<body>
+<header><h1>Команди навчального інтерфейсу</h1><p><a href="teaching.html">Повернутися до Teaching Lab</a></p></header>
+<div id="live" role="status" aria-live="polite" aria-atomic="true"></div>
+<main>
+<section class="panel" aria-labelledby="bindings-title"><h2 id="bindings-title">Комбінації клавіш</h2><p class="muted">Ці команди використовують центральний Action Registry. Порожнє поле означає, що глобальна комбінація не призначена.</p><div id="action-list"></div></section>
+<section class="panel" aria-labelledby="test-title"><h2 id="test-title">Перевірка вказівника</h2><label for="pointer-test">Поле</label> <input id="pointer-test" type="text" maxlength="2" autocomplete="off"> <button id="run-pointer" type="button">Перемістити вказівник</button><div id="pointer-result" aria-live="off"></div></section>
+</main>
+<script>
+const el=id=>document.getElementById(id),api=()=>window.pywebview&&window.pywebview.api;let snapshot=null;
+function announce(text){el('live').textContent='';setTimeout(()=>el('live').textContent=text||'',20)}
+async function call(name,...args){const a=api();if(!a||typeof a[name]!=='function'){announce('Функція недоступна.');return null}try{return await a[name](...args)}catch(e){announce('Не вдалося виконати дію.');return null}}
+function render(){const root=el('action-list');root.textContent='';if(!snapshot||!snapshot.actions)return;snapshot.actions.forEach(row=>{const wrap=document.createElement('div');wrap.className='action';const label=document.createElement('label');label.textContent=row.title+' ';const input=document.createElement('input');input.type='text';input.value=row.binding||'';input.autocomplete='off';input.setAttribute('aria-label',row.title+': комбінація клавіш');const save=document.createElement('button');save.type='button';save.textContent='Зберегти';save.onclick=async()=>{const result=await call('teaching_action_set_binding',row.actionId,input.value||null);if(result){announce(result.accessibleText);if(result.ok)await refresh()}};label.appendChild(input);wrap.append(label,' ',save);root.appendChild(wrap)})}
+async function refresh(){snapshot=await call('teaching_action_snapshot');if(snapshot)render()}
+el('run-pointer').onclick=async()=>{const input=el('pointer-test');const result=await call('teaching_action_dispatch','teaching.pointer_input',{value:input.value});if(!result)return;if(result.ok){input.value='';input.focus();el('pointer-result').textContent=result.accessibleText}announce(result.accessibleText)};
+window.addEventListener('pywebviewready',refresh);
+</script>
+</body>
+</html>
