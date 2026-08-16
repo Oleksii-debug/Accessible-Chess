@@ -6,7 +6,13 @@ import unittest
 from pathlib import Path
 
 from acs.lesson_plan import AssignmentTarget, LessonItem, LessonItemKind, LessonPlan, LessonPosition, PositionAssignment
-from acs.lesson_storage import DeploymentRecord, LessonConflictError, LessonSQLiteStore, LessonStorageError
+from acs.lesson_storage import (
+    DeploymentRecord,
+    DeploymentTarget,
+    LessonConflictError,
+    LessonSQLiteStore,
+    LessonStorageError,
+)
 from acs.local_profile import LocalProfile
 from acs.usage_statistics import UsageStatisticsSnapshot
 
@@ -62,8 +68,23 @@ class LessonSQLiteStoreTests(unittest.TestCase):
 
     def test_schema_migration_is_versioned_and_reopen_is_idempotent(self) -> None:
         with sqlite3.connect(self.db_path) as db:
-            self.assertEqual(db.execute("SELECT value FROM schema_meta WHERE key='schema_version'").fetchone()[0], 1)
+            self.assertEqual(db.execute("SELECT value FROM schema_meta WHERE key='schema_version'").fetchone()[0], 2)
+            self.assertIsNotNone(
+                db.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='deployment_batches'").fetchone()
+            )
         LessonSQLiteStore(self.db_path, fen_validator=core_validator).integrity_check()
+
+    def test_schema_one_migrates_forward_without_losing_lessons(self) -> None:
+        self.store.save_new(make_plan())
+        with sqlite3.connect(self.db_path) as db:
+            db.execute("DROP TABLE deployment_batch_targets")
+            db.execute("DROP TABLE deployment_batches")
+            db.execute("UPDATE schema_meta SET value=1 WHERE key='schema_version'")
+        reopened = LessonSQLiteStore(self.db_path, fen_validator=core_validator)
+        loaded, revision = reopened.load("lesson.one")
+        self.assertEqual(loaded.title, "Lesson")
+        self.assertEqual(revision.revision, 1)
+        reopened.integrity_check()
 
     def test_save_load_preserves_order_exact_fen_and_private_teacher_notes(self) -> None:
         exact_fen = START_FEN + "  "
@@ -126,6 +147,123 @@ class LessonSQLiteStoreTests(unittest.TestCase):
         )
         with self.assertRaises(LessonConflictError):
             self.store.record_deployment(conflicting)
+
+    def test_batch_deployment_has_stable_per_target_identity_and_order(self) -> None:
+        self.store.save_new(make_plan())
+        targets = (
+            DeploymentTarget("participant", "student-a"),
+            DeploymentTarget("participant", "student-b"),
+            DeploymentTarget("group", "group-blue"),
+        )
+        batch = self.store.record_deployment_batch(
+            batch_id="batch.one",
+            lesson_id="lesson.one",
+            assignment_id="assign.one",
+            position_id="pos.start",
+            session_id="class.one",
+            targets=targets,
+            first_sequence_no=10,
+        )
+        self.assertEqual([record.target_id for record in batch.records], ["student-a", "student-b", "group-blue"])
+        self.assertEqual([record.sequence_no for record in batch.records], [10, 11, 12])
+        self.assertEqual(len({record.deployment_id for record in batch.records}), 3)
+        self.assertEqual(self.store.load_deployment_batch("batch.one"), batch)
+        self.assertEqual(self.store.deployment_timeline("class.one"), batch.records)
+
+    def test_batch_reconnect_is_idempotent_and_reuses_exact_records(self) -> None:
+        self.store.save_new(make_plan())
+        targets = (DeploymentTarget("participant", "student-a"), DeploymentTarget("participant", "student-b"))
+        first = self.store.record_deployment_batch(
+            batch_id="batch.reconnect",
+            lesson_id="lesson.one",
+            assignment_id="assign.one",
+            position_id="pos.start",
+            session_id="class.reconnect",
+            targets=targets,
+            first_sequence_no=0,
+        )
+        second = self.store.record_deployment_batch(
+            batch_id="batch.reconnect",
+            lesson_id="lesson.one",
+            assignment_id="assign.one",
+            position_id="pos.start",
+            session_id="class.reconnect",
+            targets=targets,
+            first_sequence_no=0,
+        )
+        self.assertEqual(second, first)
+        self.assertEqual(self.store.deployment_timeline("class.reconnect"), first.records)
+
+    def test_batch_identity_rejects_changed_targets_or_payload(self) -> None:
+        self.store.save_new(make_plan())
+        self.store.record_deployment_batch(
+            batch_id="batch.fixed",
+            lesson_id="lesson.one",
+            assignment_id="assign.one",
+            position_id="pos.start",
+            session_id="class.fixed",
+            targets=(DeploymentTarget("participant", "student-a"),),
+            first_sequence_no=0,
+        )
+        with self.assertRaises(LessonConflictError):
+            self.store.record_deployment_batch(
+                batch_id="batch.fixed",
+                lesson_id="lesson.one",
+                assignment_id="assign.one",
+                position_id="pos.start",
+                session_id="class.fixed",
+                targets=(DeploymentTarget("participant", "student-b"),),
+                first_sequence_no=0,
+            )
+        with self.assertRaises(LessonConflictError):
+            self.store.record_deployment_batch(
+                batch_id="batch.fixed",
+                lesson_id="lesson.one",
+                assignment_id="assign.one",
+                position_id="pos.start",
+                session_id="different-session",
+                targets=(DeploymentTarget("participant", "student-a"),),
+                first_sequence_no=0,
+            )
+
+    def test_batch_write_is_atomic_on_timeline_conflict(self) -> None:
+        self.store.save_new(make_plan())
+        self.store.record_deployment(
+            DeploymentRecord(
+                "existing", "lesson.one", None, "pos.start", "participant", "other", "class.atomic", 1
+            )
+        )
+        with self.assertRaises(LessonConflictError):
+            self.store.record_deployment_batch(
+                batch_id="batch.atomic",
+                lesson_id="lesson.one",
+                assignment_id="assign.one",
+                position_id="pos.start",
+                session_id="class.atomic",
+                targets=(
+                    DeploymentTarget("participant", "student-a"),
+                    DeploymentTarget("participant", "student-b"),
+                ),
+                first_sequence_no=0,
+            )
+        self.assertIsNone(self.store.load_deployment_batch("batch.atomic"))
+        timeline = self.store.deployment_timeline("class.atomic")
+        self.assertEqual(tuple(record.deployment_id for record in timeline), ("existing",))
+
+    def test_lesson_update_preserves_recorded_deployment_batch_history(self) -> None:
+        self.store.save_new(make_plan())
+        batch = self.store.record_deployment_batch(
+            batch_id="batch.history",
+            lesson_id="lesson.one",
+            assignment_id="assign.one",
+            position_id="pos.start",
+            session_id="class.history",
+            targets=(DeploymentTarget("participant", "student-a"),),
+            first_sequence_no=0,
+        )
+        self.store.update(make_plan(title="Revised lesson"), expected_revision=1)
+        self.assertEqual(self.store.load_deployment_batch("batch.history"), batch)
+        self.assertEqual(self.store.deployment_timeline("class.history"), batch.records)
 
     def test_profile_and_aggregate_statistics_round_trip_without_raw_lesson_telemetry(self) -> None:
         profile = LocalProfile("install-1", "Teacher", False)
