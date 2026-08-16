@@ -41,10 +41,10 @@ class LessonPosition:
     def __post_init__(self) -> None:
         position_id = _stable_id(self.position_id, "position_id")
         title = str(self.title).strip()
-        fen = " ".join(str(self.fen).strip().split())
+        fen = str(self.fen)
         if not title:
             raise ValueError("lesson position title must not be empty")
-        if not fen:
+        if not fen.strip():
             raise ValueError("lesson position FEN must not be empty")
         tags = tuple(_stable_id(tag, "tag") for tag in self.tags)
         object.__setattr__(self, "position_id", position_id)
