@@ -8,6 +8,7 @@ on:
     paths:
       - 'acs/visual_preferences.py'
       - 'acs/visual_pack_presentation.py'
+      - 'acs/visual_board_presentation.py'
       - 'acs/teaching_controls.py'
       - 'acs/teaching_actions.py'
       - 'acs/teaching_action_presentation.py'
@@ -40,6 +41,7 @@ on:
       - 'web/visual_packs.html'
       - 'tests/test_visual_preferences.py'
       - 'tests/test_visual_pack_presentation.py'
+      - 'tests/test_visual_board_presentation.py'
       - 'tests/test_teaching_controls.py'
       - 'tests/test_teaching_action_presentation.py'
       - 'tests/test_teaching_board_web.py'
@@ -83,6 +85,7 @@ jobs:
           python -m compileall -q
           acs/visual_preferences.py
           acs/visual_pack_presentation.py
+          acs/visual_board_presentation.py
           acs/teaching_controls.py
           acs/teaching_actions.py
           acs/teaching_action_presentation.py
@@ -110,6 +113,7 @@ jobs:
           acs/teaching_webapp.py
           tests/test_visual_preferences.py
           tests/test_visual_pack_presentation.py
+          tests/test_visual_board_presentation.py
           tests/test_teaching_controls.py
           tests/test_teaching_action_presentation.py
           tests/test_teaching_board_web.py
@@ -139,6 +143,7 @@ jobs:
           python -m unittest -v
           tests.test_visual_preferences
           tests.test_visual_pack_presentation
+          tests.test_visual_board_presentation
           tests.test_teaching_controls
           tests.test_teaching_action_presentation
           tests.test_teaching_board_web
