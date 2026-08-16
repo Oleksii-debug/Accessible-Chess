@@ -14,6 +14,6 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <EmbeddedResource Include="Data\oxford3000_uk.tsv.gz" />
+    <EmbeddedResource Include="Data\oxford3000_uk.tsv.gz.b64part*" />
   </ItemGroup>
 </Project>
