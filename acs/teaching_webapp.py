@@ -8,6 +8,7 @@ from .classroom_collaboration_storage import AttachmentMetadata, ChatMessageMeta
 from .classroom_presentation import ClassroomPresentationState
 from .local_profile import LocalProfileStore
 from .teaching_ui import TeachingUiState
+from .visual_pack_presentation import VisualPackCatalogPresentation
 
 
 class TeachingAccessibleChessAPI:
@@ -23,10 +24,12 @@ class TeachingAccessibleChessAPI:
         state: TeachingUiState | None = None,
         collaboration: ClassroomPresentationState | None = None,
         coaching: ChildCoachingPresentationState | None = None,
+        visual_packs: VisualPackCatalogPresentation | None = None,
     ) -> None:
         self.teaching = state or TeachingUiState()
         self.collaboration = collaboration or ClassroomPresentationState()
         self.coaching = coaching or ChildCoachingPresentationState()
+        self.visual_packs = visual_packs or VisualPackCatalogPresentation()
 
     def teaching_snapshot(self) -> dict[str, Any]:
         return self.teaching.snapshot()
@@ -86,6 +89,18 @@ class TeachingAccessibleChessAPI:
 
     def teaching_coordinate_labels_for(self, square: str) -> dict[str, bool]:
         return self.teaching.coordinate_labels_for(square)
+
+    def visual_pack_snapshot(self) -> dict[str, object]:
+        return self.visual_packs.snapshot()
+
+    def visual_pack_install(self, pack_id: str) -> dict[str, object]:
+        return self.visual_packs.install(pack_id)
+
+    def visual_pack_update(self, pack_id: str) -> dict[str, object]:
+        return self.visual_packs.update(pack_id)
+
+    def visual_pack_uninstall(self, pack_id: str) -> dict[str, object]:
+        return self.visual_packs.uninstall(pack_id)
 
     def coaching_snapshot(self) -> dict[str, Any]:
         return self.coaching.snapshot()
@@ -249,21 +264,31 @@ def main() -> None:
         text_select=True,
     )
 
-    def add_child_coaching_link() -> None:
+    def add_teaching_links() -> None:
         window.evaluate_js(
             """
-            if (document.title.includes('Teaching Lab') && !document.getElementById('child-coaching-link')) {
-              const link = document.createElement('a');
-              link.id = 'child-coaching-link';
-              link.href = 'child_coaching.html';
-              link.textContent = 'План уроку й робота з групою';
+            if (document.title.includes('Teaching Lab')) {
               const header = document.querySelector('header');
-              if (header) { header.append(' — ', link); }
+              if (!header) return;
+              if (!document.getElementById('child-coaching-link')) {
+                const link = document.createElement('a');
+                link.id = 'child-coaching-link';
+                link.href = 'child_coaching.html';
+                link.textContent = 'План уроку й робота з групою';
+                header.append(' — ', link);
+              }
+              if (!document.getElementById('visual-packs-link')) {
+                const link = document.createElement('a');
+                link.id = 'visual-packs-link';
+                link.href = 'visual_packs.html';
+                link.textContent = 'Пакети оформлення';
+                header.append(' — ', link);
+              }
             }
             """
         )
 
-    window.events.loaded += add_child_coaching_link
+    window.events.loaded += add_teaching_links
     webview.start(gui="edgechromium", private_mode=True)
 
 
