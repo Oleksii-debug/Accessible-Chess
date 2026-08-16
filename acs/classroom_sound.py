@@ -66,6 +66,9 @@ class ClassroomSoundRuntime:
         allowed = "abcdefghijklmnopqrstuvwxyz0123456789._-"
         if any(ch not in allowed for ch in event_id):
             raise ValueError("classroom sound event id contains unsupported characters")
+        parts = event_id.split(".")
+        if any(not part for part in parts):
+            raise ValueError("classroom sound event id must not contain empty namespace segments")
         return event_id
 
     def dispatch(self, event_id: str) -> ClassroomSoundResult:
