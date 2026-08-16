@@ -11,6 +11,36 @@ const speak = message => {
     if (typeof window.announce === 'function') window.announce(message);
 };
 
+function installMoveFocusPolicy() {
+    const baseSubmit = window.submitMove;
+    if (typeof baseSubmit !== 'function' || baseSubmit.__stage1FocusPolicy) return;
+
+    const wrappedSubmit = async function(...args) {
+        const grid = byId('board-grid');
+        const board = byId('board-application');
+        const active = document.activeElement;
+        const activeCell = active && typeof active.closest === 'function'
+            ? active.closest('[role="gridcell"]')
+            : null;
+        const boardSquare = activeCell && grid && grid.contains(activeCell)
+            ? (activeCell.dataset.square || '')
+            : '';
+
+        const result = await baseSubmit.apply(this, args);
+
+        if (boardSquare && board && !board.hidden) {
+            const sameSquare = byId('sq-' + boardSquare);
+            const rovingCell = grid && grid.querySelector('[role="gridcell"][tabindex="0"]');
+            const target = sameSquare || rovingCell;
+            if (target) target.focus({preventScroll: true});
+        }
+        return result;
+    };
+    wrappedSubmit.__stage1FocusPolicy = true;
+    window.submitMove = wrappedSubmit;
+    document.body.dataset.stage1MoveFocusPolicyReady = 'true';
+}
+
 function installMoveForm() {
     const oldInput = byId('move-input');
     const oldButton = byId('move-submit');
@@ -283,6 +313,7 @@ async function markReady() {
     document.body.dataset.stage1AppReady = 'true';
 }
 
+installMoveFocusPolicy();
 installMoveForm();
 installBoardFocusContinuity();
 installSoundSettings();
