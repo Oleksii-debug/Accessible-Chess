@@ -57,13 +57,16 @@ class Issue22ReleaseContractTests(unittest.TestCase):
             self.assertNotIn("aria-describedby", HTML[start:start + 250])
 
     def test_release_composition_uses_native_menu_real_sound_and_stockfish(self):
-        source = (_asset_root() / "acs" / "release_app.py").read_text(encoding="utf-8")
-        self.assertIn("install_windows_native_menu", source)
-        self.assertNotIn("make_keymap_menu", source)
-        self.assertIn("WindowsSoundPlaybackAdapter", source)
-        self.assertIn("GameSoundRuntime", source)
-        self.assertIn("StockfishRuntime", source)
-        self.assertIn('"Accessible Chess"', source)
+        release_source = (_asset_root() / "acs" / "release_app.py").read_text(encoding="utf-8")
+        ui_boundary_source = (_asset_root() / "acs" / "stage1_release_ui.py").read_text(encoding="utf-8")
+
+        self.assertIn("Stage1ReleaseAccessibleChessAPI", release_source)
+        self.assertIn("install_windows_native_menu", ui_boundary_source)
+        self.assertNotIn("make_keymap_menu", release_source + ui_boundary_source)
+        self.assertIn("WindowsSoundPlaybackAdapter", release_source)
+        self.assertIn("GameSoundRuntime", release_source)
+        self.assertIn("StockfishRuntime", release_source)
+        self.assertIn('"Accessible Chess"', ui_boundary_source)
 
 
 if __name__ == "__main__":
