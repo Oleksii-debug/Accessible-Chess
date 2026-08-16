@@ -85,9 +85,9 @@ internal sealed class ShortcutSettingsForm : Form
         if (dialog.ShowDialog(this) != DialogResult.OK)
             return;
 
-        if (!_manager.TrySet(actionId, dialog.CapturedKeys, out string? conflict))
+        if (!_manager.TrySet(actionId, dialog.CapturedKeys, out string? error))
         {
-            MessageBox.Show(this, $"That shortcut is already assigned to: {conflict}.", "Shortcut conflict", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            MessageBox.Show(this, $"Cannot use that shortcut because {error}.", "Shortcut not available", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             return;
         }
         RefreshList();
