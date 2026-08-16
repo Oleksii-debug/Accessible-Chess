@@ -16,7 +16,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  SOURCE_INTEGRATION_SHA: 7594d1eb6cd833e53032295d73f6cf1a91a180f6
+  SOURCE_INTEGRATION_SHA: dc7b11c70679018f725511e337e13a12d9ef614b
   PYWEBVIEW_VERSION: '6.2.1'
   NUITKA_UPSTREAM_FIX_COMMIT: b7ea05bf570e0b6950de6db7c4c8e579e1b77d29
   STOCKFISH_VERSION: '18'
@@ -266,4 +266,3 @@ jobs:
           path: |
             work/Accessible-Chess-0.4-post-Issue22-NVDA-test-candidate.zip
             work/candidate-zip.sha256
-          retention-days: 14
