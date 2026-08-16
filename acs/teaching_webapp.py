@@ -13,6 +13,7 @@ from .lesson_template_presentation import LessonTemplatePresentation
 from .lesson_template_storage import LessonTemplateSQLiteStore
 from .local_profile import LocalProfileStore
 from .position_editor import PositionState
+from .teaching_action_presentation import TeachingActionPresentation
 from .teaching_ui import TeachingUiState
 from .visual_pack_presentation import VisualPackCatalogPresentation
 
@@ -32,12 +33,14 @@ class TeachingAccessibleChessAPI:
         coaching: ChildCoachingPresentationState | None = None,
         visual_packs: VisualPackCatalogPresentation | None = None,
         lesson_templates: LessonTemplatePresentation | None = None,
+        teaching_actions: TeachingActionPresentation | None = None,
     ) -> None:
         self.teaching = state or TeachingUiState()
         self.collaboration = collaboration or ClassroomPresentationState()
         self.coaching = coaching or ChildCoachingPresentationState()
         self.visual_packs = visual_packs or VisualPackCatalogPresentation()
         self.lesson_templates = lesson_templates
+        self.teaching_actions = teaching_actions or TeachingActionPresentation(self.teaching)
 
     def teaching_snapshot(self) -> dict[str, Any]:
         return self.teaching.snapshot()
@@ -74,6 +77,26 @@ class TeachingAccessibleChessAPI:
 
     def teaching_remove_annotation(self, annotation_id: str) -> dict[str, Any]:
         return self.teaching.remove_annotation(annotation_id)
+
+    def teaching_action_snapshot(self) -> dict[str, Any]:
+        return self.teaching_actions.snapshot()
+
+    def teaching_action_set_binding(self, action_id: str, binding: str | None) -> dict[str, Any]:
+        return self.teaching_actions.set_binding(action_id, binding)
+
+    def teaching_action_dispatch(
+        self,
+        action_id: str,
+        payload: Mapping[str, object] | None = None,
+    ) -> dict[str, Any]:
+        return self.teaching_actions.dispatch(action_id, payload)
+
+    def teaching_action_dispatch_binding(
+        self,
+        binding: str,
+        payload: Mapping[str, object] | None = None,
+    ) -> dict[str, Any]:
+        return self.teaching_actions.dispatch_binding(binding, payload)
 
     def teaching_set_sound_master(self, enabled: bool, volume_percent: int) -> dict[str, Any]:
         return self.teaching.set_sound_master(enabled, volume_percent)
@@ -369,6 +392,13 @@ def main() -> None:
                 link.id = 'visual-packs-link';
                 link.href = 'visual_packs.html';
                 link.textContent = 'Пакети оформлення';
+                header.append(' — ', link);
+              }
+              if (!document.getElementById('teaching-actions-link')) {
+                const link = document.createElement('a');
+                link.id = 'teaching-actions-link';
+                link.href = 'teaching_actions.html';
+                link.textContent = 'Команди й клавіші';
                 header.append(' — ', link);
               }
             }
