@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import unittest
+from pathlib import Path
 
 from acs.child_coaching_ui import PRESCHOOL_TEMPLATE
 from acs.lesson_template_presentation import LessonTemplatePresentation
 from acs.lesson_template_storage import LessonTemplatePreset, TemplateRevision
+from acs.teaching_webapp import TeachingAccessibleChessAPI
 
 
 class FakeLessonApplication:
@@ -88,6 +90,45 @@ class LessonTemplatePresentationTests(unittest.TestCase):
         self.assertEqual(movement["title"], "Кінь шукає поле")
         self.assertEqual(movement["durationMinutes"], 9)
 
+    def test_open_copy_current_edit_save_is_complete_ui_journey(self) -> None:
+        app = FakeLessonApplication()
+        ui = LessonTemplatePresentation(app)
+        self.assertTrue(ui.open_template("preschool")["ok"])
+        copied = ui.begin_copy_current(
+            template_id="group-a-lesson",
+            title="Урок групи А",
+            level="absolute_beginner",
+        )
+        self.assertTrue(copied["ok"])
+        self.assertFalse(copied["template"]["persisted"])
+        changed = ui.edit_block("recognition", title="Знайди коня", duration_minutes=7)
+        self.assertTrue(changed["ok"])
+        saved = ui.save()
+        self.assertTrue(saved["ok"])
+        self.assertEqual(saved["template"]["templateId"], "group-a-lesson")
+        self.assertEqual(saved["template"]["level"], "absolute_beginner")
+        self.assertEqual(saved["template"]["revision"], 1)
+
+    def test_standard_preset_is_read_only_until_explicit_copy(self) -> None:
+        app = FakeLessonApplication()
+        ui = LessonTemplatePresentation(app)
+        ui.open_template("preschool")
+        result = ui.save()
+        self.assertFalse(result["ok"])
+        self.assertIn("власну копію", result["accessibleText"])
+        self.assertEqual(app.rows["preschool"][1].revision, 1)
+
+    def test_actions_without_open_template_fail_concisely(self) -> None:
+        ui = LessonTemplatePresentation(FakeLessonApplication())
+        for result in (
+            ui.begin_copy_current(template_id="x", title="X"),
+            ui.edit_block("hello", title="X"),
+            ui.save(),
+        ):
+            self.assertFalse(result["ok"])
+            self.assertEqual(result["accessibleText"], "Спочатку відкрийте шаблон уроку.")
+            self.assertNotIn("ValueError", result["accessibleText"])
+
     def test_second_save_uses_current_revision_and_never_overwrites_silently(self) -> None:
         app = FakeLessonApplication()
         ui = LessonTemplatePresentation(app)
@@ -124,6 +165,50 @@ class LessonTemplatePresentationTests(unittest.TestCase):
         self.assertTrue(result["ok"])
         self.assertGreaterEqual(result["count"], 1)
         self.assertEqual(result["accessibleText"], "Стандартні шаблони уроків готові.")
+
+
+class LessonTemplateWebApiTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.application = FakeLessonApplication()
+        self.presentation = LessonTemplatePresentation(self.application)
+        self.api = TeachingAccessibleChessAPI(lesson_templates=self.presentation)
+
+    def test_api_exposes_persisted_template_copy_edit_save_without_storage_details(self) -> None:
+        self.assertTrue(self.api.coaching_template_prepare()["ok"])
+        self.assertTrue(self.api.coaching_template_open("preschool")["ok"])
+        copied = self.api.coaching_template_begin_copy("coach-copy", "Мій шаблон", "beginner")
+        self.assertTrue(copied["ok"])
+        edited = self.api.coaching_template_edit_block("hello", "Старт", 4)
+        self.assertTrue(edited["ok"])
+        saved = self.api.coaching_template_save()
+        self.assertTrue(saved["ok"])
+        self.assertEqual(saved["template"]["revision"], 1)
+
+    def test_api_without_persistence_provider_fails_closed(self) -> None:
+        api = TeachingAccessibleChessAPI()
+        result = api.coaching_template_open("preschool")
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["accessibleText"], "Збережені шаблони уроків недоступні.")
+
+    def test_child_coaching_page_has_semantic_persisted_editor_and_one_live_region(self) -> None:
+        html = (Path(__file__).resolve().parents[1] / "web" / "child_coaching.html").read_text(
+            encoding="utf-8"
+        )
+        for control_id in (
+            'id="persisted-template-select"',
+            'id="open-persisted-template"',
+            'id="copy-template-id"',
+            'id="copy-template-title"',
+            'id="copy-persisted-template"',
+            'id="save-persisted-template"',
+            'id="persisted-template-blocks"',
+        ):
+            self.assertIn(control_id, html)
+        self.assertEqual(html.count('aria-live="polite"'), 1)
+        self.assertNotIn("document.addEventListener('keydown'", html)
+        self.assertNotIn('document.addEventListener("keydown"', html)
+        self.assertIn("coaching_template_begin_copy", html)
+        self.assertIn("coaching_template_save", html)
 
 
 if __name__ == "__main__":
