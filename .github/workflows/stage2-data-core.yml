@@ -23,7 +23,7 @@ jobs:
         with:
           python-version: '3.12'
       - name: Compile Stage 2 data core
-        run: python -m compileall -q acs/gametree.py acs/pgn_semantics.py acs/game_references.py acs/pgn_workspace.py acs/acsdb.py acs/import_contract.py tests
+        run: python -m compileall -q acs/gametree.py acs/pgn_semantics.py acs/game_references.py acs/pgn_workspace.py acs/pgn_collection.py acs/acsdb.py acs/import_contract.py tests
       - name: Run Stage 2 data-core tests
         shell: bash
         run: |
