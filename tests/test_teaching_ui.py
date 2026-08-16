@@ -5,16 +5,12 @@ from pathlib import Path
 
 from acs.sound_profiles import SoundEventPreference, SoundProfile
 from acs.teaching_ui import TeachingUiState
-from acs.visual_preferences import (
-    BoardVisualPreferences,
-    CoordinateMode,
-    VisualPackKind,
-    VisualPackManifest,
-)
+from acs.visual_preferences import VisualPackKind, VisualPackManifest
 
 
 ROOT = Path(__file__).resolve().parents[1]
 HTML = ROOT / "web" / "teaching.html"
+TEACHING_APP = ROOT / "acs" / "teaching_webapp.py"
 
 
 def piece_assets() -> dict[str, str]:
@@ -136,6 +132,7 @@ class TeachingWebSemanticTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.html = HTML.read_text(encoding="utf-8")
+        cls.app_source = TEACHING_APP.read_text(encoding="utf-8")
 
     def test_teaching_surface_has_semantic_controls_and_one_live_region(self) -> None:
         self.assertIn('id="pointer-input"', self.html)
@@ -161,6 +158,13 @@ class TeachingWebSemanticTests(unittest.TestCase):
         self.assertNotIn("setcursorpos", lowered)
         self.assertNotIn("mousemove", lowered)
         self.assertIn("snapshot.pointer.square", self.html)
+
+    def test_teaching_launcher_is_isolated_from_frozen_release_app(self) -> None:
+        self.assertNotIn("from . import webapp", self.app_source)
+        self.assertNotIn("from .webapp", self.app_source)
+        self.assertNotIn("chesscore", self.app_source.lower())
+        self.assertIn("TeachingAccessibleChessAPI", self.app_source)
+        self.assertIn('"web" / "teaching.html"', self.app_source)
 
 
 if __name__ == "__main__":
