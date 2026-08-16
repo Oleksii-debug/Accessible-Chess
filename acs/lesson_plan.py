@@ -176,8 +176,8 @@ class ClassroomPairing:
             raise ValueError("increment_seconds must be non-negative")
         start_fen = None
         if self.start_fen is not None:
-            start_fen = " ".join(str(self.start_fen).strip().split())
-            if not start_fen:
+            start_fen = str(self.start_fen)
+            if not start_fen.strip():
                 raise ValueError("start_fen cannot be blank")
         object.__setattr__(self, "pairing_id", pairing_id)
         object.__setattr__(self, "white_participant_id", white)
