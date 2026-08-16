@@ -9,17 +9,28 @@ internal static class DictionaryLoader
     public static DictionaryPackage LoadEmbeddedOxford()
     {
         Assembly assembly = Assembly.GetExecutingAssembly();
-        string? resourceName = assembly.GetManifestResourceNames()
-            .FirstOrDefault(name => name.EndsWith("oxford3000_uk.tsv.gz", StringComparison.OrdinalIgnoreCase));
+        string[] resourceNames = assembly.GetManifestResourceNames()
+            .Where(name => name.Contains("oxford3000_uk.tsv.gz.b64part", StringComparison.OrdinalIgnoreCase))
+            .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
 
-        if (resourceName is null)
+        if (resourceNames.Length == 0)
             throw new InvalidOperationException("Embedded Oxford 3000 dictionary was not found.");
 
-        using Stream stream = assembly.GetManifestResourceStream(resourceName)
-            ?? throw new InvalidOperationException("Unable to open embedded Oxford 3000 dictionary.");
-        using var gzip = new GZipStream(stream, CompressionMode.Decompress);
-        using var reader = new StreamReader(gzip, Encoding.UTF8, true);
-        return Parse(reader.ReadToEnd());
+        var base64 = new StringBuilder();
+        foreach (string resourceName in resourceNames)
+        {
+            using Stream stream = assembly.GetManifestResourceStream(resourceName)
+                ?? throw new InvalidOperationException($"Unable to open embedded dictionary resource: {resourceName}.");
+            using var reader = new StreamReader(stream, Encoding.ASCII, false);
+            base64.Append(reader.ReadToEnd().Trim());
+        }
+
+        byte[] compressed = Convert.FromBase64String(base64.ToString());
+        using var memory = new MemoryStream(compressed);
+        using var gzip = new GZipStream(memory, CompressionMode.Decompress);
+        using var dictionaryReader = new StreamReader(gzip, Encoding.UTF8, true);
+        return Parse(dictionaryReader.ReadToEnd());
     }
 
     public static DictionaryPackage LoadFromFile(string path) => Parse(File.ReadAllText(path, Encoding.UTF8));
