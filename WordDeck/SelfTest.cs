@@ -17,7 +17,8 @@ internal static class SelfTest
         {
             TestEmbeddedOxford();
             TestImportParserFailsClosed();
-            Console.WriteLine("WordDeck self-test passed: Oxford dictionary 3308 entries and strict import validation.");
+            TestShortcutRegistryAndRebinding();
+            Console.WriteLine("WordDeck self-test passed: Oxford dictionary, strict imports, and all configurable shortcuts validated.");
             return 0;
         }
         catch (Exception ex)
@@ -67,6 +68,68 @@ internal static class SelfTest
         ExpectInvalid("entryId\tlevel\tsource\ttarget\ncustom-1\tA1\t\tпривіт", "blank source");
         ExpectInvalid("entryId\tlevel\tsource\ttarget\ncustom-1\tA1\thello\t", "blank translation");
         ExpectInvalid("entryId\tlevel\tsource\ttarget\ncustom-1\tA1\thello\tпривіт\ncustom-1\tA1\thi\tвітаю", "duplicate entry id");
+    }
+
+    private static void TestShortcutRegistryAndRebinding()
+    {
+        IReadOnlyList<ShortcutDefinition> definitions = ShortcutManager.Definitions;
+        Require(definitions.Count == 16, $"Expected 16 configurable actions, got {definitions.Count}.");
+        Require(definitions.Select(def => def.Id).Distinct(StringComparer.OrdinalIgnoreCase).Count() == definitions.Count,
+            "Shortcut action IDs must be unique.");
+        Require(definitions.Select(def => def.DefaultKeys).Distinct().Count() == definitions.Count,
+            "Default shortcuts must be unique.");
+
+        var state = new AppState();
+        var manager = new ShortcutManager(state);
+
+        Keys[] replacementKeys = Enumerable.Range(0, definitions.Count)
+            .Select(index => Keys.Control | Keys.Shift | (Keys)((int)Keys.A + index))
+            .ToArray();
+
+        for (int i = 0; i < definitions.Count; i++)
+        {
+            ShortcutDefinition definition = definitions[i];
+            Keys replacement = replacementKeys[i];
+            Require(manager.TrySet(definition.Id, replacement, out string? error),
+                $"Could not rebind '{definition.Description}' to {replacement}: {error}");
+            Require(manager.Get(definition.Id) == replacement,
+                $"Rebound shortcut was not returned for '{definition.Description}'.");
+            Require(manager.FindAction(replacement) == definition.Id,
+                $"Rebound shortcut did not dispatch to '{definition.Description}'.");
+        }
+
+        Require(!manager.TrySet(definitions[1].Id, replacementKeys[0], out string? conflict) && !string.IsNullOrWhiteSpace(conflict),
+            "Shortcut conflict was not rejected.");
+
+        Keys[] unsafeKeys =
+        {
+            Keys.Tab,
+            Keys.Escape,
+            Keys.Enter,
+            Keys.Alt | Keys.F4,
+            Keys.Left,
+            Keys.Right,
+            Keys.Up,
+            Keys.Down,
+            Keys.Home,
+            Keys.End,
+            Keys.PageUp,
+            Keys.PageDown
+        };
+        foreach (Keys unsafeKey in unsafeKeys)
+        {
+            Require(!manager.TrySet(definitions[0].Id, unsafeKey, out string? unsafeError) && !string.IsNullOrWhiteSpace(unsafeError),
+                $"Unsafe shortcut {unsafeKey} was accepted.");
+        }
+
+        manager.ResetDefaults();
+        foreach (ShortcutDefinition definition in definitions)
+        {
+            Require(manager.Get(definition.Id) == definition.DefaultKeys,
+                $"Reset defaults failed for '{definition.Description}'.");
+            Require(manager.FindAction(definition.DefaultKeys) == definition.Id,
+                $"Default shortcut does not dispatch to '{definition.Description}' after reset.");
+        }
     }
 
     private static void ExpectInvalid(string text, string description)
