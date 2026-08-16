@@ -2,9 +2,9 @@
 """Batch-generate offline British-English pronunciation for WordDeck.
 
 Designed for resumable generation. Input is UTF-8 TSV containing at least
-`id` and `source` columns. Output is one MP3 per entry plus manifest.jsonl.
-The voice is selected deterministically so a given entry keeps the same voice
-across reruns.
+`entryId`/`id` and `source` columns. WordDeck metadata comment lines are
+accepted. Output is one MP3 per entry plus manifest.jsonl. The voice is
+selected deterministically so a given entry keeps the same voice across reruns.
 """
 
 from __future__ import annotations
@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import csv
 import hashlib
+import io
 import json
 import os
 from pathlib import Path
@@ -58,14 +59,32 @@ def voice_for(entry_id: str, female: str, male: str) -> str:
 
 
 def load_rows(path: Path) -> list[dict[str, str]]:
-    with path.open("r", encoding="utf-8-sig", newline="") as f:
-        rows = list(csv.DictReader(f, delimiter="\t"))
-    if not rows or not {"id", "source"}.issubset(rows[0]):
-        raise SystemExit("Input TSV must contain id and source columns")
-    ids = [r["id"].strip() for r in rows]
-    if any(not x for x in ids) or len(set(ids)) != len(ids):
-        raise SystemExit("Input contains blank or duplicate ids")
-    return rows
+    raw_lines = path.read_text(encoding="utf-8-sig").splitlines()
+    data_lines = [line for line in raw_lines if line.strip() and not line.lstrip().startswith("#")]
+    if not data_lines:
+        raise SystemExit("Input TSV is empty")
+
+    reader = csv.DictReader(io.StringIO("\n".join(data_lines)), delimiter="\t")
+    rows = list(reader)
+    if not rows or reader.fieldnames is None:
+        raise SystemExit("Input TSV has no usable rows")
+
+    id_column = "entryId" if "entryId" in reader.fieldnames else "id" if "id" in reader.fieldnames else None
+    if id_column is None or "source" not in reader.fieldnames:
+        raise SystemExit("Input TSV must contain entryId (or id) and source columns")
+
+    normalized: list[dict[str, str]] = []
+    for row in rows:
+        entry_id = (row.get(id_column) or "").strip()
+        source = (row.get("source") or "").strip()
+        if not entry_id or not source:
+            raise SystemExit("Input contains a blank id or source")
+        normalized.append({**row, "id": entry_id, "source": source})
+
+    ids = [r["id"] for r in normalized]
+    if len(set(ids)) != len(ids):
+        raise SystemExit("Input contains duplicate ids")
+    return normalized
 
 
 def render(pipeline: KPipeline, text: str, voice: str, speed: float) -> np.ndarray:
@@ -109,7 +128,7 @@ def main() -> int:
         for absolute_index, row in enumerate(selected, start=a.start):
             entry_id = row["id"].strip()
             source = row["source"].strip()
-            spoken = row.get("audio_text", "").strip() or audio_text(source)
+            spoken = (row.get("audio_text") or "").strip() or audio_text(source)
             voice = voice_for(entry_id, a.female_voice, a.male_voice)
             ext = a.format
             out = a.output / f"{safe_name(entry_id)}.{ext}"
