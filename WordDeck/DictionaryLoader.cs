@@ -54,7 +54,7 @@ internal static class DictionaryLoader
 
         using var reader = new StringReader(text);
         string? line;
-        bool headerSeen = false;
+        bool firstDataLineSeen = false;
         int sourceLine = 0;
         while ((line = reader.ReadLine()) is not null)
         {
@@ -71,21 +71,25 @@ internal static class DictionaryLoader
             }
 
             string[] parts = line.Split('\t');
-            if (!headerSeen && parts.Length >= 4 && parts[0].Equals("entryId", StringComparison.OrdinalIgnoreCase))
+            if (!firstDataLineSeen)
             {
-                headerSeen = true;
-                continue;
+                firstDataLineSeen = true;
+                if (parts.Length >= 4 && parts[0].Trim().Equals("entryId", StringComparison.OrdinalIgnoreCase))
+                    continue;
             }
 
             if (parts.Length < 4)
-                continue;
+                throw new InvalidDataException($"Dictionary row {sourceLine} must contain at least four tab-separated columns: entryId, level, source, target.");
 
             string entryId = parts[0].Trim();
             string level = parts[1].Trim();
             string source = parts[2].Trim();
             string target = string.Join("\t", parts.Skip(3)).Trim();
-            if (source.Length == 0 || target.Length == 0)
-                continue;
+
+            if (source.Length == 0)
+                throw new InvalidDataException($"Dictionary row {sourceLine} has an empty source word.");
+            if (target.Length == 0)
+                throw new InvalidDataException($"Dictionary row {sourceLine} has an empty translation.");
 
             if (entryId.Length == 0)
                 entryId = $"{fallbackId}:{entries.Count + 1}";
