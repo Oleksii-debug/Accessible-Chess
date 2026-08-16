@@ -54,6 +54,12 @@ jobs:
         with:
           python-version: '3.12'
 
+      - name: Install source-test dependencies
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip pytest
+          if ($LASTEXITCODE -ne 0) { throw 'source-test dependency install failed' }
+
       - name: Compile exact tracked source
         shell: pwsh
         working-directory: work
