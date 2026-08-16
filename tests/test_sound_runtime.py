@@ -35,16 +35,33 @@ class SoundRuntimeTests(unittest.TestCase):
             game.move(facts)
             self.assertEqual([event for event, _ in fake.calls], expected)
 
-    def test_illegal_start_end_and_tick_are_consumable(self):
+    def test_illegal_start_end_tick_and_low_time_are_consumable(self):
         fake = FakePlayback()
         game = GameSoundRuntime(SoundRuntime(fake))
         game.start()
         game.illegal()
         game.tick()
+        game.low_time()
         game.end()
         self.assertEqual(
             [event for event, _ in fake.calls],
-            [SoundEvent.START, SoundEvent.ILLEGAL, SoundEvent.TICK, SoundEvent.END],
+            [
+                SoundEvent.START,
+                SoundEvent.ILLEGAL,
+                SoundEvent.TICK,
+                SoundEvent.LOW_TIME,
+                SoundEvent.END,
+            ],
+        )
+
+    def test_low_time_is_independent_from_move_event_ordering(self):
+        fake = FakePlayback()
+        game = GameSoundRuntime(SoundRuntime(fake))
+        game.move(MoveSoundFacts(capture=True, check=True, game_ended=True))
+        game.low_time()
+        self.assertEqual(
+            [event for event, _ in fake.calls],
+            [SoundEvent.CAPTURE, SoundEvent.CHECK, SoundEvent.END, SoundEvent.LOW_TIME],
         )
 
     def test_terminal_move_does_not_duplicate_game_end(self):
