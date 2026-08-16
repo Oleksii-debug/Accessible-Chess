@@ -5,6 +5,7 @@ import tempfile
 import unittest
 
 from acs.acsdb_catalog import AcsCatalogDatabase
+from acs.gametree import serialize_game
 
 
 def pgn(i: int, *, annotator: str = "Coach") -> str:
@@ -36,7 +37,7 @@ class CatalogTests(unittest.TestCase):
             self.assertGreater(len(rows), 0)
             tree = db.retrieve_game_tree(rows[0]["id"])
             self.assertEqual(tree.tags["Opening"], "King Pawn")
-            self.assertIn("branch", tree.movetext.lower())
+            self.assertIn("branch", serialize_game(tree).lower())
         finally:
             db.close()
 
