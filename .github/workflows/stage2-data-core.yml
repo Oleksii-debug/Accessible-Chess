@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - dev/stage2-data-core
+      - integration/data-forward-acsdb-v3
 
 permissions:
   contents: read
@@ -22,6 +23,14 @@ jobs:
         with:
           python-version: '3.12'
       - name: Compile Stage 2 data core
-        run: python -m compileall -q acs/gametree.py acs/acsdb.py acs/import_contract.py tests
+        run: >-
+          python -m compileall -q
+          acs/gametree.py
+          acs/gametree_navigation.py
+          acs/game_identity.py
+          acs/acsdb.py
+          acs/duplicate_detection.py
+          acs/import_contract.py
+          tests
       - name: Run Stage 2 data-core tests
         run: python -m unittest discover -s tests -v
