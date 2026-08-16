@@ -154,20 +154,17 @@ class SoundPreviewResult:
         return self.error_type is None
 
 
-class _ProfiledPlaybackBridge:
-    def __init__(
-        self,
-        playback: SoundAssetPlaybackPort,
-        profile: Callable[[], SoundProfile],
-    ) -> None:
+class _ResolvedProfilePlayback:
+    """Playback bridge bound to one immutable profile snapshot for one dispatch."""
+
+    def __init__(self, playback: SoundAssetPlaybackPort, profile: SoundProfile) -> None:
+        if not isinstance(profile, SoundProfile):
+            raise TypeError("sound profile provider must return SoundProfile")
         self._playback = playback
         self._profile = profile
 
     def play(self, event: SoundEvent, *, volume: int) -> bool:
-        profile = self._profile()
-        if not isinstance(profile, SoundProfile):
-            raise TypeError("sound profile provider must return SoundProfile")
-        pref = profile.preference_for(event.value)
+        pref = self._profile.preference_for(event.value)
         if not pref.enabled or pref.volume_percent == 0:
             return False
         event_volume = round(volume * pref.volume_percent / 100)
@@ -175,20 +172,67 @@ class _ProfiledPlaybackBridge:
             return False
         self._playback.play_sound(
             SoundAssetRequest(
-                pack_id=profile.pack_id,
+                pack_id=self._profile.pack_id,
                 event_id=event.value,
-                sound_id=profile.selected_sound_id(event.value),
+                sound_id=self._profile.selected_sound_id(event.value),
                 volume=event_volume,
             )
         )
         return True
 
-    def preview(self, event_id: str) -> SoundPreviewResult:
-        profile = self._profile()
+
+class ProfiledSoundRuntime(SoundRuntime):
+    """SoundRuntime wired to a versioned ``SoundProfile``.
+
+    ``SoundEventPolicy`` and ``GameSoundRuntime`` remain the only chess-event
+    semantic/order authorities. The profile layer can only filter/remap playback.
+    Each semantic dispatch resolves exactly one profile snapshot, so a dynamic
+    provider cannot mix packs or preferences within one ordered chess-event batch.
+    """
+
+    def __init__(
+        self,
+        playback: SoundAssetPlaybackPort,
+        profile: SoundProfile | Callable[[], SoundProfile],
+        *,
+        error_sink: Callable[[SoundPlaybackFailure], None] | None = None,
+    ) -> None:
+        self._profile_provider = profile if callable(profile) else lambda: profile
+        self._asset_playback = playback
+        self._profile_error_sink = error_sink
+        # Keep the base type fully initialized for substitutability. Profiled
+        # dispatch below binds a fresh immutable profile snapshot per call.
+        initial = self._current_profile()
+        super().__init__(
+            _ResolvedProfilePlayback(playback, initial),
+            settings=SoundRuntimeSettings(
+                enabled=initial.master_enabled,
+                volume=initial.master_volume_percent,
+            ),
+            error_sink=error_sink,
+        )
+
+    def _current_profile(self) -> SoundProfile:
+        profile = self._profile_provider()
         if not isinstance(profile, SoundProfile):
             raise TypeError("sound profile provider must return SoundProfile")
-        pref = profile.preference_for(event_id)
-        volume = round(profile.master_volume_percent * pref.volume_percent / 100)
+        return profile
+
+    def dispatch(self, events: Iterable[SoundEvent]) -> SoundPlaybackReport:
+        profile = self._current_profile()
+        runtime = SoundRuntime(
+            _ResolvedProfilePlayback(self._asset_playback, profile),
+            settings=SoundRuntimeSettings(
+                enabled=profile.master_enabled,
+                volume=profile.master_volume_percent,
+            ),
+            error_sink=self._profile_error_sink,
+        )
+        return runtime.dispatch(events)
+
+    def preview(self, event_id: str) -> SoundPreviewResult:
+        profile = self._current_profile()
+        volume = profile.effective_volume(event_id)
         if volume == 0:
             return SoundPreviewResult(None, False)
         request = SoundAssetRequest(
@@ -199,7 +243,7 @@ class _ProfiledPlaybackBridge:
             preview=True,
         )
         try:
-            self._playback.play_sound(request)
+            self._asset_playback.play_sound(request)
         except Exception as exc:
             return SoundPreviewResult(
                 request,
@@ -208,42 +252,6 @@ class _ProfiledPlaybackBridge:
                 message=str(exc),
             )
         return SoundPreviewResult(request, True)
-
-
-class ProfiledSoundRuntime(SoundRuntime):
-    """SoundRuntime wired to a versioned ``SoundProfile``.
-
-    ``SoundEventPolicy`` and ``GameSoundRuntime`` remain the only chess-event
-    semantic/order authorities. The profile layer can only filter/remap playback.
-    """
-
-    def __init__(
-        self,
-        playback: SoundAssetPlaybackPort,
-        profile: SoundProfile | Callable[[], SoundProfile],
-        *,
-        error_sink: Callable[[SoundPlaybackFailure], None] | None = None,
-    ) -> None:
-        provider = profile if callable(profile) else lambda: profile
-        self._profile_provider = provider
-        self._profiled_playback = _ProfiledPlaybackBridge(playback, provider)
-        super().__init__(
-            self._profiled_playback,
-            settings=self._runtime_settings,
-            error_sink=error_sink,
-        )
-
-    def _runtime_settings(self) -> SoundRuntimeSettings:
-        profile = self._profile_provider()
-        if not isinstance(profile, SoundProfile):
-            raise TypeError("sound profile provider must return SoundProfile")
-        return SoundRuntimeSettings(
-            enabled=profile.master_enabled,
-            volume=profile.master_volume_percent,
-        )
-
-    def preview(self, event_id: str) -> SoundPreviewResult:
-        return self._profiled_playback.preview(event_id)
 
 
 class GameSoundRuntime:
