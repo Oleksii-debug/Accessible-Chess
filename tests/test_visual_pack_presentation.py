@@ -3,6 +3,7 @@ from __future__ import annotations
 import unittest
 from pathlib import Path
 
+from acs.teaching_webapp import TeachingAccessibleChessAPI
 from acs.visual_pack_presentation import (
     VisualPackCatalogEntry,
     VisualPackCatalogPresentation,
@@ -168,13 +169,17 @@ class VisualPackCatalogPresentationTests(unittest.TestCase):
         catalog = FakeCatalog(
             (
                 VisualPackCatalogEntry(board_manifest("classic", "Classic"), VisualPackInstallState.INSTALLED),
-                VisualPackCatalogEntry(piece_manifest("classic", "Classic Pieces"), VisualPackInstallState.INSTALLED),
+                VisualPackCatalogEntry(
+                    piece_manifest("classic-pieces", "Classic Pieces"),
+                    VisualPackInstallState.INSTALLED,
+                ),
             )
         )
-        view = VisualPackCatalogPresentation(catalog)
+        view = VisualPackCatalogPresentation(catalog, built_in_piece_id="classic-pieces")
         rows = view.snapshot()["entries"]
         self.assertTrue(all(not row["canUninstall"] for row in rows))
-        result = view.uninstall("classic")
+        self.assertFalse(view.uninstall("classic")["ok"])
+        result = view.uninstall("classic-pieces")
         self.assertFalse(result["ok"])
         self.assertIn("резервний", result["accessibleText"])
         self.assertEqual(catalog.calls, [])
@@ -211,6 +216,17 @@ class VisualPackCatalogPresentationTests(unittest.TestCase):
         ids = [item.pack_id for item in VisualPackCatalogPresentation(catalog).installed_manifests()]
         self.assertEqual(ids, ["installed", "updatable"])
 
+    def test_feature_api_composes_catalog_without_release_webapp_dependency(self) -> None:
+        catalog = FakeCatalog(
+            (VisualPackCatalogEntry(board_manifest("remote"), VisualPackInstallState.AVAILABLE),)
+        )
+        api = TeachingAccessibleChessAPI(
+            visual_packs=VisualPackCatalogPresentation(catalog)
+        )
+        self.assertTrue(api.visual_pack_snapshot()["available"])
+        self.assertTrue(api.visual_pack_install("remote")["ok"])
+        self.assertEqual(catalog.calls, [("install", "remote")])
+
     def test_visual_pack_page_has_single_action_live_region_and_no_global_key_hijack(self) -> None:
         html = (Path(__file__).resolve().parents[1] / "web" / "visual_packs.html").read_text(encoding="utf-8")
         self.assertEqual(html.count('role="status"'), 1)
@@ -222,6 +238,12 @@ class VisualPackCatalogPresentationTests(unittest.TestCase):
         self.assertIn("visual_pack_uninstall", html)
         self.assertNotIn("document.addEventListener('keydown'", html)
         self.assertNotIn('document.onkeydown', html)
+
+    def test_teaching_launcher_links_pack_page_without_importing_release_ui(self) -> None:
+        source = (Path(__file__).resolve().parents[1] / "acs" / "teaching_webapp.py").read_text(encoding="utf-8")
+        self.assertIn("visual_packs.html", source)
+        self.assertIn("VisualPackCatalogPresentation", source)
+        self.assertNotIn("from .webapp import", source)
 
 
 if __name__ == "__main__":
