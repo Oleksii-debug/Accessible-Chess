@@ -192,6 +192,7 @@ def test_managed_identity_does_not_depend_on_python_proxy_identity() -> None:
 
 
 def test_attachment_diagnostic_accepts_distinct_proxies_for_same_managed_objects() -> None:
+    """Model repeated Python.NET property access returning fresh CLR proxies."""
     class ManagedProxy:
         def __init__(self, managed_id: str):
             self.managed_id = managed_id
