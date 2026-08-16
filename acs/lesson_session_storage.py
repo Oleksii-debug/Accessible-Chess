@@ -3,11 +3,12 @@ from __future__ import annotations
 import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable
+from typing import Callable, Iterable
 
 from .lesson_plan import ClassroomPairing
 
 PAIRING_SCHEMA_VERSION = 1
+FenValidator = Callable[[str], None]
 
 
 class LessonSessionStorageError(RuntimeError):
@@ -47,12 +48,18 @@ class LessonSessionSQLiteStore:
     own Board objects, chess legality, clocks, moves, PGN, or audio. A canonical
     game/session service can consume ``game_session_id`` later.
 
+    FEN legality is delegated to the shared Core validator supplied at the
+    application boundary. Accepted FEN text is persisted byte-for-text exactly.
+
     This schema is independently versioned so it can safely share the same
     SQLite file with ``LessonSQLiteStore`` without mutating its lesson schema.
     """
 
-    def __init__(self, path: str | Path) -> None:
+    def __init__(self, path: str | Path, *, fen_validator: FenValidator) -> None:
+        if not callable(fen_validator):
+            raise TypeError("fen_validator must be callable")
         self.path = Path(path)
+        self._fen_validator = fen_validator
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._migrate()
 
@@ -138,6 +145,17 @@ class LessonSessionSQLiteStore:
             int(row["ordinal"]),
         )
 
+    def _validate_pairing_fens(self, pairings: Iterable[ClassroomPairing]) -> None:
+        for pairing in pairings:
+            if pairing.start_fen is None:
+                continue
+            try:
+                self._fen_validator(pairing.start_fen)
+            except Exception as exc:
+                raise ValueError(
+                    f"Core rejected pairing FEN for {pairing.pairing_id}: {exc}"
+                ) from exc
+
     def record_pairing_batch(
         self,
         *,
@@ -163,6 +181,7 @@ class LessonSessionSQLiteStore:
         pairing_ids = tuple(pairing.pairing_id for pairing in pairing_tuple)
         if len(set(pairing_ids)) != len(pairing_ids):
             raise ValueError("pairing_ids must be unique within a batch")
+        self._validate_pairing_fens(pairing_tuple)
 
         requested = tuple(
             PairingSessionRecord(
