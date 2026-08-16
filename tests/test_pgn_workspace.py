@@ -14,7 +14,7 @@ COMPLEX = r'''
 [Black "Beta"]
 [Result "1-0"]
 [ECO "C50"]
-[Annotator "A \\"quoted\\" name"]
+[Annotator "A \"quoted\" name"]
 
 1. e4 {main comment} e5 (1... c5 $1 {Sicilian} (1... e6!? 2. d4))
 2. Nf3 Nc6 3. Bb5 a6 4. Ba4 Nf6 5. O-O Be7 6. Re1 b5
@@ -130,6 +130,7 @@ class PgnWorkspaceTests(unittest.TestCase):
         self.assertIn('brace', exported)
         reparsed = PgnWorkspace.from_text(exported)
         self.assertEqual(reparsed.game(0).line.moves[0].comments_after[0].text.strip(), 'line comment')
+        workspace.assert_round_trip()
 
     def test_setup_fen_and_special_notation_are_preserved_structurally(self):
         workspace = PgnWorkspace.from_text(COMPLEX)
