@@ -1,0 +1,109 @@
+name: WordDeck British audio batch
+
+on:
+  push:
+    branches:
+      - worddeck-bootstrap
+    paths:
+      - WordDeck/Audio/generation-request.json
+      - WordDeck/tools/generate_british_audio.py
+      - .github/workflows/worddeck-audio.yml
+  workflow_dispatch:
+
+concurrency:
+  group: worddeck-audio-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read generation request
+        id: request
+        shell: bash
+        run: |
+          echo "source=$(jq -r '.source' WordDeck/Audio/generation-request.json)" >> "$GITHUB_OUTPUT"
+          echo "start=$(jq -r '.start' WordDeck/Audio/generation-request.json)" >> "$GITHUB_OUTPUT"
+          echo "limit=$(jq -r '.limit' WordDeck/Audio/generation-request.json)" >> "$GITHUB_OUTPUT"
+          echo "female=$(jq -r '.femaleVoice' WordDeck/Audio/generation-request.json)" >> "$GITHUB_OUTPUT"
+          echo "male=$(jq -r '.maleVoice' WordDeck/Audio/generation-request.json)" >> "$GITHUB_OUTPUT"
+          echo "speed=$(jq -r '.speed' WordDeck/Audio/generation-request.json)" >> "$GITHUB_OUTPUT"
+          echo "format=$(jq -r '.format' WordDeck/Audio/generation-request.json)" >> "$GITHUB_OUTPUT"
+
+      - name: Restore Oxford 3000 TSV
+        if: steps.request.outputs.source == 'oxford3000'
+        shell: bash
+        run: |
+          cat WordDeck/Data/oxford3000_uk.tsv.gz.b64part* > /tmp/oxford3000.b64
+          base64 --decode /tmp/oxford3000.b64 > /tmp/oxford3000.tsv.gz
+          gzip -dc /tmp/oxford3000.tsv.gz > /tmp/worddeck-audio-source.tsv
+          test -s /tmp/worddeck-audio-source.tsv
+
+      - name: Use combined Oxford 5000 TSV
+        if: steps.request.outputs.source == 'oxford5000'
+        shell: bash
+        run: |
+          test -f WordDeck/Audio/oxford5000_audio_source.tsv
+          cp WordDeck/Audio/oxford5000_audio_source.tsv /tmp/worddeck-audio-source.tsv
+
+      - name: Install TTS dependencies
+        shell: bash
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq espeak-ng ffmpeg
+          python -m pip install --upgrade pip
+          python -m pip install 'kokoro>=0.9.2' soundfile numpy
+
+      - name: Generate requested batch
+        shell: bash
+        run: |
+          mkdir -p /tmp/worddeck-audio
+          python WordDeck/tools/generate_british_audio.py \
+            --input /tmp/worddeck-audio-source.tsv \
+            --output /tmp/worddeck-audio \
+            --start '${{ steps.request.outputs.start }}' \
+            --limit '${{ steps.request.outputs.limit }}' \
+            --female-voice '${{ steps.request.outputs.female }}' \
+            --male-voice '${{ steps.request.outputs.male }}' \
+            --speed '${{ steps.request.outputs.speed }}' \
+            --format '${{ steps.request.outputs.format }}'
+
+      - name: Validate generated audio
+        shell: bash
+        run: |
+          expected='${{ steps.request.outputs.limit }}'
+          actual=$(find /tmp/worddeck-audio -maxdepth 1 -type f -name '*.${{ steps.request.outputs.format }}' | wc -l)
+          echo "Generated $actual audio files; requested up to $expected"
+          test "$actual" -gt 0
+          test -s /tmp/worddeck-audio/manifest.jsonl
+          find /tmp/worddeck-audio -maxdepth 1 -type f -name '*.${{ steps.request.outputs.format }}' -size -512c -print -quit | grep -q . && {
+            echo 'At least one audio file is suspiciously small.' >&2
+            exit 1
+          } || true
+
+      - name: Pack batch
+        shell: bash
+        run: |
+          start='${{ steps.request.outputs.start }}'
+          limit='${{ steps.request.outputs.limit }}'
+          source='${{ steps.request.outputs.source }}'
+          archive="worddeck-${source}-en-gb-${start}-${limit}.zip"
+          cd /tmp/worddeck-audio
+          zip -q -9 -r "/tmp/$archive" .
+          echo "ARCHIVE=/tmp/$archive" >> "$GITHUB_ENV"
+          echo "ARTIFACT=worddeck-${source}-en-gb-${start}-${limit}" >> "$GITHUB_ENV"
+
+      - name: Upload audio batch
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.ARTIFACT }}
+          path: ${{ env.ARCHIVE }}
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 0
