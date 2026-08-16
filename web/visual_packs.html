@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Accessible Chess — Пакети оформлення</title>
+<style>
+:root{font-family:"Segoe UI",system-ui,sans-serif;font-size:18px}body{margin:0;padding:1rem 1.3rem 3rem;line-height:1.45;background:Canvas;color:CanvasText}main{max-width:70rem}.panel{border:1px solid GrayText;padding:.8rem;margin:.8rem 0}.pack{border-top:1px solid GrayText;padding:.65rem 0}.actions{display:flex;gap:.5rem;flex-wrap:wrap}button{font:inherit;padding:.4rem}.muted{opacity:.8}#live{position:absolute;left:-10000px}
+</style>
+</head>
+<body>
+<header><h1>Пакети оформлення</h1><p><a href="teaching.html">Повернутися до Teaching Lab</a></p></header>
+<div id="live" role="status" aria-live="polite" aria-atomic="true"></div>
+<main>
+<p id="catalog-status" class="muted"></p>
+<section class="panel" aria-labelledby="board-title"><h2 id="board-title">Теми дошки</h2><div id="board-pack-list">Завантаження каталогу.</div></section>
+<section class="panel" aria-labelledby="piece-title"><h2 id="piece-title">Комплекти фігур</h2><div id="piece-pack-list">Завантаження каталогу.</div></section>
+<p class="muted">Пакети змінюють лише візуальне оформлення. Назви шахових полів і 64-польова клавіатурна семантика не залежать від теми.</p>
+</main>
+<script>
+const el=id=>document.getElementById(id),api=()=>window.pywebview&&window.pywebview.api;
+function announce(text){el('live').textContent='';setTimeout(()=>{el('live').textContent=text||''},20)}
+async function call(name,...args){const a=api();if(!a||typeof a[name]!=='function'){announce('Функція недоступна.');return null}try{return await a[name](...args)}catch(_){announce('Не вдалося виконати дію.');return null}}
+function button(label,enabled,handler){const b=document.createElement('button');b.type='button';b.textContent=label;b.disabled=!enabled;b.addEventListener('click',handler);return b}
+function renderList(rootId,rows){const root=el(rootId);root.textContent='';if(!rows.length){root.textContent='Пакетів немає.';return}rows.forEach(row=>{const item=document.createElement('article');item.className='pack';const h=document.createElement('h3');h.textContent=row.title;const meta=document.createElement('p');meta.textContent=row.accessibleText;const desc=document.createElement('p');desc.textContent=row.description||'';if(!row.description)desc.hidden=true;const actions=document.createElement('div');actions.className='actions';actions.append(button('Встановити',row.canInstall,()=>operate('visual_pack_install',row.id)),button('Оновити',row.canUpdate,()=>operate('visual_pack_update',row.id)),button('Видалити',row.canUninstall,()=>operate('visual_pack_uninstall',row.id)));item.append(h,meta,desc,actions);root.appendChild(item)})}
+function render(snapshot){el('catalog-status').textContent=snapshot.accessibleText||'';const rows=snapshot.entries||[];renderList('board-pack-list',rows.filter(x=>x.kind==='board'));renderList('piece-pack-list',rows.filter(x=>x.kind==='pieces'))}
+async function refresh(){const snapshot=await call('visual_pack_snapshot');if(snapshot)render(snapshot)}
+async function operate(name,id){const result=await call(name,id);if(!result)return;announce(result.accessibleText||'');await refresh()}
+window.addEventListener('pywebviewready',refresh);if(api())refresh();
+</script>
+</body>
+</html>
