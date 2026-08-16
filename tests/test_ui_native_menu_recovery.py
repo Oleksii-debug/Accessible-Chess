@@ -161,7 +161,7 @@ def test_production_native_menu_is_a_real_form_child_menustrip_with_uia_role() -
     assert "form.MainMenuStrip = menu" in source
     assert "form.Controls.Add(menu)" in source
     assert "menu.BringToFront()" in source
-    assert "MainMenu" not in source
+    assert "MainMenu(" not in source
 
 
 def test_windows_package_gate_must_still_verify_real_uia_and_keyboard_semantics() -> None:
