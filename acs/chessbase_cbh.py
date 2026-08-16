@@ -177,3 +177,48 @@ def iter_cbh_records(path: str | Path) -> Iterator[ClassicCbhRecord]:
                 )
             yield parse_cbh_record(raw, record_index=record_index)
             record_index += 1
+
+
+def iter_cbh_record_window(
+    path: str | Path,
+    *,
+    start_record_index: int,
+    max_records: int,
+) -> Iterator[ClassicCbhRecord]:
+    """Read a bounded 1-based window of classic CBH records without scanning prior rows.
+
+    The seek offset is derived only from the evidence-backed fixed 46-byte file
+    header and 46-byte record size. Returned DTOs preserve their exact original
+    1-based CBH record indices. ``max_records=0`` performs header validation but
+    returns no records. Seeking past the available complete records yields an
+    empty iterator; a partial record encountered inside the requested window is
+    rejected explicitly. The source is opened read-only and is never modified.
+    """
+
+    if start_record_index < 1:
+        raise ValueError("start_record_index must be >= 1")
+    if max_records < 0:
+        raise ValueError("max_records must be >= 0")
+
+    source = Path(path)
+    with source.open("rb") as stream:
+        read_cbh_file_header(stream)
+        if max_records == 0:
+            return
+
+        byte_offset = CBH_FILE_HEADER_SIZE + (
+            (start_record_index - 1) * CBH_RECORD_SIZE
+        )
+        stream.seek(byte_offset)
+
+        for relative_index in range(max_records):
+            record_index = start_record_index + relative_index
+            raw = stream.read(CBH_RECORD_SIZE)
+            if raw == b"":
+                return
+            if len(raw) != CBH_RECORD_SIZE:
+                raise CbhDecodeError(
+                    f"partial CBH record inside requested window at index {record_index}: "
+                    f"expected {CBH_RECORD_SIZE} bytes, got {len(raw)}"
+                )
+            yield parse_cbh_record(raw, record_index=record_index)
