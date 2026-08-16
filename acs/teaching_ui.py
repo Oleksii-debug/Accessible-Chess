@@ -8,6 +8,7 @@ from .sound_profiles import (
     SoundEventPreference,
     SoundProfile,
 )
+from .sound_runtime import ProfiledSoundRuntime, SoundAssetPlaybackPort
 from .teaching_controls import (
     AnnotationKind,
     CoachPointerService,
@@ -27,6 +28,12 @@ class TeachingUiState:
     pointers and annotations are overlays only; changing them cannot mutate a
     board position. Any future Windows mouse mirroring consumes ``pointer`` as
     output and must never become the source of truth.
+
+    Sound preview is also presentation-only. When a playback port is supplied by
+    composition, preview goes through ``ProfiledSoundRuntime`` so the same pack,
+    per-event selection and effective-volume rules are used as real playback.
+    Without a playback port the UI reports preview as unavailable; it never fakes
+    success and never falls back to a system beep.
     """
 
     def __init__(
@@ -35,12 +42,18 @@ class TeachingUiState:
         visual: BoardVisualPreferences | None = None,
         sound: SoundProfile | None = None,
         visual_packs: Iterable[VisualPackManifest] = (),
+        sound_playback: SoundAssetPlaybackPort | None = None,
     ) -> None:
         self.visual = visual or BoardVisualPreferences()
         self.sound = sound or SoundProfile()
         self.pointer = CoachPointerService()
         self._annotations: dict[str, TeachingAnnotation] = {}
         self._visual_packs = {pack.pack_id: pack for pack in visual_packs}
+        self._sound_runtime = (
+            ProfiledSoundRuntime(sound_playback, lambda: self.sound)
+            if sound_playback is not None
+            else None
+        )
 
     def snapshot(self) -> dict[str, Any]:
         return {
@@ -175,26 +188,46 @@ class TeachingUiState:
         return self._sound_event_view(event_id)
 
     def preview_sound_event(self, event_id: str) -> dict[str, Any]:
-        """Return a provider-neutral preview request for an audio adapter.
-
-        Actual playback stays behind the production sound port. The UI gets a
-        deterministic descriptor and concise announcement without importing a
-        Windows audio API or using a system beep fallback.
-        """
+        """Preview through the injected real sound-asset playback boundary."""
         self._known_sound_event(event_id)
         pref = self.sound.preference_for(event_id)
         effective = self.sound.effective_volume(event_id)
         sound_id = pref.sound_id or event_id
-        return {
-            "ok": effective > 0,
+        base = {
             "eventId": event_id,
             "soundId": sound_id,
             "volumePercent": effective,
-            "accessibleText": (
-                f"Попередній перегляд {event_id}, гучність {effective} відсотків."
-                if effective > 0
-                else f"Звук {event_id} вимкнено."
-            ),
+        }
+        if effective == 0:
+            return {
+                **base,
+                "ok": False,
+                "delivered": False,
+                "available": self._sound_runtime is not None,
+                "accessibleText": f"Звук {event_id} вимкнено.",
+            }
+        if self._sound_runtime is None:
+            return {
+                **base,
+                "ok": False,
+                "delivered": False,
+                "available": False,
+                "accessibleText": "Попередній перегляд звуку недоступний.",
+            }
+
+        result = self._sound_runtime.preview(event_id)
+        if result.delivered:
+            accessible = f"Звук {event_id} відтворено."
+        elif result.error_type is not None:
+            accessible = f"Не вдалося відтворити звук {event_id}."
+        else:
+            accessible = f"Звук {event_id} не відтворено."
+        return {
+            **base,
+            "ok": result.ok and result.delivered,
+            "delivered": result.delivered,
+            "available": True,
+            "accessibleText": accessible,
         }
 
     def coordinate_labels_for(self, square: str) -> dict[str, bool]:
@@ -247,6 +280,7 @@ class TeachingUiState:
             "packId": self.sound.pack_id,
             "masterEnabled": self.sound.master_enabled,
             "masterVolumePercent": self.sound.master_volume_percent,
+            "previewAvailable": self._sound_runtime is not None,
             "events": [self._sound_event_view(event_id) for event_id in self._all_sound_events()],
         }
 
