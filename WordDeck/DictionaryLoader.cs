@@ -1,5 +1,6 @@
 using System.IO.Compression;
 using System.Reflection;
+using System.Security.Cryptography;
 using System.Text;
 
 namespace WordDeck;
@@ -30,21 +31,34 @@ internal static class DictionaryLoader
         using var memory = new MemoryStream(compressed);
         using var gzip = new GZipStream(memory, CompressionMode.Decompress);
         using var dictionaryReader = new StreamReader(gzip, Encoding.UTF8, true);
-        return Parse(dictionaryReader.ReadToEnd());
+        return Parse(dictionaryReader.ReadToEnd(), "oxford-3000-en-uk", "Oxford 3000 English-Ukrainian");
     }
 
-    public static DictionaryPackage LoadFromFile(string path) => Parse(File.ReadAllText(path, Encoding.UTF8));
+    public static DictionaryPackage LoadFromFile(string path)
+    {
+        string text = File.ReadAllText(path, Encoding.UTF8);
+        byte[] hash = SHA256.HashData(Encoding.UTF8.GetBytes(text));
+        string fallbackId = $"imported-{Convert.ToHexString(hash)[..12].ToLowerInvariant()}";
+        string fallbackName = Path.GetFileNameWithoutExtension(path);
+        return Parse(text, fallbackId, fallbackName);
+    }
 
-    public static DictionaryPackage Parse(string text)
+    public static DictionaryPackage Parse(string text) =>
+        Parse(text, "imported-dictionary", "Imported dictionary");
+
+    private static DictionaryPackage Parse(string text, string fallbackId, string fallbackName)
     {
         var metadata = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         var entries = new List<DictionaryEntry>();
+        var entryIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         using var reader = new StringReader(text);
         string? line;
         bool headerSeen = false;
+        int sourceLine = 0;
         while ((line = reader.ReadLine()) is not null)
         {
+            sourceLine++;
             if (string.IsNullOrWhiteSpace(line))
                 continue;
 
@@ -66,23 +80,41 @@ internal static class DictionaryLoader
             if (parts.Length < 4)
                 continue;
 
+            string entryId = parts[0].Trim();
+            string level = parts[1].Trim();
             string source = parts[2].Trim();
             string target = string.Join("\t", parts.Skip(3)).Trim();
             if (source.Length == 0 || target.Length == 0)
                 continue;
 
-            entries.Add(new DictionaryEntry(parts[0].Trim(), parts[1].Trim(), source, target));
+            if (entryId.Length == 0)
+                entryId = $"{fallbackId}:{entries.Count + 1}";
+
+            if (!entryIds.Add(entryId))
+                throw new InvalidDataException($"Dictionary contains duplicate entry ID '{entryId}' at source line {sourceLine}.");
+
+            entries.Add(new DictionaryEntry(entryId, level, source, target));
         }
 
         if (entries.Count == 0)
             throw new InvalidDataException("Dictionary contains no usable entries.");
 
+        string id = metadata.GetValueOrDefault("id", fallbackId).Trim();
+        string name = metadata.GetValueOrDefault("name", fallbackName).Trim();
+        string sourceLanguage = metadata.GetValueOrDefault("sourceLanguage", "en").Trim();
+        string targetLanguage = metadata.GetValueOrDefault("targetLanguage", "uk").Trim();
+
+        if (id.Length == 0) id = fallbackId;
+        if (name.Length == 0) name = fallbackName;
+        if (sourceLanguage.Length == 0) sourceLanguage = "en";
+        if (targetLanguage.Length == 0) targetLanguage = "uk";
+
         return new DictionaryPackage
         {
-            Id = metadata.GetValueOrDefault("id", "imported-dictionary"),
-            Name = metadata.GetValueOrDefault("name", "Imported dictionary"),
-            SourceLanguage = metadata.GetValueOrDefault("sourceLanguage", "en"),
-            TargetLanguage = metadata.GetValueOrDefault("targetLanguage", "uk"),
+            Id = id,
+            Name = name,
+            SourceLanguage = sourceLanguage,
+            TargetLanguage = targetLanguage,
             Entries = entries
         };
     }
