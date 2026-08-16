@@ -1,8 +1,13 @@
 from __future__ import annotations
 
+import inspect
 from types import SimpleNamespace
 
-from acs.ui_native_menu import make_keymap_menu, reset_all_keybindings
+from acs.ui_native_menu import (
+    install_windows_native_menu,
+    make_keymap_menu,
+    reset_all_keybindings,
+)
 
 
 class FakeMenuAction:
@@ -139,3 +144,28 @@ def test_reset_helper_handles_bridge_failure_without_destroying_other_data() -> 
     assert len(calls) == 1
     assert "Keyboard commands could not be reset." in calls[0]
     assert "location.reload()" not in calls[0]
+
+
+def test_production_native_menu_is_a_real_form_child_menustrip_with_uia_role() -> None:
+    """Source-level contract for the Windows-only composition.
+
+    Linux unit CI cannot prove the Windows accessibility tree. This guards the
+    exact composition properties that QA must validate on the packaged EXE:
+    a native MenuStrip child, assigned as MainMenuStrip, with MenuBar role.
+    """
+    source = inspect.getsource(install_windows_native_menu)
+
+    assert "MenuStrip" in source
+    assert "ToolStripMenuItem" in source
+    assert "AccessibleRole.MenuBar" in source
+    assert "form.MainMenuStrip = menu" in source
+    assert "form.Controls.Add(menu)" in source
+    assert "menu.BringToFront()" in source
+    assert "MainMenu" not in source
+
+
+def test_windows_package_gate_must_still_verify_real_uia_and_keyboard_semantics() -> None:
+    source = inspect.getsource(install_windows_native_menu)
+
+    assert "ControlType.MenuBar" in source
+    assert "Alt/arrows/Enter/Esc" in source
