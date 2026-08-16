@@ -81,6 +81,7 @@ internal sealed class ShortcutManager
             new(ActionIds.PreviousWord, "Previous word", Keys.Control | Keys.Left),
             new(ActionIds.RevealTranslation, "Reveal translation", Keys.Control | Keys.T),
             new(ActionIds.RepeatWord, "Repeat current English word", Keys.Control | Keys.R),
+            new(ActionIds.UndoMove, "Undo last deck move", Keys.Control | Keys.Z),
             new(ActionIds.ShortcutSettings, "Open shortcut settings", Keys.Control | Keys.K),
             new(ActionIds.Help, "Open help", Keys.F1),
         };
