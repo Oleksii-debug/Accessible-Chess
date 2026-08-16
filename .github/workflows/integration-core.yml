@@ -5,7 +5,6 @@ on:
   push:
     branches:
       - integration/accessible-chess-next
-      - integration/data-sync-*
 
 permissions:
   contents: read
@@ -15,132 +14,81 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  source-integration:
+  exact-tracked-source-integration:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Reconstruct verified 0.3.3 functional baseline
+
+      - name: Prove exact tracked source tree
+        shell: bash
         run: |
-          python - <<'PY'
-          import base64, hashlib, pathlib, re, zipfile
-          ordered = [
-              'build_snapshot_exact/group00.b64',
-              'build_snapshot_exact/group01.b64',
-              'build_parts10k/part04.b64',
-              'build_parts10k/part05.b64',
-              'build_parts10k/part06.b64',
-              'build_parts10k/part07.b64',
-          ]
-          chunks = []
-          for name in ordered:
-              path = pathlib.Path(name)
-              if not path.exists():
-                  raise SystemExit(f'Missing source chunk: {name}')
-              chunks.append(path.read_text(encoding='utf-8'))
-          encoded = re.sub(r'[^A-Za-z0-9+/=]', '', ''.join(chunks))
-          if len(encoded) != 77128:
-              raise SystemExit(f'Unexpected Base64 length: {len(encoded)}')
-          payload = base64.b64decode(encoded)
-          if len(payload) != 57844:
-              raise SystemExit(f'Source ZIP size mismatch: {len(payload)}')
-          digest = hashlib.sha256(payload).hexdigest()
-          expected = 'cb0a89778b436cdf44c42e3207ef9638160a992b372156bc4d901391717a1e6a'
-          if digest != expected:
-              raise SystemExit(f'Source ZIP hash mismatch: {digest}')
-          pathlib.Path('stage1_source.zip').write_bytes(payload)
-          with zipfile.ZipFile('stage1_source.zip') as archive:
-              archive.extractall('work')
-          PY
-      - name: Apply integrated overlays
-        run: |
-          mkdir -p work/acs work/web work/tests
-          for file in \
-            webapp.py webapp_keymap.py analysis_service.py continuous_analysis.py history.py keybindings.py notation.py notation_registry.py \
-            ui_keymap_adapter.py ui_keymap_editor.py ui_keymap_service.py ui_native_menu.py ui_review_adapter.py ui_entitlement.py ui_analysis_adapter.py \
-            engine.py engine_ports.py engine_play_service.py engine_registry.py engine_game_session.py clock_service.py game_lifecycle.py stockfish_runtime.py release_app.py \
-            board_service.py move_entry.py position_editor.py sound_events.py sound_dispatch.py sound_runtime.py sound_windows.py training.py settings.py entitlements.py \
-            gametree.py acsdb.py import_contract.py import_registry.py pgn_service.py \
-            bookdocument.py chessbase_adapter.py
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
+          git status --porcelain=v1
+          test -z "$(git status --porcelain=v1)"
+          for path in \
+            acs/chesscore.py \
+            acs/webapp.py \
+            acs/webapp_keymap.py \
+            acs/stage1_release_ui.py \
+            acs/ui_native_menu.py \
+            acs/analysis_service.py \
+            acs/continuous_analysis.py \
+            acs/stockfish_runtime.py \
+            acs/sound_runtime.py \
+            run_accessible_chess.py \
+            web/index.html \
+            tests/test_issue22_release_contract.py \
+            tests/test_stage1_complete_user_flow.py \
+            tests/test_stage1_core_full_flow.py
           do
-            cp "acs/$file" "work/acs/$file"
+            test -f "$path" || { echo "Missing tracked release source: $path"; exit 1; }
+            git ls-files --error-unmatch "$path" >/dev/null
           done
-          cp web/index.html work/web/index.html
-          cp web/keybindings.json work/web/keybindings.json
-          for file in \
-            test_accessible_webui.py test_analysis_service.py test_continuous_analysis.py test_nvda_p0_contract.py \
-            test_data_integration.py test_chessbase_adapter.py test_import_registry.py test_windows_data_release_regressions.py \
-            test_pgn_service.py test_architecture.py test_history.py test_keybindings.py \
-            test_ui_keymap_editor.py test_keymap_import_warning_confirmation_integration.py test_notation.py test_extension_registries.py test_engine_play_service.py \
-            test_engine_game_session.py test_ui_review_adapter.py test_ui_entitlement_integration.py \
-            test_clock_service.py test_game_lifecycle.py test_board_service.py test_move_entry.py test_position_editor.py \
-            test_sound_events.py test_training.py test_settings.py test_entitlements.py \
-            test_history_review_ui.py test_keymap_import_warning_confirmation.py test_webview_keymap_bridge_contract.py \
-            test_ui_analysis_webapp.py test_analysis_webview_bridge.py test_stockfish_runtime.py test_release_stockfish_composition.py \
-            test_issue22_release_contract.py
-          do
-            cp "tests/$file" "work/tests/$file"
-          done
-          cp run_accessible_chess.py work/run_accessible_chess.py
-      - name: Compile integrated Python modules
-        working-directory: work
+
+      - name: Compile exact tracked tree
         run: python -m compileall -q acs tests run_accessible_chess.py
+
       - name: Architecture boundary gate
-        working-directory: work
         run: python -m unittest -v tests.test_architecture
-      - name: Data, PGN and history integration gate
-        working-directory: work
+
+      - name: Stage 1 canonical Core full-flow gate
+        run: python -m unittest -v tests.test_stage1_core_full_flow tests.test_core_release_contracts
+
+      - name: Data, PGN and history regression gate
         run: python -m unittest -v tests.test_data_integration tests.test_pgn_service tests.test_history
-      - name: Import registry and read-only adapter gates
-        working-directory: work
+
+      - name: Import registry and read-only adapter regressions
         run: python -m unittest -v tests.test_import_registry tests.test_chessbase_adapter tests.test_windows_data_release_regressions
+
       - name: Engine service, continuous analysis and game lifecycle gates
-        working-directory: work
-        run: python -m unittest -v tests.test_analysis_service tests.test_continuous_analysis tests.test_engine_play_service tests.test_clock_service tests.test_game_lifecycle
-      - name: Engine game session coordinator gate
-        working-directory: work
-        run: python -m unittest -v tests.test_engine_game_session
+        run: python -m unittest -v tests.test_analysis_service tests.test_continuous_analysis tests.test_engine_play_service tests.test_clock_service tests.test_game_lifecycle tests.test_engine_game_session
+
       - name: Production Stockfish runtime and semantic analysis integration gate
-        working-directory: work
         run: python -m unittest -v tests.test_stockfish_runtime tests.test_ui_analysis_webapp tests.test_analysis_webview_bridge tests.test_release_stockfish_composition
-      - name: Non-destructive ReviewHistory adapter gate
-        working-directory: work
-        run: python -m unittest -v tests.test_ui_review_adapter
-      - name: Board, move-entry and position-editor gates
-        working-directory: work
-        run: python -m unittest -v tests.test_board_service tests.test_move_entry tests.test_position_editor
+
+      - name: Board, move-entry, editor and history gates
+        run: python -m unittest -v tests.test_board_service tests.test_move_entry tests.test_position_editor tests.test_ui_review_adapter tests.test_history_review_ui
+
       - name: Sound, training, settings and entitlement gates
-        working-directory: work
-        run: python -m unittest -v tests.test_sound_events tests.test_training tests.test_settings tests.test_entitlements
+        run: python -m unittest -v tests.test_sound_events tests.test_training tests.test_settings tests.test_entitlements tests.test_ui_entitlement_integration
+
       - name: Human NVDA Issue 22 release regression gate
-        working-directory: work
-        run: python -m unittest -v tests.test_issue22_release_contract
-      - name: Accessible entitlement presentation gate
-        working-directory: work
-        run: python -m unittest -v tests.test_ui_entitlement_integration
-      - name: Extension registry gates
-        working-directory: work
-        run: python -m unittest -v tests.test_extension_registries
-      - name: Remappable actions, editor, import safety and notation gates
-        working-directory: work
-        run: python -m unittest -v tests.test_keybindings tests.test_ui_keymap_editor tests.test_keymap_import_warning_confirmation_integration tests.test_notation
-      - name: Full non-destructive history runtime and presentation gate
-        working-directory: work
-        run: python -m unittest -v tests.test_history_review_ui
-      - name: Keymap import warning contract gate
-        working-directory: work
-        run: python -m unittest -v tests.test_keymap_import_warning_confirmation
-      - name: WebView keymap bridge contract gate
-        working-directory: work
-        run: python -m unittest -v tests.test_webview_keymap_bridge_contract
+        run: python -m unittest -v tests.test_issue22_release_contract tests.test_nvda_p0_contract
+
+      - name: Remappable actions, import safety and notation gates
+        run: python -m unittest -v tests.test_keybindings tests.test_ui_keymap_editor tests.test_keymap_import_warning_confirmation_integration tests.test_keymap_import_warning_confirmation tests.test_notation tests.test_extension_registries tests.test_webview_keymap_bridge_contract
+
       - name: Accessible Web UI gate
-        working-directory: work
         run: python -m unittest -v tests.test_accessible_webui
-      - name: NVDA P0 semantic contract gate
-        working-directory: work
-        run: python -m unittest -v tests.test_nvda_p0_contract
-      - name: Baseline diagnostic
-        working-directory: work
+
+      - name: Complete Stage 1 release user-flow gate
+        run: python -m unittest -v tests.test_stage1_complete_user_flow
+
+      - name: Exact tracked release diagnostic
         run: python run_accessible_chess.py --diagnostic
