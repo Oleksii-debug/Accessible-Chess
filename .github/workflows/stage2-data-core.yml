@@ -25,4 +25,34 @@ jobs:
       - name: Compile Stage 2 data core
         run: python -m compileall -q acs/gametree.py acs/pgn_semantics.py acs/game_references.py acs/pgn_workspace.py acs/acsdb.py acs/import_contract.py tests
       - name: Run Stage 2 data-core tests
-        run: python -m unittest discover -s tests -v
+        shell: bash
+        run: |
+          set +e
+          python -m unittest discover -s tests -v 2>&1 | tee unittest.log
+          status=${PIPESTATUS[0]}
+          if [ "$status" -ne 0 ]; then
+            python - <<'PY'
+          from pathlib import Path
+          import re
+
+          lines = Path('unittest.log').read_text(encoding='utf-8', errors='replace').splitlines()
+          interesting = []
+          capture = False
+          for line in lines:
+              if line.startswith(('FAIL:', 'ERROR:')):
+                  capture = True
+                  interesting.append(line)
+                  continue
+              if capture and (line.startswith('Ran ') or line.startswith('FAILED ')):
+                  interesting.append(line)
+                  capture = False
+                  continue
+              if capture and line.strip() and not set(line.strip()) <= {'=', '-'}:
+                  interesting.append(line)
+          if not interesting:
+              interesting = [line for line in lines if 'FAIL' in line or 'ERROR' in line][-20:]
+          message = ' | '.join(interesting[-40:]).replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+          print(f'::error title=Stage 2 unittest failure::{message[:12000]}')
+          PY
+            exit "$status"
+          fi
