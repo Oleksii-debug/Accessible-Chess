@@ -25,6 +25,7 @@ internal static class ActionIds
     public const string PreviousWord = "previous_word";
     public const string RevealTranslation = "reveal_translation";
     public const string RepeatWord = "repeat_word";
+    public const string UndoMove = "undo_move";
     public const string ShortcutSettings = "shortcut_settings";
     public const string Help = "help";
 
