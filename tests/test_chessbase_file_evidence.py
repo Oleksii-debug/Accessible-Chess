@@ -109,6 +109,65 @@ class ClassicChessBaseFileEvidenceTests(unittest.TestCase):
                 with self.assertRaises(ChessBaseSourceChangedError):
                     file_evidence.project_classic_chessbase_file_evidence(cbh)
 
+    def test_outcome_success_keeps_verified_projection(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cbh = self._family(Path(tmp), payload=b"opaque-success")
+            outcome = file_evidence.inspect_classic_chessbase_file_evidence(cbh)
+
+            self.assertTrue(outcome.succeeded)
+            self.assertEqual(outcome.before, outcome.after)
+            self.assertIsNone(outcome.error_type)
+            self.assertIsNone(outcome.error_message)
+            self.assertEqual(outcome.records.complete_count, 1)
+            self.assertEqual(
+                outcome.records.items[0].payload.link.payload.payload_bytes,
+                b"opaque-success",
+            )
+
+    def test_outcome_preserves_verified_integrity_and_exact_decoder_error(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cbh = self._family(Path(tmp))
+
+            with patch.object(
+                file_evidence,
+                "_read_classic_projection",
+                side_effect=ValueError("synthetic exact decode failure"),
+            ):
+                outcome = file_evidence.inspect_classic_chessbase_file_evidence(cbh)
+
+            self.assertFalse(outcome.succeeded)
+            self.assertEqual(outcome.before, outcome.after)
+            self.assertIsNone(outcome.records)
+            self.assertEqual(outcome.error_type, "ValueError")
+            self.assertEqual(outcome.error_message, "synthetic exact decode failure")
+
+    def test_outcome_decode_failure_never_masks_source_mutation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cbh = self._family(Path(tmp))
+            cbg = cbh.with_suffix(".cbg")
+
+            def mutate_then_fail(*args):
+                cbg.write_bytes(cbg.read_bytes() + b"changed")
+                raise ValueError("decode failed too")
+
+            with patch.object(
+                file_evidence,
+                "_read_classic_projection",
+                side_effect=mutate_then_fail,
+            ):
+                with self.assertRaises(ChessBaseSourceChangedError):
+                    file_evidence.inspect_classic_chessbase_file_evidence(cbh)
+
+    def test_outcome_keeps_required_family_validation_explicit(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cbh = self._family(Path(tmp))
+            missing = cbh.with_suffix(".cbp")
+            missing.unlink()
+
+            with self.assertRaises(FileNotFoundError) as caught:
+                file_evidence.inspect_classic_chessbase_file_evidence(cbh)
+            self.assertEqual(caught.exception.args[0], missing)
+
 
 if __name__ == "__main__":
     unittest.main()
