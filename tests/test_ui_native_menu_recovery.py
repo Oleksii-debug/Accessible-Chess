@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 import inspect
+from pathlib import Path
 from types import SimpleNamespace
 
 from acs import webapp_keymap
 from acs.ui_native_menu import (
     _resolve_windows_host_form,
+    _same_managed_object,
     install_windows_native_menu,
     make_keymap_menu,
+    native_menu_attachment_state,
     reset_all_keybindings,
 )
 
@@ -173,6 +176,52 @@ def test_host_resolution_rejects_non_top_level_wrapper_when_real_form_missing() 
     assert _resolve_windows_host_form(window) is None
 
 
+def test_managed_identity_does_not_depend_on_python_proxy_identity() -> None:
+    class ManagedProxy:
+        def __init__(self, managed_id: str):
+            self.managed_id = managed_id
+
+        def Equals(self, other):
+            return getattr(other, "managed_id", None) == self.managed_id
+
+    first = ManagedProxy("same-clr-object")
+    second = ManagedProxy("same-clr-object")
+
+    assert first is not second
+    assert _same_managed_object(first, second) is True
+
+
+def test_attachment_diagnostic_accepts_distinct_proxies_for_same_managed_objects() -> None:
+    class ManagedProxy:
+        def __init__(self, managed_id: str):
+            self.managed_id = managed_id
+
+        def Equals(self, other):
+            return getattr(other, "managed_id", None) == self.managed_id
+
+    host = ManagedProxy("host")
+    host.TopLevel = True
+    menu = ManagedProxy("menu")
+    menu.Parent = ManagedProxy("host")
+    host.MainMenuStrip = ManagedProxy("menu")
+    window = SimpleNamespace(
+        _accessible_chess_native_menu_host=host,
+        _accessible_chess_native_menu=menu,
+    )
+
+    state = native_menu_attachment_state(window)
+
+    assert menu.Parent is not host
+    assert host.MainMenuStrip is not menu
+    assert state == {
+        "host_exists": True,
+        "menu_exists": True,
+        "host_top_level": True,
+        "parent_is_host": True,
+        "main_menu_strip_is_menu": True,
+    }
+
+
 def test_production_native_menu_targets_actual_webview_owner_and_checks_parent() -> None:
     source = inspect.getsource(install_windows_native_menu)
     resolver = inspect.getsource(_resolve_windows_host_form)
@@ -186,8 +235,8 @@ def test_production_native_menu_targets_actual_webview_owner_and_checks_parent()
     assert "form.MainMenuStrip = menu" in source
     assert "form.Controls.Add(menu)" in source
     assert "menu.BringToFront()" in source
-    assert 'getattr(menu, "Parent", None) is not form' in source
-    assert 'getattr(form, "MainMenuStrip", None) is not menu' in source
+    assert "_same_managed_object(getattr(menu, \"Parent\", None), form)" in source
+    assert "_same_managed_object(getattr(form, \"MainMenuStrip\", None), menu)" in source
     assert "MainMenu(" not in source
 
 
@@ -201,8 +250,13 @@ def test_release_launcher_attaches_menu_at_before_show_host_lifecycle() -> None:
     assert "webview.start(install_menu" not in source
 
 
-def test_windows_package_gate_must_still_verify_real_uia_and_keyboard_semantics() -> None:
-    source = inspect.getsource(install_windows_native_menu)
+def test_windows_package_gate_documents_real_uia_and_keyboard_semantics() -> None:
+    smoke = Path("docs/WINDOWS_NATIVE_MENU_SMOKE.md").read_text(encoding="utf-8")
 
-    assert "ControlType.MenuBar" in source
-    assert "Alt/arrows/Enter/Esc" in source
+    assert "ControlType.MenuBar" in smoke
+    assert "Alt" in smoke
+    assert "Arrow" in smoke
+    assert "Enter" in smoke
+    assert "Esc" in smoke
+    assert "NVDA" in smoke
+    assert "native_menu_attachment_state" in smoke
