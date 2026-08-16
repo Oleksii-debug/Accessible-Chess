@@ -7,6 +7,8 @@ namespace WordDeck;
 
 internal static class DictionaryLoader
 {
+    private const string BuiltInOxfordId = "oxford-3000-en-uk";
+
     public static DictionaryPackage LoadEmbeddedOxford()
     {
         Assembly assembly = Assembly.GetExecutingAssembly();
@@ -31,7 +33,7 @@ internal static class DictionaryLoader
         using var memory = new MemoryStream(compressed);
         using var gzip = new GZipStream(memory, CompressionMode.Decompress);
         using var dictionaryReader = new StreamReader(gzip, Encoding.UTF8, true);
-        return Parse(dictionaryReader.ReadToEnd(), "oxford-3000-en-uk", "Oxford 3000 English-Ukrainian");
+        return Parse(dictionaryReader.ReadToEnd(), BuiltInOxfordId, "Oxford 3000 English-Ukrainian");
     }
 
     public static DictionaryPackage LoadFromFile(string path)
@@ -40,7 +42,12 @@ internal static class DictionaryLoader
         byte[] hash = SHA256.HashData(Encoding.UTF8.GetBytes(text));
         string fallbackId = $"imported-{Convert.ToHexString(hash)[..12].ToLowerInvariant()}";
         string fallbackName = Path.GetFileNameWithoutExtension(path);
-        return Parse(text, fallbackId, fallbackName);
+        DictionaryPackage package = Parse(text, fallbackId, fallbackName);
+
+        if (package.Id.Equals(BuiltInOxfordId, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidDataException($"Imported dictionaries cannot use the reserved built-in dictionary ID '{BuiltInOxfordId}'.");
+
+        return package;
     }
 
     public static DictionaryPackage Parse(string text) =>
