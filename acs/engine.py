@@ -29,13 +29,55 @@ class UCIEngine:
         self._lock = threading.Lock()
         self._closed = False
 
+    def _shutdown_process(self, proc) -> None:
+        """Best-effort bounded shutdown with escalation so no child is abandoned."""
+        if proc is None:
+            return
+        try:
+            if proc.poll() is not None:
+                return
+        except Exception:
+            pass
+
+        try:
+            if proc.stdin:
+                proc.stdin.write("quit\n")
+                proc.stdin.flush()
+        except Exception:
+            pass
+        try:
+            proc.wait(timeout=2)
+            return
+        except Exception:
+            pass
+
+        try:
+            proc.terminate()
+        except Exception:
+            pass
+        try:
+            proc.wait(timeout=2)
+            return
+        except Exception:
+            pass
+
+        try:
+            proc.kill()
+        except Exception:
+            pass
+        try:
+            proc.wait(timeout=2)
+        except Exception:
+            # There is no further portable subprocess escalation beyond kill().
+            pass
+
     def start(self) -> None:
         if self._closed:
             raise RuntimeError("Stockfish adapter is closed")
         if self.proc and self.proc.poll() is None:
             return
         try:
-            self.proc = self._process_factory(
+            proc = self._process_factory(
                 [self.path],
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
@@ -48,22 +90,33 @@ class UCIEngine:
             )
         except (OSError, ValueError) as exc:
             raise RuntimeError(f"Unable to start Stockfish: {exc}") from exc
-        if not self.proc.stdout:
-            raise RuntimeError("Stockfish stdout pipe is unavailable")
 
-        def read() -> None:
-            try:
-                for line in self.proc.stdout:
-                    self.q.put(line.strip())
-            except Exception:
-                return
+        self.proc = proc
+        try:
+            if not proc.stdout:
+                raise RuntimeError("Stockfish stdout pipe is unavailable")
 
-        self.reader = threading.Thread(target=read, daemon=True, name="acs-stockfish-reader")
-        self.reader.start()
-        self.send("uci")
-        self._wait("uciok", 5)
-        self.send("isready")
-        self._wait("readyok", 5)
+            # A previous crashed process or failed handshake must not leak old UCI
+            # lines into a replacement provider.
+            self._drain()
+
+            def read() -> None:
+                try:
+                    for line in proc.stdout:
+                        self.q.put(line.strip())
+                except Exception:
+                    return
+
+            self.reader = threading.Thread(target=read, daemon=True, name="acs-stockfish-reader")
+            self.reader.start()
+            self.send("uci")
+            self._wait("uciok", 5)
+            self.send("isready")
+            self._wait("readyok", 5)
+        except Exception:
+            self._shutdown_process(proc)
+            self.proc = None
+            raise
 
     def send(self, command: str) -> None:
         if self._closed:
@@ -159,19 +212,6 @@ class UCIEngine:
             if self._closed:
                 return
             proc = self.proc
-            if proc is not None and proc.poll() is None:
-                try:
-                    if proc.stdin:
-                        proc.stdin.write("quit\n")
-                        proc.stdin.flush()
-                except Exception:
-                    pass
-                try:
-                    proc.wait(timeout=2)
-                except Exception:
-                    try:
-                        proc.terminate()
-                    except Exception:
-                        pass
             self.proc = None
             self._closed = True
+            self._shutdown_process(proc)

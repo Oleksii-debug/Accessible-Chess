@@ -1,4 +1,5 @@
 import queue
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -51,6 +52,53 @@ class ScriptedUCI(UCIEngine):
 
     def _drain(self):
         return None
+
+
+class RecordingStdin:
+    def __init__(self):
+        self.writes = []
+        self.flushes = 0
+
+    def write(self, value):
+        self.writes.append(value)
+
+    def flush(self):
+        self.flushes += 1
+
+
+class ShutdownProcess:
+    """Process fake that can ignore quit/terminate until kill escalation."""
+
+    def __init__(self, *, waits_before_exit=0, stdout=()):
+        self.stdin = RecordingStdin()
+        self.stdout = stdout
+        self._alive = True
+        self.waits_before_exit = int(waits_before_exit)
+        self.wait_calls = 0
+        self.terminate_calls = 0
+        self.kill_calls = 0
+
+    def poll(self):
+        return None if self._alive else 0
+
+    def wait(self, timeout=None):
+        self.wait_calls += 1
+        if self.wait_calls <= self.waits_before_exit:
+            raise subprocess.TimeoutExpired("stockfish", timeout)
+        self._alive = False
+        return 0
+
+    def terminate(self):
+        self.terminate_calls += 1
+
+    def kill(self):
+        self.kill_calls += 1
+        self._alive = False
+
+
+class FailingHandshakeUCI(UCIEngine):
+    def _wait(self, token, timeout):
+        raise RuntimeError("forced handshake failure")
 
 
 class StockfishRuntimeTests(unittest.TestCase):
@@ -170,6 +218,44 @@ class StockfishRuntimeTests(unittest.TestCase):
         self.assertIn("setoption name Skill Level value 12", engine.sent)
         self.assertIn("isready", engine.sent)
         self.assertIn("go movetime 300", engine.sent)
+
+    def test_uci_close_escalates_quit_terminate_kill_and_waits_for_exit(self):
+        proc = ShutdownProcess(waits_before_exit=2)
+        engine = UCIEngine("ignored.exe")
+        engine.proc = proc
+
+        engine.close()
+        engine.close()
+
+        self.assertEqual(["quit\n"], proc.stdin.writes)
+        self.assertEqual(1, proc.terminate_calls)
+        self.assertEqual(1, proc.kill_calls)
+        self.assertGreaterEqual(proc.wait_calls, 3)
+        self.assertEqual(0, proc.poll())
+        self.assertIsNone(engine.proc)
+
+    def test_failed_uci_handshake_cleans_child_and_allows_clean_retry_state(self):
+        first = ShutdownProcess(waits_before_exit=1, stdout=("boot",))
+        engine = FailingHandshakeUCI("ignored.exe", process_factory=lambda *args, **kwargs: first)
+
+        with self.assertRaisesRegex(RuntimeError, "forced handshake failure"):
+            engine.start()
+
+        self.assertIsNone(engine.proc)
+        self.assertEqual(["quit\n"], first.stdin.writes)
+        self.assertEqual(1, first.terminate_calls)
+        self.assertEqual(0, first.kill_calls)
+        self.assertEqual(0, first.poll())
+
+        # The adapter itself is still usable after an initialization failure;
+        # only explicit close permanently closes its ownership boundary.
+        replacement = ShutdownProcess(waits_before_exit=0, stdout=("boot",))
+        engine._process_factory = lambda *args, **kwargs: replacement
+        with self.assertRaisesRegex(RuntimeError, "forced handshake failure"):
+            engine.start()
+        self.assertIsNone(engine.proc)
+        self.assertEqual(0, replacement.poll())
+        engine.close()
 
 
 if __name__ == "__main__":
