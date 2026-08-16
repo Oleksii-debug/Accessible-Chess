@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - feature/teaching-classroom-foundation
+      - integration/teaching-classroom-next
     paths:
       - 'acs/visual_preferences.py'
       - 'acs/teaching_controls.py'
@@ -45,6 +46,7 @@ on:
       - 'tests/test_usage_statistics.py'
       - 'tests/test_usage_sync.py'
       - 'tests/test_teaching_ui.py'
+      - 'tests/test_teaching_cross_contracts.py'
       - '.github/workflows/teaching-classroom-foundation-ci.yml'
 
 permissions:
@@ -99,6 +101,7 @@ jobs:
           tests/test_usage_statistics.py
           tests/test_usage_sync.py
           tests/test_teaching_ui.py
+          tests/test_teaching_cross_contracts.py
       - name: Run feature contract and semantic UI tests
         run: >-
           python -m unittest -v
@@ -120,6 +123,8 @@ jobs:
           tests.test_usage_statistics
           tests.test_usage_sync
           tests.test_teaching_ui
+      - name: Run integration cross-contract tests
+        run: python -m unittest -v tests.test_teaching_cross_contracts
       - name: Run adjacent Data regressions
         run: >-
           python -m unittest -v
