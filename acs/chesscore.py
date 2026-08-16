@@ -26,6 +26,12 @@ class Board:
     def clone(self):
         b=Board(self.fen()); b.last_move=self.last_move; return b
     def set_fen(self, fen, clear_history=True):
+        """Validate a FEN completely before committing it to canonical state.
+
+        Editor/import input is untrusted.  A rejected FEN must not partially
+        replace board, side-to-move, counters or history because callers may
+        continue using the same Board instance after reporting the error.
+        """
         parts=fen.strip().split()
         if len(parts)<4: raise ValueError('FEN має містити щонайменше 4 поля')
         rows=parts[0].split('/')
@@ -34,34 +40,42 @@ class Board:
         for rr,row in enumerate(rows):
             rank=7-rr; file=0
             for ch in row:
-                if ch.isdigit(): file+=int(ch)
+                if ch in '12345678':
+                    file+=int(ch)
+                    if file>8: raise ValueError('FEN: забагато полів у горизонталі')
+                elif ch.isdigit():
+                    raise ValueError('FEN: неправильна кількість порожніх полів')
                 elif ch in 'prnbqkPRNBQK':
                     if file>=8: raise ValueError('FEN: зайва фігура')
                     bd[rank*8+file]=ch; file+=1
                 else: raise ValueError('FEN: невідомий символ '+ch)
             if file!=8: raise ValueError('FEN: горизонталь не має 8 полів')
         if bd.count('K')!=1 or bd.count('k')!=1: raise ValueError('FEN: має бути по одному королю')
-        if parts[1] not in ('w','b'): raise ValueError('FEN: хід має бути w або b')
-        self.board=bd; self.turn=parts[1]; self.castling='' if parts[2]=='-' else parts[2]
-        if any(ch not in 'KQkq' for ch in self.castling) or len(set(self.castling))!=len(self.castling): raise ValueError('FEN: неправильні права рокіровки')
-        self.ep=None if parts[3]=='-' else parse_sq(parts[3])
+        turn=parts[1]
+        if turn not in ('w','b'): raise ValueError('FEN: хід має бути w або b')
+        castling='' if parts[2]=='-' else parts[2]
+        if any(ch not in 'KQkq' for ch in castling) or len(set(castling))!=len(castling): raise ValueError('FEN: неправильні права рокіровки')
+        ep=None if parts[3]=='-' else parse_sq(parts[3])
         try:
-            self.halfmove=int(parts[4]) if len(parts)>4 else 0; self.fullmove=int(parts[5]) if len(parts)>5 else 1
+            halfmove=int(parts[4]) if len(parts)>4 else 0; fullmove=int(parts[5]) if len(parts)>5 else 1
         except ValueError: raise ValueError('FEN: лічильники мають бути цілими числами')
-        if self.halfmove<0: raise ValueError('FEN: halfmove не може бути від’ємним')
-        if self.fullmove<1: raise ValueError('FEN: fullmove має бути не менше 1')
-        for s,p in enumerate(self.board):
+        if halfmove<0: raise ValueError('FEN: halfmove не може бути від’ємним')
+        if fullmove<1: raise ValueError('FEN: fullmove має бути не менше 1')
+        for s,p in enumerate(bd):
             if p and p.upper()=='P' and s//8 in (0,7): raise ValueError('FEN: пішак не може стояти на першій або восьмій горизонталі')
-        wk=self.board.index('K'); bk=self.board.index('k')
+        wk=bd.index('K'); bk=bd.index('k')
         if max(abs(wk%8-bk%8),abs(wk//8-bk//8))<=1: raise ValueError('FEN: королі не можуть стояти поруч')
         required={'K':(4,'K',7,'R'),'Q':(4,'K',0,'R'),'k':(60,'k',63,'r'),'q':(60,'k',56,'r')}
         for right,(ks,kp,rs,rp) in required.items():
-            if right in self.castling and (self.board[ks]!=kp or self.board[rs]!=rp): raise ValueError('FEN: права рокіровки не відповідають положенню короля/тури')
-        if self.ep is not None:
-            er=self.ep//8
+            if right in castling and (bd[ks]!=kp or bd[rs]!=rp): raise ValueError('FEN: права рокіровки не відповідають положенню короля/тури')
+        if ep is not None:
+            er=ep//8
             if er not in (2,5): raise ValueError('FEN: неправильне поле en passant')
-            if (self.turn=='w' and er!=5) or (self.turn=='b' and er!=2): raise ValueError('FEN: en passant не відповідає стороні ходу')
-        self.last_move=None
+            if (turn=='w' and er!=5) or (turn=='b' and er!=2): raise ValueError('FEN: en passant не відповідає стороні ходу')
+
+        # Commit only after every syntactic and structural check has passed.
+        self.board=bd; self.turn=turn; self.castling=castling; self.ep=ep
+        self.halfmove=halfmove; self.fullmove=fullmove; self.last_move=None
         if clear_history: self.undo_stack=[]; self.redo_stack=[]
     def fen(self):
         rows=[]
