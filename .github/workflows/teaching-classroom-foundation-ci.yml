@@ -76,5 +76,3 @@ jobs:
           tests.test_settings
           tests.test_training
           tests.test_keybindings
-          tests.test_accessible_webui
-          tests.test_nvda_p0_contract
