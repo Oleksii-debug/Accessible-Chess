@@ -8,125 +8,75 @@ from typing import Any, Callable
 
 from .analysis_service import AnalysisService
 from .continuous_analysis import ContinuousAnalysisService
-from .sound_events import MoveSoundFacts
+from .settings import Settings
 from .sound_runtime import GameSoundRuntime, SoundRuntime, SoundRuntimeSettings
 from .sound_windows import PackagedSoundAssetResolver, WindowsSoundPlaybackAdapter
+from .stage1_release_ui import Stage1ReleaseAccessibleChessAPI
 from .stockfish_runtime import StockfishRuntime, StockfishRuntimeConfig
-from .ui_native_menu import install_windows_native_menu
-from .webapp_keymap import KeymapAwareAccessibleChessAPI, _asset_root
+from .webapp_keymap import _asset_root
+
+# Compatibility name for callers/tests that imported the old split release API.
+# There is now only one concrete release-facing API implementation.
+ReleaseAccessibleChessAPI = Stage1ReleaseAccessibleChessAPI
 
 
-class ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
-    """Release API with real semantic chess-sound delivery.
-
-    Sound playback is intentionally composed here, outside chess/domain code.
-    The API compares the move list before/after a user action so selecting a
-    square never produces a false move sound. Illegal attempts emit only the
-    semantic illegal event.
-    """
-
-    def __init__(self, *args: Any, game_sounds: GameSoundRuntime | None = None, **kwargs: Any) -> None:
-        super().__init__(*args, **kwargs)
-        self._game_sounds = game_sounds
-
-    def _play_latest_move(self) -> None:
-        if self._game_sounds is None or not self.sans:
-            return
-        san = str(self.sans[-1])
-        facts = MoveSoundFacts(
-            legal=True,
-            capture="x" in san,
-            check=("+" in san or "#" in san),
-            castle=san.startswith("O-O"),
-            promotion="=" in san,
-            game_ended=not bool(self.board.legal_moves()),
-        )
-        self._game_sounds.move(facts)
-
-    def new_game(self) -> dict[str, Any]:
-        result = super().new_game()
-        if result.get("ok") and self._game_sounds is not None:
-            self._game_sounds.start()
-        return result
-
-    def make_move(self, text: str) -> dict[str, Any]:
-        before = len(self.sans)
-        result = super().make_move(text)
-        after = len(self.sans)
-        if self._game_sounds is not None:
-            if result.get("ok") and after > before:
-                self._play_latest_move()
-            elif not result.get("ok"):
-                self._game_sounds.illegal()
-        return result
-
-    def activate_square(self, square: str) -> dict[str, Any]:
-        before = len(self.sans)
-        result = super().activate_square(square)
-        after = len(self.sans)
-        if self._game_sounds is not None:
-            if result.get("ok") and after > before:
-                self._play_latest_move()
-            elif not result.get("ok"):
-                self._game_sounds.illegal()
-        return result
+def _user_root() -> Path:
+    local = os.environ.get("LOCALAPPDATA")
+    return Path(local) / "AccessibleChess" if local else Path.home() / ".accessible-chess"
 
 
 def _sound_cache_dir() -> Path:
-    local = os.environ.get("LOCALAPPDATA")
-    base = Path(local) if local else Path.home() / ".accessible-chess"
-    return base / "AccessibleChess" / "sound-cache"
+    return _user_root() / "sound-cache"
+
+
+def _settings_path() -> Path:
+    return _user_root() / "settings.json"
 
 
 def create_release_api(
     *,
     application_dir: str | Path | None = None,
     runtime_factory: Callable[[StockfishRuntimeConfig], Any] = StockfishRuntime,
+    sound_playback: Any | None = None,
+    settings_path: str | Path | None = None,
 ):
-    """Compose one shared Stockfish provider plus packaged sound playback."""
+    """Compose one shared Stockfish provider, persisted settings and sound runtime.
+
+    The same returned ``Stage1ReleaseAccessibleChessAPI`` is used by the actual
+    packaged WebView launcher. Tests can inject an engine runtime and playback
+    port without creating a second product composition path.
+    """
     app_dir = Path(application_dir) if application_dir is not None else _asset_root()
     runtime = runtime_factory(StockfishRuntimeConfig(application_dir=app_dir))
     analysis = AnalysisService(runtime.provider, owns_engine=False)
     continuous = ContinuousAnalysisService(analysis)
 
-    sound_adapter = WindowsSoundPlaybackAdapter(
-        PackagedSoundAssetResolver(app_dir),
-        cache_dir=_sound_cache_dir(),
+    settings = Settings(Path(settings_path) if settings_path is not None else _settings_path())
+    playback = sound_playback
+    if playback is None:
+        playback = WindowsSoundPlaybackAdapter(
+            PackagedSoundAssetResolver(app_dir),
+            cache_dir=_sound_cache_dir(),
+        )
+    sound_runtime = SoundRuntime(
+        playback,
+        settings=lambda: SoundRuntimeSettings.from_mapping(settings.data),
     )
-    sound_runtime = SoundRuntime(sound_adapter, settings=SoundRuntimeSettings(enabled=True, volume=80))
     game_sounds = GameSoundRuntime(sound_runtime)
 
-    api = ReleaseAccessibleChessAPI(continuous_analysis=continuous, game_sounds=game_sounds)
+    api = Stage1ReleaseAccessibleChessAPI(
+        continuous_analysis=continuous,
+        game_sounds=game_sounds,
+        sound_runtime=sound_runtime,
+        settings=settings,
+    )
     return api, runtime
 
 
 def main() -> None:
-    import webview
+    # Kept as a public entry point for compatibility. The actual launcher uses
+    # stage1_release_ui.main, which calls this same composition factory.
+    from .stage1_release_ui import run_release_window
 
     api, runtime = create_release_api()
-    html = _asset_root() / "web" / "index.html"
-    if not html.exists():
-        runtime.close()
-        raise RuntimeError(f"Accessible HTML UI not found: {html}")
-
-    window = webview.create_window(
-        "Accessible Chess",
-        url=str(html),
-        js_api=api,
-        width=1150,
-        height=820,
-        min_size=(800, 600),
-        text_select=True,
-    )
-
-    def install_native_menu() -> None:
-        if not install_windows_native_menu(window, api):
-            raise RuntimeError("Native Windows Alt menu could not be installed")
-
-    try:
-        webview.start(install_native_menu, gui="edgechromium", private_mode=True)
-    finally:
-        try:
-            api.close_analysis()
-        finally:
-            runtime.close()
+    run_release_window(api, runtime)
