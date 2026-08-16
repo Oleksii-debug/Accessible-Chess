@@ -238,8 +238,14 @@ class LessonSQLiteStore:
                     f"lesson revision conflict: expected {expected_revision}, found {int(row[0])}"
                 )
             new_revision = expected_revision + 1
-            db.execute("DELETE FROM lessons WHERE lesson_id=?", (plan.lesson_id,))
-            self._insert_plan(db, plan, revision=new_revision)
+            db.execute(
+                "UPDATE lessons SET title=?,age_band=?,level=?,revision=? WHERE lesson_id=?",
+                (plan.title, plan.age_band, plan.level, new_revision, plan.lesson_id),
+            )
+            db.execute("DELETE FROM lesson_positions WHERE lesson_id=?", (plan.lesson_id,))
+            db.execute("DELETE FROM lesson_items WHERE lesson_id=?", (plan.lesson_id,))
+            db.execute("DELETE FROM position_assignments WHERE lesson_id=?", (plan.lesson_id,))
+            self._insert_plan_children(db, plan)
         return LessonRevision(plan.lesson_id, new_revision)
 
     def _insert_plan(self, db: sqlite3.Connection, plan: LessonPlan, *, revision: int) -> None:
@@ -247,6 +253,10 @@ class LessonSQLiteStore:
             "INSERT INTO lessons(lesson_id,title,age_band,level,revision) VALUES(?,?,?,?,?)",
             (plan.lesson_id, plan.title, plan.age_band, plan.level, revision),
         )
+        self._insert_plan_children(db, plan)
+
+    @staticmethod
+    def _insert_plan_children(db: sqlite3.Connection, plan: LessonPlan) -> None:
         db.executemany(
             "INSERT INTO lesson_positions VALUES(?,?,?,?,?,?,?,?)",
             [
@@ -455,9 +465,7 @@ class LessonSQLiteStore:
             try:
                 db.execute(
                     "INSERT INTO deployment_batches VALUES(?,?,?,?,?,?,?)",
-                    requested_header[:4] + (batch_id,) if False else (
-                        batch_id, lesson_id, assignment_id, position_id, session_id, first_sequence_no, len(target_tuple)
-                    ),
+                    (batch_id, lesson_id, assignment_id, position_id, session_id, first_sequence_no, len(target_tuple)),
                 )
                 records = []
                 for ordinal, target in enumerate(target_tuple):
