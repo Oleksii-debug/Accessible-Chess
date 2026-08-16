@@ -132,6 +132,15 @@ class SoundPackCatalogStatus:
     state: SoundPackState
 
 
+@dataclass(frozen=True)
+class SoundPackUninstallPlan:
+    """Pure plan so profile persistence can happen before destructive storage work."""
+
+    pack_id: str
+    resulting_profile: SoundProfile
+    remove_from_storage: bool
+
+
 class SoundPackManager:
     def __init__(
         self,
@@ -146,14 +155,16 @@ class SoundPackManager:
             raise TypeError("max_bytes must be an integer")
         if max_bytes <= 0:
             raise ValueError("max_bytes must be positive")
-        fallback_pack_id = str(fallback_pack_id).strip().lower()
-        if not fallback_pack_id:
-            raise ValueError("fallback_pack_id is required")
+        fallback_pack_id = SoundProfile(pack_id=fallback_pack_id).pack_id
         self._downloader = downloader
         self._storage = storage
         self._signature_verifier = signature_verifier
         self._max_bytes = max_bytes
         self._fallback_pack_id = fallback_pack_id
+
+    @property
+    def fallback_pack_id(self) -> str:
+        return self._fallback_pack_id
 
     def install(self, entry: SoundPackCatalogEntry) -> SoundPackManifest:
         if not entry.compatible:
@@ -204,27 +215,75 @@ class SoundPackManager:
             if received.sha256 != expected.sha256:
                 raise SoundPackInstallError("downloaded asset checksum verification failed")
 
-    def uninstall(self, pack_id: str, *, active_profile: SoundProfile) -> SoundProfile:
-        pack_id = str(pack_id).strip().lower()
+    def resolve_usable_pack(self, requested_pack_id: str) -> str:
+        """Implement the neutral resolver port consumed by SoundProfileManager."""
+
+        requested = SoundProfile(pack_id=requested_pack_id).pack_id
+        installed = dict(self._storage.installed())
+        if requested in installed:
+            return requested
+        if self._fallback_pack_id not in installed:
+            raise SoundPackInstallError("configured sound pack is missing and no fallback is installed")
+        return self._fallback_pack_id
+
+    def prepare_uninstall(
+        self,
+        pack_id: str,
+        *,
+        active_profile: SoundProfile,
+    ) -> SoundPackUninstallPlan:
+        """Validate uninstall and compute resulting profile without deleting assets."""
+
+        if not isinstance(active_profile, SoundProfile):
+            raise TypeError("active_profile must be SoundProfile")
+        pack_id = SoundProfile(pack_id=pack_id).pack_id
         if pack_id == self._fallback_pack_id:
             raise SoundPackInstallError("the fallback sound pack cannot be uninstalled")
         installed = dict(self._storage.installed())
         if pack_id not in installed:
-            return self.resolve_profile(active_profile)
+            return SoundPackUninstallPlan(
+                pack_id=pack_id,
+                resulting_profile=self.resolve_profile(active_profile),
+                remove_from_storage=False,
+            )
         if active_profile.pack_id == pack_id and self._fallback_pack_id not in installed:
             raise SoundPackInstallError("cannot remove active pack without an installed fallback")
-        self._storage.uninstall(pack_id)
-        if active_profile.pack_id == pack_id:
-            return replace(active_profile, pack_id=self._fallback_pack_id)
-        return self.resolve_profile(active_profile)
+        resulting_profile = (
+            replace(active_profile, pack_id=self._fallback_pack_id)
+            if active_profile.pack_id == pack_id
+            else self.resolve_profile(active_profile)
+        )
+        return SoundPackUninstallPlan(
+            pack_id=pack_id,
+            resulting_profile=resulting_profile,
+            remove_from_storage=True,
+        )
+
+    def commit_uninstall(self, plan: SoundPackUninstallPlan) -> None:
+        if not isinstance(plan, SoundPackUninstallPlan):
+            raise TypeError("plan must be SoundPackUninstallPlan")
+        if plan.pack_id == self._fallback_pack_id:
+            raise SoundPackInstallError("the fallback sound pack cannot be uninstalled")
+        if plan.remove_from_storage:
+            self._storage.uninstall(plan.pack_id)
+
+    def uninstall(self, pack_id: str, *, active_profile: SoundProfile) -> SoundProfile:
+        """Backward-compatible one-step uninstall.
+
+        Application code that persists profiles should prefer ``prepare_uninstall``
+        followed by profile persistence and ``commit_uninstall`` so a failed
+        profile write cannot leave the active profile pointing at removed assets.
+        """
+
+        plan = self.prepare_uninstall(pack_id, active_profile=active_profile)
+        self.commit_uninstall(plan)
+        return plan.resulting_profile
 
     def resolve_profile(self, profile: SoundProfile) -> SoundProfile:
-        installed = dict(self._storage.installed())
-        if profile.pack_id in installed:
+        resolved = self.resolve_usable_pack(profile.pack_id)
+        if resolved == profile.pack_id:
             return profile
-        if self._fallback_pack_id not in installed:
-            raise SoundPackInstallError("configured sound pack is missing and no fallback is installed")
-        return replace(profile, pack_id=self._fallback_pack_id)
+        return replace(profile, pack_id=resolved)
 
     def status(self, entry: SoundPackCatalogEntry) -> SoundPackCatalogStatus:
         installed = dict(self._storage.installed())
