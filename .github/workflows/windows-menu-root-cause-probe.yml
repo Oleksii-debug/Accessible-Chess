@@ -56,7 +56,6 @@ jobs:
           @'
           import clr
           clr.AddReference('System.Windows.Forms')
-          from System import Action
           from System.Windows.Forms import Application, Form, MenuStrip, ToolStripMenuItem
           from pathlib import Path
 
@@ -142,7 +141,7 @@ jobs:
             }
             for($i=0;$i -lt $wins.Count;$i++){ $count=0; "TREE TOP[$i]" | Add-Content -Encoding UTF8 $out; Dump-Tree $wins.Item($i) 0 ([ref]$count) }
             Get-Content $out
-            throw "$Label: no visible top-level window exposed a descendant ControlType.MenuBar"
+            throw "${Label}: no visible top-level window exposed a descendant ControlType.MenuBar"
           }
           "MENU name=[$($menu.Current.Name)] class=[$($menu.Current.ClassName)]" | Add-Content -Encoding UTF8 $out
           $ws=New-Object -ComObject WScript.Shell
@@ -150,7 +149,7 @@ jobs:
           $ws.SendKeys('%'); Start-Sleep -Milliseconds 500
           $ws.SendKeys('{DOWN}'); Start-Sleep -Milliseconds 300
           $ws.SendKeys('{ENTER}'); Start-Sleep -Milliseconds 700
-          if(-not (Test-Path $SignalPath)){ Get-Content $out; throw "$Label: Alt/Down/Enter did not activate safe menu command" }
+          if(-not (Test-Path $SignalPath)){ Get-Content $out; throw "${Label}: Alt/Down/Enter did not activate safe menu command" }
           $ws.SendKeys('{ESC}'); Start-Sleep -Milliseconds 200
           "KEYBOARD_ALT_ARROWS_ENTER_ESC_PASS" | Add-Content -Encoding UTF8 $out
           Get-Content $out
@@ -158,6 +157,7 @@ jobs:
 
       - name: Matrix A - pure WinForms MenuStrip
         shell: pwsh
+        continue-on-error: true
         run: |
           Remove-Item probe-results\a_action.txt -ErrorAction SilentlyContinue
           $p=Start-Process python -ArgumentList 'probe_a.py' -PassThru
@@ -166,6 +166,7 @@ jobs:
 
       - name: Matrix B - official pywebview 6.2.1 window menu
         shell: pwsh
+        continue-on-error: true
         run: |
           Remove-Item probe-results\b_action.txt -ErrorAction SilentlyContinue
           $p=Start-Process python -ArgumentList 'probe_b.py' -PassThru
@@ -178,9 +179,8 @@ jobs:
         run: |
           Remove-Item probe-results\c_action.txt -ErrorAction SilentlyContinue
           $p=Start-Process python -ArgumentList 'probe_c.py' -PassThru
-          try {
-            .\uia_probe.ps1 -AppPid $p.Id -Label 'C_accessible_chess_custom' -SignalPath 'probe-results\c_action.txt'
-          } finally { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue }
+          try { .\uia_probe.ps1 -AppPid $p.Id -Label 'C_accessible_chess_custom' -SignalPath 'probe-results\c_action.txt' }
+          finally { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue }
 
       - name: Classify root cause fail closed
         shell: pwsh
@@ -189,7 +189,7 @@ jobs:
           $b=Test-Path 'probe-results\b_action.txt'
           $c=Test-Path 'probe-results\c_action.txt'
           "A_PURE_WINFORMS=$a B_PYWEBVIEW_OFFICIAL=$b C_CUSTOM=$c" | Tee-Object -FilePath 'probe-results\classification.txt'
-          if(-not $a){ throw 'ROOT CAUSE: Windows runner/UIA baseline is broken; do not change product' }
+          if(-not $a){ throw 'ROOT CAUSE: Windows runner/UIA baseline or probe interaction is broken; do not change product' }
           if(-not $b){ throw 'ROOT CAUSE: pinned pywebview official menu path does not satisfy Windows UIA/keyboard gate; do not migrate product to it' }
           if(-not $c){
             'ROOT CAUSE: Accessible Chess custom menu adapter differs from working upstream-supported pywebview path. Route evidence to UI worker; next product fix should reuse official path.' | Add-Content 'probe-results\classification.txt'
