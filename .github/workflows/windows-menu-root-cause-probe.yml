@@ -58,15 +58,20 @@ jobs:
           clr.AddReference('System.Windows.Forms')
           from pathlib import Path
           from System.Threading import ApartmentState, Thread, ThreadStart
-          from System.Windows.Forms import AccessibleRole, Application, Form, MenuStrip, ToolStripMenuItem
+          from System.Windows.Forms import AccessibleRole, Application, DockStyle, Form, MenuStrip, ToolStripMenuItem
           signal=Path('probe-results/a_action.txt').resolve()
+          # Mirror pywebview WinForms startup before any control is created.
+          Application.EnableVisualStyles()
+          Application.SetCompatibleTextRenderingDefault(False)
           def run_ui():
               form=Form(); form.Text='AC Menu Probe A - Pure WinForms'; form.Width=640; form.Height=400
-              menu=MenuStrip(); menu.Name='ProbeAMenu'; menu.AccessibleName='Probe A application menu'; menu.AccessibleRole=AccessibleRole.MenuBar
-              file_item=ToolStripMenuItem('&File'); safe=ToolStripMenuItem('&Safe Action')
+              menu=MenuStrip(); menu.Name='ProbeAMenu'; menu.AccessibleName='Probe A application menu'; menu.AccessibleRole=AccessibleRole.MenuBar; menu.Dock=DockStyle.Top
+              file_item=ToolStripMenuItem('&File'); file_item.AccessibleName='File'
+              safe=ToolStripMenuItem('&Safe Action'); safe.AccessibleName='Safe Action'
               def clicked(sender,event): signal.write_text('activated',encoding='utf-8')
               safe.Click += clicked; file_item.DropDownItems.Add(safe); menu.Items.Add(file_item)
               form.MainMenuStrip=menu; form.Controls.Add(menu); menu.BringToFront()
+              form.Shown += lambda sender,event: menu.BringToFront()
               Application.Run(form)
           t=Thread(ThreadStart(run_ui)); t.SetApartmentState(ApartmentState.STA); t.Start(); t.Join()
           '@ | Set-Content -Encoding UTF8 probe_a.py
@@ -119,11 +124,19 @@ jobs:
           Add-Type @"
           using System;
           using System.Runtime.InteropServices;
-          public static class ACKeys {
+          public static class ACInput {
             [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
-            [DllImport("user32.dll")] public static extern void keybd_event(byte vk, byte scan, uint flags, UIntPtr extra);
-            public const uint KEYUP=0x0002;
-            public static void Tap(byte vk) { keybd_event(vk,0,0,UIntPtr.Zero); System.Threading.Thread.Sleep(120); keybd_event(vk,0,KEYUP,UIntPtr.Zero); }
+            [StructLayout(LayoutKind.Sequential)] public struct INPUT { public uint type; public InputUnion U; }
+            [StructLayout(LayoutKind.Explicit)] public struct InputUnion { [FieldOffset(0)] public KEYBDINPUT ki; }
+            [StructLayout(LayoutKind.Sequential)] public struct KEYBDINPUT { public ushort wVk; public ushort wScan; public uint dwFlags; public uint time; public UIntPtr dwExtraInfo; }
+            [DllImport("user32.dll", SetLastError=true)] public static extern uint SendInput(uint nInputs, INPUT[] pInputs, int cbSize);
+            public const uint INPUT_KEYBOARD=1; public const uint KEYEVENTF_KEYUP=0x0002;
+            public static void Tap(ushort vk) {
+              var a=new INPUT[2];
+              a[0].type=INPUT_KEYBOARD; a[0].U.ki.wVk=vk;
+              a[1].type=INPUT_KEYBOARD; a[1].U.ki.wVk=vk; a[1].U.ki.dwFlags=KEYEVENTF_KEYUP;
+              if(SendInput(2,a,Marshal.SizeOf(typeof(INPUT)))!=2) throw new InvalidOperationException("SendInput failed");
+            }
           }
           "@
           function Has-AppFileItem($element) {
@@ -141,6 +154,7 @@ jobs:
           $pidCond=New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::ProcessIdProperty,$AppPid)
           $menuCond=New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::ControlTypeProperty,[System.Windows.Automation.ControlType]::MenuBar)
           $itemCond=New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::ControlTypeProperty,[System.Windows.Automation.ControlType]::MenuItem)
+          $allCond=[System.Windows.Automation.Condition]::TrueCondition
           $out=Join-Path 'probe-results' ($Label + '_uia.txt')
           "PID=$AppPid" | Set-Content -Encoding UTF8 $out
           $winner=$null; $appMenu=$null
@@ -160,32 +174,34 @@ jobs:
                 "BAR[$j] name=[$($bar.Current.Name)] items=[$($names -join '|')]" | Add-Content -Encoding UTF8 $out
                 if(Has-AppFileItem $bar){ $winner=$w; $appMenu=$bar; break }
               }
+              if(-not $appMenu -and $attempt -eq 11){
+                $nodes=$w.FindAll([System.Windows.Automation.TreeScope]::Descendants,$allCond)
+                $limit=[Math]::Min($nodes.Count,80)
+                for($n=0;$n -lt $limit;$n++){
+                  $node=$nodes.Item($n)
+                  "NODE[$n] type=[$($node.Current.ControlType.ProgrammaticName)] name=[$($node.Current.Name)] class=[$($node.Current.ClassName)]" | Add-Content -Encoding UTF8 $out
+                }
+              }
               if($appMenu){ break }
             }
             if(-not $appMenu){ Start-Sleep -Milliseconds 500 }
           }
-          if(-not $appMenu){
-            Get-Content $out
-            throw "${Label}: no application MenuBar containing File/Файл was exposed; system menu does not count"
-          }
+          if(-not $appMenu){ Get-Content $out; throw "${Label}: no application MenuBar containing File/Файл was exposed; system menu does not count" }
           "APP_MENU name=[$($appMenu.Current.Name)] hwnd=$($winner.Current.NativeWindowHandle)" | Add-Content -Encoding UTF8 $out
-          if(-not [ACKeys]::SetForegroundWindow([IntPtr]$winner.Current.NativeWindowHandle)){ throw "${Label}: SetForegroundWindow failed" }
-          Start-Sleep -Milliseconds 500
-          [ACKeys]::Tap(0x12); Start-Sleep -Milliseconds 600
+          if(-not [ACInput]::SetForegroundWindow([IntPtr]$winner.Current.NativeWindowHandle)){ throw "${Label}: SetForegroundWindow failed" }
+          Start-Sleep -Milliseconds 800
+          [ACInput]::Tap(0x12); Start-Sleep -Milliseconds 900
           $f=[System.Windows.Automation.AutomationElement]::FocusedElement
           "FOCUS_AFTER_ALT type=[$($f.Current.ControlType.ProgrammaticName)] name=[$($f.Current.Name)]" | Add-Content -Encoding UTF8 $out
-          if(-not (Has-AppFileItem $f)){
-            Get-Content $out
-            throw "${Label}: Alt focus did not enter application menu; system menu/document focus is failure"
-          }
-          [ACKeys]::Tap(0x28); Start-Sleep -Milliseconds 500
+          if(-not (Has-AppFileItem $f)){ Get-Content $out; throw "${Label}: Alt focus did not enter application menu; system menu/document focus is failure" }
+          [ACInput]::Tap(0x28); Start-Sleep -Milliseconds 700
           $f=[System.Windows.Automation.AutomationElement]::FocusedElement
           "FOCUS_AFTER_DOWN type=[$($f.Current.ControlType.ProgrammaticName)] name=[$($f.Current.Name)]" | Add-Content -Encoding UTF8 $out
           if($f.Current.ControlType -ne [System.Windows.Automation.ControlType]::MenuItem){ throw "${Label}: Down did not navigate application menu item" }
           if($f.Current.Name -match '^(Restore|Move|Size|Minimize|Maximize|Close)$'){ throw "${Label}: navigation entered Windows system menu instead of app menu" }
-          [ACKeys]::Tap(0x0D); Start-Sleep -Milliseconds 1000
+          [ACInput]::Tap(0x0D); Start-Sleep -Milliseconds 1000
           if(-not (Test-Path $SignalPath)){ Get-Content $out; throw "${Label}: Enter did not activate safe application-menu command" }
-          [ACKeys]::Tap(0x1B); Start-Sleep -Milliseconds 200
+          [ACInput]::Tap(0x1B); Start-Sleep -Milliseconds 300
           'APP_MENU_UIA_ALT_DOWN_ENTER_ESC_PASS' | Add-Content -Encoding UTF8 $out
           'ok' | Set-Content -Encoding UTF8 (Join-Path 'probe-results' ($Label + '_pass.txt'))
           Get-Content $out
