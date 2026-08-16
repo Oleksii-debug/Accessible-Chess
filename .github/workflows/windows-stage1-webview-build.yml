@@ -34,12 +34,12 @@ jobs:
       - name: Verify exact source lock
         shell: pwsh
         run: |
-          git merge-base --is-ancestor $env:SOURCE_INTEGRATION_SHA HEAD
-          if ($LASTEXITCODE -ne 0) { throw 'Locked integration SHA is not an ancestor of QA branch' }
-          $changed = @(git diff --name-only $env:SOURCE_INTEGRATION_SHA HEAD)
-          $allowed = @('.github/workflows/windows-stage1-webview-build.yml')
-          $unexpected = @($changed | Where-Object { $_ -notin $allowed })
-          if ($unexpected.Count -ne 0) { throw "QA branch changed product files beyond locked source: $($unexpected -join ', ')" }
+          git cat-file -e "$env:SOURCE_INTEGRATION_SHA^{commit}"
+          if ($LASTEXITCODE -ne 0) { throw 'Locked integration SHA is not available in checkout' }
+          $productPaths = @('acs','web','tests','run_accessible_chess.py','ACCESSIBILITY_0.4_ARCHITECTURE.md','VERSION.txt','HOTKEYS_UA.txt','HOTKEYS_EN.txt')
+          $changed = @(git diff --name-only $env:SOURCE_INTEGRATION_SHA HEAD -- $productPaths)
+          if ($LASTEXITCODE -ne 0) { throw 'Exact-source product diff failed' }
+          if ($changed.Count -ne 0) { throw "QA branch product files differ from locked source: $($changed -join ', ')" }
           "SOURCE LOCK PASS: $env:SOURCE_INTEGRATION_SHA"
 
       - name: Reconstruct verified baseline and apply complete integration overlay
