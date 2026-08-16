@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import unittest
 
+from acs.chesscore import Board
 from acs.engine_ports import ChessEnginePort
 from acs.engine_registry import (
     EngineCapability,
@@ -21,7 +22,7 @@ from acs.move_entry import MoveEntryKind, parse_move_entry
 from acs.notation import format_san
 from acs.notation_registry import NotationProfileRegistry
 from acs.sound_dispatch import SoundEventSinkRegistry, SoundSinkDescriptor
-from acs.sound_events import SoundEvent
+from acs.sound_events import MoveSoundFacts, SoundEvent, SoundEventPolicy
 
 
 class _FakeEngine:
@@ -42,6 +43,73 @@ class CoreReleaseContractTests(unittest.TestCase):
     characterize the frozen Stage-1 Core foundation without adding a new runtime
     registry or another source of truth.
     """
+
+    def test_ui_submitted_e4_reaches_exact_canonical_core_state(self) -> None:
+        """Characterize the packaged move-entry boundary below presentation/UIA.
+
+        The UI is allowed to deliver text only. Core owns classification, legal
+        move resolution, mutation, FEN/side-to-move/history and semantic events.
+        This regression makes an e4 failure attributable: if this passes on the
+        same source SHA, a missing packaged edit/control is not a chess-state bug.
+        """
+
+        board = Board()
+        intent = parse_move_entry("e4")
+
+        self.assertEqual(intent.kind, MoveEntryKind.CHESS_MOVE)
+        self.assertEqual(intent.move_text, "e4")
+        before = board.fen()
+        side_before = board.turn
+        san = board.push_text(intent.move_text)
+
+        self.assertEqual(side_before, "w")
+        self.assertEqual(san, "e4")
+        self.assertEqual(
+            board.fen(),
+            "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1",
+        )
+        self.assertEqual(board.turn, "b")
+        self.assertEqual(len(board.undo_stack), 1)
+        self.assertEqual(board.undo_stack[0], (before, "e4"))
+        self.assertEqual(board.redo_stack, [])
+        self.assertEqual(
+            SoundEventPolicy.for_move(MoveSoundFacts()),
+            (SoundEvent.MOVE,),
+        )
+
+        self.assertEqual(board.undo(), "e4")
+        self.assertEqual(board.fen(), before)
+        self.assertEqual(board.turn, "w")
+        self.assertEqual(board.redo(), "e4")
+        self.assertEqual(
+            board.fen(),
+            "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1",
+        )
+
+    def test_invalid_e9_is_atomic_and_emits_only_illegal_semantics(self) -> None:
+        board = Board()
+        board.push_text("e4")
+        before = board.fen()
+        undo_before = tuple(board.undo_stack)
+        redo_before = tuple(board.redo_stack)
+        last_before = board.last_move
+
+        intent = parse_move_entry("e9")
+        self.assertEqual(intent.kind, MoveEntryKind.CHESS_MOVE)
+        self.assertEqual(intent.move_text, "e9")
+
+        with self.assertRaises(ValueError):
+            board.push_text(intent.move_text)
+
+        self.assertEqual(board.fen(), before)
+        self.assertEqual(board.turn, "b")
+        self.assertEqual(tuple(board.undo_stack), undo_before)
+        self.assertEqual(tuple(board.redo_stack), redo_before)
+        self.assertEqual(board.last_move, last_before)
+        self.assertEqual(
+            SoundEventPolicy.for_move(MoveSoundFacts(legal=False)),
+            (SoundEvent.ILLEGAL,),
+        )
 
     def test_default_action_registry_is_unambiguous_and_ids_are_stable(self) -> None:
         registry = ActionRegistry()
