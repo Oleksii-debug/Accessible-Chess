@@ -147,10 +147,12 @@ class PgnCollectionTests(unittest.TestCase):
         workspace = PgnWorkspace.from_text(GAME_A + "\n" + GAME_B)
         report = audit_references(workspace)
 
+        # GAME_A contains six plies. GAME_B contains four mainline plies and
+        # three plies in its single child variation, for thirteen total moves.
         self.assertEqual(report.games, 2)
-        self.assertGreaterEqual(report.moves, 14)
+        self.assertEqual(report.moves, 13)
         self.assertGreaterEqual(report.positions, report.moves + report.games)
-        self.assertGreaterEqual(report.variations, 3)
+        self.assertEqual(report.variations, 3)
 
     def test_large_five_thousand_game_merge_dedup_and_page_cycle(self):
         records = []
