@@ -1,0 +1,195 @@
+from __future__ import annotations
+
+import tempfile
+import unittest
+from pathlib import Path
+
+from acs.release_app import create_release_api
+from acs.sound_events import SoundEvent
+from acs.stage1_release_ui import Stage1ReleaseAccessibleChessAPI, complete_user_flow_diagnostic
+
+
+class _FakeLine:
+    def __init__(self, multipv: int) -> None:
+        self.multipv = multipv
+        self.depth = 14
+        self.score_kind = "cp"
+        self.score_value = multipv * 12
+        self.pv = ("e2e4", "e7e5")
+
+
+class _FakeEngine:
+    def __init__(self) -> None:
+        self.closed = False
+
+    def analyze(self, fen: str, multipv: int = 5, depth: int = 16):
+        return tuple(_FakeLine(i) for i in range(1, multipv + 1))
+
+    def best_move(self, fen: str, skill_level: int = 10, movetime_ms: int = 500):
+        return "e2e4"
+
+    def close(self) -> None:
+        self.closed = True
+
+
+class _FakeRuntime:
+    def __init__(self, config) -> None:
+        self.config = config
+        self.engine = _FakeEngine()
+        self.closed = False
+
+    def provider(self):
+        return self.engine
+
+    def close(self) -> None:
+        self.closed = True
+        self.engine.close()
+
+
+class _Playback:
+    def __init__(self, fail: bool = False) -> None:
+        self.calls: list[tuple[SoundEvent, int]] = []
+        self.fail = fail
+
+    def play(self, event: SoundEvent, *, volume: int) -> None:
+        self.calls.append((event, volume))
+        if self.fail:
+            raise RuntimeError(r"C:\private\audio-device\driver failed")
+
+
+class Stage1ReleaseCompositionUiTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.root = Path(__file__).resolve().parents[1]
+        self.bootstrap = (self.root / "web" / "stage1_release_bootstrap.js").read_text(encoding="utf-8")
+
+    def make_composed(self, root: str, playback: _Playback | None = None):
+        return create_release_api(
+            application_dir=root,
+            runtime_factory=_FakeRuntime,
+            sound_playback=playback or _Playback(),
+            settings_path=Path(root) / "settings.json",
+        )
+
+    def test_packaged_composition_uses_one_stage1_api_for_engine_sound_and_user_flow(self) -> None:
+        playback = _Playback()
+        with tempfile.TemporaryDirectory() as td:
+            api, runtime = self.make_composed(td, playback)
+            self.assertIsInstance(api, Stage1ReleaseAccessibleChessAPI)
+            try:
+                flow = complete_user_flow_diagnostic(api)
+                self.assertTrue(flow["ok"], flow)
+                self.assertEqual(flow["boardCells"], 64)
+                self.assertIn((SoundEvent.START, 80), playback.calls)
+                self.assertIn((SoundEvent.MOVE, 80), playback.calls)
+                self.assertIn((SoundEvent.ILLEGAL, 80), playback.calls)
+
+                analysis = api.toggle_engine()
+                self.assertTrue(analysis["ok"])
+                state = api.get_state()
+                self.assertTrue(state["engineEnabled"])
+                self.assertEqual(state["analysis"]["multipv"], 5)
+            finally:
+                api.close_analysis()
+                runtime.close()
+            self.assertTrue(runtime.closed)
+
+    def test_sound_settings_persist_drive_runtime_and_preview_is_real(self) -> None:
+        playback = _Playback()
+        with tempfile.TemporaryDirectory() as td:
+            settings_path = Path(td) / "settings.json"
+            api, runtime = create_release_api(
+                application_dir=td,
+                runtime_factory=_FakeRuntime,
+                sound_playback=playback,
+                settings_path=settings_path,
+            )
+            try:
+                self.assertTrue(api.set_sound_volume(35)["ok"])
+                preview = api.preview_sound("capture")
+                self.assertTrue(preview["ok"], preview)
+                self.assertEqual(playback.calls[-1], (SoundEvent.CAPTURE, 35))
+
+                before = len(playback.calls)
+                self.assertTrue(api.set_sound_enabled(False)["ok"])
+                disabled = api.preview_sound("move")
+                self.assertFalse(disabled["ok"])
+                self.assertEqual(len(playback.calls), before)
+            finally:
+                api.close_analysis()
+                runtime.close()
+
+            api2, runtime2 = create_release_api(
+                application_dir=td,
+                runtime_factory=_FakeRuntime,
+                sound_playback=_Playback(),
+                settings_path=settings_path,
+            )
+            try:
+                restored = api2.get_sound_settings()
+                self.assertFalse(restored["enabled"])
+                self.assertEqual(restored["volume"], 35)
+            finally:
+                api2.close_analysis()
+                runtime2.close()
+
+    def test_sound_failure_is_concise_and_never_leaks_exception_or_path(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            api, runtime = self.make_composed(td, _Playback(fail=True))
+            try:
+                result = api.preview_sound("move")
+                self.assertFalse(result["ok"])
+                message = result["message"]
+                self.assertNotIn("RuntimeError", message)
+                self.assertNotIn("C:\\private", message)
+                self.assertLessEqual(len(message), 80)
+            finally:
+                api.close_analysis()
+                runtime.close()
+
+    def test_webview_bootstrap_upgrades_move_entry_to_native_form_submit(self) -> None:
+        text = self.bootstrap
+        self.assertIn("form.id = 'move-form'", text)
+        self.assertIn("button.type = 'submit'", text)
+        self.assertIn("form.addEventListener('submit'", text)
+        self.assertIn("event.preventDefault()", text)
+        self.assertIn("await window.submitMove()", text)
+        self.assertIn("form.setAttribute('aria-busy', 'true')", text)
+        self.assertIn("document.body.dataset.stage1MoveFormReady = 'true'", text)
+        self.assertNotIn("document.addEventListener('keydown'", text)
+        self.assertNotIn("window.addEventListener('keydown'", text)
+
+    def test_webview_bootstrap_exposes_accessible_sound_controls_without_new_live_region(self) -> None:
+        text = self.bootstrap
+        for element_id in (
+            "sound-settings", "sound-enabled", "sound-volume",
+            "sound-preview-event", "sound-preview", "sound-settings-status",
+        ):
+            self.assertIn(element_id, text)
+        self.assertIn("a.get_sound_settings", text)
+        self.assertIn("a.set_sound_enabled", text)
+        self.assertIn("a.set_sound_volume", text)
+        self.assertIn("a.preview_sound", text)
+        self.assertIn("status.setAttribute('aria-live', 'off')", text)
+        self.assertNotIn("role', 'status", text)
+        self.assertNotIn("role=\"status\"", text)
+
+    def test_startup_ready_contract_is_non_speaking_and_launcher_consumes_bootstrap(self) -> None:
+        self.assertIn("main.setAttribute('aria-busy', 'true')", self.bootstrap)
+        self.assertIn("main.setAttribute('aria-busy', 'false')", self.bootstrap)
+        self.assertIn("document.body.dataset.stage1AppReady = 'true'", self.bootstrap)
+        source = (self.root / "acs" / "stage1_release_ui.py").read_text(encoding="utf-8")
+        self.assertIn('"stage1_release_bootstrap.js"', source)
+        self.assertIn("window.events.loaded += install_release_web_contract", source)
+        self.assertIn("from .release_app import create_release_api", source)
+
+    def test_release_composition_no_longer_has_a_second_ui_api(self) -> None:
+        source = (self.root / "acs" / "release_app.py").read_text(encoding="utf-8")
+        self.assertNotIn("class ReleaseAccessibleChessAPI", source)
+        self.assertIn("ReleaseAccessibleChessAPI = Stage1ReleaseAccessibleChessAPI", source)
+        self.assertIn("settings=lambda: SoundRuntimeSettings.from_mapping(settings.data)", source)
+        launcher = (self.root / "run_accessible_chess.py").read_text(encoding="utf-8")
+        self.assertIn("from acs.stage1_release_ui import main", launcher)
+
+
+if __name__ == "__main__":
+    unittest.main()

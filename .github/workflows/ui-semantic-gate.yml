@@ -3,87 +3,75 @@ name: UI Semantic Gate
 on:
   push:
     branches:
-      - dev/stage1-nvda-webview-0.4.0
+      - dev/stage1-nvda-releaseflow-0.4.0
     paths:
       - 'web/**'
+      - 'run_accessible_chess.py'
+      - 'acs/stage1_release_ui.py'
+      - 'acs/release_app.py'
+      - 'tests/test_stage1_complete_user_flow.py'
+      - 'tests/test_stage1_release_composition_ui.py'
       - 'tests/test_accessible_webui.py'
-      - 'tests/test_history_review_ui.py'
       - 'tests/test_nvda_p0_contract.py'
-      - 'tests/test_keybindings.py'
-      - 'tests/test_ui_keymap_adapter.py'
-      - 'tests/test_history.py'
-      - 'tests/test_notation.py'
-      - 'acs/webapp.py'
-      - 'acs/keybindings.py'
-      - 'acs/ui_keymap_adapter.py'
-      - 'acs/history.py'
-      - 'acs/notation.py'
       - '.github/workflows/ui-semantic-gate.yml'
   workflow_dispatch:
 
 permissions:
   contents: read
 
+concurrency:
+  group: ui-semantic-gate-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   semantic:
     runs-on: ubuntu-latest
-    timeout-minutes: 8
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
 
-      - name: Reconstruct verified Stage 1 baseline
-        shell: bash
-        run: |
-          set -euo pipefail
-          cat build_snapshot_exact/group00.b64 build_snapshot_exact/group01.b64 build_parts10k/part04.b64 build_parts10k/part05.b64 build_parts10k/part06.b64 build_parts10k/part07.b64 | tr -cd 'A-Za-z0-9+/=' > stage1_source.b64
-          test "$(wc -c < stage1_source.b64)" -eq 77128
-          base64 -d stage1_source.b64 > stage1_source.zip
-          test "$(wc -c < stage1_source.zip)" -eq 57844
-          test "$(sha256sum stage1_source.zip | awk '{print $1}')" = "cb0a89778b436cdf44c42e3207ef9638160a992b372156bc4d901391717a1e6a"
-          python - <<'PY'
-          import zipfile
-          with zipfile.ZipFile('stage1_source.zip') as z:
-              z.extractall('work')
-          PY
-          mkdir -p work/acs work/web work/tests
-          cp acs/webapp.py work/acs/webapp.py
-          cp acs/analysis_service.py work/acs/analysis_service.py
-          cp acs/keybindings.py work/acs/keybindings.py
-          cp acs/ui_keymap_adapter.py work/acs/ui_keymap_adapter.py
-          cp acs/history.py work/acs/history.py
-          cp acs/notation.py work/acs/notation.py
-          cp web/index.html work/web/index.html
-          cp web/keybindings.json work/web/keybindings.json
-          cp tests/test_accessible_webui.py work/tests/test_accessible_webui.py
-          cp tests/test_history_review_ui.py work/tests/test_history_review_ui.py
-          cp tests/test_nvda_p0_contract.py work/tests/test_nvda_p0_contract.py
-          cp tests/test_keybindings.py work/tests/test_keybindings.py
-          cp tests/test_ui_keymap_adapter.py work/tests/test_ui_keymap_adapter.py
-          cp tests/test_history.py work/tests/test_history.py
-          cp tests/test_notation.py work/tests/test_notation.py
-
       - name: Install lightweight test dependency
         run: python -m pip install -q pytest
 
-      - name: Compile overlay
-        working-directory: work
-        run: python -m compileall -q acs tests
+      - name: Compile Stage 1 release path
+        run: python -m compileall -q acs tests run_accessible_chess.py
 
-      - name: Accessible Web UI tests
-        working-directory: work
-        run: python -m unittest discover -s tests -p 'test_accessible_webui.py' -v
+      - name: Complete WebView and NVDA semantic contracts
+        run: |
+          python -m unittest tests.test_accessible_webui -v
+          python -m unittest tests.test_nvda_p0_contract -v
+          python -m unittest tests.test_stage1_complete_user_flow -v
+          python -m unittest tests.test_stage1_release_composition_ui -v
 
-      - name: NVDA P0 semantic contract tests
-        working-directory: work
-        run: python -m unittest discover -s tests -p 'test_nvda_p0_contract.py' -v
+      - name: Complete release diagnostic
+        run: python run_accessible_chess.py --diagnostic
 
-      - name: History presentation contract tests
-        working-directory: work
-        run: python -m pytest -q tests/test_history_review_ui.py -k 'history_ui_is_semantic or history_shortcuts_come_from_central_keymap'
+      - name: History analysis sound settings and composition regressions
+        run: >-
+          python -m pytest -q
+          tests/test_history_review_ui.py
+          tests/test_ui_analysis_webapp.py
+          tests/test_analysis_webview_bridge.py
+          tests/test_release_stockfish_composition.py
+          tests/test_sound_events.py
+          tests/test_sound_runtime.py
+          tests/test_settings.py
 
-      - name: Shared command, history, notation and UI keymap contracts
-        working-directory: work
-        run: python -m pytest -q tests/test_keybindings.py tests/test_ui_keymap_adapter.py tests/test_history.py tests/test_notation.py
+      - name: Action registry keymap native menu and copy-safe UI regressions
+        run: >-
+          python -m pytest -q
+          tests/test_keybindings.py
+          tests/test_ui_keymap_adapter.py
+          tests/test_ui_keymap_editor.py
+          tests/test_ui_keymap_service.py
+          tests/test_keymap_import_warning_confirmation.py
+          tests/test_webview_keymap_bridge_contract.py
+          tests/test_ui_native_menu_recovery.py
+          tests/test_windows_native_menu_smoke_contract.py
+          tests/test_webapp_keymap_api.py
+          tests/test_ui_review_adapter.py
+          tests/test_history.py
+          tests/test_notation.py
