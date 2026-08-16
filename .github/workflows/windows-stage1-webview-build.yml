@@ -36,13 +36,11 @@ jobs:
         run: |
           git cat-file -e "$env:SOURCE_INTEGRATION_SHA^{commit}"
           if ($LASTEXITCODE -ne 0) { throw 'Locked integration SHA is not available in checkout' }
-          $productPaths = @('acs','web','tests','run_accessible_chess.py','ACCESSIBILITY_0.4_ARCHITECTURE.md','VERSION.txt','HOTKEYS_UA.txt','HOTKEYS_EN.txt')
-          $changed = @(git diff --name-only $env:SOURCE_INTEGRATION_SHA HEAD -- $productPaths)
-          if ($LASTEXITCODE -ne 0) { throw 'Exact-source product diff failed' }
-          if ($changed.Count -ne 0) { throw "QA branch product files differ from locked source: $($changed -join ', ')" }
-          "SOURCE LOCK PASS: $env:SOURCE_INTEGRATION_SHA"
+          $resolved=(git rev-parse "$env:SOURCE_INTEGRATION_SHA^{commit}").Trim()
+          if ($LASTEXITCODE -ne 0 -or $resolved -ne $env:SOURCE_INTEGRATION_SHA) { throw "Locked integration SHA did not resolve exactly: $resolved" }
+          "SOURCE LOCK PASS: $resolved"
 
-      - name: Reconstruct verified baseline and apply complete integration overlay
+      - name: Reconstruct verified baseline and apply exact integration overlay
         shell: pwsh
         run: |
           $ordered = @('build_snapshot_exact\group00.b64','build_snapshot_exact\group01.b64','build_parts10k\part04.b64','build_parts10k\part05.b64','build_parts10k\part06.b64','build_parts10k\part07.b64')
@@ -55,12 +53,26 @@ jobs:
           $hash = (Get-FileHash 'stage1_source.zip' -Algorithm SHA256).Hash.ToLowerInvariant()
           if ($hash -ne 'cb0a89778b436cdf44c42e3207ef9638160a992b372156bc4d901391717a1e6a') { throw "Source ZIP hash mismatch: $hash" }
           Expand-Archive 'stage1_source.zip' 'work' -Force
-          New-Item -ItemType Directory -Force -Path 'work\acs','work\web','work\tests' | Out-Null
-          Copy-Item 'acs\*.py' 'work\acs\' -Force
-          Copy-Item 'web\*' 'work\web\' -Recurse -Force
-          Copy-Item 'tests\*.py' 'work\tests\' -Force
-          Copy-Item 'run_accessible_chess.py' 'work\run_accessible_chess.py' -Force
-          foreach ($f in @('ACCESSIBILITY_0.4_ARCHITECTURE.md','VERSION.txt','HOTKEYS_UA.txt','HOTKEYS_EN.txt')) { if (Test-Path $f) { Copy-Item $f 'work' -Force } }
+          $productPaths = @('acs','web','tests','run_accessible_chess.py','ACCESSIBILITY_0.4_ARCHITECTURE.md','VERSION.txt','HOTKEYS_UA.txt','HOTKEYS_EN.txt')
+          git archive --format=zip --output=integration_overlay.zip $env:SOURCE_INTEGRATION_SHA -- $productPaths
+          if ($LASTEXITCODE -ne 0) { throw 'Failed to export exact locked integration product tree' }
+          if (-not (Test-Path 'integration_overlay.zip') -or (Get-Item 'integration_overlay.zip').Length -le 0) { throw 'Exact integration overlay archive is missing or empty' }
+          Expand-Archive 'integration_overlay.zip' 'integration_overlay' -Force
+          Copy-Item 'integration_overlay\acs' 'work\' -Recurse -Force
+          Copy-Item 'integration_overlay\web' 'work\' -Recurse -Force
+          Copy-Item 'integration_overlay\tests' 'work\' -Recurse -Force
+          Copy-Item 'integration_overlay\run_accessible_chess.py' 'work\run_accessible_chess.py' -Force
+          foreach ($f in @('ACCESSIBILITY_0.4_ARCHITECTURE.md','VERSION.txt','HOTKEYS_UA.txt','HOTKEYS_EN.txt')) { if (Test-Path "integration_overlay\$f") { Copy-Item "integration_overlay\$f" 'work' -Force } }
+          $overlayFiles = Get-ChildItem 'integration_overlay' -Recurse -File
+          foreach ($src in $overlayFiles) {
+            $rel=$src.FullName.Substring((Resolve-Path 'integration_overlay').Path.Length+1)
+            $dst=Join-Path (Resolve-Path 'work').Path $rel
+            if (-not (Test-Path $dst)) { throw "Locked product file missing after overlay: $rel" }
+            $a=(Get-FileHash $src.FullName -Algorithm SHA256).Hash
+            $b=(Get-FileHash $dst -Algorithm SHA256).Hash
+            if ($a -ne $b) { throw "Locked product file hash mismatch after overlay: $rel" }
+          }
+          "EXACT INTEGRATION OVERLAY PASS: $env:SOURCE_INTEGRATION_SHA"
 
       - uses: actions/setup-python@v5
         with:
