@@ -10,8 +10,16 @@ internal sealed class AppStateStore
     public string DictionaryDirectory { get; }
 
     public AppStateStore()
+        : this(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "WordDeck"))
     {
-        _root = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "WordDeck");
+    }
+
+    internal AppStateStore(string root)
+    {
+        if (string.IsNullOrWhiteSpace(root))
+            throw new ArgumentException("State root directory must not be blank.", nameof(root));
+
+        _root = root;
         DictionaryDirectory = Path.Combine(_root, "Dictionaries");
         _statePath = Path.Combine(_root, "state.json");
         _backupPath = Path.Combine(_root, "state.backup.json");
