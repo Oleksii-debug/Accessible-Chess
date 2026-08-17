@@ -2,6 +2,8 @@ namespace WordDeck;
 
 internal sealed record DictionaryEntry(string Id, string Level, string Source, string Target);
 
+internal sealed record CustomEntryRecord(string Id, string Source, string Target, string Level = "CUSTOM");
+
 internal sealed class DictionaryPackage
 {
     public required string Id { get; init; }
@@ -37,6 +39,12 @@ internal sealed class AppState
     public List<DeckDefinition> Decks { get; set; } = new();
     public Dictionary<string, Dictionary<string, string>> DeckIdsByDictionary { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
+    // User-added cards are kept separately from shipped/imported dictionary files,
+    // then merged into the active dictionary at runtime. Stable IDs keep deck
+    // assignments durable across restarts and future dictionary updates.
+    public Dictionary<string, List<CustomEntryRecord>> CustomEntriesByDictionary { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+    public Dictionary<string, string> CurrentEntryIdByDictionary { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+
     // Legacy v1 fields are intentionally retained for lossless one-way
     // migration of existing installations. New code does not write study
     // progress through these fields.
@@ -55,6 +63,8 @@ internal static class ActionIds
     public const string RepeatWord = "repeat_word";
     public const string PlayPronunciation = "play_pronunciation";
     public const string ToggleAutoPronunciation = "toggle_auto_pronunciation";
+    public const string AddWords = "add_words";
+    public const string SaveProgress = "save_progress";
     public const string UndoMove = "undo_move";
     public const string ShortcutSettings = "shortcut_settings";
     public const string Help = "help";
@@ -62,9 +72,6 @@ internal static class ActionIds
     public static string SwitchDeck(string deckId) => $"switch_deck_{deckId}";
     public static string MoveToDeck(string deckId) => $"move_to_deck_{deckId}";
 
-    // Temporary compatibility overloads keep the fixed-five MainForm compiling
-    // while it is migrated to stable deck IDs. They intentionally resolve to
-    // the durable core deck IDs so there is only one shortcut owner per deck.
     public static string SwitchDeck(int deck) => SwitchDeck(DeckIds.Core(deck));
     public static string MoveToDeck(int deck) => MoveToDeck(DeckIds.Core(deck));
 
