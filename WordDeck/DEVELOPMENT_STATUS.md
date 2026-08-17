@@ -3,102 +3,83 @@
 Last updated: 2026-08-17
 Branch: `worddeck-bootstrap` only. `main` is not a development target for this work.
 
-## Regression baseline that must remain green
+## Regression baseline
 
-Recall track remains the compatibility gate: five permanent renameable core decks plus arbitrary user decks, stable deck IDs and switch/move shortcuts, random shuffle-bag navigation on both Ctrl+Left/Ctrl+Right, accessible all-deck counts, custom pasted cards, local autosave/backup/current-card recovery plus Ctrl+S, and offline British pronunciation controls.
+Recall remains the compatibility gate: five permanent renameable core decks plus arbitrary user decks; stable IDs/shortcuts; no-repeat shuffle-bag navigation; accessible counts; custom pasted cards; autosave, backup and current-card recovery plus Ctrl+S; optional offline British pronunciation.
 
-Current embedded Oxford package remains 3308 entries. Existing pronunciation generation for those 3308 positions must not be regenerated wholesale without a specific defect.
+Spelling remains a separate persisted track with five core plus arbitrary user decks, native answer TextBox, exact spelling, wrong-answer lock, hints that still require correct typing, objective stats, conservative offline scheduling, automatic movement only among core spelling decks, reversible/explainable coach moves, and rebindable persisted commands. Do not claim NVDA verification until the user tests a Windows build with NVDA.
 
-## Spelling track checkpoint
+Current embedded Oxford package remains 3308 entries. Existing 3308-position British-audio generation is technically complete and must not be regenerated wholesale without a concrete defect.
 
-Implemented as a second independent track using the same dictionary entry/custom-card IDs but separate persisted state in `spelling-state.json`:
-- five permanent renameable spelling core decks;
-- arbitrary stable-ID user spelling decks;
-- independent per-dictionary spelling assignments and current card;
-- create/rename/reorder/delete with safe transfer;
-- native editable answer TextBox; Enter submits only from that control;
-- Ukrainian prompt; exact English source string required;
-- wrong answer cannot advance;
-- Show Answer and pronunciation are hints and still require a correct typed answer;
-- persisted completed reviews, first-try successes, wrong attempts, hint/show-answer counts, streak, recent outcomes and last-review timestamp;
-- offline conservative scheduler behind `ISpellingScheduler`;
-- scheduler automatically moves only among the five core spelling decks, never user-created decks;
-- explainable coach moves, persisted coach on/off and reversible last coach move;
-- all spelling commands and dynamic spelling deck switch/move actions use the existing persisted/conflict-checked/rebindable shortcut system;
-- Spelling entry and spelling shortcut settings are exposed from the main Tools menu;
-- dedicated regression tests cover independence from Recall, deck lifecycle, persistence, scheduler policy and shortcut rebinding/conflicts.
+## Sentence Coach — implemented and verified in code
 
-No claim of real NVDA verification is allowed until the user tests an actual Windows build with NVDA.
+The existing SentencePack schema/indexes, tokenizer, token-multiset evaluator, CEFR/personal ranking, recent-sentence penalty, selected-scope enforcement, SentencePackStore, Tatoeba import/provenance tooling and controlled-generator fallback contract remain reused rather than reimplemented.
 
-## Sentence Coach checkpoint
+Runtime Sentence Spelling now exposes a native WinForms path with:
+- installed SentencePack selection and validated local import;
+- spelling-deck scope selection;
+- selectable one-target or two-target training;
+- Ukrainian sentence prompt and native English answer TextBox;
+- Enter submits locally; exact required token/forms are checked while word order is intentionally not assessed;
+- concise missing/extra/misspelling feedback and no advance after an incorrect answer;
+- Show Answer still requires subsequent correct typing;
+- both one-target and two-target exercises keep every training target inside the selected spelling-deck scope;
+- two-target mode uses the existing inverted indexes/intersection lookup and SentenceSelector ranking, and requires a real corpus sentence containing both selected target IDs;
+- target weakness stats, recent sentences, active pack/deck, selected target count, current sentence and all current target IDs persist with primary+backup recovery;
+- legacy one-target Sentence Coach state migrates to the new target-ID list;
+- Show Answer, Repeat Prompt, SentencePack import and trainer entry commands remain in the existing rebindable shortcut system.
 
-Durable design source remains `SENTENCE_COACH_PLAN.md`.
+No new NLP/runtime dependency was added for two-target mode. This is WordDeck-specific UI/state glue over existing tested components.
 
-Implemented core:
-- versioned `SentencePack`/`SentenceRecord` schema with EN/UA, stable IDs, source/license/provenance, normalized tokens, lemmas, target entry IDs, entry-level metadata, difficulty/off-list/quality metadata;
-- in-memory inverted indexes by target entry ID and lemma;
-- one-, two- and three-target intersection lookup contract;
-- deterministic token normalization;
-- Sentence Spelling token-multiset evaluator: exact required forms, word order explicitly not checked, missing/extra/duplicate diagnostics; edit distance is diagnostic only and never makes a misspelling correct;
-- `SentenceSelector` enforcing user-selected target scope;
-- deterministic personal/CEFR ranking with strong unknown-context/off-list penalties, mastered-context exemption, length/quality and recent-sentence penalties;
-- controlled offline generator interface/fallback contract for missing corpus intersections;
-- regression tests for versioning/provenance, tokenization, evaluator strictness, intersections, selected-scope leakage, personal-known ranking, recent avoidance and fallback contract.
+## Real Tatoeba corpus checkpoint
 
-Development-time Tatoeba EN-UA import pipeline is implemented and regression-tested:
-- accepts explicit 6-column EN/UA TSV (`EnglishId, lang, text, UkrainianId, lang, text`) and compact 4-column pair TSV;
-- rejects malformed IDs, wrong language directions and invalid row shapes;
-- preserves upstream English/Ukrainian sentence IDs in stable WordDeck sentence IDs;
-- filters sentences that cannot currently be indexed against dictionary vocabulary and applies conservative length/quality flags;
-- indexes every exact single-token Oxford surface match, including multiple stable entry IDs that share the same surface form;
-- computes baseline off-list counts and CEFR difficulty from recognized context vocabulary;
-- emits a validated versioned JSON `SentencePack` via the development CLI:
-  `WordDeck.exe --build-tatoeba-sentence-pack <en-uk-pairs.tsv> <output.json> [pack-id]`;
-- baseline lemmas are normalized surface forms. A later morphology preprocessing pass may replace them without changing stable sentence IDs or the pack schema;
-- production Tatoeba EN-UA data is still not bundled in the repository or shipped application.
+Official weekly source pipelines were executed in GitHub Actions and validated against the current 3308-entry embedded Oxford package.
 
-Runtime SentencePack storage groundwork is implemented:
-- `SentencePackStore` installs only JSON that passes the existing schema/provenance/license validation;
-- installed packs live under the WordDeck local application-data `SentencePacks` directory and are stored by sanitized stable pack ID;
-- importing the same stable pack ID replaces that installed pack deterministically;
-- malformed optional pack files are isolated and cannot prevent valid packs or WordDeck startup from loading;
-- regression tests cover canonical persistence, reload, stable-ID replacement, filename sanitization and malformed-pack isolation.
+Provenance-safe CC0 path:
+- English CC0 sentences: 41,502;
+- Ukrainian CC0 sentences: 393;
+- unique EN-UA links inspected: 217,546;
+- pairs where both sides independently occur in official CC0 exports: 2;
+- resulting pack covers only 11 unique current Oxford entry IDs.
 
-A provenance-safe CC0 pair-preparation stage is now implemented as development-only tooling:
-- `tools/build_tatoeba_cc0_pairs.py` uses only Python standard-library `bz2`, `urllib.request`, TSV/text and SHA-256 helpers;
-- it can download the current official `eng_sentences_CC0.tsv.bz2`, `ukr_sentences_CC0.tsv.bz2`, and `eng-ukr_links.tsv.bz2` weekly exports, or work from supplied local copies;
-- it emits a pair only when both linked sentence IDs independently occur in their language-specific CC0 exports, so an EN-UA link by itself is never treated as CC0 proof;
-- emitted TSV is the six-column form already accepted by `TatoebaPairTsv` and keeps original Tatoeba IDs;
-- it emits a manifest with the official source URLs, SHA-256 for all upstream files/output, coverage counts and the explicit `CC0 1.0 on BOTH sentence sides` filter;
-- malformed source language/IDs/row shapes fail closed, duplicate links are deterministic, and non-CC0 links are skipped;
-- its synthetic `.bz2` regression self-test is now part of the Windows CI gate;
-- this tool is build/development-only; shipped WordDeck still has no Python/network/server dependency.
+Conclusion: the strict CC0 subset is legally clean but far too small to be the primary product corpus.
 
-Reuse decision: no new compression/NLP runtime dependency was added. `System.Text.Json`/`System.IO` remain the runtime SentencePack storage layer; Python stdlib is used only to prepare official compressed corpus exports. SharpCompress remains evaluated but unnecessary for the shipped app. Details and license/provenance decisions are in `THIRD_PARTY_NOTICES.md`.
+Attributed Tatoeba path (`CC BY 2.0 FR`):
+- 207,578 accepted aligned EN-UA sentences in the generated SentencePack;
+- 3,120 unique current Oxford entry IDs covered out of 3,308;
+- 190,315 sentences contain at least two indexed target IDs;
+- 160,058 contain at least three indexed target IDs;
+- 53,612 carry conservative quality flags;
+- zero accepted records missing per-side author attribution;
+- every accepted record retains upstream English/Ukrainian sentence IDs and both Tatoeba usernames through the validated provenance path.
 
-Tatoeba licensing provenance remains recorded in `THIRD_PARTY_NOTICES.md`. Official downloads distinguish general CC BY 2.0 FR text exports from the CC0 sentence subset. Tatoeba audio licensing is separate and is not covered by sentence-text reuse.
+The attributed pack is a development artifact, not bundled into the application. Its raw JSON is large (about 246 MB), so distribution/loading must be made practical before treating it as a default shipped corpus. Reuse-first still applies: prefer built-in .NET compression/streaming or a small proven compatible component rather than inventing a new storage format.
 
-## Oxford content QA
+Tatoeba text licensing/provenance decisions remain documented in `THIRD_PARTY_NOTICES.md`. Tatoeba audio is separate and is not implied by sentence-text reuse.
 
-Do not reset existing ledgers. Current first-pass translation checkpoint remains:
+## Oxford 5000 content QA
+
+Do not reset existing ledgers.
+
+Oxford-3000 translation first-pass checkpoint remains:
 - reviewed through `oxford-a1-0240`;
 - 240 reviewed;
 - 208 verified;
 - 32 needs-second-pass;
-- 3068 remaining first-pass Oxford-3000 positions.
+- 3068 remaining first-pass positions.
 
-Oxford 5000 additions extraction/translation remains incomplete. Preserve POS/sense/CEFR distinctions and existing stable IDs. Do not claim Oxford 5000 complete until every included addition is accounted for and unresolved second-pass count is zero.
+Oxford-5000 additions extraction is still incomplete. The currently extracted first 100 B2/C1 additions now all have Ukrainian translations; unambiguous senses are marked `verified`, while polysemous/multi-POS/nuanced items remain explicitly `needs_second_pass`. Do not claim Oxford 5000 complete until the full additional set is extracted with stable POS/sense/CEFR distinctions and unresolved second-pass count is zero.
 
-## Audio checkpoint
+## Audio
 
-Latest Oxford-3000 British-audio batch workflow inspected on 2026-08-17 is green. Technical generation remains 3308/3308 positions; do not regenerate all files without a specific defect. Pronunciation QA and coherent offline AudioPack manifest/integrity assembly remain outstanding.
+Technical generation remains 3308/3308 current Oxford positions. Pronunciation QA plus coherent offline AudioPack manifest/integrity packaging remain outstanding. Generate audio for Oxford-5000 additions only after those entries are stable and verified.
 
-## Resume order
+## Exact next steps
 
-1. Fix any Windows CI/self-test regression before feature work.
-2. Keep Spelling end-to-end behavior and migration stable without touching Recall state.
-3. Run the official weekly Tatoeba exports through `build_tatoeba_cc0_pairs.py`, then through the existing `.NET` SentencePack builder; inspect actual CC0 EN-UA coverage/quality before committing or bundling any corpus data.
-4. Wire the validated `SentencePackStore` into a one-target/two-target accessible Sentence Spelling UI constrained to the selected Spelling scope.
-5. Add morphology/lemma enrichment only where it materially improves coverage, then controlled deterministic generation for remaining corpus gaps.
-6. Continue Oxford translation QA and AudioPack integrity/provenance work in remaining safe capacity.
-7. Commit only to `worddeck-bootstrap` and keep published EXE self-test green before treating a slice as verified.
+1. Keep Windows CI/self-tests/published-EXE validation green; fix any regression before more feature work.
+2. Harden the new two-target Sentence Spelling path only for demonstrated defects/performance issues; do not redesign green Sentence core components.
+3. Make the attributed Tatoeba pack practical to distribute/load offline, using reuse-first evaluation of built-in .NET compression/streaming before adding dependencies; preserve attribution and provenance exactly.
+4. Measure any remaining target-coverage gaps after practical corpus packaging; add morphology/lemma enrichment only if it materially closes those gaps, then deterministic controlled generation only for residual gaps.
+5. Continue Oxford-5000 extraction/translation/second-pass QA in substantial batches.
+6. Continue British AudioPack QA/integrity packaging without wholesale regeneration.
+7. Commit only to `worddeck-bootstrap`; never modify `main`.
