@@ -71,6 +71,118 @@ class AnalysisServiceTests(unittest.TestCase):
         self.assertEqual(result.error, 'engine offline')
         self.assertEqual(result.lines, ())
 
+    def test_concurrent_requests_share_one_serialized_provider_and_old_result_is_stale(self):
+        entered = threading.Event()
+        release = threading.Event()
+        active_lock = threading.Lock()
+        state = {'factory_calls': 0, 'active': 0, 'max_active': 0, 'calls': []}
+
+        class SerialProbeEngine:
+            def analyze(self, fen, multipv=5, depth=16):
+                with active_lock:
+                    state['active'] += 1
+                    state['max_active'] = max(state['max_active'], state['active'])
+                    state['calls'].append(fen)
+                if fen == 'fen-old':
+                    entered.set()
+                    release.wait(timeout=2)
+                time.sleep(0.02)
+                with active_lock:
+                    state['active'] -= 1
+                return [(depth, ('cp', 1), ['e2e4'])]
+
+            def close(self):
+                pass
+
+        def factory():
+            state['factory_calls'] += 1
+            return SerialProbeEngine()
+
+        service = AnalysisService(factory)
+        results = {}
+
+        first = threading.Thread(
+            target=lambda: results.setdefault('old', service.analyze('fen-old'))
+        )
+        first.start()
+        self.assertTrue(entered.wait(timeout=2))
+
+        second = threading.Thread(
+            target=lambda: results.setdefault('new', service.analyze('fen-new'))
+        )
+        second.start()
+        time.sleep(0.05)
+        release.set()
+        first.join(timeout=2)
+        second.join(timeout=2)
+
+        self.assertFalse(first.is_alive())
+        self.assertFalse(second.is_alive())
+        self.assertEqual(state['factory_calls'], 1)
+        self.assertEqual(state['max_active'], 1)
+        self.assertEqual(state['calls'], ['fen-old', 'fen-new'])
+        self.assertTrue(results['old'].stale)
+        self.assertFalse(results['new'].stale)
+        self.assertEqual(results['new'].fen, 'fen-new')
+
+    def test_close_invalidates_inflight_waits_for_provider_and_prevents_resurrection(self):
+        entered = threading.Event()
+        release = threading.Event()
+        state = {'factory_calls': 0}
+        engine = FakeEngine(release)
+
+        original_analyze = engine.analyze
+
+        def blocking_analyze(*args, **kwargs):
+            entered.set()
+            return original_analyze(*args, **kwargs)
+
+        engine.analyze = blocking_analyze
+
+        def factory():
+            state['factory_calls'] += 1
+            return engine
+
+        service = AnalysisService(factory)
+        holder = {}
+        worker = threading.Thread(
+            target=lambda: holder.setdefault('result', service.analyze('fen-live'))
+        )
+        worker.start()
+        self.assertTrue(entered.wait(timeout=2))
+
+        closer = threading.Thread(target=service.close)
+        closer.start()
+        time.sleep(0.05)
+
+        late = service.analyze('fen-after-close')
+        self.assertEqual(late.error, AnalysisService.CLOSED_ERROR)
+        self.assertEqual(late.lines, ())
+        self.assertEqual(state['factory_calls'], 1)
+        self.assertFalse(engine.closed)
+
+        release.set()
+        worker.join(timeout=2)
+        closer.join(timeout=2)
+
+        self.assertFalse(worker.is_alive())
+        self.assertFalse(closer.is_alive())
+        self.assertTrue(holder['result'].stale)
+        self.assertTrue(engine.closed)
+        self.assertEqual(state['factory_calls'], 1)
+
+        again = service.analyze('fen-never-start')
+        self.assertEqual(again.error, AnalysisService.CLOSED_ERROR)
+        self.assertEqual(state['factory_calls'], 1)
+
+    def test_close_is_idempotent_for_owned_provider(self):
+        engine = FakeEngine()
+        service = AnalysisService(lambda: engine)
+        service.analyze('fen-a')
+        service.close()
+        service.close()
+        self.assertTrue(engine.closed)
+
 
 if __name__ == '__main__':
     unittest.main()

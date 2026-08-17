@@ -8,7 +8,7 @@ position has changed while an engine provider was thinking.
 """
 
 from dataclasses import dataclass
-from threading import Lock
+from threading import Lock, RLock
 from typing import Any, Callable
 
 from .engine_ports import AnalysisEnginePort, RawAnalysisLine
@@ -57,7 +57,15 @@ class AnalysisService:
     binary. ``owns_engine=False`` is used by the production shared runtime: the
     runtime then owns provider shutdown and multiple services cannot close each
     other's subprocess.
+
+    Engine construction, analysis calls and owned-provider shutdown are
+    serialized. This matters even though stale-result generations are
+    presentation-neutral: a single UCI provider is a stateful command stream and
+    must never receive concurrent requests or be closed while a request is using
+    it.
     """
+
+    CLOSED_ERROR = "analysis service is closed"
 
     def __init__(
         self,
@@ -70,7 +78,9 @@ class AnalysisService:
         self._owns_engine = bool(owns_engine)
         self._generation = 0
         self._current_fen: str | None = None
+        self._closed = False
         self._state_lock = Lock()
+        self._engine_lock = RLock()
 
     def invalidate(self, fen: str | None = None) -> int:
         """Invalidate in-flight analysis after any board/position change."""
@@ -79,11 +89,13 @@ class AnalysisService:
             self._current_fen = fen
             return self._generation
 
-    def _begin(self, fen: str) -> int:
+    def _begin(self, fen: str) -> tuple[int, bool]:
         with self._state_lock:
+            if self._closed:
+                return self._generation, True
             self._generation += 1
             self._current_fen = fen
-            return self._generation
+            return self._generation, False
 
     def _is_stale(self, generation: int, fen: str) -> bool:
         with self._state_lock:
@@ -113,14 +125,29 @@ class AnalysisService:
     def analyze(self, fen: str, multipv: int = 5, depth: int = 16) -> AnalysisResult:
         multipv = max(1, min(10, int(multipv)))
         depth = max(1, min(40, int(depth)))
-        generation = self._begin(fen)
+        generation, closed = self._begin(fen)
+        if closed:
+            return AnalysisResult(fen, generation, False, (), self.CLOSED_ERROR)
+
         try:
-            if self._engine is None:
-                self._engine = self._engine_factory()
-            raw = self._engine.analyze(fen, multipv=multipv, depth=depth)
+            with self._engine_lock:
+                # close() marks the service closed before waiting on this lock.
+                # If shutdown won the race, do not create or reuse a provider.
+                with self._state_lock:
+                    if self._closed:
+                        return AnalysisResult(
+                            fen, generation, True, (), self.CLOSED_ERROR
+                        )
+                if self._engine is None:
+                    self._engine = self._engine_factory()
+                raw = self._engine.analyze(fen, multipv=multipv, depth=depth)
+
             if self._is_stale(generation, fen):
                 return AnalysisResult(fen, generation, True, ())
-            lines = tuple(self._coerce_line(item, index) for index, item in enumerate(raw, start=1))
+            lines = tuple(
+                self._coerce_line(item, index)
+                for index, item in enumerate(raw, start=1)
+            )
             return AnalysisResult(fen, generation, False, lines)
         except Exception as exc:
             if self._is_stale(generation, fen):
@@ -128,10 +155,21 @@ class AnalysisService:
             return AnalysisResult(fen, generation, False, (), str(exc))
 
     def close(self) -> None:
-        engine = self._engine
-        self._engine = None
-        if self._owns_engine and engine is not None:
-            try:
-                engine.close()
-            except Exception:
-                pass
+        # Publish shutdown to all request threads before waiting for the
+        # stateful provider. This prevents any late analyze() from resurrecting
+        # a fresh engine after application shutdown has begun.
+        with self._state_lock:
+            if self._closed:
+                return
+            self._closed = True
+            self._generation += 1
+            self._current_fen = None
+
+        with self._engine_lock:
+            engine = self._engine
+            self._engine = None
+            if self._owns_engine and engine is not None:
+                try:
+                    engine.close()
+                except Exception:
+                    pass
