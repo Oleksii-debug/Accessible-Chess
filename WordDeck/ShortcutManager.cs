@@ -126,7 +126,9 @@ internal sealed class ShortcutManager
         if (code is Keys.None or Keys.Tab or Keys.Escape or Keys.Enter)
             return true;
 
-        if (code == Keys.F4 && modifiers.HasFlag(Keys.Alt))
+        // Exact Alt+F4 is the Windows close command. Additional modifiers make
+        // a distinct combination and are safe for a user-assigned action.
+        if (code == Keys.F4 && modifiers == Keys.Alt)
             return true;
 
         // Bare navigation keys are intentionally left to native WinForms controls and screen readers.
