@@ -86,96 +86,118 @@ jobs:
           using System;
           using System.Runtime.InteropServices;
           using System.Text;
-          using System.Collections.Generic;
           public static class Win32Topo {
             public delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
             [DllImport("user32.dll")] public static extern bool EnumWindows(EnumWindowsProc cb, IntPtr lp);
             [DllImport("user32.dll")] public static extern bool EnumChildWindows(IntPtr parent, EnumWindowsProc cb, IntPtr lp);
-            [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint pid);
+            [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
             [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern int GetWindowText(IntPtr hWnd, StringBuilder text, int max);
             [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern int GetClassName(IntPtr hWnd, StringBuilder text, int max);
             [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hWnd, out RECT rect);
+            [DllImport("user32.dll")] public static extern IntPtr GetParent(IntPtr hWnd);
+            [DllImport("user32.dll")] public static extern IntPtr GetAncestor(IntPtr hWnd, uint flags);
+            public const uint GA_ROOT = 2;
             public struct RECT { public int Left, Top, Right, Bottom; }
           }
           '@
 
           $appPid=[int](Get-Content gui_pid.txt -Raw)
           $allProc=Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId,Name,CommandLine
-          $related=@($allProc | Where-Object { $_.ProcessId -eq $appPid -or $_.Name -ieq 'msedgewebview2.exe' })
           $procMap=@{}
-          foreach($p in $allProc){ $procMap[[int]$p.ProcessId]=$p }
+          foreach($proc in $allProc){ $procMap[[int]$proc.ProcessId]=$proc }
           $desc=@{}
           $queue=New-Object System.Collections.Generic.Queue[int]
           $queue.Enqueue($appPid)
           while($queue.Count -gt 0){
-            $parent=$queue.Dequeue()
-            foreach($p in $allProc | Where-Object { [int]$_.ParentProcessId -eq $parent }){
-              if(-not $desc.ContainsKey([int]$p.ProcessId)){ $desc[[int]$p.ProcessId]=$true; $queue.Enqueue([int]$p.ProcessId); $related += $p }
+            $parentProcess=$queue.Dequeue()
+            foreach($proc in $allProc | Where-Object { [int]$_.ParentProcessId -eq $parentProcess }){
+              $childProcessId=[int]$proc.ProcessId
+              if(-not $desc.ContainsKey($childProcessId)){ $desc[$childProcessId]=$true; $queue.Enqueue($childProcessId) }
             }
           }
-          $related=$related | Sort-Object ProcessId -Unique
+          $related=@($allProc | Where-Object { [int]$_.ProcessId -eq $appPid -or $desc.ContainsKey([int]$_.ProcessId) -or $_.Name -ieq 'msedgewebview2.exe' } | Sort-Object ProcessId -Unique)
 
           $hwnds=New-Object System.Collections.Generic.List[object]
           $seen=New-Object 'System.Collections.Generic.HashSet[long]'
           $enumOne={ param([IntPtr]$h)
             $key=$h.ToInt64(); if(-not $seen.Add($key)){ return }
-            [uint32]$pid=0; [Win32Topo]::GetWindowThreadProcessId($h,[ref]$pid) | Out-Null
+            [uint32]$ownerPid=0; [Win32Topo]::GetWindowThreadProcessId($h,[ref]$ownerPid) | Out-Null
             $title=New-Object System.Text.StringBuilder 512; [Win32Topo]::GetWindowText($h,$title,$title.Capacity) | Out-Null
             $cls=New-Object System.Text.StringBuilder 256; [Win32Topo]::GetClassName($h,$cls,$cls.Capacity) | Out-Null
             $r=New-Object Win32Topo+RECT; [Win32Topo]::GetWindowRect($h,[ref]$r) | Out-Null
-            $hwnds.Add([pscustomobject]@{ hwnd=('0x{0:X}' -f $key); hwnd_int=$key; pid=[int]$pid; class=$cls.ToString(); title=$title.ToString(); bounds=@($r.Left,$r.Top,$r.Right,$r.Bottom) })
+            $parentH=[Win32Topo]::GetParent($h); $rootH=[Win32Topo]::GetAncestor($h,[Win32Topo]::GA_ROOT)
+            $hwnds.Add([pscustomobject]@{ hwnd=('0x{0:X}' -f $key); hwnd_int=$key; parent_hwnd=('0x{0:X}' -f $parentH.ToInt64()); root_hwnd=('0x{0:X}' -f $rootH.ToInt64()); pid=[int]$ownerPid; class=$cls.ToString(); title=$title.ToString(); bounds=@($r.Left,$r.Top,$r.Right,$r.Bottom) })
           }
           $cb=[Win32Topo+EnumWindowsProc]{ param($h,$l) & $enumOne $h; [Win32Topo]::EnumChildWindows($h,[Win32Topo+EnumWindowsProc]{param($c,$x) & $enumOne $c; return $true},[IntPtr]::Zero) | Out-Null; return $true }
           [Win32Topo]::EnumWindows($cb,[IntPtr]::Zero) | Out-Null
 
           function SafeProp($e,$name){ try { return $e.Current.$name } catch { return $null } }
-          function ElemRec($e,$depth,$view){
-            $b=SafeProp $e 'BoundingRectangle'
-            $vp=$false; $val=$null
+          function ElemRec($e,$depth,$view,$path,$parentPid,$parentName,$parentType){
+            $b=SafeProp $e 'BoundingRectangle'; $vp=$false; $val=$null
             try { $pat=$e.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern); if($pat){$vp=$true;$val=$pat.Current.Value} } catch {}
             [pscustomobject]@{
-              view=$view; depth=$depth; control_type=[string](SafeProp $e 'ControlType'); name=[string](SafeProp $e 'Name'); automation_id=[string](SafeProp $e 'AutomationId'); framework_id=[string](SafeProp $e 'FrameworkId'); pid=[int](SafeProp $e 'ProcessId'); focusable=[bool](SafeProp $e 'IsKeyboardFocusable'); offscreen=[bool](SafeProp $e 'IsOffscreen'); bounds=if($b){@($b.Left,$b.Top,$b.Width,$b.Height)}else{$null}; value_pattern=$vp; value=$val
+              view=$view; depth=$depth; path=$path; parent_pid=$parentPid; parent_name=$parentName; parent_control_type=$parentType;
+              control_type=[string](SafeProp $e 'ControlType'); name=[string](SafeProp $e 'Name'); automation_id=[string](SafeProp $e 'AutomationId'); framework_id=[string](SafeProp $e 'FrameworkId'); pid=[int](SafeProp $e 'ProcessId'); focusable=[bool](SafeProp $e 'IsKeyboardFocusable'); offscreen=[bool](SafeProp $e 'IsOffscreen'); bounds=if($b){@($b.Left,$b.Top,$b.Width,$b.Height)}else{$null}; value_pattern=$vp; value=$val
             }
           }
+          function NodeLabel($e){
+            $ct=[string](SafeProp $e 'ControlType'); $nm=[string](SafeProp $e 'Name'); $ai=[string](SafeProp $e 'AutomationId'); $ep=[int](SafeProp $e 'ProcessId')
+            return "$ct name='$nm' id='$ai' pid=$ep"
+          }
           function Walk($root,$walker,$view,$limit=6000){
-            $out=New-Object System.Collections.Generic.List[object]; $stack=New-Object System.Collections.Stack; $stack.Push(@($root,0))
+            $out=New-Object System.Collections.Generic.List[object]
+            $rootLabel=NodeLabel $root
+            $stack=New-Object System.Collections.Stack; $stack.Push(@($root,0,$rootLabel,0,'',''))
             while($stack.Count -gt 0 -and $out.Count -lt $limit){
-              $pair=$stack.Pop(); $e=$pair[0]; $d=[int]$pair[1]; $out.Add((ElemRec $e $d $view))
-              try { $kids=New-Object System.Collections.Generic.List[object]; $c=$walker.GetFirstChild($e); while($c){$kids.Add($c);$c=$walker.GetNextSibling($c)}; for($i=$kids.Count-1;$i-ge 0;$i--){$stack.Push(@($kids[$i],$d+1))} } catch {}
+              $pair=$stack.Pop(); $e=$pair[0]; $d=[int]$pair[1]; $path=[string]$pair[2]; $parentPid=[int]$pair[3]; $parentName=[string]$pair[4]; $parentType=[string]$pair[5]
+              $rec=ElemRec $e $d $view $path $parentPid $parentName $parentType; $out.Add($rec)
+              try {
+                $kids=New-Object System.Collections.Generic.List[object]; $c=$walker.GetFirstChild($e); while($c){$kids.Add($c);$c=$walker.GetNextSibling($c)}
+                for($i=$kids.Count-1;$i-ge 0;$i--){
+                  $kid=$kids[$i]; $kidPath="$path > $(NodeLabel $kid)"; $stack.Push(@($kid,$d+1,$kidPath,$rec.pid,$rec.name,$rec.control_type))
+                }
+              } catch {}
             }
             return ,$out
           }
 
-          $appHwndRows=@($hwnds | Where-Object {$_.pid -eq $appPid})
-          $roots=New-Object System.Collections.Generic.List[object]
-          foreach($row in $appHwndRows){
-            try { $ae=[System.Windows.Automation.AutomationElement]::FromHandle([IntPtr]$row.hwnd_int); if($ae){$roots.Add([pscustomobject]@{hwnd=$row.hwnd; element=$ae; props=(ElemRec $ae 0 'FromHandle')})} } catch {}
+          $relevantRows=@($hwnds | Where-Object { $_.pid -eq $appPid -or $desc.ContainsKey($_.pid) -or ($procMap.ContainsKey($_.pid) -and $procMap[$_.pid].Name -ieq 'msedgewebview2.exe') })
+          $handleElements=New-Object System.Collections.Generic.List[object]
+          foreach($row in $relevantRows){
+            try { $ae=[System.Windows.Automation.AutomationElement]::FromHandle([IntPtr]$row.hwnd_int); if($ae){ $handleElements.Add([pscustomobject]@{hwnd=$row.hwnd;pid=$row.pid;parent_hwnd=$row.parent_hwnd;root_hwnd=$row.root_hwnd;props=(ElemRec $ae 0 'FromHandle' (NodeLabel $ae) 0 '' '')}) } } catch {}
           }
-          $rawAll=New-Object System.Collections.Generic.List[object]; $controlAll=New-Object System.Collections.Generic.List[object]
-          foreach($r in $roots){ foreach($x in (Walk $r.element [System.Windows.Automation.TreeWalker]::RawViewWalker 'RawView')){$rawAll.Add($x)}; foreach($x in (Walk $r.element [System.Windows.Automation.TreeWalker]::ControlViewWalker 'ControlView')){$controlAll.Add($x)} }
+          $appTopRows=@($relevantRows | Where-Object { $_.pid -eq $appPid -and $_.parent_hwnd -eq '0x0' })
+          if($appTopRows.Count -eq 0){ $appTopRows=@($relevantRows | Where-Object {$_.pid -eq $appPid}) }
+          $appRoots=New-Object System.Collections.Generic.List[object]
+          foreach($row in $appTopRows){ try { $ae=[System.Windows.Automation.AutomationElement]::FromHandle([IntPtr]$row.hwnd_int); if($ae){$appRoots.Add([pscustomobject]@{hwnd=$row.hwnd;element=$ae;props=(ElemRec $ae 0 'FromHandle' (NodeLabel $ae) 0 '' '')})} } catch {} }
 
-          $connectedEdits=@($rawAll | Where-Object { $_.control_type -match 'Edit' } | Sort-Object pid,name,automation_id -Unique)
+          $rawAll=New-Object System.Collections.Generic.List[object]; $controlAll=New-Object System.Collections.Generic.List[object]
+          foreach($r in $appRoots){ foreach($x in (Walk $r.element [System.Windows.Automation.TreeWalker]::RawViewWalker 'RawView')){$rawAll.Add($x)}; foreach($x in (Walk $r.element [System.Windows.Automation.TreeWalker]::ControlViewWalker 'ControlView')){$controlAll.Add($x)} }
+
+          $connectedEdits=@($rawAll | Where-Object { $_.control_type -match 'Edit' } | Sort-Object path -Unique)
           $moveCandidates=@($connectedEdits | Where-Object { $_.name -match '^(Хід|Move)$' -and $_.focusable -and -not $_.offscreen -and $_.value_pattern -and $_.bounds -and $_.bounds[2] -gt 0 -and $_.bounds[3] -gt 0 })
-          $pidChanges=@()
-          for($i=1;$i-lt $rawAll.Count;$i++){ if($rawAll[$i].pid -ne $rawAll[$i-1].pid){ $pidChanges += [pscustomobject]@{from=$rawAll[$i-1].pid;to=$rawAll[$i].pid;at=$i;name=$rawAll[$i].name;control_type=$rawAll[$i].control_type} } }
-          $webviewObserved=($related | Where-Object {$_.Name -ieq 'msedgewebview2.exe'}).Count -gt 0 -or ($hwnds | Where-Object {$_.class -match 'Chrome_WidgetWin|Chrome_RenderWidgetHostHWND|WebView'}).Count -gt 0
-          $traversalComplete=($roots.Count -gt 0 -and $rawAll.Count -gt 1 -and $controlAll.Count -gt 0)
-          if($moveCandidates.Count -gt 0){$classification='A'} elseif($traversalComplete -and $webviewObserved){$classification='B'} else {$classification='C'}
+          $pidTransitions=@($rawAll | Where-Object { $_.parent_pid -gt 0 -and $_.pid -gt 0 -and $_.parent_pid -ne $_.pid } | Select-Object parent_pid,pid,parent_name,parent_control_type,name,control_type,framework_id,path)
+          $connectedWebViewNodes=@($rawAll | Where-Object { ($_.pid -ne 0 -and $_.pid -ne $appPid) -or $_.framework_id -match 'Chrome|WebView|Chromium' -or $_.control_type -match 'Document' -and $_.path -match 'Chrome|WebView' })
+          $webviewProcesses=@($related | Where-Object {$_.Name -ieq 'msedgewebview2.exe'})
+          $webviewHwndRows=@($relevantRows | Where-Object {$_.class -match 'Chrome_WidgetWin|Chrome_RenderWidgetHostHWND|WebView'})
+          $webviewObserved=($webviewProcesses.Count -gt 0 -or $webviewHwndRows.Count -gt 0)
+          $connectedProviderObserved=($connectedWebViewNodes.Count -gt 0 -or $pidTransitions.Count -gt 0)
+          $traversalComplete=($appRoots.Count -gt 0 -and $rawAll.Count -gt 1 -and $controlAll.Count -gt 0)
+          if($moveCandidates.Count -gt 0){$classification='A'} elseif($traversalComplete -and $webviewObserved -and $connectedProviderObserved){$classification='B'} else {$classification='C'}
 
           $report=[ordered]@{
-            product_sha=$env:SOURCE_INTEGRATION_SHA; app_pid=$appPid; classification=$classification; traversal_complete=$traversalComplete; webview_observed=$webviewObserved;
+            product_sha=$env:SOURCE_INTEGRATION_SHA; app_pid=$appPid; classification=$classification; traversal_complete=$traversalComplete; webview_observed=$webviewObserved; connected_provider_observed=$connectedProviderObserved;
             related_processes=@($related | ForEach-Object {[ordered]@{pid=[int]$_.ProcessId;ppid=[int]$_.ParentProcessId;name=$_.Name;command_line=$_.CommandLine}});
-            hwnds=@($hwnds | Where-Object {$_.pid -eq $appPid -or $desc.ContainsKey($_.pid) -or ($procMap.ContainsKey($_.pid) -and $procMap[$_.pid].Name -ieq 'msedgewebview2.exe')});
-            from_handle_roots=@($roots | ForEach-Object {[ordered]@{hwnd=$_.hwnd;props=$_.props}});
-            raw_count=$rawAll.Count; control_count=$controlAll.Count; pid_transitions=$pidChanges; connected_edits=$connectedEdits; move_candidates=$moveCandidates;
-            raw_sample=@($rawAll | Select-Object -First 1200); control_sample=@($controlAll | Select-Object -First 800)
+            hwnds=$relevantRows; from_handle_elements=$handleElements; app_roots=@($appRoots | ForEach-Object {[ordered]@{hwnd=$_.hwnd;props=$_.props}});
+            raw_count=$rawAll.Count; control_count=$controlAll.Count; pid_transitions=$pidTransitions; connected_webview_nodes=@($connectedWebViewNodes | Select-Object -First 250); connected_edits=$connectedEdits; move_candidates=$moveCandidates;
+            raw_sample=@($rawAll | Select-Object -First 1800); control_sample=@($controlAll | Select-Object -First 1000)
           }
-          $json=$report | ConvertTo-Json -Depth 9
+          $json=$report | ConvertTo-Json -Depth 10
           Set-Content -Encoding UTF8 uia-topology-report.json $json
           '=== UIA TOPOLOGY REPORT BEGIN ==='; $json; '=== UIA TOPOLOGY REPORT END ==='
           "CLASSIFICATION=$classification"
           if($classification -eq 'A'){ 'QA/HARNESS DEFECT: REAL CONNECTED MOVE EDIT EXISTS' }
-          elseif($classification -eq 'B'){ 'TRUE UI PRODUCT DEFECT: NO CONNECTED ACCESSIBLE MOVE EDIT WITH COMPLETE TRAVERSAL' }
+          elseif($classification -eq 'B'){ 'TRUE UI PRODUCT DEFECT: NO CONNECTED ACCESSIBLE MOVE EDIT WITH PROVEN CONNECTED PROVIDER TRAVERSAL' }
           else { 'INCONCLUSIVE: TOPOLOGY STILL INSUFFICIENT' }
 
       - name: Cleanup packaged app
