@@ -36,13 +36,21 @@ The attributed path is development/build-time only and uses Python standard-libr
 
 ### Reuse decision: JSON/install/compression layer
 
-Runtime SentencePack validation, serialization, installation and loading use only the .NET standard library: `System.Text.Json`, `System.IO`, and `System.IO.Compression.GZipStream`. The large attributed pack is stored as `.json.gz` and read directly through a decompression stream; WordDeck does not first materialize the whole JSON file as a .NET `string`. Existing uncompressed `.json` SentencePacks remain readable for backwards compatibility, while newly imported packs are canonicalized to gzip.
+Runtime SentencePack validation, serialization, installation and loading currently use only the .NET standard library: `System.Text.Json`, `System.IO`, and `System.IO.Compression.GZipStream`. The large attributed pack is stored as `.json.gz` and read directly through a decompression stream; WordDeck does not first materialize the whole JSON file as a .NET `string`. Existing uncompressed `.json` SentencePacks remain readable for backwards compatibility, while newly imported packs are canonicalized to gzip.
 
-This was chosen after reuse-first review on 2026-08-17 because .NET 8 already provides maintained, Windows-compatible, offline, redistributable gzip streams and UTF-8 JSON stream deserialization. Adding SharpCompress, Newtonsoft.Json, SQLite, a custom binary format, Python or a server at runtime would increase dependency/attack/maintenance surface without solving a demonstrated requirement better than the platform libraries.
+This was initially chosen after reuse-first review on 2026-08-17 because .NET 8 already provides maintained, Windows-compatible, offline, redistributable gzip streams and UTF-8 JSON stream deserialization. It solved the distribution-size problem without adding a runtime package: the 207,578-sentence attributed pack fell from 245,812,867 raw JSON bytes to 19,906,945 gzip bytes.
+
+A subsequent real-runtime benchmark demonstrated that the eager object/index representation is too memory-heavy: load + validation/index construction took 5,303 ms on the Windows Actions runner and increased process working set by 628,666,368 bytes (managed-memory delta 543,390,448 bytes). The exact evidence is recorded in `QA/SENTENCEPACK_LOAD_QA_20260817.md` and the production artifact's `load-diagnostics.json`.
+
+Because this is now a demonstrated requirement, disk-backed indexed storage is being evaluated before any custom streaming/container implementation. The leading reuse candidate is SQLite through `Microsoft.Data.Sqlite`: Microsoft's documentation describes it as a lightweight ADO.NET provider that can be used independently of Entity Framework; the provider is maintained in the .NET/EF Core repository under MIT. SQLite itself is serverless/single-file and its core is public domain. No SQLite package has been added to the shipped application yet; a measured read-only prototype must show materially lower working set without harming offline/self-contained Windows deployment before adoption.
 
 Official references checked 2026-08-17:
 - https://learn.microsoft.com/dotnet/api/system.io.compression.gzipstream
 - https://learn.microsoft.com/dotnet/api/system.text.json.jsonserializer.deserialize
+- https://learn.microsoft.com/dotnet/standard/data/sqlite/
+- https://github.com/dotnet/efcore
+- https://sqlite.org/about.html
+- https://sqlite.org/copyright.html
 
 ### Reuse decision: BZip2 development exports
 
