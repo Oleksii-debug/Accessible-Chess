@@ -1,6 +1,6 @@
 entry_id	source	audio_text	status	reason
 oxford-a1-0120	can¹	can	ready	Sense marker only; same lexical pronunciation.
-oxford-a1-0150	close¹		review	Close can be /kloʊs/ or /kloʊz/ depending on part of speech/sense.
+oxford-a1-0150	close¹		review	Close can be /kləʊs/ or /kləʊz/ depending on part of speech/sense.
 oxford-a1-0211	do¹	do	ready	Sense marker only; same lexical pronunciation.
 oxford-a1-0422	last¹ (final)	last	ready	Parenthetical disambiguator should not be spoken.
 oxford-a1-0434	lie¹	lie	ready	Sense marker only; lie senses share pronunciation.
@@ -10,7 +10,7 @@ oxford-a1-0480	minute¹	minute	ready	A1 record is the common time-unit sense; re
 oxford-a1-0668	second¹ (next after the first)	second	ready	Parenthetical disambiguator should not be spoken.
 oxford-a1-0669	second¹ (unit of time)	second	ready	Parenthetical disambiguator should not be spoken.
 oxford-a2-0115	can²	can	ready	Sense marker only; same lexical pronunciation.
-oxford-a2-0147	close²		review	Close can be /kloʊs/ or /kloʊz/ depending on part of speech/sense.
+oxford-a2-0147	close²		review	Close can be /kləʊs/ or /kləʊz/ depending on part of speech/sense.
 oxford-a2-0433	last¹ (final)	last	ready	Parenthetical disambiguator should not be spoken.
 oxford-a2-0434	last¹ (taking time)	last	ready	Parenthetical disambiguator should not be spoken.
 oxford-a2-0440	lead¹		review	Lead can be /liːd/ or /lɛd/; exact sense must control phonemes.
@@ -19,7 +19,7 @@ oxford-a2-0652	ring¹	ring	ready	Sense marker only; ring senses share pronunciat
 oxford-a2-0653	ring²	ring	ready	Sense marker only; ring senses share pronunciation.
 oxford-a2-0683	second¹ (next after the first)	second	ready	Parenthetical disambiguator should not be spoken.
 oxford-a2-0859	wind¹		review	Wind can be /wɪnd/ or /waɪnd/; exact sense must control phonemes.
-oxford-b1-0119	close²		review	Close can be /kloʊs/ or /kloʊz/ depending on part of speech/sense.
+oxford-b1-0119	close²		review	Close can be /kləʊs/ or /kləʊz/ depending on part of speech/sense.
 oxford-b1-0151	content¹		review	Content pronunciations differ by sense/stress.
 oxford-b1-0396	lead¹		review	Lead can be /liːd/ or /lɛd/; exact sense must control phonemes.
 oxford-b1-0404	lie² (tell a lie)	lie	ready	Parenthetical disambiguator should not be spoken; pronunciation is unambiguous.
@@ -29,7 +29,7 @@ oxford-b1-0608	ring²	ring	ready	Sense marker only; ring senses share pronunciat
 oxford-b1-0616	row¹		review	Row can be /rəʊ/ or /raʊ/ depending on sense.
 oxford-b1-0768	used¹		review	Used can surface as /juːzd/ or /juːst/ in different constructions.
 oxford-b1-0769	used²		review	Used can surface as /juːzd/ or /juːst/ in different constructions.
-oxford-b2-0105	close¹		review	Close can be /kloʊs/ or /kloʊz/ depending on part of speech/sense.
+oxford-b2-0105	close¹		review	Close can be /kləʊs/ or /kləʊz/ depending on part of speech/sense.
 oxford-b2-0468	pension¹	pension	ready	Sense marker only; same lexical pronunciation.
 oxford-b2-0481	plus¹	plus	ready	Sense marker only; same lexical pronunciation.
 oxford-b2-0655	tear¹		review	Tear can be /tɪə/ or /teə/ in British English depending on sense.
