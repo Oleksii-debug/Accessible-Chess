@@ -45,7 +45,7 @@ Implemented core:
 - controlled offline generator interface/fallback contract for missing corpus intersections;
 - regression tests for versioning/provenance, tokenization, evaluator strictness, intersections, selected-scope leakage, personal-known ranking, recent avoidance and fallback contract.
 
-Development-time Tatoeba EN-UA import pipeline is now implemented and regression-tested:
+Development-time Tatoeba EN-UA import pipeline is implemented and regression-tested:
 - accepts explicit 6-column EN/UA TSV (`EnglishId, lang, text, UkrainianId, lang, text`) and compact 4-column pair TSV;
 - rejects malformed IDs, wrong language directions and invalid row shapes;
 - preserves upstream English/Ukrainian sentence IDs in stable WordDeck sentence IDs;
@@ -57,9 +57,16 @@ Development-time Tatoeba EN-UA import pipeline is now implemented and regression
 - baseline lemmas are normalized surface forms. A later morphology preprocessing pass may replace them without changing stable sentence IDs or the pack schema;
 - production Tatoeba EN-UA data is still not bundled in the repository or shipped application.
 
-The code/self-test checkpoint that introduced this importer passed the full Windows workflow on 2026-08-17: build, Recall/Spelling/Sentence/Tatoeba self-tests, self-contained publish, published-EXE validation and artifact upload.
+Runtime SentencePack storage groundwork is now implemented:
+- `SentencePackStore` installs only JSON that passes the existing schema/provenance/license validation;
+- installed packs live under the WordDeck local application-data `SentencePacks` directory and are stored by sanitized stable pack ID;
+- importing the same stable pack ID replaces that installed pack deterministically;
+- malformed optional pack files are isolated and cannot prevent valid packs or WordDeck startup from loading;
+- regression tests cover canonical persistence, reload, stable-ID replacement, filename sanitization and malformed-pack isolation.
 
-Tatoeba licensing provenance remains recorded in `THIRD_PARTY_NOTICES.md`. Before a real pack is committed/distributed, verify whether the selected export/subset is CC BY 2.0 FR or CC0 and preserve the exact required attribution; Tatoeba audio licensing is separate and is not covered by sentence-text reuse.
+The runtime store intentionally reuses .NET `System.Text.Json`/`System.IO`; no extra runtime dependency was added. SharpCompress was evaluated for direct development-time BZip2 ingestion of official Tatoeba exports but deliberately not added to the shipped application. Details and license/provenance decisions are recorded in `THIRD_PARTY_NOTICES.md`.
+
+Tatoeba licensing provenance remains recorded in `THIRD_PARTY_NOTICES.md`. Current official downloads still distinguish general CC BY 2.0 FR text exports from a CC0 sentence subset. Before a real pack is committed/distributed, every selected EN-UA pair must be proven to belong to the chosen license subset; Tatoeba audio licensing is separate and is not covered by sentence-text reuse.
 
 ## Oxford content QA
 
@@ -81,7 +88,7 @@ Latest Oxford-3000 British-audio batch workflow inspected on 2026-08-17 is green
 1. Fix any Windows CI/self-test regression before feature work.
 2. Keep Spelling end-to-end behavior and migration stable without touching Recall state.
 3. Produce a real development EN-UA SentencePack from a legally selected Tatoeba export/subset; inspect coverage/quality statistics before bundling anything.
-4. Add runtime SentencePack loading plus one-target/two-target Sentence Spelling UI constrained to the selected Spelling scope.
+4. Wire the validated `SentencePackStore` into a one-target/two-target accessible Sentence Spelling UI constrained to the selected Spelling scope.
 5. Add morphology/lemma enrichment only where it materially improves coverage, then controlled deterministic generation for remaining corpus gaps.
 6. Continue Oxford translation QA and AudioPack integrity/provenance work in remaining safe capacity.
 7. Commit only to `worddeck-bootstrap` and keep published EXE self-test green before treating a slice as verified.
