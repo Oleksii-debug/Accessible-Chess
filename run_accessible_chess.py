@@ -1,6 +1,13 @@
 import json
 import sys
 
+from acs.webview2_accessibility import enable_webview2_renderer_accessibility
+
+
+# This must run before importing pywebview or creating a WebView2 environment.
+enable_webview2_renderer_accessibility()
+
+
 if '--diagnostic' in sys.argv:
     # Diagnostic is deliberately presentation-toolkit independent. Windows CI
     # separately proves the packaged WebView2 executable. Real NVDA acceptance
