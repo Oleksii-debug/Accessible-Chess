@@ -3,21 +3,24 @@ namespace WordDeck;
 internal sealed class ShortcutManager
 {
     private readonly AppState _state;
+    private List<DeckDefinition> _spellingDecks;
     private static IReadOnlyList<ShortcutDefinition> BaseDefinitions { get; } = BuildBaseDefinitions();
 
-    // Live registry: global actions plus stable-ID switch/move actions for every deck.
     public IReadOnlyList<ShortcutDefinition> Definitions { get; private set; }
     public IReadOnlyList<ShortcutDefinition> CurrentDefinitions => Definitions;
 
-    public ShortcutManager(AppState state)
+    public ShortcutManager(AppState state, IEnumerable<DeckDefinition>? spellingDecks = null)
     {
         _state = AppStateStore.Normalize(state);
+        _spellingDecks = spellingDecks?.ToList() ?? new List<DeckDefinition>();
         Definitions = BuildDefinitions();
         EnsureDefaults();
     }
 
-    public void RefreshDeckDefinitions()
+    public void RefreshDeckDefinitions(IEnumerable<DeckDefinition>? spellingDecks = null)
     {
+        if (spellingDecks is not null)
+            _spellingDecks = spellingDecks.ToList();
         Definitions = BuildDefinitions();
         EnsureDefaults();
         RemoveOrphanedDeckShortcuts();
@@ -26,153 +29,122 @@ internal sealed class ShortcutManager
     public Keys Get(string actionId)
     {
         ShortcutDefinition? definition = Definitions.FirstOrDefault(x => x.Id == actionId);
-        if (definition is null)
-            return Keys.None;
-
+        if (definition is null) return Keys.None;
         if (_state.Shortcuts.TryGetValue(actionId, out string? raw) && Enum.TryParse(raw, out Keys keys))
         {
-            // An explicit None is meaningful: it lets the user clear even a
-            // default core-deck shortcut without it silently snapping back.
-            if (keys == Keys.None)
-                return Keys.None;
-            if (!IsUnsafe(keys))
-                return keys;
+            if (keys == Keys.None) return Keys.None;
+            if (!IsUnsafe(keys)) return keys;
         }
         return definition.DefaultKeys;
     }
 
     public string? FindAction(Keys keyData)
     {
-        if (keyData == Keys.None)
-            return null;
-
+        if (keyData == Keys.None) return null;
         ShortcutDefinition? definition = Definitions.FirstOrDefault(def => Get(def.Id) != Keys.None && Get(def.Id) == keyData);
-        if (definition is null)
-            return null;
-
-        // Both directional study bindings intentionally dispatch to the same
-        // random shuffle-bag action. There is no deterministic history action
-        // behind either arrow binding.
+        if (definition is null) return null;
         return definition.Id == ActionIds.PreviousWord ? ActionIds.NextWord : definition.Id;
     }
 
     public bool TrySet(string actionId, Keys keys, out string? errorDescription)
     {
-        if (!Definitions.Any(def => def.Id == actionId))
-        {
-            errorDescription = "the function no longer exists";
-            return false;
-        }
-
-        if (IsUnsafe(keys))
-        {
-            errorDescription = "this combination is reserved for Windows or keyboard navigation";
-            return false;
-        }
-
+        if (!Definitions.Any(def => def.Id == actionId)) { errorDescription = "the function no longer exists"; return false; }
+        if (IsUnsafe(keys)) { errorDescription = "this combination is reserved for Windows or keyboard navigation"; return false; }
         var conflict = Definitions.FirstOrDefault(def => def.Id != actionId && Get(def.Id) == keys);
-        if (conflict is not null)
-        {
-            errorDescription = $"it is already assigned to {conflict.Description}";
-            return false;
-        }
-
-        _state.Shortcuts[actionId] = keys.ToString();
-        errorDescription = null;
-        return true;
+        if (conflict is not null) { errorDescription = $"it is already assigned to {conflict.Description}"; return false; }
+        _state.Shortcuts[actionId] = keys.ToString(); errorDescription = null; return true;
     }
 
     public void Clear(string actionId)
     {
-        ShortcutDefinition? definition = Definitions.FirstOrDefault(def => def.Id == actionId);
-        if (definition is null)
-            return;
-        _state.Shortcuts[actionId] = Keys.None.ToString();
+        if (Definitions.Any(def => def.Id == actionId)) _state.Shortcuts[actionId] = Keys.None.ToString();
     }
 
     public void ResetDefaults()
     {
-        foreach (ShortcutDefinition def in Definitions)
-            _state.Shortcuts[def.Id] = def.DefaultKeys.ToString();
+        foreach (ShortcutDefinition def in Definitions) _state.Shortcuts[def.Id] = def.DefaultKeys.ToString();
     }
 
     private void EnsureDefaults()
     {
-        foreach (ShortcutDefinition def in Definitions)
-            _state.Shortcuts.TryAdd(def.Id, def.DefaultKeys.ToString());
+        foreach (ShortcutDefinition def in Definitions) _state.Shortcuts.TryAdd(def.Id, def.DefaultKeys.ToString());
     }
 
     private void RemoveOrphanedDeckShortcuts()
     {
         var valid = new HashSet<string>(Definitions.Select(def => def.Id), StringComparer.OrdinalIgnoreCase);
-        foreach (string actionId in _state.Shortcuts.Keys
-                     .Where(id => (id.StartsWith("switch_deck_", StringComparison.OrdinalIgnoreCase) || id.StartsWith("move_to_deck_", StringComparison.OrdinalIgnoreCase)) &&
-                                  !valid.Contains(id) && !IsLegacyNumericDeckAction(id))
-                     .ToList())
+        foreach (string actionId in _state.Shortcuts.Keys.Where(IsDynamicDeckAction).Where(id => !valid.Contains(id) && !IsLegacyNumericDeckAction(id)).ToList())
             _state.Shortcuts.Remove(actionId);
     }
 
+    private static bool IsDynamicDeckAction(string id) =>
+        id.StartsWith("switch_deck_", StringComparison.OrdinalIgnoreCase) ||
+        id.StartsWith("move_to_deck_", StringComparison.OrdinalIgnoreCase) ||
+        id.StartsWith("spelling_switch_deck_", StringComparison.OrdinalIgnoreCase) ||
+        id.StartsWith("spelling_move_to_deck_", StringComparison.OrdinalIgnoreCase);
+
     private static bool IsLegacyNumericDeckAction(string id)
     {
-        string prefix = id.StartsWith("switch_deck_", StringComparison.OrdinalIgnoreCase) ? "switch_deck_" : "move_to_deck_";
-        return int.TryParse(id[prefix.Length..], out int number) && number is >= 1 and <= 5;
+        string prefix = id.StartsWith("switch_deck_", StringComparison.OrdinalIgnoreCase) ? "switch_deck_" :
+            id.StartsWith("move_to_deck_", StringComparison.OrdinalIgnoreCase) ? "move_to_deck_" : string.Empty;
+        return prefix.Length > 0 && int.TryParse(id[prefix.Length..], out int number) && number is >= 1 and <= 5;
     }
 
     private static bool IsUnsafe(Keys keys)
     {
-        Keys code = keys & Keys.KeyCode;
-        Keys modifiers = keys & Keys.Modifiers;
-
-        if (code is Keys.None or Keys.Tab or Keys.Escape or Keys.Enter)
-            return true;
-
-        // Exact Alt+F4 is the Windows close command. Additional modifiers make
-        // a distinct combination and are safe for a user-assigned action.
-        if (code == Keys.F4 && modifiers == Keys.Alt)
-            return true;
-
-        // Bare navigation keys are intentionally left to native WinForms controls and screen readers.
-        if (modifiers == Keys.None && code is Keys.Left or Keys.Right or Keys.Up or Keys.Down or Keys.Home or Keys.End or Keys.PageUp or Keys.PageDown)
-            return true;
-
+        Keys code = keys & Keys.KeyCode; Keys modifiers = keys & Keys.Modifiers;
+        if (code is Keys.None or Keys.Tab or Keys.Escape or Keys.Enter) return true;
+        if (code == Keys.F4 && modifiers == Keys.Alt) return true;
+        if (modifiers == Keys.None && code is Keys.Left or Keys.Right or Keys.Up or Keys.Down or Keys.Home or Keys.End or Keys.PageUp or Keys.PageDown) return true;
         return false;
     }
 
-    private static IReadOnlyList<ShortcutDefinition> BuildBaseDefinitions() =>
-        new List<ShortcutDefinition>
-        {
-            new(ActionIds.NextWord, "Another random word (right)", Keys.Control | Keys.Right),
-            new(ActionIds.PreviousWord, "Another random word (left)", Keys.Control | Keys.Left),
-            new(ActionIds.RevealTranslation, "Reveal translation", Keys.Control | Keys.T),
-            new(ActionIds.RepeatWord, "Repeat current English word with screen reader", Keys.Control | Keys.R),
-            new(ActionIds.PlayPronunciation, "Play generated British pronunciation", Keys.Control | Keys.P),
-            new(ActionIds.ToggleAutoPronunciation, "Toggle automatic British pronunciation", Keys.Control | Keys.Shift | Keys.P),
-            new(ActionIds.AddWords, "Add pasted word pairs to active deck", Keys.Control | Keys.Shift | Keys.A),
-            new(ActionIds.SaveProgress, "Save progress now", Keys.Control | Keys.S),
-            new(ActionIds.UndoMove, "Undo last deck move", Keys.Control | Keys.Z),
-            new(ActionIds.ShortcutSettings, "Open shortcut settings", Keys.Control | Keys.K),
-            new(ActionIds.Help, "Open help", Keys.F1),
-        };
+    private static IReadOnlyList<ShortcutDefinition> BuildBaseDefinitions() => new List<ShortcutDefinition>
+    {
+        new(ActionIds.NextWord, "Another random word (right)", Keys.Control | Keys.Right),
+        new(ActionIds.PreviousWord, "Another random word (left)", Keys.Control | Keys.Left),
+        new(ActionIds.RevealTranslation, "Reveal translation", Keys.Control | Keys.T),
+        new(ActionIds.RepeatWord, "Repeat current English word with screen reader", Keys.Control | Keys.R),
+        new(ActionIds.PlayPronunciation, "Play generated British pronunciation", Keys.Control | Keys.P),
+        new(ActionIds.ToggleAutoPronunciation, "Toggle automatic British pronunciation", Keys.Control | Keys.Shift | Keys.P),
+        new(ActionIds.AddWords, "Add pasted word pairs to active deck", Keys.Control | Keys.Shift | Keys.A),
+        new(ActionIds.SaveProgress, "Save progress now", Keys.Control | Keys.S),
+        new(ActionIds.UndoMove, "Undo last deck move", Keys.Control | Keys.Z),
+        new(ActionIds.ShortcutSettings, "Open shortcut settings", Keys.Control | Keys.K),
+        new(ActionIds.Help, "Open help", Keys.F1),
+        new(ActionIds.OpenSpelling, "Open Spelling trainer", Keys.Control | Keys.Shift | Keys.S),
+        new(ActionIds.SpellingShowAnswer, "Spelling: show required English answer", Keys.Control | Keys.Shift | Keys.H),
+        new(ActionIds.SpellingRepeatPrompt, "Spelling: repeat Ukrainian prompt", Keys.Control | Keys.Shift | Keys.R),
+        new(ActionIds.SpellingPlayPronunciation, "Spelling: play British pronunciation hint", Keys.Control | Keys.Shift | Keys.B),
+        new(ActionIds.SpellingToggleCoach, "Spelling: toggle adaptive coach", Keys.Control | Keys.Alt | Keys.C),
+        new(ActionIds.SpellingUndoCoachMove, "Spelling: undo last adaptive move", Keys.Control | Keys.Alt | Keys.Z),
+        new(ActionIds.SpellingMoveChooser, "Spelling: move current word to deck chooser", Keys.Control | Keys.Alt | Keys.M),
+        new(ActionIds.SpellingCreateDeck, "Spelling: create deck", Keys.Control | Keys.Alt | Keys.N),
+        new(ActionIds.SpellingRenameDeck, "Spelling: rename active deck", Keys.Control | Keys.Alt | Keys.R),
+        new(ActionIds.SpellingDeleteDeck, "Spelling: delete active user deck", Keys.Control | Keys.Alt | Keys.Delete),
+        new(ActionIds.SpellingMoveDeckUp, "Spelling: move active deck up", Keys.Control | Keys.Alt | Keys.Up),
+        new(ActionIds.SpellingMoveDeckDown, "Spelling: move active deck down", Keys.Control | Keys.Alt | Keys.Down),
+    };
 
     private IReadOnlyList<ShortcutDefinition> BuildDefinitions()
     {
         var defs = new List<ShortcutDefinition>(BaseDefinitions);
-
         foreach (DeckDefinition deck in _state.Decks.OrderBy(deck => deck.Order))
         {
-            Keys switchDefault = Keys.None;
-            Keys moveDefault = Keys.None;
             int coreNumber = DeckIds.CoreDecks.ToList().FindIndex(id => string.Equals(id, deck.Id, StringComparison.OrdinalIgnoreCase)) + 1;
-            if (coreNumber is >= 1 and <= 5)
-            {
-                switchDefault = Keys.Control | (Keys)((int)Keys.D0 + coreNumber);
-                moveDefault = Keys.Alt | (Keys)((int)Keys.D0 + coreNumber);
-            }
-
+            Keys switchDefault = coreNumber is >= 1 and <= 5 ? Keys.Control | (Keys)((int)Keys.D0 + coreNumber) : Keys.None;
+            Keys moveDefault = coreNumber is >= 1 and <= 5 ? Keys.Alt | (Keys)((int)Keys.D0 + coreNumber) : Keys.None;
             defs.Add(new(ActionIds.SwitchDeck(deck.Id), $"Switch to deck: {deck.Name}", switchDefault));
             defs.Add(new(ActionIds.MoveToDeck(deck.Id), $"Move current word to deck: {deck.Name}", moveDefault));
         }
-
+        foreach (DeckDefinition deck in _spellingDecks.OrderBy(deck => deck.Order))
+        {
+            int coreNumber = SpellingDeckIds.CoreDecks.ToList().FindIndex(id => string.Equals(id, deck.Id, StringComparison.OrdinalIgnoreCase)) + 1;
+            Keys switchDefault = coreNumber is >= 1 and <= 5 ? Keys.Control | Keys.Shift | (Keys)((int)Keys.D0 + coreNumber) : Keys.None;
+            Keys moveDefault = coreNumber is >= 1 and <= 5 ? Keys.Alt | Keys.Shift | (Keys)((int)Keys.D0 + coreNumber) : Keys.None;
+            defs.Add(new(ActionIds.SpellingSwitchDeck(deck.Id), $"Spelling: switch to deck: {deck.Name}", switchDefault));
+            defs.Add(new(ActionIds.SpellingMoveToDeck(deck.Id), $"Spelling: move current word to deck: {deck.Name}", moveDefault));
+        }
         return defs;
     }
 }
