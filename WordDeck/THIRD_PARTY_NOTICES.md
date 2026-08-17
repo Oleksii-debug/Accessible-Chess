@@ -34,9 +34,15 @@ Because strict both-side CC0 coverage is insufficient, WordDeck keeps that path 
 
 The attributed path is development/build-time only and uses Python standard-library components; no new runtime library is introduced. A pack built from this path remains `CC BY 2.0 FR`, never CC0, and must ship with its attribution/license notice.
 
-### Reuse decision: JSON/install layer
+### Reuse decision: JSON/install/compression layer
 
-Runtime SentencePack validation, serialization, installation and loading use the .NET standard library (`System.Text.Json`, `System.IO`, and SHA-256 from `System.Security.Cryptography`). No third-party dependency is needed for this small deterministic layer, which keeps the Windows application self-contained and reduces runtime/attack surface.
+Runtime SentencePack validation, serialization, installation and loading use only the .NET standard library: `System.Text.Json`, `System.IO`, and `System.IO.Compression.GZipStream`. The large attributed pack is stored as `.json.gz` and read directly through a decompression stream; WordDeck does not first materialize the whole JSON file as a .NET `string`. Existing uncompressed `.json` SentencePacks remain readable for backwards compatibility, while newly imported packs are canonicalized to gzip.
+
+This was chosen after reuse-first review on 2026-08-17 because .NET 8 already provides maintained, Windows-compatible, offline, redistributable gzip streams and UTF-8 JSON stream deserialization. Adding SharpCompress, Newtonsoft.Json, SQLite, a custom binary format, Python or a server at runtime would increase dependency/attack/maintenance surface without solving a demonstrated requirement better than the platform libraries.
+
+Official references checked 2026-08-17:
+- https://learn.microsoft.com/dotnet/api/system.io.compression.gzipstream
+- https://learn.microsoft.com/dotnet/api/system.text.json.jsonserializer.deserialize
 
 ### Reuse decision: BZip2 development exports
 
