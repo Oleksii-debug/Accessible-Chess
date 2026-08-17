@@ -11,6 +11,8 @@ on:
       - 'WordDeck/SentencePackDiagnostics.cs'
       - 'WordDeck/SentencePackIo.cs'
       - 'WordDeck/SentencePackSqlitePrototype.cs'
+      - 'WordDeck/SentencePackSqliteCorpus.cs'
+      - 'WordDeck/DictionaryLoader.cs'
       - 'WordDeck/WordDeck.csproj'
       - 'WordDeck/Program.cs'
   workflow_dispatch:
@@ -154,6 +156,22 @@ jobs:
           if ($query.ResultCount -lt 1) { throw 'Representative fresh-process SQLite query returned no sentences.' }
           $query | Format-List
 
+      - name: Measure actual Sentence Coach coverage and query path
+        shell: pwsh
+        run: |
+          dotnet run --project .\WordDeck\WordDeck.csproj -c Release --no-build -- `
+            --measure-sentence-pack `
+            .\sentencepack-ccby\tatoeba-en-uk-ccby-sentencepack.sqlite `
+            .\sentencepack-ccby\sentence-coach-runtime-diagnostics.json `
+            --runtime
+          $runtime = Get-Content .\sentencepack-ccby\sentence-coach-runtime-diagnostics.json -Raw | ConvertFrom-Json
+          if ($runtime.SentenceCount -ne 207578) { throw "Unexpected runtime sentence count: $($runtime.SentenceCount)" }
+          if ($runtime.ScopeEntryCount -ne 3308) { throw "Unexpected Oxford scope size: $($runtime.ScopeEntryCount)" }
+          if ($runtime.OneTargetCoveredEntries -ne 3120) { throw "Unexpected one-target coverage: $($runtime.OneTargetCoveredEntries)" }
+          if ($runtime.TwoTargetCoveredEntries -lt 1) { throw 'Two-target runtime coverage returned no covered entries.' }
+          if ($runtime.ManagedBytesDelta -lt 0) { throw 'Runtime managed-memory measurement is invalid.' }
+          $runtime | Format-List
+
       - name: Upload attributed SentencePack artifact
         uses: actions/upload-artifact@v4
         with:
@@ -165,6 +183,7 @@ jobs:
             sentencepack-ccby/compression-report.json
             sentencepack-ccby/load-diagnostics.json
             sentencepack-ccby/sqlite-query-diagnostics.json
+            sentencepack-ccby/sentence-coach-runtime-diagnostics.json
             sentencepack-ccby/builder.log
           if-no-files-found: error
           retention-days: 30
