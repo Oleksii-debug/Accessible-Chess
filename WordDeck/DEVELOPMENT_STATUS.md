@@ -25,21 +25,26 @@ Attributed `CC BY 2.0 FR` production pack remains:
 - 53,612 quality-flagged;
 - 0 accepted records missing per-side author attribution.
 
-### Practical gzip packaging — verified
+### Practical gzip packaging — verified; eager-memory representation now measured as too large
 
-Reuse-first review selected built-in .NET 8 `System.IO.Compression.GZipStream` and `System.Text.Json` stream deserialization. No new runtime dependency was added.
+Reuse-first review selected built-in .NET 8 `System.IO.Compression.GZipStream` and `System.Text.Json` stream deserialization for the interchange/install format. No new runtime dependency was added.
 
-`SentencePackStore` accepts plain `.json` and `.json.gz`, reads gzip through a decompression stream, stores new imports canonically as `.json.gz`, keeps legacy `.json` compatibility and isolates malformed optional packs.
+`SentencePackStore` accepts plain `.json` and `.json.gz`, reads gzip through a decompression stream, stores new imports canonically as `.json.gz`, keeps legacy `.json` compatibility and isolates malformed optional packs. The Sentence Spelling file picker exposes `.json.gz` as a first-class format.
 
-The Sentence Spelling file picker now exposes `.json.gz` as a first-class supported format alongside legacy `.json`, and its accessible pack control/no-pack guidance explicitly identifies both supported offline formats. This is UI glue only; no new parser, storage layer or runtime dependency was introduced. Windows gate for commit `8a284ddd1b4c0b30700cfbe0af95b7bfb3cd28d8` passed build, embedded-dictionary validation, self-contained publish, published-EXE validation and artifact upload.
-
-Real attributed pipeline measurement on 2026-08-17:
+Real attributed pipeline measurement on 2026-08-17 remains:
 - raw JSON: 245,812,867 bytes;
 - gzip: 19,906,945 bytes;
 - reduction: 91.9%;
 - corpus and attribution counts unchanged.
 
-The attributed Actions artifact contains the gzip pack plus provenance/coverage/compression reports instead of the 246 MB raw JSON. Reuse/provenance decisions are recorded in `THIRD_PARTY_NOTICES.md`.
+A new development CLI, `--measure-sentence-pack`, now exercises the exact runtime `SentencePackIo.Read` path and records .NET `Stopwatch`, `GC.GetTotalMemory` and `Process.WorkingSet64` measurements. Production workflow run `32048719259` measured the real 207,578-sentence gzip pack at:
+- 5,303 ms load + validation/index construction;
+- +543,390,448 managed bytes;
+- +628,666,368 process working-set bytes.
+
+The 19.9 MB distribution size is acceptable, but the eager in-memory corpus plus duplicate indexes is not. Exact evidence is in `QA/SENTENCEPACK_LOAD_QA_20260817.md` and the artifact's `load-diagnostics.json`.
+
+Reuse-first review now puts disk-backed/lazy indexed storage ahead of custom binary/streaming formats. SQLite via Microsoft's maintained MIT-licensed `Microsoft.Data.Sqlite` provider is the leading prototype candidate; SQLite core is public domain and serverless/single-file. It has NOT yet been added to the runtime. The existing JSON/gzip format remains backwards-compatible interchange until a measured read-only prototype proves materially lower memory without harming self-contained/offline Windows deployment. Decision/provenance is recorded in `THIRD_PARTY_NOTICES.md`.
 
 ### Exact current-Oxford coverage gaps — verified
 
@@ -67,13 +72,13 @@ The aggregate structural audit remains green: 3,308 unique stable IDs/indexes, e
 
 ### Pronunciation override ledger — implemented, targeted regeneration pending
 
-`Audio/pronunciation-overrides.tsv` now records all 36 numbered/sense-marker candidates identified by the aggregate audit and is keyed by stable Oxford entry ID plus exact source text. The ledger deliberately separates:
+`Audio/pronunciation-overrides.tsv` records all 36 numbered/sense-marker candidates identified by the aggregate audit and is keyed by stable Oxford entry ID plus exact source text. The ledger deliberately separates:
 - **19 `ready` overrides** where removing the superscript/parenthetical marker does not change the intended lexical pronunciation;
 - **17 `review` heteronym/sense-sensitive entries** such as `close`, `live`, `lead`, `refuse`, `wind`, `content`, `row`, `used` and `tear`, where guessing a plain-text pronunciation would be unsafe.
 
 `tools/validate_pronunciation_overrides.py` is a development-time standard-library-only validator. It reconstructs the actual embedded Oxford TSV from the existing base64+gzip source parts, requires exactly 3,308 entries, verifies every ledger stable ID and exact source string, rejects duplicate/drifted/unsafe rows, detects the five uppercase candidates (`CD`, `DVD`, `IT`, `OK`, `TV`), and emits a deterministic targeted-regeneration JSON request containing only the 19 ready overrides while keeping the 17 heteronyms and uppercase candidates explicitly blocked for phonetic/listening QA.
 
-The Windows workflow now runs this validator before .NET restore/build and uploads the regeneration request as a separate development artifact. No Python/Kokoro dependency was added to the shipped WordDeck runtime.
+The Windows workflow runs this validator before .NET restore/build and uploads the regeneration request as a separate development artifact. No Python/Kokoro dependency was added to the shipped WordDeck runtime.
 
 Reuse-first review retained the existing Kokoro British path. Official Kokoro documentation confirms British voices use `lang_code='b'` with `misaki[en]` and `en-gb` espeak-ng fallback; current WordDeck voices remain `bf_emma` and `bm_george`. Exact phonetic forcing for the 17 heteronyms must use the existing generation/G2P path or a validated supported phoneme mechanism, not spelling hacks.
 
@@ -82,8 +87,9 @@ Evidence remains in `Audio/OXFORD3000_AUDIO_INTEGRITY_QA_20260817.md`; reuse/pro
 ## Exact next steps
 
 1. Keep Windows CI and published-EXE validation green.
-2. Measure load time and working-set behavior on the real 19.9 MB / 207,578-sentence `.json.gz` pack using built-in .NET diagnostics before considering optimization; optimize only if measurement shows a problem.
-3. Use the generated pronunciation request to regenerate only the 19 safe normalization entries; resolve the 17 heteronyms and 5 uppercase candidates with deterministic British G2P/phonetic or listening QA before adding them to the ready set; then assemble the coherent AudioPack with stable-ID hashes/manifest.
+2. Prototype a read-only SQLite-backed SentencePack store using `Microsoft.Data.Sqlite` only after pinning a stable compatible package; convert the existing attributed pack at build/development time, query by target entry IDs on demand, and measure file size/load/query working set against the verified 5.3 s / +629 MB eager baseline. Do not remove JSON/gzip compatibility until the prototype wins materially.
+3. If SQLite wins, integrate only the smallest read/query layer needed by Sentence Coach and add migration/import tests, license notice and self-contained publish validation. If it does not, evaluate the next mature disk-backed option before custom format work.
 4. Resolve the 188 recorded SentencePack coverage-gap IDs to exact Oxford source/POS records and classify root causes before adding morphology or controlled generation.
-5. Continue Oxford-5000 extraction/translation/second-pass QA in substantial batches.
-6. Never modify `main`.
+5. Use the generated pronunciation request to regenerate only the 19 safe normalization entries; resolve the 17 heteronyms and 5 uppercase candidates with deterministic British G2P/phonetic or listening QA before adding them to the ready set; then assemble the coherent AudioPack with stable-ID hashes/manifest.
+6. Continue Oxford-5000 extraction/translation/second-pass QA in substantial batches.
+7. Never modify `main`.
