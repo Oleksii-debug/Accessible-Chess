@@ -1,0 +1,139 @@
+name: Windows Stage 1 UIA Topology Retained Probe V6
+
+on:
+  push:
+    branches: [qa/windows-current-integration-candidate-20260815]
+    paths:
+      - '.github/workflows/windows-stage1-uia-topology-retained-probe-v6.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: accessible-chess-stage1-uia-topology-retained-probe-v6
+  cancel-in-progress: false
+
+env:
+  SOURCE_INTEGRATION_SHA: 8e616ac930d9b31c78c51f2b0f75d2d8fc3672fd
+  PYWEBVIEW_VERSION: '6.2.1'
+  NUITKA_UPSTREAM_FIX_COMMIT: b7ea05bf570e0b6950de6db7c4c8e579e1b77d29
+
+jobs:
+  probe:
+    runs-on: windows-latest
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify and materialize exact frozen product
+        shell: pwsh
+        run: |
+          $resolved=(git rev-parse "$env:SOURCE_INTEGRATION_SHA^{commit}").Trim()
+          if($resolved -ne $env:SOURCE_INTEGRATION_SHA){throw "Frozen SHA mismatch: $resolved"}
+          New-Item -ItemType Directory -Force -Path work | Out-Null
+          git archive --format=zip --output=product.zip $env:SOURCE_INTEGRATION_SHA -- acs web tests run_accessible_chess.py ACCESSIBILITY_0.4_ARCHITECTURE.md VERSION.txt HOTKEYS_UA.txt HOTKEYS_EN.txt
+          if($LASTEXITCODE -ne 0){throw 'Exact product export failed'}
+          Expand-Archive product.zip work -Force
+          "SOURCE LOCK PASS: $resolved"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Checkout exact patched Nuitka
+        uses: actions/checkout@v4
+        with:
+          repository: Nuitka/Nuitka
+          ref: b7ea05bf570e0b6950de6db7c4c8e579e1b77d29
+          path: nuitka-src
+          fetch-depth: 1
+
+      - name: Install pinned runtime/compiler
+        shell: pwsh
+        run: |
+          $actual=(git -C nuitka-src rev-parse HEAD).Trim()
+          if($actual -ne $env:NUITKA_UPSTREAM_FIX_COMMIT){throw "Nuitka commit drift: $actual"}
+          python -m pip install "pywebview==$env:PYWEBVIEW_VERSION" .\nuitka-src ordered-set zstandard
+          if($LASTEXITCODE -ne 0){throw 'Pinned runtime/compiler install failed'}
+
+      - name: Build diagnostic packaged app
+        shell: pwsh
+        working-directory: work
+        run: |
+          python -m nuitka --standalone --assume-yes-for-downloads --windows-console-mode=disable --output-filename=AccessibleChess.exe --include-data-dir=web=web run_accessible_chess.py
+          if($LASTEXITCODE -ne 0){throw 'Nuitka standalone compile failed'}
+          $exe=Get-ChildItem -Recurse -Filter AccessibleChess.exe|Where-Object{$_.FullName -match 'dist'}|Select-Object -First 1
+          if(-not $exe){throw 'AccessibleChess.exe missing'}
+          $exe.FullName|Set-Content -Encoding UTF8 built_exe_path.txt
+
+      - name: Launch packaged app
+        shell: pwsh
+        working-directory: work
+        run: |
+          $exe=(Get-Content built_exe_path.txt -Raw).Trim()
+          $app=Start-Process $exe -PassThru
+          Start-Sleep -Seconds 18
+          if($app.HasExited){throw "GUI exited during WebView2 startup: $($app.ExitCode)"}
+          $app.Id|Set-Content gui_pid.txt
+          "PACKAGED WEBVIEW2 PROCESS ALIVE pid=$($app.Id)"
+
+      - name: Capture scalar HWND/provider topology V6 with fail-safe retention
+        shell: pwsh
+        working-directory: work
+        run: |
+          $ErrorActionPreference='Stop'
+          $transcriptPath=Join-Path (Get-Location) 'uia-topology-transcript-v6.txt'
+          $reportPath=Join-Path (Get-Location) 'uia-topology-report-v6.json'
+          Start-Transcript -Path $transcriptPath -Force | Out-Null
+          $stage='before_helper'
+          try {
+            $appProcessId=[int](Get-Content gui_pid.txt -Raw)
+            $stage='helper_execution'
+            & ..\tools\qa\stage1_uia_topology_v5.ps1 -AppPid $appProcessId
+            $stage='helper_report_copy'
+            if(-not (Test-Path 'uia-topology-report-v5.json')){throw 'V5 helper returned without report'}
+            Copy-Item 'uia-topology-report-v5.json' $reportPath -Force
+          } catch {
+            $hr=''
+            try{$hr=('0x{0:X8}' -f ([uint32]$_.Exception.HResult))}catch{}
+            $fallback=[ordered]@{
+              classification='C'
+              product_sha=$env:SOURCE_INTEGRATION_SHA
+              diagnostic_stage=$stage
+              diagnostic_exception_type=$_.Exception.GetType().FullName
+              diagnostic_exception_message=$_.Exception.Message
+              diagnostic_hresult=$hr
+              evidence_complete=$false
+              note='Focused QA diagnostic failed before decisive connected WebView2 provider evidence; no product attribution allowed.'
+            }
+            $fallback|ConvertTo-Json -Depth 8|Set-Content -Encoding UTF8 $reportPath
+            Write-Output "::warning title=UIA_TOPOLOGY_V6_FALLBACK::stage=$stage type=$($_.Exception.GetType().FullName) hr=$hr message=$($_.Exception.Message)"
+          } finally {
+            try{Stop-Transcript|Out-Null}catch{}
+          }
+          if(-not (Test-Path $reportPath)){throw 'V6 fail-safe report missing'}
+          $report=Get-Content $reportPath -Raw|ConvertFrom-Json
+          $classification=[string]$report.classification
+          if([string]::IsNullOrWhiteSpace($classification)){$classification='C'}
+          Write-Output "::notice title=UIA_TOPOLOGY_V6_CLASSIFICATION::classification=$classification product=$env:SOURCE_INTEGRATION_SHA"
+
+      - name: Retain V6 diagnostic evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stage1-uia-topology-retained-v6
+          path: |
+            work/uia-topology-report-v6.json
+            work/uia-topology-transcript-v6.txt
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Cleanup diagnostic process
+        if: always()
+        shell: pwsh
+        working-directory: work
+        run: |
+          if(Test-Path gui_pid.txt){$appProcessId=[int](Get-Content gui_pid.txt -Raw);Stop-Process -Id $appProcessId -Force -ErrorAction SilentlyContinue}
