@@ -10,6 +10,8 @@ on:
       - 'WordDeck/TatoebaSentencePackBuilder.cs'
       - 'WordDeck/SentencePackDiagnostics.cs'
       - 'WordDeck/SentencePackIo.cs'
+      - 'WordDeck/SentencePackSqlitePrototype.cs'
+      - 'WordDeck/WordDeck.csproj'
       - 'WordDeck/Program.cs'
   workflow_dispatch:
 
@@ -120,17 +122,24 @@ jobs:
           $sizeReport | ConvertTo-Json | Set-Content .\sentencepack-ccby\compression-report.json -Encoding utf8
           $sizeReport | Format-List
 
-      - name: Measure real gzip SentencePack load and indexed working set
+      - name: Measure eager load and SQLite disk-backed prototype
         shell: pwsh
         run: |
           dotnet run --project .\WordDeck\WordDeck.csproj -c Release --no-build -- `
             --measure-sentence-pack `
             .\sentencepack-ccby\tatoeba-en-uk-ccby-sentencepack.json.gz `
-            .\sentencepack-ccby\load-diagnostics.json
+            .\sentencepack-ccby\load-diagnostics.json `
+            --sqlite `
+            .\sentencepack-ccby\tatoeba-en-uk-ccby-sentencepack.sqlite `
+            oxford-a1-0001
           $diagnostics = Get-Content .\sentencepack-ccby\load-diagnostics.json -Raw | ConvertFrom-Json
           if ($diagnostics.Sentences -ne 207578) { throw "Unexpected measured sentence count: $($diagnostics.Sentences)" }
           if ($diagnostics.ElapsedMilliseconds -le 0) { throw 'SentencePack load measurement did not produce a positive duration.' }
+          if ($null -eq $diagnostics.SqlitePrototype) { throw 'SQLite prototype diagnostics are missing.' }
+          if ($diagnostics.SqlitePrototype.DatabaseBytes -le 0) { throw 'SQLite prototype database was not created.' }
+          if ($diagnostics.SqlitePrototype.QueryMilliseconds -lt 0) { throw 'SQLite query timing is invalid.' }
           $diagnostics | Format-List
+          $diagnostics.SqlitePrototype | Format-List
 
       - name: Upload attributed SentencePack artifact
         uses: actions/upload-artifact@v4
