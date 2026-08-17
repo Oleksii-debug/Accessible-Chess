@@ -3,31 +3,29 @@ namespace WordDeck;
 internal sealed class ShortcutManager
 {
     private readonly AppState _state;
+    private static IReadOnlyList<ShortcutDefinition> BaseDefinitions { get; } = BuildBaseDefinitions();
 
-    // Fixed/global actions retained as a compatibility surface for help text and
-    // existing self-tests while the MainForm is migrated to the dynamic list.
-    public static IReadOnlyList<ShortcutDefinition> Definitions { get; } = BuildBaseDefinitions();
-
-    // Full live registry, including stable-ID deck actions.
-    public IReadOnlyList<ShortcutDefinition> CurrentDefinitions { get; private set; }
+    // Live registry: global actions plus stable-ID switch/move actions for every deck.
+    public IReadOnlyList<ShortcutDefinition> Definitions { get; private set; }
+    public IReadOnlyList<ShortcutDefinition> CurrentDefinitions => Definitions;
 
     public ShortcutManager(AppState state)
     {
         _state = AppStateStore.Normalize(state);
-        CurrentDefinitions = BuildDefinitions();
+        Definitions = BuildDefinitions();
         EnsureDefaults();
     }
 
     public void RefreshDeckDefinitions()
     {
-        CurrentDefinitions = BuildDefinitions();
+        Definitions = BuildDefinitions();
         EnsureDefaults();
         RemoveOrphanedDeckShortcuts();
     }
 
     public Keys Get(string actionId)
     {
-        ShortcutDefinition? definition = CurrentDefinitions.FirstOrDefault(x => x.Id == actionId);
+        ShortcutDefinition? definition = Definitions.FirstOrDefault(x => x.Id == actionId);
         if (definition is null)
             return Keys.None;
 
@@ -46,7 +44,7 @@ internal sealed class ShortcutManager
         if (keyData == Keys.None)
             return null;
 
-        ShortcutDefinition? definition = CurrentDefinitions.FirstOrDefault(def => Get(def.Id) != Keys.None && Get(def.Id) == keyData);
+        ShortcutDefinition? definition = Definitions.FirstOrDefault(def => Get(def.Id) != Keys.None && Get(def.Id) == keyData);
         if (definition is null)
             return null;
 
@@ -58,7 +56,7 @@ internal sealed class ShortcutManager
 
     public bool TrySet(string actionId, Keys keys, out string? errorDescription)
     {
-        if (!CurrentDefinitions.Any(def => def.Id == actionId))
+        if (!Definitions.Any(def => def.Id == actionId))
         {
             errorDescription = "the function no longer exists";
             return false;
@@ -70,7 +68,7 @@ internal sealed class ShortcutManager
             return false;
         }
 
-        var conflict = CurrentDefinitions.FirstOrDefault(def => def.Id != actionId && Get(def.Id) == keys);
+        var conflict = Definitions.FirstOrDefault(def => def.Id != actionId && Get(def.Id) == keys);
         if (conflict is not null)
         {
             errorDescription = $"it is already assigned to {conflict.Description}";
@@ -84,7 +82,7 @@ internal sealed class ShortcutManager
 
     public void Clear(string actionId)
     {
-        ShortcutDefinition? definition = CurrentDefinitions.FirstOrDefault(def => def.Id == actionId);
+        ShortcutDefinition? definition = Definitions.FirstOrDefault(def => def.Id == actionId);
         if (definition is null)
             return;
         _state.Shortcuts[actionId] = Keys.None.ToString();
@@ -92,19 +90,19 @@ internal sealed class ShortcutManager
 
     public void ResetDefaults()
     {
-        foreach (ShortcutDefinition def in CurrentDefinitions)
+        foreach (ShortcutDefinition def in Definitions)
             _state.Shortcuts[def.Id] = def.DefaultKeys.ToString();
     }
 
     private void EnsureDefaults()
     {
-        foreach (ShortcutDefinition def in CurrentDefinitions)
+        foreach (ShortcutDefinition def in Definitions)
             _state.Shortcuts.TryAdd(def.Id, def.DefaultKeys.ToString());
     }
 
     private void RemoveOrphanedDeckShortcuts()
     {
-        var valid = new HashSet<string>(CurrentDefinitions.Select(def => def.Id), StringComparer.OrdinalIgnoreCase);
+        var valid = new HashSet<string>(Definitions.Select(def => def.Id), StringComparer.OrdinalIgnoreCase);
         foreach (string actionId in _state.Shortcuts.Keys
                      .Where(id => (id.StartsWith("switch_deck_", StringComparison.OrdinalIgnoreCase) || id.StartsWith("move_to_deck_", StringComparison.OrdinalIgnoreCase)) &&
                                   !valid.Contains(id) && !IsLegacyNumericDeckAction(id))
@@ -152,10 +150,9 @@ internal sealed class ShortcutManager
 
     private IReadOnlyList<ShortcutDefinition> BuildDefinitions()
     {
-        var defs = new List<ShortcutDefinition>(Definitions);
+        var defs = new List<ShortcutDefinition>(BaseDefinitions);
 
-        IReadOnlyList<DeckDefinition> ordered = _state.Decks.OrderBy(deck => deck.Order).ToList();
-        foreach (DeckDefinition deck in ordered)
+        foreach (DeckDefinition deck in _state.Decks.OrderBy(deck => deck.Order))
         {
             Keys switchDefault = Keys.None;
             Keys moveDefault = Keys.None;
