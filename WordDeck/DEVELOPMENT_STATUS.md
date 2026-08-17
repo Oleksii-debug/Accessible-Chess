@@ -29,7 +29,7 @@ Attributed `CC BY 2.0 FR` production pack remains:
 
 Reuse-first review selected built-in .NET 8 `System.IO.Compression.GZipStream` and `System.Text.Json` stream deserialization. No new runtime dependency was added.
 
-`SentencePackStore` now accepts plain `.json` and `.json.gz`, reads gzip through a decompression stream, stores new imports canonically as `.json.gz`, keeps legacy `.json` compatibility and isolates malformed optional packs.
+`SentencePackStore` accepts plain `.json` and `.json.gz`, reads gzip through a decompression stream, stores new imports canonically as `.json.gz`, keeps legacy `.json` compatibility and isolates malformed optional packs.
 
 Real attributed pipeline measurement on 2026-08-17:
 - raw JSON: 245,812,867 bytes;
@@ -37,9 +37,17 @@ Real attributed pipeline measurement on 2026-08-17:
 - reduction: 91.9%;
 - corpus and attribution counts unchanged.
 
-The attributed Actions artifact now contains the gzip pack plus provenance/coverage/compression reports instead of the 246 MB raw JSON. Reuse/provenance decisions are recorded in `THIRD_PARTY_NOTICES.md`.
+The attributed Actions artifact contains the gzip pack plus provenance/coverage/compression reports instead of the 246 MB raw JSON. Reuse/provenance decisions are recorded in `THIRD_PARTY_NOTICES.md`.
 
-Windows CI after these store changes passed build, Recall/Spelling/Sentence self-tests including gzip round-trip and legacy JSON compatibility, dictionary validation, self-contained publish, published-EXE validation and artifact upload.
+### Exact current-Oxford coverage gaps — verified
+
+The successful real attributed SentencePack artifact was inspected directly and its `TargetEntryIds` were compared with the current deterministic Oxford ID ranges enforced by self-tests. Exact uncovered count is 188:
+- A1: 23;
+- A2: 35;
+- B1: 54;
+- B2: 76.
+
+The complete reproducible ID list is recorded in `QA/sentence_coverage_gaps_20260817.txt`. No morphology or generator fallback has been added from this result. Next gap work must resolve IDs to exact source/POS records and classify tokenization, inflection-only coverage, corpus absence and indexing defects before choosing any fallback.
 
 ## Oxford 5000
 
@@ -57,7 +65,7 @@ Technical generation remains 3,308 / 3,308. Do not regenerate wholesale. Pronunc
 
 1. Keep Windows CI and published-EXE validation green.
 2. Add first-class `.json.gz` selection/help in SentencePack UI and measure load-time/working-set behavior on the real 19.9 MB / 207,578-sentence pack; optimize only if measurement shows a problem.
-3. Analyze the remaining 188 current-Oxford coverage gaps before adding morphology or controlled generation.
+3. Resolve the 188 recorded coverage-gap IDs to exact Oxford source/POS records and classify root causes before adding morphology or controlled generation.
 4. Continue Oxford-5000 extraction/translation/second-pass QA in substantial batches.
 5. Continue British AudioPack QA/integrity packaging.
 6. Never modify `main`.
