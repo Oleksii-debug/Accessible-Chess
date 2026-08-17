@@ -131,12 +131,13 @@ jobs:
             .\sentencepack-ccby\load-diagnostics.json `
             --sqlite `
             .\sentencepack-ccby\tatoeba-en-uk-ccby-sentencepack.sqlite `
-            oxford-a1-0001
+            oxford-a1-0711
           $diagnostics = Get-Content .\sentencepack-ccby\load-diagnostics.json -Raw | ConvertFrom-Json
           if ($diagnostics.Sentences -ne 207578) { throw "Unexpected measured sentence count: $($diagnostics.Sentences)" }
           if ($diagnostics.ElapsedMilliseconds -le 0) { throw 'SentencePack load measurement did not produce a positive duration.' }
           if ($null -eq $diagnostics.SqlitePrototype) { throw 'SQLite prototype diagnostics are missing.' }
           if ($diagnostics.SqlitePrototype.DatabaseBytes -le 0) { throw 'SQLite prototype database was not created.' }
+          if ($diagnostics.SqlitePrototype.ResultCount -lt 1) { throw 'Representative SQLite target query returned no sentences.' }
 
       - name: Measure SQLite query in a fresh process
         shell: pwsh
@@ -145,11 +146,12 @@ jobs:
             --measure-sentence-pack `
             .\sentencepack-ccby\tatoeba-en-uk-ccby-sentencepack.sqlite `
             .\sentencepack-ccby\sqlite-query-diagnostics.json `
-            oxford-a1-0001
+            oxford-a1-0711
           $query = Get-Content .\sentencepack-ccby\sqlite-query-diagnostics.json -Raw | ConvertFrom-Json
           if ($query.DatabaseBytes -le 0) { throw 'SQLite query-only measurement did not see a valid database.' }
           if ($query.QueryMilliseconds -lt 0) { throw 'SQLite query timing is invalid.' }
           if ($query.ManagedBytesDelta -lt 0) { throw 'SQLite query managed-memory measurement is invalid.' }
+          if ($query.ResultCount -lt 1) { throw 'Representative fresh-process SQLite query returned no sentences.' }
           $query | Format-List
 
       - name: Upload attributed SentencePack artifact
