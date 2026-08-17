@@ -99,7 +99,7 @@ internal sealed class SentenceCoachForm : Form
     private readonly SentenceCoachState _state;
     private readonly Random _random = new();
 
-    private readonly ComboBox _packCombo = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 320, AccessibleName = "Sentence pack" };
+    private readonly ComboBox _packCombo = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 320, AccessibleName = "Sentence pack", AccessibleDescription = "Choose an installed offline SentencePack. Compressed .json.gz and legacy .json packages are supported." };
     private readonly ComboBox _deckCombo = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 260, DisplayMember = nameof(DeckDefinition.Name), AccessibleName = "Sentence training spelling deck" };
     private readonly ComboBox _targetCountCombo = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 150, AccessibleName = "Number of target words per sentence" };
     private readonly TextBox _prompt = new() { ReadOnly = true, Multiline = true, Dock = DockStyle.Fill, AccessibleName = "Ukrainian sentence prompt", Font = new Font(SystemFonts.DefaultFont.FontFamily, 17) };
@@ -254,7 +254,7 @@ internal sealed class SentenceCoachForm : Form
         {
             _pack = null; _state.ActivePackId = null; UpdateCoverage();
             _prompt.Text = "No SentencePack installed"; _answer.Clear();
-            Announce("No SentencePack is installed. Use File, Import SentencePack to add a validated offline pack.");
+            Announce("No SentencePack is installed. Use File, Import SentencePack to add a validated offline .json.gz or .json pack.");
         }
     }
 
@@ -267,7 +267,11 @@ internal sealed class SentenceCoachForm : Form
 
     private void ImportPack()
     {
-        using var dialog = new OpenFileDialog { Title = "Import WordDeck SentencePack", Filter = "WordDeck SentencePack (*.json)|*.json|JSON files (*.json)|*.json|All files (*.*)|*.*" };
+        using var dialog = new OpenFileDialog
+        {
+            Title = "Import WordDeck SentencePack",
+            Filter = "WordDeck SentencePack (*.json.gz;*.json)|*.json.gz;*.json|Compressed SentencePack (*.json.gz)|*.json.gz|JSON SentencePack (*.json)|*.json|All files (*.*)|*.*"
+        };
         if (dialog.ShowDialog(this) != DialogResult.OK) return;
         try
         {
