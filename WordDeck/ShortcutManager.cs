@@ -31,7 +31,9 @@ internal sealed class ShortcutManager
 
         if (_state.Shortcuts.TryGetValue(actionId, out string? raw) && Enum.TryParse(raw, out Keys keys))
         {
-            if (keys == Keys.None && definition.DefaultKeys == Keys.None)
+            // An explicit None is meaningful: it lets the user clear even a
+            // default core-deck shortcut without it silently snapping back.
+            if (keys == Keys.None)
                 return Keys.None;
             if (!IsUnsafe(keys))
                 return keys;
