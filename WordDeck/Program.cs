@@ -14,6 +14,7 @@ internal static class Program
             {
                 SpellingSelfTest.Run();
                 SentenceCoachSelfTest.Run();
+                SentencePackStoreSelfTest.Run();
                 TatoebaSentencePackSelfTest.Run();
             }
             catch (Exception ex)
