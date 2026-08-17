@@ -30,20 +30,55 @@ function moveEntryLabels() {
         : {input: 'Хід', submit: 'Зробити хід'};
 }
 
+function moveEntryExposureState() {
+    const input = byId('move-input');
+    if (!input) return {ok:false, reason:'missing'};
+    const hiddenAncestor = input.closest('[hidden],[inert],[aria-hidden="true"]');
+    const style = window.getComputedStyle(input);
+    const visible = style.display !== 'none' && style.visibility !== 'hidden' && style.visibility !== 'collapse';
+    const ok = input.isConnected
+        && input.type === 'text'
+        && input.getAttribute('role') === 'textbox'
+        && input.getAttribute('aria-label') === moveEntryLabels().input
+        && !input.disabled
+        && input.tabIndex >= 0
+        && !hiddenAncestor
+        && visible;
+    return {
+        ok,
+        connected: input.isConnected,
+        role: input.getAttribute('role') || '',
+        name: input.getAttribute('aria-label') || '',
+        tabIndex: input.tabIndex,
+        disabled: !!input.disabled,
+        hidden: !!hiddenAncestor || !visible,
+    };
+}
+
+function publishMoveEntryExposureState() {
+    const state = moveEntryExposureState();
+    document.body.dataset.stage1MoveAccessibilityExposed = state.ok ? 'true' : 'false';
+    return state.ok;
+}
+window.__accessibleChessMoveEntryExposureState = moveEntryExposureState;
+
 function stabilizeMoveEntryUiaSemantics() {
     const input = byId('move-input');
     const button = byId('move-submit');
     if (!input || !button) return false;
     const labels = moveEntryLabels();
 
-    // WebView2/UIA must not depend on HTML label projection timing to discover
-    // the release-critical move Edit. Keep a short explicit accessible name on
-    // the original, never-reparented element and refresh it on language change.
+    // The release-critical Edit must map to a WebView2/UIA textbox without
+    // depending on implicit HTML-role/name projection timing. Keep the original
+    // node in place and make its role, concise name and focusability explicit.
+    input.setAttribute('role', 'textbox');
     input.setAttribute('aria-label', labels.input);
+    input.setAttribute('tabindex', '0');
     input.setAttribute('data-stage1-uia-role', 'move-entry');
     button.setAttribute('aria-label', labels.submit);
     button.setAttribute('data-stage1-uia-role', 'move-submit');
     document.body.dataset.stage1MoveUiaSemanticsReady = 'true';
+    publishMoveEntryExposureState();
     return true;
 }
 
@@ -409,15 +444,17 @@ function refreshReleaseLanguageSemantics() {
 }
 
 async function markReady() {
-    const main = byId('main-content');
-    if (main) main.setAttribute('aria-busy', 'true');
     const a = api();
     if (a && typeof a.get_state === 'function') {
         try { await a.get_state(); } catch (_) {}
     }
     stabilizeMoveEntryUiaSemantics();
     stabilizeBoardUiaSemantics();
-    if (main) main.setAttribute('aria-busy', 'false');
+    // Do not mark the whole main document aria-busy while WebView2 is building
+    // its accessibility subtree. Release readiness is a silent data marker;
+    // keeping the subtree available lets Windows UIA discover the Move Edit.
+    publishMoveEntryExposureState();
+    requestAnimationFrame(() => publishMoveEntryExposureState());
     document.body.dataset.stage1AppReady = 'true';
 }
 
