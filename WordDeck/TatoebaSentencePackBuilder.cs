@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text.RegularExpressions;
 
 namespace WordDeck;
 
@@ -121,10 +122,15 @@ internal static class TatoebaPairTsv
         value.Equals("uk", StringComparison.OrdinalIgnoreCase) || value.Equals("ukr", StringComparison.OrdinalIgnoreCase);
 }
 
-internal static class TatoebaSentencePackBuilder
+internal static partial class TatoebaSentencePackBuilder
 {
     private const int MinTokens = 2;
     private const int MaxTokens = 24;
+
+    private sealed record ExactSequenceTarget(IReadOnlyList<string> Tokens, IReadOnlyList<DictionaryEntry> Entries);
+
+    [GeneratedRegex("^[A-Za-z'’\\s\\-‐‑‒–—]+$", RegexOptions.CultureInvariant)]
+    private static partial Regex SafeSequenceSourceRegex();
 
     public static (SentencePack Pack, SentencePackBuildReport Report) Build(
         IEnumerable<TatoebaSentencePair> pairs,
@@ -141,6 +147,7 @@ internal static class TatoebaSentencePackBuilder
             throw new ArgumentException("SentencePack license is required.", nameof(license));
 
         Dictionary<string, List<DictionaryEntry>> bySurface = BuildSurfaceIndex(dictionary.Entries);
+        Dictionary<string, List<ExactSequenceTarget>> bySequenceFirstToken = BuildExactSequenceIndex(dictionary.Entries);
         var sentences = new List<SentenceRecord>();
         var stableIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         int input = 0;
@@ -176,12 +183,10 @@ internal static class TatoebaSentencePackBuilder
                     continue;
                 }
 
-                foreach (DictionaryEntry entry in entries)
-                {
-                    targetIds.Add(entry.Id);
-                    entryLevels[entry.Id] = entry.Level;
-                }
+                AddEntries(entries, targetIds, entryLevels);
             }
+
+            AddExactSequenceMatches(tokens, bySequenceFirstToken, targetIds, entryLevels);
 
             if (targetIds.Count == 0)
             {
@@ -254,6 +259,87 @@ internal static class TatoebaSentencePackBuilder
             list.Add(entry);
         }
         return result;
+    }
+
+    private static Dictionary<string, List<ExactSequenceTarget>> BuildExactSequenceIndex(IEnumerable<DictionaryEntry> entries)
+    {
+        var grouped = new Dictionary<string, List<DictionaryEntry>>(StringComparer.Ordinal);
+        var tokensByKey = new Dictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal);
+
+        foreach (DictionaryEntry entry in entries)
+        {
+            string source = entry.Source.Trim();
+            if (!SafeSequenceSourceRegex().IsMatch(source))
+                continue;
+
+            IReadOnlyList<string> tokens = SentenceTokenizer.Tokenize(source);
+            if (tokens.Count < 2)
+                continue;
+
+            string key = string.Join('\u001f', tokens);
+            if (!grouped.TryGetValue(key, out List<DictionaryEntry>? list))
+            {
+                list = new List<DictionaryEntry>();
+                grouped[key] = list;
+                tokensByKey[key] = tokens;
+            }
+            list.Add(entry);
+        }
+
+        var result = new Dictionary<string, List<ExactSequenceTarget>>(StringComparer.OrdinalIgnoreCase);
+        foreach ((string key, List<DictionaryEntry> entriesForSequence) in grouped)
+        {
+            IReadOnlyList<string> tokens = tokensByKey[key];
+            if (!result.TryGetValue(tokens[0], out List<ExactSequenceTarget>? bucket))
+            {
+                bucket = new List<ExactSequenceTarget>();
+                result[tokens[0]] = bucket;
+            }
+            bucket.Add(new ExactSequenceTarget(tokens, entriesForSequence));
+        }
+        return result;
+    }
+
+    private static void AddExactSequenceMatches(
+        IReadOnlyList<string> sentenceTokens,
+        IReadOnlyDictionary<string, List<ExactSequenceTarget>> byFirstToken,
+        HashSet<string> targetIds,
+        Dictionary<string, string> entryLevels)
+    {
+        for (int start = 0; start < sentenceTokens.Count; start++)
+        {
+            if (!byFirstToken.TryGetValue(sentenceTokens[start], out List<ExactSequenceTarget>? candidates))
+                continue;
+
+            foreach (ExactSequenceTarget candidate in candidates)
+            {
+                if (!MatchesAt(sentenceTokens, start, candidate.Tokens))
+                    continue;
+                AddEntries(candidate.Entries, targetIds, entryLevels);
+            }
+        }
+    }
+
+    private static bool MatchesAt(IReadOnlyList<string> sentenceTokens, int start, IReadOnlyList<string> phraseTokens)
+    {
+        if (start + phraseTokens.Count > sentenceTokens.Count)
+            return false;
+        for (int offset = 0; offset < phraseTokens.Count; offset++)
+            if (!string.Equals(sentenceTokens[start + offset], phraseTokens[offset], StringComparison.Ordinal))
+                return false;
+        return true;
+    }
+
+    private static void AddEntries(
+        IEnumerable<DictionaryEntry> entries,
+        HashSet<string> targetIds,
+        Dictionary<string, string> entryLevels)
+    {
+        foreach (DictionaryEntry entry in entries)
+        {
+            targetIds.Add(entry.Id);
+            entryLevels[entry.Id] = entry.Level;
+        }
     }
 
     private static string EstimateDifficulty(IReadOnlyList<string> tokens, IReadOnlyDictionary<string, List<DictionaryEntry>> bySurface)
