@@ -6,7 +6,18 @@ internal static class Program
     private static int Main(string[] args)
     {
         if (args.Any(arg => arg.Equals("--self-test", StringComparison.OrdinalIgnoreCase)))
+        {
+            try
+            {
+                SpellingSelfTest.Run();
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"WordDeck spelling self-test FAILED: {ex}");
+                return 1;
+            }
             return SelfTest.Run();
+        }
 
         ApplicationConfiguration.Initialize();
         AccessibilityAnnouncer.Install();
