@@ -60,58 +60,67 @@ internal sealed class SentencePackSqliteCorpus : ISentenceCorpus
         using var connection = OpenReadOnly(_databasePath);
         using (SqliteCommand create = connection.CreateCommand())
         {
-            create.CommandText = "CREATE TEMP TABLE requested_scope(target_num INTEGER PRIMARY KEY) WITHOUT ROWID;";
+            create.CommandText = "DROP TABLE IF EXISTS temp.requested_scope; CREATE TEMP TABLE requested_scope(target_num INTEGER PRIMARY KEY) WITHOUT ROWID;";
             create.ExecuteNonQuery();
         }
 
-        for (int offset = 0; offset < scope.Length; offset += ScopeChunkSize)
+        try
         {
-            string[] chunk = scope.Skip(offset).Take(ScopeChunkSize).ToArray();
-            using SqliteCommand insert = connection.CreateCommand();
-            var placeholders = new List<string>(chunk.Length);
-            for (int i = 0; i < chunk.Length; i++)
+            for (int offset = 0; offset < scope.Length; offset += ScopeChunkSize)
             {
-                string name = "$id" + i;
-                placeholders.Add(name);
-                insert.Parameters.AddWithValue(name, chunk[i]);
+                string[] chunk = scope.Skip(offset).Take(ScopeChunkSize).ToArray();
+                using SqliteCommand insert = connection.CreateCommand();
+                var placeholders = new List<string>(chunk.Length);
+                for (int i = 0; i < chunk.Length; i++)
+                {
+                    string name = "$id" + i;
+                    placeholders.Add(name);
+                    insert.Parameters.AddWithValue(name, chunk[i]);
+                }
+                insert.CommandText = $"INSERT OR IGNORE INTO requested_scope(target_num) SELECT target_num FROM target_entries WHERE entry_id IN ({string.Join(",", placeholders)});";
+                insert.ExecuteNonQuery();
             }
-            insert.CommandText = $"INSERT OR IGNORE INTO requested_scope(target_num) SELECT target_num FROM target_entries WHERE entry_id IN ({string.Join(",", placeholders)});";
-            insert.ExecuteNonQuery();
+
+            using SqliteCommand query = connection.CreateCommand();
+            query.CommandText = requireSameScopePartner
+                ? """
+                    SELECT te.entry_id
+                    FROM requested_scope rs
+                    JOIN target_entries te ON te.target_num = rs.target_num
+                    WHERE EXISTS (
+                        SELECT 1
+                        FROM sentence_targets st1
+                        JOIN sentence_targets st2
+                          ON st2.sentence_num = st1.sentence_num
+                         AND st2.target_num <> st1.target_num
+                        JOIN requested_scope rs2 ON rs2.target_num = st2.target_num
+                        WHERE st1.target_num = rs.target_num
+                        LIMIT 1
+                    );
+                    """
+                : """
+                    SELECT te.entry_id
+                    FROM requested_scope rs
+                    JOIN target_entries te ON te.target_num = rs.target_num
+                    WHERE EXISTS (
+                        SELECT 1
+                        FROM sentence_targets st
+                        WHERE st.target_num = rs.target_num
+                        LIMIT 1
+                    );
+                    """;
+
+            using SqliteDataReader reader = query.ExecuteReader();
+            while (reader.Read())
+                result.Add(reader.GetString(0));
+            return result;
         }
-
-        using SqliteCommand query = connection.CreateCommand();
-        query.CommandText = requireSameScopePartner
-            ? """
-                SELECT te.entry_id
-                FROM requested_scope rs
-                JOIN target_entries te ON te.target_num = rs.target_num
-                WHERE EXISTS (
-                    SELECT 1
-                    FROM sentence_targets st1
-                    JOIN sentence_targets st2
-                      ON st2.sentence_num = st1.sentence_num
-                     AND st2.target_num <> st1.target_num
-                    JOIN requested_scope rs2 ON rs2.target_num = st2.target_num
-                    WHERE st1.target_num = rs.target_num
-                    LIMIT 1
-                );
-                """
-            : """
-                SELECT te.entry_id
-                FROM requested_scope rs
-                JOIN target_entries te ON te.target_num = rs.target_num
-                WHERE EXISTS (
-                    SELECT 1
-                    FROM sentence_targets st
-                    WHERE st.target_num = rs.target_num
-                    LIMIT 1
-                );
-                """;
-
-        using SqliteDataReader reader = query.ExecuteReader();
-        while (reader.Read())
-            result.Add(reader.GetString(0));
-        return result;
+        finally
+        {
+            using SqliteCommand drop = connection.CreateCommand();
+            drop.CommandText = "DROP TABLE IF EXISTS temp.requested_scope;";
+            drop.ExecuteNonQuery();
+        }
     }
 
     private static SqliteConnection OpenReadOnly(string path)
@@ -120,7 +129,8 @@ internal sealed class SentencePackSqliteCorpus : ISentenceCorpus
         {
             DataSource = path,
             Mode = SqliteOpenMode.ReadOnly,
-            Cache = SqliteCacheMode.Private
+            Cache = SqliteCacheMode.Private,
+            Pooling = false
         };
         var connection = new SqliteConnection(builder.ToString());
         connection.Open();
