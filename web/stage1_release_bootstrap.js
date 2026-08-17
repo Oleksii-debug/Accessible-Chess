@@ -11,6 +11,30 @@ const speak = message => {
     if (typeof window.announce === 'function') window.announce(message);
 };
 
+// One semantic focus context is shared by move submission and board rerender
+// recovery. UIA Invoke may activate the submit button without leaving the
+// semantic board square as document.activeElement, so activeElement alone is
+// not a reliable source of action origin in a packaged WebView2 app.
+const focusState = window.__accessibleChessStage1FocusState || {
+    context: 'other',
+    boardSquare: '',
+    boardNode: null,
+};
+window.__accessibleChessStage1FocusState = focusState;
+
+function rememberBoardFocus(cell) {
+    if (!cell) return;
+    focusState.context = 'board';
+    focusState.boardSquare = cell.dataset.square || '';
+    focusState.boardNode = cell;
+}
+
+function rememberMoveInputFocus() {
+    focusState.context = 'move';
+    focusState.boardSquare = '';
+    focusState.boardNode = null;
+}
+
 function installMoveFocusPolicy() {
     const baseSubmit = window.submitMove;
     if (typeof baseSubmit !== 'function' || baseSubmit.__stage1FocusPolicy) return;
@@ -22,9 +46,12 @@ function installMoveFocusPolicy() {
         const activeCell = active && typeof active.closest === 'function'
             ? active.closest('[role="gridcell"]')
             : null;
-        const boardSquare = activeCell && grid && grid.contains(activeCell)
+        const activeBoardSquare = activeCell && grid && grid.contains(activeCell)
             ? (activeCell.dataset.square || '')
             : '';
+        const boardSquare = activeBoardSquare || (
+            focusState.context === 'board' ? focusState.boardSquare : ''
+        );
 
         const result = await baseSubmit.apply(this, args);
 
@@ -32,7 +59,10 @@ function installMoveFocusPolicy() {
             const sameSquare = byId('sq-' + boardSquare);
             const rovingCell = grid && grid.querySelector('[role="gridcell"][tabindex="0"]');
             const target = sameSquare || rovingCell;
-            if (target) target.focus({preventScroll: true});
+            if (target) {
+                target.focus({preventScroll: true});
+                rememberBoardFocus(target);
+            }
         }
         return result;
     };
@@ -64,6 +94,11 @@ function installMoveForm() {
     form.appendChild(button);
     row.replaceWith(form);
 
+    // Focusing the edit field is the authoritative signal for the normal
+    // move-entry journey. Programmatic ValuePattern.SetValue does not focus it,
+    // which lets a board-origin UIA Invoke retain the board semantic context.
+    input.addEventListener('focusin', rememberMoveInputFocus);
+
     form.addEventListener('submit', async event => {
         event.preventDefault();
         if (form.dataset.submitting === 'true') return;
@@ -94,21 +129,17 @@ function installBoardFocusContinuity() {
     const board = byId('board-application');
     if (!grid || !board || grid.dataset.focusContinuityReady === 'true') return;
 
-    let lastFocusedNode = null;
-    let lastFocusedSquare = '';
-
     grid.addEventListener('focusin', event => {
         const cell = event.target && event.target.closest && event.target.closest('[role="gridcell"]');
         if (!cell || !grid.contains(cell)) return;
-        lastFocusedNode = cell;
-        lastFocusedSquare = cell.dataset.square || '';
+        rememberBoardFocus(cell);
     });
 
     const observer = new MutationObserver(records => {
-        if (!lastFocusedNode || board.hidden) return;
+        if (!focusState.boardNode || board.hidden) return;
         const focusedCellWasReplaced = records.some(record =>
             [...record.removedNodes].some(node =>
-                node === lastFocusedNode || (node.contains && node.contains(lastFocusedNode))
+                node === focusState.boardNode || (node.contains && node.contains(focusState.boardNode))
             )
         );
         if (!focusedCellWasReplaced) return;
@@ -117,13 +148,12 @@ function installBoardFocusContinuity() {
             if (board.hidden) return;
             const active = document.activeElement;
             if (active && grid.contains(active)) return;
-            const sameSquare = lastFocusedSquare ? byId('sq-' + lastFocusedSquare) : null;
+            const sameSquare = focusState.boardSquare ? byId('sq-' + focusState.boardSquare) : null;
             const rovingCell = grid.querySelector('[role="gridcell"][tabindex="0"]');
             const target = sameSquare || rovingCell;
             if (!target) return;
             target.focus({preventScroll: true});
-            lastFocusedNode = target;
-            lastFocusedSquare = target.dataset.square || lastFocusedSquare;
+            rememberBoardFocus(target);
         });
     });
 
