@@ -111,14 +111,35 @@ This file is the durable checkpoint for offline pronunciation generation on `wor
 - Duplicate manifest entry IDs: 0
 - Status: `VERIFIED_GENERATION_OUTPUT`
 
+### Oxford 3000 — entries 2500–2999
+
+- Workflow run: `31986850216`
+- GitHub artifact: `worddeck-oxford3000-en-gb-2500-500`
+- Artifact id: `9274213466`
+- Artifact digest: `sha256:fe71c5e8bfc20c3e41381afb0c8d8d998268f8122b55e87ceec60e5c399b3eeb`
+- Artifact container size: 5,039,498 bytes
+- Inner archive inspected after download.
+- MP3 files: exactly 500
+- Manifest records: exactly 500, indexes 2500 through 2999
+- Smallest MP3: 5,997 bytes
+- Largest MP3: 17,325 bytes
+- Files at or below 512 bytes: 0
+- Accent: `en-GB` for all 500 manifest records
+- Speed: `1.0` for all 500 manifest records
+- Sample rate: `24000` Hz for all 500 manifest records
+- Voices: `bf_emma` 260 files; `bm_george` 240 files
+- Missing manifest-referenced audio files: 0
+- Duplicate manifest entry IDs: 0
+- Status: `VERIFIED_GENERATION_OUTPUT`
+
 The checkpoints above verify file count, manifest coverage, configured accent/speed/sample rate, voice distribution, ID uniqueness and nontrivial file sizes. They do not by themselves assert human listening QA of every pronunciation. Homographs, acronyms, punctuation, multiword phrases and sense-marker overrides remain subject to pronunciation QA before final release.
 
 ## Aggregate verified generation coverage
 
-- Oxford 3000 verified generated entries: 2,500 / 3,308 currently embedded positions.
-- Verified index range: 0–2499 inclusive.
+- Oxford 3000 verified generated entries: 3,000 / 3,308 currently embedded positions.
+- Verified index range: 0–2999 inclusive.
 - No verified range should be regenerated unless the TTS model, voices, pronunciation override rules, codec parameters or source text changes materially.
 
 ## Next generation request
 
-Continue with Oxford 3000 indexes 2500–2999 as the next 500-entry batch.
+Continue with Oxford 3000 indexes 3000–3307 as the final 308-entry batch for the currently embedded Oxford 3000 source.
