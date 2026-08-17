@@ -122,7 +122,7 @@ jobs:
           $sizeReport | ConvertTo-Json | Set-Content .\sentencepack-ccby\compression-report.json -Encoding utf8
           $sizeReport | Format-List
 
-      - name: Measure eager load and SQLite disk-backed prototype
+      - name: Build SQLite prototype and measure eager baseline
         shell: pwsh
         run: |
           dotnet run --project .\WordDeck\WordDeck.csproj -c Release --no-build -- `
@@ -137,9 +137,20 @@ jobs:
           if ($diagnostics.ElapsedMilliseconds -le 0) { throw 'SentencePack load measurement did not produce a positive duration.' }
           if ($null -eq $diagnostics.SqlitePrototype) { throw 'SQLite prototype diagnostics are missing.' }
           if ($diagnostics.SqlitePrototype.DatabaseBytes -le 0) { throw 'SQLite prototype database was not created.' }
-          if ($diagnostics.SqlitePrototype.QueryMilliseconds -lt 0) { throw 'SQLite query timing is invalid.' }
-          $diagnostics | Format-List
-          $diagnostics.SqlitePrototype | Format-List
+
+      - name: Measure SQLite query in a fresh process
+        shell: pwsh
+        run: |
+          dotnet run --project .\WordDeck\WordDeck.csproj -c Release --no-build -- `
+            --measure-sentence-pack `
+            .\sentencepack-ccby\tatoeba-en-uk-ccby-sentencepack.sqlite `
+            .\sentencepack-ccby\sqlite-query-diagnostics.json `
+            oxford-a1-0001
+          $query = Get-Content .\sentencepack-ccby\sqlite-query-diagnostics.json -Raw | ConvertFrom-Json
+          if ($query.DatabaseBytes -le 0) { throw 'SQLite query-only measurement did not see a valid database.' }
+          if ($query.QueryMilliseconds -lt 0) { throw 'SQLite query timing is invalid.' }
+          if ($query.ManagedBytesDelta -lt 0) { throw 'SQLite query managed-memory measurement is invalid.' }
+          $query | Format-List
 
       - name: Upload attributed SentencePack artifact
         uses: actions/upload-artifact@v4
@@ -151,6 +162,7 @@ jobs:
             sentencepack-ccby/coverage-report.json
             sentencepack-ccby/compression-report.json
             sentencepack-ccby/load-diagnostics.json
+            sentencepack-ccby/sqlite-query-diagnostics.json
             sentencepack-ccby/builder.log
           if-no-files-found: error
           retention-days: 30
