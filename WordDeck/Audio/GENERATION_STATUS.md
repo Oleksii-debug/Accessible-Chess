@@ -35,10 +35,26 @@ Workflow run `31989974909` completed successfully on commit `c9c2e71527bf500c79b
 - Status: **OXFORD_3000_GENERATION_COMPLETE**.
 - Do not regenerate these ranges unless the source text, TTS model, voices, pronunciation override rules, codec parameters, or a pronunciation QA finding changes materially.
 
+## Artifact integrity QA — 2026-08-17
+
+All seven recorded Actions artifacts were downloaded and inspected as one aggregate set. The detailed evidence is in `OXFORD3000_AUDIO_INTEGRITY_QA_20260817.md`.
+
+- 3,308 MP3/manifest records inspected.
+- 3,308 unique stable entry IDs.
+- 3,308 unique indexes, exact range 0–3307.
+- 0 manifest/package byte-size mismatches.
+- 3,308 / 3,308 records carry `en-GB`, speed `1.0`, sample-rate target `24000`.
+- Voice distribution: `bf_emma` 1,675; `bm_george` 1,633.
+- Packaged MP3 sizes range from 4,077 to 31,149 bytes.
+
+Structural integrity therefore passes for packaging by stable ID. Pronunciation-content QA does **not** pass yet: every manifest currently has `audio_text == source`, so numbered sense markers and parenthetical disambiguators were not normalized before speech generation. Thirty-six numbered/sense-marker records and five uppercase/acronym records are explicitly queued for targeted pronunciation review, plus a small set of parenthetical/multiword forms.
+
+The next audio implementation must add a deterministic development-time pronunciation-override ledger, test it, and regenerate only affected files before assembling the coherent release AudioPack.
+
 ## Release caveat
 
-Generation completeness is not the same as pronunciation QA completeness. The generation checks establish batch coverage, non-empty output, manifest creation, configured British voices/speed/format and successful packaging. Homographs, abbreviations, acronyms, punctuation, multiword phrases and numbered sense markers still require pronunciation QA/override review before final release. Examples in the final batch that deserve explicit sense-marker review include `pension¹`, `plus¹`, `tear¹`, `tear²` and `wind²`.
+Generation completeness and structural integrity are not the same as pronunciation QA completeness. Homographs, abbreviations, acronyms, punctuation, multiword phrases and numbered sense markers still require pronunciation QA/override review before final release. Examples include `pension¹`, `plus¹`, `tear¹`, `tear²`, `wind²`, `lead¹`, `refuse¹`, `row¹` and the parenthetical sense labels documented in the integrity report.
 
 ## Next audio work
 
-Do **not** schedule another Oxford 3000 generation batch. Resume audio generation only after the combined Oxford 5000 source is reconciled and verified enough to identify the additional entries safely. Until then, prioritize dynamic deck implementation, Oxford 5000 extraction/translation QA, and pronunciation-override infrastructure.
+Do **not** schedule another wholesale Oxford 3000 generation batch. Create and validate the small pronunciation-override ledger first, regenerate only affected entries, then assemble one coherent AudioPack with stable-ID manifest, effective audio text, file sizes and hashes. Resume bulk additions generation only after Oxford 5000 additions are stable.
