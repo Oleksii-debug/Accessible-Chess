@@ -52,7 +52,8 @@ internal static class TatoebaSentencePackSelfTest
                 new("ox-skills-v", "B1", "skills", "вміння"),
                 new("ox-learn", "A1", "learn", "вивчати"),
                 new("ox-words", "A1", "words", "слова"),
-                new("ox-multi", "B2", "take care", "піклуватися")
+                new("ox-ice-cream", "A1", "ice cream", "морозиво"),
+                new("ox-bank-money", "A1", "bank (money)", "банк")
             }
         };
 
@@ -60,13 +61,15 @@ internal static class TatoebaSentencePackSelfTest
         {
             new TatoebaSentencePair(101, "I improve skills.", 201, "Я покращую навички.", "Alice", "Olena"),
             new TatoebaSentencePair(102, "We learn words.", 202, "Ми вивчаємо слова."),
-            new TatoebaSentencePair(103, "xylophone qwerty.", 203, "Ксилофон.")
+            new TatoebaSentencePair(103, "xylophone qwerty.", 203, "Ксилофон."),
+            new TatoebaSentencePair(104, "I like ice cream.", 204, "Я люблю морозиво."),
+            new TatoebaSentencePair(105, "I bank money.", 205, "Я кладу гроші до банку.")
         };
 
         (SentencePack pack, SentencePackBuildReport report) = TatoebaSentencePackBuilder.Build(
             pairs, dictionary, "tatoeba-en-uk-test-v1", "Synthetic Tatoeba-layout regression fixture", "CC BY 2.0 FR");
 
-        Require(report.InputPairs == 3 && report.AcceptedPairs == 2 && report.RejectedPairs == 1,
+        Require(report.InputPairs == 5 && report.AcceptedPairs == 4 && report.RejectedPairs == 1,
             "Tatoeba SentencePack build accounting is incorrect.");
         SentenceRecord first = pack.Sentences.Single(sentence => sentence.SourceSentenceId == "101");
         Require(first.Id == "tatoeba-en-101-uk-201", "Tatoeba stable sentence ID changed.");
@@ -74,10 +77,16 @@ internal static class TatoebaSentencePackSelfTest
             "Attributed sentence authors were not preserved in SentenceRecord.Source.");
         Require(first.TargetEntryIds.Contains("ox-improve") && first.TargetEntryIds.Contains("ox-skills-n") && first.TargetEntryIds.Contains("ox-skills-v"),
             "Surface index did not preserve multiple Oxford entry IDs sharing a form.");
-        Require(!first.TargetEntryIds.Contains("ox-multi"), "Baseline surface importer incorrectly indexed a multi-word dictionary entry as a unigram.");
         Require(first.DifficultyLevel == "B1", "Sentence difficulty baseline did not reflect recognized context vocabulary.");
         Require(pack.LookupAllTargets(new[] { "ox-improve", "ox-skills-n" }).Count == 1,
             "Built SentencePack two-target index is not immediately usable offline.");
+
+        SentenceRecord phrase = pack.Sentences.Single(sentence => sentence.SourceSentenceId == "104");
+        Require(phrase.TargetEntryIds.Contains("ox-ice-cream"),
+            "Safe exact multiword dictionary source was not indexed when its token sequence occurred contiguously.");
+        SentenceRecord annotated = pack.Sentences.Single(sentence => sentence.SourceSentenceId == "105");
+        Require(!annotated.TargetEntryIds.Contains("ox-bank-money"),
+            "Sense-annotated dictionary source was incorrectly collapsed into an exact multiword target.");
 
         SentencePack reparsed = SentencePackJson.Parse(SentencePackJson.Serialize(pack));
         Require(reparsed.Sentences.Count == pack.Sentences.Count && reparsed.License == "CC BY 2.0 FR",
