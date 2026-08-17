@@ -100,8 +100,10 @@ internal static class TatoebaSentencePackSelfTest
         {
             string pairPath = Path.Combine(root, "pairs.tsv");
             File.WriteAllText(pairPath, "english_id\tenglish_lang\tenglish\tukrainian_id\tukrainian_lang\tukrainian\n1\teng\tHello.\t2\tukr\tПривіт.\n");
-            using FileStream stream = File.OpenRead(pairPath);
-            string hash = Convert.ToHexString(SHA256.HashData(stream)).ToLowerInvariant();
+            string hash;
+            using (FileStream stream = File.OpenRead(pairPath))
+                hash = Convert.ToHexString(SHA256.HashData(stream)).ToLowerInvariant();
+
             string manifestPath = pairPath + ".manifest.json";
             File.WriteAllText(manifestPath, JsonSerializer.Serialize(new
             {
