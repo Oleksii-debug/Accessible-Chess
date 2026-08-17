@@ -2,7 +2,13 @@ using System.Globalization;
 
 namespace WordDeck;
 
-internal sealed record TatoebaSentencePair(long EnglishId, string English, long UkrainianId, string Ukrainian);
+internal sealed record TatoebaSentencePair(
+    long EnglishId,
+    string English,
+    long UkrainianId,
+    string Ukrainian,
+    string? EnglishAuthor = null,
+    string? UkrainianAuthor = null);
 
 internal sealed record SentencePackBuildReport(
     int InputPairs,
@@ -26,6 +32,19 @@ internal static class TatoebaPairTsv
             if (LooksLikeHeader(columns))
                 continue;
 
+            if (columns.Length == 8)
+            {
+                string enLang = columns[1].Trim();
+                string ukLang = columns[5].Trim();
+                if (!IsEnglish(enLang) || !IsUkrainian(ukLang))
+                    throw new InvalidDataException($"Tatoeba pair line {lineNumber} is not EN-UA: {enLang}/{ukLang}.");
+
+                yield return ParsePair(
+                    columns[0], columns[2], columns[4], columns[6], lineNumber,
+                    columns[3], columns[7], requireAuthors: true);
+                continue;
+            }
+
             if (columns.Length == 6)
             {
                 string enLang = columns[1].Trim();
@@ -44,13 +63,19 @@ internal static class TatoebaPairTsv
             }
 
             throw new InvalidDataException(
-                $"Tatoeba pair line {lineNumber} has {columns.Length} columns. Expected either " +
-                "EnglishId<TAB>English<TAB>UkrainianId<TAB>Ukrainian or " +
-                "EnglishId<TAB>EnglishLang<TAB>English<TAB>UkrainianId<TAB>UkrainianLang<TAB>Ukrainian.");
+                $"Tatoeba pair line {lineNumber} has {columns.Length} columns. Expected 4, 6, or attributed 8-column EN-UA layout.");
         }
     }
 
-    private static TatoebaSentencePair ParsePair(string enIdRaw, string englishRaw, string ukIdRaw, string ukrainianRaw, int lineNumber)
+    private static TatoebaSentencePair ParsePair(
+        string enIdRaw,
+        string englishRaw,
+        string ukIdRaw,
+        string ukrainianRaw,
+        int lineNumber,
+        string? englishAuthorRaw = null,
+        string? ukrainianAuthorRaw = null,
+        bool requireAuthors = false)
     {
         if (!long.TryParse(enIdRaw.Trim(), NumberStyles.None, CultureInfo.InvariantCulture, out long enId) || enId <= 0)
             throw new InvalidDataException($"Tatoeba pair line {lineNumber} has an invalid English sentence id.");
@@ -64,7 +89,19 @@ internal static class TatoebaPairTsv
         if (english.Contains('\t') || ukrainian.Contains('\t'))
             throw new InvalidDataException($"Tatoeba pair line {lineNumber} contains an unexpected embedded TAB.");
 
-        return new TatoebaSentencePair(enId, english, ukId, ukrainian);
+        string? englishAuthor = NormalizeAuthor(englishAuthorRaw);
+        string? ukrainianAuthor = NormalizeAuthor(ukrainianAuthorRaw);
+        if (requireAuthors && (englishAuthor is null || ukrainianAuthor is null))
+            throw new InvalidDataException($"Tatoeba attributed pair line {lineNumber} is missing an author username.");
+
+        return new TatoebaSentencePair(enId, english, ukId, ukrainian, englishAuthor, ukrainianAuthor);
+    }
+
+    private static string? NormalizeAuthor(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw)) return null;
+        string value = raw.Trim();
+        return value is "\\N" or "-" or "?" ? null : value;
     }
 
     private static bool LooksLikeHeader(string[] columns)
@@ -164,13 +201,11 @@ internal static class TatoebaSentencePackBuilder
                 Id = stableId,
                 English = pair.English,
                 Ukrainian = pair.Ukrainian,
-                Source = "Tatoeba EN-UA sentence-pair export",
+                Source = BuildRecordSource(pair),
                 License = license,
                 SourceSentenceId = pair.EnglishId.ToString(CultureInfo.InvariantCulture),
                 TranslationSentenceId = pair.UkrainianId.ToString(CultureInfo.InvariantCulture),
                 Tokens = tokens.ToList(),
-                // Baseline importer uses normalized surface forms as lemmas. A later morphology pass
-                // can replace these without changing sentence IDs or the pack schema.
                 Lemmas = tokens.ToList(),
                 TargetEntryIds = targetIds.OrderBy(id => id, StringComparer.Ordinal).ToList(),
                 EntryLevels = entryLevels,
@@ -191,6 +226,13 @@ internal static class TatoebaSentencePackBuilder
         };
         pack.Validate();
         return (pack, new SentencePackBuildReport(input, sentences.Count, rejected, indexedIds, offListTotal));
+    }
+
+    private static string BuildRecordSource(TatoebaSentencePair pair)
+    {
+        if (!string.IsNullOrWhiteSpace(pair.EnglishAuthor) && !string.IsNullOrWhiteSpace(pair.UkrainianAuthor))
+            return $"Tatoeba; English sentence #{pair.EnglishId} by {pair.EnglishAuthor}; Ukrainian sentence #{pair.UkrainianId} by {pair.UkrainianAuthor}.";
+        return "Tatoeba EN-UA sentence-pair export";
     }
 
     private static Dictionary<string, List<DictionaryEntry>> BuildSurfaceIndex(IEnumerable<DictionaryEntry> entries)
