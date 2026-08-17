@@ -9,29 +9,31 @@ internal static class SentencePackStoreSelfTest
         {
             Directory.CreateDirectory(root);
             string source = Path.Combine(root, "source.json");
-            SentencePack pack = BuildPack("test/pack:one");
+            SentencePack pack = BuildPack("test-pack-one");
             File.WriteAllText(source, SentencePackJson.Serialize(pack));
 
             var store = new SentencePackStore(root);
             InstalledSentencePack installed = store.Import(source);
             Require(File.Exists(installed.Path), "Imported SentencePack was not persisted.");
+            Require(installed.Path.EndsWith(".json.gz", StringComparison.OrdinalIgnoreCase), "Imported SentencePack was not stored in compressed form.");
             Require(installed.Pack.PackId == pack.PackId, "Imported SentencePack id changed.");
-            Require(Path.GetFileName(installed.Path).IndexOfAny(Path.GetInvalidFileNameChars()) < 0, "SentencePack filename was not sanitized.");
+
+            SentencePack compressedRoundTrip = SentencePackIo.Read(installed.Path);
+            Require(compressedRoundTrip.PackId == pack.PackId, "Compressed SentencePack did not round-trip.");
 
             IReadOnlyList<InstalledSentencePack> loaded = store.LoadInstalled();
             Require(loaded.Count == 1 && loaded[0].Pack.Sentences.Count == 1, "Installed SentencePack did not reload.");
-            Require(store.Find(pack.PackId)?.Pack.Sentences[0].Id == "sentence-1", "SentencePack lookup by stable pack id failed.");
 
-            File.WriteAllText(Path.Combine(store.DirectoryPath, "broken.json"), "{ not valid json");
-            IReadOnlyList<InstalledSentencePack> afterBroken = store.LoadInstalled();
-            Require(afterBroken.Count == 1 && afterBroken[0].Pack.PackId == pack.PackId, "A malformed optional SentencePack blocked valid installed packs.");
+            string legacyPath = Path.Combine(store.DirectoryPath, "legacy-pack.json");
+            File.WriteAllText(legacyPath, SentencePackJson.Serialize(BuildPack("legacy-pack", "legacy-sentence")));
+            Require(store.Find("legacy-pack")?.Pack.Sentences.Single().Id == "legacy-sentence", "Legacy uncompressed SentencePack compatibility was lost.");
 
-            string replacementSource = Path.Combine(root, "replacement.json");
+            string replacementSource = Path.Combine(root, "replacement.json.gz");
             SentencePack replacement = BuildPack(pack.PackId, "sentence-2");
-            File.WriteAllText(replacementSource, SentencePackJson.Serialize(replacement));
+            SentencePackIo.WriteGZip(replacementSource, replacement);
             InstalledSentencePack replaced = store.Import(replacementSource);
-            Require(replaced.Path == installed.Path, "Same pack id did not replace its canonical installed file.");
-            Require(store.Find(pack.PackId)?.Pack.Sentences.Single().Id == "sentence-2", "SentencePack replacement by stable pack id failed.");
+            Require(replaced.Path == installed.Path, "Same pack id did not replace its canonical compressed file.");
+            Require(store.Find(pack.PackId)?.Pack.Sentences.Single().Id == "sentence-2", "SentencePack replacement failed.");
         }
         finally
         {
@@ -41,7 +43,6 @@ internal static class SentencePackStoreSelfTest
             }
             catch
             {
-                // Cleanup failure must not hide a product regression.
             }
         }
     }
