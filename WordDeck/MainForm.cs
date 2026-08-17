@@ -7,6 +7,7 @@ internal sealed class MainForm : Form
     private readonly AppStateStore _store = new();
     private readonly AppState _state;
     private readonly ShortcutManager _shortcuts;
+    private readonly PronunciationAudio _audio = new();
     private readonly Dictionary<string, DictionaryPackage> _packages = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, DictionaryEntry> _entriesById = new(StringComparer.OrdinalIgnoreCase);
     private DictionaryPackage _package = null!;
@@ -14,8 +15,6 @@ internal sealed class MainForm : Form
     private int _activeDeck;
     private readonly Random _random = new();
     private readonly Queue<string> _shuffleBag = new();
-    private readonly List<string> _history = new();
-    private int _historyIndex = -1;
     private DictionaryEntry? _current;
     private MoveUndo? _lastMove;
 
@@ -25,6 +24,7 @@ internal sealed class MainForm : Form
     private readonly TextBox _translationBox;
     private readonly Label _statusLabel;
     private readonly Label _countLabel;
+    private ToolStripMenuItem _autoPronunciationMenuItem = null!;
 
     public MainForm()
     {
@@ -156,7 +156,11 @@ internal sealed class MainForm : Form
         PopulateDictionaryCombo();
         SelectInitialPackage();
         Shown += (_, _) => BeginInvoke(new Action(NextWord));
-        FormClosing += (_, _) => SaveState();
+        FormClosing += (_, _) =>
+        {
+            _audio.Dispose();
+            SaveState();
+        };
     }
 
     private MenuStrip BuildMenu()
@@ -185,8 +189,20 @@ internal sealed class MainForm : Form
         }
 
         var tools = new ToolStripMenuItem("&Tools");
+        var playPronunciation = new ToolStripMenuItem("&Play generated British pronunciation");
+        playPronunciation.Click += (_, _) => PlayCurrentPronunciation();
+        _autoPronunciationMenuItem = new ToolStripMenuItem("&Automatic British pronunciation on card change")
+        {
+            Checked = _state.AutoPlayPronunciationOnCardChange,
+            CheckOnClick = false,
+            AccessibleName = "Automatic British pronunciation on card change"
+        };
+        _autoPronunciationMenuItem.Click += (_, _) => ToggleAutoPronunciation();
         var shortcuts = new ToolStripMenuItem("&Keyboard shortcuts...");
         shortcuts.Click += (_, _) => OpenShortcutSettings();
+        tools.DropDownItems.Add(playPronunciation);
+        tools.DropDownItems.Add(_autoPronunciationMenuItem);
+        tools.DropDownItems.Add(new ToolStripSeparator());
         tools.DropDownItems.Add(shortcuts);
 
         var help = new ToolStripMenuItem("&Help");
@@ -303,8 +319,6 @@ internal sealed class MainForm : Form
     private void ResetSequence()
     {
         _shuffleBag.Clear();
-        _history.Clear();
-        _historyIndex = -1;
         _current = null;
         FillShuffleBag();
     }
@@ -330,6 +344,7 @@ internal sealed class MainForm : Form
         IReadOnlyList<DictionaryEntry> active = EntriesInActiveDeck();
         if (active.Count == 0)
         {
+            _audio.Stop();
             _current = null;
             _wordBox.Text = "No words in this deck";
             _translationBox.Clear();
@@ -338,17 +353,6 @@ internal sealed class MainForm : Form
             _wordBox.Focus();
             AccessibilityAnnouncer.Announce(_wordBox, _wordBox.Text);
             return;
-        }
-
-        while (_historyIndex >= 0 && _historyIndex < _history.Count - 1)
-        {
-            _historyIndex++;
-            string historyId = _history[_historyIndex];
-            if (_deckMap.GetValueOrDefault(historyId, 1) == _activeDeck)
-            {
-                ShowEntryById(historyId);
-                return;
-            }
         }
 
         if (_shuffleBag.Count == 0)
@@ -360,8 +364,6 @@ internal sealed class MainForm : Form
             if (_deckMap.GetValueOrDefault(id, 1) != _activeDeck)
                 continue;
 
-            _history.Add(id);
-            _historyIndex = _history.Count - 1;
             ShowEntryById(id);
             return;
         }
@@ -369,32 +371,6 @@ internal sealed class MainForm : Form
         FillShuffleBag();
         if (_shuffleBag.Count > 0)
             NextWord();
-    }
-
-    private void PreviousWord()
-    {
-        if (_historyIndex <= 0)
-        {
-            AnnounceStatus("No earlier word in this session.");
-            FocusCurrentWord();
-            return;
-        }
-
-        int candidate = _historyIndex - 1;
-        while (candidate >= 0)
-        {
-            string id = _history[candidate];
-            if (_deckMap.GetValueOrDefault(id, 1) == _activeDeck)
-            {
-                _historyIndex = candidate;
-                ShowEntryById(id);
-                return;
-            }
-            candidate--;
-        }
-
-        AnnounceStatus("No earlier word remaining in this deck.");
-        FocusCurrentWord();
     }
 
     private void ShowEntryById(string id)
@@ -408,7 +384,10 @@ internal sealed class MainForm : Form
         _statusLabel.Text = $"Level {entry.Level}. Deck {_activeDeck}.";
         UpdateCounts();
         FocusCurrentWord();
-        AccessibilityAnnouncer.Announce(_wordBox, entry.Source);
+
+        bool nativeAudioPlayed = _state.AutoPlayPronunciationOnCardChange && TryPlayCurrentPronunciation(announceFailure: false);
+        if (!nativeAudioPlayed)
+            AccessibilityAnnouncer.Announce(_wordBox, entry.Source);
     }
 
     private void RevealTranslation()
@@ -429,6 +408,49 @@ internal sealed class MainForm : Form
 
         FocusCurrentWord();
         AccessibilityAnnouncer.Announce(_wordBox, _current.Source);
+    }
+
+    private void PlayCurrentPronunciation()
+    {
+        if (_current is null)
+        {
+            AnnounceStatus("No word is currently selected.");
+            return;
+        }
+
+        TryPlayCurrentPronunciation(announceFailure: true);
+    }
+
+    private bool TryPlayCurrentPronunciation(bool announceFailure)
+    {
+        if (_current is null)
+            return false;
+
+        if (_audio.TryPlay(_package, _current, out string? error))
+            return true;
+
+        if (announceFailure && !string.IsNullOrWhiteSpace(error))
+            AnnounceStatus(error);
+        return false;
+    }
+
+    private void ToggleAutoPronunciation()
+    {
+        _state.AutoPlayPronunciationOnCardChange = !_state.AutoPlayPronunciationOnCardChange;
+        _autoPronunciationMenuItem.Checked = _state.AutoPlayPronunciationOnCardChange;
+        SaveState();
+
+        if (_state.AutoPlayPronunciationOnCardChange)
+        {
+            AnnounceStatus("Automatic British pronunciation enabled.");
+            if (_current is not null)
+                TryPlayCurrentPronunciation(announceFailure: true);
+        }
+        else
+        {
+            _audio.Stop();
+            AnnounceStatus("Automatic British pronunciation disabled. Screen-reader word announcements remain enabled.");
+        }
     }
 
     private void FocusCurrentWord()
@@ -557,10 +579,14 @@ internal sealed class MainForm : Form
     {
         string shortcutLines = string.Join(Environment.NewLine,
             ShortcutManager.Definitions.Select(def => $"{def.Description}: {_shortcuts.Get(def.Id)}"));
+        string audioMode = _state.AutoPlayPronunciationOnCardChange ? "enabled" : "disabled";
         string help =
             "WORDDECK HELP\r\n\r\n" +
             "WordDeck shows only the English side of a card by default. Reveal the Ukrainian translation only when you need it. " +
-            "Words are drawn from the active deck in a shuffled bag: every word is presented once before the deck is reshuffled.\r\n\r\n" +
+            "Both navigation shortcuts draw another random card from the active deck. Every word is presented once before the shuffle bag is refilled, and the refill avoids an immediate repeat when the deck has more than one word.\r\n\r\n" +
+            "Generated British pronunciation is an optional offline audio layer keyed by the stable dictionary and entry IDs. " +
+            $"Automatic pronunciation on card change is currently {audioMode}. When automatic audio successfully starts, WordDeck suppresses its extra UI Automation word notification to reduce double speech; if audio is missing or cannot play, the normal screen-reader announcement remains the fallback. " +
+            "You can also play the generated pronunciation manually without changing the automatic setting.\r\n\r\n" +
             "Decks are user-controlled. Move the current word directly to any of the five decks. If you move a word accidentally, use Undo last deck move. " +
             "Switching decks changes which set you are training. All progress is saved locally in your Windows user profile and a recovery backup is maintained.\r\n\r\n" +
             "KEYBOARD SHORTCUTS\r\n" + shortcutLines + "\r\n\r\n" +
@@ -601,9 +627,10 @@ internal sealed class MainForm : Form
             return base.ProcessCmdKey(ref msg, keyData);
 
         if (action == ActionIds.NextWord) NextWord();
-        else if (action == ActionIds.PreviousWord) PreviousWord();
         else if (action == ActionIds.RevealTranslation) RevealTranslation();
         else if (action == ActionIds.RepeatWord) RepeatCurrentWord();
+        else if (action == ActionIds.PlayPronunciation) PlayCurrentPronunciation();
+        else if (action == ActionIds.ToggleAutoPronunciation) ToggleAutoPronunciation();
         else if (action == ActionIds.UndoMove) UndoLastMove();
         else if (action == ActionIds.ShortcutSettings) OpenShortcutSettings();
         else if (action == ActionIds.Help) ShowHelp();
