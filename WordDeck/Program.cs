@@ -10,10 +10,11 @@ internal static class Program
             try
             {
                 SpellingSelfTest.Run();
+                SentenceCoachSelfTest.Run();
             }
             catch (Exception ex)
             {
-                Console.Error.WriteLine($"WordDeck spelling self-test FAILED: {ex}");
+                Console.Error.WriteLine($"WordDeck extended self-test FAILED: {ex}");
                 return 1;
             }
             return SelfTest.Run();
