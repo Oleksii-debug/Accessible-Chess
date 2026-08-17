@@ -5,6 +5,7 @@ namespace WordDeck;
 internal sealed class SentencePackSqliteCorpus : ISentenceCorpus
 {
     private const int SupportedSchemaVersion = 2;
+    private const int ScopeChunkSize = 400;
     private readonly string _databasePath;
 
     public string PackId { get; }
@@ -44,6 +45,74 @@ internal sealed class SentencePackSqliteCorpus : ISentenceCorpus
 
     public IReadOnlyList<SentenceRecord> LookupAllTargets(IReadOnlyCollection<string> targetEntryIds) =>
         SentencePackSqlitePrototype.LookupAllTargets(_databasePath, targetEntryIds);
+
+    public HashSet<string> GetCoveredScopeEntryIds(IReadOnlyCollection<string> scopeEntryIds, bool requireSameScopePartner)
+    {
+        string[] scope = scopeEntryIds
+            .Where(id => !string.IsNullOrWhiteSpace(id))
+            .Select(id => id.Trim().ToLowerInvariant())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (scope.Length == 0)
+            return result;
+
+        using var connection = OpenReadOnly(_databasePath);
+        using (SqliteCommand create = connection.CreateCommand())
+        {
+            create.CommandText = "CREATE TEMP TABLE requested_scope(target_num INTEGER PRIMARY KEY) WITHOUT ROWID;";
+            create.ExecuteNonQuery();
+        }
+
+        for (int offset = 0; offset < scope.Length; offset += ScopeChunkSize)
+        {
+            string[] chunk = scope.Skip(offset).Take(ScopeChunkSize).ToArray();
+            using SqliteCommand insert = connection.CreateCommand();
+            var placeholders = new List<string>(chunk.Length);
+            for (int i = 0; i < chunk.Length; i++)
+            {
+                string name = "$id" + i;
+                placeholders.Add(name);
+                insert.Parameters.AddWithValue(name, chunk[i]);
+            }
+            insert.CommandText = $"INSERT OR IGNORE INTO requested_scope(target_num) SELECT target_num FROM target_entries WHERE entry_id IN ({string.Join(",", placeholders)});";
+            insert.ExecuteNonQuery();
+        }
+
+        using SqliteCommand query = connection.CreateCommand();
+        query.CommandText = requireSameScopePartner
+            ? """
+                SELECT te.entry_id
+                FROM requested_scope rs
+                JOIN target_entries te ON te.target_num = rs.target_num
+                WHERE EXISTS (
+                    SELECT 1
+                    FROM sentence_targets st1
+                    JOIN sentence_targets st2
+                      ON st2.sentence_num = st1.sentence_num
+                     AND st2.target_num <> st1.target_num
+                    JOIN requested_scope rs2 ON rs2.target_num = st2.target_num
+                    WHERE st1.target_num = rs.target_num
+                    LIMIT 1
+                );
+                """
+            : """
+                SELECT te.entry_id
+                FROM requested_scope rs
+                JOIN target_entries te ON te.target_num = rs.target_num
+                WHERE EXISTS (
+                    SELECT 1
+                    FROM sentence_targets st
+                    WHERE st.target_num = rs.target_num
+                    LIMIT 1
+                );
+                """;
+
+        using SqliteDataReader reader = query.ExecuteReader();
+        while (reader.Read())
+            result.Add(reader.GetString(0));
+        return result;
+    }
 
     private static SqliteConnection OpenReadOnly(string path)
     {
