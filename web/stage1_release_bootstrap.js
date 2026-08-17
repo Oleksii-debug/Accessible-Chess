@@ -19,7 +19,9 @@ const focusState = window.__accessibleChessStage1FocusState || {
     context: 'other',
     boardSquare: '',
     boardNode: null,
+    restoreGeneration: 0,
 };
+if (!Number.isInteger(focusState.restoreGeneration)) focusState.restoreGeneration = 0;
 window.__accessibleChessStage1FocusState = focusState;
 
 function rememberBoardFocus(cell) {
@@ -33,6 +35,35 @@ function rememberMoveInputFocus() {
     focusState.context = 'move';
     focusState.boardSquare = '';
     focusState.boardNode = null;
+    // A real return to move entry cancels any deferred board-origin restore.
+    focusState.restoreGeneration += 1;
+}
+
+function restoreBoardSquare(square, generation) {
+    if (!square || focusState.restoreGeneration !== generation) return false;
+    const board = byId('board-application');
+    const grid = byId('board-grid');
+    if (!board || board.hidden || !grid) return false;
+    const sameSquare = byId('sq-' + square);
+    const rovingCell = grid.querySelector('[role="gridcell"][tabindex="0"]');
+    const target = sameSquare || rovingCell;
+    if (!target) return false;
+    target.focus({preventScroll: true});
+    rememberBoardFocus(target);
+    return true;
+}
+
+function settleBoardFocusAfterInvoke(square) {
+    if (!square) return;
+    const generation = focusState.restoreGeneration + 1;
+    focusState.restoreGeneration = generation;
+
+    // First restore immediately after the canonical rerender, then restore once
+    // more on the next browser task. Windows UIA Invoke/WebView2 may apply the
+    // native button focus after the JavaScript submit handler returns; the
+    // deferred pass is therefore the authoritative settled-focus phase.
+    restoreBoardSquare(square, generation);
+    setTimeout(() => restoreBoardSquare(square, generation), 0);
 }
 
 function installMoveFocusPolicy() {
@@ -41,7 +72,6 @@ function installMoveFocusPolicy() {
 
     const wrappedSubmit = async function(...args) {
         const grid = byId('board-grid');
-        const board = byId('board-application');
         const active = document.activeElement;
         const activeCell = active && typeof active.closest === 'function'
             ? active.closest('[role="gridcell"]')
@@ -55,15 +85,7 @@ function installMoveFocusPolicy() {
 
         const result = await baseSubmit.apply(this, args);
 
-        if (boardSquare && board && !board.hidden) {
-            const sameSquare = byId('sq-' + boardSquare);
-            const rovingCell = grid && grid.querySelector('[role="gridcell"][tabindex="0"]');
-            const target = sameSquare || rovingCell;
-            if (target) {
-                target.focus({preventScroll: true});
-                rememberBoardFocus(target);
-            }
-        }
+        if (boardSquare) settleBoardFocusAfterInvoke(boardSquare);
         return result;
     };
     wrappedSubmit.__stage1FocusPolicy = true;
