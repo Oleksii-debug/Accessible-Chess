@@ -1,0 +1,103 @@
+name: WordDeck attributed SentencePack build
+
+on:
+  push:
+    branches: [worddeck-bootstrap]
+    paths:
+      - '.github/workflows/worddeck-sentencepack-ccby.yml'
+      - 'WordDeck/tools/build_tatoeba_ccby_pairs.py'
+      - 'WordDeck/TatoebaImportProvenance.cs'
+      - 'WordDeck/TatoebaSentencePackBuilder.cs'
+      - 'WordDeck/Program.cs'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-attributed-pack:
+    runs-on: windows-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout worddeck branch
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Validate attributed pair builder
+        shell: pwsh
+        run: python .\WordDeck\tools\build_tatoeba_ccby_pairs.py --self-test
+
+      - name: Restore build and regression test
+        shell: pwsh
+        run: |
+          dotnet restore .\WordDeck\WordDeck.csproj
+          dotnet build .\WordDeck\WordDeck.csproj -c Release --no-restore
+          dotnet run --project .\WordDeck\WordDeck.csproj -c Release --no-build -- --self-test
+
+      - name: Download detailed exports and build attributed EN-UA pairs
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path .\sentencepack-ccby | Out-Null
+          python .\WordDeck\tools\build_tatoeba_ccby_pairs.py `
+            --download-dir .\sentencepack-ccby\upstream `
+            --output .\sentencepack-ccby\tatoeba-en-uk-ccby.tsv `
+            --manifest .\sentencepack-ccby\tatoeba-en-uk-ccby.tsv.manifest.json
+
+      - name: Build attributed WordDeck SentencePack
+        shell: pwsh
+        run: |
+          $stamp = (Get-Date).ToUniversalTime().ToString('yyyyMMdd')
+          dotnet run --project .\WordDeck\WordDeck.csproj -c Release --no-build -- `
+            --build-tatoeba-sentence-pack `
+            .\sentencepack-ccby\tatoeba-en-uk-ccby.tsv `
+            .\sentencepack-ccby\tatoeba-en-uk-ccby-sentencepack.json `
+            "tatoeba-en-uk-ccby-$stamp" 2>&1 | Tee-Object -FilePath .\sentencepack-ccby\builder.log
+
+      - name: Validate attribution and write coverage report
+        shell: pwsh
+        run: |
+          $pack = Get-Content '.\sentencepack-ccby\tatoeba-en-uk-ccby-sentencepack.json' -Raw | ConvertFrom-Json
+          if ($pack.License -ne 'CC BY 2.0 FR') { throw "Unexpected license: $($pack.License)" }
+          if ($pack.Sentences.Count -lt 1) { throw 'Attributed pack contains no accepted sentences.' }
+          $missingAttribution = @($pack.Sentences | Where-Object { $_.Source -notmatch 'English sentence #[0-9]+ by .+; Ukrainian sentence #[0-9]+ by .+' }).Count
+          if ($missingAttribution -ne 0) { throw "$missingAttribution accepted sentences are missing per-side author attribution." }
+
+          $targetRefs = @($pack.Sentences | ForEach-Object { $_.TargetEntryIds } | Where-Object { $_ } | Sort-Object -Unique)
+          $twoTargetReady = @($pack.Sentences | Where-Object { @($_.TargetEntryIds | Sort-Object -Unique).Count -ge 2 }).Count
+          $threeTargetReady = @($pack.Sentences | Where-Object { @($_.TargetEntryIds | Sort-Object -Unique).Count -ge 3 }).Count
+          $qualityFlagged = @($pack.Sentences | Where-Object { @($_.QualityFlags).Count -gt 0 }).Count
+          $report = [ordered]@{
+            generated_utc = (Get-Date).ToUniversalTime().ToString('o')
+            pack_id = $pack.PackId
+            license = $pack.License
+            sentences = $pack.Sentences.Count
+            unique_indexed_oxford_entry_ids = $targetRefs.Count
+            sentences_with_at_least_2_target_ids = $twoTargetReady
+            sentences_with_at_least_3_target_ids = $threeTargetReady
+            quality_flagged_sentences = $qualityFlagged
+            sentences_missing_per_side_author_attribution = $missingAttribution
+            note = 'Coverage is against the current embedded 3308-entry Oxford package. Every accepted record keeps both Tatoeba usernames and upstream sentence IDs.'
+          }
+          $report | ConvertTo-Json | Set-Content .\sentencepack-ccby\coverage-report.json -Encoding utf8
+          $report | Format-List
+
+      - name: Upload attributed SentencePack artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: WordDeck-Tatoeba-EN-UA-Attributed-SentencePack
+          path: |
+            sentencepack-ccby/tatoeba-en-uk-ccby-sentencepack.json
+            sentencepack-ccby/tatoeba-en-uk-ccby.tsv.manifest.json
+            sentencepack-ccby/coverage-report.json
+            sentencepack-ccby/builder.log
+          if-no-files-found: error
+          retention-days: 30
