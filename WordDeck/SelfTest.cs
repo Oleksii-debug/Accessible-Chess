@@ -17,12 +17,13 @@ internal static class SelfTest
         {
             TestEmbeddedOxford();
             TestImportParserFailsClosed();
+            TestBulkWordParser();
             TestLegacyDeckMigrationAndDynamicDeckOperations();
             TestShuffleBagForCoreAndUserDecks();
             TestShortcutRegistryAndRebinding();
             TestPronunciationAudioLayer();
             TestStatePersistenceAndRecovery();
-            Console.WriteLine("WordDeck self-test passed: Oxford dictionary, strict imports, lossless dynamic-deck migration, random shuffle bags, per-deck shortcuts, optional pronunciation controls, and persistent recovery state validated.");
+            Console.WriteLine("WordDeck self-test passed: Oxford dictionary, strict imports, pasted custom cards, lossless dynamic-deck migration, random shuffle bags, configurable shortcuts, optional pronunciation controls, resume position, and persistent recovery state validated.");
             return 0;
         }
         catch (Exception ex)
@@ -72,6 +73,31 @@ internal static class SelfTest
         ExpectInvalid("entryId\tlevel\tsource\ttarget\ncustom-1\tA1\t\tпривіт", "blank source");
         ExpectInvalid("entryId\tlevel\tsource\ttarget\ncustom-1\tA1\thello\t", "blank translation");
         ExpectInvalid("entryId\tlevel\tsource\ttarget\ncustom-1\tA1\thello\tпривіт\ncustom-1\tA1\thi\tвітаю", "duplicate entry id");
+    }
+
+    private static void TestBulkWordParser()
+    {
+        const string pasted = "apple\tяблуко\r\ntake care of | піклуватися про\r\nbook, книга\r\nlook after — доглядати за";
+        IReadOnlyList<WordPair> pairs = BulkWordParser.Parse(pasted);
+        Require(pairs.Count == 4, $"Expected four pasted cards, got {pairs.Count}.");
+        Require(pairs[0] == new WordPair("apple", "яблуко"), "TAB-separated pair was parsed incorrectly.");
+        Require(pairs[1] == new WordPair("take care of", "піклуватися про"), "Pipe-separated phrase was parsed incorrectly.");
+        Require(pairs[2] == new WordPair("book", "книга"), "Comma-separated pair was parsed incorrectly.");
+        Require(pairs[3] == new WordPair("look after", "доглядати за"), "Dash-separated pair was parsed incorrectly.");
+
+        IReadOnlyList<WordPair> deduplicated = BulkWordParser.Parse("apple\tяблуко\nAPPLE\tЯБЛУКО");
+        Require(deduplicated.Count == 1, "Duplicate pasted pairs were not deduplicated case-insensitively.");
+
+        bool invalidRejected = false;
+        try
+        {
+            BulkWordParser.Parse("this line has no separator");
+        }
+        catch (InvalidDataException)
+        {
+            invalidRejected = true;
+        }
+        Require(invalidRejected, "Ambiguous pasted text without a pair separator was accepted.");
     }
 
     private static void TestLegacyDeckMigrationAndDynamicDeckOperations()
@@ -181,17 +207,19 @@ internal static class SelfTest
         var state = AppStateStore.Normalize(new AppState());
         var manager = new ShortcutManager(state);
         IReadOnlyList<ShortcutDefinition> definitions = manager.Definitions;
-        Require(definitions.Count == 19, $"Expected 19 actions with five core deck switch/move pairs, got {definitions.Count}.");
+        Require(definitions.Count == 21, $"Expected 21 actions with save, pasted-word import and five core deck switch/move pairs, got {definitions.Count}.");
         Require(definitions.Any(def => def.Id == ActionIds.UndoMove), "Undo last deck move is missing from configurable shortcuts.");
         Require(definitions.Any(def => def.Id == ActionIds.PlayPronunciation), "Manual generated pronunciation is missing from configurable shortcuts.");
         Require(definitions.Any(def => def.Id == ActionIds.ToggleAutoPronunciation), "Automatic pronunciation toggle is missing from configurable shortcuts.");
+        Require(definitions.Any(def => def.Id == ActionIds.AddWords), "Bulk pasted-word import is missing from configurable shortcuts.");
+        Require(definitions.Any(def => def.Id == ActionIds.SaveProgress), "Explicit save is missing from configurable shortcuts.");
         Require(definitions.Select(def => def.Id).Distinct(StringComparer.OrdinalIgnoreCase).Count() == definitions.Count,
             "Shortcut action IDs must be unique.");
         Require(definitions.Where(def => def.DefaultKeys != Keys.None).Select(def => def.DefaultKeys).Distinct().Count() == definitions.Count(def => def.DefaultKeys != Keys.None),
             "Assigned default shortcuts must be unique.");
 
         Keys[] replacementKeys = Enumerable.Range(0, definitions.Count)
-            .Select(index => Keys.Control | Keys.Shift | (Keys)((int)Keys.A + index))
+            .Select(index => Keys.Control | Keys.Alt | Keys.Shift | (Keys)((int)Keys.F1 + index))
             .ToArray();
 
         for (int i = 0; i < definitions.Count; i++)
@@ -250,7 +278,7 @@ internal static class SelfTest
         manager.RefreshDeckDefinitions();
         string switchAction = ActionIds.SwitchDeck(userDeck.Id);
         string moveAction = ActionIds.MoveToDeck(userDeck.Id);
-        Require(manager.Definitions.Count == 21, "Creating a user deck did not add its switch and move shortcut actions.");
+        Require(manager.Definitions.Count == 23, "Creating a user deck did not add its switch and move shortcut actions.");
         Require(manager.Get(switchAction) == Keys.None && manager.Get(moveAction) == Keys.None,
             "User-created deck shortcuts must start unassigned.");
 
@@ -296,21 +324,28 @@ internal static class SelfTest
         string root = Path.Combine(Path.GetTempPath(), $"WordDeck-self-test-{Guid.NewGuid():N}");
         try
         {
+            const string dictionaryId = "oxford-3000-en-uk";
             var store = new AppStateStore(root);
             var state = AppStateStore.Normalize(new AppState
             {
-                ActiveDictionaryId = "oxford-3000-en-uk",
+                ActiveDictionaryId = dictionaryId,
                 AutoPlayPronunciationOnCardChange = true
             });
             var service = new DeckService(state);
             service.Rename(DeckIds.Core(1), "Inbox words");
             DeckDefinition custom = service.Create("Persistent custom");
             state.ActiveDeckId = custom.Id;
-            state.DeckIdsByDictionary["oxford-3000-en-uk"] = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            state.DeckIdsByDictionary[dictionaryId] = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
             {
                 ["oxford-a1-0001"] = DeckIds.Core(3),
-                ["oxford-a1-0002"] = custom.Id
+                ["oxford-a1-0002"] = custom.Id,
+                ["custom-test-1"] = custom.Id
             };
+            state.CustomEntriesByDictionary[dictionaryId] = new List<CustomEntryRecord>
+            {
+                new("custom-test-1", "useful phrase", "корисна фраза")
+            };
+            state.CurrentEntryIdByDictionary[dictionaryId] = "custom-test-1";
 
             var shortcuts = new ShortcutManager(state);
             Keys persistedShortcut = Keys.Control | Keys.Shift | Keys.Z;
@@ -325,16 +360,20 @@ internal static class SelfTest
             store.Save(state);
 
             AppState reloaded = new AppStateStore(root).Load();
-            Require(reloaded.ActiveDictionaryId == "oxford-3000-en-uk", "Active dictionary did not survive restart.");
+            Require(reloaded.ActiveDictionaryId == dictionaryId, "Active dictionary did not survive restart.");
             Require(reloaded.ActiveDeckId == custom.Id, "Active user-created deck did not survive restart.");
             Require(reloaded.AutoPlayPronunciationOnCardChange, "Automatic pronunciation preference did not survive restart.");
             Require(reloaded.Decks.First(deck => deck.Id == DeckIds.Core(1)).Name == "Inbox words", "Renamed default deck did not survive restart.");
             Require(reloaded.Decks.Any(deck => deck.Id == custom.Id && deck.Name == "Persistent custom" && !deck.IsCore),
                 "User-created deck definition did not survive restart.");
-            Require(reloaded.DeckIdsByDictionary["oxford-3000-en-uk"]["oxford-a1-0001"] == DeckIds.Core(3),
+            Require(reloaded.DeckIdsByDictionary[dictionaryId]["oxford-a1-0001"] == DeckIds.Core(3),
                 "Stable core deck assignment did not survive restart.");
-            Require(reloaded.DeckIdsByDictionary["oxford-3000-en-uk"]["oxford-a1-0002"] == custom.Id,
+            Require(reloaded.DeckIdsByDictionary[dictionaryId]["oxford-a1-0002"] == custom.Id,
                 "User-created deck assignment did not survive restart.");
+            Require(reloaded.CustomEntriesByDictionary[dictionaryId].Single().Source == "useful phrase",
+                "User-added card did not survive restart.");
+            Require(reloaded.CurrentEntryIdByDictionary[dictionaryId] == "custom-test-1",
+                "Last current card did not survive restart.");
             var reloadedShortcuts = new ShortcutManager(reloaded);
             Require(reloadedShortcuts.Get(ActionIds.RevealTranslation) == persistedShortcut,
                 "Rebound shortcut did not survive restart.");
@@ -346,7 +385,9 @@ internal static class SelfTest
             // A second valid save creates a recovery snapshot of the first state.
             reloaded.ActiveDeckId = DeckIds.Core(2);
             reloaded.AutoPlayPronunciationOnCardChange = false;
-            reloaded.DeckIdsByDictionary["oxford-3000-en-uk"]["oxford-a1-0001"] = DeckIds.Core(5);
+            reloaded.DeckIdsByDictionary[dictionaryId]["oxford-a1-0001"] = DeckIds.Core(5);
+            reloaded.CustomEntriesByDictionary[dictionaryId][0] = new CustomEntryRecord("custom-test-1", "changed", "змінено");
+            reloaded.CurrentEntryIdByDictionary[dictionaryId] = "oxford-a1-0002";
             store.Save(reloaded);
 
             string primaryPath = Path.Combine(root, "state.json");
@@ -354,8 +395,12 @@ internal static class SelfTest
             AppState recovered = new AppStateStore(root).Load();
             Require(recovered.ActiveDeckId == custom.Id, "Backup recovery did not restore the last known-good active custom deck.");
             Require(recovered.AutoPlayPronunciationOnCardChange, "Backup recovery did not restore automatic pronunciation preference.");
-            Require(recovered.DeckIdsByDictionary["oxford-3000-en-uk"]["oxford-a1-0001"] == DeckIds.Core(3),
+            Require(recovered.DeckIdsByDictionary[dictionaryId]["oxford-a1-0001"] == DeckIds.Core(3),
                 "Backup recovery did not restore the last known-good deck assignment.");
+            Require(recovered.CustomEntriesByDictionary[dictionaryId].Single().Source == "useful phrase",
+                "Backup recovery did not restore the original custom card.");
+            Require(recovered.CurrentEntryIdByDictionary[dictionaryId] == "custom-test-1",
+                "Backup recovery did not restore the previous current card.");
             var recoveredShortcuts = new ShortcutManager(recovered);
             Require(recoveredShortcuts.Get(ActionIds.RevealTranslation) == persistedShortcut,
                 "Backup recovery did not restore the rebound shortcut.");
