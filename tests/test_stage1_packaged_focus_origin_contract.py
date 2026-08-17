@@ -62,8 +62,6 @@ class Stage1PackagedFocusOriginContractTests(unittest.TestCase):
         self.assertNotIn("form.appendChild(input)", text)
         self.assertNotIn("row.replaceWith", text)
         self.assertNotIn("document.createElement('form')", text)
-        # The original document owns Enter and button dispatch for the same
-        # persistent Edit node; the release bootstrap only observes focus.
         self.assertIn("el('move-submit').addEventListener('click',submitMove)", self.html)
         self.assertIn("el('move-input').addEventListener('keydown'", self.html)
 
@@ -77,8 +75,6 @@ class Stage1PackagedFocusOriginContractTests(unittest.TestCase):
         self.assertIn("stage1MoveUiaSemanticsReady", text)
         self.assertIn("? {input: 'Move', submit: 'Make move'}", text)
         self.assertIn(": {input: 'Хід', submit: 'Зробити хід'}", text)
-        # Keep the normal concise HTML label too; aria-describedby must not be
-        # used to inject tutorial prose when the Edit receives focus.
         self.assertIn('<label for="move-input">Хід</label>', self.html)
         move_markup = self.html.split('<input id="move-input"', 1)[1].split('>', 1)[0]
         self.assertNotIn("aria-describedby", move_markup)
@@ -91,10 +87,7 @@ class Stage1PackagedFocusOriginContractTests(unittest.TestCase):
         mark_ready = text[text.index("async function markReady()"):text.index("installMoveFocusPolicy();")]
         self.assertIn("stabilizeMoveEntryUiaSemantics();", mark_ready)
         self.assertIn("document.body.dataset.stage1AppReady = 'true'", mark_ready)
-        self.assertLess(
-            mark_ready.index("stabilizeMoveEntryUiaSemantics();"),
-            mark_ready.index("stage1AppReady = 'true'"),
-        )
+        self.assertLess(mark_ready.index("stabilizeMoveEntryUiaSemantics();"), mark_ready.index("stage1AppReady = 'true'"))
         self.assertIn("function refreshReleaseLanguageSemantics()", text)
         self.assertIn("stabilizeMoveEntryUiaSemantics();", text[text.index("function refreshReleaseLanguageSemantics()"):])
         self.assertIn("new MutationObserver(refreshReleaseLanguageSemantics)", text)
@@ -116,7 +109,7 @@ class Stage1PackagedFocusOriginContractTests(unittest.TestCase):
         self.assertIn("focusState.context = 'board'", text)
         self.assertIn("focusState.boardSquare = cell.dataset.square || ''", text)
         self.assertIn("function rememberMoveInputFocus()", text)
-        self.assertIn("focusState.context = 'move'", text)
+        self.assertIn("cancelBoardFocusContext('move')", text)
         self.assertIn("focusState.context === 'board' ? focusState.boardSquare : ''", text)
         self.assertIn("const result = await baseSubmit.apply(this, args)", text)
         self.assertIn("settleBoardFocusAfterInvoke(boardSquare)", text)
@@ -134,12 +127,37 @@ class Stage1PackagedFocusOriginContractTests(unittest.TestCase):
     def test_move_edit_focus_cancels_pending_board_restore(self) -> None:
         text = self.bootstrap
         start = text.index("function rememberMoveInputFocus()")
+        end = text.index("function installSemanticFocusBoundary", start)
+        body = text[start:end]
+        self.assertIn("cancelBoardFocusContext('move')", body)
+        cancel_start = text.index("function cancelBoardFocusContext")
+        cancel_end = text.index("function rememberMoveInputFocus", cancel_start)
+        cancel_body = text[cancel_start:cancel_end]
+        self.assertIn("focusState.boardSquare = ''", cancel_body)
+        self.assertIn("focusState.boardNode = null", cancel_body)
+        self.assertIn("focusState.restoreGeneration += 1", cancel_body)
+
+    def test_real_focus_leaving_board_clears_stale_board_origin_for_undo_redo_fen_editor_and_history(self) -> None:
+        text = self.bootstrap
+        start = text.index("function installSemanticFocusBoundary()")
         end = text.index("function restoreBoardSquare", start)
         body = text[start:end]
-        self.assertIn("focusState.context = 'move'", body)
-        self.assertIn("focusState.boardSquare = ''", body)
-        self.assertIn("focusState.boardNode = null", body)
-        self.assertIn("focusState.restoreGeneration += 1", body)
+        self.assertIn("document.addEventListener('focusin'", body)
+        self.assertIn("rememberBoardFocus(cell)", body)
+        self.assertIn("rememberMoveInputFocus()", body)
+        self.assertIn("cancelBoardFocusContext('other')", body)
+        self.assertIn("stage1SemanticFocusBoundaryReady", body)
+        for control_id in ("undo", "redo", "fen-input", "position-input", "history-input"):
+            self.assertIn(f'id="{control_id}"', self.html)
+
+    def test_native_uia_submit_focus_is_the_only_nonboard_bridge_that_preserves_board_origin(self) -> None:
+        text = self.bootstrap
+        start = text.index("function installSemanticFocusBoundary()")
+        end = text.index("function restoreBoardSquare", start)
+        body = text[start:end]
+        self.assertIn("target === byId('move-submit') && focusState.context === 'board'", body)
+        self.assertIn("cancelBoardFocusContext('other')", body)
+        self.assertLess(body.index("target === byId('move-submit') && focusState.context === 'board'"), body.index("cancelBoardFocusContext('other')"))
 
     def test_copy_selection_and_document_shortcuts_are_not_newly_hijacked(self) -> None:
         text = self.bootstrap

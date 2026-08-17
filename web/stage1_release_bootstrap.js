@@ -83,12 +83,41 @@ function rememberBoardFocus(cell) {
     focusState.boardNode = cell;
 }
 
-function rememberMoveInputFocus() {
-    focusState.context = 'move';
+function cancelBoardFocusContext(context = 'other') {
+    focusState.context = context;
     focusState.boardSquare = '';
     focusState.boardNode = null;
-    // A real return to move entry cancels any deferred board-origin restore.
     focusState.restoreGeneration += 1;
+}
+
+function rememberMoveInputFocus() {
+    // A real return to move entry cancels any deferred board-origin restore.
+    cancelBoardFocusContext('move');
+}
+
+function installSemanticFocusBoundary() {
+    if (document.body.dataset.stage1SemanticFocusBoundaryReady === 'true') return;
+    document.addEventListener('focusin', event => {
+        const target = event.target;
+        if (!target || typeof target.closest !== 'function') return;
+        const grid = byId('board-grid');
+        const cell = target.closest('[role="gridcell"]');
+        if (cell && grid && grid.contains(cell)) {
+            rememberBoardFocus(cell);
+            return;
+        }
+        if (target === byId('move-input')) {
+            rememberMoveInputFocus();
+            return;
+        }
+        // UIA Invoke can transiently focus the native submit button after a
+        // semantic board-origin action. Preserve that one bridge only. Any
+        // other real focus destination means the user has left the board, so a
+        // later undo/redo/FEN/editor rerender must not drag focus back there.
+        if (target === byId('move-submit') && focusState.context === 'board') return;
+        cancelBoardFocusContext('other');
+    }, true);
+    document.body.dataset.stage1SemanticFocusBoundaryReady = 'true';
 }
 
 function restoreBoardSquare(square, generation) {
@@ -395,6 +424,7 @@ async function markReady() {
 installMoveFocusPolicy();
 installMoveEntryIdentity();
 installBoardFocusContinuity();
+installSemanticFocusBoundary();
 installSoundSettings();
 new MutationObserver(refreshReleaseLanguageSemantics).observe(document.documentElement, {attributes:true, attributeFilter:['lang']});
 if (api()) markReady();
