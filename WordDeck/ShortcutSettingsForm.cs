@@ -10,8 +10,8 @@ internal sealed class ShortcutSettingsForm : Form
         _manager = manager;
         Text = "Keyboard shortcuts";
         StartPosition = FormStartPosition.CenterParent;
-        Width = 720;
-        Height = 520;
+        Width = 760;
+        Height = 560;
         MinimizeBox = false;
         MaximizeBox = false;
         KeyPreview = true;
@@ -22,7 +22,7 @@ internal sealed class ShortcutSettingsForm : Form
             Dock = DockStyle.Top,
             AutoSize = true,
             Padding = new Padding(8),
-            Text = "Select a function and press Enter, or choose Change selected. Then press the shortcut you want. Esc cancels shortcut capture.",
+            Text = "Select a function and press Enter, or choose Change selected. Then press the shortcut you want. Esc cancels shortcut capture. User-created deck shortcuts start unassigned and can be assigned here.",
             AccessibleName = "Shortcut settings instructions"
         };
 
@@ -36,7 +36,7 @@ internal sealed class ShortcutSettingsForm : Form
             AccessibleName = "Shortcut actions",
             AccessibleDescription = "Each row contains a WordDeck function and its currently assigned shortcut. Select a row and press Enter to change it."
         };
-        _list.Columns.Add("Function", 430);
+        _list.Columns.Add("Function", 480);
         _list.Columns.Add("Current shortcut", 220);
         _list.DoubleClick += (_, _) => ChangeSelected();
         _list.KeyDown += (_, e) =>
@@ -59,6 +59,8 @@ internal sealed class ShortcutSettingsForm : Form
 
         var changeButton = new Button { Text = "Change selected", AutoSize = true, AccessibleName = "Change selected shortcut" };
         changeButton.Click += (_, _) => ChangeSelected();
+        var clearButton = new Button { Text = "Clear selected", AutoSize = true, AccessibleName = "Clear selected shortcut" };
+        clearButton.Click += (_, _) => ClearSelected();
         var resetButton = new Button { Text = "Reset defaults", AutoSize = true, AccessibleName = "Reset all shortcuts to defaults" };
         resetButton.Click += (_, _) =>
         {
@@ -67,6 +69,7 @@ internal sealed class ShortcutSettingsForm : Form
         };
         var closeButton = new Button { Text = "Close", AutoSize = true, DialogResult = DialogResult.OK, AccessibleName = "Close shortcut settings" };
         buttons.Controls.Add(changeButton);
+        buttons.Controls.Add(clearButton);
         buttons.Controls.Add(resetButton);
         buttons.Controls.Add(closeButton);
 
@@ -88,10 +91,11 @@ internal sealed class ShortcutSettingsForm : Form
         string? selectedId = _list.SelectedItems.Count > 0 ? _list.SelectedItems[0].Tag as string : null;
         _list.BeginUpdate();
         _list.Items.Clear();
-        foreach (ShortcutDefinition def in ShortcutManager.Definitions)
+        foreach (ShortcutDefinition def in _manager.Definitions)
         {
             var item = new ListViewItem(def.Description) { Tag = def.Id };
-            item.SubItems.Add(_manager.Get(def.Id).ToString());
+            Keys current = _manager.Get(def.Id);
+            item.SubItems.Add(current == Keys.None ? "Unassigned" : current.ToString());
             _list.Items.Add(item);
             if (def.Id == selectedId)
                 item.Selected = true;
@@ -113,7 +117,13 @@ internal sealed class ShortcutSettingsForm : Form
             return;
 
         string actionId = (string)_list.SelectedItems[0].Tag!;
-        ShortcutDefinition definition = ShortcutManager.Definitions.First(x => x.Id == actionId);
+        ShortcutDefinition? definition = _manager.Definitions.FirstOrDefault(x => x.Id == actionId);
+        if (definition is null)
+        {
+            RefreshList();
+            return;
+        }
+
         using var dialog = new ShortcutCaptureForm(definition.Description, _manager.Get(actionId));
         if (dialog.ShowDialog(this) != DialogResult.OK)
             return;
@@ -123,6 +133,15 @@ internal sealed class ShortcutSettingsForm : Form
             MessageBox.Show(this, $"Cannot use that shortcut because {error}.", "Shortcut not available", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             return;
         }
+        RefreshList();
+    }
+
+    private void ClearSelected()
+    {
+        if (_list.SelectedItems.Count == 0)
+            return;
+        string actionId = (string)_list.SelectedItems[0].Tag!;
+        _manager.Clear(actionId);
         RefreshList();
     }
 }
@@ -154,7 +173,7 @@ internal sealed class ShortcutCaptureForm : Form
         };
         _value = new TextBox
         {
-            Text = current.ToString(),
+            Text = current == Keys.None ? "Unassigned" : current.ToString(),
             ReadOnly = true,
             Dock = DockStyle.Top,
             AccessibleName = "Captured shortcut"
