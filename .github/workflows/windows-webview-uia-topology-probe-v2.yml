@@ -1,0 +1,293 @@
+name: Windows WebView2 UIA Topology Probe V2
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - qa/windows-current-integration-candidate-20260815
+    paths:
+      - '.github/workflows/windows-webview-uia-topology-probe-v2.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: accessible-chess-stage1-uia-topology-probe
+  cancel-in-progress: false
+
+env:
+  SOURCE_INTEGRATION_SHA: 8e616ac930d9b31c78c51f2b0f75d2d8fc3672fd
+  PYWEBVIEW_VERSION: '6.2.1'
+  NUITKA_UPSTREAM_FIX_COMMIT: b7ea05bf570e0b6950de6db7c4c8e579e1b77d29
+
+jobs:
+  probe:
+    runs-on: windows-latest
+    timeout-minutes: 40
+    steps:
+      - name: Checkout QA snapshot
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Materialize exact frozen product
+        shell: pwsh
+        run: |
+          git cat-file -e "$env:SOURCE_INTEGRATION_SHA^{commit}"
+          if ($LASTEXITCODE -ne 0) { throw 'Frozen integration SHA unavailable' }
+          $resolved=(git rev-parse "$env:SOURCE_INTEGRATION_SHA^{commit}").Trim()
+          if ($resolved -ne $env:SOURCE_INTEGRATION_SHA) { throw "Frozen SHA mismatch: $resolved" }
+          New-Item -ItemType Directory -Force -Path work | Out-Null
+          $paths=@('acs','web','tests','run_accessible_chess.py','ACCESSIBILITY_0.4_ARCHITECTURE.md','VERSION.txt','HOTKEYS_UA.txt','HOTKEYS_EN.txt')
+          git archive --format=zip --output=product.zip $env:SOURCE_INTEGRATION_SHA -- $paths
+          if ($LASTEXITCODE -ne 0) { throw 'Exact product export failed' }
+          Expand-Archive product.zip work -Force
+          "EXACT PRODUCT TREE PASS: $resolved"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install pinned Windows runtime and patched Nuitka
+        shell: pwsh
+        working-directory: work
+        run: |
+          python -m pip install --upgrade pip
+          $nuitkaUrl="https://github.com/Nuitka/Nuitka/archive/$env:NUITKA_UPSTREAM_FIX_COMMIT.zip"
+          python -m pip install "pywebview==$env:PYWEBVIEW_VERSION" "Nuitka @ $nuitkaUrl" ordered-set zstandard
+          if ($LASTEXITCODE -ne 0) { throw 'runtime/compiler install failed' }
+          python -c "from pathlib import Path; import nuitka; p=Path(nuitka.__file__).parent/'plugins'/'standard'/'PywebViewPlugin.py'; assert 'webview.platforms.win32' in p.read_text(encoding='utf-8'); print('PATCHED NUITKA PASS')"
+
+      - name: Build exact diagnostic standalone
+        shell: pwsh
+        working-directory: work
+        run: |
+          python -m nuitka --standalone --assume-yes-for-downloads --windows-console-mode=disable --output-filename=AccessibleChess.exe --include-data-dir=web=web --report=nuitka-compilation-report.xml run_accessible_chess.py
+          if ($LASTEXITCODE -ne 0) { throw 'Nuitka standalone compile failed' }
+          $exe=Get-ChildItem -Recurse -Filter AccessibleChess.exe | Where-Object {$_.FullName -match 'dist'} | Select-Object -First 1
+          if(-not $exe){ throw 'AccessibleChess.exe missing' }
+          $exe.FullName | Set-Content -Encoding UTF8 built_exe_path.txt
+
+      - name: Launch exact packaged app
+        shell: pwsh
+        working-directory: work
+        run: |
+          $exe=(Get-Content built_exe_path.txt -Raw).Trim()
+          $d=Start-Process $exe -ArgumentList '--diagnostic' -PassThru -Wait
+          if($d.ExitCode -ne 0){ throw "Built EXE diagnostic failed: $($d.ExitCode)" }
+          $p=Start-Process $exe -PassThru
+          Start-Sleep -Seconds 12
+          if($p.HasExited){ throw "GUI exited during WebView2 startup: $($p.ExitCode)" }
+          $p.Id | Set-Content -Encoding ASCII gui_pid.txt
+          "PACKAGED GUI LIVE PID=$($p.Id)"
+
+      - name: Capture HWND process and cross-process UIA topology
+        shell: pwsh
+        working-directory: work
+        run: |
+          Add-Type -AssemblyName UIAutomationClient
+          Add-Type -AssemblyName UIAutomationTypes
+          Add-Type @'
+          using System;
+          using System.Runtime.InteropServices;
+          using System.Text;
+          public static class WinTopoV2 {
+            public delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
+            [DllImport("user32.dll")] public static extern bool EnumWindows(EnumWindowsProc cb, IntPtr lp);
+            [DllImport("user32.dll")] public static extern bool EnumChildWindows(IntPtr hWnd, EnumWindowsProc cb, IntPtr lp);
+            [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
+            [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern int GetClassName(IntPtr hWnd, StringBuilder s, int n);
+            [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern int GetWindowText(IntPtr hWnd, StringBuilder s, int n);
+            [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hWnd, out RECT r);
+            [DllImport("user32.dll")] public static extern IntPtr GetParent(IntPtr hWnd);
+            [DllImport("user32.dll")] public static extern IntPtr GetWindow(IntPtr hWnd, uint cmd);
+            [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr hWnd);
+            public const uint GW_OWNER=4;
+            [StructLayout(LayoutKind.Sequential)] public struct RECT { public int Left,Top,Right,Bottom; }
+          }
+          '@
+
+          function Get-SafeProp($el,[string]$which){
+            try {
+              switch($which){
+                'Name' { return [string]$el.Current.Name }
+                'AutomationId' { return [string]$el.Current.AutomationId }
+                'FrameworkId' { return [string]$el.Current.FrameworkId }
+                'ProcessId' { return [int]$el.Current.ProcessId }
+                'NativeWindowHandle' { return [int]$el.Current.NativeWindowHandle }
+                'Focusable' { return [bool]$el.Current.IsKeyboardFocusable }
+                'Offscreen' { return [bool]$el.Current.IsOffscreen }
+                'ControlType' { return [string]$el.Current.ControlType.ProgrammaticName }
+                'Bounds' {
+                  $b=$el.Current.BoundingRectangle
+                  return @{x=[double]$b.X;y=[double]$b.Y;width=[double]$b.Width;height=[double]$b.Height}
+                }
+              }
+            } catch { return $null }
+          }
+          function Get-ValuePatternInfo($el){
+            try {
+              $p=$el.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern)
+              return @{supported=$true;value=[string]$p.Current.Value;readOnly=[bool]$p.Current.IsReadOnly}
+            } catch { return @{supported=$false;value=$null;readOnly=$null} }
+          }
+          function Get-ElementInfo($el,[int]$depth,[string]$view,[string]$path,[string]$semanticPath,[Nullable[int]]$parentProcessId){
+            $nodeProcessId=Get-SafeProp $el 'ProcessId'
+            $type=Get-SafeProp $el 'ControlType'
+            $name=Get-SafeProp $el 'Name'
+            $hwnd=Get-SafeProp $el 'NativeWindowHandle'
+            $bounds=Get-SafeProp $el 'Bounds'
+            $value=Get-ValuePatternInfo $el
+            return [ordered]@{
+              view=$view; depth=$depth; path=$path; semanticPath=$semanticPath; controlType=$type; name=$name;
+              automationId=(Get-SafeProp $el 'AutomationId'); frameworkId=(Get-SafeProp $el 'FrameworkId');
+              processId=$nodeProcessId; nativeWindowHandle=$hwnd; keyboardFocusable=(Get-SafeProp $el 'Focusable');
+              offscreen=(Get-SafeProp $el 'Offscreen'); bounds=$bounds; valuePattern=$value;
+              pidChangedFromParent=($(if($null -ne $parentProcessId -and $null -ne $nodeProcessId){$nodeProcessId -ne $parentProcessId}else{$false}))
+            }
+          }
+          function Walk-Tree($root,$walker,[string]$view,[int]$cap=7000){
+            $out=New-Object System.Collections.Generic.List[object]
+            $queue=New-Object System.Collections.Queue
+            $rootProcessId=Get-SafeProp $root 'ProcessId'
+            $rootType=Get-SafeProp $root 'ControlType'; $rootName=Get-SafeProp $root 'Name'
+            $rootSemantic="$rootType[$rootName] pid=$rootProcessId"
+            $queue.Enqueue(@($root,0,'root',$rootSemantic,$null))
+            while($queue.Count -gt 0 -and $out.Count -lt $cap){
+              $item=$queue.Dequeue(); $el=$item[0]; $depth=[int]$item[1]; $path=[string]$item[2]; $semantic=[string]$item[3]; $parentProcessId=$item[4]
+              $info=Get-ElementInfo $el $depth $view $path $semantic $parentProcessId
+              $out.Add([pscustomobject]$info)
+              try { $child=$walker.GetFirstChild($el) } catch { $child=$null }
+              $idx=0
+              while($null -ne $child -and $out.Count+$queue.Count -lt $cap){
+                $childProcessId=Get-SafeProp $child 'ProcessId'
+                $childType=Get-SafeProp $child 'ControlType'; $childName=Get-SafeProp $child 'Name'
+                $childSemantic="$semantic -> $childType[$childName] pid=$childProcessId"
+                $queue.Enqueue(@($child,$depth+1,"$path/$idx",$childSemantic,$info.processId))
+                try { $child=$walker.GetNextSibling($child) } catch { $child=$null }
+                $idx++
+              }
+            }
+            return @($out)
+          }
+
+          $appPid=[int](Get-Content gui_pid.txt -Raw)
+          $allProcs=Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId,Name,ExecutablePath,CommandLine
+          $related=New-Object System.Collections.Generic.HashSet[int]
+          [void]$related.Add($appPid)
+          $changed=$true
+          while($changed){
+            $changed=$false
+            foreach($proc in $allProcs){
+              if($related.Contains([int]$proc.ParentProcessId) -and -not $related.Contains([int]$proc.ProcessId)){
+                [void]$related.Add([int]$proc.ProcessId); $changed=$true
+              }
+            }
+          }
+          $relatedProcInfo=@($allProcs | Where-Object { $related.Contains([int]$_.ProcessId) -or ($_.Name -ieq 'msedgewebview2.exe' -and $related.Contains([int]$_.ParentProcessId)) })
+          $relatedProcInfo | ConvertTo-Json -Depth 5 | Set-Content -Encoding UTF8 process-topology.json
+
+          $wins=New-Object System.Collections.Generic.List[object]
+          $topHandles=New-Object System.Collections.Generic.List[System.IntPtr]
+          $cb=[WinTopoV2+EnumWindowsProc]{ param($h,$l)
+            [uint32]$windowProcessId=0; $threadId=[WinTopoV2]::GetWindowThreadProcessId($h,[ref]$windowProcessId)
+            $cls=New-Object System.Text.StringBuilder 512; [void][WinTopoV2]::GetClassName($h,$cls,$cls.Capacity)
+            $txt=New-Object System.Text.StringBuilder 1024; [void][WinTopoV2]::GetWindowText($h,$txt,$txt.Capacity)
+            $r=New-Object WinTopoV2+RECT; [void][WinTopoV2]::GetWindowRect($h,[ref]$r)
+            $owner=[WinTopoV2]::GetWindow($h,[WinTopoV2]::GW_OWNER)
+            $rec=[ordered]@{hwnd=[int64]$h;parentHwnd=[int64][WinTopoV2]::GetParent($h);ownerHwnd=[int64]$owner;processId=[int]$windowProcessId;threadId=[int]$threadId;class=$cls.ToString();title=$txt.ToString();visible=[WinTopoV2]::IsWindowVisible($h);bounds=@{left=$r.Left;top=$r.Top;right=$r.Right;bottom=$r.Bottom};topLevel=$true}
+            $wins.Add([pscustomobject]$rec)
+            if([int]$windowProcessId -eq $appPid){ $topHandles.Add($h) }
+            return $true
+          }
+          [void][WinTopoV2]::EnumWindows($cb,[IntPtr]::Zero)
+          foreach($top in @($topHandles)){
+            $ccb=[WinTopoV2+EnumWindowsProc]{ param($h,$l)
+              [uint32]$childProcessId=0; $threadId=[WinTopoV2]::GetWindowThreadProcessId($h,[ref]$childProcessId)
+              $cls=New-Object System.Text.StringBuilder 512; [void][WinTopoV2]::GetClassName($h,$cls,$cls.Capacity)
+              $txt=New-Object System.Text.StringBuilder 1024; [void][WinTopoV2]::GetWindowText($h,$txt,$txt.Capacity)
+              $r=New-Object WinTopoV2+RECT; [void][WinTopoV2]::GetWindowRect($h,[ref]$r)
+              $wins.Add([pscustomobject][ordered]@{hwnd=[int64]$h;parentHwnd=[int64][WinTopoV2]::GetParent($h);ownerHwnd=[int64][WinTopoV2]::GetWindow($h,[WinTopoV2]::GW_OWNER);processId=[int]$childProcessId;threadId=[int]$threadId;class=$cls.ToString();title=$txt.ToString();visible=[WinTopoV2]::IsWindowVisible($h);bounds=@{left=$r.Left;top=$r.Top;right=$r.Right;bottom=$r.Bottom};topLevel=$false})
+              return $true
+            }
+            [void][WinTopoV2]::EnumChildWindows($top,$ccb,[IntPtr]::Zero)
+          }
+          @($wins | Sort-Object hwnd -Unique) | ConvertTo-Json -Depth 6 | Set-Content -Encoding UTF8 win32-topology.json
+
+          $fromHandle=New-Object System.Collections.Generic.List[object]
+          foreach($w in @($wins | Sort-Object hwnd -Unique)){
+            if($w.hwnd -eq 0){ continue }
+            try {
+              $el=[System.Windows.Automation.AutomationElement]::FromHandle([IntPtr]$w.hwnd)
+              if($null -ne $el){
+                $info=Get-ElementInfo $el 0 'FromHandle' "hwnd:$($w.hwnd)" "FromHandle(hwnd=$($w.hwnd))" $null
+                $fromHandle.Add([pscustomobject]$info)
+              }
+            } catch {
+              $fromHandle.Add([pscustomobject]@{view='FromHandle';path="hwnd:$($w.hwnd)";error=$_.Exception.Message;processId=$w.processId})
+            }
+          }
+          $fromHandle | ConvertTo-Json -Depth 7 | Set-Content -Encoding UTF8 fromhandle-roots.json
+
+          $rawAll=New-Object System.Collections.Generic.List[object]
+          $ctlAll=New-Object System.Collections.Generic.List[object]
+          foreach($top in @($topHandles | Select-Object -Unique)){
+            try { $uiaRoot=[System.Windows.Automation.AutomationElement]::FromHandle($top) } catch { continue }
+            if($null -eq $uiaRoot){ continue }
+            foreach($n in @(Walk-Tree $uiaRoot ([System.Windows.Automation.TreeWalker]::RawViewWalker) 'RawView')){ $rawAll.Add($n) }
+            foreach($n in @(Walk-Tree $uiaRoot ([System.Windows.Automation.TreeWalker]::ControlViewWalker) 'ControlView')){ $ctlAll.Add($n) }
+          }
+          $rawAll | ConvertTo-Json -Depth 8 | Set-Content -Encoding UTF8 rawview-topology.json
+          $ctlAll | ConvertTo-Json -Depth 8 | Set-Content -Encoding UTF8 controlview-topology.json
+
+          $edits=@($rawAll | Where-Object { $_.controlType -eq 'ControlType.Edit' })
+          $edits | ConvertTo-Json -Depth 8 | Set-Content -Encoding UTF8 connected-edits.json
+          $valid=@($edits | Where-Object {
+            $_.name -match '^(Хід|Move)$' -and $_.keyboardFocusable -eq $true -and $_.offscreen -eq $false -and
+            $_.bounds.width -gt 0 -and $_.bounds.height -gt 0 -and $_.valuePattern.supported -eq $true
+          })
+          $providerEvidence=@($rawAll | Where-Object {
+            $_.frameworkId -match 'Chrome|WebView|MicrosoftEdge' -or
+            ($null -ne $_.processId -and $related.Contains([int]$_.processId) -and [int]$_.processId -ne $appPid) -or
+            $_.controlType -eq 'ControlType.Document'
+          })
+          if($valid.Count -gt 0){ $classification='A'; $reason='REAL CONNECTED MOVE EDIT EXISTS through app-host RawView traversal' }
+          elseif($providerEvidence.Count -gt 0){ $classification='B'; $reason='Connected WebView/provider accessibility subtree reached but no valid Move Edit exists' }
+          else { $classification='C'; $reason='Probe could not establish connected WebView/provider accessibility subtree' }
+          $summary=[ordered]@{
+            sourceSha=$env:SOURCE_INTEGRATION_SHA; appPid=$appPid; classification=$classification; reason=$reason;
+            topLevelAppHwnds=@($topHandles | ForEach-Object {[int64]$_}); relatedProcesses=@($relatedProcInfo);
+            rawNodeCount=$rawAll.Count; controlNodeCount=$ctlAll.Count; connectedEditCount=$edits.Count;
+            validMoveEditCount=$valid.Count; validMoveEdits=$valid; pidTransitions=@($rawAll | Where-Object {$_.pidChangedFromParent -eq $true});
+            providerEvidenceCount=$providerEvidence.Count; providerEvidenceSample=@($providerEvidence | Select-Object -First 50)
+          }
+          $summary | ConvertTo-Json -Depth 10 | Set-Content -Encoding UTF8 probe-summary.json
+          @("CLASSIFICATION=$classification","REASON=$reason","APP_PID=$appPid","RAW_NODES=$($rawAll.Count)","CONTROL_NODES=$($ctlAll.Count)","CONNECTED_EDITS=$($edits.Count)","VALID_MOVE_EDITS=$($valid.Count)","PROVIDER_EVIDENCE=$($providerEvidence.Count)") | Set-Content -Encoding UTF8 classification.txt
+          Get-Content classification.txt
+
+      - name: Stop packaged process tree
+        if: always()
+        shell: pwsh
+        working-directory: work
+        run: |
+          if(Test-Path gui_pid.txt){
+            $appPid=[int](Get-Content gui_pid.txt -Raw)
+            cmd /c "taskkill /PID $appPid /T /F" 2>$null | Out-Null
+          }
+
+      - name: Upload diagnostic evidence only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stage1-uia-topology-evidence-v2-8e616ac
+          path: |
+            work/process-topology.json
+            work/win32-topology.json
+            work/fromhandle-roots.json
+            work/rawview-topology.json
+            work/controlview-topology.json
+            work/connected-edits.json
+            work/probe-summary.json
+            work/classification.txt
+          if-no-files-found: warn
+          retention-days: 7
