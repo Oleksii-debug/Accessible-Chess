@@ -1,0 +1,63 @@
+name: QA Update Strict Release Source 26f614
+
+on:
+  push:
+    branches:
+      - qa/windows-current-integration-candidate-20260815
+    paths:
+      - '.github/workflows/qa-update-release-source-26f614.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  update-source-lock:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout QA branch
+        uses: actions/checkout@v4
+        with:
+          ref: qa/windows-current-integration-candidate-20260815
+          fetch-depth: 0
+
+      - name: Update only strict release frozen SHA
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('.github/workflows/windows-stage1-release-human-menu.yml')
+          text = path.read_text(encoding='utf-8')
+          old = 'SOURCE_INTEGRATION_SHA: 12a1fce3ca4226f74b5a11eeb0089722cdc1b585'
+          new = 'SOURCE_INTEGRATION_SHA: 26f614361507cda11ad8ba87e69576a2c996fc99'
+          if new in text:
+              print('Strict release source already updated; no duplicate commit needed.')
+              raise SystemExit(0)
+          if text.count(old) != 1:
+              raise SystemExit(f'Expected exactly one old source-lock line, found {text.count(old)}')
+          path.write_text(text.replace(old, new), encoding='utf-8')
+          PY
+          changes="$(git status --short)"
+          printf '%s\n' "$changes"
+          if [ -z "$changes" ]; then
+            exit 0
+          fi
+          if [ "$changes" != ' M .github/workflows/windows-stage1-release-human-menu.yml' ]; then
+            echo 'Unexpected QA working-tree changes; refusing to commit.' >&2
+            exit 1
+          fi
+
+      - name: Commit exact source-lock update
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git diff --quiet; then
+            echo 'No update required.'
+            exit 0
+          fi
+          git config user.name 'Oleksii-debug'
+          git config user.email 'oleksiy.az.09@gmail.com'
+          git add .github/workflows/windows-stage1-release-human-menu.yml
+          git commit -m 'QA: run strict Windows release on exact 26f614 integration'
+          git push origin HEAD:qa/windows-current-integration-candidate-20260815
