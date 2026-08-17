@@ -28,8 +28,11 @@ def load_embedded_rows() -> dict[str, dict[str, str]]:
         raise RuntimeError("Embedded Oxford base64 parts were not found")
     encoded = "".join(p.read_text(encoding="utf-8").strip() for p in parts)
     raw = gzip.decompress(base64.b64decode(encoded))
-    text = raw.decode("utf-8-sig")
-    reader = csv.DictReader(io.StringIO(text), delimiter="\t")
+    lines = raw.decode("utf-8-sig").splitlines()
+    data_lines = [line for line in lines if line.strip() and not line.startswith("#")]
+    if not data_lines:
+        raise RuntimeError("Embedded dictionary contained no TSV data")
+    reader = csv.DictReader(io.StringIO("\n".join(data_lines)), delimiter="\t")
     required = {"entryId", "level", "source", "target"}
     if not reader.fieldnames or not required.issubset(reader.fieldnames):
         raise RuntimeError(f"Unexpected embedded dictionary header: {reader.fieldnames}")
