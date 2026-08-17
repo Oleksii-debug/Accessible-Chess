@@ -1,3 +1,6 @@
+using System.Security.Cryptography;
+using System.Text.Json;
+
 namespace WordDeck;
 
 internal static class TatoebaSentencePackSelfTest
@@ -7,6 +10,7 @@ internal static class TatoebaSentencePackSelfTest
         TestSixColumnAndCompactParsing();
         TestPackBuildAndStableIds();
         TestLanguageAndMalformedInputRejection();
+        TestVerifiedCc0ManifestProvenance();
     }
 
     private static void TestSixColumnAndCompactParsing()
@@ -86,6 +90,44 @@ internal static class TatoebaSentencePackSelfTest
         ExpectInvalid(new[] { "101\teng\tHello world.\t201\tdeu\tHallo Welt." }, "non EN-UA language pair");
         ExpectInvalid(new[] { "not-an-id\tHello world.\t201\tПривіт, світе." }, "invalid sentence id");
         ExpectInvalid(new[] { "101\tHello world." }, "wrong column count");
+    }
+
+    private static void TestVerifiedCc0ManifestProvenance()
+    {
+        string root = Path.Combine(Path.GetTempPath(), $"WordDeck-tatoeba-manifest-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+        try
+        {
+            string pairPath = Path.Combine(root, "pairs.tsv");
+            File.WriteAllText(pairPath, "english_id\tenglish_lang\tenglish\tukrainian_id\tukrainian_lang\tukrainian\n1\teng\tHello.\t2\tukr\tПривіт.\n");
+            using FileStream stream = File.OpenRead(pairPath);
+            string hash = Convert.ToHexString(SHA256.HashData(stream)).ToLowerInvariant();
+            string manifestPath = pairPath + ".manifest.json";
+            File.WriteAllText(manifestPath, JsonSerializer.Serialize(new
+            {
+                schema_version = 1,
+                license_filter = "CC0 1.0 on BOTH sentence sides",
+                output_sha256 = hash
+            }));
+
+            TatoebaImportMetadata verified = TatoebaImportProvenance.Resolve(pairPath);
+            Require(verified.VerifiedCc0Manifest && verified.License == "CC0 1.0",
+                "Matching CC0 manifest/hash did not produce verified CC0 metadata.");
+
+            File.AppendAllText(pairPath, "3\teng\tChanged.\t4\tukr\tЗмінено.\n");
+            TatoebaImportMetadata tampered = TatoebaImportProvenance.Resolve(pairPath);
+            Require(!tampered.VerifiedCc0Manifest && tampered.License.Contains("CC BY 2.0", StringComparison.Ordinal),
+                "Hash-mismatched pair TSV was incorrectly trusted as CC0.");
+
+            File.Delete(manifestPath);
+            TatoebaImportMetadata missing = TatoebaImportProvenance.Resolve(pairPath);
+            Require(!missing.VerifiedCc0Manifest && missing.License.Contains("CC BY 2.0", StringComparison.Ordinal),
+                "Missing manifest was incorrectly trusted as CC0.");
+        }
+        finally
+        {
+            try { Directory.Delete(root, true); } catch { }
+        }
     }
 
     private static void ExpectInvalid(IEnumerable<string> lines, string description)
