@@ -1,5 +1,32 @@
 import json
+import os
 import sys
+
+
+def _enable_packaged_webview2_accessibility() -> None:
+    """Force Chromium renderer accessibility before pywebview creates WebView2.
+
+    The packaged Windows process is tested through raw Windows UI Automation,
+    which does not necessarily look like an attached assistive-technology
+    client to Chromium.  WebView2 officially appends
+    WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS to its environment options, so force
+    renderer accessibility at the process boundary before importing pywebview.
+    Existing application/browser arguments are preserved.
+    """
+
+    key = "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS"
+    current = os.environ.get(key, "").strip()
+    tokens = current.split()
+    if not any(
+        token == "--force-renderer-accessibility"
+        or token.startswith("--force-renderer-accessibility=")
+        for token in tokens
+    ):
+        os.environ[key] = (current + " --force-renderer-accessibility").strip()
+
+
+_enable_packaged_webview2_accessibility()
+
 
 if '--diagnostic' in sys.argv:
     # Diagnostic is deliberately presentation-toolkit independent. Windows CI
