@@ -2,38 +2,62 @@ namespace WordDeck;
 
 internal sealed class ShortcutManager
 {
-    public static IReadOnlyList<ShortcutDefinition> Definitions { get; } = BuildDefinitions();
     private readonly AppState _state;
+    public IReadOnlyList<ShortcutDefinition> Definitions { get; private set; }
 
     public ShortcutManager(AppState state)
     {
-        _state = state;
+        _state = AppStateStore.Normalize(state);
+        Definitions = BuildDefinitions();
         EnsureDefaults();
+    }
+
+    public void RefreshDeckDefinitions()
+    {
+        Definitions = BuildDefinitions();
+        EnsureDefaults();
+        RemoveOrphanedDeckShortcuts();
     }
 
     public Keys Get(string actionId)
     {
-        if (_state.Shortcuts.TryGetValue(actionId, out string? raw) && Enum.TryParse(raw, out Keys keys) && !IsUnsafe(keys))
-            return keys;
-        return Definitions.First(x => x.Id == actionId).DefaultKeys;
+        ShortcutDefinition? definition = Definitions.FirstOrDefault(x => x.Id == actionId);
+        if (definition is null)
+            return Keys.None;
+
+        if (_state.Shortcuts.TryGetValue(actionId, out string? raw) && Enum.TryParse(raw, out Keys keys))
+        {
+            if (keys == Keys.None && definition.DefaultKeys == Keys.None)
+                return Keys.None;
+            if (!IsUnsafe(keys))
+                return keys;
+        }
+        return definition.DefaultKeys;
     }
 
     public string? FindAction(Keys keyData)
     {
-        ShortcutDefinition? definition = Definitions.FirstOrDefault(def => Get(def.Id) == keyData);
+        if (keyData == Keys.None)
+            return null;
+
+        ShortcutDefinition? definition = Definitions.FirstOrDefault(def => Get(def.Id) != Keys.None && Get(def.Id) == keyData);
         if (definition is null)
             return null;
 
-        // The user explicitly wants both navigation directions to mean
-        // “show another random card”. Keep two independently rebindable
-        // shortcuts for ergonomics, but route both through the same
-        // shuffle-bag action. This avoids deterministic back/forward history
-        // when alternating Ctrl+Left and Ctrl+Right.
+        // Both directional study bindings intentionally dispatch to the same
+        // random shuffle-bag action. There is no deterministic history action
+        // behind either arrow binding.
         return definition.Id == ActionIds.PreviousWord ? ActionIds.NextWord : definition.Id;
     }
 
     public bool TrySet(string actionId, Keys keys, out string? errorDescription)
     {
+        if (!Definitions.Any(def => def.Id == actionId))
+        {
+            errorDescription = "the function no longer exists";
+            return false;
+        }
+
         if (IsUnsafe(keys))
         {
             errorDescription = "this combination is reserved for Windows or keyboard navigation";
@@ -52,16 +76,40 @@ internal sealed class ShortcutManager
         return true;
     }
 
+    public void Clear(string actionId)
+    {
+        ShortcutDefinition? definition = Definitions.FirstOrDefault(def => def.Id == actionId);
+        if (definition is null)
+            return;
+        _state.Shortcuts[actionId] = Keys.None.ToString();
+    }
+
     public void ResetDefaults()
     {
-        _state.Shortcuts.Clear();
-        EnsureDefaults();
+        foreach (ShortcutDefinition def in Definitions)
+            _state.Shortcuts[def.Id] = def.DefaultKeys.ToString();
     }
 
     private void EnsureDefaults()
     {
         foreach (ShortcutDefinition def in Definitions)
             _state.Shortcuts.TryAdd(def.Id, def.DefaultKeys.ToString());
+    }
+
+    private void RemoveOrphanedDeckShortcuts()
+    {
+        var valid = new HashSet<string>(Definitions.Select(def => def.Id), StringComparer.OrdinalIgnoreCase);
+        foreach (string actionId in _state.Shortcuts.Keys
+                     .Where(id => (id.StartsWith("switch_deck_", StringComparison.OrdinalIgnoreCase) || id.StartsWith("move_to_deck_", StringComparison.OrdinalIgnoreCase)) &&
+                                  !valid.Contains(id) && !IsLegacyNumericDeckAction(id))
+                     .ToList())
+            _state.Shortcuts.Remove(actionId);
+    }
+
+    private static bool IsLegacyNumericDeckAction(string id)
+    {
+        string prefix = id.StartsWith("switch_deck_", StringComparison.OrdinalIgnoreCase) ? "switch_deck_" : "move_to_deck_";
+        return int.TryParse(id[prefix.Length..], out int number) && number is >= 1 and <= 5;
     }
 
     private static bool IsUnsafe(Keys keys)
@@ -82,7 +130,7 @@ internal sealed class ShortcutManager
         return false;
     }
 
-    private static IReadOnlyList<ShortcutDefinition> BuildDefinitions()
+    private IReadOnlyList<ShortcutDefinition> BuildDefinitions()
     {
         var defs = new List<ShortcutDefinition>
         {
@@ -97,10 +145,22 @@ internal sealed class ShortcutManager
             new(ActionIds.Help, "Open help", Keys.F1),
         };
 
-        for (int deck = 1; deck <= 5; deck++)
-            defs.Add(new(ActionIds.SwitchDeck(deck), $"Switch to deck {deck}", Keys.Control | (Keys)((int)Keys.D0 + deck)));
-        for (int deck = 1; deck <= 5; deck++)
-            defs.Add(new(ActionIds.MoveToDeck(deck), $"Move current word to deck {deck}", Keys.Alt | (Keys)((int)Keys.D0 + deck)));
+        IReadOnlyList<DeckDefinition> ordered = _state.Decks.OrderBy(deck => deck.Order).ToList();
+        for (int index = 0; index < ordered.Count; index++)
+        {
+            DeckDefinition deck = ordered[index];
+            Keys switchDefault = Keys.None;
+            Keys moveDefault = Keys.None;
+            int coreNumber = DeckIds.CoreDecks.ToList().FindIndex(id => string.Equals(id, deck.Id, StringComparison.OrdinalIgnoreCase)) + 1;
+            if (coreNumber is >= 1 and <= 5)
+            {
+                switchDefault = Keys.Control | (Keys)((int)Keys.D0 + coreNumber);
+                moveDefault = Keys.Alt | (Keys)((int)Keys.D0 + coreNumber);
+            }
+
+            defs.Add(new(ActionIds.SwitchDeck(deck.Id), $"Switch to deck: {deck.Name}", switchDefault));
+            defs.Add(new(ActionIds.MoveToDeck(deck.Id), $"Move current word to deck: {deck.Name}", moveDefault));
+        }
 
         return defs;
     }
