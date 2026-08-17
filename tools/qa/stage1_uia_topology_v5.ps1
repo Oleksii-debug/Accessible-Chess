@@ -28,9 +28,9 @@ function HResultText($ex) { try { return ('0x{0:X8}' -f ([uint32]$ex.Exception.H
 $procRows = @(Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId,Name,CommandLine)
 $procMap = @{}
 foreach($p in $procRows){ $procMap[[int]$p.ProcessId] = $p }
-function ReachesApp([int]$pid){
+function ReachesApp([int]$processId){
   $seen = New-Object 'System.Collections.Generic.HashSet[int]'
-  $cur=$pid
+  $cur=$processId
   for($i=0;$i -lt 64 -and $cur -gt 0;$i++){
     if(-not $seen.Add($cur)){ break }
     if($cur -eq $AppPid){ return $true }
@@ -62,9 +62,9 @@ $mainRow=$main[0]; $mainHwnd=[string]$mainRow.hwnd
 
 $relatedProcesses=@()
 foreach($p in $procRows){
-  $pid=[int]$p.ProcessId
-  if($pid -eq $AppPid -or $p.Name -ieq 'msedgewebview2.exe' -or (ReachesApp $pid)){
-    $relatedProcesses += [pscustomobject]@{pid=$pid;ppid=[int]$p.ParentProcessId;name=[string]$p.Name;to_app=(ReachesApp $pid);command_line=[string]$p.CommandLine}
+  $processId=[int]$p.ProcessId
+  if($processId -eq $AppPid -or $p.Name -ieq 'msedgewebview2.exe' -or (ReachesApp $processId)){
+    $relatedProcesses += [pscustomobject]@{pid=$processId;ppid=[int]$p.ParentProcessId;name=[string]$p.Name;to_app=(ReachesApp $processId);command_line=[string]$p.CommandLine}
   }
 }
 
