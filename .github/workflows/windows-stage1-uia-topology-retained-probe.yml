@@ -1,0 +1,185 @@
+name: Windows Stage 1 UIA Topology Retained Probe
+
+on:
+  push:
+    branches:
+      - qa/windows-current-integration-candidate-20260815
+    paths:
+      - '.github/workflows/windows-stage1-uia-topology-retained-probe.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: accessible-chess-stage1-uia-topology-retained-probe
+  cancel-in-progress: false
+
+env:
+  SOURCE_INTEGRATION_SHA: 8e616ac930d9b31c78c51f2b0f75d2d8fc3672fd
+  PYWEBVIEW_VERSION: '6.2.1'
+  NUITKA_UPSTREAM_FIX_COMMIT: b7ea05bf570e0b6950de6db7c4c8e579e1b77d29
+
+jobs:
+  probe:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Materialize exact frozen product
+        shell: pwsh
+        run: |
+          git cat-file -e "$env:SOURCE_INTEGRATION_SHA^{commit}"
+          if ($LASTEXITCODE -ne 0) { throw 'Frozen integration SHA unavailable' }
+          $resolved=(git rev-parse "$env:SOURCE_INTEGRATION_SHA^{commit}").Trim()
+          if ($resolved -ne $env:SOURCE_INTEGRATION_SHA) { throw "Frozen SHA mismatch: $resolved" }
+          New-Item -ItemType Directory -Force -Path work | Out-Null
+          $paths=@('acs','web','tests','run_accessible_chess.py','ACCESSIBILITY_0.4_ARCHITECTURE.md','VERSION.txt','HOTKEYS_UA.txt','HOTKEYS_EN.txt')
+          git archive --format=zip --output=product.zip $env:SOURCE_INTEGRATION_SHA -- $paths
+          if ($LASTEXITCODE -ne 0) { throw 'Exact product export failed' }
+          Expand-Archive product.zip work -Force
+          "EXACT PRODUCT TREE PASS: $resolved"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install pinned runtime and patched Nuitka
+        shell: pwsh
+        working-directory: work
+        run: |
+          $nuitkaUrl="https://github.com/Nuitka/Nuitka/archive/$env:NUITKA_UPSTREAM_FIX_COMMIT.zip"
+          python -m pip install "pywebview==$env:PYWEBVIEW_VERSION" "Nuitka @ $nuitkaUrl" ordered-set zstandard
+          if ($LASTEXITCODE -ne 0) { throw 'runtime/compiler install failed' }
+
+      - name: Build diagnostic packaged app only
+        shell: pwsh
+        working-directory: work
+        run: |
+          python -m nuitka --standalone --assume-yes-for-downloads --windows-console-mode=disable --output-filename=AccessibleChess.exe --include-data-dir=web=web --report=nuitka-compilation-report.xml run_accessible_chess.py
+          if ($LASTEXITCODE -ne 0) { throw 'Nuitka standalone compile failed' }
+          $exe=Get-ChildItem -Recurse -Filter AccessibleChess.exe | Where-Object {$_.FullName -match 'dist'} | Select-Object -First 1
+          if(-not $exe){ throw 'AccessibleChess.exe missing' }
+          $exe.FullName | Set-Content -Encoding UTF8 built_exe_path.txt
+
+      - name: Launch exact packaged app
+        shell: pwsh
+        working-directory: work
+        run: |
+          $exe=(Get-Content built_exe_path.txt -Raw).Trim()
+          $p=Start-Process $exe -PassThru
+          Start-Sleep -Seconds 15
+          if($p.HasExited){ throw "GUI exited during WebView2 startup: $($p.ExitCode)" }
+          $p.Id | Set-Content gui_pid.txt
+          "PACKAGED APP READY PID=$($p.Id)"
+
+      - name: Cross-process UIA topology with retained annotations
+        shell: pwsh
+        working-directory: work
+        run: |
+          Add-Type -AssemblyName UIAutomationClient
+          Add-Type -AssemblyName UIAutomationTypes
+          Add-Type @'
+          using System;
+          using System.Runtime.InteropServices;
+          using System.Text;
+          public static class Win32TopoRetained {
+            public delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
+            [DllImport("user32.dll")] public static extern bool EnumWindows(EnumWindowsProc cb, IntPtr lp);
+            [DllImport("user32.dll")] public static extern bool EnumChildWindows(IntPtr parent, EnumWindowsProc cb, IntPtr lp);
+            [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
+            [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern int GetWindowText(IntPtr hWnd, StringBuilder text, int max);
+            [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern int GetClassName(IntPtr hWnd, StringBuilder text, int max);
+            [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hWnd, out RECT rect);
+            [DllImport("user32.dll")] public static extern IntPtr GetParent(IntPtr hWnd);
+            [DllImport("user32.dll")] public static extern IntPtr GetAncestor(IntPtr hWnd, uint flags);
+            public const uint GA_ROOT = 2;
+            public struct RECT { public int Left, Top, Right, Bottom; }
+          }
+          '@
+
+          $appPid=[int](Get-Content gui_pid.txt -Raw)
+          $allProc=Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId,Name,CommandLine
+          $desc=@{}; $queue=New-Object System.Collections.Generic.Queue[int]; $queue.Enqueue($appPid)
+          while($queue.Count -gt 0){
+            $pp=$queue.Dequeue()
+            foreach($proc in $allProc | Where-Object {[int]$_.ParentProcessId -eq $pp}){
+              $cp=[int]$proc.ProcessId
+              if(-not $desc.ContainsKey($cp)){$desc[$cp]=$true;$queue.Enqueue($cp)}
+            }
+          }
+          $related=@($allProc | Where-Object {[int]$_.ProcessId -eq $appPid -or $desc.ContainsKey([int]$_.ProcessId) -or $_.Name -ieq 'msedgewebview2.exe'} | Sort-Object ProcessId -Unique)
+
+          $hwnds=New-Object System.Collections.Generic.List[object]
+          $seen=New-Object 'System.Collections.Generic.HashSet[long]'
+          $enumOne={param([IntPtr]$h)
+            $key=$h.ToInt64(); if(-not $seen.Add($key)){return}
+            [uint32]$pid=0; [Win32TopoRetained]::GetWindowThreadProcessId($h,[ref]$pid)|Out-Null
+            $title=New-Object System.Text.StringBuilder 512; [Win32TopoRetained]::GetWindowText($h,$title,$title.Capacity)|Out-Null
+            $cls=New-Object System.Text.StringBuilder 256; [Win32TopoRetained]::GetClassName($h,$cls,$cls.Capacity)|Out-Null
+            $r=New-Object Win32TopoRetained+RECT; [Win32TopoRetained]::GetWindowRect($h,[ref]$r)|Out-Null
+            $parent=[Win32TopoRetained]::GetParent($h); $root=[Win32TopoRetained]::GetAncestor($h,[Win32TopoRetained]::GA_ROOT)
+            $hwnds.Add([pscustomobject]@{hwnd=('0x{0:X}' -f $key);hwnd_int=$key;parent_hwnd=('0x{0:X}' -f $parent.ToInt64());root_hwnd=('0x{0:X}' -f $root.ToInt64());pid=[int]$pid;class=$cls.ToString();title=$title.ToString();bounds=@($r.Left,$r.Top,$r.Right,$r.Bottom)})
+          }
+          $cb=[Win32TopoRetained+EnumWindowsProc]{param($h,$l)&$enumOne $h;[Win32TopoRetained]::EnumChildWindows($h,[Win32TopoRetained+EnumWindowsProc]{param($c,$x)&$enumOne $c;return $true},[IntPtr]::Zero)|Out-Null;return $true}
+          [Win32TopoRetained]::EnumWindows($cb,[IntPtr]::Zero)|Out-Null
+          $rowByHwnd=@{}; foreach($row in $hwnds){$rowByHwnd[$row.hwnd]=$row}
+
+          $appMain=@($hwnds | Where-Object {$_.pid -eq $appPid -and $_.parent_hwnd -eq '0x0' -and $_.title -eq 'Accessible Chess'} | Sort-Object {$_.bounds[2]-$_.bounds[0]} -Descending | Select-Object -First 1)
+          if(-not $appMain){throw 'Accessible Chess native top-level HWND not found'}
+          $appMainHwnd=$appMain.hwnd
+          $connectedRows=@($hwnds | Where-Object {$_.hwnd -eq $appMainHwnd -or $_.root_hwnd -eq $appMainHwnd})
+          $webviewRows=@($connectedRows | Where-Object {$_.class -match 'Chrome_WidgetWin|Chrome_RenderWidgetHostHWND|WebView'})
+
+          function SafeProp($e,$name){try{return $e.Current.$name}catch{return $null}}
+          function CT($e){try{$ct=$e.Current.ControlType;if($ct){return [string]$ct.ProgrammaticName}}catch{};return ''}
+          function Chain($row){$p=New-Object System.Collections.Generic.List[string];$cur=$row;$n=0;while($cur -and $n -lt 32){$p.Insert(0,"$($cur.hwnd)[$($cur.class)] pid=$($cur.pid)");if($cur.hwnd -eq $appMainHwnd){break};$cur=$rowByHwnd[$cur.parent_hwnd];$n++};return ($p -join ' > ')}
+          function Rec($e,$depth,$view,$path,$parentPid,$sourceRow){
+            $b=SafeProp $e 'BoundingRectangle';$vp=$false;$val=$null
+            try{$pat=$e.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern);if($pat){$vp=$true;$val=$pat.Current.Value}}catch{}
+            [pscustomobject]@{view=$view;source_hwnd=$sourceRow.hwnd;source_class=$sourceRow.class;source_pid=$sourceRow.pid;hwnd_chain=(Chain $sourceRow);depth=$depth;path=$path;parent_pid=$parentPid;control_type=(CT $e);name=[string](SafeProp $e 'Name');automation_id=[string](SafeProp $e 'AutomationId');framework_id=[string](SafeProp $e 'FrameworkId');pid=[int](SafeProp $e 'ProcessId');native_hwnd=[int](SafeProp $e 'NativeWindowHandle');focusable=[bool](SafeProp $e 'IsKeyboardFocusable');offscreen=[bool](SafeProp $e 'IsOffscreen');bounds=if($b){@($b.Left,$b.Top,$b.Width,$b.Height)}else{$null};value_pattern=$vp;value=$val}
+          }
+          function Label($e){return "$(CT $e) name='$([string](SafeProp $e 'Name'))' id='$([string](SafeProp $e 'AutomationId'))' fw='$([string](SafeProp $e 'FrameworkId'))' pid=$([int](SafeProp $e 'ProcessId'))"}
+          function Walk($root,$walker,$view,$row,$limit=8000){
+            $out=New-Object System.Collections.Generic.List[object];$stack=New-Object System.Collections.Stack;$stack.Push(@($root,0,(Label $root),0))
+            while($stack.Count -gt 0 -and $out.Count -lt $limit){$x=$stack.Pop();$e=$x[0];$d=[int]$x[1];$path=[string]$x[2];$pp=[int]$x[3];$r=Rec $e $d $view $path $pp $row;$out.Add($r);try{$kids=New-Object System.Collections.Generic.List[object];$c=$walker.GetFirstChild($e);while($c){$kids.Add($c);$c=$walker.GetNextSibling($c)};for($i=$kids.Count-1;$i-ge 0;$i--){$k=$kids[$i];$stack.Push(@($k,$d+1,"$path > $(Label $k)",$r.pid))}}catch{}}
+            return ,$out
+          }
+
+          $from=New-Object System.Collections.Generic.List[object];$raw=New-Object System.Collections.Generic.List[object];$control=New-Object System.Collections.Generic.List[object]
+          foreach($row in $connectedRows){try{$ae=[System.Windows.Automation.AutomationElement]::FromHandle([IntPtr]$row.hwnd_int);if($ae){$from.Add((Rec $ae 0 'FromHandle' (Label $ae) 0 $row));foreach($v in (Walk $ae [System.Windows.Automation.TreeWalker]::RawViewWalker 'RawView' $row)){$raw.Add($v)};foreach($v in (Walk $ae [System.Windows.Automation.TreeWalker]::ControlViewWalker 'ControlView' $row)){$control.Add($v)}}}catch{}}
+
+          $edits=@($raw | Where-Object {$_.control_type -eq 'ControlType.Edit'} | Sort-Object path -Unique)
+          $moves=@($edits | Where-Object {$_.name -match '^(Хід|Move)$' -and $_.focusable -and -not $_.offscreen -and $_.value_pattern -and $_.bounds -and $_.bounds[2] -gt 0 -and $_.bounds[3] -gt 0 -and $_.hwnd_chain -match [regex]::Escape($appMainHwnd)})
+          $trans=@($raw | Where-Object {$_.parent_pid -gt 0 -and $_.pid -gt 0 -and $_.parent_pid -ne $_.pid})
+          $webTrav=@($raw | Where-Object {$_.source_class -match 'Chrome_WidgetWin|Chrome_RenderWidgetHostHWND|WebView' -and ($_.depth -gt 0 -or $_.framework_id -match 'Chrome|WebView|Chromium' -or $_.control_type -eq 'ControlType.Document')})
+          $complete=($from.Count -gt 0 -and $raw.Count -gt 0 -and $control.Count -gt 0)
+          $webObs=($webviewRows.Count -gt 0);$providerObs=($webTrav.Count -gt 0 -or $trans.Count -gt 0)
+          if($moves.Count -gt 0){$classification='A'}elseif($complete -and $webObs -and $providerObs){$classification='B'}else{$classification='C'}
+
+          $report=[ordered]@{product_sha=$env:SOURCE_INTEGRATION_SHA;app_pid=$appPid;app_main_hwnd=$appMainHwnd;classification=$classification;traversal_complete=$complete;webview_observed=$webObs;connected_provider_observed=$providerObs;related_processes=@($related|ForEach-Object{[ordered]@{pid=[int]$_.ProcessId;ppid=[int]$_.ParentProcessId;name=$_.Name;command_line=$_.CommandLine}});connected_hwnds=$connectedRows;webview_hwnds=$webviewRows;from_handle_elements=$from;pid_transitions=@($trans|Select-Object source_hwnd,source_class,parent_pid,pid,name,control_type,framework_id,path,hwnd_chain);connected_edits=$edits;move_candidates=$moves}
+          $report|ConvertTo-Json -Depth 9|Set-Content -Encoding UTF8 uia-topology-report.json
+
+          $summary="classification=$classification appPid=$appPid appHwnd=$appMainHwnd connectedHwnds=$($connectedRows.Count) webviewHwnds=$($webviewRows.Count) fromHandle=$($from.Count) raw=$($raw.Count) control=$($control.Count) edits=$($edits.Count) moves=$($moves.Count) pidTransitions=$($trans.Count) complete=$complete webObserved=$webObs providerObserved=$providerObs"
+          Write-Output "::notice title=UIA_TOPOLOGY_CLASSIFICATION::$summary"
+          $procBrief=(@($related|ForEach-Object{"$($_.ProcessId)<-$($_.ParentProcessId):$($_.Name)"}) -join '; ')
+          if($procBrief.Length -gt 3500){$procBrief=$procBrief.Substring(0,3500)}
+          Write-Output "::notice title=UIA_RELATED_PROCESSES::$procBrief"
+          $hwndBrief=(@($connectedRows|ForEach-Object{"$($_.hwnd):pid=$($_.pid):class=$($_.class):parent=$($_.parent_hwnd):root=$($_.root_hwnd)"}) -join '; ')
+          if($hwndBrief.Length -gt 3500){$hwndBrief=$hwndBrief.Substring(0,3500)}
+          Write-Output "::notice title=UIA_CONNECTED_HWNDS::$hwndBrief"
+          if($moves.Count -gt 0){$m=$moves[0];$moveBrief="name=$($m.name) id=$($m.automation_id) fw=$($m.framework_id) pid=$($m.pid) focusable=$($m.focusable) offscreen=$($m.offscreen) bounds=$($m.bounds -join ',') valuePattern=$($m.value_pattern) value='$($m.value)' path=$($m.path)";if($moveBrief.Length -gt 3500){$moveBrief=$moveBrief.Substring(0,3500)};Write-Output "::notice title=UIA_MOVE_CANDIDATE::$moveBrief"}
+          elseif($edits.Count -gt 0){$editBrief=(@($edits|Select-Object -First 8|ForEach-Object{"name='$($_.name)' id='$($_.automation_id)' fw='$($_.framework_id)' pid=$($_.pid) focusable=$($_.focusable) offscreen=$($_.offscreen) vp=$($_.value_pattern)"}) -join '; ');Write-Output "::notice title=UIA_EDIT_SAMPLE::$editBrief"}
+          if($classification -eq 'A'){Write-Output 'QA/HARNESS DEFECT: REAL CONNECTED MOVE EDIT EXISTS'}elseif($classification -eq 'B'){Write-Output 'TRUE UI PRODUCT DEFECT: NO CONNECTED ACCESSIBLE MOVE EDIT WITH PROVEN WEBVIEW TRAVERSAL'}else{Write-Output 'INCONCLUSIVE: WEBVIEW FRAGMENT STILL NOT PROVEN'}
+
+      - name: Cleanup packaged app
+        if: always()
+        shell: pwsh
+        working-directory: work
+        run: |
+          if(Test-Path gui_pid.txt){$appPid=[int](Get-Content gui_pid.txt -Raw);Stop-Process -Id $appPid -Force -ErrorAction SilentlyContinue}
+          Get-Process msedgewebview2 -ErrorAction SilentlyContinue|Stop-Process -Force -ErrorAction SilentlyContinue
+          'DIAGNOSTIC ONLY — NO RELEASE ZIP CREATED'
