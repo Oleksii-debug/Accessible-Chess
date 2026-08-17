@@ -134,6 +134,13 @@ internal static class SentenceCoachSelfTest
 
     private static void TestSentenceCoachStatePersistence()
     {
+        SentenceCoachState legacy = SentenceCoachStateStore.Normalize(new SentenceCoachState
+        {
+            TargetCount = 1,
+            CurrentTargetEntryId = "legacy-target"
+        });
+        Require(legacy.CurrentTargetEntryIds.SequenceEqual(new[] { "legacy-target" }), "Legacy one-target Sentence Coach state did not migrate to the target list.");
+
         string root = Path.Combine(Path.GetTempPath(), $"WordDeck-sentence-state-{Guid.NewGuid():N}");
         try
         {
@@ -142,26 +149,32 @@ internal static class SentenceCoachSelfTest
             {
                 ActivePackId = "pack-1",
                 ActiveSpellingDeckId = SpellingDeckIds.Core(2),
+                TargetCount = 2,
                 CurrentSentenceId = "s1",
                 CurrentTargetEntryId = "ox-improve",
+                CurrentTargetEntryIds = new List<string> { "ox-improve", "ox-skills" },
                 RecentSentenceIds = Enumerable.Range(1, 35).Select(i => $"s{i}").ToList()
             };
             state.StatsByDictionary["dict"] = new Dictionary<string, SentenceTargetStats>(StringComparer.OrdinalIgnoreCase)
             {
-                ["ox-improve"] = new SentenceTargetStats { CompletedReviews = 4, FirstTrySuccesses = 3, WrongAttempts = 2, ShowAnswerUses = 1, LastReviewedUtc = DateTimeOffset.UtcNow }
+                ["ox-improve"] = new SentenceTargetStats { CompletedReviews = 4, FirstTrySuccesses = 3, WrongAttempts = 2, ShowAnswerUses = 1, LastReviewedUtc = DateTimeOffset.UtcNow },
+                ["ox-skills"] = new SentenceTargetStats { CompletedReviews = 2, FirstTrySuccesses = 1, WrongAttempts = 1, ShowAnswerUses = 0, LastReviewedUtc = DateTimeOffset.UtcNow }
             };
             store.Save(state);
             SentenceCoachState loaded = new SentenceCoachStateStore(root).Load();
             Require(loaded.ActivePackId == "pack-1" && loaded.ActiveSpellingDeckId == SpellingDeckIds.Core(2), "Sentence Coach active pack/deck did not persist.");
+            Require(loaded.TargetCount == 2, "Sentence Coach two-target mode did not persist.");
             Require(loaded.CurrentSentenceId == "s1" && loaded.CurrentTargetEntryId == "ox-improve", "Sentence Coach current exercise did not persist.");
+            Require(loaded.CurrentTargetEntryIds.SequenceEqual(new[] { "ox-improve", "ox-skills" }), "Sentence Coach two target IDs did not persist.");
             Require(loaded.RecentSentenceIds.Count == 30 && loaded.RecentSentenceIds[^1] == "s35", "Sentence Coach recent sentence window was not normalized/persisted.");
-            Require(loaded.StatsByDictionary["dict"]["ox-improve"].WrongAttempts == 2, "Sentence Coach target statistics did not persist.");
+            Require(loaded.StatsByDictionary["dict"]["ox-improve"].WrongAttempts == 2 && loaded.StatsByDictionary["dict"]["ox-skills"].WrongAttempts == 1, "Sentence Coach target statistics did not persist for both targets.");
 
             loaded.ActivePackId = "pack-2";
             store.Save(loaded);
             File.WriteAllText(Path.Combine(root, "sentence-coach-state.json"), "{ broken json");
             SentenceCoachState recovered = new SentenceCoachStateStore(root).Load();
             Require(recovered.ActivePackId == "pack-1", "Sentence Coach backup recovery did not restore the last good state.");
+            Require(recovered.TargetCount == 2 && recovered.CurrentTargetEntryIds.Count == 2, "Sentence Coach backup recovery lost two-target exercise state.");
         }
         finally { try { if (Directory.Exists(root)) Directory.Delete(root, true); } catch { } }
     }
