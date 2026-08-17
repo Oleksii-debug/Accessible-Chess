@@ -33,21 +33,13 @@ internal sealed class AppState
 {
     public string? ActiveDictionaryId { get; set; }
 
-    // Durable dynamic-deck state. Deck IDs, not display names or positions,
-    // own assignments and keyboard shortcuts.
     public string? ActiveDeckId { get; set; }
     public List<DeckDefinition> Decks { get; set; } = new();
     public Dictionary<string, Dictionary<string, string>> DeckIdsByDictionary { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
-    // User-added cards are kept separately from shipped/imported dictionary files,
-    // then merged into the active dictionary at runtime. Stable IDs keep deck
-    // assignments durable across restarts and future dictionary updates.
     public Dictionary<string, List<CustomEntryRecord>> CustomEntriesByDictionary { get; set; } = new(StringComparer.OrdinalIgnoreCase);
     public Dictionary<string, string> CurrentEntryIdByDictionary { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
-    // Legacy v1 fields are intentionally retained for lossless one-way
-    // migration of existing installations. New code does not write study
-    // progress through these fields.
     public int ActiveDeck { get; set; } = 1;
     public Dictionary<string, Dictionary<string, int>> DecksByDictionary { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
@@ -69,13 +61,27 @@ internal static class ActionIds
     public const string ShortcutSettings = "shortcut_settings";
     public const string Help = "help";
 
+    public const string OpenSpelling = "spelling_open";
+    public const string SpellingShowAnswer = "spelling_show_answer";
+    public const string SpellingRepeatPrompt = "spelling_repeat_prompt";
+    public const string SpellingPlayPronunciation = "spelling_play_pronunciation";
+    public const string SpellingToggleCoach = "spelling_toggle_coach";
+    public const string SpellingUndoCoachMove = "spelling_undo_coach_move";
+    public const string SpellingMoveChooser = "spelling_move_chooser";
+    public const string SpellingCreateDeck = "spelling_create_deck";
+    public const string SpellingRenameDeck = "spelling_rename_deck";
+    public const string SpellingDeleteDeck = "spelling_delete_deck";
+    public const string SpellingMoveDeckUp = "spelling_move_deck_up";
+    public const string SpellingMoveDeckDown = "spelling_move_deck_down";
+
     public static string SwitchDeck(string deckId) => $"switch_deck_{deckId}";
     public static string MoveToDeck(string deckId) => $"move_to_deck_{deckId}";
+    public static string SpellingSwitchDeck(string deckId) => $"spelling_switch_deck_{deckId}";
+    public static string SpellingMoveToDeck(string deckId) => $"spelling_move_to_deck_{deckId}";
 
     public static string SwitchDeck(int deck) => SwitchDeck(DeckIds.Core(deck));
     public static string MoveToDeck(int deck) => MoveToDeck(DeckIds.Core(deck));
 
-    // Legacy action IDs from saved pre-migration state.
     public static string LegacySwitchDeck(int deck) => $"switch_deck_{deck}";
     public static string LegacyMoveToDeck(int deck) => $"move_to_deck_{deck}";
 }
