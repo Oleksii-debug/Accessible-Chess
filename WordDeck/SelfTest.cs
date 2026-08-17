@@ -18,8 +18,9 @@ internal static class SelfTest
             TestEmbeddedOxford();
             TestImportParserFailsClosed();
             TestShortcutRegistryAndRebinding();
+            TestPronunciationAudioLayer();
             TestStatePersistenceAndRecovery();
-            Console.WriteLine("WordDeck self-test passed: Oxford dictionary, strict imports, all configurable shortcuts, and persistent recovery state validated.");
+            Console.WriteLine("WordDeck self-test passed: Oxford dictionary, strict imports, random navigation shortcuts, optional pronunciation controls, and persistent recovery state validated.");
             return 0;
         }
         catch (Exception ex)
@@ -74,8 +75,10 @@ internal static class SelfTest
     private static void TestShortcutRegistryAndRebinding()
     {
         IReadOnlyList<ShortcutDefinition> definitions = ShortcutManager.Definitions;
-        Require(definitions.Count == 17, $"Expected 17 configurable actions including undo move, got {definitions.Count}.");
+        Require(definitions.Count == 19, $"Expected 19 configurable actions including pronunciation controls, got {definitions.Count}.");
         Require(definitions.Any(def => def.Id == ActionIds.UndoMove), "Undo last deck move is missing from configurable shortcuts.");
+        Require(definitions.Any(def => def.Id == ActionIds.PlayPronunciation), "Manual generated pronunciation is missing from configurable shortcuts.");
+        Require(definitions.Any(def => def.Id == ActionIds.ToggleAutoPronunciation), "Automatic pronunciation toggle is missing from configurable shortcuts.");
         Require(definitions.Select(def => def.Id).Distinct(StringComparer.OrdinalIgnoreCase).Count() == definitions.Count,
             "Shortcut action IDs must be unique.");
         Require(definitions.Select(def => def.DefaultKeys).Distinct().Count() == definitions.Count,
@@ -144,6 +147,21 @@ internal static class SelfTest
         }
     }
 
+    private static void TestPronunciationAudioLayer()
+    {
+        IReadOnlyList<string> paths = PronunciationAudio.CandidatePaths("oxford-3000-en-uk", "oxford-a1-0001");
+        Require(paths.Count == 2, $"Expected portable and local audio-pack paths, got {paths.Count}.");
+        string expectedTail = Path.Combine("oxford-3000-en-uk", "oxford-a1-0001.mp3");
+        Require(paths.All(path => path.EndsWith(expectedTail, StringComparison.OrdinalIgnoreCase)),
+            "Pronunciation paths are not keyed by stable dictionary and entry IDs.");
+
+        IReadOnlyList<string> sanitized = PronunciationAudio.CandidatePaths("custom dictionary/uk", "entry 1");
+        Require(sanitized.All(path => path.Contains("custom_dictionary_uk", StringComparison.OrdinalIgnoreCase)),
+            "Unsafe dictionary ID characters were not sanitized for audio-pack paths.");
+        Require(sanitized.All(path => path.EndsWith(Path.Combine("custom_dictionary_uk", "entry_1.mp3"), StringComparison.OrdinalIgnoreCase)),
+            "Unsafe entry ID characters were not sanitized for audio file names.");
+    }
+
     private static void TestStatePersistenceAndRecovery()
     {
         string root = Path.Combine(Path.GetTempPath(), $"WordDeck-self-test-{Guid.NewGuid():N}");
@@ -153,7 +171,8 @@ internal static class SelfTest
             var state = new AppState
             {
                 ActiveDictionaryId = "oxford-3000-en-uk",
-                ActiveDeck = 4
+                ActiveDeck = 4,
+                AutoPlayPronunciationOnCardChange = true
             };
             state.DecksByDictionary["oxford-3000-en-uk"] = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
             {
@@ -165,11 +184,15 @@ internal static class SelfTest
             Keys persistedShortcut = Keys.Control | Keys.Shift | Keys.Z;
             Require(shortcuts.TrySet(ActionIds.RevealTranslation, persistedShortcut, out string? shortcutError),
                 $"Could not prepare persisted shortcut: {shortcutError}");
+            Keys persistedAudioShortcut = Keys.Control | Keys.Shift | Keys.B;
+            Require(shortcuts.TrySet(ActionIds.PlayPronunciation, persistedAudioShortcut, out string? audioShortcutError),
+                $"Could not prepare persisted pronunciation shortcut: {audioShortcutError}");
             store.Save(state);
 
             AppState reloaded = new AppStateStore(root).Load();
             Require(reloaded.ActiveDictionaryId == "oxford-3000-en-uk", "Active dictionary did not survive restart.");
             Require(reloaded.ActiveDeck == 4, "Active deck did not survive restart.");
+            Require(reloaded.AutoPlayPronunciationOnCardChange, "Automatic pronunciation preference did not survive restart.");
             Require(reloaded.DecksByDictionary["oxford-3000-en-uk"]["oxford-a1-0001"] == 3,
                 "Deck assignment did not survive restart.");
             var reloadedShortcuts = new ShortcutManager(reloaded);
@@ -177,9 +200,12 @@ internal static class SelfTest
                 "Rebound shortcut did not survive restart.");
             Require(reloadedShortcuts.FindAction(persistedShortcut) == ActionIds.RevealTranslation,
                 "Persisted shortcut did not dispatch after restart.");
+            Require(reloadedShortcuts.Get(ActionIds.PlayPronunciation) == persistedAudioShortcut,
+                "Rebound pronunciation shortcut did not survive restart.");
 
             // A second valid save creates a recovery snapshot of the first state.
             reloaded.ActiveDeck = 2;
+            reloaded.AutoPlayPronunciationOnCardChange = false;
             reloaded.DecksByDictionary["oxford-3000-en-uk"]["oxford-a1-0001"] = 5;
             store.Save(reloaded);
 
@@ -187,11 +213,14 @@ internal static class SelfTest
             File.WriteAllText(primaryPath, "{ definitely not valid json");
             AppState recovered = new AppStateStore(root).Load();
             Require(recovered.ActiveDeck == 4, "Backup recovery did not restore the last known-good active deck.");
+            Require(recovered.AutoPlayPronunciationOnCardChange, "Backup recovery did not restore automatic pronunciation preference.");
             Require(recovered.DecksByDictionary["oxford-3000-en-uk"]["oxford-a1-0001"] == 3,
                 "Backup recovery did not restore the last known-good deck assignment.");
             var recoveredShortcuts = new ShortcutManager(recovered);
             Require(recoveredShortcuts.Get(ActionIds.RevealTranslation) == persistedShortcut,
                 "Backup recovery did not restore the rebound shortcut.");
+            Require(recoveredShortcuts.Get(ActionIds.PlayPronunciation) == persistedAudioShortcut,
+                "Backup recovery did not restore the pronunciation shortcut.");
         }
         finally
         {
