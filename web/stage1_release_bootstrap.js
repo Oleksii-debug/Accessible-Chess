@@ -19,7 +19,9 @@ const focusState = window.__accessibleChessStage1FocusState || {
     context: 'other',
     boardSquare: '',
     boardNode: null,
+    restoreGeneration: 0,
 };
+if (!Number.isInteger(focusState.restoreGeneration)) focusState.restoreGeneration = 0;
 window.__accessibleChessStage1FocusState = focusState;
 
 function rememberBoardFocus(cell) {
@@ -33,6 +35,35 @@ function rememberMoveInputFocus() {
     focusState.context = 'move';
     focusState.boardSquare = '';
     focusState.boardNode = null;
+    // A real return to move entry cancels any deferred board-origin restore.
+    focusState.restoreGeneration += 1;
+}
+
+function restoreBoardSquare(square, generation) {
+    if (!square || focusState.restoreGeneration !== generation) return false;
+    const board = byId('board-application');
+    const grid = byId('board-grid');
+    if (!board || board.hidden || !grid) return false;
+    const sameSquare = byId('sq-' + square);
+    const rovingCell = grid.querySelector('[role="gridcell"][tabindex="0"]');
+    const target = sameSquare || rovingCell;
+    if (!target) return false;
+    target.focus({preventScroll: true});
+    rememberBoardFocus(target);
+    return true;
+}
+
+function settleBoardFocusAfterInvoke(square) {
+    if (!square) return;
+    const generation = focusState.restoreGeneration + 1;
+    focusState.restoreGeneration = generation;
+
+    // First restore immediately after the canonical rerender, then restore once
+    // more on the next browser task. Windows UIA Invoke/WebView2 may apply the
+    // native button focus after the JavaScript submit handler returns; the
+    // deferred pass is therefore the authoritative settled-focus phase.
+    restoreBoardSquare(square, generation);
+    setTimeout(() => restoreBoardSquare(square, generation), 0);
 }
 
 function installMoveFocusPolicy() {
@@ -41,7 +72,6 @@ function installMoveFocusPolicy() {
 
     const wrappedSubmit = async function(...args) {
         const grid = byId('board-grid');
-        const board = byId('board-application');
         const active = document.activeElement;
         const activeCell = active && typeof active.closest === 'function'
             ? active.closest('[role="gridcell"]')
@@ -55,15 +85,7 @@ function installMoveFocusPolicy() {
 
         const result = await baseSubmit.apply(this, args);
 
-        if (boardSquare && board && !board.hidden) {
-            const sameSquare = byId('sq-' + boardSquare);
-            const rovingCell = grid && grid.querySelector('[role="gridcell"][tabindex="0"]');
-            const target = sameSquare || rovingCell;
-            if (target) {
-                target.focus({preventScroll: true});
-                rememberBoardFocus(target);
-            }
-        }
+        if (boardSquare) settleBoardFocusAfterInvoke(boardSquare);
         return result;
     };
     wrappedSubmit.__stage1FocusPolicy = true;
@@ -85,7 +107,14 @@ function installMoveForm() {
     form.noValidate = true;
 
     const label = row.querySelector('label[for="move-input"]');
-    const input = oldInput.cloneNode(true);
+    // Preserve the original edit node. Replacing it with cloneNode(true) can
+    // leave packaged WebView2/UIA holding the removed provider, so the move
+    // field may disappear from ControlType.Edit discovery even though a new
+    // DOM input with the same id exists. Moving the original node keeps its
+    // UIA identity and label association stable.
+    const input = oldInput;
+    // Replace only the old button so its legacy click handler cannot double
+    // dispatch after the row is upgraded to native form-submit semantics.
     const button = oldButton.cloneNode(true);
     button.type = 'submit';
 
@@ -93,6 +122,18 @@ function installMoveForm() {
     form.appendChild(input);
     form.appendChild(button);
     row.replaceWith(form);
+
+    // The original input retains its legacy Enter listener. A capture-phase
+    // Enter handler owns release form submission and stops that one legacy
+    // listener only; all normal editing/copy/select keyboard behavior remains
+    // untouched.
+    input.addEventListener('keydown', event => {
+        if (event.key !== 'Enter') return;
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        if (typeof form.requestSubmit === 'function') form.requestSubmit(button);
+        else button.click();
+    }, true);
 
     // Focusing the edit field is the authoritative signal for the normal
     // move-entry journey. Programmatic ValuePattern.SetValue does not focus it,
