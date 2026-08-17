@@ -167,8 +167,8 @@ jobs:
           $runtime = Get-Content .\sentencepack-ccby\sentence-coach-runtime-diagnostics.json -Raw | ConvertFrom-Json
           if ($runtime.SentenceCount -ne 207578) { throw "Unexpected runtime sentence count: $($runtime.SentenceCount)" }
           if ($runtime.ScopeEntryCount -ne 3308) { throw "Unexpected Oxford scope size: $($runtime.ScopeEntryCount)" }
-          if ($runtime.OneTargetCoveredEntries -ne 3120) { throw "Unexpected one-target coverage: $($runtime.OneTargetCoveredEntries)" }
-          if ($runtime.TwoTargetCoveredEntries -lt 1) { throw 'Two-target runtime coverage returned no covered entries.' }
+          if ($runtime.OneTargetCoveredEntries -lt 3120) { throw "One-target coverage regressed below verified baseline 3120: $($runtime.OneTargetCoveredEntries)" }
+          if ($runtime.TwoTargetCoveredEntries -lt 3114) { throw "Two-target coverage regressed below verified baseline 3114: $($runtime.TwoTargetCoveredEntries)" }
           if ($runtime.ManagedBytesDelta -lt 0) { throw 'Runtime managed-memory measurement is invalid.' }
           $runtime | Format-List
 
