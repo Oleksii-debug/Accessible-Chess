@@ -65,7 +65,8 @@ jobs:
       - name: Validate attribution and write coverage report
         shell: pwsh
         run: |
-          $pack = Get-Content '.\sentencepack-ccby\tatoeba-en-uk-ccby-sentencepack.json' -Raw | ConvertFrom-Json
+          $packPath = '.\sentencepack-ccby\tatoeba-en-uk-ccby-sentencepack.json'
+          $pack = Get-Content $packPath -Raw | ConvertFrom-Json
           if ($pack.License -ne 'CC BY 2.0 FR') { throw "Unexpected license: $($pack.License)" }
           if ($pack.Sentences.Count -lt 1) { throw 'Attributed pack contains no accepted sentences.' }
           $missingAttribution = @($pack.Sentences | Where-Object { $_.Source -notmatch 'English sentence #[0-9]+ by .+; Ukrainian sentence #[0-9]+ by .+' }).Count
@@ -90,14 +91,42 @@ jobs:
           $report | ConvertTo-Json | Set-Content .\sentencepack-ccby\coverage-report.json -Encoding utf8
           $report | Format-List
 
+      - name: Compress distributable SentencePack with .NET gzip
+        shell: pwsh
+        run: |
+          $source = Resolve-Path '.\sentencepack-ccby\tatoeba-en-uk-ccby-sentencepack.json'
+          $destination = '.\sentencepack-ccby\tatoeba-en-uk-ccby-sentencepack.json.gz'
+          $input = [System.IO.File]::OpenRead($source)
+          try {
+            $output = [System.IO.File]::Create($destination)
+            try {
+              $gzip = [System.IO.Compression.GZipStream]::new($output, [System.IO.Compression.CompressionLevel]::SmallestSize, $false)
+              try { $input.CopyTo($gzip) } finally { $gzip.Dispose() }
+            } finally { $output.Dispose() }
+          } finally { $input.Dispose() }
+
+          $rawBytes = (Get-Item $source).Length
+          $gzipBytes = (Get-Item $destination).Length
+          if ($gzipBytes -le 0 -or $gzipBytes -ge $rawBytes) { throw "Unexpected gzip size: raw=$rawBytes gzip=$gzipBytes" }
+          $compression = [Math]::Round((1 - ($gzipBytes / [double]$rawBytes)) * 100, 2)
+          $sizeReport = [ordered]@{
+            raw_bytes = $rawBytes
+            gzip_bytes = $gzipBytes
+            reduction_percent = $compression
+            format = 'gzip (System.IO.Compression.GZipStream)'
+          }
+          $sizeReport | ConvertTo-Json | Set-Content .\sentencepack-ccby\compression-report.json -Encoding utf8
+          $sizeReport | Format-List
+
       - name: Upload attributed SentencePack artifact
         uses: actions/upload-artifact@v4
         with:
           name: WordDeck-Tatoeba-EN-UA-Attributed-SentencePack
           path: |
-            sentencepack-ccby/tatoeba-en-uk-ccby-sentencepack.json
+            sentencepack-ccby/tatoeba-en-uk-ccby-sentencepack.json.gz
             sentencepack-ccby/tatoeba-en-uk-ccby.tsv.manifest.json
             sentencepack-ccby/coverage-report.json
+            sentencepack-ccby/compression-report.json
             sentencepack-ccby/builder.log
           if-no-files-found: error
           retention-days: 30
