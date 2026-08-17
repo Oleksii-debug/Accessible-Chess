@@ -117,12 +117,12 @@ jobs:
           $seen=New-Object 'System.Collections.Generic.HashSet[long]'
           $enumOne={param([IntPtr]$h)
             $key=$h.ToInt64(); if(-not $seen.Add($key)){return}
-            [uint32]$pid=0; [Win32TopoRetained]::GetWindowThreadProcessId($h,[ref]$pid)|Out-Null
+            [uint32]$windowPid=0; [Win32TopoRetained]::GetWindowThreadProcessId($h,[ref]$windowPid)|Out-Null
             $title=New-Object System.Text.StringBuilder 512; [Win32TopoRetained]::GetWindowText($h,$title,$title.Capacity)|Out-Null
             $cls=New-Object System.Text.StringBuilder 256; [Win32TopoRetained]::GetClassName($h,$cls,$cls.Capacity)|Out-Null
             $r=New-Object Win32TopoRetained+RECT; [Win32TopoRetained]::GetWindowRect($h,[ref]$r)|Out-Null
             $parent=[Win32TopoRetained]::GetParent($h); $root=[Win32TopoRetained]::GetAncestor($h,[Win32TopoRetained]::GA_ROOT)
-            $hwnds.Add([pscustomobject]@{hwnd=('0x{0:X}' -f $key);hwnd_int=$key;parent_hwnd=('0x{0:X}' -f $parent.ToInt64());root_hwnd=('0x{0:X}' -f $root.ToInt64());pid=[int]$pid;class=$cls.ToString();title=$title.ToString();bounds=@($r.Left,$r.Top,$r.Right,$r.Bottom)})
+            $hwnds.Add([pscustomobject]@{hwnd=('0x{0:X}' -f $key);hwnd_int=$key;parent_hwnd=('0x{0:X}' -f $parent.ToInt64());root_hwnd=('0x{0:X}' -f $root.ToInt64());pid=[int]$windowPid;class=$cls.ToString();title=$title.ToString();bounds=@($r.Left,$r.Top,$r.Right,$r.Bottom)})
           }
           $cb=[Win32TopoRetained+EnumWindowsProc]{param($h,$l)&$enumOne $h;[Win32TopoRetained]::EnumChildWindows($h,[Win32TopoRetained+EnumWindowsProc]{param($c,$x)&$enumOne $c;return $true},[IntPtr]::Zero)|Out-Null;return $true}
           [Win32TopoRetained]::EnumWindows($cb,[IntPtr]::Zero)|Out-Null
