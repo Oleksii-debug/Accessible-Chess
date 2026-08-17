@@ -25,36 +25,35 @@ Attributed `CC BY 2.0 FR` production pack remains:
 - 53,612 quality-flagged;
 - 0 accepted records missing per-side author attribution.
 
-JSON/GZIP remains the portable interchange/import format. The production pack is 245,812,867 raw JSON bytes and 19,906,945 gzip bytes.
+JSON/GZIP remains the portable interchange/import format. The current production pack is about 245.8 MB raw JSON and 19.9 MB gzip.
 
-### Disk-backed SQLite path
+### Disk-backed SQLite runtime — large-corpus blocker closed
 
-Reuse-first evaluation selected Microsoft's maintained MIT-licensed `Microsoft.Data.Sqlite` provider rather than a custom binary/index engine. Version 8.0.29 remains pinned on the .NET 8 servicing line. SQLite core is public domain and remains local/serverless/offline.
+Reuse-first evaluation selected Microsoft's maintained MIT-licensed `Microsoft.Data.Sqlite` provider rather than a custom binary/index engine. Version 8.0.29 remains pinned on the .NET 8 servicing line. SQLite core is public domain and remains local/serverless/offline. No new runtime service, Python, Java, API, sentence cache or custom storage engine was introduced for this optimization.
 
-The old eager JSON/GZIP runtime representation measured about 5.2–5.3 seconds load time, +543 MB managed memory and +625–629 MB process working set.
+The old eager JSON/GZIP representation measured about 5 seconds load time and roughly +0.6 GB process working set. The compact schema-v2 SQLite database is 72,400,896 bytes and remains the preferred installed runtime representation.
 
-Compact schema v2 production measurement remains:
-- SQLite database: 72,400,896 bytes;
-- fresh-process one-target query: 158 ms;
-- managed-memory delta: 2,172,960 bytes;
-- working-set delta: 24,375,296 bytes;
-- about 96.1% less incremental working set than the eager representation for that representative query.
+An end-to-end production benchmark first reproduced the actual Sentence Coach bottleneck before changing it. On the full 3,308-entry Oxford scope, repeated per-entry SQL sentence materialization took:
+- one-target coverage: 32,635 ms for 3,120 covered entries;
+- same-scope two-target coverage: 32,093 ms for 3,114 covered entries.
 
-### Runtime vertical slice now implemented
+The UI now uses one WordDeck-specific batched SQLite scope query instead. It loads scope target IDs into a connection-local temporary table in bounded chunks and uses existing `sentence_targets` indexes plus `EXISTS` queries. It returns only covered entry IDs; it does not materialize corpus sentences for coverage calculation. Legacy JSON/GZIP fallback retains the prior behavior.
 
-The memory-critical restart/study path has now been changed:
-- `SentencePackStore.LoadInstalled()` discovers valid `.sqlite` companions first and reads pack id/license/count directly from SQLite metadata instead of eagerly deserializing the matching `.json.gz`;
-- installed portable gzip/JSON remains present for provenance/export/backwards compatibility;
-- corrupt/missing SQLite is isolated and the portable pack remains the compatibility fallback;
-- `SentenceCoachForm` now holds `ISentenceCorpus`, not `SentencePack`, so one-target selection, two-target intersections, candidate ranking and exercise restoration query the disk-backed corpus directly;
-- persisted current sentence restoration no longer scans `SentencePack.Sentences`; it re-queries the saved target intersection and matches the saved stable sentence ID;
-- import still performs one deliberate full validation/build pass, then returns the SQLite runtime corpus;
-- store self-tests explicitly assert that normal post-restart discovery does not retain/materialize the portable `SentencePack` when a valid SQLite companion exists;
-- legacy standalone `.json`/`.json.gz` packs without SQLite still load through the existing in-memory path.
+Verified production benchmark after the change on the same 207,578-sentence corpus:
+- SQLite corpus metadata open: 79 ms;
+- one-target coverage: **33 ms**, 3,120 / 3,308 entries;
+- same-scope two-target coverage: **56 ms**, 3,114 / 3,308 entries;
+- representative one-target sentence query: 179 ms, 3,075 candidates;
+- representative two-target intersection: 13 ms, 238 candidates;
+- measured runtime diagnostic delta: about 31.5 MB managed memory and 49.9 MB working set while retaining the benchmark result sets.
 
-Windows workflow run `32058598541` on commit `4fef2f56e17b3490f960fda212c45dc98ece5f48` completed fully `success`: provenance/audio validations, restore, build, extended self-tests including metadata-only SQLite discovery, embedded dictionary validation, self-contained publish, published-EXE validation and artifact uploads.
+This reduces the measured full-scope coverage phase from about **64.7 seconds to 89 ms**, while preserving the exact 3,120 one-target and 3,114 two-target coverage counts. The large-corpus startup/coverage RAM-and-latency blocker is therefore closed for the current SQLite path.
 
-The large-corpus RAM issue is **not yet declared fully closed**. The remaining required proof is an end-to-end startup/one-target/two-target measurement through the actual Sentence Coach runtime path. Coverage calculation currently performs repeated corpus lookups and must be included in that latency measurement before release claims.
+Windows workflow run `32065274229` on commit `c6e166046167c6596be23515e47c11d8c8dac15d` completed fully `success`: provenance/audio validations, restore, build, self-tests, embedded dictionary validation, self-contained publish, published-EXE validation and artifacts.
+
+Attributed SentencePack workflow run `32065274247` on the same commit also completed fully `success`, including current Tatoeba rebuild/provenance validation, gzip, SQLite construction, fresh-query measurement, the new full-scope Sentence Coach benchmark and artifact upload.
+
+`SentencePackStore.LoadInstalled()` still discovers valid SQLite companions from metadata without eagerly materializing matching portable packs. Corrupt/missing SQLite is isolated and the portable JSON/GZIP path remains a compatibility fallback. Current-exercise restoration re-queries saved stable IDs instead of retaining the whole corpus.
 
 ### Current Oxford coverage gaps
 
@@ -84,10 +83,9 @@ Aggregate structural audit remains green: 3,308 unique stable IDs/indexes, exact
 
 ## Exact next steps
 
-1. Keep Windows CI/published-EXE validation green.
-2. Add an isolated end-to-end benchmark for normal installed-pack discovery plus Sentence Coach one-target and two-target queries on the 207,578-sentence SQLite corpus; include coverage-calculation latency and working set.
-3. If coverage calculation is measurably slow, replace repeated per-target SQL calls with a small SQLite batch query/indexed-target metadata path rather than caching sentence objects in RAM.
-4. Resolve/classify the 188 coverage-gap IDs before adding morphology or controlled generation.
-5. Regenerate only the 19 safe pronunciation overrides; resolve 17 heteronyms plus 5 uppercase candidates before completing AudioPack QA.
-6. Continue Oxford-5000 extraction/translation/second-pass QA in substantial batches after the next user-testable runtime milestone.
-7. Never modify `main`.
+1. Keep Windows CI/published-EXE validation green; preserve the new batched SQLite coverage path with a focused regression check.
+2. Resolve/classify the 188 SentencePack coverage-gap IDs before adding morphology or controlled generation.
+3. Regenerate only the 19 safe pronunciation overrides; resolve 17 heteronyms plus 5 uppercase candidates before completing AudioPack QA.
+4. Continue Oxford-5000 extraction/translation/second-pass QA in substantial batches now that the Sentence Coach large-corpus runtime blocker is closed.
+5. Continue Oxford-3000 semantic translation QA without blocking already-usable Recall/Spelling/Sentence vertical slices.
+6. Never modify `main`.
