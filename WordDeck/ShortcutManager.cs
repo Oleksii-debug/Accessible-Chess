@@ -6,6 +6,7 @@ internal sealed class ShortcutManager
     private List<DeckDefinition> _spellingDecks;
     private static IReadOnlyList<ShortcutDefinition> RecallDefinitions { get; } = BuildRecallDefinitions();
     private static IReadOnlyList<ShortcutDefinition> SpellingDefinitions { get; } = BuildSpellingDefinitions();
+    private static IReadOnlyList<ShortcutDefinition> SentenceDefinitions { get; } = BuildSentenceDefinitions();
 
     public IReadOnlyList<ShortcutDefinition> Definitions { get; private set; }
     public IReadOnlyList<ShortcutDefinition> CurrentDefinitions => Definitions;
@@ -115,6 +116,14 @@ internal sealed class ShortcutManager
         new(ActionIds.SpellingMoveDeckDown, "Spelling: move active deck down", Keys.Control | Keys.Alt | Keys.Down),
     };
 
+    private static IReadOnlyList<ShortcutDefinition> BuildSentenceDefinitions() => new List<ShortcutDefinition>
+    {
+        new(ActionIds.OpenSentenceCoach, "Open Sentence Spelling trainer", Keys.Control | Keys.Shift | Keys.E),
+        new(ActionIds.SentenceShowAnswer, "Sentence Spelling: show required English sentence", Keys.Control | Keys.Alt | Keys.H),
+        new(ActionIds.SentenceRepeatPrompt, "Sentence Spelling: repeat Ukrainian sentence", Keys.Control | Keys.Alt | Keys.P),
+        new(ActionIds.SentenceImportPack, "Sentence Spelling: import SentencePack", Keys.Control | Keys.Alt | Keys.I),
+    };
+
     private IReadOnlyList<ShortcutDefinition> BuildDefinitions()
     {
         var defs = new List<ShortcutDefinition>(RecallDefinitions);
@@ -129,6 +138,7 @@ internal sealed class ShortcutManager
         if (_spellingDecks.Count > 0)
         {
             defs.AddRange(SpellingDefinitions);
+            defs.AddRange(SentenceDefinitions);
             foreach (DeckDefinition deck in _spellingDecks.OrderBy(deck => deck.Order))
             {
                 int coreNumber = SpellingDeckIds.CoreDecks.ToList().FindIndex(id => string.Equals(id, deck.Id, StringComparison.OrdinalIgnoreCase)) + 1;
