@@ -61,6 +61,7 @@ class Stage1ReleaseCompositionUiTests(unittest.TestCase):
     def setUp(self) -> None:
         self.root = Path(__file__).resolve().parents[1]
         self.bootstrap = (self.root / "web" / "stage1_release_bootstrap.js").read_text(encoding="utf-8")
+        self.html = (self.root / "web" / "index.html").read_text(encoding="utf-8")
 
     def make_composed(self, root: str, playback: _Playback | None = None):
         return create_release_api(
@@ -82,7 +83,6 @@ class Stage1ReleaseCompositionUiTests(unittest.TestCase):
                 self.assertIn((SoundEvent.START, 80), playback.calls)
                 self.assertIn((SoundEvent.MOVE, 80), playback.calls)
                 self.assertIn((SoundEvent.ILLEGAL, 80), playback.calls)
-
                 analysis = api.toggle_engine()
                 self.assertTrue(analysis["ok"])
                 state = api.get_state()
@@ -108,7 +108,6 @@ class Stage1ReleaseCompositionUiTests(unittest.TestCase):
                 preview = api.preview_sound("capture")
                 self.assertTrue(preview["ok"], preview)
                 self.assertEqual(playback.calls[-1], (SoundEvent.CAPTURE, 35))
-
                 before = len(playback.calls)
                 self.assertTrue(api.set_sound_enabled(False)["ok"])
                 disabled = api.preview_sound("move")
@@ -146,15 +145,16 @@ class Stage1ReleaseCompositionUiTests(unittest.TestCase):
                 api.close_analysis()
                 runtime.close()
 
-    def test_webview_bootstrap_upgrades_move_entry_to_native_form_submit(self) -> None:
+    def test_webview_bootstrap_preserves_initial_move_edit_and_base_enter_dispatch(self) -> None:
         text = self.bootstrap
-        self.assertIn("form.id = 'move-form'", text)
-        self.assertIn("button.type = 'submit'", text)
-        self.assertIn("form.addEventListener('submit'", text)
-        self.assertIn("event.preventDefault()", text)
-        self.assertIn("await window.submitMove()", text)
-        self.assertIn("form.setAttribute('aria-busy', 'true')", text)
-        self.assertIn("document.body.dataset.stage1MoveFormReady = 'true'", text)
+        self.assertIn("function installMoveEntryIdentity()", text)
+        self.assertIn("input.addEventListener('focusin', rememberMoveInputFocus)", text)
+        self.assertIn("stage1MoveIdentityReady", text)
+        self.assertNotIn("document.createElement('form')", text)
+        self.assertNotIn("form.appendChild(input)", text)
+        self.assertNotIn("row.replaceWith", text)
+        self.assertIn("el('move-submit').addEventListener('click',submitMove)", self.html)
+        self.assertIn("el('move-input').addEventListener('keydown'", self.html)
         self.assertNotIn("document.addEventListener('keydown'", text)
         self.assertNotIn("window.addEventListener('keydown'", text)
 
@@ -174,16 +174,18 @@ class Stage1ReleaseCompositionUiTests(unittest.TestCase):
         self.assertIn("byId('sq-' + square)", text)
         self.assertIn("target.focus({preventScroll: true})", text)
         self.assertIn("setTimeout(() => restoreBoardSquare(square, generation), 0)", text)
+        self.assertIn("setTimeout(() => restoreBoardSquare(square, generation), 50)", text)
         self.assertIn("rememberBoardFocus(target)", text)
         self.assertIn("input.addEventListener('focusin', rememberMoveInputFocus)", text)
         self.assertIn("stage1MoveFocusPolicyReady", text)
-        self.assertLess(text.index("installMoveFocusPolicy();"), text.index("installMoveForm();"))
+        self.assertLess(text.index("installMoveFocusPolicy();"), text.index("installMoveEntryIdentity();"))
         self.assertNotIn("document.addEventListener('keydown'", text)
         self.assertNotIn("window.addEventListener('keydown'", text)
 
     def test_board_focus_survives_state_driven_grid_replacement_without_global_key_hijack(self) -> None:
         text = self.bootstrap
         self.assertIn("function installBoardFocusContinuity()", text)
+        self.assertIn("function stabilizeBoardUiaSemantics", text)
         self.assertIn("grid.addEventListener('focusin'", text)
         self.assertIn("rememberBoardFocus(cell)", text)
         self.assertIn("new MutationObserver(records =>", text)
@@ -194,6 +196,7 @@ class Stage1ReleaseCompositionUiTests(unittest.TestCase):
         self.assertIn("target.focus({preventScroll: true})", text)
         self.assertIn("rememberBoardFocus(target)", text)
         self.assertIn("stage1BoardFocusContinuityReady", text)
+        self.assertIn("stage1BoardUiaSemanticsReady", text)
         self.assertIn("installBoardFocusContinuity();", text)
         self.assertNotIn("document.addEventListener('keydown'", text)
         self.assertNotIn("window.addEventListener('keydown'", text)
