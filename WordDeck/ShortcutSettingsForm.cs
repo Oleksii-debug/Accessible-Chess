@@ -91,7 +91,7 @@ internal sealed class ShortcutSettingsForm : Form
         string? selectedId = _list.SelectedItems.Count > 0 ? _list.SelectedItems[0].Tag as string : null;
         _list.BeginUpdate();
         _list.Items.Clear();
-        foreach (ShortcutDefinition def in _manager.Definitions)
+        foreach (ShortcutDefinition def in _manager.CurrentDefinitions)
         {
             var item = new ListViewItem(def.Description) { Tag = def.Id };
             Keys current = _manager.Get(def.Id);
@@ -117,7 +117,7 @@ internal sealed class ShortcutSettingsForm : Form
             return;
 
         string actionId = (string)_list.SelectedItems[0].Tag!;
-        ShortcutDefinition? definition = _manager.Definitions.FirstOrDefault(x => x.Id == actionId);
+        ShortcutDefinition? definition = _manager.CurrentDefinitions.FirstOrDefault(x => x.Id == actionId);
         if (definition is null)
         {
             RefreshList();
