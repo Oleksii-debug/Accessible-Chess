@@ -36,7 +36,7 @@ internal static class Program
             return;
 
         ToolStripMenuItem? tools = menu.Items.OfType<ToolStripMenuItem>()
-            .FirstOrDefault(item => item.Text.Replace("&", string.Empty).Equals("Tools", StringComparison.OrdinalIgnoreCase));
+            .FirstOrDefault(item => (item.Text ?? string.Empty).Replace("&", string.Empty).Equals("Tools", StringComparison.OrdinalIgnoreCase));
         if (tools is null)
             return;
 
