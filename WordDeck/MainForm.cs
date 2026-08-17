@@ -2,17 +2,18 @@ namespace WordDeck;
 
 internal sealed class MainForm : Form
 {
-    private sealed record MoveUndo(string DictionaryId, string EntryId, int FromDeck, int ToDeck);
+    private sealed record MoveUndo(string DictionaryId, string EntryId, string FromDeckId, string ToDeckId);
 
     private readonly AppStateStore _store = new();
     private readonly AppState _state;
+    private readonly DeckService _decks;
     private readonly ShortcutManager _shortcuts;
     private readonly PronunciationAudio _audio = new();
     private readonly Dictionary<string, DictionaryPackage> _packages = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, DictionaryEntry> _entriesById = new(StringComparer.OrdinalIgnoreCase);
     private DictionaryPackage _package = null!;
-    private Dictionary<string, int> _deckMap = null!;
-    private int _activeDeck;
+    private Dictionary<string, string> _deckMap = null!;
+    private string _activeDeckId = DeckIds.Core(1);
     private readonly Random _random = new();
     private readonly Queue<string> _shuffleBag = new();
     private DictionaryEntry? _current;
@@ -24,18 +25,21 @@ internal sealed class MainForm : Form
     private readonly TextBox _translationBox;
     private readonly Label _statusLabel;
     private readonly Label _countLabel;
+    private ToolStripMenuItem _deckMenu = null!;
+    private ToolStripMenuItem _switchDeckMenu = null!;
     private ToolStripMenuItem _autoPronunciationMenuItem = null!;
 
     public MainForm()
     {
         _state = _store.Load();
+        _decks = new DeckService(_state);
         _shortcuts = new ShortcutManager(_state);
         LoadPackages();
 
         Text = "WordDeck";
-        Width = 880;
-        Height = 500;
-        MinimumSize = new Size(620, 380);
+        Width = 920;
+        Height = 520;
+        MinimumSize = new Size(640, 400);
         StartPosition = FormStartPosition.CenterScreen;
         KeyPreview = true;
         AccessibleName = "WordDeck vocabulary trainer";
@@ -75,22 +79,24 @@ internal sealed class MainForm : Form
         _deckCombo = new ComboBox
         {
             DropDownStyle = ComboBoxStyle.DropDownList,
-            Width = 150,
-            AccessibleName = "Active deck"
+            Width = 220,
+            DisplayMember = nameof(DeckDefinition.Name),
+            AccessibleName = "Active deck",
+            AccessibleDescription = "Choose any default or user-created deck to study."
         };
-        for (int i = 1; i <= 5; i++)
-            _deckCombo.Items.Add($"Deck {i}");
         _deckCombo.SelectedIndexChanged += (_, _) =>
         {
-            if (_deckCombo.SelectedIndex >= 0 && _deckCombo.SelectedIndex + 1 != _activeDeck)
-                SwitchDeck(_deckCombo.SelectedIndex + 1);
+            if (_deckCombo.SelectedItem is DeckDefinition deck &&
+                !string.Equals(deck.Id, _activeDeckId, StringComparison.OrdinalIgnoreCase))
+                SwitchDeck(deck.Id);
         };
         top.Controls.Add(_deckCombo);
 
         _countLabel = new Label
         {
             AutoSize = true,
-            AccessibleName = "Deck word count",
+            AccessibleName = "All deck word counts",
+            AccessibleDescription = "Word counts for every deck in the active dictionary.",
             Padding = new Padding(0, 8, 0, 8)
         };
         var wordHeading = new Label
@@ -139,7 +145,7 @@ internal sealed class MainForm : Form
         {
             AutoSize = true,
             AccessibleName = "Keyboard hint",
-            Text = "F1: help. All shortcuts can be reassigned in Tools > Keyboard shortcuts."
+            Text = "F1: help. All shortcuts, including per-deck shortcuts, can be reassigned in Tools > Keyboard shortcuts."
         };
 
         root.Controls.Add(top, 0, 0);
@@ -175,18 +181,33 @@ internal sealed class MainForm : Form
         file.DropDownItems.Add(new ToolStripSeparator());
         file.DropDownItems.Add(exit);
 
-        var decks = new ToolStripMenuItem("&Deck");
+        _deckMenu = new ToolStripMenuItem("&Deck");
+        var moveCurrent = new ToolStripMenuItem("&Move current word to deck...");
+        moveCurrent.Click += (_, _) => MoveCurrentToDeckChooser();
         var undoMove = new ToolStripMenuItem("&Undo last deck move");
         undoMove.Click += (_, _) => UndoLastMove();
-        decks.DropDownItems.Add(undoMove);
-        decks.DropDownItems.Add(new ToolStripSeparator());
-        for (int i = 1; i <= 5; i++)
-        {
-            int deck = i;
-            var switchItem = new ToolStripMenuItem($"Switch to deck {deck}");
-            switchItem.Click += (_, _) => SwitchDeck(deck);
-            decks.DropDownItems.Add(switchItem);
-        }
+        var createDeck = new ToolStripMenuItem("&Create deck...");
+        createDeck.Click += (_, _) => CreateDeck();
+        var renameDeck = new ToolStripMenuItem("&Rename active deck...");
+        renameDeck.Click += (_, _) => RenameActiveDeck();
+        var deleteDeck = new ToolStripMenuItem("&Delete active user deck...");
+        deleteDeck.Click += (_, _) => DeleteActiveDeck();
+        var moveUp = new ToolStripMenuItem("Move active deck &up");
+        moveUp.Click += (_, _) => ReorderActiveDeck(-1);
+        var moveDown = new ToolStripMenuItem("Move active deck &down");
+        moveDown.Click += (_, _) => ReorderActiveDeck(1);
+        _switchDeckMenu = new ToolStripMenuItem("&Switch deck");
+
+        _deckMenu.DropDownItems.Add(moveCurrent);
+        _deckMenu.DropDownItems.Add(undoMove);
+        _deckMenu.DropDownItems.Add(new ToolStripSeparator());
+        _deckMenu.DropDownItems.Add(createDeck);
+        _deckMenu.DropDownItems.Add(renameDeck);
+        _deckMenu.DropDownItems.Add(deleteDeck);
+        _deckMenu.DropDownItems.Add(moveUp);
+        _deckMenu.DropDownItems.Add(moveDown);
+        _deckMenu.DropDownItems.Add(new ToolStripSeparator());
+        _deckMenu.DropDownItems.Add(_switchDeckMenu);
 
         var tools = new ToolStripMenuItem("&Tools");
         var playPronunciation = new ToolStripMenuItem("&Play generated British pronunciation");
@@ -211,7 +232,7 @@ internal sealed class MainForm : Form
         help.DropDownItems.Add(helpItem);
 
         menu.Items.Add(file);
-        menu.Items.Add(decks);
+        menu.Items.Add(_deckMenu);
         menu.Items.Add(tools);
         menu.Items.Add(help);
         return menu;
@@ -274,47 +295,82 @@ internal sealed class MainForm : Form
         foreach (DictionaryEntry entry in package.Entries)
             _entriesById[entry.Id] = entry;
 
-        if (!_state.DecksByDictionary.TryGetValue(package.Id, out Dictionary<string, int>? deckMap))
-        {
-            deckMap = package.Entries.ToDictionary(entry => entry.Id, _ => 1, StringComparer.OrdinalIgnoreCase);
-            _state.DecksByDictionary[package.Id] = deckMap;
-        }
-        _deckMap = deckMap;
+        _deckMap = _decks.EnsureDictionaryAssignments(package.Id, package.Entries.Select(entry => entry.Id));
+        string desiredDeckId = _state.ActiveDeckId ?? _decks.FirstDeck.Id;
+        _activeDeckId = _decks.Find(desiredDeckId)?.Id ?? _decks.FirstDeck.Id;
+        _state.ActiveDeckId = _activeDeckId;
 
-        var validIds = new HashSet<string>(_entriesById.Keys, StringComparer.OrdinalIgnoreCase);
-        foreach (string staleId in _deckMap.Keys.Where(id => !validIds.Contains(id)).ToList())
-            _deckMap.Remove(staleId);
-        foreach (DictionaryEntry entry in package.Entries)
-        {
-            if (_deckMap.TryGetValue(entry.Id, out int deck))
-                _deckMap[entry.Id] = Math.Clamp(deck, 1, 5);
-            else
-                _deckMap[entry.Id] = 1;
-        }
-
-        _activeDeck = Math.Clamp(_state.ActiveDeck, 1, 5);
-        _deckCombo.SelectedIndex = _activeDeck - 1;
+        RefreshDeckUi();
         ResetSequence();
         UpdateCounts();
         SaveState();
     }
 
-    private void SwitchDeck(int deck)
+    private void RefreshDeckUi()
     {
-        _activeDeck = Math.Clamp(deck, 1, 5);
-        _state.ActiveDeck = _activeDeck;
-        if (_deckCombo.SelectedIndex != _activeDeck - 1)
-            _deckCombo.SelectedIndex = _activeDeck - 1;
+        IReadOnlyList<DeckDefinition> ordered = _decks.Decks;
+        _deckCombo.BeginUpdate();
+        _deckCombo.Items.Clear();
+        foreach (DeckDefinition deck in ordered)
+            _deckCombo.Items.Add(deck);
+        int selectedIndex = ordered.ToList().FindIndex(deck => string.Equals(deck.Id, _activeDeckId, StringComparison.OrdinalIgnoreCase));
+        if (selectedIndex >= 0)
+            _deckCombo.SelectedIndex = selectedIndex;
+        _deckCombo.EndUpdate();
 
+        _shortcuts.RefreshDeckDefinitions();
+        RebuildSwitchDeckMenu();
+    }
+
+    private void RebuildSwitchDeckMenu()
+    {
+        _switchDeckMenu.DropDownItems.Clear();
+        foreach (DeckDefinition deck in _decks.Decks)
+        {
+            string deckId = deck.Id;
+            int count = _package is null ? 0 : _decks.CountInDictionary(_package.Id, deck.Id);
+            var item = new ToolStripMenuItem($"{deck.Name} ({count} words)")
+            {
+                Checked = string.Equals(deck.Id, _activeDeckId, StringComparison.OrdinalIgnoreCase),
+                AccessibleName = $"Switch to {deck.Name}, {count} words"
+            };
+            item.Click += (_, _) => SwitchDeck(deckId);
+            _switchDeckMenu.DropDownItems.Add(item);
+        }
+    }
+
+    private void SwitchDeck(string deckId)
+    {
+        DeckDefinition? deck = _decks.Find(deckId);
+        if (deck is null)
+            return;
+
+        _activeDeckId = deck.Id;
+        _state.ActiveDeckId = deck.Id;
+        SelectActiveDeckInCombo();
+        RebuildSwitchDeckMenu();
         ResetSequence();
         UpdateCounts();
-        _statusLabel.Text = $"Switched to deck {_activeDeck}.";
+        _statusLabel.Text = $"Switched to {deck.Name}.";
         NextWord();
         SaveState();
     }
 
+    private void SelectActiveDeckInCombo()
+    {
+        for (int i = 0; i < _deckCombo.Items.Count; i++)
+        {
+            if (_deckCombo.Items[i] is DeckDefinition deck && string.Equals(deck.Id, _activeDeckId, StringComparison.OrdinalIgnoreCase))
+            {
+                if (_deckCombo.SelectedIndex != i)
+                    _deckCombo.SelectedIndex = i;
+                return;
+            }
+        }
+    }
+
     private IReadOnlyList<DictionaryEntry> EntriesInActiveDeck() =>
-        _package.Entries.Where(entry => _deckMap.GetValueOrDefault(entry.Id, 1) == _activeDeck).ToList();
+        _package.Entries.Where(entry => string.Equals(_deckMap.GetValueOrDefault(entry.Id, _decks.FirstDeck.Id), _activeDeckId, StringComparison.OrdinalIgnoreCase)).ToList();
 
     private void ResetSequence()
     {
@@ -342,13 +398,14 @@ internal sealed class MainForm : Form
     private void NextWord()
     {
         IReadOnlyList<DictionaryEntry> active = EntriesInActiveDeck();
+        DeckDefinition activeDeck = _decks.Find(_activeDeckId) ?? _decks.FirstDeck;
         if (active.Count == 0)
         {
             _audio.Stop();
             _current = null;
             _wordBox.Text = "No words in this deck";
             _translationBox.Clear();
-            _statusLabel.Text = $"Deck {_activeDeck} is empty.";
+            _statusLabel.Text = $"{activeDeck.Name} is empty.";
             UpdateCounts();
             _wordBox.Focus();
             AccessibilityAnnouncer.Announce(_wordBox, _wordBox.Text);
@@ -361,7 +418,7 @@ internal sealed class MainForm : Form
         while (_shuffleBag.Count > 0)
         {
             string id = _shuffleBag.Dequeue();
-            if (_deckMap.GetValueOrDefault(id, 1) != _activeDeck)
+            if (!string.Equals(_deckMap.GetValueOrDefault(id, _decks.FirstDeck.Id), _activeDeckId, StringComparison.OrdinalIgnoreCase))
                 continue;
 
             ShowEntryById(id);
@@ -381,7 +438,8 @@ internal sealed class MainForm : Form
         _current = entry;
         _wordBox.Text = entry.Source;
         _translationBox.Clear();
-        _statusLabel.Text = $"Level {entry.Level}. Deck {_activeDeck}.";
+        string deckName = _decks.Find(_activeDeckId)?.Name ?? "Deck";
+        _statusLabel.Text = $"Level {entry.Level}. {deckName}.";
         UpdateCounts();
         FocusCurrentWord();
 
@@ -459,28 +517,50 @@ internal sealed class MainForm : Form
         _wordBox.SelectAll();
     }
 
-    private void MoveCurrentToDeck(int targetDeck)
+    private void MoveCurrentToDeckChooser()
+    {
+        if (_current is null)
+        {
+            AnnounceStatus("No word is currently selected.");
+            return;
+        }
+
+        string? target = DeckDialogs.ChooseDeck(
+            this,
+            "Move current word",
+            $"Move {_current.Source} to which deck?",
+            _decks.Decks,
+            _activeDeckId);
+        if (target is not null)
+            MoveCurrentToDeck(target);
+    }
+
+    private void MoveCurrentToDeck(string targetDeckId)
     {
         if (_current is null)
             return;
 
-        targetDeck = Math.Clamp(targetDeck, 1, 5);
-        int fromDeck = _deckMap.GetValueOrDefault(_current.Id, 1);
+        DeckDefinition? targetDeck = _decks.Find(targetDeckId);
+        if (targetDeck is null)
+            return;
+        string fromDeckId = _deckMap.GetValueOrDefault(_current.Id, _decks.FirstDeck.Id);
+        DeckDefinition fromDeck = _decks.Find(fromDeckId) ?? _decks.FirstDeck;
         string movedWord = _current.Source;
 
-        if (targetDeck == fromDeck)
+        if (string.Equals(targetDeck.Id, fromDeck.Id, StringComparison.OrdinalIgnoreCase))
         {
-            AnnounceStatus($"{movedWord} is already in deck {targetDeck}.");
+            AnnounceStatus($"{movedWord} is already in {targetDeck.Name}.");
             RepeatCurrentWord();
             return;
         }
 
-        _deckMap[_current.Id] = targetDeck;
-        _lastMove = new MoveUndo(_package.Id, _current.Id, fromDeck, targetDeck);
+        _deckMap[_current.Id] = targetDeck.Id;
+        _lastMove = new MoveUndo(_package.Id, _current.Id, fromDeck.Id, targetDeck.Id);
         _translationBox.Clear();
         UpdateCounts();
+        RebuildSwitchDeckMenu();
         SaveState();
-        AnnounceStatus($"Moved {movedWord} from deck {fromDeck} to deck {targetDeck}. Undo is available.");
+        AnnounceStatus($"Moved {movedWord} from {fromDeck.Name} to {targetDeck.Name}. Undo is available.");
         NextWord();
     }
 
@@ -494,7 +574,9 @@ internal sealed class MainForm : Form
             return;
         }
 
-        if (!_entriesById.TryGetValue(undo.EntryId, out DictionaryEntry? entry))
+        if (!_entriesById.TryGetValue(undo.EntryId, out DictionaryEntry? entry) ||
+            _decks.Find(undo.FromDeckId) is not DeckDefinition fromDeck ||
+            _decks.Find(undo.ToDeckId) is not DeckDefinition toDeck)
         {
             _lastMove = null;
             AnnounceStatus("The previous deck move can no longer be undone.");
@@ -502,8 +584,8 @@ internal sealed class MainForm : Form
             return;
         }
 
-        int currentDeck = _deckMap.GetValueOrDefault(undo.EntryId, 1);
-        if (currentDeck != undo.ToDeck)
+        string currentDeckId = _deckMap.GetValueOrDefault(undo.EntryId, _decks.FirstDeck.Id);
+        if (!string.Equals(currentDeckId, undo.ToDeckId, StringComparison.OrdinalIgnoreCase))
         {
             _lastMove = null;
             AnnounceStatus("The previous deck move has already changed and can no longer be undone.");
@@ -511,27 +593,160 @@ internal sealed class MainForm : Form
             return;
         }
 
-        _deckMap[undo.EntryId] = undo.FromDeck;
+        _deckMap[undo.EntryId] = undo.FromDeckId;
         _lastMove = null;
         UpdateCounts();
+        RebuildSwitchDeckMenu();
         SaveState();
 
-        if (_activeDeck == undo.FromDeck)
+        if (string.Equals(_activeDeckId, undo.FromDeckId, StringComparison.OrdinalIgnoreCase))
         {
             ShowEntryById(undo.EntryId);
-            AnnounceStatus($"Undid move. {entry.Source} is back in deck {undo.FromDeck}.");
+            AnnounceStatus($"Undid move. {entry.Source} is back in {fromDeck.Name}.");
         }
         else
         {
-            AnnounceStatus($"Undid move. {entry.Source} is back in deck {undo.FromDeck}.");
+            AnnounceStatus($"Undid move. {entry.Source} is back in {fromDeck.Name}; it was removed from {toDeck.Name}.");
             RepeatCurrentWord();
         }
     }
 
+    private void CreateDeck()
+    {
+        string? name = DeckDialogs.PromptForName(this, "Create deck", "Enter a name for the new empty deck:");
+        if (name is null)
+            return;
+
+        try
+        {
+            DeckDefinition deck = _decks.Create(name);
+            _activeDeckId = deck.Id;
+            _state.ActiveDeckId = deck.Id;
+            _shortcuts.RefreshDeckDefinitions();
+            RefreshDeckUi();
+            ResetSequence();
+            UpdateCounts();
+            SaveState();
+            AnnounceStatus($"Created empty deck {deck.Name}. It is now active. Assign switch and move shortcuts in Keyboard shortcuts if desired.");
+            NextWord();
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(this, ex.Message, "Cannot create deck", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        }
+    }
+
+    private void RenameActiveDeck()
+    {
+        DeckDefinition? deck = _decks.Find(_activeDeckId);
+        if (deck is null)
+            return;
+        string? name = DeckDialogs.PromptForName(this, "Rename deck", "Enter the new deck name:", deck.Name);
+        if (name is null)
+            return;
+
+        try
+        {
+            _decks.Rename(deck.Id, name);
+            _shortcuts.RefreshDeckDefinitions();
+            RefreshDeckUi();
+            UpdateCounts();
+            SaveState();
+            AnnounceStatus($"Deck renamed to {deck.Name}. Its stable ID, word assignments, and shortcuts were preserved.");
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(this, ex.Message, "Cannot rename deck", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        }
+    }
+
+    private void DeleteActiveDeck()
+    {
+        DeckDefinition? deck = _decks.Find(_activeDeckId);
+        if (deck is null)
+            return;
+        if (deck.IsCore)
+        {
+            AnnounceStatus("The five default decks are permanent. You can rename or reorder this deck, but you cannot delete it.");
+            return;
+        }
+
+        int assigned = _decks.CountEverywhere(deck.Id);
+        string? destination = null;
+        if (assigned > 0)
+        {
+            destination = DeckDialogs.ChooseDeck(
+                this,
+                "Delete non-empty deck",
+                $"{deck.Name} contains {assigned} word assignments across dictionaries. Choose a destination for every word, or cancel deletion:",
+                _decks.Decks.Where(candidate => !string.Equals(candidate.Id, deck.Id, StringComparison.OrdinalIgnoreCase)),
+                DeckIds.Core(1));
+            if (destination is null)
+                return;
+        }
+        else
+        {
+            DialogResult result = MessageBox.Show(
+                this,
+                $"Delete empty deck {deck.Name}?",
+                "Delete deck",
+                MessageBoxButtons.YesNo,
+                MessageBoxIcon.Question,
+                MessageBoxDefaultButton.Button2);
+            if (result != DialogResult.Yes)
+                return;
+        }
+
+        try
+        {
+            string deletedName = deck.Name;
+            _decks.DeleteUserDeck(deck.Id, destination);
+            _activeDeckId = _state.ActiveDeckId ?? _decks.FirstDeck.Id;
+            _lastMove = null;
+            _shortcuts.RefreshDeckDefinitions();
+            RefreshDeckUi();
+            ResetSequence();
+            UpdateCounts();
+            SaveState();
+            AnnounceStatus(assigned > 0
+                ? $"Deleted {deletedName}. All {assigned} word assignments were moved safely to {_decks.Find(destination!)?.Name}."
+                : $"Deleted empty deck {deletedName}.");
+            NextWord();
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(this, ex.Message, "Cannot delete deck", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        }
+    }
+
+    private void ReorderActiveDeck(int direction)
+    {
+        DeckDefinition? deck = _decks.Find(_activeDeckId);
+        if (deck is null)
+            return;
+        if (!_decks.Move(deck.Id, direction))
+        {
+            AnnounceStatus(direction < 0 ? "This deck is already first." : "This deck is already last.");
+            return;
+        }
+
+        RefreshDeckUi();
+        UpdateCounts();
+        SaveState();
+        AnnounceStatus($"Moved {deck.Name} {(direction < 0 ? "up" : "down")} in the deck order. Its shortcuts and word assignments were preserved.");
+    }
+
     private void UpdateCounts()
     {
-        int count = _package.Entries.Count(entry => _deckMap.GetValueOrDefault(entry.Id, 1) == _activeDeck);
-        _countLabel.Text = $"Deck {_activeDeck}: {count} words. Dictionary total: {_package.Entries.Count}.";
+        if (_package is null)
+            return;
+        string summary = string.Join("; ", _decks.Decks.Select(deck =>
+        {
+            int count = _decks.CountInDictionary(_package.Id, deck.Id);
+            string active = string.Equals(deck.Id, _activeDeckId, StringComparison.OrdinalIgnoreCase) ? " active" : string.Empty;
+            return $"{deck.Name}: {count} words{active}";
+        }));
+        _countLabel.Text = $"Deck counts — {summary}. Dictionary total: {_package.Entries.Count}.";
     }
 
     private void AnnounceStatus(string text)
@@ -559,7 +774,7 @@ internal sealed class MainForm : Form
             PopulateDictionaryCombo();
             int index = ((List<DictionaryPackage>)_dictionaryCombo.DataSource!).FindIndex(x => x.Id == package.Id);
             _dictionaryCombo.SelectedIndex = index;
-            AnnounceStatus($"Imported {package.Name}: {package.Entries.Count} entries.");
+            AnnounceStatus($"Imported {package.Name}: {package.Entries.Count} entries. New entries start in {_decks.FirstDeck.Name}.");
         }
         catch (Exception ex)
         {
@@ -569,6 +784,7 @@ internal sealed class MainForm : Form
 
     private void OpenShortcutSettings()
     {
+        _shortcuts.RefreshDeckDefinitions();
         using var dialog = new ShortcutSettingsForm(_shortcuts);
         dialog.ShowDialog(this);
         SaveState();
@@ -577,26 +793,28 @@ internal sealed class MainForm : Form
 
     private void ShowHelp()
     {
+        _shortcuts.RefreshDeckDefinitions();
         string shortcutLines = string.Join(Environment.NewLine,
-            ShortcutManager.Definitions.Select(def => $"{def.Description}: {_shortcuts.Get(def.Id)}"));
+            _shortcuts.Definitions.Select(def => $"{def.Description}: {FormatShortcut(_shortcuts.Get(def.Id))}"));
         string audioMode = _state.AutoPlayPronunciationOnCardChange ? "enabled" : "disabled";
         string help =
             "WORDDECK HELP\r\n\r\n" +
             "WordDeck shows only the English side of a card by default. Reveal the Ukrainian translation only when you need it. " +
             "Both navigation shortcuts draw another random card from the active deck. Every word is presented once before the shuffle bag is refilled, and the refill avoids an immediate repeat when the deck has more than one word.\r\n\r\n" +
-            "Generated British pronunciation is an optional offline audio layer keyed by the stable dictionary and entry IDs. " +
+            "The original five default decks are permanent for compatibility, but they can be renamed and reordered. You can create any number of additional empty decks, rename them, reorder them, and delete user-created decks. " +
+            "Deleting a non-empty user deck always requires choosing another deck for all of its words; cancelling leaves the deck untouched. Every deck owns stable switch and move-to shortcut actions, so renaming and reordering do not break its bindings.\r\n\r\n" +
+            "Generated British pronunciation is an optional offline audio layer keyed by stable dictionary and entry IDs. " +
             $"Automatic pronunciation on card change is currently {audioMode}. When automatic audio successfully starts, WordDeck suppresses its extra UI Automation word notification to reduce double speech; if audio is missing or cannot play, the normal screen-reader announcement remains the fallback. " +
             "You can also play the generated pronunciation manually without changing the automatic setting.\r\n\r\n" +
-            "Decks are user-controlled. Move the current word directly to any of the five decks. If you move a word accidentally, use Undo last deck move. " +
-            "Switching decks changes which set you are training. All progress is saved locally in your Windows user profile and a recovery backup is maintained.\r\n\r\n" +
+            "All progress, deck definitions, deck names, order and shortcuts are saved locally in your Windows user profile and a recovery backup is maintained.\r\n\r\n" +
             "KEYBOARD SHORTCUTS\r\n" + shortcutLines + "\r\n\r\n" +
-            "Use Tools > Keyboard shortcuts to reassign shortcuts. Use File > Import dictionary to add another WordDeck TSV dictionary.";
+            "Use Tools > Keyboard shortcuts to assign or reassign any shortcut. User-created deck switch and move shortcuts start unassigned. Use File > Import dictionary to add another WordDeck TSV dictionary.";
 
         using var form = new Form
         {
             Text = "WordDeck help",
-            Width = 760,
-            Height = 600,
+            Width = 780,
+            Height = 620,
             StartPosition = FormStartPosition.CenterParent,
             AccessibleName = "WordDeck help"
         };
@@ -620,6 +838,8 @@ internal sealed class MainForm : Form
         RepeatCurrentWord();
     }
 
+    private static string FormatShortcut(Keys keys) => keys == Keys.None ? "Unassigned" : keys.ToString();
+
     protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
     {
         string? action = _shortcuts.FindAction(keyData);
@@ -636,16 +856,16 @@ internal sealed class MainForm : Form
         else if (action == ActionIds.Help) ShowHelp();
         else
         {
-            for (int deck = 1; deck <= 5; deck++)
+            foreach (DeckDefinition deck in _decks.Decks)
             {
-                if (action == ActionIds.SwitchDeck(deck))
+                if (action == ActionIds.SwitchDeck(deck.Id))
                 {
-                    SwitchDeck(deck);
+                    SwitchDeck(deck.Id);
                     break;
                 }
-                if (action == ActionIds.MoveToDeck(deck))
+                if (action == ActionIds.MoveToDeck(deck.Id))
                 {
-                    MoveCurrentToDeck(deck);
+                    MoveCurrentToDeck(deck.Id);
                     break;
                 }
             }
@@ -656,7 +876,7 @@ internal sealed class MainForm : Form
     private void SaveState()
     {
         _state.ActiveDictionaryId = _package?.Id;
-        _state.ActiveDeck = _activeDeck;
+        _state.ActiveDeckId = _activeDeckId;
         _store.Save(_state);
     }
 }
