@@ -4,15 +4,12 @@ namespace WordDeck;
 
 internal sealed record InstalledSentencePack(
     string Path,
-    SentencePack Pack,
-    ISentenceCorpus? RuntimeCorpus = null,
-    string? SqlitePath = null)
-{
-    public ISentenceCorpus Corpus => RuntimeCorpus ?? Pack;
-    public string PackId => Corpus.PackId;
-    public string License => Corpus.License;
-    public int SentenceCount => Corpus.SentenceCount;
-}
+    string PackId,
+    string License,
+    int SentenceCount,
+    ISentenceCorpus Corpus,
+    string? SqlitePath = null,
+    SentencePack? PortablePack = null);
 
 internal sealed class SentencePackStore
 {
@@ -77,32 +74,78 @@ internal sealed class SentencePackStore
         if (File.Exists(legacyJson)) File.Delete(legacyJson);
 
         var sqliteCorpus = new SentencePackSqliteCorpus(sqliteDestination);
-        return new InstalledSentencePack(destination, pack, sqliteCorpus, sqliteDestination);
+        return new InstalledSentencePack(
+            destination,
+            pack.PackId,
+            pack.License,
+            pack.SentenceCount,
+            sqliteCorpus,
+            sqliteDestination,
+            pack);
     }
 
     public IReadOnlyList<InstalledSentencePack> LoadInstalled()
     {
         var result = new List<InstalledSentencePack>();
-        IEnumerable<string> paths = Directory.EnumerateFiles(DirectoryPath, "*.json", SearchOption.TopDirectoryOnly)
+        var representedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var representedPackIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        // Runtime-first discovery: a valid SQLite companion contains all metadata needed by the UI,
+        // so normal restart/study does not deserialize the potentially very large gzip interchange
+        // file. The portable file remains installed for provenance/export/backwards compatibility.
+        foreach (string sqlitePath in Directory.EnumerateFiles(DirectoryPath, "*.sqlite", SearchOption.TopDirectoryOnly)
+                     .OrderBy(path => path, StringComparer.OrdinalIgnoreCase))
+        {
+            try
+            {
+                var corpus = new SentencePackSqliteCorpus(sqlitePath);
+                string safeId = SafeFileName(corpus.PackId);
+                string gzipPath = Path.Combine(DirectoryPath, safeId + ".json.gz");
+                string jsonPath = Path.Combine(DirectoryPath, safeId + ".json");
+                string portablePath = File.Exists(gzipPath) ? gzipPath : File.Exists(jsonPath) ? jsonPath : sqlitePath;
+
+                result.Add(new InstalledSentencePack(
+                    portablePath,
+                    corpus.PackId,
+                    corpus.License,
+                    corpus.SentenceCount,
+                    corpus,
+                    sqlitePath));
+                representedPackIds.Add(corpus.PackId);
+                representedPaths.Add(gzipPath);
+                representedPaths.Add(jsonPath);
+            }
+            catch
+            {
+                // A corrupt optional SQLite companion must not block startup. Its portable pack,
+                // when present and valid, is considered below as the backwards-compatible fallback.
+            }
+        }
+
+        IEnumerable<string> portablePaths = Directory.EnumerateFiles(DirectoryPath, "*.json", SearchOption.TopDirectoryOnly)
             .Concat(Directory.EnumerateFiles(DirectoryPath, "*.json.gz", SearchOption.TopDirectoryOnly))
             .OrderByDescending(SentencePackIo.IsGZipPath)
             .ThenBy(path => path, StringComparer.OrdinalIgnoreCase);
 
-        foreach (string path in paths)
+        foreach (string path in portablePaths)
         {
+            if (representedPaths.Contains(path))
+                continue;
+
             try
             {
                 SentencePack pack = SentencePackIo.Read(path);
-                string sqlitePath = Path.Combine(DirectoryPath, SafeFileName(pack.PackId) + ".sqlite");
-                ISentenceCorpus? runtime = null;
-                if (File.Exists(sqlitePath))
-                {
-                    var sqlite = new SentencePackSqliteCorpus(sqlitePath);
-                    if (string.Equals(sqlite.PackId, pack.PackId, StringComparison.OrdinalIgnoreCase) &&
-                        sqlite.SentenceCount == pack.SentenceCount)
-                        runtime = sqlite;
-                }
-                result.Add(new InstalledSentencePack(path, pack, runtime, runtime is null ? null : sqlitePath));
+                if (!representedPackIds.Add(pack.PackId))
+                    continue;
+
+                result.Add(new InstalledSentencePack(
+                    path,
+                    pack.PackId,
+                    pack.License,
+                    pack.SentenceCount,
+                    pack,
+                    null,
+                    pack));
             }
             catch
             {
@@ -111,9 +154,9 @@ internal sealed class SentencePackStore
         }
 
         return result
-            .GroupBy(item => item.Pack.PackId, StringComparer.OrdinalIgnoreCase)
+            .GroupBy(item => item.PackId, StringComparer.OrdinalIgnoreCase)
             .Select(group => group.First())
-            .OrderBy(item => item.Pack.PackId, StringComparer.OrdinalIgnoreCase)
+            .OrderBy(item => item.PackId, StringComparer.OrdinalIgnoreCase)
             .ToList();
     }
 
@@ -121,7 +164,7 @@ internal sealed class SentencePackStore
     {
         if (string.IsNullOrWhiteSpace(packId))
             return null;
-        return LoadInstalled().FirstOrDefault(item => string.Equals(item.Pack.PackId, packId, StringComparison.OrdinalIgnoreCase));
+        return LoadInstalled().FirstOrDefault(item => string.Equals(item.PackId, packId, StringComparison.OrdinalIgnoreCase));
     }
 
     internal static string SafeFileName(string packId)
