@@ -385,6 +385,26 @@ internal sealed class SentenceCoachForm : Form
                 StringComparison.OrdinalIgnoreCase))
             .ToList();
 
+    private HashSet<string> CoveredScopeEntryIds(IReadOnlyList<DictionaryEntry> scopeEntries, bool requireSameScopePartner)
+    {
+        if (_corpus is null)
+            return new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        string[] scopeIds = scopeEntries.Select(entry => entry.Id).ToArray();
+        if (_corpus is SentencePackSqliteCorpus sqlite)
+            return sqlite.GetCoveredScopeEntryIds(scopeIds, requireSameScopePartner);
+
+        if (!requireSameScopePartner)
+            return new HashSet<string>(
+                scopeEntries.Where(entry => _corpus.LookupByEntryId(entry.Id).Count > 0).Select(entry => entry.Id),
+                StringComparer.OrdinalIgnoreCase);
+
+        var allowed = new HashSet<string>(scopeIds, StringComparer.OrdinalIgnoreCase);
+        return new HashSet<string>(
+            scopeEntries.Where(entry => HasSameScopePartner(entry.Id, allowed)).Select(entry => entry.Id),
+            StringComparer.OrdinalIgnoreCase);
+    }
+
     private void UpdateCoverage()
     {
         DeckDefinition deck = _spellingDecks.Find(_activeDeckId) ?? _spellingDecks.FirstDeck;
@@ -396,16 +416,10 @@ internal sealed class SentenceCoachForm : Form
             return;
         }
 
-        if (_state.TargetCount == 1)
-        {
-            int covered = scopeEntries.Count(entry => _corpus.LookupByEntryId(entry.Id).Count > 0);
-            _coverage.Text = $"{deck.Name}: {scope} target words; {covered} currently have at least one corpus sentence in {_corpus.PackId}.";
-            return;
-        }
-
-        var allowed = new HashSet<string>(scopeEntries.Select(entry => entry.Id), StringComparer.OrdinalIgnoreCase);
-        int pairCovered = scopeEntries.Count(entry => HasSameScopePartner(entry.Id, allowed));
-        _coverage.Text = $"{deck.Name}: {scope} target words; {pairCovered} currently have at least one same-scope two-target corpus intersection in {_corpus.PackId}.";
+        HashSet<string> covered = CoveredScopeEntryIds(scopeEntries, _state.TargetCount == 2);
+        _coverage.Text = _state.TargetCount == 1
+            ? $"{deck.Name}: {scope} target words; {covered.Count} currently have at least one corpus sentence in {_corpus.PackId}."
+            : $"{deck.Name}: {scope} target words; {covered.Count} currently have at least one same-scope two-target corpus intersection in {_corpus.PackId}.";
     }
 
     private bool HasSameScopePartner(string entryId, HashSet<string> allowed)
@@ -471,13 +485,8 @@ internal sealed class SentenceCoachForm : Form
 
         IReadOnlyList<DictionaryEntry> scope = ScopeEntries();
         var allowed = new HashSet<string>(scope.Select(entry => entry.Id), StringComparer.OrdinalIgnoreCase);
-
-        List<DictionaryEntry> covered = scope
-            .Where(entry => _corpus.LookupByEntryId(entry.Id).Count > 0)
-            .ToList();
-
-        if (_state.TargetCount == 2)
-            covered = covered.Where(entry => HasSameScopePartner(entry.Id, allowed)).ToList();
+        HashSet<string> coveredIds = CoveredScopeEntryIds(scope, _state.TargetCount == 2);
+        List<DictionaryEntry> covered = scope.Where(entry => coveredIds.Contains(entry.Id)).ToList();
 
         if (covered.Count == 0)
         {
