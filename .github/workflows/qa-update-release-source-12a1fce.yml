@@ -1,0 +1,51 @@
+name: QA Update Strict Release Source 12a1fce
+
+on:
+  push:
+    branches:
+      - qa/windows-current-integration-candidate-20260815
+    paths:
+      - '.github/workflows/qa-update-release-source-12a1fce.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  update-source-lock:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: qa/windows-current-integration-candidate-20260815
+          fetch-depth: 0
+      - name: Update only frozen integration SHA
+        shell: bash
+        run: |
+          set -euo pipefail
+          target='.github/workflows/windows-stage1-release-human-menu.yml'
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('.github/workflows/windows-stage1-release-human-menu.yml')
+          s=p.read_text(encoding='utf-8')
+          lines=s.splitlines()
+          hits=[i for i,x in enumerate(lines) if x.strip().startswith('SOURCE_INTEGRATION_SHA:')]
+          if len(hits)!=1:
+              raise SystemExit(f'Expected exactly one SOURCE_INTEGRATION_SHA, got {len(hits)}')
+          i=hits[0]
+          lines[i]='  SOURCE_INTEGRATION_SHA: 12a1fce3ca4226f74b5a11eeb0089722cdc1b585'
+          p.write_text('\n'.join(lines)+'\n',encoding='utf-8')
+          PY
+          git diff --check
+          git diff -- "$target"
+          if ! git diff -- "$target" | grep -q '12a1fce3ca4226f74b5a11eeb0089722cdc1b585'; then
+            echo 'Exact source SHA update not present' >&2; exit 1
+          fi
+          changed=$(git diff --name-only)
+          if [ "$changed" != "$target" ]; then
+            echo "Unexpected changed paths: $changed" >&2; exit 1
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add "$target"
+          git commit -m 'QA: run strict Windows release on exact 12a1fce integration'
+          git push origin HEAD:qa/windows-current-integration-candidate-20260815
