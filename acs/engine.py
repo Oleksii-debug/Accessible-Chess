@@ -212,6 +212,20 @@ class UCIEngine:
             except queue.Empty:
                 return
 
+    def _configure_request_options(self, *, multipv: int, skill_level: int) -> None:
+        """Make every UCI request self-contained on the shared stateful process.
+
+        Stockfish options persist until explicitly changed. Analysis and engine
+        play intentionally share one provider, so each request must restore the
+        options whose semantics differ between those modes. Otherwise a weak
+        engine-game Skill Level can silently weaken later analysis, while a
+        previous MultiPV analysis can leak extra PV work into timed engine play.
+        """
+        self.send(f"setoption name Skill Level value {skill_level}")
+        self.send(f"setoption name MultiPV value {multipv}")
+        self.send("isready")
+        self._wait("readyok", 5)
+
     def analyze(self, fen: str, multipv: int = 5, depth: int = 16):
         multipv = max(1, min(10, int(multipv)))
         depth = max(1, min(40, int(depth)))
@@ -219,9 +233,7 @@ class UCIEngine:
             self.start()
             generation = self._process_generation
             self._drain()
-            self.send(f"setoption name MultiPV value {multipv}")
-            self.send("isready")
-            self._wait("readyok", 5)
+            self._configure_request_options(multipv=multipv, skill_level=20)
             self.send("position fen " + fen)
             self.send(f"go depth {depth}")
             best: dict[int, RawAnalysisLine] = {}
@@ -254,9 +266,7 @@ class UCIEngine:
             self._drain()
             skill = max(0, min(20, int(skill_level)))
             movetime_ms = max(50, int(movetime_ms))
-            self.send(f"setoption name Skill Level value {skill}")
-            self.send("isready")
-            self._wait("readyok", 5)
+            self._configure_request_options(multipv=1, skill_level=skill)
             self.send("position fen " + fen)
             self.send(f"go movetime {movetime_ms}")
             end = time.monotonic() + max(5, movetime_ms / 1000 + 5)
