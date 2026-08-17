@@ -16,13 +16,30 @@ internal sealed record SentencePackLoadDiagnostics(
     long WorkingSetBytesDelta,
     SentencePackSqliteMetrics? SqlitePrototype = null);
 
+internal sealed record SentenceCoachRuntimeDiagnostics(
+    string DatabasePath,
+    long DatabaseBytes,
+    int SentenceCount,
+    int ScopeEntryCount,
+    long CorpusOpenMilliseconds,
+    long OneTargetCoverageMilliseconds,
+    int OneTargetCoveredEntries,
+    long TwoTargetCoverageMilliseconds,
+    int TwoTargetCoveredEntries,
+    long RepresentativeOneTargetMilliseconds,
+    int RepresentativeOneTargetSentences,
+    long RepresentativeTwoTargetMilliseconds,
+    int RepresentativeTwoTargetSentences,
+    long ManagedBytesDelta,
+    long WorkingSetBytesDelta);
+
 internal static class SentencePackDiagnostics
 {
     public static int Run(string[] args)
     {
         if (args.Length < 2 || args.Length > 6)
         {
-            Console.Error.WriteLine("Usage: WordDeck.exe --measure-sentence-pack <pack.json|pack.json.gz> [report.json] [--sqlite <output.sqlite> [target-entry-id]] OR --measure-sentence-pack <pack.sqlite> [report.json] [target-entry-id]");
+            Console.Error.WriteLine("Usage: WordDeck.exe --measure-sentence-pack <pack.json|pack.json.gz> [report.json] [--sqlite <output.sqlite> [target-entry-id]] OR --measure-sentence-pack <pack.sqlite> [report.json] [target-entry-id|--runtime]");
             return 2;
         }
 
@@ -73,11 +90,7 @@ internal static class SentencePackDiagnostics
 
             SentencePackSqliteMetrics? sqliteMetrics = null;
             if (sqlitePath is not null)
-            {
-                // Development-only conversion benchmark. Runtime Sentence Coach remains on JSON/GZIP
-                // until the disk-backed path wins on isolated read/query measurements.
                 sqliteMetrics = SentencePackSqlitePrototype.Measure(packPath, sqlitePath, new[] { sqliteTarget });
-            }
 
             var report = new SentencePackLoadDiagnostics(
                 packPath,
@@ -107,11 +120,107 @@ internal static class SentencePackDiagnostics
     {
         string? reportPath = args.Length > 2 && !string.IsNullOrWhiteSpace(args[2]) ? Path.GetFullPath(args[2]) : null;
         string target = args.Length > 3 && !string.IsNullOrWhiteSpace(args[3]) ? args[3].Trim() : "oxford-a1-0001";
-        if (args.Length > 4) throw new ArgumentException("SQLite query-only measurement accepts at most one target entry ID.");
+        if (args.Length > 4) throw new ArgumentException("SQLite query-only measurement accepts at most one target entry ID or --runtime.");
+
+        if (target.Equals("--runtime", StringComparison.OrdinalIgnoreCase))
+        {
+            SentenceCoachRuntimeDiagnostics runtime = MeasureSentenceCoachRuntime(sqlitePath);
+            WriteReport(runtime, reportPath);
+            return 0;
+        }
 
         SentencePackSqliteMetrics metrics = SentencePackSqlitePrototype.MeasureQueryOnly(sqlitePath, new[] { target });
         WriteReport(metrics, reportPath);
         return 0;
+    }
+
+    private static SentenceCoachRuntimeDiagnostics MeasureSentenceCoachRuntime(string sqlitePath)
+    {
+        GC.Collect();
+        GC.WaitForPendingFinalizers();
+        GC.Collect();
+
+        long managedBefore = GC.GetTotalMemory(true);
+        using Process process = Process.GetCurrentProcess();
+        process.Refresh();
+        long workingBefore = process.WorkingSet64;
+
+        Stopwatch openWatch = Stopwatch.StartNew();
+        var corpus = new SentencePackSqliteCorpus(sqlitePath);
+        openWatch.Stop();
+
+        DictionaryPackage dictionary = DictionaryLoader.LoadEmbeddedOxford();
+        string[] scopeIds = dictionary.Entries.Select(entry => entry.Id).ToArray();
+        var allowed = new HashSet<string>(scopeIds, StringComparer.OrdinalIgnoreCase);
+
+        Stopwatch oneCoverageWatch = Stopwatch.StartNew();
+        var oneTargetCovered = new List<string>();
+        foreach (string entryId in scopeIds)
+        {
+            if (corpus.LookupByEntryId(entryId).Count > 0)
+                oneTargetCovered.Add(entryId);
+        }
+        oneCoverageWatch.Stop();
+
+        Stopwatch twoCoverageWatch = Stopwatch.StartNew();
+        var twoTargetCovered = new List<string>();
+        string? representativePrimary = null;
+        string? representativePartner = null;
+        foreach (string entryId in scopeIds)
+        {
+            bool found = false;
+            foreach (SentenceRecord sentence in corpus.LookupByEntryId(entryId))
+            {
+                string? partner = sentence.TargetEntryIds.FirstOrDefault(id =>
+                    !string.Equals(id, entryId, StringComparison.OrdinalIgnoreCase) && allowed.Contains(id));
+                if (partner is null)
+                    continue;
+
+                found = true;
+                representativePrimary ??= entryId;
+                representativePartner ??= partner;
+                break;
+            }
+            if (found)
+                twoTargetCovered.Add(entryId);
+        }
+        twoCoverageWatch.Stop();
+
+        string oneTarget = oneTargetCovered.FirstOrDefault() ?? throw new InvalidDataException("Runtime benchmark found no covered Oxford target.");
+        Stopwatch oneQueryWatch = Stopwatch.StartNew();
+        IReadOnlyList<SentenceRecord> oneResults = corpus.LookupByEntryId(oneTarget);
+        oneQueryWatch.Stop();
+
+        if (representativePrimary is null || representativePartner is null)
+            throw new InvalidDataException("Runtime benchmark found no same-scope two-target intersection.");
+        Stopwatch twoQueryWatch = Stopwatch.StartNew();
+        IReadOnlyList<SentenceRecord> twoResults = corpus.LookupAllTargets(new[] { representativePrimary, representativePartner });
+        twoQueryWatch.Stop();
+
+        long managedAfter = GC.GetTotalMemory(false);
+        process.Refresh();
+        long workingAfter = process.WorkingSet64;
+
+        GC.KeepAlive(corpus);
+        GC.KeepAlive(oneResults);
+        GC.KeepAlive(twoResults);
+
+        return new SentenceCoachRuntimeDiagnostics(
+            Path.GetFullPath(sqlitePath),
+            new FileInfo(sqlitePath).Length,
+            corpus.SentenceCount,
+            scopeIds.Length,
+            openWatch.ElapsedMilliseconds,
+            oneCoverageWatch.ElapsedMilliseconds,
+            oneTargetCovered.Count,
+            twoCoverageWatch.ElapsedMilliseconds,
+            twoTargetCovered.Count,
+            oneQueryWatch.ElapsedMilliseconds,
+            oneResults.Count,
+            twoQueryWatch.ElapsedMilliseconds,
+            twoResults.Count,
+            managedAfter - managedBefore,
+            workingAfter - workingBefore);
     }
 
     private static void WriteReport<T>(T report, string? reportPath)
