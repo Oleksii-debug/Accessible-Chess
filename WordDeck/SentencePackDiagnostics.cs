@@ -151,45 +151,36 @@ internal static class SentencePackDiagnostics
 
         DictionaryPackage dictionary = DictionaryLoader.LoadEmbeddedOxford();
         string[] scopeIds = dictionary.Entries.Select(entry => entry.Id).ToArray();
-        var allowed = new HashSet<string>(scopeIds, StringComparer.OrdinalIgnoreCase);
 
         Stopwatch oneCoverageWatch = Stopwatch.StartNew();
-        var oneTargetCovered = new List<string>();
-        foreach (string entryId in scopeIds)
-        {
-            if (corpus.LookupByEntryId(entryId).Count > 0)
-                oneTargetCovered.Add(entryId);
-        }
+        HashSet<string> oneTargetCovered = corpus.GetCoveredScopeEntryIds(scopeIds, requireSameScopePartner: false);
         oneCoverageWatch.Stop();
 
         Stopwatch twoCoverageWatch = Stopwatch.StartNew();
-        var twoTargetCovered = new List<string>();
-        string? representativePrimary = null;
-        string? representativePartner = null;
-        foreach (string entryId in scopeIds)
-        {
-            bool found = false;
-            foreach (SentenceRecord sentence in corpus.LookupByEntryId(entryId))
-            {
-                string? partner = sentence.TargetEntryIds.FirstOrDefault(id =>
-                    !string.Equals(id, entryId, StringComparison.OrdinalIgnoreCase) && allowed.Contains(id));
-                if (partner is null)
-                    continue;
-
-                found = true;
-                representativePrimary ??= entryId;
-                representativePartner ??= partner;
-                break;
-            }
-            if (found)
-                twoTargetCovered.Add(entryId);
-        }
+        HashSet<string> twoTargetCovered = corpus.GetCoveredScopeEntryIds(scopeIds, requireSameScopePartner: true);
         twoCoverageWatch.Stop();
 
-        string oneTarget = oneTargetCovered.FirstOrDefault() ?? throw new InvalidDataException("Runtime benchmark found no covered Oxford target.");
+        string oneTarget = oneTargetCovered.OrderBy(id => id, StringComparer.OrdinalIgnoreCase).FirstOrDefault()
+            ?? throw new InvalidDataException("Runtime benchmark found no covered Oxford target.");
         Stopwatch oneQueryWatch = Stopwatch.StartNew();
         IReadOnlyList<SentenceRecord> oneResults = corpus.LookupByEntryId(oneTarget);
         oneQueryWatch.Stop();
+
+        string? representativePrimary = null;
+        string? representativePartner = null;
+        foreach (string primary in twoTargetCovered.OrderBy(id => id, StringComparer.OrdinalIgnoreCase))
+        {
+            SentenceRecord? sentence = corpus.LookupByEntryId(primary).FirstOrDefault(item =>
+                item.TargetEntryIds.Any(id =>
+                    !string.Equals(id, primary, StringComparison.OrdinalIgnoreCase) &&
+                    twoTargetCovered.Contains(id)));
+            if (sentence is null)
+                continue;
+            representativePrimary = primary;
+            representativePartner = sentence.TargetEntryIds.First(id =>
+                !string.Equals(id, primary, StringComparison.OrdinalIgnoreCase) && twoTargetCovered.Contains(id));
+            break;
+        }
 
         if (representativePrimary is null || representativePartner is null)
             throw new InvalidDataException("Runtime benchmark found no same-scope two-target intersection.");
