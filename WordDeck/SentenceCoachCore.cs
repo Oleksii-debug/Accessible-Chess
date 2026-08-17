@@ -56,7 +56,7 @@ internal sealed class SentencePack
                 : intersection.Where(existing => candidates.Any(c => string.Equals(c.Id, existing.Id, StringComparison.OrdinalIgnoreCase))).ToList();
             if (intersection.Count == 0) return intersection;
         }
-        return intersection ?? Array.Empty<SentenceRecord>();
+        return intersection is null ? Array.Empty<SentenceRecord>() : intersection;
     }
 
     private void EnsureIndexes() { if (_byEntryId is null || _byLemma is null) BuildIndexes(); }
