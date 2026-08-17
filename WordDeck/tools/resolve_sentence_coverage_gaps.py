@@ -147,8 +147,8 @@ def self_test() -> None:
         counts[record["structural_class"]] = counts.get(record["structural_class"], 0) + 1
     if counts.get("single_surface_indexable") != 114:
         raise RuntimeError(f"Expected 114 ordinary single surfaces, got {counts.get('single_surface_indexable', 0)}")
-    if counts.get("sense_numbered_unsafe_to_collapse") != 29:
-        raise RuntimeError(f"Expected 29 numbered/sense-marker records, got {counts.get('sense_numbered_unsafe_to_collapse', 0)}")
+    if counts.get("sense_numbered_unsafe_to_collapse") != 36:
+        raise RuntimeError(f"Expected 36 numbered/sense-marker records, got {counts.get('sense_numbered_unsafe_to_collapse', 0)}")
     if counts.get("hyphenated_exact_surface_candidate") != 3:
         raise RuntimeError(f"Expected 3 hyphenated candidates, got {counts.get('hyphenated_exact_surface_candidate', 0)}")
     structurally_non_single = len(records) - counts["single_surface_indexable"]
