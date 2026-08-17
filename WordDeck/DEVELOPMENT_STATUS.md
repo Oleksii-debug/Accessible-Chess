@@ -61,22 +61,27 @@ Oxford-5000 additions extraction is incomplete. The currently extracted first 10
 
 Technical generation remains **3,308 / 3,308** and no wholesale regeneration is justified.
 
-A full aggregate artifact-integrity audit was completed on 2026-08-17 across all seven existing Actions batches:
-- 3,308 unique stable entry IDs and 3,308 unique indexes, exact range 0–3307;
-- zero manifest/package byte-size mismatches;
-- all records `en-GB`, speed `1.0`, sample-rate target `24000`;
-- `bf_emma` 1,675 files, `bm_george` 1,633 files;
-- packaged MP3 sizes 4,077–31,149 bytes.
+The aggregate structural audit remains green: 3,308 unique stable IDs/indexes, exact range 0–3307, zero manifest/package byte-size mismatches, all `en-GB`, speed `1.0`, 24 kHz target, `bf_emma` 1,675 and `bm_george` 1,633.
 
-Structural AudioPack integrity therefore passes. Pronunciation QA does **not** pass yet: all 3,308 manifests have `audio_text == source`, so no normalization was applied to numbered sense markers or parenthetical disambiguators. The audit explicitly identified 36 numbered/sense-marker records and 5 uppercase/acronym records for targeted QA, plus a small parenthetical/multiword review set. Evidence is in `Audio/OXFORD3000_AUDIO_INTEGRITY_QA_20260817.md`.
+### Pronunciation override ledger — implemented, targeted regeneration pending
 
-Reuse/provenance review confirmed the existing Kokoro path should be retained; official model/voice references and redistribution notes are now recorded in `THIRD_PARTY_NOTICES.md`. The exact next audio implementation is a small deterministic development-time pronunciation-override ledger, followed by regeneration of affected entries only and coherent AudioPack packaging with stable-ID hashes/manifest.
+`Audio/pronunciation-overrides.tsv` now records all 36 numbered/sense-marker candidates identified by the aggregate audit and is keyed by stable Oxford entry ID plus exact source text. The ledger deliberately separates:
+- **19 `ready` overrides** where removing the superscript/parenthetical marker does not change the intended lexical pronunciation;
+- **17 `review` heteronym/sense-sensitive entries** such as `close`, `live`, `lead`, `refuse`, `wind`, `content`, `row`, `used` and `tear`, where guessing a plain-text pronunciation would be unsafe.
+
+`tools/validate_pronunciation_overrides.py` is a development-time standard-library-only validator. It reconstructs the actual embedded Oxford TSV from the existing base64+gzip source parts, requires exactly 3,308 entries, verifies every ledger stable ID and exact source string, rejects duplicate/drifted/unsafe rows, detects the five uppercase candidates (`CD`, `DVD`, `IT`, `OK`, `TV`), and emits a deterministic targeted-regeneration JSON request containing only the 19 ready overrides while keeping the 17 heteronyms and uppercase candidates explicitly blocked for phonetic/listening QA.
+
+The Windows workflow now runs this validator before .NET restore/build and uploads the regeneration request as a separate development artifact. No Python/Kokoro dependency was added to the shipped WordDeck runtime.
+
+Reuse-first review retained the existing Kokoro British path. Official Kokoro documentation confirms British voices use `lang_code='b'` with `misaki[en]` and `en-gb` espeak-ng fallback; current WordDeck voices remain `bf_emma` and `bm_george`. Exact phonetic forcing for the 17 heteronyms must use the existing generation/G2P path or a validated supported phoneme mechanism, not spelling hacks.
+
+Evidence remains in `Audio/OXFORD3000_AUDIO_INTEGRITY_QA_20260817.md`; reuse/provenance is recorded in `THIRD_PARTY_NOTICES.md`.
 
 ## Exact next steps
 
 1. Keep Windows CI and published-EXE validation green.
-2. Add first-class `.json.gz` selection/help in SentencePack UI and measure load-time/working-set behavior on the real 19.9 MB / 207,578-sentence pack; optimize only if measurement shows a problem.
-3. Resolve the 188 recorded coverage-gap IDs to exact Oxford source/POS records and classify root causes before adding morphology or controlled generation.
-4. Add/test the small British pronunciation override ledger and regenerate only affected audio entries; then assemble the coherent AudioPack.
+2. Use the generated pronunciation request to regenerate only the 19 safe normalization entries; resolve the 17 heteronyms and 5 uppercase candidates with deterministic British G2P/phonetic or listening QA before adding them to the ready set; then assemble the coherent AudioPack with stable-ID hashes/manifest.
+3. Add first-class `.json.gz` selection/help in SentencePack UI and measure load-time/working-set behavior on the real 19.9 MB / 207,578-sentence pack; optimize only if measurement shows a problem.
+4. Resolve the 188 recorded SentencePack coverage-gap IDs to exact Oxford source/POS records and classify root causes before adding morphology or controlled generation.
 5. Continue Oxford-5000 extraction/translation/second-pass QA in substantial batches.
 6. Never modify `main`.
