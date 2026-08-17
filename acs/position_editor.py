@@ -36,8 +36,15 @@ class PositionState:
             raise PositionValidationError("position contains an invalid piece symbol")
         if self.turn not in {"w", "b"}:
             raise PositionValidationError("turn must be 'w' or 'b'")
-        _validate_castling(self.castling)
-        _validate_en_passant(self.en_passant, self.turn)
+
+        # Store editor metadata in canonical FEN form, not merely a form that
+        # happens to validate. Otherwise values such as ``" E3 "`` could pass
+        # validation but later make ``to_fen()`` emit an invalid field layout.
+        # A PositionState that is accepted must therefore serialize into a FEN
+        # that the canonical Board boundary can consume without reinterpretation.
+        object.__setattr__(self, "castling", _normalize_castling(self.castling))
+        object.__setattr__(self, "en_passant", _normalize_en_passant(self.en_passant, self.turn))
+
         if self.halfmove < 0:
             raise PositionValidationError("halfmove clock must be non-negative")
         if self.fullmove < 1:
@@ -224,14 +231,19 @@ def _validate_castling(value: str) -> None:
         raise PositionValidationError("castling rights must not contain duplicates")
 
 
-def _validate_en_passant(value: str, turn: str) -> None:
-    if value == "-":
-        return
-    normalized = str(value).strip().lower()
-    _square_index(normalized)
-    rank = normalized[1]
+def _normalize_en_passant(value: str, turn: str) -> str:
+    text = str(value).strip().lower()
+    if text == "-":
+        return "-"
+    _square_index(text)
+    rank = text[1]
     expected = "6" if turn == "w" else "3"
     if rank != expected:
         raise PositionValidationError(
             f"en-passant square rank must be {expected} when {turn} is to move"
         )
+    return text
+
+
+def _validate_en_passant(value: str, turn: str) -> None:
+    _normalize_en_passant(value, turn)
