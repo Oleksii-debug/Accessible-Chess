@@ -8,6 +8,7 @@ on:
       - 'WordDeck/tools/build_tatoeba_cc0_pairs.py'
       - 'WordDeck/TatoebaImportProvenance.cs'
       - 'WordDeck/TatoebaSentencePackBuilder.cs'
+      - 'WordDeck/TatoebaSentencePackSelfTest.cs'
       - 'WordDeck/Program.cs'
   workflow_dispatch:
 
@@ -54,11 +55,12 @@ jobs:
       - name: Build real WordDeck SentencePack
         shell: pwsh
         run: |
+          $stamp = (Get-Date).ToUniversalTime().ToString('yyyyMMdd')
           dotnet run --project .\WordDeck\WordDeck.csproj -c Release --no-build -- `
             --build-tatoeba-sentence-pack `
             .\sentencepack-build\tatoeba-en-uk-cc0.tsv `
             .\sentencepack-build\tatoeba-en-uk-cc0-sentencepack.json `
-            tatoeba-en-uk-cc0-20260817 2>&1 | Tee-Object -FilePath .\sentencepack-build\builder.log
+            "tatoeba-en-uk-cc0-$stamp" 2>&1 | Tee-Object -FilePath .\sentencepack-build\builder.log
 
       - name: Validate distributable pack and write coverage report
         shell: pwsh
