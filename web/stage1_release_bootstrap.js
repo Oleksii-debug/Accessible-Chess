@@ -107,7 +107,14 @@ function installMoveForm() {
     form.noValidate = true;
 
     const label = row.querySelector('label[for="move-input"]');
-    const input = oldInput.cloneNode(true);
+    // Preserve the original edit node. Replacing it with cloneNode(true) can
+    // leave packaged WebView2/UIA holding the removed provider, so the move
+    // field may disappear from ControlType.Edit discovery even though a new
+    // DOM input with the same id exists. Moving the original node keeps its
+    // UIA identity and label association stable.
+    const input = oldInput;
+    // Replace only the old button so its legacy click handler cannot double
+    // dispatch after the row is upgraded to native form-submit semantics.
     const button = oldButton.cloneNode(true);
     button.type = 'submit';
 
@@ -115,6 +122,18 @@ function installMoveForm() {
     form.appendChild(input);
     form.appendChild(button);
     row.replaceWith(form);
+
+    // The original input retains its legacy Enter listener. A capture-phase
+    // Enter handler owns release form submission and stops that one legacy
+    // listener only; all normal editing/copy/select keyboard behavior remains
+    // untouched.
+    input.addEventListener('keydown', event => {
+        if (event.key !== 'Enter') return;
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        if (typeof form.requestSubmit === 'function') form.requestSubmit(button);
+        else button.click();
+    }, true);
 
     // Focusing the edit field is the authoritative signal for the normal
     // move-entry journey. Programmatic ValuePattern.SetValue does not focus it,
