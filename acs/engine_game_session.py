@@ -160,6 +160,7 @@ class EngineGameSessionCoordinator:
             return result
         moved_side = snap.side_to_move
         self._commit_engine_move(result.move)
+        self._assert_canonical_turn_advanced(moved_side, source="engine move commit")
         self._lifecycle.on_move_committed()
         assert self._clock is not None
         self._clock.switch_after_move(moved_side)
@@ -169,6 +170,7 @@ class EngineGameSessionCoordinator:
         self._require_active()
         if moved_side not in {"w", "b"}:
             raise ValueError("moved_side must be 'w' or 'b'")
+        self._assert_canonical_turn_advanced(moved_side, source="human move commit")
         assert self._clock is not None
         clock = self._clock.snapshot()
         if clock.flagged is not None:
@@ -275,3 +277,21 @@ class EngineGameSessionCoordinator:
         if side not in {"w", "b"}:
             raise ValueError("side-to-move provider must return 'w' or 'b'")
         return side
+
+    def _assert_canonical_turn_advanced(self, moved_side: str, *, source: str) -> None:
+        """Require a committed move to be visible in the canonical board state.
+
+        The coordinator deliberately does not own Board mutation. A callback may
+        therefore fail silently, or an integration may call the post-commit hook
+        before the canonical state was actually updated. Advancing lifecycle or
+        clocks in that state would create a second, contradictory notion of whose
+        turn it is. Fail before touching lifecycle/clock state unless the canonical
+        side-to-move has advanced exactly once to the opponent.
+        """
+        expected = "b" if moved_side == "w" else "w"
+        actual = self._side_to_move()
+        if actual != expected:
+            raise ValueError(
+                f"canonical side to move did not advance after {source}: "
+                f"expected {expected}, got {actual}"
+            )
