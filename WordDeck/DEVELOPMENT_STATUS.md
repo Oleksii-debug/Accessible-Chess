@@ -57,16 +57,26 @@ Development-time Tatoeba EN-UA import pipeline is implemented and regression-tes
 - baseline lemmas are normalized surface forms. A later morphology preprocessing pass may replace them without changing stable sentence IDs or the pack schema;
 - production Tatoeba EN-UA data is still not bundled in the repository or shipped application.
 
-Runtime SentencePack storage groundwork is now implemented:
+Runtime SentencePack storage groundwork is implemented:
 - `SentencePackStore` installs only JSON that passes the existing schema/provenance/license validation;
 - installed packs live under the WordDeck local application-data `SentencePacks` directory and are stored by sanitized stable pack ID;
 - importing the same stable pack ID replaces that installed pack deterministically;
 - malformed optional pack files are isolated and cannot prevent valid packs or WordDeck startup from loading;
 - regression tests cover canonical persistence, reload, stable-ID replacement, filename sanitization and malformed-pack isolation.
 
-The runtime store intentionally reuses .NET `System.Text.Json`/`System.IO`; no extra runtime dependency was added. SharpCompress was evaluated for direct development-time BZip2 ingestion of official Tatoeba exports but deliberately not added to the shipped application. Details and license/provenance decisions are recorded in `THIRD_PARTY_NOTICES.md`.
+A provenance-safe CC0 pair-preparation stage is now implemented as development-only tooling:
+- `tools/build_tatoeba_cc0_pairs.py` uses only Python standard-library `bz2`, `urllib.request`, TSV/text and SHA-256 helpers;
+- it can download the current official `eng_sentences_CC0.tsv.bz2`, `ukr_sentences_CC0.tsv.bz2`, and `eng-ukr_links.tsv.bz2` weekly exports, or work from supplied local copies;
+- it emits a pair only when both linked sentence IDs independently occur in their language-specific CC0 exports, so an EN-UA link by itself is never treated as CC0 proof;
+- emitted TSV is the six-column form already accepted by `TatoebaPairTsv` and keeps original Tatoeba IDs;
+- it emits a manifest with the official source URLs, SHA-256 for all upstream files/output, coverage counts and the explicit `CC0 1.0 on BOTH sentence sides` filter;
+- malformed source language/IDs/row shapes fail closed, duplicate links are deterministic, and non-CC0 links are skipped;
+- its synthetic `.bz2` regression self-test is now part of the Windows CI gate;
+- this tool is build/development-only; shipped WordDeck still has no Python/network/server dependency.
 
-Tatoeba licensing provenance remains recorded in `THIRD_PARTY_NOTICES.md`. Current official downloads still distinguish general CC BY 2.0 FR text exports from a CC0 sentence subset. Before a real pack is committed/distributed, every selected EN-UA pair must be proven to belong to the chosen license subset; Tatoeba audio licensing is separate and is not covered by sentence-text reuse.
+Reuse decision: no new compression/NLP runtime dependency was added. `System.Text.Json`/`System.IO` remain the runtime SentencePack storage layer; Python stdlib is used only to prepare official compressed corpus exports. SharpCompress remains evaluated but unnecessary for the shipped app. Details and license/provenance decisions are in `THIRD_PARTY_NOTICES.md`.
+
+Tatoeba licensing provenance remains recorded in `THIRD_PARTY_NOTICES.md`. Official downloads distinguish general CC BY 2.0 FR text exports from the CC0 sentence subset. Tatoeba audio licensing is separate and is not covered by sentence-text reuse.
 
 ## Oxford content QA
 
@@ -87,7 +97,7 @@ Latest Oxford-3000 British-audio batch workflow inspected on 2026-08-17 is green
 
 1. Fix any Windows CI/self-test regression before feature work.
 2. Keep Spelling end-to-end behavior and migration stable without touching Recall state.
-3. Produce a real development EN-UA SentencePack from a legally selected Tatoeba export/subset; inspect coverage/quality statistics before bundling anything.
+3. Run the official weekly Tatoeba exports through `build_tatoeba_cc0_pairs.py`, then through the existing `.NET` SentencePack builder; inspect actual CC0 EN-UA coverage/quality before committing or bundling any corpus data.
 4. Wire the validated `SentencePackStore` into a one-target/two-target accessible Sentence Spelling UI constrained to the selected Spelling scope.
 5. Add morphology/lemma enrichment only where it materially improves coverage, then controlled deterministic generation for remaining corpus gaps.
 6. Continue Oxford translation QA and AudioPack integrity/provenance work in remaining safe capacity.
