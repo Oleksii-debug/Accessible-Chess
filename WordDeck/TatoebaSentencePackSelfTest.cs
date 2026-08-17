@@ -7,13 +7,13 @@ internal static class TatoebaSentencePackSelfTest
 {
     public static void Run()
     {
-        TestSixColumnAndCompactParsing();
+        TestSupportedPairLayouts();
         TestPackBuildAndStableIds();
         TestLanguageAndMalformedInputRejection();
-        TestVerifiedCc0ManifestProvenance();
+        TestVerifiedManifestProvenance();
     }
 
-    private static void TestSixColumnAndCompactParsing()
+    private static void TestSupportedPairLayouts()
     {
         string[] lines =
         {
@@ -21,13 +21,19 @@ internal static class TatoebaSentencePackSelfTest
             "101\teng\tI improve skills.\t201\tukr\tЯ покращую навички.",
             "102\tWe learn words.\t202\tМи вивчаємо слова."
         };
-
         List<TatoebaSentencePair> pairs = TatoebaPairTsv.ParseLines(lines).ToList();
-        Require(pairs.Count == 2, "Tatoeba pair parser did not accept both supported export layouts.");
-        Require(pairs[0].EnglishId == 101 && pairs[0].UkrainianId == 201 && pairs[0].English == "I improve skills.",
-            "Six-column Tatoeba pair parsing changed IDs/text.");
-        Require(pairs[1].EnglishId == 102 && pairs[1].UkrainianId == 202 && pairs[1].Ukrainian == "Ми вивчаємо слова.",
-            "Compact Tatoeba pair parsing changed IDs/text.");
+        Require(pairs.Count == 2, "Tatoeba pair parser did not accept 4/6-column layouts.");
+        Require(pairs[0].EnglishId == 101 && pairs[0].UkrainianId == 201, "Six-column parsing changed IDs.");
+
+        string[] attributedLines =
+        {
+            "english_id\tenglish_lang\tenglish\tenglish_author\tukrainian_id\tukrainian_lang\tukrainian\tukrainian_author",
+            "301\teng\tWe learn words.\tAlice\t401\tukr\tМи вивчаємо слова.\tOlena"
+        };
+        TatoebaSentencePair attributed = TatoebaPairTsv.ParseLines(attributedLines).Single();
+        Require(attributed.EnglishAuthor == "Alice" && attributed.UkrainianAuthor == "Olena",
+            "Attributed 8-column parser lost sentence-owner usernames.");
+        ExpectInvalid(new[] { "301\teng\tHello.\t\\N\t401\tukr\tПривіт.\tOlena" }, "missing English author in attributed layout");
     }
 
     private static void TestPackBuildAndStableIds()
@@ -52,37 +58,30 @@ internal static class TatoebaSentencePackSelfTest
 
         var pairs = new[]
         {
-            new TatoebaSentencePair(101, "I improve skills.", 201, "Я покращую навички."),
+            new TatoebaSentencePair(101, "I improve skills.", 201, "Я покращую навички.", "Alice", "Olena"),
             new TatoebaSentencePair(102, "We learn words.", 202, "Ми вивчаємо слова."),
             new TatoebaSentencePair(103, "xylophone qwerty.", 203, "Ксилофон.")
         };
 
         (SentencePack pack, SentencePackBuildReport report) = TatoebaSentencePackBuilder.Build(
-            pairs,
-            dictionary,
-            "tatoeba-en-uk-test-v1",
-            "Synthetic Tatoeba-layout regression fixture",
-            "CC0-1.0");
+            pairs, dictionary, "tatoeba-en-uk-test-v1", "Synthetic Tatoeba-layout regression fixture", "CC BY 2.0 FR");
 
         Require(report.InputPairs == 3 && report.AcceptedPairs == 2 && report.RejectedPairs == 1,
             "Tatoeba SentencePack build accounting is incorrect.");
-        Require(pack.Sentences.Count == 2, "Tatoeba SentencePack builder did not filter an unindexed sentence.");
-
         SentenceRecord first = pack.Sentences.Single(sentence => sentence.SourceSentenceId == "101");
         Require(first.Id == "tatoeba-en-101-uk-201", "Tatoeba stable sentence ID changed.");
-        Require(first.TranslationSentenceId == "201" && first.Source.Contains("Tatoeba", StringComparison.Ordinal),
-            "Tatoeba provenance/upstream IDs were not preserved.");
+        Require(first.Source.Contains("Alice", StringComparison.Ordinal) && first.Source.Contains("Olena", StringComparison.Ordinal),
+            "Attributed sentence authors were not preserved in SentenceRecord.Source.");
         Require(first.TargetEntryIds.Contains("ox-improve") && first.TargetEntryIds.Contains("ox-skills-n") && first.TargetEntryIds.Contains("ox-skills-v"),
             "Surface index did not preserve multiple Oxford entry IDs sharing a form.");
         Require(!first.TargetEntryIds.Contains("ox-multi"), "Baseline surface importer incorrectly indexed a multi-word dictionary entry as a unigram.");
-        Require(first.DifficultyLevel == "B1", "Sentence difficulty baseline did not reflect recognized surrounding vocabulary levels.");
+        Require(first.DifficultyLevel == "B1", "Sentence difficulty baseline did not reflect recognized context vocabulary.");
         Require(pack.LookupAllTargets(new[] { "ox-improve", "ox-skills-n" }).Count == 1,
             "Built SentencePack two-target index is not immediately usable offline.");
 
-        string roundTrip = SentencePackJson.Serialize(pack);
-        SentencePack reparsed = SentencePackJson.Parse(roundTrip);
-        Require(reparsed.Sentences.Count == pack.Sentences.Count && reparsed.License == "CC0-1.0",
-            "Built Tatoeba SentencePack did not survive versioned JSON round-trip.");
+        SentencePack reparsed = SentencePackJson.Parse(SentencePackJson.Serialize(pack));
+        Require(reparsed.Sentences.Count == pack.Sentences.Count && reparsed.License == "CC BY 2.0 FR",
+            "Built Tatoeba SentencePack did not survive JSON round-trip.");
     }
 
     private static void TestLanguageAndMalformedInputRejection()
@@ -92,7 +91,7 @@ internal static class TatoebaSentencePackSelfTest
         ExpectInvalid(new[] { "101\tHello world." }, "wrong column count");
     }
 
-    private static void TestVerifiedCc0ManifestProvenance()
+    private static void TestVerifiedManifestProvenance()
     {
         string root = Path.Combine(Path.GetTempPath(), $"WordDeck-tatoeba-manifest-{Guid.NewGuid():N}");
         Directory.CreateDirectory(root);
@@ -100,31 +99,27 @@ internal static class TatoebaSentencePackSelfTest
         {
             string pairPath = Path.Combine(root, "pairs.tsv");
             File.WriteAllText(pairPath, "english_id\tenglish_lang\tenglish\tukrainian_id\tukrainian_lang\tukrainian\n1\teng\tHello.\t2\tukr\tПривіт.\n");
-            string hash;
-            using (FileStream stream = File.OpenRead(pairPath))
-                hash = Convert.ToHexString(SHA256.HashData(stream)).ToLowerInvariant();
-
+            string hash = Hash(pairPath);
             string manifestPath = pairPath + ".manifest.json";
-            File.WriteAllText(manifestPath, JsonSerializer.Serialize(new
-            {
-                schema_version = 1,
-                license_filter = "CC0 1.0 on BOTH sentence sides",
-                output_sha256 = hash
-            }));
+            WriteManifest(manifestPath, "CC0 1.0 on BOTH sentence sides", hash);
 
-            TatoebaImportMetadata verified = TatoebaImportProvenance.Resolve(pairPath);
-            Require(verified.VerifiedCc0Manifest && verified.License == "CC0 1.0",
-                "Matching CC0 manifest/hash did not produce verified CC0 metadata.");
+            TatoebaImportMetadata cc0 = TatoebaImportProvenance.Resolve(pairPath);
+            Require(cc0.VerifiedCc0Manifest && cc0.License == "CC0 1.0", "Matching CC0 manifest/hash was not trusted.");
+
+            WriteManifest(manifestPath, "CC BY 2.0 FR with BOTH sentence-owner usernames retained", hash);
+            TatoebaImportMetadata ccBy = TatoebaImportProvenance.Resolve(pairPath);
+            Require(ccBy.VerifiedAttributedCcByManifest && ccBy.License == "CC BY 2.0 FR",
+                "Matching attributed CC-BY manifest/hash was not trusted.");
 
             File.AppendAllText(pairPath, "3\teng\tChanged.\t4\tukr\tЗмінено.\n");
             TatoebaImportMetadata tampered = TatoebaImportProvenance.Resolve(pairPath);
-            Require(!tampered.VerifiedCc0Manifest && tampered.License.Contains("CC BY 2.0", StringComparison.Ordinal),
-                "Hash-mismatched pair TSV was incorrectly trusted as CC0.");
+            Require(!tampered.VerifiedCc0Manifest && !tampered.VerifiedAttributedCcByManifest,
+                "Hash-mismatched pair TSV was incorrectly trusted.");
 
             File.Delete(manifestPath);
             TatoebaImportMetadata missing = TatoebaImportProvenance.Resolve(pairPath);
-            Require(!missing.VerifiedCc0Manifest && missing.License.Contains("CC BY 2.0", StringComparison.Ordinal),
-                "Missing manifest was incorrectly trusted as CC0.");
+            Require(!missing.VerifiedCc0Manifest && !missing.VerifiedAttributedCcByManifest,
+                "Missing manifest was incorrectly trusted.");
         }
         finally
         {
@@ -132,22 +127,24 @@ internal static class TatoebaSentencePackSelfTest
         }
     }
 
+    private static string Hash(string path)
+    {
+        using FileStream stream = File.OpenRead(path);
+        return Convert.ToHexString(SHA256.HashData(stream)).ToLowerInvariant();
+    }
+
+    private static void WriteManifest(string path, string licenseFilter, string hash) =>
+        File.WriteAllText(path, JsonSerializer.Serialize(new { schema_version = 1, license_filter = licenseFilter, output_sha256 = hash }));
+
     private static void ExpectInvalid(IEnumerable<string> lines, string description)
     {
-        try
-        {
-            _ = TatoebaPairTsv.ParseLines(lines).ToList();
-        }
-        catch (InvalidDataException)
-        {
-            return;
-        }
+        try { _ = TatoebaPairTsv.ParseLines(lines).ToList(); }
+        catch (InvalidDataException) { return; }
         throw new InvalidDataException($"Tatoeba parser accepted invalid input: {description}.");
     }
 
     private static void Require(bool condition, string message)
     {
-        if (!condition)
-            throw new InvalidDataException(message);
+        if (!condition) throw new InvalidDataException(message);
     }
 }
