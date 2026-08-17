@@ -22,7 +22,7 @@ internal static class SentencePackDiagnostics
     {
         if (args.Length < 2 || args.Length > 6)
         {
-            Console.Error.WriteLine("Usage: WordDeck.exe --measure-sentence-pack <pack.json|pack.json.gz> [report.json] [--sqlite <output.sqlite> [target-entry-id]]");
+            Console.Error.WriteLine("Usage: WordDeck.exe --measure-sentence-pack <pack.json|pack.json.gz> [report.json] [--sqlite <output.sqlite> [target-entry-id]] OR --measure-sentence-pack <pack.sqlite> [report.json] [target-entry-id]");
             return 2;
         }
 
@@ -31,6 +31,9 @@ internal static class SentencePackDiagnostics
             string packPath = Path.GetFullPath(args[1]);
             if (!File.Exists(packPath))
                 throw new FileNotFoundException("SentencePack file was not found.", packPath);
+
+            if (packPath.EndsWith(".sqlite", StringComparison.OrdinalIgnoreCase))
+                return MeasureSqliteQueryOnly(args, packPath);
 
             string? reportPath = null;
             int optionIndex = 2;
@@ -71,8 +74,8 @@ internal static class SentencePackDiagnostics
             SentencePackSqliteMetrics? sqliteMetrics = null;
             if (sqlitePath is not null)
             {
-                // Build/query is intentionally a development measurement only. Runtime Sentence Coach
-                // continues using JSON/GZIP until this disk-backed path proves a clear win.
+                // Development-only conversion benchmark. Runtime Sentence Coach remains on JSON/GZIP
+                // until the disk-backed path wins on isolated read/query measurements.
                 sqliteMetrics = SentencePackSqlitePrototype.Measure(packPath, sqlitePath, new[] { sqliteTarget });
             }
 
@@ -89,16 +92,7 @@ internal static class SentencePackDiagnostics
                 workingSetAfter - workingSetBefore,
                 sqliteMetrics);
 
-            string json = JsonSerializer.Serialize(report, new JsonSerializerOptions { WriteIndented = true });
-            Console.WriteLine(json);
-
-            if (reportPath is not null)
-            {
-                string? directory = Path.GetDirectoryName(reportPath);
-                if (!string.IsNullOrWhiteSpace(directory)) Directory.CreateDirectory(directory);
-                File.WriteAllText(reportPath, json);
-            }
-
+            WriteReport(report, reportPath);
             GC.KeepAlive(pack);
             return 0;
         }
@@ -107,5 +101,26 @@ internal static class SentencePackDiagnostics
             Console.Error.WriteLine($"SentencePack measurement FAILED: {ex.Message}");
             return 1;
         }
+    }
+
+    private static int MeasureSqliteQueryOnly(string[] args, string sqlitePath)
+    {
+        string? reportPath = args.Length > 2 && !string.IsNullOrWhiteSpace(args[2]) ? Path.GetFullPath(args[2]) : null;
+        string target = args.Length > 3 && !string.IsNullOrWhiteSpace(args[3]) ? args[3].Trim() : "oxford-a1-0001";
+        if (args.Length > 4) throw new ArgumentException("SQLite query-only measurement accepts at most one target entry ID.");
+
+        SentencePackSqliteMetrics metrics = SentencePackSqlitePrototype.MeasureQueryOnly(sqlitePath, new[] { target });
+        WriteReport(metrics, reportPath);
+        return 0;
+    }
+
+    private static void WriteReport<T>(T report, string? reportPath)
+    {
+        string json = JsonSerializer.Serialize(report, new JsonSerializerOptions { WriteIndented = true });
+        Console.WriteLine(json);
+        if (reportPath is null) return;
+        string? directory = Path.GetDirectoryName(reportPath);
+        if (!string.IsNullOrWhiteSpace(directory)) Directory.CreateDirectory(directory);
+        File.WriteAllText(reportPath, json);
     }
 }
