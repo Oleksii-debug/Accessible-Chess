@@ -152,6 +152,31 @@ internal static class SentencePackSqlitePrototype
             results.Count);
     }
 
+    public static SentencePackSqliteMetrics MeasureQueryOnly(string databasePath, IReadOnlyCollection<string> targets)
+    {
+        GC.Collect(); GC.WaitForPendingFinalizers(); GC.Collect();
+        long managedBefore = GC.GetTotalMemory(true);
+        using Process process = Process.GetCurrentProcess();
+        process.Refresh();
+        long workingBefore = process.WorkingSet64;
+
+        Stopwatch query = Stopwatch.StartNew();
+        IReadOnlyList<SentenceRecord> results = LookupAllTargets(databasePath, targets);
+        query.Stop();
+
+        long managedAfter = GC.GetTotalMemory(true);
+        process.Refresh();
+        long workingAfter = process.WorkingSet64;
+        GC.KeepAlive(results);
+        return new SentencePackSqliteMetrics(
+            new FileInfo(databasePath).Length,
+            0,
+            query.ElapsedMilliseconds,
+            managedAfter - managedBefore,
+            workingAfter - workingBefore,
+            results.Count);
+    }
+
     private static SqliteConnection Open(string databasePath, bool readOnly)
     {
         var builder = new SqliteConnectionStringBuilder
@@ -210,6 +235,8 @@ internal static class SentencePackSqlitePrototypeSelfTest
             IReadOnlyList<SentenceRecord> two = SentencePackSqlitePrototype.LookupAllTargets(db, new[] { "e1", "e2" });
             Require(two.Count == 1 && two[0].Id == "s1", "Two-target SQLite intersection is incorrect.");
             Require(SentencePackSqlitePrototype.LookupAllTargets(db, new[] { "missing" }).Count == 0, "Missing target lookup should be empty.");
+            SentencePackSqliteMetrics measured = SentencePackSqlitePrototype.MeasureQueryOnly(db, new[] { "e1", "e2" });
+            Require(measured.ResultCount == 1 && measured.BuildMilliseconds == 0, "Query-only SQLite measurement is incorrect.");
         }
         finally
         {
