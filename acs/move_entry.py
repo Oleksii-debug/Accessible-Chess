@@ -77,6 +77,10 @@ def parse_piece_coordinate_position(text: str, *, turn: str = "w") -> PositionSt
 
     Example: ``W: K e1 Q d1 P e4 B: K e8 P e5``. Piece symbols are canonical
     chess data and are deliberately independent from command aliases.
+
+    The typed position is an application command, not a partially-edited board:
+    it must therefore satisfy the same playable structural contract that the
+    canonical Board/FEN boundary will enforce.
     """
 
     if turn not in {"w", "b"}:
@@ -95,6 +99,10 @@ def parse_piece_coordinate_position(text: str, *, turn: str = "w") -> PositionSt
     black_kings = sum(piece == "k" for piece in position.pieces)
     if white_kings != 1 or black_kings != 1:
         raise ValueError("position text requires exactly one white and one black king")
+
+    problems = position.validate_playable()
+    if problems:
+        raise ValueError("position text is not playable: " + "; ".join(problems))
     return position
 
 

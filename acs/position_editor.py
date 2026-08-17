@@ -67,14 +67,27 @@ class PositionState:
         return replace(self, castling=normalized)
 
     def validate_playable(self) -> tuple[str, ...]:
-        """Return exact structural problems without mutating the position."""
+        """Return exact structural problems without mutating the position.
+
+        This validation intentionally mirrors the canonical ``Board.set_fen``
+        acceptance boundary for editor-owned metadata. The editor may contain
+        an incomplete position while it is being built, but once this method
+        returns no problems the same FEN must not be rejected later merely
+        because kings or en-passant metadata are structurally inconsistent.
+        """
         problems: list[str] = []
-        white_kings = sum(1 for p in self.pieces if p == "K")
-        black_kings = sum(1 for p in self.pieces if p == "k")
-        if white_kings != 1:
-            problems.append(f"white king count must be 1, got {white_kings}")
-        if black_kings != 1:
-            problems.append(f"black king count must be 1, got {black_kings}")
+        white_kings = [index for index, piece in enumerate(self.pieces) if piece == "K"]
+        black_kings = [index for index, piece in enumerate(self.pieces) if piece == "k"]
+        if len(white_kings) != 1:
+            problems.append(f"white king count must be 1, got {len(white_kings)}")
+        if len(black_kings) != 1:
+            problems.append(f"black king count must be 1, got {len(black_kings)}")
+
+        if len(white_kings) == 1 and len(black_kings) == 1:
+            white = white_kings[0]
+            black = black_kings[0]
+            if max(abs(white % 8 - black % 8), abs(white // 8 - black // 8)) <= 1:
+                problems.append("kings must not be adjacent")
 
         for file_index in range(8):
             if self.pieces[file_index] in {"P", "p"}:
@@ -91,6 +104,24 @@ class PositionState:
             problems.append("black kingside castling right inconsistent with e8/h8")
         if "q" in self.castling and not (self.piece_at("e8") == "k" and self.piece_at("a8") == "r"):
             problems.append("black queenside castling right inconsistent with e8/a8")
+
+        if self.en_passant != "-":
+            target = _square_index(self.en_passant)
+            if self.pieces[target] is not None:
+                problems.append("en-passant target square must be empty")
+            if self.turn == "b":
+                pawn_square = target + 8
+                origin_square = target - 8
+                expected_pawn = "P"
+            else:
+                pawn_square = target - 8
+                origin_square = target + 8
+                expected_pawn = "p"
+            if not (0 <= pawn_square < 64) or self.pieces[pawn_square] != expected_pawn:
+                problems.append("en-passant target lacks the pawn from the completed double push")
+            if not (0 <= origin_square < 64) or self.pieces[origin_square] is not None:
+                problems.append("en-passant double-push origin square must be empty")
+
         return tuple(problems)
 
     def to_fen(self) -> str:
@@ -133,6 +164,8 @@ class PositionState:
                     if not 1 <= count <= 8:
                         raise PositionValidationError("FEN empty-square count must be 1..8")
                     file_index += count
+                    if file_index > 8:
+                        raise PositionValidationError("FEN rank contains more than 8 squares")
                 elif token in VALID_PIECES:
                     if file_index >= 8:
                         raise PositionValidationError("FEN rank contains more than 8 squares")
@@ -194,8 +227,9 @@ def _validate_castling(value: str) -> None:
 def _validate_en_passant(value: str, turn: str) -> None:
     if value == "-":
         return
-    _square_index(value)
-    rank = value[1]
+    normalized = str(value).strip().lower()
+    _square_index(normalized)
+    rank = normalized[1]
     expected = "6" if turn == "w" else "3"
     if rank != expected:
         raise PositionValidationError(
