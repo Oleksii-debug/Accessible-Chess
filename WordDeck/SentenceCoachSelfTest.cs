@@ -107,12 +107,12 @@ internal static class SentenceCoachSelfTest
         var levels = new Dictionary<string,string>(StringComparer.OrdinalIgnoreCase) { ["ox-improve"]="B1", ["ox-skills"]="A2", ["ox-practical"]="B2", ["ox-student"]="A2", ["ox-every"]="A1", ["ox-day"]="A1" };
         var context = new SentenceSelectionContext(allowed, new HashSet<string>(StringComparer.OrdinalIgnoreCase), new HashSet<string>(StringComparer.OrdinalIgnoreCase), levels);
         SentenceSelectionResult? result = selector.Select(new[] { "ox-improve", "ox-skills" }, context);
-        Require(result?.Sentence.Id == "s3", "Selector did not prefer the simplest low-unknown context sentence.");
+        Require(result?.Sentence.Id == "s1", "Selector did not prefer the clear low-unknown context sentence closest to its preferred practice length.");
 
         var known = new HashSet<string>(new[] { "ox-practical", "ox-student", "ox-every", "ox-day" }, StringComparer.OrdinalIgnoreCase);
-        var knownContext = context with { KnownEntryIds = known, RecentSentenceIds = new HashSet<string>(new[] { "s3" }, StringComparer.OrdinalIgnoreCase) };
+        var knownContext = context with { KnownEntryIds = known, RecentSentenceIds = new HashSet<string>(new[] { "s1" }, StringComparer.OrdinalIgnoreCase) };
         SentenceSelectionResult? knownResult = selector.Select(new[] { "ox-improve", "ox-skills" }, knownContext);
-        Require(knownResult is not null && knownResult.Sentence.Id != "s3", "Personal known vocabulary/recent avoidance did not affect deterministic ranking.");
+        Require(knownResult is not null && knownResult.Sentence.Id == "s2", "Known context vocabulary plus recent avoidance did not promote a richer but now-personally-easy sentence.");
 
         bool leakageRejected = false;
         try { selector.Select(new[] { "ox-practical" }, context); } catch (InvalidOperationException) { leakageRejected = true; }
@@ -124,9 +124,9 @@ internal static class SentenceCoachSelfTest
         SentencePack pack = BuildPack();
         var selector = new SentenceSelector(pack);
         var allowed = new HashSet<string>(new[] { "ox-improve" }, StringComparer.OrdinalIgnoreCase);
-        var context = new SentenceSelectionContext(allowed, new HashSet<string>(StringComparer.OrdinalIgnoreCase), new HashSet<string>(new[] { "s3" }, StringComparer.OrdinalIgnoreCase), new Dictionary<string,string>(StringComparer.OrdinalIgnoreCase) { ["ox-improve"]="B1" });
+        var context = new SentenceSelectionContext(allowed, new HashSet<string>(StringComparer.OrdinalIgnoreCase), new HashSet<string>(new[] { "s1" }, StringComparer.OrdinalIgnoreCase), new Dictionary<string,string>(StringComparer.OrdinalIgnoreCase) { ["ox-improve"]="B1" });
         SentenceSelectionResult? result = selector.Select(new[] { "ox-improve" }, context);
-        Require(result is not null && result.Sentence.Id != "s3", "Recent-sentence penalty did not avoid an immediate repeat when alternatives existed.");
+        Require(result is not null && result.Sentence.Id != "s1", "Recent-sentence penalty did not avoid an immediate repeat when alternatives existed.");
     }
 
     private static void TestGeneratorFallbackContract()
