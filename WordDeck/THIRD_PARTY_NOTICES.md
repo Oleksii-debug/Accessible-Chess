@@ -65,3 +65,18 @@ Release rules for WordDeck SentencePacks:
 8. Do not bundle another corpus or preprocessing library until its redistribution license and provenance are reviewed here.
 
 Synthetic regression sentences used only in source-code self-tests are marked as synthetic test data and are not presented as Tatoeba or human-verified corpus content.
+
+## British pronunciation generation provenance
+
+WordDeck's current British pronunciation generation is a development/build-time pipeline. The shipped Windows runtime does **not** require Kokoro, Python, espeak-ng, a network service or an API; it only plays already-generated MP3 files resolved by stable dictionary/entry ID.
+
+Reuse-first review on 2026-08-17 retained the existing Kokoro generation path rather than introducing a new TTS subsystem. The official `hexgrad/Kokoro-82M` model card and repository declare Apache-2.0 licensing for the model/weights and document the British voices used by WordDeck: `bf_emma` and `bm_george` (`en-GB`/British English configuration).
+
+Official references checked 2026-08-17:
+- https://huggingface.co/hexgrad/Kokoro-82M
+- https://huggingface.co/hexgrad/Kokoro-82M/blob/main/VOICES.md
+- https://github.com/hexgrad/kokoro
+
+The generation environment may use support components such as espeak-ng for phonemization/fallback. Those generation-tool dependencies are not shipped as WordDeck runtime dependencies and must not be described as such. Final AudioPack distribution must retain appropriate Kokoro/model generation attribution and license notices, plus any notices required by components actually redistributed with the pack or application.
+
+The 2026-08-17 aggregate integrity audit of all seven existing Oxford 3000 generation artifacts is recorded in `Audio/OXFORD3000_AUDIO_INTEGRITY_QA_20260817.md`. It verified 3,308 unique stable-ID audio records with matching packaged byte sizes, while separately identifying pronunciation-normalization work still required for sense markers, parenthetical labels, homographs and acronyms.
