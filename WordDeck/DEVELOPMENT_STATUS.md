@@ -34,7 +34,7 @@ No claim of real NVDA verification is allowed until the user tests an actual Win
 
 Durable design source remains `SENTENCE_COACH_PLAN.md`.
 
-Implemented core, not yet a production runtime training UI/data pack:
+Implemented core:
 - versioned `SentencePack`/`SentenceRecord` schema with EN/UA, stable IDs, source/license/provenance, normalized tokens, lemmas, target entry IDs, entry-level metadata, difficulty/off-list/quality metadata;
 - in-memory inverted indexes by target entry ID and lemma;
 - one-, two- and three-target intersection lookup contract;
@@ -45,7 +45,21 @@ Implemented core, not yet a production runtime training UI/data pack:
 - controlled offline generator interface/fallback contract for missing corpus intersections;
 - regression tests for versioning/provenance, tokenization, evaluator strictness, intersections, selected-scope leakage, personal-known ranking, recent avoidance and fallback contract.
 
-Tatoeba licensing provenance is recorded in `THIRD_PARTY_NOTICES.md`. Production Tatoeba EN-UA data is not yet bundled. Next data step is a development-time EN-UA sentence-pair importer/filter/index builder that emits the versioned SentencePack and preserves attribution/license metadata.
+Development-time Tatoeba EN-UA import pipeline is now implemented and regression-tested:
+- accepts explicit 6-column EN/UA TSV (`EnglishId, lang, text, UkrainianId, lang, text`) and compact 4-column pair TSV;
+- rejects malformed IDs, wrong language directions and invalid row shapes;
+- preserves upstream English/Ukrainian sentence IDs in stable WordDeck sentence IDs;
+- filters sentences that cannot currently be indexed against dictionary vocabulary and applies conservative length/quality flags;
+- indexes every exact single-token Oxford surface match, including multiple stable entry IDs that share the same surface form;
+- computes baseline off-list counts and CEFR difficulty from recognized context vocabulary;
+- emits a validated versioned JSON `SentencePack` via the development CLI:
+  `WordDeck.exe --build-tatoeba-sentence-pack <en-uk-pairs.tsv> <output.json> [pack-id]`;
+- baseline lemmas are normalized surface forms. A later morphology preprocessing pass may replace them without changing stable sentence IDs or the pack schema;
+- production Tatoeba EN-UA data is still not bundled in the repository or shipped application.
+
+The code/self-test checkpoint that introduced this importer passed the full Windows workflow on 2026-08-17: build, Recall/Spelling/Sentence/Tatoeba self-tests, self-contained publish, published-EXE validation and artifact upload.
+
+Tatoeba licensing provenance remains recorded in `THIRD_PARTY_NOTICES.md`. Before a real pack is committed/distributed, verify whether the selected export/subset is CC BY 2.0 FR or CC0 and preserve the exact required attribution; Tatoeba audio licensing is separate and is not covered by sentence-text reuse.
 
 ## Oxford content QA
 
@@ -58,11 +72,16 @@ Do not reset existing ledgers. Current first-pass translation checkpoint remains
 
 Oxford 5000 additions extraction/translation remains incomplete. Preserve POS/sense/CEFR distinctions and existing stable IDs. Do not claim Oxford 5000 complete until every included addition is accounted for and unresolved second-pass count is zero.
 
+## Audio checkpoint
+
+Latest Oxford-3000 British-audio batch workflow inspected on 2026-08-17 is green. Technical generation remains 3308/3308 positions; do not regenerate all files without a specific defect. Pronunciation QA and coherent offline AudioPack manifest/integrity assembly remain outstanding.
+
 ## Resume order
 
 1. Fix any Windows CI/self-test regression before feature work.
-2. Harden Spelling end-to-end behavior and migration without touching Recall state.
-3. Build Tatoeba EN-UA development importer -> SentencePack, then runtime one-target selection, two-target selection and Sentence Spelling UI.
-4. Add controlled deterministic generator only for corpus coverage gaps.
-5. Continue Oxford translation QA and AudioPack integrity/provenance work in remaining safe capacity.
-6. Commit only to `worddeck-bootstrap` and keep published EXE self-test green before treating a slice as verified.
+2. Keep Spelling end-to-end behavior and migration stable without touching Recall state.
+3. Produce a real development EN-UA SentencePack from a legally selected Tatoeba export/subset; inspect coverage/quality statistics before bundling anything.
+4. Add runtime SentencePack loading plus one-target/two-target Sentence Spelling UI constrained to the selected Spelling scope.
+5. Add morphology/lemma enrichment only where it materially improves coverage, then controlled deterministic generation for remaining corpus gaps.
+6. Continue Oxford translation QA and AudioPack integrity/provenance work in remaining safe capacity.
+7. Commit only to `worddeck-bootstrap` and keep published EXE self-test green before treating a slice as verified.
