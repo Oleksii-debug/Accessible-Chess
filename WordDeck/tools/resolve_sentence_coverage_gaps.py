@@ -20,6 +20,8 @@ DEFAULT_GAPS = ROOT / "QA" / "sentence_coverage_gaps_20260817.txt"
 
 ID_RE = re.compile(r"^oxford-(?:a1|a2|b1|b2)-\d{4}$", re.I)
 WORD_RE = re.compile(r"^[A-Za-z]+(?:['’][A-Za-z]+)?$")
+SUPERSCRIPT_OR_DIGIT_RE = re.compile(r"[0-9¹²³⁴⁵⁶⁷⁸⁹⁰]")
+HYPHEN_RE = re.compile(r"[-‐‑‒–—]")
 
 
 def load_embedded_rows() -> dict[str, dict[str, str]]:
@@ -57,17 +59,44 @@ def load_gap_ids(path: Path) -> list[str]:
 
 
 def structural_class(source: str) -> str:
-    """Classify only what can be proved from the dictionary source form itself."""
+    """Classify only what can be proved from the dictionary source form itself.
+
+    Ordering is deliberate: sense markers/annotations are unsafe to collapse even
+    when the source also contains spaces or punctuation. Plain multiword phrases
+    and ordinary hyphenated forms are kept separate because they can later be
+    evaluated for deterministic exact phrase/token matching without conflating
+    Oxford senses.
+    """
     s = source.strip()
     if WORD_RE.fullmatch(s):
         return "single_surface_indexable"
-    if any(ch.isspace() for ch in s):
-        return "multiword_or_annotated_not_surface_indexed"
+    if SUPERSCRIPT_OR_DIGIT_RE.search(s):
+        return "sense_numbered_unsafe_to_collapse"
+    if "(" in s or ")" in s or "[" in s or "]" in s:
+        return "sense_or_usage_annotated_unsafe_to_collapse"
     if "," in s or "/" in s or ";" in s:
-        return "variant_or_compound_not_surface_indexed"
-    if any(ch.isdigit() for ch in s) or not any(ch.isalpha() for ch in s):
-        return "symbolic_or_numbered_not_surface_indexed"
-    return "noncanonical_surface_needs_tokenizer_check"
+        return "variant_or_compound_needs_semantic_review"
+    if any(ch.isspace() for ch in s):
+        return "plain_multiword_exact_phrase_candidate"
+    if HYPHEN_RE.search(s) and any(ch.isalpha() for ch in s):
+        return "hyphenated_exact_surface_candidate"
+    return "other_noncanonical_needs_tokenizer_review"
+
+
+def matching_action(structural: str) -> str:
+    if structural == "single_surface_indexable":
+        return "measure_corpus_or_inflection_evidence"
+    if structural == "plain_multiword_exact_phrase_candidate":
+        return "evaluate_exact_phrase_matching"
+    if structural == "hyphenated_exact_surface_candidate":
+        return "evaluate_exact_hyphen_surface_matching"
+    if structural in {
+        "sense_numbered_unsafe_to_collapse",
+        "sense_or_usage_annotated_unsafe_to_collapse",
+        "variant_or_compound_needs_semantic_review",
+    }:
+        return "preserve_distinction_manual_semantic_review"
+    return "tokenizer_review_before_matching_change"
 
 
 def resolve(gaps_path: Path) -> list[dict[str, str]]:
@@ -79,12 +108,14 @@ def resolve(gaps_path: Path) -> list[dict[str, str]]:
     result = []
     for entry_id in gap_ids:
         row = rows[entry_id]
+        structural = structural_class(row["source"])
         result.append({
             "entryId": entry_id,
             "level": row["level"],
             "source": row["source"],
             "target": row["target"],
-            "structural_class": structural_class(row["source"]),
+            "structural_class": structural,
+            "next_matching_action": matching_action(structural),
         })
     return result
 
@@ -92,7 +123,11 @@ def resolve(gaps_path: Path) -> list[dict[str, str]]:
 def write_tsv(records: list[dict[str, str]], output: Path) -> None:
     output.parent.mkdir(parents=True, exist_ok=True)
     with output.open("w", encoding="utf-8", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=["entryId", "level", "source", "target", "structural_class"], delimiter="\t")
+        writer = csv.DictWriter(
+            handle,
+            fieldnames=["entryId", "level", "source", "target", "structural_class", "next_matching_action"],
+            delimiter="\t",
+        )
         writer.writeheader()
         writer.writerows(records)
 
@@ -106,10 +141,25 @@ def self_test() -> None:
         raise RuntimeError(f"Expected 188 coverage gaps, resolved {len(records)}")
     if records[0]["entryId"] != "oxford-a1-0001":
         raise RuntimeError("Unexpected first resolved gap")
-    classes = {r["structural_class"] for r in records}
-    if "single_surface_indexable" not in classes:
-        raise RuntimeError("Gap resolver did not identify any ordinary single-token surfaces")
-    print(f"Sentence coverage gap resolver self-test passed: {len(rows)} dictionary entries, {len(records)} gaps resolved, {len(classes)} structural classes.")
+
+    counts: dict[str, int] = {}
+    for record in records:
+        counts[record["structural_class"]] = counts.get(record["structural_class"], 0) + 1
+    if counts.get("single_surface_indexable") != 114:
+        raise RuntimeError(f"Expected 114 ordinary single surfaces, got {counts.get('single_surface_indexable', 0)}")
+    if counts.get("sense_numbered_unsafe_to_collapse") != 29:
+        raise RuntimeError(f"Expected 29 numbered/sense-marker records, got {counts.get('sense_numbered_unsafe_to_collapse', 0)}")
+    if counts.get("hyphenated_exact_surface_candidate") != 3:
+        raise RuntimeError(f"Expected 3 hyphenated candidates, got {counts.get('hyphenated_exact_surface_candidate', 0)}")
+    structurally_non_single = len(records) - counts["single_surface_indexable"]
+    if structurally_non_single != 74:
+        raise RuntimeError(f"Expected 74 structurally non-single gaps, got {structurally_non_single}")
+    if any(not r["next_matching_action"] for r in records):
+        raise RuntimeError("Every gap must have an explicit next matching action")
+
+    print(f"Sentence coverage gap resolver self-test passed: {len(rows)} dictionary entries, {len(records)} gaps resolved.")
+    for key in sorted(counts):
+        print(f"{key}: {counts[key]}")
 
 
 def main() -> int:
