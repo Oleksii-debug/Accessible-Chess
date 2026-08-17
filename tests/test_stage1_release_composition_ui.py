@@ -158,6 +158,27 @@ class Stage1ReleaseCompositionUiTests(unittest.TestCase):
         self.assertNotIn("document.addEventListener('keydown'", text)
         self.assertNotIn("window.addEventListener('keydown'", text)
 
+    def test_move_edit_runtime_exposure_contract_targets_webview_accessibility_mechanism(self) -> None:
+        text = self.bootstrap
+        self.assertIn("function moveEntryExposureState()", text)
+        self.assertIn("input.isConnected", text)
+        self.assertIn("input.type === 'text'", text)
+        self.assertIn("input.getAttribute('role') === 'textbox'", text)
+        self.assertIn("input.getAttribute('aria-label') === moveEntryLabels().input", text)
+        self.assertIn("input.tabIndex >= 0", text)
+        self.assertIn("input.closest('[hidden],[inert],[aria-hidden=\"true\"]')", text)
+        self.assertIn("window.getComputedStyle(input)", text)
+        self.assertIn("style.display !== 'none'", text)
+        self.assertIn("style.visibility !== 'hidden'", text)
+        self.assertIn("document.body.dataset.stage1MoveAccessibilityExposed", text)
+        self.assertIn("window.__accessibleChessMoveEntryExposureState = moveEntryExposureState", text)
+        semantics = text[text.index("function stabilizeMoveEntryUiaSemantics()"):text.index("function stableBoardAccessibleName")]
+        self.assertIn("input.setAttribute('role', 'textbox')", semantics)
+        self.assertIn("input.setAttribute('aria-label', labels.input)", semantics)
+        self.assertIn("input.setAttribute('tabindex', '0')", semantics)
+        self.assertIn("publishMoveEntryExposureState()", semantics)
+        self.assertNotIn("aria-hidden", self.html.split('<input id=\"move-input\"', 1)[1].split('>', 1)[0])
+
     def test_board_origin_move_preserves_board_focus_without_changing_input_semantics(self) -> None:
         text = self.bootstrap
         self.assertIn("const focusState = window.__accessibleChessStage1FocusState", text)
@@ -216,10 +237,13 @@ class Stage1ReleaseCompositionUiTests(unittest.TestCase):
         self.assertNotIn("role', 'status", text)
         self.assertNotIn("role=\"status\"", text)
 
-    def test_startup_ready_contract_is_non_speaking_and_launcher_consumes_bootstrap(self) -> None:
-        self.assertIn("main.setAttribute('aria-busy', 'true')", self.bootstrap)
-        self.assertIn("main.setAttribute('aria-busy', 'false')", self.bootstrap)
+    def test_startup_ready_contract_keeps_accessibility_subtree_available_and_launcher_consumes_bootstrap(self) -> None:
+        self.assertNotIn("main.setAttribute('aria-busy'", self.bootstrap)
+        self.assertIn("publishMoveEntryExposureState();", self.bootstrap)
+        self.assertIn("requestAnimationFrame(() => publishMoveEntryExposureState())", self.bootstrap)
         self.assertIn("document.body.dataset.stage1AppReady = 'true'", self.bootstrap)
+        ready = self.bootstrap[self.bootstrap.index("async function markReady()"):self.bootstrap.index("installMoveFocusPolicy();")]
+        self.assertLess(ready.index("publishMoveEntryExposureState();"), ready.index("stage1AppReady = 'true'"))
         source = (self.root / "acs" / "stage1_release_ui.py").read_text(encoding="utf-8")
         self.assertIn('"stage1_release_bootstrap.js"', source)
         self.assertIn("window.events.loaded += install_release_web_contract", source)
