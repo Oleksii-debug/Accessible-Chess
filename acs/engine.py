@@ -70,6 +70,52 @@ class UCIEngine:
         except Exception:
             pass
 
+    def _abandon_process(self) -> None:
+        """Detach an unsynchronized UCI stream and force a fresh generation.
+
+        A search that does not acknowledge ``stop`` with terminal ``bestmove``
+        cannot safely be reused. A late terminal line could otherwise satisfy a
+        later request and return a move/PV for the wrong position. Detaching the
+        process before shutdown makes every late reader line belong to an old
+        generation and therefore invisible to the next Stockfish session.
+        """
+        proc = self.proc
+        self.proc = None
+        self.reader = None
+        self._process_generation += 1
+        self._shutdown_process(proc)
+        self._drain()
+
+    def _stop_and_synchronize(self, generation: int, timeout: float = 2.0) -> bool:
+        """Stop the current search and consume its terminal ``bestmove``.
+
+        UCI defines ``bestmove`` as the search-completion delimiter, including
+        after ``stop``. Returning to the caller before consuming that delimiter
+        leaves the command stream ambiguous. If Stockfish does not produce it
+        within the bounded recovery window, discard that process and let the
+        next request start a clean provider generation.
+        """
+        try:
+            self.send("stop")
+        except Exception:
+            self._abandon_process()
+            return False
+
+        end = time.monotonic() + max(0.0, float(timeout))
+        while time.monotonic() < end:
+            try:
+                line = self._get_line(
+                    min(0.2, max(0.0, end - time.monotonic())),
+                    generation=generation,
+                )
+            except queue.Empty:
+                continue
+            if line.startswith("bestmove"):
+                return True
+
+        self._abandon_process()
+        return False
+
     def start(self) -> None:
         with self._lock:
             if self._closed:
@@ -198,10 +244,7 @@ class UCIEngine:
                 score_value = int(score_match.group(2)) if score_match else 0
                 pv = tuple(line.split(" pv ", 1)[1].split())
                 best[mp] = RawAnalysisLine(item_depth, score_kind, score_value, pv)
-            try:
-                self.send("stop")
-            except Exception:
-                pass
+            self._stop_and_synchronize(generation)
             raise RuntimeError("Stockfish analysis timed out")
 
     def best_move(self, fen: str, skill_level: int = 10, movetime_ms: int = 500) -> str | None:
@@ -225,10 +268,7 @@ class UCIEngine:
                 if line.startswith("bestmove"):
                     parts = line.split()
                     return parts[1] if len(parts) > 1 and parts[1] != "(none)" else None
-            try:
-                self.send("stop")
-            except Exception:
-                pass
+            self._stop_and_synchronize(generation)
             raise RuntimeError("Stockfish did not return bestmove")
 
     def close(self) -> None:

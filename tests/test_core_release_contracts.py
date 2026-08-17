@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import queue
 import unittest
+from unittest.mock import patch
 
 from acs.chesscore import Board
+from acs.engine import UCIEngine
 from acs.engine_ports import ChessEnginePort
 from acs.engine_registry import (
     EngineCapability,
@@ -34,6 +37,43 @@ class _FakeEngine:
 
     def close(self) -> None:
         return None
+
+
+class _TimeoutRecoveryProbe(UCIEngine):
+    """Deterministic UCI probe with no subprocess or real wall-clock waits."""
+
+    def __init__(self, lines: tuple[str, ...] = ()) -> None:
+        super().__init__("fake-stockfish")
+        self.proc = object()
+        self._process_generation = 7
+        self.lines = list(lines)
+        self.sent: list[str] = []
+        self.shutdown: list[object] = []
+        self.stop_sync_calls: list[int] = []
+
+    def start(self) -> None:
+        return None
+
+    def send(self, command: str) -> None:
+        self.sent.append(command)
+
+    def _wait(self, token: str, timeout: float) -> str:
+        return token
+
+    def _get_line(self, timeout: float, *, generation: int | None = None) -> str:
+        if self.lines:
+            return self.lines.pop(0)
+        raise queue.Empty
+
+    def _shutdown_process(self, proc) -> None:
+        if proc is not None:
+            self.shutdown.append(proc)
+
+
+class _AnalyzeTimeoutProbe(_TimeoutRecoveryProbe):
+    def _stop_and_synchronize(self, generation: int, timeout: float = 2.0) -> bool:
+        self.stop_sync_calls.append(generation)
+        return True
 
 
 class CoreReleaseContractTests(unittest.TestCase):
@@ -109,6 +149,59 @@ class CoreReleaseContractTests(unittest.TestCase):
         self.assertEqual(
             SoundEventPolicy.for_move(MoveSoundFacts(legal=False)),
             (SoundEvent.ILLEGAL,),
+        )
+
+    def test_uci_stop_consumes_terminal_bestmove_before_stream_reuse(self) -> None:
+        engine = _TimeoutRecoveryProbe((
+            "info depth 20 score cp 12 pv e2e4 e7e5",
+            "bestmove e2e4 ponder e7e5",
+        ))
+        generation = engine._process_generation
+        proc = engine.proc
+
+        self.assertTrue(engine._stop_and_synchronize(generation))
+        self.assertEqual(engine.sent, ["stop"])
+        self.assertIs(engine.proc, proc)
+        self.assertEqual(engine._process_generation, generation)
+        self.assertEqual(engine.shutdown, [])
+        self.assertEqual(engine.lines, [])
+
+    def test_uci_unsynchronized_timeout_discards_process_generation(self) -> None:
+        engine = _TimeoutRecoveryProbe()
+        generation = engine._process_generation
+        proc = engine.proc
+
+        self.assertFalse(engine._stop_and_synchronize(generation, timeout=0))
+        self.assertEqual(engine.sent, ["stop"])
+        self.assertIsNone(engine.proc)
+        self.assertIsNone(engine.reader)
+        self.assertEqual(engine._process_generation, generation + 1)
+        self.assertEqual(engine.shutdown, [proc])
+
+    def test_analysis_timeout_always_routes_through_terminal_stream_sync(self) -> None:
+        engine = _AnalyzeTimeoutProbe()
+        generation = engine._process_generation
+
+        with patch("acs.engine.time.monotonic", side_effect=[0.0, 61.0]):
+            with self.assertRaisesRegex(RuntimeError, "analysis timed out"):
+                engine.analyze(Board().fen(), multipv=5, depth=16)
+
+        self.assertEqual(engine.stop_sync_calls, [generation])
+        self.assertIn("setoption name MultiPV value 5", engine.sent)
+        self.assertIn("go depth 16", engine.sent)
+
+    def test_late_old_generation_bestmove_cannot_satisfy_new_generation(self) -> None:
+        engine = UCIEngine("fake-stockfish")
+        engine._process_generation = 11
+        old_generation = engine._process_generation
+        engine._process_generation += 1
+        new_generation = engine._process_generation
+        engine.q.put((old_generation, "bestmove a2a3"))
+        engine.q.put((new_generation, "readyok"))
+
+        self.assertEqual(
+            engine._get_line(0.2, generation=new_generation),
+            "readyok",
         )
 
     def test_default_action_registry_is_unambiguous_and_ids_are_stable(self) -> None:
