@@ -21,7 +21,7 @@ internal static class SentenceCoachSelfTest
             License = "CC0-1.0",
             Sentences = new List<SentenceRecord>
             {
-                Make("s1", "I improve my skills", "Я покращую свої навички", new[] { "improve", "skills" }, new[] { "ox-improve", "ox-skills" },
+                Make("s1", "I improve my skills", "Я покращую свої навички", new[] { "i", "improve", "my", "skills" }, new[] { "ox-improve", "ox-skills" },
                     new Dictionary<string,string>(StringComparer.OrdinalIgnoreCase) { ["ox-improve"]="B1", ["ox-skills"]="A2" }),
                 Make("s2", "Students improve practical skills every day", "Студенти щодня покращують практичні навички", new[] { "students", "improve", "practical", "skills", "every", "day" },
                     new[] { "ox-student", "ox-improve", "ox-practical", "ox-skills", "ox-every", "ox-day" },
