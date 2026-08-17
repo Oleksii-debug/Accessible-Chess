@@ -31,6 +31,8 @@ Reuse-first review selected built-in .NET 8 `System.IO.Compression.GZipStream` a
 
 `SentencePackStore` accepts plain `.json` and `.json.gz`, reads gzip through a decompression stream, stores new imports canonically as `.json.gz`, keeps legacy `.json` compatibility and isolates malformed optional packs.
 
+The Sentence Spelling file picker now exposes `.json.gz` as a first-class supported format alongside legacy `.json`, and its accessible pack control/no-pack guidance explicitly identifies both supported offline formats. This is UI glue only; no new parser, storage layer or runtime dependency was introduced. Windows gate for commit `8a284ddd1b4c0b30700cfbe0af95b7bfb3cd28d8` passed build, embedded-dictionary validation, self-contained publish, published-EXE validation and artifact upload.
+
 Real attributed pipeline measurement on 2026-08-17:
 - raw JSON: 245,812,867 bytes;
 - gzip: 19,906,945 bytes;
@@ -80,8 +82,8 @@ Evidence remains in `Audio/OXFORD3000_AUDIO_INTEGRITY_QA_20260817.md`; reuse/pro
 ## Exact next steps
 
 1. Keep Windows CI and published-EXE validation green.
-2. Use the generated pronunciation request to regenerate only the 19 safe normalization entries; resolve the 17 heteronyms and 5 uppercase candidates with deterministic British G2P/phonetic or listening QA before adding them to the ready set; then assemble the coherent AudioPack with stable-ID hashes/manifest.
-3. Add first-class `.json.gz` selection/help in SentencePack UI and measure load-time/working-set behavior on the real 19.9 MB / 207,578-sentence pack; optimize only if measurement shows a problem.
+2. Measure load time and working-set behavior on the real 19.9 MB / 207,578-sentence `.json.gz` pack using built-in .NET diagnostics before considering optimization; optimize only if measurement shows a problem.
+3. Use the generated pronunciation request to regenerate only the 19 safe normalization entries; resolve the 17 heteronyms and 5 uppercase candidates with deterministic British G2P/phonetic or listening QA before adding them to the ready set; then assemble the coherent AudioPack with stable-ID hashes/manifest.
 4. Resolve the 188 recorded SentencePack coverage-gap IDs to exact Oxford source/POS records and classify root causes before adding morphology or controlled generation.
 5. Continue Oxford-5000 extraction/translation/second-pass QA in substantial batches.
 6. Never modify `main`.
