@@ -4,7 +4,8 @@ internal sealed class ShortcutManager
 {
     private readonly AppState _state;
     private List<DeckDefinition> _spellingDecks;
-    private static IReadOnlyList<ShortcutDefinition> BaseDefinitions { get; } = BuildBaseDefinitions();
+    private static IReadOnlyList<ShortcutDefinition> RecallDefinitions { get; } = BuildRecallDefinitions();
+    private static IReadOnlyList<ShortcutDefinition> SpellingDefinitions { get; } = BuildSpellingDefinitions();
 
     public IReadOnlyList<ShortcutDefinition> Definitions { get; private set; }
     public IReadOnlyList<ShortcutDefinition> CurrentDefinitions => Definitions;
@@ -19,11 +20,8 @@ internal sealed class ShortcutManager
 
     public void RefreshDeckDefinitions(IEnumerable<DeckDefinition>? spellingDecks = null)
     {
-        if (spellingDecks is not null)
-            _spellingDecks = spellingDecks.ToList();
-        Definitions = BuildDefinitions();
-        EnsureDefaults();
-        RemoveOrphanedDeckShortcuts();
+        if (spellingDecks is not null) _spellingDecks = spellingDecks.ToList();
+        Definitions = BuildDefinitions(); EnsureDefaults(); RemoveOrphanedDeckShortcuts();
     }
 
     public Keys Get(string actionId)
@@ -55,20 +53,9 @@ internal sealed class ShortcutManager
         _state.Shortcuts[actionId] = keys.ToString(); errorDescription = null; return true;
     }
 
-    public void Clear(string actionId)
-    {
-        if (Definitions.Any(def => def.Id == actionId)) _state.Shortcuts[actionId] = Keys.None.ToString();
-    }
-
-    public void ResetDefaults()
-    {
-        foreach (ShortcutDefinition def in Definitions) _state.Shortcuts[def.Id] = def.DefaultKeys.ToString();
-    }
-
-    private void EnsureDefaults()
-    {
-        foreach (ShortcutDefinition def in Definitions) _state.Shortcuts.TryAdd(def.Id, def.DefaultKeys.ToString());
-    }
+    public void Clear(string actionId) { if (Definitions.Any(def => def.Id == actionId)) _state.Shortcuts[actionId] = Keys.None.ToString(); }
+    public void ResetDefaults() { foreach (ShortcutDefinition def in Definitions) _state.Shortcuts[def.Id] = def.DefaultKeys.ToString(); }
+    private void EnsureDefaults() { foreach (ShortcutDefinition def in Definitions) _state.Shortcuts.TryAdd(def.Id, def.DefaultKeys.ToString()); }
 
     private void RemoveOrphanedDeckShortcuts()
     {
@@ -78,10 +65,8 @@ internal sealed class ShortcutManager
     }
 
     private static bool IsDynamicDeckAction(string id) =>
-        id.StartsWith("switch_deck_", StringComparison.OrdinalIgnoreCase) ||
-        id.StartsWith("move_to_deck_", StringComparison.OrdinalIgnoreCase) ||
-        id.StartsWith("spelling_switch_deck_", StringComparison.OrdinalIgnoreCase) ||
-        id.StartsWith("spelling_move_to_deck_", StringComparison.OrdinalIgnoreCase);
+        id.StartsWith("switch_deck_", StringComparison.OrdinalIgnoreCase) || id.StartsWith("move_to_deck_", StringComparison.OrdinalIgnoreCase) ||
+        id.StartsWith("spelling_switch_deck_", StringComparison.OrdinalIgnoreCase) || id.StartsWith("spelling_move_to_deck_", StringComparison.OrdinalIgnoreCase);
 
     private static bool IsLegacyNumericDeckAction(string id)
     {
@@ -99,7 +84,7 @@ internal sealed class ShortcutManager
         return false;
     }
 
-    private static IReadOnlyList<ShortcutDefinition> BuildBaseDefinitions() => new List<ShortcutDefinition>
+    private static IReadOnlyList<ShortcutDefinition> BuildRecallDefinitions() => new List<ShortcutDefinition>
     {
         new(ActionIds.NextWord, "Another random word (right)", Keys.Control | Keys.Right),
         new(ActionIds.PreviousWord, "Another random word (left)", Keys.Control | Keys.Left),
@@ -112,6 +97,10 @@ internal sealed class ShortcutManager
         new(ActionIds.UndoMove, "Undo last deck move", Keys.Control | Keys.Z),
         new(ActionIds.ShortcutSettings, "Open shortcut settings", Keys.Control | Keys.K),
         new(ActionIds.Help, "Open help", Keys.F1),
+    };
+
+    private static IReadOnlyList<ShortcutDefinition> BuildSpellingDefinitions() => new List<ShortcutDefinition>
+    {
         new(ActionIds.OpenSpelling, "Open Spelling trainer", Keys.Control | Keys.Shift | Keys.S),
         new(ActionIds.SpellingShowAnswer, "Spelling: show required English answer", Keys.Control | Keys.Shift | Keys.H),
         new(ActionIds.SpellingRepeatPrompt, "Spelling: repeat Ukrainian prompt", Keys.Control | Keys.Shift | Keys.R),
@@ -128,7 +117,7 @@ internal sealed class ShortcutManager
 
     private IReadOnlyList<ShortcutDefinition> BuildDefinitions()
     {
-        var defs = new List<ShortcutDefinition>(BaseDefinitions);
+        var defs = new List<ShortcutDefinition>(RecallDefinitions);
         foreach (DeckDefinition deck in _state.Decks.OrderBy(deck => deck.Order))
         {
             int coreNumber = DeckIds.CoreDecks.ToList().FindIndex(id => string.Equals(id, deck.Id, StringComparison.OrdinalIgnoreCase)) + 1;
@@ -137,13 +126,17 @@ internal sealed class ShortcutManager
             defs.Add(new(ActionIds.SwitchDeck(deck.Id), $"Switch to deck: {deck.Name}", switchDefault));
             defs.Add(new(ActionIds.MoveToDeck(deck.Id), $"Move current word to deck: {deck.Name}", moveDefault));
         }
-        foreach (DeckDefinition deck in _spellingDecks.OrderBy(deck => deck.Order))
+        if (_spellingDecks.Count > 0)
         {
-            int coreNumber = SpellingDeckIds.CoreDecks.ToList().FindIndex(id => string.Equals(id, deck.Id, StringComparison.OrdinalIgnoreCase)) + 1;
-            Keys switchDefault = coreNumber is >= 1 and <= 5 ? Keys.Control | Keys.Shift | (Keys)((int)Keys.D0 + coreNumber) : Keys.None;
-            Keys moveDefault = coreNumber is >= 1 and <= 5 ? Keys.Alt | Keys.Shift | (Keys)((int)Keys.D0 + coreNumber) : Keys.None;
-            defs.Add(new(ActionIds.SpellingSwitchDeck(deck.Id), $"Spelling: switch to deck: {deck.Name}", switchDefault));
-            defs.Add(new(ActionIds.SpellingMoveToDeck(deck.Id), $"Spelling: move current word to deck: {deck.Name}", moveDefault));
+            defs.AddRange(SpellingDefinitions);
+            foreach (DeckDefinition deck in _spellingDecks.OrderBy(deck => deck.Order))
+            {
+                int coreNumber = SpellingDeckIds.CoreDecks.ToList().FindIndex(id => string.Equals(id, deck.Id, StringComparison.OrdinalIgnoreCase)) + 1;
+                Keys switchDefault = coreNumber is >= 1 and <= 5 ? Keys.Control | Keys.Shift | (Keys)((int)Keys.D0 + coreNumber) : Keys.None;
+                Keys moveDefault = coreNumber is >= 1 and <= 5 ? Keys.Alt | Keys.Shift | (Keys)((int)Keys.D0 + coreNumber) : Keys.None;
+                defs.Add(new(ActionIds.SpellingSwitchDeck(deck.Id), $"Spelling: switch to deck: {deck.Name}", switchDefault));
+                defs.Add(new(ActionIds.SpellingMoveToDeck(deck.Id), $"Spelling: move current word to deck: {deck.Name}", moveDefault));
+            }
         }
         return defs;
     }
