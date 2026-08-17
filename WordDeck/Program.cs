@@ -39,8 +39,28 @@ internal static class Program
             ShowShortcutKeys = true
         };
         open.Click += (_, _) => OpenSpelling(main);
+
+        var settings = new ToolStripMenuItem("Spelling &keyboard shortcuts...")
+        {
+            AccessibleName = "Spelling keyboard shortcuts"
+        };
+        settings.Click += (_, _) => OpenSpellingShortcutSettings(main, open);
+
         tools.DropDownItems.Insert(0, open);
-        tools.DropDownItems.Insert(1, new ToolStripSeparator());
+        tools.DropDownItems.Insert(1, settings);
+        tools.DropDownItems.Insert(2, new ToolStripSeparator());
+    }
+
+    private static void OpenSpellingShortcutSettings(Form owner, ToolStripMenuItem openItem)
+    {
+        var appStore = new AppStateStore();
+        AppState appState = appStore.Load();
+        SpellingState spellingState = new SpellingStateStore().Load();
+        var shortcuts = new ShortcutManager(appState, spellingState.Decks);
+        using var dialog = new ShortcutSettingsForm(shortcuts);
+        dialog.ShowDialog(owner);
+        appStore.Save(appState);
+        openItem.ShortcutKeys = shortcuts.Get(ActionIds.OpenSpelling);
     }
 
     private static void OpenSpelling(MainForm owner)
