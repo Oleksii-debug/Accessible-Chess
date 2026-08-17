@@ -30,20 +30,55 @@ function moveEntryLabels() {
         : {input: 'Хід', submit: 'Зробити хід'};
 }
 
+function moveEntryExposureState() {
+    const input = byId('move-input');
+    if (!input) return {ok:false, reason:'missing'};
+    const hiddenAncestor = input.closest('[hidden],[inert],[aria-hidden="true"]');
+    const style = window.getComputedStyle(input);
+    const visible = style.display !== 'none' && style.visibility !== 'hidden' && style.visibility !== 'collapse';
+    const ok = input.isConnected
+        && input.type === 'text'
+        && input.getAttribute('role') === 'textbox'
+        && input.getAttribute('aria-label') === moveEntryLabels().input
+        && !input.disabled
+        && input.tabIndex >= 0
+        && !hiddenAncestor
+        && visible;
+    return {
+        ok,
+        connected: input.isConnected,
+        role: input.getAttribute('role') || '',
+        name: input.getAttribute('aria-label') || '',
+        tabIndex: input.tabIndex,
+        disabled: !!input.disabled,
+        hidden: !!hiddenAncestor || !visible,
+    };
+}
+
+function publishMoveEntryExposureState() {
+    const state = moveEntryExposureState();
+    document.body.dataset.stage1MoveAccessibilityExposed = state.ok ? 'true' : 'false';
+    return state.ok;
+}
+window.__accessibleChessMoveEntryExposureState = moveEntryExposureState;
+
 function stabilizeMoveEntryUiaSemantics() {
     const input = byId('move-input');
     const button = byId('move-submit');
     if (!input || !button) return false;
     const labels = moveEntryLabels();
 
-    // WebView2/UIA must not depend on HTML label projection timing to discover
-    // the release-critical move Edit. Keep a short explicit accessible name on
-    // the original, never-reparented element and refresh it on language change.
+    // The release-critical Edit must map to a WebView2/UIA textbox without
+    // depending on implicit HTML-role/name projection timing. Keep the original
+    // node in place and make its role, concise name and focusability explicit.
+    input.setAttribute('role', 'textbox');
     input.setAttribute('aria-label', labels.input);
+    input.setAttribute('tabindex', '0');
     input.setAttribute('data-stage1-uia-role', 'move-entry');
     button.setAttribute('aria-label', labels.submit);
     button.setAttribute('data-stage1-uia-role', 'move-submit');
     document.body.dataset.stage1MoveUiaSemanticsReady = 'true';
+    publishMoveEntryExposureState();
     return true;
 }
 
@@ -83,12 +118,41 @@ function rememberBoardFocus(cell) {
     focusState.boardNode = cell;
 }
 
-function rememberMoveInputFocus() {
-    focusState.context = 'move';
+function cancelBoardFocusContext(context = 'other') {
+    focusState.context = context;
     focusState.boardSquare = '';
     focusState.boardNode = null;
-    // A real return to move entry cancels any deferred board-origin restore.
     focusState.restoreGeneration += 1;
+}
+
+function rememberMoveInputFocus() {
+    // A real return to move entry cancels any deferred board-origin restore.
+    cancelBoardFocusContext('move');
+}
+
+function installSemanticFocusBoundary() {
+    if (document.body.dataset.stage1SemanticFocusBoundaryReady === 'true') return;
+    document.addEventListener('focusin', event => {
+        const target = event.target;
+        if (!target || typeof target.closest !== 'function') return;
+        const grid = byId('board-grid');
+        const cell = target.closest('[role="gridcell"]');
+        if (cell && grid && grid.contains(cell)) {
+            rememberBoardFocus(cell);
+            return;
+        }
+        if (target === byId('move-input')) {
+            rememberMoveInputFocus();
+            return;
+        }
+        // UIA Invoke can transiently focus the native submit button after a
+        // semantic board-origin action. Preserve that one bridge only. Any
+        // other real focus destination means the user has left the board, so a
+        // later undo/redo/FEN/editor rerender must not drag focus back there.
+        if (target === byId('move-submit') && focusState.context === 'board') return;
+        cancelBoardFocusContext('other');
+    }, true);
+    document.body.dataset.stage1SemanticFocusBoundaryReady = 'true';
 }
 
 function restoreBoardSquare(square, generation) {
@@ -380,21 +444,24 @@ function refreshReleaseLanguageSemantics() {
 }
 
 async function markReady() {
-    const main = byId('main-content');
-    if (main) main.setAttribute('aria-busy', 'true');
     const a = api();
     if (a && typeof a.get_state === 'function') {
         try { await a.get_state(); } catch (_) {}
     }
     stabilizeMoveEntryUiaSemantics();
     stabilizeBoardUiaSemantics();
-    if (main) main.setAttribute('aria-busy', 'false');
+    // Do not mark the whole main document aria-busy while WebView2 is building
+    // its accessibility subtree. Release readiness is a silent data marker;
+    // keeping the subtree available lets Windows UIA discover the Move Edit.
+    publishMoveEntryExposureState();
+    requestAnimationFrame(() => publishMoveEntryExposureState());
     document.body.dataset.stage1AppReady = 'true';
 }
 
 installMoveFocusPolicy();
 installMoveEntryIdentity();
 installBoardFocusContinuity();
+installSemanticFocusBoundary();
 installSoundSettings();
 new MutationObserver(refreshReleaseLanguageSemantics).observe(document.documentElement, {attributes:true, attributeFilter:['lang']});
 if (api()) markReady();
