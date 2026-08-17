@@ -5,12 +5,16 @@ internal static class Program
     [STAThread]
     private static int Main(string[] args)
     {
+        if (args.Length > 0 && args[0].Equals("--build-tatoeba-sentence-pack", StringComparison.OrdinalIgnoreCase))
+            return BuildTatoebaSentencePack(args);
+
         if (args.Any(arg => arg.Equals("--self-test", StringComparison.OrdinalIgnoreCase)))
         {
             try
             {
                 SpellingSelfTest.Run();
                 SentenceCoachSelfTest.Run();
+                TatoebaSentencePackSelfTest.Run();
             }
             catch (Exception ex)
             {
@@ -27,6 +31,47 @@ internal static class Program
         InstallSpellingEntryPoint(main);
         Application.Run(main);
         return 0;
+    }
+
+    private static int BuildTatoebaSentencePack(string[] args)
+    {
+        if (args.Length is < 3 or > 4)
+        {
+            Console.Error.WriteLine("Usage: WordDeck.exe --build-tatoeba-sentence-pack <en-uk-pairs.tsv> <output.json> [pack-id]");
+            return 2;
+        }
+
+        try
+        {
+            string inputPath = Path.GetFullPath(args[1]);
+            string outputPath = Path.GetFullPath(args[2]);
+            string packId = args.Length == 4 ? args[3].Trim() : $"tatoeba-en-uk-{DateTime.UtcNow:yyyyMMdd}";
+            if (!File.Exists(inputPath))
+                throw new FileNotFoundException("Tatoeba EN-UA pair export was not found.", inputPath);
+
+            DictionaryPackage dictionary = DictionaryLoader.LoadEmbeddedOxford();
+            IEnumerable<TatoebaSentencePair> pairs = TatoebaPairTsv.ParseLines(File.ReadLines(inputPath));
+            (SentencePack pack, SentencePackBuildReport report) = TatoebaSentencePackBuilder.Build(
+                pairs,
+                dictionary,
+                packId,
+                "Tatoeba EN-UA sentence-pair export; built by WordDeck development importer. Upstream sentence and translation IDs are preserved per record.",
+                "CC BY 2.0 FR; verify the selected upstream export/subset before redistribution and preserve attribution.");
+
+            string? directory = Path.GetDirectoryName(outputPath);
+            if (!string.IsNullOrWhiteSpace(directory))
+                Directory.CreateDirectory(directory);
+            File.WriteAllText(outputPath, SentencePackJson.Serialize(pack));
+
+            Console.WriteLine($"SentencePack written: {outputPath}");
+            Console.WriteLine($"Input pairs: {report.InputPairs}; accepted: {report.AcceptedPairs}; rejected: {report.RejectedPairs}; indexed entry references: {report.IndexedEntryIds}; off-list tokens: {report.OffListTokens}.");
+            return 0;
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"SentencePack build FAILED: {ex.Message}");
+            return 1;
+        }
     }
 
     private static void InstallSpellingEntryPoint(MainForm main)
