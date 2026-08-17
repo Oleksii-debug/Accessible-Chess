@@ -50,14 +50,15 @@ internal static class Program
             if (!File.Exists(inputPath))
                 throw new FileNotFoundException("Tatoeba EN-UA pair export was not found.", inputPath);
 
+            TatoebaImportMetadata metadata = TatoebaImportProvenance.Resolve(inputPath);
             DictionaryPackage dictionary = DictionaryLoader.LoadEmbeddedOxford();
             IEnumerable<TatoebaSentencePair> pairs = TatoebaPairTsv.ParseLines(File.ReadLines(inputPath));
             (SentencePack pack, SentencePackBuildReport report) = TatoebaSentencePackBuilder.Build(
                 pairs,
                 dictionary,
                 packId,
-                "Tatoeba EN-UA sentence-pair export; built by WordDeck development importer. Upstream sentence and translation IDs are preserved per record.",
-                "CC BY 2.0 FR; verify the selected upstream export/subset before redistribution and preserve attribution.");
+                metadata.Provenance,
+                metadata.License);
 
             string? directory = Path.GetDirectoryName(outputPath);
             if (!string.IsNullOrWhiteSpace(directory))
@@ -65,6 +66,7 @@ internal static class Program
             File.WriteAllText(outputPath, SentencePackJson.Serialize(pack));
 
             Console.WriteLine($"SentencePack written: {outputPath}");
+            Console.WriteLine($"License metadata: {metadata.License}; verified CC0 manifest: {metadata.VerifiedCc0Manifest}.");
             Console.WriteLine($"Input pairs: {report.InputPairs}; accepted: {report.AcceptedPairs}; rejected: {report.RejectedPairs}; indexed entry references: {report.IndexedEntryIds}; off-list tokens: {report.OffListTokens}.");
             return 0;
         }
