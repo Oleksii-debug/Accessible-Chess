@@ -1,0 +1,101 @@
+name: WordDeck real SentencePack build
+
+on:
+  push:
+    branches: [worddeck-bootstrap]
+    paths:
+      - '.github/workflows/worddeck-sentencepack.yml'
+      - 'WordDeck/tools/build_tatoeba_cc0_pairs.py'
+      - 'WordDeck/TatoebaImportProvenance.cs'
+      - 'WordDeck/TatoebaSentencePackBuilder.cs'
+      - 'WordDeck/Program.cs'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-real-cc0-pack:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout worddeck branch
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Restore and build WordDeck
+        shell: pwsh
+        run: |
+          dotnet restore .\WordDeck\WordDeck.csproj
+          dotnet build .\WordDeck\WordDeck.csproj -c Release --no-restore
+
+      - name: Run full regression self-test
+        shell: pwsh
+        run: dotnet run --project .\WordDeck\WordDeck.csproj -c Release --no-build -- --self-test
+
+      - name: Download official Tatoeba CC0 exports and build EN-UA pairs
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path .\sentencepack-build | Out-Null
+          python .\WordDeck\tools\build_tatoeba_cc0_pairs.py `
+            --download-dir .\sentencepack-build\upstream `
+            --output .\sentencepack-build\tatoeba-en-uk-cc0.tsv `
+            --manifest .\sentencepack-build\tatoeba-en-uk-cc0.tsv.manifest.json
+
+      - name: Build real WordDeck SentencePack
+        shell: pwsh
+        run: |
+          dotnet run --project .\WordDeck\WordDeck.csproj -c Release --no-build -- `
+            --build-tatoeba-sentence-pack `
+            .\sentencepack-build\tatoeba-en-uk-cc0.tsv `
+            .\sentencepack-build\tatoeba-en-uk-cc0-sentencepack.json `
+            tatoeba-en-uk-cc0-20260817 2>&1 | Tee-Object -FilePath .\sentencepack-build\builder.log
+
+      - name: Validate distributable pack and write coverage report
+        shell: pwsh
+        run: |
+          $packPath = '.\sentencepack-build\tatoeba-en-uk-cc0-sentencepack.json'
+          $pack = Get-Content $packPath -Raw | ConvertFrom-Json
+          if ($pack.Version -ne 1) { throw "Unexpected SentencePack version: $($pack.Version)" }
+          if ($pack.SourceLanguage -ne 'en' -or $pack.TargetLanguage -ne 'uk') { throw 'SentencePack language direction is not EN-UA.' }
+          if ($pack.License -ne 'CC0 1.0') { throw "SentencePack did not receive verified CC0 metadata: $($pack.License)" }
+          if ($pack.Sentences.Count -lt 1) { throw 'Real SentencePack contains no accepted sentences.' }
+
+          $targetRefs = @($pack.Sentences | ForEach-Object { $_.TargetEntryIds } | Where-Object { $_ } | Sort-Object -Unique)
+          $twoTargetReady = @($pack.Sentences | Where-Object { @($_.TargetEntryIds | Sort-Object -Unique).Count -ge 2 }).Count
+          $threeTargetReady = @($pack.Sentences | Where-Object { @($_.TargetEntryIds | Sort-Object -Unique).Count -ge 3 }).Count
+          $qualityFlagged = @($pack.Sentences | Where-Object { @($_.QualityFlags).Count -gt 0 }).Count
+          $report = [ordered]@{
+            generated_utc = (Get-Date).ToUniversalTime().ToString('o')
+            pack_id = $pack.PackId
+            license = $pack.License
+            sentences = $pack.Sentences.Count
+            unique_indexed_oxford_entry_ids = $targetRefs.Count
+            sentences_with_at_least_2_target_ids = $twoTargetReady
+            sentences_with_at_least_3_target_ids = $threeTargetReady
+            quality_flagged_sentences = $qualityFlagged
+            note = 'Coverage is against the current embedded 3308-entry Oxford package; this does not claim Oxford 5000 completion.'
+          }
+          $report | ConvertTo-Json | Set-Content .\sentencepack-build\coverage-report.json -Encoding utf8
+          $report | Format-List
+
+      - name: Upload real CC0 SentencePack artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: WordDeck-Tatoeba-EN-UA-CC0-SentencePack
+          path: |
+            sentencepack-build/tatoeba-en-uk-cc0-sentencepack.json
+            sentencepack-build/tatoeba-en-uk-cc0.tsv.manifest.json
+            sentencepack-build/coverage-report.json
+            sentencepack-build/builder.log
+          if-no-files-found: error
+          retention-days: 30
