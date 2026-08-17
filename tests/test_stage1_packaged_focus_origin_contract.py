@@ -67,6 +67,38 @@ class Stage1PackagedFocusOriginContractTests(unittest.TestCase):
         self.assertIn("el('move-submit').addEventListener('click',submitMove)", self.html)
         self.assertIn("el('move-input').addEventListener('keydown'", self.html)
 
+    def test_packaged_move_edit_has_explicit_short_uia_name_independent_of_label_projection(self) -> None:
+        text = self.bootstrap
+        self.assertIn("function moveEntryLabels()", text)
+        self.assertIn("function stabilizeMoveEntryUiaSemantics()", text)
+        self.assertIn("input.setAttribute('aria-label', labels.input)", text)
+        self.assertIn("button.setAttribute('aria-label', labels.submit)", text)
+        self.assertIn("data-stage1-uia-role", text)
+        self.assertIn("stage1MoveUiaSemanticsReady", text)
+        self.assertIn("? {input: 'Move', submit: 'Make move'}", text)
+        self.assertIn(": {input: 'Хід', submit: 'Зробити хід'}", text)
+        # Keep the normal concise HTML label too; aria-describedby must not be
+        # used to inject tutorial prose when the Edit receives focus.
+        self.assertIn('<label for="move-input">Хід</label>', self.html)
+        move_markup = self.html.split('<input id="move-input"', 1)[1].split('>', 1)[0]
+        self.assertNotIn("aria-describedby", move_markup)
+
+    def test_packaged_move_uia_semantics_are_ready_before_release_ready_marker_and_follow_language(self) -> None:
+        text = self.bootstrap
+        install = text.index("installMoveEntryIdentity();")
+        ready = text.index("if (api()) markReady();")
+        self.assertLess(install, ready)
+        mark_ready = text[text.index("async function markReady()"):text.index("installMoveFocusPolicy();")]
+        self.assertIn("stabilizeMoveEntryUiaSemantics();", mark_ready)
+        self.assertIn("document.body.dataset.stage1AppReady = 'true'", mark_ready)
+        self.assertLess(
+            mark_ready.index("stabilizeMoveEntryUiaSemantics();"),
+            mark_ready.index("stage1AppReady = 'true'"),
+        )
+        self.assertIn("function refreshReleaseLanguageSemantics()", text)
+        self.assertIn("stabilizeMoveEntryUiaSemantics();", text[text.index("function refreshReleaseLanguageSemantics()"):])
+        self.assertIn("new MutationObserver(refreshReleaseLanguageSemantics)", text)
+
     def test_packaged_board_uia_names_contain_compact_coordinate_without_automation_id_dependency(self) -> None:
         text = self.bootstrap
         self.assertIn("function stableBoardAccessibleName(cell)", text)
