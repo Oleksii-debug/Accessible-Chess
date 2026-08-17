@@ -145,7 +145,7 @@ internal sealed class MainForm : Form
         {
             AutoSize = true,
             AccessibleName = "Keyboard hint",
-            Text = "F1: help. All shortcuts, including per-deck shortcuts, can be reassigned in Tools > Keyboard shortcuts."
+            Text = "F1: help. Ctrl+S saves now. All shortcuts can be reassigned in Tools > Keyboard shortcuts."
         };
 
         root.Controls.Add(top, 0, 0);
@@ -161,7 +161,7 @@ internal sealed class MainForm : Form
 
         PopulateDictionaryCombo();
         SelectInitialPackage();
-        Shown += (_, _) => BeginInvoke(new Action(NextWord));
+        Shown += (_, _) => BeginInvoke(new Action(RestoreCurrentOrNextWord));
         FormClosing += (_, _) =>
         {
             _audio.Dispose();
@@ -173,10 +173,17 @@ internal sealed class MainForm : Form
     {
         var menu = new MenuStrip { AccessibleName = "Application menu" };
         var file = new ToolStripMenuItem("&File");
+        var addWords = new ToolStripMenuItem("&Add pasted words to active deck...");
+        addWords.Click += (_, _) => AddWordsToActiveDeck();
+        var save = new ToolStripMenuItem("&Save progress now");
+        save.Click += (_, _) => SaveProgressNow();
         var import = new ToolStripMenuItem("&Import dictionary...");
         import.Click += (_, _) => ImportDictionary();
         var exit = new ToolStripMenuItem("E&xit");
         exit.Click += (_, _) => Close();
+        file.DropDownItems.Add(addWords);
+        file.DropDownItems.Add(save);
+        file.DropDownItems.Add(new ToolStripSeparator());
         file.DropDownItems.Add(import);
         file.DropDownItems.Add(new ToolStripSeparator());
         file.DropDownItems.Add(exit);
@@ -285,17 +292,14 @@ internal sealed class MainForm : Form
         }
     }
 
-    private void ActivatePackage(DictionaryPackage package)
+    private void ActivatePackage(DictionaryPackage basePackage)
     {
-        _package = package;
-        _state.ActiveDictionaryId = package.Id;
+        _package = WithCustomEntries(basePackage);
+        _state.ActiveDictionaryId = basePackage.Id;
         _lastMove = null;
+        ReindexEntries();
 
-        _entriesById.Clear();
-        foreach (DictionaryEntry entry in package.Entries)
-            _entriesById[entry.Id] = entry;
-
-        _deckMap = _decks.EnsureDictionaryAssignments(package.Id, package.Entries.Select(entry => entry.Id));
+        _deckMap = _decks.EnsureDictionaryAssignments(_package.Id, _package.Entries.Select(entry => entry.Id));
         string desiredDeckId = _state.ActiveDeckId ?? _decks.FirstDeck.Id;
         _activeDeckId = _decks.Find(desiredDeckId)?.Id ?? _decks.FirstDeck.Id;
         _state.ActiveDeckId = _activeDeckId;
@@ -304,6 +308,36 @@ internal sealed class MainForm : Form
         ResetSequence();
         UpdateCounts();
         SaveState();
+    }
+
+    private DictionaryPackage WithCustomEntries(DictionaryPackage basePackage)
+    {
+        if (!_state.CustomEntriesByDictionary.TryGetValue(basePackage.Id, out List<CustomEntryRecord>? custom) || custom.Count == 0)
+            return basePackage;
+
+        var baseIds = new HashSet<string>(basePackage.Entries.Select(entry => entry.Id), StringComparer.OrdinalIgnoreCase);
+        var entries = new List<DictionaryEntry>(basePackage.Entries);
+        foreach (CustomEntryRecord record in custom)
+        {
+            if (baseIds.Add(record.Id))
+                entries.Add(new DictionaryEntry(record.Id, record.Level, record.Source, record.Target));
+        }
+
+        return new DictionaryPackage
+        {
+            Id = basePackage.Id,
+            Name = basePackage.Name,
+            SourceLanguage = basePackage.SourceLanguage,
+            TargetLanguage = basePackage.TargetLanguage,
+            Entries = entries
+        };
+    }
+
+    private void ReindexEntries()
+    {
+        _entriesById.Clear();
+        foreach (DictionaryEntry entry in _package.Entries)
+            _entriesById[entry.Id] = entry;
     }
 
     private void RefreshDeckUi()
@@ -393,6 +427,27 @@ internal sealed class MainForm : Form
 
         foreach (string id in ids)
             _shuffleBag.Enqueue(id);
+    }
+
+    private void RestoreCurrentOrNextWord()
+    {
+        if (_state.CurrentEntryIdByDictionary.TryGetValue(_package.Id, out string? id) &&
+            _entriesById.ContainsKey(id) &&
+            string.Equals(_deckMap.GetValueOrDefault(id, _decks.FirstDeck.Id), _activeDeckId, StringComparison.OrdinalIgnoreCase))
+        {
+            ShowEntryById(id);
+            RemoveFromShuffleBag(id);
+            return;
+        }
+        NextWord();
+    }
+
+    private void RemoveFromShuffleBag(string id)
+    {
+        string[] remaining = _shuffleBag.Where(candidate => !string.Equals(candidate, id, StringComparison.OrdinalIgnoreCase)).ToArray();
+        _shuffleBag.Clear();
+        foreach (string candidate in remaining)
+            _shuffleBag.Enqueue(candidate);
     }
 
     private void NextWord()
@@ -516,6 +571,71 @@ internal sealed class MainForm : Form
         _wordBox.Focus();
         _wordBox.SelectAll();
     }
+
+    private void AddWordsToActiveDeck()
+    {
+        DeckDefinition activeDeck = _decks.Find(_activeDeckId) ?? _decks.FirstDeck;
+        using var dialog = new BulkWordImportForm(activeDeck.Name);
+        if (dialog.ShowDialog(this) != DialogResult.OK)
+            return;
+
+        try
+        {
+            IReadOnlyList<WordPair> pairs = BulkWordParser.Parse(dialog.PastedText);
+            if (!_state.CustomEntriesByDictionary.TryGetValue(_package.Id, out List<CustomEntryRecord>? custom))
+            {
+                custom = new List<CustomEntryRecord>();
+                _state.CustomEntriesByDictionary[_package.Id] = custom;
+            }
+
+            var existingPairs = new HashSet<string>(
+                _package.Entries.Select(entry => PairKey(entry.Source, entry.Target)),
+                StringComparer.OrdinalIgnoreCase);
+            var addedIds = new List<string>();
+            foreach (WordPair pair in pairs)
+            {
+                if (!existingPairs.Add(PairKey(pair.Source, pair.Target)))
+                    continue;
+
+                string id;
+                do
+                {
+                    id = $"custom-{Guid.NewGuid():N}";
+                }
+                while (_entriesById.ContainsKey(id));
+
+                custom.Add(new CustomEntryRecord(id, pair.Source, pair.Target));
+                addedIds.Add(id);
+            }
+
+            if (addedIds.Count == 0)
+            {
+                AnnounceStatus("No new cards were added because all pasted pairs already exist in this dictionary.");
+                return;
+            }
+
+            DictionaryPackage basePackage = _packages[_package.Id];
+            _package = WithCustomEntries(basePackage);
+            ReindexEntries();
+            _deckMap = _decks.EnsureDictionaryAssignments(_package.Id, _package.Entries.Select(entry => entry.Id));
+            foreach (string id in addedIds)
+                _deckMap[id] = _activeDeckId;
+
+            ResetSequence();
+            RebuildSwitchDeckMenu();
+            UpdateCounts();
+            ShowEntryById(addedIds[0]);
+            RemoveFromShuffleBag(addedIds[0]);
+            SaveState();
+            AnnounceStatus($"Added {addedIds.Count} new cards to {activeDeck.Name}. Custom cards are saved locally. Generated pronunciation is optional and may be absent for these cards.");
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(this, ex.Message, "Cannot add words", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        }
+    }
+
+    private static string PairKey(string source, string target) => source.Trim() + "\u001f" + target.Trim();
 
     private void MoveCurrentToDeckChooser()
     {
@@ -782,6 +902,12 @@ internal sealed class MainForm : Form
         }
     }
 
+    private void SaveProgressNow()
+    {
+        SaveState();
+        AnnounceStatus("Progress saved locally. Deck assignments, custom cards, active deck and current card are stored.");
+    }
+
     private void OpenShortcutSettings()
     {
         _shortcuts.RefreshDeckDefinitions();
@@ -803,10 +929,12 @@ internal sealed class MainForm : Form
             "Both navigation shortcuts draw another random card from the active deck. Every word is presented once before the shuffle bag is refilled, and the refill avoids an immediate repeat when the deck has more than one word.\r\n\r\n" +
             "The original five default decks are permanent for compatibility, but they can be renamed and reordered. You can create any number of additional empty decks, rename them, reorder them, and delete user-created decks. " +
             "Deleting a non-empty user deck always requires choosing another deck for all of its words; cancelling leaves the deck untouched. Every deck owns stable switch and move-to shortcut actions, so renaming and reordering do not break its bindings.\r\n\r\n" +
+            "To add your own cards to the active deck, use Add pasted words. Use one card per line. The safest format is English, TAB, Ukrainian. " +
+            "The importer also accepts a pipe, equals sign, em dash, en dash, or comma+space between English and Ukrainian. Custom cards are saved locally and remain in their assigned decks after restart.\r\n\r\n" +
             "Generated British pronunciation is an optional offline audio layer keyed by stable dictionary and entry IDs. " +
             $"Automatic pronunciation on card change is currently {audioMode}. When automatic audio successfully starts, WordDeck suppresses its extra UI Automation word notification to reduce double speech; if audio is missing or cannot play, the normal screen-reader announcement remains the fallback. " +
-            "You can also play the generated pronunciation manually without changing the automatic setting.\r\n\r\n" +
-            "All progress, deck definitions, deck names, order and shortcuts are saved locally in your Windows user profile and a recovery backup is maintained.\r\n\r\n" +
+            "Custom cards do not require generated audio; when no audio file exists, screen-reader pronunciation remains available.\r\n\r\n" +
+            "Progress is saved automatically after deck changes and on normal exit. Save progress now provides an explicit manual checkpoint. The current dictionary, active deck and last card are restored on the next launch when still valid. A recovery backup is maintained.\r\n\r\n" +
             "KEYBOARD SHORTCUTS\r\n" + shortcutLines + "\r\n\r\n" +
             "Use Tools > Keyboard shortcuts to assign or reassign any shortcut. User-created deck switch and move shortcuts start unassigned. Use File > Import dictionary to add another WordDeck TSV dictionary.";
 
@@ -851,6 +979,8 @@ internal sealed class MainForm : Form
         else if (action == ActionIds.RepeatWord) RepeatCurrentWord();
         else if (action == ActionIds.PlayPronunciation) PlayCurrentPronunciation();
         else if (action == ActionIds.ToggleAutoPronunciation) ToggleAutoPronunciation();
+        else if (action == ActionIds.AddWords) AddWordsToActiveDeck();
+        else if (action == ActionIds.SaveProgress) SaveProgressNow();
         else if (action == ActionIds.UndoMove) UndoLastMove();
         else if (action == ActionIds.ShortcutSettings) OpenShortcutSettings();
         else if (action == ActionIds.Help) ShowHelp();
@@ -877,6 +1007,8 @@ internal sealed class MainForm : Form
     {
         _state.ActiveDictionaryId = _package?.Id;
         _state.ActiveDeckId = _activeDeckId;
+        if (_package is not null && _current is not null)
+            _state.CurrentEntryIdByDictionary[_package.Id] = _current.Id;
         _store.Save(_state);
     }
 }
