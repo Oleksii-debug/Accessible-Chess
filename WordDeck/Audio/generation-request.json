@@ -1,6 +1,6 @@
 {
   "source": "oxford3000",
-  "start": 1000,
+  "start": 1500,
   "limit": 500,
   "accent": "en-GB",
   "femaleVoice": "bf_emma",
