@@ -51,7 +51,30 @@ class Stage1PackagedFocusOriginContractTests(unittest.TestCase):
         self.assertIn("input.addEventListener('focusin', rememberMoveInputFocus)", text)
         self.assertIn("focusState.context === 'board' ? focusState.boardSquare : ''", text)
         self.assertIn("const result = await baseSubmit.apply(this, args)", text)
+        self.assertIn("settleBoardFocusAfterInvoke(boardSquare)", text)
+
+    def test_uia_invoke_has_a_settled_focus_phase_after_submit_handler_returns(self) -> None:
+        text = self.bootstrap
+        self.assertIn("function settleBoardFocusAfterInvoke(square)", text)
+        self.assertIn("function restoreBoardSquare(square, generation)", text)
+        self.assertIn("focusState.restoreGeneration", text)
+        self.assertIn("restoreBoardSquare(square, generation);", text)
+        self.assertIn("setTimeout(() => restoreBoardSquare(square, generation), 0)", text)
+        self.assertIn("target.focus({preventScroll: true})", text)
         self.assertIn("rememberBoardFocus(target)", text)
+        # We deliberately restore on the next browser task rather than trying
+        # to infer packaged WebView2/UIA focus from activeElement alone.
+        self.assertNotIn("requestAnimationFrame(() => document.activeElement", text)
+
+    def test_move_edit_focus_cancels_a_pending_deferred_board_restore(self) -> None:
+        text = self.bootstrap
+        start = text.index("function rememberMoveInputFocus()")
+        end = text.index("function restoreBoardSquare", start)
+        move_focus_body = text[start:end]
+        self.assertIn("focusState.context = 'move'", move_focus_body)
+        self.assertIn("focusState.boardSquare = ''", move_focus_body)
+        self.assertIn("focusState.boardNode = null", move_focus_body)
+        self.assertIn("focusState.restoreGeneration += 1", move_focus_body)
 
     def test_uia_invoke_can_preserve_last_semantic_board_square_without_global_keyboard_hijack(self) -> None:
         text = self.bootstrap
@@ -74,6 +97,7 @@ class Stage1PackagedFocusOriginContractTests(unittest.TestCase):
         self.assertIn("target.focus({preventScroll: true})", text)
         self.assertIn("rememberBoardFocus(target)", text)
         self.assertIn("observer.observe(grid, {childList: true})", text)
+        self.assertIn("settleBoardFocusAfterInvoke", text)
 
     def test_normal_move_entry_remains_authoritative_after_user_focuses_edit(self) -> None:
         text = self.bootstrap
