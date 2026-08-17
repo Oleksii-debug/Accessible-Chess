@@ -8,6 +8,9 @@ internal static class Program
         if (args.Length > 0 && args[0].Equals("--build-tatoeba-sentence-pack", StringComparison.OrdinalIgnoreCase))
             return BuildTatoebaSentencePack(args);
 
+        if (args.Length > 0 && args[0].Equals("--measure-sentence-pack", StringComparison.OrdinalIgnoreCase))
+            return SentencePackDiagnostics.Run(args);
+
         if (args.Any(arg => arg.Equals("--self-test", StringComparison.OrdinalIgnoreCase)))
         {
             try
