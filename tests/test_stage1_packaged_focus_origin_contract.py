@@ -10,6 +10,7 @@ class Stage1PackagedFocusOriginContractTests(unittest.TestCase):
     def setUp(self) -> None:
         self.root = Path(__file__).resolve().parents[1]
         self.bootstrap = (self.root / "web" / "stage1_release_bootstrap.js").read_text(encoding="utf-8")
+        self.html = (self.root / "web" / "index.html").read_text(encoding="utf-8")
 
     def test_complete_stage1_user_flow_still_covers_canonical_state_history_fen_editor_and_sound_contract(self) -> None:
         api = Stage1ReleaseAccessibleChessAPI()
@@ -40,6 +41,30 @@ class Stage1PackagedFocusOriginContractTests(unittest.TestCase):
             self.assertTrue(checks[name], name)
         self.assertEqual(result["boardCells"], 64)
 
+    def test_packaged_move_edit_preserves_initial_dom_uia_identity_and_label(self) -> None:
+        text = self.bootstrap
+        self.assertIn('<label for="move-input">Хід</label>', self.html)
+        self.assertIn('<input id="move-input" type="text"', self.html)
+        self.assertIn("const input = oldInput;", text)
+        self.assertNotIn("const input = oldInput.cloneNode(true)", text)
+        self.assertIn("const button = oldButton.cloneNode(true)", text)
+        # The release upgrade moves the existing edit node into the form. This
+        # keeps WebView2/UIA provider identity stable while replacing only the
+        # legacy button listener.
+        self.assertIn("form.appendChild(input)", text)
+        self.assertIn("row.replaceWith(form)", text)
+
+    def test_release_enter_capture_replaces_only_legacy_enter_dispatch(self) -> None:
+        text = self.bootstrap
+        self.assertIn("input.addEventListener('keydown', event =>", text)
+        self.assertIn("if (event.key !== 'Enter') return", text)
+        self.assertIn("event.stopImmediatePropagation()", text)
+        self.assertIn("form.requestSubmit(button)", text)
+        self.assertIn("}, true);", text)
+        # Copy/select shortcuts are not intercepted by this release handler.
+        self.assertNotIn("event.key === 'c'", text)
+        self.assertNotIn("event.key === 'a'", text)
+
     def test_board_origin_is_semantic_state_not_active_element_only(self) -> None:
         text = self.bootstrap
         self.assertIn("const focusState = window.__accessibleChessStage1FocusState", text)
@@ -62,8 +87,6 @@ class Stage1PackagedFocusOriginContractTests(unittest.TestCase):
         self.assertIn("setTimeout(() => restoreBoardSquare(square, generation), 0)", text)
         self.assertIn("target.focus({preventScroll: true})", text)
         self.assertIn("rememberBoardFocus(target)", text)
-        # We deliberately restore on the next browser task rather than trying
-        # to infer packaged WebView2/UIA focus from activeElement alone.
         self.assertNotIn("requestAnimationFrame(() => document.activeElement", text)
 
     def test_move_edit_focus_cancels_a_pending_deferred_board_restore(self) -> None:
@@ -78,10 +101,6 @@ class Stage1PackagedFocusOriginContractTests(unittest.TestCase):
 
     def test_uia_invoke_can_preserve_last_semantic_board_square_without_global_keyboard_hijack(self) -> None:
         text = self.bootstrap
-        # The submit button deliberately does not overwrite the semantic focus
-        # context. UIA ValuePattern.SetValue + Invoke can therefore keep the
-        # last actual board square as the origin even when activeElement is no
-        # longer that gridcell by the time submitMove executes.
         self.assertNotIn("button.addEventListener('focusin'", text)
         self.assertNotIn("button.addEventListener('click'", text)
         self.assertIn("activeBoardSquare || (", text)
