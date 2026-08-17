@@ -1,3 +1,5 @@
+using Microsoft.Data.Sqlite;
+
 namespace WordDeck;
 
 internal sealed record InstalledSentencePack(
@@ -55,12 +57,18 @@ internal sealed class SentencePackStore
             SentencePackIo.WriteGZip(temp, pack);
             SentencePackSqlitePrototype.Build(sqliteTemp, pack);
 
-            // Both new representations are complete and validated before replacing the previous files.
+            // Microsoft.Data.Sqlite pools connections by default. The build connection has been
+            // disposed, but its pooled native handle can still keep the Windows file open. Clear
+            // the provider pool before the atomic replace so import/replacement is deterministic.
+            SqliteConnection.ClearAllPools();
+
             File.Move(temp, destination, true);
             File.Move(sqliteTemp, sqliteDestination, true);
         }
         finally
         {
+            // Also release any read-only pooled handle from a prior installed corpus before cleanup.
+            SqliteConnection.ClearAllPools();
             if (File.Exists(temp)) File.Delete(temp);
             if (File.Exists(sqliteTemp)) File.Delete(sqliteTemp);
         }
