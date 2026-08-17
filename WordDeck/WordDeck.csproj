@@ -17,4 +17,8 @@
   <ItemGroup>
     <EmbeddedResource Include="Data\oxford3000_uk.tsv.gz.b64part*" />
   </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="8.0.29" />
+  </ItemGroup>
 </Project>
