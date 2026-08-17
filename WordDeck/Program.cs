@@ -29,7 +29,7 @@ internal static class Program
         AccessibilityAnnouncer.Install();
 
         var main = new MainForm();
-        InstallSpellingEntryPoint(main);
+        InstallTrainingEntryPoints(main);
         Application.Run(main);
         return 0;
     }
@@ -54,19 +54,14 @@ internal static class Program
             DictionaryPackage dictionary = DictionaryLoader.LoadEmbeddedOxford();
             IEnumerable<TatoebaSentencePair> pairs = TatoebaPairTsv.ParseLines(File.ReadLines(inputPath));
             (SentencePack pack, SentencePackBuildReport report) = TatoebaSentencePackBuilder.Build(
-                pairs,
-                dictionary,
-                packId,
-                metadata.Provenance,
-                metadata.License);
+                pairs, dictionary, packId, metadata.Provenance, metadata.License);
 
             string? directory = Path.GetDirectoryName(outputPath);
-            if (!string.IsNullOrWhiteSpace(directory))
-                Directory.CreateDirectory(directory);
+            if (!string.IsNullOrWhiteSpace(directory)) Directory.CreateDirectory(directory);
             File.WriteAllText(outputPath, SentencePackJson.Serialize(pack));
 
             Console.WriteLine($"SentencePack written: {outputPath}");
-            Console.WriteLine($"License metadata: {metadata.License}; verified CC0 manifest: {metadata.VerifiedCc0Manifest}.");
+            Console.WriteLine($"License metadata: {metadata.License}; verified CC0 manifest: {metadata.VerifiedCc0Manifest}; verified attributed CC-BY manifest: {metadata.VerifiedAttributedCcByManifest}.");
             Console.WriteLine($"Input pairs: {report.InputPairs}; accepted: {report.AcceptedPairs}; rejected: {report.RejectedPairs}; indexed entry references: {report.IndexedEntryIds}; off-list tokens: {report.OffListTokens}.");
             return 0;
         }
@@ -77,41 +72,47 @@ internal static class Program
         }
     }
 
-    private static void InstallSpellingEntryPoint(MainForm main)
+    private static void InstallTrainingEntryPoints(MainForm main)
     {
         MenuStrip? menu = main.Controls.OfType<MenuStrip>().FirstOrDefault();
-        if (menu is null)
-            return;
-
+        if (menu is null) return;
         ToolStripMenuItem? tools = menu.Items.OfType<ToolStripMenuItem>()
             .FirstOrDefault(item => (item.Text ?? string.Empty).Replace("&", string.Empty).Equals("Tools", StringComparison.OrdinalIgnoreCase));
-        if (tools is null)
-            return;
+        if (tools is null) return;
 
         AppState appState = new AppStateStore().Load();
-        var spellingStore = new SpellingStateStore();
-        SpellingState spellingState = spellingStore.Load();
+        SpellingState spellingState = new SpellingStateStore().Load();
         var shortcutManager = new ShortcutManager(appState, spellingState.Decks);
-        var open = new ToolStripMenuItem("Open &Spelling trainer...")
+
+        var openSpelling = new ToolStripMenuItem("Open &Spelling trainer...")
         {
             AccessibleName = "Open Spelling trainer",
             ShortcutKeys = shortcutManager.Get(ActionIds.OpenSpelling),
             ShowShortcutKeys = true
         };
-        open.Click += (_, _) => OpenSpelling(main);
+        openSpelling.Click += (_, _) => OpenSpelling(main);
 
-        var settings = new ToolStripMenuItem("Spelling &keyboard shortcuts...")
+        var openSentence = new ToolStripMenuItem("Open S&entence Spelling trainer...")
         {
-            AccessibleName = "Spelling keyboard shortcuts"
+            AccessibleName = "Open Sentence Spelling trainer",
+            ShortcutKeys = shortcutManager.Get(ActionIds.OpenSentenceCoach),
+            ShowShortcutKeys = true
         };
-        settings.Click += (_, _) => OpenSpellingShortcutSettings(main, open);
+        openSentence.Click += (_, _) => OpenSentenceCoach(main);
 
-        tools.DropDownItems.Insert(0, open);
-        tools.DropDownItems.Insert(1, settings);
-        tools.DropDownItems.Insert(2, new ToolStripSeparator());
+        var settings = new ToolStripMenuItem("Training &keyboard shortcuts...")
+        {
+            AccessibleName = "Spelling and Sentence Spelling keyboard shortcuts"
+        };
+        settings.Click += (_, _) => OpenTrainingShortcutSettings(main, openSpelling, openSentence);
+
+        tools.DropDownItems.Insert(0, openSpelling);
+        tools.DropDownItems.Insert(1, openSentence);
+        tools.DropDownItems.Insert(2, settings);
+        tools.DropDownItems.Insert(3, new ToolStripSeparator());
     }
 
-    private static void OpenSpellingShortcutSettings(Form owner, ToolStripMenuItem openItem)
+    private static void OpenTrainingShortcutSettings(Form owner, ToolStripMenuItem spellingItem, ToolStripMenuItem sentenceItem)
     {
         var appStore = new AppStateStore();
         AppState appState = appStore.Load();
@@ -120,7 +121,8 @@ internal static class Program
         using var dialog = new ShortcutSettingsForm(shortcuts);
         dialog.ShowDialog(owner);
         appStore.Save(appState);
-        openItem.ShortcutKeys = shortcuts.Get(ActionIds.OpenSpelling);
+        spellingItem.ShortcutKeys = shortcuts.Get(ActionIds.OpenSpelling);
+        sentenceItem.ShortcutKeys = shortcuts.Get(ActionIds.OpenSentenceCoach);
     }
 
     private static void OpenSpelling(MainForm owner)
@@ -133,6 +135,28 @@ internal static class Program
         DictionaryPackage package = BuildActivePackage(appState);
 
         using var form = new SpellingForm(appState, spellingState, spellingStore, shortcuts, package);
+        form.ShowDialog(owner);
+        appStore.Save(appState);
+    }
+
+    private static void OpenSentenceCoach(MainForm owner)
+    {
+        var appStore = new AppStateStore();
+        AppState appState = appStore.Load();
+        SpellingState spellingState = new SpellingStateStore().Load();
+        var shortcuts = new ShortcutManager(appState, spellingState.Decks);
+        DictionaryPackage package = BuildActivePackage(appState);
+        var sentenceStateStore = new SentenceCoachStateStore();
+        SentenceCoachState sentenceState = sentenceStateStore.Load();
+
+        using var form = new SentenceCoachForm(
+            appState,
+            spellingState,
+            shortcuts,
+            package,
+            new SentencePackStore(),
+            sentenceStateStore,
+            sentenceState);
         form.ShowDialog(owner);
         appStore.Save(appState);
     }
@@ -157,7 +181,7 @@ internal static class Program
                 }
                 catch
                 {
-                    // An invalid optional import must not prevent Spelling from opening.
+                    // An invalid optional import must not prevent training modes from opening.
                 }
             }
         }
@@ -168,8 +192,7 @@ internal static class Program
         var seen = new HashSet<string>(basePackage.Entries.Select(entry => entry.Id), StringComparer.OrdinalIgnoreCase);
         var entries = new List<DictionaryEntry>(basePackage.Entries);
         foreach (CustomEntryRecord record in custom)
-            if (seen.Add(record.Id))
-                entries.Add(new DictionaryEntry(record.Id, record.Level, record.Source, record.Target));
+            if (seen.Add(record.Id)) entries.Add(new DictionaryEntry(record.Id, record.Level, record.Source, record.Target));
 
         return new DictionaryPackage
         {
