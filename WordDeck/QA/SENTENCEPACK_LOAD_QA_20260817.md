@@ -1,38 +1,58 @@
-# SentencePack runtime load QA — 2026-08-17
+# SentencePack runtime/storage QA — 2026-08-17
 
 Branch: `worddeck-bootstrap` only.
 
-## Tested artifact
+## Tested production corpus
 
-Attributed Tatoeba EN-UA SentencePack produced by workflow run `32048719259` from the current production pipeline.
+Attributed Tatoeba EN-UA SentencePack:
 
 - Pack ID: `tatoeba-en-uk-ccby-20260817`
 - License: `CC BY 2.0 FR`
 - Sentences: 207,578
 - Indexed current Oxford entry IDs: 3,120 / 3,308
-- gzip file size: 19,906,945 bytes
-- raw JSON size: 245,812,867 bytes
+- raw JSON: 245,812,867 bytes
+- gzip interchange package: 19,906,945 bytes
 
-## Measurement path
+## Eager JSON/GZIP baseline
 
-`WordDeck.exe --measure-sentence-pack <pack.json.gz> <report.json>` uses only built-in .NET diagnostics (`System.Diagnostics.Stopwatch`, `Process.WorkingSet64`, `GC.GetTotalMemory`) and the exact runtime `SentencePackIo.Read` path. `SentencePack.Validate()` builds the same in-memory entry/lemma indexes used by Sentence Coach before the after-sample is taken.
+The diagnostic path uses the exact runtime `SentencePackIo.Read` path, including validation and construction of the in-memory entry/lemma indexes used by Sentence Coach.
 
-Windows Actions measurement on the real pack:
+Verified Windows Actions measurements are in the same range across production runs. The original checkpoint was:
 
-- elapsed load + validation/index construction: **5,303 ms**;
-- managed bytes before: 115,440;
-- managed bytes after: 543,505,888;
-- managed delta: **543,390,448 bytes**;
-- process working set before: 24,154,112 bytes;
-- process working set after: 652,820,480 bytes;
-- working-set delta: **628,666,368 bytes**.
+- load + validation/index construction: 5,303 ms
+- managed-memory delta: 543,390,448 bytes
+- process working-set delta: 628,666,368 bytes
 
-The workflow asserts the measured sentence count (207,578), persists `load-diagnostics.json`, and uploads it with the corpus artifact.
+The compact-schema comparison run `32054968152` measured the same 207,578-record gzip at:
+
+- 5,175 ms
+- managed-memory delta: 543,569,744 bytes
+- working-set delta: 624,680,960 bytes
+
+Conclusion: gzip solves distribution size, but eager materialization remains unsuitable for the large production corpus.
+
+## Reuse-first SQLite prototype
+
+`Microsoft.Data.Sqlite` 8.0.29 is pinned for the measured prototype. SQLite is used as a serverless, read-only indexed local store; JSON/GZIP remains the interchange/import format.
+
+The first proof schema stored a serialized full `SentenceRecord` JSON payload per row and duplicated string target IDs in the many-to-many index. On production data it proved the read/query concept but produced a 341,766,144-byte database. A fresh-process one-target query returned 1,141 records in 101 ms with +3,117,584 managed bytes and +27,217,920 working-set bytes.
+
+Schema v2 removes the duplicated full JSON payload, dictionary-encodes target IDs to integers, stores CEFR values compactly, reconstructs canonical tokens from English text, stores lemma overrides only when they differ from tokens, and uses `WITHOUT ROWID` only for compact composite-key tables where the SQLite design is appropriate.
+
+Production workflow run `32054968152`, commit `858efb143ba5a9c4a0c5dccfb41de10de07af5c5`, verified:
+
+- SQLite database: **72,400,896 bytes**
+- reduction from prototype v1: **269,365,248 bytes (78.8%)**
+- build/conversion time after eager source load: 10,183 ms
+- representative one-target result count: 1,141
+- fresh-process query: **158 ms**
+- fresh-process managed-memory delta: **2,172,960 bytes**
+- fresh-process working-set delta: **24,375,296 bytes**
+
+Compared with the same run's eager working-set delta, the disk-backed query path uses about **96.1% less incremental working set** for the representative query. The query returns complete `SentenceRecord` data needed by current ranking/evaluation, including all target IDs and per-target CEFR levels.
 
 ## Decision
 
-The gzip distribution size is acceptable, but eagerly materializing the full corpus plus duplicate in-memory indexes is not. A ~629 MB working-set increase is now a demonstrated runtime problem, so further optimization is justified.
+The disk-backed SQLite approach has now demonstrated a material runtime-memory win while preserving offline/single-file corpus behavior. The 72.4 MB database is larger than the 19.9 MB gzip interchange file but is practical enough to continue to the smallest runtime integration rather than inventing a custom binary/index format.
 
-Reuse-first review therefore moves disk-backed/lazy indexed storage ahead of custom streaming/container formats. The leading candidate is SQLite accessed through Microsoft's maintained `Microsoft.Data.Sqlite` ADO.NET provider: SQLite is serverless, single-file and public-domain; Microsoft.Data.Sqlite is maintained in the .NET/EF Core repository under MIT and can be used without Entity Framework. No SQLite package has been added to WordDeck yet; next work must prototype and measure a read-only indexed SentencePack representation before committing to the dependency.
-
-The existing `.json`/`.json.gz` schema remains the interchange/import format until a measured replacement path is proven. Do not remove backwards compatibility based on this benchmark alone.
+Next implementation step: keep `.json`/`.json.gz` backwards-compatible for import/interchange, build/store the SQLite representation at installation time, and make Sentence Coach query candidates on demand without eagerly loading all 207,578 records. Add migration/import/recovery tests before treating SQLite as the default installed runtime representation.
