@@ -74,6 +74,11 @@ internal static class ActionIds
     public const string SpellingMoveDeckUp = "spelling_move_deck_up";
     public const string SpellingMoveDeckDown = "spelling_move_deck_down";
 
+    public const string OpenSentenceCoach = "sentence_open";
+    public const string SentenceShowAnswer = "sentence_show_answer";
+    public const string SentenceRepeatPrompt = "sentence_repeat_prompt";
+    public const string SentenceImportPack = "sentence_import_pack";
+
     public static string SwitchDeck(string deckId) => $"switch_deck_{deckId}";
     public static string MoveToDeck(string deckId) => $"move_to_deck_{deckId}";
     public static string SpellingSwitchDeck(string deckId) => $"spelling_switch_deck_{deckId}";
