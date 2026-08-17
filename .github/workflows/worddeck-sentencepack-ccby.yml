@@ -8,6 +8,8 @@ on:
       - 'WordDeck/tools/build_tatoeba_ccby_pairs.py'
       - 'WordDeck/TatoebaImportProvenance.cs'
       - 'WordDeck/TatoebaSentencePackBuilder.cs'
+      - 'WordDeck/SentencePackDiagnostics.cs'
+      - 'WordDeck/SentencePackIo.cs'
       - 'WordDeck/Program.cs'
   workflow_dispatch:
 
@@ -118,6 +120,18 @@ jobs:
           $sizeReport | ConvertTo-Json | Set-Content .\sentencepack-ccby\compression-report.json -Encoding utf8
           $sizeReport | Format-List
 
+      - name: Measure real gzip SentencePack load and indexed working set
+        shell: pwsh
+        run: |
+          dotnet run --project .\WordDeck\WordDeck.csproj -c Release --no-build -- `
+            --measure-sentence-pack `
+            .\sentencepack-ccby\tatoeba-en-uk-ccby-sentencepack.json.gz `
+            .\sentencepack-ccby\load-diagnostics.json
+          $diagnostics = Get-Content .\sentencepack-ccby\load-diagnostics.json -Raw | ConvertFrom-Json
+          if ($diagnostics.Sentences -ne 207578) { throw "Unexpected measured sentence count: $($diagnostics.Sentences)" }
+          if ($diagnostics.ElapsedMilliseconds -le 0) { throw 'SentencePack load measurement did not produce a positive duration.' }
+          $diagnostics | Format-List
+
       - name: Upload attributed SentencePack artifact
         uses: actions/upload-artifact@v4
         with:
@@ -127,6 +141,7 @@ jobs:
             sentencepack-ccby/tatoeba-en-uk-ccby.tsv.manifest.json
             sentencepack-ccby/coverage-report.json
             sentencepack-ccby/compression-report.json
+            sentencepack-ccby/load-diagnostics.json
             sentencepack-ccby/builder.log
           if-no-files-found: error
           retention-days: 30
