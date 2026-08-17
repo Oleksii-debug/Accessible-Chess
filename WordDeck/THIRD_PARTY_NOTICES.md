@@ -9,6 +9,22 @@ Tatoeba's official downloads page states that its downloadable text files are re
 Official references checked 2026-08-17:
 - https://tatoeba.org/en/downloads
 - https://tatoeba.org/en/terms_of_use
+- https://downloads.tatoeba.org/exports/
+- https://downloads.tatoeba.org/exports/per_language/eng/
+
+The official export index exposes per-language weekly files including `eng_sentences_CC0.tsv.bz2` and `eng-ukr_links.tsv.bz2`. A real distributable EN-UA pack must still prove that both sentence sides used for each pair belong to the chosen license subset before the pack is labelled CC0.
+
+### Reuse decision: JSON/install layer
+
+Runtime SentencePack validation, serialization, installation and loading use the .NET standard library (`System.Text.Json` plus `System.IO`). No third-party dependency is needed for this small deterministic layer, which keeps the shipped Windows application self-contained and reduces attack/runtime surface.
+
+### Reuse decision: BZip2 development exports
+
+SharpCompress was evaluated on 2026-08-17 for direct development-time reading of Tatoeba `.bz2` exports. Its official project supports .NET 8 and BZip2 and is MIT-licensed; current NuGet releases are actively maintained. It is not integrated yet because WordDeck already accepts an uncompressed EN-UA pair TSV and adding a multi-format compression dependency to the shipped executable solely for a development ingestion convenience would increase footprint unnecessarily. If direct `.bz2` ingestion becomes necessary, prefer isolating SharpCompress in a development-only tool/project rather than making it a runtime requirement.
+
+References checked 2026-08-17:
+- https://github.com/adamhathcock/sharpcompress
+- https://www.nuget.org/packages/SharpCompress/
 
 Release rules for WordDeck SentencePacks:
 1. Preserve stable upstream sentence/translation IDs whenever the selected export supplies them.
