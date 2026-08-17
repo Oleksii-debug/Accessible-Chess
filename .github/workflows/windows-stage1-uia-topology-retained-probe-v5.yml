@@ -3,7 +3,9 @@ name: Windows Stage 1 UIA Topology Retained Probe V5
 on:
   push:
     branches: [qa/windows-current-integration-candidate-20260815]
-    paths: ['.github/workflows/windows-stage1-uia-topology-retained-probe-v5.yml']
+    paths:
+      - '.github/workflows/windows-stage1-uia-topology-retained-probe-v5.yml'
+      - 'tools/qa/stage1_uia_topology_v5.ps1'
   workflow_dispatch:
 
 permissions:
