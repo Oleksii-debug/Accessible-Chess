@@ -88,6 +88,8 @@ internal sealed class AppStateStore
         state.Decks ??= new List<DeckDefinition>();
         state.DeckIdsByDictionary ??= new Dictionary<string, Dictionary<string, string>>(StringComparer.OrdinalIgnoreCase);
         state.DecksByDictionary ??= new Dictionary<string, Dictionary<string, int>>(StringComparer.OrdinalIgnoreCase);
+        state.CustomEntriesByDictionary ??= new Dictionary<string, List<CustomEntryRecord>>(StringComparer.OrdinalIgnoreCase);
+        state.CurrentEntryIdByDictionary ??= new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
         // Deduplicate malformed deck records by stable ID before guaranteeing the five core decks.
         state.Decks = state.Decks
@@ -119,7 +121,6 @@ internal sealed class AppStateStore
             }
         }
 
-        // User decks keep their stable IDs and names. Repair only unusable names/order.
         int nextOrder = state.Decks.Count == 0 ? 0 : state.Decks.Max(deck => deck.Order) + 1;
         foreach (DeckDefinition deck in state.Decks)
         {
@@ -145,6 +146,24 @@ internal sealed class AppStateStore
         state.DecksByDictionary = state.DecksByDictionary.ToDictionary(
             pair => pair.Key,
             pair => new Dictionary<string, int>(pair.Value ?? new Dictionary<string, int>(), StringComparer.OrdinalIgnoreCase),
+            StringComparer.OrdinalIgnoreCase);
+        state.CurrentEntryIdByDictionary = new Dictionary<string, string>(state.CurrentEntryIdByDictionary, StringComparer.OrdinalIgnoreCase);
+
+        state.CustomEntriesByDictionary = state.CustomEntriesByDictionary.ToDictionary(
+            pair => pair.Key,
+            pair => (pair.Value ?? new List<CustomEntryRecord>())
+                .Where(entry => entry is not null &&
+                                !string.IsNullOrWhiteSpace(entry.Id) &&
+                                !string.IsNullOrWhiteSpace(entry.Source) &&
+                                !string.IsNullOrWhiteSpace(entry.Target))
+                .GroupBy(entry => entry.Id, StringComparer.OrdinalIgnoreCase)
+                .Select(group =>
+                {
+                    CustomEntryRecord entry = group.First();
+                    return new CustomEntryRecord(entry.Id.Trim(), entry.Source.Trim(), entry.Target.Trim(),
+                        string.IsNullOrWhiteSpace(entry.Level) ? "CUSTOM" : entry.Level.Trim());
+                })
+                .ToList(),
             StringComparer.OrdinalIgnoreCase);
 
         // Lossless legacy migration: copy every old entry assignment that does
