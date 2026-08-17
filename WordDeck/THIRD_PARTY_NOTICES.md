@@ -77,6 +77,14 @@ Official references checked 2026-08-17:
 - https://huggingface.co/hexgrad/Kokoro-82M/blob/main/VOICES.md
 - https://github.com/hexgrad/kokoro
 
+The official Kokoro voice documentation also states that British English uses `lang_code='b'` in `misaki[en]` with an `en-gb` espeak-ng fallback. This existing G2P path is therefore the first place to resolve heteronym-specific pronunciation before considering any additional phoneme/NLP dependency.
+
+### Reuse decision: pronunciation override validation
+
+`Audio/pronunciation-overrides.tsv` and `tools/validate_pronunciation_overrides.py` are WordDeck-specific development-time glue, not a new TTS or NLP subsystem. The validator uses only Python standard-library `argparse`, `base64`, `csv`, `gzip`, `json` and `pathlib` to reconstruct and validate the already-embedded Oxford source, enforce stable-ID/source-text drift checks, and emit a targeted regeneration request. No new package, service, model, tokenizer or runtime dependency is introduced.
+
+The ledger intentionally does not guess heteronym pronunciations. Formatting-only/sense-marker normalization may be marked `ready`; entries whose pronunciation changes by lexical sense remain `review` until the existing British G2P/phonetic path or listening QA establishes the intended form. This keeps the reuse-first Kokoro/Misaki/espeak-ng generation route and avoids unreliable spelling hacks.
+
 The generation environment may use support components such as espeak-ng for phonemization/fallback. Those generation-tool dependencies are not shipped as WordDeck runtime dependencies and must not be described as such. Final AudioPack distribution must retain appropriate Kokoro/model generation attribution and license notices, plus any notices required by components actually redistributed with the pack or application.
 
 The 2026-08-17 aggregate integrity audit of all seven existing Oxford 3000 generation artifacts is recorded in `Audio/OXFORD3000_AUDIO_INTEGRITY_QA_20260817.md`. It verified 3,308 unique stable-ID audio records with matching packaged byte sizes, while separately identifying pronunciation-normalization work still required for sense markers, parenthetical labels, homographs and acronyms.
