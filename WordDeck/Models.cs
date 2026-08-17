@@ -17,6 +17,7 @@ internal sealed class AppState
     public int ActiveDeck { get; set; } = 1;
     public Dictionary<string, Dictionary<string, int>> DecksByDictionary { get; set; } = new(StringComparer.OrdinalIgnoreCase);
     public Dictionary<string, string> Shortcuts { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+    public bool AutoPlayPronunciationOnCardChange { get; set; }
 }
 
 internal static class ActionIds
@@ -25,6 +26,8 @@ internal static class ActionIds
     public const string PreviousWord = "previous_word";
     public const string RevealTranslation = "reveal_translation";
     public const string RepeatWord = "repeat_word";
+    public const string PlayPronunciation = "play_pronunciation";
+    public const string ToggleAutoPronunciation = "toggle_auto_pronunciation";
     public const string UndoMove = "undo_move";
     public const string ShortcutSettings = "shortcut_settings";
     public const string Help = "help";
