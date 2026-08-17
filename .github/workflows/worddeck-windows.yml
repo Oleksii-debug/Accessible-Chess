@@ -31,6 +31,11 @@ jobs:
       - name: Validate development Tatoeba CC0 pair builder
         run: python .\WordDeck\tools\build_tatoeba_cc0_pairs.py --self-test
 
+      - name: Validate sentence coverage gap resolver
+        run: |
+          python .\WordDeck\tools\resolve_sentence_coverage_gaps.py --self-test
+          python .\WordDeck\tools\resolve_sentence_coverage_gaps.py --output .\artifacts\sentence-coverage-gap-records.tsv
+
       - name: Validate British pronunciation override ledger
         run: python .\WordDeck\tools\validate_pronunciation_overrides.py --self-test --emit-ready .\artifacts\pronunciation-regeneration-request.json
 
@@ -59,6 +64,13 @@ jobs:
         with:
           name: WordDeck-win-x64
           path: .\artifacts\WordDeck-win-x64\WordDeck.exe
+          if-no-files-found: error
+
+      - name: Upload sentence coverage gap records
+        uses: actions/upload-artifact@v4
+        with:
+          name: WordDeck-sentence-coverage-gap-records
+          path: .\artifacts\sentence-coverage-gap-records.tsv
           if-no-files-found: error
 
       - name: Upload pronunciation regeneration request
