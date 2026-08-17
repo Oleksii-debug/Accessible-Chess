@@ -24,6 +24,29 @@ const focusState = window.__accessibleChessStage1FocusState || {
 if (!Number.isInteger(focusState.restoreGeneration)) focusState.restoreGeneration = 0;
 window.__accessibleChessStage1FocusState = focusState;
 
+function moveEntryLabels() {
+    return document.documentElement.lang === 'en'
+        ? {input: 'Move', submit: 'Make move'}
+        : {input: 'Хід', submit: 'Зробити хід'};
+}
+
+function stabilizeMoveEntryUiaSemantics() {
+    const input = byId('move-input');
+    const button = byId('move-submit');
+    if (!input || !button) return false;
+    const labels = moveEntryLabels();
+
+    // WebView2/UIA must not depend on HTML label projection timing to discover
+    // the release-critical move Edit. Keep a short explicit accessible name on
+    // the original, never-reparented element and refresh it on language change.
+    input.setAttribute('aria-label', labels.input);
+    input.setAttribute('data-stage1-uia-role', 'move-entry');
+    button.setAttribute('aria-label', labels.submit);
+    button.setAttribute('data-stage1-uia-role', 'move-submit');
+    document.body.dataset.stage1MoveUiaSemanticsReady = 'true';
+    return true;
+}
+
 function stableBoardAccessibleName(cell) {
     if (!cell) return '';
     const square = String(cell.dataset.square || '').trim().toLowerCase();
@@ -126,12 +149,14 @@ function installMoveFocusPolicy() {
 function installMoveEntryIdentity() {
     const input = byId('move-input');
     const button = byId('move-submit');
-    if (!input || !button || input.dataset.stage1IdentityStable === 'true') return;
+    if (!input || !button) return;
 
     // Critical packaged-WebView2 contract: do not clone, detach, move, wrap or
     // replace the initial move Edit. The element and its <label for=move-input>
     // must stay in the original DOM parent for the entire window lifetime so
     // Windows UIA retains the same ControlType.Edit provider identity.
+    stabilizeMoveEntryUiaSemantics();
+    if (input.dataset.stage1IdentityStable === 'true') return;
     input.addEventListener('focusin', rememberMoveInputFocus);
     input.dataset.stage1IdentityStable = 'true';
     document.body.dataset.stage1MoveIdentityReady = 'true';
@@ -349,6 +374,11 @@ function installSoundSettings() {
     loadSoundState();
 }
 
+function refreshReleaseLanguageSemantics() {
+    stabilizeMoveEntryUiaSemantics();
+    applySoundLanguage();
+}
+
 async function markReady() {
     const main = byId('main-content');
     if (main) main.setAttribute('aria-busy', 'true');
@@ -356,6 +386,7 @@ async function markReady() {
     if (a && typeof a.get_state === 'function') {
         try { await a.get_state(); } catch (_) {}
     }
+    stabilizeMoveEntryUiaSemantics();
     stabilizeBoardUiaSemantics();
     if (main) main.setAttribute('aria-busy', 'false');
     document.body.dataset.stage1AppReady = 'true';
@@ -365,7 +396,7 @@ installMoveFocusPolicy();
 installMoveEntryIdentity();
 installBoardFocusContinuity();
 installSoundSettings();
-new MutationObserver(applySoundLanguage).observe(document.documentElement, {attributes:true, attributeFilter:['lang']});
+new MutationObserver(refreshReleaseLanguageSemantics).observe(document.documentElement, {attributes:true, attributeFilter:['lang']});
 if (api()) markReady();
 else window.addEventListener('pywebviewready', markReady, {once:true});
 })();
