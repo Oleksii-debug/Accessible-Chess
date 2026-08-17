@@ -10,6 +10,7 @@ internal static class SentenceCoachSelfTest
         TestPersonalDifficultyRankingAndScope();
         TestRecentAvoidance();
         TestGeneratorFallbackContract();
+        TestSentenceCoachStatePersistence();
     }
 
     private static SentencePack BuildPack()
@@ -61,10 +62,7 @@ internal static class SentenceCoachSelfTest
         Require(roundTrip.Provenance == "Synthetic regression data" && roundTrip.License == "CC0-1.0", "SentencePack provenance/license did not round-trip.");
 
         bool rejected = false;
-        try
-        {
-            new SentencePack { Version = 999, PackId = "bad", Provenance = "x", License = "x", Sentences = new() }.Validate();
-        }
+        try { new SentencePack { Version = 999, PackId = "bad", Provenance = "x", License = "x", Sentences = new() }.Validate(); }
         catch (InvalidDataException) { rejected = true; }
         Require(rejected, "Unsupported SentencePack version was accepted.");
     }
@@ -73,19 +71,14 @@ internal static class SentenceCoachSelfTest
     {
         IReadOnlyList<string> tokens = SentenceTokenizer.Tokenize("  Student’s   skills improve. ");
         Require(tokens.SequenceEqual(new[] { "student's", "skills", "improve" }), "Token normalization failed for apostrophe/whitespace/case.");
-
         SentenceAnswerResult exact = SentenceAnswerEvaluator.Evaluate("Oxford University improves the skills of students", "Oxford University improves the skills of students");
         Require(exact.Accepted && !exact.WordOrderIgnored, "Exact Sentence Spelling answer was rejected.");
-
         SentenceAnswerResult reordered = SentenceAnswerEvaluator.Evaluate("Oxford University improves the skills of students", "students skills the of improves University Oxford");
         Require(reordered.Accepted && reordered.WordOrderIgnored, "Correct token multiset in a different order was not accepted.");
-
         SentenceAnswerResult strictForm = SentenceAnswerEvaluator.Evaluate("She improves skills", "She improve skills");
         Require(!strictForm.Accepted && strictForm.Missing.Contains("improves") && strictForm.Extra.Contains("improve"), "Required inflected form was not enforced.");
-
         SentenceAnswerResult duplicate = SentenceAnswerEvaluator.Evaluate("we learn words", "we learn learn");
         Require(!duplicate.Accepted && duplicate.Missing.Contains("words") && duplicate.Extra.Contains("learn"), "Missing/duplicated token diagnosis failed.");
-
         SentenceAnswerResult misspelled = SentenceAnswerEvaluator.Evaluate("students improve", "studnts improve");
         Require(!misspelled.Accepted && misspelled.PossibleMisspellings.Count == 1, "Misspelling was not rejected/diagnosed.");
     }
@@ -132,12 +125,45 @@ internal static class SentenceCoachSelfTest
     private static void TestGeneratorFallbackContract()
     {
         SentencePack pack = BuildPack();
-        var fallback = new StubGenerator();
-        var selector = new SentenceSelector(pack, fallback);
+        var selector = new SentenceSelector(pack, new StubGenerator());
         var allowed = new HashSet<string>(new[] { "missing-a", "missing-b" }, StringComparer.OrdinalIgnoreCase);
         var context = new SentenceSelectionContext(allowed, new HashSet<string>(StringComparer.OrdinalIgnoreCase), new HashSet<string>(StringComparer.OrdinalIgnoreCase), new Dictionary<string,string>(StringComparer.OrdinalIgnoreCase));
         SentenceSelectionResult? result = selector.Select(new[] { "missing-a", "missing-b" }, context);
         Require(result is not null && result.Generated && result.Sentence.TargetEntryIds.Count == 2, "Controlled generator fallback contract failed for a missing two-target corpus intersection.");
+    }
+
+    private static void TestSentenceCoachStatePersistence()
+    {
+        string root = Path.Combine(Path.GetTempPath(), $"WordDeck-sentence-state-{Guid.NewGuid():N}");
+        try
+        {
+            var store = new SentenceCoachStateStore(root);
+            var state = new SentenceCoachState
+            {
+                ActivePackId = "pack-1",
+                ActiveSpellingDeckId = SpellingDeckIds.Core(2),
+                CurrentSentenceId = "s1",
+                CurrentTargetEntryId = "ox-improve",
+                RecentSentenceIds = Enumerable.Range(1, 35).Select(i => $"s{i}").ToList()
+            };
+            state.StatsByDictionary["dict"] = new Dictionary<string, SentenceTargetStats>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["ox-improve"] = new SentenceTargetStats { CompletedReviews = 4, FirstTrySuccesses = 3, WrongAttempts = 2, ShowAnswerUses = 1, LastReviewedUtc = DateTimeOffset.UtcNow }
+            };
+            store.Save(state);
+            SentenceCoachState loaded = new SentenceCoachStateStore(root).Load();
+            Require(loaded.ActivePackId == "pack-1" && loaded.ActiveSpellingDeckId == SpellingDeckIds.Core(2), "Sentence Coach active pack/deck did not persist.");
+            Require(loaded.CurrentSentenceId == "s1" && loaded.CurrentTargetEntryId == "ox-improve", "Sentence Coach current exercise did not persist.");
+            Require(loaded.RecentSentenceIds.Count == 30 && loaded.RecentSentenceIds[^1] == "s35", "Sentence Coach recent sentence window was not normalized/persisted.");
+            Require(loaded.StatsByDictionary["dict"]["ox-improve"].WrongAttempts == 2, "Sentence Coach target statistics did not persist.");
+
+            loaded.ActivePackId = "pack-2";
+            store.Save(loaded);
+            File.WriteAllText(Path.Combine(root, "sentence-coach-state.json"), "{ broken json");
+            SentenceCoachState recovered = new SentenceCoachStateStore(root).Load();
+            Require(recovered.ActivePackId == "pack-1", "Sentence Coach backup recovery did not restore the last good state.");
+        }
+        finally { try { if (Directory.Exists(root)) Directory.Delete(root, true); } catch { } }
     }
 
     private sealed class StubGenerator : IControlledSentenceGenerator
@@ -147,14 +173,8 @@ internal static class SentenceCoachSelfTest
             string english = "alpha beta";
             return new SentenceRecord
             {
-                Id = "generated-test",
-                English = english,
-                Ukrainian = "альфа бета",
-                Source = "controlled-test-generator",
-                License = "internal-generated",
-                Tokens = SentenceTokenizer.Tokenize(english).ToList(),
-                Lemmas = new List<string> { "alpha", "beta" },
-                TargetEntryIds = targetEntryIds.ToList(),
+                Id = "generated-test", English = english, Ukrainian = "альфа бета", Source = "controlled-test-generator", License = "internal-generated",
+                Tokens = SentenceTokenizer.Tokenize(english).ToList(), Lemmas = new List<string> { "alpha", "beta" }, TargetEntryIds = targetEntryIds.ToList(),
                 EntryLevels = targetEntryIds.ToDictionary(id => id, _ => "A1", StringComparer.OrdinalIgnoreCase)
             };
         }
