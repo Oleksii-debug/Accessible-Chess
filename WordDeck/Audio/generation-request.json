@@ -1,11 +1,10 @@
 {
   "source": "oxford3000",
-  "start": 2000,
+  "start": 2500,
   "limit": 500,
   "accent": "en-GB",
   "femaleVoice": "bf_emma",
   "maleVoice": "bm_george",
   "speed": 1.0,
-  "format": "mp3",
-  "status": "requested"
+  "format": "mp3"
 }
