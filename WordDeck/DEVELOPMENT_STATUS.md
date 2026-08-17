@@ -27,7 +27,7 @@ Attributed `CC BY 2.0 FR` production pack remains:
 
 JSON/GZIP remains the backwards-compatible interchange/import format. The real pack is 245,812,867 raw JSON bytes and 19,906,945 gzip bytes (91.9% reduction).
 
-### Compact SQLite runtime prototype — measured win
+### Compact SQLite runtime path — measured and partially integrated
 
 Reuse-first evaluation selected Microsoft's maintained MIT-licensed `Microsoft.Data.Sqlite` provider rather than a custom binary/index engine. Version 8.0.29 is pinned on the .NET 8 servicing line. SQLite core is public domain and remains local/serverless/offline.
 
@@ -47,7 +47,15 @@ Production attributed workflow run `32054968152` verified on the full 207,578-se
 
 This is about a **96.1% incremental working-set reduction** for the representative query. Full details are in `QA/SENTENCEPACK_LOAD_QA_20260817.md`.
 
-SQLite is now technically justified for the installed large-corpus runtime path, but the UI/store still use the existing eager `SentencePack` object. The next vertical slice is to integrate only the smallest disk-backed query abstraction into `SentencePackStore`/Sentence Coach while preserving JSON/GZIP import compatibility and current UI semantics.
+The first integration slice is now implemented and regression-tested:
+- `ISentenceCorpus` is the narrow shared query contract used by `SentenceSelector`;
+- `SentencePackSqliteCorpus` exposes schema-v2 SQLite through the same 1/2/3-target query contract;
+- importing a `.json`/`.json.gz` SentencePack validates the portable pack, preserves canonical gzip interchange, builds a stable `.sqlite` companion, and exposes the companion as the intended runtime corpus;
+- same-pack replacement rebuilds the companion at the same stable path;
+- Windows-specific file replacement clears `Microsoft.Data.Sqlite` connection pools before the atomic move, fixing a real CI file-lock regression;
+- store self-tests cover SQLite companion creation, lookup, reload discovery and replacement.
+
+The remaining memory-critical step is **not finished yet**: `LoadInstalled()` still eagerly reads the gzip pack to populate the existing UI model, and Sentence Coach UI still holds the in-memory `SentencePack`. Next work must switch installed-pack discovery/UI to `ISentenceCorpus` metadata/query access so restart/study no longer materializes 207,578 records. Do not claim the large-corpus runtime RAM problem fully solved until that path is measured end-to-end.
 
 ### Current Oxford coverage gaps
 
@@ -77,15 +85,15 @@ Aggregate structural audit remains green: 3,308 unique stable IDs/indexes, exact
 
 ## CI checkpoint
 
-Windows workflow run `32054968164` for compact-schema commit `858efb143ba5a9c4a0c5dccfb41de10de07af5c5` completed fully `success`: development provenance/audio validations, restore, build, all self-tests, embedded dictionary validation, self-contained publish, published-EXE validation and artifact upload.
+Attributed SentencePack workflow run `32054968152` for compact schema v2 completed fully `success`, including corpus rebuild, attribution/coverage validation, gzip packaging, compact SQLite conversion and isolated fresh-process query benchmark.
 
-Attributed SentencePack workflow run `32054968152` for the same commit also completed fully `success`, including corpus rebuild, attribution/coverage validation, gzip packaging, compact SQLite conversion and isolated fresh-process query benchmark.
+During import integration, Windows CI correctly exposed a pooled SQLite Windows file-handle lock on the temporary database. Commit `d1d77efe19b2f039aae064ad93b96bf5c25b3303` fixed the lifecycle by clearing provider pools before atomic replacement. Windows workflow run `32055830328` then completed fully `success`: provenance/audio validations, restore, build, all extended self-tests including SQLite companion import/replacement, embedded dictionary validation, self-contained publish, published-EXE validation and artifact uploads.
 
 ## Exact next steps
 
 1. Preserve green Windows CI/published-EXE validation.
-2. Integrate the smallest disk-backed SentencePack query abstraction: JSON/GZIP remains import/interchange; installation builds a validated SQLite runtime store; Sentence Coach queries 1/2-target candidates lazily without loading the full corpus.
-3. Add migration/import/corruption recovery tests and keep all commands/accessibility/state behavior unchanged.
+2. Finish the disk-backed vertical slice: make installed-pack discovery and Sentence Coach UI use `ISentenceCorpus` metadata/query access directly so app restart/study does not eagerly load the large gzip pack.
+3. Measure real post-integration startup/one-target/two-target working set and latency on the 207,578-sentence corpus; keep legacy `.json/.json.gz` fallback and corruption isolation.
 4. Resolve/classify the 188 coverage-gap IDs before adding morphology or controlled generation.
 5. Regenerate only the 19 safe pronunciation overrides; resolve 17 heteronyms plus 5 uppercase candidates before completing AudioPack QA.
 6. Continue Oxford-5000 extraction/translation/second-pass QA in substantial batches after the next user-testable runtime milestone.
