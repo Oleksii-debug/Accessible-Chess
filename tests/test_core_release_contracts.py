@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import queue
 import unittest
 
 from acs.chesscore import Board
+from acs.engine import UCIEngine
 from acs.engine_ports import ChessEnginePort
 from acs.engine_registry import (
     EngineCapability,
@@ -33,6 +35,29 @@ class _FakeEngine:
         return None
 
     def close(self) -> None:
+        return None
+
+
+class _OptionIsolationProbe(UCIEngine):
+    """Deterministic shared-process probe for persistent UCI option state."""
+
+    def __init__(self, lines: tuple[str, ...]) -> None:
+        super().__init__("fake-stockfish")
+        self.q = queue.Queue()
+        for line in lines:
+            self.q.put(line)
+        self.sent: list[str] = []
+
+    def start(self) -> None:
+        return None
+
+    def send(self, command: str) -> None:
+        self.sent.append(command)
+
+    def _wait(self, token: str, timeout: float) -> str:
+        return token
+
+    def _drain(self) -> None:
         return None
 
 
@@ -77,6 +102,74 @@ class CoreReleaseContractTests(unittest.TestCase):
         self.assertEqual(tuple(board.redo_stack), redo_before)
         self.assertEqual(board.last_move, last_before)
         self.assertEqual(SoundEventPolicy.for_move(MoveSoundFacts(legal=False)), (SoundEvent.ILLEGAL,))
+
+    def test_analysis_restores_full_strength_after_weak_engine_play(self) -> None:
+        fen = Board().fen()
+        engine = _OptionIsolationProbe((
+            "bestmove e2e4",
+            "info depth 18 multipv 1 score cp 31 pv g1f3 b8c6",
+            "bestmove g1f3",
+        ))
+
+        self.assertEqual(engine.best_move(fen, skill_level=1, movetime_ms=100), "e2e4")
+        engine.analyze(fen, multipv=5, depth=18)
+
+        self.assertEqual(
+            engine.sent,
+            [
+                "setoption name Skill Level value 1",
+                "setoption name MultiPV value 1",
+                "isready",
+                "position fen " + fen,
+                "go movetime 100",
+                "setoption name Skill Level value 20",
+                "setoption name MultiPV value 5",
+                "isready",
+                "position fen " + fen,
+                "go depth 18",
+            ],
+        )
+
+    def test_engine_play_restores_single_pv_after_multipv_analysis(self) -> None:
+        fen = Board().fen()
+        engine = _OptionIsolationProbe((
+            "info depth 14 multipv 1 score cp 20 pv e2e4 e7e5",
+            "info depth 14 multipv 2 score cp 15 pv d2d4 d7d5",
+            "bestmove e2e4",
+            "bestmove e2e4",
+        ))
+
+        engine.analyze(fen, multipv=5, depth=14)
+        self.assertEqual(engine.best_move(fen, skill_level=10, movetime_ms=500), "e2e4")
+
+        self.assertEqual(
+            engine.sent[5:10],
+            [
+                "setoption name Skill Level value 10",
+                "setoption name MultiPV value 1",
+                "isready",
+                "position fen " + fen,
+                "go movetime 500",
+            ],
+        )
+
+    def test_uci_request_options_are_clamped_before_configuration(self) -> None:
+        fen = Board().fen()
+        engine = _OptionIsolationProbe((
+            "info depth 40 multipv 1 score cp 1 pv e2e4",
+            "bestmove e2e4",
+            "bestmove e2e4",
+        ))
+
+        engine.analyze(fen, multipv=99, depth=99)
+        engine.best_move(fen, skill_level=-50, movetime_ms=1)
+
+        self.assertEqual(engine.sent[0], "setoption name Skill Level value 20")
+        self.assertEqual(engine.sent[1], "setoption name MultiPV value 10")
+        self.assertIn("go depth 40", engine.sent)
+        self.assertIn("setoption name Skill Level value 0", engine.sent)
+        self.assertIn("setoption name MultiPV value 1", engine.sent)
+        self.assertIn("go movetime 50", engine.sent)
 
     def test_default_action_registry_is_unambiguous_and_ids_are_stable(self) -> None:
         registry = ActionRegistry()
