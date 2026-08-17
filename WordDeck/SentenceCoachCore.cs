@@ -3,7 +3,16 @@ using System.Text.RegularExpressions;
 
 namespace WordDeck;
 
-internal sealed class SentencePack
+internal interface ISentenceCorpus
+{
+    string PackId { get; }
+    string License { get; }
+    int SentenceCount { get; }
+    IReadOnlyList<SentenceRecord> LookupByEntryId(string entryId);
+    IReadOnlyList<SentenceRecord> LookupAllTargets(IReadOnlyCollection<string> targetEntryIds);
+}
+
+internal sealed class SentencePack : ISentenceCorpus
 {
     public const int CurrentVersion = 1;
     public int Version { get; init; } = CurrentVersion;
@@ -13,6 +22,7 @@ internal sealed class SentencePack
     public string Provenance { get; init; } = string.Empty;
     public string License { get; init; } = string.Empty;
     public List<SentenceRecord> Sentences { get; init; } = new();
+    public int SentenceCount => Sentences.Count;
 
     private Dictionary<string, List<SentenceRecord>>? _byEntryId;
     private Dictionary<string, List<SentenceRecord>>? _byLemma;
@@ -215,9 +225,9 @@ internal interface IControlledSentenceGenerator
 
 internal sealed class SentenceSelector
 {
-    private readonly SentencePack _pack;
+    private readonly ISentenceCorpus _corpus;
     private readonly IControlledSentenceGenerator? _fallback;
-    public SentenceSelector(SentencePack pack, IControlledSentenceGenerator? fallback = null) { _pack = pack; _pack.Validate(); _fallback = fallback; }
+    public SentenceSelector(ISentenceCorpus corpus, IControlledSentenceGenerator? fallback = null) { _corpus = corpus; _fallback = fallback; }
 
     public SentenceSelectionResult? Select(IReadOnlyList<string> targetEntryIds, SentenceSelectionContext context)
     {
@@ -225,7 +235,7 @@ internal sealed class SentenceSelector
         foreach (string target in targetEntryIds)
             if (!context.AllowedTargetEntryIds.Contains(target)) throw new InvalidOperationException($"Target {target} is outside the selected training scope.");
 
-        IReadOnlyList<SentenceRecord> candidates = _pack.LookupAllTargets(targetEntryIds);
+        IReadOnlyList<SentenceRecord> candidates = _corpus.LookupAllTargets(targetEntryIds);
         if (candidates.Count > 0)
         {
             SentenceRecord best = candidates.OrderBy(sentence => Score(sentence, targetEntryIds, context)).ThenBy(sentence => sentence.Id, StringComparer.Ordinal).First();
