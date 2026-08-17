@@ -62,7 +62,13 @@ internal static class ActionIds
     public static string SwitchDeck(string deckId) => $"switch_deck_{deckId}";
     public static string MoveToDeck(string deckId) => $"move_to_deck_{deckId}";
 
-    // Legacy action IDs from the original fixed five-deck model.
+    // Temporary compatibility overloads keep the fixed-five MainForm compiling
+    // while it is migrated to stable deck IDs. They intentionally resolve to
+    // the durable core deck IDs so there is only one shortcut owner per deck.
+    public static string SwitchDeck(int deck) => SwitchDeck(DeckIds.Core(deck));
+    public static string MoveToDeck(int deck) => MoveToDeck(DeckIds.Core(deck));
+
+    // Legacy action IDs from saved pre-migration state.
     public static string LegacySwitchDeck(int deck) => $"switch_deck_{deck}";
     public static string LegacyMoveToDeck(int deck) => $"move_to_deck_{deck}";
 }
