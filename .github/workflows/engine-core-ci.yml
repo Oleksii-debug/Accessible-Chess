@@ -27,6 +27,7 @@ on:
       - 'tests/test_architecture.py'
       - 'tests/test_core_release_contracts.py'
       - 'tests/test_stage1_core_full_flow.py'
+      - 'tests/test_stage1_editor_fen_canonicalization.py'
       - 'build_snapshot_exact/**'
       - 'build_parts10k/**'
       - '.github/workflows/engine-core-ci.yml'
@@ -127,6 +128,7 @@ jobs:
           cp tests/test_architecture.py work/tests/test_architecture.py
           cp tests/test_core_release_contracts.py work/tests/test_core_release_contracts.py
           cp tests/test_stage1_core_full_flow.py work/tests/test_stage1_core_full_flow.py
+          cp tests/test_stage1_editor_fen_canonicalization.py work/tests/test_stage1_editor_fen_canonicalization.py
 
       - name: Compile core modules
         working-directory: work
@@ -143,6 +145,10 @@ jobs:
       - name: Full Stage 1 chess-state and engine flow regression
         working-directory: work
         run: python -m unittest discover -s tests -p 'test_stage1_core_full_flow.py' -v
+
+      - name: Stage 1 editor/FEN canonicalization regression
+        working-directory: work
+        run: python -m unittest discover -s tests -p 'test_stage1_editor_fen_canonicalization.py' -v
 
       - name: Keybinding registry tests
         working-directory: work
