@@ -24,6 +24,35 @@ const focusState = window.__accessibleChessStage1FocusState || {
 if (!Number.isInteger(focusState.restoreGeneration)) focusState.restoreGeneration = 0;
 window.__accessibleChessStage1FocusState = focusState;
 
+function stableBoardAccessibleName(cell) {
+    if (!cell) return '';
+    const square = String(cell.dataset.square || '').trim().toLowerCase();
+    if (!/^[a-h][1-8]$/.test(square)) return String(cell.getAttribute('aria-label') || '').trim();
+    const current = String(cell.getAttribute('aria-label') || '').trim();
+    const spaced = `${square[0]} ${square[1]}`;
+    let detail = current;
+    if (detail.toLowerCase().startsWith(spaced)) detail = detail.slice(spaced.length);
+    else if (detail.toLowerCase().startsWith(square)) detail = detail.slice(square.length);
+    detail = detail.replace(/^[,;:\s-]+/, '').trim();
+    return detail ? `${square}, ${detail}` : square;
+}
+
+function stabilizeBoardUiaSemantics(grid = byId('board-grid')) {
+    if (!grid) return 0;
+    const cells = [...grid.querySelectorAll('[role="gridcell"][data-square]')];
+    cells.forEach(cell => {
+        const square = String(cell.dataset.square || '').trim().toLowerCase();
+        if (!/^[a-h][1-8]$/.test(square)) return;
+        // WebView2/UIA does not guarantee that an HTML id is exposed as a UIA
+        // AutomationId. Keep the algebraic coordinate in the accessible Name
+        // itself so every board square has a stable semantic identity.
+        cell.setAttribute('aria-label', stableBoardAccessibleName(cell));
+        cell.setAttribute('data-accessible-square', square);
+    });
+    if (cells.length === 64) document.body.dataset.stage1BoardUiaSemanticsReady = 'true';
+    return cells.length;
+}
+
 function rememberBoardFocus(cell) {
     if (!cell) return;
     focusState.context = 'board';
@@ -44,6 +73,7 @@ function restoreBoardSquare(square, generation) {
     const board = byId('board-application');
     const grid = byId('board-grid');
     if (!board || board.hidden || !grid) return false;
+    stabilizeBoardUiaSemantics(grid);
     const sameSquare = byId('sq-' + square);
     const rovingCell = grid.querySelector('[role="gridcell"][tabindex="0"]');
     const target = sameSquare || rovingCell;
@@ -58,12 +88,12 @@ function settleBoardFocusAfterInvoke(square) {
     const generation = focusState.restoreGeneration + 1;
     focusState.restoreGeneration = generation;
 
-    // First restore immediately after the canonical rerender, then restore once
-    // more on the next browser task. Windows UIA Invoke/WebView2 may apply the
-    // native button focus after the JavaScript submit handler returns; the
-    // deferred pass is therefore the authoritative settled-focus phase.
+    // Restore after canonical rerender and converge once more after WebView2's
+    // native Invoke focus transfer settles. Retries are bounded and generation
+    // guarded, so a real user focus change cancels them immediately.
     restoreBoardSquare(square, generation);
     setTimeout(() => restoreBoardSquare(square, generation), 0);
+    setTimeout(() => restoreBoardSquare(square, generation), 50);
 }
 
 function installMoveFocusPolicy() {
@@ -93,82 +123,26 @@ function installMoveFocusPolicy() {
     document.body.dataset.stage1MoveFocusPolicyReady = 'true';
 }
 
-function installMoveForm() {
-    const oldInput = byId('move-input');
-    const oldButton = byId('move-submit');
-    if (!oldInput || !oldButton || byId('move-form')) return;
-    const row = oldInput.closest('.row');
-    if (!row || oldButton.parentElement !== row) return;
+function installMoveEntryIdentity() {
+    const input = byId('move-input');
+    const button = byId('move-submit');
+    if (!input || !button || input.dataset.stage1IdentityStable === 'true') return;
 
-    const form = document.createElement('form');
-    form.id = 'move-form';
-    form.className = row.className || 'row';
-    form.setAttribute('aria-label', document.documentElement.lang === 'en' ? 'Move entry' : 'Введення ходу');
-    form.noValidate = true;
-
-    const label = row.querySelector('label[for="move-input"]');
-    // Preserve the original edit node. Replacing it with cloneNode(true) can
-    // leave packaged WebView2/UIA holding the removed provider, so the move
-    // field may disappear from ControlType.Edit discovery even though a new
-    // DOM input with the same id exists. Moving the original node keeps its
-    // UIA identity and label association stable.
-    const input = oldInput;
-    // Replace only the old button so its legacy click handler cannot double
-    // dispatch after the row is upgraded to native form-submit semantics.
-    const button = oldButton.cloneNode(true);
-    button.type = 'submit';
-
-    if (label) form.appendChild(label);
-    form.appendChild(input);
-    form.appendChild(button);
-    row.replaceWith(form);
-
-    // The original input retains its legacy Enter listener. A capture-phase
-    // Enter handler owns release form submission and stops that one legacy
-    // listener only; all normal editing/copy/select keyboard behavior remains
-    // untouched.
-    input.addEventListener('keydown', event => {
-        if (event.key !== 'Enter') return;
-        event.preventDefault();
-        event.stopImmediatePropagation();
-        if (typeof form.requestSubmit === 'function') form.requestSubmit(button);
-        else button.click();
-    }, true);
-
-    // Focusing the edit field is the authoritative signal for the normal
-    // move-entry journey. Programmatic ValuePattern.SetValue does not focus it,
-    // which lets a board-origin UIA Invoke retain the board semantic context.
+    // Critical packaged-WebView2 contract: do not clone, detach, move, wrap or
+    // replace the initial move Edit. The element and its <label for=move-input>
+    // must stay in the original DOM parent for the entire window lifetime so
+    // Windows UIA retains the same ControlType.Edit provider identity.
     input.addEventListener('focusin', rememberMoveInputFocus);
-
-    form.addEventListener('submit', async event => {
-        event.preventDefault();
-        if (form.dataset.submitting === 'true') return;
-        const value = input.value.trim();
-        if (!value) {
-            input.focus({preventScroll: true});
-            return;
-        }
-        form.dataset.submitting = 'true';
-        form.setAttribute('aria-busy', 'true');
-        try {
-            if (typeof window.submitMove !== 'function') {
-                speak(document.documentElement.lang === 'en' ? 'Move entry is unavailable.' : 'Введення ходу недоступне.');
-                input.focus({preventScroll: true});
-                return;
-            }
-            await window.submitMove();
-        } finally {
-            form.dataset.submitting = 'false';
-            form.removeAttribute('aria-busy');
-        }
-    });
-    document.body.dataset.stage1MoveFormReady = 'true';
+    input.dataset.stage1IdentityStable = 'true';
+    document.body.dataset.stage1MoveIdentityReady = 'true';
 }
 
 function installBoardFocusContinuity() {
     const grid = byId('board-grid');
     const board = byId('board-application');
     if (!grid || !board || grid.dataset.focusContinuityReady === 'true') return;
+
+    stabilizeBoardUiaSemantics(grid);
 
     grid.addEventListener('focusin', event => {
         const cell = event.target && event.target.closest && event.target.closest('[role="gridcell"]');
@@ -177,6 +151,9 @@ function installBoardFocusContinuity() {
     });
 
     const observer = new MutationObserver(records => {
+        // Rendering replaces the grid cells. Re-normalize their exposed names
+        // on every render before focus recovery.
+        queueMicrotask(() => stabilizeBoardUiaSemantics(grid));
         if (!focusState.boardNode || board.hidden) return;
         const focusedCellWasReplaced = records.some(record =>
             [...record.removedNodes].some(node =>
@@ -187,6 +164,7 @@ function installBoardFocusContinuity() {
 
         queueMicrotask(() => {
             if (board.hidden) return;
+            stabilizeBoardUiaSemantics(grid);
             const active = document.activeElement;
             if (active && grid.contains(active)) return;
             const sameSquare = focusState.boardSquare ? byId('sq-' + focusState.boardSquare) : null;
@@ -261,8 +239,6 @@ function applySoundLanguage() {
             option.textContent = t.events[option.value] || option.value;
         });
     }
-    const form = byId('move-form');
-    if (form) form.setAttribute('aria-label', document.documentElement.lang === 'en' ? 'Move entry' : 'Введення ходу');
 }
 
 function installSoundSettings() {
@@ -380,12 +356,13 @@ async function markReady() {
     if (a && typeof a.get_state === 'function') {
         try { await a.get_state(); } catch (_) {}
     }
+    stabilizeBoardUiaSemantics();
     if (main) main.setAttribute('aria-busy', 'false');
     document.body.dataset.stage1AppReady = 'true';
 }
 
 installMoveFocusPolicy();
-installMoveForm();
+installMoveEntryIdentity();
 installBoardFocusContinuity();
 installSoundSettings();
 new MutationObserver(applySoundLanguage).observe(document.documentElement, {attributes:true, attributeFilter:['lang']});

@@ -41,29 +41,41 @@ class Stage1PackagedFocusOriginContractTests(unittest.TestCase):
             self.assertTrue(checks[name], name)
         self.assertEqual(result["boardCells"], 64)
 
-    def test_packaged_move_edit_preserves_initial_dom_uia_identity_and_label(self) -> None:
+    def test_complete_board_contract_has_64_unique_semantic_square_tokens(self) -> None:
+        api = Stage1ReleaseAccessibleChessAPI()
+        state = api.new_game()
+        board = state.get("board") or []
+        squares = [str(cell.get("square") or "") for cell in board]
+        expected = {f"{file}{rank}" for file in "abcdefgh" for rank in "12345678"}
+        self.assertEqual(len(board), 64)
+        self.assertEqual(len(set(squares)), 64)
+        self.assertEqual(set(squares), expected)
+
+    def test_packaged_move_edit_never_leaves_its_initial_dom_parent_or_identity(self) -> None:
         text = self.bootstrap
         self.assertIn('<label for="move-input">Хід</label>', self.html)
         self.assertIn('<input id="move-input" type="text"', self.html)
-        self.assertIn("const input = oldInput;", text)
-        self.assertNotIn("const input = oldInput.cloneNode(true)", text)
-        self.assertIn("const button = oldButton.cloneNode(true)", text)
-        # The release upgrade moves the existing edit node into the form. This
-        # keeps WebView2/UIA provider identity stable while replacing only the
-        # legacy button listener.
-        self.assertIn("form.appendChild(input)", text)
-        self.assertIn("row.replaceWith(form)", text)
+        self.assertIn("function installMoveEntryIdentity()", text)
+        self.assertIn("input.addEventListener('focusin', rememberMoveInputFocus)", text)
+        self.assertIn("stage1MoveIdentityReady", text)
+        self.assertNotIn("oldInput.cloneNode", text)
+        self.assertNotIn("form.appendChild(input)", text)
+        self.assertNotIn("row.replaceWith", text)
+        self.assertNotIn("document.createElement('form')", text)
+        # The original document owns Enter and button dispatch for the same
+        # persistent Edit node; the release bootstrap only observes focus.
+        self.assertIn("el('move-submit').addEventListener('click',submitMove)", self.html)
+        self.assertIn("el('move-input').addEventListener('keydown'", self.html)
 
-    def test_release_enter_capture_replaces_only_legacy_enter_dispatch(self) -> None:
+    def test_packaged_board_uia_names_contain_compact_coordinate_without_automation_id_dependency(self) -> None:
         text = self.bootstrap
-        self.assertIn("input.addEventListener('keydown', event =>", text)
-        self.assertIn("if (event.key !== 'Enter') return", text)
-        self.assertIn("event.stopImmediatePropagation()", text)
-        self.assertIn("form.requestSubmit(button)", text)
-        self.assertIn("}, true);", text)
-        # Copy/select shortcuts are not intercepted by this release handler.
-        self.assertNotIn("event.key === 'c'", text)
-        self.assertNotIn("event.key === 'a'", text)
+        self.assertIn("function stableBoardAccessibleName(cell)", text)
+        self.assertIn("function stabilizeBoardUiaSemantics(grid = byId('board-grid'))", text)
+        self.assertIn("/^[a-h][1-8]$/", text)
+        self.assertIn("cell.setAttribute('aria-label', stableBoardAccessibleName(cell))", text)
+        self.assertIn("cell.setAttribute('data-accessible-square', square)", text)
+        self.assertIn("stage1BoardUiaSemanticsReady", text)
+        self.assertIn("queueMicrotask(() => stabilizeBoardUiaSemantics(grid))", text)
 
     def test_board_origin_is_semantic_state_not_active_element_only(self) -> None:
         text = self.bootstrap
@@ -73,61 +85,52 @@ class Stage1PackagedFocusOriginContractTests(unittest.TestCase):
         self.assertIn("focusState.boardSquare = cell.dataset.square || ''", text)
         self.assertIn("function rememberMoveInputFocus()", text)
         self.assertIn("focusState.context = 'move'", text)
-        self.assertIn("input.addEventListener('focusin', rememberMoveInputFocus)", text)
         self.assertIn("focusState.context === 'board' ? focusState.boardSquare : ''", text)
         self.assertIn("const result = await baseSubmit.apply(this, args)", text)
         self.assertIn("settleBoardFocusAfterInvoke(boardSquare)", text)
 
-    def test_uia_invoke_has_a_settled_focus_phase_after_submit_handler_returns(self) -> None:
+    def test_uia_invoke_has_bounded_settled_focus_convergence(self) -> None:
         text = self.bootstrap
         self.assertIn("function settleBoardFocusAfterInvoke(square)", text)
         self.assertIn("function restoreBoardSquare(square, generation)", text)
         self.assertIn("focusState.restoreGeneration", text)
-        self.assertIn("restoreBoardSquare(square, generation);", text)
         self.assertIn("setTimeout(() => restoreBoardSquare(square, generation), 0)", text)
+        self.assertIn("setTimeout(() => restoreBoardSquare(square, generation), 50)", text)
         self.assertIn("target.focus({preventScroll: true})", text)
         self.assertIn("rememberBoardFocus(target)", text)
-        self.assertNotIn("requestAnimationFrame(() => document.activeElement", text)
 
-    def test_move_edit_focus_cancels_a_pending_deferred_board_restore(self) -> None:
+    def test_move_edit_focus_cancels_pending_board_restore(self) -> None:
         text = self.bootstrap
         start = text.index("function rememberMoveInputFocus()")
         end = text.index("function restoreBoardSquare", start)
-        move_focus_body = text[start:end]
-        self.assertIn("focusState.context = 'move'", move_focus_body)
-        self.assertIn("focusState.boardSquare = ''", move_focus_body)
-        self.assertIn("focusState.boardNode = null", move_focus_body)
-        self.assertIn("focusState.restoreGeneration += 1", move_focus_body)
+        body = text[start:end]
+        self.assertIn("focusState.context = 'move'", body)
+        self.assertIn("focusState.boardSquare = ''", body)
+        self.assertIn("focusState.boardNode = null", body)
+        self.assertIn("focusState.restoreGeneration += 1", body)
 
-    def test_uia_invoke_can_preserve_last_semantic_board_square_without_global_keyboard_hijack(self) -> None:
+    def test_copy_selection_and_document_shortcuts_are_not_newly_hijacked(self) -> None:
         text = self.bootstrap
-        self.assertNotIn("button.addEventListener('focusin'", text)
-        self.assertNotIn("button.addEventListener('click'", text)
-        self.assertIn("activeBoardSquare || (", text)
-        self.assertIn("focusState.context === 'board'", text)
         self.assertNotIn("document.addEventListener('keydown'", text)
         self.assertNotIn("window.addEventListener('keydown'", text)
+        self.assertNotIn("event.key === 'c'", text)
+        self.assertNotIn("event.key === 'a'", text)
 
-    def test_rerender_recovery_and_submit_recovery_share_the_same_board_context(self) -> None:
+    def test_rerender_recovery_and_submit_recovery_share_same_board_context(self) -> None:
         text = self.bootstrap
         self.assertIn("if (!focusState.boardNode || board.hidden) return", text)
         self.assertIn("node === focusState.boardNode", text)
         self.assertIn("focusState.boardSquare ? byId('sq-' + focusState.boardSquare) : null", text)
-        self.assertIn("target.focus({preventScroll: true})", text)
-        self.assertIn("rememberBoardFocus(target)", text)
         self.assertIn("observer.observe(grid, {childList: true})", text)
+        self.assertIn("stabilizeBoardUiaSemantics(grid)", text)
         self.assertIn("settleBoardFocusAfterInvoke", text)
 
-    def test_normal_move_entry_remains_authoritative_after_user_focuses_edit(self) -> None:
-        text = self.bootstrap
-        self.assertIn("input.addEventListener('focusin', rememberMoveInputFocus)", text)
-        self.assertIn("focusState.boardSquare = ''", text)
-        self.assertIn("focusState.boardNode = null", text)
-        self.assertIn("form.addEventListener('submit'", text)
-        self.assertIn("event.preventDefault()", text)
-        self.assertIn("await window.submitMove()", text)
-        self.assertIn("form.dataset.submitting === 'true'", text)
-        self.assertIn("form.setAttribute('aria-busy', 'true')", text)
+    def test_normal_move_entry_remains_authoritative_in_original_document(self) -> None:
+        self.assertIn("async function submitMove()", self.html)
+        self.assertIn("if(r&&r.ok){input.value='';input.focus()}else{input.focus();input.select()}", self.html)
+        self.assertIn("el('move-submit').addEventListener('click',submitMove)", self.html)
+        self.assertIn("if(e.key==='Enter'){e.preventDefault();submitMove()}", self.html)
+        self.assertIn("input.addEventListener('focusin', rememberMoveInputFocus)", self.bootstrap)
 
 
 if __name__ == "__main__":
