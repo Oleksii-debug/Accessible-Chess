@@ -1,0 +1,88 @@
+name: Windows Stage 1 UIA Topology Retained Probe V4
+
+on:
+  push:
+    branches: [qa/windows-current-integration-candidate-20260815]
+    paths: ['.github/workflows/windows-stage1-uia-topology-retained-probe-v4.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: accessible-chess-stage1-uia-topology-retained-probe-v4
+  cancel-in-progress: false
+
+env:
+  SOURCE_INTEGRATION_SHA: 8e616ac930d9b31c78c51f2b0f75d2d8fc3672fd
+  PYWEBVIEW_VERSION: '6.2.1'
+  NUITKA_UPSTREAM_FIX_COMMIT: b7ea05bf570e0b6950de6db7c4c8e579e1b77d29
+
+jobs:
+  probe:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 0}
+      - name: Materialize exact frozen product
+        shell: pwsh
+        run: |
+          $resolved=(git rev-parse "$env:SOURCE_INTEGRATION_SHA^{commit}").Trim()
+          if($resolved -ne $env:SOURCE_INTEGRATION_SHA){throw "Frozen SHA mismatch: $resolved"}
+          New-Item -ItemType Directory -Force -Path work | Out-Null
+          git archive --format=zip --output=product.zip $env:SOURCE_INTEGRATION_SHA -- acs web tests run_accessible_chess.py ACCESSIBILITY_0.4_ARCHITECTURE.md VERSION.txt HOTKEYS_UA.txt HOTKEYS_EN.txt
+          if($LASTEXITCODE -ne 0){throw 'Exact product export failed'}
+          Expand-Archive product.zip work -Force
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - name: Checkout exact patched Nuitka
+        uses: actions/checkout@v4
+        with:
+          repository: Nuitka/Nuitka
+          ref: b7ea05bf570e0b6950de6db7c4c8e579e1b77d29
+          path: nuitka-src
+          fetch-depth: 1
+      - name: Install pinned runtime/compiler
+        shell: pwsh
+        run: |
+          $actual=(git -C nuitka-src rev-parse HEAD).Trim()
+          if($actual -ne $env:NUITKA_UPSTREAM_FIX_COMMIT){throw "Nuitka commit drift: $actual"}
+          python -m pip install "pywebview==$env:PYWEBVIEW_VERSION" .\nuitka-src ordered-set zstandard
+      - name: Build diagnostic packaged app
+        shell: pwsh
+        working-directory: work
+        run: |
+          python -m nuitka --standalone --assume-yes-for-downloads --windows-console-mode=disable --output-filename=AccessibleChess.exe --include-data-dir=web=web run_accessible_chess.py
+          if($LASTEXITCODE -ne 0){throw 'Nuitka standalone compile failed'}
+          $exe=Get-ChildItem -Recurse -Filter AccessibleChess.exe|Where-Object{$_.FullName -match 'dist'}|Select-Object -First 1
+          if(-not $exe){throw 'AccessibleChess.exe missing'}
+          $exe.FullName|Set-Content -Encoding UTF8 built_exe_path.txt
+      - name: Launch packaged app
+        shell: pwsh
+        working-directory: work
+        run: |
+          $exe=(Get-Content built_exe_path.txt -Raw).Trim();$p=Start-Process $exe -PassThru
+          Start-Sleep -Seconds 15
+          if($p.HasExited){throw "GUI exited during WebView2 startup: $($p.ExitCode)"}
+          $p.Id|Set-Content gui_pid.txt
+      - name: Capture polled retained topology
+        shell: pwsh
+        working-directory: work
+        run: |
+          $appPid=[int](Get-Content gui_pid.txt -Raw)
+          & ..\tools\qa\stage1_uia_topology_v4.ps1 -AppPid $appPid
+      - name: Retain diagnostic evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stage1-uia-topology-retained-v4
+          path: work/uia-topology-report-v4.json
+          if-no-files-found: warn
+          retention-days: 7
+      - name: Cleanup diagnostic process
+        if: always()
+        shell: pwsh
+        working-directory: work
+        run: |
+          if(Test-Path gui_pid.txt){$appPid=[int](Get-Content gui_pid.txt -Raw);Stop-Process -Id $appPid -Force -ErrorAction SilentlyContinue}
