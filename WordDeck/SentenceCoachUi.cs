@@ -15,8 +15,11 @@ internal sealed class SentenceCoachState
 {
     public string? ActivePackId { get; set; }
     public string? ActiveSpellingDeckId { get; set; }
+    public int TargetCount { get; set; } = 1;
     public string? CurrentSentenceId { get; set; }
+    // Kept for backwards-compatible migration from the original one-target state.
     public string? CurrentTargetEntryId { get; set; }
+    public List<string> CurrentTargetEntryIds { get; set; } = new();
     public List<string> RecentSentenceIds { get; set; } = new();
     public Dictionary<string, Dictionary<string, SentenceTargetStats>> StatsByDictionary { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 }
@@ -55,6 +58,19 @@ internal sealed class SentenceCoachStateStore
 
     internal static SentenceCoachState Normalize(SentenceCoachState state)
     {
+        state.TargetCount = Math.Clamp(state.TargetCount, 1, 2);
+        state.CurrentTargetEntryIds ??= new();
+        state.CurrentTargetEntryIds = state.CurrentTargetEntryIds
+            .Where(id => !string.IsNullOrWhiteSpace(id))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Take(2)
+            .ToList();
+
+        if (state.CurrentTargetEntryIds.Count == 0 && !string.IsNullOrWhiteSpace(state.CurrentTargetEntryId))
+            state.CurrentTargetEntryIds.Add(state.CurrentTargetEntryId);
+
+        state.CurrentTargetEntryId = state.CurrentTargetEntryIds.FirstOrDefault();
+
         state.RecentSentenceIds ??= new();
         state.RecentSentenceIds = state.RecentSentenceIds.Where(id => !string.IsNullOrWhiteSpace(id)).Distinct(StringComparer.OrdinalIgnoreCase).TakeLast(30).ToList();
         state.StatsByDictionary ??= new(StringComparer.OrdinalIgnoreCase);
@@ -69,6 +85,7 @@ internal sealed class SentenceCoachStateStore
 internal sealed class SentenceCoachForm : Form
 {
     private sealed record PackChoice(string Name, InstalledSentencePack Installed) { public override string ToString() => Name; }
+    private sealed record TargetCountChoice(int Count, string Name) { public override string ToString() => Name; }
 
     private readonly AppState _appState;
     private readonly SpellingState _spellingState;
@@ -84,16 +101,18 @@ internal sealed class SentenceCoachForm : Form
 
     private readonly ComboBox _packCombo = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 320, AccessibleName = "Sentence pack" };
     private readonly ComboBox _deckCombo = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 260, DisplayMember = nameof(DeckDefinition.Name), AccessibleName = "Sentence training spelling deck" };
+    private readonly ComboBox _targetCountCombo = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 150, AccessibleName = "Number of target words per sentence" };
     private readonly TextBox _prompt = new() { ReadOnly = true, Multiline = true, Dock = DockStyle.Fill, AccessibleName = "Ukrainian sentence prompt", Font = new Font(SystemFonts.DefaultFont.FontFamily, 17) };
     private readonly TextBox _answer = new() { Multiline = true, Dock = DockStyle.Fill, AcceptsReturn = false, AccessibleName = "Type the English sentence words" };
-    private readonly Label _target = new() { AutoSize = true, AccessibleName = "Sentence target word" };
+    private readonly Label _target = new() { AutoSize = true, AccessibleName = "Sentence target words" };
     private readonly Label _status = new() { AutoSize = true, AccessibleName = "Sentence Coach status" };
     private readonly Label _coverage = new() { AutoSize = true, AccessibleName = "Sentence Coach scope coverage" };
+    private readonly Label _modeInfo = new() { AutoSize = true, AccessibleName = "Sentence Coach mode information" };
 
     private SentencePack? _pack;
     private string _activeDeckId;
     private SentenceRecord? _currentSentence;
-    private DictionaryEntry? _currentTarget;
+    private readonly List<DictionaryEntry> _currentTargets = new();
     private bool _hadWrong;
     private bool _usedHint;
 
@@ -115,11 +134,11 @@ internal sealed class SentenceCoachForm : Form
         _spellingDeckMap = _spellingDecks.EnsureAssignments(package.Id, package.Entries.Select(entry => entry.Id));
         _packStore = packStore;
         _stateStore = stateStore;
-        _state = state;
+        _state = SentenceCoachStateStore.Normalize(state);
         _activeDeckId = _spellingDecks.Find(state.ActiveSpellingDeckId ?? string.Empty)?.Id ?? _spellingDecks.FirstDeck.Id;
 
         Text = "WordDeck Sentence Spelling";
-        Width = 920; Height = 610; MinimumSize = new Size(680, 470); StartPosition = FormStartPosition.CenterParent; KeyPreview = true;
+        Width = 980; Height = 640; MinimumSize = new Size(700, 490); StartPosition = FormStartPosition.CenterParent; KeyPreview = true;
         AccessibleName = "WordDeck Sentence Spelling trainer";
         MainMenuStrip = BuildMenu(); Controls.Add(MainMenuStrip);
 
@@ -137,6 +156,7 @@ internal sealed class SentenceCoachForm : Form
         var top = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, WrapContents = true };
         top.Controls.Add(new Label { Text = "Sentence pack:", AutoSize = true, Padding = new Padding(0, 6, 4, 0) }); top.Controls.Add(_packCombo);
         top.Controls.Add(new Label { Text = "Spelling deck scope:", AutoSize = true, Padding = new Padding(12, 6, 4, 0) }); top.Controls.Add(_deckCombo);
+        top.Controls.Add(new Label { Text = "Targets:", AutoSize = true, Padding = new Padding(12, 6, 4, 0) }); top.Controls.Add(_targetCountCombo);
         root.Controls.Add(top, 0, 0);
         root.Controls.Add(_coverage, 0, 1);
         root.Controls.Add(_target, 0, 2);
@@ -145,7 +165,7 @@ internal sealed class SentenceCoachForm : Form
         root.Controls.Add(new Label { Text = "Type all required English word forms and press Enter. Word order is not assessed.", AutoSize = true, Font = new Font(Font, FontStyle.Bold) }, 0, 5);
         root.Controls.Add(_answer, 0, 6);
         root.Controls.Add(_status, 0, 7);
-        root.Controls.Add(new Label { Text = "One-target Sentence Spelling. Training targets never leave the selected spelling-deck scope.", AutoSize = true, AccessibleName = "Sentence Coach mode information" }, 0, 8);
+        root.Controls.Add(_modeInfo, 0, 8);
         Controls.Add(root); root.BringToFront();
 
         _packCombo.SelectedIndexChanged += (_, _) => ChangePack();
@@ -156,6 +176,18 @@ internal sealed class SentenceCoachForm : Form
                 _activeDeckId = deck.Id; _state.ActiveSpellingDeckId = deck.Id; ClearCurrent(); Save(); UpdateCoverage(); Next();
             }
         };
+        _targetCountCombo.SelectedIndexChanged += (_, _) =>
+        {
+            if (_targetCountCombo.SelectedItem is TargetCountChoice choice && choice.Count != _state.TargetCount)
+            {
+                _state.TargetCount = choice.Count;
+                ClearCurrent();
+                Save();
+                UpdateCoverage();
+                Next();
+            }
+            UpdateModeInfo();
+        };
         _answer.KeyDown += (_, e) =>
         {
             if (e.KeyCode == Keys.Enter)
@@ -165,8 +197,10 @@ internal sealed class SentenceCoachForm : Form
             }
         };
 
+        PopulateTargetCounts();
         PopulateDecks();
         PopulatePacks();
+        UpdateModeInfo();
         Shown += (_, _) => BeginInvoke(new Action(RestoreOrNext));
         FormClosing += (_, _) => Save();
     }
@@ -186,6 +220,16 @@ internal sealed class SentenceCoachForm : Form
     private static void Add(ToolStripMenuItem parent, string text, Action action)
     {
         var item = new ToolStripMenuItem(text); item.Click += (_, _) => action(); parent.DropDownItems.Add(item);
+    }
+
+    private void PopulateTargetCounts()
+    {
+        _targetCountCombo.BeginUpdate();
+        _targetCountCombo.Items.Clear();
+        _targetCountCombo.Items.Add(new TargetCountChoice(1, "1 target"));
+        _targetCountCombo.Items.Add(new TargetCountChoice(2, "2 targets"));
+        _targetCountCombo.SelectedIndex = _state.TargetCount - 1;
+        _targetCountCombo.EndUpdate();
     }
 
     private void PopulateDecks()
@@ -240,23 +284,68 @@ internal sealed class SentenceCoachForm : Form
     private void UpdateCoverage()
     {
         DeckDefinition deck = _spellingDecks.Find(_activeDeckId) ?? _spellingDecks.FirstDeck;
-        int scope = ScopeEntries().Count;
-        int covered = _pack is null ? 0 : ScopeEntries().Count(entry => _pack.LookupByEntryId(entry.Id).Count > 0);
-        _coverage.Text = _pack is null
-            ? $"{deck.Name}: {scope} target words. No SentencePack loaded."
-            : $"{deck.Name}: {scope} target words; {covered} currently have at least one corpus sentence in {_pack.PackId}.";
+        IReadOnlyList<DictionaryEntry> scopeEntries = ScopeEntries();
+        int scope = scopeEntries.Count;
+        if (_pack is null)
+        {
+            _coverage.Text = $"{deck.Name}: {scope} target words. No SentencePack loaded.";
+            return;
+        }
+
+        if (_state.TargetCount == 1)
+        {
+            int covered = scopeEntries.Count(entry => _pack.LookupByEntryId(entry.Id).Count > 0);
+            _coverage.Text = $"{deck.Name}: {scope} target words; {covered} currently have at least one corpus sentence in {_pack.PackId}.";
+            return;
+        }
+
+        var allowed = new HashSet<string>(scopeEntries.Select(entry => entry.Id), StringComparer.OrdinalIgnoreCase);
+        int pairCovered = scopeEntries.Count(entry => HasSameScopePartner(entry.Id, allowed));
+        _coverage.Text = $"{deck.Name}: {scope} target words; {pairCovered} currently have at least one same-scope two-target corpus intersection in {_pack.PackId}.";
+    }
+
+    private bool HasSameScopePartner(string entryId, HashSet<string> allowed)
+    {
+        if (_pack is null) return false;
+        foreach (SentenceRecord sentence in _pack.LookupByEntryId(entryId))
+            if (sentence.TargetEntryIds.Any(id => !string.Equals(id, entryId, StringComparison.OrdinalIgnoreCase) && allowed.Contains(id)))
+                return true;
+        return false;
     }
 
     private void RestoreOrNext()
     {
-        if (_pack is not null && !string.IsNullOrWhiteSpace(_state.CurrentSentenceId) && !string.IsNullOrWhiteSpace(_state.CurrentTargetEntryId) &&
-            _entries.TryGetValue(_state.CurrentTargetEntryId, out DictionaryEntry? target) &&
-            string.Equals(_spellingDeckMap.GetValueOrDefault(target.Id, _spellingDecks.FirstDeck.Id), _activeDeckId, StringComparison.OrdinalIgnoreCase))
+        if (_pack is not null && !string.IsNullOrWhiteSpace(_state.CurrentSentenceId))
         {
-            SentenceRecord? sentence = _pack.Sentences.FirstOrDefault(item => string.Equals(item.Id, _state.CurrentSentenceId, StringComparison.OrdinalIgnoreCase));
-            if (sentence is not null && sentence.TargetEntryIds.Contains(target.Id, StringComparer.OrdinalIgnoreCase))
+            List<string> targetIds = _state.CurrentTargetEntryIds
+                .Where(id => !string.IsNullOrWhiteSpace(id))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            if (targetIds.Count == _state.TargetCount)
             {
-                Show(sentence, target); return;
+                var restoredTargets = new List<DictionaryEntry>();
+                bool valid = true;
+                foreach (string id in targetIds)
+                {
+                    if (!_entries.TryGetValue(id, out DictionaryEntry? target) ||
+                        !string.Equals(_spellingDeckMap.GetValueOrDefault(target.Id, _spellingDecks.FirstDeck.Id), _activeDeckId, StringComparison.OrdinalIgnoreCase))
+                    {
+                        valid = false;
+                        break;
+                    }
+                    restoredTargets.Add(target);
+                }
+
+                SentenceRecord? sentence = valid
+                    ? _pack.Sentences.FirstOrDefault(item => string.Equals(item.Id, _state.CurrentSentenceId, StringComparison.OrdinalIgnoreCase))
+                    : null;
+
+                if (sentence is not null && restoredTargets.All(target => sentence.TargetEntryIds.Contains(target.Id, StringComparer.OrdinalIgnoreCase)))
+                {
+                    Show(sentence, restoredTargets);
+                    return;
+                }
             }
         }
         Next();
@@ -266,27 +355,79 @@ internal sealed class SentenceCoachForm : Form
     {
         if (_pack is null) return;
         IReadOnlyList<DictionaryEntry> scope = ScopeEntries();
-        List<DictionaryEntry> covered = scope.Where(entry => _pack.LookupByEntryId(entry.Id).Count > 0).ToList();
+        var allowed = new HashSet<string>(scope.Select(entry => entry.Id), StringComparer.OrdinalIgnoreCase);
+
+        List<DictionaryEntry> covered = scope
+            .Where(entry => _pack.LookupByEntryId(entry.Id).Count > 0)
+            .ToList();
+
+        if (_state.TargetCount == 2)
+            covered = covered.Where(entry => HasSameScopePartner(entry.Id, allowed)).ToList();
+
         if (covered.Count == 0)
         {
-            ClearCurrent(); _prompt.Text = "No corpus sentence covers a word in this spelling deck"; _answer.Clear();
-            Announce("This spelling deck currently has no one-target sentence coverage in the selected SentencePack."); UpdateCoverage(); return;
+            ClearCurrent();
+            _prompt.Text = _state.TargetCount == 1
+                ? "No corpus sentence covers a word in this spelling deck"
+                : "No corpus sentence covers two words from this spelling deck";
+            _answer.Clear();
+            Announce(_state.TargetCount == 1
+                ? "This spelling deck currently has no one-target sentence coverage in the selected SentencePack."
+                : "This spelling deck currently has no same-scope two-target sentence intersections in the selected SentencePack.");
+            UpdateCoverage();
+            return;
         }
 
-        DictionaryEntry target = ChooseWeakTarget(covered);
-        var allowed = new HashSet<string>(scope.Select(entry => entry.Id), StringComparer.OrdinalIgnoreCase);
+        DictionaryEntry primary = ChooseWeakTarget(covered);
+        var targets = new List<DictionaryEntry> { primary };
+
+        if (_state.TargetCount == 2)
+        {
+            List<DictionaryEntry> partners = GetPartnerCandidates(primary.Id, scope);
+            if (partners.Count == 0)
+            {
+                Announce($"No second same-scope target is currently available with {primary.Target}. Trying another exercise.");
+                ClearCurrent();
+                Next();
+                return;
+            }
+            targets.Add(ChooseWeakTarget(partners));
+        }
+
         var known = new HashSet<string>(
             _package.Entries.Where(entry => IsKnownSpellingDeck(_spellingDeckMap.GetValueOrDefault(entry.Id, _spellingDecks.FirstDeck.Id))).Select(entry => entry.Id),
             StringComparer.OrdinalIgnoreCase);
         var levels = _package.Entries.ToDictionary(entry => entry.Id, entry => entry.Level, StringComparer.OrdinalIgnoreCase);
         var recent = new HashSet<string>(_state.RecentSentenceIds, StringComparer.OrdinalIgnoreCase);
         var context = new SentenceSelectionContext(allowed, known, recent, levels);
-        SentenceSelectionResult? selected = new SentenceSelector(_pack).Select(new[] { target.Id }, context);
+        string[] targetIds = targets.Select(target => target.Id).ToArray();
+        SentenceSelectionResult? selected = new SentenceSelector(_pack).Select(targetIds, context);
         if (selected is null)
         {
-            Announce($"No suitable corpus sentence is available for {target.Source} in the selected scope."); return;
+            Announce($"No suitable corpus sentence is available for the selected {targets.Count}-target exercise.");
+            return;
         }
-        Show(selected.Sentence, target);
+        Show(selected.Sentence, targets);
+    }
+
+    private List<DictionaryEntry> GetPartnerCandidates(string primaryId, IReadOnlyList<DictionaryEntry> scope)
+    {
+        if (_pack is null) return new();
+        var scopeById = scope.ToDictionary(entry => entry.Id, StringComparer.OrdinalIgnoreCase);
+        var partnerIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (SentenceRecord sentence in _pack.LookupByEntryId(primaryId))
+        {
+            foreach (string id in sentence.TargetEntryIds)
+            {
+                if (!string.Equals(id, primaryId, StringComparison.OrdinalIgnoreCase) && scopeById.ContainsKey(id))
+                    partnerIds.Add(id);
+            }
+        }
+
+        return partnerIds
+            .Select(id => scopeById[id])
+            .Where(entry => _pack.LookupAllTargets(new[] { primaryId, entry.Id }).Count > 0)
+            .ToList();
     }
 
     private DictionaryEntry ChooseWeakTarget(IReadOnlyList<DictionaryEntry> covered)
@@ -298,9 +439,10 @@ internal sealed class SentenceCoachForm : Form
             .ThenBy(entry => entry.Id, StringComparer.Ordinal)
             .ToList();
         int poolSize = Math.Min(10, ranked.Count);
-        if (_currentTarget is not null && poolSize > 1)
+        if (_currentTargets.Count > 0 && poolSize > 1)
         {
-            List<DictionaryEntry> pool = ranked.Take(poolSize).Where(entry => !string.Equals(entry.Id, _currentTarget.Id, StringComparison.OrdinalIgnoreCase)).ToList();
+            var currentIds = new HashSet<string>(_currentTargets.Select(entry => entry.Id), StringComparer.OrdinalIgnoreCase);
+            List<DictionaryEntry> pool = ranked.Take(poolSize).Where(entry => !currentIds.Contains(entry.Id)).ToList();
             if (pool.Count > 0) return pool[_random.Next(pool.Count)];
         }
         return ranked[_random.Next(poolSize)];
@@ -314,34 +456,61 @@ internal sealed class SentenceCoachForm : Form
         return index >= 3;
     }
 
-    private void Show(SentenceRecord sentence, DictionaryEntry target)
+    private void Show(SentenceRecord sentence, IReadOnlyList<DictionaryEntry> targets)
     {
-        _currentSentence = sentence; _currentTarget = target; _hadWrong = false; _usedHint = false;
-        _prompt.Text = sentence.Ukrainian; _target.Text = $"Target from selected scope: {target.Target}."; _answer.Clear(); _answer.Focus();
-        _state.CurrentSentenceId = sentence.Id; _state.CurrentTargetEntryId = target.Id; Save();
+        _currentSentence = sentence;
+        _currentTargets.Clear();
+        _currentTargets.AddRange(targets);
+        _hadWrong = false;
+        _usedHint = false;
+        _prompt.Text = sentence.Ukrainian;
+        string meanings = string.Join("; ", targets.Select(target => target.Target));
+        _target.Text = targets.Count == 1
+            ? $"Target meaning from selected scope: {meanings}."
+            : $"Two target meanings from selected scope: {meanings}.";
+        _answer.Clear();
+        _answer.Focus();
+        _state.CurrentSentenceId = sentence.Id;
+        _state.CurrentTargetEntryIds = targets.Select(target => target.Id).ToList();
+        _state.CurrentTargetEntryId = _state.CurrentTargetEntryIds.FirstOrDefault();
+        Save();
         AccessibilityAnnouncer.Announce(_prompt, sentence.Ukrainian);
     }
 
     private void Submit()
     {
-        if (_currentSentence is null || _currentTarget is null) return;
+        if (_currentSentence is null || _currentTargets.Count == 0) return;
         SentenceAnswerResult result = SentenceAnswerEvaluator.Evaluate(_currentSentence.English, _answer.Text);
-        SentenceTargetStats stats = GetStats(_currentTarget.Id);
         if (!result.Accepted)
         {
-            _hadWrong = true; stats.WrongAttempts++; Save(); _answer.SelectAll(); Announce(result.Feedback + " The sentence will not advance. Try again."); return;
+            _hadWrong = true;
+            foreach (DictionaryEntry target in _currentTargets) GetStats(target.Id).WrongAttempts++;
+            Save();
+            _answer.SelectAll();
+            Announce(result.Feedback + " The sentence will not advance. Try again.");
+            return;
         }
-        stats.CompletedReviews++;
-        if (!_hadWrong && !_usedHint) stats.FirstTrySuccesses++;
-        stats.LastReviewedUtc = DateTimeOffset.UtcNow;
-        RememberSentence(_currentSentence.Id); Save();
-        Announce(result.Feedback); Next();
+
+        foreach (DictionaryEntry target in _currentTargets)
+        {
+            SentenceTargetStats stats = GetStats(target.Id);
+            stats.CompletedReviews++;
+            if (!_hadWrong && !_usedHint) stats.FirstTrySuccesses++;
+            stats.LastReviewedUtc = DateTimeOffset.UtcNow;
+        }
+
+        RememberSentence(_currentSentence.Id);
+        Save();
+        Announce(result.Feedback);
+        Next();
     }
 
     private void ShowAnswer()
     {
-        if (_currentSentence is null || _currentTarget is null) return;
-        _usedHint = true; GetStats(_currentTarget.Id).ShowAnswerUses++; Save();
+        if (_currentSentence is null || _currentTargets.Count == 0) return;
+        _usedHint = true;
+        foreach (DictionaryEntry target in _currentTargets) GetStats(target.Id).ShowAnswerUses++;
+        Save();
         Announce($"Required English forms: {_currentSentence.English}. You must still type all required forms correctly before advancing. Word order is not assessed.");
         _answer.Focus();
     }
@@ -349,14 +518,16 @@ internal sealed class SentenceCoachForm : Form
     private void RepeatPrompt()
     {
         if (_currentSentence is null) return;
-        AccessibilityAnnouncer.Announce(_prompt, _currentSentence.Ukrainian); _answer.Focus();
+        AccessibilityAnnouncer.Announce(_prompt, _currentSentence.Ukrainian);
+        _answer.Focus();
     }
 
     private Dictionary<string, SentenceTargetStats> GetStatsMap()
     {
         if (!_state.StatsByDictionary.TryGetValue(_package.Id, out Dictionary<string, SentenceTargetStats>? map))
         {
-            map = new(StringComparer.OrdinalIgnoreCase); _state.StatsByDictionary[_package.Id] = map;
+            map = new(StringComparer.OrdinalIgnoreCase);
+            _state.StatsByDictionary[_package.Id] = map;
         }
         return map;
     }
@@ -364,7 +535,11 @@ internal sealed class SentenceCoachForm : Form
     private SentenceTargetStats GetStats(string entryId)
     {
         Dictionary<string, SentenceTargetStats> map = GetStatsMap();
-        if (!map.TryGetValue(entryId, out SentenceTargetStats? stats)) { stats = new(); map[entryId] = stats; }
+        if (!map.TryGetValue(entryId, out SentenceTargetStats? stats))
+        {
+            stats = new();
+            map[entryId] = stats;
+        }
         return stats;
     }
 
@@ -377,15 +552,33 @@ internal sealed class SentenceCoachForm : Form
 
     private void ClearCurrent()
     {
-        _currentSentence = null; _currentTarget = null; _state.CurrentSentenceId = null; _state.CurrentTargetEntryId = null;
+        _currentSentence = null;
+        _currentTargets.Clear();
+        _state.CurrentSentenceId = null;
+        _state.CurrentTargetEntryId = null;
+        _state.CurrentTargetEntryIds.Clear();
     }
 
     private void Save()
     {
-        _state.ActivePackId = _pack?.PackId; _state.ActiveSpellingDeckId = _activeDeckId; _stateStore.Save(_state);
+        _state.ActivePackId = _pack?.PackId;
+        _state.ActiveSpellingDeckId = _activeDeckId;
+        _stateStore.Save(_state);
     }
 
-    private void Announce(string text) { _status.Text = text; AccessibilityAnnouncer.Announce(_status, text); }
+    private void UpdateModeInfo()
+    {
+        _modeInfo.Text = _state.TargetCount == 1
+            ? "One-target Sentence Spelling. The target always remains inside the selected spelling-deck scope."
+            : "Two-target Sentence Spelling. Both targets must come from the selected spelling-deck scope and the corpus sentence must contain both.";
+    }
+
+    private void Announce(string text)
+    {
+        _status.Text = text;
+        AccessibilityAnnouncer.Announce(_status, text);
+    }
+
     private void Warn(string text) => MessageBox.Show(this, text, "Sentence Spelling", MessageBoxButtons.OK, MessageBoxIcon.Warning);
 
     protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
