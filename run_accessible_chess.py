@@ -32,5 +32,12 @@ if '--diagnostic' in sys.argv:
         )
     print('ACCESSIBLE CHESS 0.4 WEBVIEW2 COMPLETE USER FLOW DIAGNOSTIC PASS')
 else:
+    from acs.webview2_accessibility import install_pywebview_accessibility_host_patch
+
+    # Patch the actual pywebview WinForms/WebView2 host before any EdgeChrome
+    # instance is created. No duplicate native or hidden Move control is used.
+    if not install_pywebview_accessibility_host_patch():
+        raise SystemExit('Accessible WebView2 host could not be initialized.')
+
     from acs.stage1_release_ui import main
     main()
