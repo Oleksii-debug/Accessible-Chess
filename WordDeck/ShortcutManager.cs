@@ -145,6 +145,8 @@ internal sealed class ShortcutManager
             new(ActionIds.RepeatWord, "Repeat current English word with screen reader", Keys.Control | Keys.R),
             new(ActionIds.PlayPronunciation, "Play generated British pronunciation", Keys.Control | Keys.P),
             new(ActionIds.ToggleAutoPronunciation, "Toggle automatic British pronunciation", Keys.Control | Keys.Shift | Keys.P),
+            new(ActionIds.AddWords, "Add pasted word pairs to active deck", Keys.Control | Keys.Shift | Keys.A),
+            new(ActionIds.SaveProgress, "Save progress now", Keys.Control | Keys.S),
             new(ActionIds.UndoMove, "Undo last deck move", Keys.Control | Keys.Z),
             new(ActionIds.ShortcutSettings, "Open shortcut settings", Keys.Control | Keys.K),
             new(ActionIds.Help, "Open help", Keys.F1),
