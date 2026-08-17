@@ -59,13 +59,24 @@ Oxford-5000 additions extraction is incomplete. The currently extracted first 10
 
 ## British audio
 
-Technical generation remains 3,308 / 3,308. Do not regenerate wholesale. Pronunciation QA and coherent AudioPack manifest/integrity packaging remain outstanding; generate additions audio only after Oxford-5000 entries are stable.
+Technical generation remains **3,308 / 3,308** and no wholesale regeneration is justified.
+
+A full aggregate artifact-integrity audit was completed on 2026-08-17 across all seven existing Actions batches:
+- 3,308 unique stable entry IDs and 3,308 unique indexes, exact range 0–3307;
+- zero manifest/package byte-size mismatches;
+- all records `en-GB`, speed `1.0`, sample-rate target `24000`;
+- `bf_emma` 1,675 files, `bm_george` 1,633 files;
+- packaged MP3 sizes 4,077–31,149 bytes.
+
+Structural AudioPack integrity therefore passes. Pronunciation QA does **not** pass yet: all 3,308 manifests have `audio_text == source`, so no normalization was applied to numbered sense markers or parenthetical disambiguators. The audit explicitly identified 36 numbered/sense-marker records and 5 uppercase/acronym records for targeted QA, plus a small parenthetical/multiword review set. Evidence is in `Audio/OXFORD3000_AUDIO_INTEGRITY_QA_20260817.md`.
+
+Reuse/provenance review confirmed the existing Kokoro path should be retained; official model/voice references and redistribution notes are now recorded in `THIRD_PARTY_NOTICES.md`. The exact next audio implementation is a small deterministic development-time pronunciation-override ledger, followed by regeneration of affected entries only and coherent AudioPack packaging with stable-ID hashes/manifest.
 
 ## Exact next steps
 
 1. Keep Windows CI and published-EXE validation green.
 2. Add first-class `.json.gz` selection/help in SentencePack UI and measure load-time/working-set behavior on the real 19.9 MB / 207,578-sentence pack; optimize only if measurement shows a problem.
 3. Resolve the 188 recorded coverage-gap IDs to exact Oxford source/POS records and classify root causes before adding morphology or controlled generation.
-4. Continue Oxford-5000 extraction/translation/second-pass QA in substantial batches.
-5. Continue British AudioPack QA/integrity packaging.
+4. Add/test the small British pronunciation override ledger and regenerate only affected audio entries; then assemble the coherent AudioPack.
+5. Continue Oxford-5000 extraction/translation/second-pass QA in substantial batches.
 6. Never modify `main`.
