@@ -31,30 +31,46 @@ internal sealed class SentencePackStore
         if (!File.Exists(fullSource))
             throw new FileNotFoundException("SentencePack file was not found.", fullSource);
 
-        SentencePack pack = SentencePackJson.Parse(File.ReadAllText(fullSource));
-        string destination = Path.Combine(DirectoryPath, SafeFileName(pack.PackId) + ".json");
-        string canonical = SentencePackJson.Serialize(pack);
-
+        SentencePack pack = SentencePackIo.Read(fullSource);
+        string safeId = SafeFileName(pack.PackId);
+        string destination = Path.Combine(DirectoryPath, safeId + ".json.gz");
         string temp = destination + ".tmp";
-        File.WriteAllText(temp, canonical);
-        File.Move(temp, destination, true);
+
+        try
+        {
+            SentencePackIo.WriteGZip(temp, pack);
+            File.Move(temp, destination, true);
+        }
+        finally
+        {
+            if (File.Exists(temp)) File.Delete(temp);
+        }
+
+        // Remove the previous uncompressed canonical file for the same stable pack id.
+        string legacyJson = Path.Combine(DirectoryPath, safeId + ".json");
+        if (File.Exists(legacyJson)) File.Delete(legacyJson);
+
         return new InstalledSentencePack(destination, pack);
     }
 
     public IReadOnlyList<InstalledSentencePack> LoadInstalled()
     {
         var result = new List<InstalledSentencePack>();
-        foreach (string path in Directory.EnumerateFiles(DirectoryPath, "*.json", SearchOption.TopDirectoryOnly)
-                     .OrderBy(path => path, StringComparer.OrdinalIgnoreCase))
+        IEnumerable<string> paths = Directory.EnumerateFiles(DirectoryPath, "*.json", SearchOption.TopDirectoryOnly)
+            .Concat(Directory.EnumerateFiles(DirectoryPath, "*.json.gz", SearchOption.TopDirectoryOnly))
+            .OrderByDescending(SentencePackIo.IsGZipPath)
+            .ThenBy(path => path, StringComparer.OrdinalIgnoreCase);
+
+        foreach (string path in paths)
         {
             try
             {
-                SentencePack pack = SentencePackJson.Parse(File.ReadAllText(path));
+                SentencePack pack = SentencePackIo.Read(path);
                 result.Add(new InstalledSentencePack(path, pack));
             }
             catch
             {
-                // A malformed optional pack must never prevent WordDeck from starting.
+                // A broken optional pack must never prevent WordDeck from starting.
             }
         }
 
