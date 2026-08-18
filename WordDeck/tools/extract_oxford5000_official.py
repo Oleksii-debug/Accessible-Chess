@@ -105,11 +105,14 @@ class OxfordWordListParser(HTMLParser):
             self._current["part_of_speech"] = (self._current["part_of_speech"] + " " + text).strip()
 
 
-def canonical_entry_id(source: str, pos: str, level: str, definition_path: str) -> str:
-    """Order-independent row ID derived from Oxford row identity fields."""
-    identity = "\x1f".join(
-        part.strip().casefold() for part in (source, pos, level, definition_path)
-    )
+def canonical_entry_id(source: str, pos: str, level: str) -> str:
+    """Order- and URL-independent stable lexical-row identity.
+
+    Oxford definition URLs are useful provenance but are not a safe component of persisted
+    WordDeck identity because URL routing can change. The official word-list row itself is
+    identified by headword + part of speech + CEFR. Exact duplicate identities fail closed.
+    """
+    identity = "\x1f".join(part.strip().casefold() for part in (source, pos, level))
     digest = hashlib.sha256(identity.encode("utf-8")).hexdigest()[:20]
     return f"ox5000-{digest}"
 
@@ -123,14 +126,12 @@ def extract(text: str) -> list[dict[str, str]]:
 
     output: list[dict[str, str]] = []
     seen_ids: set[str] = set()
-    seen_identity: set[tuple[str, str, str, str]] = set()
+    seen_identity: set[tuple[str, str, str]] = set()
 
     for source_index, raw in enumerate(parser.rows):
         ox3000 = raw["ox3000"]
         ox5000 = raw["ox5000"]
 
-        # Oxford 5000 contains the Oxford 3000 plus 2,000 additions. We only
-        # export additions: valid B2/C1 Oxford-5000 membership and no Oxford-3000 membership.
         if not ox5000 or ox3000:
             continue
         if ox5000 not in ALLOWED_LEVELS:
@@ -145,12 +146,12 @@ def extract(text: str) -> list[dict[str, str]]:
         if not source or not pos or not path:
             raise RuntimeError(f"Incomplete Oxford row at source index {source_index}: {raw}")
 
-        identity = (source.casefold(), pos.casefold(), ox5000, path)
+        identity = (source.casefold(), pos.casefold(), ox5000)
         if identity in seen_identity:
-            raise RuntimeError(f"Duplicate exact Oxford lexical row: {identity}")
+            raise RuntimeError(f"Duplicate Oxford headword/POS/CEFR lexical identity: {identity}")
         seen_identity.add(identity)
 
-        entry_id = canonical_entry_id(source, pos, ox5000, path)
+        entry_id = canonical_entry_id(source, pos, ox5000)
         if entry_id in seen_ids:
             raise RuntimeError(f"Stable-ID hash collision for Oxford row {identity}")
         seen_ids.add(entry_id)
@@ -192,7 +193,7 @@ def write_tsv(rows: list[dict[str, str]], path: Path) -> None:
 
 
 def self_test() -> None:
-    fixture = f"""
+    fixture = """
     <html><body>
       <div id="wordlistsContentPanel"><ul>
         <li data-hw="ability" data-ox3000="a2" data-ox5000="a2">
@@ -223,8 +224,10 @@ def self_test() -> None:
         raise RuntimeError(f"Row-preserving extraction self-test failed: {rows}")
     if len({r["entry_id"] for r in rows}) != 4:
         raise RuntimeError("Distinct Oxford rows did not receive distinct stable IDs")
-    if canonical_entry_id("abuse", "noun", "c1", "/definition/english/abuse_1") != rows[0]["entry_id"]:
+    if canonical_entry_id("abuse", "noun", "c1") != rows[0]["entry_id"]:
         raise RuntimeError("Canonical Oxford stable ID is not deterministic")
+    if canonical_entry_id("abuse", "noun", "c1") != canonical_entry_id(" Abuse ", "NOUN", "C1"):
+        raise RuntimeError("Canonical Oxford stable ID normalization is unstable")
 
     c2_fixture = """
       <div id="wordlistsContentPanel"><ul>
@@ -241,7 +244,21 @@ def self_test() -> None:
     else:
         raise RuntimeError("Extractor accepted an invented Oxford C2 addition")
 
-    print("Oxford 5000 official-row extractor self-test passed: POS rows preserved, Oxford 3000 excluded, C2 rejected.")
+    duplicate_fixture = """
+      <div id="wordlistsContentPanel"><ul>
+        <li data-hw="same" data-ox5000="c1"><a href="/definition/english/same_1">same</a><span class="pos">noun</span></li>
+        <li data-hw="same" data-ox5000="c1"><a href="/definition/english/same_2">same</a><span class="pos">noun</span></li>
+      </ul></div>
+    """
+    try:
+        extract(duplicate_fixture)
+    except RuntimeError as exc:
+        if "DUPLICATE" not in str(exc).upper():
+            raise
+    else:
+        raise RuntimeError("Extractor accepted duplicate headword/POS/CEFR identities")
+
+    print("Oxford 5000 official-row extractor self-test passed: POS rows preserved, Oxford 3000 excluded, URL-independent IDs stable, C2 rejected.")
 
 
 def main() -> int:
