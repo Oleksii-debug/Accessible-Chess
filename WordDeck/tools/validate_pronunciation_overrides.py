@@ -4,6 +4,9 @@
 This tool intentionally uses only the Python standard library and is never a runtime
 WordDeck dependency. It verifies stable IDs/source text against the embedded Oxford
 TSV source and can emit a deterministic targeted-regeneration request.
+
+Reviewed heteronyms may use Kokoro/Misaki raw British-English phonemes. This reuses
+Kokoro's supported generate_from_tokens path rather than introducing a custom G2P.
 """
 
 from __future__ import annotations
@@ -29,7 +32,14 @@ EXPECTED_MARKER_IDS = {
 }
 EXPECTED_ACRONYMS = {"CD", "DVD", "IT", "OK", "TV"}
 VALID_STATUSES = {"ready", "review"}
-REQUIRED_COLUMNS = ["entry_id", "source", "audio_text", "status", "reason"]
+LEGACY_COLUMNS = ["entry_id", "source", "audio_text", "status", "reason"]
+CURRENT_COLUMNS = [*LEGACY_COLUMNS, "phonemes"]
+# Misaki's documented British English model vocabulary, plus whitespace which
+# is accepted between raw phoneme tokens. Keeping this fail-closed catches IPA
+# characters that Kokoro's English model does not consume directly.
+MISAKI_BRITISH_PHONEMES = frozenset(
+    "AIWYbdfhijklmnpstuvwzðŋɑɔəɛɜɡɪɹʃʊʌʒʤʧˈˌθᵊQaɒː "
+)
 
 
 def repo_root() -> Path:
@@ -66,9 +76,26 @@ def load_embedded_dictionary(root: Path) -> Dict[str, dict]:
 def load_ledger(path: Path) -> List[dict]:
     with path.open("r", encoding="utf-8", newline="") as handle:
         reader = csv.DictReader(handle, delimiter="\t")
-        if reader.fieldnames != REQUIRED_COLUMNS:
-            raise RuntimeError(f"Ledger columns must be exactly: {', '.join(REQUIRED_COLUMNS)}")
-        return [{key: (value or "").strip() for key, value in row.items()} for row in reader]
+        if reader.fieldnames not in (LEGACY_COLUMNS, CURRENT_COLUMNS):
+            raise RuntimeError(
+                "Ledger columns must be legacy columns or current columns: " + ", ".join(CURRENT_COLUMNS)
+            )
+        rows = []
+        for row in reader:
+            normalized = {key: (value or "").strip() for key, value in row.items()}
+            normalized.setdefault("phonemes", "")
+            rows.append(normalized)
+        return rows
+
+
+def validate_phonemes(entry_id: str, phonemes: str) -> None:
+    invalid = sorted(set(phonemes) - MISAKI_BRITISH_PHONEMES)
+    if invalid:
+        raise RuntimeError(f"Unsupported Kokoro/Misaki phoneme characters for {entry_id}: {invalid}")
+    if not phonemes.strip():
+        raise RuntimeError(f"Blank phoneme override for {entry_id}")
+    if len(phonemes) > 510:
+        raise RuntimeError(f"Phoneme override exceeds Kokoro's 510-token limit for {entry_id}")
 
 
 def validate(entries: Dict[str, dict], rows: List[dict]) -> dict:
@@ -82,6 +109,7 @@ def validate(entries: Dict[str, dict], rows: List[dict]) -> dict:
 
     ready = []
     review = []
+    phoneme_ready = []
     for row in rows:
         entry_id = row["entry_id"]
         actual = entries.get(entry_id)
@@ -96,19 +124,27 @@ def validate(entries: Dict[str, dict], rows: List[dict]) -> dict:
             raise RuntimeError(f"Invalid status {status!r} for {entry_id}")
         if not row["reason"]:
             raise RuntimeError(f"Missing QA reason for {entry_id}")
+
+        audio_text = row["audio_text"]
+        phonemes = row.get("phonemes", "")
         if status == "ready":
-            if not row["audio_text"]:
-                raise RuntimeError(f"Ready override has blank audio_text: {entry_id}")
-            if row["audio_text"] == row["source"]:
-                raise RuntimeError(f"Ready override does not change audio text: {entry_id}")
+            if bool(audio_text) == bool(phonemes):
+                raise RuntimeError(
+                    f"Ready override must define exactly one of audio_text or phonemes: {entry_id}"
+                )
+            if audio_text and audio_text == row["source"]:
+                raise RuntimeError(f"Ready text override does not change audio text: {entry_id}")
+            if phonemes:
+                validate_phonemes(entry_id, phonemes)
+                phoneme_ready.append(row)
             ready.append(row)
         else:
-            if row["audio_text"]:
-                raise RuntimeError(f"Review-only heteronym must not silently define audio_text: {entry_id}")
+            if audio_text or phonemes:
+                raise RuntimeError(f"Review-only row must not silently define generation data: {entry_id}")
             review.append(row)
 
-    if len(ready) != 19 or len(review) != 17:
-        raise RuntimeError(f"Expected 19 ready and 17 review entries; got {len(ready)} ready, {len(review)} review.")
+    if len(ready) + len(review) != 36:
+        raise RuntimeError(f"Expected 36 marker candidates; got {len(ready)} ready and {len(review)} review.")
 
     acronym_entries = [
         {"entry_id": entry_id, "source": item["source"], "level": item["level"]}
@@ -125,6 +161,7 @@ def validate(entries: Dict[str, dict], rows: List[dict]) -> dict:
         "dictionary_entry_count": len(entries),
         "marker_candidate_count": len(rows),
         "ready_override_count": len(ready),
+        "phoneme_override_count": len(phoneme_ready),
         "review_only_count": len(review),
         "ready": ready,
         "review": review,
@@ -134,14 +171,15 @@ def validate(entries: Dict[str, dict], rows: List[dict]) -> dict:
 
 def emit_request(path: Path, report: dict) -> None:
     payload = {
-        "schema": "worddeck-pronunciation-regeneration-v1",
+        "schema": "worddeck-pronunciation-regeneration-v2",
         "dictionary_id": "oxford-3000-en-uk",
         "accent": "en-GB",
         "ready_overrides": [
             {
                 "entry_id": row["entry_id"],
                 "source": row["source"],
-                "audio_text": row["audio_text"],
+                "audio_text": row["audio_text"] or None,
+                "phonemes": row.get("phonemes") or None,
                 "reason": row["reason"],
             }
             for row in report["ready"]
@@ -175,7 +213,8 @@ def main() -> int:
     print(
         "Pronunciation override ledger validated: "
         f"{report['marker_candidate_count']} marker candidates; "
-        f"{report['ready_override_count']} ready for targeted regeneration; "
+        f"{report['ready_override_count']} ready for targeted regeneration "
+        f"({report['phoneme_override_count']} raw-phoneme); "
         f"{report['review_only_count']} held for phonetic/listening QA; "
         f"{len(report['acronym_candidates'])} uppercase candidates."
     )
