@@ -11,6 +11,10 @@ permissions:
   actions: write
   contents: read
 
+concurrency:
+  group: stage1-strict-release-dispatch
+  cancel-in-progress: false
+
 jobs:
   validate-and-dispatch:
     runs-on: windows-latest
@@ -28,8 +32,8 @@ jobs:
           if($text -notmatch 'STRICT_HELPER_STACK='){throw 'Exact script-stack diagnostics missing'}
           if($text -notmatch 'function AssertFocusedRuntimeEventually'){throw 'Bounded runtime focus convergence helper missing'}
           if($text -notmatch 'function AssertSemanticFocusEventually'){throw 'Bounded semantic focus convergence helper missing'}
-          if($text -notmatch "AssertFocusedRuntimeEventually \$moveRid 'Legal e4 refocus'"){throw 'Legal e4 refocus is not using bounded convergence'}
-          if($text -match "RuntimeId \[System\.Windows\.Automation\.AutomationElement\]::FocusedElement\) -ne \$moveRid"){throw 'One-shot legal e4 focus assertion returned'}
+          if(-not $text.Contains("AssertFocusedRuntimeEventually `$moveRid 'Legal e4 refocus'")){throw 'Legal e4 refocus is not using bounded convergence'}
+          if($text.Contains('if((RuntimeId [System.Windows.Automation.AutomationElement]::FocusedElement) -ne $moveRid)')){throw 'One-shot legal e4 focus assertion returned'}
           if($text -notmatch 'RNBQKBNR b KQkq e3 0 1'){throw 'Canonical e4 FEN expectation missing'}
           if($text -notmatch 'RNBQKBNR w KQkq e6 0 2'){throw 'Canonical black e5 FEN expectation missing'}
           if($text -notmatch 'Prepared e5 before entering board'){throw 'e5 must be prepared before board entry'}
@@ -47,11 +51,18 @@ jobs:
             throw 'Move input is touched after board origin before submit Invoke'
           }
           'BOUNDED FOCUS-CONVERGENCE + PURE BOARD-SUBMIT REGRESSION PASS'
-      - name: Dispatch exactly one corrected strict run
+      - name: Dispatch at most one corrected strict run
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          $runs=gh run list --workflow windows-stage1-strict-release-crossprocess.yml --branch qa/windows-current-integration-candidate-20260815 --limit 20 --json databaseId,status,conclusion | ConvertFrom-Json
+          if($LASTEXITCODE -ne 0){throw 'Could not query strict workflow WIP state'}
+          $active=@($runs | Where-Object {$_.status -in @('queued','in_progress','waiting','pending','requested')})
+          if($active.Count -gt 0){
+            "STRICT WORKFLOW ALREADY ACTIVE: $(@($active.databaseId) -join ',')"
+            exit 0
+          }
           gh api --method POST "repos/${{ github.repository }}/actions/workflows/windows-stage1-strict-release-crossprocess.yml/dispatches" -f ref='qa/windows-current-integration-candidate-20260815'
           if($LASTEXITCODE -ne 0){throw 'Strict workflow dispatch failed'}
           'STRICT WORKFLOW DISPATCHED'
