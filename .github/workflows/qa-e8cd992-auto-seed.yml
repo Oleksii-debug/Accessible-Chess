@@ -1,0 +1,29 @@
+name: QA e8cd992 Auto Seed
+
+on:
+  workflow_run:
+    workflows:
+      - Windows Stage 1 Strict Release - Cross Process
+    types:
+      - completed
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  dispatch-bridge:
+    if: >-
+      github.event.workflow_run.id == 32126676052 &&
+      github.event.workflow_run.head_sha == '564ef5b0adb697c8dc0e8ef16f0a493cfc36d5b3'
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Dispatch exact QA bridge on main
+        shell: bash
+        run: |
+          gh api --method POST \
+            "repos/${{ github.repository }}/actions/workflows/qa-issue14-strict-bridge.yml/dispatches" \
+            -f ref=main
+          echo "QA e8cd992 bridge dispatched from one legacy strict completion seed"
