@@ -69,6 +69,22 @@ jobs:
         with:
           python-version: '3.12'
 
+      - name: QA PowerShell helper syntax gate
+        shell: pwsh
+        run: |
+          $tokens=$null
+          $errors=$null
+          [System.Management.Automation.Language.Parser]::ParseFile(
+            (Resolve-Path 'tools\qa\stage1_packaged_e2e_crossprocess.ps1'),
+            [ref]$tokens,
+            [ref]$errors
+          ) | Out-Null
+          if(@($errors).Count -gt 0){
+            $msg=@($errors | ForEach-Object {$_.Message}) -join ' | '
+            throw "Strict packaged E2E helper parser errors: $msg"
+          }
+          'STRICT PACKAGED E2E POWERSHELL PARSE PASS'
+
       - name: QA classifier and full Stage 1 Issue 22 tests
         shell: pwsh
         run: |
@@ -218,8 +234,13 @@ jobs:
           if($LASTEXITCODE -ne 0){throw 'Nuitka standalone compile failed'}
           $exe=Get-ChildItem -Recurse -Filter AccessibleChess.exe | Where-Object {$_.FullName -match 'dist'} | Select-Object -First 1
           if(-not $exe){throw 'AccessibleChess.exe missing'}
+          $dist=$exe.Directory
+          $stockfishTarget=Join-Path $dist.FullName 'engines\stockfish\stockfish.exe'
+          New-Item -ItemType Directory -Force -Path (Split-Path $stockfishTarget -Parent) | Out-Null
+          Copy-Item 'release-assets\engines\stockfish\stockfish.exe' $stockfishTarget -Force
+          if(-not (Test-Path $stockfishTarget)){throw 'Packaged Stockfish copy failed'}
           $exe.FullName | Set-Content -Encoding UTF8 built_exe_path.txt
-          "STANDALONE EXE PASS: $($exe.FullName)"
+          "STANDALONE EXE + PACKAGED STOCKFISH PASS: $($exe.FullName)"
 
       - name: Built EXE diagnostic and real WebView2 startup
         shell: pwsh
@@ -263,8 +284,12 @@ jobs:
           bm=e.best_move(fen,skill_level=8,movetime_ms=150); assert bm,bm
           a2=e.analyze(fen,multipv=5,depth=7); assert len(a2)>=5,len(a2)
           rt.close()
-          try: rt.provider(); raise AssertionError('closed runtime reopened')
-          except Exception: pass
+          closed=False
+          try:
+              rt.provider()
+          except Exception:
+              closed=True
+          assert closed,'closed runtime reopened'
           print('PACKAGED STOCKFISH CURRENT-FEN/MULTIPV5/BESTMOVE/REQUEST-ISOLATION/LIFECYCLE PASS',bm)
           '@ | Set-Content -Encoding UTF8 packaged_stockfish_smoke.py
           python packaged_stockfish_smoke.py "$($dist.FullName)"
@@ -356,11 +381,10 @@ jobs:
           path: |
             work/Accessible-Chess-0.4-9684b06-NVDA-test-candidate.zip
             work/candidate-zip.sha256
-            work/RELEASE_DOES_NOT_EXIST.txt
             work/native-menu-self-diagnostic.json
             work/packaged-uia-strict-summary.json
             work/package-inspection.json
-          if-no-files-found: warn
+          if-no-files-found: error
           retention-days: 7
 
       - name: Retain strict diagnostic evidence
