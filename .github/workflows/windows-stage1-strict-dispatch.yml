@@ -37,7 +37,10 @@ jobs:
           if($text -notmatch 'STRICT_HELPER_STACK='){
             throw 'Packaged interaction helper must retain exact script-stack diagnostics'
           }
-          'STRICT HELPER PARSER/INVOCATION/BINDER REGRESSION PASS'
+          if($text -notmatch 'RNBQKBNR b KQkq e3 0 1'){
+            throw 'Packaged e4 E2E must expect canonical en-passant target e3'
+          }
+          'STRICT HELPER PARSER/INVOCATION/BINDER/FEN REGRESSION PASS'
       - name: Dispatch exactly one corrected strict run
         shell: pwsh
         env:
