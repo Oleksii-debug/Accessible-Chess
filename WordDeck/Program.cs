@@ -15,6 +15,7 @@ internal static class Program
         {
             try
             {
+                StudyScopeSelfTest.Run();
                 SpellingSelfTest.Run();
                 SentenceCoachSelfTest.Run();
                 SentencePackStoreSelfTest.Run();
