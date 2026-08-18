@@ -12,7 +12,8 @@ internal static class ReviewedOxford5000Bootstrap
     private const int ExpectedPostChamberRows = 29;
     private const int ExpectedPostColonialRows = 29;
     private const int ExpectedPostComputeRows = 29;
-    public const int ExpectedCanonicalRows = 345;
+    private const int ExpectedPostConstitutionRows = 29;
+    public const int ExpectedCanonicalRows = 374;
 
     private static readonly Dictionary<string, string> PosAbbreviations = new(StringComparer.Ordinal)
     {
@@ -95,6 +96,7 @@ internal static class ReviewedOxford5000Bootstrap
         AppendVerifiedSlice(result, "oxford5000_source_after_chamber_c1_0001_0029.tsv", ExpectedPostChamberRows, 1996);
         AppendVerifiedSlice(result, "oxford5000_source_after_colonial_c1_0001_0029.tsv", ExpectedPostColonialRows, 1997);
         AppendVerifiedSlice(result, "oxford5000_source_after_compute_c1_0001_0029.tsv", ExpectedPostComputeRows, 1998);
+        AppendVerifiedSlice(result, "oxford5000_source_after_constitution_c1_0001_0029.tsv", ExpectedPostConstitutionRows, 1999);
 
         result = result.OrderBy(row => row.MajorOrder).ThenBy(row => row.MinorOrder).ToList();
         if (result.Count != ExpectedCanonicalRows)
@@ -122,6 +124,8 @@ internal static class ReviewedOxford5000Bootstrap
             throw new InvalidDataException("Verified compute verb C1 row is missing from canonical Oxford 5000 beta ledger.");
         if (!result.Any(row => row is { Source: "constitution", PartOfSpeech: "noun", Level: "C1" }))
             throw new InvalidDataException("Verified constitution noun C1 row is missing from canonical Oxford 5000 beta ledger.");
+        if (!result.Any(row => row is { Source: "correlation", PartOfSpeech: "noun", Level: "C1" }))
+            throw new InvalidDataException("Verified correlation noun C1 row is missing from canonical Oxford 5000 beta ledger.");
         return result;
     }
 
