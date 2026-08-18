@@ -27,36 +27,36 @@ function Convert-HexHwnd([string]$Value) {
 }
 
 function Get-ProviderRootElements($Report) {
-  $roots=New-Object System.Collections.Generic.List[object]
+  $roots=@()
   foreach($row in @($Report.root_attempts)){
     if(-not $row.connected_to_app -or -not $row.from_handle_success -or -not $row.provider_subtree_seen){ continue }
     $hwnd=Convert-HexHwnd ([string]$row.hwnd)
     $ae=[System.Windows.Automation.AutomationElement]::FromHandle($hwnd)
     if($null -eq $ae){ throw "AutomationElement.FromHandle returned null for retained provider root $($row.hwnd)" }
-    $roots.Add($ae)
+    $roots += ,$ae
   }
   if($roots.Count -eq 0){ throw 'No retained connected provider-bearing roots are available for packaged interaction' }
-  return @($roots)
+  return $roots
 }
 
 function Get-ControlViewElements($Roots) {
   $walker=[System.Windows.Automation.TreeWalker]::ControlViewWalker
   $stack=New-Object System.Collections.Stack
-  foreach($r in @($Roots)){ $stack.Push($r) }
+  foreach($r in $Roots){ $stack.Push($r) }
   $seen=New-Object 'System.Collections.Generic.HashSet[string]'
-  $items=New-Object System.Collections.Generic.List[object]
+  $items=@()
   $cap=20000
   while($stack.Count -gt 0){
     if($items.Count -ge $cap){ throw "Strict interaction traversal cap reached at $cap elements" }
     $e=$stack.Pop()
     $key=Get-ElementKey $e
     if($key -and -not $seen.Add($key)){ continue }
-    $items.Add($e)
+    $items += ,$e
     try {
-      $kids=New-Object System.Collections.Generic.List[object]
+      $kids=@()
       $child=$walker.GetFirstChild($e)
       while($null -ne $child){
-        $kids.Add($child)
+        $kids += ,$child
         $child=$walker.GetNextSibling($child)
       }
       for($i=$kids.Count-1;$i -ge 0;$i--){ $stack.Push($kids[$i]) }
@@ -65,7 +65,7 @@ function Get-ControlViewElements($Roots) {
       throw "Strict ControlView child enumeration failed at runtime_id=${rid}: $($_.Exception.GetType().FullName): $($_.Exception.Message)"
     }
   }
-  return @($items)
+  return $items
 }
 
 function Find-ByRuntimeId($Elements,[string]$RuntimeId) {
@@ -114,7 +114,7 @@ function Assert-MoveElementStrict($Move,[string]$ExpectedRuntimeId) {
 
 function Rewalk-ConnectedUi($Report) {
   $roots=Get-ProviderRootElements $Report
-  return @(Get-ControlViewElements $roots)
+  return (Get-ControlViewElements $roots)
 }
 
 function Get-FenValue($Elements) {
@@ -306,6 +306,11 @@ try {
   $summary.raw_exception_noise=$false
   $summary|ConvertTo-Json -Depth 8|Set-Content -Encoding UTF8 'packaged-uia-strict-summary.json'
   Write-Output "STRICT PACKAGED CROSS-PROCESS UIA + e4/e9/CLIPBOARD/64-SQUARE/FOCUS PASS move_rid=$moveRid squares=$($squares.Count)"
+} catch {
+  Write-Output "STRICT_HELPER_EXCEPTION_TYPE=$($_.Exception.GetType().FullName)"
+  Write-Output "STRICT_HELPER_EXCEPTION_MESSAGE=$($_.Exception.Message)"
+  Write-Output "STRICT_HELPER_STACK=$($_.ScriptStackTrace)"
+  throw
 } finally {
   $proc=Get-Process -Id $AppPid -ErrorAction SilentlyContinue
   if($proc){ Stop-Process -Id $AppPid -Force -ErrorAction SilentlyContinue }
