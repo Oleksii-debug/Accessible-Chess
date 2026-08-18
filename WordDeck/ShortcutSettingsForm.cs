@@ -22,7 +22,7 @@ internal sealed class ShortcutSettingsForm : Form
             Dock = DockStyle.Top,
             AutoSize = true,
             Padding = new Padding(8),
-            Text = "Select a function and press Enter, or choose Change selected. Then press the shortcut you want. Esc cancels shortcut capture. User-created deck shortcuts start unassigned and can be assigned here.",
+            Text = "Select a function and press Enter, or choose Change selected. Then press the shortcut you want. Esc cancels shortcut capture. User-created deck and Recall scope shortcuts may start unassigned and can be assigned here.",
             AccessibleName = "Shortcut settings instructions"
         };
 
@@ -41,9 +41,7 @@ internal sealed class ShortcutSettingsForm : Form
         _list.DoubleClick += (_, _) => ChangeSelected();
         _list.KeyDown += (_, e) =>
         {
-            if (e.KeyCode != Keys.Enter)
-                return;
-
+            if (e.KeyCode != Keys.Enter) return;
             e.Handled = true;
             e.SuppressKeyPress = true;
             ChangeSelected();
@@ -62,11 +60,7 @@ internal sealed class ShortcutSettingsForm : Form
         var clearButton = new Button { Text = "Clear selected", AutoSize = true, AccessibleName = "Clear selected shortcut" };
         clearButton.Click += (_, _) => ClearSelected();
         var resetButton = new Button { Text = "Reset defaults", AutoSize = true, AccessibleName = "Reset all shortcuts to defaults" };
-        resetButton.Click += (_, _) =>
-        {
-            _manager.ResetDefaults();
-            RefreshList();
-        };
+        resetButton.Click += (_, _) => { _manager.ResetDefaults(); RefreshList(); };
         var closeButton = new Button { Text = "Close", AutoSize = true, DialogResult = DialogResult.OK, AccessibleName = "Close shortcut settings" };
         buttons.Controls.Add(changeButton);
         buttons.Controls.Add(clearButton);
@@ -81,8 +75,7 @@ internal sealed class ShortcutSettingsForm : Form
         Shown += (_, _) =>
         {
             _list.Focus();
-            if (_list.SelectedItems.Count > 0)
-                _list.SelectedItems[0].Focused = true;
+            if (_list.SelectedItems.Count > 0) _list.SelectedItems[0].Focused = true;
         };
     }
 
@@ -94,16 +87,13 @@ internal sealed class ShortcutSettingsForm : Form
         foreach (ShortcutDefinition def in _manager.CurrentDefinitions)
         {
             var item = new ListViewItem(def.Description) { Tag = def.Id };
-            Keys current = _manager.Get(def.Id);
-            item.SubItems.Add(current == Keys.None ? "Unassigned" : current.ToString());
+            item.SubItems.Add(ShortcutFormatter.Format(_manager.Get(def.Id)));
             _list.Items.Add(item);
-            if (def.Id == selectedId)
-                item.Selected = true;
+            if (def.Id == selectedId) item.Selected = true;
         }
         _list.EndUpdate();
 
-        if (_list.Items.Count > 0 && _list.SelectedItems.Count == 0)
-            _list.Items[0].Selected = true;
+        if (_list.Items.Count > 0 && _list.SelectedItems.Count == 0) _list.Items[0].Selected = true;
         if (_list.SelectedItems.Count > 0)
         {
             _list.SelectedItems[0].Focused = true;
@@ -113,21 +103,13 @@ internal sealed class ShortcutSettingsForm : Form
 
     private void ChangeSelected()
     {
-        if (_list.SelectedItems.Count == 0)
-            return;
-
+        if (_list.SelectedItems.Count == 0) return;
         string actionId = (string)_list.SelectedItems[0].Tag!;
         ShortcutDefinition? definition = _manager.CurrentDefinitions.FirstOrDefault(x => x.Id == actionId);
-        if (definition is null)
-        {
-            RefreshList();
-            return;
-        }
+        if (definition is null) { RefreshList(); return; }
 
         using var dialog = new ShortcutCaptureForm(definition.Description, _manager.Get(actionId));
-        if (dialog.ShowDialog(this) != DialogResult.OK)
-            return;
-
+        if (dialog.ShowDialog(this) != DialogResult.OK) return;
         if (!_manager.TrySet(actionId, dialog.CapturedKeys, out string? error))
         {
             MessageBox.Show(this, $"Cannot use that shortcut because {error}.", "Shortcut not available", MessageBoxButtons.OK, MessageBoxIcon.Warning);
@@ -138,8 +120,7 @@ internal sealed class ShortcutSettingsForm : Form
 
     private void ClearSelected()
     {
-        if (_list.SelectedItems.Count == 0)
-            return;
+        if (_list.SelectedItems.Count == 0) return;
         string actionId = (string)_list.SelectedItems[0].Tag!;
         _manager.Clear(actionId);
         RefreshList();
@@ -173,7 +154,7 @@ internal sealed class ShortcutCaptureForm : Form
         };
         _value = new TextBox
         {
-            Text = current == Keys.None ? "Unassigned" : current.ToString(),
+            Text = ShortcutFormatter.Format(current),
             ReadOnly = true,
             Dock = DockStyle.Top,
             AccessibleName = "Captured shortcut"
@@ -184,18 +165,13 @@ internal sealed class ShortcutCaptureForm : Form
         Controls.Add(_value);
         Controls.Add(label);
         CancelButton = cancel;
-        Shown += (_, _) =>
-        {
-            _value.Focus();
-            _value.SelectAll();
-        };
+        Shown += (_, _) => { _value.Focus(); _value.SelectAll(); };
     }
 
     protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
     {
         Keys keyCode = keyData & Keys.KeyCode;
-        if (keyCode is Keys.ControlKey or Keys.ShiftKey or Keys.Menu)
-            return true;
+        if (keyCode is Keys.ControlKey or Keys.ShiftKey or Keys.Menu) return true;
         if (keyCode == Keys.Escape)
         {
             DialogResult = DialogResult.Cancel;
@@ -204,7 +180,7 @@ internal sealed class ShortcutCaptureForm : Form
         }
 
         CapturedKeys = keyData;
-        _value.Text = keyData.ToString();
+        _value.Text = ShortcutFormatter.Format(keyData);
         _value.SelectAll();
         DialogResult = DialogResult.OK;
         Close();
