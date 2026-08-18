@@ -1,0 +1,161 @@
+name: QA Issue14 Strict Bridge
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  actions: write
+  contents: write
+  issues: write
+
+jobs:
+  patch-and-dispatch:
+    if: >-
+      github.event.issue.number == 14 &&
+      github.event.comment.body == 'QA_DISPATCH_E8CD992_STRICT_20260818_1233'
+    runs-on: windows-latest
+    env:
+      TARGET_BRANCH: qa/windows-current-integration-candidate-20260815
+      TARGET_PRODUCT_SHA: e8cd992d306975955784118364ce950963133d7e
+      STRICT_WORKFLOW_ID: '336818249'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: qa/windows-current-integration-candidate-20260815
+          fetch-depth: 0
+
+      - name: Retarget strict release and add real-document startup proof
+        shell: pwsh
+        run: |
+          @'
+          from pathlib import Path
+
+          strict_path = Path('.github/workflows/windows-stage1-strict-release-crossprocess.yml')
+          helper_path = Path('tools/qa/stage1_packaged_e2e_crossprocess.ps1')
+          strict = strict_path.read_text(encoding='utf-8')
+          helper = helper_path.read_text(encoding='utf-8')
+
+          old_sha = '9684b06e9821d9588944f1182744a1c72623b355'
+          new_sha = 'e8cd992d306975955784118364ce950963133d7e'
+          if new_sha not in strict:
+              if strict.count(old_sha) != 1:
+                  raise SystemExit(f'Expected exactly one old strict source SHA, found {strict.count(old_sha)}')
+              strict = strict.replace(old_sha, new_sha)
+
+          if 'e8cd992-NVDA-test-candidate' not in strict:
+              short_count = strict.count('9684b06-NVDA-test-candidate')
+              if short_count < 3:
+                  raise SystemExit(f'Expected candidate short SHA in env/artifact/path, found {short_count}')
+              strict = strict.replace('9684b06-NVDA-test-candidate', 'e8cd992-NVDA-test-candidate')
+
+          focused_old = 'python -m unittest tests.test_issue22_release_contract tests.test_nvda_p0_contract tests.test_ui_native_menu_recovery tests.test_sound_runtime tests.test_release_stockfish_composition tests.test_stage1_core_full_flow tests.test_stage1_release_composition_ui tests.test_stage1_packaged_focus_origin_contract -v'
+          focused_new = 'python -m unittest tests.test_issue22_release_contract tests.test_nvda_p0_contract tests.test_stage1_webview2_accessibility_boundary tests.test_webview_safe_server tests.test_ui_native_menu_recovery tests.test_sound_runtime tests.test_release_stockfish_composition tests.test_stage1_core_full_flow tests.test_stage1_release_composition_ui tests.test_stage1_packaged_focus_origin_contract -v'
+          if focused_new not in strict:
+              if strict.count(focused_old) != 1:
+                  raise SystemExit('Focused Issue22/P0 gate anchor not unique')
+              strict = strict.replace(focused_old, focused_new)
+
+          strict = strict.replace(
+              '- name: Built EXE diagnostic and real WebView2 startup',
+              '- name: Built EXE diagnostic and WebView2 process startup'
+          )
+          strict = strict.replace(
+              '"REAL PACKAGED WEBVIEW2 STARTUP PASS pid=$($p.Id)"',
+              '"WEBVIEW2 PROCESS STARTUP PASS pid=$($p.Id); REAL DOCUMENT PROOF FOLLOWS IN STRICT UIA GATE"'
+          )
+
+          anchor = """Copy-Item uia-topology-report-v5.json uia-topology-strict-raw.json -Force
+          Copy-Item uia-topology-report-v5.json uia-topology-strict.json -Force
+          python $classifier uia-topology-strict.json --product-root $ProductRoot
+          """
+          guarded = """Copy-Item uia-topology-report-v5.json uia-topology-strict-raw.json -Force
+          Copy-Item uia-topology-report-v5.json uia-topology-strict.json -Force
+          $startupReport=Get-Content uia-topology-strict.json -Raw|ConvertFrom-Json
+          $errorNodes=@($startupReport.nodes|Where-Object {
+            $startupText=([string]$_.name)+' '+([string]$_.value)+' '+([string]$_.ancestor_path)
+            $startupText -match 'ERR_UNSAFE_PORT|Hmmm.*reach this page|Network error|chrome-error://|edge-error://'
+          })
+          if($errorNodes.Count -gt 0){
+            $sample=@($errorNodes|Select-Object -First 5|ForEach-Object {([string]$_.control_type)+': '+([string]$_.name)}) -join ' | '
+            throw "Chromium/WebView2 error page detected before Stage 1 interaction: $sample"
+          }
+          $appDocuments=@($startupReport.nodes|Where-Object {
+            [string]$_.control_type -eq 'ControlType.Document' -and [bool]$_.source_root_connected -and [string]$_.name -eq 'Accessible Chess'
+          })
+          if($appDocuments.Count -eq 0){
+            $documentNames=@($startupReport.nodes|Where-Object {[string]$_.control_type -eq 'ControlType.Document'}|ForEach-Object {[string]$_.name}) -join ' | '
+            throw "Real Accessible Chess document missing before Stage 1 interaction; documents=$documentNames"
+          }
+          Write-Output "REAL ACCESSIBLE CHESS DOCUMENT STARTUP PASS documents=$($appDocuments.Count)"
+          python $classifier uia-topology-strict.json --product-root $ProductRoot
+          """
+          if 'REAL ACCESSIBLE CHESS DOCUMENT STARTUP PASS' not in helper:
+              if helper.count(anchor) != 1:
+                  raise SystemExit(f'Helper topology/classifier anchor not unique: {helper.count(anchor)}')
+              helper = helper.replace(anchor, guarded)
+
+          strict_path.write_text(strict, encoding='utf-8')
+          helper_path.write_text(helper, encoding='utf-8')
+          '@ | python -
+          if($LASTEXITCODE -ne 0){throw 'QA strict patch failed'}
+
+      - name: Validate hardened QA files
+        shell: pwsh
+        run: |
+          $helper='tools\qa\stage1_packaged_e2e_crossprocess.ps1'
+          $strict='.github\workflows\windows-stage1-strict-release-crossprocess.yml'
+          $tokens=$null; $errors=$null
+          [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $helper),[ref]$tokens,[ref]$errors)|Out-Null
+          if(@($errors).Count -gt 0){throw (@($errors|ForEach-Object{$_.Message}) -join ' | ')}
+          $text=Get-Content $helper -Raw
+          foreach($required in @('STRICT_HELPER_STACK=','function AssertFocusedRuntimeEventually','function AssertSemanticFocusEventually','RNBQKBNR b KQkq e3 0 1','RNBQKBNR w KQkq e6 0 2','Prepared e5 before entering board','REAL ACCESSIBLE CHESS DOCUMENT STARTUP PASS','ERR_UNSAFE_PORT')){
+            if(-not $text.Contains($required)){throw "Required helper contract missing: $required"}
+          }
+          if($text -match 'System\.Collections\.Generic\.List\[object\]'){throw 'Generic List[object] binder ambiguity returned'}
+          if(-not $text.Contains("AssertFocusedRuntimeEventually `$moveRid 'Legal e4 refocus'")){throw 'Legal e4 refocus bounded convergence missing'}
+          if($text.Contains('if((RuntimeId [System.Windows.Automation.AutomationElement]::FocusedElement) -ne $moveRid)')){throw 'One-shot focus assertion returned'}
+          $prep=$text.IndexOf("`$vp.SetValue('e5')"); $board=$text.IndexOf('Invoke $boardLauncher'); $origin=$text.IndexOf("AssertSemanticFocusEventually `$target 'Board origin establishment'"); $submit=$text.IndexOf("Invoke `$submit 'move-submit'"); $restore=$text.IndexOf("AssertSemanticFocusEventually `$target 'Board focus continuity after pure submit bridge'")
+          if(-not ($prep -lt $board -and $board -lt $origin -and $origin -lt $submit -and $submit -lt $restore)){throw 'Focus/pure-board bridge ordering invalid'}
+          $bridge=$text.Substring($origin,$submit-$origin)
+          if($bridge -match 'SetValue|FindRuntime|AssertMove|\$move|\$vp'){throw 'Move input touched after board origin before submit'}
+          $strictText=Get-Content $strict -Raw
+          if(-not $strictText.Contains($env:TARGET_PRODUCT_SHA)){throw 'Exact e8cd992 source lock missing'}
+          if($strictText.Contains('9684b06e9821d9588944f1182744a1c72623b355')){throw 'Old product SHA remains'}
+          foreach($required in @('e8cd992-NVDA-test-candidate','tests.test_webview_safe_server','tests.test_stage1_webview2_accessibility_boundary','REAL DOCUMENT PROOF FOLLOWS IN STRICT UIA GATE')){if(-not $strictText.Contains($required)){throw "Required strict contract missing: $required"}}
+          'QA E8CD992 STRICT CONTRACT VALIDATION PASS'
+
+      - name: Commit only coherent QA changes
+        shell: pwsh
+        run: |
+          $changes=@(git status --short)
+          $changes | ForEach-Object {$_}
+          if($changes.Count -gt 0){
+            $allowed=@(' M .github/workflows/windows-stage1-strict-release-crossprocess.yml',' M tools/qa/stage1_packaged_e2e_crossprocess.ps1')
+            foreach($change in $changes){if($change -notin $allowed){throw "Unexpected working-tree change: $change"}}
+            if($changes.Count -ne 2){throw "Expected exactly two QA changes, got $($changes.Count)"}
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git add .github/workflows/windows-stage1-strict-release-crossprocess.yml tools/qa/stage1_packaged_e2e_crossprocess.ps1
+            git commit -m 'QA: run strict e8cd992 with real-document startup proof'
+            git push origin HEAD:$env:TARGET_BRANCH
+            if($LASTEXITCODE -ne 0){throw 'QA branch push failed'}
+          } else {
+            'QA strict files already hardened; no commit needed.'
+          }
+
+      - name: Enforce WIP one and dispatch exact strict workflow
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $data=gh api "repos/${{ github.repository }}/actions/workflows/$env:STRICT_WORKFLOW_ID/runs?branch=$env:TARGET_BRANCH&per_page=20" | ConvertFrom-Json
+          if($LASTEXITCODE -ne 0){throw 'Could not query strict workflow runs'}
+          $active=@($data.workflow_runs|Where-Object {$_.status -in @('queued','in_progress','waiting','pending','requested')})
+          if($active.Count -gt 0){
+            "STRICT WORKFLOW ALREADY ACTIVE: $(@($active.id) -join ',')"
+            exit 0
+          }
+          gh api --method POST "repos/${{ github.repository }}/actions/workflows/$env:STRICT_WORKFLOW_ID/dispatches" -f ref=$env:TARGET_BRANCH
+          if($LASTEXITCODE -ne 0){throw 'Strict workflow dispatch failed'}
+          'STRICT E8CD992 WORKFLOW DISPATCHED'
