@@ -1,0 +1,41 @@
+name: Windows Stage 1 Strict Release Dispatch
+
+on:
+  push:
+    branches:
+      - qa/windows-current-integration-candidate-20260815
+    paths:
+      - '.github/workflows/windows-stage1-strict-dispatch.yml'
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  validate-and-dispatch:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate corrected packaged E2E helper contract
+        shell: pwsh
+        run: |
+          $path='tools\qa\stage1_packaged_e2e_crossprocess.ps1'
+          $tokens=$null
+          $errors=$null
+          [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $path),[ref]$tokens,[ref]$errors)|Out-Null
+          if(@($errors).Count -gt 0){throw (@($errors|ForEach-Object{$_.Message}) -join ' | ')}
+          $lines=Get-Content $path
+          for($i=0;$i -lt ($lines.Count-1);$i++){
+            if($lines[$i] -match '&\s+\$helperPath\s+-AppPid\s+\$AppPid' -and $lines[$i+1] -match '\$LASTEXITCODE'){
+              throw 'PowerShell topology helper invocation is incorrectly judged by stale LASTEXITCODE'
+            }
+          }
+          'STRICT HELPER INVOCATION REGRESSION PASS'
+      - name: Dispatch exactly one corrected strict run
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api --method POST "repos/${{ github.repository }}/actions/workflows/windows-stage1-strict-release-crossprocess.yml/dispatches" -f ref='qa/windows-current-integration-candidate-20260815'
+          if($LASTEXITCODE -ne 0){throw 'Strict workflow dispatch failed'}
+          'STRICT WORKFLOW DISPATCHED'
