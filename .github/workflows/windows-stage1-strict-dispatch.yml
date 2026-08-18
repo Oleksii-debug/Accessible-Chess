@@ -16,38 +16,32 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Validate corrected packaged E2E helper contract
+      - name: Validate pure board-submit packaged E2E contract
         shell: pwsh
         run: |
           $path='tools\qa\stage1_packaged_e2e_crossprocess.ps1'
-          $tokens=$null
-          $errors=$null
+          $tokens=$null; $errors=$null
           [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $path),[ref]$tokens,[ref]$errors)|Out-Null
           if(@($errors).Count -gt 0){throw (@($errors|ForEach-Object{$_.Message}) -join ' | ')}
-          $lines=Get-Content $path
-          for($i=0;$i -lt ($lines.Count-1);$i++){
-            if($lines[$i] -match '&\s+\$helperPath\s+-AppPid\s+\$AppPid' -and $lines[$i+1] -match '\$LASTEXITCODE'){
-              throw 'PowerShell topology helper invocation is incorrectly judged by stale LASTEXITCODE'
-            }
-          }
           $text=Get-Content $path -Raw
-          if($text -match 'System\.Collections\.Generic\.List\[object\]'){
-            throw 'Packaged interaction helper still contains generic List[object] binder ambiguity'
+          if($text -match 'System\.Collections\.Generic\.List\[object\]'){throw 'Generic List[object] binder ambiguity returned'}
+          if($text -notmatch 'STRICT_HELPER_STACK='){throw 'Exact script-stack diagnostics missing'}
+          if($text -notmatch 'RNBQKBNR b KQkq e3 0 1'){throw 'Canonical e4 FEN expectation missing'}
+          if($text -notmatch 'RNBQKBNR w KQkq e6 0 2'){throw 'Canonical black e5 FEN expectation missing'}
+          if($text -notmatch 'Prepared e5 before entering board'){throw 'e5 must be prepared before board entry'}
+          if($text -match 'Assert-MoveIdentityForBoardBridge'){throw 'Board phase must not touch Move identity'}
+          $prep=$text.IndexOf("`$vp.SetValue('e5')")
+          $board=$text.IndexOf('Invoke $boardLauncher')
+          $origin=$text.IndexOf('Board origin was not established on a3 before UIA submit bridge')
+          $submit=$text.IndexOf("Invoke `$submit 'move-submit'")
+          if($prep -lt 0 -or $board -lt 0 -or $origin -lt 0 -or $submit -lt 0 -or -not ($prep -lt $board -and $board -lt $origin -and $origin -lt $submit)){
+            throw "Pure board bridge ordering invalid: prep=$prep board=$board origin=$origin submit=$submit"
           }
-          if($text -notmatch 'STRICT_HELPER_STACK='){
-            throw 'Packaged interaction helper must retain exact script-stack diagnostics'
+          $bridge=$text.Substring($origin,$submit-$origin)
+          if($bridge -match 'SetValue|FindRuntime|AssertMove|\$move|\$vp'){
+            throw 'Move input is touched after board origin before submit Invoke'
           }
-          if($text -notmatch 'RNBQKBNR b KQkq e3 0 1'){
-            throw 'Packaged e4 E2E must expect canonical en-passant target e3'
-          }
-          $strictCount=([regex]::Matches($text,'Assert-MoveElementStrict')).Count
-          $bridgeCount=([regex]::Matches($text,'Assert-MoveIdentityForBoardBridge')).Count
-          if($strictCount -ne 4){throw "Strict Move assertion count drifted: $strictCount"}
-          if($bridgeCount -ne 2){throw "Board-origin Move bridge assertion missing/duplicated: $bridgeCount"}
-          if($text -notmatch 'Board origin was not established on a3 before UIA submit bridge'){
-            throw 'Board-origin focus precondition is not fail-closed'
-          }
-          'STRICT HELPER PARSER/INVOCATION/BINDER/FEN/BOARD-ORIGIN REGRESSION PASS'
+          'PURE BOARD-SUBMIT BRIDGE REGRESSION PASS'
       - name: Dispatch exactly one corrected strict run
         shell: pwsh
         env:
