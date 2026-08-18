@@ -129,6 +129,11 @@ internal static class SpellingSelfTest
         Require(manager.Definitions.Any(d => d.Id == ActionIds.SpellingShowAnswer), "Show spelling answer is missing from the configurable shortcut registry.");
         Require(manager.Definitions.Any(d => d.Id == ActionIds.SpellingSwitchDeck(SpellingDeckIds.Core(5))), "Core spelling deck switch shortcut is missing.");
         Require(manager.Definitions.Any(d => d.Id == ActionIds.SpellingMoveToDeck(SpellingDeckIds.Core(5))), "Core spelling move shortcut is missing.");
+        Require(manager.Get(ActionIds.SpellingDeleteDeck) == (Keys.Control | Keys.Shift | Keys.Delete),
+            "Spelling deck deletion default must be capturable by WordDeck and must not use Windows Ctrl+Alt+Delete.");
+        Require(!manager.TrySet(ActionIds.SpellingDeleteDeck, Keys.Control | Keys.Alt | Keys.Delete, out string? secureAttentionError) &&
+                !string.IsNullOrWhiteSpace(secureAttentionError),
+            "Windows Ctrl+Alt+Delete secure-attention sequence was incorrectly accepted as a WordDeck shortcut.");
 
         Keys replacement = Keys.Control | Keys.Alt | Keys.Shift | Keys.F11;
         Require(manager.TrySet(ActionIds.SpellingShowAnswer, replacement, out string? error), $"Spelling shortcut could not be rebound: {error}");
