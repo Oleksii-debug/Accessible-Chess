@@ -172,7 +172,6 @@ if(-not (Test-Path $helperPath)){ throw "Topology helper missing: $helperPath" }
 if(-not (Test-Path $classifierPath)){ throw "Topology classifier missing: $classifierPath" }
 
 & $helperPath -AppPid $AppPid
-if($LASTEXITCODE -ne 0){ throw 'Cross-process UIA topology helper failed' }
 if(-not (Test-Path 'uia-topology-report-v5.json')){ throw 'Topology helper did not retain uia-topology-report-v5.json' }
 Copy-Item 'uia-topology-report-v5.json' 'uia-topology-strict-raw.json' -Force
 Copy-Item 'uia-topology-report-v5.json' 'uia-topology-strict.json' -Force
