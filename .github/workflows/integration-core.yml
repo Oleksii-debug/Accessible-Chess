@@ -78,8 +78,8 @@ jobs:
       - name: Sound, training, settings and entitlement gates
         run: python -m unittest -v tests.test_sound_events tests.test_training tests.test_settings tests.test_entitlements tests.test_ui_entitlement_integration
 
-      - name: Human NVDA Issue 22 release regression gate
-        run: python -m unittest -v tests.test_issue22_release_contract tests.test_nvda_p0_contract
+      - name: Human NVDA Issue 22 and packaged WebView release regression gate
+        run: python -m unittest -v tests.test_issue22_release_contract tests.test_nvda_p0_contract tests.test_stage1_webview2_accessibility_boundary tests.test_webview_safe_server
 
       - name: Remappable actions, import safety and notation gates
         run: python -m unittest -v tests.test_keybindings tests.test_ui_keymap_editor tests.test_keymap_import_warning_confirmation_integration tests.test_keymap_import_warning_confirmation tests.test_notation tests.test_extension_registries tests.test_webview_keymap_bridge_contract
