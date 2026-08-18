@@ -1,0 +1,23 @@
+component	upstream	license	decision	intended_role
+Microsoft.Data.Sqlite	https://github.com/dotnet/efcore	MIT	adopted	SentencePack SQLite runtime
+Kokoro-82M/Misaki	https://github.com/hexgrad/kokoro	Apache-2.0	adopted	development-time British audio generation
+Tatoeba	https://tatoeba.org/en/downloads	CC BY 2.0 FR / partial CC0	adopted	attributed EN-UA SentencePack source
+FlaUI	https://github.com/FlaUI/FlaUI	MIT	approved-test	Windows UI Automation/accessibility regression tests
+Velopack	https://github.com/velopack/velopack	MIT	approved-release	installer/portable/update packaging after emergency beta
+VersOne.Epub	https://github.com/vers-one/EpubReader	public-domain dedication	approved-future	EPUB Reading Mode importer
+PdfPig	https://github.com/UglyToad/PdfPig	Apache-2.0	approved-future	text-PDF Reading Mode importer
+AngleSharp	https://github.com/AngleSharp/AngleSharp	MIT	approved-future	HTML/article import and cleanup
+Scriban	https://github.com/scriban/scriban	BSD-2-Clause-style	approved-future	deterministic Grammar/Story template rendering
+Markdig	https://github.com/xoofx/markdig	verify-before-integration	conditional-future	Markdown import only if needed
+Open English WordNet	https://github.com/globalwordnet/english-wordnet	CC BY 4.0	approved-future	word families/synonyms/antonyms/sense relations
+spaCy	https://github.com/explosion/spaCy	MIT core; models separate	experimental-dev	development-time POS/lemma/dependency/corpus QA
+LanguageTool	https://github.com/languagetool-org/languagetool	LGPL-2.1-or-later	optional-later	optional local grammar diagnostics provider
+SimpleNLG	https://github.com/simplenlg/simplenlg	MPL-2.0	reference-only	development-time/reference sentence realization
+SharpSimpleNLG	https://github.com/nickhodge/SharpSimpleNLG	inherits SimpleNLG licensing/review required	rejected-core	C# port is behind upstream and incomplete
+WeCantSpell.Hunspell	https://github.com/aarondandy/WeCantSpell.Hunspell	MPL/LGPL/GPL tri-license	not-core	possible typo suggestions only after separate audit
+NAudio	https://github.com/naudio/NAudio	MIT	rejected-current	current NAudio 3 is net9 while WordDeck is net8; existing playback works
+FSRS ecosystem	https://github.com/open-spaced-repetition/awesome-fsrs	per implementation	parity-reference	future spaced repetition; no established C# implementation identified
+Lucene.Net	https://github.com/apache/lucenenet	Apache-2.0	rejected-current	SQLite first, FTS5 if full-text search becomes necessary
+UD English EWT	https://github.com/UniversalDependencies/UD_English-EWT	CC BY-SA 4.0 annotations; source texts mixed	research-only	grammar/dependency QA, no blind redistribution
+UD English ESL/TLE	https://github.com/UniversalDependencies/UD_English-ESL	CC BY-SA 4.0 annotations; FCE text restricted	research-only	learner-error taxonomy/grammar QA, no bundled text
+OllamaSharp	https://github.com/awaescher/OllamaSharp	verify-before-integration	defer	only if future ILlmProvider grows beyond simple HTTP
