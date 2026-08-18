@@ -5,6 +5,13 @@ Development/QA utility only. This deliberately does NOT lemmatize, stem, or gues
 inflections. It answers the narrower evidence question first: does the exact
 Oxford surface (or a structurally safe exact phrase/hyphen form) occur in the
 attributed Tatoeba English side at all? Runtime WordDeck remains offline .NET.
+
+The output also classifies what the exact evidence means for the *existing*
+SentencePack gap: if an ordinary single-surface Oxford item occurs verbatim in
+the same corpus yet still lacks a TargetEntryId, that is an index/matching defect
+candidate. If the exact surface never occurs, it is a corpus-absence/morphology
+candidate instead. Sense-annotated or otherwise structurally unsafe records stay
+explicitly unresolved; this tool never collapses them.
 """
 from __future__ import annotations
 
@@ -100,6 +107,25 @@ def matches_sentence(row: dict[str, str], sentence: str, sentence_tokens: list[s
     return False
 
 
+def classify_gap(structural: str, match_count: int | None) -> str:
+    """Convert bounded exact evidence into an actionable QA class without guessing senses."""
+    if match_count is None:
+        return "structural_or_semantic_review_required"
+    if structural == "single_surface_indexable":
+        return (
+            "exact_present_index_or_matching_defect_candidate"
+            if match_count > 0
+            else "exact_absent_corpus_or_inflection_candidate"
+        )
+    if structural in {"plain_multiword_exact_phrase_candidate", "hyphenated_exact_surface_candidate"}:
+        return (
+            "safe_exact_form_present_extension_candidate"
+            if match_count > 0
+            else "safe_exact_form_absent_corpus_or_inflection_candidate"
+        )
+    return "structural_or_semantic_review_required"
+
+
 def analyze(resolved_rows: list[dict[str, str]], pairs_path: Path) -> list[dict[str, str]]:
     analyzable = [row for row in resolved_rows if row["structural_class"] in ANALYZABLE_CLASSES]
     counts = {row["entryId"]: 0 for row in analyzable}
@@ -130,6 +156,7 @@ def analyze(resolved_rows: list[dict[str, str]], pairs_path: Path) -> list[dict[
             "exact_sentence_match_count": "" if match_count is None else str(match_count),
             "example_english_sentence_ids": "" if match_count is None else ",".join(examples[row["entryId"]]),
             "exact_occurrence_evidence": evidence,
+            "coverage_gap_classification": classify_gap(structural, match_count),
         })
     return result
 
@@ -139,6 +166,7 @@ def write_tsv(records: list[dict[str, str]], output: Path) -> None:
     fields = [
         "entryId", "level", "source", "target", "structural_class", "next_matching_action",
         "exact_sentence_match_count", "example_english_sentence_ids", "exact_occurrence_evidence",
+        "coverage_gap_classification",
     ]
     with output.open("w", encoding="utf-8", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=fields, delimiter="\t")
@@ -147,7 +175,7 @@ def write_tsv(records: list[dict[str, str]], output: Path) -> None:
 
 
 def self_test() -> None:
-    resolved_text = """entryId\tlevel\tsource\ttarget\tstructural_class\tnext_matching_action\noxford-a1-0001\tA1\tapple\tяблуко\tsingle_surface_indexable\tmeasure\noxford-a1-0002\tA1\ttake care\tдбати\tplain_multiword_exact_phrase_candidate\tevaluate\noxford-a1-0003\tA1\tpart-time\tнеповний день\thyphenated_exact_surface_candidate\tevaluate\noxford-a1-0004\tA1\twind¹\tвітер\tsense_numbered_unsafe_to_collapse\treview\n"""
+    resolved_text = """entryId\tlevel\tsource\ttarget\tstructural_class\tnext_matching_action\noxford-a1-0001\tA1\tapple\tяблуко\tsingle_surface_indexable\tmeasure\noxford-a1-0002\tA1\tpear\tгруша\tsingle_surface_indexable\tmeasure\noxford-a1-0003\tA1\ttake care\tдбати\tplain_multiword_exact_phrase_candidate\tevaluate\noxford-a1-0004\tA1\tpart-time\tнеповний день\thyphenated_exact_surface_candidate\tevaluate\noxford-a1-0005\tA1\twind¹\tвітер\tsense_numbered_unsafe_to_collapse\treview\n"""
     pairs_text = """english_id\tenglish_lang\tenglish\tenglish_author\tukrainian_id\tukrainian_lang\tukrainian\tukrainian_author\n1\teng\tI ate an apple.\ta\t11\tukr\tЯ з'їв яблуко.\tu\n2\teng\tPlease take care of this.\ta\t12\tukr\tПодбай про це.\tu\n3\teng\tIt is a part-time job.\ta\t13\tukr\tЦе робота на неповний день.\tu\n4\teng\tPineapple is different.\ta\t14\tukr\tАнанас інший.\tu\n"""
     reader = csv.DictReader(io.StringIO(resolved_text), delimiter="\t")
     resolved = [{key: (value or "").strip() for key, value in row.items()} for row in reader]
@@ -159,12 +187,22 @@ def self_test() -> None:
     by_id = {row["entryId"]: row for row in result}
     if by_id["oxford-a1-0001"]["exact_sentence_match_count"] != "1":
         raise RuntimeError("Single-token boundary matching self-test failed")
-    if by_id["oxford-a1-0002"]["exact_sentence_match_count"] != "1":
-        raise RuntimeError("Exact multiword matching self-test failed")
+    if by_id["oxford-a1-0001"]["coverage_gap_classification"] != "exact_present_index_or_matching_defect_candidate":
+        raise RuntimeError("Exact-present single-surface classification self-test failed")
+    if by_id["oxford-a1-0002"]["exact_sentence_match_count"] != "0":
+        raise RuntimeError("Exact-absent single-token self-test failed")
+    if by_id["oxford-a1-0002"]["coverage_gap_classification"] != "exact_absent_corpus_or_inflection_candidate":
+        raise RuntimeError("Exact-absent single-surface classification self-test failed")
     if by_id["oxford-a1-0003"]["exact_sentence_match_count"] != "1":
+        raise RuntimeError("Exact multiword matching self-test failed")
+    if by_id["oxford-a1-0003"]["coverage_gap_classification"] != "safe_exact_form_present_extension_candidate":
+        raise RuntimeError("Exact-present multiword classification self-test failed")
+    if by_id["oxford-a1-0004"]["exact_sentence_match_count"] != "1":
         raise RuntimeError("Exact hyphenated matching self-test failed")
-    if by_id["oxford-a1-0004"]["exact_sentence_match_count"] != "":
+    if by_id["oxford-a1-0005"]["exact_sentence_match_count"] != "":
         raise RuntimeError("Sense-annotated record must not be automatically matched")
+    if by_id["oxford-a1-0005"]["coverage_gap_classification"] != "structural_or_semantic_review_required":
+        raise RuntimeError("Sense-annotated classification self-test failed")
     print("Sentence gap exact-occurrence analyzer self-test passed.")
 
 
@@ -185,8 +223,21 @@ def main() -> int:
     measured = [row for row in records if row["exact_sentence_match_count"] != ""]
     present = [row for row in measured if int(row["exact_sentence_match_count"]) > 0]
     absent = [row for row in measured if int(row["exact_sentence_match_count"]) == 0]
+    single_present = [
+        row for row in records
+        if row["coverage_gap_classification"] == "exact_present_index_or_matching_defect_candidate"
+    ]
+    single_absent = [
+        row for row in records
+        if row["coverage_gap_classification"] == "exact_absent_corpus_or_inflection_candidate"
+    ]
     print(f"Analyzed {len(records)} gaps; exact matching measured for {len(measured)} safe candidates.")
     print(f"Exact surface present: {len(present)}; exact surface absent: {len(absent)}.")
+    print(
+        "Ordinary single-surface classification: "
+        f"index/matching-defect candidates={len(single_present)}; "
+        f"corpus-absence/inflection candidates={len(single_absent)}."
+    )
     return 0
 
 
