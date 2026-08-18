@@ -81,6 +81,7 @@ internal sealed class ShortcutManager
         Keys code = keys & Keys.KeyCode; Keys modifiers = keys & Keys.Modifiers;
         if (code is Keys.None or Keys.Tab or Keys.Escape or Keys.Enter) return true;
         if (code == Keys.F4 && modifiers == Keys.Alt) return true;
+        if (code == Keys.Delete && modifiers == (Keys.Control | Keys.Alt)) return true;
         if (modifiers == Keys.None && code is Keys.Left or Keys.Right or Keys.Up or Keys.Down or Keys.Home or Keys.End or Keys.PageUp or Keys.PageDown) return true;
         return false;
     }
@@ -111,7 +112,7 @@ internal sealed class ShortcutManager
         new(ActionIds.SpellingMoveChooser, "Spelling: move current word to deck chooser", Keys.Control | Keys.Alt | Keys.M),
         new(ActionIds.SpellingCreateDeck, "Spelling: create deck", Keys.Control | Keys.Alt | Keys.N),
         new(ActionIds.SpellingRenameDeck, "Spelling: rename active deck", Keys.Control | Keys.Alt | Keys.R),
-        new(ActionIds.SpellingDeleteDeck, "Spelling: delete active user deck", Keys.Control | Keys.Alt | Keys.Delete),
+        new(ActionIds.SpellingDeleteDeck, "Spelling: delete active user deck", Keys.Control | Keys.Shift | Keys.Delete),
         new(ActionIds.SpellingMoveDeckUp, "Spelling: move active deck up", Keys.Control | Keys.Alt | Keys.Up),
         new(ActionIds.SpellingMoveDeckDown, "Spelling: move active deck down", Keys.Control | Keys.Alt | Keys.Down),
     };
