@@ -2,7 +2,11 @@ namespace WordDeck;
 
 internal sealed class MainForm : Form
 {
-    private sealed record MoveUndo(string DictionaryId, string EntryId, string FromDeckId, string ToDeckId);
+    private sealed record MoveUndo(string DictionaryId, string ScopeId, string EntryId, string FromDeckId, string ToDeckId);
+    private sealed record ScopeOption(string Id, string Name)
+    {
+        public override string ToString() => Name;
+    }
 
     private readonly AppStateStore _store = new();
     private readonly AppState _state;
@@ -12,14 +16,17 @@ internal sealed class MainForm : Form
     private readonly Dictionary<string, DictionaryPackage> _packages = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, DictionaryEntry> _entriesById = new(StringComparer.OrdinalIgnoreCase);
     private DictionaryPackage _package = null!;
+    private RecallStudyScopeService _scopeService = null!;
     private Dictionary<string, string> _deckMap = null!;
     private string _activeDeckId = DeckIds.Core(1);
     private readonly Random _random = new();
     private readonly Queue<string> _shuffleBag = new();
     private DictionaryEntry? _current;
     private MoveUndo? _lastMove;
+    private bool _changingScopeUi;
 
     private readonly ComboBox _dictionaryCombo;
+    private readonly ComboBox _scopeCombo;
     private readonly ComboBox _deckCombo;
     private readonly TextBox _wordBox;
     private readonly TextBox _translationBox;
@@ -29,6 +36,8 @@ internal sealed class MainForm : Form
     private ToolStripMenuItem _switchDeckMenu = null!;
     private ToolStripMenuItem _autoPronunciationMenuItem = null!;
 
+    private string ActiveScopeId => _scopeService?.ActiveScopeId ?? StudyScopeIds.All;
+
     public MainForm()
     {
         _state = _store.Load();
@@ -37,9 +46,9 @@ internal sealed class MainForm : Form
         LoadPackages();
 
         Text = "WordDeck";
-        Width = 920;
-        Height = 520;
-        MinimumSize = new Size(640, 400);
+        Width = 1040;
+        Height = 540;
+        MinimumSize = new Size(720, 420);
         StartPosition = FormStartPosition.CenterScreen;
         KeyPreview = true;
         AccessibleName = "WordDeck vocabulary trainer";
@@ -69,20 +78,36 @@ internal sealed class MainForm : Form
         _dictionaryCombo = new ComboBox
         {
             DropDownStyle = ComboBoxStyle.DropDownList,
-            Width = 330,
+            Width = 300,
             AccessibleName = "Dictionary"
         };
         _dictionaryCombo.SelectedIndexChanged += (_, _) => ChangeDictionaryFromCombo();
         top.Controls.Add(_dictionaryCombo);
 
+        top.Controls.Add(new Label { Text = "Study scope:", AutoSize = true, Padding = new Padding(12, 6, 4, 0) });
+        _scopeCombo = new ComboBox
+        {
+            DropDownStyle = ComboBoxStyle.DropDownList,
+            Width = 190,
+            AccessibleName = "Recall study scope",
+            AccessibleDescription = "Choose All Oxford 5000 or a CEFR workspace A1, A2, B1, B2, or C1. Each scope keeps independent Recall deck progress."
+        };
+        _scopeCombo.SelectedIndexChanged += (_, _) =>
+        {
+            if (!_changingScopeUi && _scopeCombo.SelectedItem is ScopeOption option &&
+                !string.Equals(option.Id, ActiveScopeId, StringComparison.OrdinalIgnoreCase))
+                SwitchStudyScope(option.Id);
+        };
+        top.Controls.Add(_scopeCombo);
+
         top.Controls.Add(new Label { Text = "Deck:", AutoSize = true, Padding = new Padding(12, 6, 4, 0) });
         _deckCombo = new ComboBox
         {
             DropDownStyle = ComboBoxStyle.DropDownList,
-            Width = 220,
+            Width = 190,
             DisplayMember = nameof(DeckDefinition.Name),
-            AccessibleName = "Active deck",
-            AccessibleDescription = "Choose any default or user-created deck to study."
+            AccessibleName = "Active Recall deck",
+            AccessibleDescription = "Choose a deck inside the current Recall study scope."
         };
         _deckCombo.SelectedIndexChanged += (_, _) =>
         {
@@ -95,16 +120,11 @@ internal sealed class MainForm : Form
         _countLabel = new Label
         {
             AutoSize = true,
-            AccessibleName = "All deck word counts",
-            AccessibleDescription = "Word counts for every deck in the active dictionary.",
+            AccessibleName = "Current study scope deck counts",
+            AccessibleDescription = "Word counts for every deck in the current Recall study scope.",
             Padding = new Padding(0, 8, 0, 8)
         };
-        var wordHeading = new Label
-        {
-            Text = "English word",
-            AutoSize = true,
-            Font = new Font(Font, FontStyle.Bold)
-        };
+        var wordHeading = new Label { Text = "English word", AutoSize = true, Font = new Font(Font, FontStyle.Bold) };
         _wordBox = new TextBox
         {
             ReadOnly = true,
@@ -117,12 +137,7 @@ internal sealed class MainForm : Form
         };
         _wordBox.Enter += (_, _) => _wordBox.SelectAll();
 
-        var translationHeading = new Label
-        {
-            Text = "Translation (hidden until requested)",
-            AutoSize = true,
-            Font = new Font(Font, FontStyle.Bold)
-        };
+        var translationHeading = new Label { Text = "Translation (hidden until requested)", AutoSize = true, Font = new Font(Font, FontStyle.Bold) };
         _translationBox = new TextBox
         {
             ReadOnly = true,
@@ -135,17 +150,12 @@ internal sealed class MainForm : Form
         };
         _translationBox.Enter += (_, _) => _translationBox.SelectAll();
 
-        _statusLabel = new Label
-        {
-            AutoSize = true,
-            AccessibleName = "Status",
-            Padding = new Padding(0, 8, 0, 0)
-        };
+        _statusLabel = new Label { AutoSize = true, AccessibleName = "Status", Padding = new Padding(0, 8, 0, 0) };
         var hintLabel = new Label
         {
             AutoSize = true,
             AccessibleName = "Keyboard hint",
-            Text = "F1: help. Ctrl+S saves now. All shortcuts can be reassigned in Tools > Keyboard shortcuts."
+            Text = "F1: help. Ctrl+S saves now. Ctrl+1..5 switches decks inside the current scope; Alt+1..5 moves the current word. All shortcuts are rebindable."
         };
 
         root.Controls.Add(top, 0, 0);
@@ -249,7 +259,6 @@ internal sealed class MainForm : Form
     {
         DictionaryPackage embedded = DictionaryLoader.LoadEmbeddedOxford();
         _packages[embedded.Id] = embedded;
-
         foreach (string path in _store.EnumerateDictionaryFiles())
         {
             try
@@ -259,7 +268,7 @@ internal sealed class MainForm : Form
             }
             catch
             {
-                // A broken optional imported dictionary must not block the built-in Oxford deck.
+                // Broken optional imports must not block the embedded Oxford dictionary.
             }
         }
     }
@@ -271,13 +280,40 @@ internal sealed class MainForm : Form
         _dictionaryCombo.DataSource = _packages.Values.OrderBy(x => x.Name).ToList();
     }
 
+    private void PopulateScopeCombo()
+    {
+        _changingScopeUi = true;
+        try
+        {
+            _scopeCombo.Items.Clear();
+            foreach (string id in StudyScopeIds.Ordered)
+                _scopeCombo.Items.Add(new ScopeOption(id, StudyScopeIds.DisplayName(id)));
+            SelectActiveScopeInCombo();
+        }
+        finally
+        {
+            _changingScopeUi = false;
+        }
+    }
+
+    private void SelectActiveScopeInCombo()
+    {
+        for (int i = 0; i < _scopeCombo.Items.Count; i++)
+        {
+            if (_scopeCombo.Items[i] is ScopeOption option && string.Equals(option.Id, ActiveScopeId, StringComparison.OrdinalIgnoreCase))
+            {
+                _scopeCombo.SelectedIndex = i;
+                return;
+            }
+        }
+    }
+
     private void SelectInitialPackage()
     {
         DictionaryPackage? selected = null;
         if (_state.ActiveDictionaryId is not null)
             _packages.TryGetValue(_state.ActiveDictionaryId, out selected);
         selected ??= _packages.Values.First();
-
         int index = ((List<DictionaryPackage>)_dictionaryCombo.DataSource!).FindIndex(x => x.Id == selected.Id);
         _dictionaryCombo.SelectedIndex = Math.Max(0, index);
         ActivatePackage(selected);
@@ -288,7 +324,7 @@ internal sealed class MainForm : Form
         if (_dictionaryCombo.SelectedItem is DictionaryPackage package && (_package is null || package.Id != _package.Id))
         {
             ActivatePackage(package);
-            NextWord();
+            RestoreCurrentOrNextWord();
         }
     }
 
@@ -299,13 +335,15 @@ internal sealed class MainForm : Form
         _lastMove = null;
         ReindexEntries();
 
-        _deckMap = _decks.EnsureDictionaryAssignments(_package.Id, _package.Entries.Select(entry => entry.Id));
-        string desiredDeckId = _state.ActiveDeckId ?? _decks.FirstDeck.Id;
-        _activeDeckId = _decks.Find(desiredDeckId)?.Id ?? _decks.FirstDeck.Id;
-        _state.ActiveDeckId = _activeDeckId;
+        // Keep the legacy map reconciled first so first-time All migration is lossless.
+        _decks.EnsureDictionaryAssignments(_package.Id, _package.Entries.Select(entry => entry.Id));
+        _scopeService = new RecallStudyScopeService(_state, _package.Id, _package.Entries);
+        _deckMap = _scopeService.Assignments(ActiveScopeId);
+        _activeDeckId = _scopeService.Get(ActiveScopeId).ActiveDeckId;
 
+        PopulateScopeCombo();
         RefreshDeckUi();
-        ResetSequence();
+        RestoreSequenceForScope();
         UpdateCounts();
         SaveState();
     }
@@ -314,15 +352,10 @@ internal sealed class MainForm : Form
     {
         if (!_state.CustomEntriesByDictionary.TryGetValue(basePackage.Id, out List<CustomEntryRecord>? custom) || custom.Count == 0)
             return basePackage;
-
         var baseIds = new HashSet<string>(basePackage.Entries.Select(entry => entry.Id), StringComparer.OrdinalIgnoreCase);
         var entries = new List<DictionaryEntry>(basePackage.Entries);
         foreach (CustomEntryRecord record in custom)
-        {
-            if (baseIds.Add(record.Id))
-                entries.Add(new DictionaryEntry(record.Id, record.Level, record.Source, record.Target));
-        }
-
+            if (baseIds.Add(record.Id)) entries.Add(new DictionaryEntry(record.Id, record.Level, record.Source, record.Target));
         return new DictionaryPackage
         {
             Id = basePackage.Id,
@@ -336,8 +369,30 @@ internal sealed class MainForm : Form
     private void ReindexEntries()
     {
         _entriesById.Clear();
-        foreach (DictionaryEntry entry in _package.Entries)
-            _entriesById[entry.Id] = entry;
+        foreach (DictionaryEntry entry in _package.Entries) _entriesById[entry.Id] = entry;
+    }
+
+    private void SwitchStudyScope(string scopeId)
+    {
+        if (!StudyScopeIds.Ordered.Contains(scopeId, StringComparer.OrdinalIgnoreCase)) return;
+        PersistActiveShuffle();
+        _scopeService.SetCurrentEntry(ActiveScopeId, _current?.Id);
+        _scopeService.ActiveScopeId = scopeId;
+        _deckMap = _scopeService.Assignments(scopeId);
+        _activeDeckId = _scopeService.Get(scopeId).ActiveDeckId;
+        _current = null;
+        _lastMove = null;
+        _translationBox.Clear();
+
+        _changingScopeUi = true;
+        try { SelectActiveScopeInCombo(); }
+        finally { _changingScopeUi = false; }
+        RefreshDeckUi();
+        RestoreSequenceForScope();
+        UpdateCounts();
+        SaveState();
+        AnnounceStatus($"Recall study scope: {StudyScopeIds.DisplayName(scopeId)}. {_scopeService.ScopeTotal(scopeId)} words in this scope.");
+        RestoreCurrentOrNextWord();
     }
 
     private void RefreshDeckUi()
@@ -345,13 +400,10 @@ internal sealed class MainForm : Form
         IReadOnlyList<DeckDefinition> ordered = _decks.Decks;
         _deckCombo.BeginUpdate();
         _deckCombo.Items.Clear();
-        foreach (DeckDefinition deck in ordered)
-            _deckCombo.Items.Add(deck);
+        foreach (DeckDefinition deck in ordered) _deckCombo.Items.Add(deck);
         int selectedIndex = ordered.ToList().FindIndex(deck => string.Equals(deck.Id, _activeDeckId, StringComparison.OrdinalIgnoreCase));
-        if (selectedIndex >= 0)
-            _deckCombo.SelectedIndex = selectedIndex;
+        if (selectedIndex >= 0) _deckCombo.SelectedIndex = selectedIndex;
         _deckCombo.EndUpdate();
-
         _shortcuts.RefreshDeckDefinitions();
         RebuildSwitchDeckMenu();
     }
@@ -362,11 +414,11 @@ internal sealed class MainForm : Form
         foreach (DeckDefinition deck in _decks.Decks)
         {
             string deckId = deck.Id;
-            int count = _package is null ? 0 : _decks.CountInDictionary(_package.Id, deck.Id);
+            int count = _scopeService is null ? 0 : _scopeService.Count(ActiveScopeId, deck.Id);
             var item = new ToolStripMenuItem($"{deck.Name} ({count} words)")
             {
                 Checked = string.Equals(deck.Id, _activeDeckId, StringComparison.OrdinalIgnoreCase),
-                AccessibleName = $"Switch to {deck.Name}, {count} words"
+                AccessibleName = $"Switch to {deck.Name}, {count} words, scope {StudyScopeIds.DisplayName(ActiveScopeId)}"
             };
             item.Click += (_, _) => SwitchDeck(deckId);
             _switchDeckMenu.DropDownItems.Add(item);
@@ -376,18 +428,19 @@ internal sealed class MainForm : Form
     private void SwitchDeck(string deckId)
     {
         DeckDefinition? deck = _decks.Find(deckId);
-        if (deck is null)
-            return;
-
+        if (deck is null) return;
+        PersistActiveShuffle();
         _activeDeckId = deck.Id;
-        _state.ActiveDeckId = deck.Id;
+        _scopeService.SetActiveDeck(ActiveScopeId, deck.Id);
+        _scopeService.SetCurrentEntry(ActiveScopeId, null);
+        _current = null;
         SelectActiveDeckInCombo();
         RebuildSwitchDeckMenu();
         ResetSequence();
         UpdateCounts();
-        _statusLabel.Text = $"Switched to {deck.Name}.";
-        NextWord();
         SaveState();
+        AnnounceStatus($"{StudyScopeIds.DisplayName(ActiveScopeId)}: switched to {deck.Name}.");
+        NextWord();
     }
 
     private void SelectActiveDeckInCombo()
@@ -396,21 +449,34 @@ internal sealed class MainForm : Form
         {
             if (_deckCombo.Items[i] is DeckDefinition deck && string.Equals(deck.Id, _activeDeckId, StringComparison.OrdinalIgnoreCase))
             {
-                if (_deckCombo.SelectedIndex != i)
-                    _deckCombo.SelectedIndex = i;
+                if (_deckCombo.SelectedIndex != i) _deckCombo.SelectedIndex = i;
                 return;
             }
         }
     }
 
     private IReadOnlyList<DictionaryEntry> EntriesInActiveDeck() =>
-        _package.Entries.Where(entry => string.Equals(_deckMap.GetValueOrDefault(entry.Id, _decks.FirstDeck.Id), _activeDeckId, StringComparison.OrdinalIgnoreCase)).ToList();
+        _scopeService.EligibleEntries(ActiveScopeId)
+            .Where(entry => string.Equals(_deckMap.GetValueOrDefault(entry.Id, _decks.FirstDeck.Id), _activeDeckId, StringComparison.OrdinalIgnoreCase))
+            .ToList();
 
     private void ResetSequence()
     {
         _shuffleBag.Clear();
         _current = null;
+        _scopeService.SetCurrentEntry(ActiveScopeId, null);
         FillShuffleBag();
+    }
+
+    private void RestoreSequenceForScope()
+    {
+        _shuffleBag.Clear();
+        foreach (string id in _scopeService.RemainingShuffle(ActiveScopeId))
+        {
+            if (_entriesById.ContainsKey(id) && string.Equals(_deckMap.GetValueOrDefault(id, _decks.FirstDeck.Id), _activeDeckId, StringComparison.OrdinalIgnoreCase))
+                _shuffleBag.Enqueue(id);
+        }
+        if (_shuffleBag.Count == 0 && EntriesInActiveDeck().Count > 0) FillShuffleBag();
     }
 
     private void FillShuffleBag()
@@ -421,18 +487,22 @@ internal sealed class MainForm : Form
             int j = _random.Next(i + 1);
             (ids[i], ids[j]) = (ids[j], ids[i]);
         }
-
-        if (_current is not null && ids.Count > 1 && ids[0] == _current.Id)
+        if (_current is not null && ids.Count > 1 && string.Equals(ids[0], _current.Id, StringComparison.OrdinalIgnoreCase))
             (ids[0], ids[1]) = (ids[1], ids[0]);
+        _shuffleBag.Clear();
+        foreach (string id in ids) _shuffleBag.Enqueue(id);
+        PersistActiveShuffle();
+    }
 
-        foreach (string id in ids)
-            _shuffleBag.Enqueue(id);
+    private void PersistActiveShuffle()
+    {
+        if (_scopeService is not null) _scopeService.SetRemainingShuffle(ActiveScopeId, _shuffleBag);
     }
 
     private void RestoreCurrentOrNextWord()
     {
-        if (_state.CurrentEntryIdByDictionary.TryGetValue(_package.Id, out string? id) &&
-            _entriesById.ContainsKey(id) &&
+        string? id = _scopeService.Get(ActiveScopeId).CurrentEntryId;
+        if (id is not null && _entriesById.ContainsKey(id) &&
             string.Equals(_deckMap.GetValueOrDefault(id, _decks.FirstDeck.Id), _activeDeckId, StringComparison.OrdinalIgnoreCase))
         {
             ShowEntryById(id);
@@ -446,8 +516,8 @@ internal sealed class MainForm : Form
     {
         string[] remaining = _shuffleBag.Where(candidate => !string.Equals(candidate, id, StringComparison.OrdinalIgnoreCase)).ToArray();
         _shuffleBag.Clear();
-        foreach (string candidate in remaining)
-            _shuffleBag.Enqueue(candidate);
+        foreach (string candidate in remaining) _shuffleBag.Enqueue(candidate);
+        PersistActiveShuffle();
     }
 
     private void NextWord()
@@ -458,56 +528,49 @@ internal sealed class MainForm : Form
         {
             _audio.Stop();
             _current = null;
+            _scopeService.SetCurrentEntry(ActiveScopeId, null);
             _wordBox.Text = "No words in this deck";
             _translationBox.Clear();
-            _statusLabel.Text = $"{activeDeck.Name} is empty.";
+            _statusLabel.Text = $"{StudyScopeIds.DisplayName(ActiveScopeId)} — {activeDeck.Name} is empty.";
             UpdateCounts();
+            SaveState();
             _wordBox.Focus();
             AccessibilityAnnouncer.Announce(_wordBox, _wordBox.Text);
             return;
         }
 
-        if (_shuffleBag.Count == 0)
-            FillShuffleBag();
-
+        if (_shuffleBag.Count == 0) FillShuffleBag();
         while (_shuffleBag.Count > 0)
         {
             string id = _shuffleBag.Dequeue();
-            if (!string.Equals(_deckMap.GetValueOrDefault(id, _decks.FirstDeck.Id), _activeDeckId, StringComparison.OrdinalIgnoreCase))
-                continue;
-
+            PersistActiveShuffle();
+            if (!string.Equals(_deckMap.GetValueOrDefault(id, _decks.FirstDeck.Id), _activeDeckId, StringComparison.OrdinalIgnoreCase)) continue;
             ShowEntryById(id);
             return;
         }
-
         FillShuffleBag();
-        if (_shuffleBag.Count > 0)
-            NextWord();
+        if (_shuffleBag.Count > 0) NextWord();
     }
 
     private void ShowEntryById(string id)
     {
-        if (!_entriesById.TryGetValue(id, out DictionaryEntry? entry))
-            return;
-
+        if (!_entriesById.TryGetValue(id, out DictionaryEntry? entry)) return;
         _current = entry;
+        _scopeService.SetCurrentEntry(ActiveScopeId, id);
         _wordBox.Text = entry.Source;
         _translationBox.Clear();
         string deckName = _decks.Find(_activeDeckId)?.Name ?? "Deck";
-        _statusLabel.Text = $"Level {entry.Level}. {deckName}.";
+        _statusLabel.Text = $"Scope {StudyScopeIds.DisplayName(ActiveScopeId)}. Level {entry.Level}. {deckName}.";
         UpdateCounts();
+        SaveState();
         FocusCurrentWord();
-
         bool nativeAudioPlayed = _state.AutoPlayPronunciationOnCardChange && TryPlayCurrentPronunciation(announceFailure: false);
-        if (!nativeAudioPlayed)
-            AccessibilityAnnouncer.Announce(_wordBox, entry.Source);
+        if (!nativeAudioPlayed) AccessibilityAnnouncer.Announce(_wordBox, entry.Source);
     }
 
     private void RevealTranslation()
     {
-        if (_current is null)
-            return;
-
+        if (_current is null) return;
         _translationBox.Text = _current.Target;
         _translationBox.Focus();
         _translationBox.SelectAll();
@@ -516,34 +579,22 @@ internal sealed class MainForm : Form
 
     private void RepeatCurrentWord()
     {
-        if (_current is null)
-            return;
-
+        if (_current is null) return;
         FocusCurrentWord();
         AccessibilityAnnouncer.Announce(_wordBox, _current.Source);
     }
 
     private void PlayCurrentPronunciation()
     {
-        if (_current is null)
-        {
-            AnnounceStatus("No word is currently selected.");
-            return;
-        }
-
+        if (_current is null) { AnnounceStatus("No word is currently selected."); return; }
         TryPlayCurrentPronunciation(announceFailure: true);
     }
 
     private bool TryPlayCurrentPronunciation(bool announceFailure)
     {
-        if (_current is null)
-            return false;
-
-        if (_audio.TryPlay(_package, _current, out string? error))
-            return true;
-
-        if (announceFailure && !string.IsNullOrWhiteSpace(error))
-            AnnounceStatus(error);
+        if (_current is null) return false;
+        if (_audio.TryPlay(_package, _current, out string? error)) return true;
+        if (announceFailure && !string.IsNullOrWhiteSpace(error)) AnnounceStatus(error);
         return false;
     }
 
@@ -552,12 +603,10 @@ internal sealed class MainForm : Form
         _state.AutoPlayPronunciationOnCardChange = !_state.AutoPlayPronunciationOnCardChange;
         _autoPronunciationMenuItem.Checked = _state.AutoPlayPronunciationOnCardChange;
         SaveState();
-
         if (_state.AutoPlayPronunciationOnCardChange)
         {
             AnnounceStatus("Automatic British pronunciation enabled.");
-            if (_current is not null)
-                TryPlayCurrentPronunciation(announceFailure: true);
+            if (_current is not null) TryPlayCurrentPronunciation(announceFailure: true);
         }
         else
         {
@@ -574,11 +623,15 @@ internal sealed class MainForm : Form
 
     private void AddWordsToActiveDeck()
     {
+        if (!string.Equals(ActiveScopeId, StudyScopeIds.All, StringComparison.OrdinalIgnoreCase))
+        {
+            AnnounceStatus("Custom pasted cards are added only in All Oxford 5000 so CEFR workspaces remain limited to official level entries. Switch to All Oxford 5000 first.");
+            return;
+        }
+
         DeckDefinition activeDeck = _decks.Find(_activeDeckId) ?? _decks.FirstDeck;
         using var dialog = new BulkWordImportForm(activeDeck.Name);
-        if (dialog.ShowDialog(this) != DialogResult.OK)
-            return;
-
+        if (dialog.ShowDialog(this) != DialogResult.OK) return;
         try
         {
             IReadOnlyList<WordPair> pairs = BulkWordParser.Parse(dialog.PastedText);
@@ -587,27 +640,16 @@ internal sealed class MainForm : Form
                 custom = new List<CustomEntryRecord>();
                 _state.CustomEntriesByDictionary[_package.Id] = custom;
             }
-
-            var existingPairs = new HashSet<string>(
-                _package.Entries.Select(entry => PairKey(entry.Source, entry.Target)),
-                StringComparer.OrdinalIgnoreCase);
+            var existingPairs = new HashSet<string>(_package.Entries.Select(entry => PairKey(entry.Source, entry.Target)), StringComparer.OrdinalIgnoreCase);
             var addedIds = new List<string>();
             foreach (WordPair pair in pairs)
             {
-                if (!existingPairs.Add(PairKey(pair.Source, pair.Target)))
-                    continue;
-
+                if (!existingPairs.Add(PairKey(pair.Source, pair.Target))) continue;
                 string id;
-                do
-                {
-                    id = $"custom-{Guid.NewGuid():N}";
-                }
-                while (_entriesById.ContainsKey(id));
-
+                do { id = $"custom-{Guid.NewGuid():N}"; } while (_entriesById.ContainsKey(id));
                 custom.Add(new CustomEntryRecord(id, pair.Source, pair.Target));
                 addedIds.Add(id);
             }
-
             if (addedIds.Count == 0)
             {
                 AnnounceStatus("No new cards were added because all pasted pairs already exist in this dictionary.");
@@ -617,9 +659,12 @@ internal sealed class MainForm : Form
             DictionaryPackage basePackage = _packages[_package.Id];
             _package = WithCustomEntries(basePackage);
             ReindexEntries();
-            _deckMap = _decks.EnsureDictionaryAssignments(_package.Id, _package.Entries.Select(entry => entry.Id));
-            foreach (string id in addedIds)
-                _deckMap[id] = _activeDeckId;
+            Dictionary<string, string> legacy = _decks.EnsureDictionaryAssignments(_package.Id, _package.Entries.Select(entry => entry.Id));
+            foreach (string id in addedIds) legacy[id] = _activeDeckId;
+            _scopeService = new RecallStudyScopeService(_state, _package.Id, _package.Entries);
+            _scopeService.ActiveScopeId = StudyScopeIds.All;
+            _deckMap = _scopeService.Assignments(StudyScopeIds.All);
+            foreach (string id in addedIds) _scopeService.Move(StudyScopeIds.All, id, _activeDeckId);
 
             ResetSequence();
             RebuildSwitchDeckMenu();
@@ -627,7 +672,7 @@ internal sealed class MainForm : Form
             ShowEntryById(addedIds[0]);
             RemoveFromShuffleBag(addedIds[0]);
             SaveState();
-            AnnounceStatus($"Added {addedIds.Count} new cards to {activeDeck.Name}. Custom cards are saved locally. Generated pronunciation is optional and may be absent for these cards.");
+            AnnounceStatus($"Added {addedIds.Count} new cards to {activeDeck.Name} in All Oxford 5000. Custom cards are saved locally.");
         }
         catch (Exception ex)
         {
@@ -639,132 +684,99 @@ internal sealed class MainForm : Form
 
     private void MoveCurrentToDeckChooser()
     {
-        if (_current is null)
-        {
-            AnnounceStatus("No word is currently selected.");
-            return;
-        }
-
-        string? target = DeckDialogs.ChooseDeck(
-            this,
-            "Move current word",
-            $"Move {_current.Source} to which deck?",
-            _decks.Decks,
-            _activeDeckId);
-        if (target is not null)
-            MoveCurrentToDeck(target);
+        if (_current is null) { AnnounceStatus("No word is currently selected."); return; }
+        string? target = DeckDialogs.ChooseDeck(this, "Move current word", $"Move {_current.Source} to which deck in {StudyScopeIds.DisplayName(ActiveScopeId)}?", _decks.Decks, _activeDeckId);
+        if (target is not null) MoveCurrentToDeck(target);
     }
 
     private void MoveCurrentToDeck(string targetDeckId)
     {
-        if (_current is null)
-            return;
-
+        if (_current is null) return;
         DeckDefinition? targetDeck = _decks.Find(targetDeckId);
-        if (targetDeck is null)
-            return;
+        if (targetDeck is null) return;
         string fromDeckId = _deckMap.GetValueOrDefault(_current.Id, _decks.FirstDeck.Id);
         DeckDefinition fromDeck = _decks.Find(fromDeckId) ?? _decks.FirstDeck;
         string movedWord = _current.Source;
-
         if (string.Equals(targetDeck.Id, fromDeck.Id, StringComparison.OrdinalIgnoreCase))
         {
-            AnnounceStatus($"{movedWord} is already in {targetDeck.Name}.");
+            AnnounceStatus($"{movedWord} is already in {targetDeck.Name} in {StudyScopeIds.DisplayName(ActiveScopeId)}.");
             RepeatCurrentWord();
             return;
         }
 
-        _deckMap[_current.Id] = targetDeck.Id;
-        _lastMove = new MoveUndo(_package.Id, _current.Id, fromDeck.Id, targetDeck.Id);
+        string scopeId = ActiveScopeId;
+        _scopeService.Move(scopeId, _current.Id, targetDeck.Id);
+        _lastMove = new MoveUndo(_package.Id, scopeId, _current.Id, fromDeck.Id, targetDeck.Id);
         _translationBox.Clear();
         UpdateCounts();
         RebuildSwitchDeckMenu();
         SaveState();
-        AnnounceStatus($"Moved {movedWord} from {fromDeck.Name} to {targetDeck.Name}. Undo is available.");
+        AnnounceStatus($"Moved {movedWord} from {fromDeck.Name} to {targetDeck.Name} in {StudyScopeIds.DisplayName(scopeId)}. Undo is available.");
         NextWord();
     }
 
     private void UndoLastMove()
     {
         MoveUndo? undo = _lastMove;
-        if (undo is null || !string.Equals(undo.DictionaryId, _package.Id, StringComparison.OrdinalIgnoreCase))
+        if (undo is null || !string.Equals(undo.DictionaryId, _package.Id, StringComparison.OrdinalIgnoreCase) ||
+            !string.Equals(undo.ScopeId, ActiveScopeId, StringComparison.OrdinalIgnoreCase))
         {
-            AnnounceStatus("No deck move is available to undo.");
+            AnnounceStatus("No deck move is available to undo in the current study scope.");
             RepeatCurrentWord();
             return;
         }
-
-        if (!_entriesById.TryGetValue(undo.EntryId, out DictionaryEntry? entry) ||
-            _decks.Find(undo.FromDeckId) is not DeckDefinition fromDeck ||
-            _decks.Find(undo.ToDeckId) is not DeckDefinition toDeck)
+        if (!_entriesById.TryGetValue(undo.EntryId, out DictionaryEntry? entry) || _decks.Find(undo.FromDeckId) is not DeckDefinition fromDeck || _decks.Find(undo.ToDeckId) is not DeckDefinition toDeck)
         {
             _lastMove = null;
             AnnounceStatus("The previous deck move can no longer be undone.");
-            RepeatCurrentWord();
             return;
         }
-
         string currentDeckId = _deckMap.GetValueOrDefault(undo.EntryId, _decks.FirstDeck.Id);
         if (!string.Equals(currentDeckId, undo.ToDeckId, StringComparison.OrdinalIgnoreCase))
         {
             _lastMove = null;
             AnnounceStatus("The previous deck move has already changed and can no longer be undone.");
-            RepeatCurrentWord();
             return;
         }
-
-        _deckMap[undo.EntryId] = undo.FromDeckId;
+        _scopeService.Move(undo.ScopeId, undo.EntryId, undo.FromDeckId);
         _lastMove = null;
         UpdateCounts();
         RebuildSwitchDeckMenu();
         SaveState();
-
         if (string.Equals(_activeDeckId, undo.FromDeckId, StringComparison.OrdinalIgnoreCase))
         {
             ShowEntryById(undo.EntryId);
-            AnnounceStatus($"Undid move. {entry.Source} is back in {fromDeck.Name}.");
+            AnnounceStatus($"Undid move. {entry.Source} is back in {fromDeck.Name} in {StudyScopeIds.DisplayName(undo.ScopeId)}.");
         }
-        else
-        {
-            AnnounceStatus($"Undid move. {entry.Source} is back in {fromDeck.Name}; it was removed from {toDeck.Name}.");
-            RepeatCurrentWord();
-        }
+        else AnnounceStatus($"Undid move. {entry.Source} is back in {fromDeck.Name}; it was removed from {toDeck.Name}.");
     }
 
     private void CreateDeck()
     {
         string? name = DeckDialogs.PromptForName(this, "Create deck", "Enter a name for the new empty deck:");
-        if (name is null)
-            return;
-
+        if (name is null) return;
         try
         {
             DeckDefinition deck = _decks.Create(name);
             _activeDeckId = deck.Id;
-            _state.ActiveDeckId = deck.Id;
+            _scopeService.SetActiveDeck(ActiveScopeId, deck.Id);
             _shortcuts.RefreshDeckDefinitions();
             RefreshDeckUi();
             ResetSequence();
             UpdateCounts();
             SaveState();
-            AnnounceStatus($"Created empty deck {deck.Name}. It is now active. Assign switch and move shortcuts in Keyboard shortcuts if desired.");
+            AnnounceStatus($"Created empty deck {deck.Name}. It is active in {StudyScopeIds.DisplayName(ActiveScopeId)}.");
             NextWord();
         }
-        catch (Exception ex)
-        {
-            MessageBox.Show(this, ex.Message, "Cannot create deck", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-        }
+        catch (Exception ex) { MessageBox.Show(this, ex.Message, "Cannot create deck", MessageBoxButtons.OK, MessageBoxIcon.Warning); }
     }
 
     private void RenameActiveDeck()
     {
         DeckDefinition? deck = _decks.Find(_activeDeckId);
-        if (deck is null)
-            return;
+        if (deck is null) return;
         string? name = DeckDialogs.PromptForName(this, "Rename deck", "Enter the new deck name:", deck.Name);
-        if (name is null)
-            return;
-
+        if (name is null) return;
         try
         {
             _decks.Rename(deck.Id, name);
@@ -772,101 +784,76 @@ internal sealed class MainForm : Form
             RefreshDeckUi();
             UpdateCounts();
             SaveState();
-            AnnounceStatus($"Deck renamed to {deck.Name}. Its stable ID, word assignments, and shortcuts were preserved.");
+            AnnounceStatus($"Deck renamed to {deck.Name}. Its stable ID and assignments in every study scope were preserved.");
         }
-        catch (Exception ex)
-        {
-            MessageBox.Show(this, ex.Message, "Cannot rename deck", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-        }
+        catch (Exception ex) { MessageBox.Show(this, ex.Message, "Cannot rename deck", MessageBoxButtons.OK, MessageBoxIcon.Warning); }
     }
 
     private void DeleteActiveDeck()
     {
         DeckDefinition? deck = _decks.Find(_activeDeckId);
-        if (deck is null)
-            return;
-        if (deck.IsCore)
-        {
-            AnnounceStatus("The five default decks are permanent. You can rename or reorder this deck, but you cannot delete it.");
-            return;
-        }
+        if (deck is null) return;
+        if (deck.IsCore) { AnnounceStatus("The five default decks are permanent and cannot be deleted."); return; }
 
-        int assigned = _decks.CountEverywhere(deck.Id);
+        int scopeAssigned = _scopeService.CountEverywhere(deck.Id);
+        int legacyAssigned = _decks.CountEverywhere(deck.Id);
+        int assigned = Math.Max(scopeAssigned, legacyAssigned);
         string? destination = null;
         if (assigned > 0)
         {
-            destination = DeckDialogs.ChooseDeck(
-                this,
-                "Delete non-empty deck",
-                $"{deck.Name} contains {assigned} word assignments across dictionaries. Choose a destination for every word, or cancel deletion:",
-                _decks.Decks.Where(candidate => !string.Equals(candidate.Id, deck.Id, StringComparison.OrdinalIgnoreCase)),
-                DeckIds.Core(1));
-            if (destination is null)
-                return;
+            destination = DeckDialogs.ChooseDeck(this, "Delete non-empty deck", $"{deck.Name} has saved word assignments. Choose a destination deck for every Recall scope, or cancel deletion:", _decks.Decks.Where(candidate => !string.Equals(candidate.Id, deck.Id, StringComparison.OrdinalIgnoreCase)), DeckIds.Core(1));
+            if (destination is null) return;
         }
         else
         {
-            DialogResult result = MessageBox.Show(
-                this,
-                $"Delete empty deck {deck.Name}?",
-                "Delete deck",
-                MessageBoxButtons.YesNo,
-                MessageBoxIcon.Question,
-                MessageBoxDefaultButton.Button2);
-            if (result != DialogResult.Yes)
-                return;
+            DialogResult result = MessageBox.Show(this, $"Delete empty deck {deck.Name}?", "Delete deck", MessageBoxButtons.YesNo, MessageBoxIcon.Question, MessageBoxDefaultButton.Button2);
+            if (result != DialogResult.Yes) return;
         }
 
         try
         {
             string deletedName = deck.Name;
+            if (destination is not null) _scopeService.ReplaceDeckEverywhere(deck.Id, destination);
             _decks.DeleteUserDeck(deck.Id, destination);
-            _activeDeckId = _state.ActiveDeckId ?? _decks.FirstDeck.Id;
+            _activeDeckId = _scopeService.Get(ActiveScopeId).ActiveDeckId;
             _lastMove = null;
             _shortcuts.RefreshDeckDefinitions();
             RefreshDeckUi();
             ResetSequence();
             UpdateCounts();
             SaveState();
-            AnnounceStatus(assigned > 0
-                ? $"Deleted {deletedName}. All {assigned} word assignments were moved safely to {_decks.Find(destination!)?.Name}."
-                : $"Deleted empty deck {deletedName}.");
+            AnnounceStatus(assigned > 0 ? $"Deleted {deletedName}. Saved Recall assignments were moved to {_decks.Find(destination!)?.Name} across study scopes." : $"Deleted empty deck {deletedName}.");
             NextWord();
         }
-        catch (Exception ex)
-        {
-            MessageBox.Show(this, ex.Message, "Cannot delete deck", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-        }
+        catch (Exception ex) { MessageBox.Show(this, ex.Message, "Cannot delete deck", MessageBoxButtons.OK, MessageBoxIcon.Warning); }
     }
 
     private void ReorderActiveDeck(int direction)
     {
         DeckDefinition? deck = _decks.Find(_activeDeckId);
-        if (deck is null)
-            return;
+        if (deck is null) return;
         if (!_decks.Move(deck.Id, direction))
         {
             AnnounceStatus(direction < 0 ? "This deck is already first." : "This deck is already last.");
             return;
         }
-
         RefreshDeckUi();
         UpdateCounts();
         SaveState();
-        AnnounceStatus($"Moved {deck.Name} {(direction < 0 ? "up" : "down")} in the deck order. Its shortcuts and word assignments were preserved.");
+        AnnounceStatus($"Moved {deck.Name} {(direction < 0 ? "up" : "down")} in shared deck order. Scope assignments were preserved.");
     }
 
     private void UpdateCounts()
     {
-        if (_package is null)
-            return;
+        if (_package is null || _scopeService is null) return;
+        string scopeId = ActiveScopeId;
         string summary = string.Join("; ", _decks.Decks.Select(deck =>
         {
-            int count = _decks.CountInDictionary(_package.Id, deck.Id);
+            int count = _scopeService.Count(scopeId, deck.Id);
             string active = string.Equals(deck.Id, _activeDeckId, StringComparison.OrdinalIgnoreCase) ? " active" : string.Empty;
             return $"{deck.Name}: {count} words{active}";
         }));
-        _countLabel.Text = $"Deck counts — {summary}. Dictionary total: {_package.Entries.Count}.";
+        _countLabel.Text = $"Scope {StudyScopeIds.DisplayName(scopeId)} — {summary}. Scope total: {_scopeService.ScopeTotal(scopeId)}.";
     }
 
     private void AnnounceStatus(string text)
@@ -877,14 +864,8 @@ internal sealed class MainForm : Form
 
     private void ImportDictionary()
     {
-        using var dialog = new OpenFileDialog
-        {
-            Title = "Import WordDeck dictionary",
-            Filter = "WordDeck TSV dictionaries (*.tsv)|*.tsv|All files (*.*)|*.*"
-        };
-        if (dialog.ShowDialog(this) != DialogResult.OK)
-            return;
-
+        using var dialog = new OpenFileDialog { Title = "Import WordDeck dictionary", Filter = "WordDeck TSV dictionaries (*.tsv)|*.tsv|All files (*.*)|*.*" };
+        if (dialog.ShowDialog(this) != DialogResult.OK) return;
         try
         {
             DictionaryPackage package = DictionaryLoader.LoadFromFile(dialog.FileName);
@@ -894,18 +875,15 @@ internal sealed class MainForm : Form
             PopulateDictionaryCombo();
             int index = ((List<DictionaryPackage>)_dictionaryCombo.DataSource!).FindIndex(x => x.Id == package.Id);
             _dictionaryCombo.SelectedIndex = index;
-            AnnounceStatus($"Imported {package.Name}: {package.Entries.Count} entries. New entries start in {_decks.FirstDeck.Name}.");
+            AnnounceStatus($"Imported {package.Name}: {package.Entries.Count} entries. Study scopes were initialized safely from CEFR levels.");
         }
-        catch (Exception ex)
-        {
-            MessageBox.Show(this, ex.Message, "Dictionary import failed", MessageBoxButtons.OK, MessageBoxIcon.Error);
-        }
+        catch (Exception ex) { MessageBox.Show(this, ex.Message, "Dictionary import failed", MessageBoxButtons.OK, MessageBoxIcon.Error); }
     }
 
     private void SaveProgressNow()
     {
         SaveState();
-        AnnounceStatus("Progress saved locally. Deck assignments, custom cards, active deck and current card are stored.");
+        AnnounceStatus($"Progress saved locally for {StudyScopeIds.DisplayName(ActiveScopeId)}. Scope assignments, active deck, current card and shuffle progress are stored.");
     }
 
     private void OpenShortcutSettings()
@@ -920,59 +898,35 @@ internal sealed class MainForm : Form
     private void ShowHelp()
     {
         _shortcuts.RefreshDeckDefinitions();
-        string shortcutLines = string.Join(Environment.NewLine,
-            _shortcuts.Definitions.Select(def => $"{def.Description}: {FormatShortcut(_shortcuts.Get(def.Id))}"));
+        string shortcutLines = string.Join(Environment.NewLine, _shortcuts.Definitions.Select(def => $"{def.Description}: {ShortcutFormatter.Format(_shortcuts.Get(def.Id))}"));
         string audioMode = _state.AutoPlayPronunciationOnCardChange ? "enabled" : "disabled";
         string help =
             "WORDDECK HELP\r\n\r\n" +
-            "WordDeck shows only the English side of a card by default. Reveal the Ukrainian translation only when you need it. " +
-            "Both navigation shortcuts draw another random card from the active deck. Every word is presented once before the shuffle bag is refilled, and the refill avoids an immediate repeat when the deck has more than one word.\r\n\r\n" +
-            "The original five default decks are permanent for compatibility, but they can be renamed and reordered. You can create any number of additional empty decks, rename them, reorder them, and delete user-created decks. " +
-            "Deleting a non-empty user deck always requires choosing another deck for all of its words; cancelling leaves the deck untouched. Every deck owns stable switch and move-to shortcut actions, so renaming and reordering do not break its bindings.\r\n\r\n" +
-            "To add your own cards to the active deck, use Add pasted words. Use one card per line. The safest format is English, TAB, Ukrainian. " +
-            "The importer also accepts a pipe, equals sign, em dash, en dash, or comma+space between English and Ukrainian. Custom cards are saved locally and remain in their assigned decks after restart.\r\n\r\n" +
+            "RECALL STUDY SCOPES\r\n" +
+            "Recall has six independent study workspaces: All Oxford 5000, A1, A2, B1, B2 and C1. There is no Oxford C2 workspace because the Oxford 5000 list does not define a C2 subset. " +
+            "Choose the scope with the standard Study scope combo box. Each scope keeps its own deck assignments, active deck, current card and shuffle progress. Moving a word in A1 does not move it in All or any other scope. " +
+            "The five core deck definitions and their shortcuts are shared, so Ctrl+1 through Ctrl+5 switches decks inside the CURRENT scope and Alt+1 through Alt+5 moves the current word inside the CURRENT scope. Scope-switch actions are rebindable and start unassigned.\r\n\r\n" +
+            "WordDeck shows only the English side of a Recall card by default. Reveal the Ukrainian translation only when needed. Both navigation shortcuts draw another random card from the active deck without repeating a word until the current shuffle bag is exhausted.\r\n\r\n" +
+            "The five default decks are permanent but may be renamed and reordered. User decks are shared definitions; saved Recall assignments remain scope-specific and are migrated safely if a user deck is deleted.\r\n\r\n" +
+            "Custom pasted cards are added only in All Oxford 5000 so CEFR workspaces remain restricted to official level-tagged entries. Use one card per line; the safest format is English, TAB, Ukrainian.\r\n\r\n" +
             "Generated British pronunciation is an optional offline audio layer keyed by stable dictionary and entry IDs. " +
-            $"Automatic pronunciation on card change is currently {audioMode}. When automatic audio successfully starts, WordDeck suppresses its extra UI Automation word notification to reduce double speech; if audio is missing or cannot play, the normal screen-reader announcement remains the fallback. " +
-            "Custom cards do not require generated audio; when no audio file exists, screen-reader pronunciation remains available.\r\n\r\n" +
-            "Progress is saved automatically after deck changes and on normal exit. Save progress now provides an explicit manual checkpoint. The current dictionary, active deck and last card are restored on the next launch when still valid. A recovery backup is maintained.\r\n\r\n" +
+            $"Automatic pronunciation on card change is currently {audioMode}. If generated audio is unavailable, the normal screen-reader announcement remains the fallback.\r\n\r\n" +
+            "Progress is saved automatically after changes and on normal exit. Ctrl+S creates an explicit checkpoint. state.json has a recovery backup.\r\n\r\n" +
             "KEYBOARD SHORTCUTS\r\n" + shortcutLines + "\r\n\r\n" +
-            "Use Tools > Keyboard shortcuts to assign or reassign any shortcut. User-created deck switch and move shortcuts start unassigned. Use File > Import dictionary to add another WordDeck TSV dictionary.";
+            "Use Tools > Keyboard shortcuts to assign or reassign any shortcut. Unassigned scope shortcuts are shown as Unassigned.";
 
-        using var form = new Form
-        {
-            Text = "WordDeck help",
-            Width = 780,
-            Height = 620,
-            StartPosition = FormStartPosition.CenterParent,
-            AccessibleName = "WordDeck help"
-        };
-        var box = new TextBox
-        {
-            Dock = DockStyle.Fill,
-            Multiline = true,
-            ReadOnly = true,
-            ScrollBars = ScrollBars.Vertical,
-            Text = help,
-            AccessibleName = "WordDeck help text"
-        };
+        using var form = new Form { Text = "WordDeck help", Width = 820, Height = 650, StartPosition = FormStartPosition.CenterParent, AccessibleName = "WordDeck help" };
+        var box = new TextBox { Dock = DockStyle.Fill, Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical, Text = help, AccessibleName = "WordDeck help text" };
         form.Controls.Add(box);
-        form.Shown += (_, _) =>
-        {
-            box.Focus();
-            box.SelectionStart = 0;
-            box.SelectionLength = 0;
-        };
+        form.Shown += (_, _) => { box.Focus(); box.SelectionStart = 0; box.SelectionLength = 0; };
         form.ShowDialog(this);
         RepeatCurrentWord();
     }
 
-    private static string FormatShortcut(Keys keys) => keys == Keys.None ? "Unassigned" : keys.ToString();
-
     protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
     {
         string? action = _shortcuts.FindAction(keyData);
-        if (action is null)
-            return base.ProcessCmdKey(ref msg, keyData);
+        if (action is null) return base.ProcessCmdKey(ref msg, keyData);
 
         if (action == ActionIds.NextWord) NextWord();
         else if (action == ActionIds.RevealTranslation) RevealTranslation();
@@ -986,18 +940,18 @@ internal sealed class MainForm : Form
         else if (action == ActionIds.Help) ShowHelp();
         else
         {
+            foreach (string scopeId in StudyScopeIds.Ordered)
+            {
+                if (action == ActionIds.SwitchStudyScope(scopeId))
+                {
+                    SwitchStudyScope(scopeId);
+                    return true;
+                }
+            }
             foreach (DeckDefinition deck in _decks.Decks)
             {
-                if (action == ActionIds.SwitchDeck(deck.Id))
-                {
-                    SwitchDeck(deck.Id);
-                    break;
-                }
-                if (action == ActionIds.MoveToDeck(deck.Id))
-                {
-                    MoveCurrentToDeck(deck.Id);
-                    break;
-                }
+                if (action == ActionIds.SwitchDeck(deck.Id)) { SwitchDeck(deck.Id); return true; }
+                if (action == ActionIds.MoveToDeck(deck.Id)) { MoveCurrentToDeck(deck.Id); return true; }
             }
         }
         return true;
@@ -1006,9 +960,12 @@ internal sealed class MainForm : Form
     private void SaveState()
     {
         _state.ActiveDictionaryId = _package?.Id;
-        _state.ActiveDeckId = _activeDeckId;
-        if (_package is not null && _current is not null)
-            _state.CurrentEntryIdByDictionary[_package.Id] = _current.Id;
+        if (_scopeService is not null)
+        {
+            _scopeService.SetActiveDeck(ActiveScopeId, _activeDeckId);
+            _scopeService.SetCurrentEntry(ActiveScopeId, _current?.Id);
+            PersistActiveShuffle();
+        }
         _store.Save(_state);
     }
 }
