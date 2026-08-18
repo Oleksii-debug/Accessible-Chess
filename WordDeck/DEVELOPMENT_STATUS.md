@@ -37,13 +37,13 @@ Blanket marker stripping remains forbidden because it would collapse semanticall
 
 `tools/analyze_sentence_gap_occurrence.py` measures only bounded exact evidence against the same attributed Tatoeba EN-UA pair input: exact single tokens, contiguous exact multiword sequences and conservative exact hyphenated forms. Sense-numbered/annotated records remain unmeasured.
 
-Current checkpoint `029dcf7abedf7a23bba4a07ada0cb30f70839897` extends that analyzer with actionable QA classes without adding morphology:
+Checkpoint `029dcf7abedf7a23bba4a07ada0cb30f70839897` extends that analyzer with actionable QA classes without adding morphology:
 - ordinary single-surface + exact corpus occurrence -> `exact_present_index_or_matching_defect_candidate`;
 - ordinary single-surface + no exact occurrence -> `exact_absent_corpus_or_inflection_candidate`;
 - safe exact phrase/hyphen present/absent -> bounded extension/corpus candidates;
 - sense/semantic/unsafe structural cases remain `structural_or_semantic_review_required`.
 
-The self-test now covers exact-present, exact-absent, phrase, hyphen and sense-protected classification paths. The attributed SentencePack workflow already runs this tool against freshly downloaded production pairs; real production class counts are still pending observation before any morphology dependency is introduced.
+The self-test covers exact-present, exact-absent, phrase, hyphen and sense-protected classification paths. The attributed SentencePack workflow runs this tool against freshly downloaded production pairs; real production class counts are still pending observation before any morphology dependency is introduced.
 
 Reuse-first decision before morphology remains unchanged: do not invent a stemmer/lemmatizer. Maintained spaCy is suitable only as development-time evidence if exact-absent counts justify it; Catalyst is .NET-compatible but adds older model/runtime footprint. No morphology dependency is currently shipped or added.
 
@@ -51,17 +51,22 @@ Reuse-first decision before morphology remains unchanged: do not invent a stemme
 
 Embedded package remains 3,308 Oxford-3000 positions. Oxford-3000 semantic translation QA remains 240 reviewed / 208 verified / 32 needs-second-pass / 3,068 awaiting first pass.
 
-Oxford-5000 additions extraction is incomplete. First 100 extracted B2/C1 additions have Ukrainian translations; ambiguous/polysemous/multi-POS records remain `needs_second_pass`. Do not claim Oxford 5000 complete until the full additional set is extracted and unresolved second-pass items reach zero.
+Oxford-5000 additions extraction is incomplete. First 100 extracted B2/C1 additions have Ukrainian translations; ambiguous/polysemous/multi-POS records remain `needs_second_pass`. Oxford Learner's Dictionaries remains the authoritative extraction reference; its official description confirms that Oxford 5000 = Oxford 3000 plus 2,000 additional B2/C1 words. Do not claim Oxford 5000 complete until the full additional set is extracted and unresolved second-pass items reach zero.
 
 ## British audio
 
 Technical generation remains 3,308 / 3,308 with aggregate structural integrity green. `Audio/pronunciation-overrides.tsv` contains 36 numbered/sense-marker candidates: 19 formatting-only `ready`, 17 heteronym/sense-sensitive `review`. Uppercase `CD`, `DVD`, `IT`, `OK`, `TV` remain explicit QA candidates. Runtime still does not depend on Kokoro/Python/API/network.
 
+Targeted regeneration plumbing is now implemented on `worddeck-bootstrap`: `generate_british_audio.py` accepts the existing ledger's `entry_id` column; `worddeck-audio.yml` runs the existing drift/semantic guard `validate_pronunciation_overrides.py` before selecting only `status=ready` rows; the active request is exactly 19 files. The workflow also requires exactly 19 generated files/manifest rows for this mode. This targeted batch is NOT yet marked verified here until the resulting Actions run/artifact is inspected.
+
+Reuse decision remains the existing Apache-2.0 Kokoro development-time pipeline and standard command-line/build tooling; no new audio/NLP/runtime subsystem was introduced.
+
 ## Exact next steps
 
-1. Observe/fix the attributed SentencePack workflow on the classified-gap checkpoint and record real present/absent counts for the 114 ordinary gaps.
-2. Only for exact-absent ordinary gaps, evaluate a maintained development-time lemmatizer to measure inflected-form-only evidence; do not ship morphology unless runtime need is demonstrated.
-3. Preserve semantic distinction for sense-numbered/annotated records; only add safe exact phrase/hyphen matching when corpus evidence justifies it.
-4. Target-regenerate only the 19 safe pronunciation overrides; resolve 17 heteronyms and 5 uppercase candidates before AudioPack completion.
-5. Continue Oxford-5000 extraction/translation/second-pass QA in substantial batches; continue Oxford-3000 semantic QA without blocking usable Recall/Spelling/Sentence slices.
-6. Never modify `main`.
+1. Inspect the targeted 19-file pronunciation Actions result; if green, validate manifest IDs/audio_text and record the artifact checkpoint. Do not touch the 17 heteronyms yet.
+2. Observe/fix the attributed SentencePack classified-gap workflow and record real present/absent counts for the 114 ordinary gaps.
+3. Only for exact-absent ordinary gaps, evaluate a maintained development-time lemmatizer to measure inflected-form-only evidence; do not ship morphology unless runtime need is demonstrated.
+4. Preserve semantic distinction for sense-numbered/annotated records; only add safe exact phrase/hyphen matching when corpus evidence justifies it.
+5. Resolve 17 audio heteronyms and 5 uppercase candidates before AudioPack completion.
+6. Continue Oxford-5000 extraction/translation/second-pass QA in substantial batches; continue Oxford-3000 semantic QA without blocking usable Recall/Spelling/Sentence slices.
+7. Never modify `main`.
