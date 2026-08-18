@@ -25,6 +25,7 @@
     <EmbeddedResource Include="QA\oxford5000_source_after_chamber_c1_0001_0029.tsv" />
     <EmbeddedResource Include="QA\oxford5000_source_after_colonial_c1_0001_0029.tsv" />
     <EmbeddedResource Include="QA\oxford5000_source_after_compute_c1_0001_0029.tsv" />
+    <EmbeddedResource Include="QA\oxford5000_source_after_constitution_c1_0001_0029.tsv" />
   </ItemGroup>
 
   <ItemGroup>
