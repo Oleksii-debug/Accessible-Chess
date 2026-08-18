@@ -18,7 +18,7 @@ internal static class DictionaryLoader
             .ToArray();
 
         if (resourceNames.Length == 0)
-            throw new InvalidOperationException("Embedded Oxford 3000 dictionary was not found.");
+            throw new InvalidOperationException("Embedded Oxford baseline dictionary was not found.");
 
         var base64 = new StringBuilder();
         foreach (string resourceName in resourceNames)
@@ -33,7 +33,8 @@ internal static class DictionaryLoader
         using var memory = new MemoryStream(compressed);
         using var gzip = new GZipStream(memory, CompressionMode.Decompress);
         using var dictionaryReader = new StreamReader(gzip, Encoding.UTF8, true);
-        return Parse(dictionaryReader.ReadToEnd(), BuiltInOxfordId, "Oxford 3000 English-Ukrainian");
+        DictionaryPackage baseline = Parse(dictionaryReader.ReadToEnd(), BuiltInOxfordId, "Oxford English-Ukrainian");
+        return ReviewedOxford5000Bootstrap.AppendTo(baseline);
     }
 
     public static DictionaryPackage LoadFromFile(string path)
