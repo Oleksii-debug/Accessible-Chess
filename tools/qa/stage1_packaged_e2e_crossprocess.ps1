@@ -233,7 +233,7 @@ try {
   if($focusedRid -ne $moveRid){ throw "Focus did not return to the original Move Edit after e4: focused runtime_id='$focusedRid'" }
 
   $fenAfterE4=Get-FenValue $elements
-  if($fenAfterE4 -notmatch '^rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1$'){
+  if($fenAfterE4 -notmatch '^rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1$'){
     throw "Legal e4 did not produce the canonical packaged FEN: '$fenAfterE4'"
   }
   $summary.e4_fen=$fenAfterE4
