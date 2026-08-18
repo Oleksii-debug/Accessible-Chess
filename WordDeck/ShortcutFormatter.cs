@@ -15,10 +15,11 @@ internal static class ShortcutFormatter
         Keys code = keys & Keys.KeyCode;
         if (code != Keys.None)
         {
+            int codeValue = (int)code;
             string key = code switch
             {
-                >= Keys.D0 and <= Keys.D9 => ((char)('0' + (code - Keys.D0))).ToString(),
-                >= Keys.NumPad0 and <= Keys.NumPad9 => "Num" + (code - Keys.NumPad0),
+                >= Keys.D0 and <= Keys.D9 => ((char)('0' + codeValue - (int)Keys.D0)).ToString(),
+                >= Keys.NumPad0 and <= Keys.NumPad9 => "Num" + (codeValue - (int)Keys.NumPad0),
                 Keys.Oemcomma => ",",
                 Keys.OemPeriod => ".",
                 Keys.OemMinus => "-",
