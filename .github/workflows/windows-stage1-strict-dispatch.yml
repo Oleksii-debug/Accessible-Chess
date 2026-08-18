@@ -30,7 +30,14 @@ jobs:
               throw 'PowerShell topology helper invocation is incorrectly judged by stale LASTEXITCODE'
             }
           }
-          'STRICT HELPER INVOCATION REGRESSION PASS'
+          $text=Get-Content $path -Raw
+          if($text -match 'System\.Collections\.Generic\.List\[object\]'){
+            throw 'Packaged interaction helper still contains generic List[object] binder ambiguity'
+          }
+          if($text -notmatch 'STRICT_HELPER_STACK='){
+            throw 'Packaged interaction helper must retain exact script-stack diagnostics'
+          }
+          'STRICT HELPER PARSER/INVOCATION/BINDER REGRESSION PASS'
       - name: Dispatch exactly one corrected strict run
         shell: pwsh
         env:
