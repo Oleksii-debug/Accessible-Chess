@@ -112,6 +112,17 @@ function Assert-MoveElementStrict($Move,[string]$ExpectedRuntimeId) {
   $null=Get-ValuePattern $Move 'Move Edit'
 }
 
+function Assert-MoveIdentityForBoardBridge($Move,[string]$ExpectedRuntimeId) {
+  if($null -eq $Move){ throw 'Original Move Edit identity disappeared during board-origin bridge' }
+  $rid=Get-RuntimeIdText $Move
+  if($rid -ne $ExpectedRuntimeId){ throw "Board-origin Move runtime identity drift: expected '$ExpectedRuntimeId' got '$rid'" }
+  $name=[string]$Move.Current.Name
+  if($name -notmatch '^(Хід|Move)$'){ throw "Board-origin Move accessible name drifted: '$name'" }
+  if(-not [bool]$Move.Current.IsEnabled){ throw 'Board-origin Move Edit is disabled' }
+  if(-not [bool]$Move.Current.IsKeyboardFocusable){ throw 'Board-origin Move Edit lost keyboard-focusable semantics' }
+  $null=Get-ValuePattern $Move 'Move Edit during board-origin bridge'
+}
+
 function Rewalk-ConnectedUi($Report) {
   $roots=Get-ProviderRootElements $Report
   return (Get-ControlViewElements $roots)
@@ -282,10 +293,16 @@ try {
   $targetName=[string]$target.Current.Name
   $target.SetFocus()
   Start-Sleep -Milliseconds 250
+  $boardFocused=[System.Windows.Automation.AutomationElement]::FocusedElement
+  if($null -eq $boardFocused){ throw 'Board origin focus disappeared before UIA submit bridge' }
+  $boardFocusedId=[string]$boardFocused.Current.AutomationId
+  $boardFocusedName=[string]$boardFocused.Current.Name
+  $boardOriginMatches=(($targetId -and $boardFocusedId -eq $targetId) -or ($targetName -and $boardFocusedName -eq $targetName))
+  if(-not $boardOriginMatches){ throw "Board origin was not established on a3 before UIA submit bridge: id='$boardFocusedId' name='$boardFocusedName'" }
 
   $elements=Rewalk-ConnectedUi $report
   $move=Find-ByRuntimeId $elements $moveRid
-  Assert-MoveElementStrict $move $moveRid
+  Assert-MoveIdentityForBoardBridge $move $moveRid
   $moveVp=Get-ValuePattern $move 'Move Edit before board rerender'
   $moveVp.SetValue('e5')
   $submit=Find-ByAutomationIdOrName $elements 'move-submit' '^(Зробити хід|Make move)$' 'ControlType.Button'
