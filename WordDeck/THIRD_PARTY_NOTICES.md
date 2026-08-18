@@ -88,6 +88,16 @@ References checked 2026-08-17:
 
 Synthetic regression sentences are test-only data and are never presented as Tatoeba/human-verified corpus content.
 
+## Oxford 5000 lexical QA provenance
+
+Oxford Learner's Dictionaries is used as the authoritative sense/POS/CEFR reference for the Oxford-5000 additions QA. WordDeck does not copy Oxford definitions into the shipped dictionary; the QA process uses the official entries to select concise Ukrainian equivalents while preserving materially distinct POS/sense distinctions.
+
+On 2026-08-18 the first extracted additions batch (`ox5000-add-0001` through `ox5000-add-0100`) received a source-backed second pass for every previously ambiguous row. The checked Oxford entries included `absorb`, `abuse`, `accent`, `accommodate`, `accordingly`, `acute`, `adhere`, `adjust`, `administer`, `admission`, `adoption`, `advocate`, `alert`, `alien`, `allegation`, `allege`, `allowance`, `altogether` and `apparatus`. This QA does not imply that the full additional 2,000-word Oxford-5000 set has been extracted or verified.
+
+Official references checked 2026-08-18:
+- https://www.oxfordlearnersdictionaries.com/
+- individual Oxford Advanced Learner's Dictionary entries for the terms listed above
+
 ## British pronunciation generation provenance
 
 British pronunciation generation is a development/build-time pipeline. The shipped runtime does **not** require Kokoro, Python, espeak-ng, a network service or an API; it only plays generated MP3 files resolved by stable dictionary/entry ID.
