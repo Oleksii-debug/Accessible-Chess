@@ -111,6 +111,33 @@ jobs:
             echo 'At least one audio file is suspiciously small.' >&2
             exit 1
           } || true
+          python - <<'PY'
+          import hashlib
+          import json
+          from pathlib import Path
+
+          root = Path('/tmp/worddeck-audio')
+          records = [json.loads(line) for line in (root / 'manifest.jsonl').read_text(encoding='utf-8').splitlines() if line.strip()]
+          ids = [record.get('id') for record in records]
+          files = [record.get('file') for record in records]
+          if len(ids) != len(set(ids)):
+              raise SystemExit('Audio manifest contains duplicate stable IDs')
+          if len(files) != len(set(files)):
+              raise SystemExit('Audio manifest contains duplicate file names')
+          for record in records:
+              path = root / str(record.get('file') or '')
+              expected_hash = str(record.get('sha256') or '')
+              if len(expected_hash) != 64:
+                  raise SystemExit(f"Missing/invalid SHA-256 for {record.get('id')}")
+              if not path.is_file():
+                  raise SystemExit(f"Manifest file missing: {path.name}")
+              actual_hash = hashlib.sha256(path.read_bytes()).hexdigest()
+              if actual_hash != expected_hash:
+                  raise SystemExit(f"SHA-256 mismatch for {record.get('id')}: {actual_hash} != {expected_hash}")
+              if path.stat().st_size != int(record.get('bytes') or -1):
+                  raise SystemExit(f"Byte-size mismatch for {record.get('id')}")
+          print(f'Validated {len(records)} manifest rows with unique IDs/files, exact byte sizes and SHA-256.')
+          PY
 
       - name: Pack batch
         shell: bash
