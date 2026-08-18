@@ -8,6 +8,7 @@ on:
       - 'WordDeck/tools/build_tatoeba_ccby_pairs.py'
       - 'WordDeck/tools/resolve_sentence_coverage_gaps.py'
       - 'WordDeck/tools/analyze_sentence_gap_occurrence.py'
+      - 'WordDeck/tools/summarize_sentence_gap_qa.py'
       - 'WordDeck/QA/sentence_coverage_gaps_20260817.txt'
       - 'WordDeck/TatoebaImportProvenance.cs'
       - 'WordDeck/TatoebaSentencePackBuilder.cs'
@@ -47,6 +48,7 @@ jobs:
           python .\WordDeck\tools\build_tatoeba_ccby_pairs.py --self-test
           python .\WordDeck\tools\resolve_sentence_coverage_gaps.py --self-test
           python .\WordDeck\tools\analyze_sentence_gap_occurrence.py --self-test
+          python .\WordDeck\tools\summarize_sentence_gap_qa.py --self-test
 
       - name: Restore build and regression test
         shell: pwsh
@@ -73,6 +75,9 @@ jobs:
             --resolved .\sentencepack-ccby\resolved-sentence-coverage-gaps.tsv `
             --pairs .\sentencepack-ccby\tatoeba-en-uk-ccby.tsv `
             --output .\sentencepack-ccby\sentence-gap-exact-occurrence.tsv
+          python .\WordDeck\tools\summarize_sentence_gap_qa.py `
+            --input .\sentencepack-ccby\sentence-gap-exact-occurrence.tsv `
+            --output .\sentencepack-ccby\sentence-gap-summary.json
 
           $rows = @(Import-Csv .\sentencepack-ccby\sentence-gap-exact-occurrence.tsv -Delimiter "`t")
           if ($rows.Count -ne 188) { throw "Expected 188 gap rows, got $($rows.Count)" }
@@ -82,7 +87,15 @@ jobs:
           if ($unmeasuredSingle.Count -ne 0) { throw "$($unmeasuredSingle.Count) single-surface gaps were not measured" }
           $presentSingle = @($single | Where-Object { [int]$_.exact_sentence_match_count -gt 0 }).Count
           $absentSingle = @($single | Where-Object { [int]$_.exact_sentence_match_count -eq 0 }).Count
+
+          $summary = Get-Content .\sentencepack-ccby\sentence-gap-summary.json -Raw | ConvertFrom-Json
+          if ($summary.input_gap_rows -ne 188) { throw "Gap summary total mismatch: $($summary.input_gap_rows)" }
+          if ($summary.ordinary_single_surface.total -ne 114) { throw "Gap summary single-surface total mismatch: $($summary.ordinary_single_surface.total)" }
+          if ($summary.ordinary_single_surface.exact_present -ne $presentSingle) { throw 'Gap summary exact-present count differs from TSV.' }
+          if ($summary.ordinary_single_surface.exact_absent -ne $absentSingle) { throw 'Gap summary exact-absent count differs from TSV.' }
+          if (($summary.ordinary_single_surface.exact_present + $summary.ordinary_single_surface.exact_absent) -ne 114) { throw 'Gap summary did not partition all ordinary single-surface gaps.' }
           Write-Host "Single-surface exact occurrence: present=$presentSingle absent=$absentSingle total=$($single.Count)"
+          $summary | Format-List
 
       - name: Build attributed WordDeck SentencePack
         shell: pwsh
@@ -208,6 +221,7 @@ jobs:
             sentencepack-ccby/coverage-report.json
             sentencepack-ccby/resolved-sentence-coverage-gaps.tsv
             sentencepack-ccby/sentence-gap-exact-occurrence.tsv
+            sentencepack-ccby/sentence-gap-summary.json
             sentencepack-ccby/compression-report.json
             sentencepack-ccby/load-diagnostics.json
             sentencepack-ccby/sqlite-query-diagnostics.json
