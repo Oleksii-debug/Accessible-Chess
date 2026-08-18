@@ -21,6 +21,7 @@
     <EmbeddedResource Include="QA\oxford5000_additions_second_pass_0121_0140.tsv" />
     <EmbeddedResource Include="QA\oxford5000_additions_second_pass_0141_0200.tsv" />
     <EmbeddedResource Include="QA\oxford5000_legacy_split_map_0001_0200.tsv" />
+    <EmbeddedResource Include="QA\oxford5000_source_after_blow_c1_0001_0043.tsv" />
   </ItemGroup>
 
   <ItemGroup>
