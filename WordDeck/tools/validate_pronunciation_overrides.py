@@ -5,8 +5,9 @@ This tool intentionally uses only the Python standard library and is never a run
 WordDeck dependency. It verifies stable IDs/source text against the embedded Oxford
 TSV source and can emit a deterministic targeted-regeneration request.
 
-Reviewed heteronyms may use Kokoro/Misaki raw British-English phonemes. This reuses
-Kokoro's supported generate_from_tokens path rather than introducing a custom G2P.
+Reviewed pronunciation-sensitive entries may use Kokoro/Misaki raw British-English
+phonemes. This reuses Kokoro's supported generate_from_tokens path rather than
+introducing a custom G2P or acronym pronunciation subsystem.
 """
 
 from __future__ import annotations
@@ -30,7 +31,14 @@ EXPECTED_MARKER_IDS = {
     "oxford-b1-0768", "oxford-b1-0769", "oxford-b2-0105", "oxford-b2-0468",
     "oxford-b2-0481", "oxford-b2-0655", "oxford-b2-0656", "oxford-b2-0716",
 }
-EXPECTED_ACRONYMS = {"CD", "DVD", "IT", "OK", "TV"}
+EXPECTED_ACRONYM_IDS = {
+    "oxford-a1-0129": "CD",
+    "oxford-a1-0224": "DVD",
+    "oxford-a1-0541": "OK",
+    "oxford-a1-0820": "TV",
+    "oxford-b1-0379": "IT",
+}
+EXPECTED_OVERRIDE_IDS = EXPECTED_MARKER_IDS | set(EXPECTED_ACRONYM_IDS)
 VALID_STATUSES = {"ready", "review"}
 LEGACY_COLUMNS = ["entry_id", "source", "audio_text", "status", "reason"]
 CURRENT_COLUMNS = [*LEGACY_COLUMNS, "phonemes"]
@@ -102,10 +110,10 @@ def validate(entries: Dict[str, dict], rows: List[dict]) -> dict:
     ids = [row["entry_id"] for row in rows]
     if len(ids) != len(set(ids)):
         raise RuntimeError("Pronunciation override ledger contains duplicate entry IDs.")
-    if set(ids) != EXPECTED_MARKER_IDS:
-        missing = sorted(EXPECTED_MARKER_IDS - set(ids))
-        extra = sorted(set(ids) - EXPECTED_MARKER_IDS)
-        raise RuntimeError(f"Marker candidate set drifted. Missing={missing}; extra={extra}")
+    if set(ids) != EXPECTED_OVERRIDE_IDS:
+        missing = sorted(EXPECTED_OVERRIDE_IDS - set(ids))
+        extra = sorted(set(ids) - EXPECTED_OVERRIDE_IDS)
+        raise RuntimeError(f"Pronunciation candidate set drifted. Missing={missing}; extra={extra}")
 
     ready = []
     review = []
@@ -143,23 +151,34 @@ def validate(entries: Dict[str, dict], rows: List[dict]) -> dict:
                 raise RuntimeError(f"Review-only row must not silently define generation data: {entry_id}")
             review.append(row)
 
-    if len(ready) + len(review) != 36:
-        raise RuntimeError(f"Expected 36 marker candidates; got {len(ready)} ready and {len(review)} review.")
-
-    acronym_entries = [
-        {"entry_id": entry_id, "source": item["source"], "level": item["level"]}
-        for entry_id, item in entries.items()
-        if item["source"] in EXPECTED_ACRONYMS
-    ]
-    found_acronyms = {item["source"] for item in acronym_entries}
-    if found_acronyms != EXPECTED_ACRONYMS:
+    if len(ready) + len(review) != len(EXPECTED_OVERRIDE_IDS):
         raise RuntimeError(
-            f"Expected uppercase QA candidates {sorted(EXPECTED_ACRONYMS)}, found {sorted(found_acronyms)}"
+            f"Expected {len(EXPECTED_OVERRIDE_IDS)} pronunciation candidates; "
+            f"got {len(ready)} ready and {len(review)} review."
+        )
+
+    acronym_entries = []
+    for entry_id, expected_source in EXPECTED_ACRONYM_IDS.items():
+        actual = entries.get(entry_id)
+        if actual is None or actual["source"] != expected_source:
+            raise RuntimeError(
+                f"Uppercase source drift for {entry_id}: expected {expected_source!r}, "
+                f"found {None if actual is None else actual['source']!r}"
+            )
+        acronym_entries.append({"entry_id": entry_id, "source": expected_source, "level": actual["level"]})
+
+    unresolved_acronyms = [row for row in rows if row["entry_id"] in EXPECTED_ACRONYM_IDS and row["status"] != "ready"]
+    if unresolved_acronyms:
+        raise RuntimeError(
+            "Uppercase pronunciation candidates must be source-resolved before regeneration: "
+            + ", ".join(row["entry_id"] for row in unresolved_acronyms)
         )
 
     return {
         "dictionary_entry_count": len(entries),
-        "marker_candidate_count": len(rows),
+        "marker_candidate_count": len(EXPECTED_MARKER_IDS),
+        "uppercase_candidate_count": len(EXPECTED_ACRONYM_IDS),
+        "override_candidate_count": len(rows),
         "ready_override_count": len(ready),
         "phoneme_override_count": len(phoneme_ready),
         "review_only_count": len(review),
@@ -171,7 +190,7 @@ def validate(entries: Dict[str, dict], rows: List[dict]) -> dict:
 
 def emit_request(path: Path, report: dict) -> None:
     payload = {
-        "schema": "worddeck-pronunciation-regeneration-v2",
+        "schema": "worddeck-pronunciation-regeneration-v3",
         "dictionary_id": "oxford-3000-en-uk",
         "accent": "en-GB",
         "ready_overrides": [
@@ -188,7 +207,7 @@ def emit_request(path: Path, report: dict) -> None:
             {"entry_id": row["entry_id"], "source": row["source"], "reason": row["reason"]}
             for row in report["review"]
         ],
-        "uppercase_listening_qa": report["acronym_candidates"],
+        "resolved_uppercase_sources": report["acronym_candidates"],
     }
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
@@ -212,11 +231,11 @@ def main() -> int:
 
     print(
         "Pronunciation override ledger validated: "
-        f"{report['marker_candidate_count']} marker candidates; "
+        f"{report['marker_candidate_count']} marker candidates + "
+        f"{report['uppercase_candidate_count']} uppercase candidates; "
         f"{report['ready_override_count']} ready for targeted regeneration "
         f"({report['phoneme_override_count']} raw-phoneme); "
-        f"{report['review_only_count']} held for phonetic/listening QA; "
-        f"{len(report['acronym_candidates'])} uppercase candidates."
+        f"{report['review_only_count']} held for phonetic/listening QA."
     )
     if args.self_test:
         print("Pronunciation override self-test passed.")
