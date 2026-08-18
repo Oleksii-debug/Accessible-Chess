@@ -12,6 +12,12 @@ from acs.webview2_accessibility import (
     install_pywebview_accessibility_host_patch,
     repair_edgechromium_accessibility_host,
 )
+from acs.webview_safe_server import (
+    CHROMIUM_RESTRICTED_PORTS,
+    choose_chromium_safe_loopback_port,
+    install_pywebview_safe_local_server_port,
+    validate_chromium_safe_port,
+)
 
 
 class _Event:
@@ -44,6 +50,15 @@ class _Control:
 
     def FindForm(self):
         return self._host
+
+
+class _FakeWebview:
+    def __init__(self) -> None:
+        self.calls = []
+
+    def start(self, *args, **kwargs):
+        self.calls.append((args, kwargs))
+        return "started"
 
 
 class Stage1WebView2AccessibilityBoundaryTests(unittest.TestCase):
@@ -104,18 +119,55 @@ class Stage1WebView2AccessibilityBoundaryTests(unittest.TestCase):
         launcher = (self.root / "run_accessible_chess.py").read_text(encoding="utf-8")
         enable_index = launcher.index("enable_webview2_renderer_accessibility()")
         patch_index = launcher.index("install_pywebview_accessibility_host_patch()")
+        safe_server_index = launcher.index("install_pywebview_safe_local_server_port()")
         stage1_import_index = launcher.index("from acs.stage1_release_ui import main")
         self.assertLess(enable_index, patch_index)
-        self.assertLess(patch_index, stage1_import_index)
+        self.assertLess(patch_index, safe_server_index)
+        self.assertLess(safe_server_index, stage1_import_index)
+
+    def test_observed_unsafe_port_is_rejected_before_packaged_start(self) -> None:
+        self.assertIn(6666, CHROMIUM_RESTRICTED_PORTS)
+        with self.assertRaises(ValueError):
+            validate_chromium_safe_port(6666)
+        chosen = choose_chromium_safe_loopback_port(
+            (6666, 42001, 42002),
+            availability_probe=lambda port: True,
+        )
+        self.assertEqual(chosen, 42001)
+
+    def test_packaged_start_overrides_accidental_unsafe_http_port(self) -> None:
+        fake = _FakeWebview()
+        self.assertTrue(
+            install_pywebview_safe_local_server_port(
+                fake,
+                port_selector=lambda: 42001,
+            )
+        )
+        self.assertEqual(
+            fake.start(gui="edgechromium", private_mode=True, http_port=6666),
+            "started",
+        )
+        _args, kwargs = fake.calls[-1]
+        self.assertEqual(kwargs["http_port"], 42001)
+        self.assertNotEqual(kwargs["http_port"], 6666)
+
+    def test_safe_server_fails_closed_when_no_vetted_port_is_available(self) -> None:
+        with self.assertRaises(RuntimeError):
+            choose_chromium_safe_loopback_port(
+                (6666, 42001),
+                availability_probe=lambda port: False,
+            )
 
     def test_boundary_does_not_create_native_or_hidden_proxy_move_controls(self) -> None:
         boundary = (self.root / "acs" / "webview2_accessibility.py").read_text(encoding="utf-8")
+        safe_server = (self.root / "acs" / "webview_safe_server.py").read_text(encoding="utf-8")
         launcher = (self.root / "run_accessible_chess.py").read_text(encoding="utf-8")
-        text = boundary + "\n" + launcher
+        text = boundary + "\n" + safe_server + "\n" + launcher
         self.assertNotIn("TextBox(", text)
         self.assertNotIn("CreateWindow", text)
         self.assertNotIn("move-input-proxy", text)
         self.assertNotIn("aria-hidden", text)
+        self.assertNotIn("--explicitly-allowed-ports", text)
 
 
 if __name__ == "__main__":
