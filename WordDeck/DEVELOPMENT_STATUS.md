@@ -53,19 +53,22 @@ This is a completed QA milestone only for the first extracted 100 additions, not
 
 ## British audio
 
-Technical generation remains 3,308 / 3,308 with aggregate structural integrity green. `Audio/pronunciation-overrides.tsv` contains 36 numbered/sense-marker candidates: 19 formatting-only `ready`, 17 heteronym/sense-sensitive `review`. Uppercase `CD`, `DVD`, `IT`, `OK`, `TV` remain explicit QA candidates. Runtime still does not depend on Kokoro/Python/API/network.
+Technical generation remains 3,308 / 3,308 with aggregate structural integrity green.
 
-Targeted regeneration plumbing is implemented: `generate_british_audio.py` accepts the existing ledger's `entry_id`; `worddeck-audio.yml` validates the ledger before selecting only `status=ready` rows; the active request is exactly 19 files. This targeted batch is not promoted to a verified artifact checkpoint until its Actions output is inspected.
+The 36 numbered/sense-marker candidates in `Audio/pronunciation-overrides.tsv` are now all source-resolved and marked `ready`: the original 19 formatting-only rows retain simple `audio_text` normalization, while the 17 former heteronym/sense-sensitive blockers now carry source-backed British Kokoro/Misaki raw-phoneme overrides. Oxford headword numbering/POS/pronunciation was checked on 2026-08-18; the detailed mapping is recorded in `Audio/OXFORD3000_HETERONYM_QA_20260818.md`.
 
-Reuse decision remains the existing Apache-2.0 Kokoro development-time pipeline and standard command-line/build tooling; no new audio/NLP/runtime subsystem was introduced.
+Reuse-first decision: no custom homograph classifier or G2P was added. Existing Apache-2.0 Kokoro/Misaki development tooling is reused through Kokoro's supported `KPipeline.generate_from_tokens()` raw-phoneme path. `generate_british_audio.py` now selects that path only when a reviewed row supplies `phonemes`; ordinary generation is unchanged. `validate_pronunciation_overrides.py` fail-closes on unsupported British Misaki phoneme characters and requires exactly one of text or raw-phoneme override for every `ready` row. None of this changes WordDeck runtime dependencies.
+
+The active targeted request is now exactly 36 numbered/sense-marker files. The new 36-file Actions artifact is **not yet promoted to verified** because this connector session cannot inspect the push-triggered Actions run/artifact directly. Do not claim regenerated audio complete until manifest/file inspection is available.
+
+Uppercase `CD`, `DVD`, `IT`, `OK`, `TV` remain explicit QA candidates. Broader parenthetical/multiword listening QA also remains before final AudioPack release.
 
 ## Exact next steps
 
-1. Inspect the production attributed SentencePack artifact from the classified-gap workflow; record real exact-present/exact-absent counts for the 114 ordinary gaps.
-2. Treat exact-present ordinary gaps as matcher/index QA, not morphology candidates. Evaluate a maintained development-time lemmatizer only for the exact-absent ordinary IDs if the measured set justifies it.
-3. Inspect the Windows run triggered by the Oxford-5000 QA gate and require the new `Validate Oxford 5000 additions translation QA` step plus all existing build/self-tests/publish checks to pass before calling the CI integration verified.
-4. Inspect the targeted 19-file pronunciation Actions result; if green, validate manifest IDs/audio_text and record the artifact checkpoint. Do not touch the 17 heteronyms until exact British pronunciation is established.
+1. Inspect the new targeted 36-file pronunciation Actions result; validate all stable IDs, manifest `audio_text`/`phonemes`, nontrivial file sizes and intended voices before promoting the artifact.
+2. Resolve the five uppercase candidates (`CD`, `DVD`, `IT`, `OK`, `TV`) using source IDs plus listening/phonetic evidence; do not assume letter-by-letter output without checking the generated path.
+3. Inspect the production attributed SentencePack artifact from the classified-gap workflow; record real exact-present/exact-absent counts for the 114 ordinary gaps. Treat exact-present ordinary gaps as matcher/index QA, not morphology candidates.
+4. Evaluate a maintained development-time lemmatizer only for the exact-absent ordinary SentencePack IDs if the measured set justifies it.
 5. Continue Oxford-5000 extraction in substantial source-backed batches; the next content batch starts after `ox5000-add-0100`.
-6. Resolve 17 audio heteronyms and 5 uppercase candidates before AudioPack completion.
-7. Continue Oxford-3000 semantic QA without blocking usable Recall/Spelling/Sentence slices.
-8. Never modify `main`.
+6. Continue Oxford-3000 semantic QA without blocking usable Recall/Spelling/Sentence slices.
+7. Never modify `main`.
