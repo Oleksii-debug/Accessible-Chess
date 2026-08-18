@@ -15,9 +15,10 @@ def complete_view(**overrides):
     return base
 
 
-def root(**overrides):
-    base = dict(relevant_provider_root=True, connected_to_app=True, from_handle_success=True,
-                provider_subtree_seen=True, raw_view=complete_view(), control_view=complete_view())
+def root(hwnd='0x1', **overrides):
+    base = dict(hwnd=hwnd, relevant_provider_root=True, connected_to_app=True,
+                from_handle_success=True, provider_subtree_seen=True,
+                raw_view=complete_view(), control_view=complete_view())
     base.update(overrides)
     return base
 
@@ -25,10 +26,12 @@ def root(**overrides):
 def move(**overrides):
     base = dict(control_type='ControlType.Edit', name='Хід', connected_to_app=True,
                 source_root_connected=True, source_contract_original_possible=True,
+                source_root_hwnd='0x1', source_root_pid=2, source_root_class='Chrome_WidgetWin_1',
                 enabled=True, keyboard_focusable=True, offscreen=False,
                 is_control_element=True, is_content_element=True, value_pattern=True,
                 bounds=[1, 1, 100, 20], runtime_id='1.2.3', process_id=2,
-                native_window_handle=3, automation_id='move-input')
+                process_name='msedgewebview2.exe', native_window_handle=3,
+                automation_id='move-input', framework_id='Chrome', view='ControlView')
     base.update(overrides)
     return base
 
@@ -42,6 +45,7 @@ def base_report():
             'uia_subtree_proven': True, 'provider_transition_proven': True,
             'unresolved_boundary_count': 0,
         },
+        'provider_transitions': [{'from_pid': 1, 'to_pid': 2}],
         'connected_edits': [],
         'source_contract': {'unique_original_move_edit': True, 'no_qa_proxy_in_product_tree': True},
     }
@@ -63,7 +67,7 @@ class ClassificationTests(unittest.TestCase):
         r = base_report(); r['root_attempts'][0]['raw_view'] = complete_view(completed=False, cap_reached=True, truncated=True)
         self.assertEqual(classifier.classify(r)[0], 'C')
 
-    def test_disconnected_random_provider_is_c(self):
+    def test_disconnected_candidate_is_c(self):
         r = base_report(); r['root_attempts'][0]['connected_to_app'] = False
         self.assertEqual(classifier.classify(r)[0], 'C')
 
@@ -75,40 +79,98 @@ class ClassificationTests(unittest.TestCase):
         r = base_report(); r['root_attempts'][0]['control_view'] = complete_view(completed=False)
         self.assertEqual(classifier.classify(r)[0], 'C')
 
-    def test_hidden_edit_not_a(self):
+    def test_hidden_original_edit_is_b(self):
         r = base_report(); r['connected_edits'] = [move(offscreen=True)]
-        self.assertEqual(classifier.classify(r)[0], 'C')
+        classification, reasons = classifier.classify(r)
+        self.assertEqual(classification, 'B')
+        self.assertIn('offscreen', reasons[0])
 
-    def test_no_value_pattern_not_a(self):
+    def test_no_value_pattern_original_edit_is_b(self):
         r = base_report(); r['connected_edits'] = [move(value_pattern=False)]
-        self.assertEqual(classifier.classify(r)[0], 'C')
+        classification, reasons = classifier.classify(r)
+        self.assertEqual(classification, 'B')
+        self.assertIn('ValuePattern unavailable', reasons[0])
+
+    def test_non_focusable_original_edit_is_b(self):
+        r = base_report(); r['connected_edits'] = [move(keyboard_focusable=False)]
+        classification, reasons = classifier.classify(r)
+        self.assertEqual(classification, 'B')
+        self.assertIn('not keyboard-focusable', reasons[0])
 
     def test_duplicate_move_is_c(self):
         r = base_report(); r['connected_edits'] = [move(runtime_id='1'), move(runtime_id='2')]
         self.assertEqual(classifier.classify(r)[0], 'C')
 
-    def test_wrong_name_not_a_and_complete_can_be_b(self):
+    def test_wrong_name_and_complete_traversal_is_b(self):
         r = base_report(); r['connected_edits'] = [move(name='FEN')]
         self.assertEqual(classifier.classify(r)[0], 'B')
 
-    def test_real_move_is_a(self):
+    def test_real_english_move_is_a(self):
         r = base_report(); r['connected_edits'] = [move(name='Move')]
         self.assertEqual(classifier.classify(r)[0], 'A')
 
     def test_cycle_is_c(self):
-        r = base_report(); r['root_attempts'][0]['control_view'] = complete_view(completed=False, cycle_or_duplicate_count=1)
+        r = base_report(); r['root_attempts'][0]['control_view'] = complete_view(
+            completed=False, cycle_or_duplicate_count=1)
         self.assertEqual(classifier.classify(r)[0], 'C')
 
     def test_missing_provider_transition_is_c(self):
-        r = base_report(); r['provider_chain']['provider_transition_proven'] = False
+        r = base_report(); r['provider_transitions'] = []
         self.assertEqual(classifier.classify(r)[0], 'C')
 
-    def test_unresolved_boundary_is_c(self):
-        r = base_report(); r['provider_chain']['unresolved_boundary_count'] = 1
+    def test_complete_singleton_chrome_shell_does_not_block_b(self):
+        r = base_report()
+        r['root_attempts'].append(
+            root(hwnd='0x2', provider_subtree_seen=False,
+                 raw_view=complete_view(), control_view=complete_view())
+        )
+        classification, reasons = classifier.classify(r)
+        self.assertEqual(classification, 'B')
+        self.assertNotIn('incomplete', ' '.join(reasons))
+
+    def test_incomplete_shell_still_blocks_absence_proof(self):
+        r = base_report()
+        r['root_attempts'].append(
+            root(hwnd='0x2', provider_subtree_seen=False,
+                 raw_view=complete_view(completed=False))
+        )
         self.assertEqual(classifier.classify(r)[0], 'C')
 
     def test_source_proxy_uncertainty_blocks_b(self):
         r = base_report(); r['source_contract']['no_qa_proxy_in_product_tree'] = False
+        self.assertEqual(classifier.classify(r)[0], 'C')
+
+    def test_move_from_non_provider_root_is_c(self):
+        r = base_report()
+        r['root_attempts'].append(root(hwnd='0x2', provider_subtree_seen=False))
+        r['connected_edits'] = [move(source_root_hwnd='0x2')]
+        classification, reasons = classifier.classify(r)
+        self.assertEqual(classification, 'C')
+        self.assertTrue(any('not proven original' in x for x in reasons))
+
+    def test_unexpected_automation_id_blocks_original_provenance(self):
+        r = base_report(); r['connected_edits'] = [move(automation_id='qa-proxy')]
+        classification, reasons = classifier.classify(r)
+        self.assertEqual(classification, 'C')
+        self.assertTrue(any('not proven original' in x for x in reasons))
+
+    def test_repeated_same_runtime_id_across_views_is_one_identity(self):
+        r = base_report()
+        r['connected_edits'] = [move(view='RawView'), move(view='ControlView')]
+        self.assertEqual(classifier.classify(r)[0], 'A')
+
+    def test_apply_classification_retains_move_failure_details(self):
+        r = base_report(); r['connected_edits'] = [move(offscreen=True, value_pattern=False)]
+        classifier.apply_classification(r)
+        self.assertEqual(r['classification'], 'B')
+        self.assertEqual(len(r['move_edit_evaluations']), 1)
+        failures = r['move_edit_evaluations'][0]['best_accessibility_failures']
+        self.assertIn('offscreen', failures)
+        self.assertIn('ValuePattern unavailable', failures)
+        self.assertTrue(r['topology_evaluation']['complete'])
+
+    def test_source_contract_unique_required_for_b(self):
+        r = base_report(); r['source_contract']['unique_original_move_edit'] = False
         self.assertEqual(classifier.classify(r)[0], 'C')
 
 

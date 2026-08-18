@@ -56,107 +56,209 @@ def _edit_identity(edit: dict[str, Any]) -> str:
     )
 
 
-def _valid_move_edit(edit: dict[str, Any]) -> bool:
+def _root_map(report: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    return {
+        str(root.get("hwnd") or ""): root
+        for root in report.get("root_attempts", [])
+        if isinstance(root, dict) and root.get("hwnd")
+    }
+
+
+def _root_complete(root: dict[str, Any]) -> bool:
     return all(
         (
-            edit.get("control_type") == "ControlType.Edit",
-            edit.get("name") in MOVE_NAMES,
-            _truth(edit.get("connected_to_app")),
-            _truth(edit.get("source_root_connected")),
-            _truth(edit.get("source_contract_original_possible")),
-            _truth(edit.get("enabled")),
-            _truth(edit.get("keyboard_focusable")),
-            not bool(edit.get("offscreen", True)),
-            _truth(edit.get("is_control_element")),
-            _truth(edit.get("is_content_element")),
-            _truth(edit.get("value_pattern")),
-            _positive_bounds(edit.get("bounds")),
+            _truth(root.get("connected_to_app")),
+            _truth(root.get("from_handle_success")),
+            _view_complete(root.get("raw_view")),
+            _view_complete(root.get("control_view")),
         )
     )
+
+
+def _source_contract_ok(report: dict[str, Any]) -> bool:
+    contract = report.get("source_contract")
+    return (
+        isinstance(contract, dict)
+        and _truth(contract.get("unique_original_move_edit"))
+        and _truth(contract.get("no_qa_proxy_in_product_tree"))
+    )
+
+
+def _move_occurrence_evaluation(
+    edit: dict[str, Any], roots: dict[str, dict[str, Any]]
+) -> dict[str, Any]:
+    source_root = roots.get(str(edit.get("source_root_hwnd") or ""))
+    automation_id = str(edit.get("automation_id") or "")
+    provenance_failures: list[str] = []
+    if not _truth(edit.get("connected_to_app")):
+        provenance_failures.append("not connected to app")
+    if not _truth(edit.get("source_root_connected")):
+        provenance_failures.append("source root not connected")
+    if not _truth(edit.get("source_contract_original_possible")):
+        provenance_failures.append("source contract does not permit original identity")
+    if not source_root:
+        provenance_failures.append("source root not retained")
+    elif not _truth(source_root.get("provider_subtree_seen")):
+        provenance_failures.append("source root does not expose provider subtree")
+    if automation_id and automation_id != "move-input":
+        provenance_failures.append(f"unexpected AutomationId={automation_id}")
+
+    accessibility_failures: list[str] = []
+    if not _truth(edit.get("enabled")):
+        accessibility_failures.append("disabled")
+    if not _truth(edit.get("keyboard_focusable")):
+        accessibility_failures.append("not keyboard-focusable")
+    if bool(edit.get("offscreen", True)):
+        accessibility_failures.append("offscreen")
+    if not _truth(edit.get("is_control_element")):
+        accessibility_failures.append("not a ControlView element")
+    if not _truth(edit.get("is_content_element")):
+        accessibility_failures.append("not a ContentView element")
+    if not _truth(edit.get("value_pattern")):
+        accessibility_failures.append("ValuePattern unavailable")
+    if not _positive_bounds(edit.get("bounds")):
+        accessibility_failures.append("non-positive/unknown bounds")
+
+    proven_original = not provenance_failures
+    strict_valid = proven_original and not accessibility_failures
+    return {
+        "view": edit.get("view"),
+        "source_root_hwnd": edit.get("source_root_hwnd"),
+        "source_root_pid": edit.get("source_root_pid"),
+        "source_root_class": edit.get("source_root_class"),
+        "runtime_id": edit.get("runtime_id"),
+        "process_id": edit.get("process_id"),
+        "process_name": edit.get("process_name"),
+        "native_window_handle": edit.get("native_window_handle"),
+        "name": edit.get("name"),
+        "automation_id": automation_id,
+        "framework_id": edit.get("framework_id"),
+        "enabled": bool(edit.get("enabled")),
+        "keyboard_focusable": bool(edit.get("keyboard_focusable")),
+        "has_keyboard_focus": bool(edit.get("has_keyboard_focus")),
+        "offscreen": bool(edit.get("offscreen", True)),
+        "is_control_element": bool(edit.get("is_control_element")),
+        "is_content_element": bool(edit.get("is_content_element")),
+        "value_pattern": bool(edit.get("value_pattern")),
+        "bounds": edit.get("bounds"),
+        "proven_original": proven_original,
+        "strict_valid": strict_valid,
+        "provenance_failures": provenance_failures,
+        "accessibility_failures": accessibility_failures,
+        "ancestor_path": edit.get("ancestor_path"),
+    }
+
+
+def _move_evaluations(report: dict[str, Any]) -> list[dict[str, Any]]:
+    roots = _root_map(report)
+    groups: dict[str, list[dict[str, Any]]] = {}
+    for edit in report.get("connected_edits", []):
+        if not isinstance(edit, dict):
+            continue
+        if edit.get("control_type") != "ControlType.Edit" or edit.get("name") not in MOVE_NAMES:
+            continue
+        groups.setdefault(_edit_identity(edit), []).append(edit)
+
+    evaluations: list[dict[str, Any]] = []
+    for identity, occurrences in groups.items():
+        occurrence_evals = [_move_occurrence_evaluation(edit, roots) for edit in occurrences]
+        proven = [x for x in occurrence_evals if x["proven_original"]]
+        valid = [x for x in occurrence_evals if x["strict_valid"]]
+        best = min(
+            proven or occurrence_evals,
+            key=lambda x: len(x["provenance_failures"]) + len(x["accessibility_failures"]),
+        )
+        evaluations.append(
+            {
+                "identity": identity,
+                "occurrence_count": len(occurrence_evals),
+                "proven_original": bool(proven),
+                "strict_valid": bool(valid),
+                "best_provenance_failures": best["provenance_failures"],
+                "best_accessibility_failures": best["accessibility_failures"],
+                "best_occurrence": best,
+                "occurrences": occurrence_evals,
+            }
+        )
+    return evaluations
+
+
+def _topology_evaluation(report: dict[str, Any]) -> dict[str, Any]:
+    roots = [r for r in report.get("root_attempts", []) if isinstance(r, dict)]
+    connected_roots = [r for r in roots if _truth(r.get("connected_to_app"))]
+    provider_bearing = [r for r in connected_roots if _truth(r.get("provider_subtree_seen"))]
+    shell_roots = [
+        r
+        for r in connected_roots
+        if _truth(r.get("relevant_provider_root")) and not _truth(r.get("provider_subtree_seen"))
+    ]
+    incomplete = [r for r in connected_roots if not _root_complete(r)]
+    disconnected = [r for r in roots if not _truth(r.get("connected_to_app"))]
+    transitions = [t for t in report.get("provider_transitions", []) if isinstance(t, dict)]
+    chain = report.get("provider_chain") if isinstance(report.get("provider_chain"), dict) else {}
+
+    failures: list[str] = []
+    if not roots:
+        failures.append("no scalar candidate roots retained")
+    if disconnected:
+        failures.append("one or more retained candidate roots are not connected to the app")
+    if incomplete:
+        failures.append("one or more connected candidate roots have incomplete/error/truncated traversal")
+    if not provider_bearing:
+        failures.append("no connected provider-bearing UIA root exposes the WebView2 subtree")
+    if not transitions:
+        failures.append("no provider/process/native UIA transition was retained")
+    if not _truth(chain.get("host_found")):
+        failures.append("native app host was not proven")
+    if not _truth(chain.get("native_relationship_proven")):
+        failures.append("native host/WebView relationship was not proven")
+    if not _truth(chain.get("process_relationship_proven")):
+        failures.append("app/WebView process relationship was not proven")
+
+    return {
+        "complete": not failures,
+        "candidate_root_count": len(roots),
+        "connected_root_count": len(connected_roots),
+        "provider_bearing_root_count": len(provider_bearing),
+        "complete_provider_bearing_root_count": sum(_root_complete(r) for r in provider_bearing),
+        "complete_shell_root_count": sum(_root_complete(r) for r in shell_roots),
+        "shell_root_count": len(shell_roots),
+        "provider_transition_count": len(transitions),
+        "incomplete_root_hwnds": [r.get("hwnd") for r in incomplete],
+        "disconnected_root_hwnds": [r.get("hwnd") for r in disconnected],
+        "failures": failures,
+    }
 
 
 def classify(report: dict[str, Any]) -> tuple[str, list[str]]:
+    move_evals = _move_evaluations(report)
+    topology = _topology_evaluation(report)
+    source_ok = _source_contract_ok(report)
+
+    if len(move_evals) > 1:
+        return "C", ["ambiguous duplicate/proxy Move Edit identities"]
+
+    if len(move_evals) == 1 and move_evals[0]["strict_valid"]:
+        return "A", ["one unique original connected real Move Edit satisfies the strict interactive contract"]
+
     reasons: list[str] = []
-    edits = [e for e in report.get("connected_edits", []) if isinstance(e, dict)]
-    valid = [e for e in edits if _valid_move_edit(e)]
-    unique_valid: dict[str, dict[str, Any]] = {}
-    for edit in valid:
-        unique_valid[_edit_identity(edit)] = edit
+    if not source_ok:
+        reasons.append("source contract does not prove one original move input with no QA proxy")
+    reasons.extend(topology["failures"])
 
-    named_move_edits = [
-        e
-        for e in edits
-        if e.get("control_type") == "ControlType.Edit" and e.get("name") in MOVE_NAMES
-    ]
-    named_identities = {_edit_identity(e) for e in named_move_edits}
-
-    if len(unique_valid) == 1 and len(named_identities) == 1:
-        return "A", ["one unique connected real Move Edit satisfies the strict interactive contract"]
-    if len(named_identities) > 1:
-        reasons.append("ambiguous duplicate/proxy Move Edit identities")
-    elif named_move_edits and not valid:
-        reasons.append("Move-named Edit exists but fails visibility/focus/value/original-identity contract")
-
-    roots = [r for r in report.get("root_attempts", []) if isinstance(r, dict)]
-    relevant = [r for r in roots if _truth(r.get("relevant_provider_root"))]
-    connected = [r for r in relevant if _truth(r.get("connected_to_app"))]
-    complete = [
-        r
-        for r in connected
-        if _truth(r.get("from_handle_success"))
-        and _view_complete(r.get("raw_view"))
-        and _view_complete(r.get("control_view"))
-        and _truth(r.get("provider_subtree_seen"))
-    ]
-
-    chain = report.get("provider_chain") if isinstance(report.get("provider_chain"), dict) else {}
-    chain_complete = all(
-        (
-            _truth(chain.get("host_found")),
-            _truth(chain.get("native_relationship_proven")),
-            _truth(chain.get("process_relationship_proven")),
-            _truth(chain.get("provider_entry_proven")),
-            _truth(chain.get("uia_subtree_proven")),
-            _truth(chain.get("provider_transition_proven")),
-            int(chain.get("unresolved_boundary_count", 0) or 0) == 0,
-        )
-    )
-
-    all_relevant_complete = bool(relevant) and len(complete) == len(relevant)
-    traversal_errors = any(
-        not _view_complete(r.get(view_name))
-        for r in connected
-        for view_name in ("raw_view", "control_view")
-    )
-
-    if not relevant:
-        reasons.append("no relevant Accessible Chess WebView2 provider roots proven")
-    if relevant and len(connected) != len(relevant):
-        reasons.append("one or more relevant provider roots are not connected to the app host")
-    if connected and not all_relevant_complete:
-        reasons.append("one or more relevant provider roots have incomplete RawView/ControlView traversal")
-    if traversal_errors:
-        reasons.append("traversal error/truncation/disconnection/cycle evidence prevents absence proof")
-    if not chain_complete:
-        reasons.append("host-WebView2-provider-UIA subtree chain is not fully proven")
-
-    source_contract = report.get("source_contract") if isinstance(report.get("source_contract"), dict) else {}
-    source_unique = _truth(source_contract.get("unique_original_move_edit"))
-    source_no_proxy = _truth(source_contract.get("no_qa_proxy_in_product_tree"))
-    if not source_unique:
-        reasons.append("source contract does not prove exactly one original move input")
-    if not source_no_proxy:
-        reasons.append("source contract does not exclude QA proxy controls from product tree")
-
-    if (
-        chain_complete
-        and all_relevant_complete
-        and not traversal_errors
-        and source_unique
-        and source_no_proxy
-        and len(named_identities) == 0
-    ):
-        return "B", ["complete connected provider traversal proves the required Move Edit absent"]
+    if len(move_evals) == 1:
+        move_eval = move_evals[0]
+        if not move_eval["proven_original"]:
+            failures = ", ".join(move_eval["best_provenance_failures"]) or "unknown provenance failure"
+            reasons.append(f"Move-named Edit identity is not proven original: {failures}")
+        elif topology["complete"] and source_ok:
+            failures = ", ".join(move_eval["best_accessibility_failures"]) or "unknown accessibility failure"
+            return "B", [f"the unique original Move Edit is present but accessibility-invalid: {failures}"]
+        else:
+            failures = ", ".join(move_eval["best_accessibility_failures"]) or "strict contract not satisfied"
+            reasons.append(f"original Move Edit fails strict accessibility contract: {failures}")
+    elif topology["complete"] and source_ok:
+        return "B", ["complete connected provider traversal proves the required original Move Edit absent"]
 
     if not reasons:
         reasons.append("evidence is insufficient for A or B")
@@ -164,6 +266,8 @@ def classify(report: dict[str, Any]) -> tuple[str, list[str]]:
 
 
 def apply_classification(report: dict[str, Any]) -> dict[str, Any]:
+    report["topology_evaluation"] = _topology_evaluation(report)
+    report["move_edit_evaluations"] = _move_evaluations(report)
     classification, reasons = classify(report)
     report["classification"] = classification
     report["classification_reasons"] = reasons
@@ -204,6 +308,21 @@ def main(argv: list[str] | None = None) -> int:
     apply_classification(report)
     args.report.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
     _safe_print(f"classification={report['classification']}")
+    topo = report["topology_evaluation"]
+    _safe_print(
+        "topology="
+        f"complete={topo['complete']} roots={topo['candidate_root_count']} "
+        f"provider_bearing={topo['provider_bearing_root_count']} "
+        f"shells={topo['shell_root_count']} transitions={topo['provider_transition_count']}"
+    )
+    for move_eval in report.get("move_edit_evaluations", []):
+        _safe_print(
+            "move="
+            f"identity={move_eval['identity']} occurrences={move_eval['occurrence_count']} "
+            f"proven_original={move_eval['proven_original']} strict_valid={move_eval['strict_valid']} "
+            f"provenance_failures={move_eval['best_provenance_failures']} "
+            f"accessibility_failures={move_eval['best_accessibility_failures']}"
+        )
     for reason in report.get("classification_reasons", []):
         _safe_print(f"reason={reason}")
     return 0
