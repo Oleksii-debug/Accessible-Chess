@@ -2,8 +2,8 @@
 """Batch-generate offline British-English pronunciation for WordDeck.
 
 Designed for resumable generation. Input is UTF-8 TSV containing at least
-`entryId`/`id` and `source` columns. WordDeck metadata comment lines are
-accepted. Output is one MP3 per entry plus manifest.jsonl. The voice is
+`entryId`/`entry_id`/`id` and `source` columns. WordDeck metadata comment lines
+are accepted. Output is one MP3 per entry plus manifest.jsonl. The voice is
 selected deterministically so a given entry keeps the same voice across reruns.
 """
 
@@ -69,9 +69,9 @@ def load_rows(path: Path) -> list[dict[str, str]]:
     if not rows or reader.fieldnames is None:
         raise SystemExit("Input TSV has no usable rows")
 
-    id_column = "entryId" if "entryId" in reader.fieldnames else "id" if "id" in reader.fieldnames else None
+    id_column = next((name for name in ("entryId", "entry_id", "id") if name in reader.fieldnames), None)
     if id_column is None or "source" not in reader.fieldnames:
-        raise SystemExit("Input TSV must contain entryId (or id) and source columns")
+        raise SystemExit("Input TSV must contain entryId, entry_id, or id plus source")
 
     normalized: list[dict[str, str]] = []
     for row in rows:
