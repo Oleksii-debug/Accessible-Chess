@@ -30,12 +30,34 @@ function moveEntryLabels() {
         : {input: 'Хід', submit: 'Зробити хід'};
 }
 
+function moveEntryViewportState(input) {
+    if (!input) return {onscreen:false, bounds:null};
+    const rect = input.getBoundingClientRect();
+    const root = document.documentElement;
+    const viewportWidth = Math.max(root ? root.clientWidth : 0, window.innerWidth || 0);
+    const viewportHeight = Math.max(root ? root.clientHeight : 0, window.innerHeight || 0);
+    const hasArea = rect.width > 0 && rect.height > 0;
+    const onscreen = hasArea
+        && viewportWidth > 0
+        && viewportHeight > 0
+        && rect.right > 0
+        && rect.bottom > 0
+        && rect.left < viewportWidth
+        && rect.top < viewportHeight;
+    return {
+        onscreen,
+        bounds: [rect.left, rect.top, rect.width, rect.height],
+        viewport: [viewportWidth, viewportHeight],
+    };
+}
+
 function moveEntryExposureState() {
     const input = byId('move-input');
     if (!input) return {ok:false, reason:'missing'};
     const hiddenAncestor = input.closest('[hidden],[inert],[aria-hidden="true"]');
     const style = window.getComputedStyle(input);
     const visible = style.display !== 'none' && style.visibility !== 'hidden' && style.visibility !== 'collapse';
+    const viewport = moveEntryViewportState(input);
     const ok = input.isConnected
         && input.type === 'text'
         && input.getAttribute('role') === 'textbox'
@@ -43,7 +65,8 @@ function moveEntryExposureState() {
         && !input.disabled
         && input.tabIndex >= 0
         && !hiddenAncestor
-        && visible;
+        && visible
+        && viewport.onscreen;
     return {
         ok,
         connected: input.isConnected,
@@ -52,6 +75,9 @@ function moveEntryExposureState() {
         tabIndex: input.tabIndex,
         disabled: !!input.disabled,
         hidden: !!hiddenAncestor || !visible,
+        onscreen: viewport.onscreen,
+        bounds: viewport.bounds,
+        viewport: viewport.viewport,
     };
 }
 
@@ -61,6 +87,30 @@ function publishMoveEntryExposureState() {
     return state.ok;
 }
 window.__accessibleChessMoveEntryExposureState = moveEntryExposureState;
+
+function nextAnimationFrame() {
+    return new Promise(resolve => requestAnimationFrame(resolve));
+}
+
+async function settleMoveEntryOnScreen() {
+    const input = byId('move-input');
+    if (!input) return false;
+
+    // V6 packaged UIA evidence proved the original Edit was connected, named,
+    // focusable and ValuePattern-capable but below the initial WebView viewport.
+    // Keep the exact original node and DOM order; only align the real document
+    // viewport with the primary move entry before release readiness is exposed.
+    await nextAnimationFrame();
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+        if (moveEntryViewportState(input).onscreen) break;
+        input.scrollIntoView({block:'center', inline:'nearest', behavior:'auto'});
+        await nextAnimationFrame();
+    }
+    const ready = publishMoveEntryExposureState();
+    document.body.dataset.stage1MoveOnscreenReady = ready ? 'true' : 'false';
+    return ready;
+}
+window.__accessibleChessSettleMoveEntryOnScreen = settleMoveEntryOnScreen;
 
 function stabilizeMoveEntryUiaSemantics() {
     const input = byId('move-input');
@@ -453,8 +503,8 @@ async function markReady() {
     // Do not mark the whole main document aria-busy while WebView2 is building
     // its accessibility subtree. Release readiness is a silent data marker;
     // keeping the subtree available lets Windows UIA discover the Move Edit.
+    await settleMoveEntryOnScreen();
     publishMoveEntryExposureState();
-    requestAnimationFrame(() => publishMoveEntryExposureState());
     document.body.dataset.stage1AppReady = 'true';
 }
 
