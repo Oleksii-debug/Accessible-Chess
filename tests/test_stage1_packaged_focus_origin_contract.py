@@ -92,6 +92,33 @@ class Stage1PackagedFocusOriginContractTests(unittest.TestCase):
         self.assertIn("stabilizeMoveEntryUiaSemantics();", text[text.index("function refreshReleaseLanguageSemantics()"):])
         self.assertIn("new MutationObserver(refreshReleaseLanguageSemantics)", text)
 
+    def test_packaged_move_edit_readiness_requires_real_viewport_exposure_and_never_steals_focus(self) -> None:
+        text = self.bootstrap
+        self.assertIn("function moveEntryViewportState(input)", text)
+        self.assertIn("input.getBoundingClientRect()", text)
+        self.assertIn("rect.top < viewportHeight", text)
+        self.assertIn("rect.left < viewportWidth", text)
+        exposure_start = text.index("function moveEntryExposureState()")
+        exposure_end = text.index("function publishMoveEntryExposureState()", exposure_start)
+        exposure = text[exposure_start:exposure_end]
+        self.assertIn("viewport.onscreen", exposure)
+        self.assertIn("onscreen: viewport.onscreen", exposure)
+
+        settle_start = text.index("async function settleMoveEntryOnScreen()")
+        settle_end = text.index("function stabilizeMoveEntryUiaSemantics()", settle_start)
+        settle = text[settle_start:settle_end]
+        self.assertIn("input.scrollIntoView({block:'center', inline:'nearest', behavior:'auto'})", settle)
+        self.assertIn("for (let attempt = 0; attempt < 2; attempt += 1)", settle)
+        self.assertIn("stage1MoveOnscreenReady", settle)
+        self.assertNotIn("input.focus(", settle)
+        self.assertNotIn("input.blur(", settle)
+
+        mark_start = text.index("async function markReady()")
+        mark_end = text.index("installMoveFocusPolicy();", mark_start)
+        mark_ready = text[mark_start:mark_end]
+        self.assertIn("await settleMoveEntryOnScreen();", mark_ready)
+        self.assertLess(mark_ready.index("await settleMoveEntryOnScreen();"), mark_ready.index("stage1AppReady = 'true'"))
+
     def test_packaged_board_uia_names_contain_compact_coordinate_without_automation_id_dependency(self) -> None:
         text = self.bootstrap
         self.assertIn("function stableBoardAccessibleName(cell)", text)
