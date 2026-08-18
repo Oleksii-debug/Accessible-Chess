@@ -13,7 +13,8 @@ namespace WordDeck;
 internal static class ReviewedOxford5000Bootstrap
 {
     private const int ExpectedLegacyGroups = 200;
-    public const int ExpectedCanonicalRows = 215;
+    private const int ExpectedPostBlowRows = 43;
+    public const int ExpectedCanonicalRows = 258;
 
     private static readonly Dictionary<string, string> PosAbbreviations = new(StringComparer.Ordinal)
     {
@@ -111,9 +112,11 @@ internal static class ReviewedOxford5000Bootstrap
             result.Add(new CanonicalCandidate(LexicalEntryId(source, pos, level), source, pos, level, target, 1295, ++missingMinor));
         }
 
+        AppendVerifiedPostBlowRows(result);
+
         result = result.OrderBy(row => row.MajorOrder).ThenBy(row => row.MinorOrder).ToList();
         if (result.Count != ExpectedCanonicalRows)
-            throw new InvalidDataException($"Expected {ExpectedCanonicalRows} canonical Oxford 5000 beta rows through noun blow, got {result.Count}.");
+            throw new InvalidDataException($"Expected {ExpectedCanonicalRows} canonical Oxford 5000 beta rows through chamber, got {result.Count}.");
 
         var identities = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var ids = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -132,11 +135,38 @@ internal static class ReviewedOxford5000Bootstrap
         CanonicalCandidate last = result[^1];
         if (first is not { Source: "abolish", PartOfSpeech: "verb", Level: "C1" })
             throw new InvalidDataException("Canonical Oxford 5000 beta ledger does not start with abolish verb C1.");
-        if (last is not { Source: "blow", PartOfSpeech: "noun", Level: "B2" })
-            throw new InvalidDataException("Canonical Oxford 5000 beta ledger does not end with blow noun B2.");
+        if (last is not { Source: "chamber", PartOfSpeech: "noun", Level: "C1" })
+            throw new InvalidDataException("Canonical Oxford 5000 beta ledger does not end with chamber noun C1.");
         if (!result.Any(row => row is { Source: "assumption", PartOfSpeech: "noun", Level: "B2" }))
             throw new InvalidDataException("Audited assumption noun B2 row is missing from canonical Oxford 5000 beta ledger.");
         return result;
+    }
+
+    private static void AppendVerifiedPostBlowRows(List<CanonicalCandidate> result)
+    {
+        List<Dictionary<string, string>> rows = ReadEmbeddedTsv("oxford5000_source_after_blow_c1_0001_0043.tsv");
+        if (rows.Count != ExpectedPostBlowRows)
+            throw new InvalidDataException($"Expected {ExpectedPostBlowRows} verified post-blow Oxford 5000 rows, got {rows.Count}.");
+
+        for (int i = 0; i < rows.Count; i++)
+        {
+            Dictionary<string, string> row = rows[i];
+            string status = Required(row, "status");
+            if (!string.Equals(status, "verified", StringComparison.Ordinal))
+                throw new InvalidDataException($"Oxford 5000 beta refuses post-blow row {i + 1} with status '{status}'.");
+
+            string source = Required(row, "source");
+            string pos = Required(row, "part_of_speech");
+            string level = Required(row, "level").ToUpperInvariant();
+            string target = Required(row, "ukrainian");
+            string suppliedId = Required(row, "entry_id");
+            ValidateLevel(level);
+            string canonicalId = LexicalEntryId(source, pos, level);
+            if (!string.Equals(suppliedId, canonicalId, StringComparison.Ordinal))
+                throw new InvalidDataException($"Oxford 5000 post-blow stable ID mismatch for {source} {pos} {level}: supplied {suppliedId}, expected {canonicalId}.");
+
+            result.Add(new CanonicalCandidate(canonicalId, source, pos, level, target, 3000 + i, 0));
+        }
     }
 
     private static Dictionary<string, Dictionary<string, string>> LoadVerifiedLegacyRows()
@@ -261,16 +291,16 @@ internal static class ReviewedOxford5000Bootstrap
         return int.Parse(match.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture);
     }
 
-    private static string Required(Dictionary<string, string> row, string field)
+    private static string Required(Dictionary<string, string> row, string key)
     {
-        if (!row.TryGetValue(field, out string? value) || string.IsNullOrWhiteSpace(value))
-            throw new InvalidDataException($"Oxford 5000 QA row has blank required field '{field}'.");
+        if (!row.TryGetValue(key, out string? value) || string.IsNullOrWhiteSpace(value))
+            throw new InvalidDataException($"Required Oxford 5000 field '{key}' is blank.");
         return value.Trim();
     }
 
     private static void ValidateLevel(string level)
     {
-        if (level is not ("B2" or "C1"))
-            throw new InvalidDataException($"Oxford 5000 exclusive beta row has unsupported CEFR '{level}'.");
+        if (level is not "B2" and not "C1")
+            throw new InvalidDataException($"Oxford 5000 addition level '{level}' is unsupported; expected B2 or C1.");
     }
 }
