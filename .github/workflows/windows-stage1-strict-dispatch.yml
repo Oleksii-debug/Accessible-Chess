@@ -16,7 +16,7 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Validate pure board-submit packaged E2E contract
+      - name: Validate bounded focus-convergence packaged E2E contract
         shell: pwsh
         run: |
           $path='tools\qa\stage1_packaged_e2e_crossprocess.ps1'
@@ -26,22 +26,27 @@ jobs:
           $text=Get-Content $path -Raw
           if($text -match 'System\.Collections\.Generic\.List\[object\]'){throw 'Generic List[object] binder ambiguity returned'}
           if($text -notmatch 'STRICT_HELPER_STACK='){throw 'Exact script-stack diagnostics missing'}
+          if($text -notmatch 'function AssertFocusedRuntimeEventually'){throw 'Bounded runtime focus convergence helper missing'}
+          if($text -notmatch 'function AssertSemanticFocusEventually'){throw 'Bounded semantic focus convergence helper missing'}
+          if($text -notmatch "AssertFocusedRuntimeEventually \$moveRid 'Legal e4 refocus'"){throw 'Legal e4 refocus is not using bounded convergence'}
+          if($text -match "RuntimeId \[System\.Windows\.Automation\.AutomationElement\]::FocusedElement\) -ne \$moveRid"){throw 'One-shot legal e4 focus assertion returned'}
           if($text -notmatch 'RNBQKBNR b KQkq e3 0 1'){throw 'Canonical e4 FEN expectation missing'}
           if($text -notmatch 'RNBQKBNR w KQkq e6 0 2'){throw 'Canonical black e5 FEN expectation missing'}
           if($text -notmatch 'Prepared e5 before entering board'){throw 'e5 must be prepared before board entry'}
           if($text -match 'Assert-MoveIdentityForBoardBridge'){throw 'Board phase must not touch Move identity'}
           $prep=$text.IndexOf("`$vp.SetValue('e5')")
           $board=$text.IndexOf('Invoke $boardLauncher')
-          $origin=$text.IndexOf('Board origin was not established on a3 before UIA submit bridge')
+          $origin=$text.IndexOf("AssertSemanticFocusEventually `$target 'Board origin establishment'")
           $submit=$text.IndexOf("Invoke `$submit 'move-submit'")
-          if($prep -lt 0 -or $board -lt 0 -or $origin -lt 0 -or $submit -lt 0 -or -not ($prep -lt $board -and $board -lt $origin -and $origin -lt $submit)){
-            throw "Pure board bridge ordering invalid: prep=$prep board=$board origin=$origin submit=$submit"
+          $restore=$text.IndexOf("AssertSemanticFocusEventually `$target 'Board focus continuity after pure submit bridge'")
+          if($prep -lt 0 -or $board -lt 0 -or $origin -lt 0 -or $submit -lt 0 -or $restore -lt 0 -or -not ($prep -lt $board -and $board -lt $origin -and $origin -lt $submit -and $submit -lt $restore)){
+            throw "Focus/pure-bridge ordering invalid: prep=$prep board=$board origin=$origin submit=$submit restore=$restore"
           }
           $bridge=$text.Substring($origin,$submit-$origin)
           if($bridge -match 'SetValue|FindRuntime|AssertMove|\$move|\$vp'){
             throw 'Move input is touched after board origin before submit Invoke'
           }
-          'PURE BOARD-SUBMIT BRIDGE REGRESSION PASS'
+          'BOUNDED FOCUS-CONVERGENCE + PURE BOARD-SUBMIT REGRESSION PASS'
       - name: Dispatch exactly one corrected strict run
         shell: pwsh
         env:
