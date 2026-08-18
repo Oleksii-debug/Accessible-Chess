@@ -29,6 +29,19 @@ internal static class DeckIds
     public static IReadOnlyList<string> CoreDecks { get; } = Enumerable.Range(1, 5).Select(Core).ToArray();
 }
 
+internal sealed class RecallStudyScopeState
+{
+    public string ActiveDeckId { get; set; } = DeckIds.Core(1);
+    public string? CurrentEntryId { get; set; }
+    public Dictionary<string, string> DeckIds { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+}
+
+internal sealed class RecallStudyScopeDictionaryState
+{
+    public string ActiveScopeId { get; set; } = StudyScopeIds.All;
+    public Dictionary<string, RecallStudyScopeState> Scopes { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+}
+
 internal sealed class AppState
 {
     public string? ActiveDictionaryId { get; set; }
@@ -39,6 +52,10 @@ internal sealed class AppState
 
     public Dictionary<string, List<CustomEntryRecord>> CustomEntriesByDictionary { get; set; } = new(StringComparer.OrdinalIgnoreCase);
     public Dictionary<string, string> CurrentEntryIdByDictionary { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+
+    // Recall study workspaces. Legacy Recall fields above remain for migration and
+    // compatibility; the All scope is initialized losslessly from them.
+    public Dictionary<string, RecallStudyScopeDictionaryState> RecallStudyScopesByDictionary { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
     public int ActiveDeck { get; set; } = 1;
     public Dictionary<string, Dictionary<string, int>> DecksByDictionary { get; set; } = new(StringComparer.OrdinalIgnoreCase);
@@ -81,6 +98,7 @@ internal static class ActionIds
 
     public static string SwitchDeck(string deckId) => $"switch_deck_{deckId}";
     public static string MoveToDeck(string deckId) => $"move_to_deck_{deckId}";
+    public static string SwitchStudyScope(string scopeId) => $"recall_scope_{scopeId}";
     public static string SpellingSwitchDeck(string deckId) => $"spelling_switch_deck_{deckId}";
     public static string SpellingMoveToDeck(string deckId) => $"spelling_move_to_deck_{deckId}";
 
