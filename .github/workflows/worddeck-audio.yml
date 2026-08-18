@@ -8,6 +8,7 @@ on:
       - WordDeck/Audio/generation-request.json
       - WordDeck/Audio/pronunciation-overrides.tsv
       - WordDeck/tools/generate_british_audio.py
+      - WordDeck/tools/validate_pronunciation_overrides.py
       - .github/workflows/worddeck-audio.yml
   workflow_dispatch:
 
@@ -57,6 +58,7 @@ jobs:
         if: steps.request.outputs.source == 'pronunciation-overrides-ready'
         shell: bash
         run: |
+          python WordDeck/tools/validate_pronunciation_overrides.py --self-test
           awk -F '\t' 'NR == 1 || $4 == "ready"' WordDeck/Audio/pronunciation-overrides.tsv > /tmp/worddeck-audio-source.tsv
           test -s /tmp/worddeck-audio-source.tsv
           ready_count=$(awk -F '\t' 'NR > 1 && $4 == "ready" { count++ } END { print count+0 }' WordDeck/Audio/pronunciation-overrides.tsv)
