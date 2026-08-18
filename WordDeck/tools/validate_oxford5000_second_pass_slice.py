@@ -13,6 +13,11 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_BATCH = ROOT / "QA" / "oxford5000_additions_batch_0101_0200.tsv"
 DEFAULT_SLICE = ROOT / "QA" / "oxford5000_additions_second_pass_0101_0120.tsv"
+SELF_TEST_SLICES = (
+    (ROOT / "QA" / "oxford5000_additions_second_pass_0101_0120.tsv", 101, 120),
+    (ROOT / "QA" / "oxford5000_additions_second_pass_0121_0140.tsv", 121, 140),
+    (ROOT / "QA" / "oxford5000_additions_second_pass_0141_0200.tsv", 141, 200),
+)
 
 
 def read_tsv(path: Path) -> list[dict[str, str]]:
@@ -21,6 +26,12 @@ def read_tsv(path: Path) -> list[dict[str, str]]:
     if not rows:
         raise RuntimeError(f"No rows found in {path}")
     return [{k: (v or "").strip() for k, v in row.items()} for row in rows]
+
+
+def has_authoritative_source_evidence(text: str) -> bool:
+    """Require an explicit Oxford source marker, not a generic 'reviewed' note."""
+    normalized = text.casefold()
+    return "oald" in normalized or "oxford 5000 list" in normalized
 
 
 def validate(batch_path: Path, slice_path: Path, first: int, last: int) -> None:
@@ -36,6 +47,7 @@ def validate(batch_path: Path, slice_path: Path, first: int, last: int) -> None:
         raise RuntimeError("Second-pass slice contains duplicate IDs")
 
     required = {"id", "level", "source", "meta", "ukrainian", "status", "source_check"}
+    allowed_levels = {"B2", "C1"}
     for row in verified:
         if not required.issubset(row):
             raise RuntimeError(f"Second-pass row has unexpected columns: {row.keys()}")
@@ -46,18 +58,28 @@ def validate(batch_path: Path, slice_path: Path, first: int, last: int) -> None:
         for field in ("level", "source", "meta"):
             if row[field] != original[field]:
                 raise RuntimeError(f"{entry_id}: {field} drifted from source extraction batch")
+        if row["level"] not in allowed_levels:
+            raise RuntimeError(f"{entry_id}: Oxford 5000 addition has invalid CEFR level {row['level']!r}")
         if row["status"] != "verified":
             raise RuntimeError(f"{entry_id}: only verified rows are allowed in a second-pass slice")
         if not row["ukrainian"]:
             raise RuntimeError(f"{entry_id}: Ukrainian translation is blank")
-        if len(row["source_check"]) < 20 or "OALD" not in row["source_check"]:
-            raise RuntimeError(f"{entry_id}: source-check evidence is missing or too vague")
+        if len(row["source_check"]) < 20 or not has_authoritative_source_evidence(row["source_check"]):
+            raise RuntimeError(
+                f"{entry_id}: source-check evidence must explicitly name OALD or the Oxford 5000 list"
+            )
 
     print(f"Oxford 5000 second-pass slice validated: {len(verified)} rows, {expected_ids[0]}..{expected_ids[-1]}.")
 
 
 def self_test() -> None:
-    validate(DEFAULT_BATCH, DEFAULT_SLICE, 101, 120)
+    total = 0
+    for slice_path, first, last in SELF_TEST_SLICES:
+        validate(DEFAULT_BATCH, slice_path, first, last)
+        total += last - first + 1
+    if total != 100:
+        raise RuntimeError(f"Expected 100 second-pass additions in CI checkpoint, got {total}")
+    print("Oxford 5000 second-pass checkpoint validated through addition 0200 (100 rows in this batch).")
 
 
 def main() -> int:
@@ -70,7 +92,10 @@ def main() -> int:
     args = parser.parse_args()
     if args.first > args.last:
         raise SystemExit("--first must not exceed --last")
-    validate(args.batch, args.slice, args.first, args.last)
+    if args.self_test:
+        self_test()
+    else:
+        validate(args.batch, args.slice, args.first, args.last)
     return 0
 
 
