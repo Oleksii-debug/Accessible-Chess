@@ -505,6 +505,7 @@ async function markReady() {
     // keeping the subtree available lets Windows UIA discover the Move Edit.
     await settleMoveEntryOnScreen();
     publishMoveEntryExposureState();
+    requestAnimationFrame(() => publishMoveEntryExposureState());
     document.body.dataset.stage1AppReady = 'true';
 }
 
