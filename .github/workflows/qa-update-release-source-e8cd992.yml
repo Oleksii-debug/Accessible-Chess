@@ -1,0 +1,119 @@
+name: QA Update Strict Release Source e8cd992
+
+on:
+  push:
+    branches:
+      - qa/windows-current-integration-candidate-20260815
+    paths:
+      - '.github/workflows/qa-update-release-source-e8cd992.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  update-strict-release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout QA branch
+        uses: actions/checkout@v4
+        with:
+          ref: qa/windows-current-integration-candidate-20260815
+          fetch-depth: 0
+
+      - name: Retarget exact product and harden real-document startup proof
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          strict_path = Path('.github/workflows/windows-stage1-strict-release-crossprocess.yml')
+          helper_path = Path('tools/qa/stage1_packaged_e2e_crossprocess.ps1')
+          strict = strict_path.read_text(encoding='utf-8')
+          helper = helper_path.read_text(encoding='utf-8')
+
+          old_sha = '9684b06e9821d9588944f1182744a1c72623b355'
+          new_sha = 'e8cd992d306975955784118364ce950963133d7e'
+          if new_sha not in strict:
+              if strict.count(old_sha) != 1:
+                  raise SystemExit(f'Expected exactly one old strict source SHA, found {strict.count(old_sha)}')
+              strict = strict.replace(old_sha, new_sha)
+
+          if 'e8cd992-NVDA-test-candidate' not in strict:
+              short_count = strict.count('9684b06-NVDA-test-candidate')
+              if short_count < 3:
+                  raise SystemExit(f'Expected candidate short SHA in env/artifact/path, found {short_count}')
+              strict = strict.replace('9684b06-NVDA-test-candidate', 'e8cd992-NVDA-test-candidate')
+
+          focused_old = 'python -m unittest tests.test_issue22_release_contract tests.test_nvda_p0_contract tests.test_ui_native_menu_recovery tests.test_sound_runtime tests.test_release_stockfish_composition tests.test_stage1_core_full_flow tests.test_stage1_release_composition_ui tests.test_stage1_packaged_focus_origin_contract -v'
+          focused_new = 'python -m unittest tests.test_issue22_release_contract tests.test_nvda_p0_contract tests.test_stage1_webview2_accessibility_boundary tests.test_webview_safe_server tests.test_ui_native_menu_recovery tests.test_sound_runtime tests.test_release_stockfish_composition tests.test_stage1_core_full_flow tests.test_stage1_release_composition_ui tests.test_stage1_packaged_focus_origin_contract -v'
+          if focused_new not in strict:
+              if strict.count(focused_old) != 1:
+                  raise SystemExit('Focused Issue22/P0 gate anchor not unique')
+              strict = strict.replace(focused_old, focused_new)
+
+          strict = strict.replace(
+              '- name: Built EXE diagnostic and real WebView2 startup',
+              '- name: Built EXE diagnostic and WebView2 process startup'
+          )
+          strict = strict.replace(
+              '"REAL PACKAGED WEBVIEW2 STARTUP PASS pid=$($p.Id)"',
+              '"WEBVIEW2 PROCESS STARTUP PASS pid=$($p.Id); REAL DOCUMENT PROOF FOLLOWS IN STRICT UIA GATE"'
+          )
+
+          anchor = """Copy-Item uia-topology-report-v5.json uia-topology-strict-raw.json -Force
+Copy-Item uia-topology-report-v5.json uia-topology-strict.json -Force
+python $classifier uia-topology-strict.json --product-root $ProductRoot
+"""
+          guarded = """Copy-Item uia-topology-report-v5.json uia-topology-strict-raw.json -Force
+Copy-Item uia-topology-report-v5.json uia-topology-strict.json -Force
+$startupReport=Get-Content uia-topology-strict.json -Raw|ConvertFrom-Json
+$errorNodes=@($startupReport.nodes|Where-Object {
+  $startupText=([string]$_.name)+' '+([string]$_.value)+' '+([string]$_.ancestor_path)
+  $startupText -match 'ERR_UNSAFE_PORT|Hmmm.*reach this page|Network error|chrome-error://|edge-error://'
+})
+if($errorNodes.Count -gt 0){
+  $sample=@($errorNodes|Select-Object -First 5|ForEach-Object {([string]$_.control_type)+': '+([string]$_.name)}) -join ' | '
+  throw "Chromium/WebView2 error page detected before Stage 1 interaction: $sample"
+}
+$appDocuments=@($startupReport.nodes|Where-Object {
+  [string]$_.control_type -eq 'ControlType.Document' -and [bool]$_.source_root_connected -and [string]$_.name -eq 'Accessible Chess'
+})
+if($appDocuments.Count -eq 0){
+  $documentNames=@($startupReport.nodes|Where-Object {[string]$_.control_type -eq 'ControlType.Document'}|ForEach-Object {[string]$_.name}) -join ' | '
+  throw "Real Accessible Chess document missing before Stage 1 interaction; documents=$documentNames"
+}
+Write-Output "REAL ACCESSIBLE CHESS DOCUMENT STARTUP PASS documents=$($appDocuments.Count)"
+python $classifier uia-topology-strict.json --product-root $ProductRoot
+"""
+          marker = 'REAL ACCESSIBLE CHESS DOCUMENT STARTUP PASS'
+          if marker not in helper:
+              if helper.count(anchor) != 1:
+                  raise SystemExit(f'Helper topology/classifier anchor not unique: {helper.count(anchor)}')
+              helper = helper.replace(anchor, guarded)
+
+          strict_path.write_text(strict, encoding='utf-8')
+          helper_path.write_text(helper, encoding='utf-8')
+          PY
+
+          changes="$(git status --short)"
+          printf '%s\n' "$changes"
+          expected_a=' M .github/workflows/windows-stage1-strict-release-crossprocess.yml'
+          expected_b=' M tools/qa/stage1_packaged_e2e_crossprocess.ps1'
+          printf '%s\n' "$changes" | grep -Fx "$expected_a" >/dev/null
+          printf '%s\n' "$changes" | grep -Fx "$expected_b" >/dev/null
+          if [ "$(printf '%s\n' "$changes" | sed '/^$/d' | wc -l)" -ne 2 ]; then
+            echo 'Unexpected QA working-tree changes; refusing to commit.' >&2
+            exit 1
+          fi
+
+      - name: Commit coherent QA strict-release update
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'Oleksii-debug'
+          git config user.email 'oleksiy.az.09@gmail.com'
+          git add .github/workflows/windows-stage1-strict-release-crossprocess.yml tools/qa/stage1_packaged_e2e_crossprocess.ps1
+          git commit -m 'QA: retarget strict release to e8cd992 and reject WebView error pages'
+          git push origin HEAD:qa/windows-current-integration-candidate-20260815
