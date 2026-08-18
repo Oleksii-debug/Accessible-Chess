@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Fail-closed validation for source-checked Oxford 5000 second-pass slices.
+"""Fail-closed validation for source-checked legacy Oxford 5000 translation groups.
+
+IMPORTANT: the historical ox5000-add-0001..0200 IDs are translation-working
+groups, not canonical production lexical rows. This utility only protects the
+reviewed Ukrainian material from drift while canonical row-preserving migration
+is performed. See QA/OXFORD5000_STRUCTURE_AUDIT_0001_0200.md.
 
 Development/CI utility only. Uses Python standard library and never ships in the
 WordDeck runtime.
@@ -42,26 +47,26 @@ def validate(batch_path: Path, slice_path: Path, first: int, last: int) -> None:
     expected_ids = [f"ox5000-add-{number:04d}" for number in range(first, last + 1)]
     actual_ids = [row.get("id", "") for row in verified]
     if actual_ids != expected_ids:
-        raise RuntimeError(f"Expected exact ordered IDs {expected_ids[0]}..{expected_ids[-1]}, got {actual_ids}")
+        raise RuntimeError(f"Expected exact ordered legacy IDs {expected_ids[0]}..{expected_ids[-1]}, got {actual_ids}")
     if len(actual_ids) != len(set(actual_ids)):
-        raise RuntimeError("Second-pass slice contains duplicate IDs")
+        raise RuntimeError("Legacy second-pass slice contains duplicate IDs")
 
     required = {"id", "level", "source", "meta", "ukrainian", "status", "source_check"}
     allowed_levels = {"B2", "C1"}
     for row in verified:
         if not required.issubset(row):
-            raise RuntimeError(f"Second-pass row has unexpected columns: {row.keys()}")
+            raise RuntimeError(f"Legacy second-pass row has unexpected columns: {row.keys()}")
         entry_id = row["id"]
         original = batch_by_id.get(entry_id)
         if original is None:
-            raise RuntimeError(f"Second-pass ID is absent from extraction batch: {entry_id}")
+            raise RuntimeError(f"Legacy second-pass ID is absent from its translation batch: {entry_id}")
         for field in ("level", "source", "meta"):
             if row[field] != original[field]:
-                raise RuntimeError(f"{entry_id}: {field} drifted from source extraction batch")
+                raise RuntimeError(f"{entry_id}: {field} drifted from legacy extraction/translation batch")
         if row["level"] not in allowed_levels:
-            raise RuntimeError(f"{entry_id}: Oxford 5000 addition has invalid CEFR level {row['level']!r}")
+            raise RuntimeError(f"{entry_id}: Oxford 5000 translation group has invalid CEFR level {row['level']!r}")
         if row["status"] != "verified":
-            raise RuntimeError(f"{entry_id}: only verified rows are allowed in a second-pass slice")
+            raise RuntimeError(f"{entry_id}: only verified rows are allowed in a legacy second-pass slice")
         if not row["ukrainian"]:
             raise RuntimeError(f"{entry_id}: Ukrainian translation is blank")
         if len(row["source_check"]) < 20 or not has_authoritative_source_evidence(row["source_check"]):
@@ -69,7 +74,10 @@ def validate(batch_path: Path, slice_path: Path, first: int, last: int) -> None:
                 f"{entry_id}: source-check evidence must explicitly name OALD or the Oxford 5000 list"
             )
 
-    print(f"Oxford 5000 second-pass slice validated: {len(verified)} rows, {expected_ids[0]}..{expected_ids[-1]}.")
+    print(
+        f"Legacy Oxford 5000 translation-group slice validated: {len(verified)} groups, "
+        f"{expected_ids[0]}..{expected_ids[-1]}. Canonical lexical-row validation is separate."
+    )
 
 
 def self_test() -> None:
@@ -78,8 +86,11 @@ def self_test() -> None:
         validate(DEFAULT_BATCH, slice_path, first, last)
         total += last - first + 1
     if total != 100:
-        raise RuntimeError(f"Expected 100 second-pass additions in CI checkpoint, got {total}")
-    print("Oxford 5000 second-pass checkpoint validated through addition 0200 (100 rows in this batch).")
+        raise RuntimeError(f"Expected 100 legacy translation groups in CI checkpoint, got {total}")
+    print(
+        "Legacy Oxford 5000 translation material validated through group 0200 "
+        "(100 groups in this batch); no claim of canonical lexical-row completeness."
+    )
 
 
 def main() -> int:
