@@ -35,3 +35,8 @@ oxford-b2-0481	plus¹	plus	ready	Sense marker only; same lexical pronunciation.
 oxford-b2-0655	tear¹		ready	Oxford tear1 noun/verb (rip) is BrE /teə(r)/; Misaki British maps this centring vowel to /ɛː/.	tˈɛː
 oxford-b2-0656	tear²		ready	Oxford tear2 noun/verb (from the eye) is BrE /tɪə(r)/.	tˈɪə
 oxford-b2-0716	wind²		ready	Oxford wind2 verb is BrE /waɪnd/; raw Misaki phonemes distinguish it from wind1 /wɪnd/.	wˈInd
+oxford-a1-0129	CD		ready	Oxford BrE /ˌsiː ˈdiː/; explicit letter-name phonemes avoid relying on uppercase TTS heuristics.	sˌiː dˈiː
+oxford-a1-0224	DVD		ready	Oxford BrE /ˌdiː viː ˈdiː/; explicit letter-name phonemes avoid relying on uppercase TTS heuristics.	dˌiː viː dˈiː
+oxford-a1-0541	OK	okay	ready	Oxford BrE /əʊˈkeɪ/; lexicalized lowercase spelling is unambiguous and preserves the intended pronunciation.	
+oxford-a1-0820	TV		ready	Oxford BrE /ˌtiː ˈviː/; explicit letter-name phonemes avoid relying on uppercase TTS heuristics.	tˌiː vˈiː
+oxford-b1-0379	IT		ready	Oxford IT noun BrE /ˌaɪ ˈtiː/; explicit letter-name phonemes avoid pronoun 'it'.	ˌI tˈiː
