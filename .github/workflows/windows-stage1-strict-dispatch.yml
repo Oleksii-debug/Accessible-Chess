@@ -40,7 +40,14 @@ jobs:
           if($text -notmatch 'RNBQKBNR b KQkq e3 0 1'){
             throw 'Packaged e4 E2E must expect canonical en-passant target e3'
           }
-          'STRICT HELPER PARSER/INVOCATION/BINDER/FEN REGRESSION PASS'
+          $strictCount=([regex]::Matches($text,'Assert-MoveElementStrict')).Count
+          $bridgeCount=([regex]::Matches($text,'Assert-MoveIdentityForBoardBridge')).Count
+          if($strictCount -ne 4){throw "Strict Move assertion count drifted: $strictCount"}
+          if($bridgeCount -ne 2){throw "Board-origin Move bridge assertion missing/duplicated: $bridgeCount"}
+          if($text -notmatch 'Board origin was not established on a3 before UIA submit bridge'){
+            throw 'Board-origin focus precondition is not fail-closed'
+          }
+          'STRICT HELPER PARSER/INVOCATION/BINDER/FEN/BOARD-ORIGIN REGRESSION PASS'
       - name: Dispatch exactly one corrected strict run
         shell: pwsh
         env:
