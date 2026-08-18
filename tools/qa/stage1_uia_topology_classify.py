@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -137,7 +138,7 @@ def classify(report: dict[str, Any]) -> tuple[str, list[str]]:
     if traversal_errors:
         reasons.append("traversal error/truncation/disconnection/cycle evidence prevents absence proof")
     if not chain_complete:
-        reasons.append("host→WebView2→provider→UIA subtree chain is not fully proven")
+        reasons.append("host-WebView2-provider-UIA subtree chain is not fully proven")
 
     source_contract = report.get("source_contract") if isinstance(report.get("source_contract"), dict) else {}
     source_unique = _truth(source_contract.get("unique_original_move_edit"))
@@ -183,6 +184,15 @@ def verify_source_contract(product_root: Path) -> dict[str, Any]:
     }
 
 
+def _safe_print(text: str) -> None:
+    try:
+        print(text)
+    except UnicodeEncodeError:
+        encoding = getattr(sys.stdout, "encoding", None) or "ascii"
+        replacement = text.encode(encoding, errors="backslashreplace").decode(encoding, errors="replace")
+        print(replacement)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("report", type=Path)
@@ -193,9 +203,9 @@ def main(argv: list[str] | None = None) -> int:
         report["source_contract"] = verify_source_contract(args.product_root)
     apply_classification(report)
     args.report.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
-    print(f"classification={report['classification']}")
+    _safe_print(f"classification={report['classification']}")
     for reason in report.get("classification_reasons", []):
-        print(f"reason={reason}")
+        _safe_print(f"reason={reason}")
     return 0
 
 
