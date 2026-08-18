@@ -1,0 +1,32 @@
+name: QA e8cd992 Auto Seed V2
+
+on:
+  workflow_run:
+    types:
+      - completed
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  dispatch-bridge:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      EXPECTED_RUN_ID: '32126676052'
+      EXPECTED_HEAD_SHA: '564ef5b0adb697c8dc0e8ef16f0a493cfc36d5b3'
+      ACTUAL_RUN_ID: ${{ github.event.workflow_run.id }}
+      ACTUAL_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+    steps:
+      - name: Dispatch bridge only for exact legacy seed run
+        shell: bash
+        run: |
+          if [[ "$ACTUAL_RUN_ID" != "$EXPECTED_RUN_ID" || "$ACTUAL_HEAD_SHA" != "$EXPECTED_HEAD_SHA" ]]; then
+            echo "Ignoring unrelated workflow completion: run=$ACTUAL_RUN_ID head=$ACTUAL_HEAD_SHA"
+            exit 0
+          fi
+          gh api --method POST \
+            "repos/${{ github.repository }}/actions/workflows/qa-issue14-strict-bridge.yml/dispatches" \
+            -f ref=main
+          echo "QA e8cd992 bridge dispatched from exact legacy seed completion"
