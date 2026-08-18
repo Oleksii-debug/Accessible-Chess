@@ -1,0 +1,104 @@
+name: Exact Integration Proof 9684b06
+
+on:
+  pull_request:
+    branches:
+      - integration/accessible-chess-next
+    paths:
+      - '.github/workflows/integration-proof-9684b06.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: integration-proof-9684b06-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  SOURCE_INTEGRATION_SHA: 9684b06e9821d9588944f1182744a1c72623b355
+
+jobs:
+  exact-tracked-source-integration-proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact repaired integration source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.SOURCE_INTEGRATION_SHA }}
+          fetch-depth: 1
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Prove exact tracked source tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${SOURCE_INTEGRATION_SHA}"
+          git status --porcelain=v1
+          test -z "$(git status --porcelain=v1)"
+          for path in \
+            acs/chesscore.py \
+            acs/webapp.py \
+            acs/webapp_keymap.py \
+            acs/stage1_release_ui.py \
+            acs/ui_native_menu.py \
+            acs/analysis_service.py \
+            acs/continuous_analysis.py \
+            acs/stockfish_runtime.py \
+            acs/sound_runtime.py \
+            run_accessible_chess.py \
+            web/index.html \
+            web/stage1_release_bootstrap.js \
+            tests/test_issue22_release_contract.py \
+            tests/test_stage1_complete_user_flow.py \
+            tests/test_stage1_core_full_flow.py \
+            tests/test_stage1_packaged_focus_origin_contract.py
+          do
+            test -f "$path" || { echo "Missing tracked release source: $path"; exit 1; }
+            git ls-files --error-unmatch "$path" >/dev/null
+          done
+
+      - name: Compile exact tracked tree
+        run: python -m compileall -q acs tests run_accessible_chess.py
+
+      - name: Architecture boundary gate
+        run: python -m unittest -v tests.test_architecture
+
+      - name: Stage 1 canonical Core full-flow gate
+        run: python -m unittest -v tests.test_stage1_core_full_flow tests.test_core_release_contracts
+
+      - name: Data, PGN and history regression gate
+        run: python -m unittest -v tests.test_data_integration tests.test_pgn_service tests.test_history
+
+      - name: Import registry and read-only adapter regressions
+        run: python -m unittest -v tests.test_import_registry tests.test_chessbase_adapter tests.test_windows_data_release_regressions
+
+      - name: Engine service, continuous analysis and game lifecycle gates
+        run: python -m unittest -v tests.test_analysis_service tests.test_continuous_analysis tests.test_engine_play_service tests.test_clock_service tests.test_game_lifecycle tests.test_engine_game_session
+
+      - name: Production Stockfish runtime and semantic analysis integration gate
+        run: python -m unittest -v tests.test_stockfish_runtime tests.test_ui_analysis_webapp tests.test_analysis_webview_bridge tests.test_release_stockfish_composition
+
+      - name: Board, move-entry, editor and history gates
+        run: python -m unittest -v tests.test_board_service tests.test_move_entry tests.test_position_editor tests.test_ui_review_adapter tests.test_history_review_ui
+
+      - name: Sound, training, settings and entitlement gates
+        run: python -m unittest -v tests.test_sound_events tests.test_training tests.test_settings tests.test_entitlements tests.test_ui_entitlement_integration
+
+      - name: Human NVDA Issue 22 release regression gate
+        run: python -m unittest -v tests.test_issue22_release_contract tests.test_nvda_p0_contract tests.test_stage1_packaged_focus_origin_contract tests.test_stage1_webview2_accessibility_boundary
+
+      - name: Remappable actions, import safety and notation gates
+        run: python -m unittest -v tests.test_keybindings tests.test_ui_keymap_editor tests.test_keymap_import_warning_confirmation_integration tests.test_keymap_import_warning_confirmation tests.test_notation tests.test_extension_registries tests.test_webview_keymap_bridge_contract
+
+      - name: Accessible Web UI gate
+        run: python -m unittest -v tests.test_accessible_webui
+
+      - name: Complete Stage 1 release user-flow gate
+        run: python -m unittest -v tests.test_stage1_complete_user_flow tests.test_stage1_release_composition_ui
+
+      - name: Exact tracked release diagnostic
+        run: python run_accessible_chess.py --diagnostic
