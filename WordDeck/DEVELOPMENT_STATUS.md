@@ -6,53 +6,48 @@ Branch: `worddeck-bootstrap` only. Never develop WordDeck on `main`.
 ## Emergency Oxford 5000 milestone
 
 ### Oxford lexical data
-- Embedded production dictionary remains the verified Oxford 3000 baseline: **3,308 lexical rows**, A1-B2. No Oxford 5000 addition is yet exposed by `DictionaryLoader` in this checkpoint; that gate remains intentional until the executable self-test is updated for the larger production package.
-- The previously reviewed `ox5000-add-0001..0200` material is explicitly treated as **legacy translation-working groups**, not production lexical IDs.
-- The source-structure audit found 13 merged POS groups (`abuse`, `acid`, `advocate`, `alert`, `alien`, `alike`, `amateur`, `assault`, `attribute`, `besides`, `bid`, `blast`, `blend`) plus the omitted official row `assumption` noun B2. After those corrections, the audited `abolish` through noun `blow` span is **215 lexical rows**.
-- New `tools/canonicalize_oxford5000_reviewed.py` now converts exactly the 200 already-reviewed translation groups plus the verified split map into a fail-closed **215-row canonical ledger**. It requires every source translation row to be `verified`, rejects merged metadata unless an explicit split exists, restores `assumption`, rejects blank translations, duplicate lexical identities and stable-ID collisions, and refuses any level other than B2/C1.
-- Canonical Oxford 5000 stable IDs are now URL- and order-independent: normalized **headword + POS + CEFR** -> SHA-256-derived `ox5000-...` ID. The official definition URL remains provenance only, so later Oxford URL routing changes cannot silently invalidate user progress.
-- `tools/extract_oxford5000_official.py` uses the same lexical-ID rule and fails closed on duplicate headword/POS/CEFR identities and any invented C2 level.
-- `ReviewedOxford5000Bootstrap.cs` is staged as the strict runtime bridge for those 215 rows. The five reviewed QA ledgers are embedded as build resources so the bridge can be compiled and tested without duplicating translation data. It preserves the existing dictionary ID when eventually activated so existing Oxford 3000 Recall progress can migrate losslessly into `All`.
-- The runtime bridge is **not activated yet**: the old executable self-test still asserts exactly 3,308 rows. Leaving `DictionaryLoader` on the known-good baseline avoids shipping an unverified 3,523-row package merely to make the emergency slice appear finished.
-- Exact next data action: make the executable Oxford self-test understand the preserved 3,308 baseline plus 215 canonical additions, activate the bridge, and require the grouped Windows build/published-EXE gate to prove **3,523 total rows** with all original IDs intact. In parallel, continue authoritative source extraction beyond `blow` in large row-preserving batches.
+- **Runtime activation is now staged on branch head:** `DictionaryLoader.LoadEmbeddedOxford()` appends the first fail-closed canonical Oxford 5000 slice to the preserved Oxford 3000 package. Candidate production shape is **3,523 rows = 3,308 unchanged baseline rows + 215 verified canonical B2/C1 rows** from `abolish` through noun `blow`.
+- The durable dictionary ID remains `oxford-3000-en-uk` intentionally so existing Recall progress migrates into the `All` workspace rather than being orphaned by a dictionary-ID change.
+- `LoadEmbeddedOxford3000Baseline()` exists only as the explicit baseline contract for migration/regression testing. The main loader now targets the production-shaped beta bridge.
+- Executable `SelfTest` has been rewritten to assert the emergency contract directly: exact 3,523 total, byte-for-logical-row preservation of all first 3,308 baseline entries/IDs/translations, exactly 215 appended rows, B2/C1-only additions, no C2, stable `ox5000-...` IDs, no blanks/duplicate IDs, audited `assumption` noun B2 present, and canonical endpoints `abolish` C1 -> `blow` B2.
+- The previous legacy translation groups `ox5000-add-0001..0200` remain non-production IDs. Canonical IDs are deterministic normalized headword + POS + CEFR SHA-256-derived IDs.
+- `ReviewedOxford5000Bootstrap` remains fail-closed: only `verified` source rows are accepted; explicit split map is required for merged POS/CEFR groups; blank translations, duplicate lexical identities, stable-ID collisions, unsupported levels and missing audited rows fail the executable.
+- Current verified canonical coverage remains **215 Oxford 5000 rows**. Full official extraction beyond noun `blow` is still incomplete and is the dominant data task.
+- Fresh authoritative verification on 2026-08-18 reconfirmed from Oxford Learner's Dictionaries that Oxford 5000 is the Oxford 3000 plus about 2,000 additional **B2-C1** words and that the official web list exposes CEFR and POS. No Oxford C2 vocabulary subset is to be invented.
+- Exact next data action: continue source-backed extraction after noun `blow` in large lexical-row-preserving batches, isolate ambiguous POS/sense rows as `needs_second_pass`, and never block later unambiguous extraction on those rows.
 
 ### Recall Study Scope / Workspace
-- Durable scope IDs are exactly: `all`, `a1`, `a2`, `b1`, `b2`, `c1`; display labels are `All Oxford 5000`, `A1`, `A2`, `B1`, `B2`, `C1`.
-- Scope storage persists independent deck assignments, active deck, current card and remaining shuffle progress for every dictionary/scope.
-- Legacy Recall assignments/current card/active deck migrate losslessly into `All`; level scopes contain only exact CEFR rows and initialize eligible entries to core deck 1.
-- Main Recall UI has a native keyboard/NVDA-accessible Study Scope ComboBox. Scope switching restores scope-specific deck/current-card/shuffle state and announces current scope + total.
-- Existing `Ctrl+1..5` / `Alt+1..5` operate only inside the current scope. Stable rebindable `recall_scope_<scopeId>` actions exist for all six scopes and start unassigned.
-- Custom pasted cards remain restricted to `All Oxford 5000`; existing custom-deck data remains preserved.
-- Scope regression tests already cover migration, CEFR filtering, independent assignments/progress, persistence, scope actions, conflicts and shortcut formatting.
-- Exact next scope action: activate the 215 canonical rows only together with the updated executable test, then prove the real B2/C1 scope paths on that production-shaped dataset.
+- Durable scope IDs remain exactly `all`, `a1`, `a2`, `b1`, `b2`, `c1`; display labels are `All Oxford 5000`, `A1`, `A2`, `B1`, `B2`, `C1`.
+- Scope storage persists independent deck assignments, active deck, current card and remaining shuffle progress per dictionary/scope. Legacy Recall assignments/current card/active deck migrate losslessly into `All`; level scopes initialize eligible entries to core deck 1.
+- Native keyboard/NVDA Study Scope ComboBox is implemented. Existing `Ctrl+1..5` / `Alt+1..5` remain current-scope deck switch/move actions. Stable scope actions are rebindable and default unassigned.
+- The newly activated 215-row package now gives real B2 and C1 lexical rows to the runtime scope model rather than synthetic-only coverage. The grouped Windows/published-EXE gate is the next verification point.
 
 ### British offline audio
 - Existing Oxford 3000 technical generation remains **3,308/3,308** stable entries.
-- Pronunciation-content QA remains targeted rather than wholesale: 36 numbered/sense-marker candidates are in the override ledger, with 19 deterministic `ready` replacements and 17 heteronym/sense-sensitive `review` records; 5 uppercase/acronym candidates remain a separate listening/letter-name set.
-- Oxford 5000 addition audio remains **0 canonical files generated** in this checkpoint. The important blocker has changed: canonical stable IDs now exist deterministically for the first 215 reviewed rows, so audio generation for those rows can begin after the 3,523-row executable package is green.
-- Kokoro/Misaki remains development-only; WordDeck runtime stays offline with no Python/API/network dependency.
-- Exact next audio action: finish/validate the targeted Oxford 3000 replacements independently, then generate British MP3 + manifest/hash entries for only the activated canonical Oxford 5000 rows.
+- Targeted pronunciation QA remains 36 numbered/sense-marker candidates with 19 deterministic `ready` replacements and 17 heteronym/sense-sensitive `review` records; uppercase/acronym listening candidates remain separate.
+- Canonical Oxford 5000 additions now have stable production IDs for the first 215 rows, but **canonical addition audio remains 0 generated files** at this checkpoint.
+- Exact next audio action after the 3,523-row Windows gate is green: generate British MP3 only for these 215 activated canonical IDs, emit manifest + SHA-256/integrity records, then continue batch-by-batch as later lexical rows become verified. No wholesale 3,308 regeneration.
+- Kokoro/Misaki remains development-only; WordDeck runtime stays offline and has no Python/API/network dependency.
 
 ### Hotkey / F1 truth audit
-- Shared `ShortcutFormatter` renders combinations canonically (`Ctrl+Shift+B`, `Ctrl+Alt+...`) and is used by F1, shortcut settings and capture UI.
-- Scope actions use stable action IDs and are rebindable/persistent.
-- Spelling delete default is **Ctrl+Shift+Delete**; regression coverage asserts actual defaults and conflict handling.
-- Recall help documents all six scopes, no Oxford C2, scope independence, and current-scope deck semantics.
-- No known remaining user-facing `Keys.ToString()` path.
+- Shared `ShortcutFormatter` remains the canonical display path (`Ctrl+Shift+B`, `Ctrl+Alt+...`) for F1/settings/capture UI.
+- `SelfTest` now matches the current Recall registry shape: 11 Recall commands + 6 stable scope actions + 10 five-core-deck switch/move actions = **27** actions before user-created Recall decks; a user deck adds exactly two stable actions.
+- Scope actions start unassigned; conflict and unsafe-key checks remain tested. `Ctrl+S` explicit save and `Ctrl+Shift+A` bulk add are asserted from code.
+- Spelling delete remains **Ctrl+Shift+Delete**, not Ctrl+Alt+Delete; shared formatter tests remain in the scope test suite.
 
 ### Emergency blockers
 - **No user-input blocker.**
-- Full-data blocker: authoritative row-level extraction beyond noun `blow` is still incomplete; the full official Oxford 5000 cannot yet be claimed.
-- Immediate vertical-slice blocker: executable tests still encode the 3,308-row baseline contract. The 215-row canonical bridge is staged but deliberately not activated until that contract is updated and a grouped Windows/published-EXE gate is green.
-- Audio blocker: targeted Oxford 3000 pronunciation replacements are not release-complete; Oxford 5000 addition audio starts only after corresponding canonical rows are activated.
+- Full-data blocker: authoritative Oxford 5000 row-level extraction after noun `blow` is incomplete; the full official inventory cannot yet be claimed.
+- Verification blocker for this exact head: the new 3,523-row runtime activation and revised executable contract have been committed, but this status entry does **not** claim a green Windows/published-EXE gate until GitHub Actions completes successfully for the new head.
+- Audio blocker: first 215 canonical addition MP3s are not generated yet; targeted Oxford 3000 pronunciation replacements are not release-complete.
 
 ## Parallel lanes (non-blocking)
-- Core Recall/Spelling/Sentence state remains preserved; no Grammar/Story/speech-recognition/future-module work started.
-- Sentence Coach SQLite work received no majority effort in this emergency cycle.
+- Core Recall/Spelling/Sentence persisted state remains preserved. No Grammar/Story/speech-recognition/My Corrector/future-module work started.
+- Sentence Coach/SQLite receives no majority effort while the emergency Oxford deliverable is incomplete.
 - Oxford 3000 semantic QA remains independent and does not block Oxford 5000 extraction/audio/scope delivery.
 
 ## Safety / release discipline
 - `main` remains untouched.
-- Existing Oxford 3000 stable IDs/progress remain untouched. The old merged Oxford 5000 staging IDs are still not production IDs.
+- Existing Oxford 3000 stable IDs/progress are explicitly regression-checked as the unchanged first 3,308 rows of the candidate package.
 - No secrets, runtime network requirement, Python runtime or Kokoro runtime were added.
-- Do not send a beta automatically. A beta becomes eligible only after canonical additions are activated and a coherent Windows x64 build/self-test/published-EXE gate proves the scope/state path end-to-end; real NVDA compatibility still requires user testing.
+- No beta is sent automatically. The current branch becomes a verified emergency vertical slice only after the grouped Windows build, extended self-tests, self-contained publish and published-EXE self-test are green for the activated 3,523-row head.
