@@ -37,12 +37,12 @@ jobs:
           python .\WordDeck\tools\resolve_sentence_coverage_gaps.py --output .\artifacts\sentence-coverage-gap-records.tsv
           python .\WordDeck\tools\validate_sentencepack_release_bundle.py --self-test
 
-      - name: Validate Oxford 5000 additions translation QA
+      - name: Validate Oxford 5000 canonical extraction and translation QA
         run: |
+          python .\WordDeck\tools\extract_oxford5000_official.py --self-test
           python .\WordDeck\tools\validate_oxford5000_additions_qa.py --self-test
           python .\WordDeck\tools\validate_oxford5000_additions_qa.py
           python .\WordDeck\tools\validate_oxford5000_second_pass_slice.py --self-test
-          python .\WordDeck\tools\validate_oxford5000_second_pass_slice.py --slice .\WordDeck\QA\oxford5000_additions_second_pass_0121_0140.tsv --first 121 --last 140
 
       - name: Validate British pronunciation and AudioPack QA tools
         run: |
