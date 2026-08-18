@@ -21,23 +21,41 @@ internal static class DeckDialogs
             Dock = DockStyle.Top,
             AutoSize = true,
             Padding = new Padding(12),
-            AccessibleName = prompt
+            AccessibleName = prompt,
+            TabStop = false
         };
         var text = new TextBox
         {
             Text = initialValue,
             Dock = DockStyle.Top,
-            AccessibleName = "Deck name"
+            AccessibleName = "Deck name",
+            AccessibleDescription = "Type the deck name. Press Enter to confirm or Escape to cancel.",
+            TabIndex = 0
         };
         var buttons = new FlowLayoutPanel
         {
             Dock = DockStyle.Bottom,
             AutoSize = true,
             FlowDirection = FlowDirection.RightToLeft,
-            Padding = new Padding(8)
+            Padding = new Padding(8),
+            TabStop = false
         };
-        var cancel = new Button { Text = "Cancel", DialogResult = DialogResult.Cancel, AutoSize = true, AccessibleName = "Cancel" };
-        var ok = new Button { Text = "OK", DialogResult = DialogResult.OK, AutoSize = true, AccessibleName = "Confirm deck name" };
+        var cancel = new Button
+        {
+            Text = "Cancel",
+            DialogResult = DialogResult.Cancel,
+            AutoSize = true,
+            AccessibleName = "Cancel",
+            TabIndex = 2
+        };
+        var ok = new Button
+        {
+            Text = "OK",
+            DialogResult = DialogResult.OK,
+            AutoSize = true,
+            AccessibleName = "Confirm deck name",
+            TabIndex = 1
+        };
         buttons.Controls.Add(cancel);
         buttons.Controls.Add(ok);
         form.Controls.Add(text);
@@ -81,14 +99,17 @@ internal static class DeckDialogs
             Dock = DockStyle.Top,
             AutoSize = true,
             Padding = new Padding(12),
-            AccessibleName = prompt
+            AccessibleName = prompt,
+            TabStop = false
         };
         var combo = new ComboBox
         {
             Dock = DockStyle.Top,
             DropDownStyle = ComboBoxStyle.DropDownList,
             DisplayMember = nameof(DeckDefinition.Name),
-            AccessibleName = "Destination deck"
+            AccessibleName = "Destination deck",
+            AccessibleDescription = "Choose the destination deck. Press Enter to confirm or Escape to cancel.",
+            TabIndex = 0
         };
         foreach (DeckDefinition deck in choices)
             combo.Items.Add(deck);
@@ -100,10 +121,25 @@ internal static class DeckDialogs
             Dock = DockStyle.Bottom,
             AutoSize = true,
             FlowDirection = FlowDirection.RightToLeft,
-            Padding = new Padding(8)
+            Padding = new Padding(8),
+            TabStop = false
         };
-        var cancel = new Button { Text = "Cancel", DialogResult = DialogResult.Cancel, AutoSize = true, AccessibleName = "Cancel" };
-        var ok = new Button { Text = "OK", DialogResult = DialogResult.OK, AutoSize = true, AccessibleName = "Confirm destination deck" };
+        var cancel = new Button
+        {
+            Text = "Cancel",
+            DialogResult = DialogResult.Cancel,
+            AutoSize = true,
+            AccessibleName = "Cancel",
+            TabIndex = 2
+        };
+        var ok = new Button
+        {
+            Text = "OK",
+            DialogResult = DialogResult.OK,
+            AutoSize = true,
+            AccessibleName = "Confirm destination deck",
+            TabIndex = 1
+        };
         buttons.Controls.Add(cancel);
         buttons.Controls.Add(ok);
         form.Controls.Add(combo);
