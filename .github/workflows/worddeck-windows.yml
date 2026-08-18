@@ -40,6 +40,8 @@ jobs:
       - name: Validate Oxford 5000 canonical extraction and translation QA
         run: |
           python .\WordDeck\tools\extract_oxford5000_official.py --self-test
+          python .\WordDeck\tools\canonicalize_oxford5000_reviewed.py --self-test
+          python .\WordDeck\tools\canonicalize_oxford5000_reviewed.py --output .\artifacts\oxford5000-canonical-reviewed-through-blow.tsv
           python .\WordDeck\tools\validate_oxford5000_additions_qa.py --self-test
           python .\WordDeck\tools\validate_oxford5000_additions_qa.py
           python .\WordDeck\tools\validate_oxford5000_second_pass_slice.py --self-test
@@ -75,6 +77,13 @@ jobs:
         with:
           name: WordDeck-win-x64
           path: .\artifacts\WordDeck-win-x64\WordDeck.exe
+          if-no-files-found: error
+
+      - name: Upload canonical Oxford reviewed ledger
+        uses: actions/upload-artifact@v4
+        with:
+          name: WordDeck-oxford5000-canonical-reviewed-through-blow
+          path: .\artifacts\oxford5000-canonical-reviewed-through-blow.tsv
           if-no-files-found: error
 
       - name: Upload sentence coverage gap records
