@@ -63,6 +63,14 @@ def voice_for(entry_id: str, female: str, male: str) -> str:
     return female if hashlib.sha256(entry_id.encode("utf-8")).digest()[0] < 128 else male
 
 
+def file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 def load_rows(path: Path) -> list[dict[str, str]]:
     raw_lines = path.read_text(encoding="utf-8-sig").splitlines()
     data_lines = [line for line in raw_lines if line.strip() and not line.lstrip().startswith("#")]
@@ -172,6 +180,7 @@ def main() -> int:
                 "sample_rate": SAMPLE_RATE,
                 "file": out.name,
                 "bytes": out.stat().st_size,
+                "sha256": file_sha256(out),
             }
             manifest.write(json.dumps(record, ensure_ascii=False) + "\n")
             manifest.flush()
