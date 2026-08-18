@@ -98,6 +98,17 @@ internal sealed class RecallStudyScopeService
         SyncLegacyAll(scopeId);
     }
 
+    public IReadOnlyList<string> RemainingShuffle(string scopeId) => Get(scopeId).RemainingShuffleEntryIds;
+
+    public void SetRemainingShuffle(string scopeId, IEnumerable<string> entryIds)
+    {
+        RecallStudyScopeState scope = Get(scopeId);
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        scope.RemainingShuffleEntryIds = entryIds
+            .Where(id => scope.DeckIds.ContainsKey(id) && seen.Add(id))
+            .ToList();
+    }
+
     public void Move(string scopeId, string entryId, string deckId)
     {
         RecallStudyScopeState scope = Get(scopeId);
@@ -106,7 +117,36 @@ internal sealed class RecallStudyScopeService
         if (!_state.Decks.Any(deck => string.Equals(deck.Id, deckId, StringComparison.OrdinalIgnoreCase)))
             throw new InvalidOperationException("Destination deck does not exist.");
         scope.DeckIds[entryId] = deckId;
+        scope.RemainingShuffleEntryIds.RemoveAll(id => string.Equals(id, entryId, StringComparison.OrdinalIgnoreCase));
         SyncLegacyAll(scopeId);
+    }
+
+    public int CountEverywhere(string deckId) =>
+        _state.RecallStudyScopesByDictionary.Values
+            .Where(dictionary => dictionary?.Scopes is not null)
+            .SelectMany(dictionary => dictionary.Scopes.Values)
+            .Where(scope => scope?.DeckIds is not null)
+            .Sum(scope => scope.DeckIds.Values.Count(id => string.Equals(id, deckId, StringComparison.OrdinalIgnoreCase)));
+
+    public void ReplaceDeckEverywhere(string fromDeckId, string toDeckId)
+    {
+        if (!_state.Decks.Any(deck => string.Equals(deck.Id, toDeckId, StringComparison.OrdinalIgnoreCase)))
+            throw new InvalidOperationException("Destination deck does not exist.");
+
+        foreach (RecallStudyScopeDictionaryState dictionary in _state.RecallStudyScopesByDictionary.Values)
+        {
+            if (dictionary?.Scopes is null) continue;
+            foreach (RecallStudyScopeState scope in dictionary.Scopes.Values)
+            {
+                if (scope?.DeckIds is null) continue;
+                foreach (string entryId in scope.DeckIds.Keys.ToList())
+                    if (string.Equals(scope.DeckIds[entryId], fromDeckId, StringComparison.OrdinalIgnoreCase))
+                        scope.DeckIds[entryId] = toDeckId;
+                if (string.Equals(scope.ActiveDeckId, fromDeckId, StringComparison.OrdinalIgnoreCase))
+                    scope.ActiveDeckId = toDeckId;
+            }
+        }
+        SyncLegacyAll(StudyScopeIds.All);
     }
 
     private void EnsureAllScopes()
@@ -123,6 +163,7 @@ internal sealed class RecallStudyScopeService
             }
             scope.DeckIds ??= new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             scope.DeckIds = new Dictionary<string, string>(scope.DeckIds, StringComparer.OrdinalIgnoreCase);
+            scope.RemainingShuffleEntryIds ??= new List<string>();
 
             IReadOnlyList<DictionaryEntry> eligible = EligibleEntries(scopeId);
             var validEntries = new HashSet<string>(eligible.Select(entry => entry.Id), StringComparer.OrdinalIgnoreCase);
@@ -146,6 +187,11 @@ internal sealed class RecallStudyScopeService
             }
             if (!validDeckIds.Contains(scope.ActiveDeckId)) scope.ActiveDeckId = firstDeck;
             if (scope.CurrentEntryId is not null && !scope.DeckIds.ContainsKey(scope.CurrentEntryId)) scope.CurrentEntryId = null;
+
+            var shuffleSeen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            scope.RemainingShuffleEntryIds = scope.RemainingShuffleEntryIds
+                .Where(id => validEntries.Contains(id) && scope.DeckIds.ContainsKey(id) && shuffleSeen.Add(id))
+                .ToList();
         }
 
         if (!StudyScopeIds.Ordered.Contains(_dictionaryState.ActiveScopeId, StringComparer.OrdinalIgnoreCase))
