@@ -2,6 +2,7 @@ import json
 import sys
 
 from acs.webview2_accessibility import enable_webview2_renderer_accessibility
+from acs.webview_safe_server import install_pywebview_safe_local_server_port
 
 
 # This must run before importing pywebview or creating a WebView2 environment.
@@ -38,6 +39,11 @@ else:
     # instance is created. No duplicate native or hidden Move control is used.
     if not install_pywebview_accessibility_host_patch():
         raise SystemExit('Accessible WebView2 host could not be initialized.')
+
+    # pywebview 6.2.1 otherwise chooses a random local-server port in private
+    # mode. The release must never reach Chromium-restricted ports such as 6666.
+    if not install_pywebview_safe_local_server_port():
+        raise SystemExit('Accessible WebView2 local server could not be initialized.')
 
     from acs.stage1_release_ui import main
     main()
