@@ -1,0 +1,61 @@
+id	level	source	meta	ukrainian	status	source_check
+ox5000-add-0141	C1	audit	n. C1	аудит; перевірка	verified	Oxford 5000 list POS/CEFR confirmed 2026-08-18; Ukrainian primary audit/checking senses accepted.
+ox5000-add-0142	B2	audio	adj. B2	звуковий; пов’язаний із записаним звуком	verified	OALD audio adjective reviewed 2026-08-18; recorded-sound sense retained.
+ox5000-add-0143	C1	authentic	adj. C1	справжній; автентичний; достовірний	verified	OALD authentic adjective reviewed 2026-08-18; genuine/true/accurate senses retained.
+ox5000-add-0144	C1	authorize	v. C1	уповноважувати; дозволяти	verified	Oxford 5000 list POS/CEFR confirmed 2026-08-18; Ukrainian authorization/permission senses accepted.
+ox5000-add-0145	C1	auto	n. C1	автомобіль; авто	verified	Oxford 5000 list POS/CEFR confirmed 2026-08-18; automobile noun sense retained.
+ox5000-add-0146	B2	automatic	adj. B2	автоматичний	verified	Oxford 5000 list POS/CEFR confirmed 2026-08-18; Ukrainian adjective is unambiguous.
+ox5000-add-0147	B2	automatically	adv. B2	автоматично	verified	Oxford 5000 list POS/CEFR confirmed 2026-08-18; Ukrainian adverb is unambiguous.
+ox5000-add-0148	C1	autonomy	n. C1	автономія; самостійність; незалежність у прийнятті рішень	verified	OALD autonomy noun reviewed 2026-08-18; self-government and independent-decision senses retained.
+ox5000-add-0149	C1	availability	n. C1	наявність; доступність	verified	OALD availability noun reviewed 2026-08-18; availability/access senses retained.
+ox5000-add-0150	C1	await	v. C1	очікувати; чекати на	verified	OALD await verb reviewed 2026-08-18; wait-for sense retained.
+ox5000-add-0151	B2	awareness	n. B2	обізнаність; усвідомлення	verified	OALD awareness noun reviewed 2026-08-18; knowledge/realization senses retained.
+ox5000-add-0152	B2	awkward	adj. B2	незручний; ніяковий; незграбний; складний у використанні	verified	OALD awkward adjective reviewed 2026-08-18; social, physical and difficult-to-use senses retained.
+ox5000-add-0153	C1	backdrop	n. C1	тло; фон; задник	verified	Oxford 5000 list POS/CEFR confirmed 2026-08-18; literal and figurative background senses retained.
+ox5000-add-0154	C1	backing	n. C1	підтримка; фінансова підтримка	needs_second_pass	Oxford 5000 list POS/CEFR confirmed; OALD entry has multiple material/support/music senses, so production translation remains fail-closed pending focused sense review.
+ox5000-add-0155	C1	backup	n. C1	резервна копія; резерв; підтримка	verified	OALD backup noun reviewed 2026-08-18; copy/reserve/support senses retained.
+ox5000-add-0156	B2	badge	n. B2	значок; бейдж; відмітний знак	verified	OALD badge noun reviewed 2026-08-18; identifying/emblem senses retained.
+ox5000-add-0157	C1	bail	n. C1	застава; звільнення під заставу	verified	Oxford 5000 list POS/CEFR confirmed 2026-08-18; legal bail senses retained.
+ox5000-add-0158	B2	balanced	adj. B2	збалансований; урівноважений	verified	OALD balanced adjective reviewed 2026-08-18; fair/even and stable senses retained.
+ox5000-add-0159	B2	ballet	n. B2	балет	verified	OALD ballet noun reviewed 2026-08-18; dance/work sense retained.
+ox5000-add-0160	B2	balloon	n. B2	повітряна кулька; повітряна куля	verified	OALD balloon noun reviewed 2026-08-18; small inflatable and hot-air balloon senses retained.
+ox5000-add-0161	C1	ballot	n. C1	голосування; виборчий бюлетень	verified	OALD ballot noun reviewed 2026-08-18; voting process and ballot-paper senses retained.
+ox5000-add-0162	C1	banner	n. C1	прапор; транспарант; банер	verified	Oxford 5000 list POS/CEFR confirmed 2026-08-18; sign/flag/banner senses retained.
+ox5000-add-0163	C1	bare	adj. C1	голий; оголений; непокритий; порожній; мінімальний	verified	OALD bare adjective reviewed 2026-08-18; uncovered/empty/bare-minimum senses retained.
+ox5000-add-0164	B2	barely	adv. B2	ледве; ледь; майже не	verified	OALD barely adverb reviewed 2026-08-18; only-just/almost-not senses retained.
+ox5000-add-0165	B2	bargain	n. B2	вигідна покупка; угода; домовленість	verified	OALD bargain noun reviewed 2026-08-18; good-value purchase and agreement senses retained.
+ox5000-add-0166	C1	barrel	n. C1	бочка; ствол	verified	OALD barrel noun reviewed 2026-08-18; container and gun-barrel senses retained.
+ox5000-add-0167	B2	basement	n. B2	підвал; цокольний поверх	verified	Oxford 5000 list POS/CEFR confirmed 2026-08-18; below-ground building level sense retained.
+ox5000-add-0168	C1	bass1	n. C1	бас; низький музичний регістр; басовий голос; бас-гітара	verified	OALD bass 1 noun reviewed 2026-08-18; musical /beɪs/ entry explicitly preserved apart from bass 2 fish.
+ox5000-add-0169	B2	basket	n. B2	кошик	verified	Oxford 5000 list POS/CEFR confirmed 2026-08-18; container sense accepted.
+ox5000-add-0170	B2	bat	n. B2	бита; кажан	verified	OALD bat noun reviewed 2026-08-18; sports implement and flying mammal senses both explicitly retained.
+ox5000-add-0171	C1	bat	v. C1	бити битою; відбивати м’яч	verified	Oxford 5000 list POS/CEFR confirmed 2026-08-18; sports verb sense retained separately from noun row.
+ox5000-add-0172	C1	battlefield	n. C1	поле бою	verified	Oxford 5000 list POS/CEFR confirmed 2026-08-18; Ukrainian noun is unambiguous.
+ox5000-add-0173	C1	bay	n. C1	затока; відсік або секція; еркерна частина; гнідий кінь	needs_second_pass	OALD bay noun reviewed 2026-08-18; entry contains several unrelated senses including sea inlet, marked section, building projection, horse, sound and bay tree, so production translation remains fail-closed pending final scope choice.
+ox5000-add-0174	C1	beam	n. C1	промінь; балка; колода для гімнастики; широка усмішка	verified	OALD beam noun reviewed 2026-08-18; light/support/gymnastics/smile senses retained.
+ox5000-add-0175	C1	beast	n. C1	звір; тварина; жорстока або неприємна людина	verified	OALD beast noun reviewed 2026-08-18; animal and figurative-person senses retained.
+ox5000-add-0176	C1	behalf	n. C1	інтереси; від імені; на користь	needs_second_pass	Oxford 5000 list POS/CEFR confirmed; fixed-expression behavior (on/in behalf of) requires focused OALD/collocation wording before production.
+ox5000-add-0177	C1	beloved	adj. C1	коханий; улюблений	verified	Oxford 5000 list POS/CEFR confirmed 2026-08-18; dearly-loved adjective sense accepted.
+ox5000-add-0178	C1	bench	n. C1	лава; лавка; суддівська лава	verified	Oxford 5000 list POS/CEFR confirmed 2026-08-18; seating and judicial senses retained.
+ox5000-add-0179	B2	beneficial	adj. B2	корисний; сприятливий	verified	Oxford 5000 list POS/CEFR confirmed 2026-08-18; advantageous/helpful sense accepted.
+ox5000-add-0180	C1	beneficiary	n. C1	бенефіціар; вигодонабувач; одержувач допомоги або вигоди	verified	Oxford 5000 list POS/CEFR confirmed 2026-08-18; person receiving benefit/property sense retained.
+ox5000-add-0181	C1	benchmark	n. C1	еталон; орієнтир; контрольний показник	verified	Oxford 5000 list POS/CEFR confirmed 2026-08-18; comparison-standard sense retained.
+ox5000-add-0182	C1	beneath	prep. C1	під; нижче	verified	Oxford 5000 list POS/CEFR confirmed 2026-08-18; spatial/figurative below sense retained.
+ox5000-add-0183	B2	beside	prep. B2	поруч із; біля	verified	Oxford 5000 list POS/CEFR confirmed 2026-08-18; next-to sense accepted.
+ox5000-add-0184	B2	besides	prep., adv. B2	крім; окрім; до того ж; крім того	verified	Oxford 5000 list POS/CEFR confirmed 2026-08-18; preposition and additive adverb senses retained.
+ox5000-add-0185	C1	betray	v. C1	зраджувати; видавати; мимоволі виявляти	verified	Oxford 5000 list POS/CEFR confirmed 2026-08-18; disloyalty/reveal senses retained.
+ox5000-add-0186	B2	bias	n. B2	упередженість; схильність; зміщення	verified	Oxford 5000 list POS/CEFR confirmed 2026-08-18; unfair preference and tendency senses retained.
+ox5000-add-0187	B2	bid	n., v. B2	ставка; цінова пропозиція; заявка; робити ставку; пропонувати ціну	verified	Oxford 5000 list POS/CEFR confirmed 2026-08-18; auction/offer and attempt/application senses retained for noun+verb row.
+ox5000-add-0188	C1	bind	v. C1	зв’язувати; скріплювати; переплітати; зобов’язувати	verified	Oxford 5000 list POS/CEFR confirmed 2026-08-18; fastening/bookbinding/obligation senses retained.
+ox5000-add-0189	B2	biological	adj. B2	біологічний	verified	Oxford 5000 list POS/CEFR confirmed 2026-08-18; Ukrainian adjective is unambiguous.
+ox5000-add-0190	C1	biography	n. C1	біографія	verified	Oxford 5000 list POS/CEFR confirmed 2026-08-18; life-history noun sense accepted.
+ox5000-add-0191	C1	bishop	n. C1	єпископ; слон у шахах	verified	Oxford 5000 list POS/CEFR confirmed 2026-08-18; church-office and chess-piece senses explicitly retained.
+ox5000-add-0192	C1	bizarre	adj. C1	химерний; дуже дивний; чудернацький	verified	Oxford 5000 list POS/CEFR confirmed 2026-08-18; very-strange sense accepted.
+ox5000-add-0193	C1	blade	n. C1	лезо; лопать; травинка	verified	OALD blade noun reviewed 2026-08-18; cutting edge, rotor/propeller and blade-of-grass senses retained.
+ox5000-add-0194	B2	blanket	n. B2	ковдра	verified	Oxford 5000 list POS/CEFR confirmed 2026-08-18; covering noun sense accepted.
+ox5000-add-0195	C1	blast	n., v. C1	вибух; сильний порив або потік; гучний звук; вибухати; підривати	needs_second_pass	Oxford 5000 list POS/CEFR confirmed; noun+verb entry is highly polysemous and requires focused OALD sense-selection pass before production.
+ox5000-add-0196	C1	bleed	v. C1	кровоточити; стікати кров’ю; випускати кров або рідину	verified	OALD bleed verb reviewed 2026-08-18; bleeding and release/drain senses retained.
+ox5000-add-0197	C1	blend	v., n. C1	змішувати; змішуватися; поєднувати; суміш	verified	OALD blend verb reviewed 2026-08-18 and Oxford list noun+verb POS confirmed; mixing/combining and resulting mixture senses retained.
+ox5000-add-0198	C1	bless	v. C1	благословляти; освячувати	verified	OALD bless verb reviewed 2026-08-18; religious blessing/consecration sense retained.
+ox5000-add-0199	C1	blessing	n. C1	благословення; благо; щаслива обставина	verified	Oxford 5000 list POS/CEFR confirmed 2026-08-18; religious and beneficial-thing senses retained.
+ox5000-add-0200	B2	blow	n. B2	удар; подув; сильний удар або невдача	needs_second_pass	Oxford 5000 list POS/CEFR confirmed; noun entry spans physical strike, air movement and figurative setback, so production translation remains fail-closed pending focused OALD review.
