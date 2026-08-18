@@ -62,7 +62,7 @@ function Get-ControlViewElements($Roots) {
       for($i=$kids.Count-1;$i -ge 0;$i--){ $stack.Push($kids[$i]) }
     } catch {
       $rid=Get-RuntimeIdText $e
-      throw "Strict ControlView child enumeration failed at runtime_id=$rid: $($_.Exception.GetType().FullName): $($_.Exception.Message)"
+      throw "Strict ControlView child enumeration failed at runtime_id=${rid}: $($_.Exception.GetType().FullName): $($_.Exception.Message)"
     }
   }
   return @($items)
