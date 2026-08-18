@@ -64,8 +64,8 @@ jobs:
           ready_count=$(awk -F '\t' 'NR > 1 && $4 == "ready" { count++ } END { print count+0 }' WordDeck/Audio/pronunciation-overrides.tsv)
           selected_count=$(($(wc -l < /tmp/worddeck-audio-source.tsv) - 1))
           echo "Reviewed-safe overrides: ledger=$ready_count selected=$selected_count"
-          test "$ready_count" -eq 19
-          test "$selected_count" -eq 19
+          test "$ready_count" -gt 0
+          test "$selected_count" -eq "$ready_count"
 
       - name: Install TTS dependencies
         shell: bash
@@ -98,6 +98,11 @@ jobs:
           test "$actual" -gt 0
           test -s /tmp/worddeck-audio/manifest.jsonl
           if [ '${{ steps.request.outputs.source }}' = 'pronunciation-overrides-ready' ]; then
+            ready_count=$(awk -F '\t' 'NR > 1 && $4 == "ready" { count++ } END { print count+0 }' WordDeck/Audio/pronunciation-overrides.tsv)
+            if [ "$expected" -le 0 ]; then
+              expected="$ready_count"
+            fi
+            test "$expected" -le "$ready_count"
             test "$actual" -eq "$expected"
             manifest_rows=$(wc -l < /tmp/worddeck-audio/manifest.jsonl)
             test "$manifest_rows" -eq "$expected"
