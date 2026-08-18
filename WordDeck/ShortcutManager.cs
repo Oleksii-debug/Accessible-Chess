@@ -5,6 +5,7 @@ internal sealed class ShortcutManager
     private readonly AppState _state;
     private List<DeckDefinition> _spellingDecks;
     private static IReadOnlyList<ShortcutDefinition> RecallDefinitions { get; } = BuildRecallDefinitions();
+    private static IReadOnlyList<ShortcutDefinition> ScopeDefinitions { get; } = BuildScopeDefinitions();
     private static IReadOnlyList<ShortcutDefinition> SpellingDefinitions { get; } = BuildSpellingDefinitions();
     private static IReadOnlyList<ShortcutDefinition> SentenceDefinitions { get; } = BuildSentenceDefinitions();
 
@@ -101,6 +102,12 @@ internal sealed class ShortcutManager
         new(ActionIds.Help, "Open help", Keys.F1),
     };
 
+    private static IReadOnlyList<ShortcutDefinition> BuildScopeDefinitions() =>
+        StudyScopeIds.Ordered.Select(scopeId => new ShortcutDefinition(
+            ActionIds.SwitchStudyScope(scopeId),
+            $"Recall: switch study scope to {StudyScopeIds.DisplayName(scopeId)}",
+            Keys.None)).ToList();
+
     private static IReadOnlyList<ShortcutDefinition> BuildSpellingDefinitions() => new List<ShortcutDefinition>
     {
         new(ActionIds.OpenSpelling, "Open Spelling trainer", Keys.Control | Keys.Shift | Keys.S),
@@ -128,6 +135,7 @@ internal sealed class ShortcutManager
     private IReadOnlyList<ShortcutDefinition> BuildDefinitions()
     {
         var defs = new List<ShortcutDefinition>(RecallDefinitions);
+        defs.AddRange(ScopeDefinitions);
         foreach (DeckDefinition deck in _state.Decks.OrderBy(deck => deck.Order))
         {
             int coreNumber = DeckIds.CoreDecks.ToList().FindIndex(id => string.Equals(id, deck.Id, StringComparison.OrdinalIgnoreCase)) + 1;
