@@ -14,7 +14,8 @@ internal static class ReviewedOxford5000Bootstrap
     private const int ExpectedPostComputeRows = 29;
     private const int ExpectedPostConstitutionRows = 29;
     private const int ExpectedPostCorrelationRows = 29;
-    public const int ExpectedCanonicalRows = 403;
+    private const int ExpectedPostDamRows = 29;
+    public const int ExpectedCanonicalRows = 432;
 
     private static readonly Dictionary<string, string> PosAbbreviations = new(StringComparer.Ordinal)
     {
@@ -99,6 +100,7 @@ internal static class ReviewedOxford5000Bootstrap
         AppendVerifiedSlice(result, "oxford5000_source_after_compute_c1_0001_0029.tsv", ExpectedPostComputeRows, 1998);
         AppendVerifiedSlice(result, "oxford5000_source_after_constitution_c1_0001_0029.tsv", ExpectedPostConstitutionRows, 1999);
         AppendVerifiedSlice(result, "oxford5000_source_after_correlation_c1_0001_0029.tsv", ExpectedPostCorrelationRows, 2001);
+        AppendVerifiedSlice(result, "oxford5000_source_after_dam_c1_0001_0029.tsv", ExpectedPostDamRows, 2002);
 
         result = result.OrderBy(row => row.MajorOrder).ThenBy(row => row.MinorOrder).ToList();
         if (result.Count != ExpectedCanonicalRows)
@@ -128,8 +130,10 @@ internal static class ReviewedOxford5000Bootstrap
             throw new InvalidDataException("Verified constitution noun C1 row is missing from canonical Oxford 5000 beta ledger.");
         if (!result.Any(row => row is { Source: "correlation", PartOfSpeech: "noun", Level: "C1" }))
             throw new InvalidDataException("Verified correlation noun C1 row is missing from canonical Oxford 5000 beta ledger.");
-        if (result[^1] is not { Source: "dam", PartOfSpeech: "noun", Level: "C1" })
-            throw new InvalidDataException("Canonical Oxford 5000 beta ledger does not end at the latest activated dam noun C1 row.");
+        if (!result.Any(row => row is { Source: "dam", PartOfSpeech: "noun", Level: "C1" }))
+            throw new InvalidDataException("Verified dam noun C1 row is missing from canonical Oxford 5000 beta ledger.");
+        if (result[^1] is not { Source: "deployment", PartOfSpeech: "noun", Level: "C1" })
+            throw new InvalidDataException("Canonical Oxford 5000 beta ledger does not end at the latest activated deployment noun C1 row.");
         return result;
     }
 
