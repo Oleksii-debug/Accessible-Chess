@@ -6,14 +6,15 @@ Branch: `worddeck-bootstrap` only. Never develop WordDeck on `main`.
 ## Emergency Oxford 5000 milestone
 
 ### Oxford lexical data
-- Embedded production dictionary remains the verified Oxford 3000 baseline: **3,308 lexical rows**, A1-B2. Do not claim Oxford 5000 complete yet.
-- Oxford 5000 additions **0001-0100** were previously translated/reviewed.
-- Source-backed second-pass verification is now complete through **0200**. Existing slices 0101-0120 and 0121-0140 remain `verified`; the new 0141-0200 slice contains **60/60 `verified` rows**, with no blank, pending or guessed production translation.
-- The 0141-0200 pass preserves the extracted Oxford POS/CEFR metadata exactly and explicitly resolves the difficult polysemous/sense-sensitive rows including `bass1`, noun/verb `bat`, `bay`, `backing`, `behalf`, `blast` and noun `blow` rather than collapsing them silently.
-- The fail-closed second-pass validator now checks all three source-backed slices 0101-0120, 0121-0140 and 0141-0200 in its self-test: exact ordered stable IDs, no duplicates, no POS/CEFR/source drift from the extraction batch, B2/C1-only additions, nonblank Ukrainian, `verified` status and explicit authoritative Oxford source evidence.
-- Therefore the first **200 Oxford 5000 additions** have completed the project's current translation/source-review threshold. They are not yet counted in the embedded production dictionary until the production merge path and subsequent Windows gate are verified.
-- Remaining authoritative extraction/QA after 0200 is incomplete. C1 must come only from Oxford 5000 additions. No Oxford C2 scope or invented C2 entries.
-- Exact next data action: continue authoritative Oxford 5000 extraction beyond 0200 in a large batch, preserving distinct POS/sense rows and isolating ambiguities without blocking later rows; then merge only fully verified additions into the production dictionary.
+- Embedded production dictionary remains the verified Oxford 3000 baseline: **3,308 lexical rows**, A1-B2. No Oxford 5000 addition has yet been promoted into the embedded production dictionary in this checkpoint.
+- The previously reviewed `ox5000-add-0001..0200` material is now explicitly classified as **legacy translation-working groups**, not canonical production lexical rows. Its Ukrainian work remains reusable, but its old numeric IDs must not be promoted directly.
+- A source-structure audit against the current official Oxford 3000/5000 list found **13 merged POS groups** in the old staging (`abuse`, `acid`, `advocate`, `alert`, `alien`, `alike`, `amateur`, `assault`, `attribute`, `besides`, `bid`, `blast`, `blend`) plus one omitted official row, `assumption` noun B2.
+- After splitting those confirmed merged groups and restoring `assumption`, the old alphabetical span from `abolish` through noun `blow` corresponds to **215 separate official Oxford lexical rows**, not 200. The detailed reconciliation is in `QA/OXFORD5000_STRUCTURE_AUDIT_0001_0200.md`.
+- The old translation second-pass material is source-reviewed through old group `0200`, including the difficult polysemous items, but it is **not production-eligible until remapped to canonical per-row identities**. This distinction prevents a false claim that 200 official Oxford additions are ready.
+- New development tool `tools/extract_oxford5000_official.py` implements the corrected row-preserving model using Python standard library only. It consumes saved official Oxford list HTML, excludes Oxford 3000 membership, preserves each B2/C1 POS row separately, rejects unexpected levels such as C2, and derives order-independent candidate stable IDs from headword + POS + CEFR + official definition path.
+- The public historical `winterdl/oxford-5000-vocabulary-audio-definition` project was evaluated only as a QA/reference aid; because no usable license was identified, no code/data/audio is incorporated and it is not an authoritative source. The current Oxford page remains source of truth.
+- C1 must come only from official Oxford 5000 additions. No Oxford C2 scope or invented C2 entries.
+- Exact next data action: run the canonical extractor against an authoritative saved current Oxford page, reconcile the first 215 canonical rows with the already reviewed Ukrainian material, then continue authoritative extraction beyond noun `blow` in large row-preserving batches. Only canonical verified rows may be embedded.
 
 ### Recall Study Scope / Workspace
 - Durable scope IDs are exactly: `all`, `a1`, `a2`, `b1`, `b2`, `c1`; display labels are `All Oxford 5000`, `A1`, `A2`, `B1`, `B2`, `C1`.
@@ -26,15 +27,16 @@ Branch: `worddeck-bootstrap` only. Never develop WordDeck on `main`.
 - Stable rebindable actions `recall_scope_<scopeId>` exist for all six scopes and default to `Unassigned`.
 - Custom pasted cards remain deliberately restricted to `All Oxford 5000` so A1-C1 workspaces remain official CEFR subsets. Existing custom-deck definitions remain usable; scope assignments migrate safely if a user deck is deleted.
 - Regression coverage is wired into `--self-test`: legacy-to-All migration, exact CEFR filtering, independent assignments, independent active deck/current card/shuffle, JSON round-trip persistence, ineligible-entry rejection, all six dynamic scope actions, rebinding/conflict rejection and canonical shortcut formatting.
-- **Verification state:** implementation is landed on `worddeck-bootstrap`; do not call the vertical slice user-testable until the grouped Windows build/self-test/published-EXE gate is green for the final coherent beta head.
-- Exact next scope action: use the next coherent production-data merge as the grouped Windows gate checkpoint, then do a native-focus/NVDA-oriented code audit before any beta is surfaced.
+- **Verification state:** implementation is landed on `worddeck-bootstrap`; do not call the vertical slice user-testable until a grouped Windows build/self-test/published-EXE gate is green on a coherent head containing canonical production Oxford 5000 additions.
+- Exact next scope action: keep the architecture unchanged while canonical Oxford rows are prepared; use the first coherent production-data merge as the scope end-to-end Windows/NVDA-oriented checkpoint.
 
 ### British offline audio
 - Existing Oxford 3000 technical generation remains **3,308/3,308** stable entries.
 - Aggregate structural QA remains complete for 3,308 files, but pronunciation-content release is still blocked on the targeted candidate set rather than wholesale regeneration.
 - Current durable override state: 36 numbered/sense-marker candidates are in the ledger, split into **19 `ready`** deterministic replacements and **17 `review`** heteronym/sense-sensitive records; **5 uppercase/acronym candidates** remain a separate listening/letter-name QA set.
-- No Oxford 5000 addition is counted as audio-complete until its lexical row is production-eligible and a stable-ID MP3 + manifest/hash entry exists.
-- Exact next audio action: finish/validate targeted Oxford 3000 replacements, then generate British MP3 only for newly merged verified Oxford 5000 additions; keep Kokoro/Misaki development-only and runtime fully offline.
+- Oxford 5000 addition audio generation is intentionally **paused until canonical per-row stable IDs exist**. Generating against the old merged staging IDs would create disposable/wrongly keyed MP3s.
+- No Oxford 5000 addition is counted as audio-complete until its canonical lexical row is production-eligible and a stable-ID MP3 + manifest/hash entry exists.
+- Exact next audio action: finish/validate targeted Oxford 3000 replacements independently; after canonical Oxford 5000 IDs are established, generate British MP3 only for verified canonical additions. Kokoro/Misaki remains development-only and runtime stays fully offline.
 
 ### Hotkey / F1 truth audit
 - One shared `ShortcutFormatter` renders shortcuts canonically as `Ctrl+Shift+B`, `Ctrl+Alt+...`, etc.
@@ -46,17 +48,18 @@ Branch: `worddeck-bootstrap` only. Never develop WordDeck on `main`.
 
 ### Emergency blockers
 - **No user-input blocker.**
-- Release blocker: authoritative extraction/translation QA for Oxford 5000 additions **0201 onward** is still incomplete, and the verified additions are not yet embedded in production.
-- Vertical-slice verification blocker: scope UI/state needs a green grouped Windows build + full self-test + published-EXE self-test on a coherent head that also contains production-eligible Oxford 5000 data.
-- Audio blocker: targeted Oxford 3000 pronunciation replacements are not yet release-complete; Oxford 5000 additions need stable-ID audio after production merge.
+- Release blocker: old Oxford 5000 translation groups must first be canonicalized into one official row per POS/CEFR entry; authoritative extraction beyond noun `blow` remains incomplete.
+- Vertical-slice verification blocker: no canonical Oxford 5000 additions are embedded yet, so the scope UI/state implementation has not been proven on the actual new production dataset.
+- Audio blocker: targeted Oxford 3000 pronunciation replacements are not yet release-complete, and Oxford 5000 audio must wait for canonical stable IDs.
 
 ## Parallel lanes (non-blocking)
 - Core Recall/Spelling/Sentence data remain preserved; no Grammar/Story/speech-recognition/future-module work started.
-- Sentence Coach low-memory SQLite path remains available but did not receive majority effort in this emergency cycle.
+- Sentence Coach low-memory SQLite path remains available but received no majority effort in this emergency cycle.
 - Oxford 3000 semantic QA remains independent and does not block Oxford 5000 extraction/audio/scope delivery.
 - Oxford 3000 translation-QA checkpoint remains separately at 240 reviewed entries; this emergency run did not consume time extending that lane.
 
 ## Safety / release discipline
 - `main` remains untouched.
+- Existing Oxford 3000 stable IDs/progress remain untouched; the flawed Oxford 5000 staging was caught before production embedding.
 - No secrets, API keys, network runtime requirement, Python runtime or Kokoro runtime were added.
-- Do not send a beta automatically. A beta becomes eligible only after a coherent Windows x64 gate proves the Recall scope selector/state path end-to-end with production-eligible Oxford 5000 data; real NVDA compatibility still requires user testing.
+- Do not send a beta automatically. A beta becomes eligible only after canonical verified Oxford 5000 rows are embedded and a coherent Windows x64 gate proves the Recall scope selector/state path end-to-end; real NVDA compatibility still requires user testing.
