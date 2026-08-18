@@ -41,10 +41,43 @@ internal static class StudyScopeSelfTest
         Require(state.DeckIdsByDictionary[dictionaryId]["a1-one"] == DeckIds.Core(3), "All scope did not keep legacy compatibility map synchronized.");
         Require(scopes.Assignments(StudyScopeIds.A1)["a1-one"] == DeckIds.Core(5), "All move leaked into A1 scope.");
 
+        scopes.SetActiveDeck(StudyScopeIds.All, DeckIds.Core(4));
+        scopes.SetCurrentEntry(StudyScopeIds.All, "a1-two");
+        scopes.SetRemainingShuffle(StudyScopeIds.All, new[] { "b2-one", "c1-one", "b2-one" });
+        scopes.SetActiveDeck(StudyScopeIds.A1, DeckIds.Core(5));
+        scopes.SetCurrentEntry(StudyScopeIds.A1, "a1-one");
+        scopes.SetRemainingShuffle(StudyScopeIds.A1, new[] { "a1-two" });
+        scopes.ActiveScopeId = StudyScopeIds.A1;
+
+        Require(scopes.RemainingShuffle(StudyScopeIds.All).SequenceEqual(new[] { "b2-one", "c1-one" }), "All shuffle state did not deduplicate deterministically.");
+        Require(scopes.RemainingShuffle(StudyScopeIds.A1).SequenceEqual(new[] { "a1-two" }), "A1 shuffle state was not independent.");
+        Require(scopes.Get(StudyScopeIds.All).ActiveDeckId == DeckIds.Core(4) && scopes.Get(StudyScopeIds.A1).ActiveDeckId == DeckIds.Core(5), "Active deck leaked across scopes.");
+        Require(scopes.Get(StudyScopeIds.All).CurrentEntryId == "a1-two" && scopes.Get(StudyScopeIds.A1).CurrentEntryId == "a1-one", "Current card leaked across scopes.");
+
         bool rejected = false;
         try { scopes.Move(StudyScopeIds.C1, "a1-one", DeckIds.Core(2)); }
         catch (InvalidOperationException) { rejected = true; }
         Require(rejected, "Scope accepted an ineligible entry.");
+
+        string root = Path.Combine(Path.GetTempPath(), $"WordDeck-scope-self-test-{Guid.NewGuid():N}");
+        try
+        {
+            var store = new AppStateStore(root);
+            store.Save(state);
+            AppState reloaded = new AppStateStore(root).Load();
+            var restored = new RecallStudyScopeService(reloaded, dictionaryId, entries);
+            Require(restored.ActiveScopeId == StudyScopeIds.A1, "Active study scope did not survive JSON round-trip.");
+            Require(restored.Assignments(StudyScopeIds.All)["a1-one"] == DeckIds.Core(3), "All assignment did not survive JSON round-trip.");
+            Require(restored.Assignments(StudyScopeIds.A1)["a1-one"] == DeckIds.Core(5), "A1 assignment did not survive JSON round-trip.");
+            Require(restored.Get(StudyScopeIds.All).ActiveDeckId == DeckIds.Core(4), "All active deck did not survive JSON round-trip.");
+            Require(restored.Get(StudyScopeIds.A1).ActiveDeckId == DeckIds.Core(5), "A1 active deck did not survive JSON round-trip.");
+            Require(restored.RemainingShuffle(StudyScopeIds.All).SequenceEqual(new[] { "b2-one", "c1-one" }), "All shuffle progress did not survive JSON round-trip.");
+            Require(restored.RemainingShuffle(StudyScopeIds.A1).SequenceEqual(new[] { "a1-two" }), "A1 shuffle progress did not survive JSON round-trip.");
+        }
+        finally
+        {
+            try { if (Directory.Exists(root)) Directory.Delete(root, true); } catch { }
+        }
 
         var shortcuts = new ShortcutManager(state);
         foreach (string scopeId in StudyScopeIds.Ordered)
@@ -53,6 +86,11 @@ internal static class StudyScopeSelfTest
             Require(shortcuts.Definitions.Any(def => def.Id == actionId), $"Missing scope shortcut action {actionId}.");
             Require(shortcuts.Get(actionId) == Keys.None, "Scope shortcuts must start unassigned to avoid conflicts.");
         }
+
+        string a1Action = ActionIds.SwitchStudyScope(StudyScopeIds.A1);
+        Require(shortcuts.TrySet(a1Action, Keys.Control | Keys.Alt | Keys.F8, out string? scopeError), $"Could not bind a scope shortcut: {scopeError}");
+        Require(shortcuts.FindAction(Keys.Control | Keys.Alt | Keys.F8) == a1Action, "Bound scope shortcut did not dispatch by stable action ID.");
+        Require(!shortcuts.TrySet(ActionIds.SwitchStudyScope(StudyScopeIds.A2), Keys.Control | Keys.Alt | Keys.F8, out string? conflict) && !string.IsNullOrWhiteSpace(conflict), "Scope shortcut conflict was not rejected.");
 
         Require(ShortcutFormatter.Format(Keys.Control | Keys.Shift | Keys.B) == "Ctrl+Shift+B", "Canonical formatter failed Ctrl+Shift+B.");
         Require(ShortcutFormatter.Format(Keys.Control | Keys.Alt | Keys.Delete) == "Ctrl+Alt+Delete", "Canonical formatter failed Ctrl+Alt+Delete.");
