@@ -1,6 +1,7 @@
 name: QA Issue14 Strict Bridge
 
 on:
+  workflow_dispatch:
   issue_comment:
     types: [created]
 
@@ -12,8 +13,10 @@ permissions:
 jobs:
   patch-and-dispatch:
     if: >-
-      github.event.issue.number == 14 &&
-      github.event.comment.body == 'QA_DISPATCH_E8CD992_STRICT_20260818_1233'
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'issue_comment' &&
+       github.event.issue.number == 14 &&
+       github.event.comment.body == 'QA_DISPATCH_E8CD992_STRICT_20260818_1233')
     runs-on: windows-latest
     env:
       TARGET_BRANCH: qa/windows-current-integration-candidate-20260815
