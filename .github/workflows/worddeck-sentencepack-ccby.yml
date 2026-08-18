@@ -6,6 +6,9 @@ on:
     paths:
       - '.github/workflows/worddeck-sentencepack-ccby.yml'
       - 'WordDeck/tools/build_tatoeba_ccby_pairs.py'
+      - 'WordDeck/tools/resolve_sentence_coverage_gaps.py'
+      - 'WordDeck/tools/analyze_sentence_gap_occurrence.py'
+      - 'WordDeck/QA/sentence_coverage_gaps_20260817.txt'
       - 'WordDeck/TatoebaImportProvenance.cs'
       - 'WordDeck/TatoebaSentencePackBuilder.cs'
       - 'WordDeck/SentencePackDiagnostics.cs'
@@ -38,9 +41,12 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Validate attributed pair builder
+      - name: Validate attributed pair builder and gap QA tools
         shell: pwsh
-        run: python .\WordDeck\tools\build_tatoeba_ccby_pairs.py --self-test
+        run: |
+          python .\WordDeck\tools\build_tatoeba_ccby_pairs.py --self-test
+          python .\WordDeck\tools\resolve_sentence_coverage_gaps.py --self-test
+          python .\WordDeck\tools\analyze_sentence_gap_occurrence.py --self-test
 
       - name: Restore build and regression test
         shell: pwsh
@@ -57,6 +63,26 @@ jobs:
             --download-dir .\sentencepack-ccby\upstream `
             --output .\sentencepack-ccby\tatoeba-en-uk-ccby.tsv `
             --manifest .\sentencepack-ccby\tatoeba-en-uk-ccby.tsv.manifest.json
+
+      - name: Measure exact corpus occurrence for unresolved Oxford gaps
+        shell: pwsh
+        run: |
+          python .\WordDeck\tools\resolve_sentence_coverage_gaps.py `
+            --output .\sentencepack-ccby\resolved-sentence-coverage-gaps.tsv
+          python .\WordDeck\tools\analyze_sentence_gap_occurrence.py `
+            --resolved .\sentencepack-ccby\resolved-sentence-coverage-gaps.tsv `
+            --pairs .\sentencepack-ccby\tatoeba-en-uk-ccby.tsv `
+            --output .\sentencepack-ccby\sentence-gap-exact-occurrence.tsv
+
+          $rows = @(Import-Csv .\sentencepack-ccby\sentence-gap-exact-occurrence.tsv -Delimiter "`t")
+          if ($rows.Count -ne 188) { throw "Expected 188 gap rows, got $($rows.Count)" }
+          $single = @($rows | Where-Object { $_.structural_class -eq 'single_surface_indexable' })
+          if ($single.Count -ne 114) { throw "Expected 114 single-surface gaps, got $($single.Count)" }
+          $unmeasuredSingle = @($single | Where-Object { $_.exact_sentence_match_count -eq '' })
+          if ($unmeasuredSingle.Count -ne 0) { throw "$($unmeasuredSingle.Count) single-surface gaps were not measured" }
+          $presentSingle = @($single | Where-Object { [int]$_.exact_sentence_match_count -gt 0 }).Count
+          $absentSingle = @($single | Where-Object { [int]$_.exact_sentence_match_count -eq 0 }).Count
+          Write-Host "Single-surface exact occurrence: present=$presentSingle absent=$absentSingle total=$($single.Count)"
 
       - name: Build attributed WordDeck SentencePack
         shell: pwsh
@@ -180,6 +206,8 @@ jobs:
             sentencepack-ccby/tatoeba-en-uk-ccby-sentencepack.json.gz
             sentencepack-ccby/tatoeba-en-uk-ccby.tsv.manifest.json
             sentencepack-ccby/coverage-report.json
+            sentencepack-ccby/resolved-sentence-coverage-gaps.tsv
+            sentencepack-ccby/sentence-gap-exact-occurrence.tsv
             sentencepack-ccby/compression-report.json
             sentencepack-ccby/load-diagnostics.json
             sentencepack-ccby/sqlite-query-diagnostics.json
