@@ -76,6 +76,26 @@ function Fen($els){$e=FindControl $els 'fen-input' '^FEN( позиції)?$' 'Co
 function SquareToken($e){try{$id=[string]$e.Current.AutomationId;if($id -match '^sq-([a-h][1-8])$'){return $matches[1]};$n=[string]$e.Current.Name;if($n -match '(?<![A-Za-z0-9])([a-h][1-8])(?![A-Za-z0-9])'){return $matches[1]}}catch{};''}
 function Squares($els){$h=@{};foreach($e in @($els)){$s=SquareToken $e;if($s -and -not $h.ContainsKey($s)){$h[$s]=$e}};$h}
 function SameSemanticFocus($target,$focused){if($null -eq $focused){return $false};$id=[string]$target.Current.AutomationId;$n=[string]$target.Current.Name;$fid=[string]$focused.Current.AutomationId;$fn=[string]$focused.Current.Name;return (($id -and $fid -eq $id) -or ($n -and $fn -eq $n))}
+function FocusDescription($focused){
+  if($null -eq $focused){return "runtime_id='' automation_id='' name='' control_type=''"}
+  try{return "runtime_id='$(RuntimeId $focused)' automation_id='$([string]$focused.Current.AutomationId)' name='$([string]$focused.Current.Name)' control_type='$([string]$focused.Current.ControlType.ProgrammaticName)'"}catch{return "runtime_id='$(RuntimeId $focused)' automation_id='' name='' control_type=''"}
+}
+function AssertFocusedRuntimeEventually([string]$rid,[string]$label,[int]$timeoutMs=4000){
+  $sw=[System.Diagnostics.Stopwatch]::StartNew(); $last=$null
+  while($sw.ElapsedMilliseconds -lt $timeoutMs){
+    try{$last=[System.Windows.Automation.AutomationElement]::FocusedElement;if((RuntimeId $last) -eq $rid){return}}catch{}
+    Start-Sleep -Milliseconds 100
+  }
+  throw "$label focus did not converge to runtime_id='$rid'; final $(FocusDescription $last)"
+}
+function AssertSemanticFocusEventually($target,[string]$label,[int]$timeoutMs=4000){
+  $sw=[System.Diagnostics.Stopwatch]::StartNew(); $last=$null
+  while($sw.ElapsedMilliseconds -lt $timeoutMs){
+    try{$last=[System.Windows.Automation.AutomationElement]::FocusedElement;if(SameSemanticFocus $target $last){return}}catch{}
+    Start-Sleep -Milliseconds 100
+  }
+  throw "$label semantic focus did not converge; target automation_id='$([string]$target.Current.AutomationId)' name='$([string]$target.Current.Name)'; final $(FocusDescription $last)"
+}
 function NoRawError($els){foreach($e in @($els)){try{$n=[string]$e.Current.Name;if($n -match 'Traceback|ValueError|binding must contain a non-modifier key'){throw "Raw exception leaked: '$n'"}}catch{if($_.Exception.Message -match '^Raw exception leaked'){throw}}}}
 function HasE4History($els){foreach($e in @($els)){try{$ct=[string]$e.Current.ControlType.ProgrammaticName;if($ct -in @('ControlType.DataItem','ControlType.Custom','ControlType.Edit')){continue};if([string]$e.Current.Name -match '(?<![A-Za-z0-9])e\s*4(?![A-Za-z0-9])'){return $true}}catch{}};$false}
 
@@ -103,7 +123,7 @@ try{
 
   $els=Rewalk $report; $move=FindRuntime $els $moveRid; AssertMoveStrict $move $moveRid; $vp=ValuePattern $move 'Move after e4'
   if([string]$vp.Current.Value -ne ''){throw 'Legal e4 did not clear input'}
-  if((RuntimeId [System.Windows.Automation.AutomationElement]::FocusedElement) -ne $moveRid){throw 'Legal e4 did not refocus original Move Edit'}
+  AssertFocusedRuntimeEventually $moveRid 'Legal e4 refocus'
   $fenE4=Fen $els
   if($fenE4 -ne 'rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1'){throw "Unexpected e4 FEN: $fenE4"}
   $summary.e4_fen=$fenE4
@@ -129,23 +149,18 @@ try{
   $els=Rewalk $report; $sq=Squares $els; $summary.semantic_square_count=$sq.Count
   if($sq.Count -ne 64){throw "Expected 64 semantic squares, got $($sq.Count)"}
   if(-not $sq.ContainsKey('a3') -or -not $sq.ContainsKey('e4')){throw 'Required semantic squares a3/e4 missing'}
-  $target=$sq['a3']; $target.SetFocus(); Start-Sleep -Milliseconds 250
-  $before=[System.Windows.Automation.AutomationElement]::FocusedElement
-  if(-not (SameSemanticFocus $target $before)){throw 'Board origin was not established on a3 before UIA submit bridge'}
+  $target=$sq['a3']; $target.SetFocus();
+  AssertSemanticFocusEventually $target 'Board origin establishment'
 
   # Locked contract: after board origin is established, touch only move-submit via UIA Invoke.
   $els=Rewalk $report
   $submit=FindControl $els 'move-submit' '^(Зробити хід|Make move)$' 'ControlType.Button'
   if($null -eq $submit){throw 'move-submit missing during board-origin bridge'}
   $preInvoke=[System.Windows.Automation.AutomationElement]::FocusedElement
-  if(-not (SameSemanticFocus $target $preInvoke)){throw 'Board origin changed before move-submit Invoke'}
-  Invoke $submit 'move-submit'; Start-Sleep -Seconds 2
+  if(-not (SameSemanticFocus $target $preInvoke)){throw "Board origin changed before move-submit Invoke; final $(FocusDescription $preInvoke)"}
+  Invoke $submit 'move-submit'
+  AssertSemanticFocusEventually $target 'Board focus continuity after pure submit bridge'
 
-  $after=[System.Windows.Automation.AutomationElement]::FocusedElement
-  if(-not (SameSemanticFocus $target $after)){
-    $aid=if($after){[string]$after.Current.AutomationId}else{''};$an=if($after){[string]$after.Current.Name}else{''}
-    throw "Board focus continuity failed after pure submit bridge: before='$([string]$target.Current.AutomationId)'/'$([string]$target.Current.Name)' after='$aid'/'$an'"
-  }
   $summary.board_focus_continuity=$true
   $els=Rewalk $report
   $fenE5=Fen $els
