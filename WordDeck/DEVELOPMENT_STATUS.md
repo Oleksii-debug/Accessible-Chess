@@ -3,72 +3,96 @@
 Last updated: 2026-08-18
 Branch: `worddeck-bootstrap` only. Never develop WordDeck on `main`.
 
-## Verified product baseline
+Verified baseline remains Recall + independent Spelling + Adaptive Coach + Sentence Spelling. Do not claim real NVDA verification until the user tests an actual Windows build with NVDA.
 
-Recall remains green: five permanent renameable core decks plus user decks, stable IDs/shortcuts, no-repeat shuffle bag, custom cards, autosave/backup/current-card recovery, Ctrl+S and optional offline British pronunciation.
+## Lane 1 — Core app / Recall / Spelling / accessibility
 
-Spelling remains an independent persisted track with five core plus user decks, exact native-TextBox spelling, wrong-answer lock, required correct typing after hints, objective stats, conservative offline coach moves only among core spelling decks, undo/explanations and rebindable persisted commands.
+**Advanced this run**
+- Fixed an actual keyboard-accessibility defect: the default spelling-deck deletion shortcut was `Ctrl+Alt+Delete`, which Windows reserves as the Secure Attention Sequence and WordDeck cannot receive.
+- Default is now `Ctrl+Shift+Delete`.
+- Shared shortcut validation now fail-closes on exact `Ctrl+Alt+Delete`, in addition to existing Tab/Escape/Enter/Alt+F4/bare-navigation protections.
+- Spelling regression tests now assert both the reachable default and rejection of the Windows-reserved combination.
 
-Sentence Spelling remains green with installed pack selection, spelling-deck scope, 1- or 2-target exercises, Ukrainian prompt, native English TextBox, Enter submit, token/form multiset evaluation with word order intentionally ignored, concise error diagnosis, required correct typing after Show Answer, persisted stats/recent/current exercise and same-scope two-target intersections.
+**Remains**
+- Continue keyboard-only/NVDA-readiness review, focus behavior, persistence recovery and error-path hardening without changing the verified Recall/Spelling semantics.
 
-Do not claim NVDA verification until the user tests an actual Windows build with NVDA.
+**Blocker**
+- None. Real NVDA verification still requires a user test of an actual Windows build; this is not simulated or claimed.
 
-## SentencePack corpus/runtime
+**Exact next action**
+- Audit dialog Tab order/focus restoration and menu/action parity for Recall, Spelling and Sentence windows, then add deterministic regression coverage where behavior can be tested without NVDA.
 
-Strict both-side Tatoeba CC0 is too small for primary use: 2 EN-UA pairs / 11 current Oxford IDs.
+## Lane 2 — Sentence Coach / corpus / coverage / UI / performance
 
-Attributed Tatoeba `CC BY 2.0 FR` production pack remains 207,578 EN-UA sentences, 3,120 / 3,308 Oxford IDs covered, 190,315 sentences with >=2 indexed targets, 160,058 with >=3, 53,612 quality-flagged, and 0 accepted records missing per-side author attribution.
+**Advanced this run**
+- Downloaded and independently audited the successful attributed production SentencePack artifact from run `32065274247`, artifact id `9299729781`, digest `sha256:2019dc82e5aeb4b68b8f801159bba65c6510fb68bf3d4272b93d817bb3ce9d19`.
+- Audit confirms 207,578 EN-UA sentences, 3,120 / 3,308 current Oxford IDs covered, 190,315 sentences with >=2 targets, 160,058 with >=3, and zero accepted rows missing per-side author attribution.
+- Production baseline is now recorded in `QA/SENTENCEPACK_PRODUCTION_ARTIFACT_AUDIT_20260818.md`: gzip 19,906,951 bytes; SQLite 72,400,896 bytes; metadata/open 79 ms; full one-target coverage 33 ms / 3,120; two-target coverage 56 ms / 3,114; representative queries 179 ms and 13 ms; about 49.92 MB measured runtime working-set delta.
+- The audit also preserves the old eager-GZIP cost (~644 MB working-set delta) as an explicit regression boundary: normal runtime must continue preferring SQLite.
+- Current attributed workflow already computes fail-closed exact-occurrence files for all 188 gaps and partitions the 114 ordinary single-surface gaps into exact-present vs exact-absent before any morphology decision.
 
-Portable interchange remains JSON/GZIP (~245.8 MB raw / ~19.9 MB gzip). Installed runtime prefers schema-v2 SQLite (~72.4 MB) through maintained MIT-licensed `Microsoft.Data.Sqlite` 8.0.29; SQLite remains local/serverless/offline. No runtime Python/Java/API/server was added.
+**Remains**
+- Inspect a current attributed workflow artifact that contains `sentence-gap-exact-occurrence.tsv` and `sentence-gap-summary.json`; do not infer the exact-present/exact-absent split from the older production artifact.
+- Resolve exact-present ordinary gaps as matcher/index QA first. Consider maintained development-time morphology only for measured exact-absent ordinary rows if the set is substantial enough to justify it.
 
-Verified full-corpus benchmark after batched SQLite scope coverage: metadata open 79 ms; 1-target coverage 33 ms (3,120 IDs); 2-target same-scope coverage 56 ms (3,114 IDs); representative 1-target query 179 ms; 2-target intersection 13 ms; measured diagnostic delta ~49.9 MB working set. Previous eager/repeated-query path took ~64.7 seconds for full-scope coverage.
+**Blocker**
+- None. The previously downloaded production artifact predates the new gap-summary outputs, so exact occurrence classification remains intentionally unclaimed rather than guessed.
 
-Windows run `32065274229` and attributed SentencePack run `32065274247` on `c6e166046167c6596be23515e47c11d8c8dac15d` were fully green.
+**Exact next action**
+- Inspect the next/current production gap-summary artifact, record exact-present/exact-absent counts, then isolate matcher/index defects from genuine corpus absence while preserving all numbered semantic senses.
 
-## Sentence coverage gaps
+## Lane 3 — Oxford 5000 + Oxford 3000 translation QA
 
-Production pack still has exactly 188 current Oxford IDs without a `TargetEntryId`: A1 23, A2 35, B1 54, B2 76. Source list: `QA/sentence_coverage_gaps_20260817.txt`.
+**Advanced this run**
+- Oxford 5000 additions `ox5000-add-0101` through `ox5000-add-0120` received a source-backed dictionary-entry second pass and are stored separately in `QA/oxford5000_additions_second_pass_0101_0120.tsv` as `verified`.
+- The second pass deliberately widened several draft translations where the Oxford entry covers more than the initial gloss, including `appreciation`, `arena`, `arm`, `array`, `articulate`, `artwork` and `aside`.
+- Added fail-closed `tools/validate_oxford5000_second_pass_slice.py`: exact ordered IDs, no duplicates, no source/POS/CEFR drift from the extraction batch, nonblank Ukrainian, `verified` only, and explicit OALD source-check evidence.
+- The canonical Oxford 5000 additions ledger is **not** yet advanced past the already-verified first 100; the new 20-row slice stays staged until the surrounding batch is sufficiently reviewed for a coherent merge.
 
-`tools/resolve_sentence_coverage_gaps.py` resolves all 188 IDs against the embedded Oxford TSV. Verified structural split: 114 ordinary single-surface entries that the current exact surface index can represent; 74 structurally outside the current single-surface index (sense markers, annotations, multiword or noncanonical hyphenated forms).
+**Remains**
+- Second-pass additions 0121-0200, especially polysemous/sense-sensitive rows such as `bass1`, `bat`, `bishop`, `blast` and `blow`.
+- Further Oxford 5000 extraction after 0200.
+- Oxford 3000 semantic QA remains 240 reviewed / 208 verified / 32 needs-second-pass / 3,068 awaiting first pass and must continue independently.
 
-Blanket marker stripping remains forbidden because it would collapse semantically distinct records such as `can¹/can²`, `close¹/close²` and `wind¹/wind²`.
+**Blocker**
+- None. Semantic QA is intentionally fail-closed and does not block Core, Sentence or Audio work.
 
-`tools/analyze_sentence_gap_occurrence.py` mirrors the production builder's bounded acceptance/matching rules. `tools/summarize_sentence_gap_qa.py` emits a deterministic production summary of exact-present/exact-absent ordinary IDs, safe phrase/hyphen evidence and protected semantic rows.
+**Exact next action**
+- Source-check additions 0121-0140 next, preserving POS/sense distinctions, then extend the staged validator slice rather than bulk-marking the entire 0101-0200 batch verified.
 
-Reuse-first morphology decision remains: do not invent a stemmer/lemmatizer. Current .NET inflection libraries surveyed are noun/plural-focused or abandoned and do not justify a runtime dependency; maintained spaCy remains acceptable only as development-time evidence if the production summary shows a meaningful exact-absent ordinary set. No morphology dependency is shipped or added.
+## Lane 4 — British Audio / AudioPack / pronunciation QA
 
-## Oxford 5000
+**Advanced this run**
+- Kept the existing Kokoro/Misaki British generation path; no new TTS, G2P, runtime Python, API or network dependency was introduced.
+- Added standalone `tools/validate_targeted_audio_artifact.py` for downloaded targeted replacement artifacts. It verifies exact ready-ledger stable IDs/source, phoneme or explicit text override semantics, unique files, British metadata, speed/voice constraints, minimum nontrivial file size, exact bytes and SHA-256, and rejects omissions/unreviewed IDs.
+- Added a synthetic positive + corrupted-hash negative self-test so artifact validation is independently testable without generating speech.
+- Technical original Oxford 3000 coverage remains 3,308 / 3,308; all 41 reviewed marker/heteronym/uppercase candidates remain targeted rather than triggering wholesale regeneration.
 
-Embedded package remains 3,308 Oxford-3000 positions. Oxford-3000 semantic translation QA remains 240 reviewed / 208 verified / 32 needs-second-pass / 3,068 awaiting first pass.
+**Remains**
+- The 41-file replacement MP3 artifact still must be downloaded and passed through the strengthened validator before replacement audio is promoted to verified.
+- Broader parenthetical/multiword listening QA and final optional stable-ID AudioPack assembly remain.
+- Generate audio for Oxford 5000 only after additions themselves are verified; never regenerate the existing 3,308 wholesale.
 
-Oxford-5000 additions extraction is incomplete. The first 100 extracted B2/C1 additions have a completed source-backed second pass: all 100 rows are `verified`, with zero unresolved statuses in IDs `ox5000-add-0001` through `ox5000-add-0100`.
+**Blocker**
+- No user-input blocker. Replacement output is simply not promoted until artifact inspection succeeds.
 
-A second source-backed extraction batch now exists as `QA/oxford5000_additions_batch_0101_0200.tsv`: IDs `ox5000-add-0101` through `ox5000-add-0200`, from `applaud` through B2 noun `blow`, were transcribed from Oxford University Press's official “The Oxford 5000 by CEFR level” PDF and given Ukrainian draft translations. All 100 are deliberately `needs_second_pass`; they are not yet merged into the canonical translation ledger and are not counted as verified. Polysemous/sense-sensitive rows such as `bass1`, `bat`, `bishop`, `blast` and `blow` remain explicitly unresolved until dictionary-entry review.
+**Exact next action**
+- Inspect the latest targeted pronunciation Actions artifact with the standalone validator, then record exact manifest/hash evidence for all 41 entries and only then assemble replacement candidates into the final AudioPack staging area.
 
-`tools/validate_oxford5000_additions_qa.py` remains the fail-closed CI validator for the canonical staged ledger. Full Oxford 5000 completion must not be claimed until all remaining additions are extracted, translated and semantically checked.
+## Lane 5 — Release engineering / CI / packaging / tests / documentation
 
-## British audio
+**Advanced this run**
+- Windows gate now batches the new Oxford second-pass validator and targeted-audio artifact validator self-test with the existing Tatoeba, gap resolver, Oxford ledger, pronunciation ledger, .NET build/self-tests, self-contained publish and published-EXE validation.
+- This grouped checkpoint is intentionally used instead of launching separate expensive workflows for every small edit.
+- Existing Windows packaging remains self-contained .NET 8 `win-x64`; no secrets or external service credentials were added.
 
-Technical Oxford 3000 generation remains 3,308 / 3,308 with aggregate structural integrity green.
+**Remains**
+- Confirm the final head Windows gate is green after the grouped five-lane changes.
+- Continue a concise Windows 11/NVDA beta test plan while keeping automated claims separate from real user NVDA results.
+- Keep THIRD_PARTY_NOTICES aligned whenever a reusable dependency/dataset decision changes.
 
-The 36 numbered/sense-marker candidates remain source-resolved and `ready`; 17 pronunciation-sensitive rows use reviewed British Kokoro/Misaki raw-phoneme overrides. No custom homograph classifier/G2P was introduced: existing Apache-2.0 Kokoro/Misaki development tooling is reused through `generate_from_tokens()`. WordDeck runtime remains unchanged and does not require Kokoro/Python.
+**Blocker**
+- None expected; any CI failure must be diagnosed as shared vs lane-local and must not freeze unrelated lanes.
 
-The five uppercase candidates are source-resolved and represented by exact stable IDs in `Audio/pronunciation-overrides.tsv`: `CD`, `DVD`, `OK`, `TV`, and information-technology `IT`. The original seven manifests showed that all five old files used literal uppercase `audio_text == source`; exact old file/voice evidence and authoritative Oxford links are recorded in `Audio/OXFORD3000_UPPERCASE_QA_20260818.md`.
-
-Reuse-first decision: no acronym parser or pronunciation subsystem was added. `CD`, `DVD`, `IT` and `TV` use reviewed raw Misaki phonemes; `OK` uses unambiguous lexical `okay` through the existing British G2P path. The validator fail-closes on all 41 exact candidates (36 marker/sense + 5 uppercase), and `Audio/generation-request.json` requests targeted regeneration of all 41.
-
-The audio workflow now also writes SHA-256 per generated file and independently checks manifest IDs/files, exact byte sizes and SHA-256. For targeted override runs it additionally compares every manifest row to the reviewed-safe TSV: exact stable ID/source, exact raw phonemes where supplied, explicit `audio_text` for text-mode overrides, deterministic voice, speed, accent and sample rate. This is WordDeck-specific QA glue using Python standard-library hashing/CSV/JSON only; no shipped runtime dependency was added.
-
-**Replacement MP3 output is still not promoted to verified.** Do not claim the 41-file targeted regeneration complete until the latest Actions artifact/manifest passes these stronger semantic checks and is inspected.
-
-Broader parenthetical/multiword listening QA remains before final AudioPack release.
-
-## Exact next steps
-
-1. Inspect the latest 41-file pronunciation Actions result after the semantic-manifest QA hardening; require exactly 41 stable IDs/manifest rows and verify all five uppercase rows plus representative homographs before promoting replacement audio.
-2. Perform dictionary-entry semantic second pass for Oxford additions `0101-0200`; only then merge them into `QA/oxford5000_additions_translation.tsv` and extend fail-closed validation through row 200.
-3. Inspect the production attributed SentencePack gap-summary artifact and record exact-present/exact-absent counts for the 114 ordinary gaps. Treat exact-present ordinary gaps as matcher/index QA, not morphology candidates.
-4. Evaluate a maintained development-time lemmatizer only for the exact-absent ordinary SentencePack IDs if the measured set justifies it.
-5. Continue Oxford-3000 semantic QA without blocking usable Recall/Spelling/Sentence slices.
-6. Continue broader AudioPack parenthetical/multiword QA and assemble the stable-ID final pack only after targeted replacements are verified.
-7. Never modify `main`.
+**Exact next action**
+- Inspect the final grouped Windows gate, fix only verified shared regressions, and retain a clean user-testable beta path without automatically sending builds.
