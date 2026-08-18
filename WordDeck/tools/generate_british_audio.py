@@ -5,6 +5,11 @@ Designed for resumable generation. Input is UTF-8 TSV containing at least
 `entryId`/`entry_id`/`id` and `source` columns. WordDeck metadata comment lines
 are accepted. Output is one MP3 per entry plus manifest.jsonl. The voice is
 selected deterministically so a given entry keeps the same voice across reruns.
+
+A reviewed row may optionally contain `phonemes` in Kokoro/Misaki English
+phoneme notation. When present, generation uses Kokoro's supported raw-phoneme
+`generate_from_tokens` path and bypasses ambiguous grapheme-to-phoneme lookup.
+This is development-time generation only; WordDeck runtime remains offline .NET.
 """
 
 from __future__ import annotations
@@ -87,12 +92,28 @@ def load_rows(path: Path) -> list[dict[str, str]]:
     return normalized
 
 
-def render(pipeline: KPipeline, text: str, voice: str, speed: float) -> np.ndarray:
+def render(
+    pipeline: KPipeline,
+    text: str,
+    voice: str,
+    speed: float,
+    phonemes: str = "",
+) -> np.ndarray:
     chunks: list[np.ndarray] = []
-    for _graphemes, _phonemes, audio in pipeline(text, voice=voice, speed=speed):
-        chunks.append(np.asarray(audio, dtype=np.float32))
+    if phonemes:
+        # Kokoro officially supports raw Misaki phoneme strings through
+        # generate_from_tokens(). This is intentionally preferred for reviewed
+        # heteronyms because ordinary G2P cannot infer a dictionary sense from
+        # an isolated spelling such as "wind" or "tear".
+        for result in pipeline.generate_from_tokens(tokens=phonemes, voice=voice, speed=speed):
+            if result.audio is not None:
+                chunks.append(np.asarray(result.audio, dtype=np.float32))
+    else:
+        for _graphemes, _phonemes, audio in pipeline(text, voice=voice, speed=speed):
+            chunks.append(np.asarray(audio, dtype=np.float32))
     if not chunks:
-        raise RuntimeError(f"TTS produced no audio for {text!r}")
+        description = phonemes if phonemes else text
+        raise RuntimeError(f"TTS produced no audio for {description!r}")
     return np.concatenate(chunks)
 
 
@@ -129,6 +150,7 @@ def main() -> int:
             entry_id = row["id"].strip()
             source = row["source"].strip()
             spoken = (row.get("audio_text") or "").strip() or audio_text(source)
+            phonemes = (row.get("phonemes") or "").strip()
             voice = voice_for(entry_id, a.female_voice, a.male_voice)
             ext = a.format
             out = a.output / f"{safe_name(entry_id)}.{ext}"
@@ -136,13 +158,14 @@ def main() -> int:
             if out.exists() and out.stat().st_size > 512:
                 continue
 
-            audio = render(pipeline, spoken, voice, a.speed)
+            audio = render(pipeline, spoken, voice, a.speed, phonemes=phonemes)
             write_audio(audio, out, a.format)
             record = {
                 "index": absolute_index,
                 "id": entry_id,
                 "source": source,
                 "audio_text": spoken,
+                "phonemes": phonemes or None,
                 "voice": voice,
                 "accent": "en-GB",
                 "speed": a.speed,
@@ -153,7 +176,8 @@ def main() -> int:
             manifest.write(json.dumps(record, ensure_ascii=False) + "\n")
             manifest.flush()
             completed += 1
-            print(f"{absolute_index + 1}/{len(rows)} {entry_id}: {spoken} -> {out.name} ({voice})")
+            mode = f"phonemes={phonemes}" if phonemes else f"text={spoken}"
+            print(f"{absolute_index + 1}/{len(rows)} {entry_id}: {mode} -> {out.name} ({voice})")
 
     print(f"Generated {completed} new files; output={a.output}")
     return 0
