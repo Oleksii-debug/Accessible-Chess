@@ -53,11 +53,12 @@ internal static class SelfTest
         Require(additions.Any(entry => entry.Level == "B2") && additions.Any(entry => entry.Level == "C1"), "Beta additions must exercise both B2 and C1 scopes.");
         Require(additions[0].Source == "abolish" && additions[0].Level == "C1", "Canonical beta does not start at abolish C1.");
         Require(additions.Any(entry => entry.Source == "blow" && entry.Level == "B2"), "Canonical beta lost the audited blow noun B2 row.");
-        Require(additions[^1].Source == "dam" && additions[^1].Level == "C1", "Canonical beta does not end at latest activated dam noun C1.");
+        Require(additions[^1].Source == "deployment" && additions[^1].Level == "C1", "Canonical beta does not end at latest activated deployment noun C1.");
         Require(additions.Any(entry => entry.Source == "assumption" && entry.Level == "B2"), "Audited assumption noun B2 row is missing.");
         Require(additions.Any(entry => entry.Id == "ox5000-9db773c2d55fe19ff774" && entry.Source == "counter" && entry.Level == "C1"), "Activated counter verb C1 row is missing or has an unstable ID.");
         Require(additions.Any(entry => entry.Id == "ox5000-3696c35db49c6bca85da" && entry.Source == "crude" && entry.Level == "C1"), "Activated crude adjective C1 row is missing or has an unstable ID.");
         Require(additions.Any(entry => entry.Id == "ox5000-be649ccedfa00436941b" && entry.Source == "dam" && entry.Level == "C1"), "Activated dam noun C1 row is missing or has an unstable ID.");
+        Require(additions.Any(entry => entry.Id == "ox5000-a2e2cc33789e9d3a823a" && entry.Source == "deployment" && entry.Level == "C1"), "Activated deployment noun C1 row is missing or has an unstable ID.");
         Require(additions.All(entry => entry.Id.StartsWith("ox5000-", StringComparison.Ordinal)), "Canonical additions must use stable ox5000 lexical IDs.");
 
         var actualCounts = package.Entries.GroupBy(entry => entry.Level, StringComparer.OrdinalIgnoreCase)
