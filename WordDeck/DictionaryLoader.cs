@@ -11,6 +11,12 @@ internal static class DictionaryLoader
 
     public static DictionaryPackage LoadEmbeddedOxford()
     {
+        DictionaryPackage baseline = LoadEmbeddedOxford3000Baseline();
+        return ReviewedOxford5000Bootstrap.AppendTo(baseline);
+    }
+
+    internal static DictionaryPackage LoadEmbeddedOxford3000Baseline()
+    {
         Assembly assembly = Assembly.GetExecutingAssembly();
         string[] resourceNames = assembly.GetManifestResourceNames()
             .Where(name => name.Contains("oxford3000_uk.tsv.gz.b64part", StringComparison.OrdinalIgnoreCase))
