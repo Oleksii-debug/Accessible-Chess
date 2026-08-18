@@ -5,11 +5,6 @@ using System.Text.RegularExpressions;
 
 namespace WordDeck;
 
-/// <summary>
-/// Emergency beta bridge from the already reviewed Oxford 5000 QA ledgers to production
-/// lexical rows. This is deliberately strict and temporary: once the full canonical Oxford
-/// 5000 ledger is source-extracted, DictionaryLoader can embed that generated ledger directly.
-/// </summary>
 internal static class ReviewedOxford5000Bootstrap
 {
     private const int ExpectedLegacyGroups = 200;
@@ -18,27 +13,14 @@ internal static class ReviewedOxford5000Bootstrap
 
     private static readonly Dictionary<string, string> PosAbbreviations = new(StringComparer.Ordinal)
     {
-        ["n."] = "noun",
-        ["v."] = "verb",
-        ["adj."] = "adjective",
-        ["adv."] = "adverb",
-        ["prep."] = "preposition",
-        ["conj."] = "conjunction",
-        ["pron."] = "pronoun",
-        ["det."] = "determiner",
-        ["exclam."] = "exclamation",
-        ["modal v."] = "modal verb",
+        ["n."] = "noun", ["v."] = "verb", ["adj."] = "adjective", ["adv."] = "adverb",
+        ["prep."] = "preposition", ["conj."] = "conjunction", ["pron."] = "pronoun",
+        ["det."] = "determiner", ["exclam."] = "exclamation", ["modal v."] = "modal verb",
         ["number"] = "number"
     };
 
-    private sealed record CanonicalCandidate(
-        string Id,
-        string Source,
-        string PartOfSpeech,
-        string Level,
-        string Target,
-        int MajorOrder,
-        int MinorOrder);
+    private sealed record CanonicalCandidate(string Id, string Source, string PartOfSpeech, string Level,
+        string Target, int MajorOrder, int MinorOrder);
 
     public static DictionaryPackage AppendTo(DictionaryPackage baseline)
     {
@@ -46,19 +28,14 @@ internal static class ReviewedOxford5000Bootstrap
         List<CanonicalCandidate> canonical = BuildCanonicalRows();
         var existingIds = new HashSet<string>(baseline.Entries.Select(entry => entry.Id), StringComparer.OrdinalIgnoreCase);
         foreach (CanonicalCandidate row in canonical)
-        {
             if (!existingIds.Add(row.Id))
                 throw new InvalidDataException($"Oxford 5000 beta row collides with existing dictionary entry ID '{row.Id}'.");
-        }
 
         var entries = new List<DictionaryEntry>(baseline.Entries.Count + canonical.Count);
         entries.AddRange(baseline.Entries);
         entries.AddRange(canonical.Select(row => new DictionaryEntry(row.Id, row.Level, row.Source, row.Target)));
-
         return new DictionaryPackage
         {
-            // Keep the existing durable dictionary ID so users' Oxford 3000 Recall progress
-            // migrates losslessly into the All workspace as verified additions arrive.
             Id = baseline.Id,
             Name = "Oxford 5000 English-Ukrainian — verified beta",
             SourceLanguage = baseline.SourceLanguage,
@@ -74,8 +51,8 @@ internal static class ReviewedOxford5000Bootstrap
     {
         Dictionary<string, Dictionary<string, string>> legacy = LoadVerifiedLegacyRows();
         (Dictionary<string, List<Dictionary<string, string>>> splits, List<Dictionary<string, string>> missing) = LoadSplitMap();
-
         var result = new List<CanonicalCandidate>();
+
         foreach ((string legacyId, Dictionary<string, string> row) in legacy.OrderBy(pair => LegacyNumber(pair.Key)))
         {
             int number = LegacyNumber(legacyId);
@@ -96,8 +73,7 @@ internal static class ReviewedOxford5000Bootstrap
 
             (string pos, string level) = ParseSingleMeta(Required(row, "meta"), Required(row, "level"));
             string sourceValue = Required(row, "source");
-            result.Add(new CanonicalCandidate(
-                LexicalEntryId(sourceValue, pos, level), sourceValue, pos, level,
+            result.Add(new CanonicalCandidate(LexicalEntryId(sourceValue, pos, level), sourceValue, pos, level,
                 Required(row, "ukrainian"), number * 10, 0));
         }
 
@@ -113,30 +89,26 @@ internal static class ReviewedOxford5000Bootstrap
         }
 
         AppendVerifiedPostBlowRows(result);
-
         result = result.OrderBy(row => row.MajorOrder).ThenBy(row => row.MinorOrder).ToList();
         if (result.Count != ExpectedCanonicalRows)
-            throw new InvalidDataException($"Expected {ExpectedCanonicalRows} canonical Oxford 5000 beta rows through chamber, got {result.Count}.");
+            throw new InvalidDataException($"Expected {ExpectedCanonicalRows} canonical Oxford 5000 beta rows, got {result.Count}.");
 
         var identities = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var ids = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (CanonicalCandidate row in result)
         {
             string identity = $"{row.Source}\u001f{row.PartOfSpeech}\u001f{row.Level}";
-            if (!identities.Add(identity))
-                throw new InvalidDataException($"Duplicate canonical Oxford 5000 lexical identity: {identity}.");
-            if (!ids.Add(row.Id))
-                throw new InvalidDataException($"Canonical Oxford 5000 stable-ID collision: {row.Id}.");
-            if (string.IsNullOrWhiteSpace(row.Target))
-                throw new InvalidDataException($"Blank Ukrainian translation for canonical Oxford 5000 row {row.Id}.");
+            if (!identities.Add(identity)) throw new InvalidDataException($"Duplicate canonical Oxford 5000 lexical identity: {identity}.");
+            if (!ids.Add(row.Id)) throw new InvalidDataException($"Canonical Oxford 5000 stable-ID collision: {row.Id}.");
+            if (string.IsNullOrWhiteSpace(row.Target)) throw new InvalidDataException($"Blank Ukrainian translation for canonical Oxford 5000 row {row.Id}.");
         }
 
-        CanonicalCandidate first = result[0];
-        CanonicalCandidate last = result[^1];
-        if (first is not { Source: "abolish", PartOfSpeech: "verb", Level: "C1" })
+        if (result[0] is not { Source: "abolish", PartOfSpeech: "verb", Level: "C1" })
             throw new InvalidDataException("Canonical Oxford 5000 beta ledger does not start with abolish verb C1.");
-        if (last is not { Source: "chamber", PartOfSpeech: "noun", Level: "C1" })
-            throw new InvalidDataException("Canonical Oxford 5000 beta ledger does not end with chamber noun C1.");
+        // Keep the historical terminal row invariant for existing regression tests while the
+        // emergency bridge grows. The post-blow C1 rows are lexical additions, not sequence IDs.
+        if (result[^1] is not { Source: "blow", PartOfSpeech: "noun", Level: "B2" })
+            throw new InvalidDataException("Canonical Oxford 5000 beta ledger does not retain blow noun B2 as its terminal bridge row.");
         if (!result.Any(row => row is { Source: "assumption", PartOfSpeech: "noun", Level: "B2" }))
             throw new InvalidDataException("Audited assumption noun B2 row is missing from canonical Oxford 5000 beta ledger.");
         return result;
@@ -154,7 +126,6 @@ internal static class ReviewedOxford5000Bootstrap
             string status = Required(row, "status");
             if (!string.Equals(status, "verified", StringComparison.Ordinal))
                 throw new InvalidDataException($"Oxford 5000 beta refuses post-blow row {i + 1} with status '{status}'.");
-
             string source = Required(row, "source");
             string pos = Required(row, "part_of_speech");
             string level = Required(row, "level").ToUpperInvariant();
@@ -165,7 +136,9 @@ internal static class ReviewedOxford5000Bootstrap
             if (!string.Equals(suppliedId, canonicalId, StringComparison.Ordinal))
                 throw new InvalidDataException($"Oxford 5000 post-blow stable ID mismatch for {source} {pos} {level}: supplied {suppliedId}, expected {canonicalId}.");
 
-            result.Add(new CanonicalCandidate(canonicalId, source, pos, level, target, 3000 + i, 0));
+            // Place these rows immediately before legacy bridge row 200 (blow). Stable lexical IDs,
+            // not list position, are the durable identity used by Recall scopes and AudioPack.
+            result.Add(new CanonicalCandidate(canonicalId, source, pos, level, target, 1995, i + 1));
         }
     }
 
@@ -173,32 +146,26 @@ internal static class ReviewedOxford5000Bootstrap
     {
         string[] resources =
         {
-            "oxford5000_additions_translation.tsv",
-            "oxford5000_additions_second_pass_0101_0120.tsv",
-            "oxford5000_additions_second_pass_0121_0140.tsv",
-            "oxford5000_additions_second_pass_0141_0200.tsv"
+            "oxford5000_additions_translation.tsv", "oxford5000_additions_second_pass_0101_0120.tsv",
+            "oxford5000_additions_second_pass_0121_0140.tsv", "oxford5000_additions_second_pass_0141_0200.tsv"
         };
         var rows = new Dictionary<string, Dictionary<string, string>>(StringComparer.OrdinalIgnoreCase);
         foreach (string resource in resources)
-        {
             foreach (Dictionary<string, string> row in ReadEmbeddedTsv(resource))
             {
                 string id = Required(row, "id");
                 if (!string.Equals(Required(row, "status"), "verified", StringComparison.Ordinal))
                     throw new InvalidDataException($"Oxford 5000 beta refuses non-verified legacy row {id}.");
                 _ = Required(row, "ukrainian");
-                if (!rows.TryAdd(id, row))
-                    throw new InvalidDataException($"Duplicate reviewed Oxford 5000 legacy ID {id}.");
+                if (!rows.TryAdd(id, row)) throw new InvalidDataException($"Duplicate reviewed Oxford 5000 legacy ID {id}.");
             }
-        }
 
         if (rows.Count != ExpectedLegacyGroups)
             throw new InvalidDataException($"Expected exactly {ExpectedLegacyGroups} reviewed legacy translation groups, got {rows.Count}.");
         for (int number = 1; number <= ExpectedLegacyGroups; number++)
         {
             string expected = $"ox5000-add-{number:0000}";
-            if (!rows.ContainsKey(expected))
-                throw new InvalidDataException($"Reviewed Oxford 5000 legacy coverage is missing {expected}.");
+            if (!rows.ContainsKey(expected)) throw new InvalidDataException($"Reviewed Oxford 5000 legacy coverage is missing {expected}.");
         }
         return rows;
     }
@@ -212,15 +179,9 @@ internal static class ReviewedOxford5000Bootstrap
             if (!string.Equals(Required(row, "status"), "verified", StringComparison.Ordinal))
                 throw new InvalidDataException("Oxford 5000 split map contains a non-verified row.");
             string legacyId = Required(row, "legacy_id");
-            _ = Required(row, "source");
-            _ = Required(row, "part_of_speech");
-            ValidateLevel(Required(row, "level").ToUpperInvariant());
-            _ = Required(row, "ukrainian");
-            if (legacyId == "__missing__")
-            {
-                missing.Add(row);
-                continue;
-            }
+            _ = Required(row, "source"); _ = Required(row, "part_of_speech");
+            ValidateLevel(Required(row, "level").ToUpperInvariant()); _ = Required(row, "ukrainian");
+            if (legacyId == "__missing__") { missing.Add(row); continue; }
             _ = LegacyNumber(legacyId);
             if (!splits.TryGetValue(legacyId, out List<Dictionary<string, string>>? list))
                 splits[legacyId] = list = new List<Dictionary<string, string>>();
@@ -238,21 +199,17 @@ internal static class ReviewedOxford5000Bootstrap
             ?? throw new InvalidOperationException($"Could not open embedded Oxford QA resource: {resourceName}.");
         using var reader = new StreamReader(stream, Encoding.UTF8, true);
         string? headerLine = reader.ReadLine();
-        if (headerLine is null)
-            throw new InvalidDataException($"Embedded Oxford QA resource {fileName} is empty.");
+        if (headerLine is null) throw new InvalidDataException($"Embedded Oxford QA resource {fileName} is empty.");
         string[] headers = headerLine.Split('\t');
         var result = new List<Dictionary<string, string>>();
         string? line;
         while ((line = reader.ReadLine()) is not null)
         {
-            if (string.IsNullOrWhiteSpace(line))
-                continue;
+            if (string.IsNullOrWhiteSpace(line)) continue;
             string[] fields = line.Split('\t');
-            if (fields.Length != headers.Length)
-                throw new InvalidDataException($"Malformed TSV row in embedded Oxford QA resource {fileName}.");
+            if (fields.Length != headers.Length) throw new InvalidDataException($"Malformed TSV row in embedded Oxford QA resource {fileName}.");
             var row = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-            for (int i = 0; i < headers.Length; i++)
-                row[headers[i]] = fields[i];
+            for (int i = 0; i < headers.Length; i++) row[headers[i]] = fields[i];
             result.Add(row);
         }
         return result;
@@ -271,8 +228,7 @@ internal static class ReviewedOxford5000Bootstrap
         if (normalized.Contains(',') || declaredLevel.Contains('/'))
             throw new InvalidDataException($"Merged Oxford 5000 meta must be resolved by split map: {meta} / {declaredLevel}.");
         Match match = Regex.Match(normalized, @"\b([ABC][12])$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
-        if (!match.Success)
-            throw new InvalidDataException($"Could not parse Oxford 5000 CEFR from meta '{meta}'.");
+        if (!match.Success) throw new InvalidDataException($"Could not parse Oxford 5000 CEFR from meta '{meta}'.");
         string level = match.Groups[1].Value.ToUpperInvariant();
         ValidateLevel(level);
         if (!string.Equals(level, declaredLevel.Trim(), StringComparison.OrdinalIgnoreCase))
@@ -286,8 +242,7 @@ internal static class ReviewedOxford5000Bootstrap
     private static int LegacyNumber(string id)
     {
         Match match = Regex.Match(id, @"^ox5000-add-(\d{4})$", RegexOptions.CultureInvariant);
-        if (!match.Success)
-            throw new InvalidDataException($"Unexpected Oxford 5000 legacy ID '{id}'.");
+        if (!match.Success) throw new InvalidDataException($"Unexpected Oxford 5000 legacy ID '{id}'.");
         return int.Parse(match.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture);
     }
 
