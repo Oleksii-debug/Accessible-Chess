@@ -90,6 +90,7 @@ internal sealed class AppStateStore
         state.DecksByDictionary ??= new Dictionary<string, Dictionary<string, int>>(StringComparer.OrdinalIgnoreCase);
         state.CustomEntriesByDictionary ??= new Dictionary<string, List<CustomEntryRecord>>(StringComparer.OrdinalIgnoreCase);
         state.CurrentEntryIdByDictionary ??= new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        state.RecallStudyScopesByDictionary ??= new Dictionary<string, RecallStudyScopeDictionaryState>(StringComparer.OrdinalIgnoreCase);
 
         // Deduplicate malformed deck records by stable ID before guaranteeing the five core decks.
         state.Decks = state.Decks
@@ -166,6 +167,13 @@ internal sealed class AppStateStore
                 .ToList(),
             StringComparer.OrdinalIgnoreCase);
 
+        state.RecallStudyScopesByDictionary = state.RecallStudyScopesByDictionary
+            .Where(pair => !string.IsNullOrWhiteSpace(pair.Key) && pair.Value is not null)
+            .ToDictionary(
+                pair => pair.Key,
+                pair => NormalizeRecallScopeDictionary(pair.Value),
+                StringComparer.OrdinalIgnoreCase);
+
         // Lossless legacy migration: copy every old entry assignment that does
         // not already have a durable deck-ID assignment.
         foreach ((string dictionaryId, Dictionary<string, int> legacyMap) in state.DecksByDictionary)
@@ -192,6 +200,28 @@ internal sealed class AppStateStore
             }
         }
 
+        foreach (RecallStudyScopeDictionaryState dictionaryState in state.RecallStudyScopesByDictionary.Values)
+        {
+            if (!StudyScopeIds.Ordered.Contains(dictionaryState.ActiveScopeId, StringComparer.OrdinalIgnoreCase))
+                dictionaryState.ActiveScopeId = StudyScopeIds.All;
+
+            foreach (RecallStudyScopeState scope in dictionaryState.Scopes.Values)
+            {
+                if (!validDeckIds.Contains(scope.ActiveDeckId))
+                    scope.ActiveDeckId = fallbackDeckId;
+
+                foreach (string entryId in scope.DeckIds.Keys.ToList())
+                {
+                    string? deckId = scope.DeckIds[entryId];
+                    if (string.IsNullOrWhiteSpace(deckId) || !validDeckIds.Contains(deckId))
+                        scope.DeckIds[entryId] = fallbackDeckId;
+                }
+
+                if (scope.CurrentEntryId is not null && !scope.DeckIds.ContainsKey(scope.CurrentEntryId))
+                    scope.CurrentEntryId = null;
+            }
+        }
+
         // Preserve user-customized fixed-deck bindings by transferring them
         // from the original numeric action IDs to stable core-deck action IDs.
         for (int number = 1; number <= 5; number++)
@@ -205,6 +235,28 @@ internal sealed class AppStateStore
             state.ActiveDeckId = DeckIds.Core(Math.Clamp(state.ActiveDeck, 1, 5));
 
         return state;
+    }
+
+    private static RecallStudyScopeDictionaryState NormalizeRecallScopeDictionary(RecallStudyScopeDictionaryState dictionaryState)
+    {
+        dictionaryState.ActiveScopeId = string.IsNullOrWhiteSpace(dictionaryState.ActiveScopeId)
+            ? StudyScopeIds.All
+            : dictionaryState.ActiveScopeId;
+        dictionaryState.Scopes ??= new Dictionary<string, RecallStudyScopeState>(StringComparer.OrdinalIgnoreCase);
+        dictionaryState.Scopes = dictionaryState.Scopes
+            .Where(pair => !string.IsNullOrWhiteSpace(pair.Key) && pair.Value is not null)
+            .ToDictionary(
+                pair => pair.Key,
+                pair =>
+                {
+                    RecallStudyScopeState scope = pair.Value;
+                    scope.ActiveDeckId = string.IsNullOrWhiteSpace(scope.ActiveDeckId) ? DeckIds.Core(1) : scope.ActiveDeckId;
+                    scope.DeckIds ??= new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                    scope.DeckIds = new Dictionary<string, string>(scope.DeckIds, StringComparer.OrdinalIgnoreCase);
+                    return scope;
+                },
+                StringComparer.OrdinalIgnoreCase);
+        return dictionaryState;
     }
 
     private static void CopyShortcutIfMissing(Dictionary<string, string> shortcuts, string legacyId, string durableId)
