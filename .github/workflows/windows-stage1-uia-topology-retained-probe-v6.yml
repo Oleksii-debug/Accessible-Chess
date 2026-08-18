@@ -5,6 +5,9 @@ on:
     branches: [qa/windows-current-integration-candidate-20260815]
     paths:
       - '.github/workflows/windows-stage1-uia-topology-retained-probe-v6.yml'
+      - 'tools/qa/stage1_uia_topology_v5.ps1'
+      - 'tools/qa/stage1_uia_topology_classify.py'
+      - 'tools/qa/test_stage1_uia_topology_classify.py'
   workflow_dispatch:
 
 permissions:
@@ -43,6 +46,12 @@ jobs:
         with:
           python-version: '3.12'
 
+      - name: Run fail-closed topology classifier regressions
+        shell: pwsh
+        run: |
+          python tools/qa/test_stage1_uia_topology_classify.py 2>&1 | Tee-Object -FilePath work/uia-topology-classifier-tests-v6.txt
+          if($LASTEXITCODE -ne 0){throw 'Fail-closed topology classifier regressions failed'}
+
       - name: Checkout exact patched Nuitka
         uses: actions/checkout@v4
         with:
@@ -80,12 +89,13 @@ jobs:
           $app.Id|Set-Content gui_pid.txt
           "PACKAGED WEBVIEW2 PROCESS ALIVE pid=$($app.Id)"
 
-      - name: Capture scalar HWND/provider topology V6 with fail-safe retention
+      - name: Capture and classify scalar HWND/provider topology V6
         shell: pwsh
         working-directory: work
         run: |
           $ErrorActionPreference='Stop'
           $transcriptPath=Join-Path (Get-Location) 'uia-topology-transcript-v6.txt'
+          $rawPath=Join-Path (Get-Location) 'uia-topology-report-v6-raw.json'
           $reportPath=Join-Path (Get-Location) 'uia-topology-report-v6.json'
           Start-Transcript -Path $transcriptPath -Force | Out-Null
           $stage='before_helper'
@@ -94,22 +104,28 @@ jobs:
             $stage='helper_execution'
             & ..\tools\qa\stage1_uia_topology_v5.ps1 -AppPid $appProcessId
             $stage='helper_report_copy'
-            if(-not (Test-Path 'uia-topology-report-v5.json')){throw 'V5 helper returned without report'}
+            if(-not (Test-Path 'uia-topology-report-v5.json')){throw 'V6 helper returned without report'}
+            Copy-Item 'uia-topology-report-v5.json' $rawPath -Force
             Copy-Item 'uia-topology-report-v5.json' $reportPath -Force
+            $stage='fail_closed_classification'
+            python ..\tools\qa\stage1_uia_topology_classify.py $reportPath --product-root .
+            if($LASTEXITCODE -ne 0){throw 'Fail-closed topology classifier failed'}
           } catch {
             $hr=''
             try{$hr=('0x{0:X8}' -f ([uint32]$_.Exception.HResult))}catch{}
             $fallback=[ordered]@{
               classification='C'
+              classification_reasons=@('QA diagnostic/classification infrastructure failed before decisive evidence')
               product_sha=$env:SOURCE_INTEGRATION_SHA
               diagnostic_stage=$stage
               diagnostic_exception_type=$_.Exception.GetType().FullName
               diagnostic_exception_message=$_.Exception.Message
               diagnostic_hresult=$hr
               evidence_complete=$false
-              note='Focused QA diagnostic failed before decisive connected WebView2 provider evidence; no product attribution allowed.'
+              note='No product attribution allowed from an incomplete diagnostic.'
             }
             $fallback|ConvertTo-Json -Depth 8|Set-Content -Encoding UTF8 $reportPath
+            if(-not (Test-Path $rawPath)){Copy-Item $reportPath $rawPath -Force}
             Write-Output "::warning title=UIA_TOPOLOGY_V6_FALLBACK::stage=$stage type=$($_.Exception.GetType().FullName) hr=$hr message=$($_.Exception.Message)"
           } finally {
             try{Stop-Transcript|Out-Null}catch{}
@@ -118,7 +134,9 @@ jobs:
           $report=Get-Content $reportPath -Raw|ConvertFrom-Json
           $classification=[string]$report.classification
           if([string]::IsNullOrWhiteSpace($classification)){$classification='C'}
-          Write-Output "::notice title=UIA_TOPOLOGY_V6_CLASSIFICATION::classification=$classification product=$env:SOURCE_INTEGRATION_SHA"
+          $complete=[bool]$report.evidence_complete
+          Write-Output "::notice title=UIA_TOPOLOGY_V6_CLASSIFICATION::classification=$classification evidence_complete=$complete product=$env:SOURCE_INTEGRATION_SHA"
+          foreach($reason in @($report.classification_reasons)){Write-Output "CLASSIFICATION_REASON: $reason"}
 
       - name: Retain V6 diagnostic evidence
         if: always()
@@ -127,7 +145,9 @@ jobs:
           name: stage1-uia-topology-retained-v6
           path: |
             work/uia-topology-report-v6.json
+            work/uia-topology-report-v6-raw.json
             work/uia-topology-transcript-v6.txt
+            work/uia-topology-classifier-tests-v6.txt
           if-no-files-found: error
           retention-days: 7
 
