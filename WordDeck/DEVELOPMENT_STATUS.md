@@ -3,95 +3,49 @@
 Last updated: 2026-08-18
 Branch: `worddeck-bootstrap` only. Never develop WordDeck on `main`.
 
-Verified baseline remains Recall + independent Spelling + Adaptive Coach + Sentence Spelling. Do not claim real NVDA verification until the user tests an actual Windows build with NVDA.
+## Emergency Oxford 5000 milestone
 
-## Lane 1 — Core app / Recall / Spelling / accessibility
+### Oxford lexical data
+- Embedded production dictionary remains the verified Oxford 3000 baseline: 3,308 lexical rows, A1-B2. Do not claim Oxford 5000 complete yet.
+- Oxford 5000 additions 0001-0100 were previously translated/reviewed; staged second-pass 0101-0140 is source-checked with 0101-0120 and 0121-0140 validation slices in grouped CI.
+- Remaining extraction/QA is still incomplete; C1 must come only from authoritative Oxford 5000 additions. No Oxford C2 scope or invented C2 entries.
+- Exact next data action: continue source-backed review from 0141 onward in large fail-closed batches, then promote only rows with nonblank, non-guessed translations and resolved POS/sense/CEFR metadata.
 
-**Advanced this run**
-- Audited shared deck dialogs used by Recall and Spelling and hardened keyboard/UIA behavior without changing deck semantics.
-- Name and destination controls now have explicit logical Tab indices, concise accessible descriptions, and labels/panels are explicitly non-Tab stops.
-- Enter remains dialog confirmation and Escape remains cancellation; initial focus still lands deterministically on the editable name or destination combo.
-- Identified a separate persistence-hardening target: JSON reload of `SpellingState` should explicitly re-wrap nested dictionaries with case-insensitive comparers, matching the stronger Recall normalization pattern.
+### Recall Study Scope / Workspace
+- Added durable scope IDs exactly: `all`, `a1`, `a2`, `b1`, `b2`, `c1`; display labels are `All Oxford 5000`, `A1`, `A2`, `B1`, `B2`, `C1`.
+- Added persistent per-dictionary/per-scope Recall state model with independent deck assignments, active deck and current card.
+- Added migration service: legacy Recall assignments/current card/active deck are copied losslessly into `All`; level scopes include only exact CEFR rows and initialize eligible entries deterministically to core deck 1.
+- Moving an entry in a level scope cannot alter `All` or another level scope. `All` continues synchronizing legacy Recall fields for backwards compatibility during the transition.
+- Existing custom deck definitions remain untouched and valid destinations; no destructive migration was introduced.
+- Added stable rebindable actions `recall_scope_<scopeId>` for all six scopes. They deliberately default to `Unassigned` to avoid shortcut conflicts.
+- Added regression test source covering legacy-to-All migration, level filtering, independent assignments, ineligible-entry rejection, six dynamic scope actions and shortcut formatting. The test source exists but still needs wiring into the aggregate self-test entry point before this vertical slice is considered verified.
+- UI selector is not implemented yet; therefore no user-testable scope build is claimed.
+- Exact next scope action: wire scope tests into `--self-test`, normalize nested scope dictionaries on JSON reload, then integrate `RecallStudyScopeService` into `MainForm` with a native keyboard/NVDA-accessible ComboBox, scope-specific counts/current-card restore and scope-action dispatch.
 
-**Remains**
-- Implement and regression-test case-insensitive comparer restoration for Spelling state after JSON reload.
-- Continue keyboard-only focus restoration and error-path review in Spelling/Sentence forms.
+### British offline audio
+- Existing Oxford 3000 technical generation remains 3,308/3,308 stable entries.
+- Targeted pronunciation QA remains artifact-level work: source resolutions/override ledger exist for heteronym/sense-marker/uppercase candidates; do not regenerate the whole Oxford 3000 pack.
+- Exact next audio action: validate the targeted replacement artifact by stable ID/hash, merge only verified replacements, then generate audio only for newly verified Oxford 5000 additions.
 
-**Blocker**
-- None. Real NVDA verification still requires a user test of an actual Windows build.
+### Hotkey / F1 truth audit
+- Shortcut display is now canonicalized explicitly as `Ctrl+Shift+B`, `Ctrl+Alt+...`, etc., rather than relying on `Keys.ToString()`/converter ordering.
+- Scope actions are present in the shared `ShortcutManager`, so once the UI dispatch is wired they will automatically appear in shortcut settings/help through the common definitions path.
+- Current Spelling delete default remains `Ctrl+Shift+Delete`; regression test source asserts that display text exactly.
+- Exact next action: verify every ShortcutSettings/F1/hint call site uses `ShortcutFormatter.Format`, wire scope actions to MainForm dispatch, and run the grouped Windows gate at the next coherent checkpoint.
 
-**Exact next action**
-- Normalize all reloaded Spelling dictionaries/inner stats maps to `OrdinalIgnoreCase` and add restart/recovery tests using mixed-case dictionary/entry IDs.
+### Emergency blockers
+- No user-input blocker.
+- Release blocker: full authoritative Oxford 5000 lexical inventory/translation QA is incomplete.
+- Vertical-slice blocker: MainForm has not yet switched Recall storage/navigation to the new scope service and has no Study Scope selector.
+- Audio blocker: targeted Oxford 3000 replacement artifact still needs final manifest/hash inspection; Oxford 5000 additions need audio after lexical verification.
 
-## Lane 2 — Sentence Coach / corpus / coverage / UI / performance
+## Parallel lanes (non-blocking)
+- Core Recall/Spelling/Sentence data remain preserved; no Grammar/Story/speech-recognition/future-module work started.
+- Sentence Coach low-memory SQLite path remains available but receives no majority effort while the emergency Oxford deliverable is incomplete.
+- Production SentencePack release packaging still needs its SQLite companion included and validated; this is explicitly secondary to Oxford 5000 + Recall scopes + audio.
+- Oxford 3000 semantic QA may continue independently but must not block the emergency deliverable.
 
-**Advanced this run**
-- Audited the production attributed SentencePack workflow and found a concrete release-packaging gap: it builds the low-memory SQLite corpus but the uploaded production artifact currently omits the `.sqlite` file.
-- Added `tools/validate_sentencepack_release_bundle.py`, a fail-closed development/release validator using only Python standard library `sqlite3`, `gzip` and JSON.
-- The validator requires a non-empty `.sqlite`, `.json.gz`, provenance manifest and coverage report; validates SQLite schema metadata (`schema_version=2`, `en` -> `uk`, pack/license/provenance), non-empty sentence/target tables, gzip JSON readability, and equality of coverage counts to SQLite counts.
-- Its self-test also proves that a bundle without SQLite is rejected, preventing accidental regression to the previously measured high-memory eager-GZIP runtime path.
-
-**Remains**
-- Add the actual production SQLite file to the attributed SentencePack uploaded artifact and run the new validator against that real bundle.
-- Inspect the current production `sentence-gap-summary.json` to record exact-present vs exact-absent counts for the 114 ordinary single-surface gaps; exact-present rows remain matcher/index QA first.
-
-**Blocker**
-- No user-input blocker. Current production artifact packaging is not release-complete until SQLite is included.
-
-**Exact next action**
-- Patch the attributed SentencePack workflow upload list to include the `.sqlite` companion and validate the real artifact with the new release-bundle validator; then continue gap classification.
-
-## Lane 3 — Oxford 5000 + Oxford 3000 translation QA
-
-**Advanced this run**
-- Source-checked Oxford 5000 additions `ox5000-add-0121` through `ox5000-add-0140` against the current Oxford 3000/5000 list and corresponding OALD headwords on 2026-08-18.
-- Added staged fail-closed slice `QA/oxford5000_additions_second_pass_0121_0140.tsv`, all 20 rows marked `verified` only after POS/CEFR/source-row consistency and dictionary-sense review.
-- Widened translations where the lexical entry materially requires it, including `assault`, `assemble`, `assembly`, `assert`, `attachment`, `attribute` and `attorney`; no POS/sense rows were collapsed.
-- Existing generic second-pass validator is now invoked in grouped Windows CI for exact IDs 0121-0140 in addition to the earlier 0101-0120 slice.
-
-**Remains**
-- Source-check additions 0141-0200, then merge a coherent reviewed 0101-0200 batch into the canonical additions ledger only when unresolved rows in that staged batch are zero.
-- Continue Oxford 3000 semantic QA independently; current broader backlog remains unresolved and is not claimed complete.
-
-**Blocker**
-- None. Semantic QA remains fail-closed and independent of Core/Sentence/Audio work.
-
-**Exact next action**
-- Review additions 0141-0160 next, preserving POS/sense distinctions and source evidence, then continue through 0200 before canonical promotion.
-
-## Lane 4 — British Audio / AudioPack / pronunciation QA
-
-**Advanced this run**
-- Reconfirmed that all 17 heteronym/sense-sensitive rows and five uppercase candidates have already been source-resolved in the dedicated 2026-08-18 QA records; the remaining blocker is artifact-level verification, not lexical mapping.
-- Added `tools/build_audiopack_manifest.py`, using only Python standard-library hashing/JSON for release tooling; runtime remains independent of Python/Kokoro/API/network.
-- The builder produces deterministic `worddeck-audiopack-v1` metadata keyed strictly by stable entry ID, with file name, exact byte count and SHA-256 for every MP3; it rejects duplicate/blank IDs, empty packs and suspiciously small MP3s.
-- A synthetic self-test proves deterministic output and fail-closed rejection of undersized audio.
-
-**Remains**
-- Download and validate the latest 41-file targeted replacement artifact before any replacement is promoted.
-- Merge only verified replacements with the original 3,308 stable-ID files, then build the final AudioPack manifest and notices.
-- Generate new audio only for verified Oxford 5000 additions; never regenerate all existing Oxford 3000 audio wholesale.
-
-**Blocker**
-- No user-input blocker. Targeted replacement MP3 artifact still needs manifest/hash inspection.
-
-**Exact next action**
-- Run the strengthened targeted-artifact validator on the 41 replacements and, if clean, stage those files over the verified base pack and build the canonical AudioPack manifest.
-
-## Lane 5 — Release engineering / CI / packaging / tests / documentation
-
-**Advanced this run**
-- Updated the grouped Windows gate rather than adding separate expensive workflows.
-- The gate now self-tests the SentencePack release-bundle validator and AudioPack manifest builder, and validates Oxford second-pass IDs 0121-0140 alongside the existing 0101-0120, Tatoeba, gap, pronunciation, .NET build/self-tests, self-contained publish and published-EXE validation.
-- No secrets, service credentials or new runtime dependencies were introduced; self-contained Windows packaging remains .NET 8 `win-x64`.
-
-**Remains**
-- Confirm the final grouped Windows gate is green after this run's five-lane changes.
-- Patch production SentencePack artifact contents to include SQLite and retain compatibility JSON.GZ as interchange/fallback rather than the normal low-memory runtime path.
-- Continue concise Windows 11/NVDA beta instructions while keeping automated accessibility claims separate from real user testing.
-
-**Blocker**
-- None expected. Any CI failure must be classified as shared vs lane-local and must not freeze unaffected lanes.
-
-**Exact next action**
-- Inspect the grouped Windows gate for this checkpoint; fix only verified regressions, then continue lane-local work without sending routine builds.
+## Safety / release discipline
+- `main` remains untouched.
+- No secrets, API keys, network runtime requirement, Python runtime or Kokoro runtime were added.
+- No routine beta artifact should be sent until a coherent Windows x64 build proves the Recall scope selector and independent assignments end-to-end. Real NVDA compatibility is not claimed until user testing.
