@@ -9,7 +9,8 @@ internal static class ReviewedOxford5000Bootstrap
 {
     private const int ExpectedLegacyGroups = 200;
     private const int ExpectedPostBlowRows = 43;
-    public const int ExpectedCanonicalRows = 258;
+    private const int ExpectedPostChamberRows = 29;
+    public const int ExpectedCanonicalRows = 287;
 
     private static readonly Dictionary<string, string> PosAbbreviations = new(StringComparer.Ordinal)
     {
@@ -88,7 +89,9 @@ internal static class ReviewedOxford5000Bootstrap
             result.Add(new CanonicalCandidate(LexicalEntryId(source, pos, level), source, pos, level, target, 1295, ++missingMinor));
         }
 
-        AppendVerifiedPostBlowRows(result);
+        AppendVerifiedSlice(result, "oxford5000_source_after_blow_c1_0001_0043.tsv", ExpectedPostBlowRows, 1995);
+        AppendVerifiedSlice(result, "oxford5000_source_after_chamber_c1_0001_0029.tsv", ExpectedPostChamberRows, 1996);
+
         result = result.OrderBy(row => row.MajorOrder).ThenBy(row => row.MinorOrder).ToList();
         if (result.Count != ExpectedCanonicalRows)
             throw new InvalidDataException($"Expected {ExpectedCanonicalRows} canonical Oxford 5000 beta rows, got {result.Count}.");
@@ -105,27 +108,27 @@ internal static class ReviewedOxford5000Bootstrap
 
         if (result[0] is not { Source: "abolish", PartOfSpeech: "verb", Level: "C1" })
             throw new InvalidDataException("Canonical Oxford 5000 beta ledger does not start with abolish verb C1.");
-        // Keep the historical terminal row invariant for existing regression tests while the
-        // emergency bridge grows. The post-blow C1 rows are lexical additions, not sequence IDs.
         if (result[^1] is not { Source: "blow", PartOfSpeech: "noun", Level: "B2" })
             throw new InvalidDataException("Canonical Oxford 5000 beta ledger does not retain blow noun B2 as its terminal bridge row.");
         if (!result.Any(row => row is { Source: "assumption", PartOfSpeech: "noun", Level: "B2" }))
             throw new InvalidDataException("Audited assumption noun B2 row is missing from canonical Oxford 5000 beta ledger.");
+        if (!result.Any(row => row is { Source: "colonial", PartOfSpeech: "adjective", Level: "C1" }))
+            throw new InvalidDataException("Verified colonial adjective C1 row is missing from canonical Oxford 5000 beta ledger.");
         return result;
     }
 
-    private static void AppendVerifiedPostBlowRows(List<CanonicalCandidate> result)
+    private static void AppendVerifiedSlice(List<CanonicalCandidate> result, string fileName, int expectedRows, int majorOrder)
     {
-        List<Dictionary<string, string>> rows = ReadEmbeddedTsv("oxford5000_source_after_blow_c1_0001_0043.tsv");
-        if (rows.Count != ExpectedPostBlowRows)
-            throw new InvalidDataException($"Expected {ExpectedPostBlowRows} verified post-blow Oxford 5000 rows, got {rows.Count}.");
+        List<Dictionary<string, string>> rows = ReadEmbeddedTsv(fileName);
+        if (rows.Count != expectedRows)
+            throw new InvalidDataException($"Expected {expectedRows} verified Oxford 5000 rows in {fileName}, got {rows.Count}.");
 
         for (int i = 0; i < rows.Count; i++)
         {
             Dictionary<string, string> row = rows[i];
             string status = Required(row, "status");
             if (!string.Equals(status, "verified", StringComparison.Ordinal))
-                throw new InvalidDataException($"Oxford 5000 beta refuses post-blow row {i + 1} with status '{status}'.");
+                throw new InvalidDataException($"Oxford 5000 beta refuses row {i + 1} in {fileName} with status '{status}'.");
             string source = Required(row, "source");
             string pos = Required(row, "part_of_speech");
             string level = Required(row, "level").ToUpperInvariant();
@@ -134,11 +137,8 @@ internal static class ReviewedOxford5000Bootstrap
             ValidateLevel(level);
             string canonicalId = LexicalEntryId(source, pos, level);
             if (!string.Equals(suppliedId, canonicalId, StringComparison.Ordinal))
-                throw new InvalidDataException($"Oxford 5000 post-blow stable ID mismatch for {source} {pos} {level}: supplied {suppliedId}, expected {canonicalId}.");
-
-            // Place these rows immediately before legacy bridge row 200 (blow). Stable lexical IDs,
-            // not list position, are the durable identity used by Recall scopes and AudioPack.
-            result.Add(new CanonicalCandidate(canonicalId, source, pos, level, target, 1995, i + 1));
+                throw new InvalidDataException($"Oxford 5000 stable ID mismatch for {source} {pos} {level}: supplied {suppliedId}, expected {canonicalId}.");
+            result.Add(new CanonicalCandidate(canonicalId, source, pos, level, target, majorOrder, i + 1));
         }
     }
 
