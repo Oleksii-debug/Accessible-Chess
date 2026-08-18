@@ -12,6 +12,11 @@ the same corpus yet still lacks a TargetEntryId, that is an index/matching defec
 candidate. If the exact surface never occurs, it is a corpus-absence/morphology
 candidate instead. Sense-annotated or otherwise structurally unsafe records stay
 explicitly unresolved; this tool never collapses them.
+
+Matching is deliberately indexed with Python's standard dict/set primitives:
+single-token gaps are looked up directly by token, while phrase/hyphen candidates
+are bucketed by their first normalized token. This keeps the full-corpus QA pass
+bounded without introducing an NLP dependency for an exact-string evidence task.
 """
 from __future__ import annotations
 
@@ -19,6 +24,7 @@ import argparse
 import csv
 import io
 import re
+from collections import defaultdict
 from pathlib import Path
 
 WORD_TOKEN_RE = re.compile(r"[A-Za-z]+(?:['’][A-Za-z]+)?")
@@ -126,20 +132,62 @@ def classify_gap(structural: str, match_count: int | None) -> str:
     return "structural_or_semantic_review_required"
 
 
+def build_candidate_indexes(resolved_rows: list[dict[str, str]]):
+    """Build exact-match lookup buckets; no stemming, lemmatization or sense collapse."""
+    single_by_token: dict[str, list[dict[str, str]]] = defaultdict(list)
+    sequence_by_first_token: dict[str, list[dict[str, str]]] = defaultdict(list)
+
+    for row in resolved_rows:
+        structural = row["structural_class"]
+        if structural == "single_surface_indexable":
+            single_by_token[normalize_token(row["source"])].append(row)
+            continue
+        if structural not in {
+            "plain_multiword_exact_phrase_candidate",
+            "hyphenated_exact_surface_candidate",
+        }:
+            continue
+        source_tokens = word_tokens(row["source"])
+        if source_tokens:
+            sequence_by_first_token[source_tokens[0]].append(row)
+
+    return dict(single_by_token), dict(sequence_by_first_token)
+
+
 def analyze(resolved_rows: list[dict[str, str]], pairs_path: Path) -> list[dict[str, str]]:
     analyzable = [row for row in resolved_rows if row["structural_class"] in ANALYZABLE_CLASSES]
     counts = {row["entryId"]: 0 for row in analyzable}
     examples: dict[str, list[str]] = {row["entryId"]: [] for row in analyzable}
+    single_by_token, sequence_by_first_token = build_candidate_indexes(resolved_rows)
 
     for pair in iter_pairs(pairs_path):
         sentence = pair["english"]
         tokens = word_tokens(sentence)
-        for row in analyzable:
-            entry_id = row["entryId"]
-            if matches_sentence(row, sentence, tokens):
-                counts[entry_id] += 1
-                if len(examples[entry_id]) < 3:
-                    examples[entry_id].append(pair["english_id"])
+        if not tokens:
+            continue
+
+        matched_ids: set[str] = set()
+
+        # A token can appear multiple times in one sentence, but occurrence counts are
+        # sentence counts, so visit each normalized token once.
+        for token in set(tokens):
+            for row in single_by_token.get(token, ()):
+                matched_ids.add(row["entryId"])
+
+        # Phrase/hyphen candidates are sparse. Bucket them by first token so a sentence
+        # only evaluates candidates that could actually start in that sentence.
+        for token in set(tokens):
+            for row in sequence_by_first_token.get(token, ()):
+                entry_id = row["entryId"]
+                if entry_id in matched_ids:
+                    continue
+                if matches_sentence(row, sentence, tokens):
+                    matched_ids.add(entry_id)
+
+        for entry_id in matched_ids:
+            counts[entry_id] += 1
+            if len(examples[entry_id]) < 3:
+                examples[entry_id].append(pair["english_id"])
 
     result: list[dict[str, str]] = []
     for row in resolved_rows:
@@ -176,9 +224,20 @@ def write_tsv(records: list[dict[str, str]], output: Path) -> None:
 
 def self_test() -> None:
     resolved_text = """entryId\tlevel\tsource\ttarget\tstructural_class\tnext_matching_action\noxford-a1-0001\tA1\tapple\tяблуко\tsingle_surface_indexable\tmeasure\noxford-a1-0002\tA1\tpear\tгруша\tsingle_surface_indexable\tmeasure\noxford-a1-0003\tA1\ttake care\tдбати\tplain_multiword_exact_phrase_candidate\tevaluate\noxford-a1-0004\tA1\tpart-time\tнеповний день\thyphenated_exact_surface_candidate\tevaluate\noxford-a1-0005\tA1\twind¹\tвітер\tsense_numbered_unsafe_to_collapse\treview\n"""
-    pairs_text = """english_id\tenglish_lang\tenglish\tenglish_author\tukrainian_id\tukrainian_lang\tukrainian\tukrainian_author\n1\teng\tI ate an apple.\ta\t11\tukr\tЯ з'їв яблуко.\tu\n2\teng\tPlease take care of this.\ta\t12\tukr\tПодбай про це.\tu\n3\teng\tIt is a part-time job.\ta\t13\tukr\tЦе робота на неповний день.\tu\n4\teng\tPineapple is different.\ta\t14\tukr\tАнанас інший.\tu\n"""
+    pairs_text = """english_id\tenglish_lang\tenglish\tenglish_author\tukrainian_id\tukrainian_lang\tukrainian\tukrainian_author\n1\teng\tI ate an apple, apple.\ta\t11\tukr\tЯ з'їв яблуко.\tu\n2\teng\tPlease take care of this.\ta\t12\tukr\tПодбай про це.\tu\n3\teng\tIt is a part-time job.\ta\t13\tukr\tЦе робота на неповний день.\tu\n4\teng\tPineapple is different.\ta\t14\tukr\tАнанас інший.\tu\n"""
     reader = csv.DictReader(io.StringIO(resolved_text), delimiter="\t")
     resolved = [{key: (value or "").strip() for key, value in row.items()} for row in reader]
+
+    single_index, sequence_index = build_candidate_indexes(resolved)
+    if [row["entryId"] for row in single_index.get("apple", [])] != ["oxford-a1-0001"]:
+        raise RuntimeError("Single-token candidate index self-test failed")
+    if {row["entryId"] for row in sequence_index.get("take", [])} != {"oxford-a1-0003"}:
+        raise RuntimeError("Phrase first-token candidate index self-test failed")
+    if {row["entryId"] for row in sequence_index.get("part", [])} != {"oxford-a1-0004"}:
+        raise RuntimeError("Hyphen first-token candidate index self-test failed")
+    if any(row["entryId"] == "oxford-a1-0005" for rows in sequence_index.values() for row in rows):
+        raise RuntimeError("Sense-annotated record leaked into exact candidate indexes")
+
     import tempfile
     with tempfile.TemporaryDirectory() as directory:
         pairs = Path(directory) / "pairs.tsv"
@@ -186,7 +245,7 @@ def self_test() -> None:
         result = analyze(resolved, pairs)
     by_id = {row["entryId"]: row for row in result}
     if by_id["oxford-a1-0001"]["exact_sentence_match_count"] != "1":
-        raise RuntimeError("Single-token boundary matching self-test failed")
+        raise RuntimeError("Single-token sentence-count matching self-test failed")
     if by_id["oxford-a1-0001"]["coverage_gap_classification"] != "exact_present_index_or_matching_defect_candidate":
         raise RuntimeError("Exact-present single-surface classification self-test failed")
     if by_id["oxford-a1-0002"]["exact_sentence_match_count"] != "0":
