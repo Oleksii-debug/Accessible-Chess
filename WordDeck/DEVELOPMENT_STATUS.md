@@ -55,15 +55,23 @@ Windows workflow run `32065274229` and attributed SentencePack run `32065274247`
 
 The production attributed pack still reports exactly 188 current Oxford IDs without a `TargetEntryId`: A1 23, A2 35, B1 54, B2 76. The reproducible source list remains `QA/sentence_coverage_gaps_20260817.txt`.
 
-A new standard-library-only development QA tool, `tools/resolve_sentence_coverage_gaps.py`, reconstructs the same embedded Oxford TSV from its base64+gzip parts, resolves every gap ID to the exact source/translation record and emits an Actions TSV artifact. It does not ship with the WordDeck runtime.
+`tools/resolve_sentence_coverage_gaps.py` reconstructs the same embedded Oxford TSV from its base64+gzip parts, resolves every gap ID to the exact source/translation record and emits an Actions TSV artifact. It is development-only standard-library glue and does not ship with the runtime.
 
 Verified resolver result on all 188 gaps:
-- **114** are ordinary single-surface entries that the current exact surface index is capable of indexing. These now represent the genuine next corpus/morphology investigation set: corpus absence, inflection-only occurrence or another evidence-based matching gap.
-- **74** are structurally outside the current single-surface index before corpus frequency is even considered: 42 multiword/annotated forms, 29 numbered/sense-marker forms and 3 noncanonical hyphenated forms.
+- **114** are ordinary single-surface entries that the current exact surface index is capable of indexing;
+- **74** are structurally outside the current single-surface index before corpus frequency is considered, including numbered/sense-marker, multiword/annotated and noncanonical hyphenated forms.
 
-This proves that the previous raw count of 188 mixed two different problems. Do not add blanket marker stripping: examples such as `can¹`/`can²`, `close¹`/`close²`, `wind¹`/`wind²` and parenthetical sense labels would otherwise map one corpus token to semantically distinct Oxford records. Multiword phrases should be separated from sense-annotated entries before any matching extension.
+This proves that the previous raw count of 188 mixed two different problems. Do not add blanket marker stripping: examples such as `can¹`/`can²`, `close¹`/`close²`, `wind¹`/`wind²` and parenthetical sense labels would otherwise map one corpus token to semantically distinct Oxford records.
 
-Windows workflow run `32069531842` on commit `20ee069c02f7f7897af8070568872ccb6ba54f10` completed fully `success`: new gap-resolver validation and artifact generation, pronunciation-ledger validation, restore, build, all self-tests, embedded dictionary validation, self-contained publish, published-EXE validation and artifact uploads.
+Windows workflow run `32069531842` on commit `20ee069c02f7f7897af8070568872ccb6ba54f10` completed fully `success` with gap-resolver validation, pronunciation-ledger validation, restore/build/self-tests, dictionary validation, self-contained publish and published-EXE validation.
+
+### Exact corpus-occurrence evidence — implemented, production counts pending verification
+
+`tools/analyze_sentence_gap_occurrence.py` now adds the next bounded QA stage. It reads the resolved 188-gap TSV plus the attributed EN-UA pair TSV and measures only evidence that can be established without morphology: exact single-token occurrences, contiguous exact multiword token sequences and conservative exact hyphenated surfaces. Sense-numbered/annotated/variant records are intentionally not auto-matched.
+
+The attributed SentencePack workflow now runs the resolver and exact-occurrence analyzer against the same freshly downloaded official Tatoeba pair input, verifies that all 114 ordinary single-surface gaps receive a measurement, and uploads the resolved/evidence TSVs with the production artifact. This change is committed only to `worddeck-bootstrap`. Production present/absent counts are not yet recorded here until the new workflow result is observed.
+
+Reuse-first check before any morphology work: maintained options were reviewed rather than immediately writing a stemmer/lemmatizer. Catalyst is actively published and .NET-compatible, but its English model package is materially older and would add model/runtime footprint; spaCy has a mature maintained English rule lemmatizer but is Python/model based and therefore better suited, if needed, to development-time evidence than to the shipped offline .NET runtime. No morphology dependency has been added. Exact corpus evidence is deliberately measured first.
 
 ## Oxford 5000
 
@@ -83,16 +91,12 @@ Aggregate structural audit remains green: 3,308 unique stable IDs/indexes, exact
 
 `Audio/pronunciation-overrides.tsv` contains 36 numbered/sense-marker candidates: 19 formatting-only entries are `ready` for targeted regeneration; 17 heteronym/sense-sensitive entries remain `review`. Five uppercase candidates (`CD`, `DVD`, `IT`, `OK`, `TV`) also remain explicit QA items. Runtime still does not depend on Kokoro/Python/API/network.
 
-## Reuse/provenance decisions in this cycle
-
-No new runtime subsystem was introduced. The new gap resolver is development-only deterministic glue using Python standard-library `base64`, `gzip` and `csv`; it reuses the repository's existing embedded dictionary package and exact gap ledger. No external NLP/tokenizer/morphology component was added, because this cycle only establishes evidence for the next matching decision.
-
 ## Exact next steps
 
-1. Keep Windows CI/published-EXE validation green.
-2. Split the 74 structurally unindexable gaps into safe exact multiword/hyphen candidates versus sense-annotated records; do not collapse sense distinctions.
-3. For the 114 ordinary single-surface gaps, use the production attributed Tatoeba pair input to measure exact occurrence, inflected-form-only occurrence and genuine corpus absence before choosing morphology/fallback.
-4. Only after that evidence, evaluate reusable maintained morphology/lemmatization options before writing any such component; prefer no runtime dependency if exact phrase matching closes a meaningful safe subset.
+1. Observe the new attributed SentencePack workflow and fix any failure before further feature work; record the real exact-present/exact-absent counts for the 114 ordinary gaps.
+2. Use those counts to distinguish current index defects from corpus absence before evaluating any morphology path.
+3. For exact-absent ordinary gaps only, evaluate a development-time maintained lemmatizer on the production corpus to measure inflected-form-only evidence; do not ship it unless runtime need is demonstrated.
+4. Keep sense-numbered/annotated records semantically distinct; evaluate only safe exact phrase/hyphen matching before any broader normalization.
 5. Regenerate only the 19 safe pronunciation overrides; resolve 17 heteronyms plus 5 uppercase candidates before completing AudioPack QA.
 6. Continue Oxford-5000 extraction/translation/second-pass QA in substantial batches; continue Oxford-3000 semantic translation QA without blocking usable Recall/Spelling/Sentence slices.
 7. Never modify `main`.
