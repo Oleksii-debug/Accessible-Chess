@@ -90,13 +90,27 @@ Synthetic regression sentences are test-only data and are never presented as Tat
 
 ## Oxford 5000 lexical QA provenance
 
-Oxford Learner's Dictionaries is used as the authoritative sense/POS/CEFR reference for the Oxford-5000 additions QA. WordDeck does not copy Oxford definitions into the shipped dictionary; the QA process uses the official entries to select concise Ukrainian equivalents while preserving materially distinct POS/sense distinctions.
-
-On 2026-08-18 the first extracted additions batch (`ox5000-add-0001` through `ox5000-add-0100`) received a source-backed second pass for every previously ambiguous row. The checked Oxford entries included `absorb`, `abuse`, `accent`, `accommodate`, `accordingly`, `acute`, `adhere`, `adjust`, `administer`, `admission`, `adoption`, `advocate`, `alert`, `alien`, `allegation`, `allege`, `allowance`, `altogether` and `apparatus`. This QA does not imply that the full additional 2,000-word Oxford-5000 set has been extracted or verified.
+Oxford Learner's Dictionaries is the authoritative source for Oxford 5000 membership, lexical row structure, part of speech and CEFR. WordDeck does not copy Oxford definitions into the shipped dictionary; Oxford entries are consulted during development to preserve lexical distinctions and choose concise Ukrainian equivalents.
 
 Official references checked 2026-08-18:
-- https://www.oxfordlearnersdictionaries.com/
-- individual Oxford Advanced Learner's Dictionary entries for the terms listed above
+- https://www.oxfordlearnersdictionaries.com/about/wordlists/oxford3000-5000
+- https://www.oxfordlearnersdictionaries.com/us/wordlists/oxford3000-5000
+- individual Oxford Advanced Learner's Dictionary entries used for ambiguous translation/sense QA
+
+### Canonical row-preserving extraction decision
+
+The emergency Oxford 5000 audit found that the project's early `ox5000-add-0001..0200` translation staging used convenience groups and, in several places, combined distinct official Oxford POS rows. It also omitted the `assumption` noun B2 row. Those staging IDs were never embedded in the production dictionary, so they are not treated as stable user-facing lexical IDs.
+
+The detailed defect list and count reconciliation are recorded in `QA/OXFORD5000_STRUCTURE_AUDIT_0001_0200.md`. Through noun `blow`, the 200 old convenience groups correspond to 215 separate official Oxford lexical rows after restoring the omitted row and splitting confirmed POS groups.
+
+`tools/extract_oxford5000_official.py` is WordDeck-specific development glue using Python's standard-library `html.parser`, `hashlib`, `csv` and URL utilities. It consumes a saved copy of the official Oxford 3000/5000 page, excludes rows that belong to Oxford 3000, preserves every Oxford 5000-exclusive B2/C1 POS row separately, rejects unexpected levels such as C2, and derives an order-independent stable candidate ID from headword + POS + CEFR + Oxford definition path. It performs no runtime or default network access.
+
+A public repository, `winterdl/oxford-5000-vocabulary-audio-definition`, was evaluated as a historical QA/reference implementation because its notebook documents the Oxford list-page HTML attributes and its historical CSV helped expose the old staging row-count mismatch. No usable repository license was identified during this review, so its scraper code/data/audio are **not** incorporated, vendored, copied or treated as authoritative WordDeck source data. The current Oxford page remains the source of truth.
+
+Evaluated/rejected reference:
+- https://github.com/winterdl/oxford-5000-vocabulary-audio-definition
+
+This reuse-first decision avoids both an unlicensed data dependency and a Selenium/BeautifulSoup/pandas dependency in WordDeck. The custom extractor is intentionally limited to WordDeck's row identity/provenance rules and Python standard-library parsing.
 
 ## British pronunciation generation provenance
 
