@@ -112,6 +112,7 @@ jobs:
             exit 1
           } || true
           python - <<'PY'
+          import csv
           import hashlib
           import json
           from pathlib import Path
@@ -136,7 +137,42 @@ jobs:
                   raise SystemExit(f"SHA-256 mismatch for {record.get('id')}: {actual_hash} != {expected_hash}")
               if path.stat().st_size != int(record.get('bytes') or -1):
                   raise SystemExit(f"Byte-size mismatch for {record.get('id')}")
+              if record.get('accent') != 'en-GB' or int(record.get('sample_rate') or 0) != 24000:
+                  raise SystemExit(f"Unexpected audio format metadata for {record.get('id')}")
           print(f'Validated {len(records)} manifest rows with unique IDs/files, exact byte sizes and SHA-256.')
+
+          # Targeted override generation needs a stronger proof than file integrity:
+          # every manifest row must correspond exactly to the reviewed-safe ledger row,
+          # and the effective text/phonemes used by generation must match that row.
+          if '${{ steps.request.outputs.source }}' == 'pronunciation-overrides-ready':
+              with Path('/tmp/worddeck-audio-source.tsv').open('r', encoding='utf-8-sig', newline='') as handle:
+                  source_rows = list(csv.DictReader(handle, delimiter='\t'))
+              start = int('${{ steps.request.outputs.start }}')
+              limit = int('${{ steps.request.outputs.limit }}')
+              selected = source_rows[start:] if limit <= 0 else source_rows[start:start + limit]
+              if len(selected) != len(records):
+                  raise SystemExit(f'Override source/manifest count mismatch: {len(selected)} != {len(records)}')
+              for expected_row, record in zip(selected, records, strict=True):
+                  entry_id = (expected_row.get('entry_id') or '').strip()
+                  source = (expected_row.get('source') or '').strip()
+                  text = (expected_row.get('audio_text') or '').strip()
+                  phonemes = (expected_row.get('phonemes') or '').strip()
+                  if record.get('id') != entry_id or record.get('source') != source:
+                      raise SystemExit(f'Override identity/source mismatch for {entry_id}')
+                  manifest_phonemes = record.get('phonemes') or ''
+                  if manifest_phonemes != phonemes:
+                      raise SystemExit(f'Override phoneme mismatch for {entry_id}: {manifest_phonemes!r} != {phonemes!r}')
+                  if not phonemes:
+                      if not text:
+                          raise SystemExit(f'Reviewed text-mode override lacks explicit audio_text: {entry_id}')
+                      if record.get('audio_text') != text:
+                          raise SystemExit(f'Override audio_text mismatch for {entry_id}: {record.get("audio_text")!r} != {text!r}')
+                  expected_voice = '${{ steps.request.outputs.female }}' if hashlib.sha256(entry_id.encode('utf-8')).digest()[0] < 128 else '${{ steps.request.outputs.male }}'
+                  if record.get('voice') != expected_voice:
+                      raise SystemExit(f'Deterministic voice mismatch for {entry_id}: {record.get("voice")} != {expected_voice}')
+                  if float(record.get('speed') or 0) != float('${{ steps.request.outputs.speed }}'):
+                      raise SystemExit(f'Speed mismatch for {entry_id}')
+              print(f'Validated reviewed override semantics for all {len(records)} targeted rows.')
           PY
 
       - name: Pack batch
