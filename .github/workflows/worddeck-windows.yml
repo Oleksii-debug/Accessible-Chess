@@ -40,9 +40,12 @@ jobs:
         run: |
           python .\WordDeck\tools\validate_oxford5000_additions_qa.py --self-test
           python .\WordDeck\tools\validate_oxford5000_additions_qa.py
+          python .\WordDeck\tools\validate_oxford5000_second_pass_slice.py --self-test
 
-      - name: Validate British pronunciation override ledger
-        run: python .\WordDeck\tools\validate_pronunciation_overrides.py --self-test --emit-ready .\artifacts\pronunciation-regeneration-request.json
+      - name: Validate British pronunciation QA tools
+        run: |
+          python .\WordDeck\tools\validate_pronunciation_overrides.py --self-test --emit-ready .\artifacts\pronunciation-regeneration-request.json
+          python .\WordDeck\tools\validate_targeted_audio_artifact.py --self-test
 
       - name: Restore
         run: dotnet restore .\WordDeck\WordDeck.csproj
