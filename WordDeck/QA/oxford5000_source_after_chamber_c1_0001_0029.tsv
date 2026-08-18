@@ -1,30 +1,30 @@
-entry_id	source	part_of_speech	level	official_source	status	ukrainian
-ox5000-a8caa45d249d69aa780b	chaos	noun	C1	https://www.oxfordlearnersdictionaries.com/us/wordlists/oxford3000-5000	pending_translation_qa	
-ox5000-265bbd8fbebccca0a94a	characterize	verb	C1	https://www.oxfordlearnersdictionaries.com/us/wordlists/oxford3000-5000	pending_translation_qa	
-ox5000-4b68bbde48f0b2c13196	charm	noun	C1	https://www.oxfordlearnersdictionaries.com/us/wordlists/oxford3000-5000	pending_translation_qa	
-ox5000-c623ded29399d5c1a04e	charter	noun	C1	https://www.oxfordlearnersdictionaries.com/us/wordlists/oxford3000-5000	pending_translation_qa	
-ox5000-7becff387347da686538	chronic	adjective	C1	https://www.oxfordlearnersdictionaries.com/us/wordlists/oxford3000-5000	pending_translation_qa	
-ox5000-2b1cccbdccaa22468fac	chunk	noun	C1	https://www.oxfordlearnersdictionaries.com/us/wordlists/oxford3000-5000	pending_translation_qa	
-ox5000-aac4beb8b1396aa1297b	circulate	verb	C1	https://www.oxfordlearnersdictionaries.com/us/wordlists/oxford3000-5000	pending_translation_qa	
-ox5000-dc057ad3e42fc206ce4a	circulation	noun	C1	https://www.oxfordlearnersdictionaries.com/us/wordlists/oxford3000-5000	pending_translation_qa	
-ox5000-453023ff9a9e0432ef05	citizenship	noun	C1	https://www.oxfordlearnersdictionaries.com/us/wordlists/oxford3000-5000	pending_translation_qa	
-ox5000-0ef1f794282d9ebadb4e	civic	adjective	C1	https://www.oxfordlearnersdictionaries.com/us/wordlists/oxford3000-5000	pending_translation_qa	
-ox5000-1198d95920a168b3eeea	civilian	adjective	C1	https://www.oxfordlearnersdictionaries.com/us/wordlists/oxford3000-5000	pending_translation_qa	
-ox5000-3e9be13739fe23d8a3ee	civilian	noun	C1	https://www.oxfordlearnersdictionaries.com/us/wordlists/oxford3000-5000	pending_translation_qa	
-ox5000-ed2b78b49194fdf96e74	clarity	noun	C1	https://www.oxfordlearnersdictionaries.com/us/wordlists/oxford3000-5000	pending_translation_qa	
-ox5000-c6fb6687680fe421ba3f	clash	noun	C1	https://www.oxfordlearnersdictionaries.com/us/wordlists/oxford3000-5000	pending_translation_qa	
-ox5000-ca561647c6a3df8de2fb	classification	noun	C1	https://www.oxfordlearnersdictionaries.com/us/wordlists/oxford3000-5000	pending_translation_qa	
-ox5000-d05412d07ae52a428d1e	cling	verb	C1	https://www.oxfordlearnersdictionaries.com/us/wordlists/oxford3000-5000	pending_translation_qa	
-ox5000-4214b46205fa458fcb72	clinical	adjective	C1	https://www.oxfordlearnersdictionaries.com/us/wordlists/oxford3000-5000	pending_translation_qa	
-ox5000-1f0384b345766d6b34d0	closure	noun	C1	https://www.oxfordlearnersdictionaries.com/us/wordlists/oxford3000-5000	pending_translation_qa	
-ox5000-fde11ccd6d8d3fcb99ae	cluster	noun	C1	https://www.oxfordlearnersdictionaries.com/us/wordlists/oxford3000-5000	pending_translation_qa	
-ox5000-bfa50ea4b3edda12d893	coalition	noun	C1	https://www.oxfordlearnersdictionaries.com/us/wordlists/oxford3000-5000	pending_translation_qa	
-ox5000-7a751ce299c260aef0b3	coastal	adjective	C1	https://www.oxfordlearnersdictionaries.com/us/wordlists/oxford3000-5000	pending_translation_qa	
-ox5000-4c96d0ea6d1599aeb7dd	cocktail	noun	C1	https://www.oxfordlearnersdictionaries.com/us/wordlists/oxford3000-5000	pending_translation_qa	
-ox5000-ab79b3cda04a10ae4912	cognitive	adjective	C1	https://www.oxfordlearnersdictionaries.com/us/wordlists/oxford3000-5000	pending_translation_qa	
-ox5000-608bf1699ee107877070	coincide	verb	C1	https://www.oxfordlearnersdictionaries.com/us/wordlists/oxford3000-5000	pending_translation_qa	
-ox5000-fc1e2a473469c89bc46d	collaborate	verb	C1	https://www.oxfordlearnersdictionaries.com/us/wordlists/oxford3000-5000	pending_translation_qa	
-ox5000-6dd5604967f750a27695	collaboration	noun	C1	https://www.oxfordlearnersdictionaries.com/us/wordlists/oxford3000-5000	pending_translation_qa	
-ox5000-8606431c85d372c293c5	collective	adjective	C1	https://www.oxfordlearnersdictionaries.com/us/wordlists/oxford3000-5000	pending_translation_qa	
-ox5000-0f4fb9490644c06511ee	collision	noun	C1	https://www.oxfordlearnersdictionaries.com/us/wordlists/oxford3000-5000	pending_translation_qa	
-ox5000-76c72599796270227fe1	colonial	adjective	C1	https://www.oxfordlearnersdictionaries.com/us/wordlists/oxford3000-5000	pending_translation_qa	
+entry_id	source	part_of_speech	level	official_source	status	ukrainian	source_check
+ox5000-a8caa45d249d69aa780b	chaos	noun	C1	https://www.oxfordlearnersdictionaries.com/us/wordlists/oxford3000-5000	verified	хаос; безлад	Oxford 5000 list POS/CEFR confirmed 2026-08-18; complete-disorder noun sense accepted.
+ox5000-265bbd8fbebccca0a94a	characterize	verb	C1	https://www.oxfordlearnersdictionaries.com/us/wordlists/oxford3000-5000	verified	характеризувати; описувати характерні риси	Oxford 5000 list POS/CEFR confirmed 2026-08-18; describe-defining-features verb sense retained.
+ox5000-4b68bbde48f0b2c13196	charm	noun	C1	https://www.oxfordlearnersdictionaries.com/us/wordlists/oxford3000-5000	verified	чарівність; привабливість; оберіг	Oxford 5000 list POS/CEFR confirmed 2026-08-18; attraction and lucky/magic object noun senses retained.
+ox5000-c623ded29399d5c1a04e	charter	noun	C1	https://www.oxfordlearnersdictionaries.com/us/wordlists/oxford3000-5000	verified	хартія; статут; офіційна грамота	Oxford 5000 list POS/CEFR confirmed 2026-08-18; formal rights/rules document noun senses retained.
+ox5000-7becff387347da686538	chronic	adjective	C1	https://www.oxfordlearnersdictionaries.com/us/wordlists/oxford3000-5000	verified	хронічний; тривалий; постійний	Oxford 5000 list POS/CEFR confirmed 2026-08-18; long-lasting/recurrent adjective senses retained.
+ox5000-2b1cccbdccaa22468fac	chunk	noun	C1	https://www.oxfordlearnersdictionaries.com/us/wordlists/oxford3000-5000	verified	шматок; великий фрагмент; частина	Oxford 5000 list POS/CEFR confirmed 2026-08-18; thick piece/large part noun senses retained.
+ox5000-aac4beb8b1396aa1297b	circulate	verb	C1	https://www.oxfordlearnersdictionaries.com/us/wordlists/oxford3000-5000	verified	циркулювати; поширюватися; розповсюджувати	Oxford 5000 list POS/CEFR confirmed 2026-08-18; move-around/distribute verb senses retained.
+ox5000-dc057ad3e42fc206ce4a	circulation	noun	C1	https://www.oxfordlearnersdictionaries.com/us/wordlists/oxford3000-5000	verified	циркуляція; кровообіг; обіг; тираж	Oxford 5000 list POS/CEFR confirmed 2026-08-18; movement/blood/newspaper-distribution noun senses retained.
+ox5000-453023ff9a9e0432ef05	citizenship	noun	C1	https://www.oxfordlearnersdictionaries.com/us/wordlists/oxford3000-5000	verified	громадянство	Oxford 5000 list POS/CEFR confirmed 2026-08-18; legal status as citizen noun sense accepted.
+ox5000-0ef1f794282d9ebadb4e	civic	adjective	C1	https://www.oxfordlearnersdictionaries.com/us/wordlists/oxford3000-5000	verified	громадянський; міський; суспільний	Oxford 5000 list POS/CEFR confirmed 2026-08-18; city/community/citizen adjective senses retained.
+ox5000-1198d95920a168b3eeea	civilian	adjective	C1	https://www.oxfordlearnersdictionaries.com/us/wordlists/oxford3000-5000	verified	цивільний; невійськовий	Oxford 5000 list POS/CEFR confirmed 2026-08-18; non-military adjective sense accepted.
+ox5000-3e9be13739fe23d8a3ee	civilian	noun	C1	https://www.oxfordlearnersdictionaries.com/us/wordlists/oxford3000-5000	verified	цивільна особа; мирний житель	Oxford 5000 list POS/CEFR confirmed 2026-08-18; non-military person noun sense accepted.
+ox5000-ed2b78b49194fdf96e74	clarity	noun	C1	https://www.oxfordlearnersdictionaries.com/us/wordlists/oxford3000-5000	verified	ясність; чіткість; прозорість	Oxford 5000 list POS/CEFR confirmed 2026-08-18; clearness/understandability noun senses retained.
+ox5000-c6fb6687680fe421ba3f	clash	noun	C1	https://www.oxfordlearnersdictionaries.com/us/wordlists/oxford3000-5000	verified	зіткнення; конфлікт; суперечність	Oxford 5000 list POS/CEFR confirmed 2026-08-18; physical/conflict/incompatibility noun senses retained.
+ox5000-ca561647c6a3df8de2fb	classification	noun	C1	https://www.oxfordlearnersdictionaries.com/us/wordlists/oxford3000-5000	verified	класифікація; категоризація	Oxford 5000 list POS/CEFR confirmed 2026-08-18; arranging into classes noun sense accepted.
+ox5000-d05412d07ae52a428d1e	cling	verb	C1	https://www.oxfordlearnersdictionaries.com/us/wordlists/oxford3000-5000	verified	чіплятися; триматися; притискатися	Oxford 5000 list POS/CEFR confirmed 2026-08-18; hold-tightly/stay-close verb senses retained.
+ox5000-4214b46205fa458fcb72	clinical	adjective	C1	https://www.oxfordlearnersdictionaries.com/us/wordlists/oxford3000-5000	verified	клінічний; медичний; беземоційний	Oxford 5000 list POS/CEFR confirmed 2026-08-18; medical and detached/analytical adjective senses retained.
+ox5000-1f0384b345766d6b34d0	closure	noun	C1	https://www.oxfordlearnersdictionaries.com/us/wordlists/oxford3000-5000	verified	закриття; припинення; завершення	Oxford 5000 list POS/CEFR confirmed 2026-08-18; closing/end noun senses retained.
+ox5000-fde11ccd6d8d3fcb99ae	cluster	noun	C1	https://www.oxfordlearnersdictionaries.com/us/wordlists/oxford3000-5000	verified	скупчення; група; кластер	Oxford 5000 list POS/CEFR confirmed 2026-08-18; close group/cluster noun senses retained.
+ox5000-bfa50ea4b3edda12d893	coalition	noun	C1	https://www.oxfordlearnersdictionaries.com/us/wordlists/oxford3000-5000	verified	коаліція; союз	Oxford 5000 list POS/CEFR confirmed 2026-08-18; alliance of groups/parties noun sense accepted.
+ox5000-7a751ce299c260aef0b3	coastal	adjective	C1	https://www.oxfordlearnersdictionaries.com/us/wordlists/oxford3000-5000	verified	прибережний	Oxford 5000 list POS/CEFR confirmed 2026-08-18; relating-to-the-coast adjective sense accepted.
+ox5000-4c96d0ea6d1599aeb7dd	cocktail	noun	C1	https://www.oxfordlearnersdictionaries.com/us/wordlists/oxford3000-5000	verified	коктейль; суміш	Oxford 5000 list POS/CEFR confirmed 2026-08-18; mixed drink and figurative mixture noun senses retained.
+ox5000-ab79b3cda04a10ae4912	cognitive	adjective	C1	https://www.oxfordlearnersdictionaries.com/us/wordlists/oxford3000-5000	verified	когнітивний; пізнавальний	Oxford 5000 list POS/CEFR confirmed 2026-08-18; relating-to-thinking/knowing adjective sense accepted.
+ox5000-608bf1699ee107877070	coincide	verb	C1	https://www.oxfordlearnersdictionaries.com/us/wordlists/oxford3000-5000	verified	збігатися; відбуватися одночасно	Oxford 5000 list POS/CEFR confirmed 2026-08-18; occur together/agree verb senses retained.
+ox5000-fc1e2a473469c89bc46d	collaborate	verb	C1	https://www.oxfordlearnersdictionaries.com/us/wordlists/oxford3000-5000	verified	співпрацювати; працювати спільно	Oxford 5000 list POS/CEFR confirmed 2026-08-18; work-together verb sense accepted.
+ox5000-6dd5604967f750a27695	collaboration	noun	C1	https://www.oxfordlearnersdictionaries.com/us/wordlists/oxford3000-5000	verified	співпраця; спільна робота	Oxford 5000 list POS/CEFR confirmed 2026-08-18; working-together noun sense accepted.
+ox5000-8606431c85d372c293c5	collective	adjective	C1	https://www.oxfordlearnersdictionaries.com/us/wordlists/oxford3000-5000	verified	колективний; спільний; сукупний	Oxford 5000 list POS/CEFR confirmed 2026-08-18; shared/group adjective senses retained.
+ox5000-0f4fb9490644c06511ee	collision	noun	C1	https://www.oxfordlearnersdictionaries.com/us/wordlists/oxford3000-5000	verified	зіткнення; колізія	Oxford 5000 list POS/CEFR confirmed 2026-08-18; physical crash/conflict noun senses retained.
+ox5000-76c72599796270227fe1	colonial	adjective	C1	https://www.oxfordlearnersdictionaries.com/us/wordlists/oxford3000-5000	verified	колоніальний	Oxford 5000 list POS/CEFR confirmed 2026-08-18; relating-to-colonies/colonialism adjective sense accepted.
