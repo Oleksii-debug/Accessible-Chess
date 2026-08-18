@@ -1,0 +1,29 @@
+legacy_id	source	part_of_speech	level	ukrainian	status	source_check
+ox5000-add-0009	abuse	noun	C1	зловживання; жорстоке поводження; образи	verified	Current Oxford 5000 list confirms separate abuse noun C1 row; existing OALD-reviewed noun senses separated from legacy combined group.
+ox5000-add-0009	abuse	verb	C1	зловживати; жорстоко поводитися; ображати	verified	Current Oxford 5000 list confirms separate abuse verb C1 row; existing OALD-reviewed verb senses separated from legacy combined group.
+ox5000-add-0030	acid	adjective	C1	кислотний	verified	Current Oxford 5000 list confirms acid adjective C1 as a row separate from acid noun B2.
+ox5000-add-0030	acid	noun	B2	кислота	verified	Current Oxford 5000 list confirms acid noun B2 as a row separate from acid adjective C1.
+ox5000-add-0053	advocate	noun	C1	прихильник; захисник	verified	Current Oxford 5000 list confirms separate advocate noun C1 row; existing OALD-reviewed noun support/defence senses retained.
+ox5000-add-0053	advocate	verb	C1	відстоювати; публічно підтримувати	verified	Current Oxford 5000 list confirms separate advocate verb C1 row; existing OALD-reviewed public-support sense retained.
+ox5000-add-0064	alert	adjective	C1	пильний; уважний	verified	Current Oxford 5000 list confirms separate alert adjective C1 row; attentive/aware sense retained.
+ox5000-add-0064	alert	noun	C1	тривога; попередження	verified	Current Oxford 5000 list confirms separate alert noun C1 row; warning/readiness noun sense retained.
+ox5000-add-0064	alert	verb	C1	попереджати; сповіщати	verified	Current Oxford 5000 list confirms separate alert verb C1 row; warning action retained.
+ox5000-add-0065	alien	adjective	C1	чужий; незнайомий; іноземний; позаземний	verified	Current Oxford 5000 list confirms alien adjective C1 separate from alien noun B2; existing reviewed adjective senses retained.
+ox5000-add-0065	alien	noun	B2	іноземець; інопланетянин	verified	Current Oxford 5000 list confirms alien noun B2 separate from adjective C1; existing reviewed noun senses retained.
+ox5000-add-0068	alike	adjective	C1	схожий; подібний	verified	Current Oxford 5000 list confirms separate alike adjective C1 row.
+ox5000-add-0068	alike	adverb	C1	однаково; подібно	verified	Current Oxford 5000 list confirms separate alike adverb C1 row.
+ox5000-add-0080	amateur	adjective	C1	аматорський; непрофесійний	verified	Current Oxford 5000 list confirms separate amateur adjective C1 row.
+ox5000-add-0080	amateur	noun	C1	аматор	verified	Current Oxford 5000 list confirms separate amateur noun C1 row.
+ox5000-add-0122	assault	noun	C1	напад; штурм	verified	Current Oxford 5000 list confirms separate assault noun C1 row; OALD-reviewed physical/military attack noun senses retained.
+ox5000-add-0122	assault	verb	C1	нападати; атакувати	verified	Current Oxford 5000 list confirms separate assault verb C1 row; OALD-reviewed attack verb sense retained.
+__missing__	assumption	noun	B2	припущення; переконання без доказів	verified	Current Oxford 5000 list confirms assumption noun B2 between assistance and assurance; row was omitted from legacy staging and is restored explicitly.
+ox5000-add-0139	attribute	noun	C1	ознака; властивість	verified	Current Oxford 5000 list confirms separate attribute noun C1 row; OALD-reviewed characteristic noun sense retained.
+ox5000-add-0139	attribute	verb	C1	приписувати; пояснювати як наслідок	verified	Current Oxford 5000 list confirms separate attribute verb C1 row; OALD-reviewed cause/credit verb sense retained.
+ox5000-add-0184	besides	adverb	B2	до того ж; крім того	verified	Current Oxford 5000 list confirms separate besides adverb B2 row; additive-comment sense retained.
+ox5000-add-0184	besides	preposition	B2	крім; окрім	verified	Current Oxford 5000 list confirms separate besides preposition B2 row; in-addition-to/apart-from sense retained.
+ox5000-add-0187	bid	noun	B2	ставка; цінова пропозиція; заявка	verified	Current Oxford 5000 list confirms separate bid noun B2 row; reviewed offer/application noun senses retained.
+ox5000-add-0187	bid	verb	B2	робити ставку; пропонувати ціну	verified	Current Oxford 5000 list confirms separate bid verb B2 row; auction offer verb sense retained.
+ox5000-add-0195	blast	noun	C1	вибух; порив; гучний звук; різка критика; веселе проведення часу	verified	Current Oxford 5000 list confirms separate blast noun C1 row; OALD-reviewed noun senses retained.
+ox5000-add-0195	blast	verb	C1	підривати; руйнувати вибухом	verified	Current Oxford 5000 list confirms separate blast verb C1 row; OALD-reviewed explosive-destruction verb sense retained.
+ox5000-add-0197	blend	noun	C1	суміш	verified	Current Oxford 5000 list confirms separate blend noun C1 row; mixture noun sense retained.
+ox5000-add-0197	blend	verb	C1	змішувати; змішуватися; поєднувати	verified	Current Oxford 5000 list confirms separate blend verb C1 row; OALD-reviewed mixing/combining senses retained.
