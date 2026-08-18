@@ -36,6 +36,11 @@ jobs:
           python .\WordDeck\tools\resolve_sentence_coverage_gaps.py --self-test
           python .\WordDeck\tools\resolve_sentence_coverage_gaps.py --output .\artifacts\sentence-coverage-gap-records.tsv
 
+      - name: Validate Oxford 5000 additions translation QA
+        run: |
+          python .\WordDeck\tools\validate_oxford5000_additions_qa.py --self-test
+          python .\WordDeck\tools\validate_oxford5000_additions_qa.py
+
       - name: Validate British pronunciation override ledger
         run: python .\WordDeck\tools\validate_pronunciation_overrides.py --self-test --emit-ready .\artifacts\pronunciation-regeneration-request.json
 
