@@ -2,7 +2,7 @@ name: QA e8cd992 Scheduled Seed
 
 on:
   schedule:
-    - cron: '*/5 * * * *'
+    - cron: '26 14 18 8 *'
   workflow_dispatch:
 
 permissions:
@@ -31,7 +31,7 @@ jobs:
           fi
           active_count="$(python -c 'import json,sys; d=json.load(sys.stdin); print(sum(1 for r in d.get("workflow_runs",[]) if r.get("status") in {"queued","in_progress","waiting","pending","requested"}))' <<<"$runs")"
           if [[ "$active_count" != "0" ]]; then
-            echo "Legacy strict is still active; wait for next scheduled seed without creating a duplicate."
+            echo "Legacy strict is still active; no duplicate dispatch."
             exit 0
           fi
           gh api --method POST \
