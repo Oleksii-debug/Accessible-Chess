@@ -34,6 +34,7 @@ internal sealed class RecallStudyScopeState
     public string ActiveDeckId { get; set; } = DeckIds.Core(1);
     public string? CurrentEntryId { get; set; }
     public Dictionary<string, string> DeckIds { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+    public List<string> RemainingShuffleEntryIds { get; set; } = new();
 }
 
 internal sealed class RecallStudyScopeDictionaryState
