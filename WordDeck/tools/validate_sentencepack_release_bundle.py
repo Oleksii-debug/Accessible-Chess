@@ -12,6 +12,7 @@ import gzip
 import json
 import sqlite3
 import tempfile
+from contextlib import closing
 from pathlib import Path
 
 REQUIRED_METADATA = {
@@ -29,7 +30,9 @@ def validate(sqlite_path: Path, gzip_path: Path, manifest_path: Path, coverage_p
         if not path.is_file() or path.stat().st_size <= 0:
             raise RuntimeError(f"Required SentencePack release file is missing or empty: {path}")
 
-    with sqlite3.connect(f"file:{sqlite_path.as_posix()}?mode=ro", uri=True) as db:
+    # sqlite3.Connection's context manager commits/rolls back but does not close the
+    # connection. Use closing() so Windows does not keep pack.sqlite locked after QA.
+    with closing(sqlite3.connect(f"file:{sqlite_path.as_posix()}?mode=ro", uri=True)) as db:
         metadata = dict(db.execute("SELECT key, value FROM metadata"))
         for key, expected in REQUIRED_METADATA.items():
             value = metadata.get(key, "").strip()
@@ -70,7 +73,9 @@ def self_test() -> None:
     with tempfile.TemporaryDirectory(prefix="worddeck-sentence-release-") as root_text:
         root = Path(root_text)
         db_path = root / "pack.sqlite"
-        with sqlite3.connect(db_path) as db:
+        # Explicitly close the writer too. This matters on Windows, where an open
+        # SQLite handle prevents the negative-path unlink below and temp cleanup.
+        with closing(sqlite3.connect(db_path)) as db:
             db.executescript("""
                 CREATE TABLE metadata(key TEXT PRIMARY KEY, value TEXT NOT NULL);
                 CREATE TABLE sentences(sentence_num INTEGER PRIMARY KEY);
@@ -82,6 +87,7 @@ def self_test() -> None:
                 ("provenance", "synthetic"), ("license", "CC BY 2.0 FR")])
             db.execute("INSERT INTO sentences(sentence_num) VALUES(1)")
             db.execute("INSERT INTO target_entries(target_num,entry_id) VALUES(1,'ox-test')")
+            db.commit()
         gzip_path = root / "pack.json.gz"
         with gzip.open(gzip_path, "wt", encoding="utf-8") as handle:
             json.dump({"PackId": "synthetic"}, handle)
