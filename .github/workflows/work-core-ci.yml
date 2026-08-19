@@ -4,13 +4,16 @@ on:
   push:
     branches:
       - dev/canonical-interaction-contracts-20260819
+  pull_request:
+    branches:
+      - integration/accessible-chess-next
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: work-core-ci-${{ github.ref }}
+  group: work-core-ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
