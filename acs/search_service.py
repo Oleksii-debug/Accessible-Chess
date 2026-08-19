@@ -10,7 +10,7 @@ keeps SQL/database identity inside the data layer.
 from dataclasses import dataclass
 from typing import Literal
 
-from .acsdb import AcsDatabase
+from .acsdb import AcsDatabase, escape_like_literal
 
 SearchResult = Literal["1-0", "0-1", "1/2-1/2", "*"]
 _RESULTS = frozenset({"1-0", "0-1", "1/2-1/2", "*"})
@@ -24,11 +24,6 @@ def _clean_filter(value: str | None, *, field_name: str) -> str | None:
         raise TypeError(f"{field_name} must be text or None")
     normalized = " ".join(value.split())
     return normalized or None
-
-
-def _escape_like(value: str) -> str:
-    """Escape one literal value for a parameter bound to LIKE ... ESCAPE '!'."""
-    return value.replace("!", "!!").replace("%", "!%").replace("_", "!_")
 
 
 def _validate_optional_text(value: str | None, *, field_name: str) -> None:
@@ -193,17 +188,17 @@ class GameSearchService:
                 "(g.white LIKE ? ESCAPE '!' COLLATE NOCASE "
                 "OR g.black LIKE ? ESCAPE '!' COLLATE NOCASE)"
             )
-            needle = f"%{_escape_like(q.player)}%"
+            needle = f"%{escape_like_literal(q.player)}%"
             params.extend((needle, needle))
         if q.event:
             clauses.append("g.event LIKE ? ESCAPE '!' COLLATE NOCASE")
-            params.append(f"%{_escape_like(q.event)}%")
+            params.append(f"%{escape_like_literal(q.event)}%")
         if q.eco:
             clauses.append("g.eco LIKE ? ESCAPE '!' COLLATE NOCASE")
-            params.append(f"{_escape_like(q.eco)}%")
+            params.append(f"{escape_like_literal(q.eco)}%")
         if q.opening:
             clauses.append("g.opening LIKE ? ESCAPE '!' COLLATE NOCASE")
-            params.append(f"%{_escape_like(q.opening)}%")
+            params.append(f"%{escape_like_literal(q.opening)}%")
         if q.result:
             clauses.append("g.result=?")
             params.append(q.result)
@@ -212,7 +207,7 @@ class GameSearchService:
             params.append(q.source_id)
         if q.source_name:
             clauses.append("s.source_name LIKE ? ESCAPE '!' COLLATE NOCASE")
-            params.append(f"%{_escape_like(q.source_name)}%")
+            params.append(f"%{escape_like_literal(q.source_name)}%")
         if q.after_game_id is not None:
             clauses.append("g.id>?")
             params.append(q.after_game_id)

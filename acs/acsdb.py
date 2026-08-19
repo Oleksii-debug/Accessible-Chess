@@ -53,6 +53,12 @@ def _require_id(value: object, name: str) -> int:
     return _require_exact_int(value, name, minimum=1)
 
 
+def escape_like_literal(value: str) -> str:
+    """Escape exact user text for a parameter bound to ``LIKE ... ESCAPE '!'``."""
+    value = _require_text(value, "LIKE literal", allow_empty=True)
+    return value.replace("!", "!!").replace("%", "!%").replace("_", "!_")
+
+
 @dataclass(slots=True)
 class ImportReport:
     source_id: int
@@ -359,18 +365,21 @@ class AcsDatabase:
         clauses: list[str] = []
         params: list[object] = []
         if player:
-            clauses.append("(g.white LIKE ? COLLATE NOCASE OR g.black LIKE ? COLLATE NOCASE)")
-            needle = f"%{player}%"
+            clauses.append(
+                "(g.white LIKE ? ESCAPE '!' COLLATE NOCASE "
+                "OR g.black LIKE ? ESCAPE '!' COLLATE NOCASE)"
+            )
+            needle = f"%{escape_like_literal(player)}%"
             params.extend([needle, needle])
         if event:
-            clauses.append("g.event LIKE ? COLLATE NOCASE")
-            params.append(f"%{event}%")
+            clauses.append("g.event LIKE ? ESCAPE '!' COLLATE NOCASE")
+            params.append(f"%{escape_like_literal(event)}%")
         if eco:
-            clauses.append("g.eco LIKE ? COLLATE NOCASE")
-            params.append(f"{eco}%")
+            clauses.append("g.eco LIKE ? ESCAPE '!' COLLATE NOCASE")
+            params.append(f"{escape_like_literal(eco)}%")
         if opening:
-            clauses.append("g.opening LIKE ? COLLATE NOCASE")
-            params.append(f"%{opening}%")
+            clauses.append("g.opening LIKE ? ESCAPE '!' COLLATE NOCASE")
+            params.append(f"%{escape_like_literal(opening)}%")
         if result:
             clauses.append("g.result=?")
             params.append(result)
@@ -378,8 +387,8 @@ class AcsDatabase:
             clauses.append("g.source_id=?")
             params.append(source_id)
         if source_name:
-            clauses.append("s.source_name LIKE ? COLLATE NOCASE")
-            params.append(f"%{source_name}%")
+            clauses.append("s.source_name LIKE ? ESCAPE '!' COLLATE NOCASE")
+            params.append(f"%{escape_like_literal(source_name)}%")
         sql = "SELECT g.* FROM games g JOIN sources s ON s.id=g.source_id"
         if clauses:
             sql += " WHERE " + " AND ".join(clauses)

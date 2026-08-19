@@ -142,6 +142,45 @@ class AcsDatabaseTests(unittest.TestCase):
         self.assertEqual(len(self.db.search_games(opening='sicilian')), 1)
         self.assertEqual(len(self.db.search_games(source_name='PLAYERS')), 1)
 
+    def test_legacy_search_treats_like_metacharacters_as_literal_text(self):
+        special = '''[Event "100%_Event!"]
+[White "100%_Player!"]
+[Black "Literal"]
+[Result "*"]
+[ECO "A%_!"]
+[Opening "Line%_!"]
+
+1. e4 *
+'''
+        ordinary = '''[Event "Ordinary"]
+[White "Ordinary"]
+[Black "Literal"]
+[Result "*"]
+[ECO "A00"]
+[Opening "Ordinary"]
+
+1. d4 *
+'''
+        self.db.import_pgn_text(special, '100%_source!.pgn')
+        self.db.import_pgn_text(ordinary, 'ordinary.pgn')
+
+        for field in ('player', 'event', 'eco', 'opening', 'source_name'):
+            needles = ('A%', 'A%_', 'A%_!') if field == 'eco' else ('%', '_', '!')
+            for needle in needles:
+                with self.subTest(field=field, needle=needle):
+                    matches = self.db.search_games(**{field: needle})
+                    self.assertEqual(len(matches), 1)
+                    self.assertEqual(matches[0]['event'], '100%_Event!')
+
+        combined = self.db.search_games(
+            player='100%_Player!',
+            event='100%_Event!',
+            eco='A%_!',
+            opening='Line%_!',
+            source_name='100%_source!',
+        )
+        self.assertEqual(len(combined), 1)
+
     def test_exact_position_reference_ignores_move_counters_only(self):
         report = self.db.import_pgn_text('[Event "P"]\n[Result "*"]\n\n1. e4 *', 'position.pgn')
         game_id = report.game_ids[0]
