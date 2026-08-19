@@ -30,6 +30,10 @@
     <EmbeddedResource Include="QA\oxford5000_source_after_dam_c1_0001_0029.tsv" />
     <EmbeddedResource Include="QA\oxford5000_source_after_deployment_c1_0001_0029.tsv" />
     <EmbeddedResource Include="QA\oxford5000_source_after_directory_c1_0001_0029.tsv" />
+    <EmbeddedResource Include="QA\oxford5000_source_after_dominance_c1_0001_0029.tsv" />
+    <EmbeddedResource Include="QA\oxford5000_source_after_embarrassment_c1_0001_0029.tsv" />
+    <EmbeddedResource Include="QA\oxford5000_source_after_equality_c1_0001_0029.tsv" />
+    <EmbeddedResource Include="QA\oxford5000_source_after_explosive_adj_c1_0001_0029.tsv" />
   </ItemGroup>
 
   <ItemGroup>
