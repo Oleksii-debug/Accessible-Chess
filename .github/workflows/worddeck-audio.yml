@@ -47,12 +47,23 @@ jobs:
           gzip -dc /tmp/oxford3000.tsv.gz > /tmp/worddeck-audio-source.tsv
           test -s /tmp/worddeck-audio-source.tsv
 
-      - name: Use combined Oxford 5000 TSV
+      - name: Setup .NET 8 for Oxford 5000 export
+        if: steps.request.outputs.source == 'oxford5000'
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Export verified Oxford 5000 audio source
         if: steps.request.outputs.source == 'oxford5000'
         shell: bash
         run: |
-          test -f WordDeck/Audio/oxford5000_audio_source.tsv
-          cp WordDeck/Audio/oxford5000_audio_source.tsv /tmp/worddeck-audio-source.tsv
+          dotnet restore ./WordDeck/WordDeck.csproj
+          dotnet run --project ./WordDeck/WordDeck.csproj -c Release -- --export-oxford5000-audio-source /tmp/worddeck-audio-source.tsv
+          test -s /tmp/worddeck-audio-source.tsv
+          actual=$(($(wc -l < /tmp/worddeck-audio-source.tsv) - 1))
+          expected=$(grep -E 'public const int ExpectedCanonicalRows = [0-9]+;' WordDeck/ReviewedOxford5000Bootstrap.cs | grep -Eo '[0-9]+' | tail -1)
+          echo "Verified Oxford 5000 audio source rows: actual=$actual expected=$expected"
+          test "$actual" -eq "$expected"
 
       - name: Prepare reviewed-safe pronunciation overrides
         if: steps.request.outputs.source == 'pronunciation-overrides-ready'
@@ -141,9 +152,6 @@ jobs:
                   raise SystemExit(f"Unexpected audio format metadata for {record.get('id')}")
           print(f'Validated {len(records)} manifest rows with unique IDs/files, exact byte sizes and SHA-256.')
 
-          # Targeted override generation needs a stronger proof than file integrity:
-          # every manifest row must correspond exactly to the reviewed-safe ledger row,
-          # and the effective text/phonemes used by generation must match that row.
           if '${{ steps.request.outputs.source }}' == 'pronunciation-overrides-ready':
               with Path('/tmp/worddeck-audio-source.tsv').open('r', encoding='utf-8-sig', newline='') as handle:
                   source_rows = list(csv.DictReader(handle, delimiter='\t'))
