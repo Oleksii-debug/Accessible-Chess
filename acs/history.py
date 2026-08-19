@@ -31,6 +31,34 @@ class HistoryError(ValueError):
 HISTORY_TREE_SCHEMA_VERSION = 1
 
 
+def _freeze_context_value(value: Any, *, path: str = "context") -> Any:
+    """Detach and recursively freeze context data accepted by review snapshots."""
+
+    if value is None or type(value) in {str, int, float, bool, bytes}:
+        return value
+    if isinstance(value, Mapping):
+        frozen: dict[str, Any] = {}
+        for key, item in value.items():
+            if type(key) is not str:
+                raise HistoryError(
+                    f"{path} keys must be exact text",
+                    code=HistoryErrorCode.INVALID_SNAPSHOT,
+                )
+            frozen[key] = _freeze_context_value(item, path=f"{path}.{key}")
+        return MappingProxyType(frozen)
+    if type(value) in {list, tuple}:
+        return tuple(
+            _freeze_context_value(item, path=f"{path}[{index}]")
+            for index, item in enumerate(value)
+        )
+    if type(value) in {set, frozenset}:
+        return frozenset(_freeze_context_value(item, path=path) for item in value)
+    raise HistoryError(
+        f"{path} contains unsupported mutable/object value {type(value).__name__}",
+        code=HistoryErrorCode.INVALID_SNAPSHOT,
+    )
+
+
 @dataclass(frozen=True)
 class PositionSnapshot:
     """Presentation-neutral state for one historical chess position."""
@@ -67,11 +95,7 @@ class PositionSnapshot:
                 "snapshot context must be a mapping",
                 code=HistoryErrorCode.INVALID_SNAPSHOT,
             )
-        object.__setattr__(
-            self,
-            "context",
-            MappingProxyType(dict(self.context)),
-        )
+        object.__setattr__(self, "context", _freeze_context_value(self.context))
 
 
 @dataclass(frozen=True)
@@ -208,8 +232,8 @@ class ReviewHistory:
 
     def select_node(self, node_id: int) -> ReviewSelection:
         """Select any existing branch node by stable ID and activate its lineage."""
-        if not isinstance(node_id, int) or isinstance(node_id, bool):
-            raise HistoryError("node_id must be an integer")
+        if type(node_id) is not int:
+            raise HistoryError("node_id must be an exact integer")
         if node_id < 0 or node_id >= len(self._nodes):
             raise HistoryError(
                 "node_id does not exist",
@@ -220,8 +244,8 @@ class ReviewHistory:
         return self.current()
 
     def select_variation(self, child_index: int) -> ReviewSelection:
-        if not isinstance(child_index, int) or isinstance(child_index, bool):
-            raise HistoryError("variation index must be an integer")
+        if type(child_index) is not int:
+            raise HistoryError("variation index must be an exact integer")
         children = self._nodes[self._cursor].children
         if not children:
             raise HistoryError(
@@ -285,17 +309,18 @@ class ReviewHistory:
         return history
 
     def parse_target(self, target: str | int) -> int:
-        if isinstance(target, bool):
-            raise HistoryError("move target must not be a boolean")
-        if isinstance(target, int):
+        if type(target) is int:
             if target < 0:
                 raise HistoryError(
                     "move target must not be negative",
                     code=HistoryErrorCode.OUT_OF_RANGE,
                 )
-            target = str(target)
+            text = str(target)
+        elif type(target) is str:
+            text = target.strip().lower()
+        else:
+            raise HistoryError("move target must be exact text or integer")
 
-        text = str(target).strip().lower()
         if text in {"0", "start"}:
             return 0
         if text == "end":
@@ -369,7 +394,7 @@ class ReviewHistory:
             san=snapshot.san,
             side=snapshot.side,
             last_move=snapshot.last_move,
-            context=dict(snapshot.context),
+            context=snapshot.context,
         )
 
     @classmethod
