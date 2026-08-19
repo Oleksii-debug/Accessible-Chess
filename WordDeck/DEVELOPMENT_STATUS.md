@@ -6,15 +6,16 @@ Branch: `worddeck-bootstrap` only. Never develop WordDeck on `main`.
 ## Emergency Oxford 5000 milestone
 
 ### Oxford lexical data
-- Runtime production bridge is now **3,740 rows = 3,308 unchanged Oxford 3000 baseline rows + 432 verified canonical B2/C1 Oxford 5000 rows**. Existing Oxford 3000 IDs/progress remain unchanged and the durable dictionary ID remains `oxford-3000-en-uk` for lossless migration.
-- Seven consecutive post-bridge C1 slices are now runtime-eligible: **43/43** rows `boast` verb C1 through `chamber` noun C1, **29/29** rows `chaos` noun C1 through `colonial` adjective C1, **29/29** rows `columnist` noun C1 through `compute` verb C1, **29/29** rows `conceal` verb C1 through `constitution` noun C1, **29/29** rows `constitutional` adjective C1 through `correlation` noun C1, **29/29** rows after `correlation` through `dam` noun C1, and **29/29** rows after `dam` through `deployment` noun C1.
-- The newest 29-row slice is embedded through the canonical bootstrap and uses the same fail-closed stable-ID recomputation as earlier slices. Regression assertions preserve the audited `blow` B2 row, preserve `dam` noun C1, and require the latest canonical tail to be `deployment` noun C1 with stable ID `ox5000-a2e2cc33789e9d3a823a`.
-- The newest slice was checked against the official Oxford 3000/5000 list on 2026-08-19 for exact headword/POS/CEFR membership. It covers `damaging` adjective C1, `dawn`, `debris`, `debut`, `decision-making`, `decisive`, `declaration`, `dedicated`, `dedication`, `deed`, `deem`, `default` noun, `defect`, `defensive`, `deficiency`, `deficit`, `defy`, `delegate` noun, `delegation`, `delicate`, `demon`, `denial`, `denounce`, `dense`, `density`, `dependence`, `depict`, `deploy`, and `deployment`. Distinct POS rows remain distinct stable lexical identities.
-- Five semantically broader source-confirmed rows from the preceding region (`corrupt` adjective, `corruption` noun, `coup` noun, `cult` adjective, `cult` noun) remain intentionally excluded pending second-pass semantic QA rather than guessed broad glosses.
+- Runtime production bridge remains **3,740 rows = 3,308 unchanged Oxford 3000 baseline rows + 432 verified canonical B2/C1 Oxford 5000 rows**. Existing Oxford 3000 IDs/progress remain unchanged and the durable dictionary ID remains `oxford-3000-en-uk` for lossless migration.
+- Seven consecutive post-bridge C1 slices are runtime-eligible: **43/43** rows `boast` verb C1 through `chamber` noun C1, **29/29** rows `chaos` noun C1 through `colonial` adjective C1, **29/29** rows `columnist` noun C1 through `compute` verb C1, **29/29** rows `conceal` verb C1 through `constitution` noun C1, **29/29** rows `constitutional` adjective C1 through `correlation` noun C1, **29/29** rows after `correlation` through `dam` noun C1, and **29/29** rows after `dam` through `deployment` noun C1.
+- A new source-backed **29-row C1 staging slice after `deployment`** is now committed at `QA/oxford5000_source_after_deployment_c1_0001_0029.tsv`. It covers exactly: `deposit` verb, `deprive`, `deputy`, `descend`, `descent`, `designate`, `desirable`, `desktop`, `destructive`, `detain`, `detection`, `detention`, `deteriorate`, `devastate`, `devil`, `devise`, `diagnose`, `diagnosis`, `dictate`, `dictator`, `differentiate`, `dignity`, `dilemma`, `dimension`, `diminish`, `dip`, `diplomat`, `diplomatic`, and `directory`, all C1. Headword/POS/CEFR membership was checked against the official Oxford 3000/5000 list on 2026-08-19 and stable IDs were recomputed from `source + POS + CEFR` using the existing SHA-256 lexical-ID contract.
+- This newest 29-row staging slice is **not yet runtime-activated** in order to avoid spending a full Windows CI cycle on a tiny intermediate edit. It will be grouped with the next coherent integration checkpoint; runtime-safe verified additions therefore remain 432 while source-reviewed/staged additions are now **461**.
+- The current runtime-eligible slice still ends at `deployment` noun C1 with stable ID `ox5000-a2e2cc33789e9d3a823a`; the staged frontier reaches `directory` noun C1 with stable ID `ox5000-043984fb2caed1cddf1f`.
+- Five semantically broader source-confirmed rows from an earlier C region (`corrupt` adjective, `corruption` noun, `coup` noun, `cult` adjective, `cult` noun) remain intentionally excluded pending second-pass semantic QA rather than guessed broad glosses.
 - Oxford 5000 contains Oxford 3000 plus about 2,000 additional B2-C1 words; no Oxford C2 scope is invented.
-- Runtime recomputes stable IDs from `source + POS + CEFR` and fails closed on mismatch, blank translation, non-verified status, duplicate lexical identity or unsupported level.
-- Current runtime/source-backed verified C1 frontier reaches **`deployment` noun C1**. B2-exclusive membership beyond the existing audited bridge still requires explicit Oxford 5000 membership/source metadata rather than inference from CEFR alone.
-- Exact next data action: continue the next large official C1 batch after `deployment` while separately resolving the five deferred second-pass rows; keep the B2-exclusive extraction path tied to explicit Oxford 5000 membership metadata.
+- Runtime canonicalization continues to fail closed on stable-ID mismatch, blank translation, non-verified status, duplicate lexical identity or unsupported level.
+- B2-exclusive membership beyond the existing audited bridge still requires explicit Oxford 5000 membership/source metadata rather than inference from CEFR alone.
+- Exact next data action: continue the next large official C1 batch after `directory`; then integrate at least two coherent 29-row slices together into the bootstrap and run one grouped Windows gate. Separately resolve the five deferred second-pass rows without blocking later extraction.
 
 ### Recall Study Scope / Workspace
 - Durable scope IDs remain exactly `all`, `a1`, `a2`, `b1`, `b2`, `c1`; display labels remain `All Oxford 5000`, `A1`, `A2`, `B1`, `B2`, `C1`.
@@ -25,8 +26,8 @@ Branch: `worddeck-bootstrap` only. Never develop WordDeck on `main`.
 ### British offline audio
 - Existing Oxford 3000 technical generation remains **3,308/3,308** stable entries.
 - Targeted pronunciation QA remains 36 numbered/sense-marker candidates with 19 deterministic `ready` replacements and 17 heteronym/sense-sensitive `review` records; uppercase/acronym listening candidates remain separate.
-- Canonical Oxford 5000 additions now have **432 runtime-stable lexical IDs**.
-- **Oxford 5000 addition MP3 coverage remains 0/432 generated files at this checkpoint.** Exact next audio action: generate one meaningful British batch for activated additions with stable-ID manifest and SHA-256 integrity, then append later verified rows only after lexical QA threshold. Do not wholesale-regenerate Oxford 3000.
+- Runtime canonical Oxford 5000 additions remain **432 stable lexical IDs**; source-reviewed/staged additions now total **461**.
+- **Oxford 5000 addition MP3 coverage remains 0/432 runtime entries (0/461 including the staged slice) at this checkpoint.** Exact next audio action remains generation of one meaningful British batch for activated additions with stable-ID manifest and SHA-256 integrity, then append later verified rows only after lexical QA threshold. Do not wholesale-regenerate Oxford 3000.
 - Kokoro/Misaki remains development-only; WordDeck runtime stays offline and has no Python/API/network dependency.
 
 ### Hotkey / F1 truth audit
@@ -37,10 +38,10 @@ Branch: `worddeck-bootstrap` only. Never develop WordDeck on `main`.
 
 ### Emergency blockers
 - **No user-input blocker.**
-- Full-data blocker: complete official Oxford 5000 row-level extraction is still incomplete. Runtime-safe verified additions increased from 403 to **432** in this run.
+- Full-data blocker: complete official Oxford 5000 row-level extraction is still incomplete. Runtime-safe verified additions remain **432**; source-reviewed/staged additions increased to **461** in this run.
 - Second-pass queue: five source-confirmed rows from the earlier C alphabetic region remain deliberately excluded pending targeted sense-level review.
 - Audio blocker: Oxford 5000 addition MP3 generation has not started; targeted Oxford 3000 pronunciation replacements are not release-complete.
-- Verification discipline: code/data integration and regression assertions are committed. This 432-addition checkpoint is not called a user-testable beta unless the grouped Windows build, self-tests, self-contained publish and published-EXE self-test are confirmed green.
+- Verification discipline: the new 29-row source slice is committed but deliberately not called runtime-complete until grouped bootstrap integration, self-tests, self-contained publish and published-EXE self-test are green.
 
 ## Parallel lanes (non-blocking)
 - Core Recall/Spelling/Sentence persisted state remains preserved. No Grammar/Story/speech-recognition/My Corrector/future-module work started.
@@ -51,5 +52,5 @@ Branch: `worddeck-bootstrap` only. Never develop WordDeck on `main`.
 - `main` remains untouched.
 - Existing Oxford 3000 stable IDs/progress remain regression-protected as the unchanged first 3,308 rows of the candidate package.
 - No secrets, runtime network requirement, Python runtime or Kokoro runtime were added.
-- Only verified Oxford source rows are embedded; pending/second-pass rows remain QA-only.
+- Only source-checked rows are staged; pending/second-pass rows remain QA-only.
 - No beta is sent automatically.
