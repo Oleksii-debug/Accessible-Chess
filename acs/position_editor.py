@@ -37,6 +37,10 @@ class PositionState:
             raise PositionValidationError("turn must be 'w' or 'b'")
         _validate_castling(self.castling)
         _validate_en_passant(self.en_passant, self.turn)
+        if type(self.halfmove) is not int:
+            raise PositionValidationError("halfmove clock must be an integer")
+        if type(self.fullmove) is not int:
+            raise PositionValidationError("fullmove number must be an integer")
         if self.halfmove < 0:
             raise PositionValidationError("halfmove clock must be non-negative")
         if self.fullmove < 1:
@@ -113,7 +117,9 @@ class PositionState:
 
     @classmethod
     def from_fen(cls, fen: str) -> "PositionState":
-        text = str(fen).strip()
+        if not isinstance(fen, str):
+            raise PositionValidationError("FEN must be text")
+        text = fen.strip()
         fields = text.split()
         if len(fields) != 6:
             raise PositionValidationError("FEN must contain exactly 6 fields")

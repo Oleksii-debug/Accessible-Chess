@@ -73,6 +73,35 @@ class PositionEditorTests(unittest.TestCase):
                 with self.assertRaises(PositionValidationError):
                     PositionState.from_fen(fen)
 
+    def test_non_string_fen_is_rejected_without_coercion(self):
+        invalid = (
+            None,
+            123,
+            b"8/8/8/8/8/8/8/8 w - - 0 1",
+            ["8/8/8/8/8/8/8/8 w - - 0 1"],
+        )
+        for fen in invalid:
+            with self.subTest(fen=fen):
+                with self.assertRaisesRegex(PositionValidationError, "FEN must be text"):
+                    PositionState.from_fen(fen)  # type: ignore[arg-type]
+
+    def test_direct_counter_types_reject_bool_and_float(self):
+        pieces = (None,) * 64
+        invalid = (
+            {"halfmove": True, "fullmove": 1, "message": "halfmove"},
+            {"halfmove": 0.0, "fullmove": 1, "message": "halfmove"},
+            {"halfmove": 0, "fullmove": False, "message": "fullmove"},
+            {"halfmove": 0, "fullmove": 1.0, "message": "fullmove"},
+        )
+        for case in invalid:
+            with self.subTest(case=case):
+                with self.assertRaisesRegex(PositionValidationError, case["message"]):
+                    PositionState(
+                        pieces,
+                        halfmove=case["halfmove"],  # type: ignore[arg-type]
+                        fullmove=case["fullmove"],  # type: ignore[arg-type]
+                    )
+
     def test_en_passant_rank_must_match_side_to_move(self):
         PositionState.from_fen("8/8/8/3pP3/8/8/8/K6k w - d6 0 12")
         PositionState.from_fen("8/8/8/8/3Pp3/8/8/K6k b - d3 0 12")
