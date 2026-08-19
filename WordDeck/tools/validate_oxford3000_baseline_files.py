@@ -34,6 +34,20 @@ def git_blob_sha1(data: bytes) -> str:
     return hashlib.sha1(header + data).hexdigest()
 
 
+def canonical_checkout_bytes(data: bytes) -> bytes:
+    """Undo possible Windows checkout CRLF expansion before comparing Git blob IDs."""
+    return data.replace(b"\r\n", b"\n")
+
+
+def lexical_tsv_lines(text: str) -> list[str]:
+    """Mirror DictionaryLoader semantics: ignore blank and # metadata lines."""
+    return [
+        line
+        for line in text.splitlines()
+        if line.strip() and not line.startswith("#")
+    ]
+
+
 def validate(data_dir: Path) -> tuple[list[dict[str, str]], str]:
     found = sorted(path.name for path in data_dir.glob("oxford3000_uk.tsv.gz.b64part*"))
     expected = sorted(EXPECTED_BLOBS)
@@ -45,7 +59,7 @@ def validate(data_dir: Path) -> tuple[list[dict[str, str]], str]:
     encoded_parts: list[str] = []
     for name in expected:
         path = data_dir / name
-        raw = path.read_bytes()
+        raw = canonical_checkout_bytes(path.read_bytes())
         actual_blob = git_blob_sha1(raw)
         if actual_blob != EXPECTED_BLOBS[name]:
             raise ValueError(
@@ -60,7 +74,10 @@ def validate(data_dir: Path) -> tuple[list[dict[str, str]], str]:
     except Exception as exc:
         raise ValueError(f"Oxford 3000 baseline fragments no longer decode/decompress cleanly: {exc}") from exc
 
-    reader = csv.DictReader(io.StringIO(text), delimiter="\t")
+    data_lines = lexical_tsv_lines(text)
+    if not data_lines:
+        raise ValueError("Oxford 3000 baseline contains no lexical TSV rows")
+    reader = csv.DictReader(io.StringIO("\n".join(data_lines)), delimiter="\t")
     required_fields = {"entryId", "level", "source", "target"}
     if reader.fieldnames is None or not required_fields.issubset(reader.fieldnames):
         raise ValueError(f"Oxford 3000 baseline TSV schema changed: {reader.fieldnames}")
@@ -77,9 +94,10 @@ def validate(data_dir: Path) -> tuple[list[dict[str, str]], str]:
         target = (row.get("target") or "").strip()
         if not entry_id or not source or not target:
             raise ValueError(f"Oxford 3000 baseline row {number} has a blank required field")
-        if entry_id.casefold() in ids:
+        folded_id = entry_id.casefold()
+        if folded_id in ids:
             raise ValueError(f"Oxford 3000 baseline duplicate entry ID: {entry_id}")
-        ids.add(entry_id.casefold())
+        ids.add(folded_id)
         if level not in level_counts:
             raise ValueError(f"Oxford 3000 baseline row {number} has unsupported CEFR level {level!r}")
         level_counts[level] += 1
@@ -91,7 +109,7 @@ def validate(data_dir: Path) -> tuple[list[dict[str, str]], str]:
     return rows, digest
 
 
-def write_report(data_dir: Path, rows: list[dict[str, str]], digest: str, path: Path) -> None:
+def write_report(rows: list[dict[str, str]], digest: str, path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     lines = [
         ("metric", "value"),
@@ -111,9 +129,12 @@ def write_report(data_dir: Path, rows: list[dict[str, str]], digest: str, path: 
 
 def self_test() -> None:
     assert git_blob_sha1(b"hello\n") == "ce013625030ba8dba906f756967f9e9ca394464a"
+    assert canonical_checkout_bytes(b"a\r\nb\r\n") == b"a\nb\n"
+    fixture = "# id=baseline\n# name=Oxford\nentryId\tlevel\tsource\ttarget\nrow-1\tA1\tone\tодин\n"
+    assert lexical_tsv_lines(fixture)[0].startswith("entryId\t")
     assert sum(EXPECTED_LEVEL_COUNTS.values()) == EXPECTED_ROWS
     assert len(EXPECTED_BLOBS) == 8
-    print("Oxford 3000 baseline validator self-test passed: Git blob hashing and locked counts are deterministic.")
+    print("Oxford 3000 baseline validator self-test passed: Git blob hashing, Windows line endings, metadata filtering and locked counts are deterministic.")
 
 
 def main() -> int:
@@ -129,7 +150,7 @@ def main() -> int:
 
     rows, digest = validate(args.data_dir)
     if args.report is not None:
-        write_report(args.data_dir, rows, digest, args.report)
+        write_report(rows, digest, args.report)
     print(
         "Oxford 3000 baseline verified: "
         f"rows={len(rows)}, A1=900, A2=872, B1=809, B2=727, sha256={digest}."
