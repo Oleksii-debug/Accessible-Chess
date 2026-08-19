@@ -6,16 +6,15 @@ Branch: `worddeck-bootstrap` only. Never develop WordDeck on `main`.
 ## Emergency Oxford 5000 milestone
 
 ### Oxford lexical data
-- Current branch runtime target is now **4,261 dictionary rows = 3,308 unchanged Oxford 3000 baseline rows + 953 verified/activated Oxford 5000 additions**. Existing Oxford 3000 IDs/progress remain unchanged; durable dictionary ID remains `oxford-3000-en-uk` for lossless migration. This exact 953-addition checkpoint still requires the fresh Windows gate to pass before being called a verified executable checkpoint.
-- Newly activated source-backed slice: **29 B2/C1 lexical rows from `myth` noun through `offender` noun** in `QA/oxford5000_source_after_mutual_verified_b2c1_0001_0029.tsv`.
-- The 29-row slice preserves Oxford POS/CEFR distinctions, including separate `nearby` adjective/adverb and `neglect` noun/verb rows. `nursing` is noun B2 according to the current official Oxford interactive list. Stable lexical IDs were retained/recomputed from source+POS+CEFR only.
-- Translation QA is complete for the 29 rows. Where one English POS covers several established Oxford senses, the Ukrainian field preserves multiple principal equivalents rather than guessing a single narrow sense; examples include `nasty`, `net` adjective and `occupation` noun. Oxford Advanced Learner's Dictionary pages were used for these sense-sensitive checks.
-- The retired `pending_translation_qa` ledger for these same 29 identities has been removed, so the local ledger has no staged/runtime collision.
-- Previous activated slices remain `methodology` noun → `mutual` adjective (29 rows) and `namely` adverb → `offspring` noun (28 rows).
-- `ReviewedOxford5000Bootstrap.ExpectedCanonicalRows` is now **953** and activation remains fail-closed: only `status=verified`, nonblank Ukrainian translation, valid B2/C1 and exact stable ID are admitted.
+- Current branch runtime target is now **4,290 dictionary rows = 3,308 unchanged Oxford 3000 baseline rows + 982 verified/activated Oxford 5000 additions**. Existing Oxford 3000 IDs/progress remain unchanged; durable dictionary ID remains `oxford-3000-en-uk` for lossless migration. This exact 982-addition checkpoint requires the fresh Windows gate to pass before being called a verified executable checkpoint.
+- Newly activated source-backed slice: **29 C1 lexical rows from `operational` adjective through `passing` noun** in `QA/oxford5000_source_after_offspring_verified_c1_0001_0029.tsv`.
+- The slice follows the official Oxford combined list immediately after the previously verified C1 boundary at `offspring`. Only unambiguous C1 POS/CEFR rows were admitted. Sense-sensitive translations preserve principal Oxford meanings rather than forcing a single narrow equivalent; examples include `operational`, `outlet`, `outlook`, `overlook`, `pad`, `partial` and `passing`.
+- Source/POS/CEFR and sense coverage were checked against current Oxford Learner's Dictionaries pages on 2026-08-19. Every activated row has `status=verified`, a nonblank Ukrainian translation and a stable source+POS+CEFR-derived ID.
+- Previous activated slices remain `myth` noun → `offender` noun (29 B2/C1 rows), `methodology` noun → `mutual` adjective (29 rows), and `namely` adverb → `offspring` noun (28 C1 rows).
+- `ReviewedOxford5000Bootstrap.ExpectedCanonicalRows` is now **982** and activation remains fail-closed: only `status=verified`, nonblank Ukrainian translation, valid B2/C1 and exact stable ID are admitted.
 - `tools/validate_oxford5000_runtime_ledger.py` reconstructs the exact runtime additions from the C# bootstrap and embedded resources, checks stable IDs/POS/CEFR/nonblank translations/duplicates, separately counts staged fail-closed rows, and supports authoritative full reconciliation with `--official-html`.
 - `tools/fetch_oxford5000_official_html.py` remains build/CI-only and requires a complete membership-bearing Oxford page before reconciliation. Official-source network input is not shipped in runtime artifacts.
-- **Exact global remaining remains dependent on a successful authoritative reconciliation run.** Do not infer full Oxford 5000 completion from the 953 activated additions alone.
+- **Exact global remaining remains dependent on a successful authoritative reconciliation run.** Do not infer full Oxford 5000 completion from the 982 activated additions alone.
 
 ### Oxford 3000 baseline integrity
 - `SelfTest.TestEmbeddedOxford()` compares every one of the first 3,308 baseline rows before/after Oxford 5000 append and requires exact ID/level/source/target preservation.
@@ -33,8 +32,8 @@ Branch: `worddeck-bootstrap` only. Never develop WordDeck on `main`.
 - Oxford 3000 technical generation: **3,308/3,308**.
 - Targeted Oxford 3000 QA queue remains 36 numbered/sense-marker candidates: 19 deterministic `ready`, 17 heteronym/sense-sensitive `review`; unresolved review rows are not guessed.
 - A prior Oxford 5000 generation batch was built against an earlier smaller addition set; its completion/integrity is not promoted to current release accounting without independent validation.
-- Current runtime lexical target is **953 Oxford 5000 additions**. British audio for all 953 additions is not yet fully generated and independently validated, so full Oxford 5000 audio coverage is explicitly **not** claimed.
-- The newly activated 29-row `myth`→`offender` slice has stable lexical IDs and is now eligible for incremental Kokoro/Misaki British generation. Runtime remains offline and independent of Kokoro/Python/API/network.
+- Current runtime lexical target is **982 Oxford 5000 additions**. British audio for all 982 additions is not yet fully generated and independently validated, so full Oxford 5000 audio coverage is explicitly **not** claimed.
+- The newly activated 29-row `operational`→`passing` slice has stable lexical IDs and is eligible for incremental Kokoro/Misaki British generation. Runtime remains offline and independent of Kokoro/Python/API/network.
 
 ### Hotkey / F1 truth audit
 - Shared `ShortcutFormatter` remains the canonical display path for human-readable forms such as `Ctrl+Shift+B` and `Ctrl+Alt+F8` in F1/settings/capture UI.
@@ -44,15 +43,15 @@ Branch: `worddeck-bootstrap` only. Never develop WordDeck on `main`.
 
 ### Emergency blockers / open gates
 - **No user-input blocker.**
-- Branch runtime now contains **953 verified Oxford 5000 additions**; a fresh successful Windows restore/build/self-test/self-contained publish/published-EXE self-test is required before this exact checkpoint is promoted as a verified executable checkpoint.
-- Full official Oxford 5000 extraction is still incomplete; authoritative reconciliation must produce the exact remaining tail and later extraction must continue in large verified batches.
+- Branch runtime now contains **982 verified Oxford 5000 additions**; a fresh successful Windows restore/build/self-test/self-contained publish/published-EXE self-test is required before this exact checkpoint is promoted as a verified executable checkpoint.
+- Full official Oxford 5000 extraction is still incomplete; authoritative reconciliation must produce the exact remaining tail and extraction must continue in large verified batches.
 - British audio for all activated Oxford 5000 additions is not yet fully verified; do not claim full Oxford 5000 audio coverage.
 - Targeted Oxford 3000 pronunciation replacements remain incomplete for 17 sense-sensitive review rows; do not guess them.
 
 ### Exact next action
-1. Observe the single latest Windows gate for the 953-addition checkpoint and fix any fail-closed regression without touching `main`.
-2. Run authoritative reconciliation to materialize the exact official unaccounted B2/C1 tail.
-3. Extract/translate the next large contiguous authoritative batch while keeping ambiguous rows isolated instead of blocking later rows.
+1. Observe the single latest Windows gate for the 982-addition checkpoint and fix any fail-closed regression without touching `main`.
+2. Continue the authoritative C1 extraction from the next boundary after `passing`, while separately reconciling B2 additions so C1 progress does not wait on B2 membership ambiguity.
+3. Run authoritative reconciliation to materialize the exact official unaccounted B2/C1 tail.
 4. Queue incremental British audio only for verified stable additions, including the newly activated 29-row slice.
 
 ## Parallel lanes (non-blocking)
