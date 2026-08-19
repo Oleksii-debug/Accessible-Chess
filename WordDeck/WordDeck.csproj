@@ -28,6 +28,8 @@
     <EmbeddedResource Include="QA\oxford5000_source_after_constitution_c1_0001_0029.tsv" />
     <EmbeddedResource Include="QA\oxford5000_source_after_correlation_c1_0001_0029.tsv" />
     <EmbeddedResource Include="QA\oxford5000_source_after_dam_c1_0001_0029.tsv" />
+    <EmbeddedResource Include="QA\oxford5000_source_after_deployment_c1_0001_0029.tsv" />
+    <EmbeddedResource Include="QA\oxford5000_source_after_directory_c1_0001_0029.tsv" />
   </ItemGroup>
 
   <ItemGroup>
