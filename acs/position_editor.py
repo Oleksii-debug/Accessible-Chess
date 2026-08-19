@@ -29,13 +29,23 @@ class PositionState:
     fullmove: int = 1
 
     def __post_init__(self) -> None:
+        if type(self.pieces) is not tuple:
+            raise PositionValidationError("pieces must be an immutable tuple")
         if len(self.pieces) != 64:
             raise PositionValidationError("position must contain exactly 64 squares")
-        if any(piece is not None and piece not in VALID_PIECES for piece in self.pieces):
+        if any(
+            piece is not None
+            and (type(piece) is not str or piece not in VALID_PIECES)
+            for piece in self.pieces
+        ):
             raise PositionValidationError("position contains an invalid piece symbol")
-        if self.turn not in {"w", "b"}:
+        if type(self.turn) is not str or self.turn not in {"w", "b"}:
             raise PositionValidationError("turn must be 'w' or 'b'")
+        if type(self.castling) is not str:
+            raise PositionValidationError("castling rights must be text")
         _validate_castling(self.castling)
+        if type(self.en_passant) is not str:
+            raise PositionValidationError("en-passant square must be text")
         _validate_en_passant(self.en_passant, self.turn)
         if type(self.halfmove) is not int:
             raise PositionValidationError("halfmove clock must be an integer")
@@ -50,7 +60,9 @@ class PositionState:
         return self.pieces[_square_index(square)]
 
     def with_piece(self, square: str, piece: str | None) -> "PositionState":
-        if piece is not None and piece not in VALID_PIECES:
+        if piece is not None and (
+            type(piece) is not str or piece not in VALID_PIECES
+        ):
             raise PositionValidationError(f"invalid piece symbol: {piece!r}")
         values = list(self.pieces)
         values[_square_index(square)] = piece
@@ -66,7 +78,17 @@ class PositionState:
         if isinstance(rights, str):
             normalized = _normalize_castling(rights)
         else:
-            normalized = _normalize_castling("".join(rights))
+            try:
+                values = tuple(rights)
+            except TypeError as exc:
+                raise PositionValidationError(
+                    "castling rights must be text or an iterable of text symbols"
+                ) from exc
+            if any(type(value) is not str for value in values):
+                raise PositionValidationError(
+                    "castling rights iterable must contain text symbols"
+                )
+            normalized = _normalize_castling("".join(values))
         return replace(self, castling=normalized)
 
     def validate_playable(self) -> tuple[str, ...]:
@@ -180,7 +202,7 @@ def _square_index(square: str) -> int:
 
 
 def _normalize_castling(value: str) -> str:
-    text = str(value).strip()
+    text = value.strip()
     if text in {"", "-"}:
         return "-"
     _validate_castling(text)
