@@ -6,11 +6,15 @@ Branch: `worddeck-bootstrap` only. Never develop WordDeck on `main`.
 ## Emergency Oxford 5000 milestone
 
 ### Oxford lexical data
-- Current branch code now targets **4,204 dictionary rows = 3,308 unchanged Oxford 3000 baseline rows + 896 verified canonical B2/C1 Oxford 5000 additions**. Existing Oxford 3000 IDs/progress remain unchanged; durable dictionary ID remains `oxford-3000-en-uk` for lossless migration. The newly activated 29-row checkpoint requires the final Windows gate below before being called a verified executable checkpoint.
+- Current branch code targets **4,204 dictionary rows = 3,308 unchanged Oxford 3000 baseline rows + 896 verified canonical B2/C1 Oxford 5000 additions**. Existing Oxford 3000 IDs/progress remain unchanged; durable dictionary ID remains `oxford-3000-en-uk` for lossless migration. The exact 896-addition checkpoint still requires the final Windows gate below before being called a verified executable checkpoint.
 - Newly source-checked and activated C1 slice: **`methodology` noun → `mutual` adjective (29 rows)**. Oxford word-list POS/CEFR is preserved; problematic lexical cases were checked against current OALD definitions rather than flattened or guessed. In particular `midst` preserves middle/centre coverage, `militant` keeps noun/adjective identities separate, `mill` preserves mill/factory senses, `minute` adjective is explicitly the /maɪˈnjuːt/ heteronym with tiny/detailed senses, and `momentum` retains development/motion coverage.
-- Official extraction advanced another **29 C1 lexical rows after `mutual`**, staged in `oxford5000_source_after_mutual_c1_0001_0029.tsv`: `namely` adverb → `offspring` noun. Every staged row has a deterministic stable ID and current Oxford word-list POS/CEFR confirmation; all remain `pending_translation_qa` with blank translations and are fail-closed from runtime activation.
-- Oxford's official current material defines Oxford 5000 as Oxford 3000 plus advanced B2/C1 additions; no Oxford C2 subset is invented.
-- **Exact next data action:** definition-check/translate `namely`→`offspring` in source-backed batches, continue official extraction after `offspring` independently of ambiguous rows, then activate only rows satisfying the nonblank/source-checked threshold.
+- The earlier post-`mutual` staging was found to be structurally incomplete: it contained 29 rows, omitted a large B2/C1 candidate set, and incorrectly included `objective` adjective. Oxford's own Oxford 3000 material lists `objective`, so that row has been removed from Oxford 5000-addition staging rather than merely relabelled.
+- The post-`mutual` through `offspring` QA ledger now accounts for **57 B2/C1 lexical candidates**: **28 `pending_translation_qa` rows** already admitted to the source-staged queue plus **29 `ambiguous_source` rows** discovered from a non-authoritative candidate inventory and independently confirmed against the current official Oxford union for POS/CEFR. The 29 source-ambiguous rows remain fail-closed because exact official Oxford5000-exclusive membership still requires raw official reconciliation. None of these 57 rows is runtime-active.
+- A new deterministic validator, `tools/validate_oxford5000_runtime_ledger.py`, reconstructs the exact runtime Oxford additions from the C# bootstrap and embedded resources, checks stable IDs/POS/CEFR/nonblank translations/duplicates, separately counts fail-closed staged rows, and refuses to call Stage 1 complete while the global official inventory is unresolved.
+- The same validator now has an optional **full official reconciliation mode**: when supplied a saved official Oxford HTML snapshot it uses the existing official extractor, rejects local source/POS/CEFR rows absent from the official Oxford5000-exclusive inventory, and emits the exact unaccounted tail instead of an estimate.
+- Windows CI now emits a current runtime Oxford ledger and corpus-accounting artifact instead of the obsolete `through-blow` canonical artifact.
+- Oxford's official current material defines Oxford 5000 as Oxford 3000 plus an additional 2,000 B2/C1 words; no Oxford C2 subset is invented.
+- **Exact next data action:** obtain/use a saved official Oxford word-list snapshot (or equivalent official downloadable list) that preserves Oxford3000-vs-Oxford5000 membership, run full reconciliation to turn global `remaining` from UNKNOWN into an exact count, resolve the 29 source-ambiguous rows, continue translation/sense QA for the 28 admitted rows, and keep extracting the rest of the corpus independently of individual ambiguous entries.
 
 ### Recall Study Scope / Workspace
 - Durable scope IDs: `all`, `a1`, `a2`, `b1`, `b2`, `c1`; labels: `All Oxford 5000`, `A1`, `A2`, `B1`, `B2`, `C1`.
@@ -35,9 +39,9 @@ Branch: `worddeck-bootstrap` only. Never develop WordDeck on `main`.
 
 ### Emergency blockers
 - **No user-input blocker.**
-- Full official Oxford 5000 row-level extraction remains incomplete.
-- Branch code now contains **896 verified Oxford 5000 additions**; a fresh final Windows build/self-test gate is required before this exact code checkpoint is promoted as a verified executable checkpoint.
-- The next **29 C1 rows (`namely`→`offspring`) are source-staged only** and excluded from runtime until translation/definition QA is complete.
+- Full official Oxford 5000 row-level extraction/reconciliation remains incomplete, so the global unaccounted tail is still **UNKNOWN**, not zero.
+- Branch code contains **896 verified Oxford 5000 additions**; a fresh final Windows build/self-test gate is required before this exact code checkpoint is promoted as a verified executable checkpoint.
+- Post-`mutual` staging now contains **57 B2/C1 lexical candidates**: 28 translation-pending and 29 source-ambiguous; all are excluded from runtime. This explicitly replaces the incorrect claim that only 29 C1 rows remained in that interval.
 - British audio for all activated Oxford 5000 additions is not yet fully verified; do not claim full Oxford 5000 audio coverage.
 - Targeted Oxford 3000 pronunciation replacements remain incomplete for 17 sense-sensitive review rows; do not guess them.
 
