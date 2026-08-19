@@ -1,0 +1,39 @@
+{
+  "version": 1,
+  "pointer_square": "f3",
+  "highlights": [
+    {
+      "square": "e4",
+      "purpose": "legal_move"
+    }
+  ],
+  "arrows": [
+    {
+      "start_square": "e2",
+      "end_square": "e4",
+      "purpose": "candidate_move"
+    }
+  ],
+  "coordinate_labels_visible": true,
+  "student_pointer_history": [
+    {
+      "version": 1,
+      "family": "student_hover",
+      "square": "f3",
+      "piece": "N",
+      "student_id": "student-1",
+      "sequence": 1
+    },
+    {
+      "version": 1,
+      "family": "student_selection",
+      "square": "e5",
+      "piece": "p",
+      "student_id": "student-1",
+      "sequence": 2
+    }
+  ],
+  "active_student_id": "student-1",
+  "engine_visibility": "visible_to_teacher",
+  "board_permission": "select_only"
+}

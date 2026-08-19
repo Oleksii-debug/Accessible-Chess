@@ -33,6 +33,9 @@ second source of chess position truth.
 - Student hover and selection are always observation-only, even when the board
   policy allows moves. A student can create a chess move only by sending an
   explicit `MoveCommand` while `BoardPermissionState.MOVE_ALLOWED` is active.
+- JSON Schema 2020-12 documents in `schemas/` and checked-in golden fixtures
+  make the v1 boundary testable by non-Python adapters without duplicating
+  chess rules or relying on prose-only contracts.
 
 ## Consequences
 

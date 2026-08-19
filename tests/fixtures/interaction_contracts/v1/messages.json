@@ -1,0 +1,63 @@
+{
+  "schema_version": 1,
+  "messages": [
+    {
+      "version": 1,
+      "family": "move",
+      "raw_text": "e4"
+    },
+    {
+      "version": 1,
+      "family": "teacher_pointer",
+      "square": "e4"
+    },
+    {
+      "version": 1,
+      "family": "position_editor",
+      "operation": "place_piece",
+      "square": "e4",
+      "piece": "Q",
+      "value": null
+    },
+    {
+      "version": 1,
+      "family": "annotation",
+      "operation": "set_highlight",
+      "start_square": "e4",
+      "end_square": null,
+      "tag": "legal_move"
+    },
+    {
+      "version": 1,
+      "family": "annotation",
+      "operation": "add_arrow",
+      "start_square": "e2",
+      "end_square": "e4",
+      "tag": "candidate_move"
+    },
+    {
+      "version": 1,
+      "family": "annotation",
+      "operation": "clear",
+      "start_square": null,
+      "end_square": null,
+      "tag": null
+    },
+    {
+      "version": 1,
+      "family": "student_hover",
+      "square": "f3",
+      "piece": "N",
+      "student_id": "student-1",
+      "sequence": 1
+    },
+    {
+      "version": 1,
+      "family": "student_selection",
+      "square": "e5",
+      "piece": "p",
+      "student_id": "student-1",
+      "sequence": 2
+    }
+  ]
+}
