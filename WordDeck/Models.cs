@@ -88,3 +88,26 @@ internal static class ActionIds
     public const string SpellingMoveChooser = "spelling_move_chooser";
     public const string SpellingCreateDeck = "spelling_create_deck";
     public const string SpellingRenameDeck = "spelling_rename_deck";
+    public const string SpellingDeleteDeck = "spelling_delete_deck";
+    public const string SpellingMoveDeckUp = "spelling_move_deck_up";
+    public const string SpellingMoveDeckDown = "spelling_move_deck_down";
+
+    public const string OpenSentenceCoach = "sentence_open";
+    public const string SentenceShowAnswer = "sentence_show_answer";
+    public const string SentenceRepeatPrompt = "sentence_repeat_prompt";
+    public const string SentenceImportPack = "sentence_import_pack";
+
+    public static string SwitchDeck(string deckId) => $"switch_deck_{deckId}";
+    public static string MoveToDeck(string deckId) => $"move_to_deck_{deckId}";
+    public static string SwitchStudyScope(string scopeId) => $"recall_scope_{scopeId}";
+    public static string SpellingSwitchDeck(string deckId) => $"spelling_switch_deck_{deckId}";
+    public static string SpellingMoveToDeck(string deckId) => $"spelling_move_to_deck_{deckId}";
+
+    public static string SwitchDeck(int deck) => SwitchDeck(DeckIds.Core(deck));
+    public static string MoveToDeck(int deck) => MoveToDeck(DeckIds.Core(deck));
+
+    public static string LegacySwitchDeck(int deck) => $"switch_deck_{deck}";
+    public static string LegacyMoveToDeck(int deck) => $"move_to_deck_{deck}";
+}
+
+internal sealed record ShortcutDefinition(string Id, string Description, Keys DefaultKeys);
