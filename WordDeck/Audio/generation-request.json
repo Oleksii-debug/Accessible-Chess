@@ -1,7 +1,7 @@
 {
-  "source": "pronunciation-overrides-ready",
+  "source": "oxford5000",
   "start": 0,
-  "limit": 41,
+  "limit": 606,
   "accent": "en-GB",
   "femaleVoice": "bf_emma",
   "maleVoice": "bm_george",
