@@ -78,6 +78,8 @@ jobs:
           python .\WordDeck\tools\validate_oxford5000_runtime_ledger.py --official-html .\artifacts\oxford3000-5000-official.html --ledger .\artifacts\oxford5000-canonical-runtime.tsv --report .\artifacts\oxford5000-runtime-accounting.tsv --unaccounted .\artifacts\oxford5000-unaccounted.tsv
           python .\WordDeck\tools\validate_oxford5000_automation_handoff.py --self-test
           python .\WordDeck\tools\validate_oxford5000_handoff_provenance.py --self-test
+          python .\WordDeck\tools\validate_oxford5000_integration_transition.py --self-test
+          python .\WordDeck\tools\validate_oxford5000_transition_evidence.py --self-test
           python .\WordDeck\tools\validate_oxford5000_additions_qa.py --self-test
           python .\WordDeck\tools\validate_oxford5000_additions_qa.py
           python .\WordDeck\tools\validate_oxford5000_second_pass_slice.py --self-test
