@@ -160,6 +160,10 @@ class BookBlock:
             value = getattr(self, name)
             if value is not None and value != []:
                 data[name] = value
+        # Dataclass instances are intentionally mutable for authoring. Rebuild
+        # the exact current payload before export so post-construction mutation
+        # cannot bypass the semantic validators and leak corrupt wire data.
+        block_from_dict(dict(data))
         return data
 
 
@@ -383,6 +387,7 @@ class BookDocument:
                 "Book block type is unsupported",
                 code=BookDocumentErrorCode.UNSUPPORTED_BLOCK_KIND,
             )
+        block.as_dict()
         self.blocks.append(block)
         return block
 
@@ -393,6 +398,8 @@ class BookDocument:
                 "Book block type is unsupported",
                 code=BookDocumentErrorCode.UNSUPPORTED_BLOCK_KIND,
             )
+        for block in additions:
+            block.as_dict()
         self.blocks.extend(additions)
 
     def iter_kind(self, kind: type[SemanticBlock]) -> Iterator[SemanticBlock]:
@@ -426,7 +433,31 @@ class BookDocument:
                 warnings.append(f"diagram at block {index} has no alt_text")
         return warnings
 
+    def _validate_export_state(self) -> None:
+        _required_text(self.title, "Book title")
+        _optional_text(self.language, "Book language")
+        _optional_text(self.author, "Book author")
+        _optional_text(self.source_name, "Book source_name")
+        if type(self.blocks) is not list or not all(
+            isinstance(block, _SEMANTIC_BLOCK_TYPES) for block in self.blocks
+        ):
+            raise BookDocumentError(
+                "Book blocks must remain a list of supported semantic blocks",
+                code=BookDocumentErrorCode.INVALID_FIELD,
+            )
+        if type(self.warnings) is not list or not all(
+            isinstance(warning, str) and warning.strip()
+            for warning in self.warnings
+        ):
+            raise BookDocumentError(
+                "Book warnings must remain a list of non-empty strings",
+                code=BookDocumentErrorCode.INVALID_FIELD,
+            )
+        for block in self.blocks:
+            block.as_dict()
+
     def as_dict(self) -> dict[str, Any]:
+        self._validate_export_state()
         return {
             "schema_version": BOOK_DOCUMENT_SCHEMA_VERSION,
             "title": self.title,
