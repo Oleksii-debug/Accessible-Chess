@@ -10,7 +10,19 @@ keyboard shortcuts and has no WebView/DOM dependency.
 from dataclasses import dataclass
 from enum import Enum
 
-from .bookdocument import BookDocument, Diagram, Exercise, Game, Heading, Note, Paragraph, Position, VariationTree
+from .bookdocument import (
+    BookDocument,
+    BookDocumentError,
+    BookDocumentErrorCode,
+    Diagram,
+    Exercise,
+    Game,
+    Heading,
+    Note,
+    Paragraph,
+    Position,
+    VariationTree,
+)
 
 
 class BookEntryKind(str, Enum):
@@ -32,6 +44,24 @@ class BookTarget:
     block_id: str | None
     source_anchor: str | None
 
+    def __post_init__(self) -> None:
+        if not isinstance(self.key, str) or not self.key.strip():
+            raise ValueError("BookTarget key must be non-empty text")
+        if (
+            not isinstance(self.index, int)
+            or isinstance(self.index, bool)
+            or self.index < 0
+        ):
+            raise ValueError("BookTarget index must be a non-negative integer")
+        for field_name in ("block_id", "source_anchor"):
+            value = getattr(self, field_name)
+            if value is not None and (
+                not isinstance(value, str) or not value.strip()
+            ):
+                raise ValueError(
+                    f"BookTarget {field_name} must be non-empty text or None"
+                )
+
 
 @dataclass(frozen=True, slots=True)
 class BookIndexEntry:
@@ -51,7 +81,13 @@ class BookIndex:
     """Immutable semantic index built from one BookDocument snapshot."""
 
     def __init__(self, document: BookDocument):
-        self.document = document
+        if not isinstance(document, BookDocument):
+            raise BookDocumentError(
+                "BookIndex requires a BookDocument",
+                code=BookDocumentErrorCode.INVALID_FIELD,
+            )
+        self._document = BookDocument.from_dict(document.as_dict())
+        self._blocks = tuple(self._document.blocks)
         self._entries = tuple(self._build_entries())
         by_key: dict[str, list[BookIndexEntry]] = {}
         for entry in self._entries:
@@ -59,11 +95,17 @@ class BookIndex:
         self._by_key = {key: tuple(entries) for key, entries in by_key.items()}
 
     @property
+    def document(self) -> BookDocument:
+        """Return a detached copy; callers cannot mutate the indexed snapshot."""
+
+        return BookDocument.from_dict(self._document.as_dict())
+
+    @property
     def entries(self) -> tuple[BookIndexEntry, ...]:
         return self._entries
 
     def _target(self, index: int) -> BookTarget:
-        block = self.document.blocks[index]
+        block = self._blocks[index]
         if block.block_id:
             key = f"block:{block.block_id}"
         elif block.source_anchor:
@@ -108,7 +150,7 @@ class BookIndex:
 
     def _build_entries(self):
         levels: list[str | None] = [None] * 6
-        for index, block in enumerate(self.document.blocks):
+        for index, block in enumerate(self._blocks):
             if isinstance(block, Heading):
                 level = block.level - 1
                 levels[level] = block.text
@@ -127,17 +169,23 @@ class BookIndex:
             )
 
     def contents(self, *, max_heading_level: int = 6) -> tuple[BookIndexEntry, ...]:
-        if not 1 <= max_heading_level <= 6:
+        if (
+            not isinstance(max_heading_level, int)
+            or isinstance(max_heading_level, bool)
+            or not 1 <= max_heading_level <= 6
+        ):
             raise ValueError("max_heading_level must be between 1 and 6")
         result = []
         for entry in self._entries:
             if entry.kind is BookEntryKind.HEADING:
-                block = self.document.blocks[entry.target.index]
+                block = self._blocks[entry.target.index]
                 if isinstance(block, Heading) and block.level <= max_heading_level:
                     result.append(entry)
         return tuple(result)
 
     def of_kind(self, kind: BookEntryKind) -> tuple[BookIndexEntry, ...]:
+        if not isinstance(kind, BookEntryKind):
+            raise ValueError("kind must be a BookEntryKind")
         return tuple(entry for entry in self._entries if entry.kind is kind)
 
     def resolve(self, target: BookTarget | str) -> BookIndexEntry:
@@ -147,7 +195,14 @@ class BookIndex:
         source-preserving conversion. Index-only targets intentionally describe a
         snapshot and therefore resolve by their exact generated key.
         """
-        key = target.key if isinstance(target, BookTarget) else target
+        if isinstance(target, BookTarget):
+            key = target.key
+        elif isinstance(target, str):
+            key = target
+        else:
+            raise ValueError("book target must be BookTarget or text")
+        if not key.strip():
+            raise ValueError("book target key must not be empty")
         matches = self._by_key.get(key, ())
         if not matches:
             raise LookupError(f"Unknown book target: {key}")
@@ -157,6 +212,13 @@ class BookIndex:
 
     def find(self, text: str, *, kinds: set[BookEntryKind] | None = None) -> tuple[BookIndexEntry, ...]:
         """Case-insensitive semantic label search preserving linear reading order."""
+        if not isinstance(text, str):
+            raise ValueError("Search text must be text")
+        if kinds is not None and (
+            not isinstance(kinds, (set, frozenset))
+            or not all(isinstance(kind, BookEntryKind) for kind in kinds)
+        ):
+            raise ValueError("kinds must contain only BookEntryKind values")
         needle = text.strip().casefold()
         if not needle:
             raise ValueError("Search text must not be empty")

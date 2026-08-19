@@ -9,7 +9,17 @@ without the data layer owning shortcuts.
 
 from dataclasses import dataclass
 
-from .bookdocument import BookDocument, Diagram, Exercise, Game, Heading, Position, VariationTree
+from .bookdocument import (
+    BookDocument,
+    BookDocumentError,
+    BookDocumentErrorCode,
+    Diagram,
+    Exercise,
+    Game,
+    Heading,
+    Position,
+    VariationTree,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -27,21 +37,33 @@ class BookReader:
     """Stable semantic cursor with return points and structure navigation."""
 
     def __init__(self, document: BookDocument):
-        self.document = document
-        self._index = 0 if document.blocks else -1
+        if not isinstance(document, BookDocument):
+            raise BookDocumentError(
+                "BookReader requires a BookDocument",
+                code=BookDocumentErrorCode.INVALID_FIELD,
+            )
+        self._document = BookDocument.from_dict(document.as_dict())
+        self._blocks = tuple(self._document.blocks)
+        self._index = 0 if self._blocks else -1
         self._return_points: dict[str, int] = {}
+
+    @property
+    def document(self) -> BookDocument:
+        """Return a detached copy of the reader's semantic snapshot."""
+
+        return BookDocument.from_dict(self._document.as_dict())
 
     @property
     def index(self) -> int:
         return self._index
 
     def _require_content(self) -> None:
-        if not self.document.blocks:
+        if not self._blocks:
             raise LookupError("BookDocument has no readable blocks")
 
     def _heading_path(self, index: int) -> tuple[str, ...]:
         levels: list[str | None] = [None] * 6
-        for block in self.document.blocks[: index + 1]:
+        for block in self._blocks[: index + 1]:
             if isinstance(block, Heading):
                 level = block.level - 1
                 levels[level] = block.text
@@ -51,7 +73,7 @@ class BookReader:
 
     def location(self) -> ReadingLocation:
         self._require_content()
-        block = self.document.blocks[self._index]
+        block = self._blocks[self._index]
         fen = None
         if isinstance(block, (Position, Diagram, Exercise)):
             fen = block.fen
@@ -74,14 +96,16 @@ class BookReader:
 
     def go_to(self, index: int) -> ReadingLocation:
         self._require_content()
-        if not 0 <= index < len(self.document.blocks):
+        if not isinstance(index, int) or isinstance(index, bool):
+            raise TypeError("Book reading index must be an integer")
+        if not 0 <= index < len(self._blocks):
             raise IndexError("Book reading index is outside the document")
         self._index = index
         return self.location()
 
     def next_block(self) -> ReadingLocation:
         self._require_content()
-        if self._index >= len(self.document.blocks) - 1:
+        if self._index >= len(self._blocks) - 1:
             raise LookupError("End of book")
         return self.go_to(self._index + 1)
 
@@ -94,8 +118,8 @@ class BookReader:
     def _next_matching(self, predicate, *, direction: int) -> ReadingLocation:
         self._require_content()
         cursor = self._index + direction
-        while 0 <= cursor < len(self.document.blocks):
-            if predicate(self.document.blocks[cursor]):
+        while 0 <= cursor < len(self._blocks):
+            if predicate(self._blocks[cursor]):
                 return self.go_to(cursor)
             cursor += direction
         raise LookupError("No matching semantic block in that direction")
@@ -116,12 +140,15 @@ class BookReader:
 
     def save_return_point(self, name: str = "default") -> ReadingLocation:
         self._require_content()
-        if not name.strip():
+        if not isinstance(name, str) or not name.strip():
             raise ValueError("Return point name must not be empty")
-        self._return_points[name] = self._index
+        self._return_points[name.strip()] = self._index
         return self.location()
 
     def restore_return_point(self, name: str = "default") -> ReadingLocation:
-        if name not in self._return_points:
+        if not isinstance(name, str) or not name.strip():
+            raise ValueError("Return point name must not be empty")
+        normalized = name.strip()
+        if normalized not in self._return_points:
             raise LookupError(f"Unknown return point: {name}")
-        return self.go_to(self._return_points[name])
+        return self.go_to(self._return_points[normalized])

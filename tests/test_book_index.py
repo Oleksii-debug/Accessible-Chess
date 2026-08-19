@@ -1,7 +1,22 @@
 import unittest
 
-from acs.book_index import AmbiguousBookTargetError, BookEntryKind, BookIndex
-from acs.bookdocument import BookDocument, Exercise, Game, Heading, Note, Paragraph, Position, VariationTree
+from acs.book_index import (
+    AmbiguousBookTargetError,
+    BookEntryKind,
+    BookIndex,
+    BookTarget,
+)
+from acs.bookdocument import (
+    BookDocument,
+    BookDocumentError,
+    Exercise,
+    Game,
+    Heading,
+    Note,
+    Paragraph,
+    Position,
+    VariationTree,
+)
 
 
 START_FEN = "8/8/8/8/8/8/8/K6k w - - 0 1"
@@ -69,10 +84,60 @@ class BookIndexTests(unittest.TestCase):
 
     def test_invalid_contents_depth_is_rejected(self):
         index = BookIndex(self.make_document())
+        for invalid in (0, 7, True, False, "2", 2.0):
+            with self.subTest(value=invalid):
+                with self.assertRaises(ValueError):
+                    index.contents(max_heading_level=invalid)
+
+    def test_index_owns_a_detached_snapshot(self):
+        document = self.make_document()
+        index = BookIndex(document)
+
+        document.blocks.clear()
+        self.assertEqual(len(index.entries), 8)
+        self.assertEqual(
+            [entry.label for entry in index.contents()],
+            ["Chapter One", "Calculation"],
+        )
+
+        exposed = index.document
+        exposed.blocks.clear()
+        self.assertEqual(len(index.entries), 8)
+        self.assertEqual(len(index.document.blocks), 8)
+
+    def test_filter_and_target_inputs_fail_closed_instead_of_returning_false_empty(self):
+        index = BookIndex(self.make_document())
+
+        for invalid_kind in ("game", True, None):
+            with self.subTest(kind=invalid_kind):
+                with self.assertRaises(ValueError):
+                    index.of_kind(invalid_kind)
+        for invalid_kinds in ({"game"}, [BookEntryKind.GAME], {True}):
+            with self.subTest(kinds=invalid_kinds):
+                with self.assertRaises(ValueError):
+                    index.find("model", kinds=invalid_kinds)
+        for invalid_text in (None, True, 7):
+            with self.subTest(text=invalid_text):
+                with self.assertRaises(ValueError):
+                    index.find(invalid_text)
+        for invalid_target in (None, True, 7, "", "   "):
+            with self.subTest(target=invalid_target):
+                with self.assertRaises(ValueError):
+                    index.resolve(invalid_target)
         with self.assertRaises(ValueError):
-            index.contents(max_heading_level=0)
-        with self.assertRaises(ValueError):
-            index.contents(max_heading_level=7)
+            index.resolve(BookTarget(key="", index=0, block_id=None, source_anchor=None))
+        for kwargs in (
+            {"key": "block:h1", "index": True, "block_id": "h1", "source_anchor": None},
+            {"key": "block:h1", "index": "0", "block_id": "h1", "source_anchor": None},
+            {"key": "block:h1", "index": 0, "block_id": True, "source_anchor": None},
+        ):
+            with self.subTest(target=kwargs):
+                with self.assertRaises(ValueError):
+                    BookTarget(**kwargs)
+
+    def test_constructor_requires_semantic_document(self):
+        with self.assertRaises(BookDocumentError):
+            BookIndex(object())
 
 
 if __name__ == "__main__":
