@@ -35,6 +35,7 @@
     <EmbeddedResource Include="QA\oxford5000_source_after_equality_c1_0001_0029.tsv" />
     <EmbeddedResource Include="QA\oxford5000_source_after_explosive_adj_c1_0001_0029.tsv" />
     <EmbeddedResource Include="QA\oxford5000_source_after_flesh_c1_0001_0029.tsv" />
+    <EmbeddedResource Include="QA\oxford5000_source_after_governance_c1_0001_0029.tsv" />
   </ItemGroup>
 
   <ItemGroup>
