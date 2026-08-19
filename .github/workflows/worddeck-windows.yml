@@ -30,13 +30,15 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
+            const targetUrl = `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`;
             await github.rest.repos.createCommitStatus({
               owner: context.repo.owner,
               repo: context.repo.repo,
               sha: context.sha,
               state: 'pending',
               context: 'WordDeck Windows authoritative gate',
-              description: 'Authoritative Oxford and Windows checkpoint is running.'
+              description: 'Authoritative Oxford and Windows checkpoint is running.',
+              target_url: targetUrl
             });
 
       - name: Setup .NET 8
@@ -168,6 +170,7 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
             const succeeded = '${{ job.status }}' === 'success';
+            const targetUrl = `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`;
             await github.rest.repos.createCommitStatus({
               owner: context.repo.owner,
               repo: context.repo.repo,
@@ -176,5 +179,6 @@ jobs:
               context: 'WordDeck Windows authoritative gate',
               description: succeeded
                 ? 'Authoritative Oxford and published EXE gates passed.'
-                : 'WordDeck authoritative Oxford/Windows gate failed.'
+                : 'WordDeck authoritative Oxford/Windows gate failed.',
+              target_url: targetUrl
             });
