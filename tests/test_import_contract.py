@@ -6,6 +6,7 @@ from acs.import_contract import (
     ImportQuality,
     ImportedRecord,
     ImportReport,
+    SourceFingerprint,
     UnsupportedChessBaseImporter,
     fingerprint,
     summarize_reports,
@@ -56,6 +57,76 @@ class ImportContractTests(unittest.TestCase):
             a = ImportReport(fingerprint(source), 'a', [ImportedRecord('1', ImportQuality.FULL)])
             b = ImportReport(fingerprint(source), 'b', [ImportedRecord('2', ImportQuality.PARTIAL), ImportedRecord('3', ImportQuality.WARNING)])
             self.assertEqual(summarize_reports([a, b]), {'full': 1, 'partial': 1, 'damaged': 0, 'warning': 1})
+
+    def test_fingerprint_dto_rejects_scalar_and_digest_coercion(self):
+        valid = ("/tmp/source.foo", 1, "0" * 64, ".foo")
+        SourceFingerprint(*valid)
+        invalid = (
+            (True, 1, "0" * 64, ".foo"),
+            ("/tmp/source.foo", True, "0" * 64, ".foo"),
+            ("/tmp/source.foo", -1, "0" * 64, ".foo"),
+            ("/tmp/source.foo", 1, b"0" * 64, ".foo"),
+            ("/tmp/source.foo", 1, "A" * 64, ".foo"),
+            ("/tmp/source.foo", 1, "0" * 63, ".foo"),
+            ("/tmp/source.foo", 1, "0" * 64, ".FOO"),
+            ("/tmp/source.foo", 1, "0" * 64, "foo/bar"),
+        )
+        for values in invalid:
+            with self.subTest(fingerprint=values):
+                with self.assertRaises((TypeError, ValueError)):
+                    SourceFingerprint(*values)
+
+    def test_record_and_report_shapes_are_typed_and_detached(self):
+        record = ImportedRecord(
+            "record-1",
+            ImportQuality.WARNING,
+            game_id=0,
+            warnings=("metadata uncertain",),
+        )
+        for values in (
+            (True, ImportQuality.FULL, None, "", ()),
+            ("1", "full", None, "", ()),
+            ("1", ImportQuality.FULL, True, "", ()),
+            ("1", ImportQuality.FULL, -1, "", ()),
+            ("1", ImportQuality.FULL, None, True, ()),
+            ("1", ImportQuality.FULL, None, "", ["warning"]),
+            ("1", ImportQuality.FULL, None, "", ("",)),
+        ):
+            with self.subTest(record=values):
+                with self.assertRaises((TypeError, ValueError)):
+                    ImportedRecord(*values)
+
+        source = SourceFingerprint("/tmp/source.foo", 1, "0" * 64, ".foo")
+        records = [record]
+        warnings = ["source warning"]
+        report = ImportReport(source, "Fake", records, warnings)
+        records.clear()
+        warnings.clear()
+        self.assertEqual(report.records, [record])
+        self.assertEqual(report.global_warnings, ["source warning"])
+
+        report.records.append(object())
+        with self.assertRaisesRegex(TypeError, "ImportedRecord"):
+            report.validate()
+        with self.assertRaisesRegex(TypeError, "ImportedRecord"):
+            report.counts
+        with self.assertRaisesRegex(TypeError, "ImportedRecord"):
+            report.add(record)
+
+    def test_fingerprint_chunk_and_summary_inputs_fail_before_false_evidence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "source.foo"
+            path.write_bytes(b"not empty")
+            for chunk_size in (True, 0, -1, 1.5, "1"):
+                with self.subTest(chunk_size=chunk_size):
+                    with self.assertRaises((TypeError, ValueError)):
+                        fingerprint(path, chunk_size=chunk_size)
+            with self.assertRaisesRegex(TypeError, "path"):
+                fingerprint(True)
+
+            report = ImportReport(fingerprint(path), "Fake")
+            with self.assertRaisesRegex(TypeError, "only ImportReport"):
+                summarize_reports((report, object()))
 
 
 if __name__ == '__main__':
