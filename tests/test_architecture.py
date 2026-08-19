@@ -5,6 +5,7 @@ import unittest
 
 CORE_MODULES = (
     'acs/squares.py',
+    'acs/interaction_contracts.py',
     'acs/history.py',
     'acs/keybindings.py',
     'acs/notation.py',
@@ -57,6 +58,14 @@ class ArchitectureBoundaryTests(unittest.TestCase):
             self.assertNotIn('subprocess', imports)
             self.assertNotIn('pathlib', imports)
             self.assertNotIn('os', imports)
+
+    def test_interaction_contracts_do_not_import_chess_state_or_platform_adapters(self):
+        imports = self.imports_for('acs/interaction_contracts.py')
+        forbidden = {
+            'acs.chesscore', 'acs.board_service', 'acs.position_editor', 'acs.webapp',
+            'sqlite3', 'subprocess', 'pywebview', 'tkinter',
+        }
+        self.assertEqual(sorted(forbidden.intersection(imports)), [])
 
 
 if __name__ == '__main__':
