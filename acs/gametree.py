@@ -594,11 +594,9 @@ def _validate_game_for_serialization(game: object) -> None:
                 "tag values must be single-line text",
                 code=GameTreeErrorCode.INVALID_TAG,
             )
-    if "Result" in game.tags and game.tags["Result"] not in RESULTS:
-        raise GameTreeSerializationError(
-            "Result tag must be a canonical PGN result",
-            code=GameTreeErrorCode.INVALID_TAG,
-        )
+    # Header tags are source evidence. In particular an invalid historical
+    # Result header is preserved verbatim and warned about by parse_games;
+    # only the effective domain result below must be canonical.
     if type(game.source_index) is not int or game.source_index < 0:
         raise GameTreeSerializationError(
             "source_index must be a non-negative exact integer",
