@@ -47,6 +47,11 @@ jobs:
           python .\WordDeck\tools\fetch_oxford5000_official_html.py --self-test
           python .\WordDeck\tools\fetch_oxford5000_official_html.py --output .\artifacts\oxford3000-5000-official.html
 
+      - name: Validate official Oxford 5000 inventory completeness
+        run: |
+          python .\WordDeck\tools\validate_oxford5000_official_inventory.py --self-test
+          python .\WordDeck\tools\validate_oxford5000_official_inventory.py --official-html .\artifacts\oxford3000-5000-official.html --report .\artifacts\oxford5000-official-inventory.tsv
+
       - name: Validate Oxford 5000 canonical extraction and corpus reconciliation
         run: |
           python .\WordDeck\tools\extract_oxford5000_official.py --self-test
@@ -95,6 +100,13 @@ jobs:
         with:
           name: WordDeck-oxford3000-baseline-integrity
           path: .\artifacts\oxford3000-baseline-integrity.tsv
+          if-no-files-found: error
+
+      - name: Upload official Oxford 5000 inventory evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: WordDeck-oxford5000-official-inventory
+          path: .\artifacts\oxford5000-official-inventory.tsv
           if-no-files-found: error
 
       - name: Upload canonical Oxford runtime ledger
