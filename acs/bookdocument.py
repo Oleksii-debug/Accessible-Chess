@@ -8,13 +8,147 @@ exporters consume the blocks without needing to understand the source format.
 """
 
 from dataclasses import dataclass, field
+from enum import Enum
+import re
 from typing import Any, Iterable, Iterator
+
+
+BOOK_DOCUMENT_SCHEMA_VERSION = 1
+
+
+class BookDocumentErrorCode(str, Enum):
+    INVALID_FIELD = "invalid_field"
+    UNKNOWN_FIELD = "unknown_field"
+    UNSUPPORTED_SCHEMA = "unsupported_schema"
+    UNSUPPORTED_BLOCK_KIND = "unsupported_block_kind"
+
+
+class BookDocumentError(ValueError):
+    """Stable failure for the presentation-neutral semantic book contract."""
+
+    def __init__(self, message: str, *, code: BookDocumentErrorCode) -> None:
+        super().__init__(message)
+        self.code = BookDocumentErrorCode(code)
+
+
+def _required_text(value: object, field_name: str) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise BookDocumentError(
+            f"{field_name} must be non-empty text",
+            code=BookDocumentErrorCode.INVALID_FIELD,
+        )
+    return value
+
+
+def _optional_text(value: object, field_name: str) -> str | None:
+    if value is None:
+        return None
+    return _required_text(value, field_name)
+
+
+def _optional_identifier(value: object, field_name: str) -> str | None:
+    text = _optional_text(value, field_name)
+    return None if text is None else text.strip()
+
+
+_FEN_PIECES = frozenset("PNBRQKpnbrqk")
+_FEN_CASTLING = frozenset("KQkq")
+_FEN_EN_PASSANT_RE = re.compile(r"^[a-h][36]$")
+
+
+def _fen_text(value: object, field_name: str) -> str:
+    text = _required_text(value, field_name).strip()
+    fields = text.split()
+    if len(fields) not in {4, 6}:
+        raise BookDocumentError(
+            f"{field_name} must contain exactly 4 or 6 FEN fields",
+            code=BookDocumentErrorCode.INVALID_FIELD,
+        )
+    board, turn, castling, en_passant = fields[:4]
+    ranks = board.split("/")
+    if len(ranks) != 8:
+        raise BookDocumentError(
+            f"{field_name} board must contain exactly 8 ranks",
+            code=BookDocumentErrorCode.INVALID_FIELD,
+        )
+    for rank in ranks:
+        if any(left.isdigit() and right.isdigit() for left, right in zip(rank, rank[1:])):
+            raise BookDocumentError(
+                f"{field_name} empty-square runs must use one canonical digit",
+                code=BookDocumentErrorCode.INVALID_FIELD,
+            )
+        squares = 0
+        for token in rank:
+            if token in "12345678":
+                squares += int(token)
+            elif token in _FEN_PIECES:
+                squares += 1
+            else:
+                raise BookDocumentError(
+                    f"{field_name} contains an invalid board token",
+                    code=BookDocumentErrorCode.INVALID_FIELD,
+                )
+        if squares != 8:
+            raise BookDocumentError(
+                f"{field_name} ranks must expand to exactly 8 squares",
+                code=BookDocumentErrorCode.INVALID_FIELD,
+            )
+    if turn not in {"w", "b"}:
+        raise BookDocumentError(
+            f"{field_name} turn must be 'w' or 'b'",
+            code=BookDocumentErrorCode.INVALID_FIELD,
+        )
+    if castling != "-" and (
+        not castling
+        or any(symbol not in _FEN_CASTLING for symbol in castling)
+        or len(set(castling)) != len(castling)
+        or castling != "".join(symbol for symbol in "KQkq" if symbol in castling)
+    ):
+        raise BookDocumentError(
+            f"{field_name} castling rights are invalid",
+            code=BookDocumentErrorCode.INVALID_FIELD,
+        )
+    if en_passant != "-":
+        expected_rank = "6" if turn == "w" else "3"
+        if (
+            _FEN_EN_PASSANT_RE.fullmatch(en_passant) is None
+            or en_passant[1] != expected_rank
+        ):
+            raise BookDocumentError(
+                f"{field_name} en-passant square is invalid for the side to move",
+                code=BookDocumentErrorCode.INVALID_FIELD,
+            )
+    if len(fields) == 6:
+        halfmove, fullmove = fields[4:]
+        if (
+            not halfmove.isascii()
+            or not halfmove.isdigit()
+            or (len(halfmove) > 1 and halfmove.startswith("0"))
+        ):
+            raise BookDocumentError(
+                f"{field_name} halfmove clock must be canonical decimal text",
+                code=BookDocumentErrorCode.INVALID_FIELD,
+            )
+        if (
+            not fullmove.isascii()
+            or not fullmove.isdigit()
+            or fullmove.startswith("0")
+        ):
+            raise BookDocumentError(
+                f"{field_name} fullmove number must be canonical positive decimal text",
+                code=BookDocumentErrorCode.INVALID_FIELD,
+            )
+    return text
 
 
 @dataclass(slots=True)
 class BookBlock:
     block_id: str | None = None
     source_anchor: str | None = None
+
+    def __post_init__(self) -> None:
+        self.block_id = _optional_identifier(self.block_id, "block_id")
+        self.source_anchor = _optional_identifier(self.source_anchor, "source_anchor")
 
     @property
     def kind(self) -> str:
@@ -35,10 +169,17 @@ class Heading(BookBlock):
     level: int = 1
 
     def __post_init__(self) -> None:
-        if not 1 <= int(self.level) <= 6:
-            raise ValueError("Heading level must be between 1 and 6")
-        if not self.text.strip():
-            raise ValueError("Heading text must not be empty")
+        BookBlock.__post_init__(self)
+        self.text = _required_text(self.text, "Heading text")
+        if (
+            not isinstance(self.level, int)
+            or isinstance(self.level, bool)
+            or not 1 <= self.level <= 6
+        ):
+            raise BookDocumentError(
+                "Heading level must be an integer between 1 and 6",
+                code=BookDocumentErrorCode.INVALID_FIELD,
+            )
 
 
 @dataclass(slots=True)
@@ -46,8 +187,8 @@ class Paragraph(BookBlock):
     text: str = ""
 
     def __post_init__(self) -> None:
-        if not self.text.strip():
-            raise ValueError("Paragraph text must not be empty")
+        BookBlock.__post_init__(self)
+        self.text = _required_text(self.text, "Paragraph text")
 
 
 @dataclass(slots=True)
@@ -57,14 +198,22 @@ class Position(BookBlock):
     side_to_move_note: str | None = None
 
     def __post_init__(self) -> None:
-        parts = self.fen.strip().split()
-        if len(parts) < 4:
-            raise ValueError("Position FEN must include placement, turn, castling and en-passant fields")
+        BookBlock.__post_init__(self)
+        self.fen = _fen_text(self.fen, "Position FEN")
+        self.caption = _optional_text(self.caption, "Position caption")
+        self.side_to_move_note = _optional_text(
+            self.side_to_move_note,
+            "Position side_to_move_note",
+        )
 
 
 @dataclass(slots=True)
 class Diagram(Position):
     alt_text: str | None = None
+
+    def __post_init__(self) -> None:
+        Position.__post_init__(self)
+        self.alt_text = _optional_text(self.alt_text, "Diagram alt_text")
 
 
 @dataclass(slots=True)
@@ -74,8 +223,27 @@ class Game(BookBlock):
     game_id: int | None = None
 
     def __post_init__(self) -> None:
+        BookBlock.__post_init__(self)
+        if not isinstance(self.pgn, str):
+            raise BookDocumentError(
+                "Game PGN must be text",
+                code=BookDocumentErrorCode.INVALID_FIELD,
+            )
+        self.title = _optional_text(self.title, "Game title")
+        if self.game_id is not None and (
+            not isinstance(self.game_id, int)
+            or isinstance(self.game_id, bool)
+            or self.game_id < 0
+        ):
+            raise BookDocumentError(
+                "Game game_id must be a non-negative integer or None",
+                code=BookDocumentErrorCode.INVALID_FIELD,
+            )
         if not self.pgn.strip() and self.game_id is None:
-            raise ValueError("Game requires PGN text or a game_id reference")
+            raise BookDocumentError(
+                "Game requires PGN text or a game_id reference",
+                code=BookDocumentErrorCode.INVALID_FIELD,
+            )
 
 
 @dataclass(slots=True)
@@ -85,10 +253,10 @@ class VariationTree(BookBlock):
     title: str | None = None
 
     def __post_init__(self) -> None:
-        if not self.root_fen.strip():
-            raise ValueError("VariationTree requires root_fen")
-        if not self.pgn.strip():
-            raise ValueError("VariationTree requires PGN variation text")
+        BookBlock.__post_init__(self)
+        self.root_fen = _fen_text(self.root_fen, "VariationTree root_fen")
+        self.pgn = _required_text(self.pgn, "VariationTree PGN")
+        self.title = _optional_text(self.title, "VariationTree title")
 
 
 @dataclass(slots=True)
@@ -100,12 +268,26 @@ class Exercise(BookBlock):
     difficulty: str | None = None
 
     def __post_init__(self) -> None:
-        if len(self.fen.strip().split()) < 4:
-            raise ValueError("Exercise FEN is invalid or incomplete")
-        if not self.prompt.strip():
-            raise ValueError("Exercise prompt must not be empty")
-        if not (self.solution_pgn or self.answer_text):
-            raise ValueError("Exercise requires solution_pgn or answer_text")
+        BookBlock.__post_init__(self)
+        self.fen = _fen_text(self.fen, "Exercise FEN")
+        self.prompt = _required_text(self.prompt, "Exercise prompt")
+        self.solution_pgn = _optional_text(
+            self.solution_pgn,
+            "Exercise solution_pgn",
+        )
+        self.answer_text = _optional_text(
+            self.answer_text,
+            "Exercise answer_text",
+        )
+        self.difficulty = _optional_text(
+            self.difficulty,
+            "Exercise difficulty",
+        )
+        if self.solution_pgn is None and self.answer_text is None:
+            raise BookDocumentError(
+                "Exercise requires solution_pgn or answer_text",
+                code=BookDocumentErrorCode.INVALID_FIELD,
+            )
 
 
 @dataclass(slots=True)
@@ -114,8 +296,9 @@ class Note(BookBlock):
     note_type: str = "note"
 
     def __post_init__(self) -> None:
-        if not self.text.strip():
-            raise ValueError("Note text must not be empty")
+        BookBlock.__post_init__(self)
+        self.text = _required_text(self.text, "Note text")
+        self.note_type = _required_text(self.note_type, "Note note_type")
 
 
 SemanticBlock = Heading | Paragraph | Position | Diagram | Game | VariationTree | Exercise | Note
@@ -129,21 +312,36 @@ _BLOCK_TYPES = {
     "Exercise": Exercise,
     "Note": Note,
 }
+_SEMANTIC_BLOCK_TYPES = tuple(_BLOCK_TYPES.values())
 
 
 def block_from_dict(data: dict[str, Any]) -> SemanticBlock:
     """Rebuild one semantic block, rejecting unknown kinds instead of losing data silently."""
     if not isinstance(data, dict):
-        raise TypeError("Book block must be a mapping")
+        raise BookDocumentError(
+            "Book block must be a mapping",
+            code=BookDocumentErrorCode.INVALID_FIELD,
+        )
     kind = data.get("kind")
+    if not isinstance(kind, str):
+        raise BookDocumentError(
+            f"Unsupported BookDocument block kind: {kind!r}",
+            code=BookDocumentErrorCode.UNSUPPORTED_BLOCK_KIND,
+        )
     cls = _BLOCK_TYPES.get(kind)
     if cls is None:
-        raise ValueError(f"Unsupported BookDocument block kind: {kind!r}")
+        raise BookDocumentError(
+            f"Unsupported BookDocument block kind: {kind!r}",
+            code=BookDocumentErrorCode.UNSUPPORTED_BLOCK_KIND,
+        )
     payload = {key: value for key, value in data.items() if key != "kind"}
     allowed = set(cls.__dataclass_fields__)
-    unknown = sorted(set(payload) - allowed)
+    unknown = sorted(set(payload) - allowed, key=repr)
     if unknown:
-        raise ValueError(f"Unsupported fields for {kind}: {', '.join(unknown)}")
+        raise BookDocumentError(
+            f"Unsupported fields for {kind}: {', '.join(map(repr, unknown))}",
+            code=BookDocumentErrorCode.UNKNOWN_FIELD,
+        )
     return cls(**payload)
 
 
@@ -157,15 +355,45 @@ class BookDocument:
     warnings: list[str] = field(default_factory=list)
 
     def __post_init__(self) -> None:
-        if not self.title.strip():
-            raise ValueError("Book title must not be empty")
+        self.title = _required_text(self.title, "Book title")
+        self.language = _optional_text(self.language, "Book language")
+        self.author = _optional_text(self.author, "Book author")
+        self.source_name = _optional_text(self.source_name, "Book source_name")
+        if not isinstance(self.blocks, list) or not all(
+            isinstance(block, _SEMANTIC_BLOCK_TYPES) for block in self.blocks
+        ):
+            raise BookDocumentError(
+                "Book blocks must be a list of supported semantic blocks",
+                code=BookDocumentErrorCode.INVALID_FIELD,
+            )
+        if not isinstance(self.warnings, list) or not all(
+            isinstance(warning, str) and warning.strip()
+            for warning in self.warnings
+        ):
+            raise BookDocumentError(
+                "Book warnings must be a list of non-empty strings",
+                code=BookDocumentErrorCode.INVALID_FIELD,
+            )
+        self.blocks = list(self.blocks)
+        self.warnings = list(self.warnings)
 
     def append(self, block: SemanticBlock) -> SemanticBlock:
+        if not isinstance(block, _SEMANTIC_BLOCK_TYPES):
+            raise BookDocumentError(
+                "Book block type is unsupported",
+                code=BookDocumentErrorCode.UNSUPPORTED_BLOCK_KIND,
+            )
         self.blocks.append(block)
         return block
 
     def extend(self, blocks: Iterable[SemanticBlock]) -> None:
-        self.blocks.extend(blocks)
+        additions = list(blocks)
+        if not all(isinstance(block, _SEMANTIC_BLOCK_TYPES) for block in additions):
+            raise BookDocumentError(
+                "Book block type is unsupported",
+                code=BookDocumentErrorCode.UNSUPPORTED_BLOCK_KIND,
+            )
+        self.blocks.extend(additions)
 
     def iter_kind(self, kind: type[SemanticBlock]) -> Iterator[SemanticBlock]:
         for block in self.blocks:
@@ -200,6 +428,7 @@ class BookDocument:
 
     def as_dict(self) -> dict[str, Any]:
         return {
+            "schema_version": BOOK_DOCUMENT_SCHEMA_VERSION,
             "title": self.title,
             "language": self.language,
             "author": self.author,
@@ -212,17 +441,49 @@ class BookDocument:
     def from_dict(cls, data: dict[str, Any]) -> "BookDocument":
         """Loss-aware semantic round-trip entry point for future import/export adapters."""
         if not isinstance(data, dict):
-            raise TypeError("BookDocument must be a mapping")
-        allowed = {"title", "language", "author", "source_name", "warnings", "blocks"}
-        unknown = sorted(set(data) - allowed)
+            raise BookDocumentError(
+                "BookDocument must be a mapping",
+                code=BookDocumentErrorCode.INVALID_FIELD,
+            )
+        raw_version = data.get("schema_version", 0)
+        if (
+            not isinstance(raw_version, int)
+            or isinstance(raw_version, bool)
+            or raw_version not in {0, BOOK_DOCUMENT_SCHEMA_VERSION}
+        ):
+            raise BookDocumentError(
+                f"Unsupported BookDocument schema_version: {raw_version!r}",
+                code=BookDocumentErrorCode.UNSUPPORTED_SCHEMA,
+            )
+        allowed = {
+            "schema_version",
+            "title",
+            "language",
+            "author",
+            "source_name",
+            "warnings",
+            "blocks",
+        }
+        unknown = sorted(set(data) - allowed, key=repr)
         if unknown:
-            raise ValueError(f"Unsupported BookDocument fields: {', '.join(unknown)}")
+            raise BookDocumentError(
+                f"Unsupported BookDocument fields: {', '.join(map(repr, unknown))}",
+                code=BookDocumentErrorCode.UNKNOWN_FIELD,
+            )
         raw_blocks = data.get("blocks", [])
         if not isinstance(raw_blocks, list):
-            raise TypeError("BookDocument blocks must be a list")
+            raise BookDocumentError(
+                "BookDocument blocks must be a list",
+                code=BookDocumentErrorCode.INVALID_FIELD,
+            )
         warnings = data.get("warnings", [])
-        if not isinstance(warnings, list) or not all(isinstance(item, str) for item in warnings):
-            raise TypeError("BookDocument warnings must be a list of strings")
+        if not isinstance(warnings, list) or not all(
+            isinstance(item, str) and item.strip() for item in warnings
+        ):
+            raise BookDocumentError(
+                "BookDocument warnings must be a list of non-empty strings",
+                code=BookDocumentErrorCode.INVALID_FIELD,
+            )
         return cls(
             title=data.get("title", ""),
             language=data.get("language"),
