@@ -6,25 +6,26 @@ Branch: `worddeck-bootstrap` only. Never develop WordDeck on `main`.
 ## Emergency Oxford 5000 milestone
 
 ### Oxford lexical data
-- Runtime activation remains **4,001 dictionary rows = 3,308 unchanged Oxford 3000 baseline rows + 693 source-reviewed canonical B2/C1 Oxford 5000 additions**. Existing Oxford 3000 IDs/progress remain unchanged; durable dictionary ID remains `oxford-3000-en-uk` for lossless migration.
-- Source-backed extraction has now advanced to **722 reviewed Oxford 5000 additions**: a new **29-row verified C1 staging slice** runs from `immense` adjective through `injustice` noun immediately after the previously activated `imagery` noun. The new source ledger is `oxford5000_source_after_imagery_c1_0001_0029.tsv`.
-- Oxford source/POS/CEFR checks were revalidated on 2026-08-19 against the official Oxford 3000/5000 list. Oxford documents the 5000 as the Oxford 3000 plus 2,000 B2-C1 additions; no Oxford C2 vocabulary subset is invented.
-- The new staging slice preserves one row per official lexical POS/CEFR record, uses deterministic stable IDs over lowercase `source + U+001F + POS + U+001F + CEFR`, contains no blank translations and marks every admitted row `verified`. It is intentionally staged separately until the next coherent runtime/audio checkpoint updates activation and regression totals together.
-- Earlier five semantically broader C-region rows (`corrupt` adjective, `corruption` noun, `coup` noun, `cult` adjective, `cult` noun) remain excluded pending second-pass semantic QA.
-- **Exact next data action:** activate the verified 29-row `immense`→`injustice` slice in the runtime ledger, then continue authoritative C1 extraction immediately after `injustice` noun in another large source-backed batch; isolate ambiguity rather than blocking later extraction.
+- Runtime activation is now **4,030 dictionary rows = 3,308 unchanged Oxford 3000 baseline rows + 722 verified canonical B2/C1 Oxford 5000 additions**. Existing Oxford 3000 IDs/progress remain unchanged; durable dictionary ID remains `oxford-3000-en-uk` for lossless migration.
+- The previously staged **29-row verified C1 slice `immense` adjective → `injustice` noun** is now embedded and activated. It uses deterministic stable IDs over lowercase `source + U+001F + POS + U+001F + CEFR`, contains no blank translations, and is admitted only through the fail-closed verified-slice loader.
+- Authoritative extraction has advanced again beyond `injustice`: `oxford5000_source_after_injustice_c1_0001_0029.tsv` contains the next **29 official C1 lexical rows**, from `inmate` noun through `interim` adjective, with POS/CEFR checked against the Oxford 3000/5000 list on 2026-08-19.
+- Of that new 29-row staging slice, **24 rows are `verified` and 5 are deliberately `needs_second_pass`** (`instrumental` adjective, `intake` noun, `integrity` noun, `interface` noun, `interference` noun). The five broader/polysemous rows are not runtime-activated and are not silently guessed.
+- Oxford documents the Oxford 5000 as the Oxford 3000 plus 2,000 B2-C1 additions; no Oxford C2 vocabulary subset is invented.
+- Earlier semantically broader C-region exclusions remain excluded pending second-pass semantic QA.
+- **Exact next data action:** second-pass the five isolated I-region rows while continuing source extraction immediately after `interim` adjective; activate only verified rows in the next coherent runtime/audio checkpoint.
 
 ### Recall Study Scope / Workspace
 - Durable scope IDs: `all`, `a1`, `a2`, `b1`, `b2`, `c1`; labels: `All Oxford 5000`, `A1`, `A2`, `B1`, `B2`, `C1`.
 - Independent scope assignments, active deck, current card and remaining shuffle progress are implemented. Legacy Recall state migrates into `All`; level scopes initialize eligible entries to core deck 1.
 - Native keyboard/NVDA Study Scope ComboBox is implemented. Existing `Ctrl+1..5` / `Alt+1..5` operate inside the current scope. Stable scope actions are rebindable and default unassigned.
-- Newly activated C1 rows enter `All` and `C1` deterministically without changing existing All-scope assignments.
+- The newly activated 29 C1 rows enter `All` and `C1` deterministically without changing existing All-scope assignments.
 - Scope regression tests cover isolation, migration, persistence, per-scope current card/shuffle state and stable scope shortcut actions.
 
 ### British offline audio
 - Oxford 3000 technical generation: **3,308/3,308**.
 - Targeted Oxford 3000 QA queue remains 36 numbered/sense-marker candidates: 19 deterministic `ready`, 17 heteronym/sense-sensitive `review`; review rows are not guessed.
-- The previously requested Oxford 5000 batch was built against the then-current **606** verified additions. Its completion/integrity has not been independently confirmed in this run, so release accounting remains fail-closed rather than assuming coverage.
-- Runtime/export audio ledger remains **693 activated Oxford 5000 additions**; the newly reviewed 29 rows are staged lexical data and are not yet claimed as generated audio. The next coherent audio checkpoint must first activate them and then validate/generate only missing stable IDs against the resulting 722-row verified set.
+- A prior Oxford 5000 generation batch was built against an earlier 606-addition set; its completion/integrity is not promoted to release accounting without independent validation.
+- Runtime lexical coverage is now **722 Oxford 5000 additions**. Audio coverage for the 29 newly activated `immense`→`injustice` stable IDs has not yet been generated/validated in this checkpoint, so full Oxford 5000 audio coverage is explicitly **not** claimed.
 - Runtime remains offline and independent of Kokoro/Python/API/network.
 
 ### Hotkey / F1 truth audit
@@ -35,9 +36,10 @@ Branch: `worddeck-bootstrap` only. Never develop WordDeck on `main`.
 
 ### Emergency blockers
 - **No user-input blocker.**
-- Full official Oxford 5000 row-level extraction remains incomplete: **722 source-reviewed additions are now represented in source/QA ledgers, 693 of them are runtime-activated**.
-- A fresh Windows self-test/build gate is still required for the current 693-row runtime head before that head is called a verified beta milestone; the new 29-row staging file itself does not alter runtime behavior yet.
-- British audio for the newly activated/staged additions is not yet fully verified; do not claim full Oxford 5000 audio coverage.
+- Full official Oxford 5000 row-level extraction remains incomplete.
+- Runtime is now at **722 verified Oxford 5000 additions**; the next staged 29-row C1 slice contains **24 verified + 5 needs_second_pass** and is intentionally not activated as a mixed-status block.
+- A fresh Windows self-test/build gate is required for the new 722-row runtime head before it is called a verified beta milestone.
+- British audio for newly activated Oxford 5000 additions is not yet fully verified; do not claim full Oxford 5000 audio coverage.
 - Targeted Oxford 3000 pronunciation replacements remain incomplete for 17 sense-sensitive review rows; do not guess them.
 
 ## Parallel lanes (non-blocking)
