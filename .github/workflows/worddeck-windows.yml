@@ -37,12 +37,22 @@ jobs:
           python .\WordDeck\tools\resolve_sentence_coverage_gaps.py --output .\artifacts\sentence-coverage-gap-records.tsv
           python .\WordDeck\tools\validate_sentencepack_release_bundle.py --self-test
 
-      - name: Validate Oxford 5000 canonical extraction and translation QA
+      - name: Validate frozen Oxford 3000 baseline
+        run: |
+          python .\WordDeck\tools\validate_oxford3000_baseline_files.py --self-test
+          python .\WordDeck\tools\validate_oxford3000_baseline_files.py --report .\artifacts\oxford3000-baseline-integrity.tsv
+
+      - name: Fetch official Oxford membership source
+        run: |
+          python .\WordDeck\tools\fetch_oxford5000_official_html.py --self-test
+          python .\WordDeck\tools\fetch_oxford5000_official_html.py --output .\artifacts\oxford3000-5000-official.html
+
+      - name: Validate Oxford 5000 canonical extraction and corpus reconciliation
         run: |
           python .\WordDeck\tools\extract_oxford5000_official.py --self-test
           python .\WordDeck\tools\canonicalize_oxford5000_reviewed.py --self-test
           python .\WordDeck\tools\validate_oxford5000_runtime_ledger.py --self-test
-          python .\WordDeck\tools\validate_oxford5000_runtime_ledger.py --ledger .\artifacts\oxford5000-canonical-runtime.tsv --report .\artifacts\oxford5000-runtime-accounting.tsv
+          python .\WordDeck\tools\validate_oxford5000_runtime_ledger.py --official-html .\artifacts\oxford3000-5000-official.html --ledger .\artifacts\oxford5000-canonical-runtime.tsv --report .\artifacts\oxford5000-runtime-accounting.tsv --unaccounted .\artifacts\oxford5000-unaccounted.tsv
           python .\WordDeck\tools\validate_oxford5000_additions_qa.py --self-test
           python .\WordDeck\tools\validate_oxford5000_additions_qa.py
           python .\WordDeck\tools\validate_oxford5000_second_pass_slice.py --self-test
@@ -80,6 +90,13 @@ jobs:
           path: .\artifacts\WordDeck-win-x64\WordDeck.exe
           if-no-files-found: error
 
+      - name: Upload Oxford 3000 baseline integrity evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: WordDeck-oxford3000-baseline-integrity
+          path: .\artifacts\oxford3000-baseline-integrity.tsv
+          if-no-files-found: error
+
       - name: Upload canonical Oxford runtime ledger
         uses: actions/upload-artifact@v4
         with:
@@ -92,6 +109,13 @@ jobs:
         with:
           name: WordDeck-oxford5000-runtime-accounting
           path: .\artifacts\oxford5000-runtime-accounting.tsv
+          if-no-files-found: error
+
+      - name: Upload Oxford unaccounted ledger
+        uses: actions/upload-artifact@v4
+        with:
+          name: WordDeck-oxford5000-unaccounted
+          path: .\artifacts\oxford5000-unaccounted.tsv
           if-no-files-found: error
 
       - name: Upload sentence coverage gap records
