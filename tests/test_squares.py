@@ -23,7 +23,22 @@ class CanonicalSquareTests(unittest.TestCase):
         self.assertEqual(normalize_square(0), "a1")
 
     def test_invalid_text_indices_and_boolean_values_fail_closed(self):
-        for value in ("", "e", "e9", "i1", -1, 64, True, False):
+        class LooksLikeSquare:
+            def __str__(self):
+                return "e4"
+
+        for value in (
+            "",
+            "e",
+            "e9",
+            "i1",
+            -1,
+            64,
+            True,
+            False,
+            b"e4",
+            LooksLikeSquare(),
+        ):
             with self.subTest(value=value):
                 with self.assertRaises(ValueError):
                     parse_square(value)

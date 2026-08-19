@@ -29,7 +29,9 @@ def parse_square(value: str | int) -> int:
             return value
         raise ValueError("square index must be in 0..63")
 
-    text = str(value).strip().lower()
+    if not isinstance(value, str):
+        raise ValueError("square must be canonical text or an integer in 0..63")
+    text = value.strip().lower()
     if len(text) != 2 or text[0] not in FILES or text[1] not in RANKS:
         raise ValueError(f"invalid square: {value!r}")
     return (int(text[1]) - 1) * 8 + FILES.index(text[0])
