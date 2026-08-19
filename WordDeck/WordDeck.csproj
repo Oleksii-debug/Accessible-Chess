@@ -39,6 +39,7 @@
     <EmbeddedResource Include="QA\oxford5000_source_after_harsh_c1_0001_0029.tsv" />
     <EmbeddedResource Include="QA\oxford5000_source_after_imagery_c1_0001_0029.tsv" />
     <EmbeddedResource Include="QA\oxford5000_source_after_injustice_c1_0001_0029.tsv" />
+    <EmbeddedResource Include="QA\oxford5000_source_after_interim_c1_0001_0029.tsv" />
   </ItemGroup>
 
   <ItemGroup>
