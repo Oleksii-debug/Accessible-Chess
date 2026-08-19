@@ -1,0 +1,27 @@
+name: WordDeck Oxford bulk integration transaction
+
+on:
+  push:
+    branches:
+      - worddeck-bootstrap
+    paths:
+      - 'WordDeck/tools/prepare_oxford5000_bulk_integration.py'
+      - 'WordDeck/tools/validate_oxford5000_automation_handoff.py'
+      - 'WordDeck/tools/validate_oxford5000_handoff_provenance.py'
+      - 'WordDeck/tools/validate_oxford5000_runtime_ledger.py'
+      - '.github/workflows/worddeck-oxford-bulk-integration.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: worddeck-oxford-bulk-integration-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  transaction-self-test:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate resumable Oxford 5000 bulk integration transaction
+        run: python .\WordDeck\tools\prepare_oxford5000_bulk_integration.py --self-test
