@@ -6,7 +6,13 @@ from pathlib import Path
 from acs.analysis_service import AnalysisService
 from acs.engine import UCIEngine
 from acs.engine_play_service import EnginePlayService
-from acs.engine_ports import ChessEnginePort, EngineMoveRequest, RawAnalysisLine
+from acs.engine_ports import (
+    ChessEnginePort,
+    EngineContractError,
+    EngineContractErrorCode,
+    EngineMoveRequest,
+    RawAnalysisLine,
+)
 from acs.stockfish_runtime import (
     PACKAGED_STOCKFISH_RELATIVE_PATH,
     StockfishInvalidExecutableError,
@@ -53,6 +59,40 @@ class ScriptedUCI(UCIEngine):
 
     def _drain(self):
         return None
+
+
+class FakeStdin:
+    def __init__(self):
+        self.writes = []
+        self.flush_count = 0
+
+    def write(self, value):
+        self.writes.append(value)
+        return len(value)
+
+    def flush(self):
+        self.flush_count += 1
+
+
+class FakeProcess:
+    def __init__(self, stdout=()):
+        self.stdin = FakeStdin()
+        self.stdout = list(stdout)
+        self.returncode = None
+        self.wait_count = 0
+        self.terminate_count = 0
+
+    def poll(self):
+        return self.returncode
+
+    def wait(self, timeout=None):
+        self.wait_count += 1
+        self.returncode = 0
+        return self.returncode
+
+    def terminate(self):
+        self.terminate_count += 1
+        self.returncode = -15
 
 
 class StockfishRuntimeTests(unittest.TestCase):
@@ -267,6 +307,168 @@ class StockfishRuntimeTests(unittest.TestCase):
             runtime.close()
             runtime.close()
             self.assertEqual(engine.close_count, 2)
+
+    def test_uci_constructor_and_requests_reject_command_injection_and_coercion(self):
+        for invalid_path in (True, 7, b"path", object(), "", "   ", "a\nb"):
+            with self.subTest(path=invalid_path):
+                with self.assertRaises(EngineContractError) as caught:
+                    UCIEngine(invalid_path)
+                self.assertEqual(
+                    caught.exception.code,
+                    EngineContractErrorCode.INVALID_CONFIG,
+                )
+        with self.assertRaises(EngineContractError) as factory_error:
+            UCIEngine("stockfish", process_factory=object())
+        self.assertEqual(
+            factory_error.exception.code,
+            EngineContractErrorCode.INVALID_PROVIDER,
+        )
+
+        engine = ScriptedUCI([])
+        invalid_analysis = (
+            (True, 5, 16),
+            ("   ", 5, 16),
+            ("fen\nquit", 5, 16),
+            ("fen", True, 16),
+            ("fen", "5", 16),
+            ("fen", 5.0, 16),
+            ("fen", 5, True),
+            ("fen", 5, "16"),
+            ("fen", 5, 16.0),
+        )
+        for values in invalid_analysis:
+            with self.subTest(analysis=values):
+                with self.assertRaises(EngineContractError) as caught:
+                    engine.analyze(*values)
+                self.assertEqual(
+                    caught.exception.code,
+                    EngineContractErrorCode.INVALID_REQUEST,
+                )
+        invalid_moves = (
+            (True, 10, 500),
+            ("fen\risready", 10, 500),
+            ("fen", True, 500),
+            ("fen", "10", 500),
+            ("fen", 10.0, 500),
+            ("fen", 10, True),
+            ("fen", 10, "500"),
+            ("fen", 10, 500.0),
+        )
+        for values in invalid_moves:
+            with self.subTest(move=values):
+                with self.assertRaises(EngineContractError) as caught:
+                    engine.best_move(*values)
+                self.assertEqual(
+                    caught.exception.code,
+                    EngineContractErrorCode.INVALID_REQUEST,
+                )
+        self.assertEqual(engine.sent, [])
+
+        direct = UCIEngine("stockfish")
+        for command in (True, "", "   ", "isready\nquit", "uci\rquit"):
+            with self.subTest(command=command):
+                with self.assertRaises(EngineContractError) as caught:
+                    direct.send(command)
+                self.assertEqual(
+                    caught.exception.code,
+                    EngineContractErrorCode.INVALID_REQUEST,
+                )
+
+    def test_uci_analysis_ignores_incomplete_or_out_of_contract_info_lines(self):
+        engine = ScriptedUCI([
+            "readyok",
+            "info multipv 1 score cp 1 pv e2e4",
+            "info depth 18 multipv 1 pv e2e4",
+            "info depth 18 multipv 0 score cp 1 pv e2e4",
+            "info depth 18 multipv 3 score cp 1 pv e2e4",
+            "info depth 18 multipv 1 score cp 1 pv e9",
+            "info depth 17 multipv 2 score mate -3 pv d2d4 d7d5",
+            "bestmovefoo e2e4",
+            "bestmove e2e4",
+        ])
+
+        lines = engine.analyze("fen", multipv=2, depth=18)
+
+        self.assertEqual(len(lines), 1)
+        self.assertEqual(
+            (lines[0].depth, lines[0].score_kind, lines[0].score_value),
+            (17, "mate", -3),
+        )
+        self.assertEqual(lines[0].pv, ("d2d4", "d7d5"))
+
+    def test_uci_bestmove_requires_an_exact_move_token(self):
+        for token in ("(none)", "0000"):
+            with self.subTest(token=token):
+                engine = ScriptedUCI(["readyok", f"bestmove {token}"])
+                self.assertIsNone(engine.best_move("fen"))
+
+        valid = ScriptedUCI([
+            "readyok",
+            "bestmovefoo e2e4",
+            "bestmove e7e8q ponder a7a6",
+        ])
+        self.assertEqual(valid.best_move("fen"), "e7e8q")
+
+        for response in ("bestmove e9", "bestmove"):
+            with self.subTest(response=response):
+                invalid = ScriptedUCI(["readyok", response])
+                with self.assertRaises(EngineContractError) as caught:
+                    invalid.best_move("fen")
+                self.assertEqual(
+                    caught.exception.code,
+                    EngineContractErrorCode.INVALID_RESULT,
+                )
+
+        invalid_analysis = ScriptedUCI(["readyok", "bestmove e9"])
+        with self.assertRaises(EngineContractError) as analysis_error:
+            invalid_analysis.analyze("fen")
+        self.assertEqual(
+            analysis_error.exception.code,
+            EngineContractErrorCode.INVALID_RESULT,
+        )
+
+    def test_uci_process_factory_output_is_validated_and_retryable(self):
+        valid = FakeProcess(("uciok\n", "readyok\n"))
+        outputs = [object(), valid]
+
+        def factory(*args, **kwargs):
+            return outputs.pop(0)
+
+        engine = UCIEngine("stockfish", process_factory=factory)
+        with self.assertRaises(EngineContractError) as caught:
+            engine.start()
+        self.assertEqual(
+            caught.exception.code,
+            EngineContractErrorCode.INVALID_PROVIDER,
+        )
+        self.assertIsNone(engine.proc)
+
+        engine.start()
+        self.assertIs(engine.proc, valid)
+        self.assertEqual(valid.stdin.writes[:2], ["uci\n", "isready\n"])
+        engine.close()
+        self.assertEqual(valid.stdin.writes[-1], "quit\n")
+        self.assertEqual(valid.wait_count, 1)
+
+    def test_uci_handshake_failure_discards_process_without_closing_adapter(self):
+        class FailingHandshakeEngine(UCIEngine):
+            def _wait(self, token, timeout):
+                raise RuntimeError("handshake failed")
+
+        proc = FakeProcess()
+        engine = FailingHandshakeEngine(
+            "stockfish",
+            process_factory=lambda *args, **kwargs: proc,
+        )
+        with self.assertRaisesRegex(RuntimeError, "handshake failed"):
+            engine.start()
+
+        self.assertIsNone(engine.proc)
+        self.assertIsNone(engine.reader)
+        self.assertEqual(proc.terminate_count, 1)
+        self.assertEqual(proc.wait_count, 1)
+        self.assertFalse(engine._closed)
+        engine.close()
 
 
 if __name__ == "__main__":
