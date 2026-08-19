@@ -3,9 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from typing import Iterable
 
+from .squares import FILES, parse_square
 
-FILES = "abcdefgh"
-RANKS = "12345678"
 VALID_PIECES = frozenset("PNBRQKpnbrqk")
 VALID_CASTLING = frozenset("KQkq")
 
@@ -168,10 +167,10 @@ def empty_position(*, turn: str = "w") -> PositionState:
 
 
 def _square_index(square: str) -> int:
-    text = str(square).strip().lower()
-    if len(text) != 2 or text[0] not in FILES or text[1] not in RANKS:
-        raise PositionValidationError(f"invalid square: {square!r}")
-    return (int(text[1]) - 1) * 8 + FILES.index(text[0])
+    try:
+        return parse_square(square)
+    except ValueError as exc:
+        raise PositionValidationError(f"invalid square: {square!r}") from exc
 
 
 def _normalize_castling(value: str) -> str:

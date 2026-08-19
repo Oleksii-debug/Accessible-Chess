@@ -4,6 +4,7 @@ import unittest
 
 
 CORE_MODULES = (
+    'acs/squares.py',
     'acs/history.py',
     'acs/keybindings.py',
     'acs/notation.py',

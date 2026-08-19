@@ -3,27 +3,10 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Mapping
 
+from .squares import FILES, parse_square, square_name
 
-FILES = "abcdefgh"
-RANKS = "12345678"
+
 PIECE_VALUES = {"P": 1, "N": 3, "B": 3, "R": 5, "Q": 9, "K": 0}
-
-
-def square_name(index: int) -> str:
-    if not 0 <= index < 64:
-        raise ValueError("square index must be in 0..63")
-    return FILES[index % 8] + RANKS[index // 8]
-
-
-def parse_square(value: str | int) -> int:
-    if isinstance(value, int):
-        if not 0 <= value < 64:
-            raise ValueError("square index must be in 0..63")
-        return value
-    text = str(value).strip().lower()
-    if len(text) != 2 or text[0] not in FILES or text[1] not in RANKS:
-        raise ValueError(f"invalid square: {value!r}")
-    return (int(text[1]) - 1) * 8 + FILES.index(text[0])
 
 
 def piece_color(piece: str | None) -> str | None:
