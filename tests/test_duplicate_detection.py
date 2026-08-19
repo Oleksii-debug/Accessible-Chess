@@ -1,5 +1,11 @@
 from acs.acsdb import AcsDatabase
-from acs.duplicate_detection import detect_pgn_duplicates
+from acs.duplicate_detection import (
+    DuplicateMatch,
+    DuplicateReport,
+    detect_pgn_duplicates,
+)
+from acs.game_identity import IDENTITY_SCHEMA_VERSION
+import pytest
 
 
 BASE = '''[Event "Club"]
@@ -65,3 +71,72 @@ def test_multi_game_input_preserves_incoming_game_index_in_evidence():
         assert len(record_matches) == 1
         assert record_matches[0].incoming_game_index == 1
         assert record_matches[0].identity_schema_version == 1
+
+
+def test_duplicate_dtos_enforce_kind_specific_and_report_invariants():
+    source_digest = "0" * 64
+    semantic_digest = "1" * 64
+    exact = DuplicateMatch("exact_source", 1, digest=source_digest)
+    semantic = DuplicateMatch(
+        "record",
+        1,
+        existing_game_id=2,
+        incoming_game_index=0,
+        identity_schema_version=IDENTITY_SCHEMA_VERSION,
+        digest=semantic_digest,
+    )
+    report = DuplicateReport(source_digest, (exact, semantic), (3,))
+    assert report.has_exact_source
+    assert report.has_semantic_duplicates
+    assert report.has_incomplete_evidence
+
+    invalid_matches = (
+        ("unknown", 1, None, None, None, source_digest),
+        ("exact_source", True, None, None, None, source_digest),
+        ("exact_source", 1, 2, None, None, source_digest),
+        ("record", 1, None, 0, 1, semantic_digest),
+        ("record", 1, 2, True, 1, semantic_digest),
+        ("record", 1, 2, 0, True, semantic_digest),
+        ("tree", 1, 2, 0, 1, "A" * 64),
+    )
+    for values in invalid_matches:
+        with pytest.raises((TypeError, ValueError)):
+            DuplicateMatch(*values)
+
+    with pytest.raises(TypeError):
+        DuplicateReport(source_digest, [exact])
+    with pytest.raises(ValueError):
+        DuplicateReport("2" * 64, (exact,))
+    for skipped in ((True,), (0,), (3, 3), [3]):
+        with pytest.raises((TypeError, ValueError)):
+            DuplicateReport(source_digest, (), skipped)
+
+
+def test_malformed_stored_text_is_explicitly_skipped_without_coercion_or_mutation():
+    with AcsDatabase() as db:
+        imported = db.import_pgn_text(BASE, "stored.pgn")
+        game_id = imported.game_ids[0]
+        before_sources = db.conn.execute("SELECT COUNT(*) FROM sources").fetchone()[0]
+        before_games = db.conn.execute("SELECT COUNT(*) FROM games").fetchone()[0]
+        db.conn.execute(
+            "UPDATE games SET pgn_text=? WHERE id=?",
+            (b"binary-pgn", game_id),
+        )
+
+        report = detect_pgn_duplicates(db, BASE)
+
+        assert report.skipped_stored_game_ids == (game_id,)
+        assert report.has_incomplete_evidence
+        assert not report.has_semantic_duplicates
+        assert db.conn.execute("SELECT COUNT(*) FROM sources").fetchone()[0] == before_sources
+        assert db.conn.execute("SELECT COUNT(*) FROM games").fetchone()[0] == before_games
+        assert db.conn.execute(
+            "SELECT pgn_text FROM games WHERE id=?", (game_id,)
+        ).fetchone()[0] == b"binary-pgn"
+
+
+def test_duplicate_detection_rejects_database_and_text_coercion():
+    with AcsDatabase() as db:
+        for database, text in ((object(), BASE), (db, b"pgn"), (db, True)):
+            with pytest.raises(TypeError):
+                detect_pgn_duplicates(database, text)

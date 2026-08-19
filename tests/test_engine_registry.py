@@ -1,6 +1,10 @@
 import unittest
 
-from acs.engine_ports import ChessEnginePort
+from acs.engine_ports import (
+    ChessEnginePort,
+    EngineContractError,
+    EngineContractErrorCode,
+)
 from acs.engine_registry import (
     EngineCapability,
     EngineProviderDescriptor,
@@ -92,8 +96,12 @@ class EngineProviderRegistryTests(unittest.TestCase):
     def test_incompatible_factory_result_is_rejected_at_creation_boundary(self):
         registry = EngineProviderRegistry()
         registry.register(self.descriptor(), IncompleteEngine)
-        with self.assertRaisesRegex(TypeError, "incompatible adapter"):
+        with self.assertRaisesRegex(EngineContractError, "incompatible adapter") as caught:
             registry.create("stockfish")
+        self.assertEqual(
+            caught.exception.code,
+            EngineContractErrorCode.INVALID_PROVIDER,
+        )
 
     def test_unregister_removes_provider_without_affecting_others(self):
         registry = EngineProviderRegistry()
@@ -110,6 +118,112 @@ class EngineProviderRegistryTests(unittest.TestCase):
             registry.create(" ")
         with self.assertRaises(KeyError):
             registry.create("missing")
+
+    def test_descriptor_rejects_scalar_and_container_coercion(self):
+        valid_caps = frozenset({EngineCapability.ANALYSIS})
+        invalid = (
+            (True, "Engine", valid_caps),
+            ("1engine", "Engine", valid_caps),
+            ("engine.provider", "Engine", valid_caps),
+            ("engіne", "Engine", valid_caps),
+            ("engine", True, valid_caps),
+            ("engine", "First\nSecond", valid_caps),
+            ("engine", "Engine", {EngineCapability.ANALYSIS}),
+            ("engine", "Engine", [EngineCapability.ANALYSIS]),
+            ("engine", "Engine", frozenset({"analysis"})),
+            ("engine", "Engine", frozenset({True})),
+        )
+        for values in invalid:
+            with self.subTest(descriptor=values):
+                with self.assertRaises(EngineContractError) as caught:
+                    EngineProviderDescriptor(*values)
+                self.assertEqual(
+                    caught.exception.code,
+                    EngineContractErrorCode.INVALID_CONFIG,
+                )
+
+        normalized = EngineProviderDescriptor(
+            "future_uci-2",
+            "  Future UCI  ",
+            valid_caps,
+        )
+        self.assertEqual(normalized.title, "Future UCI")
+
+    def test_registration_validates_inputs_before_mutation_and_keeps_falsey_factory(self):
+        registry = EngineProviderRegistry()
+        with self.assertRaisesRegex(TypeError, "EngineProviderDescriptor"):
+            registry.register(object(), FakeEngine)
+        with self.assertRaises(EngineContractError) as factory_error:
+            registry.register(self.descriptor(), object())
+        self.assertEqual(
+            factory_error.exception.code,
+            EngineContractErrorCode.INVALID_PROVIDER,
+        )
+        self.assertEqual(registry.provider_ids(), ())
+
+        class FalseyFactory:
+            def __init__(self):
+                self.calls = 0
+
+            def __bool__(self):
+                return False
+
+            def __call__(self):
+                self.calls += 1
+                return FakeEngine()
+
+        factory = FalseyFactory()
+        registry.register(self.descriptor(), factory)
+        self.assertIsInstance(registry.create("stockfish"), FakeEngine)
+        self.assertEqual(factory.calls, 1)
+
+    def test_capability_selectors_reject_raw_strings_before_factory_use(self):
+        created = []
+        registry = EngineProviderRegistry()
+        registry.register(
+            self.descriptor(),
+            lambda: created.append(True) or FakeEngine(),
+        )
+
+        for operation in (
+            lambda: registry.descriptors(capability="analysis"),
+            lambda: registry.provider_ids(capability="analysis"),
+            lambda: registry.create("stockfish", require="analysis"),
+        ):
+            with self.subTest(operation=operation):
+                with self.assertRaises(EngineContractError) as caught:
+                    operation()
+                self.assertEqual(
+                    caught.exception.code,
+                    EngineContractErrorCode.INVALID_REQUEST,
+                )
+        self.assertEqual(created, [])
+
+    def test_provider_id_lookup_rejects_non_text_and_non_slug_values(self):
+        registry = EngineProviderRegistry()
+        registry.register(self.descriptor(), FakeEngine)
+        for provider_id in (True, 7, b"stockfish", "bad/id", "bad.id"):
+            with self.subTest(provider_id=provider_id):
+                with self.assertRaises(EngineContractError) as caught:
+                    registry.create(provider_id)
+                self.assertEqual(
+                    caught.exception.code,
+                    EngineContractErrorCode.INVALID_REQUEST,
+                )
+        self.assertIsInstance(registry.create("  STOCKFISH  "), FakeEngine)
+
+    def test_incompatible_class_result_does_not_poison_factory_retry(self):
+        registry = EngineProviderRegistry()
+        outputs = [FakeEngine, FakeEngine()]
+        registry.register(self.descriptor(), lambda: outputs.pop(0))
+
+        with self.assertRaises(EngineContractError) as caught:
+            registry.create("stockfish")
+        self.assertEqual(
+            caught.exception.code,
+            EngineContractErrorCode.INVALID_PROVIDER,
+        )
+        self.assertIsInstance(registry.create("stockfish"), FakeEngine)
 
 
 if __name__ == "__main__":

@@ -1,15 +1,15 @@
 from dataclasses import dataclass
 import re, copy
-FILES='abcdefgh'
-RANKS='12345678'
+from .squares import FILES, parse_square, square_name
+
 PIECE_UA={'P':'білий пішак','N':'білий кінь','B':'білий слон','R':'біла тура','Q':'білий ферзь','K':'білий король',
           'p':'чорний пішак','n':'чорний кінь','b':'чорний слон','r':'чорна тура','q':'чорний ферзь','k':'чорний король'}
 
-def sq_name(s): return FILES[s%8]+str(s//8+1)
+def sq_name(s): return square_name(s)
 def parse_sq(t):
-    t=t.strip().lower()
-    if len(t)!=2 or t[0] not in FILES or t[1] not in RANKS: raise ValueError('Неправильне поле: '+t)
-    return FILES.index(t[0])+8*(int(t[1])-1)
+    text=str(t).strip().lower()
+    try: return parse_square(text)
+    except ValueError as exc: raise ValueError('Неправильне поле: '+text) from exc
 
 def color_of(p): return 'w' if p and p.isupper() else ('b' if p else None)
 

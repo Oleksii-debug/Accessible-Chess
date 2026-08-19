@@ -1,0 +1,83 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://accessible-chess.local/schemas/presentation-state-v1.schema.json",
+  "title": "Accessible Chess presentation state v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "version",
+    "pointer_square",
+    "highlights",
+    "arrows",
+    "coordinate_labels_visible",
+    "student_pointer_history",
+    "active_student_id",
+    "engine_visibility",
+    "board_permission"
+  ],
+  "properties": {
+    "version": { "const": 1 },
+    "pointer_square": {
+      "oneOf": [
+        { "$ref": "#/$defs/square" },
+        { "type": "null" }
+      ]
+    },
+    "highlights": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/highlight" }
+    },
+    "arrows": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/arrow" }
+    },
+    "coordinate_labels_visible": { "type": "boolean" },
+    "student_pointer_history": {
+      "type": "array",
+      "items": {
+        "oneOf": [
+          { "$ref": "interaction-message-v1.schema.json#/$defs/studentHover" },
+          { "$ref": "interaction-message-v1.schema.json#/$defs/studentSelection" }
+        ]
+      }
+    },
+    "active_student_id": { "$ref": "#/$defs/nullableText" },
+    "engine_visibility": {
+      "enum": ["visible_to_teacher", "visible_to_student", "hidden"]
+    },
+    "board_permission": {
+      "enum": ["locked", "select_only", "move_allowed"]
+    }
+  },
+  "$defs": {
+    "square": { "type": "string", "pattern": "^[a-h][1-8]$" },
+    "nullableText": {
+      "oneOf": [
+        { "type": "string", "pattern": "\\S" },
+        { "type": "null" }
+      ]
+    },
+    "highlight": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["square", "purpose"],
+      "properties": {
+        "square": { "$ref": "#/$defs/square" },
+        "purpose": { "type": "string", "pattern": "\\S" }
+      }
+    },
+    "arrow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["start_square", "end_square", "purpose"],
+      "allOf": [
+        { "$ref": "distinct-square-pair-v1.schema.json" }
+      ],
+      "properties": {
+        "start_square": { "$ref": "#/$defs/square" },
+        "end_square": { "$ref": "#/$defs/square" },
+        "purpose": { "type": "string", "pattern": "\\S" }
+      }
+    }
+  }
+}

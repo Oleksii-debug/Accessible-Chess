@@ -1,7 +1,10 @@
 import unittest
 
 from acs.bookdocument import (
+    BOOK_DOCUMENT_SCHEMA_VERSION,
     BookDocument,
+    BookDocumentError,
+    BookDocumentErrorCode,
     Diagram,
     Exercise,
     Game,
@@ -47,6 +50,10 @@ class BookDocumentTests(unittest.TestCase):
             ],
         )
         restored = BookDocument.from_dict(original.as_dict())
+        self.assertEqual(
+            original.as_dict()["schema_version"],
+            BOOK_DOCUMENT_SCHEMA_VERSION,
+        )
         self.assertEqual(restored.as_dict(), original.as_dict())
         self.assertIsInstance(restored.blocks[0], Heading)
         self.assertIsInstance(restored.blocks[1], Diagram)
@@ -102,6 +109,136 @@ class BookDocumentTests(unittest.TestCase):
             Position(fen="bad fen")
         with self.assertRaises(ValueError):
             Exercise(fen=FEN, prompt="Solve", solution_pgn=None, answer_text=None)
+
+    def test_schema_version_is_explicit_with_bounded_legacy_read(self):
+        legacy = {
+            "title": "Legacy",
+            "blocks": [{"kind": "Paragraph", "text": "Preserved"}],
+        }
+        migrated = BookDocument.from_dict(legacy)
+        self.assertEqual(
+            migrated.as_dict()["schema_version"],
+            BOOK_DOCUMENT_SCHEMA_VERSION,
+        )
+
+        for invalid_version in (True, "1", 2, -1):
+            with self.subTest(version=invalid_version):
+                with self.assertRaises(BookDocumentError) as caught:
+                    BookDocument.from_dict(
+                        {"schema_version": invalid_version, "title": "Book"}
+                    )
+                self.assertEqual(
+                    caught.exception.code,
+                    BookDocumentErrorCode.UNSUPPORTED_SCHEMA,
+                )
+
+    def test_heading_and_reference_ids_reject_scalar_coercion(self):
+        for level in (True, False, "2", 2.0, None):
+            with self.subTest(level=level):
+                with self.assertRaises(BookDocumentError) as caught:
+                    Heading(text="Heading", level=level)
+                self.assertEqual(
+                    caught.exception.code,
+                    BookDocumentErrorCode.INVALID_FIELD,
+                )
+
+        heading = Heading(
+            text="Heading",
+            level=2,
+            block_id="  stable-id  ",
+            source_anchor="  source-1  ",
+        )
+        self.assertEqual(heading.block_id, "stable-id")
+        self.assertEqual(heading.source_anchor, "source-1")
+        for field, value in (("block_id", True), ("source_anchor", 17)):
+            with self.subTest(field=field):
+                with self.assertRaises(BookDocumentError):
+                    Heading(text="Heading", **{field: value})
+
+    def test_fen_fields_are_structural_and_canonical_not_length_only(self):
+        invalid_fens = (
+            None,
+            True,
+            "bad fen",
+            "9/8/8/8/8/8/8/8 w - -",
+            "8/8/8/8/8/8/8/7Z w - -",
+            "44/8/8/8/8/8/8/8 w - -",
+            "8/8/8/8/8/8/8/8 white - -",
+            "8/8/8/8/8/8/8/8 w KK -",
+            "8/8/8/8/8/8/8/8 w qK -",
+            "8/8/8/8/8/8/8/8 w - e3",
+            "8/8/8/8/8/8/8/8 w - - 00 1",
+            "8/8/8/8/8/8/8/8 w - - 0 0",
+        )
+        for fen in invalid_fens:
+            with self.subTest(fen=fen):
+                with self.assertRaises(BookDocumentError) as caught:
+                    Position(fen=fen)
+                self.assertEqual(
+                    caught.exception.code,
+                    BookDocumentErrorCode.INVALID_FIELD,
+                )
+
+        four_field = Position(fen="8/8/8/8/8/8/8/8 b - -")
+        self.assertEqual(four_field.fen, "8/8/8/8/8/8/8/8 b - -")
+
+    def test_game_and_optional_metadata_require_exact_types(self):
+        for invalid_id in (True, False, "7", 7.0, -1):
+            with self.subTest(game_id=invalid_id):
+                with self.assertRaises(BookDocumentError):
+                    Game(game_id=invalid_id)
+        for constructor in (
+            lambda: Game(pgn=17),
+            lambda: Paragraph(text=True),
+            lambda: Note(text="Note", note_type=False),
+            lambda: Diagram(fen=FEN, alt_text=True),
+            lambda: BookDocument("Book", language=1),
+            lambda: BookDocument("Book", warnings=[""]),
+        ):
+            with self.assertRaises(BookDocumentError):
+                constructor()
+
+    def test_direct_and_bulk_block_mutations_are_validated_atomically(self):
+        book = BookDocument("Atomic")
+        first = Paragraph(text="First")
+        invalid = object()
+
+        with self.assertRaises(BookDocumentError) as append_error:
+            book.append(invalid)
+        self.assertEqual(
+            append_error.exception.code,
+            BookDocumentErrorCode.UNSUPPORTED_BLOCK_KIND,
+        )
+        self.assertEqual(book.blocks, [])
+
+        with self.assertRaises(BookDocumentError):
+            book.extend([first, invalid])
+        self.assertEqual(book.blocks, [])
+
+    def test_constructor_detaches_caller_owned_collections(self):
+        blocks = [Paragraph(text="First")]
+        warnings = ["source warning"]
+        book = BookDocument("Detached", blocks=blocks, warnings=warnings)
+
+        blocks.append(Paragraph(text="External"))
+        warnings.append("external warning")
+
+        self.assertEqual([block.text for block in book.blocks], ["First"])
+        self.assertEqual(book.warnings, ["source warning"])
+
+    def test_mixed_type_unknown_keys_fail_with_stable_error_not_sort_type_error(self):
+        with self.assertRaises(BookDocumentError) as caught:
+            BookDocument.from_dict({"title": "Book", 7: "unknown"})
+        self.assertEqual(caught.exception.code, BookDocumentErrorCode.UNKNOWN_FIELD)
+
+        with self.assertRaises(BookDocumentError) as kind_error:
+            BookDocument.from_dict(
+                {"title": "Book", "blocks": [{"kind": [], "text": "bad"}]}
+            )
+        self.assertEqual(
+            kind_error.exception.code,
+            BookDocumentErrorCode.UNSUPPORTED_BLOCK_KIND,
+        )
 
 
 if __name__ == "__main__":

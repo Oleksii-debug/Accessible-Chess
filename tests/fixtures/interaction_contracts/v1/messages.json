@@ -1,0 +1,127 @@
+{
+  "schema_version": 1,
+  "messages": [
+    {
+      "version": 1,
+      "family": "move",
+      "raw_text": "e4"
+    },
+    {
+      "version": 1,
+      "family": "teacher_pointer",
+      "square": "e4"
+    },
+    {
+      "version": 1,
+      "family": "position_editor",
+      "operation": "place_piece",
+      "square": "e4",
+      "piece": "Q",
+      "value": null
+    },
+    {
+      "version": 1,
+      "family": "position_editor",
+      "operation": "clear",
+      "square": null,
+      "piece": null,
+      "value": null
+    },
+    {
+      "version": 1,
+      "family": "position_editor",
+      "operation": "remove_piece",
+      "square": "a8",
+      "piece": null,
+      "value": null
+    },
+    {
+      "version": 1,
+      "family": "position_editor",
+      "operation": "set_turn",
+      "square": null,
+      "piece": null,
+      "value": "b"
+    },
+    {
+      "version": 1,
+      "family": "position_editor",
+      "operation": "set_castling",
+      "square": null,
+      "piece": null,
+      "value": "Kq"
+    },
+    {
+      "version": 1,
+      "family": "position_editor",
+      "operation": "set_en_passant",
+      "square": null,
+      "piece": null,
+      "value": "d6"
+    },
+    {
+      "version": 1,
+      "family": "position_editor",
+      "operation": "set_halfmove_clock",
+      "square": null,
+      "piece": null,
+      "value": "12"
+    },
+    {
+      "version": 1,
+      "family": "position_editor",
+      "operation": "set_fullmove_number",
+      "square": null,
+      "piece": null,
+      "value": "34"
+    },
+    {
+      "version": 1,
+      "family": "position_editor",
+      "operation": "load_fen",
+      "square": null,
+      "piece": null,
+      "value": "8/8/8/8/8/8/8/8 w - - 0 1"
+    },
+    {
+      "version": 1,
+      "family": "annotation",
+      "operation": "set_highlight",
+      "start_square": "e4",
+      "end_square": null,
+      "tag": "legal_move"
+    },
+    {
+      "version": 1,
+      "family": "annotation",
+      "operation": "add_arrow",
+      "start_square": "e2",
+      "end_square": "e4",
+      "tag": "candidate_move"
+    },
+    {
+      "version": 1,
+      "family": "annotation",
+      "operation": "clear",
+      "start_square": null,
+      "end_square": null,
+      "tag": null
+    },
+    {
+      "version": 1,
+      "family": "student_hover",
+      "square": "f3",
+      "piece": "N",
+      "student_id": "student-1",
+      "sequence": 1
+    },
+    {
+      "version": 1,
+      "family": "student_selection",
+      "square": "e5",
+      "piece": "p",
+      "student_id": "student-1",
+      "sequence": 2
+    }
+  ]
+}

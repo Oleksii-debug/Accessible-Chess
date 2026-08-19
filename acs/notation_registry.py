@@ -8,12 +8,17 @@ root without adding provider-specific conditionals to chess or UI code.
 """
 
 from dataclasses import dataclass
+import re
 from typing import Callable, Iterable
 
 from .notation import PROFILES, format_san
 
 
 NotationFormatter = Callable[[str], str]
+
+
+_PROFILE_ID_RE = re.compile(r"^[a-z][a-z0-9_-]*$")
+_LOCALE_RE = re.compile(r"^[a-z]{2,3}(?:-[a-z0-9]{2,8})*$")
 
 
 @dataclass(frozen=True)
@@ -24,24 +29,38 @@ class NotationProfileDescriptor:
     built_in: bool = False
 
     def __post_init__(self) -> None:
+        if not isinstance(self.profile_id, str):
+            raise TypeError("profile_id must be text")
+        if not isinstance(self.title, str):
+            raise TypeError("profile title must be text")
         profile_id = self.profile_id.strip()
         title = self.title.strip()
         if not profile_id:
             raise ValueError("profile_id must not be empty")
         if profile_id != self.profile_id:
             raise ValueError("profile_id must not contain surrounding whitespace")
-        if profile_id.casefold() != profile_id:
-            raise ValueError("profile_id must be lowercase and stable")
-        if not title:
-            raise ValueError("profile title must not be empty")
-        if self.locale is not None and not self.locale.strip():
-            raise ValueError("locale must be non-empty when provided")
+        if _PROFILE_ID_RE.fullmatch(profile_id) is None:
+            raise ValueError("profile_id must be a lowercase ASCII slug")
+        if not title or "\n" in title or "\r" in title:
+            raise ValueError("profile title must be non-empty single-line text")
+        if self.locale is not None:
+            if not isinstance(self.locale, str):
+                raise TypeError("locale must be text or None")
+            locale = self.locale.strip().casefold()
+            if not locale or _LOCALE_RE.fullmatch(locale) is None:
+                raise ValueError("locale must be a valid ASCII language tag")
+            object.__setattr__(self, "locale", locale)
+        if not isinstance(self.built_in, bool):
+            raise TypeError("built_in must be boolean")
+        object.__setattr__(self, "title", title)
 
 
 class NotationProfileRegistry:
     """Stable composition-root registry for notation/localization profiles."""
 
     def __init__(self, *, include_builtins: bool = True) -> None:
+        if not isinstance(include_builtins, bool):
+            raise TypeError("include_builtins must be boolean")
         self._descriptors: dict[str, NotationProfileDescriptor] = {}
         self._formatters: dict[str, NotationFormatter] = {}
         if include_builtins:
@@ -66,6 +85,8 @@ class NotationProfileRegistry:
         descriptor: NotationProfileDescriptor,
         formatter: NotationFormatter,
     ) -> None:
+        if not isinstance(descriptor, NotationProfileDescriptor):
+            raise TypeError("descriptor must be NotationProfileDescriptor")
         if descriptor.profile_id in self._descriptors:
             raise ValueError(f"notation profile already registered: {descriptor.profile_id}")
         if descriptor.built_in:
@@ -93,9 +114,7 @@ class NotationProfileRegistry:
     def descriptors(self, *, locale: str | None = None) -> tuple[NotationProfileDescriptor, ...]:
         values: Iterable[NotationProfileDescriptor] = self._descriptors.values()
         if locale is not None:
-            needle = locale.strip().casefold()
-            if not needle:
-                raise ValueError("locale must not be empty")
+            needle = self._normalize_locale(locale)
             values = (
                 item
                 for item in values
@@ -107,17 +126,36 @@ class NotationProfileRegistry:
         return tuple(item.profile_id for item in self.descriptors(locale=locale))
 
     def format(self, san: str, profile_id: str) -> str:
+        if not isinstance(san, str):
+            raise TypeError("SAN must be text")
+        if not san.strip() or "\n" in san or "\r" in san:
+            raise ValueError("SAN must be non-empty single-line text")
         descriptor = self.descriptor(profile_id)
         result = self._formatters[descriptor.profile_id](san)
         if not isinstance(result, str):
             raise TypeError(
                 f"notation profile {descriptor.profile_id} returned non-string output"
             )
+        if not result.strip() or "\n" in result or "\r" in result:
+            raise ValueError(
+                f"notation profile {descriptor.profile_id} returned invalid text output"
+            )
         return result
 
     @staticmethod
     def _normalize_profile_id(profile_id: str) -> str:
-        value = str(profile_id).strip().casefold()
-        if not value:
-            raise ValueError("profile_id must not be empty")
+        if not isinstance(profile_id, str):
+            raise TypeError("profile_id must be text")
+        value = profile_id.strip().casefold()
+        if not value or _PROFILE_ID_RE.fullmatch(value) is None:
+            raise ValueError("profile_id must be a non-empty ASCII slug")
+        return value
+
+    @staticmethod
+    def _normalize_locale(locale: str) -> str:
+        if not isinstance(locale, str):
+            raise TypeError("locale must be text")
+        value = locale.strip().casefold()
+        if not value or _LOCALE_RE.fullmatch(value) is None:
+            raise ValueError("locale must be a valid ASCII language tag")
         return value

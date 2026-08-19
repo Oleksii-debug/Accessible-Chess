@@ -1,0 +1,104 @@
+{
+  "schema_version": 1,
+  "cases": [
+    {
+      "name": "pointer square is not canonical",
+      "payload": {
+        "version": 1,
+        "pointer_square": "F3",
+        "highlights": [],
+        "arrows": [],
+        "coordinate_labels_visible": true,
+        "student_pointer_history": [],
+        "active_student_id": null,
+        "engine_visibility": "hidden",
+        "board_permission": "locked"
+      }
+    },
+    {
+      "name": "highlight purpose is not text",
+      "payload": {
+        "version": 1,
+        "pointer_square": null,
+        "highlights": [{"square": "e4", "purpose": 7}],
+        "arrows": [],
+        "coordinate_labels_visible": true,
+        "student_pointer_history": [],
+        "active_student_id": null,
+        "engine_visibility": "hidden",
+        "board_permission": "locked"
+      }
+    },
+    {
+      "name": "presentation arrow has the same start and end square",
+      "payload": {
+        "version": 1,
+        "pointer_square": null,
+        "highlights": [],
+        "arrows": [{"start_square": "e4", "end_square": "e4", "purpose": "candidate"}],
+        "coordinate_labels_visible": true,
+        "student_pointer_history": [],
+        "active_student_id": null,
+        "engine_visibility": "hidden",
+        "board_permission": "locked"
+      }
+    },
+    {
+      "name": "coordinate visibility is not boolean",
+      "payload": {
+        "version": 1,
+        "pointer_square": null,
+        "highlights": [],
+        "arrows": [],
+        "coordinate_labels_visible": "yes",
+        "student_pointer_history": [],
+        "active_student_id": null,
+        "engine_visibility": "hidden",
+        "board_permission": "locked"
+      }
+    },
+    {
+      "name": "student history contains a move command",
+      "payload": {
+        "version": 1,
+        "pointer_square": null,
+        "highlights": [],
+        "arrows": [],
+        "coordinate_labels_visible": true,
+        "student_pointer_history": [{"version": 1, "family": "move", "raw_text": "e4"}],
+        "active_student_id": null,
+        "engine_visibility": "hidden",
+        "board_permission": "locked"
+      }
+    },
+    {
+      "name": "active student identity is blank",
+      "payload": {
+        "version": 1,
+        "pointer_square": null,
+        "highlights": [],
+        "arrows": [],
+        "coordinate_labels_visible": true,
+        "student_pointer_history": [],
+        "active_student_id": "   ",
+        "engine_visibility": "hidden",
+        "board_permission": "locked"
+      }
+    },
+    {
+      "name": "presentation state contains chess truth",
+      "payload": {
+        "version": 1,
+        "pointer_square": null,
+        "highlights": [],
+        "arrows": [],
+        "coordinate_labels_visible": true,
+        "student_pointer_history": [],
+        "active_student_id": null,
+        "engine_visibility": "hidden",
+        "board_permission": "locked",
+        "fen": "8/8/8/8/8/8/8/8 w - - 0 1"
+      }
+    }
+  ]
+}

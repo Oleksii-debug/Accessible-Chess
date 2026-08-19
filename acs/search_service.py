@@ -10,9 +10,25 @@ keeps SQL/database identity inside the data layer.
 from dataclasses import dataclass
 from typing import Literal
 
-from .acsdb import AcsDatabase
+from .acsdb import AcsDatabase, escape_like_literal
 
 SearchResult = Literal["1-0", "0-1", "1/2-1/2", "*"]
+_RESULTS = frozenset({"1-0", "0-1", "1/2-1/2", "*"})
+_IMPORT_STATUSES = frozenset({"full", "partial", "damaged", "warning"})
+
+
+def _clean_filter(value: str | None, *, field_name: str) -> str | None:
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise TypeError(f"{field_name} must be text or None")
+    normalized = " ".join(value.split())
+    return normalized or None
+
+
+def _validate_optional_text(value: str | None, *, field_name: str) -> None:
+    if value is not None and not isinstance(value, str):
+        raise TypeError(f"{field_name} must be text or None")
 
 
 @dataclass(frozen=True, slots=True)
@@ -35,32 +51,36 @@ class GameSearchQuery:
     limit: int = 50
 
     def normalized(self) -> "GameSearchQuery":
-        def clean(value: str | None) -> str | None:
-            if value is None:
-                return None
-            value = " ".join(value.split())
-            return value or None
-
-        limit = int(self.limit)
-        if not 1 <= limit <= 200:
+        if type(self.limit) is not int:
+            raise TypeError("Search limit must be an integer")
+        if not 1 <= self.limit <= 200:
             raise ValueError("Search limit must be between 1 and 200")
-        if self.source_id is not None and int(self.source_id) <= 0:
-            raise ValueError("source_id must be a positive integer")
-        if self.after_game_id is not None and int(self.after_game_id) < 0:
-            raise ValueError("after_game_id must be zero or a positive integer")
-        if self.result is not None and self.result not in {"1-0", "0-1", "1/2-1/2", "*"}:
-            raise ValueError(f"Unsupported chess result: {self.result}")
+        if self.source_id is not None:
+            if type(self.source_id) is not int:
+                raise TypeError("source_id must be an integer or None")
+            if self.source_id <= 0:
+                raise ValueError("source_id must be a positive integer")
+        if self.after_game_id is not None:
+            if type(self.after_game_id) is not int:
+                raise TypeError("after_game_id must be an integer or None")
+            if self.after_game_id < 0:
+                raise ValueError("after_game_id must be zero or a positive integer")
+        if self.result is not None:
+            if not isinstance(self.result, str):
+                raise TypeError("result must be text or None")
+            if self.result not in _RESULTS:
+                raise ValueError(f"Unsupported chess result: {self.result}")
 
         return GameSearchQuery(
-            player=clean(self.player),
-            event=clean(self.event),
-            eco=clean(self.eco),
-            opening=clean(self.opening),
+            player=_clean_filter(self.player, field_name="player"),
+            event=_clean_filter(self.event, field_name="event"),
+            eco=_clean_filter(self.eco, field_name="eco"),
+            opening=_clean_filter(self.opening, field_name="opening"),
             result=self.result,
-            source_id=int(self.source_id) if self.source_id is not None else None,
-            source_name=clean(self.source_name),
-            after_game_id=int(self.after_game_id) if self.after_game_id is not None else None,
-            limit=limit,
+            source_id=self.source_id,
+            source_name=_clean_filter(self.source_name, field_name="source_name"),
+            after_game_id=self.after_game_id,
+            limit=self.limit,
         )
 
 
@@ -83,6 +103,41 @@ class GameSearchItem:
     opening: str | None
     start_fen: str | None
 
+    def __post_init__(self) -> None:
+        for field_name, value in (
+            ("game_id", self.game_id),
+            ("source_id", self.source_id),
+        ):
+            if type(value) is not int or value <= 0:
+                raise ValueError(f"{field_name} must be a positive integer")
+        if type(self.source_index) is not int or self.source_index < 0:
+            raise ValueError("source_index must be a non-negative integer")
+        for field_name, value in (
+            ("source_name", self.source_name),
+            ("source_format", self.source_format),
+            ("import_status", self.import_status),
+        ):
+            if not isinstance(value, str) or not value:
+                raise TypeError(f"{field_name} must be non-empty text")
+        if self.import_status not in _IMPORT_STATUSES:
+            raise ValueError("import_status must be a canonical import status")
+        for field_name, value in (
+            ("white", self.white),
+            ("black", self.black),
+            ("event", self.event),
+            ("site", self.site),
+            ("game_date", self.game_date),
+            ("round", self.round),
+            ("eco", self.eco),
+            ("opening", self.opening),
+            ("start_fen", self.start_fen),
+        ):
+            _validate_optional_text(value, field_name=field_name)
+        if self.result is not None and (
+            not isinstance(self.result, str) or self.result not in _RESULTS
+        ):
+            raise ValueError("result must be a canonical chess result or None")
+
 
 @dataclass(frozen=True, slots=True)
 class GameSearchPage:
@@ -90,31 +145,60 @@ class GameSearchPage:
     next_after_game_id: int | None
     has_more: bool
 
+    def __post_init__(self) -> None:
+        if (
+            not isinstance(self.items, tuple)
+            or any(not isinstance(item, GameSearchItem) for item in self.items)
+        ):
+            raise TypeError("items must be a tuple of GameSearchItem")
+        if self.next_after_game_id is not None and (
+            type(self.next_after_game_id) is not int
+            or self.next_after_game_id <= 0
+        ):
+            raise ValueError("next_after_game_id must be a positive integer or None")
+        if not isinstance(self.has_more, bool):
+            raise TypeError("has_more must be boolean")
+        game_ids = tuple(item.game_id for item in self.items)
+        if any(left >= right for left, right in zip(game_ids, game_ids[1:])):
+            raise ValueError("search page game IDs must be strictly increasing")
+        if self.has_more:
+            if not self.items or self.next_after_game_id != self.items[-1].game_id:
+                raise ValueError("paged results must expose the final visible game ID")
+        elif self.next_after_game_id is not None:
+            raise ValueError("final search page must not expose a next cursor")
+
 
 class GameSearchService:
     """Read-only application service for database/browser UI consumers."""
 
     def __init__(self, database: AcsDatabase) -> None:
+        if not isinstance(database, AcsDatabase):
+            raise TypeError("database must be AcsDatabase")
         self._database = database
 
     def search(self, query: GameSearchQuery | None = None) -> GameSearchPage:
-        q = (query or GameSearchQuery()).normalized()
+        if query is not None and not isinstance(query, GameSearchQuery):
+            raise TypeError("query must be GameSearchQuery or None")
+        q = (GameSearchQuery() if query is None else query).normalized()
         clauses: list[str] = []
         params: list[object] = []
 
         if q.player:
-            clauses.append("(g.white LIKE ? COLLATE NOCASE OR g.black LIKE ? COLLATE NOCASE)")
-            needle = f"%{q.player}%"
+            clauses.append(
+                "(g.white LIKE ? ESCAPE '!' COLLATE NOCASE "
+                "OR g.black LIKE ? ESCAPE '!' COLLATE NOCASE)"
+            )
+            needle = f"%{escape_like_literal(q.player)}%"
             params.extend((needle, needle))
         if q.event:
-            clauses.append("g.event LIKE ? COLLATE NOCASE")
-            params.append(f"%{q.event}%")
+            clauses.append("g.event LIKE ? ESCAPE '!' COLLATE NOCASE")
+            params.append(f"%{escape_like_literal(q.event)}%")
         if q.eco:
-            clauses.append("g.eco LIKE ? COLLATE NOCASE")
-            params.append(f"{q.eco}%")
+            clauses.append("g.eco LIKE ? ESCAPE '!' COLLATE NOCASE")
+            params.append(f"{escape_like_literal(q.eco)}%")
         if q.opening:
-            clauses.append("g.opening LIKE ? COLLATE NOCASE")
-            params.append(f"%{q.opening}%")
+            clauses.append("g.opening LIKE ? ESCAPE '!' COLLATE NOCASE")
+            params.append(f"%{escape_like_literal(q.opening)}%")
         if q.result:
             clauses.append("g.result=?")
             params.append(q.result)
@@ -122,8 +206,8 @@ class GameSearchService:
             clauses.append("g.source_id=?")
             params.append(q.source_id)
         if q.source_name:
-            clauses.append("s.source_name LIKE ? COLLATE NOCASE")
-            params.append(f"%{q.source_name}%")
+            clauses.append("s.source_name LIKE ? ESCAPE '!' COLLATE NOCASE")
+            params.append(f"%{escape_like_literal(q.source_name)}%")
         if q.after_game_id is not None:
             clauses.append("g.id>?")
             params.append(q.after_game_id)
@@ -159,12 +243,12 @@ class GameSearchService:
         visible_rows = rows[: q.limit]
         items = tuple(
             GameSearchItem(
-                game_id=int(row["game_id"]),
-                source_id=int(row["source_id"]),
-                source_name=str(row["source_name"]),
-                source_format=str(row["source_format"]),
-                source_index=int(row["source_index"]),
-                import_status=str(row["import_status"]),
+                game_id=row["game_id"],
+                source_id=row["source_id"],
+                source_name=row["source_name"],
+                source_format=row["source_format"],
+                source_index=row["source_index"],
+                import_status=row["import_status"],
                 white=row["white"],
                 black=row["black"],
                 event=row["event"],

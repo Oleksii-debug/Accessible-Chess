@@ -1,0 +1,235 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://accessible-chess.local/schemas/interaction-message-v1.schema.json",
+  "title": "Accessible Chess interaction message v1",
+  "oneOf": [
+    { "$ref": "#/$defs/move" },
+    { "$ref": "#/$defs/teacherPointer" },
+    { "$ref": "#/$defs/positionEditor" },
+    { "$ref": "#/$defs/annotation" },
+    { "$ref": "#/$defs/studentHover" },
+    { "$ref": "#/$defs/studentSelection" }
+  ],
+  "$defs": {
+    "version": { "const": 1 },
+    "square": { "type": "string", "pattern": "^[a-h][1-8]$" },
+    "nullableText": {
+      "oneOf": [
+        { "type": "string", "pattern": "\\S" },
+        { "type": "null" }
+      ]
+    },
+    "nullableSequence": { "type": ["integer", "null"], "minimum": 0 },
+    "move": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["version", "family", "raw_text"],
+      "properties": {
+        "version": { "$ref": "#/$defs/version" },
+        "family": { "const": "move" },
+        "raw_text": { "type": "string", "pattern": "\\S" }
+      }
+    },
+    "teacherPointer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["version", "family", "square"],
+      "properties": {
+        "version": { "$ref": "#/$defs/version" },
+        "family": { "const": "teacher_pointer" },
+        "square": { "$ref": "#/$defs/square" }
+      }
+    },
+    "positionEditor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["version", "family", "operation", "square", "piece", "value"],
+      "properties": {
+        "version": { "$ref": "#/$defs/version" },
+        "family": { "const": "position_editor" },
+        "operation": {
+          "enum": [
+            "clear",
+            "place_piece",
+            "remove_piece",
+            "set_turn",
+            "set_castling",
+            "set_en_passant",
+            "set_halfmove_clock",
+            "set_fullmove_number",
+            "load_fen"
+          ]
+        },
+        "square": {
+          "oneOf": [
+            { "$ref": "#/$defs/square" },
+            { "type": "null" }
+          ]
+        },
+        "piece": {
+          "oneOf": [
+            { "enum": ["P", "N", "B", "R", "Q", "K", "p", "n", "b", "r", "q", "k"] },
+            { "type": "null" }
+          ]
+        },
+        "value": { "type": ["string", "null"] }
+      },
+      "oneOf": [
+        {
+          "properties": {
+            "operation": { "const": "clear" },
+            "square": { "type": "null" },
+            "piece": { "type": "null" },
+            "value": { "type": "null" }
+          }
+        },
+        {
+          "properties": {
+            "operation": { "const": "place_piece" },
+            "square": { "$ref": "#/$defs/square" },
+            "piece": { "enum": ["P", "N", "B", "R", "Q", "K", "p", "n", "b", "r", "q", "k"] },
+            "value": { "type": "null" }
+          }
+        },
+        {
+          "properties": {
+            "operation": { "const": "remove_piece" },
+            "square": { "$ref": "#/$defs/square" },
+            "piece": { "type": "null" },
+            "value": { "type": "null" }
+          }
+        },
+        {
+          "properties": {
+            "operation": { "const": "set_turn" },
+            "square": { "type": "null" },
+            "piece": { "type": "null" },
+            "value": { "enum": ["w", "b"] }
+          }
+        },
+        {
+          "properties": {
+            "operation": { "const": "set_castling" },
+            "square": { "type": "null" },
+            "piece": { "type": "null" },
+            "value": {
+              "enum": ["-", "K", "Q", "KQ", "k", "Kk", "Qk", "KQk", "q", "Kq", "Qq", "KQq", "kq", "Kkq", "Qkq", "KQkq"]
+            }
+          }
+        },
+        {
+          "properties": {
+            "operation": { "const": "set_en_passant" },
+            "square": { "type": "null" },
+            "piece": { "type": "null" },
+            "value": {
+              "oneOf": [
+                { "const": "-" },
+                { "type": "string", "pattern": "^[a-h][36]$" }
+              ]
+            }
+          }
+        },
+        {
+          "properties": {
+            "operation": { "const": "set_halfmove_clock" },
+            "square": { "type": "null" },
+            "piece": { "type": "null" },
+            "value": { "type": "string", "pattern": "^(0|[1-9][0-9]*)$" }
+          }
+        },
+        {
+          "properties": {
+            "operation": { "const": "set_fullmove_number" },
+            "square": { "type": "null" },
+            "piece": { "type": "null" },
+            "value": { "type": "string", "pattern": "^[1-9][0-9]*$" }
+          }
+        },
+        {
+          "properties": {
+            "operation": { "const": "load_fen" },
+            "square": { "type": "null" },
+            "piece": { "type": "null" },
+            "value": { "type": "string", "pattern": "\\S" }
+          }
+        }
+      ]
+    },
+    "annotation": {
+      "oneOf": [
+        { "$ref": "#/$defs/highlightAnnotation" },
+        { "$ref": "#/$defs/arrowAnnotation" },
+        { "$ref": "#/$defs/clearAnnotation" }
+      ]
+    },
+    "highlightAnnotation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["version", "family", "operation", "start_square", "end_square", "tag"],
+      "properties": {
+        "version": { "$ref": "#/$defs/version" },
+        "family": { "const": "annotation" },
+        "operation": { "const": "set_highlight" },
+        "start_square": { "$ref": "#/$defs/square" },
+        "end_square": { "type": "null" },
+        "tag": { "$ref": "#/$defs/nullableText" }
+      }
+    },
+    "arrowAnnotation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["version", "family", "operation", "start_square", "end_square", "tag"],
+      "allOf": [
+        { "$ref": "distinct-square-pair-v1.schema.json" }
+      ],
+      "properties": {
+        "version": { "$ref": "#/$defs/version" },
+        "family": { "const": "annotation" },
+        "operation": { "const": "add_arrow" },
+        "start_square": { "$ref": "#/$defs/square" },
+        "end_square": { "$ref": "#/$defs/square" },
+        "tag": { "$ref": "#/$defs/nullableText" }
+      }
+    },
+    "clearAnnotation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["version", "family", "operation", "start_square", "end_square", "tag"],
+      "properties": {
+        "version": { "$ref": "#/$defs/version" },
+        "family": { "const": "annotation" },
+        "operation": { "const": "clear" },
+        "start_square": { "type": "null" },
+        "end_square": { "type": "null" },
+        "tag": { "$ref": "#/$defs/nullableText" }
+      }
+    },
+    "studentHover": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["version", "family", "square", "piece", "student_id", "sequence"],
+      "properties": {
+        "version": { "$ref": "#/$defs/version" },
+        "family": { "const": "student_hover" },
+        "square": { "$ref": "#/$defs/square" },
+        "piece": { "$ref": "#/$defs/nullableText" },
+        "student_id": { "$ref": "#/$defs/nullableText" },
+        "sequence": { "$ref": "#/$defs/nullableSequence" }
+      }
+    },
+    "studentSelection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["version", "family", "square", "piece", "student_id", "sequence"],
+      "properties": {
+        "version": { "$ref": "#/$defs/version" },
+        "family": { "const": "student_selection" },
+        "square": { "$ref": "#/$defs/square" },
+        "piece": { "$ref": "#/$defs/nullableText" },
+        "student_id": { "$ref": "#/$defs/nullableText" },
+        "sequence": { "$ref": "#/$defs/nullableSequence" }
+      }
+    }
+  }
+}

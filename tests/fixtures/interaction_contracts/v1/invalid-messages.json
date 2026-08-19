@@ -1,0 +1,222 @@
+{
+  "schema_version": 1,
+  "cases": [
+    {
+      "name": "move text is not a string",
+      "payload": {
+        "version": 1,
+        "family": "move",
+        "raw_text": 42
+      }
+    },
+    {
+      "name": "teacher pointer uses an integer square",
+      "payload": {
+        "version": 1,
+        "family": "teacher_pointer",
+        "square": 28
+      }
+    },
+    {
+      "name": "teacher pointer square is not canonical",
+      "payload": {
+        "version": 1,
+        "family": "teacher_pointer",
+        "square": "E4"
+      }
+    },
+    {
+      "name": "position operation is not a string",
+      "payload": {
+        "version": 1,
+        "family": "position_editor",
+        "operation": false,
+        "square": "e4",
+        "piece": "Q",
+        "value": null
+      }
+    },
+    {
+      "name": "position piece is not nullable text",
+      "payload": {
+        "version": 1,
+        "family": "position_editor",
+        "operation": "place_piece",
+        "square": "e4",
+        "piece": ["Q"],
+        "value": null
+      }
+    },
+    {
+      "name": "position operation is unknown",
+      "payload": {
+        "version": 1,
+        "family": "position_editor",
+        "operation": "future_magic",
+        "square": null,
+        "piece": null,
+        "value": null
+      }
+    },
+    {
+      "name": "place piece is missing its square",
+      "payload": {
+        "version": 1,
+        "family": "position_editor",
+        "operation": "place_piece",
+        "square": null,
+        "piece": "Q",
+        "value": null
+      }
+    },
+    {
+      "name": "place piece uses an unsupported symbol",
+      "payload": {
+        "version": 1,
+        "family": "position_editor",
+        "operation": "place_piece",
+        "square": "e4",
+        "piece": "X",
+        "value": null
+      }
+    },
+    {
+      "name": "remove piece contains a piece field",
+      "payload": {
+        "version": 1,
+        "family": "position_editor",
+        "operation": "remove_piece",
+        "square": "e4",
+        "piece": "Q",
+        "value": null
+      }
+    },
+    {
+      "name": "set turn contains a square",
+      "payload": {
+        "version": 1,
+        "family": "position_editor",
+        "operation": "set_turn",
+        "square": "e4",
+        "piece": null,
+        "value": "w"
+      }
+    },
+    {
+      "name": "set castling is not canonical",
+      "payload": {
+        "version": 1,
+        "family": "position_editor",
+        "operation": "set_castling",
+        "square": null,
+        "piece": null,
+        "value": "qK"
+      }
+    },
+    {
+      "name": "set en passant uses the wrong rank",
+      "payload": {
+        "version": 1,
+        "family": "position_editor",
+        "operation": "set_en_passant",
+        "square": null,
+        "piece": null,
+        "value": "e4"
+      }
+    },
+    {
+      "name": "halfmove clock is boolean",
+      "payload": {
+        "version": 1,
+        "family": "position_editor",
+        "operation": "set_halfmove_clock",
+        "square": null,
+        "piece": null,
+        "value": true
+      }
+    },
+    {
+      "name": "fullmove number is zero",
+      "payload": {
+        "version": 1,
+        "family": "position_editor",
+        "operation": "set_fullmove_number",
+        "square": null,
+        "piece": null,
+        "value": "0"
+      }
+    },
+    {
+      "name": "load fen is blank",
+      "payload": {
+        "version": 1,
+        "family": "position_editor",
+        "operation": "load_fen",
+        "square": null,
+        "piece": null,
+        "value": "   "
+      }
+    },
+    {
+      "name": "same square annotation arrow is forbidden",
+      "payload": {
+        "version": 1,
+        "family": "annotation",
+        "operation": "add_arrow",
+        "start_square": "e4",
+        "end_square": "e4",
+        "tag": null
+      }
+    },
+    {
+      "name": "annotation tag is blank",
+      "payload": {
+        "version": 1,
+        "family": "annotation",
+        "operation": "set_highlight",
+        "start_square": "e4",
+        "end_square": null,
+        "tag": "   "
+      }
+    },
+    {
+      "name": "student sequence is boolean",
+      "payload": {
+        "version": 1,
+        "family": "student_hover",
+        "square": "f3",
+        "piece": "N",
+        "student_id": "student-1",
+        "sequence": true
+      }
+    },
+    {
+      "name": "student identity is not nullable text",
+      "payload": {
+        "version": 1,
+        "family": "student_selection",
+        "square": "e5",
+        "piece": "p",
+        "student_id": {"value": "student-1"},
+        "sequence": 2
+      }
+    },
+    {
+      "name": "message contains an unknown field",
+      "payload": {
+        "version": 1,
+        "family": "move",
+        "raw_text": "e4",
+        "position": "must-not-exist"
+      }
+    },
+    {
+      "name": "message family is ambiguous",
+      "payload": {
+        "version": 1,
+        "family": "move_or_pointer",
+        "raw_text": "e4"
+      }
+    }
+  ]
+}

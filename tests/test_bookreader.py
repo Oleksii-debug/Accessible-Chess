@@ -1,6 +1,14 @@
 import unittest
 
-from acs.bookdocument import BookDocument, Diagram, Game, Heading, Paragraph, VariationTree
+from acs.bookdocument import (
+    BookDocument,
+    BookDocumentError,
+    Diagram,
+    Game,
+    Heading,
+    Paragraph,
+    VariationTree,
+)
 from acs.bookreader import BookReader
 
 
@@ -65,6 +73,49 @@ class BookReaderTests(unittest.TestCase):
         reader = BookReader(BookDocument("Empty"))
         with self.assertRaisesRegex(LookupError, "no readable blocks"):
             reader.location()
+
+    def test_reader_owns_a_detached_snapshot(self):
+        document = self.make_book()
+        reader = BookReader(document)
+        reader.go_to(3)
+        reader.save_return_point("diagram")
+
+        document.blocks.clear()
+        self.assertEqual(reader.location().block_id, "diagram")
+        self.assertEqual(reader.next_game().block_id, "game")
+
+        exposed = reader.document
+        exposed.blocks.clear()
+        self.assertEqual(reader.restore_return_point("diagram").block_id, "diagram")
+        self.assertEqual(len(reader.document.blocks), 7)
+
+    def test_navigation_rejects_boolean_and_string_index_without_cursor_change(self):
+        reader = BookReader(self.make_book())
+        before = reader.location()
+
+        for invalid in (True, False, "1", 1.0, None):
+            with self.subTest(index=invalid):
+                with self.assertRaises(TypeError):
+                    reader.go_to(invalid)
+                self.assertEqual(reader.location(), before)
+
+    def test_return_point_names_are_exact_text_and_normalized(self):
+        reader = BookReader(self.make_book())
+        reader.go_to(3)
+        reader.save_return_point("  analysis  ")
+        reader.go_to(6)
+        self.assertEqual(reader.restore_return_point("analysis").block_id, "diagram")
+
+        for invalid in (None, True, 7, "", "   "):
+            with self.subTest(name=invalid):
+                with self.assertRaises(ValueError):
+                    reader.save_return_point(invalid)
+                with self.assertRaises(ValueError):
+                    reader.restore_return_point(invalid)
+
+    def test_constructor_requires_semantic_document(self):
+        with self.assertRaises(BookDocumentError):
+            BookReader(object())
 
 
 if __name__ == "__main__":
