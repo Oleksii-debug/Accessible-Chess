@@ -222,6 +222,21 @@ def _parse_line(tokens: list[_Token], pos: int = 0, *, nested: bool = False) -> 
         if tok.kind == "RESULT":
             line.result = tok.value
             pos += 1
+            while pos < len(tokens):
+                trailing = tokens[pos]
+                if trailing.kind == "WARNING":
+                    warnings.append(trailing.value)
+                    pos += 1
+                    continue
+                if trailing.kind not in {"COMMENT_BRACE", "COMMENT_SEMI"}:
+                    break
+                line.trailing_comments.append(
+                    Comment(
+                        trailing.value,
+                        "brace" if trailing.kind == "COMMENT_BRACE" else "semicolon",
+                    )
+                )
+                pos += 1
             break
         if tok.kind == "SAN":
             node = MoveNode(tok.value, move_number=pending_number, comments_before=pending_comments)
@@ -242,6 +257,21 @@ def _parse_line(tokens: list[_Token], pos: int = 0, *, nested: bool = False) -> 
     return line, pos, warnings
 
 
+def _brace_comment_state_after_line(line: str, inside_comment: bool) -> bool:
+    """Track PGN brace comments so tag-looking comment lines stay movetext."""
+
+    for character in line:
+        if inside_comment:
+            if character == "}":
+                inside_comment = False
+            continue
+        if character == ";":
+            break
+        if character == "{":
+            inside_comment = True
+    return inside_comment
+
+
 def _split_games(text: str) -> list[tuple[dict[str, str], str, list[str]]]:
     lines = text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
     games: list[tuple[dict[str, str], str, list[str]]] = []
@@ -249,18 +279,20 @@ def _split_games(text: str) -> list[tuple[dict[str, str], str, list[str]]]:
     moves: list[str] = []
     split_warnings: list[str] = []
     seen_movetext = False
+    inside_brace_comment = False
 
     def flush() -> None:
-        nonlocal tags, moves, split_warnings, seen_movetext
+        nonlocal tags, moves, split_warnings, seen_movetext, inside_brace_comment
         if tags or any(x.strip() for x in moves):
             games.append((tags, "\n".join(moves).strip(), split_warnings))
         tags = {}
         moves = []
         split_warnings = []
         seen_movetext = False
+        inside_brace_comment = False
 
     for line in lines:
-        m = TAG_RE.match(line)
+        m = None if inside_brace_comment else TAG_RE.match(line)
         if m:
             if seen_movetext:
                 flush()
@@ -273,6 +305,10 @@ def _split_games(text: str) -> list[tuple[dict[str, str], str, list[str]]]:
             seen_movetext = True
         if seen_movetext or moves:
             moves.append(line)
+        inside_brace_comment = _brace_comment_state_after_line(
+            line,
+            inside_brace_comment,
+        )
     flush()
     return games
 
@@ -341,9 +377,9 @@ def _serialize_line(line: VariationLine, *, include_result: bool = True) -> str:
         parts.extend(_serialize_comment(c) for c in node.comments_after)
         for variation in node.variations:
             parts.append("(" + _serialize_line(variation, include_result=True) + ")")
-    parts.extend(_serialize_comment(c) for c in line.trailing_comments)
     if include_result and line.result:
         parts.append(line.result)
+    parts.extend(_serialize_comment(c) for c in line.trailing_comments)
     return " ".join(p for p in parts if p)
 
 

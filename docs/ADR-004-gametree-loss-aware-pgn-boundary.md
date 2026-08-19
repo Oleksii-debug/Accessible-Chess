@@ -44,6 +44,11 @@ PGN must never be silently reinterpreted as clean data.
    an explicit warning naming the collapsed tag.
 9. Empty game collections serialize to empty text. Multiple games use a blank
    separator.
+10. The multi-game splitter tracks multiline brace-comment state. A line that
+    looks like a PGN tag while inside `{...}` remains comment text and cannot
+    create a phantom game.
+11. Comments after a root or nested result marker remain ordered trailing
+    comments and round-trip in their original syntax.
 
 ## Compatibility
 

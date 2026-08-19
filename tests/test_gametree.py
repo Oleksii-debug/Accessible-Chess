@@ -236,6 +236,88 @@ class GameTreeTests(unittest.TestCase):
         serialized = serialize_games(games)
         self.assertIn("*\n\n[Event \"Two\"]", serialized)
 
+    def test_tag_looking_lines_inside_multiline_brace_comment_do_not_split_game(self):
+        source = (
+            '[Event "Real game"]\n'
+            '[Result "*"]\n\n'
+            '1. e4 {first line\n'
+            '[Event "comment text, not a game"]\n'
+            '[Result "0-1"]\n'
+            'last line} e5 *\n\n'
+            '[Event "Second real game"]\n'
+            '[Result "*"]\n\n'
+            '1. d4 ; { does not open a brace comment\n'
+            ' d5 *'
+        )
+
+        games = parse_games(source)
+
+        self.assertEqual(len(games), 2)
+        self.assertEqual(
+            [game.tags["Event"] for game in games],
+            ["Real game", "Second real game"],
+        )
+        comment = games[0].line.moves[0].comments_after[0]
+        self.assertEqual(
+            comment.text,
+            'first line\n[Event "comment text, not a game"]\n'
+            '[Result "0-1"]\nlast line',
+        )
+        self.assertEqual([move.san for move in games[0].line.moves], ["e4", "e5"])
+        reparsed = parse_games(serialize_games(games))
+        self.assertEqual(len(reparsed), 2)
+        self.assertEqual(
+            reparsed[0].line.moves[0].comments_after[0],
+            comment,
+        )
+
+    def test_unterminated_multiline_comment_keeps_one_damaged_game_with_warning(self):
+        source = (
+            '[Event "Damaged"]\n'
+            '[Result "*"]\n\n'
+            '1. e4 {open comment\n'
+            '[Event "must not become a second game"]\n'
+            '[Result "1-0"]\n'
+            'still open'
+        )
+
+        games = parse_games(source)
+
+        self.assertEqual(len(games), 1)
+        self.assertEqual(games[0].tags["Event"], "Damaged")
+        self.assertEqual([move.san for move in games[0].line.moves], ["e4"])
+        self.assertTrue(
+            any("unterminated brace comment" in warning for warning in games[0].warnings)
+        )
+        self.assertIn(
+            '[Event "must not become a second game"]',
+            games[0].line.moves[0].comments_after[0].text,
+        )
+
+    def test_comments_after_result_round_trip_at_root_and_nested_variation(self):
+        source = (
+            '[Result "*"]\n\n'
+            '1. e4 (1. d4 * {variation tail}) e5 * ;root tail\n'
+        )
+
+        original = parse_games(source)[0]
+        variation = original.line.moves[0].variations[0]
+        self.assertEqual(
+            [(comment.text, comment.style) for comment in variation.trailing_comments],
+            [("variation tail", CommentStyle.BRACE)],
+        )
+        self.assertEqual(
+            [(comment.text, comment.style) for comment in original.line.trailing_comments],
+            [("root tail", CommentStyle.SEMICOLON)],
+        )
+
+        reparsed = parse_games(serialize_games([original]))[0]
+        self.assertEqual(
+            reparsed.line.moves[0].variations[0].trailing_comments,
+            variation.trailing_comments,
+        )
+        self.assertEqual(reparsed.line.trailing_comments, original.line.trailing_comments)
+
 
 if __name__ == '__main__':
     unittest.main()
