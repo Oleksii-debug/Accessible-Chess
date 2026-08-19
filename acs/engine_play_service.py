@@ -364,15 +364,22 @@ class EnginePlayService:
     def close(self) -> None:
         # Terminal close is deliberately monotonic. Holding the same lock used
         # by choose_move means close waits for any in-flight provider operation,
-        # then prevents all future factory/provider use.
+        # then prevents all future factory/provider use. An owned provider is
+        # retained until cleanup succeeds so a transient close failure can be
+        # retried without reopening the service or recreating the provider.
         with self._lock:
-            if self._closed:
+            if self._closed and self._engine is None:
                 return
             self._closed = True
             engine = self._engine
+            if not self._owns_engine or engine is None:
+                self._engine = None
+                return
+            try:
+                engine.close()
+            except Exception as exc:
+                raise EngineContractError(
+                    "engine provider cleanup failed",
+                    code=EngineContractErrorCode.INVALID_PROVIDER,
+                ) from exc
             self._engine = None
-            if self._owns_engine and engine is not None:
-                try:
-                    engine.close()
-                except Exception:
-                    pass

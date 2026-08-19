@@ -37,6 +37,16 @@ class BlockingMoveEngine:
         self.closed.set()
 
 
+class FlakyCloseMoveEngine(BlockingMoveEngine):
+    def close(self):
+        with self._state_lock:
+            self.close_calls += 1
+            close_calls = self.close_calls
+        if close_calls == 1:
+            raise RuntimeError('temporary close failure')
+        self.closed.set()
+
+
 class EnginePlayServiceConcurrencyTests(unittest.TestCase):
     def test_close_is_terminal_and_factory_never_runs_after_close(self):
         calls = []
@@ -135,6 +145,38 @@ class EnginePlayServiceConcurrencyTests(unittest.TestCase):
         self.assertEqual(engine.close_calls, 0)
         with self.assertRaises(EngineContractError):
             service.choose_move(EngineMoveRequest('fen-2'))
+
+    def test_failed_owned_close_is_retryable_without_reopening_service(self):
+        engine = FlakyCloseMoveEngine()
+        engine.release.set()
+        factory_calls = []
+        service = EnginePlayService(
+            lambda: factory_calls.append(1) or engine,
+        )
+        service.choose_move(EngineMoveRequest('fen'))
+
+        with self.assertRaises(EngineContractError) as caught:
+            service.close()
+        self.assertEqual(
+            caught.exception.code,
+            EngineContractErrorCode.INVALID_PROVIDER,
+        )
+        self.assertIsInstance(caught.exception.__cause__, RuntimeError)
+        self.assertEqual(str(caught.exception.__cause__), 'temporary close failure')
+
+        with self.assertRaises(EngineContractError) as terminal:
+            service.choose_move(EngineMoveRequest('fen-2'))
+        self.assertEqual(
+            terminal.exception.code,
+            EngineContractErrorCode.INVALID_SESSION,
+        )
+
+        service.close()
+        service.close()
+
+        self.assertEqual(factory_calls, [1])
+        self.assertEqual(engine.close_calls, 2)
+        self.assertTrue(engine.closed.is_set())
 
 
 if __name__ == '__main__':
