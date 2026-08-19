@@ -163,8 +163,16 @@ class BookBlock:
         # Dataclass instances are intentionally mutable for authoring. Rebuild
         # the exact current payload before export so post-construction mutation
         # cannot bypass the semantic validators and leak corrupt wire data.
-        block_from_dict(dict(data))
-        return data
+        # Export the rebuilt payload rather than the mutable source payload so
+        # constructor-normalized identifiers and FEN remain canonical and the
+        # schema-v1 wire value is stable across import/export round trips.
+        rebuilt = block_from_dict(dict(data))
+        canonical = {"kind": rebuilt.kind}
+        for name in rebuilt.__dataclass_fields__:
+            value = getattr(rebuilt, name)
+            if value is not None and value != []:
+                canonical[name] = value
+        return canonical
 
 
 @dataclass(slots=True)
