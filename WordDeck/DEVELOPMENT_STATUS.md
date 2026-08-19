@@ -6,13 +6,12 @@ Branch: `worddeck-bootstrap` only. Never develop WordDeck on `main`.
 ## Emergency Oxford 5000 milestone
 
 ### Oxford lexical data
-- Grouped runtime activation is now defined for **4,001 dictionary rows = 3,308 unchanged Oxford 3000 baseline rows + 693 source-reviewed canonical B2/C1 Oxford 5000 additions**. Existing Oxford 3000 IDs/progress remain unchanged; durable dictionary ID remains `oxford-3000-en-uk` for lossless migration.
-- This run added the next authoritative C1 slice after `harsh` adjective: **29 verified rows**, from `harvest` noun through `imagery` noun. The slice preserves Oxford POS distinctions such as `harvest` noun/verb and `hint` noun/verb instead of collapsing them.
+- Runtime activation remains **4,001 dictionary rows = 3,308 unchanged Oxford 3000 baseline rows + 693 source-reviewed canonical B2/C1 Oxford 5000 additions**. Existing Oxford 3000 IDs/progress remain unchanged; durable dictionary ID remains `oxford-3000-en-uk` for lossless migration.
+- Source-backed extraction has now advanced to **722 reviewed Oxford 5000 additions**: a new **29-row verified C1 staging slice** runs from `immense` adjective through `injustice` noun immediately after the previously activated `imagery` noun. The new source ledger is `oxford5000_source_after_imagery_c1_0001_0029.tsv`.
 - Oxford source/POS/CEFR checks were revalidated on 2026-08-19 against the official Oxford 3000/5000 list. Oxford documents the 5000 as the Oxford 3000 plus 2,000 B2-C1 additions; no Oxford C2 vocabulary subset is invented.
-- `ReviewedOxford5000Bootstrap.ExpectedCanonicalRows` is raised from 664 to **693**; `oxford5000_source_after_harsh_c1_0001_0029.tsv` is fail-closed and embedded. The historical `deployment` enumeration tail remains only for regression-order compatibility; stable lexical IDs, not row positions, remain the durable identity contract.
-- Stable IDs remain deterministic SHA-256 identities over lowercase `source + U+001F + POS + U+001F + CEFR`. Every activated source row must be `verified`, have nonblank Ukrainian translation, supported B2/C1 CEFR and unique lexical identity.
+- The new staging slice preserves one row per official lexical POS/CEFR record, uses deterministic stable IDs over lowercase `source + U+001F + POS + U+001F + CEFR`, contains no blank translations and marks every admitted row `verified`. It is intentionally staged separately until the next coherent runtime/audio checkpoint updates activation and regression totals together.
 - Earlier five semantically broader C-region rows (`corrupt` adjective, `corruption` noun, `coup` noun, `cult` adjective, `cult` noun) remain excluded pending second-pass semantic QA.
-- **Exact next data action:** continue authoritative C1 extraction immediately after `imagery` noun in another large source-backed batch; isolate ambiguity rather than blocking later extraction.
+- **Exact next data action:** activate the verified 29-row `immense`→`injustice` slice in the runtime ledger, then continue authoritative C1 extraction immediately after `injustice` noun in another large source-backed batch; isolate ambiguity rather than blocking later extraction.
 
 ### Recall Study Scope / Workspace
 - Durable scope IDs: `all`, `a1`, `a2`, `b1`, `b2`, `c1`; labels: `All Oxford 5000`, `A1`, `A2`, `B1`, `B2`, `C1`.
@@ -24,8 +23,8 @@ Branch: `worddeck-bootstrap` only. Never develop WordDeck on `main`.
 ### British offline audio
 - Oxford 3000 technical generation: **3,308/3,308**.
 - Targeted Oxford 3000 QA queue remains 36 numbered/sense-marker candidates: 19 deterministic `ready`, 17 heteronym/sense-sensitive `review`; review rows are not guessed.
-- The previously requested Oxford 5000 batch was built against the then-current **606** verified additions. Its completion/integrity has not been independently confirmed in this turn, so release accounting remains fail-closed rather than assuming coverage.
-- The runtime/export ledger now contains **693** verified Oxford 5000 additions. The existing `--export-oxford5000-audio-source` path follows `ExpectedCanonicalRows`, so the next coherent audio checkpoint must validate coverage against 693 stable IDs and generate only missing additions/replacements.
+- The previously requested Oxford 5000 batch was built against the then-current **606** verified additions. Its completion/integrity has not been independently confirmed in this run, so release accounting remains fail-closed rather than assuming coverage.
+- Runtime/export audio ledger remains **693 activated Oxford 5000 additions**; the newly reviewed 29 rows are staged lexical data and are not yet claimed as generated audio. The next coherent audio checkpoint must first activate them and then validate/generate only missing stable IDs against the resulting 722-row verified set.
 - Runtime remains offline and independent of Kokoro/Python/API/network.
 
 ### Hotkey / F1 truth audit
@@ -36,9 +35,9 @@ Branch: `worddeck-bootstrap` only. Never develop WordDeck on `main`.
 
 ### Emergency blockers
 - **No user-input blocker.**
-- Full official Oxford 5000 row-level extraction remains incomplete: **693** source-reviewed runtime additions are now represented, but the complete official addition inventory is not finished.
-- A fresh Windows self-test/build gate for the new 693-row head is required before this checkpoint is called a verified beta milestone.
-- British audio for the newly activated additions is not yet fully verified; do not claim full Oxford 5000 audio coverage.
+- Full official Oxford 5000 row-level extraction remains incomplete: **722 source-reviewed additions are now represented in source/QA ledgers, 693 of them are runtime-activated**.
+- A fresh Windows self-test/build gate is still required for the current 693-row runtime head before that head is called a verified beta milestone; the new 29-row staging file itself does not alter runtime behavior yet.
+- British audio for the newly activated/staged additions is not yet fully verified; do not claim full Oxford 5000 audio coverage.
 - Targeted Oxford 3000 pronunciation replacements remain incomplete for 17 sense-sensitive review rows; do not guess them.
 
 ## Parallel lanes (non-blocking)
