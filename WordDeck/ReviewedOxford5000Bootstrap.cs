@@ -17,7 +17,11 @@ internal static class ReviewedOxford5000Bootstrap
     private const int ExpectedPostDamRows = 29;
     private const int ExpectedPostDeploymentRows = 29;
     private const int ExpectedPostDirectoryRows = 29;
-    public const int ExpectedCanonicalRows = 490;
+    private const int ExpectedPostDominanceRows = 29;
+    private const int ExpectedPostEmbarrassmentRows = 29;
+    private const int ExpectedPostEqualityRows = 29;
+    private const int ExpectedPostExplosiveAdjectiveRows = 29;
+    public const int ExpectedCanonicalRows = 606;
 
     private static readonly Dictionary<string, string> PosAbbreviations = new(StringComparer.Ordinal)
     {
@@ -102,12 +106,16 @@ internal static class ReviewedOxford5000Bootstrap
         AppendVerifiedSlice(result, "oxford5000_source_after_compute_c1_0001_0029.tsv", ExpectedPostComputeRows, 1998);
         AppendVerifiedSlice(result, "oxford5000_source_after_constitution_c1_0001_0029.tsv", ExpectedPostConstitutionRows, 1999);
         AppendVerifiedSlice(result, "oxford5000_source_after_correlation_c1_0001_0029.tsv", ExpectedPostCorrelationRows, 2001);
-        // Keep the historical beta enumeration tail stable for existing regression fixtures while
-        // activating the next two source-reviewed slices. Stable lexical IDs—not row position—are
-        // the durable identity contract, and study order is randomized by the Recall shuffle bag.
-        AppendVerifiedSlice(result, "oxford5000_source_after_deployment_c1_0001_0029.tsv", ExpectedPostDeploymentRows, 2002);
+        // Stable lexical IDs—not row position—are the durable identity contract. Keep deployment
+        // as the historical enumeration tail for old regression fixtures while source-reviewed
+        // lexical slices continue to activate in source order before it.
         AppendVerifiedSlice(result, "oxford5000_source_after_directory_c1_0001_0029.tsv", ExpectedPostDirectoryRows, 2003);
         AppendVerifiedSlice(result, "oxford5000_source_after_dam_c1_0001_0029.tsv", ExpectedPostDamRows, 2004);
+        AppendVerifiedSlice(result, "oxford5000_source_after_dominance_c1_0001_0029.tsv", ExpectedPostDominanceRows, 2005);
+        AppendVerifiedSlice(result, "oxford5000_source_after_embarrassment_c1_0001_0029.tsv", ExpectedPostEmbarrassmentRows, 2006);
+        AppendVerifiedSlice(result, "oxford5000_source_after_equality_c1_0001_0029.tsv", ExpectedPostEqualityRows, 2007);
+        AppendVerifiedSlice(result, "oxford5000_source_after_explosive_adj_c1_0001_0029.tsv", ExpectedPostExplosiveAdjectiveRows, 2008);
+        AppendVerifiedSlice(result, "oxford5000_source_after_deployment_c1_0001_0029.tsv", ExpectedPostDeploymentRows, 9999);
 
         result = result.OrderBy(row => row.MajorOrder).ThenBy(row => row.MinorOrder).ToList();
         if (result.Count != ExpectedCanonicalRows)
@@ -143,6 +151,12 @@ internal static class ReviewedOxford5000Bootstrap
             throw new InvalidDataException("Verified directory noun C1 row is missing from canonical Oxford 5000 beta ledger.");
         if (!result.Any(row => row is { Source: "dominance", PartOfSpeech: "noun", Level: "C1" }))
             throw new InvalidDataException("Verified dominance noun C1 row is missing from canonical Oxford 5000 beta ledger.");
+        if (!result.Any(row => row is { Source: "excess", PartOfSpeech: "noun", Level: "C1" }))
+            throw new InvalidDataException("Verified excess noun C1 row is missing from canonical Oxford 5000 beta ledger.");
+        if (!result.Any(row => row is { Source: "explosive", PartOfSpeech: "noun", Level: "C1" }))
+            throw new InvalidDataException("Verified explosive noun C1 row is missing from canonical Oxford 5000 beta ledger.");
+        if (!result.Any(row => row is { Source: "flesh", PartOfSpeech: "noun", Level: "C1" }))
+            throw new InvalidDataException("Verified flesh noun C1 row is missing from canonical Oxford 5000 beta ledger.");
         if (result[^1] is not { Source: "deployment", PartOfSpeech: "noun", Level: "C1" })
             throw new InvalidDataException("Canonical Oxford 5000 beta ledger historical regression tail changed unexpectedly.");
         return result;
