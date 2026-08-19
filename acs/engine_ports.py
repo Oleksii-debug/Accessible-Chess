@@ -36,6 +36,55 @@ class RawAnalysisLine:
     score_value: int
     pv: tuple[str, ...]
 
+    def __post_init__(self) -> None:
+        if (
+            not isinstance(self.depth, int)
+            or isinstance(self.depth, bool)
+            or self.depth < 0
+        ):
+            raise EngineContractError(
+                "analysis depth must be a non-negative integer",
+                code=EngineContractErrorCode.INVALID_RESULT,
+            )
+        if not isinstance(self.score_kind, str):
+            raise EngineContractError(
+                "analysis score kind must be text",
+                code=EngineContractErrorCode.INVALID_RESULT,
+            )
+        score_kind = self.score_kind.strip()
+        if score_kind not in {"cp", "mate"}:
+            raise EngineContractError(
+                "analysis score kind must be 'cp' or 'mate'",
+                code=EngineContractErrorCode.INVALID_RESULT,
+            )
+        if not isinstance(self.score_value, int) or isinstance(
+            self.score_value,
+            bool,
+        ):
+            raise EngineContractError(
+                "analysis score value must be an integer",
+                code=EngineContractErrorCode.INVALID_RESULT,
+            )
+        if not isinstance(self.pv, tuple):
+            raise EngineContractError(
+                "analysis PV must be a tuple",
+                code=EngineContractErrorCode.INVALID_RESULT,
+            )
+        moves: list[str] = []
+        for move in self.pv:
+            if not isinstance(move, str) or not move.strip():
+                raise EngineContractError(
+                    "analysis PV moves must be non-empty text",
+                    code=EngineContractErrorCode.INVALID_RESULT,
+                )
+            moves.append(move.strip())
+        object.__setattr__(self, "score_kind", score_kind)
+        object.__setattr__(self, "pv", tuple(moves))
+
+
+LegacyAnalysisLine = tuple[int, tuple[str, int], Sequence[str]]
+AnalysisProviderLine = RawAnalysisLine | LegacyAnalysisLine
+
 
 @dataclass(frozen=True)
 class EngineMoveRequest:
@@ -101,12 +150,17 @@ class EngineMoveResult:
 
 @runtime_checkable
 class AnalysisEnginePort(Protocol):
-    def analyze(self, fen: str, multipv: int = 5, depth: int = 16) -> Sequence[object]:
+    def analyze(
+        self,
+        fen: str,
+        multipv: int = 5,
+        depth: int = 16,
+    ) -> Sequence[AnalysisProviderLine]:
         """Return one raw analysis item per PV.
 
         Existing UCIEngine compatibility is preserved: each item may be the
-        legacy tuple ``(depth, (score_kind, score_value), pv_moves)``.
-        Adapters may later return ``RawAnalysisLine`` directly.
+        bounded legacy tuple ``(depth, (score_kind, score_value), pv_moves)``.
+        New adapters should return ``RawAnalysisLine`` directly.
         """
 
     def close(self) -> None:
