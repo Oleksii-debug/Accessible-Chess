@@ -3,22 +3,45 @@ from pathlib import Path
 import unittest
 
 
+# Presentation-neutral reusable modules.  Keep this list explicit so adding a
+# new core/domain service requires an intentional architecture-gate decision.
 CORE_MODULES = (
     'acs/squares.py',
+    'acs/chesscore.py',
+    'acs/board_service.py',
+    'acs/position_editor.py',
     'acs/interaction_contracts.py',
     'acs/interaction_router.py',
     'acs/history.py',
+    'acs/gametree.py',
+    'acs/pgn.py',
+    'acs/pgn_service.py',
+    'acs/bookdocument.py',
+    'acs/book_index.py',
+    'acs/bookreader.py',
+    'acs/training.py',
+    'acs/game_lifecycle.py',
+    'acs/clock_service.py',
     'acs/keybindings.py',
     'acs/notation.py',
     'acs/notation_registry.py',
     'acs/engine_ports.py',
     'acs/engine_play_service.py',
+    'acs/engine_game_session.py',
+    'acs/engine_registry.py',
     'acs/analysis_service.py',
+    'acs/continuous_analysis.py',
     'acs/sound_dispatch.py',
+    'acs/import_contract.py',
+    'acs/import_registry.py',
+    'acs/game_identity.py',
+    'acs/duplicate_detection.py',
 )
 
 FORBIDDEN_PREFIXES = (
     'acs.webapp',
+    'acs.ui_',
+    'acs.stage1_',
     'webview',
     'pywebview',
     'sqlite3',
@@ -39,7 +62,25 @@ class ArchitectureBoundaryTests(unittest.TestCase):
                 imports.append(node.module)
         return imports
 
-    def test_engine_core_modules_do_not_depend_on_presentation_or_database_implementations(self):
+    def test_declared_core_module_set_is_complete_and_unique(self):
+        self.assertEqual(len(CORE_MODULES), len(set(CORE_MODULES)))
+        missing = [relative for relative in CORE_MODULES if not Path(relative).is_file()]
+        self.assertEqual(missing, [], f'missing declared core modules: {missing}')
+        required = {
+            'acs/bookdocument.py',
+            'acs/book_index.py',
+            'acs/bookreader.py',
+            'acs/training.py',
+            'acs/game_lifecycle.py',
+            'acs/game_identity.py',
+            'acs/duplicate_detection.py',
+            'acs/gametree.py',
+            'acs/interaction_contracts.py',
+            'acs/interaction_router.py',
+        }
+        self.assertEqual(required.difference(CORE_MODULES), set())
+
+    def test_reusable_core_modules_do_not_depend_on_presentation_or_database_implementations(self):
         violations = []
         for relative in CORE_MODULES:
             for name in self.imports_for(relative):

@@ -1,0 +1,77 @@
+name: Work Core CI
+
+on:
+  push:
+    branches:
+      - dev/canonical-interaction-contracts-20260819
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: work-core-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  core-verification:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Checkout exact Work head
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install verification dependencies
+        run: python -m pip install --disable-pip-version-check pytest jsonschema
+
+      - name: Verify Work diff whitespace
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin integration/accessible-chess-next
+          git diff --check FETCH_HEAD...HEAD
+
+      - name: Compile reusable source and tests
+        run: python -m compileall -q acs tests
+
+      - name: Audit PositionState scalar boundary
+        run: python -m unittest discover -s tests -p 'test_position_editor.py' -v
+
+      - name: Architecture dependency gate
+        run: python -m unittest discover -s tests -p 'test_architecture.py' -v
+
+      - name: Interaction schema and routing contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m unittest discover -s tests -p 'test_interaction_contracts.py' -v
+          python -m unittest discover -s tests -p 'test_interaction_router.py' -v
+          python -m unittest discover -s tests -p 'test_interaction_schema_contract.py' -v
+
+      - name: Full unittest discovery
+        run: python -m unittest discover -s tests -v
+
+  repository-pytest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Checkout exact Work head
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install verification dependencies
+        run: python -m pip install --disable-pip-version-check pytest jsonschema
+
+      - name: Full pytest without test weakening
+        run: pytest -q
