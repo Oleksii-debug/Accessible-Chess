@@ -16,10 +16,41 @@ import sqlite3
 from typing import Iterable
 
 from .gametree import PgnGame, parse_games, serialize_game
+from .position_editor import PositionState
 
 IMPORT_STATUSES = {"full", "partial", "damaged", "warning"}
 IMPORT_ATTEMPT_STATUSES = {"pending", "full", "warning", "damaged", "failed"}
 ACSDB_SCHEMA_VERSION = 2
+
+
+def _require_exact_int(value: object, name: str, *, minimum: int | None = None) -> int:
+    if type(value) is not int:
+        raise TypeError(f"{name} must be an exact integer")
+    if minimum is not None and value < minimum:
+        raise ValueError(f"{name} must be at least {minimum}")
+    return value
+
+
+def _require_text(value: object, name: str, *, allow_empty: bool = False) -> str:
+    if type(value) is not str:
+        raise TypeError(f"{name} must be exact text")
+    if not allow_empty and not value:
+        raise ValueError(f"{name} must not be empty")
+    return value
+
+
+def _require_optional_text(value: object, name: str) -> str | None:
+    if value is None:
+        return None
+    return _require_text(value, name, allow_empty=True)
+
+
+def _bounded_limit(value: object) -> int:
+    return max(1, min(_require_exact_int(value, "limit"), 1000))
+
+
+def _require_id(value: object, name: str) -> int:
+    return _require_exact_int(value, name, minimum=1)
 
 
 @dataclass(slots=True)
@@ -155,12 +186,18 @@ class AcsDatabase:
 
     @staticmethod
     def position_key(fen: str) -> str:
-        parts = (fen or "").strip().split()
-        if len(parts) < 4:
-            raise ValueError("FEN must contain at least placement, turn, castling and en-passant fields")
-        return " ".join(parts[:4])
+        _require_text(fen, "fen")
+        # Reuse the canonical structural FEN parser rather than indexing an
+        # arbitrary four-token string. PositionState intentionally validates
+        # structure, metadata and exact counters without requiring a playable
+        # position, which is appropriate for historical/editor data.
+        state = PositionState.from_fen(fen)
+        return " ".join(state.to_fen().split()[:4])
 
     def _insert_source(self, source_name: str, source_format: str, sha256: str | None = None) -> int:
+        source_name = _require_text(source_name, "source_name")
+        source_format = _require_text(source_format, "source_format")
+        sha256 = _require_optional_text(sha256, "sha256")
         cur = self.conn.execute(
             "INSERT INTO sources(source_name, source_format, sha256, imported_at) VALUES(?,?,?,?)",
             (source_name, source_format.lower(), sha256, self._now()),
@@ -172,6 +209,9 @@ class AcsDatabase:
             return self._insert_source(source_name, source_format, sha256)
 
     def _create_import_attempt(self, source_name: str, source_format: str, sha256: str) -> int:
+        source_name = _require_text(source_name, "source_name")
+        source_format = _require_text(source_format, "source_format")
+        sha256 = _require_text(sha256, "sha256")
         with self.conn:
             cur = self.conn.execute(
                 "INSERT INTO import_attempts(source_name, source_format, sha256, started_at, status) VALUES(?,?,?,?,?)",
@@ -182,22 +222,38 @@ class AcsDatabase:
     def _finish_import_attempt(self, attempt_id: int, *, status: str, source_id: int | None = None,
                                game_count: int = 0, warning_count: int = 0,
                                error_message: str | None = None) -> None:
+        attempt_id = _require_id(attempt_id, "attempt_id")
+        status = _require_text(status, "status")
         if status not in IMPORT_ATTEMPT_STATUSES - {"pending"}:
             raise ValueError(f"Unsupported import attempt status: {status}")
+        if source_id is not None:
+            source_id = _require_id(source_id, "source_id")
+        game_count = _require_exact_int(game_count, "game_count", minimum=0)
+        warning_count = _require_exact_int(warning_count, "warning_count", minimum=0)
+        error_message = _require_optional_text(error_message, "error_message")
         self.conn.execute(
             """UPDATE import_attempts
                SET finished_at=?, status=?, source_id=?, game_count=?, warning_count=?, error_message=?
                WHERE id=?""",
-            (self._now(), status, source_id, int(game_count), int(warning_count), error_message, int(attempt_id)),
+            (self._now(), status, source_id, game_count, warning_count, error_message, attempt_id),
         )
 
     def _insert_game(self, game: PgnGame, source_id: int, *, raw_pgn: str | None = None,
                      import_status: str | None = None) -> int:
+        if not isinstance(game, PgnGame):
+            raise TypeError("game must be a PgnGame")
+        source_id = _require_id(source_id, "source_id")
+        raw_pgn = _require_optional_text(raw_pgn, "raw_pgn")
+        if import_status is not None:
+            import_status = _require_text(import_status, "import_status")
         status = import_status or ("warning" if game.warnings else "full")
         if status not in IMPORT_STATUSES:
             raise ValueError(f"Unsupported import status: {status}")
+        # Validate mutable GameTree state even when caller supplies raw source
+        # text. This prevents malformed post-construction DTOs reaching SQLite.
+        validated_pgn = serialize_game(game)
         tags = game.tags
-        pgn_text = raw_pgn if raw_pgn is not None else serialize_game(game)
+        pgn_text = raw_pgn if raw_pgn is not None else validated_pgn
         cur = self.conn.execute(
             """INSERT INTO games(source_id, source_index, import_status, warnings_json,
                event, site, game_date, round, white, black, result, eco, opening, start_fen, pgn_text)
@@ -215,6 +271,8 @@ class AcsDatabase:
             return self._insert_game(game, source_id, raw_pgn=raw_pgn, import_status=import_status)
 
     def import_pgn_text(self, text: str, source_name: str = "memory.pgn") -> ImportReport:
+        text = _require_text(text, "text", allow_empty=True)
+        source_name = _require_text(source_name, "source_name")
         digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
         attempt_id = self._create_import_attempt(source_name, "pgn", digest)
         try:
@@ -251,15 +309,18 @@ class AcsDatabase:
             raise
 
     def get_game(self, game_id: int) -> dict | None:
+        game_id = _require_id(game_id, "game_id")
         row = self.conn.execute("SELECT * FROM games WHERE id=?", (game_id,)).fetchone()
         return dict(row) if row else None
 
     def get_source(self, source_id: int) -> dict | None:
+        source_id = _require_id(source_id, "source_id")
         row = self.conn.execute("SELECT * FROM sources WHERE id=?", (source_id,)).fetchone()
         return dict(row) if row else None
 
     def get_import_attempt(self, attempt_id: int) -> dict | None:
-        row = self.conn.execute("SELECT * FROM import_attempts WHERE id=?", (int(attempt_id),)).fetchone()
+        attempt_id = _require_id(attempt_id, "attempt_id")
+        row = self.conn.execute("SELECT * FROM import_attempts WHERE id=?", (attempt_id,)).fetchone()
         return dict(row) if row else None
 
     def list_import_attempts(self, *, status: str | None = None, sha256: str | None = None,
@@ -267,10 +328,12 @@ class AcsDatabase:
         clauses: list[str] = []
         params: list[object] = []
         if status is not None:
+            status = _require_text(status, "status")
             if status not in IMPORT_ATTEMPT_STATUSES:
                 raise ValueError(f"Unsupported import attempt status: {status}")
             clauses.append("status=?")
             params.append(status)
+        sha256 = _require_optional_text(sha256, "sha256")
         if sha256:
             clauses.append("sha256=?")
             params.append(sha256)
@@ -278,13 +341,21 @@ class AcsDatabase:
         if clauses:
             sql += " WHERE " + " AND ".join(clauses)
         sql += " ORDER BY id DESC LIMIT ?"
-        params.append(max(1, min(int(limit), 1000)))
+        params.append(_bounded_limit(limit))
         return [dict(row) for row in self.conn.execute(sql, params).fetchall()]
 
     def search_games(self, *, player: str | None = None, event: str | None = None,
                      eco: str | None = None, opening: str | None = None,
                      result: str | None = None, source_id: int | None = None,
                      source_name: str | None = None, limit: int = 100) -> list[dict]:
+        player = _require_optional_text(player, "player")
+        event = _require_optional_text(event, "event")
+        eco = _require_optional_text(eco, "eco")
+        opening = _require_optional_text(opening, "opening")
+        result = _require_optional_text(result, "result")
+        source_name = _require_optional_text(source_name, "source_name")
+        if source_id is not None:
+            source_id = _require_id(source_id, "source_id")
         clauses: list[str] = []
         params: list[object] = []
         if player:
@@ -313,19 +384,35 @@ class AcsDatabase:
         if clauses:
             sql += " WHERE " + " AND ".join(clauses)
         sql += " ORDER BY g.id LIMIT ?"
-        params.append(max(1, min(int(limit), 1000)))
+        params.append(_bounded_limit(limit))
         return [dict(row) for row in self.conn.execute(sql, params).fetchall()]
 
     def record_position(self, game_id: int, ply: int, fen: str) -> None:
+        game_id = _require_id(game_id, "game_id")
+        ply = _require_exact_int(ply, "ply", minimum=0)
         key = self.position_key(fen)
+        canonical_fen = PositionState.from_fen(fen).to_fen()
         with self.conn:
             self.conn.execute(
                 "INSERT OR REPLACE INTO positions(game_id, ply, fen, position_key) VALUES(?,?,?,?)",
-                (game_id, int(ply), fen, key),
+                (game_id, ply, canonical_fen, key),
             )
 
     def record_positions(self, game_id: int, positions: Iterable[tuple[int, str]]) -> None:
-        rows = [(game_id, int(ply), fen, self.position_key(fen)) for ply, fen in positions]
+        game_id = _require_id(game_id, "game_id")
+        try:
+            snapshot = tuple(positions)
+        except TypeError as exc:
+            raise TypeError("positions must be an iterable of (ply, fen) tuples") from exc
+        rows: list[tuple[int, int, str, str]] = []
+        for item in snapshot:
+            if type(item) is not tuple or len(item) != 2:
+                raise TypeError("each position must be an exact (ply, fen) tuple")
+            ply, fen = item
+            ply = _require_exact_int(ply, "ply", minimum=0)
+            key = self.position_key(fen)
+            canonical_fen = PositionState.from_fen(fen).to_fen()
+            rows.append((game_id, ply, canonical_fen, key))
         with self.conn:
             self.conn.executemany(
                 "INSERT OR REPLACE INTO positions(game_id, ply, fen, position_key) VALUES(?,?,?,?)", rows
@@ -337,6 +424,6 @@ class AcsDatabase:
             """SELECT g.*, p.ply AS matched_ply, p.fen AS matched_fen
                FROM positions p JOIN games g ON g.id=p.game_id
                WHERE p.position_key=? ORDER BY g.id, p.ply LIMIT ?""",
-            (key, max(1, min(int(limit), 1000))),
+            (key, _bounded_limit(limit)),
         ).fetchall()
         return [dict(row) for row in rows]
