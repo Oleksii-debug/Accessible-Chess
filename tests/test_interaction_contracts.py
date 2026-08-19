@@ -146,6 +146,21 @@ class InteractionContractTests(unittest.TestCase):
                 with self.assertRaises(ContractValidationError):
                     constructor(None)
 
+    def test_text_contracts_reject_non_strings_instead_of_coercing_them(self):
+        constructors = (
+            lambda: MoveCommand(42),
+            lambda: PositionEditorCommand(False),
+            lambda: PositionEditorCommand("place_piece", piece=["Q"]),
+            lambda: AnnotationCommand(AnnotationOperation.CLEAR, tag={"name": "all"}),
+            lambda: StudentHoverEvent("f3", student_id=17),
+            lambda: SquareHighlight("e4", purpose=True),
+            lambda: PresentationState(active_student_id=["student-1"]),
+        )
+        for constructor in constructors:
+            with self.subTest(constructor=constructor):
+                with self.assertRaises(ContractValidationError):
+                    constructor()
+
 
 if __name__ == "__main__":
     unittest.main()

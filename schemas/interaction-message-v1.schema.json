@@ -13,7 +13,12 @@
   "$defs": {
     "version": { "const": 1 },
     "square": { "type": "string", "pattern": "^[a-h][1-8]$" },
-    "nullableText": { "type": ["string", "null"] },
+    "nullableText": {
+      "oneOf": [
+        { "type": "string", "pattern": "\\S" },
+        { "type": "null" }
+      ]
+    },
     "nullableSequence": { "type": ["integer", "null"], "minimum": 0 },
     "move": {
       "type": "object",

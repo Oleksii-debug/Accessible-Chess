@@ -36,6 +36,11 @@ second source of chess position truth.
 - JSON Schema 2020-12 documents in `schemas/` and checked-in golden fixtures
   make the v1 boundary testable by non-Python adapters without duplicating
   chess rules or relying on prose-only contracts.
+- Wire readers enforce the same scalar types and canonical lowercase square
+  form as the schemas. They never coerce numbers, booleans, arrays, or objects
+  into text and never normalize a non-canonical wire square silently.
+- Checked-in negative conformance fixtures must fail in both the production
+  readers and a JSON Schema 2020-12 validator.
 
 ## Consequences
 

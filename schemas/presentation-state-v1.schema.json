@@ -41,7 +41,7 @@
         ]
       }
     },
-    "active_student_id": { "type": ["string", "null"] },
+    "active_student_id": { "$ref": "#/$defs/nullableText" },
     "engine_visibility": {
       "enum": ["visible_to_teacher", "visible_to_student", "hidden"]
     },
@@ -51,6 +51,12 @@
   },
   "$defs": {
     "square": { "type": "string", "pattern": "^[a-h][1-8]$" },
+    "nullableText": {
+      "oneOf": [
+        { "type": "string", "pattern": "\\S" },
+        { "type": "null" }
+      ]
+    },
     "highlight": {
       "type": "object",
       "additionalProperties": false,

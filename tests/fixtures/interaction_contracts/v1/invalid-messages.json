@@ -1,0 +1,101 @@
+{
+  "schema_version": 1,
+  "cases": [
+    {
+      "name": "move text is not a string",
+      "payload": {
+        "version": 1,
+        "family": "move",
+        "raw_text": 42
+      }
+    },
+    {
+      "name": "teacher pointer uses an integer square",
+      "payload": {
+        "version": 1,
+        "family": "teacher_pointer",
+        "square": 28
+      }
+    },
+    {
+      "name": "teacher pointer square is not canonical",
+      "payload": {
+        "version": 1,
+        "family": "teacher_pointer",
+        "square": "E4"
+      }
+    },
+    {
+      "name": "position operation is not a string",
+      "payload": {
+        "version": 1,
+        "family": "position_editor",
+        "operation": false,
+        "square": "e4",
+        "piece": "Q",
+        "value": null
+      }
+    },
+    {
+      "name": "position piece is not nullable text",
+      "payload": {
+        "version": 1,
+        "family": "position_editor",
+        "operation": "place_piece",
+        "square": "e4",
+        "piece": ["Q"],
+        "value": null
+      }
+    },
+    {
+      "name": "annotation tag is blank",
+      "payload": {
+        "version": 1,
+        "family": "annotation",
+        "operation": "set_highlight",
+        "start_square": "e4",
+        "end_square": null,
+        "tag": "   "
+      }
+    },
+    {
+      "name": "student sequence is boolean",
+      "payload": {
+        "version": 1,
+        "family": "student_hover",
+        "square": "f3",
+        "piece": "N",
+        "student_id": "student-1",
+        "sequence": true
+      }
+    },
+    {
+      "name": "student identity is not nullable text",
+      "payload": {
+        "version": 1,
+        "family": "student_selection",
+        "square": "e5",
+        "piece": "p",
+        "student_id": {"value": "student-1"},
+        "sequence": 2
+      }
+    },
+    {
+      "name": "message contains an unknown field",
+      "payload": {
+        "version": 1,
+        "family": "move",
+        "raw_text": "e4",
+        "position": "must-not-exist"
+      }
+    },
+    {
+      "name": "message family is ambiguous",
+      "payload": {
+        "version": 1,
+        "family": "move_or_pointer",
+        "raw_text": "e4"
+      }
+    }
+  ]
+}

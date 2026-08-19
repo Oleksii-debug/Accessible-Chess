@@ -49,10 +49,11 @@ def _validate_version(version: int) -> None:
 
 
 def _required_text(value: object, label: str) -> str:
-    text = str(value)
-    if not text.strip():
+    if not isinstance(value, str):
+        raise ContractValidationError(f"{label} must be a string")
+    if not value.strip():
         raise ContractValidationError(f"{label} must not be empty")
-    return text
+    return value
 
 
 def _optional_text(value: object | None, label: str) -> str | None:
@@ -74,6 +75,33 @@ def _required_square(value: str | int | None, label: str = "square") -> str:
     square = _optional_square(value)
     if square is None:
         raise ContractValidationError(f"{label} must not be empty")
+    return square
+
+
+def _payload_square(
+    value: object,
+    label: str = "square",
+    *,
+    optional: bool = False,
+) -> str | None:
+    """Require the JSON v1 square representation without constructor coercion.
+
+    Domain constructors accept integer square indexes for in-process callers,
+    but the published adapter schema uses canonical algebraic strings only.
+    Deserializers therefore reject integers instead of silently widening the
+    language-neutral wire contract.
+    """
+
+    if value is None and optional:
+        return None
+    if not isinstance(value, str):
+        suffix = " or null" if optional else ""
+        raise ContractValidationError(f"{label} must be a square string{suffix}")
+    square = _required_square(value, label)
+    if value != square:
+        raise ContractValidationError(
+            f"{label} must use canonical lowercase algebraic form"
+        )
     return square
 
 
@@ -353,24 +381,29 @@ def interaction_from_payload(payload: Mapping[str, object]) -> InteractionMessag
         return MoveCommand(payload["raw_text"], version=version)
     if family is CommandFamily.TEACHER_POINTER:
         _exact_payload(payload, {"version", "family", "square"})
-        return TeacherPointerCommand(payload["square"], version=version)
+        return TeacherPointerCommand(_payload_square(payload["square"]), version=version)
     if family is CommandFamily.POSITION_EDITOR:
         _exact_payload(payload, {"version", "family", "operation", "square", "piece", "value"})
         return PositionEditorCommand(
-            payload["operation"], square=payload["square"], piece=payload["piece"],
+            payload["operation"],
+            square=_payload_square(payload["square"], optional=True),
+            piece=payload["piece"],
             value=payload["value"], version=version,
         )
     if family is CommandFamily.ANNOTATION:
         _exact_payload(payload, {"version", "family", "operation", "start_square", "end_square", "tag"})
         return AnnotationCommand(
-            payload["operation"], start_square=payload["start_square"],
-            end_square=payload["end_square"], tag=payload["tag"], version=version,
+            payload["operation"],
+            start_square=_payload_square(payload["start_square"], "start square", optional=True),
+            end_square=_payload_square(payload["end_square"], "end square", optional=True),
+            tag=payload["tag"], version=version,
         )
     event_keys = {"version", "family", "square", "piece", "student_id", "sequence"}
     _exact_payload(payload, event_keys)
     event_type = StudentHoverEvent if family is CommandFamily.STUDENT_HOVER else StudentSelectionEvent
     return event_type(
-        payload["square"], piece=payload["piece"], student_id=payload["student_id"],
+        _payload_square(payload["square"]),
+        piece=payload["piece"], student_id=payload["student_id"],
         sequence=payload["sequence"], version=version,
     )
 
@@ -414,12 +447,14 @@ def presentation_state_from_payload(payload: Mapping[str, object]) -> Presentati
     if any(not isinstance(item, (StudentHoverEvent, StudentSelectionEvent)) for item in parsed_history):
         raise ContractValidationError("student history may contain only hover/selection events")
     try:
-        parsed_highlights = tuple(SquareHighlight(**item) for item in highlights)
-        parsed_arrows = tuple(VisualArrow(**item) for item in arrows)
+        parsed_highlights = tuple(_highlight_from_payload(item) for item in highlights)
+        parsed_arrows = tuple(_arrow_from_payload(item) for item in arrows)
     except (TypeError, ValueError) as exc:
         raise ContractValidationError(f"invalid presentation collection entry: {exc}") from exc
     return PresentationState(
-        pointer=TeacherPointerState(payload["pointer_square"]),
+        pointer=TeacherPointerState(
+            _payload_square(payload["pointer_square"], "pointer square", optional=True)
+        ),
         highlights=parsed_highlights,
         arrows=parsed_arrows,
         coordinate_labels_visible=payload["coordinate_labels_visible"],
@@ -428,4 +463,25 @@ def presentation_state_from_payload(payload: Mapping[str, object]) -> Presentati
         engine_visibility=payload["engine_visibility"],
         board_permission=payload["board_permission"],
         version=payload["version"],
+    )
+
+
+def _highlight_from_payload(payload: object) -> SquareHighlight:
+    if not isinstance(payload, Mapping):
+        raise ContractValidationError("highlight entry must be an object")
+    _exact_payload(payload, {"square", "purpose"})
+    return SquareHighlight(
+        _payload_square(payload["square"], "highlight square"),
+        _required_text(payload["purpose"], "highlight purpose"),
+    )
+
+
+def _arrow_from_payload(payload: object) -> VisualArrow:
+    if not isinstance(payload, Mapping):
+        raise ContractValidationError("arrow entry must be an object")
+    _exact_payload(payload, {"start_square", "end_square", "purpose"})
+    return VisualArrow(
+        _payload_square(payload["start_square"], "arrow start square"),
+        _payload_square(payload["end_square"], "arrow end square"),
+        _required_text(payload["purpose"], "arrow purpose"),
     )

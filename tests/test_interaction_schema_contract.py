@@ -6,6 +6,7 @@ import unittest
 
 from acs.interaction_contracts import (
     CommandFamily,
+    ContractValidationError,
     interaction_from_payload,
     interaction_to_payload,
     presentation_state_from_payload,
@@ -29,6 +30,8 @@ class InteractionSchemaContractTests(unittest.TestCase):
         cls.presentation_schema = load_json(SCHEMAS / "presentation-state-v1.schema.json")
         cls.message_fixture = load_json(FIXTURES / "messages.json")
         cls.presentation_fixture = load_json(FIXTURES / "presentation-state.json")
+        cls.invalid_messages = load_json(FIXTURES / "invalid-messages.json")
+        cls.invalid_presentations = load_json(FIXTURES / "invalid-presentation-states.json")
 
     def test_schemas_are_versioned_json_schema_2020_12_documents(self):
         for schema in (self.interaction_schema, self.presentation_schema):
@@ -108,6 +111,45 @@ class InteractionSchemaContractTests(unittest.TestCase):
         properties = self.presentation_schema["properties"]
         self.assertIn(self.presentation_fixture["engine_visibility"], properties["engine_visibility"]["enum"])
         self.assertIn(self.presentation_fixture["board_permission"], properties["board_permission"]["enum"])
+
+    def test_negative_conformance_fixtures_fail_closed_in_runtime_readers(self):
+        for case in self.invalid_messages["cases"]:
+            with self.subTest(kind="interaction", name=case["name"]):
+                with self.assertRaises(ContractValidationError):
+                    interaction_from_payload(case["payload"])
+        for case in self.invalid_presentations["cases"]:
+            with self.subTest(kind="presentation", name=case["name"]):
+                with self.assertRaises(ContractValidationError):
+                    presentation_state_from_payload(case["payload"])
+
+    def test_negative_conformance_fixtures_are_rejected_by_json_schema(self):
+        try:
+            from jsonschema import Draft202012Validator
+            from referencing import Registry, Resource
+        except ImportError:
+            self.skipTest("jsonschema is not installed in this test environment")
+
+        interaction_validator = Draft202012Validator(self.interaction_schema)
+        registry = Registry().with_resource(
+            self.interaction_schema["$id"],
+            Resource.from_contents(self.interaction_schema),
+        )
+        presentation_validator = Draft202012Validator(
+            self.presentation_schema,
+            registry=registry,
+        )
+        for case in self.invalid_messages["cases"]:
+            with self.subTest(kind="interaction", name=case["name"]):
+                self.assertFalse(interaction_validator.is_valid(case["payload"]))
+        for case in self.invalid_presentations["cases"]:
+            with self.subTest(kind="presentation", name=case["name"]):
+                self.assertFalse(presentation_validator.is_valid(case["payload"]))
+
+    def test_negative_fixture_names_are_unique_and_versioned(self):
+        for fixture in (self.invalid_messages, self.invalid_presentations):
+            self.assertEqual(fixture["schema_version"], 1)
+            names = [case["name"] for case in fixture["cases"]]
+            self.assertEqual(len(names), len(set(names)))
 
 
 if __name__ == "__main__":
