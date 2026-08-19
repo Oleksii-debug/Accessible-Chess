@@ -4,10 +4,10 @@ Canonical product vision: `docs/CANONICAL_PRODUCT_VISION_UA.md`.
 This roadmap does not replace the canonical vision. It translates it into architectural dependencies and delivery gates.
 
 ## 1. Non-negotiable product invariant
-Accessible Chess is one professional accessibility-first chess platform for blind and sighted users, including a blind coach teaching sighted children. Accessibility is not a reduced mode. Visual presentation is not a second source of chess truth.
+Accessible Chess is one professional accessibility-first Windows chess platform for blind and sighted users, including a blind coach teaching sighted children. Accessibility is not a reduced mode. Visual presentation is not a second source of chess truth.
 
 ## 2. One canonical chess core
-All platforms and modes consume the same canonical domain/application layer:
+All modes consume the same canonical domain/application layer:
 - Position / board state;
 - Move / legality / attack map;
 - SAN / FEN;
@@ -18,7 +18,7 @@ All platforms and modes consume the same canonical domain/application layer:
 - engine request/result models;
 - source provenance and versioned serialization.
 
-Windows/NVDA, mouse/visual board, Teacher Board, Classroom, PGN, ACSDB, ChessBase adapters, books, Web, Android and iOS must not implement separate chess rules.
+Windows/NVDA, mouse/visual board, Teacher Board, Classroom, PGN, ACSDB, ChessBase adapters and books must not implement separate chess rules.
 
 ## 3. Separate command families
 The application must never infer user intent from ambiguous text. At minimum keep distinct command families:
@@ -46,7 +46,7 @@ Current Stage 1 remains governed by Issue #14 and human acceptance Issue #22. Re
 
 No human-rejected ZIP is reused. `NVDA_VERIFIED=NO` until Oleksii personally tests the exact fresh candidate.
 
-The architecture must preserve future Teacher/Classroom/PGN/Database/Books/Web/Mobile paths, but Stage 1 release lineage stays narrow.
+The architecture must preserve future Teacher/Classroom/PGN/Database/Books paths, but Stage 1 release lineage stays narrow.
 
 ## 6. PGN + canonical GameTree
 Dependency: canonical chess core.
@@ -163,22 +163,16 @@ Lesson material may contain positions, explanations, questions, games, variation
 
 ## 12. Online / remote lessons
 Dependency: deterministic commands/events and stable identities.
-Teacher and student may have different presentation surfaces over one synchronized canonical session.
+Teacher and student may have different presentation surfaces over one synchronized canonical session inside the Windows product ecosystem.
 Synchronize position, teacher pointer, annotations and student hover/click/answers. Group mode supports one shared teacher board, active student and individual answers.
 
-## 13. Web/PWA
-Web is not a reduced side project and must not fork chess logic. Use stable command/state/event contracts and semantic accessible UI. Avoid a canvas-only critical interaction model.
-
-## 14. Android and iOS
-TalkBack/VoiceOver/touch/Bluetooth-keyboard surfaces consume the same semantic command/state models. No mobile-specific chess legality implementation.
-
-## 15. Accessibility completion rule
+## 13. Accessibility completion rule
 A feature is not complete if it is mouse-only. For every important function check keyboard-only operation, focus, accessible names/state/errors, screen-reader semantics and standard clipboard/menu behavior where applicable.
 Visual features must have a meaningful text/NVDA equivalent for the blind teacher/user.
 
-## 16. Delivery strategy
+## 14. Delivery strategy
 - Keep current Stage 1 release lineage narrow and evidence-driven.
-- Preserve the full product vision in architecture/backlog even when a feature is not in the current release.
-- Build future work in dependency order after the Stage 1 gate: GameTree/PGN -> ACSDB/Library -> ChessBase adapters -> Books/Training -> Teacher/Classroom -> Online -> Web/Mobile.
+- Preserve the full Windows product vision in architecture/backlog even when a feature is not in the current release.
+- Build future work in dependency order after the Stage 1 gate: GameTree/PGN -> ACSDB/Library -> ChessBase adapters -> Books/Training -> Teacher/Classroom -> Online/remote lessons.
 - Difficult adapters are replaceable boundaries. A blocked CBH decoder must not require redesign of GameTree/ACSDB/Books/Teacher UI.
 - Use explicit capability states such as SUPPORTED/PARTIAL/UNSUPPORTED/BLOCKED and never silently invent or drop data.
