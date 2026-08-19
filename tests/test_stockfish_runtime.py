@@ -11,8 +11,10 @@ from acs.stockfish_runtime import (
     PACKAGED_STOCKFISH_RELATIVE_PATH,
     StockfishInvalidExecutableError,
     StockfishNotFoundError,
+    StockfishProviderError,
     StockfishRuntime,
     StockfishRuntimeConfig,
+    StockfishRuntimeConfigError,
     StockfishRuntimeError,
     resolve_stockfish_path,
 )
@@ -97,6 +99,15 @@ class StockfishRuntimeTests(unittest.TestCase):
             with self.assertRaisesRegex(StockfishInvalidExecutableError, "empty or corrupt"):
                 resolve_stockfish_path(StockfishRuntimeConfig(application_dir=root))
 
+    def test_invalid_filesystem_syntax_has_a_typed_resolution_error(self):
+        with self.assertRaisesRegex(
+            StockfishInvalidExecutableError,
+            "Cannot resolve configured Stockfish path",
+        ):
+            resolve_stockfish_path(
+                StockfishRuntimeConfig(configured_path="bad\x00path"),
+            )
+
     def test_runtime_reuses_exactly_one_provider_and_owns_close_once(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -170,6 +181,92 @@ class StockfishRuntimeTests(unittest.TestCase):
         self.assertIn("setoption name Skill Level value 12", engine.sent)
         self.assertIn("isready", engine.sent)
         self.assertIn("go movetime 300", engine.sent)
+
+    def test_runtime_config_and_constructor_reject_coercive_values(self):
+        for field_name in ("configured_path", "application_dir"):
+            for invalid in (True, 7, 7.0, b"path", object(), "", "   "):
+                with self.subTest(field=field_name, value=invalid):
+                    with self.assertRaises(StockfishRuntimeConfigError):
+                        StockfishRuntimeConfig(**{field_name: invalid})
+
+        with self.assertRaises(StockfishRuntimeConfigError):
+            resolve_stockfish_path(object())
+        with self.assertRaises(StockfishRuntimeConfigError):
+            StockfishRuntime(object())
+        with self.assertRaises(StockfishRuntimeConfigError):
+            StockfishRuntime(StockfishRuntimeConfig(), engine_builder=object())
+
+    def test_falsey_callable_builder_is_not_replaced(self):
+        class FalseyBuilder:
+            def __init__(self):
+                self.paths = []
+                self.engine = FakeEngine()
+
+            def __bool__(self):
+                return False
+
+            def __call__(self, path):
+                self.paths.append(path)
+                return self.engine
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            expected = self._make_engine_file(root)
+            builder = FalseyBuilder()
+            runtime = StockfishRuntime(
+                StockfishRuntimeConfig(application_dir=root),
+                engine_builder=builder,
+            )
+            self.assertIs(runtime.provider(), builder.engine)
+            self.assertEqual(builder.paths, [str(expected.resolve())])
+            runtime.close()
+            self.assertEqual(builder.engine.close_count, 1)
+
+    def test_incompatible_builder_result_fails_explicitly_and_can_retry(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._make_engine_file(root)
+            valid = FakeEngine()
+            outputs = [object(), valid]
+
+            def builder(path):
+                return outputs.pop(0)
+
+            runtime = StockfishRuntime(
+                StockfishRuntimeConfig(application_dir=root),
+                engine_builder=builder,
+            )
+            with self.assertRaisesRegex(StockfishProviderError, "incompatible"):
+                runtime.provider()
+            self.assertIs(runtime.provider(), valid)
+            runtime.close()
+            self.assertEqual(valid.close_count, 1)
+
+    def test_failed_provider_close_is_retryable_without_reopening_runtime(self):
+        class FlakyCloseEngine(FakeEngine):
+            def close(self):
+                self.close_count += 1
+                if self.close_count == 1:
+                    raise RuntimeError("temporary close failure")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._make_engine_file(root)
+            engine = FlakyCloseEngine()
+            runtime = StockfishRuntime(
+                StockfishRuntimeConfig(application_dir=root),
+                engine_builder=lambda path: engine,
+            )
+            self.assertIs(runtime.provider(), engine)
+
+            with self.assertRaisesRegex(RuntimeError, "temporary close failure"):
+                runtime.close()
+            with self.assertRaisesRegex(StockfishRuntimeError, "closed"):
+                runtime.provider()
+
+            runtime.close()
+            runtime.close()
+            self.assertEqual(engine.close_count, 2)
 
 
 if __name__ == "__main__":
