@@ -12,7 +12,7 @@ internal static class ReviewedOxford5000Bootstrap
     private const int StandardSliceRows = 29;
     private const int HistoricalDeploymentMajorOrder = 2004;
     private const int VerifiedPostMutualRows = 28;
-    public const int ExpectedCanonicalRows = 953;
+    public const int ExpectedCanonicalRows = 982;
 
     private static readonly Dictionary<string, string> PosAbbreviations = new(StringComparer.Ordinal)
     {
@@ -103,6 +103,7 @@ internal static class ReviewedOxford5000Bootstrap
         AppendVerifiedSlice(result, "oxford5000_source_after_merit_c1_0001_0029.tsv", StandardSliceRows, 2018);
         AppendVerifiedSlice(result, "oxford5000_source_after_mutual_verified_c1_0001_0028.tsv", VerifiedPostMutualRows, 2019);
         AppendVerifiedSlice(result, "oxford5000_source_after_mutual_verified_b2c1_0001_0029.tsv", StandardSliceRows, 2020);
+        AppendVerifiedSlice(result, "oxford5000_source_after_offspring_verified_c1_0001_0029.tsv", StandardSliceRows, 2021);
 
         // The post-deployment slice is intentionally later than the historical deployment boundary.
         // Stable lexical IDs and the explicit historical boundary below are the durable regression contract.
@@ -160,6 +161,8 @@ internal static class ReviewedOxford5000Bootstrap
         RequirePresence(result, "nursing", "noun", "B2");
         RequirePresence(result, "occupation", "noun", "B2");
         RequirePresence(result, "offender", "noun", "B2");
+        RequirePresence(result, "operational", "adjective", "C1");
+        RequirePresence(result, "passing", "noun", "C1");
         RequirePresence(result, "deployment", "noun", "C1");
 
         CanonicalCandidate? historicalDeploymentBoundary = result.SingleOrDefault(row =>
