@@ -18,12 +18,14 @@ concurrency:
 
 jobs:
   core-verification:
+    name: Raw head core verification
     runs-on: ubuntu-latest
     timeout-minutes: 12
     steps:
-      - name: Checkout exact Work head
+      - name: Checkout raw Work head
         uses: actions/checkout@v4
         with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
 
       - name: Set up Python
@@ -62,11 +64,14 @@ jobs:
         run: python -m unittest discover -s tests -v
 
   repository-pytest:
+    name: Raw head full pytest
     runs-on: ubuntu-latest
     timeout-minutes: 12
     steps:
-      - name: Checkout exact Work head
+      - name: Checkout raw Work head
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -77,4 +82,27 @@ jobs:
         run: python -m pip install --disable-pip-version-check pytest jsonschema
 
       - name: Full pytest without test weakening
-        run: pytest -q
+        run: python -m pytest -q
+
+  integration-merge-ref:
+    name: PR merge-ref integration smoke
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Checkout GitHub PR merge ref
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install verification dependencies
+        run: python -m pip install --disable-pip-version-check pytest jsonschema
+
+      - name: Compile merge-ref source and tests
+        run: python -m compileall -q acs tests
+
+      - name: Merge-ref full unittest discovery
+        run: python -m unittest discover -s tests -v
