@@ -10,6 +10,7 @@ internal static class ReviewedOxford5000Bootstrap
     private const int ExpectedLegacyGroups = 200;
     private const int ExpectedPostBlowRows = 43;
     private const int StandardSliceRows = 29;
+    private const int HistoricalDeploymentMajorOrder = 2004;
     private const int VerifiedPostMutualRows = 28;
     public const int ExpectedCanonicalRows = 953;
 
@@ -85,7 +86,7 @@ internal static class ReviewedOxford5000Bootstrap
         AppendVerifiedSlice(result, "oxford5000_source_after_constitution_c1_0001_0029.tsv", StandardSliceRows, 1999);
         AppendVerifiedSlice(result, "oxford5000_source_after_correlation_c1_0001_0029.tsv", StandardSliceRows, 2001);
         AppendVerifiedSlice(result, "oxford5000_source_after_directory_c1_0001_0029.tsv", StandardSliceRows, 2003);
-        AppendVerifiedSlice(result, "oxford5000_source_after_dam_c1_0001_0029.tsv", StandardSliceRows, 2004);
+        AppendVerifiedSlice(result, "oxford5000_source_after_dam_c1_0001_0029.tsv", StandardSliceRows, HistoricalDeploymentMajorOrder);
         AppendVerifiedSlice(result, "oxford5000_source_after_dominance_c1_0001_0029.tsv", StandardSliceRows, 2005);
         AppendVerifiedSlice(result, "oxford5000_source_after_embarrassment_c1_0001_0029.tsv", StandardSliceRows, 2006);
         AppendVerifiedSlice(result, "oxford5000_source_after_equality_c1_0001_0029.tsv", StandardSliceRows, 2007);
@@ -103,8 +104,8 @@ internal static class ReviewedOxford5000Bootstrap
         AppendVerifiedSlice(result, "oxford5000_source_after_mutual_verified_c1_0001_0028.tsv", VerifiedPostMutualRows, 2019);
         AppendVerifiedSlice(result, "oxford5000_source_after_mutual_verified_b2c1_0001_0029.tsv", StandardSliceRows, 2020);
 
-        // Deployment remains the historical enumeration tail for old regression fixtures.
-        // Stable lexical IDs, not row position, are the durable identity contract.
+        // The post-deployment slice is intentionally later than the historical deployment boundary.
+        // Stable lexical IDs and the explicit historical boundary below are the durable regression contract.
         AppendVerifiedSlice(result, "oxford5000_source_after_deployment_c1_0001_0029.tsv", StandardSliceRows, 9999);
 
         result = result.OrderBy(row => row.MajorOrder).ThenBy(row => row.MinorOrder).ToList();
@@ -159,8 +160,17 @@ internal static class ReviewedOxford5000Bootstrap
         RequirePresence(result, "nursing", "noun", "B2");
         RequirePresence(result, "occupation", "noun", "B2");
         RequirePresence(result, "offender", "noun", "B2");
-        if (result[^1] is not { Source: "deployment", PartOfSpeech: "noun", Level: "C1" })
-            throw new InvalidDataException("Canonical Oxford 5000 beta ledger historical regression tail changed unexpectedly.");
+        RequirePresence(result, "deployment", "noun", "C1");
+
+        CanonicalCandidate? historicalDeploymentBoundary = result.SingleOrDefault(row =>
+            row.Source == "deployment" && row.PartOfSpeech == "noun" && row.Level == "C1");
+        if (historicalDeploymentBoundary is null ||
+            historicalDeploymentBoundary.MajorOrder != HistoricalDeploymentMajorOrder ||
+            historicalDeploymentBoundary.MinorOrder != StandardSliceRows)
+        {
+            throw new InvalidDataException(
+                "Canonical Oxford 5000 beta historical deployment/noun/C1 boundary changed unexpectedly.");
+        }
         return result;
     }
 
