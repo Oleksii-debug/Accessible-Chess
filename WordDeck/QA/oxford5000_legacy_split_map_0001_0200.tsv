@@ -19,6 +19,7 @@ ox5000-add-0122	assault	verb	C1	нападати; атакувати	verified	Cu
 __missing__	assumption	noun	B2	припущення; переконання без доказів	verified	Current Oxford 5000 list confirms assumption noun B2 between assistance and assurance; row was omitted from legacy staging and is restored explicitly.
 ox5000-add-0139	attribute	noun	C1	ознака; властивість	verified	Current Oxford 5000 list confirms separate attribute noun C1 row; OALD-reviewed characteristic noun sense retained.
 ox5000-add-0139	attribute	verb	C1	приписувати; пояснювати як наслідок	verified	Current Oxford 5000 list confirms separate attribute verb C1 row; OALD-reviewed cause/credit verb sense retained.
+ox5000-add-0168	bass	noun	C1	бас; низький музичний регістр; басовий голос; бас-гітара	verified	Current Oxford 5000 list confirms canonical headword bass noun C1; legacy source marker bass1 is normalized to the official lexical headword while preserving the reviewed musical /beɪs/ translation coverage.
 ox5000-add-0184	besides	adverb	B2	до того ж; крім того	verified	Current Oxford 5000 list confirms separate besides adverb B2 row; additive-comment sense retained.
 ox5000-add-0184	besides	preposition	B2	крім; окрім	verified	Current Oxford 5000 list confirms separate besides preposition B2 row; in-addition-to/apart-from sense retained.
 ox5000-add-0187	bid	noun	B2	ставка; цінова пропозиція; заявка	verified	Current Oxford 5000 list confirms separate bid noun B2 row; reviewed offer/application noun senses retained.
