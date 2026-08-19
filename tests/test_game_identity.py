@@ -37,3 +37,13 @@ def test_comments_and_nags_are_loss_sensitive_for_duplicate_identity():
     a = one('[Result "*"]\n\n1. e4 $1 {main idea} e5 *\n')
     b = one('[Result "*"]\n\n1. e4 $2 {different idea} e5 *\n')
     assert not same_game_tree(a, b)
+
+
+def test_semicolon_comment_identity_survives_pgn_round_trip():
+    from acs.gametree import serialize_games
+
+    original = one('[Result "*"]\n\n1. e4 ;literal } brace\n e5 *\n')
+    reparsed = one(serialize_games([original]))
+
+    assert same_game_tree(original, reparsed)
+    assert same_game_record(original, reparsed)

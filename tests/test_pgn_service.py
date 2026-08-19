@@ -80,6 +80,26 @@ class PgnFileServiceTests(unittest.TestCase):
             self.assertEqual(exported.sha256, open_pgn(path).source.sha256)
             self.assertEqual(open_pgn(path).total_games, 1)
 
+    def test_atomic_save_preserves_semicolon_brace_and_result_mismatch_evidence(self):
+        game = parse_games(
+            '[Event "Damaged source"]\n'
+            '[Result "1-0"]\n\n'
+            '1. e4 ;literal } brace\n'
+            ' e5 0-1\n'
+        )[0]
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "loss-aware.pgn"
+            save_pgn_atomic(path, (game,))
+            reopened = open_pgn(path).games[0]
+
+        comment = reopened.line.moves[0].comments_after[0]
+        self.assertEqual(comment.text, "literal } brace")
+        self.assertEqual(comment.style, "semicolon")
+        self.assertEqual(reopened.tags["Result"], "1-0")
+        self.assertEqual(reopened.line.result, "0-1")
+        self.assertTrue(any("differs" in warning for warning in reopened.warnings))
+
 
 if __name__ == "__main__":
     unittest.main()

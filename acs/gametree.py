@@ -1,14 +1,18 @@
 from __future__ import annotations
 
-"""Loss-preserving structural PGN model for the Stage 2 data core.
+"""Loss-aware structural PGN model for the presentation-neutral data core.
 
 This module intentionally separates *structure* from chess legality. It keeps
 comments, NAGs and nested RAV branches instead of flattening them. A later
 position-linking pass may validate every SAN token against chesscore.Board
 without making import destructive when a historical source is damaged.
+
+This is a reusable core boundary only. Importing it does not activate a
+post-Stage-1 UI, workflow, or release path.
 """
 
 from dataclasses import dataclass, field
+from enum import Enum
 import re
 from typing import Iterable
 
@@ -17,10 +21,47 @@ TAG_RE = re.compile(r'^\s*\[([A-Za-z0-9_]+)\s+"((?:\\.|[^"\\])*)"\]\s*$')
 MOVE_NUMBER_RE = re.compile(r"^(\d+)\.(\.\.)?$")
 
 
+class GameTreeErrorCode(str, Enum):
+    INVALID_COMMENT_TEXT = "invalid_comment_text"
+    UNSUPPORTED_COMMENT_STYLE = "unsupported_comment_style"
+    UNREPRESENTABLE_COMMENT = "unrepresentable_comment"
+
+
+class GameTreeContractError(ValueError):
+    """Stable validation failure for presentation-neutral GameTree data."""
+
+    def __init__(self, message: str, *, code: GameTreeErrorCode) -> None:
+        super().__init__(message)
+        self.code = GameTreeErrorCode(code)
+
+
+class GameTreeSerializationError(GameTreeContractError):
+    """Raised instead of silently changing data that PGN cannot represent."""
+
+
+class CommentStyle(str, Enum):
+    BRACE = "brace"
+    SEMICOLON = "semicolon"
+
+
 @dataclass(slots=True)
 class Comment:
     text: str
-    style: str = "brace"
+    style: CommentStyle = CommentStyle.BRACE
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.text, str):
+            raise GameTreeContractError(
+                "comment text must be a string",
+                code=GameTreeErrorCode.INVALID_COMMENT_TEXT,
+            )
+        try:
+            self.style = CommentStyle(self.style)
+        except (TypeError, ValueError) as exc:
+            raise GameTreeContractError(
+                f"unsupported comment style: {self.style!r}",
+                code=GameTreeErrorCode.UNSUPPORTED_COMMENT_STYLE,
+            ) from exc
 
 
 @dataclass(slots=True)
@@ -159,7 +200,9 @@ def _parse_line(tokens: list[_Token], pos: int = 0, *, nested: bool = False) -> 
             continue
         if tok.kind in {"COMMENT_BRACE", "COMMENT_SEMI"}:
             comment = Comment(tok.value, "brace" if tok.kind == "COMMENT_BRACE" else "semicolon")
-            if last is None:
+            if last is None and pending_number is None:
+                line.leading_comments.append(comment)
+            elif pending_number is not None:
                 pending_comments.append(comment)
             else:
                 last.comments_after.append(comment)
@@ -199,25 +242,32 @@ def _parse_line(tokens: list[_Token], pos: int = 0, *, nested: bool = False) -> 
     return line, pos, warnings
 
 
-def _split_games(text: str) -> list[tuple[dict[str, str], str]]:
+def _split_games(text: str) -> list[tuple[dict[str, str], str, list[str]]]:
     lines = text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
-    games: list[tuple[dict[str, str], str]] = []
+    games: list[tuple[dict[str, str], str, list[str]]] = []
     tags: dict[str, str] = {}
     moves: list[str] = []
+    split_warnings: list[str] = []
     seen_movetext = False
 
     def flush() -> None:
-        nonlocal tags, moves, seen_movetext
+        nonlocal tags, moves, split_warnings, seen_movetext
         if tags or any(x.strip() for x in moves):
-            games.append((tags, "\n".join(moves).strip()))
-        tags = {}; moves = []; seen_movetext = False
+            games.append((tags, "\n".join(moves).strip(), split_warnings))
+        tags = {}
+        moves = []
+        split_warnings = []
+        seen_movetext = False
 
     for line in lines:
         m = TAG_RE.match(line)
         if m:
             if seen_movetext:
                 flush()
-            tags[m.group(1)] = _unescape_tag(m.group(2))
+            key = m.group(1)
+            if key in tags:
+                split_warnings.append(f"duplicate tag {key}; last value preserved")
+            tags[key] = _unescape_tag(m.group(2))
             continue
         if line.strip():
             seen_movetext = True
@@ -229,16 +279,20 @@ def _split_games(text: str) -> list[tuple[dict[str, str], str]]:
 
 def parse_games(text: str) -> list[PgnGame]:
     games: list[PgnGame] = []
-    for index, (tags, movetext) in enumerate(_split_games(text)):
+    for index, (tags, movetext, split_warnings) in enumerate(_split_games(text)):
         tokens = tokenize_movetext(movetext)
         line, pos, warnings = _parse_line(tokens)
+        warnings[:0] = split_warnings
         if pos < len(tokens):
             warnings.append(f"{len(tokens) - pos} unconsumed token(s)")
         header_result = tags.get("Result")
-        if line.result and header_result and line.result != header_result:
+        valid_header_result = header_result if header_result in RESULTS else None
+        if header_result is not None and valid_header_result is None:
+            warnings.append(f"invalid header Result {header_result}")
+        if line.result and valid_header_result and line.result != valid_header_result:
             warnings.append(f"header Result {header_result} differs from movetext {line.result}")
         if not line.result:
-            line.result = header_result or "*"
+            line.result = valid_header_result or "*"
         tags = dict(tags)
         tags.setdefault("Result", line.result)
         games.append(PgnGame(tags=tags, line=line, source_index=index, warnings=warnings))
@@ -246,16 +300,42 @@ def parse_games(text: str) -> list[PgnGame]:
 
 
 def _serialize_comment(c: Comment) -> str:
-    return "{" + c.text + "}"
+    if not isinstance(c.text, str):
+        raise GameTreeSerializationError(
+            "comment text must be a string",
+            code=GameTreeErrorCode.INVALID_COMMENT_TEXT,
+        )
+    try:
+        style = CommentStyle(c.style)
+    except (TypeError, ValueError) as exc:
+        raise GameTreeSerializationError(
+            f"unsupported comment style: {c.style!r}",
+            code=GameTreeErrorCode.UNSUPPORTED_COMMENT_STYLE,
+        ) from exc
+
+    if style is CommentStyle.BRACE:
+        if "}" in c.text:
+            raise GameTreeSerializationError(
+                "brace comment contains an unrepresentable closing brace",
+                code=GameTreeErrorCode.UNREPRESENTABLE_COMMENT,
+            )
+        return "{" + c.text + "}"
+
+    if "\r" in c.text or "\n" in c.text:
+        raise GameTreeSerializationError(
+            "semicolon comment contains an unrepresentable line break",
+            code=GameTreeErrorCode.UNREPRESENTABLE_COMMENT,
+        )
+    return ";" + c.text + "\n"
 
 
 def _serialize_line(line: VariationLine, *, include_result: bool = True) -> str:
     parts: list[str] = []
     parts.extend(_serialize_comment(c) for c in line.leading_comments)
     for node in line.moves:
-        parts.extend(_serialize_comment(c) for c in node.comments_before)
         if node.move_number:
             parts.append(node.move_number)
+        parts.extend(_serialize_comment(c) for c in node.comments_before)
         parts.append(node.san)
         parts.extend(node.nags)
         parts.extend(_serialize_comment(c) for c in node.comments_after)
@@ -269,10 +349,13 @@ def _serialize_line(line: VariationLine, *, include_result: bool = True) -> str:
 
 def serialize_game(game: PgnGame) -> str:
     tags = dict(game.tags)
-    tags["Result"] = game.result
+    tags.setdefault("Result", game.result)
     headers = [f'[{k} "{_escape_tag(v)}"]' for k, v in tags.items()]
     return "\n".join(headers) + "\n\n" + _serialize_line(game.line, include_result=True).strip() + "\n"
 
 
 def serialize_games(games: Iterable[PgnGame]) -> str:
-    return "\n".join(serialize_game(g).rstrip() for g in games).rstrip() + "\n"
+    blocks = [serialize_game(game).rstrip() for game in games]
+    if not blocks:
+        return ""
+    return "\n\n".join(blocks) + "\n"
