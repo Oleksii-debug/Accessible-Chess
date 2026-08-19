@@ -10,7 +10,7 @@ internal static class ReviewedOxford5000Bootstrap
     private const int ExpectedLegacyGroups = 200;
     private const int ExpectedPostBlowRows = 43;
     private const int StandardSliceRows = 29;
-    public const int ExpectedCanonicalRows = 780;
+    public const int ExpectedCanonicalRows = 838;
 
     private static readonly Dictionary<string, string> PosAbbreviations = new(StringComparer.Ordinal)
     {
@@ -95,6 +95,8 @@ internal static class ReviewedOxford5000Bootstrap
         AppendVerifiedSlice(result, "oxford5000_source_after_imagery_c1_0001_0029.tsv", StandardSliceRows, 2012);
         AppendVerifiedSlice(result, "oxford5000_source_after_injustice_c1_0001_0029.tsv", StandardSliceRows, 2013);
         AppendVerifiedSlice(result, "oxford5000_source_after_interim_c1_0001_0029.tsv", StandardSliceRows, 2014);
+        AppendVerifiedSlice(result, "oxford5000_source_after_large_scale_c1_0001_0029.tsv", StandardSliceRows, 2015);
+        AppendVerifiedSlice(result, "oxford5000_source_after_limb_c1_0001_0029.tsv", StandardSliceRows, 2016);
 
         // Deployment remains the historical enumeration tail for old regression fixtures.
         // Stable lexical IDs, not row position, are the durable identity contract.
@@ -136,6 +138,10 @@ internal static class ReviewedOxford5000Bootstrap
         RequirePresence(result, "injustice", "noun", "C1");
         RequirePresence(result, "interim", "adjective", "C1");
         RequirePresence(result, "large-scale", "adjective", "C1");
+        RequirePresence(result, "laser", "noun", "C1");
+        RequirePresence(result, "limb", "noun", "C1");
+        RequirePresence(result, "line-up", "noun", "C1");
+        RequirePresence(result, "manipulate", "verb", "C1");
         if (result[^1] is not { Source: "deployment", PartOfSpeech: "noun", Level: "C1" })
             throw new InvalidDataException("Canonical Oxford 5000 beta ledger historical regression tail changed unexpectedly.");
         return result;
