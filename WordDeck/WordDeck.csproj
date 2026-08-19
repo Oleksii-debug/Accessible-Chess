@@ -45,6 +45,7 @@
     <EmbeddedResource Include="QA\oxford5000_source_after_manipulate_c1_0001_0029.tsv" />
     <EmbeddedResource Include="QA\oxford5000_source_after_merit_c1_0001_0029.tsv" />
     <EmbeddedResource Include="QA\oxford5000_source_after_mutual_verified_c1_0001_0028.tsv" />
+    <EmbeddedResource Include="QA\oxford5000_source_after_mutual_verified_b2c1_0001_0029.tsv" />
   </ItemGroup>
 
   <ItemGroup>
