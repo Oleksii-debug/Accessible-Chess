@@ -3,11 +3,20 @@ import unittest
 from acs.clock_service import ChessClock, ClockSnapshot, ClockState, TimeControl
 from acs.engine_game_session import (
     EngineGameSessionCoordinator,
+    EngineGameSessionSnapshot,
+    EngineNoMoveHandoff,
     EngineNoMoveResolution,
     EngineTurnState,
 )
-from acs.engine_play_service import EngineGameConfig, EngineGameHandoff, EngineGameIntent, EnginePlayService
-from acs.game_lifecycle import EndReason, GameStatus
+from acs.engine_play_service import (
+    EngineGameConfig,
+    EngineGameHandoff,
+    EngineGameIntent,
+    EnginePlayService,
+    resolve_engine_game_config,
+)
+from acs.engine_ports import EngineContractError, EngineContractErrorCode
+from acs.game_lifecycle import EndReason, GameLifecycle, GameStatus
 
 
 class FakeTime:
@@ -270,6 +279,360 @@ class EngineGameSessionTests(unittest.TestCase):
         session.start(EngineGameConfig())
         with self.assertRaisesRegex(ValueError, 'analysis handoff is not configured'):
             session.handle_handoff(EngineGameHandoff(EngineGameIntent.ANALYZE_CURRENT_GAME, fen='fen'))
+
+    def test_no_move_handoff_and_resolution_dtos_are_exact(self):
+        handoff = EngineNoMoveHandoff("  fen  ", "w", "  node-1  ")
+        self.assertEqual(handoff.fen, "fen")
+        self.assertEqual(handoff.history_node_id, "node-1")
+
+        invalid_handoffs = (
+            (True, "w", "node"),
+            ("fen", True, "node"),
+            ("fen", "w", 7),
+            ("fen", "w", "   "),
+        )
+        for values in invalid_handoffs:
+            with self.subTest(handoff=values):
+                with self.assertRaises(EngineContractError) as caught:
+                    EngineNoMoveHandoff(*values)
+                self.assertEqual(
+                    caught.exception.code,
+                    EngineContractErrorCode.INVALID_HANDOFF,
+                )
+
+        checkmate = EngineNoMoveResolution("1-0", EndReason.CHECKMATE, "w")
+        stalemate = EngineNoMoveResolution("1/2-1/2", EndReason.STALEMATE)
+        self.assertEqual(checkmate.winner, "w")
+        self.assertIsNone(stalemate.winner)
+
+        invalid_resolutions = (
+            ("1/2-1/2", EndReason.CHECKMATE, None),
+            ("1-0", EndReason.STALEMATE, "w"),
+            ("1/2-1/2", EndReason.INSUFFICIENT_MATERIAL, None),
+            ("1-0", "checkmate", "w"),
+        )
+        for values in invalid_resolutions:
+            with self.subTest(resolution=values):
+                with self.assertRaises(EngineContractError) as caught:
+                    EngineNoMoveResolution(*values)
+                self.assertEqual(
+                    caught.exception.code,
+                    EngineContractErrorCode.INVALID_RESULT,
+                )
+
+    def test_session_snapshot_rejects_inconsistent_nested_state(self):
+        config = resolve_engine_game_config(
+            EngineGameConfig(engine_side="white"),
+        )
+        active = GameLifecycle().snapshot()
+        stopped = ClockSnapshot(0, 0, None, ClockState.STOPPED)
+        valid = EngineGameSessionSnapshot(
+            config,
+            "w",
+            EngineTurnState.ENGINE,
+            active,
+            stopped,
+        )
+        self.assertEqual(valid.turn_state, EngineTurnState.ENGINE)
+
+        finished_lifecycle = GameLifecycle().resign("b")
+        flagged = ClockSnapshot(0, 1_000, None, ClockState.FLAGGED, "w")
+        wrong_active_clock = ClockSnapshot(
+            1_000,
+            1_000,
+            "b",
+            ClockState.RUNNING,
+        )
+        active_clock = ClockSnapshot(
+            1_000,
+            1_000,
+            "w",
+            ClockState.RUNNING,
+        )
+        noncanonical_untimed = ClockSnapshot(
+            1_000,
+            1_000,
+            None,
+            ClockState.STOPPED,
+        )
+        timed_config = resolve_engine_game_config(
+            EngineGameConfig(engine_side="white", time_control=TimeControl(1_000)),
+        )
+        invalid = (
+            (object(), "w", EngineTurnState.ENGINE, active, stopped),
+            (config, True, EngineTurnState.ENGINE, active, stopped),
+            (config, "w", "engine", active, stopped),
+            (config, "w", EngineTurnState.ENGINE, object(), stopped),
+            (config, "w", EngineTurnState.ENGINE, active, object()),
+            (config, "w", EngineTurnState.HUMAN, active, stopped),
+            (config, "w", EngineTurnState.ENGINE, active, flagged),
+            (config, "w", EngineTurnState.HUMAN, finished_lifecycle, stopped),
+            (config, "w", EngineTurnState.ENGINE, active, wrong_active_clock),
+            (config, "w", EngineTurnState.ENGINE, active, noncanonical_untimed),
+            (
+                timed_config,
+                "w",
+                EngineTurnState.ENGINE,
+                active,
+                stopped,
+            ),
+            (
+                timed_config,
+                "w",
+                EngineTurnState.FINISHED,
+                finished_lifecycle,
+                active_clock,
+            ),
+        )
+        for values in invalid:
+            with self.subTest(snapshot=values):
+                with self.assertRaises(EngineContractError) as caught:
+                    EngineGameSessionSnapshot(*values)
+                self.assertEqual(
+                    caught.exception.code,
+                    EngineContractErrorCode.INVALID_SESSION,
+                )
+
+    def test_coordinator_constructor_validates_required_and_optional_providers(self):
+        service = EnginePlayService(lambda: FakeMoveEngine())
+        base = {
+            "fen_provider": lambda: "fen",
+            "side_to_move_provider": lambda: "w",
+            "commit_engine_move": lambda move: None,
+            "history_node_provider": lambda: "node",
+        }
+        with self.assertRaisesRegex(TypeError, "EnginePlayService"):
+            EngineGameSessionCoordinator(object(), **base)
+
+        for name in tuple(base):
+            invalid = dict(base, **{name: object()})
+            with self.subTest(provider=name):
+                with self.assertRaises(EngineContractError) as caught:
+                    EngineGameSessionCoordinator(service, **invalid)
+                self.assertEqual(
+                    caught.exception.code,
+                    EngineContractErrorCode.INVALID_PROVIDER,
+                )
+
+        optional = (
+            "undo_committed_move",
+            "clock_restore_provider",
+            "no_move_resolver",
+            "analysis_handoff",
+            "review_handoff",
+        )
+        for name in optional:
+            with self.subTest(provider=name):
+                with self.assertRaises(EngineContractError) as caught:
+                    EngineGameSessionCoordinator(
+                        service,
+                        **base,
+                        **{name: object()},
+                    )
+                self.assertEqual(
+                    caught.exception.code,
+                    EngineContractErrorCode.INVALID_PROVIDER,
+                )
+
+        with self.assertRaises(EngineContractError) as lifecycle_error:
+            EngineGameSessionCoordinator(service, **base, lifecycle=object())
+        self.assertEqual(
+            lifecycle_error.exception.code,
+            EngineContractErrorCode.INVALID_CONFIG,
+        )
+        with self.assertRaises(EngineContractError) as clock_factory_error:
+            EngineGameSessionCoordinator(service, **base, clock_factory=object())
+        self.assertEqual(
+            clock_factory_error.exception.code,
+            EngineContractErrorCode.INVALID_PROVIDER,
+        )
+
+    def test_failed_start_does_not_reset_injected_lifecycle_or_start_session(self):
+        lifecycle = GameLifecycle()
+        lifecycle.offer_draw("w")
+        before = lifecycle.snapshot()
+        service = EnginePlayService(lambda: FakeMoveEngine())
+        coordinator = EngineGameSessionCoordinator(
+            service,
+            fen_provider=lambda: "fen",
+            side_to_move_provider=lambda: "w",
+            commit_engine_move=lambda move: None,
+            history_node_provider=lambda: "node",
+            lifecycle=lifecycle,
+            clock_factory=lambda control: object(),
+        )
+
+        with self.assertRaises(EngineContractError) as caught:
+            coordinator.start(EngineGameConfig())
+
+        self.assertEqual(caught.exception.code, EngineContractErrorCode.INVALID_PROVIDER)
+        self.assertEqual(lifecycle.snapshot(), before)
+        with self.assertRaisesRegex(ValueError, "has not started"):
+            coordinator.snapshot()
+
+    def test_falsey_callable_clock_factory_is_not_replaced(self):
+        class FalseyClockFactory:
+            def __init__(self):
+                self.calls = []
+
+            def __bool__(self):
+                return False
+
+            def __call__(self, control):
+                self.calls.append(control)
+                return ChessClock(control)
+
+        factory = FalseyClockFactory()
+        coordinator = EngineGameSessionCoordinator(
+            EnginePlayService(lambda: FakeMoveEngine()),
+            fen_provider=lambda: "fen",
+            side_to_move_provider=lambda: "w",
+            commit_engine_move=lambda move: None,
+            history_node_provider=lambda: "node",
+            clock_factory=factory,
+        )
+
+        snapshot = coordinator.start(EngineGameConfig())
+
+        self.assertEqual(factory.calls, [TimeControl(0)])
+        self.assertEqual(snapshot.side_to_move, "w")
+
+    def test_failed_reset_side_preflight_preserves_lifecycle_state(self):
+        lifecycle = GameLifecycle()
+        state = {"side": "w"}
+        coordinator = EngineGameSessionCoordinator(
+            EnginePlayService(lambda: FakeMoveEngine()),
+            fen_provider=lambda: "fen",
+            side_to_move_provider=lambda: state["side"],
+            commit_engine_move=lambda move: None,
+            history_node_provider=lambda: "node",
+            lifecycle=lifecycle,
+        )
+        coordinator.start(EngineGameConfig())
+        before = lifecycle.offer_draw("w")
+        state["side"] = True
+
+        with self.assertRaises(EngineContractError) as caught:
+            coordinator.reset()
+
+        self.assertEqual(caught.exception.code, EngineContractErrorCode.INVALID_PROVIDER)
+        self.assertEqual(lifecycle.snapshot(), before)
+
+    def test_side_fen_and_history_providers_do_not_coerce_values(self):
+        session, snap, state, engine, analysis, review = self.make_session(
+            engine_side="white",
+        )
+
+        state["fen"] = True
+        with self.assertRaises(EngineContractError) as fen_error:
+            session.request_engine_move()
+        self.assertEqual(
+            fen_error.exception.code,
+            EngineContractErrorCode.INVALID_PROVIDER,
+        )
+        self.assertEqual(engine.calls, [])
+
+        state["fen"] = "fen-w"
+        state["history"] = 7
+        with self.assertRaises(EngineContractError) as history_error:
+            session.open_final_review()
+        self.assertEqual(
+            history_error.exception.code,
+            EngineContractErrorCode.INVALID_PROVIDER,
+        )
+
+        state["history"] = "node-0"
+        state["side"] = "W"
+        with self.assertRaises(EngineContractError) as side_error:
+            session.snapshot()
+        self.assertEqual(
+            side_error.exception.code,
+            EngineContractErrorCode.INVALID_PROVIDER,
+        )
+
+    def test_engine_move_is_rechecked_for_timeout_before_commit(self):
+        now = FakeTime()
+        session, snap, state, engine, analysis, review = self.make_session(
+            engine_side="white",
+            time_control=TimeControl(1_000),
+            now=now,
+        )
+        original = engine.best_move
+
+        def slow_best_move(fen, skill_level=10, movetime_ms=500):
+            now.advance(2)
+            return original(fen, skill_level, movetime_ms)
+
+        engine.best_move = slow_best_move
+        with self.assertRaisesRegex(ValueError, "clock flagged before move commit"):
+            session.request_engine_move()
+
+        self.assertEqual(state["moves"], [])
+        finished = session.snapshot()
+        self.assertEqual(finished.lifecycle.status, GameStatus.FINISHED)
+        self.assertEqual(finished.lifecycle.outcome.reason, EndReason.TIMEOUT)
+        self.assertEqual(finished.clock.flagged, "w")
+
+    def test_engine_move_is_rejected_when_position_changes_during_provider_call(self):
+        session, snap, state, engine, analysis, review = self.make_session(
+            engine_side="white",
+        )
+        original = engine.best_move
+
+        def stale_best_move(fen, skill_level=10, movetime_ms=500):
+            state["fen"] = "different-fen-with-same-side"
+            return original(fen, skill_level, movetime_ms)
+
+        engine.best_move = stale_best_move
+        with self.assertRaises(EngineContractError) as caught:
+            session.request_engine_move()
+
+        self.assertEqual(caught.exception.code, EngineContractErrorCode.INVALID_SESSION)
+        self.assertEqual(state["moves"], [])
+        self.assertEqual(session.snapshot().lifecycle.status, GameStatus.ACTIVE)
+
+    def test_prestart_position_outcome_does_not_mutate_injected_lifecycle(self):
+        lifecycle = GameLifecycle()
+        before = lifecycle.snapshot()
+        coordinator = EngineGameSessionCoordinator(
+            EnginePlayService(lambda: FakeMoveEngine()),
+            fen_provider=lambda: "fen",
+            side_to_move_provider=lambda: "w",
+            commit_engine_move=lambda move: None,
+            history_node_provider=lambda: "node",
+            lifecycle=lifecycle,
+        )
+
+        with self.assertRaisesRegex(ValueError, "has not started"):
+            coordinator.sync_position_outcome(
+                "1-0",
+                EndReason.CHECKMATE,
+                "w",
+            )
+
+        self.assertEqual(lifecycle.snapshot(), before)
+
+    def test_invalid_no_move_resolver_result_does_not_finish_lifecycle(self):
+        session, snap, state, engine, analysis, review = self.make_session(
+            engine_side="white",
+            move=None,
+            no_move_resolver=lambda handoff: object(),
+        )
+
+        with self.assertRaises(EngineContractError) as caught:
+            session.request_engine_move()
+
+        self.assertEqual(caught.exception.code, EngineContractErrorCode.INVALID_PROVIDER)
+        self.assertEqual(session.snapshot().lifecycle.status, GameStatus.ACTIVE)
+
+    def test_wrong_handoff_type_is_rejected_without_state_change(self):
+        session, snap, state, engine, analysis, review = self.make_session()
+        before = session.snapshot()
+
+        with self.assertRaisesRegex(TypeError, "EngineGameHandoff"):
+            session.handle_handoff(object())
+
+        self.assertEqual(session.snapshot(), before)
 
 
 if __name__ == '__main__':

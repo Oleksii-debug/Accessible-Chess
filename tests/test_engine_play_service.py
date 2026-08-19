@@ -356,12 +356,14 @@ class EnginePlayServiceTests(unittest.TestCase):
                 )
 
     def test_random_side_chooser_and_service_constructor_are_exact(self):
-        with self.assertRaises(EngineContractError) as not_callable:
-            choose_engine_side("random", random_choice=object())
-        self.assertEqual(
-            not_callable.exception.code,
-            EngineContractErrorCode.INVALID_PROVIDER,
-        )
+        for mode in ("white", "black", "random"):
+            with self.subTest(mode=mode):
+                with self.assertRaises(EngineContractError) as not_callable:
+                    choose_engine_side(mode, random_choice=object())
+                self.assertEqual(
+                    not_callable.exception.code,
+                    EngineContractErrorCode.INVALID_PROVIDER,
+                )
         for invalid_result in (True, 1, None, [], {}):
             with self.subTest(random_result=invalid_result):
                 with self.assertRaises(EngineContractError) as caught:

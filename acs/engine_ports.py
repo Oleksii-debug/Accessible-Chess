@@ -18,6 +18,7 @@ class EngineContractErrorCode(str, Enum):
     INVALID_CONFIG = "invalid_config"
     INVALID_HANDOFF = "invalid_handoff"
     INVALID_PROVIDER = "invalid_provider"
+    INVALID_SESSION = "invalid_session"
 
 
 class EngineContractError(ValueError):

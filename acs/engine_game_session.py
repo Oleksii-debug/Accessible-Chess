@@ -22,8 +22,20 @@ from .engine_play_service import (
     dispatch_lifecycle_handoff,
     resolve_engine_game_config,
 )
-from .engine_ports import EngineMoveRequest, EngineMoveResult
-from .game_lifecycle import EndReason, GameLifecycle, GameStatus, LifecycleSnapshot
+from .engine_ports import (
+    EngineContractError,
+    EngineContractErrorCode,
+    EngineMoveRequest,
+    EngineMoveResult,
+)
+from .game_lifecycle import (
+    EndReason,
+    GameLifecycle,
+    GameOutcome,
+    GameStatus,
+    LifecycleError,
+    LifecycleSnapshot,
+)
 
 
 class EngineTurnState(str, Enum):
@@ -41,6 +53,88 @@ class EngineGameSessionSnapshot:
     lifecycle: LifecycleSnapshot
     clock: ClockSnapshot
 
+    def __post_init__(self) -> None:
+        if not isinstance(self.config, ResolvedEngineGameConfig):
+            raise EngineContractError(
+                "engine session config must be resolved",
+                code=EngineContractErrorCode.INVALID_SESSION,
+            )
+        if not isinstance(self.side_to_move, str) or self.side_to_move not in {"w", "b"}:
+            raise EngineContractError(
+                "engine session side_to_move must be 'w' or 'b'",
+                code=EngineContractErrorCode.INVALID_SESSION,
+            )
+        if not isinstance(self.turn_state, EngineTurnState):
+            raise EngineContractError(
+                "engine session turn_state must be EngineTurnState",
+                code=EngineContractErrorCode.INVALID_SESSION,
+            )
+        if not isinstance(self.lifecycle, LifecycleSnapshot):
+            raise EngineContractError(
+                "engine session lifecycle must be LifecycleSnapshot",
+                code=EngineContractErrorCode.INVALID_SESSION,
+            )
+        if not isinstance(self.clock, ClockSnapshot):
+            raise EngineContractError(
+                "engine session clock must be ClockSnapshot",
+                code=EngineContractErrorCode.INVALID_SESSION,
+            )
+        if self.lifecycle.status is GameStatus.FINISHED:
+            if self.turn_state is not EngineTurnState.FINISHED:
+                raise EngineContractError(
+                    "finished lifecycle requires finished engine turn state",
+                    code=EngineContractErrorCode.INVALID_SESSION,
+                )
+        else:
+            expected = (
+                EngineTurnState.ENGINE
+                if self.side_to_move == self.config.engine_side
+                else EngineTurnState.HUMAN
+            )
+            if self.turn_state is not expected:
+                raise EngineContractError(
+                    "active lifecycle turn state does not match configured side",
+                    code=EngineContractErrorCode.INVALID_SESSION,
+                )
+            if self.clock.flagged is not None:
+                raise EngineContractError(
+                    "active lifecycle cannot carry a flagged clock",
+                    code=EngineContractErrorCode.INVALID_SESSION,
+                )
+            if (
+                not self.config.time_control.untimed
+                and self.clock.state not in {ClockState.RUNNING, ClockState.PAUSED}
+            ):
+                raise EngineContractError(
+                    "active timed session requires a running or paused clock",
+                    code=EngineContractErrorCode.INVALID_SESSION,
+                )
+        if self.lifecycle.status is GameStatus.FINISHED and self.clock.state in {
+            ClockState.RUNNING,
+            ClockState.PAUSED,
+        }:
+            raise EngineContractError(
+                "finished lifecycle cannot carry an active clock",
+                code=EngineContractErrorCode.INVALID_SESSION,
+            )
+        if self.config.time_control.untimed and (
+            self.clock.white_ms != 0
+            or self.clock.black_ms != 0
+            or self.clock.state is not ClockState.STOPPED
+        ):
+            raise EngineContractError(
+                "untimed session requires the canonical stopped clock",
+                code=EngineContractErrorCode.INVALID_SESSION,
+            )
+        if (
+            self.clock.state in {ClockState.RUNNING, ClockState.PAUSED}
+            and self.clock.active != self.side_to_move
+        ):
+            raise EngineContractError(
+                "active clock does not match session side_to_move",
+                code=EngineContractErrorCode.INVALID_SESSION,
+            )
+
 
 @dataclass(frozen=True)
 class EngineNoMoveHandoff:
@@ -50,6 +144,25 @@ class EngineNoMoveHandoff:
     side_to_move: str
     history_node_id: str
 
+    def __post_init__(self) -> None:
+        if not isinstance(self.fen, str) or not self.fen.strip():
+            raise EngineContractError(
+                "no-move handoff FEN must be non-empty text",
+                code=EngineContractErrorCode.INVALID_HANDOFF,
+            )
+        if not isinstance(self.side_to_move, str) or self.side_to_move not in {"w", "b"}:
+            raise EngineContractError(
+                "no-move handoff side_to_move must be 'w' or 'b'",
+                code=EngineContractErrorCode.INVALID_HANDOFF,
+            )
+        if not isinstance(self.history_node_id, str) or not self.history_node_id.strip():
+            raise EngineContractError(
+                "no-move handoff history_node_id must be non-empty text",
+                code=EngineContractErrorCode.INVALID_HANDOFF,
+            )
+        object.__setattr__(self, "fen", self.fen.strip())
+        object.__setattr__(self, "history_node_id", self.history_node_id.strip())
+
 
 @dataclass(frozen=True)
 class EngineNoMoveResolution:
@@ -58,6 +171,23 @@ class EngineNoMoveResolution:
     result: str
     reason: EndReason
     winner: str | None = None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.reason, EndReason) or self.reason not in {
+            EndReason.CHECKMATE,
+            EndReason.STALEMATE,
+        }:
+            raise EngineContractError(
+                "no-move resolution reason must be checkmate or stalemate",
+                code=EngineContractErrorCode.INVALID_RESULT,
+            )
+        try:
+            GameOutcome(self.result, self.reason, self.winner)
+        except LifecycleError as exc:
+            raise EngineContractError(
+                "no-move resolution result is inconsistent",
+                code=EngineContractErrorCode.INVALID_RESULT,
+            ) from exc
 
 
 class EngineGameSessionCoordinator:
@@ -79,6 +209,43 @@ class EngineGameSessionCoordinator:
         lifecycle: GameLifecycle | None = None,
         clock_factory: Callable[[object], ChessClock] | None = None,
     ) -> None:
+        if not isinstance(play_service, EnginePlayService):
+            raise TypeError("play_service must be EnginePlayService")
+        required_callbacks = {
+            "fen_provider": fen_provider,
+            "side_to_move_provider": side_to_move_provider,
+            "commit_engine_move": commit_engine_move,
+            "history_node_provider": history_node_provider,
+        }
+        for name, callback in required_callbacks.items():
+            if not callable(callback):
+                raise EngineContractError(
+                    f"{name} must be callable",
+                    code=EngineContractErrorCode.INVALID_PROVIDER,
+                )
+        optional_callbacks = {
+            "undo_committed_move": undo_committed_move,
+            "clock_restore_provider": clock_restore_provider,
+            "no_move_resolver": no_move_resolver,
+            "analysis_handoff": analysis_handoff,
+            "review_handoff": review_handoff,
+        }
+        for name, callback in optional_callbacks.items():
+            if callback is not None and not callable(callback):
+                raise EngineContractError(
+                    f"{name} must be callable or None",
+                    code=EngineContractErrorCode.INVALID_PROVIDER,
+                )
+        if lifecycle is not None and not isinstance(lifecycle, GameLifecycle):
+            raise EngineContractError(
+                "lifecycle must be GameLifecycle or None",
+                code=EngineContractErrorCode.INVALID_CONFIG,
+            )
+        if clock_factory is not None and not callable(clock_factory):
+            raise EngineContractError(
+                "clock_factory must be callable or None",
+                code=EngineContractErrorCode.INVALID_PROVIDER,
+            )
         self._play_service = play_service
         self._fen_provider = fen_provider
         self._side_provider = side_to_move_provider
@@ -89,37 +256,74 @@ class EngineGameSessionCoordinator:
         self._no_move_resolver = no_move_resolver
         self._analysis_handoff = analysis_handoff
         self._review_handoff = review_handoff
-        self._lifecycle = lifecycle or GameLifecycle()
-        self._clock_factory = clock_factory or (lambda control: ChessClock(control))
+        self._lifecycle = GameLifecycle() if lifecycle is None else lifecycle
+        self._clock_factory = (
+            (lambda control: ChessClock(control))
+            if clock_factory is None
+            else clock_factory
+        )
         self._config: ResolvedEngineGameConfig | None = None
         self._clock: ChessClock | None = None
 
     def start(self, config: EngineGameConfig, *, random_choice=None) -> EngineGameSessionSnapshot:
-        self._config = resolve_engine_game_config(config, random_choice=random_choice)
-        self._lifecycle.reset_for_new_game()
-        self._clock = self._clock_factory(self._config.time_control)
+        resolved = resolve_engine_game_config(config, random_choice=random_choice)
+        clock = self._clock_factory(resolved.time_control)
+        if not isinstance(clock, ChessClock):
+            raise EngineContractError(
+                "clock_factory must return ChessClock",
+                code=EngineContractErrorCode.INVALID_PROVIDER,
+            )
         side = self._side_to_move()
-        self._clock.start(side)
-        return self.snapshot()
+        clock_snapshot = clock.start(side)
+        lifecycle = LifecycleSnapshot(GameStatus.ACTIVE, None, None, None)
+        turn_state = (
+            EngineTurnState.ENGINE
+            if side == resolved.engine_side
+            else EngineTurnState.HUMAN
+        )
+        snapshot = EngineGameSessionSnapshot(
+            resolved,
+            side,
+            turn_state,
+            lifecycle,
+            clock_snapshot,
+        )
+        self._lifecycle.reset_for_new_game()
+        self._config = resolved
+        self._clock = clock
+        return snapshot
 
     def reset(self) -> EngineGameSessionSnapshot:
         self._require_started()
         assert self._clock is not None and self._config is not None
-        self._lifecycle.reset_for_new_game()
-        self._clock.reset(side_to_move=self._side_to_move())
+        side = self._side_to_move()
+        clock = self._clock.reset(side_to_move=side)
         if not self._config.time_control.untimed:
-            self._clock.resume()
-        return self.snapshot()
+            clock = self._clock.resume()
+        turn_state = (
+            EngineTurnState.ENGINE
+            if side == self._config.engine_side
+            else EngineTurnState.HUMAN
+        )
+        snapshot = EngineGameSessionSnapshot(
+            self._config,
+            side,
+            turn_state,
+            LifecycleSnapshot(GameStatus.ACTIVE, None, None, None),
+            clock,
+        )
+        self._lifecycle.reset_for_new_game()
+        return snapshot
 
     def snapshot(self) -> EngineGameSessionSnapshot:
         self._require_started()
         assert self._config is not None and self._clock is not None
+        side = self._side_to_move()
         lifecycle = self._lifecycle.snapshot()
         clock = self._clock.snapshot()
         if clock.flagged is not None and lifecycle.status is GameStatus.ACTIVE:
             self._lifecycle.record_timeout(clock.flagged, opponent_can_mate=True)
             lifecycle = self._lifecycle.snapshot()
-        side = self._side_to_move()
         if lifecycle.status is GameStatus.FINISHED:
             turn_state = EngineTurnState.FINISHED
         elif side == self._config.engine_side:
@@ -131,8 +335,11 @@ class EngineGameSessionCoordinator:
     def assert_move_allowed(self, moved_side: str) -> ClockSnapshot:
         """Pre-commit guard for integrations that own the canonical Board."""
         self._require_active()
-        if moved_side not in {"w", "b"}:
-            raise ValueError("moved_side must be 'w' or 'b'")
+        if not isinstance(moved_side, str) or moved_side not in {"w", "b"}:
+            raise EngineContractError(
+                "moved_side must be 'w' or 'b'",
+                code=EngineContractErrorCode.INVALID_REQUEST,
+            )
         if moved_side != self._side_to_move():
             raise ValueError("moved_side does not match side to move")
         assert self._clock is not None
@@ -151,14 +358,18 @@ class EngineGameSessionCoordinator:
         if snap.turn_state is not EngineTurnState.ENGINE:
             raise ValueError("engine move requested when it is not the engine turn")
         self.assert_move_allowed(snap.side_to_move)
-        fen = str(self._fen_provider()).strip()
-        if not fen:
-            raise ValueError("fen provider returned empty position")
+        fen = self._current_fen()
         result = self._play_service.choose_move(EngineMoveRequest(fen, level=snap.config.level.level))
         if result.move is None:
             self._resolve_no_engine_move(fen, snap.side_to_move)
             return result
         moved_side = snap.side_to_move
+        self.assert_move_allowed(moved_side)
+        if self._current_fen() != fen:
+            raise EngineContractError(
+                "position changed while the engine move was pending",
+                code=EngineContractErrorCode.INVALID_SESSION,
+            )
         self._commit_engine_move(result.move)
         self._lifecycle.on_move_committed()
         assert self._clock is not None
@@ -167,8 +378,11 @@ class EngineGameSessionCoordinator:
 
     def on_human_move_committed(self, moved_side: str) -> EngineGameSessionSnapshot:
         self._require_active()
-        if moved_side not in {"w", "b"}:
-            raise ValueError("moved_side must be 'w' or 'b'")
+        if not isinstance(moved_side, str) or moved_side not in {"w", "b"}:
+            raise EngineContractError(
+                "moved_side must be 'w' or 'b'",
+                code=EngineContractErrorCode.INVALID_REQUEST,
+            )
         assert self._clock is not None
         clock = self._clock.snapshot()
         if clock.flagged is not None:
@@ -181,6 +395,7 @@ class EngineGameSessionCoordinator:
         return self.snapshot()
 
     def sync_position_outcome(self, result: str, reason: EndReason, winner: str | None = None) -> EngineGameSessionSnapshot:
+        self._require_active()
         self._lifecycle.record_position_outcome(result, reason, winner=winner)
         self._stop_clock()
         return self.snapshot()
@@ -197,6 +412,8 @@ class EngineGameSessionCoordinator:
 
     def handle_handoff(self, handoff: EngineGameHandoff) -> EngineGameSessionSnapshot:
         self._require_started()
+        if not isinstance(handoff, EngineGameHandoff):
+            raise TypeError("handoff must be EngineGameHandoff")
         if handoff.intent is EngineGameIntent.ANALYZE_CURRENT_GAME:
             if self._analysis_handoff is None:
                 raise ValueError("analysis handoff is not configured")
@@ -223,12 +440,18 @@ class EngineGameSessionCoordinator:
         return self.snapshot()
 
     def analyze_current_game(self) -> EngineGameHandoff:
-        handoff = EngineGameHandoff(EngineGameIntent.ANALYZE_CURRENT_GAME, fen=self._fen_provider())
+        handoff = EngineGameHandoff(
+            EngineGameIntent.ANALYZE_CURRENT_GAME,
+            fen=self._current_fen(),
+        )
         self.handle_handoff(handoff)
         return handoff
 
     def open_final_review(self) -> EngineGameHandoff:
-        handoff = EngineGameHandoff(EngineGameIntent.OPEN_FINAL_REVIEW, history_node_id=self._history_node_provider())
+        handoff = EngineGameHandoff(
+            EngineGameIntent.OPEN_FINAL_REVIEW,
+            history_node_id=self._history_node_id(),
+        )
         self.handle_handoff(handoff)
         return handoff
 
@@ -238,11 +461,16 @@ class EngineGameSessionCoordinator:
         handoff = EngineNoMoveHandoff(
             fen=fen,
             side_to_move=side_to_move,
-            history_node_id=str(self._history_node_provider()),
+            history_node_id=self._history_node_id(),
         )
         resolution = self._no_move_resolver(handoff)
         if resolution is None:
             return
+        if not isinstance(resolution, EngineNoMoveResolution):
+            raise EngineContractError(
+                "no_move_resolver must return EngineNoMoveResolution or None",
+                code=EngineContractErrorCode.INVALID_PROVIDER,
+            )
         self._lifecycle.record_position_outcome(
             resolution.result,
             resolution.reason,
@@ -271,7 +499,28 @@ class EngineGameSessionCoordinator:
             raise ValueError("engine game session is finished")
 
     def _side_to_move(self) -> str:
-        side = str(self._side_provider()).strip().lower()
-        if side not in {"w", "b"}:
-            raise ValueError("side-to-move provider must return 'w' or 'b'")
+        side = self._side_provider()
+        if not isinstance(side, str) or side not in {"w", "b"}:
+            raise EngineContractError(
+                "side-to-move provider must return 'w' or 'b'",
+                code=EngineContractErrorCode.INVALID_PROVIDER,
+            )
         return side
+
+    def _current_fen(self) -> str:
+        fen = self._fen_provider()
+        if not isinstance(fen, str) or not fen.strip():
+            raise EngineContractError(
+                "fen provider must return non-empty text",
+                code=EngineContractErrorCode.INVALID_PROVIDER,
+            )
+        return fen.strip()
+
+    def _history_node_id(self) -> str:
+        node_id = self._history_node_provider()
+        if not isinstance(node_id, str) or not node_id.strip():
+            raise EngineContractError(
+                "history node provider must return non-empty text",
+                code=EngineContractErrorCode.INVALID_PROVIDER,
+            )
+        return node_id.strip()

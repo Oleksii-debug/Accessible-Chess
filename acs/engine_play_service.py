@@ -234,17 +234,17 @@ def choose_engine_side(
     *,
     random_choice: Callable[[tuple[str, str]], str] | None = None,
 ) -> str:
+    if random_choice is not None and not callable(random_choice):
+        raise EngineContractError(
+            "random side chooser must be callable",
+            code=EngineContractErrorCode.INVALID_PROVIDER,
+        )
     resolved_mode = _normalize_side_mode(mode)
     if resolved_mode is EngineSideMode.WHITE:
         return "w"
     if resolved_mode is EngineSideMode.BLACK:
         return "b"
     chooser = random.choice if random_choice is None else random_choice
-    if not callable(chooser):
-        raise EngineContractError(
-            "random side chooser must be callable",
-            code=EngineContractErrorCode.INVALID_PROVIDER,
-        )
     result = chooser(("w", "b"))
     if not isinstance(result, str) or result not in {"w", "b"}:
         raise EngineContractError(
