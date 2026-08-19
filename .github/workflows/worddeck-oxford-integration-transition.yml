@@ -1,0 +1,25 @@
+name: WordDeck Oxford integration transition guard
+
+on:
+  push:
+    branches:
+      - worddeck-bootstrap
+    paths:
+      - 'WordDeck/tools/validate_oxford5000_integration_transition.py'
+      - 'WordDeck/tools/validate_oxford5000_automation_handoff.py'
+      - '.github/workflows/worddeck-oxford-integration-transition.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: worddeck-oxford-integration-transition-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate-transition-guard:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate Oxford 5000 integration transition guard
+        run: python .\WordDeck\tools\validate_oxford5000_integration_transition.py --self-test
