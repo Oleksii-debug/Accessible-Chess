@@ -197,13 +197,24 @@ def verify_repo(worddeck: Path, plan: dict[str, Any]) -> None:
         raise ValueError("WordDeck integration files changed outside this transaction")
 
 
+def verify_backup(item: dict[str, Any], bootstrap_backup: Path, csproj_backup: Path) -> None:
+    before = item.get("before_repo")
+    if not isinstance(before, dict) or "bootstrap" not in before or "csproj" not in before:
+        raise ValueError("Checkpoint journal has no exact before_repo evidence")
+    if not bootstrap_backup.is_file() or not csproj_backup.is_file():
+        raise ValueError("Checkpoint exact backup is incomplete")
+    actual = {"bootstrap": state(bootstrap_backup), "csproj": state(csproj_backup)}
+    if actual != before:
+        raise ValueError("Checkpoint backup bytes do not match journal before_repo evidence")
+
+
 def recover_applying(worddeck: Path, tx: Path, plan: dict[str, Any]) -> dict[str, Any]:
     p = tx_paths(tx)
     applying = next((c for c in plan["checkpoints"] if c["status"] == "APPLYING"), None)
     if not applying: return plan
     bdir = p["backups"] / f'cp{int(applying["index"]):04d}'
     b1, b2 = bdir / "ReviewedOxford5000Bootstrap.cs", bdir / "WordDeck.csproj"
-    if not b1.exists() or not b2.exists(): raise ValueError("Interrupted checkpoint has no exact backup")
+    verify_backup(applying, b1, b2)
     atomic(worddeck / "ReviewedOxford5000Bootstrap.cs", b1.read_bytes())
     atomic(worddeck / "WordDeck.csproj", b2.read_bytes())
     target = worddeck / "QA" / applying["file_name"]
@@ -248,8 +259,10 @@ def rollback_last(worddeck: Path, tx: Path) -> dict[str, Any]:
     if not applied: return plan
     item = applied[-1]; verify_repo(worddeck, plan)
     bdir = p["backups"] / f'cp{int(item["index"]):04d}'
-    atomic(worddeck / "ReviewedOxford5000Bootstrap.cs", (bdir / "ReviewedOxford5000Bootstrap.cs").read_bytes())
-    atomic(worddeck / "WordDeck.csproj", (bdir / "WordDeck.csproj").read_bytes())
+    b1, b2 = bdir / "ReviewedOxford5000Bootstrap.cs", bdir / "WordDeck.csproj"
+    verify_backup(item, b1, b2)
+    atomic(worddeck / "ReviewedOxford5000Bootstrap.cs", b1.read_bytes())
+    atomic(worddeck / "WordDeck.csproj", b2.read_bytes())
     target = worddeck / "QA" / item["file_name"]
     if target.exists(): target.unlink()
     item["status"] = "PENDING"; item.pop("before_repo", None); item.pop("after_repo", None)
@@ -287,7 +300,28 @@ def self_test() -> None:
         assert [c["major_order"] for c in plan["checkpoints"]] == [10000, 10001, 10002]
         assert plan["projected_final_count"] == 1227
         assert prepare(worddeck, u, d, q, tx, 120)["transaction_id"] == plan["transaction_id"]
-        plan = apply_next(worddeck, tx); assert expected_count((worddeck / "ReviewedOxford5000Bootstrap.cs").read_text()) == 1102
+
+        # Simulate a crash after the journal enters APPLYING and after a partial target write.
+        first = plan["checkpoints"][0]
+        bdir = tx_paths(tx)["backups"] / "cp0001"; bdir.mkdir(parents=True, exist_ok=True)
+        b1, b2 = bdir / "ReviewedOxford5000Bootstrap.cs", bdir / "WordDeck.csproj"
+        b1.write_bytes((worddeck / "ReviewedOxford5000Bootstrap.cs").read_bytes())
+        b2.write_bytes((worddeck / "WordDeck.csproj").read_bytes())
+        first["status"] = "APPLYING"; first["before_repo"] = plan["repo_current"]
+        (worddeck / "QA" / first["file_name"]).write_text("partial-crash-output", encoding="utf-8")
+        write_json(tx_paths(tx)["journal"], plan)
+
+        # Corrupt backup bytes: recovery must fail closed before restoring anything.
+        original_backup = b1.read_bytes(); b1.write_bytes(original_backup + b"corrupt")
+        try: apply_next(worddeck, tx)
+        except ValueError as e: assert "backup bytes" in str(e)
+        else: raise AssertionError("Corrupted recovery backup was accepted")
+        b1.write_bytes(original_backup)
+
+        # A clean retry must roll back the interrupted state and apply checkpoint 1 once.
+        plan = apply_next(worddeck, tx)
+        assert first["file_name"] == plan["checkpoints"][0]["file_name"] and plan["checkpoints"][0]["status"] == "APPLIED"
+        assert expected_count((worddeck / "ReviewedOxford5000Bootstrap.cs").read_text()) == 1102
         plan = apply_next(worddeck, tx); second = plan["checkpoints"][1]["file_name"]; assert expected_count((worddeck / "ReviewedOxford5000Bootstrap.cs").read_text()) == 1222
         plan = rollback_last(worddeck, tx); assert plan["checkpoints"][1]["status"] == "PENDING" and not (worddeck / "QA" / second).exists()
         plan = apply_next(worddeck, tx); plan = apply_next(worddeck, tx); assert [c["status"] for c in plan["checkpoints"]] == ["APPLIED"] * 3
