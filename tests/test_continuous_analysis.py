@@ -2,8 +2,12 @@ import threading
 import time
 import unittest
 
-from acs.analysis_service import AnalysisService
-from acs.continuous_analysis import ContinuousAnalysisService
+from acs.analysis_service import AnalysisResult, AnalysisService
+from acs.continuous_analysis import (
+    ContinuousAnalysisService,
+    ContinuousAnalysisState,
+)
+from acs.engine_ports import EngineContractError, EngineContractErrorCode
 
 
 class RecordingEngine:
@@ -98,6 +102,134 @@ class ContinuousAnalysisTests(unittest.TestCase):
             service.start('fen-a'); self.assertTrue(wait_until(lambda: seen == ['fen-a']))
             service.update_position('fen-b'); self.assertTrue(wait_until(lambda: seen == ['fen-a', 'fen-b']))
         finally: service.close()
+
+    def test_state_dto_rejects_inconsistent_or_coerced_fields(self):
+        result = AnalysisResult("fen", 1, False, ())
+        valid = ContinuousAnalysisState(False, "  fen  ", 5, 16, 1, result)
+        self.assertEqual(valid.fen, "fen")
+
+        invalid = (
+            (1, "fen", 5, 16, 1, None),
+            (True, None, 5, 16, 1, None),
+            (False, True, 5, 16, 1, None),
+            (False, "   ", 5, 16, 1, None),
+            (False, None, True, 16, 1, None),
+            (False, None, 0, 16, 1, None),
+            (False, None, 11, 16, 1, None),
+            (False, None, 5, True, 1, None),
+            (False, None, 5, 0, 1, None),
+            (False, None, 5, 41, 1, None),
+            (False, None, 5, 16, True, None),
+            (False, None, 5, 16, -1, None),
+            (False, None, 5, 16, 1, object()),
+        )
+        for values in invalid:
+            with self.subTest(state=values):
+                with self.assertRaises(EngineContractError) as caught:
+                    ContinuousAnalysisState(*values)
+                self.assertEqual(
+                    caught.exception.code,
+                    EngineContractErrorCode.INVALID_SESSION,
+                )
+
+    def test_constructor_requires_service_and_callable_result_sink(self):
+        with self.assertRaisesRegex(TypeError, "AnalysisService"):
+            ContinuousAnalysisService(object())
+
+        with self.assertRaises(EngineContractError) as caught:
+            ContinuousAnalysisService(
+                AnalysisService(lambda: RecordingEngine()),
+                object(),
+            )
+        self.assertEqual(
+            caught.exception.code,
+            EngineContractErrorCode.INVALID_PROVIDER,
+        )
+
+    def test_requests_reject_scalar_coercion_before_state_mutation(self):
+        engine = RecordingEngine()
+        service = ContinuousAnalysisService(AnalysisService(lambda: engine))
+        try:
+            before = service.state()
+            invalid_starts = (
+                (True, 5, 16),
+                ("   ", 5, 16),
+                ("fen", True, 16),
+                ("fen", "5", 16),
+                ("fen", 5.0, 16),
+                ("fen", 5, True),
+                ("fen", 5, "16"),
+                ("fen", 5, 16.0),
+            )
+            for values in invalid_starts:
+                with self.subTest(start=values):
+                    with self.assertRaises(EngineContractError) as caught:
+                        service.start(*values)
+                    self.assertEqual(
+                        caught.exception.code,
+                        EngineContractErrorCode.INVALID_REQUEST,
+                    )
+                    self.assertEqual(service.state(), before)
+            self.assertIsNone(service._worker)
+
+            service.start("  fen-a  ", multipv=99, depth=0)
+            self.assertTrue(
+                wait_until(lambda: service.state().last_result is not None),
+            )
+            state = service.state()
+            self.assertEqual(state.fen, "fen-a")
+            self.assertEqual(state.multipv, 10)
+            self.assertEqual(state.depth, 1)
+            self.assertEqual(engine.calls[-1], ("fen-a", 10, 1))
+
+            service.stop()
+            stopped = service.state()
+            for invalid_fen in (True, "   ", b"fen"):
+                with self.subTest(update=invalid_fen):
+                    with self.assertRaises(EngineContractError) as caught:
+                        service.update_position(invalid_fen)
+                    self.assertEqual(
+                        caught.exception.code,
+                        EngineContractErrorCode.INVALID_REQUEST,
+                    )
+                    self.assertEqual(service.state(), stopped)
+            for kwargs in (
+                {"multipv": True},
+                {"multipv": "5"},
+                {"depth": 16.0},
+            ):
+                with self.subTest(configure=kwargs):
+                    with self.assertRaises(EngineContractError) as caught:
+                        service.configure(**kwargs)
+                    self.assertEqual(
+                        caught.exception.code,
+                        EngineContractErrorCode.INVALID_REQUEST,
+                    )
+                    self.assertEqual(service.state(), stopped)
+        finally:
+            service.close()
+
+    def test_result_callback_can_close_service_from_worker_thread(self):
+        engine = RecordingEngine()
+        holder = {}
+        seen = []
+
+        def sink(result):
+            seen.append(result.fen)
+            holder["service"].close()
+
+        service = ContinuousAnalysisService(
+            AnalysisService(lambda: engine),
+            sink,
+        )
+        holder["service"] = service
+        service.start("fen-close")
+
+        self.assertTrue(wait_until(lambda: engine.closed))
+        self.assertTrue(wait_until(lambda: not service._worker.is_alive()))
+        self.assertEqual(seen, ["fen-close"])
+        with self.assertRaisesRegex(RuntimeError, "closed"):
+            service.start("fen-after-close")
 
 
 if __name__ == '__main__': unittest.main()
