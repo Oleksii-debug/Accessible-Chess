@@ -9,9 +9,17 @@ Stockfish subprocess adapter or another concrete engine implementation.
 
 from dataclasses import dataclass
 from enum import Enum
+import re
 from typing import Callable, Iterable
 
-from .engine_ports import ChessEnginePort
+from .engine_ports import (
+    ChessEnginePort,
+    EngineContractError,
+    EngineContractErrorCode,
+)
+
+
+_PROVIDER_ID_RE = re.compile(r"^[a-z][a-z0-9_-]*$")
 
 
 class EngineCapability(str, Enum):
@@ -26,18 +34,51 @@ class EngineProviderDescriptor:
     capabilities: frozenset[EngineCapability]
 
     def __post_init__(self) -> None:
+        if not isinstance(self.provider_id, str):
+            raise EngineContractError(
+                "provider_id must be text",
+                code=EngineContractErrorCode.INVALID_CONFIG,
+            )
+        if not isinstance(self.title, str):
+            raise EngineContractError(
+                "provider title must be text",
+                code=EngineContractErrorCode.INVALID_CONFIG,
+            )
         provider_id = self.provider_id.strip()
         title = self.title.strip()
         if not provider_id:
-            raise ValueError("provider_id must not be empty")
+            raise EngineContractError(
+                "provider_id must not be empty",
+                code=EngineContractErrorCode.INVALID_CONFIG,
+            )
         if provider_id != self.provider_id:
-            raise ValueError("provider_id must not contain surrounding whitespace")
-        if provider_id.casefold() != provider_id:
-            raise ValueError("provider_id must be lowercase and stable")
-        if not title:
-            raise ValueError("provider title must not be empty")
-        if not self.capabilities:
-            raise ValueError("provider must declare at least one capability")
+            raise EngineContractError(
+                "provider_id must not contain surrounding whitespace",
+                code=EngineContractErrorCode.INVALID_CONFIG,
+            )
+        if _PROVIDER_ID_RE.fullmatch(provider_id) is None:
+            raise EngineContractError(
+                "provider_id must be a lowercase ASCII slug",
+                code=EngineContractErrorCode.INVALID_CONFIG,
+            )
+        if not title or "\n" in title or "\r" in title:
+            raise EngineContractError(
+                "provider title must be non-empty single-line text",
+                code=EngineContractErrorCode.INVALID_CONFIG,
+            )
+        if (
+            not isinstance(self.capabilities, frozenset)
+            or not self.capabilities
+            or any(
+                not isinstance(capability, EngineCapability)
+                for capability in self.capabilities
+            )
+        ):
+            raise EngineContractError(
+                "provider capabilities must be a non-empty EngineCapability frozenset",
+                code=EngineContractErrorCode.INVALID_CONFIG,
+            )
+        object.__setattr__(self, "title", title)
 
 
 EngineFactory = Callable[[], ChessEnginePort]
@@ -56,10 +97,15 @@ class EngineProviderRegistry:
         self._factories: dict[str, EngineFactory] = {}
 
     def register(self, descriptor: EngineProviderDescriptor, factory: EngineFactory) -> None:
+        if not isinstance(descriptor, EngineProviderDescriptor):
+            raise TypeError("descriptor must be EngineProviderDescriptor")
         if descriptor.provider_id in self._descriptors:
             raise ValueError(f"engine provider already registered: {descriptor.provider_id}")
         if not callable(factory):
-            raise TypeError("engine provider factory must be callable")
+            raise EngineContractError(
+                "engine provider factory must be callable",
+                code=EngineContractErrorCode.INVALID_PROVIDER,
+            )
         self._descriptors[descriptor.provider_id] = descriptor
         self._factories[descriptor.provider_id] = factory
 
@@ -82,6 +128,7 @@ class EngineProviderRegistry:
         *,
         capability: EngineCapability | None = None,
     ) -> tuple[EngineProviderDescriptor, ...]:
+        self._validate_capability(capability, field_name="capability")
         values: Iterable[EngineProviderDescriptor] = self._descriptors.values()
         if capability is not None:
             values = (item for item in values if capability in item.capabilities)
@@ -96,21 +143,52 @@ class EngineProviderRegistry:
         *,
         require: EngineCapability | None = None,
     ) -> ChessEnginePort:
+        self._validate_capability(require, field_name="require")
         descriptor = self.descriptor(provider_id)
         if require is not None and require not in descriptor.capabilities:
             raise ValueError(
                 f"engine provider {descriptor.provider_id} does not support {require.value}"
             )
         engine = self._factories[descriptor.provider_id]()
-        if not isinstance(engine, ChessEnginePort):
-            raise TypeError(
-                f"engine provider {descriptor.provider_id} factory returned an incompatible adapter"
+        if (
+            isinstance(engine, type)
+            or not isinstance(engine, ChessEnginePort)
+            or not callable(getattr(engine, "analyze", None))
+            or not callable(getattr(engine, "best_move", None))
+            or not callable(getattr(engine, "close", None))
+        ):
+            raise EngineContractError(
+                f"engine provider {descriptor.provider_id} factory returned an incompatible adapter",
+                code=EngineContractErrorCode.INVALID_PROVIDER,
             )
         return engine
 
     @staticmethod
     def _normalize_provider_id(provider_id: str) -> str:
+        if not isinstance(provider_id, str):
+            raise EngineContractError(
+                "provider_id must be text",
+                code=EngineContractErrorCode.INVALID_REQUEST,
+            )
         value = provider_id.strip().casefold()
-        if not value:
-            raise ValueError("provider_id must not be empty")
+        if not value or _PROVIDER_ID_RE.fullmatch(value) is None:
+            raise EngineContractError(
+                "provider_id must be a non-empty lowercase ASCII slug",
+                code=EngineContractErrorCode.INVALID_REQUEST,
+            )
         return value
+
+    @staticmethod
+    def _validate_capability(
+        capability: EngineCapability | None,
+        *,
+        field_name: str,
+    ) -> None:
+        if capability is not None and not isinstance(
+            capability,
+            EngineCapability,
+        ):
+            raise EngineContractError(
+                f"{field_name} must be EngineCapability or None",
+                code=EngineContractErrorCode.INVALID_REQUEST,
+            )
