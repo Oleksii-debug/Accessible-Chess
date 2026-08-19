@@ -44,6 +44,13 @@ STORAGE_ORCHESTRATION_MODULES = (
     'acs/duplicate_detection.py',
 )
 
+CHESSBASE_READ_ONLY_MODULES = (
+    'acs/chessbase_cbh.py',
+    'acs/chessbase_cbg.py',
+    'acs/chessbase_cbp.py',
+    'acs/chessbase_cbt.py',
+)
+
 FORBIDDEN_PREFIXES = (
     'acs.webapp',
     'acs.ui_',
@@ -169,6 +176,23 @@ class ArchitectureBoundaryTests(unittest.TestCase):
         for relative in ('acs/interaction_contracts.py', 'acs/interaction_router.py'):
             imports = imports_for(relative)
             self.assertEqual(sorted(forbidden.intersection(imports)), [], relative)
+
+    def test_chessbase_layout_adapters_remain_neutral_and_gpl_dependency_free(self):
+        violations = []
+        for relative in CHESSBASE_READ_ONLY_MODULES:
+            self.assertTrue(Path(relative).is_file(), relative)
+            for name in imports_for(relative):
+                if name == 'chess' or name.startswith('chess.'):
+                    violations.append(f'{relative}: GPL python-chess dependency {name}')
+                if name in {'sqlite3', 'subprocess'} or name.startswith('acs.webapp'):
+                    violations.append(f'{relative}: non-neutral dependency {name}')
+        self.assertEqual(violations, [], '\n'.join(violations))
+
+    def test_chessbase_adaptation_has_pinned_mit_notice(self):
+        notice = Path('THIRD_PARTY_NOTICES.md').read_text(encoding='utf-8')
+        self.assertIn('42b3592738062db1f768239e85df1b98cb1cead9', notice)
+        self.assertIn('Copyright (c) 2022 Dominik Klein', notice)
+        self.assertIn('MIT License', notice)
 
 
 if __name__ == '__main__':

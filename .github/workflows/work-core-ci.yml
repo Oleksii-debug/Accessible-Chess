@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - dev/canonical-interaction-contracts-20260819
+      - completion/full-product-critical-path-20260819
   pull_request:
     branches:
       - integration/accessible-chess-next
