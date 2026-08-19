@@ -45,10 +45,17 @@ STORAGE_ORCHESTRATION_MODULES = (
 )
 
 CHESSBASE_READ_ONLY_MODULES = (
+    'acs/chessbase_capabilities.py',
     'acs/chessbase_cbh.py',
     'acs/chessbase_cbg.py',
+    'acs/chessbase_cbg_payload.py',
+    'acs/chessbase_cbg_payload_evidence.py',
     'acs/chessbase_cbp.py',
     'acs/chessbase_cbt.py',
+    'acs/chessbase_cbh_cbg_link.py',
+    'acs/chessbase_cbh_cbg_batch.py',
+    'acs/chessbase_cbh_metadata.py',
+    'acs/chessbase_cbh_evidence.py',
 )
 
 FORBIDDEN_PREFIXES = (
