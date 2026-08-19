@@ -204,6 +204,7 @@ class EngineGameSessionCoordinator:
         undo_committed_move: Callable[[], None] | None = None,
         clock_restore_provider: Callable[[], ClockSnapshot] | None = None,
         no_move_resolver: Callable[[EngineNoMoveHandoff], EngineNoMoveResolution | None] | None = None,
+        timeout_mating_capability_provider: Callable[[str], bool | None] | None = None,
         analysis_handoff: Callable[[EngineGameHandoff], None] | None = None,
         review_handoff: Callable[[EngineGameHandoff], None] | None = None,
         lifecycle: GameLifecycle | None = None,
@@ -227,6 +228,7 @@ class EngineGameSessionCoordinator:
             "undo_committed_move": undo_committed_move,
             "clock_restore_provider": clock_restore_provider,
             "no_move_resolver": no_move_resolver,
+            "timeout_mating_capability_provider": timeout_mating_capability_provider,
             "analysis_handoff": analysis_handoff,
             "review_handoff": review_handoff,
         }
@@ -254,6 +256,7 @@ class EngineGameSessionCoordinator:
         self._undo_committed_move = undo_committed_move
         self._clock_restore_provider = clock_restore_provider
         self._no_move_resolver = no_move_resolver
+        self._timeout_mating_capability_provider = timeout_mating_capability_provider
         self._analysis_handoff = analysis_handoff
         self._review_handoff = review_handoff
         self._lifecycle = GameLifecycle() if lifecycle is None else lifecycle
@@ -322,7 +325,7 @@ class EngineGameSessionCoordinator:
         lifecycle = self._lifecycle.snapshot()
         clock = self._clock.snapshot()
         if clock.flagged is not None and lifecycle.status is GameStatus.ACTIVE:
-            self._lifecycle.record_timeout(clock.flagged, opponent_can_mate=True)
+            self._record_timeout(clock.flagged)
             lifecycle = self._lifecycle.snapshot()
         if lifecycle.status is GameStatus.FINISHED:
             turn_state = EngineTurnState.FINISHED
@@ -345,7 +348,7 @@ class EngineGameSessionCoordinator:
         assert self._clock is not None
         clock = self._clock.snapshot()
         if clock.flagged is not None:
-            self._lifecycle.record_timeout(clock.flagged, opponent_can_mate=True)
+            self._record_timeout(clock.flagged)
             raise ValueError("clock flagged before move commit")
         if clock.state is ClockState.RUNNING and clock.active != moved_side:
             raise ValueError("active clock does not match moved side")
@@ -386,7 +389,7 @@ class EngineGameSessionCoordinator:
         assert self._clock is not None
         clock = self._clock.snapshot()
         if clock.flagged is not None:
-            self._lifecycle.record_timeout(clock.flagged, opponent_can_mate=True)
+            self._record_timeout(clock.flagged)
             raise ValueError("clock flagged before move commit")
         if clock.state is ClockState.RUNNING and clock.active != moved_side:
             raise ValueError("active clock does not match moved side")
@@ -400,14 +403,14 @@ class EngineGameSessionCoordinator:
         self._stop_clock()
         return self.snapshot()
 
-    def sync_timeout(self, *, opponent_can_mate: bool = True) -> EngineGameSessionSnapshot:
+    def sync_timeout(self, *, opponent_can_mate: bool | None = None) -> EngineGameSessionSnapshot:
         self._require_started()
         assert self._clock is not None
         flagged = self._clock.snapshot().flagged
         if flagged is None:
             raise ValueError("clock has not flagged")
         if self._lifecycle.snapshot().status is GameStatus.ACTIVE:
-            self._lifecycle.record_timeout(flagged, opponent_can_mate=opponent_can_mate)
+            self._record_timeout(flagged, opponent_can_mate=opponent_can_mate)
         return self.snapshot()
 
     def handle_handoff(self, handoff: EngineGameHandoff) -> EngineGameSessionSnapshot:
@@ -477,6 +480,43 @@ class EngineGameSessionCoordinator:
             winner=resolution.winner,
         )
         self._stop_clock()
+
+    def _record_timeout(
+        self,
+        flagged_side: str,
+        *,
+        opponent_can_mate: bool | None = None,
+    ) -> None:
+        if not isinstance(flagged_side, str) or flagged_side not in {"w", "b"}:
+            raise EngineContractError(
+                "flagged side must be 'w' or 'b'",
+                code=EngineContractErrorCode.INVALID_SESSION,
+            )
+        resolved = opponent_can_mate
+        if resolved is not None:
+            if type(resolved) is not bool:
+                raise EngineContractError(
+                    "opponent_can_mate must be an exact boolean",
+                    code=EngineContractErrorCode.INVALID_REQUEST,
+                )
+        else:
+            if self._timeout_mating_capability_provider is None:
+                raise EngineContractError(
+                    "timeout mating capability is unresolved",
+                    code=EngineContractErrorCode.INVALID_SESSION,
+                )
+            resolved = self._timeout_mating_capability_provider(flagged_side)
+            if resolved is None:
+                raise EngineContractError(
+                    "timeout mating capability is unresolved",
+                    code=EngineContractErrorCode.INVALID_SESSION,
+                )
+            if type(resolved) is not bool:
+                raise EngineContractError(
+                    "timeout mating capability provider must return bool or None",
+                    code=EngineContractErrorCode.INVALID_PROVIDER,
+                )
+        self._lifecycle.record_timeout(flagged_side, opponent_can_mate=resolved)
 
     def _restore_clock_after_takeback(self) -> None:
         if self._clock_restore_provider is None or self._clock is None:

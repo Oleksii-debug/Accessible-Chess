@@ -53,6 +53,7 @@ class EngineGameSessionTests(unittest.TestCase):
         now=None,
         clock_restore_provider=None,
         no_move_resolver=None,
+        opponent_can_mate=True,
     ):
         state = {'fen': 'fen-w', 'side': 'w', 'history': 'node-0', 'moves': [], 'undos': 0}
         analysis = []
@@ -82,6 +83,7 @@ class EngineGameSessionTests(unittest.TestCase):
             undo_committed_move=undo,
             clock_restore_provider=clock_restore_provider,
             no_move_resolver=no_move_resolver,
+            timeout_mating_capability_provider=lambda flagged: opponent_can_mate,
             analysis_handoff=analysis.append,
             review_handoff=review.append,
             **kwargs,
@@ -418,6 +420,7 @@ class EngineGameSessionTests(unittest.TestCase):
             "undo_committed_move",
             "clock_restore_provider",
             "no_move_resolver",
+            "timeout_mating_capability_provider",
             "analysis_handoff",
             "review_handoff",
         )
