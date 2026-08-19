@@ -17,11 +17,11 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  SOURCE_INTEGRATION_SHA: 9684b06e9821d9588944f1182744a1c72623b355
+  SOURCE_INTEGRATION_SHA: e8cd992d306975955784118364ce950963133d7e
   PYWEBVIEW_VERSION: '6.2.1'
   NUITKA_UPSTREAM_FIX_COMMIT: b7ea05bf570e0b6950de6db7c4c8e579e1b77d29
   STOCKFISH_VERSION: '18'
-  CANDIDATE_FILE: Accessible-Chess-0.4-9684b06-NVDA-test-candidate.zip
+  CANDIDATE_FILE: Accessible-Chess-0.4-e8cd992-NVDA-test-candidate.zip
 
 jobs:
   build:
@@ -97,7 +97,7 @@ jobs:
             if($LASTEXITCODE -ne 0){throw 'compileall failed'}
             python -m unittest discover -s tests -v
             if($LASTEXITCODE -ne 0){throw 'full Stage 1 tests failed'}
-            python -m unittest tests.test_issue22_release_contract tests.test_nvda_p0_contract tests.test_ui_native_menu_recovery tests.test_sound_runtime tests.test_release_stockfish_composition tests.test_stage1_core_full_flow tests.test_stage1_release_composition_ui tests.test_stage1_packaged_focus_origin_contract -v
+            python -m unittest tests.test_issue22_release_contract tests.test_nvda_p0_contract tests.test_stage1_webview2_accessibility_boundary tests.test_webview_safe_server tests.test_ui_native_menu_recovery tests.test_sound_runtime tests.test_release_stockfish_composition tests.test_stage1_core_full_flow tests.test_stage1_release_composition_ui tests.test_stage1_packaged_focus_origin_contract -v
             if($LASTEXITCODE -ne 0){throw 'Issue 22/P0 focused gate failed'}
             python run_accessible_chess.py --diagnostic
             if($LASTEXITCODE -ne 0){throw 'source diagnostic failed'}
@@ -242,7 +242,7 @@ jobs:
           $exe.FullName | Set-Content -Encoding UTF8 built_exe_path.txt
           "STANDALONE EXE + PACKAGED STOCKFISH PASS: $($exe.FullName)"
 
-      - name: Built EXE diagnostic and real WebView2 startup
+      - name: Built EXE diagnostic and WebView2 process startup
         shell: pwsh
         working-directory: work
         run: |
@@ -253,7 +253,7 @@ jobs:
           Start-Sleep -Seconds 18
           if($p.HasExited){throw "GUI exited during real WebView2 startup: $($p.ExitCode)"}
           $p.Id | Set-Content gui_pid.txt
-          "REAL PACKAGED WEBVIEW2 STARTUP PASS pid=$($p.Id)"
+          "WEBVIEW2 PROCESS STARTUP PASS pid=$($p.Id); REAL DOCUMENT PROOF FOLLOWS IN STRICT UIA GATE"
 
       - name: Strict packaged cross-process UIA and real Stage 1 E2E
         shell: pwsh
@@ -377,9 +377,9 @@ jobs:
       - name: Upload fresh NVDA test candidate
         uses: actions/upload-artifact@v4
         with:
-          name: Accessible-Chess-0.4-9684b06-NVDA-test-candidate
+          name: Accessible-Chess-0.4-e8cd992-NVDA-test-candidate
           path: |
-            work/Accessible-Chess-0.4-9684b06-NVDA-test-candidate.zip
+            work/Accessible-Chess-0.4-e8cd992-NVDA-test-candidate.zip
             work/candidate-zip.sha256
             work/native-menu-self-diagnostic.json
             work/packaged-uia-strict-summary.json

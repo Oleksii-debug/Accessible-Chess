@@ -105,6 +105,23 @@ $classifier=Join-Path $PSScriptRoot 'stage1_uia_topology_classify.py'
 if(-not (Test-Path 'uia-topology-report-v5.json')){throw 'Topology report missing'}
 Copy-Item uia-topology-report-v5.json uia-topology-strict-raw.json -Force
 Copy-Item uia-topology-report-v5.json uia-topology-strict.json -Force
+$startupReport=Get-Content uia-topology-strict.json -Raw|ConvertFrom-Json
+$errorNodes=@($startupReport.nodes|Where-Object {
+  $startupText=([string]$_.name)+' '+([string]$_.value)+' '+([string]$_.ancestor_path)
+  $startupText -match 'ERR_UNSAFE_PORT|Hmmm.*reach this page|Network error|chrome-error://|edge-error://'
+})
+if($errorNodes.Count -gt 0){
+  $sample=@($errorNodes|Select-Object -First 5|ForEach-Object {([string]$_.control_type)+': '+([string]$_.name)}) -join ' | '
+  throw "Chromium/WebView2 error page detected before Stage 1 interaction: $sample"
+}
+$appDocuments=@($startupReport.nodes|Where-Object {
+  [string]$_.control_type -eq 'ControlType.Document' -and [bool]$_.source_root_connected -and [string]$_.name -eq 'Accessible Chess'
+})
+if($appDocuments.Count -eq 0){
+  $documentNames=@($startupReport.nodes|Where-Object {[string]$_.control_type -eq 'ControlType.Document'}|ForEach-Object {[string]$_.name}) -join ' | '
+  throw "Real Accessible Chess document missing before Stage 1 interaction; documents=$documentNames"
+}
+Write-Output "REAL ACCESSIBLE CHESS DOCUMENT STARTUP PASS documents=$($appDocuments.Count)"
 python $classifier uia-topology-strict.json --product-root $ProductRoot
 if($LASTEXITCODE -ne 0){throw 'Fail-closed classifier failed'}
 $report=Get-Content uia-topology-strict.json -Raw|ConvertFrom-Json
@@ -138,7 +155,6 @@ try{
   Set-Clipboard -Value '__sentinel__'; $move.SetFocus(); $ws.SendKeys('^a'); $ws.SendKeys('^c'); Start-Sleep -Milliseconds 400
   $clip=([string](Get-Clipboard -Raw)).Trim(); if($clip -ne 'e9'){throw "Ctrl+A/Ctrl+C failed: '$clip'"}; $summary.clipboard=$clip
 
-  # Prepare the black move while normal Move input is still the active context.
   $vp.SetValue('e5'); if([string]$vp.Current.Value -ne 'e5'){throw 'Could not prepare e5 before board entry'}
   Write-Output 'Prepared e5 before entering board'
 
@@ -152,7 +168,6 @@ try{
   $target=$sq['a3']; $target.SetFocus();
   AssertSemanticFocusEventually $target 'Board origin establishment'
 
-  # Locked contract: after board origin is established, touch only move-submit via UIA Invoke.
   $els=Rewalk $report
   $submit=FindControl $els 'move-submit' '^(Зробити хід|Make move)$' 'ControlType.Button'
   if($null -eq $submit){throw 'move-submit missing during board-origin bridge'}
