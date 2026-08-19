@@ -4,7 +4,7 @@ from __future__ import annotations
 
 This module owns engine-game policy (levels, side selection and game handoff
 intents) while leaving the concrete UCI/Stockfish process behind
-``MoveEnginePort``.  The canonical chess-clock DTO remains ``TimeControl`` from
+``MoveEnginePort``. The canonical chess-clock DTO remains ``TimeControl`` from
 ``clock_service``; this module deliberately does not create a second clock
 model.
 """
@@ -12,6 +12,7 @@ model.
 from dataclasses import dataclass
 from enum import Enum
 import random
+import threading
 from typing import Callable
 
 from .clock_service import TimeControl
@@ -292,6 +293,8 @@ def dispatch_lifecycle_handoff(
 
 
 class EnginePlayService:
+    """Serialized, terminal-close coordinator for one move-engine provider."""
+
     def __init__(
         self,
         engine_factory: Callable[[], MoveEnginePort],
@@ -311,6 +314,8 @@ class EnginePlayService:
         self._engine_factory = engine_factory
         self._engine: MoveEnginePort | None = None
         self._owns_engine = owns_engine
+        self._lock = threading.RLock()
+        self._closed = False
 
     def choose_move(self, request: EngineMoveRequest) -> EngineMoveResult:
         if not isinstance(request, EngineMoveRequest):
@@ -321,30 +326,53 @@ class EnginePlayService:
             if request.movetime_ms is None
             else max(50, request.movetime_ms)
         )
-        if self._engine is None:
-            engine = self._engine_factory()
-            if (
-                isinstance(engine, type)
-                or not isinstance(engine, MoveEnginePort)
-                or not callable(getattr(engine, "best_move", None))
-                or not callable(getattr(engine, "close", None))
-            ):
+
+        # Provider creation and the complete stateful best-move transaction are
+        # serialized. close() takes the same lock, so it cannot close a provider
+        # while an in-flight request is using it and no request can resurrect a
+        # provider after terminal close.
+        with self._lock:
+            if self._closed:
                 raise EngineContractError(
-                    "engine factory returned an incompatible move provider",
-                    code=EngineContractErrorCode.INVALID_PROVIDER,
+                    "engine play service is closed",
+                    code=EngineContractErrorCode.INVALID_SESSION,
                 )
-            self._engine = engine
-        move = self._engine.best_move(
-            request.fen, skill_level=policy.skill_level,
-            movetime_ms=movetime_ms,
-        )
-        return EngineMoveResult(move=move, level=policy.level, movetime_ms=movetime_ms)
+            if self._engine is None:
+                engine = self._engine_factory()
+                if (
+                    isinstance(engine, type)
+                    or not isinstance(engine, MoveEnginePort)
+                    or not callable(getattr(engine, "best_move", None))
+                    or not callable(getattr(engine, "close", None))
+                ):
+                    raise EngineContractError(
+                        "engine factory returned an incompatible move provider",
+                        code=EngineContractErrorCode.INVALID_PROVIDER,
+                    )
+                self._engine = engine
+            move = self._engine.best_move(
+                request.fen,
+                skill_level=policy.skill_level,
+                movetime_ms=movetime_ms,
+            )
+            return EngineMoveResult(
+                move=move,
+                level=policy.level,
+                movetime_ms=movetime_ms,
+            )
 
     def close(self) -> None:
-        engine = self._engine
-        self._engine = None
-        if self._owns_engine and engine is not None:
-            try:
-                engine.close()
-            except Exception:
-                pass
+        # Terminal close is deliberately monotonic. Holding the same lock used
+        # by choose_move means close waits for any in-flight provider operation,
+        # then prevents all future factory/provider use.
+        with self._lock:
+            if self._closed:
+                return
+            self._closed = True
+            engine = self._engine
+            self._engine = None
+            if self._owns_engine and engine is not None:
+                try:
+                    engine.close()
+                except Exception:
+                    pass
