@@ -2,8 +2,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
+from typing import Mapping
 
 from .interaction_contracts import (
+    CONTRACT_VERSION,
     AnnotationCommand,
     BoardPermissionState,
     ContractValidationError,
@@ -13,6 +15,8 @@ from .interaction_contracts import (
     StudentHoverEvent,
     StudentSelectionEvent,
     TeacherPointerCommand,
+    interaction_from_payload,
+    interaction_to_payload,
 )
 
 
@@ -32,6 +36,24 @@ class InteractionEffect(str, Enum):
     OBSERVATION = "observation"
 
 
+def _validate_routing_version(version: object) -> int:
+    if type(version) is not int or version != CONTRACT_VERSION:
+        raise ContractValidationError(
+            f"unsupported routing contract version: {version!r}"
+        )
+    return version
+
+
+def _exact_payload(payload: Mapping[str, object], keys: set[str]) -> None:
+    actual = set(payload)
+    if actual != keys:
+        missing = sorted(keys - actual)
+        unknown = sorted(actual - keys)
+        raise ContractValidationError(
+            f"routing payload keys mismatch; missing={missing}, unknown={unknown}"
+        )
+
+
 @dataclass(frozen=True)
 class InteractionPolicy:
     board_permission: BoardPermissionState = BoardPermissionState.LOCKED
@@ -43,6 +65,39 @@ class InteractionPolicy:
             raise ContractValidationError(
                 f"unsupported board permission: {self.board_permission!r}"
             ) from exc
+
+
+@dataclass(frozen=True)
+class InteractionRequest:
+    """One versioned request for the canonical interaction router."""
+
+    source: InputSource
+    message: InteractionMessage
+    policy: InteractionPolicy = InteractionPolicy()
+    version: int = CONTRACT_VERSION
+
+    def __post_init__(self) -> None:
+        _validate_routing_version(self.version)
+        try:
+            object.__setattr__(self, "source", InputSource(self.source))
+        except (TypeError, ValueError) as exc:
+            raise ContractValidationError(
+                f"unsupported input source: {self.source!r}"
+            ) from exc
+        if not isinstance(
+            self.message,
+            (
+                MoveCommand,
+                TeacherPointerCommand,
+                PositionEditorCommand,
+                AnnotationCommand,
+                StudentHoverEvent,
+                StudentSelectionEvent,
+            ),
+        ):
+            raise ContractValidationError("request message is not an interaction contract")
+        if not isinstance(self.policy, InteractionPolicy):
+            raise ContractValidationError("request policy must be InteractionPolicy")
 
 
 @dataclass(frozen=True)
@@ -58,7 +113,9 @@ class RoutingDecision:
             object.__setattr__(self, "effect", InteractionEffect(self.effect))
         except (TypeError, ValueError) as exc:
             raise ContractValidationError(f"unsupported interaction effect: {self.effect!r}") from exc
-        if not str(self.reason).strip():
+        if not isinstance(self.reason, str):
+            raise ContractValidationError("routing reason must be a string")
+        if not self.reason.strip():
             raise ContractValidationError("routing reason must not be empty")
         if not self.accepted and self.effect is not InteractionEffect.NONE:
             raise ContractValidationError("rejected interactions must have effect=none")
@@ -105,8 +162,9 @@ def evaluate_interaction(
         source = InputSource(source)
     except (TypeError, ValueError):
         return RoutingDecision(False, InteractionEffect.NONE, "unsupported input source")
-    policy = policy or InteractionPolicy()
-    if not isinstance(policy, InteractionPolicy):
+    if policy is None:
+        policy = InteractionPolicy()
+    elif not isinstance(policy, InteractionPolicy):
         raise ContractValidationError("policy must be InteractionPolicy")
 
     if source is InputSource.MOVE_INPUT:
@@ -136,6 +194,75 @@ def evaluate_interaction(
             return RoutingDecision(True, InteractionEffect.CHESS_MOVE, "explicit student move permitted")
         return RoutingDecision(False, InteractionEffect.NONE, "student move is not permitted")
     return _family_mismatch(source, message)
+
+
+def evaluate_request(request: InteractionRequest) -> RoutingDecision:
+    if not isinstance(request, InteractionRequest):
+        raise ContractValidationError("request must be InteractionRequest")
+    return evaluate_interaction(request.message, request.source, request.policy)
+
+
+def routing_request_to_payload(request: InteractionRequest) -> dict[str, object]:
+    if not isinstance(request, InteractionRequest):
+        raise ContractValidationError("request must be InteractionRequest")
+    return {
+        "version": request.version,
+        "kind": "request",
+        "source": request.source.value,
+        "policy": {"board_permission": request.policy.board_permission.value},
+        "message": interaction_to_payload(request.message),
+    }
+
+
+def routing_request_from_payload(payload: Mapping[str, object]) -> InteractionRequest:
+    if not isinstance(payload, Mapping):
+        raise ContractValidationError("routing request payload must be an object")
+    _exact_payload(payload, {"version", "kind", "source", "policy", "message"})
+    version = _validate_routing_version(payload["version"])
+    if payload["kind"] != "request":
+        raise ContractValidationError("routing request kind must be 'request'")
+    policy_payload = payload["policy"]
+    if not isinstance(policy_payload, Mapping):
+        raise ContractValidationError("routing policy must be an object")
+    _exact_payload(policy_payload, {"board_permission"})
+    try:
+        source = InputSource(payload["source"])
+    except (TypeError, ValueError) as exc:
+        raise ContractValidationError(
+            f"unsupported input source: {payload['source']!r}"
+        ) from exc
+    return InteractionRequest(
+        source=source,
+        message=interaction_from_payload(payload["message"]),
+        policy=InteractionPolicy(policy_payload["board_permission"]),
+        version=version,
+    )
+
+
+def routing_decision_to_payload(decision: RoutingDecision) -> dict[str, object]:
+    if not isinstance(decision, RoutingDecision):
+        raise ContractValidationError("decision must be RoutingDecision")
+    return {
+        "version": CONTRACT_VERSION,
+        "kind": "decision",
+        "accepted": decision.accepted,
+        "effect": decision.effect.value,
+        "reason": decision.reason,
+    }
+
+
+def routing_decision_from_payload(payload: Mapping[str, object]) -> RoutingDecision:
+    if not isinstance(payload, Mapping):
+        raise ContractValidationError("routing decision payload must be an object")
+    _exact_payload(payload, {"version", "kind", "accepted", "effect", "reason"})
+    _validate_routing_version(payload["version"])
+    if payload["kind"] != "decision":
+        raise ContractValidationError("routing decision kind must be 'decision'")
+    return RoutingDecision(
+        accepted=payload["accepted"],
+        effect=payload["effect"],
+        reason=payload["reason"],
+    )
 
 
 def _family_mismatch(source: InputSource, message: object) -> RoutingDecision:

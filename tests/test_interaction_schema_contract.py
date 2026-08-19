@@ -12,6 +12,15 @@ from acs.interaction_contracts import (
     presentation_state_from_payload,
     presentation_state_to_payload,
 )
+from acs.interaction_router import (
+    InputSource,
+    InteractionEffect,
+    evaluate_request,
+    routing_decision_from_payload,
+    routing_decision_to_payload,
+    routing_request_from_payload,
+    routing_request_to_payload,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -28,13 +37,16 @@ class InteractionSchemaContractTests(unittest.TestCase):
     def setUpClass(cls):
         cls.interaction_schema = load_json(SCHEMAS / "interaction-message-v1.schema.json")
         cls.presentation_schema = load_json(SCHEMAS / "presentation-state-v1.schema.json")
+        cls.routing_schema = load_json(SCHEMAS / "interaction-routing-v1.schema.json")
         cls.message_fixture = load_json(FIXTURES / "messages.json")
         cls.presentation_fixture = load_json(FIXTURES / "presentation-state.json")
+        cls.routing_fixture = load_json(FIXTURES / "routing.json")
         cls.invalid_messages = load_json(FIXTURES / "invalid-messages.json")
         cls.invalid_presentations = load_json(FIXTURES / "invalid-presentation-states.json")
+        cls.invalid_routing = load_json(FIXTURES / "invalid-routing.json")
 
     def test_schemas_are_versioned_json_schema_2020_12_documents(self):
-        for schema in (self.interaction_schema, self.presentation_schema):
+        for schema in (self.interaction_schema, self.presentation_schema, self.routing_schema):
             with self.subTest(title=schema["title"]):
                 self.assertEqual(schema["$schema"], "https://json-schema.org/draft/2020-12/schema")
                 self.assertTrue(schema["$id"].endswith("v1.schema.json"))
@@ -112,6 +124,27 @@ class InteractionSchemaContractTests(unittest.TestCase):
         self.assertIn(self.presentation_fixture["engine_visibility"], properties["engine_visibility"]["enum"])
         self.assertIn(self.presentation_fixture["board_permission"], properties["board_permission"]["enum"])
 
+    def test_routing_fixture_round_trips_and_matches_canonical_decisions(self):
+        for case in self.routing_fixture["cases"]:
+            with self.subTest(name=case["name"]):
+                request = routing_request_from_payload(case["request"])
+                self.assertEqual(routing_request_to_payload(request), case["request"])
+                expected = routing_decision_from_payload(case["decision"])
+                self.assertEqual(evaluate_request(request), expected)
+                self.assertEqual(routing_decision_to_payload(expected), case["decision"])
+
+    def test_routing_schema_enums_match_runtime_values(self):
+        request = self.routing_schema["$defs"]["request"]
+        decision = self.routing_schema["$defs"]["decision"]
+        self.assertEqual(
+            set(request["properties"]["source"]["enum"]),
+            {source.value for source in InputSource},
+        )
+        self.assertEqual(
+            set(decision["properties"]["effect"]["enum"]),
+            {effect.value for effect in InteractionEffect},
+        )
+
     def test_negative_conformance_fixtures_fail_closed_in_runtime_readers(self):
         for case in self.invalid_messages["cases"]:
             with self.subTest(kind="interaction", name=case["name"]):
@@ -121,8 +154,17 @@ class InteractionSchemaContractTests(unittest.TestCase):
             with self.subTest(kind="presentation", name=case["name"]):
                 with self.assertRaises(ContractValidationError):
                     presentation_state_from_payload(case["payload"])
+        for case in self.invalid_routing["cases"]:
+            with self.subTest(kind="routing", name=case["name"]):
+                reader = (
+                    routing_request_from_payload
+                    if case["payload"].get("kind") == "request"
+                    else routing_decision_from_payload
+                )
+                with self.assertRaises(ContractValidationError):
+                    reader(case["payload"])
 
-    def test_negative_conformance_fixtures_are_rejected_by_json_schema(self):
+    def test_json_schema_accepts_positive_and_rejects_negative_conformance_fixtures(self):
         try:
             from jsonschema import Draft202012Validator
             from referencing import Registry, Resource
@@ -138,15 +180,30 @@ class InteractionSchemaContractTests(unittest.TestCase):
             self.presentation_schema,
             registry=registry,
         )
+        routing_validator = Draft202012Validator(
+            self.routing_schema,
+            registry=registry,
+        )
+        for payload in self.message_fixture["messages"]:
+            with self.subTest(kind="positive-interaction", family=payload["family"]):
+                self.assertTrue(interaction_validator.is_valid(payload))
+        self.assertTrue(presentation_validator.is_valid(self.presentation_fixture))
+        for case in self.routing_fixture["cases"]:
+            with self.subTest(kind="positive-routing", name=case["name"]):
+                self.assertTrue(routing_validator.is_valid(case["request"]))
+                self.assertTrue(routing_validator.is_valid(case["decision"]))
         for case in self.invalid_messages["cases"]:
             with self.subTest(kind="interaction", name=case["name"]):
                 self.assertFalse(interaction_validator.is_valid(case["payload"]))
         for case in self.invalid_presentations["cases"]:
             with self.subTest(kind="presentation", name=case["name"]):
                 self.assertFalse(presentation_validator.is_valid(case["payload"]))
+        for case in self.invalid_routing["cases"]:
+            with self.subTest(kind="routing", name=case["name"]):
+                self.assertFalse(routing_validator.is_valid(case["payload"]))
 
     def test_negative_fixture_names_are_unique_and_versioned(self):
-        for fixture in (self.invalid_messages, self.invalid_presentations):
+        for fixture in (self.invalid_messages, self.invalid_presentations, self.invalid_routing):
             self.assertEqual(fixture["schema_version"], 1)
             names = [case["name"] for case in fixture["cases"]]
             self.assertEqual(len(names), len(set(names)))

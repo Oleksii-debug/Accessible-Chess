@@ -1,0 +1,97 @@
+{
+  "schema_version": 1,
+  "cases": [
+    {
+      "name": "move input creates a move",
+      "request": {
+        "version": 1,
+        "kind": "request",
+        "source": "move_input",
+        "policy": {"board_permission": "locked"},
+        "message": {"version": 1, "family": "move", "raw_text": "e4"}
+      },
+      "decision": {
+        "version": 1,
+        "kind": "decision",
+        "accepted": true,
+        "effect": "chess_move",
+        "reason": "explicit move input"
+      }
+    },
+    {
+      "name": "teacher pointer remains presentation",
+      "request": {
+        "version": 1,
+        "kind": "request",
+        "source": "teacher_pointer_editor",
+        "policy": {"board_permission": "locked"},
+        "message": {"version": 1, "family": "teacher_pointer", "square": "e4"}
+      },
+      "decision": {
+        "version": 1,
+        "kind": "decision",
+        "accepted": true,
+        "effect": "presentation",
+        "reason": "explicit teacher pointer"
+      }
+    },
+    {
+      "name": "student hover remains observation when moves are allowed",
+      "request": {
+        "version": 1,
+        "kind": "request",
+        "source": "student_surface",
+        "policy": {"board_permission": "move_allowed"},
+        "message": {
+          "version": 1,
+          "family": "student_hover",
+          "square": "f3",
+          "piece": "N",
+          "student_id": "student-1",
+          "sequence": 1
+        }
+      },
+      "decision": {
+        "version": 1,
+        "kind": "decision",
+        "accepted": true,
+        "effect": "observation",
+        "reason": "student event remains non-mutating"
+      }
+    },
+    {
+      "name": "student move is rejected by select-only policy",
+      "request": {
+        "version": 1,
+        "kind": "request",
+        "source": "student_surface",
+        "policy": {"board_permission": "select_only"},
+        "message": {"version": 1, "family": "move", "raw_text": "e4"}
+      },
+      "decision": {
+        "version": 1,
+        "kind": "decision",
+        "accepted": false,
+        "effect": "none",
+        "reason": "student move is not permitted"
+      }
+    },
+    {
+      "name": "student move requires explicit move permission",
+      "request": {
+        "version": 1,
+        "kind": "request",
+        "source": "student_surface",
+        "policy": {"board_permission": "move_allowed"},
+        "message": {"version": 1, "family": "move", "raw_text": "e4"}
+      },
+      "decision": {
+        "version": 1,
+        "kind": "decision",
+        "accepted": true,
+        "effect": "chess_move",
+        "reason": "explicit student move permitted"
+      }
+    }
+  ]
+}

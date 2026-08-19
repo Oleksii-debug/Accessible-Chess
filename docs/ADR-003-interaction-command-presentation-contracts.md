@@ -41,6 +41,11 @@ second source of chess position truth.
   into text and never normalize a non-canonical wire square silently.
 - Checked-in negative conformance fixtures must fail in both the production
   readers and a JSON Schema 2020-12 validator.
+- `InteractionRequest` binds each message to an explicit `InputSource` and
+  `InteractionPolicy`. Its versioned request/decision payloads let adapters
+  call one canonical routing policy instead of recreating family permissions.
+- A rejected routing decision is structurally incapable of claiming a
+  position-mutating effect in both Python and JSON Schema.
 
 ## Consequences
 

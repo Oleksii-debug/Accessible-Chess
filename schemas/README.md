@@ -7,6 +7,10 @@ future Windows, Web, Mobile, Teacher, and Classroom adapters.
   `version` are mandatory; additional fields are rejected.
 - `presentation-state-v1.schema.json` contains presentation/session data only.
   It does not contain Position, FEN, legality, or move history.
+- `interaction-routing-v1.schema.json` carries the explicit input source,
+  board policy, interaction message, and fail-closed routing decision. It is an
+  adapter boundary for the canonical router, not permission for adapters to
+  create their own chess or routing rules.
 - Positive and negative conformance examples live in
   `tests/fixtures/interaction_contracts/v1`. Positive examples round-trip
   through the production Python serializers. Negative examples must be

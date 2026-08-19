@@ -1,0 +1,65 @@
+{
+  "schema_version": 1,
+  "cases": [
+    {
+      "name": "request source is unknown",
+      "payload": {
+        "version": 1,
+        "kind": "request",
+        "source": "ambiguous_textbox",
+        "policy": {"board_permission": "locked"},
+        "message": {"version": 1, "family": "move", "raw_text": "e4"}
+      }
+    },
+    {
+      "name": "request policy is open-ended",
+      "payload": {
+        "version": 1,
+        "kind": "request",
+        "source": "student_surface",
+        "policy": {"board_permission": "anything", "override": true},
+        "message": {"version": 1, "family": "move", "raw_text": "e4"}
+      }
+    },
+    {
+      "name": "request message is not an interaction object",
+      "payload": {
+        "version": 1,
+        "kind": "request",
+        "source": "move_input",
+        "policy": {"board_permission": "locked"},
+        "message": "e4"
+      }
+    },
+    {
+      "name": "rejected decision claims mutation authority",
+      "payload": {
+        "version": 1,
+        "kind": "decision",
+        "accepted": false,
+        "effect": "chess_move",
+        "reason": "must fail closed"
+      }
+    },
+    {
+      "name": "decision reason is not text",
+      "payload": {
+        "version": 1,
+        "kind": "decision",
+        "accepted": true,
+        "effect": "presentation",
+        "reason": ["pointer"]
+      }
+    },
+    {
+      "name": "routing payload has an unknown kind",
+      "payload": {
+        "version": 1,
+        "kind": "execute",
+        "accepted": true,
+        "effect": "chess_move",
+        "reason": "unversioned execution must not pass"
+      }
+    }
+  ]
+}

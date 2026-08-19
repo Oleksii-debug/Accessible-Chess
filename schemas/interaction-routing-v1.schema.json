@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://accessible-chess.local/schemas/interaction-routing-v1.schema.json",
+  "title": "Accessible Chess interaction routing v1",
+  "oneOf": [
+    { "$ref": "#/$defs/request" },
+    { "$ref": "#/$defs/decision" }
+  ],
+  "$defs": {
+    "version": { "const": 1 },
+    "policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["board_permission"],
+      "properties": {
+        "board_permission": {
+          "enum": ["locked", "select_only", "move_allowed"]
+        }
+      }
+    },
+    "request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["version", "kind", "source", "policy", "message"],
+      "properties": {
+        "version": { "$ref": "#/$defs/version" },
+        "kind": { "const": "request" },
+        "source": {
+          "enum": [
+            "move_input",
+            "teacher_pointer_editor",
+            "position_editor",
+            "annotation_editor",
+            "student_surface"
+          ]
+        },
+        "policy": { "$ref": "#/$defs/policy" },
+        "message": { "$ref": "interaction-message-v1.schema.json" }
+      }
+    },
+    "decision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["version", "kind", "accepted", "effect", "reason"],
+      "properties": {
+        "version": { "$ref": "#/$defs/version" },
+        "kind": { "const": "decision" },
+        "accepted": { "type": "boolean" },
+        "effect": {
+          "enum": ["none", "chess_move", "position_edit", "presentation", "observation"]
+        },
+        "reason": { "type": "string", "pattern": "\\S" }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "accepted": { "const": false } },
+            "required": ["accepted"]
+          },
+          "then": {
+            "properties": { "effect": { "const": "none" } }
+          }
+        }
+      ]
+    }
+  }
+}

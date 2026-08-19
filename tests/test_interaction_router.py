@@ -15,9 +15,15 @@ from acs.interaction_router import (
     InputSource,
     InteractionEffect,
     InteractionPolicy,
+    InteractionRequest,
     RoutingDecision,
     evaluate_interaction,
+    evaluate_request,
     route_text_command,
+    routing_decision_from_payload,
+    routing_decision_to_payload,
+    routing_request_from_payload,
+    routing_request_to_payload,
 )
 
 
@@ -121,6 +127,39 @@ class InteractionRouterTests(unittest.TestCase):
         decision = evaluate_interaction(MoveCommand("e4"), "unknown")
         self.assertFalse(decision.accepted)
         self.assertEqual(decision.effect, InteractionEffect.NONE)
+
+    def test_versioned_request_and_decision_payloads_round_trip(self):
+        request = InteractionRequest(
+            InputSource.STUDENT_SURFACE,
+            MoveCommand("e4"),
+            InteractionPolicy(BoardPermissionState.MOVE_ALLOWED),
+        )
+        restored = routing_request_from_payload(routing_request_to_payload(request))
+        self.assertEqual(restored, request)
+        decision = evaluate_request(restored)
+        self.assertTrue(decision.can_create_move)
+        self.assertEqual(
+            routing_decision_from_payload(routing_decision_to_payload(decision)),
+            decision,
+        )
+
+    def test_falsey_non_policy_is_rejected_instead_of_becoming_default(self):
+        for policy in (False, 0, "", (), []):
+            with self.subTest(policy=policy):
+                with self.assertRaises(ContractValidationError):
+                    evaluate_interaction(MoveCommand("e4"), InputSource.MOVE_INPUT, policy)
+
+    def test_wire_decision_rejects_non_text_reason(self):
+        with self.assertRaises(ContractValidationError):
+            routing_decision_from_payload(
+                {
+                    "version": 1,
+                    "kind": "decision",
+                    "accepted": True,
+                    "effect": "presentation",
+                    "reason": ["pointer"],
+                }
+            )
 
 
 if __name__ == "__main__":
