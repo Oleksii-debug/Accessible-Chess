@@ -7,6 +7,7 @@ from acs.gametree import parse_games
 PGN = '[Event "Exact"]\n[White "Alice"]\n[Black "Bob"]\n[Result "*"]\n\n1. e4 *\n'
 VALID_FEN = '8/8/8/8/8/8/8/8 w - - 0 1'
 VALID_FEN_COUNTERS = '8/8/8/8/8/8/8/8 w - - 17 42'
+VALID_FEN_BLACK = '8/8/8/8/8/8/8/8 b - - 0 1'
 
 
 class AcsDatabaseExactBoundaryTests(unittest.TestCase):
@@ -124,6 +125,66 @@ class AcsDatabaseExactBoundaryTests(unittest.TestCase):
             self.db.record_positions(self.game_id, [[0, VALID_FEN]])
         with self.assertRaises(TypeError):
             self.db.record_positions(self.game_id, [(True, VALID_FEN)])
+
+    def test_batch_rejects_conflicting_duplicate_ply_before_sql(self):
+        with self.assertRaisesRegex(ValueError, 'duplicate ply'):
+            self.db.record_positions(
+                self.game_id,
+                [(0, VALID_FEN), (0, VALID_FEN_BLACK)],
+            )
+        count = self.db.conn.execute(
+            'SELECT COUNT(*) FROM positions WHERE game_id=?',
+            (self.game_id,),
+        ).fetchone()[0]
+        self.assertEqual(count, 0)
+
+    def test_batch_rejects_identical_duplicate_ply_before_sql(self):
+        with self.assertRaisesRegex(ValueError, 'duplicate ply'):
+            self.db.record_positions(
+                self.game_id,
+                [(0, VALID_FEN), (0, VALID_FEN)],
+            )
+        count = self.db.conn.execute(
+            'SELECT COUNT(*) FROM positions WHERE game_id=?',
+            (self.game_id,),
+        ).fetchone()[0]
+        self.assertEqual(count, 0)
+
+    def test_duplicate_batch_preserves_preexisting_position_rows(self):
+        self.db.record_positions(
+            self.game_id,
+            [(4, VALID_FEN), (5, VALID_FEN_BLACK)],
+        )
+        before = self.db.conn.execute(
+            'SELECT ply, fen, position_key FROM positions WHERE game_id=? ORDER BY ply',
+            (self.game_id,),
+        ).fetchall()
+
+        with self.assertRaisesRegex(ValueError, 'duplicate ply'):
+            self.db.record_positions(
+                self.game_id,
+                [(4, VALID_FEN_BLACK), (4, VALID_FEN)],
+            )
+
+        after = self.db.conn.execute(
+            'SELECT ply, fen, position_key FROM positions WHERE game_id=? ORDER BY ply',
+            (self.game_id,),
+        ).fetchall()
+        self.assertEqual([tuple(row) for row in after], [tuple(row) for row in before])
+
+    def test_batch_with_unique_ply_values_still_succeeds(self):
+        self.db.record_positions(
+            self.game_id,
+            [(0, VALID_FEN), (1, VALID_FEN_BLACK)],
+        )
+        rows = self.db.conn.execute(
+            'SELECT ply, fen FROM positions WHERE game_id=? ORDER BY ply',
+            (self.game_id,),
+        ).fetchall()
+        self.assertEqual(
+            [tuple(row) for row in rows],
+            [(0, VALID_FEN), (1, VALID_FEN_BLACK)],
+        )
 
     def test_text_filters_and_import_entry_points_do_not_coerce(self):
         for kwargs in ({'player': True}, {'event': 3}, {'eco': b'C20'}, {'source_name': []}):

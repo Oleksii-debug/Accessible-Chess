@@ -405,11 +405,15 @@ class AcsDatabase:
         except TypeError as exc:
             raise TypeError("positions must be an iterable of (ply, fen) tuples") from exc
         rows: list[tuple[int, int, str, str]] = []
+        seen_plies: set[int] = set()
         for item in snapshot:
             if type(item) is not tuple or len(item) != 2:
                 raise TypeError("each position must be an exact (ply, fen) tuple")
             ply, fen = item
             ply = _require_exact_int(ply, "ply", minimum=0)
+            if ply in seen_plies:
+                raise ValueError("positions must not contain duplicate ply values")
+            seen_plies.add(ply)
             key = self.position_key(fen)
             canonical_fen = PositionState.from_fen(fen).to_fen()
             rows.append((game_id, ply, canonical_fen, key))
