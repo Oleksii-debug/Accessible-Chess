@@ -45,6 +45,7 @@ STORAGE_ORCHESTRATION_MODULES = (
 )
 
 CHESSBASE_READ_ONLY_MODULES = (
+    'acs/chessbase_adapter.py',
     'acs/chessbase_capabilities.py',
     'acs/chessbase_cbh.py',
     'acs/chessbase_cbg.py',
@@ -56,6 +57,8 @@ CHESSBASE_READ_ONLY_MODULES = (
     'acs/chessbase_cbh_cbg_batch.py',
     'acs/chessbase_cbh_metadata.py',
     'acs/chessbase_cbh_evidence.py',
+    'acs/chessbase_evidence_window.py',
+    'acs/chessbase_integrity.py',
 )
 
 FORBIDDEN_PREFIXES = (
@@ -185,6 +188,10 @@ class ArchitectureBoundaryTests(unittest.TestCase):
             self.assertEqual(sorted(forbidden.intersection(imports)), [], relative)
 
     def test_chessbase_layout_adapters_remain_neutral_and_gpl_dependency_free(self):
+        self.assertEqual(
+            len(CHESSBASE_READ_ONLY_MODULES),
+            len(set(CHESSBASE_READ_ONLY_MODULES)),
+        )
         violations = []
         for relative in CHESSBASE_READ_ONLY_MODULES:
             self.assertTrue(Path(relative).is_file(), relative)

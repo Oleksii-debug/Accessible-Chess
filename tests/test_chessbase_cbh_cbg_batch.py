@@ -3,10 +3,12 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from acs.chessbase_cbg import CbgDecodeError
 from acs.chessbase_cbh import parse_cbh_record
 from acs.chessbase_cbh_cbg_batch import (
     project_cbh_records_to_cbg_payload_evidence,
     read_cbh_cbg_batch_projection,
+    read_cbh_records_cbg_payload_evidence,
 )
 
 
@@ -106,6 +108,16 @@ class ClassicCbhCbgBatchProjectionTests(unittest.TestCase):
         self.assertEqual(projection.linked_count, 0)
         self.assertEqual(projection.skipped_count, 0)
         self.assertEqual(projection.failed_count, 0)
+
+    def test_file_payload_bound_is_validated_even_for_an_empty_batch(self):
+        for value in (-1, True, 1.5):
+            with self.subTest(value=value):
+                with self.assertRaisesRegex(CbgDecodeError, "max_payload_bytes"):
+                    read_cbh_records_cbg_payload_evidence(
+                        [],
+                        "not-opened.cbg",
+                        max_payload_bytes=value,
+                    )
 
     def test_file_projection_preserves_both_source_files(self):
         payload = b"opaque-source-evidence"

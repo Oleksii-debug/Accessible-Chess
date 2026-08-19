@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Callable, Iterable, Literal
 
 from .chessbase_cbg import CbgDecodeError
+from .chessbase_cbg_payload_evidence import MAX_CLASSIC_CBG_PAYLOAD_BYTES
 from .chessbase_cbh import ClassicCbhRecord, iter_cbh_record_window
 from .chessbase_cbh_cbg_link import (
     ClassicCbhCbgPayloadLink,
@@ -57,6 +58,15 @@ class ClassicCbhCbgBatchProjection:
     @property
     def failed_count(self) -> int:
         return sum(item.status == "failed" for item in self.items)
+
+
+def _require_max_payload_bytes(max_payload_bytes: int) -> None:
+    if (
+        not isinstance(max_payload_bytes, int)
+        or isinstance(max_payload_bytes, bool)
+        or max_payload_bytes < 0
+    ):
+        raise CbgDecodeError("max_payload_bytes must be a non-negative integer")
 
 
 def project_cbh_records_to_cbg_payload_evidence(
@@ -136,16 +146,37 @@ def read_cbh_cbg_batch_projection(
     *,
     start_record_index: int,
     max_records: int,
+    max_payload_bytes: int = MAX_CLASSIC_CBG_PAYLOAD_BYTES,
 ) -> ClassicCbhCbgBatchProjection:
     """Project one explicit bounded CBH window against bounded CBG payload reads."""
 
-    source = Path(cbg_path)
     records = iter_cbh_record_window(
         cbh_path,
         start_record_index=start_record_index,
         max_records=max_records,
     )
+    return read_cbh_records_cbg_payload_evidence(
+        records,
+        cbg_path,
+        max_payload_bytes=max_payload_bytes,
+    )
+
+
+def read_cbh_records_cbg_payload_evidence(
+    records: Iterable[ClassicCbhRecord],
+    cbg_path: str | Path,
+    *,
+    max_payload_bytes: int = MAX_CLASSIC_CBG_PAYLOAD_BYTES,
+) -> ClassicCbhCbgBatchProjection:
+    """Project supplied CBH records using one bounded CBG read per record."""
+
+    _require_max_payload_bytes(max_payload_bytes)
+    source = Path(cbg_path)
     return _project_cbh_records_with_linker(
         records,
-        lambda record: read_cbh_record_cbg_payload_link(record, source),
+        lambda record: read_cbh_record_cbg_payload_link(
+            record,
+            source,
+            max_payload_bytes=max_payload_bytes,
+        ),
     )

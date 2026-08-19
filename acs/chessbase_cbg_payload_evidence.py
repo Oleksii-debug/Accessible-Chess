@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from hashlib import sha256
 from pathlib import Path
 
-from .chessbase_cbg import CbgDecodeError, read_cbg_game_header
+from .chessbase_cbg import CbgDecodeError, read_cbg_game_header_from_stream
 from .chessbase_cbg_payload import (
     ClassicCbgMovePayloadSpan,
     locate_cbg_move_payload,
@@ -87,15 +87,14 @@ def read_cbg_move_payload_evidence(
         raise CbgDecodeError("max_payload_bytes must be a non-negative integer")
 
     source = Path(path)
-    header = read_cbg_game_header(source, offset=offset)
-    span = locate_cbg_move_payload_from_header(header)
-    if span.payload_length > max_payload_bytes:
-        raise CbgDecodeError(
-            f"CBG move payload at offset {offset} exceeds configured bound: "
-            f"{span.payload_length} > {max_payload_bytes} bytes"
-        )
-
     with source.open("rb") as stream:
+        header = read_cbg_game_header_from_stream(stream, offset=offset)
+        span = locate_cbg_move_payload_from_header(header)
+        if span.payload_length > max_payload_bytes:
+            raise CbgDecodeError(
+                f"CBG move payload at offset {offset} exceeds configured bound: "
+                f"{span.payload_length} > {max_payload_bytes} bytes"
+            )
         stream.seek(span.payload_start_offset)
         payload = stream.read(span.payload_length)
     return _build_payload_evidence(span, payload)

@@ -1,7 +1,12 @@
+import tempfile
 import unittest
+from pathlib import Path
 
 from acs.chessbase_cbh import parse_cbh_record
-from acs.chessbase_cbh_metadata import project_cbh_records_to_metadata
+from acs.chessbase_cbh_metadata import (
+    project_cbh_records_to_metadata,
+    read_cbh_records_metadata_projection,
+)
 
 
 def _record(*, index=1, flags=0x01, white=0, black=1, tournament=0):
@@ -88,6 +93,32 @@ class ClassicCbhMetadataProjectionTests(unittest.TestCase):
         self.assertEqual(projection.projected_count, 0)
         self.assertEqual(projection.skipped_count, 0)
         self.assertEqual(projection.failed_count, 0)
+
+    def test_file_projection_is_bounded_read_only_and_fault_isolated(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            cbp_path = root / "sample.cbp"
+            cbt_path = root / "sample.cbt"
+            cbp_path.write_bytes(self.cbp)
+            cbt_path.write_bytes(self.cbt)
+
+            projection = read_cbh_records_metadata_projection(
+                [_record(index=1, white=99), _record(index=2)],
+                cbp_path,
+                cbt_path,
+            )
+
+            self.assertEqual(
+                [item.status for item in projection.items],
+                ["failed", "projected"],
+            )
+            self.assertEqual(projection.items[0].error_type, "CbpDecodeError")
+            self.assertEqual(
+                projection.items[1].metadata.white.pgn_name,
+                "Carlsen, Magnus",
+            )
+            self.assertEqual(cbp_path.read_bytes(), self.cbp)
+            self.assertEqual(cbt_path.read_bytes(), self.cbt)
 
 
 if __name__ == "__main__":

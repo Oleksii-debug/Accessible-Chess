@@ -326,8 +326,23 @@ def read_cbg_game_header(path: str | Path, *, offset: int) -> ClassicCbgGameHead
 
     source = Path(path)
     with source.open("rb") as stream:
-        file_size = _stream_size(stream)
-        return _read_cbg_header(stream, offset=offset, file_size=file_size)
+        return read_cbg_game_header_from_stream(stream, offset=offset)
+
+
+def read_cbg_game_header_from_stream(
+    stream: BinaryIO,
+    *,
+    offset: int,
+) -> ClassicCbgGameHeader:
+    """Read one fixed CBG header from an already open read-only stream.
+
+    Keeping the size check, header read, and any caller-owned bounded payload
+    read on one handle avoids reopening the proprietary source between those
+    operations. The caller retains ownership of the stream.
+    """
+
+    file_size = _stream_size(stream)
+    return _read_cbg_header(stream, offset=offset, file_size=file_size)
 
 
 def read_cbg_custom_setup(path: str | Path, *, offset: int) -> ClassicCbgSetup:

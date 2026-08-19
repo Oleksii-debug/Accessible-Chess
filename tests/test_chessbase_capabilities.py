@@ -26,6 +26,10 @@ class ChessBaseCapabilityReportTests(unittest.TestCase):
 
         self.assertEqual(by_surface["classic-cbg-opaque-payload"].status, "PARTIAL")
         self.assertEqual(
+            by_surface["classic-integrity-verified-evidence-window"].status,
+            "PARTIAL",
+        )
+        self.assertEqual(
             by_surface["classic-cbg-moves-variations-annotations"].status,
             "UNSUPPORTED",
         )

@@ -12,11 +12,22 @@ Accessible Chess exposes neutral DTOs only and does not introduce cbh2pgn's GPL
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Iterable, Literal
+from pathlib import Path
+from typing import Callable, Iterable, Literal
 
 from .chessbase_cbh import ClassicCbhRecord
-from .chessbase_cbp import CbpDecodeError, ClassicCbpPlayer, parse_cbp_player
-from .chessbase_cbt import CbtDecodeError, ClassicCbtTournament, parse_cbt_tournament
+from .chessbase_cbp import (
+    CbpDecodeError,
+    ClassicCbpPlayer,
+    parse_cbp_player,
+    read_cbp_player,
+)
+from .chessbase_cbt import (
+    CbtDecodeError,
+    ClassicCbtTournament,
+    parse_cbt_tournament,
+    read_cbt_tournament,
+)
 
 MetadataStatus = Literal["projected", "skipped", "failed"]
 
@@ -67,6 +78,26 @@ def project_cbh_records_to_metadata(
     and allowing later records to be projected.
     """
 
+    return _project_cbh_records_with_resolver(
+        records,
+        lambda record: (
+            parse_cbp_player(cbp_data, player_no=record.white_player_offset),
+            parse_cbp_player(cbp_data, player_no=record.black_player_offset),
+            parse_cbt_tournament(
+                cbt_data,
+                tournament_no=record.tournament_offset,
+            ),
+        ),
+    )
+
+
+def _project_cbh_records_with_resolver(
+    records: Iterable[ClassicCbhRecord],
+    resolver: Callable[
+        [ClassicCbhRecord],
+        tuple[ClassicCbpPlayer, ClassicCbpPlayer, ClassicCbtTournament],
+    ],
+) -> ClassicCbhMetadataProjection:
     items: list[ClassicCbhMetadataItem] = []
     for record in records:
         if not record.is_game:
@@ -85,11 +116,7 @@ def project_cbh_records_to_metadata(
             continue
 
         try:
-            white = parse_cbp_player(cbp_data, player_no=record.white_player_offset)
-            black = parse_cbp_player(cbp_data, player_no=record.black_player_offset)
-            tournament = parse_cbt_tournament(
-                cbt_data, tournament_no=record.tournament_offset
-            )
+            white, black, tournament = resolver(record)
         except (CbpDecodeError, CbtDecodeError) as exc:
             items.append(ClassicCbhMetadataItem(
                 record_index=record.record_index,
@@ -111,3 +138,35 @@ def project_cbh_records_to_metadata(
         ))
 
     return ClassicCbhMetadataProjection(items=tuple(items))
+
+
+def read_cbh_records_metadata_projection(
+    records: Iterable[ClassicCbhRecord],
+    cbp_path: str | Path,
+    cbt_path: str | Path,
+) -> ClassicCbhMetadataProjection:
+    """Project supplied CBH records with bounded CBP/CBT record reads.
+
+    Decode failures remain isolated per CBH record. Filesystem-level failures
+    such as a missing source are intentionally not relabeled as record damage.
+    """
+
+    player_source = Path(cbp_path)
+    tournament_source = Path(cbt_path)
+    return _project_cbh_records_with_resolver(
+        records,
+        lambda record: (
+            read_cbp_player(
+                player_source,
+                player_no=record.white_player_offset,
+            ),
+            read_cbp_player(
+                player_source,
+                player_no=record.black_player_offset,
+            ),
+            read_cbt_tournament(
+                tournament_source,
+                tournament_no=record.tournament_offset,
+            ),
+        ),
+    )

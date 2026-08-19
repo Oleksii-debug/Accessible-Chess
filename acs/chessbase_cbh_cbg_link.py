@@ -17,6 +17,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .chessbase_cbg_payload_evidence import (
+    MAX_CLASSIC_CBG_PAYLOAD_BYTES,
     ClassicCbgMovePayloadEvidence,
     extract_cbg_move_payload_evidence,
     read_cbg_move_payload_evidence,
@@ -69,6 +70,8 @@ def link_cbh_record_to_cbg_payload(
 def read_cbh_record_cbg_payload_link(
     record: ClassicCbhRecord,
     cbg_path: str | Path,
+    *,
+    max_payload_bytes: int = MAX_CLASSIC_CBG_PAYLOAD_BYTES,
 ) -> ClassicCbhCbgPayloadLink:
     """Read only the linked CBG payload without loading the complete source."""
 
@@ -83,6 +86,7 @@ def read_cbh_record_cbg_payload_link(
     payload = read_cbg_move_payload_evidence(
         Path(cbg_path),
         offset=record.game_offset,
+        max_payload_bytes=max_payload_bytes,
     )
     return ClassicCbhCbgPayloadLink(
         record_index=record.record_index,

@@ -18,10 +18,12 @@ from typing import Iterable, Literal
 from .chessbase_cbh import ClassicCbhRecord
 from .chessbase_cbh_cbg_batch import (
     ClassicCbhCbgBatchItem,
+    ClassicCbhCbgBatchProjection,
     project_cbh_records_to_cbg_payload_evidence,
 )
 from .chessbase_cbh_metadata import (
     ClassicCbhMetadataItem,
+    ClassicCbhMetadataProjection,
     project_cbh_records_to_metadata,
 )
 
@@ -98,6 +100,18 @@ def project_cbh_record_evidence(
     metadata_projection = project_cbh_records_to_metadata(
         record_tuple, cbp_data, cbt_data
     )
+
+    return compose_cbh_evidence_projections(
+        payload_projection,
+        metadata_projection,
+    )
+
+
+def compose_cbh_evidence_projections(
+    payload_projection: ClassicCbhCbgBatchProjection,
+    metadata_projection: ClassicCbhMetadataProjection,
+) -> ClassicCbhEvidenceProjection:
+    """Combine aligned payload and metadata projections without data loss."""
 
     items: list[ClassicCbhRecordEvidence] = []
     for payload_item, metadata_item in zip(

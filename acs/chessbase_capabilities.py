@@ -78,6 +78,18 @@ _CAPABILITIES = (
         limitations=("Payload tokens have no move, variation, annotation, or legality semantics.",),
     ),
     ChessBaseCapability(
+        surface="classic-integrity-verified-evidence-window",
+        status="PARTIAL",
+        evidence=(
+            "Explicit bounded CBH windows compose CBG payload and CBP/CBT metadata "
+            "evidence between matching whole-family integrity snapshots."
+        ),
+        limitations=(
+            "At most 1024 records are inspected per call.",
+            "A verified evidence window is not a canonical game import.",
+        ),
+    ),
+    ChessBaseCapability(
         surface="classic-cbg-moves-variations-annotations",
         status="UNSUPPORTED",
         evidence="No canonical move decoder is enabled.",

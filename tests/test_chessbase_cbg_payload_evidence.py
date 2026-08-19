@@ -89,17 +89,15 @@ class ClassicCbgMovePayloadEvidenceTests(unittest.TestCase):
 
     def test_file_reader_reads_only_header_and_declared_payload(self):
         source_bytes = _game(b"bounded")
-        header_stream = _BoundedBytesIO(source_bytes)
-        payload_stream = _BoundedBytesIO(source_bytes)
+        stream = _BoundedBytesIO(source_bytes)
         with mock.patch(
             "pathlib.Path.open",
-            side_effect=(header_stream, payload_stream),
+            return_value=stream,
         ):
             evidence = read_cbg_move_payload_evidence("ignored.cbg", offset=0)
 
         self.assertEqual(evidence.payload_bytes, b"bounded")
-        self.assertEqual(header_stream.read_sizes, [4])
-        self.assertEqual(payload_stream.read_sizes, [len(b"bounded")])
+        self.assertEqual(stream.read_sizes, [4, len(b"bounded")])
 
     def test_configured_payload_bound_fails_before_payload_read(self):
         source_bytes = _game(b"four")
