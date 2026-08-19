@@ -28,6 +28,11 @@ second source of chess position truth.
 - Presentation contracts depend only on the canonical square primitive and
   standard-library types. They do not import UI, database, engine, or platform
   adapters.
+- `acs.interaction_router` classifies effects before any adapter executes a
+  message. A family/source mismatch is rejected with `effect=none`.
+- Student hover and selection are always observation-only, even when the board
+  policy allows moves. A student can create a chess move only by sending an
+  explicit `MoveCommand` while `BoardPermissionState.MOVE_ALLOWED` is active.
 
 ## Consequences
 
