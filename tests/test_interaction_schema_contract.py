@@ -7,6 +7,7 @@ import unittest
 from acs.interaction_contracts import (
     CommandFamily,
     ContractValidationError,
+    PositionEditorOperation,
     interaction_from_payload,
     interaction_to_payload,
     presentation_state_from_payload,
@@ -21,6 +22,7 @@ from acs.interaction_router import (
     routing_request_from_payload,
     routing_request_to_payload,
 )
+from acs.squares import iter_square_names
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -38,6 +40,9 @@ class InteractionSchemaContractTests(unittest.TestCase):
         cls.interaction_schema = load_json(SCHEMAS / "interaction-message-v1.schema.json")
         cls.presentation_schema = load_json(SCHEMAS / "presentation-state-v1.schema.json")
         cls.routing_schema = load_json(SCHEMAS / "interaction-routing-v1.schema.json")
+        cls.distinct_square_pair_schema = load_json(
+            SCHEMAS / "distinct-square-pair-v1.schema.json"
+        )
         cls.message_fixture = load_json(FIXTURES / "messages.json")
         cls.presentation_fixture = load_json(FIXTURES / "presentation-state.json")
         cls.routing_fixture = load_json(FIXTURES / "routing.json")
@@ -46,7 +51,12 @@ class InteractionSchemaContractTests(unittest.TestCase):
         cls.invalid_routing = load_json(FIXTURES / "invalid-routing.json")
 
     def test_schemas_are_versioned_json_schema_2020_12_documents(self):
-        for schema in (self.interaction_schema, self.presentation_schema, self.routing_schema):
+        for schema in (
+            self.interaction_schema,
+            self.presentation_schema,
+            self.routing_schema,
+            self.distinct_square_pair_schema,
+        ):
             with self.subTest(title=schema["title"]):
                 self.assertEqual(schema["$schema"], "https://json-schema.org/draft/2020-12/schema")
                 self.assertTrue(schema["$id"].endswith("v1.schema.json"))
@@ -66,6 +76,33 @@ class InteractionSchemaContractTests(unittest.TestCase):
         )
         fixture_families = {item["family"] for item in self.message_fixture["messages"]}
         self.assertEqual(fixture_families, {family.value for family in CommandFamily})
+
+    def test_position_editor_schema_operations_match_runtime_exactly(self):
+        operations = self.interaction_schema["$defs"]["positionEditor"]["properties"][
+            "operation"
+        ]["enum"]
+        self.assertEqual(operations, [operation.value for operation in PositionEditorOperation])
+
+    def test_distinct_square_pair_schema_covers_all_and_only_same_square_pairs(self):
+        exclusions = self.distinct_square_pair_schema["not"]["anyOf"]
+        actual = {
+            (
+                item["properties"]["start_square"]["const"],
+                item["properties"]["end_square"]["const"],
+            )
+            for item in exclusions
+        }
+        expected = {(square, square) for square in iter_square_names()}
+        self.assertEqual(actual, expected)
+        self.assertEqual(len(exclusions), 64)
+        self.assertEqual(
+            self.interaction_schema["$defs"]["arrowAnnotation"]["allOf"],
+            [{"$ref": "distinct-square-pair-v1.schema.json"}],
+        )
+        self.assertEqual(
+            self.presentation_schema["$defs"]["arrow"]["allOf"],
+            [{"$ref": "distinct-square-pair-v1.schema.json"}],
+        )
 
     def test_golden_messages_round_trip_without_loss_or_family_guessing(self):
         for payload in self.message_fixture["messages"]:
@@ -171,10 +208,22 @@ class InteractionSchemaContractTests(unittest.TestCase):
         except ImportError:
             self.skipTest("jsonschema is not installed in this test environment")
 
-        interaction_validator = Draft202012Validator(self.interaction_schema)
-        registry = Registry().with_resource(
-            self.interaction_schema["$id"],
-            Resource.from_contents(self.interaction_schema),
+        for schema in (
+            self.distinct_square_pair_schema,
+            self.interaction_schema,
+            self.presentation_schema,
+            self.routing_schema,
+        ):
+            Draft202012Validator.check_schema(schema)
+        registry = Registry()
+        for schema in (self.distinct_square_pair_schema, self.interaction_schema):
+            registry = registry.with_resource(
+                schema["$id"],
+                Resource.from_contents(schema),
+            )
+        interaction_validator = Draft202012Validator(
+            self.interaction_schema,
+            registry=registry,
         )
         presentation_validator = Draft202012Validator(
             self.presentation_schema,
@@ -201,6 +250,29 @@ class InteractionSchemaContractTests(unittest.TestCase):
         for case in self.invalid_routing["cases"]:
             with self.subTest(kind="routing", name=case["name"]):
                 self.assertFalse(routing_validator.is_valid(case["payload"]))
+        for square in iter_square_names():
+            annotation = {
+                "version": 1,
+                "family": "annotation",
+                "operation": "add_arrow",
+                "start_square": square,
+                "end_square": square,
+                "tag": None,
+            }
+            presentation = {
+                **self.presentation_fixture,
+                "arrows": [
+                    {
+                        "start_square": square,
+                        "end_square": square,
+                        "purpose": "candidate_move",
+                    }
+                ],
+            }
+            with self.subTest(kind="same-square-interaction", square=square):
+                self.assertFalse(interaction_validator.is_valid(annotation))
+            with self.subTest(kind="same-square-presentation", square=square):
+                self.assertFalse(presentation_validator.is_valid(presentation))
 
     def test_negative_fixture_names_are_unique_and_versioned(self):
         for fixture in (self.invalid_messages, self.invalid_presentations, self.invalid_routing):

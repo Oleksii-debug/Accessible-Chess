@@ -32,6 +32,23 @@
       }
     },
     {
+      "name": "request cannot route an unknown position operation",
+      "payload": {
+        "version": 1,
+        "kind": "request",
+        "source": "position_editor",
+        "policy": {"board_permission": "locked"},
+        "message": {
+          "version": 1,
+          "family": "position_editor",
+          "operation": "future_magic",
+          "square": null,
+          "piece": null,
+          "value": null
+        }
+      }
+    },
+    {
       "name": "rejected decision claims mutation authority",
       "payload": {
         "version": 1,

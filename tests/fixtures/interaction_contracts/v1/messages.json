@@ -21,6 +21,70 @@
     },
     {
       "version": 1,
+      "family": "position_editor",
+      "operation": "clear",
+      "square": null,
+      "piece": null,
+      "value": null
+    },
+    {
+      "version": 1,
+      "family": "position_editor",
+      "operation": "remove_piece",
+      "square": "a8",
+      "piece": null,
+      "value": null
+    },
+    {
+      "version": 1,
+      "family": "position_editor",
+      "operation": "set_turn",
+      "square": null,
+      "piece": null,
+      "value": "b"
+    },
+    {
+      "version": 1,
+      "family": "position_editor",
+      "operation": "set_castling",
+      "square": null,
+      "piece": null,
+      "value": "Kq"
+    },
+    {
+      "version": 1,
+      "family": "position_editor",
+      "operation": "set_en_passant",
+      "square": null,
+      "piece": null,
+      "value": "d6"
+    },
+    {
+      "version": 1,
+      "family": "position_editor",
+      "operation": "set_halfmove_clock",
+      "square": null,
+      "piece": null,
+      "value": "12"
+    },
+    {
+      "version": 1,
+      "family": "position_editor",
+      "operation": "set_fullmove_number",
+      "square": null,
+      "piece": null,
+      "value": "34"
+    },
+    {
+      "version": 1,
+      "family": "position_editor",
+      "operation": "load_fen",
+      "square": null,
+      "piece": null,
+      "value": "8/8/8/8/8/8/8/8 w - - 0 1"
+    },
+    {
+      "version": 1,
       "family": "annotation",
       "operation": "set_highlight",
       "start_square": "e4",

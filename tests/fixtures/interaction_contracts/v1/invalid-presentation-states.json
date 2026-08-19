@@ -30,6 +30,20 @@
       }
     },
     {
+      "name": "presentation arrow has the same start and end square",
+      "payload": {
+        "version": 1,
+        "pointer_square": null,
+        "highlights": [],
+        "arrows": [{"start_square": "e4", "end_square": "e4", "purpose": "candidate"}],
+        "coordinate_labels_visible": true,
+        "student_pointer_history": [],
+        "active_student_id": null,
+        "engine_visibility": "hidden",
+        "board_permission": "locked"
+      }
+    },
+    {
       "name": "coordinate visibility is not boolean",
       "payload": {
         "version": 1,

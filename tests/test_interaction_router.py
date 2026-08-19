@@ -72,6 +72,24 @@ class InteractionRouterTests(unittest.TestCase):
         self.assertFalse(decision.can_create_move)
         self.assertEqual(decision.effect, InteractionEffect.POSITION_EDIT)
 
+    def test_forged_or_stale_position_command_cannot_gain_mutation_authority(self):
+        forged = object.__new__(PositionEditorCommand)
+        object.__setattr__(forged, "operation", "future_magic")
+        object.__setattr__(forged, "square", None)
+        object.__setattr__(forged, "piece", None)
+        object.__setattr__(forged, "value", None)
+        object.__setattr__(forged, "version", 1)
+
+        decision = evaluate_interaction(forged, InputSource.POSITION_EDITOR)
+
+        self.assertFalse(decision.accepted)
+        self.assertEqual(decision.effect, InteractionEffect.NONE)
+        self.assertFalse(decision.can_mutate_position)
+        self.assertEqual(
+            decision.reason,
+            "position editor rejected: unsupported_position_editor_operation",
+        )
+
     def test_annotation_is_presentation_only(self):
         decision = evaluate_interaction(
             AnnotationCommand(AnnotationOperation.ADD_ARROW, start_square="e2", end_square="e4"),

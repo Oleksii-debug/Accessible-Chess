@@ -70,6 +70,9 @@
       "type": "object",
       "additionalProperties": false,
       "required": ["start_square", "end_square", "purpose"],
+      "allOf": [
+        { "$ref": "distinct-square-pair-v1.schema.json" }
+      ],
       "properties": {
         "start_square": { "$ref": "#/$defs/square" },
         "end_square": { "$ref": "#/$defs/square" },

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import ClassVar, Mapping, TypeAlias
+from typing import ClassVar, Mapping, NoReturn, TypeAlias
 
 from .squares import normalize_square
 
@@ -10,8 +10,23 @@ from .squares import normalize_square
 CONTRACT_VERSION = 1
 
 
+class ContractErrorCode(str, Enum):
+    INVALID_FIELD = "invalid_field"
+    UNSUPPORTED_POSITION_EDITOR_OPERATION = "unsupported_position_editor_operation"
+    INVALID_POSITION_EDITOR_FIELDS = "invalid_position_editor_fields"
+
+
 class ContractValidationError(ValueError):
     """Raised when an interaction payload is ambiguous or unsupported."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        code: ContractErrorCode = ContractErrorCode.INVALID_FIELD,
+    ) -> None:
+        super().__init__(message)
+        self.code = ContractErrorCode(code)
 
 
 class CommandFamily(str, Enum):
@@ -27,6 +42,20 @@ class AnnotationOperation(str, Enum):
     SET_HIGHLIGHT = "set_highlight"
     ADD_ARROW = "add_arrow"
     CLEAR = "clear"
+
+
+class PositionEditorOperation(str, Enum):
+    """Bounded v1 mutations understood by every position-editor adapter."""
+
+    CLEAR = "clear"
+    PLACE_PIECE = "place_piece"
+    REMOVE_PIECE = "remove_piece"
+    SET_TURN = "set_turn"
+    SET_CASTLING = "set_castling"
+    SET_EN_PASSANT = "set_en_passant"
+    SET_HALFMOVE_CLOCK = "set_halfmove_clock"
+    SET_FULLMOVE_NUMBER = "set_fullmove_number"
+    LOAD_FEN = "load_fen"
 
 
 class EngineVisibilityPolicy(str, Enum):
@@ -113,6 +142,127 @@ def _sequence(value: int | None) -> int | None:
     return value
 
 
+_POSITION_EDITOR_PIECES = frozenset("PNBRQKpnbrqk")
+_CANONICAL_CASTLING_VALUES = frozenset(
+    {
+        "-",
+        "K",
+        "Q",
+        "KQ",
+        "k",
+        "Kk",
+        "Qk",
+        "KQk",
+        "q",
+        "Kq",
+        "Qq",
+        "KQq",
+        "kq",
+        "Kkq",
+        "Qkq",
+        "KQkq",
+    }
+)
+
+
+def _position_editor_fields(
+    operation: object,
+    square: object,
+    piece: object,
+    value: object,
+) -> tuple[PositionEditorOperation, str | None, str | None, str | None]:
+    """Validate the complete discriminated v1 position-editor command."""
+
+    try:
+        bounded_operation = PositionEditorOperation(operation)
+    except (TypeError, ValueError) as exc:
+        raise ContractValidationError(
+            f"unsupported position editor operation: {operation!r}",
+            code=ContractErrorCode.UNSUPPORTED_POSITION_EDITOR_OPERATION,
+        ) from exc
+
+    def reject(message: str) -> NoReturn:
+        raise ContractValidationError(
+            message,
+            code=ContractErrorCode.INVALID_POSITION_EDITOR_FIELDS,
+        )
+
+    if bounded_operation is PositionEditorOperation.CLEAR:
+        if square is not None or piece is not None or value is not None:
+            reject("clear must not include square, piece, or value")
+        return bounded_operation, None, None, None
+
+    if bounded_operation is PositionEditorOperation.PLACE_PIECE:
+        try:
+            normalized_square = _required_square(square)
+        except ContractValidationError as exc:
+            reject(str(exc))
+        if not isinstance(piece, str) or piece not in _POSITION_EDITOR_PIECES:
+            reject("place_piece requires one canonical chess piece symbol")
+        if value is not None:
+            reject("place_piece must not include value")
+        return bounded_operation, normalized_square, piece, None
+
+    if bounded_operation is PositionEditorOperation.REMOVE_PIECE:
+        try:
+            normalized_square = _required_square(square)
+        except ContractValidationError as exc:
+            reject(str(exc))
+        if piece is not None or value is not None:
+            reject("remove_piece requires a square only")
+        return bounded_operation, normalized_square, None, None
+
+    if square is not None or piece is not None:
+        reject(f"{bounded_operation.value} must not include square or piece")
+
+    if bounded_operation is PositionEditorOperation.SET_TURN:
+        if not isinstance(value, str) or value not in {"w", "b"}:
+            reject("set_turn value must be 'w' or 'b'")
+        return bounded_operation, None, None, value
+
+    if bounded_operation is PositionEditorOperation.SET_CASTLING:
+        if not isinstance(value, str) or value not in _CANONICAL_CASTLING_VALUES:
+            reject("set_castling value must be canonical KQkq rights or '-'")
+        return bounded_operation, None, None, value
+
+    if bounded_operation is PositionEditorOperation.SET_EN_PASSANT:
+        if value == "-":
+            return bounded_operation, None, None, value
+        if not isinstance(value, str):
+            reject("set_en_passant value must be '-' or a canonical rank-3/rank-6 square")
+        try:
+            normalized_value = _required_square(value, "en-passant square")
+        except ContractValidationError as exc:
+            reject(str(exc))
+        if value != normalized_value or normalized_value[1] not in {"3", "6"}:
+            reject("set_en_passant value must be '-' or a canonical rank-3/rank-6 square")
+        return bounded_operation, None, None, normalized_value
+
+    if bounded_operation is PositionEditorOperation.SET_HALFMOVE_CLOCK:
+        if (
+            not isinstance(value, str)
+            or not value.isascii()
+            or not value.isdigit()
+            or (len(value) > 1 and value.startswith("0"))
+        ):
+            reject("set_halfmove_clock value must be canonical non-negative decimal text")
+        return bounded_operation, None, None, value
+
+    if bounded_operation is PositionEditorOperation.SET_FULLMOVE_NUMBER:
+        if (
+            not isinstance(value, str)
+            or not value.isascii()
+            or not value.isdigit()
+            or value.startswith("0")
+        ):
+            reject("set_fullmove_number value must be canonical positive decimal text")
+        return bounded_operation, None, None, value
+
+    if not isinstance(value, str) or not value.strip():
+        reject("load_fen value must be a non-empty FEN string")
+    return bounded_operation, None, None, value
+
+
 @dataclass(frozen=True)
 class MoveCommand:
     """Text explicitly routed from Move Input, not inferred from another mode."""
@@ -143,7 +293,7 @@ class TeacherPointerCommand:
 class PositionEditorCommand:
     """Explicit position-editor operation, separate from chess moves."""
 
-    operation: str
+    operation: PositionEditorOperation
     square: str | None = None
     piece: str | None = None
     value: str | None = None
@@ -152,10 +302,37 @@ class PositionEditorCommand:
 
     def __post_init__(self) -> None:
         _validate_version(self.version)
-        object.__setattr__(self, "operation", _required_text(self.operation, "operation"))
-        object.__setattr__(self, "square", _optional_square(self.square))
-        object.__setattr__(self, "piece", _optional_text(self.piece, "piece"))
-        object.__setattr__(self, "value", _optional_text(self.value, "value"))
+        operation, square, piece, value = _position_editor_fields(
+            self.operation,
+            self.square,
+            self.piece,
+            self.value,
+        )
+        object.__setattr__(self, "operation", operation)
+        object.__setattr__(self, "square", square)
+        object.__setattr__(self, "piece", piece)
+        object.__setattr__(self, "value", value)
+
+
+def validate_position_editor_authority(command: PositionEditorCommand) -> None:
+    """Revalidate semantic authority at the router boundary.
+
+    Normal construction already validates commands. Revalidation prevents a
+    stale, forged, or non-canonical in-process object from gaining mutation
+    authority merely because it has the right Python class.
+    """
+
+    if not isinstance(command, PositionEditorCommand):
+        raise ContractValidationError(
+            "position editor authority requires PositionEditorCommand",
+            code=ContractErrorCode.INVALID_POSITION_EDITOR_FIELDS,
+        )
+    _position_editor_fields(
+        command.operation,
+        command.square,
+        command.piece,
+        command.value,
+    )
 
 
 @dataclass(frozen=True)
@@ -330,7 +507,7 @@ def interaction_to_payload(message: InteractionMessage) -> dict[str, object]:
         return {
             "version": message.version,
             "family": message.family.value,
-            "operation": message.operation,
+            "operation": message.operation.value,
             "square": message.square,
             "piece": message.piece,
             "value": message.value,

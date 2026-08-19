@@ -36,6 +36,30 @@
       }
     },
     {
+      "name": "validated position edit receives mutation authority",
+      "request": {
+        "version": 1,
+        "kind": "request",
+        "source": "position_editor",
+        "policy": {"board_permission": "locked"},
+        "message": {
+          "version": 1,
+          "family": "position_editor",
+          "operation": "place_piece",
+          "square": "e4",
+          "piece": "Q",
+          "value": null
+        }
+      },
+      "decision": {
+        "version": 1,
+        "kind": "decision",
+        "accepted": true,
+        "effect": "position_edit",
+        "reason": "explicit position edit"
+      }
+    },
+    {
       "name": "student hover remains observation when moves are allowed",
       "request": {
         "version": 1,

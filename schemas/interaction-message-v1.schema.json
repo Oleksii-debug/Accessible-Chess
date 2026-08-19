@@ -47,16 +47,114 @@
       "properties": {
         "version": { "$ref": "#/$defs/version" },
         "family": { "const": "position_editor" },
-        "operation": { "type": "string", "pattern": "\\S" },
+        "operation": {
+          "enum": [
+            "clear",
+            "place_piece",
+            "remove_piece",
+            "set_turn",
+            "set_castling",
+            "set_en_passant",
+            "set_halfmove_clock",
+            "set_fullmove_number",
+            "load_fen"
+          ]
+        },
         "square": {
           "oneOf": [
             { "$ref": "#/$defs/square" },
             { "type": "null" }
           ]
         },
-        "piece": { "$ref": "#/$defs/nullableText" },
-        "value": { "$ref": "#/$defs/nullableText" }
-      }
+        "piece": {
+          "oneOf": [
+            { "enum": ["P", "N", "B", "R", "Q", "K", "p", "n", "b", "r", "q", "k"] },
+            { "type": "null" }
+          ]
+        },
+        "value": { "type": ["string", "null"] }
+      },
+      "oneOf": [
+        {
+          "properties": {
+            "operation": { "const": "clear" },
+            "square": { "type": "null" },
+            "piece": { "type": "null" },
+            "value": { "type": "null" }
+          }
+        },
+        {
+          "properties": {
+            "operation": { "const": "place_piece" },
+            "square": { "$ref": "#/$defs/square" },
+            "piece": { "enum": ["P", "N", "B", "R", "Q", "K", "p", "n", "b", "r", "q", "k"] },
+            "value": { "type": "null" }
+          }
+        },
+        {
+          "properties": {
+            "operation": { "const": "remove_piece" },
+            "square": { "$ref": "#/$defs/square" },
+            "piece": { "type": "null" },
+            "value": { "type": "null" }
+          }
+        },
+        {
+          "properties": {
+            "operation": { "const": "set_turn" },
+            "square": { "type": "null" },
+            "piece": { "type": "null" },
+            "value": { "enum": ["w", "b"] }
+          }
+        },
+        {
+          "properties": {
+            "operation": { "const": "set_castling" },
+            "square": { "type": "null" },
+            "piece": { "type": "null" },
+            "value": {
+              "enum": ["-", "K", "Q", "KQ", "k", "Kk", "Qk", "KQk", "q", "Kq", "Qq", "KQq", "kq", "Kkq", "Qkq", "KQkq"]
+            }
+          }
+        },
+        {
+          "properties": {
+            "operation": { "const": "set_en_passant" },
+            "square": { "type": "null" },
+            "piece": { "type": "null" },
+            "value": {
+              "oneOf": [
+                { "const": "-" },
+                { "type": "string", "pattern": "^[a-h][36]$" }
+              ]
+            }
+          }
+        },
+        {
+          "properties": {
+            "operation": { "const": "set_halfmove_clock" },
+            "square": { "type": "null" },
+            "piece": { "type": "null" },
+            "value": { "type": "string", "pattern": "^(0|[1-9][0-9]*)$" }
+          }
+        },
+        {
+          "properties": {
+            "operation": { "const": "set_fullmove_number" },
+            "square": { "type": "null" },
+            "piece": { "type": "null" },
+            "value": { "type": "string", "pattern": "^[1-9][0-9]*$" }
+          }
+        },
+        {
+          "properties": {
+            "operation": { "const": "load_fen" },
+            "square": { "type": "null" },
+            "piece": { "type": "null" },
+            "value": { "type": "string", "pattern": "\\S" }
+          }
+        }
+      ]
     },
     "annotation": {
       "oneOf": [
@@ -82,6 +180,9 @@
       "type": "object",
       "additionalProperties": false,
       "required": ["version", "family", "operation", "start_square", "end_square", "tag"],
+      "allOf": [
+        { "$ref": "distinct-square-pair-v1.schema.json" }
+      ],
       "properties": {
         "version": { "$ref": "#/$defs/version" },
         "family": { "const": "annotation" },

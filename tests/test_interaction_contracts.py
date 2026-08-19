@@ -6,10 +6,12 @@ from acs.interaction_contracts import (
     AnnotationOperation,
     BoardPermissionState,
     CommandFamily,
+    ContractErrorCode,
     ContractValidationError,
     EngineVisibilityPolicy,
     MoveCommand,
     PositionEditorCommand,
+    PositionEditorOperation,
     PresentationState,
     SquareHighlight,
     StudentHoverEvent,
@@ -22,6 +24,7 @@ from acs.interaction_contracts import (
     presentation_state_from_payload,
     presentation_state_to_payload,
 )
+from acs.squares import iter_square_names
 
 
 class InteractionContractTests(unittest.TestCase):
@@ -42,8 +45,84 @@ class InteractionContractTests(unittest.TestCase):
     def test_position_editor_command_is_not_inferred_as_a_move(self):
         command = PositionEditorCommand("place_piece", square=" A1 ", piece="R")
         self.assertEqual(command.family, CommandFamily.POSITION_EDITOR)
+        self.assertEqual(command.operation, PositionEditorOperation.PLACE_PIECE)
         self.assertEqual(command.square, "a1")
         self.assertNotIsInstance(command, MoveCommand)
+
+    def test_every_position_editor_operation_is_bounded_and_round_trips(self):
+        commands = (
+            PositionEditorCommand(PositionEditorOperation.CLEAR),
+            PositionEditorCommand(PositionEditorOperation.PLACE_PIECE, square="e4", piece="Q"),
+            PositionEditorCommand(PositionEditorOperation.REMOVE_PIECE, square="a8"),
+            PositionEditorCommand(PositionEditorOperation.SET_TURN, value="b"),
+            PositionEditorCommand(PositionEditorOperation.SET_CASTLING, value="Kq"),
+            PositionEditorCommand(PositionEditorOperation.SET_EN_PASSANT, value="d6"),
+            PositionEditorCommand(PositionEditorOperation.SET_HALFMOVE_CLOCK, value="12"),
+            PositionEditorCommand(PositionEditorOperation.SET_FULLMOVE_NUMBER, value="34"),
+            PositionEditorCommand(
+                PositionEditorOperation.LOAD_FEN,
+                value="8/8/8/8/8/8/8/8 w - - 0 1",
+            ),
+        )
+        self.assertEqual({command.operation for command in commands}, set(PositionEditorOperation))
+        for command in commands:
+            with self.subTest(operation=command.operation):
+                payload = interaction_to_payload(command)
+                self.assertEqual(payload["operation"], command.operation.value)
+                self.assertEqual(interaction_from_payload(payload), command)
+
+    def test_position_editor_rejects_unknown_or_mismatched_semantics_with_codes(self):
+        cases = (
+            (
+                lambda: PositionEditorCommand("future_magic"),
+                ContractErrorCode.UNSUPPORTED_POSITION_EDITOR_OPERATION,
+            ),
+            (
+                lambda: PositionEditorCommand("place_piece", piece="Q"),
+                ContractErrorCode.INVALID_POSITION_EDITOR_FIELDS,
+            ),
+            (
+                lambda: PositionEditorCommand("place_piece", square="e4", piece="X"),
+                ContractErrorCode.INVALID_POSITION_EDITOR_FIELDS,
+            ),
+            (
+                lambda: PositionEditorCommand("remove_piece", square="e4", piece="Q"),
+                ContractErrorCode.INVALID_POSITION_EDITOR_FIELDS,
+            ),
+            (
+                lambda: PositionEditorCommand("set_turn", square="e4", value="w"),
+                ContractErrorCode.INVALID_POSITION_EDITOR_FIELDS,
+            ),
+            (
+                lambda: PositionEditorCommand("set_turn", value=[]),
+                ContractErrorCode.INVALID_POSITION_EDITOR_FIELDS,
+            ),
+            (
+                lambda: PositionEditorCommand("set_castling", value="qK"),
+                ContractErrorCode.INVALID_POSITION_EDITOR_FIELDS,
+            ),
+            (
+                lambda: PositionEditorCommand("set_en_passant", value="e4"),
+                ContractErrorCode.INVALID_POSITION_EDITOR_FIELDS,
+            ),
+            (
+                lambda: PositionEditorCommand("set_halfmove_clock", value=True),
+                ContractErrorCode.INVALID_POSITION_EDITOR_FIELDS,
+            ),
+            (
+                lambda: PositionEditorCommand("set_fullmove_number", value="0"),
+                ContractErrorCode.INVALID_POSITION_EDITOR_FIELDS,
+            ),
+            (
+                lambda: PositionEditorCommand("load_fen", value="   "),
+                ContractErrorCode.INVALID_POSITION_EDITOR_FIELDS,
+            ),
+        )
+        for constructor, expected_code in cases:
+            with self.subTest(expected_code=expected_code):
+                with self.assertRaises(ContractValidationError) as caught:
+                    constructor()
+                self.assertEqual(caught.exception.code, expected_code)
 
     def test_annotation_contracts_are_presentation_only_and_fail_closed(self):
         highlight = AnnotationCommand(AnnotationOperation.SET_HIGHLIGHT, start_square="E4")
@@ -61,6 +140,19 @@ class InteractionContractTests(unittest.TestCase):
             with self.subTest(kwargs=kwargs):
                 with self.assertRaises(ContractValidationError):
                     AnnotationCommand(**kwargs)
+
+    def test_every_same_square_arrow_is_rejected_by_both_runtime_models(self):
+        for square in iter_square_names():
+            with self.subTest(square=square, model="command"):
+                with self.assertRaises(ContractValidationError):
+                    AnnotationCommand(
+                        AnnotationOperation.ADD_ARROW,
+                        start_square=square,
+                        end_square=square,
+                    )
+            with self.subTest(square=square, model="state"):
+                with self.assertRaises(ContractValidationError):
+                    VisualArrow(square, square)
 
     def test_hover_and_selection_are_distinct_non_move_events(self):
         hover = StudentHoverEvent("f3", piece="N", student_id="student-1", sequence=4)

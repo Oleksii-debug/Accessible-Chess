@@ -17,6 +17,7 @@ from .interaction_contracts import (
     TeacherPointerCommand,
     interaction_from_payload,
     interaction_to_payload,
+    validate_position_editor_authority,
 )
 
 
@@ -179,6 +180,14 @@ def evaluate_interaction(
 
     if source is InputSource.POSITION_EDITOR:
         if isinstance(message, PositionEditorCommand):
+            try:
+                validate_position_editor_authority(message)
+            except ContractValidationError as exc:
+                return RoutingDecision(
+                    False,
+                    InteractionEffect.NONE,
+                    f"position editor rejected: {exc.code.value}",
+                )
             return RoutingDecision(True, InteractionEffect.POSITION_EDIT, "explicit position edit")
         return _family_mismatch(source, message)
 
