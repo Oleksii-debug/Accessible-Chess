@@ -6,12 +6,12 @@ Branch: `worddeck-bootstrap` only. Never develop WordDeck on `main`.
 ## Emergency Oxford 5000 milestone
 
 ### Oxford lexical data
-- Runtime activation remains **4,088 dictionary rows = 3,308 unchanged Oxford 3000 baseline rows + 780 verified canonical B2/C1 Oxford 5000 additions**. Existing Oxford 3000 IDs/progress remain unchanged; durable dictionary ID remains `oxford-3000-en-uk` for lossless migration.
-- The complete **29-row C1 `laser` noun → `limb` noun slice** remains fully `verified` in `oxford5000_source_after_large_scale_c1_0001_0029.tsv` and is ready for coherent runtime activation.
-- The following complete **29-row C1 `line-up` noun → `manipulate` verb slice has now completed translation/definition QA** in `oxford5000_source_after_limb_c1_0001_0029.tsv`. All 29 rows are `verified`; stable IDs/POS/CEFR are preserved, and polysemous rows such as `line-up`, `listing`, `lobby`, `log`, `machinery`, `maintenance`, `mandate`, and `manipulate` retain broad source-backed Ukrainian coverage instead of guessed single-sense collapse.
-- Official extraction has advanced another **29 C1 lexical rows after `manipulate`**, staged as `oxford5000_source_after_manipulate_c1_0001_0029.tsv`: `manipulation` noun → `merit` noun. These rows have deterministic stable IDs and Oxford list POS/CEFR confirmation, remain `pending_translation_qa`, and are not runtime-activated.
-- Oxford's official current word-list/about pages continue to define Oxford 5000 as Oxford 3000 plus advanced B2/C1 additions; no Oxford C2 subset is invented.
-- **Exact next data action:** definition-check/translate `manipulation`→`merit`, continue official extraction after `merit`, and activate both already verified 29-row slices (`laser`→`limb` and `line-up`→`manipulate`) together in one coherent runtime/self-test checkpoint so CI minutes are not wasted on tiny activation commits.
+- Current branch code now targets **4,175 dictionary rows = 3,308 unchanged Oxford 3000 baseline rows + 867 verified canonical B2/C1 Oxford 5000 additions**. Existing Oxford 3000 IDs/progress remain unchanged; durable dictionary ID remains `oxford-3000-en-uk` for lossless migration. This 867-addition checkpoint still requires the fresh Windows gate below before being called a verified executable checkpoint.
+- The complete **29-row C1 `laser` noun → `limb` noun slice** is `verified` and embedded/activated.
+- The complete **29-row C1 `line-up` noun → `manipulate` verb slice** is `verified` and embedded/activated. Polysemous rows retain broad source-backed Ukrainian coverage instead of guessed single-sense collapse.
+- The next complete **29-row C1 `manipulation` noun → `merit` noun slice** has now completed definition-level translation QA against Oxford OALD and is also `verified`, embedded and activated. Stable IDs/POS/CEFR are preserved; ambiguous multi-sense entries such as `manipulation`, `march`, `marginal`, `mask`, `mature`, `meditation`, `merchant`, `mercy`, `merge` and `merit` retain explicit multi-sense Ukrainian coverage.
+- Oxford's official current word-list/about material continues to define Oxford 5000 as Oxford 3000 plus advanced B2/C1 additions; no Oxford C2 subset is invented.
+- **Exact next data action:** continue official extraction immediately after `merit` in another large source-backed slice, isolate any ambiguous rows for second-pass QA without blocking later extraction, then activate the next verified batch only when required translations are nonblank and source-checked.
 
 ### Recall Study Scope / Workspace
 - Durable scope IDs: `all`, `a1`, `a2`, `b1`, `b2`, `c1`; labels: `All Oxford 5000`, `A1`, `A2`, `B1`, `B2`, `C1`.
@@ -24,8 +24,8 @@ Branch: `worddeck-bootstrap` only. Never develop WordDeck on `main`.
 - Oxford 3000 technical generation: **3,308/3,308**.
 - Targeted Oxford 3000 QA queue remains 36 numbered/sense-marker candidates: 19 deterministic `ready`, 17 heteronym/sense-sensitive `review`; review rows are not guessed.
 - A prior Oxford 5000 generation batch was built against an earlier 606-addition set; its completion/integrity is not promoted to release accounting without independent validation.
-- Runtime lexical coverage remains **780 Oxford 5000 additions**. British audio for all 780 activated additions is not yet fully generated and independently validated, so full Oxford 5000 audio coverage is explicitly **not** claimed.
-- The two newly verified 29-row slices (`laser`→`limb`, `line-up`→`manipulate`) are stable enough for batch audio generation once runtime activation is committed; audio generation remains keyed by stable dictionary+entry ID and must not block later lexical extraction.
+- Current branch lexical target is **867 Oxford 5000 additions**. British audio for all 867 additions is not yet fully generated and independently validated, so full Oxford 5000 audio coverage is explicitly **not** claimed.
+- The newly activated 87-row C1 block (`laser`→`merit`) has stable lexical IDs and is now eligible for targeted batch audio generation. Audio remains keyed by stable dictionary+entry ID and must not block later lexical extraction.
 - Runtime remains offline and independent of Kokoro/Python/API/network.
 
 ### Hotkey / F1 truth audit
@@ -37,8 +37,7 @@ Branch: `worddeck-bootstrap` only. Never develop WordDeck on `main`.
 ### Emergency blockers
 - **No user-input blocker.**
 - Full official Oxford 5000 row-level extraction remains incomplete.
-- Runtime remains at **780 verified Oxford 5000 additions**; **58 additional verified C1 rows** (`laser`→`limb` plus `line-up`→`manipulate`) now await coherent runtime activation, while the next 29 (`manipulation`→`merit`) are source-staged and pending translation QA.
-- A fresh Windows build/self-test gate is required after that activation commit before a new beta checkpoint is called verified.
+- The branch code now contains **867 verified Oxford 5000 additions**, but a fresh Windows build/self-test gate is still required before this exact head is promoted as a verified executable checkpoint.
 - British audio for all currently activated Oxford 5000 additions is not yet fully verified; do not claim full Oxford 5000 audio coverage.
 - Targeted Oxford 3000 pronunciation replacements remain incomplete for 17 sense-sensitive review rows; do not guess them.
 
