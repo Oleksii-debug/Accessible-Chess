@@ -1,9 +1,14 @@
 from __future__ import annotations
 
+from dataclasses import replace
 import unittest
 
 from acs.acsdb import AcsDatabase
-from acs.search_service import GameSearchQuery, GameSearchService
+from acs.search_service import (
+    GameSearchPage,
+    GameSearchQuery,
+    GameSearchService,
+)
 
 
 PGN = """[Event \"Kyiv Open\"]
@@ -101,6 +106,107 @@ class SearchServiceTests(unittest.TestCase):
         page = self.service.search(GameSearchQuery(player="Alpha' OR 1=1 --"))
         self.assertEqual(page.items, ())
         self.assertEqual(self.db.conn.execute("SELECT COUNT(*) FROM games").fetchone()[0], 3)
+
+    def test_query_scalars_reject_python_coercion(self) -> None:
+        invalid = (
+            {"limit": True},
+            {"limit": "2"},
+            {"limit": 2.0},
+            {"source_id": True},
+            {"source_id": "1"},
+            {"after_game_id": False},
+            {"after_game_id": "0"},
+            {"player": True},
+            {"event": ["Kyiv"]},
+            {"eco": b"C20"},
+            {"source_name": 7},
+            {"result": True},
+        )
+        for values in invalid:
+            with self.subTest(query=values):
+                with self.assertRaises((TypeError, ValueError)):
+                    GameSearchQuery(**values).normalized()
+
+        normalized = GameSearchQuery(
+            player="  Alpha\n Player  ",
+            event="   ",
+            source_name=" tournament   2026 ",
+        ).normalized()
+        self.assertEqual(normalized.player, "Alpha Player")
+        self.assertIsNone(normalized.event)
+        self.assertEqual(normalized.source_name, "tournament 2026")
+
+    def test_service_requires_database_and_query_dtos_without_truthiness_fallback(self) -> None:
+        with self.assertRaisesRegex(TypeError, "AcsDatabase"):
+            GameSearchService(object())
+        for query in (False, 0, "", object()):
+            with self.subTest(query=query):
+                with self.assertRaisesRegex(TypeError, "GameSearchQuery"):
+                    self.service.search(query)
+
+        class FalseyQuery(GameSearchQuery):
+            def __bool__(self):
+                return False
+
+        page = self.service.search(FalseyQuery(player="Alpha"))
+        self.assertEqual(len(page.items), 2)
+
+    def test_like_wildcards_and_escape_marker_are_literal_text(self) -> None:
+        literal = '''[White "Percent"]
+[Black "Under"]
+[Result "*"]
+
+1. d4 d5 *
+'''
+        self.db.import_pgn_text(literal, source_name="100%_literal!.pgn")
+
+        for needle in ("%", "_", "!"):
+            with self.subTest(needle=needle):
+                page = self.service.search(GameSearchQuery(source_name=needle))
+                self.assertEqual(len(page.items), 1)
+                self.assertEqual(page.items[0].source_name, "100%_literal!.pgn")
+
+        self.assertEqual(
+            len(self.service.search(GameSearchQuery(source_name="100%_literal!")).items),
+            1,
+        )
+
+    def test_item_and_page_dtos_reject_coerced_or_inconsistent_shapes(self) -> None:
+        page = self.service.search(GameSearchQuery(limit=2))
+        item = page.items[0]
+        for changes in (
+            {"game_id": True},
+            {"source_id": 0},
+            {"source_index": False},
+            {"source_name": ""},
+            {"source_format": True},
+            {"import_status": "unknown"},
+            {"white": True},
+            {"result": "abandoned"},
+        ):
+            with self.subTest(item=changes):
+                with self.assertRaises((TypeError, ValueError)):
+                    replace(item, **changes)
+
+        with self.assertRaisesRegex(TypeError, "tuple"):
+            GameSearchPage(list(page.items), page.next_after_game_id, True)
+        with self.assertRaisesRegex(ValueError, "strictly increasing"):
+            GameSearchPage((item, item), None, False)
+        with self.assertRaisesRegex(ValueError, "final visible"):
+            GameSearchPage((item,), item.game_id + 1, True)
+        with self.assertRaisesRegex(ValueError, "final search page"):
+            GameSearchPage((item,), item.game_id, False)
+        with self.assertRaisesRegex(TypeError, "has_more"):
+            GameSearchPage((item,), None, 0)
+
+    def test_invalid_database_scalar_is_not_silently_stringified(self) -> None:
+        source_id = self.db.conn.execute("SELECT id FROM sources LIMIT 1").fetchone()[0]
+        self.db.conn.execute(
+            "UPDATE sources SET source_name=? WHERE id=?",
+            (b"binary-name", source_id),
+        )
+        with self.assertRaisesRegex(TypeError, "source_name"):
+            self.service.search()
 
 
 if __name__ == "__main__":
