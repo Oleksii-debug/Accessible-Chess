@@ -1,23 +1,23 @@
 # Accessible Chess — Work Master Current
 
-Updated: `2026-08-20T08:25:44Z`
+Updated: `2026-08-20T08:47:44Z`
 
 ## Recovery pointer
 
 - `CURRENT_BRANCH`: `completion/full-product-critical-path-20260819`
 - `START_SHA`: `588058634b378793b3c9aa0dca113af6b8a2dc8f`
-- `CURRENT_REMOTE_SHA`: `588058634b378793b3c9aa0dca113af6b8a2dc8f`
-- `LAST_SAFE_SHA`: `588058634b378793b3c9aa0dca113af6b8a2dc8f`
+- `CURRENT_REMOTE_SHA`: `e4b8751229f6d3cdba0ca0e49d8515a5a30c542f`
+- `LAST_SAFE_SHA`: `e4b8751229f6d3cdba0ca0e49d8515a5a30c542f`
 - `INTEGRATION_SHA`: `e8cd992d306975955784118364ce950963133d7e`
 - `QA_SHA`: `07971835cb8fc294996165e577913ed350ae9f0e`
 - `RESEARCH_SHA`: `0213f54f3f36fb30379f95c9979aea3a1cc41481`
-- `COMPLETION_SHA`: `588058634b378793b3c9aa0dca113af6b8a2dc8f`
+- `COMPLETION_SHA`: `e4b8751229f6d3cdba0ca0e49d8515a5a30c542f`
 - `COMPETITOR_EVIDENCE_BRANCH`: `research/competitor-interaction-lab-20260820`
 - `COMPETITOR_EVIDENCE_SHA`: `0213f54f3f36fb30379f95c9979aea3a1cc41481`
 - `CURRENT_STAGE1_STATE`: `BLOCKED — Issues #14 and #22 open; classification does not authorize a product-source change`
 - `CURRENT_OWNER`: `WORK_MASTER — completion/shared-core/spec/test hardening only; Windows QA remains QA-owned`
-- `CURRENT_PRIORITY`: `Restore the lost competitor-derived interaction contract from durable evidence`
-- `CURRENT_SUBSYSTEM`: competitor-derived interaction contracts before user-facing UX freeze
+- `CURRENT_PRIORITY`: `Stage 1 exact blocker handoff, then isolated shared-core hardening`
+- `CURRENT_SUBSYSTEM`: central board keymap/Help evidence and PGN/GameTree hardening
 - `STATUS`: `WIP_SAFE`
 - `NVDA_VERIFIED`: `NO`
 
@@ -25,12 +25,13 @@ All four branch heads were verified live with `git ls-remote` on 2026-08-20. Git
 
 ## Live control state
 
-- Issue #14 is open. Its latest strict Windows chain is run `32220453450` on QA SHA `07971835...` and product SHA `e8cd992...`; it is not a fully green release chain.
+- Issue #14 is open. Strict Windows run `32220453450` on QA SHA `07971835...` and product SHA `e8cd992...` proved the real document, one unique original strict-valid Move Edit, legal `e4`, and invalid `e9`; it then failed because Ctrl+A/Ctrl+C left clipboard sentinel `__sentinel__` unchanged.
 - Issue #22 is open and remains the authoritative human rejection/acceptance gate.
 - Issue #45 is open and preserves the two-role Work/Audit model and the complete product architecture.
 - Stage1 release lineage remains frozen and narrow. The old rejected ZIP is forbidden. No new candidate ZIP is authorized here.
 - Stage1 Windows QA/harness ownership remains with QA. Work owns product/core/contracts on the isolated completion branch and must not modify QA-owned strict workflows without explicit ownership transfer.
 - Draft PR #52 remains open at the separate canonical-interaction branch. The completion branch is not folded into that PR.
+- Exact retained evidence and ownership are recorded in `docs/work/STAGE1_EXACT_BLOCKER_HANDOFF_2026-08-20.md`.
 
 ## Competitor lab evidence to consume, not repeat
 
@@ -60,14 +61,17 @@ Commit `11b92a1e827bf66f8075ac7f3571ae20b908c1af` added integrity-verified bound
 - Local at `11b92a1`: ChessBase `127/127`; architecture `9/9`; broad unittest `793/793` with one existing skip; `git diff --check` and compileall passed.
 - Work Core CI `32301688378` on exact `11b92a1`: raw core `793/793` passed.
 - Unweakened pytest at `11b92a1`: `872` passed plus `1437` subtests, with exactly two unchanged Stage1 failures in `tests/test_board_rank_file_remapping_ui.py`.
+- Work Core CI `32346710032` on pre-recovery head `5880586`: raw core passed; full pytest remained `872 passed`, `1437` subtests, and two failures.
+- Local behavioral reclassification at `e4b8751`: the stale direct `actionByChord(...)` literal expectation was replaced by proof that `onBoardKey` awaits the central resolver and dispatches its returned `actionId`. That contract passes. Two unweakened PRODUCT failures remain: central rank/file actions are absent and Help omits their live bindings.
 - Competitor lab run `32342624286`: five jobs completed successfully and published compact evidence to `0213f54...`.
 
 ## Known failures and blockers
 
-1. `test_board_dispatch_uses_action_ids_instead_of_hardcoded_digit_shortcuts`: likely stale static/literal expectation; preserve canonical action dispatch and convert only with behavioral proof.
-2. `test_help_is_generated_from_live_rank_and_file_bindings`: genuine discoverability defect; Help must derive from the live Action Registry/keymap.
-3. Canonical ChessBase CBG move/variation/annotation decoding remains `UNSUPPORTED`; real licensed fixture corpus is absent; CBV/CBF/2CBH/CBONE content remains `UNSUPPORTED`.
-4. Full licensed ChessBase/Fritz interactive/NVDA execution remains unavailable. Robot evidence must not be labelled `NVDA_VERIFIED`.
+1. `test_rank_and_file_navigation_are_exposed_as_remappable_actions`: PRODUCT — static fallback JSON advertises 16 rank/file actions that the central runtime Action Registry cannot resolve.
+2. `test_help_is_generated_from_live_rank_and_file_bindings`: PRODUCT — Help omits the live rank/file bindings.
+3. Strict Windows run `32220453450`: BLOCKED / NO PRODUCT ATTRIBUTION YET at native Ctrl+A/Ctrl+C; QA owns the focused evidence pass.
+4. Canonical ChessBase CBG move/variation/annotation decoding remains `UNSUPPORTED`; real licensed fixture corpus is absent; CBV/CBF/2CBH/CBONE content remains `UNSUPPORTED`.
+5. Full licensed ChessBase/Fritz interactive/NVDA execution remains unavailable. Robot evidence must not be labelled `NVDA_VERIFIED`.
 
 ## Current ownership and invariants
 
@@ -80,4 +84,4 @@ Commit `11b92a1e827bf66f8075ac7f3571ae20b908c1af` added integrity-verified bound
 
 ## Next exact action
 
-Read the exact research tree and compact evidence at `0213f54...`, then create and immediately checkpoint `docs/ux/COMPETITOR_DERIVED_INTERACTION_CONTRACTS.md`. The contract must cover Playing, Engine Play, Analysis, PGN/GameTree, Multi-game PGN, Database, Search, Opening Reference, Opening Book, Position Setup, Books, Training, Teacher/Classroom, Menus, Help and Keymap with focus entry/escape/restoration, accessible projection, canonical action, shortcut policy, error recovery, evidence and decision classification. After that, inspect the completion branch Action Registry/keymap/Help and implement exactly one Stage1-legal evidence-backed atomic fix.
+Checkpoint the Stage 1 evidence/test reclassification without changing product or QA-owned sources. Then continue isolated shared-core PGN/GameTree correctness hardening, beginning with the highest-risk malformed nested-RAV and state-restoration boundary that is not already proven by the current tests. If Issue #14 transfers a PRODUCT fix, stop shared-core work and make the minimum central rank/file Action Registry plus live-Help repair before returning the exact SHA to QA.
