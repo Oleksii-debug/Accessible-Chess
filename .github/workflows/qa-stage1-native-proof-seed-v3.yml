@@ -150,3 +150,5 @@ jobs:
           fi
           gh api --method POST "repos/${{ github.repository }}/actions/workflows/windows-stage1-strict-release-crossprocess.yml/dispatches" -f ref='qa/windows-current-integration-candidate-20260815'
           echo 'Strict workflow dispatched.'
+
+# Retrigger seed after audit handoff verification: 2026-08-20T19:37Z
