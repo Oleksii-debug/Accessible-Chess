@@ -238,11 +238,15 @@ def apply_next(worddeck: Path, tx: Path) -> dict[str, Any]:
     target = worddeck / "QA" / item["file_name"]
     if target.exists(): raise ValueError("Target QA slice already exists")
     bootstrap, csproj = worddeck / "ReviewedOxford5000Bootstrap.cs", worddeck / "WordDeck.csproj"
-    bt, cp = bootstrap.read_text(encoding="utf-8"), csproj.read_text(encoding="utf-8")
+    bt_bytes, cp_bytes = bootstrap.read_bytes(), csproj.read_bytes()
+    bt, cp = bt_bytes.decode("utf-8"), cp_bytes.decode("utf-8")
     bt2 = add_call(set_expected_count(bt, int(item["count_before"]), int(item["count_after"])), item["file_name"], int(item["expected_rows"]), int(item["major_order"]))
     cp2 = add_resource(cp, item["file_name"])
     bdir = p["backups"] / f'cp{int(item["index"]):04d}'; bdir.mkdir(parents=True, exist_ok=True)
-    atomic(bdir / "ReviewedOxford5000Bootstrap.cs", bt.encode()); atomic(bdir / "WordDeck.csproj", cp.encode())
+    # Backups must be byte-exact. Text-mode read/write can normalize CRLF on Windows,
+    # which makes rollback evidence disagree with the journal even when the source file
+    # itself never drifted.
+    atomic(bdir / "ReviewedOxford5000Bootstrap.cs", bt_bytes); atomic(bdir / "WordDeck.csproj", cp_bytes)
     item["status"] = "APPLYING"; item["before_repo"] = plan["repo_current"]; write_json(p["journal"], plan)
     try:
         atomic(target, prepared.read_bytes()); atomic(bootstrap, bt2.encode()); atomic(csproj, cp2.encode())
