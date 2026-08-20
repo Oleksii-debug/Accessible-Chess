@@ -152,8 +152,33 @@ try{
   if((Fen $els) -ne $fenE4){throw 'Invalid e9 mutated FEN'}
   $summary.invalid_e9_fen_unchanged=$true; NoRawError $els
 
-  Set-Clipboard -Value '__sentinel__'; $move.SetFocus(); $ws.SendKeys('^a'); $ws.SendKeys('^c'); Start-Sleep -Milliseconds 400
-  $clip=([string](Get-Clipboard -Raw)).Trim(); if($clip -ne 'e9'){throw "Ctrl+A/Ctrl+C failed: '$clip'"}; $summary.clipboard=$clip
+  Set-Clipboard -Value '__sentinel__'
+  $move.SetFocus()
+  AssertFocusedRuntimeEventually $moveRid 'Clipboard focus convergence'
+  $focused=[System.Windows.Automation.AutomationElement]::FocusedElement
+  if((RuntimeId $focused) -ne $moveRid){throw "Clipboard keyboard focus mismatch: $(FocusDescription $focused)"}
+  $vp=ValuePattern $move 'Move before clipboard'
+  if([string]$vp.Current.Value -ne 'e9'){throw "Clipboard precondition ValuePattern mismatch: '$([string]$vp.Current.Value)'"}
+  $ws.SendKeys('^a')
+  Start-Sleep -Milliseconds 250
+  AssertFocusedRuntimeEventually $moveRid 'Clipboard selection focus convergence'
+  $focused=[System.Windows.Automation.AutomationElement]::FocusedElement
+  try{
+    $tp=$focused.GetCurrentPattern([System.Windows.Automation.TextPattern]::Pattern)
+    if($null -eq $tp){throw 'TextPattern unavailable'}
+    $selection=@($tp.GetSelection())
+    if($selection.Count -lt 1){throw 'No native text selection exposed'}
+    $selected=(@($selection|ForEach-Object {$_.GetText(-1)}) -join '')
+    if($selected -ne 'e9'){throw "Native Ctrl+A selection mismatch: '$selected'"}
+  }catch{
+    throw "Native selection proof failed: $($_.Exception.Message)"
+  }
+  Write-Output 'CLIPBOARD BOUNDED FOCUS/SELECTION PASS'
+  $ws.SendKeys('^c')
+  Start-Sleep -Milliseconds 400
+  $clip=([string](Get-Clipboard -Raw)).Trim()
+  if($clip -ne 'e9'){throw "Ctrl+A/Ctrl+C failed: '$clip'"}
+  $summary.clipboard=$clip
 
   $vp.SetValue('e5'); if([string]$vp.Current.Value -ne 'e5'){throw 'Could not prepare e5 before board entry'}
   Write-Output 'Prepared e5 before entering board'
