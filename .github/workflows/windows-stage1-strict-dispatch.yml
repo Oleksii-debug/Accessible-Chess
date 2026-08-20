@@ -1,4 +1,4 @@
-# MERGE_TRIGGER_E8CD992
+# MERGE_TRIGGER_656E8EC
 name: Windows Stage 1 Strict Release Dispatch
 
 on:
@@ -18,7 +18,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  TARGET_PRODUCT_SHA: e8cd992d306975955784118364ce950963133d7e
+  TARGET_PRODUCT_SHA: 656e8ec311e364e6e54a30504fd30a4aaff586f9
 
 jobs:
   validate-patch-and-dispatch:
@@ -29,7 +29,7 @@ jobs:
           ref: qa/windows-current-integration-candidate-20260815
           fetch-depth: 0
 
-      - name: Retarget strict release and add real-document startup proof
+      - name: Retarget strict release and harden native clipboard proof
         shell: pwsh
         run: |
           @'
@@ -40,18 +40,18 @@ jobs:
           strict = strict_path.read_text(encoding='utf-8')
           helper = helper_path.read_text(encoding='utf-8')
 
-          old_sha = '9684b06e9821d9588944f1182744a1c72623b355'
-          new_sha = 'e8cd992d306975955784118364ce950963133d7e'
+          old_sha = 'e8cd992d306975955784118364ce950963133d7e'
+          new_sha = '656e8ec311e364e6e54a30504fd30a4aaff586f9'
           if new_sha not in strict:
               if strict.count(old_sha) != 1:
                   raise SystemExit(f'Expected exactly one old strict source SHA, found {strict.count(old_sha)}')
               strict = strict.replace(old_sha, new_sha)
 
-          if 'e8cd992-NVDA-test-candidate' not in strict:
-              short_count = strict.count('9684b06-NVDA-test-candidate')
+          if '656e8ec-NVDA-test-candidate' not in strict:
+              short_count = strict.count('e8cd992-NVDA-test-candidate')
               if short_count < 3:
-                  raise SystemExit(f'Expected candidate short SHA in env/artifact/path, found {short_count}')
-              strict = strict.replace('9684b06-NVDA-test-candidate', 'e8cd992-NVDA-test-candidate')
+                  raise SystemExit(f'Expected old candidate short SHA in env/artifact/path, found {short_count}')
+              strict = strict.replace('e8cd992-NVDA-test-candidate', '656e8ec-NVDA-test-candidate')
 
           focused_old = 'python -m unittest tests.test_issue22_release_contract tests.test_nvda_p0_contract tests.test_ui_native_menu_recovery tests.test_sound_runtime tests.test_release_stockfish_composition tests.test_stage1_core_full_flow tests.test_stage1_release_composition_ui tests.test_stage1_packaged_focus_origin_contract -v'
           focused_new = 'python -m unittest tests.test_issue22_release_contract tests.test_nvda_p0_contract tests.test_stage1_webview2_accessibility_boundary tests.test_webview_safe_server tests.test_ui_native_menu_recovery tests.test_sound_runtime tests.test_release_stockfish_composition tests.test_stage1_core_full_flow tests.test_stage1_release_composition_ui tests.test_stage1_packaged_focus_origin_contract -v'
@@ -69,11 +69,11 @@ jobs:
               '"WEBVIEW2 PROCESS STARTUP PASS pid=$($p.Id); REAL DOCUMENT PROOF FOLLOWS IN STRICT UIA GATE"'
           )
 
-          anchor = """Copy-Item uia-topology-report-v5.json uia-topology-strict-raw.json -Force
+          document_anchor = """Copy-Item uia-topology-report-v5.json uia-topology-strict-raw.json -Force
           Copy-Item uia-topology-report-v5.json uia-topology-strict.json -Force
           python $classifier uia-topology-strict.json --product-root $ProductRoot
           """
-          guarded = """Copy-Item uia-topology-report-v5.json uia-topology-strict-raw.json -Force
+          document_guarded = """Copy-Item uia-topology-report-v5.json uia-topology-strict-raw.json -Force
           Copy-Item uia-topology-report-v5.json uia-topology-strict.json -Force
           $startupReport=Get-Content uia-topology-strict.json -Raw|ConvertFrom-Json
           $errorNodes=@($startupReport.nodes|Where-Object {
@@ -94,16 +94,51 @@ jobs:
           Write-Output "REAL ACCESSIBLE CHESS DOCUMENT STARTUP PASS documents=$($appDocuments.Count)"
           python $classifier uia-topology-strict.json --product-root $ProductRoot
           """
-          marker = 'REAL ACCESSIBLE CHESS DOCUMENT STARTUP PASS'
-          if marker not in helper:
-              if helper.count(anchor) != 1:
-                  raise SystemExit(f'Helper topology/classifier anchor not unique: {helper.count(anchor)}')
-              helper = helper.replace(anchor, guarded)
+          if 'REAL ACCESSIBLE CHESS DOCUMENT STARTUP PASS' not in helper:
+              if helper.count(document_anchor) != 1:
+                  raise SystemExit(f'Helper topology/classifier anchor not unique: {helper.count(document_anchor)}')
+              helper = helper.replace(document_anchor, document_guarded)
+
+          clipboard_anchor = """  Set-Clipboard -Value '__sentinel__'; $move.SetFocus(); $ws.SendKeys('^a'); $ws.SendKeys('^c'); Start-Sleep -Milliseconds 400
+          $clip=([string](Get-Clipboard -Raw)).Trim(); if($clip -ne 'e9'){throw "Ctrl+A/Ctrl+C failed: '$clip'"}; $summary.clipboard=$clip
+          """
+          clipboard_guarded = """  Set-Clipboard -Value '__sentinel__'
+          $move.SetFocus()
+          AssertFocusedRuntimeEventually $moveRid 'Clipboard focus convergence'
+          $focused=[System.Windows.Automation.AutomationElement]::FocusedElement
+          if((RuntimeId $focused) -ne $moveRid){throw "Clipboard keyboard focus mismatch: $(FocusDescription $focused)"}
+          $vp=ValuePattern $move 'Move before clipboard'
+          if([string]$vp.Current.Value -ne 'e9'){throw "Clipboard precondition ValuePattern mismatch: '$([string]$vp.Current.Value)'"}
+          $ws.SendKeys('^a')
+          Start-Sleep -Milliseconds 250
+          AssertFocusedRuntimeEventually $moveRid 'Clipboard selection focus convergence'
+          $focused=[System.Windows.Automation.AutomationElement]::FocusedElement
+          try{
+            $tp=$focused.GetCurrentPattern([System.Windows.Automation.TextPattern]::Pattern)
+            if($null -eq $tp){throw 'TextPattern unavailable'}
+            $selection=@($tp.GetSelection())
+            if($selection.Count -lt 1){throw 'No native text selection exposed'}
+            $selected=(@($selection|ForEach-Object {$_.GetText(-1)}) -join '')
+            if($selected -ne 'e9'){throw "Native Ctrl+A selection mismatch: '$selected'"}
+          }catch{
+            throw "Native selection proof failed: $($_.Exception.Message)"
+          }
+          Write-Output 'CLIPBOARD BOUNDED FOCUS/SELECTION PASS'
+          $ws.SendKeys('^c')
+          Start-Sleep -Milliseconds 400
+          $clip=([string](Get-Clipboard -Raw)).Trim()
+          if($clip -ne 'e9'){throw "Ctrl+A/Ctrl+C failed: '$clip'"}
+          $summary.clipboard=$clip
+          """
+          if 'CLIPBOARD BOUNDED FOCUS/SELECTION PASS' not in helper:
+              if helper.count(clipboard_anchor) != 1:
+                  raise SystemExit(f'Clipboard anchor not unique: {helper.count(clipboard_anchor)}')
+              helper = helper.replace(clipboard_anchor, clipboard_guarded)
 
           strict_path.write_text(strict, encoding='utf-8')
           helper_path.write_text(helper, encoding='utf-8')
           '@ | python -
-          if($LASTEXITCODE -ne 0){throw 'QA strict retarget/document-proof patch failed'}
+          if($LASTEXITCODE -ne 0){throw 'QA strict retarget/clipboard-proof patch failed'}
 
       - name: Validate hardened strict release contract
         shell: pwsh
@@ -119,6 +154,11 @@ jobs:
           if($text -notmatch 'function AssertFocusedRuntimeEventually'){throw 'Bounded runtime focus convergence helper missing'}
           if($text -notmatch 'function AssertSemanticFocusEventually'){throw 'Bounded semantic focus convergence helper missing'}
           if(-not $text.Contains("AssertFocusedRuntimeEventually `$moveRid 'Legal e4 refocus'")){throw 'Legal e4 refocus is not using bounded convergence'}
+          if(-not $text.Contains("AssertFocusedRuntimeEventually `$moveRid 'Clipboard focus convergence'")){throw 'Clipboard pre-selection focus is not using bounded convergence'}
+          if(-not $text.Contains("AssertFocusedRuntimeEventually `$moveRid 'Clipboard selection focus convergence'")){throw 'Clipboard post-selection focus is not using bounded convergence'}
+          if($text -notmatch 'CLIPBOARD BOUNDED FOCUS/SELECTION PASS'){throw 'Native selection proof marker missing'}
+          if($text -notmatch 'TextPattern'){throw 'Native UIA text-selection proof missing'}
+          if($text.Contains("`$move.SetFocus(); `$ws.SendKeys('^a'); `$ws.SendKeys('^c')")){throw 'Old one-shot clipboard chord returned'}
           if($text.Contains('if((RuntimeId [System.Windows.Automation.AutomationElement]::FocusedElement) -ne $moveRid)')){throw 'One-shot legal e4 focus assertion returned'}
           if($text -notmatch 'RNBQKBNR b KQkq e3 0 1'){throw 'Canonical e4 FEN expectation missing'}
           if($text -notmatch 'RNBQKBNR w KQkq e6 0 2'){throw 'Canonical black e5 FEN expectation missing'}
@@ -138,13 +178,13 @@ jobs:
           if($bridge -match 'SetValue|FindRuntime|AssertMove|\$move|\$vp'){throw 'Move input is touched after board origin before submit Invoke'}
 
           $strictText=Get-Content $strict -Raw
-          if($strictText -notmatch [regex]::Escape($env:TARGET_PRODUCT_SHA)){throw 'Strict workflow does not target exact e8cd992 product SHA'}
-          if($strictText -match '9684b06e9821d9588944f1182744a1c72623b355'){throw 'Old strict product SHA remains'}
-          if($strictText -notmatch 'e8cd992-NVDA-test-candidate'){throw 'Fresh candidate identity not retargeted'}
+          if($strictText -notmatch [regex]::Escape($env:TARGET_PRODUCT_SHA)){throw 'Strict workflow does not target exact 656e8ec product SHA'}
+          if($strictText -match 'e8cd992d306975955784118364ce950963133d7e'){throw 'Old strict product SHA remains'}
+          if($strictText -notmatch '656e8ec-NVDA-test-candidate'){throw 'Fresh candidate identity not retargeted'}
           if($strictText -notmatch 'tests\.test_webview_safe_server'){throw 'Windows focused safe-port regression missing'}
           if($strictText -notmatch 'tests\.test_stage1_webview2_accessibility_boundary'){throw 'Windows focused WebView2 boundary regression missing'}
           if($strictText -notmatch 'REAL DOCUMENT PROOF FOLLOWS IN STRICT UIA GATE'){throw 'Process-only startup is still mislabeled as document success'}
-          'E8CD992 STRICT SOURCE + ERROR-PAGE FAIL-CLOSED + BOUNDED FOCUS/PURE BOARD REGRESSION PASS'
+          '656E8EC STRICT SOURCE + ERROR-PAGE FAIL-CLOSED + BOUNDED FOCUS/SELECTION/PURE-BOARD REGRESSION PASS'
 
       - name: Commit coherent QA strict-release changes
         shell: pwsh
@@ -158,7 +198,7 @@ jobs:
             git config user.name 'Oleksii-debug'
             git config user.email 'oleksiy.az.09@gmail.com'
             git add .github/workflows/windows-stage1-strict-release-crossprocess.yml tools/qa/stage1_packaged_e2e_crossprocess.ps1
-            git commit -m 'QA: run strict e8cd992 with real-document startup proof'
+            git commit -m 'QA: run strict 656e8ec with bounded clipboard proof'
             if($LASTEXITCODE -ne 0){throw 'QA strict commit failed'}
             git push origin HEAD:qa/windows-current-integration-candidate-20260815
             if($LASTEXITCODE -ne 0){throw 'QA strict push failed'}
