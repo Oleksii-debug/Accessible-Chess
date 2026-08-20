@@ -1,6 +1,11 @@
+import json
 import unittest
 
-from acs.acsdb import AcsDatabase
+from acs.acsdb import (
+    AcsDatabase,
+    AcsImportValidationCode,
+    AcsImportValidationError,
+)
 from acs.gametree import parse_games
 
 
@@ -201,6 +206,58 @@ class AcsDatabaseExactBoundaryTests(unittest.TestCase):
         game.line.moves[0].san = ''
         with self.assertRaises(ValueError):
             self.db.store_game(game, self.source_id, raw_pgn=PGN)
+
+    def test_raw_pgn_must_describe_the_validated_game_record(self):
+        before = self.db.conn.execute('SELECT COUNT(*) FROM games').fetchone()[0]
+        different = PGN.replace('1. e4 *', '1. d4 *')
+
+        with self.assertRaises(AcsImportValidationError) as blocked:
+            self.db.store_game(self.game, self.source_id, raw_pgn=different)
+
+        self.assertEqual(blocked.exception.code, AcsImportValidationCode.RAW_PGN_MISMATCH)
+        self.assertEqual(blocked.exception.source_index, self.game.source_index)
+        self.assertEqual(blocked.exception.diagnostic_codes, ())
+        self.assertEqual(
+            self.db.conn.execute('SELECT COUNT(*) FROM games').fetchone()[0],
+            before,
+        )
+
+    def test_raw_pgn_must_contain_exactly_one_game(self):
+        before = self.db.conn.execute('SELECT COUNT(*) FROM games').fetchone()[0]
+
+        with self.assertRaises(AcsImportValidationError) as blocked:
+            self.db.store_game(self.game, self.source_id, raw_pgn=PGN + '\n' + PGN)
+
+        self.assertEqual(blocked.exception.code, AcsImportValidationCode.RAW_PGN_GAME_COUNT)
+        self.assertEqual(
+            self.db.conn.execute('SELECT COUNT(*) FROM games').fetchone()[0],
+            before,
+        )
+
+    def test_illegal_raw_pgn_is_rejected_before_equivalence_claim(self):
+        illegal = '[Result "*"]\n\n1. e4 e5 2. Bh6 *\n'
+        before = self.db.conn.execute('SELECT COUNT(*) FROM games').fetchone()[0]
+
+        with self.assertRaises(AcsImportValidationError) as blocked:
+            self.db.store_game(self.game, self.source_id, raw_pgn=illegal)
+
+        self.assertEqual(blocked.exception.code, AcsImportValidationCode.LEGALITY_DAMAGED)
+        self.assertEqual(
+            self.db.conn.execute('SELECT COUNT(*) FROM games').fetchone()[0],
+            before,
+        )
+
+    def test_equivalent_raw_pgn_preserves_warning_evidence_and_exact_bytes(self):
+        source_id = self.db.add_source('warning-source.pgn', 'pgn')
+        raw = PGN.replace('1. e4 *', '7. e4 *')
+
+        game_id = self.db.store_game(self.game, source_id, raw_pgn=raw)
+        stored = self.db.get_game(game_id)
+
+        self.assertEqual(stored['pgn_text'], raw)
+        self.assertEqual(stored['import_status'], 'warning')
+        warnings = json.loads(stored['warnings_json'])
+        self.assertTrue(any('move_number_mismatch' in item for item in warnings))
 
 
 if __name__ == '__main__':

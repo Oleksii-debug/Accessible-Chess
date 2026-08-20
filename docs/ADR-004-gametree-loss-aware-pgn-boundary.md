@@ -122,6 +122,13 @@ PGN must never be silently reinterpreted as clean data.
     source index and bounded path evidence. Warning-only games retain original
     SAN and persist diagnostic summaries in `warnings_json`. Direct
     `store_game` uses the same gate and cannot bypass legality validation.
+21. A caller-supplied `raw_pgn` is evidence, not an unchecked storage escape.
+    It must parse to exactly one structurally exportable and legally linkable
+    game whose versioned record identity equals the already validated
+    `PgnGame`. Empty, multi-game, damaged, illegal, or different raw text is
+    rejected before SQL insertion with stable validation codes. Warning
+    evidence from both equivalent representations is retained without
+    rewriting the supplied bytes.
 
 ## Compatibility
 
@@ -173,6 +180,11 @@ Importer quality is therefore evidence-backed rather than syntax-only. This
 changes no ACSDB schema: existing v2 rows remain readable, while new writes
 gain stricter validation and richer warning JSON. Legality-damaged input is
 never partially stored even when a clean game precedes it in the same source.
+
+The optional raw-text path now has the same trust boundary as ordinary import.
+Whitespace and header ordering can remain byte-for-byte source evidence, but
+the bytes cannot describe a second game or a different semantic record than
+the indexed tags and GameTree. This changes no identity schema or ACSDB schema.
 
 ## Release boundary
 

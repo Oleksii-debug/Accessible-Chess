@@ -3,21 +3,160 @@ from __future__ import annotations
 """Neutral duplicate detection for PGN/ACSDB records."""
 
 from dataclasses import dataclass
+from enum import Enum
 import re
-from typing import Literal
+from typing import Iterable, Literal
 
 from .acsdb import AcsDatabase
 from .game_identity import (
     IDENTITY_SCHEMA_VERSION,
+    GameIdentity,
     GameIdentityContractError,
     identity_for_game,
 )
-from .gametree import parse_games
+from .gametree import (
+    GameTreeContractError,
+    PgnGame,
+    PgnRecoveryCode,
+    parse_games,
+    serialize_game,
+)
+from .gametree_legality import (
+    DiagnosticSeverity,
+    GameTreeLegalityContractError,
+    link_game_legality,
+)
 from .import_contract import sha256_utf8_text
 
 DuplicateKind = Literal["exact_source", "record", "tree"]
 _DUPLICATE_KINDS = frozenset({"exact_source", "record", "tree"})
 _DIGEST_RE = re.compile(r"^[0-9a-f]{64}$")
+_MAX_EVIDENCE_CODES = 16
+_MAX_EVIDENCE_CODE_CHARACTERS = 128
+
+
+class DuplicateInputErrorCode(str, Enum):
+    STRUCTURAL_DAMAGE = "structural_damage"
+    LEGALITY_DAMAGE = "legality_damage"
+    IDENTITY_DAMAGE = "identity_damage"
+
+
+class DuplicateInputValidationError(ValueError):
+    """Fail-closed rejection before duplicate evidence can be claimed."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        code: DuplicateInputErrorCode,
+        source_index: int,
+        evidence_codes: tuple[str, ...],
+    ) -> None:
+        super().__init__(message)
+        self.code = DuplicateInputErrorCode(code)
+        if type(source_index) is not int or source_index < 0:
+            raise TypeError("source_index must be a non-negative exact integer")
+        if (
+            not isinstance(evidence_codes, tuple)
+            or len(evidence_codes) > _MAX_EVIDENCE_CODES
+            or len(set(evidence_codes)) != len(evidence_codes)
+            or any(
+                not isinstance(item, str)
+                or not item
+                or len(item) > _MAX_EVIDENCE_CODE_CHARACTERS
+                for item in evidence_codes
+            )
+        ):
+            raise TypeError("evidence_codes must be a bounded unique text tuple")
+        self.source_index = source_index
+        self.evidence_codes = evidence_codes
+
+
+def _bounded_evidence_codes(values: Iterable[str]) -> tuple[str, ...]:
+    result: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        if value in seen:
+            continue
+        seen.add(value)
+        result.append(value)
+        if len(result) == _MAX_EVIDENCE_CODES:
+            break
+    return tuple(result)
+
+
+def _incoming_identity(game: PgnGame) -> GameIdentity:
+    try:
+        serialize_game(game)
+    except GameTreeContractError as exc:
+        recovery_codes = _bounded_evidence_codes(
+            issue.code.value
+            for issue in game.recovery_issues
+            if isinstance(issue.code, PgnRecoveryCode)
+        )
+        raise DuplicateInputValidationError(
+            f"incoming PGN game {game.source_index} has structural damage: {exc}",
+            code=DuplicateInputErrorCode.STRUCTURAL_DAMAGE,
+            source_index=game.source_index,
+            evidence_codes=recovery_codes or (exc.code.value,),
+        ) from exc
+
+    try:
+        legality = link_game_legality(game)
+    except GameTreeLegalityContractError as exc:
+        raise DuplicateInputValidationError(
+            f"incoming PGN game {game.source_index} has invalid tree structure: {exc}",
+            code=DuplicateInputErrorCode.STRUCTURAL_DAMAGE,
+            source_index=game.source_index,
+            evidence_codes=(exc.code.value,),
+        ) from exc
+    if legality.has_errors or not legality.all_moves_legal:
+        diagnostics = tuple(
+            diagnostic
+            for diagnostic in legality.diagnostics
+            if diagnostic.severity is DiagnosticSeverity.ERROR
+        ) or legality.diagnostics
+        codes = _bounded_evidence_codes(
+            diagnostic.code.value for diagnostic in diagnostics
+        )
+        detail = "; ".join(
+            diagnostic.summary[:1024] for diagnostic in diagnostics[:8]
+        )
+        raise DuplicateInputValidationError(
+            f"incoming PGN game {game.source_index} is not legally linkable: "
+            f"{detail or 'legality is incomplete'}",
+            code=DuplicateInputErrorCode.LEGALITY_DAMAGE,
+            source_index=game.source_index,
+            evidence_codes=codes,
+        )
+    try:
+        return identity_for_game(game)
+    except GameIdentityContractError as exc:
+        raise DuplicateInputValidationError(
+            f"incoming PGN game {game.source_index} has invalid identity data: {exc}",
+            code=DuplicateInputErrorCode.IDENTITY_DAMAGE,
+            source_index=game.source_index,
+            evidence_codes=(exc.code.value,),
+        ) from exc
+
+
+def _stored_identity(text: str) -> GameIdentity | None:
+    try:
+        games = parse_games(text)
+        if len(games) != 1:
+            return None
+        game = games[0]
+        serialize_game(game)
+        legality = link_game_legality(game)
+        if legality.has_errors or not legality.all_moves_legal:
+            return None
+        return identity_for_game(game)
+    except (
+        GameTreeContractError,
+        GameTreeLegalityContractError,
+        GameIdentityContractError,
+    ):
+        return None
 
 
 @dataclass(frozen=True, slots=True)
@@ -120,6 +259,19 @@ def detect_pgn_duplicates(database: AcsDatabase, text: str) -> DuplicateReport:
     matches: list[DuplicateMatch] = []
     skipped_stored_game_ids: list[int] = []
 
+    try:
+        incoming_games = parse_games(text)
+    except GameTreeContractError as exc:
+        raise DuplicateInputValidationError(
+            f"incoming PGN cannot be parsed safely: {exc}",
+            code=DuplicateInputErrorCode.STRUCTURAL_DAMAGE,
+            source_index=0,
+            evidence_codes=(exc.code.value,),
+        ) from exc
+    incoming = [
+        (game.source_index, _incoming_identity(game)) for game in incoming_games
+    ]
+
     exact_sources = database.conn.execute(
         "SELECT id FROM sources WHERE sha256=? ORDER BY id", (source_sha256,)
     ).fetchall()
@@ -132,11 +284,9 @@ def detect_pgn_duplicates(database: AcsDatabase, text: str) -> DuplicateReport:
         for row in exact_sources
     )
 
-    incoming_games = parse_games(text)
     if not incoming_games:
         return DuplicateReport(source_sha256=source_sha256, matches=tuple(matches))
 
-    incoming = [(game.source_index, identity_for_game(game)) for game in incoming_games]
     stored_rows = database.conn.execute(
         "SELECT id, source_id, pgn_text FROM games ORDER BY id"
     ).fetchall()
@@ -149,17 +299,8 @@ def detect_pgn_duplicates(database: AcsDatabase, text: str) -> DuplicateReport:
         if not isinstance(stored_text, str):
             skipped_stored_game_ids.append(stored_game_id)
             continue
-        try:
-            stored_games = parse_games(stored_text)
-        except Exception:
-            skipped_stored_game_ids.append(stored_game_id)
-            continue
-        if len(stored_games) != 1:
-            skipped_stored_game_ids.append(stored_game_id)
-            continue
-        try:
-            stored_identity = identity_for_game(stored_games[0])
-        except GameIdentityContractError:
+        stored_identity = _stored_identity(stored_text)
+        if stored_identity is None:
             skipped_stored_game_ids.append(stored_game_id)
             continue
         for incoming_index, incoming_identity in incoming:

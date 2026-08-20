@@ -37,6 +37,16 @@ interpreted or skipped without evidence that semantic comparison was incomplete.
 7. Duplicate detection accepts only `AcsDatabase` and text. Stored non-text,
    unparsable, multi-game, or invalid-identity rows are isolated and their game
    IDs are reported instead of being coerced or silently ignored.
+8. Every incoming parsed game must be structurally exportable and legally
+   linkable before exact-source or semantic matches are returned. One damaged
+   game rejects the entire incoming collection with a stable structural,
+   legality, or identity code, source index, and bounded unique evidence-code
+   tuple; partial duplicate evidence is never exposed.
+9. Each legacy stored row must also be structurally exportable and legally
+   linkable before its record/tree identity is compared. Invalid legacy rows
+   remain untouched and appear in `skipped_stored_game_ids`; they cannot produce
+   a semantic duplicate claim. Exact-source SHA-256 evidence remains a distinct
+   source-level claim and its hashing algorithm is unchanged.
 
 ## Compatibility
 
@@ -44,6 +54,12 @@ Identity schema version 1, whitespace/header-order stability, recursive
 variation/comment/NAG sensitivity, exact-source SHA evidence, record-before-tree
 match strength, incoming source indexes, deterministic stored-game order, and
 read-only ACSDB behavior remain unchanged for valid data.
+
+Legal warning-only inputs remain comparable without normalization. An illegal
+incoming collection now fails closed instead of returning even an otherwise
+valid exact-source match. A valid incoming source may still report exact byte
+identity while explicitly skipping a corrupted legacy game row, because those
+are separate evidence domains.
 
 ## Ownership boundary
 

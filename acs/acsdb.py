@@ -15,6 +15,7 @@ from pathlib import Path
 import sqlite3
 from typing import Iterable
 
+from .game_identity import same_game_record
 from .gametree import PgnGame, parse_games, serialize_game
 from .gametree_legality import (
     DiagnosticSeverity,
@@ -28,10 +29,13 @@ from .position_editor import PositionState
 IMPORT_STATUSES = {"full", "partial", "damaged", "warning"}
 IMPORT_ATTEMPT_STATUSES = {"pending", "full", "warning", "damaged", "failed"}
 ACSDB_SCHEMA_VERSION = 2
+MAX_IMPORT_DIAGNOSTIC_CODES = 16
 
 
 class AcsImportValidationCode(str, Enum):
     LEGALITY_DAMAGED = "legality_damaged"
+    RAW_PGN_GAME_COUNT = "raw_pgn_game_count"
+    RAW_PGN_MISMATCH = "raw_pgn_mismatch"
 
 
 class AcsImportValidationError(ValueError):
@@ -50,9 +54,15 @@ class AcsImportValidationError(ValueError):
         self.source_index = _require_exact_int(source_index, "source_index", minimum=0)
         if not isinstance(diagnostic_codes, tuple):
             raise TypeError("diagnostic_codes must be a tuple")
-        self.diagnostic_codes = tuple(
+        canonical_codes = tuple(
             LegalityDiagnosticCode(item) for item in diagnostic_codes
         )
+        if (
+            len(canonical_codes) > MAX_IMPORT_DIAGNOSTIC_CODES
+            or len(set(canonical_codes)) != len(canonical_codes)
+        ):
+            raise ValueError("diagnostic_codes must be bounded and unique")
+        self.diagnostic_codes = canonical_codes
 
 
 def _require_exact_int(value: object, name: str, *, minimum: int | None = None) -> int:
@@ -134,13 +144,45 @@ def _validate_game_for_persistence(game: PgnGame) -> _ValidatedGame:
             code=AcsImportValidationCode.LEGALITY_DAMAGED,
             source_index=game.source_index,
             diagnostic_codes=tuple(
-                diagnostic.code for diagnostic in evidence
-            ),
+                dict.fromkeys(diagnostic.code for diagnostic in evidence)
+            )[:MAX_IMPORT_DIAGNOSTIC_CODES],
         )
     warnings = tuple(game.warnings) + tuple(
         diagnostic.summary for diagnostic in legality.diagnostics
     )
     return _ValidatedGame(serialized, warnings, legality)
+
+
+def _validate_raw_pgn_override(
+    game: PgnGame,
+    raw_pgn: str,
+    validation: _ValidatedGame,
+) -> _ValidatedGame:
+    raw_games = parse_games(raw_pgn)
+    if len(raw_games) != 1:
+        raise AcsImportValidationError(
+            "raw_pgn must contain exactly one PGN game",
+            code=AcsImportValidationCode.RAW_PGN_GAME_COUNT,
+            source_index=game.source_index,
+            diagnostic_codes=(),
+        )
+    raw_game = raw_games[0]
+    raw_validation = _validate_game_for_persistence(raw_game)
+    if not same_game_record(game, raw_game):
+        raise AcsImportValidationError(
+            "raw_pgn does not describe the validated game record",
+            code=AcsImportValidationCode.RAW_PGN_MISMATCH,
+            source_index=game.source_index,
+            diagnostic_codes=(),
+        )
+    warnings = tuple(
+        dict.fromkeys(validation.warnings + raw_validation.warnings)
+    )
+    return _ValidatedGame(
+        validation.serialized_pgn,
+        warnings,
+        validation.legality,
+    )
 
 
 class AcsDatabase:
@@ -331,6 +373,8 @@ class AcsDatabase:
         if validated is not None and not isinstance(validated, _ValidatedGame):
             raise TypeError("validated must be _ValidatedGame or None")
         validation = validated or _validate_game_for_persistence(game)
+        if raw_pgn is not None:
+            validation = _validate_raw_pgn_override(game, raw_pgn, validation)
         status = import_status or ("warning" if validation.warnings else "full")
         if status not in IMPORT_STATUSES:
             raise ValueError(f"Unsupported import status: {status}")

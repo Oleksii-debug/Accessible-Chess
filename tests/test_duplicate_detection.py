@@ -1,10 +1,13 @@
 from acs.acsdb import AcsDatabase
 from acs.duplicate_detection import (
+    DuplicateInputErrorCode,
+    DuplicateInputValidationError,
     DuplicateMatch,
     DuplicateReport,
     detect_pgn_duplicates,
 )
 from acs.game_identity import IDENTITY_SCHEMA_VERSION
+from acs.import_contract import sha256_utf8_text
 import pytest
 
 
@@ -140,3 +143,92 @@ def test_duplicate_detection_rejects_database_and_text_coercion():
         for database, text in ((object(), BASE), (db, b"pgn"), (db, True)):
             with pytest.raises(TypeError):
                 detect_pgn_duplicates(database, text)
+
+
+def test_illegal_incoming_collection_fails_closed_before_exact_or_semantic_claims():
+    illegal = '''[Event "Illegal"]
+[Result "*"]
+
+1. e4 e5 2. Bh6 *
+'''
+    with AcsDatabase() as db:
+        db.add_source("legacy-illegal.pgn", "pgn", sha256_utf8_text(illegal))
+        before = db.conn.total_changes
+
+        with pytest.raises(DuplicateInputValidationError) as blocked:
+            detect_pgn_duplicates(db, illegal)
+
+        assert blocked.value.code is DuplicateInputErrorCode.LEGALITY_DAMAGE
+        assert blocked.value.source_index == 0
+        assert blocked.value.evidence_codes == ("illegal_san",)
+        assert db.conn.total_changes == before
+
+
+def test_structurally_damaged_incoming_game_has_stable_recovery_evidence():
+    damaged = '[Result "*"]\n\n$1 1. e4 *\n'
+    with AcsDatabase() as db:
+        with pytest.raises(DuplicateInputValidationError) as blocked:
+            detect_pgn_duplicates(db, damaged)
+
+        assert blocked.value.code is DuplicateInputErrorCode.STRUCTURAL_DAMAGE
+        assert blocked.value.source_index == 0
+        assert "orphan_annotation" in blocked.value.evidence_codes
+
+
+def test_one_illegal_incoming_game_blocks_partial_collection_evidence():
+    collection = BASE + '''
+[Event "Illegal second"]
+[Result "*"]
+
+1. Nf3 Nf6 2. Bh6 *
+'''
+    with AcsDatabase() as db:
+        db.import_pgn_text(BASE, "stored.pgn")
+
+        with pytest.raises(DuplicateInputValidationError) as blocked:
+            detect_pgn_duplicates(db, collection)
+
+        assert blocked.value.code is DuplicateInputErrorCode.LEGALITY_DAMAGE
+        assert blocked.value.source_index == 1
+
+
+def test_illegal_legacy_stored_game_is_skipped_without_semantic_claim():
+    illegal = '[Result "*"]\n\n1. e4 e5 2. Bh6 *\n'
+    with AcsDatabase() as db:
+        imported = db.import_pgn_text(BASE, "stored.pgn")
+        game_id = imported.game_ids[0]
+        db.conn.execute(
+            "UPDATE games SET pgn_text=? WHERE id=?",
+            (illegal, game_id),
+        )
+
+        report = detect_pgn_duplicates(db, BASE)
+
+        assert report.has_exact_source
+        assert not report.has_semantic_duplicates
+        assert report.skipped_stored_game_ids == (game_id,)
+        assert report.has_incomplete_evidence
+
+
+def test_duplicate_input_error_enforces_bounded_immutable_evidence():
+    valid = DuplicateInputValidationError(
+        "blocked",
+        code=DuplicateInputErrorCode.STRUCTURAL_DAMAGE,
+        source_index=0,
+        evidence_codes=("orphan_annotation",),
+    )
+    assert valid.evidence_codes == ("orphan_annotation",)
+
+    invalid = (
+        {"source_index": True, "evidence_codes": ("x",)},
+        {"source_index": 0, "evidence_codes": ["x"]},
+        {"source_index": 0, "evidence_codes": ("x", "x")},
+        {"source_index": 0, "evidence_codes": tuple(str(i) for i in range(17))},
+    )
+    for values in invalid:
+        with pytest.raises((TypeError, ValueError)):
+            DuplicateInputValidationError(
+                "blocked",
+                code=DuplicateInputErrorCode.STRUCTURAL_DAMAGE,
+                **values,
+            )
