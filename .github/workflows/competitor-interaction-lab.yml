@@ -1,0 +1,68 @@
+name: Competitor Interaction Lab
+
+on:
+  push:
+    branches:
+      - research/competitor-interaction-lab-20260820
+    paths:
+      - '.github/workflows/competitor-interaction-lab.yml'
+      - 'tools/competitor_lab/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  web-robot:
+    name: Public web keyboard and semantics probe
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install Playwright
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p .competitor-lab-node
+          cd .competitor-lab-node
+          npm init -y
+          npm install playwright
+          npx playwright install --with-deps chromium
+          node -p "require('playwright/package.json').version" > ../playwright-version.txt
+      - name: Run web interaction probe
+        shell: bash
+        run: |
+          set -euxo pipefail
+          export NODE_PATH="$PWD/.competitor-lab-node/node_modules"
+          node tools/competitor_lab/web_interaction_probe.mjs
+      - name: Upload web evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: competitor-web-evidence
+          path: |
+            competitor-results/web/**
+            playwright-version.txt
+          if-no-files-found: error
+          retention-days: 14
+
+  chessbase-reader-windows:
+    name: ChessBase Reader 2017 install/UIA/keyboard probe
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run legal free Reader probe
+        shell: powershell
+        run: ./tools/competitor_lab/windows_reader_probe.ps1
+      - name: Upload Windows evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: chessbase-reader-windows-evidence
+          path: competitor-results/windows/**
+          if-no-files-found: error
+          retention-days: 14
