@@ -81,6 +81,7 @@ jobs:
           python .\WordDeck\tools\validate_oxford5000_integration_transition.py --self-test
           python .\WordDeck\tools\validate_oxford5000_transition_evidence.py --self-test
           python .\WordDeck\tools\prepare_oxford5000_bulk_integration.py --self-test
+          python .\WordDeck\tools\orchestrate_oxford5000_bulk_run.py --self-test
           python .\WordDeck\tools\validate_oxford5000_additions_qa.py --self-test
           python .\WordDeck\tools\validate_oxford5000_additions_qa.py
           python .\WordDeck\tools\validate_oxford5000_second_pass_slice.py --self-test

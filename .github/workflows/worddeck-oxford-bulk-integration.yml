@@ -6,9 +6,12 @@ on:
       - worddeck-bootstrap
     paths:
       - 'WordDeck/tools/prepare_oxford5000_bulk_integration.py'
+      - 'WordDeck/tools/orchestrate_oxford5000_bulk_run.py'
       - 'WordDeck/tools/validate_oxford5000_automation_handoff.py'
       - 'WordDeck/tools/validate_oxford5000_handoff_provenance.py'
       - 'WordDeck/tools/validate_oxford5000_runtime_ledger.py'
+      - 'WordDeck/tools/validate_oxford5000_integration_transition.py'
+      - 'WordDeck/tools/validate_oxford5000_transition_evidence.py'
       - '.github/workflows/worddeck-oxford-bulk-integration.yml'
   workflow_dispatch:
 
@@ -23,5 +26,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Validate resumable Oxford 5000 bulk integration transaction
-        run: python .\WordDeck\tools\prepare_oxford5000_bulk_integration.py --self-test
+      - name: Validate resumable Oxford 5000 bulk transaction and orchestration
+        run: |
+          python .\WordDeck\tools\prepare_oxford5000_bulk_integration.py --self-test
+          python .\WordDeck\tools\orchestrate_oxford5000_bulk_run.py --self-test
