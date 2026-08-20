@@ -1,24 +1,24 @@
 # Accessible Chess — Work Master Current
 
-Updated: `2026-08-20T11:02:12Z`
+Updated: `2026-08-20T11:44:35Z`
 
 ## Recovery pointer
 
 - `CURRENT_BRANCH`: `completion/full-product-critical-path-20260819`
 - `START_SHA`: `588058634b378793b3c9aa0dca113af6b8a2dc8f`
-- `CURRENT_REMOTE_SHA`: `2fea86a65874c033fbe357f9e17d6a0026798785`
-- `LAST_SAFE_SHA`: `2fea86a65874c033fbe357f9e17d6a0026798785`
+- `CURRENT_REMOTE_SHA`: `6751827396283674a933a0b5c0c6142f6817a636`
+- `LAST_SAFE_SHA`: `6751827396283674a933a0b5c0c6142f6817a636`
 - `INTEGRATION_SHA`: `e8cd992d306975955784118364ce950963133d7e`
 - `QA_SHA`: `07971835cb8fc294996165e577913ed350ae9f0e`
 - `RESEARCH_SHA`: `0213f54f3f36fb30379f95c9979aea3a1cc41481`
-- `COMPLETION_SHA`: `2fea86a65874c033fbe357f9e17d6a0026798785`
+- `COMPLETION_SHA`: `6751827396283674a933a0b5c0c6142f6817a636`
 - `COMPETITOR_EVIDENCE_BRANCH`: `research/competitor-interaction-lab-20260820`
 - `COMPETITOR_EVIDENCE_SHA`: `0213f54f3f36fb30379f95c9979aea3a1cc41481`
-- `CURRENT_STAGE1_STATE`: `BLOCKED — Issues #14 and #22 open; classification does not authorize a product-source change`
-- `CURRENT_OWNER`: `WORK_MASTER — completion/shared-core/spec/test hardening only; Windows QA remains QA-owned`
-- `CURRENT_PRIORITY`: `Highest-risk shared-core completion while Stage 1 remains ownership-gated`
-- `CURRENT_SUBSYSTEM`: ACSDB v3 migration, rollback and recovery boundary
-- `STATUS`: `WIP_SAFE`
+- `CURRENT_STAGE1_STATE`: `PRODUCT CHECKPOINT READY — central rank/file actions plus Stockfish analysis/play are implemented; exact Windows/NVDA acceptance remains open`
+- `CURRENT_OWNER`: `WORK_MASTER — completion product/core/contracts; Windows QA and human NVDA evidence remain QA-owned`
+- `CURRENT_PRIORITY`: `Return exact Stage 1 product SHA to QA, then continue highest-risk data-forward work while the human gate is pending`
+- `CURRENT_SUBSYSTEM`: `Stage 1 Stockfish play checkpoint complete; ACSDB v3 migration/recovery next`
+- `STATUS`: `WIP_SAFE — PRODUCT TESTS PASS; WINDOWS/NVDA PENDING`
 - `NVDA_VERIFIED`: `NO`
 
 All four branch heads were verified live with `git ls-remote` on 2026-08-20. GitHub technical truth wins over stale handoffs.
@@ -45,15 +45,17 @@ All four branch heads were verified live with `git ls-remote` on 2026-08-20. Git
 
 ## Last safe product result
 
-Commit `2fea86a65874c033fbe357f9e17d6a0026798785` completed the bounded classic ChessBase evidence stack without making unsupported chess claims:
+Commit `6751827396283674a933a0b5c0c6142f6817a636` activates the Stage 1 game-against-Stockfish path on the production composition boundary:
 
-- exact CBG payload/source offsets and SHA-256 are revalidated;
-- one-byte, two-byte and variation-control frames retain their raw evidence;
-- counter wrap, balanced nesting, final termination and resource limits fail closed;
-- no piece, square, SAN, FEN, legality or GameTree meaning is inferred;
-- `decoder_available=false` and `safe_to_import=false` remain mandatory.
+- analysis and play share the one runtime-owned Stockfish provider and cannot create competing product processes;
+- side, levels 1–10, all locked time presets and bounded custom time are exposed in a separate accessible setup dialog;
+- typed and 64-square-board moves use the one canonical board/history, with automatic legal engine replies;
+- stop, retry, two-ply takeback, draw offer/decline and confirmed resignation use the canonical engine-session/lifecycle contracts;
+- timed takeback restores exact historical clocks; engine failure preserves the committed human move and pauses safely;
+- both clocks, side, strength, turn and concise lifecycle state are projected without a second live region or raw exception/path leakage;
+- packaged Stockfish resolution remains `engines/stockfish/stockfish.exe`, matching the exact QA workflow contract at `07971835...`.
 
-`STAGE1_RELEASE_IMPACT=NONE`; `DATA_MIGRATION_IMPACT=NONE`.
+`STAGE1_RELEASE_IMPACT=PRODUCT`; `WINDOWS_TEST_PASS=UNPROVEN`; `NVDA_VERIFIED=NO`.
 
 ## Tests and CI
 
@@ -77,16 +79,17 @@ Commit `2fea86a65874c033fbe357f9e17d6a0026798785` completed the bounded classic 
 - Local GameTree-editing verification after `5609dcc`: broad unittest `844/844` passed; focused editing/navigation/GameTree/legality/identity/architecture `64 tests`, `85 subtests` passed. Full pytest is `929 passed`, `1526 subtests`, with exactly the two unchanged Stage1 PRODUCT failures. Promote/reorder/delete are copy-on-write and stale-revision protected; every source cursor receives a deterministic valid remap or explicit deletion; comments/NAG/results/warnings/recovery survive and edited clean games retain round-trip record identity.
 - Local generated GameTree-corpus verification after `2af1311`: broad unittest `849/849` passed; generated corpus `5 tests`, `156 subtests` passed. Full pytest is `934 passed`, `1682 subtests`, with exactly the two unchanged Stage1 PRODUCT failures. Sixty-four generated nested/sibling trees retain record identity and stable addresses; generated and chained edits have total composable cursor maps; repeated malformed delimiters remain blockers; forced small token/node/depth envelopes raise exact domain codes.
 - Local CBG token-framing verification at `2fea86a`: focused CBG/capability/architecture `22/22` passed; broad unittest `859/859` passed with one existing skip; full pytest is `944 passed`, `1959 subtests`, with exactly the same two unchanged Stage1 PRODUCT failures; compileall and `git diff --check` passed.
+- Commit `60ff50d6053c48d8e3308447324cb266b2561ff4` resolves both Stage 1 rank/file PRODUCT failures by registering all 16 actions centrally and generating Help from their live bindings.
+- Exact Stage 1 engine-play tree at `6751827396283674a933a0b5c0c6142f6817a636`: broad unittest `877/877` passed; full pytest `965 passed` plus `1959 subtests`; JavaScript parse, compileall and `git diff --check` passed. The remote tree SHA `38e70a7166adfd32ae1a48159cfe576875864a6b` exactly matches the tested local tree. No commit-associated GitHub workflow/status check was emitted for this push.
 - Competitor lab run `32342624286`: five jobs completed successfully and published compact evidence to `0213f54...`.
 
 ## Known failures and blockers
 
-1. `test_rank_and_file_navigation_are_exposed_as_remappable_actions`: PRODUCT — static fallback JSON advertises 16 rank/file actions that the central runtime Action Registry cannot resolve.
-2. `test_help_is_generated_from_live_rank_and_file_bindings`: PRODUCT — Help omits the live rank/file bindings.
-3. Strict Windows run `32220453450`: BLOCKED / NO PRODUCT ATTRIBUTION YET at native Ctrl+A/Ctrl+C; QA owns the focused evidence pass.
-4. Canonical ChessBase CBG move/variation/annotation decoding remains `UNSUPPORTED`; real licensed fixture corpus is absent; CBV/CBF/2CBH/CBONE content remains `UNSUPPORTED`.
-5. Full licensed ChessBase/Fritz interactive/NVDA execution remains unavailable. Robot evidence must not be labelled `NVDA_VERIFIED`.
-6. PGN/GameTree is complete within its documented bounded in-memory contract.
+1. Strict Windows run `32220453450`: BLOCKED / NO PRODUCT ATTRIBUTION YET at native Ctrl+A/Ctrl+C; QA owns the focused evidence pass on a candidate built from the exact new product SHA.
+2. Human Windows/NVDA acceptance in Issue #22 is still required; local/Linux tests and UIA robot evidence must not be labelled `NVDA_VERIFIED`.
+3. Canonical ChessBase CBG move/variation/annotation decoding remains `UNSUPPORTED`; real licensed fixture corpus is absent; CBV/CBF/2CBH/CBONE content remains `UNSUPPORTED`.
+4. Full licensed ChessBase/Fritz interactive/NVDA execution remains unavailable. Robot evidence must not be labelled `NVDA_VERIFIED`.
+5. PGN/GameTree is complete within its documented bounded in-memory contract.
    Collections larger than the explicit envelope still require a future
    streaming import service, but the current API neither accepts them partially
    nor claims an unbounded mode.
@@ -102,11 +105,11 @@ Commit `2fea86a65874c033fbe357f9e17d6a0026798785` completed the bounded classic 
 
 ## Next exact action
 
-Port ACSDB v3 from `integration/data-forward-acsdb-v3` as a bounded migration,
-not a wholesale merge. Preserve every current v2 exact-type, legality,
-provenance, literal-search and transaction invariant; add deterministic catalog
-identities, backup-before-migration, rollback/recovery evidence and failure
-atomicity before enabling v3 import/search surfaces. Do not change the Stage 1
-product or QA line. If Issue #14 transfers a PRODUCT fix, stop shared-core work
-and make the minimum central rank/file Action Registry plus live-Help repair
-before returning the exact SHA to QA.
+Return product SHA `6751827396283674a933a0b5c0c6142f6817a636` to the QA-owned
+Windows candidate line without changing its workflows. While the exact
+Windows/NVDA gate is pending, port ACSDB v3 from
+`integration/data-forward-acsdb-v3` as a bounded migration, not a wholesale
+merge. Preserve every current v2 exact-type, legality, provenance,
+literal-search and transaction invariant; add deterministic catalog identities,
+backup-before-migration, rollback/recovery evidence and failure atomicity before
+enabling v3 import/search surfaces.
