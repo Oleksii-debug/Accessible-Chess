@@ -1,0 +1,58 @@
+name: WordDeck audio run discovery
+
+on:
+  push:
+    branches: [worddeck-bootstrap]
+    paths:
+      - .github/workflows/worddeck-audio-discovery.yml
+
+permissions:
+  actions: read
+  statuses: write
+  contents: read
+
+jobs:
+  discover:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TARGET_SHA: db950141433b1265165575a2db6471cae8855daa
+    steps:
+      - uses: actions/checkout@v4
+      - name: Find exact full-audio run
+        id: find
+        shell: bash
+        run: |
+          set -euo pipefail
+          row="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow worddeck-audio.yml --branch worddeck-bootstrap --limit 30 --json databaseId,headSha,status,conclusion,createdAt,displayTitle | jq -c --arg sha "$TARGET_SHA" '[.[] | select(.headSha==$sha)] | sort_by(.createdAt) | reverse | .[0] // empty')"
+          test -n "$row"
+          echo "$row"
+          echo "run_id=$(jq -r .databaseId <<<"$row")" >> "$GITHUB_OUTPUT"
+          echo "status=$(jq -r .status <<<"$row")" >> "$GITHUB_OUTPUT"
+          echo "conclusion=$(jq -r '.conclusion // ""' <<<"$row")" >> "$GITHUB_OUTPUT"
+      - name: Publish discovery status
+        if: always()
+        uses: actions/github-script@v7
+        env:
+          RUN_ID: ${{ steps.find.outputs.run_id }}
+          RUN_STATUS: ${{ steps.find.outputs.status }}
+          RUN_CONCLUSION: ${{ steps.find.outputs.conclusion }}
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            const id = process.env.RUN_ID || 'none';
+            const status = process.env.RUN_STATUS || 'not-found';
+            const conclusion = process.env.RUN_CONCLUSION || '';
+            let state = 'error';
+            if (status === 'completed') state = conclusion === 'success' ? 'success' : 'failure';
+            else if (status !== 'not-found') state = 'pending';
+            const target = id === 'none'
+              ? `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions`
+              : `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${id}`;
+            await github.rest.repos.createCommitStatus({
+              owner: context.repo.owner, repo: context.repo.repo, sha: context.sha,
+              state,
+              context: 'WordDeck audio discovery',
+              description: `audio run ${id}: ${status}${conclusion ? '/' + conclusion : ''}`.slice(0, 140),
+              target_url: target
+            });
