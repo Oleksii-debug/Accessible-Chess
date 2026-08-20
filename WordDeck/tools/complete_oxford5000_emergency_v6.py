@@ -24,6 +24,7 @@ EN_TERM_RE = re.compile(r"\{\{(?:t\+?|t-check|tt\+?|переклад)\|en\|([^|}
 EN_LINK_RE = re.compile(r"(?:англ\.|English)\s*:?\s*\[\[([^]|#]+)", re.I)
 DEF_LINE_RE = re.compile(r"^#(?![:*])\s*(.+)$", re.M)
 FEMALE_SOURCE_RE = re.compile(r"\b(?:woman|women|female|girl|wife|mother|sister|daughter|actress|waitress|businesswoman|policewoman)\b", re.I)
+STRESS_MARKS = {"\u0301", "\u0341"}
 SESSION = requests.Session()
 SESSION.headers.update({"User-Agent": "WordDeck-V6/1.0 lexical QA; https://github.com/Oleksii-debug/Accessible-Chess"})
 
@@ -34,8 +35,9 @@ _definition_cache: dict[str, str] = {}
 
 
 def strip_stress(text: str) -> str:
+    # Remove only stress/accent marks. Do NOT drop breve/diaeresis: they distinguish Ukrainian й/ї.
     decomposed = unicodedata.normalize("NFD", text or "")
-    stripped = "".join(ch for ch in decomposed if unicodedata.category(ch) != "Mn")
+    stripped = "".join(ch for ch in decomposed if ch not in STRESS_MARKS)
     return unicodedata.normalize("NFC", stripped)
 
 
@@ -245,6 +247,7 @@ def self_test() -> None:
         canonical, note = morphology.canonicalize(accented, pos)
         assert len(analysis_tokens(canonical)) == 1
         assert "multiword" not in note.casefold(), (accented, note)
+    assert strip_stress("й ї літерату́рний") == "й ї літературний"
     ok, why = morphology.validate("чарівна", "adjective")
     assert not ok, why
     row = {"source": "literary", "part_of_speech": "adjective"}
