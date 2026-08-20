@@ -1,4 +1,5 @@
 name: WordDeck user-approved 1156 V1 completion
+# Triggered after the complete transport payload and integration runner are present on worddeck-bootstrap.
 
 on:
   push:
