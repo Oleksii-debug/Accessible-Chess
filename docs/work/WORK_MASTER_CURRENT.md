@@ -1,23 +1,23 @@
 # Accessible Chess — Work Master Current
 
-Updated: `2026-08-20T09:42:27Z`
+Updated: `2026-08-20T09:52:00Z`
 
 ## Recovery pointer
 
 - `CURRENT_BRANCH`: `completion/full-product-critical-path-20260819`
 - `START_SHA`: `588058634b378793b3c9aa0dca113af6b8a2dc8f`
-- `CURRENT_REMOTE_SHA`: `b6954443c1a202b39459b2b438fda37615ce22a1`
-- `LAST_SAFE_SHA`: `b6954443c1a202b39459b2b438fda37615ce22a1`
+- `CURRENT_REMOTE_SHA`: `77a6640dcc177c0c21a3c6b64ff1324ad0ff0ca5`
+- `LAST_SAFE_SHA`: `77a6640dcc177c0c21a3c6b64ff1324ad0ff0ca5`
 - `INTEGRATION_SHA`: `e8cd992d306975955784118364ce950963133d7e`
 - `QA_SHA`: `07971835cb8fc294996165e577913ed350ae9f0e`
 - `RESEARCH_SHA`: `0213f54f3f36fb30379f95c9979aea3a1cc41481`
-- `COMPLETION_SHA`: `b6954443c1a202b39459b2b438fda37615ce22a1`
+- `COMPLETION_SHA`: `77a6640dcc177c0c21a3c6b64ff1324ad0ff0ca5`
 - `COMPETITOR_EVIDENCE_BRANCH`: `research/competitor-interaction-lab-20260820`
 - `COMPETITOR_EVIDENCE_SHA`: `0213f54f3f36fb30379f95c9979aea3a1cc41481`
 - `CURRENT_STAGE1_STATE`: `BLOCKED — Issues #14 and #22 open; classification does not authorize a product-source change`
 - `CURRENT_OWNER`: `WORK_MASTER — completion/shared-core/spec/test hardening only; Windows QA remains QA-owned`
 - `CURRENT_PRIORITY`: `Isolated shared-core PGN/GameTree corruption and recovery hardening`
-- `CURRENT_SUBSYSTEM`: bounded PGN parser, serializer, file I/O and provenance hashing
+- `CURRENT_SUBSYSTEM`: non-destructive GameTree legality and immutable position links
 - `STATUS`: `WIP_SAFE`
 - `NVDA_VERIFIED`: `NO`
 
@@ -71,6 +71,7 @@ Commit `11b92a1e827bf66f8075ac7f3571ae20b908c1af` added integrity-verified bound
 - Local canonical-token verification after `7406890`: broad unittest `803/803` passed; focused GameTree/PGN/concurrency/identity/ACSDB `76 tests`, `117 subtests` passed. Only `n.`/`n...` move numbers and canonical `$0`..`$255` numeric NAGs remain clean; invalid forms preserve their exact token in structured blocking recovery evidence.
 - Local tag-pair verification after `0602189`: broad unittest `806/806` passed; focused GameTree/PGN/concurrency/identity/ACSDB `79 tests`, `120 subtests` passed. Only supported quote/backslash escapes are clean; unsupported escapes and malformed tag-looking lines remain structured blockers attached to one damaged game while clean siblings stay independent.
 - Local PGN resource-envelope verification after `b695444`: broad unittest `812/812` passed; focused GameTree/PGN/concurrency/identity/ACSDB/import/duplicate/architecture `108 tests`, `162 subtests` passed. Full pytest is `892 passed`, `1489 subtests`, with exactly the two unchanged Stage1 PRODUCT failures. Oversized source/output tests prove stable codes and no destination directory, lock, temp file or partial database write; a 200-game normal fixture round-trips.
+- Local legality-linker verification after `77a6640`: broad unittest `820/820` passed; focused legality/GameTree/chesscore/Stage1-core/architecture `74 tests`, `88 subtests` passed. Standard and SetUp/FEN starts, correct pre-parent RAV positions, illegal-mainline isolation, coordinate/noncanonical SAN, move-number warnings, castling, en passant, promotion, check/checkmate, forced results, recovery separation, cycle/reuse and node bounds are proven without mutating GameTree.
 - Competitor lab run `32342624286`: five jobs completed successfully and published compact evidence to `0213f54...`.
 
 ## Known failures and blockers
@@ -80,7 +81,7 @@ Commit `11b92a1e827bf66f8075ac7f3571ae20b908c1af` added integrity-verified bound
 3. Strict Windows run `32220453450`: BLOCKED / NO PRODUCT ATTRIBUTION YET at native Ctrl+A/Ctrl+C; QA owns the focused evidence pass.
 4. Canonical ChessBase CBG move/variation/annotation decoding remains `UNSUPPORTED`; real licensed fixture corpus is absent; CBV/CBF/2CBH/CBONE content remains `UNSUPPORTED`.
 5. Full licensed ChessBase/Fritz interactive/NVDA execution remains unavailable. Robot evidence must not be labelled `NVDA_VERIFIED`.
-6. GameTree is still structural only: SAN has not yet been linked move-by-move to immutable chesscore positions across mainlines, nested RAVs and optional SetUp/FEN starts. Legality diagnostics must preserve the original tree and stay distinct from parser recovery evidence.
+6. Legality projection is not yet enforced by PGN importer inspection or ACSDB persistence: a structurally clean but illegal game can still be labelled FULL and stored. Integration must preserve per-game read-only diagnostics, reject illegal/unverified writes atomically, and retain warning-only noncanonical evidence.
 
 ## Current ownership and invariants
 
@@ -93,4 +94,4 @@ Commit `11b92a1e827bf66f8075ac7f3571ae20b908c1af` added integrity-verified bound
 
 ## Next exact action
 
-Commit and checkpoint the PGN resource envelope, then build the presentation-neutral legality linker. Resolve SAN from standard or SetUp/FEN starts, validate every mainline and nested RAV against the correct immutable parent position, preserve the original tree, emit stable path-qualified diagnostics, and prove castling/promotion/en-passant/check/result boundaries plus invalid-FEN isolation. Do not change the Stage 1 product or QA line. If Issue #14 transfers a PRODUCT fix, stop shared-core work and make the minimum central rank/file Action Registry plus live-Help repair before returning the exact SHA to QA.
+Commit and checkpoint the legality linker, then integrate it into read-only PGN inspection and ACSDB import. Per game, classify illegal/unverified/invalid-start evidence as DAMAGED, noncanonical SAN/move-number evidence as WARNING, clean games as FULL, and structural recovery independently; block/roll back any damaged persistence while recording the failed attempt. Do not change the Stage 1 product or QA line. If Issue #14 transfers a PRODUCT fix, stop shared-core work and make the minimum central rank/file Action Registry plus live-Help repair before returning the exact SHA to QA.

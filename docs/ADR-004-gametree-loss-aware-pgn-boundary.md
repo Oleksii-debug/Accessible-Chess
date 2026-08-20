@@ -98,6 +98,19 @@ PGN must never be silently reinterpreted as clean data.
     Stable failures distinguish input characters, lines, tokens, games, tags,
     fields, tree depth/nodes, output characters, source bytes and output bytes.
     ACSDB and duplicate provenance hashing now encode UTF-8 incrementally.
+19. Chess legality is a separate non-destructive projection in
+    `acs.gametree_legality`. It starts from the standard position or an exact
+    `SetUp "1"` plus structurally and semantically valid `FEN`; inconsistent
+    setup tags fail closed. Each move is resolved against an immutable parent
+    position, and every RAV starts from the position before its owning move.
+    Immutable links expose stable structural paths, source/canonical SAN, UCI,
+    before/after FEN and `legal`, `legal_noncanonical`, `illegal` or
+    `unverified` status. Path-qualified diagnostics distinguish illegal SAN,
+    noncanonical spelling/check suffix, move-number mismatch, unavailable
+    ancestry and forced checkmate/stalemate result mismatch. Castling,
+    promotion, en passant and check/checkmate use the same chesscore rules.
+    Parser recovery codes remain a distinct report field and the source
+    GameTree is never mutated.
 
 ## Compatibility
 
@@ -138,6 +151,12 @@ envelope. Larger collections must use a future streaming importer; they are
 never partially parsed or partially written by the current API. Oversized
 source rejection leaves the source untouched, and oversized export rejection
 creates no destination directory, save lock, or temporary file.
+
+Legality linking can inspect a recovered tree without erasing recovery
+evidence. An illegal mainline move makes later mainline positions unverified,
+but a sibling RAV attached to that move remains independently verifiable from
+the known pre-move position. A legal but noncanonical spelling can advance the
+position while remaining explicitly diagnosable; no source SAN is rewritten.
 
 ## Release boundary
 
