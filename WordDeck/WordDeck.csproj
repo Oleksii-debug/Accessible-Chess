@@ -47,8 +47,6 @@
     <EmbeddedResource Include="QA\oxford5000_source_after_mutual_verified_c1_0001_0028.tsv" />
     <EmbeddedResource Include="QA\oxford5000_source_after_mutual_verified_b2c1_0001_0029.tsv" />
     <EmbeddedResource Include="QA\oxford5000_source_after_offspring_verified_c1_0001_0029.tsv" />
-
-    <EmbeddedResource Include="QA\oxford5000_source_after_manual_v5_round01_manual-emergency-work-20260820-second-pa_cp0001_rows_0083.tsv" />
   </ItemGroup>
 
   <ItemGroup>
