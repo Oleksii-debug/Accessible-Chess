@@ -1,59 +1,22 @@
-name: WordDeck emergency Oxford 5000 V8b full completion
+name: WordDeck emergency Oxford 5000 V8b superseded
 
 on:
   push:
     branches: [worddeck-bootstrap]
     paths:
-      - WordDeck/QA/oxford5000_manual_emergency_v8_definition_recovery.tsv
-      - WordDeck/tools/run_oxford5000_v8b_completion.py
       - .github/workflows/worddeck-emergency-v8b.yml
   workflow_dispatch:
 
 concurrency:
   group: worddeck-emergency-v8b-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 permissions:
-  contents: write
-  actions: write
-  statuses: write
+  contents: read
 
 jobs:
-  finish-all-words-and-audio:
+  superseded:
     runs-on: ubuntu-latest
-    timeout-minutes: 360
-    env:
-      GH_TOKEN: ${{ github.token }}
     steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - name: Install lexical translation dependencies
-        shell: bash
-        run: |
-          set -euo pipefail
-          python -m pip install --upgrade pip
-          python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
-          python -m pip install 'transformers<5' sentencepiece sacremoses 'sentence-transformers<4' pymorphy3 pymorphy3-dicts-uk
-      - name: Complete exact 1134-word tail, second semantic QA, checkpoints and full British AudioPack
-        shell: bash
-        run: |
-          set -euo pipefail
-          python WordDeck/tools/run_oxford5000_v8b_completion.py
-      - name: Publish final V8b status
-        if: always()
-        uses: actions/github-script@v7
-        with:
-          github-token: ${{ github.token }}
-          script: |
-            const complete = process.env.FINAL_RUNTIME === '2138' && process.env.FINAL_REMAINING === '0' && process.env.AUDIO_COMPLETE === 'true';
-            const sha = process.env.FINAL_SHA || context.sha;
-            await github.rest.repos.createCommitStatus({owner: context.repo.owner,repo: context.repo.repo,sha,state: complete?'success':'failure',context:'WordDeck emergency V8b full completion',description:complete?'Oxford5000 2138/2138 + British audio 2138/2138 complete.':'V8b did not reach full lexical+audio completion.',target_url:`${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`});
-      - name: Upload V8b evidence
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: WordDeck-oxford5000-emergency-v8b-evidence
-          path: artifacts/emergency-v8/**
-          if-no-files-found: warn
-          retention-days: 90
+      - name: Hand off to direct Work lexical review
+        run: echo 'V8b machine-only bulk acceptance is superseded by direct full-tail Work lexical review; no lexical mutation from this run.'
