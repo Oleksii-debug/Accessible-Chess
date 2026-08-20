@@ -20,10 +20,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 1
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+
+      - name: Install Product gate test dependency
+        run: python -m pip install -q pytest
 
       - name: Publish exact Integration Core start evidence
         uses: actions/github-script@v7
@@ -72,8 +75,36 @@ jobs:
             git ls-files --error-unmatch "$path" >/dev/null
           done
 
+      - name: Verify exact candidate diff whitespace
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${GITHUB_EVENT_NAME}" = "push" ]; then
+            before='${{ github.event.before }}'
+            test -n "$before"
+            git diff --check "$before" "${GITHUB_SHA}"
+          else
+            git diff --check HEAD^ "${GITHUB_SHA}"
+          fi
+
       - name: Compile exact tracked tree
         run: python -m compileall -q acs tests run_accessible_chess.py
+
+      - name: Parse inline JavaScript
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          import re
+
+          html = Path('web/index.html').read_text(encoding='utf-8')
+          scripts = re.findall(r'<script(?:\s[^>]*)?>(.*?)</script>', html, flags=re.IGNORECASE | re.DOTALL)
+          if not scripts:
+              raise SystemExit('No inline JavaScript found')
+          Path('/tmp/accessible-chess-inline.js').write_text('\n;\n'.join(scripts), encoding='utf-8')
+          PY
+          node --check /tmp/accessible-chess-inline.js
 
       - name: Architecture boundary gate
         run: python -m unittest -v tests.test_architecture
@@ -93,6 +124,19 @@ jobs:
       - name: Production Stockfish runtime and semantic analysis integration gate
         run: python -m unittest -v tests.test_stockfish_runtime tests.test_ui_analysis_webapp tests.test_analysis_webview_bridge tests.test_release_stockfish_composition
 
+      - name: Integrated Stage1 Stockfish play and professional analysis gate
+        run: >-
+          python -m unittest -v
+          tests.test_board_rank_file_remapping_ui
+          tests.test_stage1_engine_play_ui
+          tests.test_engine_play_service_concurrency
+          tests.test_engine_game_timeout_ownership
+          tests.test_ui_analysis_adapter
+          tests.test_ui_analysis_webapp
+          tests.test_analysis_webview_bridge
+          tests.test_ui_native_menu_recovery
+          tests.test_release_stockfish_composition
+
       - name: Board, move-entry, editor and history gates
         run: python -m unittest -v tests.test_board_service tests.test_move_entry tests.test_position_editor tests.test_ui_review_adapter tests.test_history_review_ui
 
@@ -110,6 +154,12 @@ jobs:
 
       - name: Complete Stage 1 release user-flow gate
         run: python -m unittest -v tests.test_stage1_complete_user_flow
+
+      - name: Full repository unittest discovery
+        run: python -m unittest discover -s tests -v
+
+      - name: Full repository pytest without weakening
+        run: python -m pytest -q
 
       - name: Exact tracked release diagnostic
         run: python run_accessible_chess.py --diagnostic
