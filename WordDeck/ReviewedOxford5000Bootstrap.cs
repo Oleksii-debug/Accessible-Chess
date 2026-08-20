@@ -12,7 +12,7 @@ internal static class ReviewedOxford5000Bootstrap
     private const int StandardSliceRows = 29;
     private const int HistoricalDeploymentMajorOrder = 2004;
     private const int VerifiedPostMutualRows = 28;
-    public const int ExpectedCanonicalRows = 1102;
+    public const int ExpectedCanonicalRows = 982;
 
     private static readonly Dictionary<string, string> PosAbbreviations = new(StringComparer.Ordinal)
     {
@@ -108,8 +108,6 @@ internal static class ReviewedOxford5000Bootstrap
         // The post-deployment slice is intentionally later than the historical deployment boundary.
         // Stable lexical IDs and the explicit historical boundary below are the durable regression contract.
         AppendVerifiedSlice(result, "oxford5000_source_after_deployment_c1_0001_0029.tsv", StandardSliceRows, 9999);
-
-        AppendVerifiedSlice(result, "oxford5000_source_after_manual_manual-emergency-work-20260820-second-pa_cp0001_rows_0120.tsv", 120, 10000);
 
         result = result.OrderBy(row => row.MajorOrder).ThenBy(row => row.MinorOrder).ToList();
         if (result.Count != ExpectedCanonicalRows)
