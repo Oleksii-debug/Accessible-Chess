@@ -7,6 +7,7 @@ on:
     paths:
       - 'WordDeck/tools/complete_oxford5000_emergency_v4.py'
       - 'WordDeck/tools/run_oxford5000_v4_completion.py'
+      - 'WordDeck/QA/oxford5000_source_after_manual_manual-emergency-work-20260820-second-pa_cp0001_rows_0120.tsv'
       - '.github/workflows/worddeck-emergency-completion-v4.yml'
   workflow_dispatch:
 
