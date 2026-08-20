@@ -1,0 +1,1 @@
+V6 corrective rollback target: remove auditor-rejected V5 +83 lexical slice and restore exact 982 activated / 1,156 unaccounted before any V6 review. This marker is evidence only and does not activate lexical rows.
