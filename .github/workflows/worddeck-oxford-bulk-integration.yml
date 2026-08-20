@@ -28,5 +28,7 @@ jobs:
 
       - name: Validate resumable Oxford 5000 bulk transaction and orchestration
         run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
           python .\WordDeck\tools\prepare_oxford5000_bulk_integration.py --self-test
           python .\WordDeck\tools\orchestrate_oxford5000_bulk_run.py --self-test
