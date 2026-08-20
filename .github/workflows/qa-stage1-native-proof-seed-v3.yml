@@ -1,0 +1,152 @@
+name: QA Stage1 Native Proof Seed V3
+
+on:
+  push:
+    branches:
+      - qa/windows-current-integration-candidate-20260815
+    paths:
+      - '.github/workflows/qa-stage1-native-proof-seed-v3.yml'
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: write
+
+concurrency:
+  group: stage1-strict-release-dispatch
+  cancel-in-progress: false
+
+env:
+  TARGET_PRODUCT_SHA: 656e8ec311e364e6e54a30504fd30a4aaff586f9
+
+jobs:
+  patch-and-dispatch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: qa/windows-current-integration-candidate-20260815
+          fetch-depth: 0
+
+      - name: Patch QA helper to decisive native keyboard proof
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('tools/qa/stage1_packaged_e2e_crossprocess.ps1')
+          text = p.read_text(encoding='utf-8')
+          if 'CLIPBOARD DECISIVE NATIVE KEY/SELECTION/COPY PASS' in text:
+              print('V3 helper already present')
+              raise SystemExit(0)
+          start_marker = "  Set-Clipboard -Value '__sentinel__'"
+          end_marker = "  $vp.SetValue('e5')"
+          if text.count(start_marker) != 1 or text.count(end_marker) != 1:
+              raise SystemExit(f'anchors not unique: start={text.count(start_marker)} end={text.count(end_marker)}')
+          start = text.index(start_marker)
+          end = text.index(end_marker, start)
+          replacement = r'''  Set-Clipboard -Value '__sentinel__'
+          $null=$ws.AppActivate($AppPid)
+          $move.SetFocus()
+          AssertFocusedRuntimeEventually $moveRid 'Native keyboard focus convergence'
+          $focused=[System.Windows.Automation.AutomationElement]::FocusedElement
+          if((RuntimeId $focused) -ne $moveRid){throw "Native keyboard focus mismatch: $(FocusDescription $focused)"}
+          $vp=ValuePattern $move 'Move before native keyboard proof'
+          if([string]$vp.Current.Value -ne 'e9'){throw "Native keyboard precondition ValuePattern mismatch: '$([string]$vp.Current.Value)'"}
+
+          if(-not ('AccessibleChessQaNativeKeysV3' -as [type])) {
+            Add-Type -TypeDefinition @"
+          using System;
+          using System.Runtime.InteropServices;
+          public static class AccessibleChessQaNativeKeysV3 {
+            [DllImport("user32.dll")]
+            private static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, UIntPtr dwExtraInfo);
+            private const uint KEYEVENTF_KEYUP = 0x0002;
+            public static void Key(byte vk) {
+              keybd_event(vk, 0, 0, UIntPtr.Zero);
+              keybd_event(vk, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
+            }
+            public static void Ctrl(byte vk) {
+              keybd_event(0x11, 0, 0, UIntPtr.Zero);
+              keybd_event(vk, 0, 0, UIntPtr.Zero);
+              keybd_event(vk, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
+              keybd_event(0x11, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
+            }
+          }
+          "@
+          }
+
+          [AccessibleChessQaNativeKeysV3]::Key([byte]0x08)
+          Start-Sleep -Milliseconds 250
+          AssertFocusedRuntimeEventually $moveRid 'Native Backspace focus convergence'
+          $afterBackspace=[string](ValuePattern $move 'Move after native Backspace').Current.Value
+          if($afterBackspace -ne 'e'){
+            throw "NATIVE_KEY_DELIVERY_INCONCLUSIVE: expected plain Backspace to change e9 -> e, got '$afterBackspace'"
+          }
+          Write-Output 'NATIVE KEY DELIVERY CONTROL PASS e9->e'
+
+          $vp=ValuePattern $move 'Move restore before Ctrl+A selection proof'
+          $vp.SetValue('e9')
+          if([string]$vp.Current.Value -ne 'e9'){throw 'Could not restore e9 before native Ctrl+A proof'}
+          $null=$ws.AppActivate($AppPid)
+          $move.SetFocus()
+          AssertFocusedRuntimeEventually $moveRid 'Native Ctrl+A focus convergence'
+          [AccessibleChessQaNativeKeysV3]::Ctrl([byte]0x41)
+          Start-Sleep -Milliseconds 150
+          [AccessibleChessQaNativeKeysV3]::Key([byte]0x08)
+          Start-Sleep -Milliseconds 250
+          AssertFocusedRuntimeEventually $moveRid 'Native Ctrl+A plus Backspace focus convergence'
+          $afterSelectDelete=[string](ValuePattern $move 'Move after native Ctrl+A plus Backspace').Current.Value
+          if($afterSelectDelete -ne ''){
+            throw "NATIVE_CTRL_A_SELECTION_DEFECT_AFTER_PROVEN_KEY_DELIVERY: expected selected e9 to delete to empty, got '$afterSelectDelete'"
+          }
+          Write-Output 'NATIVE CTRL+A SELECTION BEHAVIOR PASS e9->empty via Backspace'
+
+          $vp=ValuePattern $move 'Move restore before native copy proof'
+          $vp.SetValue('e9')
+          if([string]$vp.Current.Value -ne 'e9'){throw 'Could not restore e9 before native copy proof'}
+          Set-Clipboard -Value '__sentinel__'
+          $null=$ws.AppActivate($AppPid)
+          $move.SetFocus()
+          AssertFocusedRuntimeEventually $moveRid 'Native copy focus convergence'
+          [AccessibleChessQaNativeKeysV3]::Ctrl([byte]0x41)
+          Start-Sleep -Milliseconds 150
+          [AccessibleChessQaNativeKeysV3]::Ctrl([byte]0x43)
+          Start-Sleep -Milliseconds 400
+          AssertFocusedRuntimeEventually $moveRid 'Native copy post-chord focus convergence'
+          $clip=([string](Get-Clipboard -Raw)).Trim()
+          if($clip -ne 'e9'){
+            throw "NATIVE_CTRL_C_COPY_DEFECT_AFTER_PROVEN_SELECTION: clipboard='$clip' expected='e9'"
+          }
+          $summary.clipboard=$clip
+          Write-Output "NATIVE CTRL+A/CTRL+C BEHAVIOR PASS clipboard='$clip'"
+          Write-Output 'CLIPBOARD DECISIVE NATIVE KEY/SELECTION/COPY PASS'
+
+'''
+          p.write_text(text[:start] + replacement + text[end:], encoding='utf-8')
+          PY
+
+      - name: Commit QA helper only if needed
+        shell: bash
+        run: |
+          if git diff --quiet -- tools/qa/stage1_packaged_e2e_crossprocess.ps1; then
+            echo 'QA helper already patched.'
+          else
+            git config user.name 'Oleksii-debug'
+            git config user.email 'oleksiy.az.09@gmail.com'
+            git add -- tools/qa/stage1_packaged_e2e_crossprocess.ps1
+            git commit -m 'QA: prove native Ctrl+A/C behavior on exact 656e8ec'
+            git push origin HEAD:qa/windows-current-integration-candidate-20260815
+          fi
+
+      - name: Dispatch at most one strict run
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          active=$(gh run list --workflow windows-stage1-strict-release-crossprocess.yml --branch qa/windows-current-integration-candidate-20260815 --limit 20 --json databaseId,status --jq '[.[] | select(.status=="queued" or .status=="in_progress" or .status=="waiting" or .status=="pending" or .status=="requested")] | length')
+          if [ "$active" != "0" ]; then
+            echo "Strict workflow already active; WIP=1 preserved."
+            exit 0
+          fi
+          gh api --method POST "repos/${{ github.repository }}/actions/workflows/windows-stage1-strict-release-crossprocess.yml/dispatches" -f ref='qa/windows-current-integration-candidate-20260815'
+          echo 'Strict workflow dispatched.'
