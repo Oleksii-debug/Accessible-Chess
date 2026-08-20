@@ -1,0 +1,155 @@
+entry_id	source	part_of_speech	ukrainian	agreement_score
+ox5000-c0b4a3f25a5eb7edbd5f	boost	verb	Підсилення	0.000
+ox5000-c665d95862829f444fe3	broadly	adverb	Широко	0.182
+ox5000-9c94f94be7b1a888dd21	casual	adjective	випадковий	0.167
+ox5000-e9afbf1e9b9ba09c65ee	cheer	noun	веселий	0.000
+ox5000-042f56b4f8aa0bfb23f1	cheer	verb	веселий	0.000
+ox5000-5f21cc31a80fe8b694f6	chop	verb	bar	0.000
+ox5000-326407a82f0ca95e4a7e	considerably	adverb	Значно	0.118
+ox5000-29eb47fd6a314aa1730d	consistently	adverb	завжди	0.111
+ox5000-7218b3757288c078fffe	discourage	verb	Заборонити	0.154
+ox5000-5e7d80af5eef97168291	distant	adjective	віддалений	0.154
+ox5000-ef35efd68f20517aad21	fabulous	adjective	Дивовижно	0.133
+ox5000-4f6617b9287ff2da9ea7	firmly	adverb	твердо	0.182
+ox5000-9f9486a0d8382b5782ea	fortunate	adjective	щастило	0.143
+ox5000-8eb2e0b61582abcd29fd	framework	noun	оболонка	0.143
+ox5000-0910ae2efee31d9ab3a4	gig	noun	джойстик	0.182
+ox5000-8645840cb5bbd2168ad2	gorgeous	adjective	розкішна	0.143
+ox5000-f20da69ea37da6663eb9	greatly	adverb	дуже добре.	0.125
+ox5000-031f0c28f6bfce2b6e15	jail	verb	в'язниця	0.200
+ox5000-781a985da79bb4af5cdf	peer	noun	Вузол	0.000
+ox5000-da6c1e1198461773e1dc	plead	verb	support	0.167
+ox5000-a2a56181aff99fea04b0	plunge	verb	fall	0.200
+ox5000-56711d8b015a24df31cf	portray	verb	зображення	0.167
+ox5000-b149024523e283a89471	prestigious	adjective	Гідничний	0.125
+ox5000-0de61af433bd2562aabd	presume	verb	Припускати	0.154
+ox5000-9bfc0299d5cbf77457ab	profound	adjective	Глибокий	0.167
+ox5000-87f79a47a3d406def88a	prohibit	verb	Заборонити	0.182
+ox5000-f04358c550167dff6b4c	prospective	adjective	майбутня	0.190
+ox5000-e72aef296449310d3771	psychiatric	adjective	Психічний	0.118
+ox5000-3631f2773b187680d3a9	pulse	noun	імпульс	0.154
+ox5000-5e11e486d4f68608018c	punch	noun	удар	0.000
+ox5000-8f1c8ff0d448af6b1b00	punch	verb	удар	0.000
+ox5000-0fbbc2a505e3fca073f1	pursuit	noun	пошук	0.154
+ox5000-f8f10d86fe3b2b70cd7b	quest	noun	пошук	0.182
+ox5000-cfb300586a991fa0eabe	rally	noun	з' єднання	0.000
+ox5000-7da870e0b860693f3ac5	rally	verb	з' єднання	0.000
+ox5000-fe7ba1256d19f8c2e57f	rat	noun	rick	0.000
+ox5000-82db79a2e4cd3cde65f1	rear	adjective	зад	0.000
+ox5000-69b2f9590153df6988ce	rear	noun	зад	0.000
+ox5000-9297029e6028ab551ec4	reasonably	adverb	Доволі.	0.174
+ox5000-1278d12e916dee475af0	reassure	verb	Зав' язати	0.154
+ox5000-2f6ac118ca4cecab6315	rebel	noun	animation	0.000
+ox5000-378f3b22f72b712307df	reckon	verb	Підрахунки	0.125
+ox5000-948b85bbe7732bc16534	recount	verb	Резюме	0.143
+ox5000-57fa865cd40bc14f9f2e	refuge	noun	security	0.143
+ox5000-770cb1cb41ee7278607c	regime	noun	режим	0.200
+ox5000-30e4fdf929282bee2e41	reluctant	adjective	неохоче	0.200
+ox5000-72494ae94d9b371b61d7	render	verb	показати	0.000
+ox5000-c3bb081811e8ea86c41e	reproduce	verb	відтворення	0.125
+ox5000-e479fa4b3f34648974c8	resemble	verb	подібно	0.133
+ox5000-3e450a4dbd3782654ccb	reside	verb	перебування	0.200
+ox5000-20a1f65811686513d9f4	resign	verb	здача	0.167
+ox5000-0025be25ef16855099a4	respective	adjective	відповідно	0.190
+ox5000-9728d53a61a5aee10a0f	respectively	adverb	Відповідно	0.200
+ox5000-91db5baf228ad1faa80b	restrict	verb	обмеження	0.143
+ox5000-dfcb6fb371da1f235512	restriction	noun	обмеження	0.118
+ox5000-a3bdd3de0b78cccadf30	revenue	noun	Прибуток	0.154
+ox5000-0c88c4e63156b3a83e3b	rival	adjective	суперник	0.000
+ox5000-dac23ee9598106867c47	rival	noun	суперник	0.000
+ox5000-b7960accb9da1a3abf6f	rocket	noun	ракета	0.154
+ox5000-4236cda79c17e2e2fd1c	rumour	noun	слухи	0.143
+ox5000-d497fd9a71970e5fe295	saint	noun	Святий	0.000
+ox5000-0417d4afb8b747832299	sake	noun	боже	0.000
+ox5000-eae0572fec04502130f5	satisfaction	noun	задоволення	0.100
+ox5000-f135a53ed4965a23fbbc	seeker	noun	Шукаю	0.118
+ox5000-75eee68ef68baad02a6c	seize	verb	Захопити	0.167
+ox5000-a65a55e1b5d084563b73	sentiment	noun	Почуття	0.118
+ox5000-0a860de45afe655f17cd	shaped	adjective	форма	0.000
+ox5000-a8750364b0bf00f55b71	shed	verb	сарана	0.182
+ox5000-c182c4aaf92aa43b7d78	shipping	noun	доставка	0.125
+ox5000-7190c72389b69360fcb4	shocking	adjective	прикрашання	0.105
+ox5000-1a031da6eac7d925338b	shortage	noun	Нестача	0.111
+ox5000-d64e66d05e0c72293139	shrink	verb	pixer	0.182
+ox5000-e9398be87e92c4565700	shrug	verb	Знизити	0.154
+ox5000-3560fef85dd1fc6debc0	sibling	noun	брат чи сестра	0.167
+ox5000-b0fded582d3311d3af45	sigh	noun	зітхай.	0.000
+ox5000-0d870e0fda6ba6d93f94	sigh	verb	зітхай.	0.000
+ox5000-55316c416a7c5af7e278	situated	adjective	знаходиться	0.200
+ox5000-067976a3fc213d3e15bc	skilled	adjective	вправний	0.167
+ox5000-45ce43966d81aa1e49c2	smash	verb	float	0.200
+ox5000-64a492fdbd43b68e3427	soar	verb	ширяння	0.167
+ox5000-0f421e0338a534c5fdbe	solidarity	noun	Згуртованість	0.190
+ox5000-602abdcb3ba37942bc00	speculate	verb	Припущення	0.143
+ox5000-59f3b01cef3db8471f79	spill	verb	розливання	0.143
+ox5000-b97520fdd3dde5fb23d2	spine	noun	хребет	0.143
+ox5000-9c15615ce8548856f3f4	spokeswoman	noun	ораторська	0.211
+ox5000-74d7b573de8710a0722e	spouse	noun	Подружнього партнера	0.095
+ox5000-626b716b54d1acca747d	squeeze	verb	стиснути	0.133
+ox5000-1f971ffc38a84dfdc9eb	stake	noun	стовпець	0.000
+ox5000-8eaceadbb1ee581b62f9	stall	noun	Призупинити	0.167
+ox5000-89ee912889a76e3be149	stir	verb	перемішування	0.167
+ox5000-f6b29aa22c04b745a26a	straightforward	adjective	просте	0.190
+ox5000-e83d2cfb6067f7ef6f2b	stumble	verb	спіткнутися	0.182
+ox5000-deeafc102a5fc0edcb7e	subsequently	adverb	Згодом	0.118
+ox5000-ccb0aa16d20fc2fac36c	substantially	adverb	Значно	0.111
+ox5000-ccf6c1169dbd08cdf21d	substitute	noun	замінник	0.095
+ox5000-3c58d0022914fdbdef9d	substitute	verb	замінник	0.095
+ox5000-bb9ca1bf424237d86e34	suburban	adjective	Приміський районazerbaijan. kgm	0.154
+ox5000-7825b41eb321cdf7f96a	succession	noun	Наступницький	0.143
+ox5000-824eec4d0d7f52aa8d7b	superb	adjective	Чудово.	0.182
+ox5000-4d0da66a5d904274e542	supervise	verb	Наглядати	0.000
+ox5000-fde1789bdbf890c1d0f3	supervision	noun	нагляд	0.000
+ox5000-000b17fde2cc5f0c75cf	supreme	adjective	найвищий	0.143
+ox5000-75c216147dc0dd0f318a	surge	noun	сплеск	0.182
+ox5000-b474e0b4944829bd2037	surge	verb	сплеск	0.182
+ox5000-8b89abec05a631c8437d	surveillance	noun	спостереження	0.105
+ox5000-29a86954fd91de4cdea4	sustain	verb	reserve	0.143
+ox5000-5fb1dc01382b06997232	swallow	verb	Ластівка	0.182
+ox5000-d452052b6bcd9d0b63b7	tackle	noun	runk	0.000
+ox5000-ce168d9f42f9cfc043c4	tackle	verb	runk	0.000
+ox5000-3ada6e998994d52e1f02	tap	noun	квадратний метрarea unit	0.000
+ox5000-36b311e1c376086e7c8b	tap	verb	квадратний метрarea unit	0.000
+ox5000-12e64d13126ed167af0d	tempt	verb	Спокушувати	0.167
+ox5000-01af49ce53e4d6902091	tendency	noun	custom	0.143
+ox5000-0a12ac0cb859d36ef42c	terribly	adverb	Жахливо	0.154
+ox5000-8467812af37b5bb10cb1	terrific	adjective	Чудово.	0.154
+ox5000-b245a804462b0d41915a	thereby	adverb	Таким чином	0.200
+ox5000-feaf4b50d932346d1b13	thorough	adjective	Докладно	0.133
+ox5000-09f564b8c1cd8dfc3904	thumb	noun	failer	0.000
+ox5000-eec8e05bb7719b3d5517	tighten	verb	Затягнути	0.000
+ox5000-4a9663ae5209cddb6bba	timber	noun	деревина	0.000
+ox5000-64e08b8dd68be475a5a4	timely	adjective	вчасно	0.000
+ox5000-e94181c64d5aa8e60302	tissue	noun	тканина	0.167
+ox5000-2d305ec23cbf7b219f80	transmission	noun	трансляція	0.095
+ox5000-ba5c96ee38f220c30435	tremendous	adjective	величезний	0.143
+ox5000-754bf5b535795ee81c6c	troop	noun	загін	0.000
+ox5000-a5a78ed8b6c48cbea038	trustee	noun	трапеза	0.000
+ox5000-05fda40c6a6fd499174b	undergo	verb	process	0.143
+ox5000-23bff02510376b6c99d7	underlying	adjective	в основі	0.143
+ox5000-51a085e259ff4699152f	undermine	verb	підрив	0.133
+ox5000-98c27296b81648365f0f	unify	verb	Об' єднати	0.000
+ox5000-1bd133aa12f2ec343c3d	unite	verb	об' єднати	0.200
+ox5000-70d2e3907f919877957a	utilize	verb	applications	0.211
+ox5000-ead1e6c209960fbc9a63	venture	noun	invalid	0.143
+ox5000-c4a906d99fd676e40339	venture	verb	invalid	0.143
+ox5000-00204dee3aa7d984c985	verify	verb	перевірити	0.200
+ox5000-3ee81464f01abd4b789d	vessel	noun	посудина	0.133
+ox5000-9eadee768474116a6389	vicious	adjective	агресивний	0.118
+ox5000-6791fac69a8e0c0a1fbc	violate	verb	break	0.167
+ox5000-f0b43c80674358bf7398	voluntary	adjective	добровільно	0.154
+ox5000-a83fb8d4dafe378c4bf7	warming	noun	розігрівання	0.182
+ox5000-f662904e395de55b38b4	weave	verb	плести	0.167
+ox5000-82d9b319c21a0b7d136e	weed	noun	сітківка	0.200
+ox5000-7ac66d34ed6d2d18ab7a	well	noun	добре	0.000
+ox5000-136d53cda0c01d3d92c3	whatever	adverb	будь- який	0.182
+ox5000-8eb4dc7709c4780bf6a5	whilst	conjunction	Під час	0.167
+ox5000-00c15dea7c61b8c6848d	wipe	verb	Витерти	0.200
+ox5000-4a0d80cb3aee1630ef88	withdraw	verb	remove	0.143
+ox5000-b500ac68bf72138c5bbf	withdrawal	noun	Викинути	0.143
+ox5000-c4df7b62298c6a0e1e19	workout	noun	successful message after an user action	0.000
+ox5000-780d6e175fa7df70d661	worthy	adjective	достойний	0.133
+ox5000-50b98ac704c3bc34a67f	wrist	noun	зап' язка	0.000
+ox5000-b4375e50137f50a3167c	yell	verb	Крик	0.200
+ox5000-cc76f33fcb4c9bc2e444	yield	noun	порція	0.167
+ox5000-965201ceb2ed31dc1820	yield	verb	порція	0.167
