@@ -1,0 +1,1840 @@
+{
+  "target": {
+    "id": "lichess-import",
+    "url": "https://lichess.org/paste",
+    "enableLichessBlindMode": true
+  },
+  "startedAt": "2026-08-20T07:00:02.385Z",
+  "navigation": {
+    "status": 200,
+    "ok": true
+  },
+  "title": "Import game • lichess.org",
+  "finalUrl": "https://lichess.org/paste",
+  "surfaceBefore": {
+    "headings": [
+      {
+        "tag": "H2",
+        "text": "Your network blocks the Lichess assets!"
+      },
+      {
+        "tag": "H1",
+        "text": "Import game"
+      }
+    ],
+    "landmarks": [
+      {
+        "tag": "HEADER",
+        "role": null,
+        "ariaLabel": null,
+        "ariaLabelledBy": null,
+        "text": "lichess.org PLAY PUZZLES LEARN WATCH COMMUNITY TOOLS DONATE SIGN IN REGISTER"
+      },
+      {
+        "tag": "NAV",
+        "role": null,
+        "ariaLabel": null,
+        "ariaLabelledBy": null,
+        "text": "PLAY PUZZLES LEARN WATCH COMMUNITY TOOLS"
+      },
+      {
+        "tag": "MAIN",
+        "role": null,
+        "ariaLabel": null,
+        "ariaLabelledBy": null,
+        "text": "Import game Paste a game PGN to get a browsable replay, computer analysis, game chat, and a shareable link. This PGN can be accessed by the public. To import a game privately, use a study. Paste the PGN text here Or upload a PGN file Request a computer analysis You need an account to do that IMPORT "
+      }
+    ],
+    "interactives": [
+      {
+        "tag": "INPUT",
+        "type": "hidden",
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": null,
+        "text": ""
+      },
+      {
+        "tag": "INPUT",
+        "type": "hidden",
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": null,
+        "text": ""
+      },
+      {
+        "tag": "BUTTON",
+        "type": "submit",
+        "role": null,
+        "id": "nvui-button",
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": null,
+        "text": "Accessibility - Enable blind mode"
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "/page/network-administrators",
+        "text": "Your network blocks the Lichess assets!"
+      },
+      {
+        "tag": "INPUT",
+        "type": "checkbox",
+        "role": null,
+        "id": "tn-tg",
+        "tabindex": null,
+        "ariaLabel": "Navigation",
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": null,
+        "text": ""
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "/",
+        "text": "lichess.org"
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "/",
+        "text": "PLAY"
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "/?any#hook",
+        "text": "Create lobby game"
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "/tournament",
+        "text": "Arena tournaments"
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "/swiss",
+        "text": "Swiss tournaments"
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "/simul",
+        "text": "Simultaneous exhibitions"
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "/patron",
+        "text": "Donate"
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "/training",
+        "text": "PUZZLES"
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "/training",
+        "text": "Puzzles"
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "/training/themes",
+        "text": "Puzzle Themes"
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "/training/dashboard/30",
+        "text": "Puzzle Dashboard"
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "/streak",
+        "text": "Puzzle Streak"
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "/storm",
+        "text": "Puzzle Storm"
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "/racer",
+        "text": "Puzzle Racer"
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "/learn",
+        "text": "LEARN"
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "/learn",
+        "text": "Chess basics"
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "/practice",
+        "text": "Practice"
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "/training/coordinate",
+        "text": "Coordinates"
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "/study",
+        "text": "Study"
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "/coach",
+        "text": "Coaches"
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "/broadcast",
+        "text": "WATCH"
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "/broadcast",
+        "text": "Broadcasts"
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "/tv",
+        "text": "Lichess TV"
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "/games",
+        "text": "Current games"
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "/streamer",
+        "text": "Streamers"
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "/video",
+        "text": "Video library"
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "/player",
+        "text": "COMMUNITY"
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "/player",
+        "text": "Players"
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "/team",
+        "text": "Teams"
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "/forum",
+        "text": "Forum"
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "/blog/community",
+        "text": "Blog"
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "/analysis",
+        "text": "TOOLS"
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "/analysis",
+        "text": "Analysis board"
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "/opening",
+        "text": "Openings"
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "/editor",
+        "text": "Board editor"
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "/paste",
+        "text": "Import game"
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "/games/search",
+        "text": "Advanced search"
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "/patron",
+        "text": "DONATE"
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "/faq#autoplay",
+        "text": ""
+      },
+      {
+        "tag": "INPUT",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": "Search",
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": null,
+        "text": ""
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "/login?referrer=/paste",
+        "text": "SIGN IN"
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "/signup",
+        "text": "REGISTER"
+      },
+      {
+        "tag": "BUTTON",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": "Preferences",
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": "Preferences",
+        "href": null,
+        "text": ""
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "/study",
+        "text": "This PGN can be accessed by the public. To import a game privately, use a study."
+      },
+      {
+        "tag": "TEXTAREA",
+        "type": null,
+        "role": null,
+        "id": "form3-pgn",
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": null,
+        "text": ""
+      },
+      {
+        "tag": "INPUT",
+        "type": "file",
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": null,
+        "text": ""
+      },
+      {
+        "tag": "INPUT",
+        "type": "checkbox",
+        "role": null,
+        "id": "form3-analyse",
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": null,
+        "text": ""
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "/signup",
+        "text": "You need an account to do that"
+      },
+      {
+        "tag": "BUTTON",
+        "type": "submit",
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": null,
+        "text": "IMPORT GAME"
+      }
+    ],
+    "ariaSnapshot": "- button \"Accessibility - Enable blind mode\"\n- banner:\n  - link \"lichess.org\":\n    - /url: /\n  - navigation:\n    - link \"Play\":\n      - /url: /\n    - link \"Puzzles\":\n      - /url: /training\n    - link \"Learn\":\n      - /url: /learn\n    - link \"Watch\":\n      - /url: /broadcast\n    - link \"Community\":\n      - /url: /player\n    - link \"Tools\":\n      - /url: /analysis\n  - link \" Donate\":\n    - /url: /patron\n  - text: \n  - textbox \"Search\"\n  - link \"Sign in\":\n    - /url: /login?referrer=/paste\n  - link \"Register\":\n    - /url: /signup\n  - button \"Preferences\": \n- main:\n  - heading \"Import game\" [level=1]\n  - paragraph:\n    - text: Paste a game PGN to get a browsable replay, computer analysis, game chat, and a shareable link.\n    - link \"This PGN can be accessed by the public. To import a game privately, use a study.\":\n      - /url: /study\n  - text: Paste the PGN text here\n  - textbox \"Paste the PGN text here\"\n  - text: Or upload a PGN file\n  - button \"Choose File\"\n  - checkbox \"Request a computer analysis\"\n  - text: Request a computer analysis\n  - link \"You need an account to do that\":\n    - /url: /signup\n  - button \"Import game\"\n- text: \n- img"
+  },
+  "tabSequenceBefore": [
+    {
+      "step": 1,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "/",
+        "text": "lichess.org"
+      }
+    },
+    {
+      "step": 2,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "/",
+        "text": "PLAY"
+      }
+    },
+    {
+      "step": 3,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "/training",
+        "text": "PUZZLES"
+      }
+    },
+    {
+      "step": 4,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "/learn",
+        "text": "LEARN"
+      }
+    },
+    {
+      "step": 5,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "/broadcast",
+        "text": "WATCH"
+      }
+    },
+    {
+      "step": 6,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "/player",
+        "text": "COMMUNITY"
+      }
+    },
+    {
+      "step": 7,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "/analysis",
+        "text": "TOOLS"
+      }
+    },
+    {
+      "step": 8,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "/patron",
+        "text": "DONATE"
+      }
+    },
+    {
+      "step": 9,
+      "active": {
+        "tag": "INPUT",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": "Search",
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": null,
+        "text": ""
+      }
+    },
+    {
+      "step": 10,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "/login?referrer=/paste",
+        "text": "SIGN IN"
+      }
+    },
+    {
+      "step": 11,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "/signup",
+        "text": "REGISTER"
+      }
+    },
+    {
+      "step": 12,
+      "active": {
+        "tag": "BUTTON",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": "Preferences",
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": "Preferences",
+        "href": null,
+        "text": ""
+      }
+    },
+    {
+      "step": 13,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "/study",
+        "text": "This PGN can be accessed by the public. To import a game privately, use a study."
+      }
+    },
+    {
+      "step": 14,
+      "active": {
+        "tag": "TEXTAREA",
+        "type": null,
+        "role": null,
+        "id": "form3-pgn",
+        "name": "pgn",
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": null,
+        "text": ""
+      }
+    },
+    {
+      "step": 15,
+      "active": {
+        "tag": "INPUT",
+        "type": "file",
+        "role": null,
+        "id": null,
+        "name": "pgnFile",
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": null,
+        "text": ""
+      }
+    },
+    {
+      "step": 16,
+      "active": {
+        "tag": "INPUT",
+        "type": "checkbox",
+        "role": null,
+        "id": "form3-analyse",
+        "name": "analyse",
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": null,
+        "text": ""
+      }
+    },
+    {
+      "step": 17,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "/signup",
+        "text": "You need an account to do that"
+      }
+    },
+    {
+      "step": 18,
+      "active": {
+        "tag": "BUTTON",
+        "type": "submit",
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": null,
+        "text": "IMPORT GAME"
+      }
+    },
+    {
+      "step": 19,
+      "active": {
+        "tag": "BODY",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": null,
+        "text": "Accessibility - Enable blind mode lichess.org PLAY PUZZLES LEARN WATCH COMMUNITY TOOLS DONATE SIGN IN REGISTER Import game Paste a game PGN to get a browsable replay, computer analysis, game chat, and a shareable link. This PGN can be accessed by the public. To import a game privately, use a study. "
+      }
+    },
+    {
+      "step": 20,
+      "active": {
+        "tag": "BUTTON",
+        "type": "submit",
+        "role": null,
+        "id": "nvui-button",
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": null,
+        "text": "Accessibility - Enable blind mode"
+      }
+    },
+    {
+      "step": 21,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "/",
+        "text": "lichess.org"
+      }
+    },
+    {
+      "step": 22,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "/",
+        "text": "PLAY"
+      }
+    },
+    {
+      "step": 23,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "/training",
+        "text": "PUZZLES"
+      }
+    },
+    {
+      "step": 24,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "/learn",
+        "text": "LEARN"
+      }
+    },
+    {
+      "step": 25,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "/broadcast",
+        "text": "WATCH"
+      }
+    },
+    {
+      "step": 26,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "/player",
+        "text": "COMMUNITY"
+      }
+    },
+    {
+      "step": 27,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "/analysis",
+        "text": "TOOLS"
+      }
+    },
+    {
+      "step": 28,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "/patron",
+        "text": "DONATE"
+      }
+    },
+    {
+      "step": 29,
+      "active": {
+        "tag": "INPUT",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": "Search",
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": null,
+        "text": ""
+      }
+    },
+    {
+      "step": 30,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "/login?referrer=/paste",
+        "text": "SIGN IN"
+      }
+    },
+    {
+      "step": 31,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "/signup",
+        "text": "REGISTER"
+      }
+    },
+    {
+      "step": 32,
+      "active": {
+        "tag": "BUTTON",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": "Preferences",
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": "Preferences",
+        "href": null,
+        "text": ""
+      }
+    },
+    {
+      "step": 33,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "/study",
+        "text": "This PGN can be accessed by the public. To import a game privately, use a study."
+      }
+    },
+    {
+      "step": 34,
+      "active": {
+        "tag": "TEXTAREA",
+        "type": null,
+        "role": null,
+        "id": "form3-pgn",
+        "name": "pgn",
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": null,
+        "text": ""
+      }
+    },
+    {
+      "step": 35,
+      "active": {
+        "tag": "INPUT",
+        "type": "file",
+        "role": null,
+        "id": null,
+        "name": "pgnFile",
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": null,
+        "text": ""
+      }
+    },
+    {
+      "step": 36,
+      "active": {
+        "tag": "INPUT",
+        "type": "checkbox",
+        "role": null,
+        "id": "form3-analyse",
+        "name": "analyse",
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": null,
+        "text": ""
+      }
+    },
+    {
+      "step": 37,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "/signup",
+        "text": "You need an account to do that"
+      }
+    },
+    {
+      "step": 38,
+      "active": {
+        "tag": "BUTTON",
+        "type": "submit",
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": null,
+        "text": "IMPORT GAME"
+      }
+    },
+    {
+      "step": 39,
+      "active": {
+        "tag": "BODY",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": null,
+        "text": "Accessibility - Enable blind mode lichess.org PLAY PUZZLES LEARN WATCH COMMUNITY TOOLS DONATE SIGN IN REGISTER Import game Paste a game PGN to get a browsable replay, computer analysis, game chat, and a shareable link. This PGN can be accessed by the public. To import a game privately, use a study. "
+      }
+    },
+    {
+      "step": 40,
+      "active": {
+        "tag": "BUTTON",
+        "type": "submit",
+        "role": null,
+        "id": "nvui-button",
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": null,
+        "text": "Accessibility - Enable blind mode"
+      }
+    },
+    {
+      "step": 41,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "/",
+        "text": "lichess.org"
+      }
+    },
+    {
+      "step": 42,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "/",
+        "text": "PLAY"
+      }
+    },
+    {
+      "step": 43,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "/training",
+        "text": "PUZZLES"
+      }
+    },
+    {
+      "step": 44,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "/learn",
+        "text": "LEARN"
+      }
+    },
+    {
+      "step": 45,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "/broadcast",
+        "text": "WATCH"
+      }
+    },
+    {
+      "step": 46,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "/player",
+        "text": "COMMUNITY"
+      }
+    },
+    {
+      "step": 47,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "/analysis",
+        "text": "TOOLS"
+      }
+    },
+    {
+      "step": 48,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "/patron",
+        "text": "DONATE"
+      }
+    },
+    {
+      "step": 49,
+      "active": {
+        "tag": "INPUT",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": "Search",
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": null,
+        "text": ""
+      }
+    },
+    {
+      "step": 50,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "/login?referrer=/paste",
+        "text": "SIGN IN"
+      }
+    },
+    {
+      "step": 51,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "/signup",
+        "text": "REGISTER"
+      }
+    },
+    {
+      "step": 52,
+      "active": {
+        "tag": "BUTTON",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": "Preferences",
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": "Preferences",
+        "href": null,
+        "text": ""
+      }
+    },
+    {
+      "step": 53,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "/study",
+        "text": "This PGN can be accessed by the public. To import a game privately, use a study."
+      }
+    },
+    {
+      "step": 54,
+      "active": {
+        "tag": "TEXTAREA",
+        "type": null,
+        "role": null,
+        "id": "form3-pgn",
+        "name": "pgn",
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": null,
+        "text": ""
+      }
+    },
+    {
+      "step": 55,
+      "active": {
+        "tag": "INPUT",
+        "type": "file",
+        "role": null,
+        "id": null,
+        "name": "pgnFile",
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": null,
+        "text": ""
+      }
+    },
+    {
+      "step": 56,
+      "active": {
+        "tag": "INPUT",
+        "type": "checkbox",
+        "role": null,
+        "id": "form3-analyse",
+        "name": "analyse",
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": null,
+        "text": ""
+      }
+    },
+    {
+      "step": 57,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "/signup",
+        "text": "You need an account to do that"
+      }
+    },
+    {
+      "step": 58,
+      "active": {
+        "tag": "BUTTON",
+        "type": "submit",
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": null,
+        "text": "IMPORT GAME"
+      }
+    },
+    {
+      "step": 59,
+      "active": {
+        "tag": "BODY",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": null,
+        "text": "Accessibility - Enable blind mode lichess.org PLAY PUZZLES LEARN WATCH COMMUNITY TOOLS DONATE SIGN IN REGISTER Import game Paste a game PGN to get a browsable replay, computer analysis, game chat, and a shareable link. This PGN can be accessed by the public. To import a game privately, use a study. "
+      }
+    },
+    {
+      "step": 60,
+      "active": {
+        "tag": "BUTTON",
+        "type": "submit",
+        "role": null,
+        "id": "nvui-button",
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": null,
+        "text": "Accessibility - Enable blind mode"
+      }
+    }
+  ],
+  "scenarios": {
+    "lichessBlindMode": {
+      "attempted": true,
+      "found": true,
+      "before": "Accessibility - Enable blind mode",
+      "error": "TimeoutError: locator.click: Timeout 10000ms exceeded.\nCall log:\n  - waiting for getByRole('button', { name: /Accessibility.*Enable blind mode/i }).first()\n    - locator resolved to <button type=\"submit\" id=\"nvui-button\">Accessibility - Enable blind mode</button>\n  - attempting click action\n    2 × waiting for element to be visible, enabled and stable\n      - element is visible, enabled and stable\n      - scrolling into view if needed\n      - done scrolling\n      - element is outside of the viewport\n    - retrying click action\n    - waiting 20ms\n    2 × waiting for element to be visible, enabled and stable\n      - element is visible, enabled and stable\n      - scrolling into view if needed\n      - done scrolling\n      - element is outside of the viewport\n    - retrying click action\n      - waiting 100ms\n    19 × waiting for element to be visible, enabled and stable\n       - element is visible, enabled and stable\n       - scrolling into view if needed\n       - done scrolling\n       - element is outside of the viewport\n     - retrying click action\n       - waiting 500ms\n"
+    }
+  },
+  "errors": [],
+  "finishedAt": "2026-08-20T07:00:18.239Z"
+}

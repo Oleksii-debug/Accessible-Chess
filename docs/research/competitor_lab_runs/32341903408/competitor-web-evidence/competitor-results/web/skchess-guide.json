@@ -1,0 +1,1159 @@
+{
+  "target": {
+    "id": "skchess-guide",
+    "url": "https://accessiblechess.in/skchess"
+  },
+  "startedAt": "2026-08-20T07:00:49.039Z",
+  "navigation": {
+    "status": 200,
+    "ok": true
+  },
+  "title": "Accessible Chess - A Vision Beyond Sight",
+  "finalUrl": "https://accessiblechess.in/skchess",
+  "surfaceBefore": {
+    "headings": [
+      {
+        "tag": "H1",
+        "text": "SK Chess: Accessible Chess Software"
+      },
+      {
+        "tag": "H2",
+        "text": "Unique Features"
+      },
+      {
+        "tag": "H2",
+        "text": "User Guide"
+      },
+      {
+        "tag": "H3",
+        "text": "Installation Instructions"
+      },
+      {
+        "tag": "H3",
+        "text": "Interface Overview"
+      },
+      {
+        "tag": "H2",
+        "text": "Keyboard Shortcuts"
+      },
+      {
+        "tag": "H2",
+        "text": "Contact Us"
+      }
+    ],
+    "landmarks": [
+      {
+        "tag": "NAV",
+        "role": null,
+        "ariaLabel": null,
+        "ariaLabelledBy": null,
+        "text": "Accessible Chess Position"
+      },
+      {
+        "tag": "FOOTER",
+        "role": null,
+        "ariaLabel": null,
+        "ariaLabelledBy": null,
+        "text": "Made with ❤️ by Team Accessible Chess"
+      }
+    ],
+    "interactives": [
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": "Accessible Chess Home",
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "/",
+        "text": ""
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": "Accessible Chess Position",
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "/fenreader",
+        "text": "Accessible Chess Position"
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "https://www.dropbox.com/scl/fi/eysi6bvvbtz8gpu4g9hrs/sk_chess_v1.4.exe?rlkey=2mot0dqlhfvijuugtigs91exi&st=ez1l79r5&dl=1",
+        "text": "Click here"
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "https://youtube.com/@accessible-chess",
+        "text": "@accessible-chess"
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "mailto:contact.accessiblechess@gmail.com",
+        "text": "contact.accessiblechess@gmail.com"
+      }
+    ],
+    "ariaSnapshot": "- navigation:\n  - list:\n    - link \"Accessible Chess Home\":\n      - /url: /\n      - listitem:\n        - img\n    - link \"Accessible Chess Position\":\n      - /url: /fenreader\n      - listitem: Accessible Chess Position\n- 'heading \"SK Chess: Accessible Chess Software\" [level=1]'\n- paragraph: SK Chess is a fully accessible chess software, where accessibility is our top priority. Designed to empower everyone, including visually impaired players, SK Chess ensures an inclusive and seamless experience for creating, viewing, and analyzing chess games in PGN format. Navigate effortlessly through variations, inspect positions, and review annotations using intuitive keyboard shortcuts specifically optimized for accessibility. Stay informed with real-time audio notifications—a quiet ding alerts you whenever a comment is encountered. With advanced analysis powered by leading chess engines like Stockfish, SK Chess is one of the most capable free chess software available, crafted to meet the needs of all chess enthusiasts.\n- iframe\n- heading \"Unique Features\" [level=2]\n- list:\n  - listitem:\n    - strong: \"Auditory Notifications:\"\n    - text: Receive auditory alerts when encountering comments written by authors.\n  - listitem:\n    - strong: \"Backtracking Assistance:\"\n    - text: Effortlessly backtrack variations for enhanced analysis.\n  - listitem:\n    - strong: \"Fast Move Typing:\"\n    - text: Type moves quickly without leaving the home row of the keyboard.\n  - listitem:\n    - strong: \"Instant Position Checks:\"\n    - text: Use shortcut keys to instantly check positions and annotations.\n  - listitem:\n    - strong: \"Phonetic Alphabet for Clarity:\"\n    - text: Implements the FIDE-suggested phonetic alphabet (e.g., Bella and David for B and D) to prevent confusion between similar-sounding letters.\n- heading \"User Guide\" [level=2]\n- heading \"Installation Instructions\" [level=3]\n- list:\n  - listitem:\n    - strong: \"Download SK Chess:\"\n    - link \"Click here\":\n      - /url: https://www.dropbox.com/scl/fi/eysi6bvvbtz8gpu4g9hrs/sk_chess_v1.4.exe?rlkey=2mot0dqlhfvijuugtigs91exi&st=ez1l79r5&dl=1\n    - text: to download SK Chess. Temporarily disable your antivirus software if required to complete the download and installation process.\n  - listitem:\n    - strong: \"Install SK Chess:\"\n    - list:\n      - listitem: Navigate to your Downloads folder or the location where you saved the downloaded file.\n      - listitem: Click on the installer file.\n      - listitem: If Windows Defender attempts to block the installation, click on \"More Info\" and then select \"Run Anyway.\"\n      - listitem: Follow the setup instructions, keeping the default settings. Make sure to check the option to \"Create a Desktop Shortcut\" for easier access.\n- heading \"Interface Overview\" [level=3]\n- paragraph: \"SK Chess has five main navigable areas accessible through the keyboard:\"\n- list:\n  - listitem:\n    - strong: \"Select Game:\"\n    - text: Displays the list of games if a PGN file is open. Select a game and press the Tab key to proceed.\n  - listitem:\n    - strong: \"Game Area:\"\n    - text: Type notations (e.g., Nf3) to make moves. Use Left and Right arrow keys to navigate through the game. Use Up and Down arrow keys to navigate moves within a variation dialog.\n  - listitem:\n    - strong: \"Annotation:\"\n    - text: Displays comments added to the current move.\n  - listitem:\n    - strong: \"Board:\"\n    - text: \"The current position is presented in text format. Uses the IBCA phonetic alphabet for clarity: Anna (A), Bella (B), Cesar (C), David (D), Eva (E), Felix (F), Gustav (G), Hector (H).\"\n  - listitem:\n    - strong: \"Engine Suggestions:\"\n    - text: Displays analysis from engines like Stockfish if loaded. Navigate moves with Up and Down arrow keys. Press Space to accept and explore specific suggestions.\n- heading \"Keyboard Shortcuts\" [level=2]\n- paragraph: \"SK Chess is equipped with several shortcut keys to optimize efficiency. These functionalities are also accessible through menus:\"\n- list:\n  - listitem:\n    - strong: \"File Menu (Alt + F):\"\n    - list:\n      - listitem: Open (Ctrl + O)\n      - listitem: Save Game (Ctrl + S)\n      - listitem: Paste Game (Ctrl + V)\n      - listitem: Copy Game (Ctrl + C)\n  - listitem:\n    - strong: \"Speak Menu (Alt + S):\"\n    - list:\n      - listitem: Speak Position (Alt + P)\n      - listitem: Speak Annotation (Alt + A)\n      - listitem: Speak Last Move (Alt + M)\n  - listitem:\n    - strong: \"Game Menu (Alt + G):\"\n    - list:\n      - listitem: New Game (Ctrl + N)\n      - listitem: Delete Move (Alt + D)\n      - listitem: Load Engine (Ctrl + E)\n- paragraph: SK Chess is currently in its beta version. We are committed to continuously improving the software's look and feel through subsequent updates, ensuring an even better user experience.\n- heading \"Contact Us\" [level=2]\n- paragraph:\n  - text: Please subscribe to our YouTube channel to stay updated around our latest innovations.\n  - link \"@accessible-chess\":\n    - /url: https://youtube.com/@accessible-chess\n- paragraph:\n  - text: For any queries, comments, suggestions or ideas, please drop us an email at\n  - link \"contact.accessiblechess@gmail.com\":\n    - /url: mailto:contact.accessiblechess@gmail.com\n  - text: .\n- contentinfo:\n  - paragraph:\n    - text: Made with\n    - img \"love\": ❤️\n    - text: by Team Accessible Chess"
+  },
+  "tabSequenceBefore": [
+    {
+      "step": 1,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": "Accessible Chess Home",
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "/",
+        "text": ""
+      }
+    },
+    {
+      "step": 2,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": "Accessible Chess Position",
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "/fenreader",
+        "text": "Accessible Chess Position"
+      }
+    },
+    {
+      "step": 3,
+      "active": {
+        "tag": "IFRAME",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": "SK Chess Full Walkthrough Video",
+        "href": null,
+        "text": ""
+      }
+    },
+    {
+      "step": 4,
+      "active": {
+        "tag": "IFRAME",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": "SK Chess Full Walkthrough Video",
+        "href": null,
+        "text": ""
+      }
+    },
+    {
+      "step": 5,
+      "active": {
+        "tag": "IFRAME",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": "SK Chess Full Walkthrough Video",
+        "href": null,
+        "text": ""
+      }
+    },
+    {
+      "step": 6,
+      "active": {
+        "tag": "IFRAME",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": "SK Chess Full Walkthrough Video",
+        "href": null,
+        "text": ""
+      }
+    },
+    {
+      "step": 7,
+      "active": {
+        "tag": "IFRAME",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": "SK Chess Full Walkthrough Video",
+        "href": null,
+        "text": ""
+      }
+    },
+    {
+      "step": 8,
+      "active": {
+        "tag": "IFRAME",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": "SK Chess Full Walkthrough Video",
+        "href": null,
+        "text": ""
+      }
+    },
+    {
+      "step": 9,
+      "active": {
+        "tag": "IFRAME",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": "SK Chess Full Walkthrough Video",
+        "href": null,
+        "text": ""
+      }
+    },
+    {
+      "step": 10,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "https://www.dropbox.com/scl/fi/eysi6bvvbtz8gpu4g9hrs/sk_chess_v1.4.exe?rlkey=2mot0dqlhfvijuugtigs91exi&st=ez1l79r5&dl=1",
+        "text": "Click here"
+      }
+    },
+    {
+      "step": 11,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "https://youtube.com/@accessible-chess",
+        "text": "@accessible-chess"
+      }
+    },
+    {
+      "step": 12,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "mailto:contact.accessiblechess@gmail.com",
+        "text": "contact.accessiblechess@gmail.com"
+      }
+    },
+    {
+      "step": 13,
+      "active": {
+        "tag": "BODY",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": null,
+        "text": "Accessible Chess Position SK Chess: Accessible Chess Software SK Chess is a fully accessible chess software, where accessibility is our top priority. Designed to empower everyone, including visually impaired players, SK Chess ensures an inclusive and seamless experience for creating, viewing, and an"
+      }
+    },
+    {
+      "step": 14,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": "Accessible Chess Home",
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "/",
+        "text": ""
+      }
+    },
+    {
+      "step": 15,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": "Accessible Chess Position",
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "/fenreader",
+        "text": "Accessible Chess Position"
+      }
+    },
+    {
+      "step": 16,
+      "active": {
+        "tag": "IFRAME",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": "SK Chess Full Walkthrough Video",
+        "href": null,
+        "text": ""
+      }
+    },
+    {
+      "step": 17,
+      "active": {
+        "tag": "IFRAME",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": "SK Chess Full Walkthrough Video",
+        "href": null,
+        "text": ""
+      }
+    },
+    {
+      "step": 18,
+      "active": {
+        "tag": "IFRAME",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": "SK Chess Full Walkthrough Video",
+        "href": null,
+        "text": ""
+      }
+    },
+    {
+      "step": 19,
+      "active": {
+        "tag": "IFRAME",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": "SK Chess Full Walkthrough Video",
+        "href": null,
+        "text": ""
+      }
+    },
+    {
+      "step": 20,
+      "active": {
+        "tag": "IFRAME",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": "SK Chess Full Walkthrough Video",
+        "href": null,
+        "text": ""
+      }
+    },
+    {
+      "step": 21,
+      "active": {
+        "tag": "IFRAME",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": "SK Chess Full Walkthrough Video",
+        "href": null,
+        "text": ""
+      }
+    },
+    {
+      "step": 22,
+      "active": {
+        "tag": "IFRAME",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": "SK Chess Full Walkthrough Video",
+        "href": null,
+        "text": ""
+      }
+    },
+    {
+      "step": 23,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "https://www.dropbox.com/scl/fi/eysi6bvvbtz8gpu4g9hrs/sk_chess_v1.4.exe?rlkey=2mot0dqlhfvijuugtigs91exi&st=ez1l79r5&dl=1",
+        "text": "Click here"
+      }
+    },
+    {
+      "step": 24,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "https://youtube.com/@accessible-chess",
+        "text": "@accessible-chess"
+      }
+    },
+    {
+      "step": 25,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "mailto:contact.accessiblechess@gmail.com",
+        "text": "contact.accessiblechess@gmail.com"
+      }
+    },
+    {
+      "step": 26,
+      "active": {
+        "tag": "BODY",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": null,
+        "text": "Accessible Chess Position SK Chess: Accessible Chess Software SK Chess is a fully accessible chess software, where accessibility is our top priority. Designed to empower everyone, including visually impaired players, SK Chess ensures an inclusive and seamless experience for creating, viewing, and an"
+      }
+    },
+    {
+      "step": 27,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": "Accessible Chess Home",
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "/",
+        "text": ""
+      }
+    },
+    {
+      "step": 28,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": "Accessible Chess Position",
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "/fenreader",
+        "text": "Accessible Chess Position"
+      }
+    },
+    {
+      "step": 29,
+      "active": {
+        "tag": "IFRAME",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": "SK Chess Full Walkthrough Video",
+        "href": null,
+        "text": ""
+      }
+    },
+    {
+      "step": 30,
+      "active": {
+        "tag": "IFRAME",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": "SK Chess Full Walkthrough Video",
+        "href": null,
+        "text": ""
+      }
+    },
+    {
+      "step": 31,
+      "active": {
+        "tag": "IFRAME",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": "SK Chess Full Walkthrough Video",
+        "href": null,
+        "text": ""
+      }
+    },
+    {
+      "step": 32,
+      "active": {
+        "tag": "IFRAME",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": "SK Chess Full Walkthrough Video",
+        "href": null,
+        "text": ""
+      }
+    },
+    {
+      "step": 33,
+      "active": {
+        "tag": "IFRAME",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": "SK Chess Full Walkthrough Video",
+        "href": null,
+        "text": ""
+      }
+    },
+    {
+      "step": 34,
+      "active": {
+        "tag": "IFRAME",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": "SK Chess Full Walkthrough Video",
+        "href": null,
+        "text": ""
+      }
+    },
+    {
+      "step": 35,
+      "active": {
+        "tag": "IFRAME",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": "SK Chess Full Walkthrough Video",
+        "href": null,
+        "text": ""
+      }
+    },
+    {
+      "step": 36,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "https://www.dropbox.com/scl/fi/eysi6bvvbtz8gpu4g9hrs/sk_chess_v1.4.exe?rlkey=2mot0dqlhfvijuugtigs91exi&st=ez1l79r5&dl=1",
+        "text": "Click here"
+      }
+    },
+    {
+      "step": 37,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "https://youtube.com/@accessible-chess",
+        "text": "@accessible-chess"
+      }
+    },
+    {
+      "step": 38,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "mailto:contact.accessiblechess@gmail.com",
+        "text": "contact.accessiblechess@gmail.com"
+      }
+    },
+    {
+      "step": 39,
+      "active": {
+        "tag": "BODY",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": null,
+        "text": "Accessible Chess Position SK Chess: Accessible Chess Software SK Chess is a fully accessible chess software, where accessibility is our top priority. Designed to empower everyone, including visually impaired players, SK Chess ensures an inclusive and seamless experience for creating, viewing, and an"
+      }
+    },
+    {
+      "step": 40,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": "Accessible Chess Home",
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "/",
+        "text": ""
+      }
+    },
+    {
+      "step": 41,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": "Accessible Chess Position",
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "/fenreader",
+        "text": "Accessible Chess Position"
+      }
+    },
+    {
+      "step": 42,
+      "active": {
+        "tag": "IFRAME",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": "SK Chess Full Walkthrough Video",
+        "href": null,
+        "text": ""
+      }
+    },
+    {
+      "step": 43,
+      "active": {
+        "tag": "IFRAME",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": "SK Chess Full Walkthrough Video",
+        "href": null,
+        "text": ""
+      }
+    },
+    {
+      "step": 44,
+      "active": {
+        "tag": "IFRAME",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": "SK Chess Full Walkthrough Video",
+        "href": null,
+        "text": ""
+      }
+    },
+    {
+      "step": 45,
+      "active": {
+        "tag": "IFRAME",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": "SK Chess Full Walkthrough Video",
+        "href": null,
+        "text": ""
+      }
+    },
+    {
+      "step": 46,
+      "active": {
+        "tag": "IFRAME",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": "SK Chess Full Walkthrough Video",
+        "href": null,
+        "text": ""
+      }
+    },
+    {
+      "step": 47,
+      "active": {
+        "tag": "IFRAME",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": "SK Chess Full Walkthrough Video",
+        "href": null,
+        "text": ""
+      }
+    },
+    {
+      "step": 48,
+      "active": {
+        "tag": "IFRAME",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": "SK Chess Full Walkthrough Video",
+        "href": null,
+        "text": ""
+      }
+    },
+    {
+      "step": 49,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "https://www.dropbox.com/scl/fi/eysi6bvvbtz8gpu4g9hrs/sk_chess_v1.4.exe?rlkey=2mot0dqlhfvijuugtigs91exi&st=ez1l79r5&dl=1",
+        "text": "Click here"
+      }
+    },
+    {
+      "step": 50,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "https://youtube.com/@accessible-chess",
+        "text": "@accessible-chess"
+      }
+    },
+    {
+      "step": 51,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "mailto:contact.accessiblechess@gmail.com",
+        "text": "contact.accessiblechess@gmail.com"
+      }
+    },
+    {
+      "step": 52,
+      "active": {
+        "tag": "BODY",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": null,
+        "text": "Accessible Chess Position SK Chess: Accessible Chess Software SK Chess is a fully accessible chess software, where accessibility is our top priority. Designed to empower everyone, including visually impaired players, SK Chess ensures an inclusive and seamless experience for creating, viewing, and an"
+      }
+    },
+    {
+      "step": 53,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": "Accessible Chess Home",
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "/",
+        "text": ""
+      }
+    },
+    {
+      "step": 54,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": "Accessible Chess Position",
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "/fenreader",
+        "text": "Accessible Chess Position"
+      }
+    },
+    {
+      "step": 55,
+      "active": {
+        "tag": "IFRAME",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": "SK Chess Full Walkthrough Video",
+        "href": null,
+        "text": ""
+      }
+    },
+    {
+      "step": 56,
+      "active": {
+        "tag": "IFRAME",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": "SK Chess Full Walkthrough Video",
+        "href": null,
+        "text": ""
+      }
+    },
+    {
+      "step": 57,
+      "active": {
+        "tag": "IFRAME",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": "SK Chess Full Walkthrough Video",
+        "href": null,
+        "text": ""
+      }
+    },
+    {
+      "step": 58,
+      "active": {
+        "tag": "IFRAME",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": "SK Chess Full Walkthrough Video",
+        "href": null,
+        "text": ""
+      }
+    },
+    {
+      "step": 59,
+      "active": {
+        "tag": "IFRAME",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": "SK Chess Full Walkthrough Video",
+        "href": null,
+        "text": ""
+      }
+    },
+    {
+      "step": 60,
+      "active": {
+        "tag": "IFRAME",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": "SK Chess Full Walkthrough Video",
+        "href": null,
+        "text": ""
+      }
+    }
+  ],
+  "scenarios": {},
+  "errors": [],
+  "finishedAt": "2026-08-20T07:00:54.789Z"
+}

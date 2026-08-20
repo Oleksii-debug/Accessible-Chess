@@ -1,0 +1,24 @@
+﻿{
+    "startedAt":  "2026-08-20T06:59:17.3221949Z",
+    "product":  "Scid 5.2",
+    "source":  "https://downloads.sourceforge.net/project/scid/Scid/Scid%205.2/scid-v5.2.202603_windows_x64.zip",
+    "download":  {
+                     "bytes":  143226,
+                     "sha256":  "60E214E822E6E3B69E3341E9D1D86F1601DCBC1F72721356B7B46D42C29B22EE"
+                 },
+    "executable":  null,
+    "launch":  null,
+    "uia":  [
+
+            ],
+    "keyboard":  [
+
+                 ],
+    "errors":  [
+                   {
+                       "kind":  "download_or_extract",
+                       "text":  "Exception calling \".ctor\" with \"3\" argument(s): \"End of Central Directory record could not be found.\""
+                   }
+               ],
+    "finishedAt":  "2026-08-20T06:59:19.0801972Z"
+}
