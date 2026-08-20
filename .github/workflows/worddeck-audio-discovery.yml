@@ -5,6 +5,7 @@ on:
     branches: [worddeck-bootstrap]
     paths:
       - .github/workflows/worddeck-audio-discovery.yml
+      - .github/workflows/worddeck-audio.yml
 
 permissions:
   actions: read
@@ -16,20 +17,39 @@ jobs:
     runs-on: ubuntu-latest
     env:
       GH_TOKEN: ${{ github.token }}
-      TARGET_SHA: db950141433b1265165575a2db6471cae8855daa
+      TARGET_SHA: ${{ github.sha }}
     steps:
       - uses: actions/checkout@v4
-      - name: Find exact full-audio run
+      - name: Find and wait for exact full-audio run
         id: find
         shell: bash
         run: |
           set -euo pipefail
-          row="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow worddeck-audio.yml --branch worddeck-bootstrap --limit 30 --json databaseId,headSha,status,conclusion,createdAt,displayTitle | jq -c --arg sha "$TARGET_SHA" '[.[] | select(.headSha==$sha)] | sort_by(.createdAt) | reverse | .[0] // empty')"
-          test -n "$row"
-          echo "$row"
-          echo "run_id=$(jq -r .databaseId <<<"$row")" >> "$GITHUB_OUTPUT"
-          echo "status=$(jq -r .status <<<"$row")" >> "$GITHUB_OUTPUT"
-          echo "conclusion=$(jq -r '.conclusion // ""' <<<"$row")" >> "$GITHUB_OUTPUT"
+          run_id=''
+          status=''
+          conclusion=''
+          for _ in $(seq 1 120); do
+            row="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow worddeck-audio.yml --branch worddeck-bootstrap --limit 50 --json databaseId,headSha,status,conclusion,createdAt | jq -c --arg sha "$TARGET_SHA" '[.[] | select(.headSha==$sha)] | sort_by(.createdAt) | reverse | .[0] // empty')"
+            if [ -n "$row" ]; then
+              run_id="$(jq -r .databaseId <<<"$row")"
+              status="$(jq -r .status <<<"$row")"
+              conclusion="$(jq -r '.conclusion // ""' <<<"$row")"
+              break
+            fi
+            sleep 5
+          done
+          test -n "$run_id"
+          while [ "$status" != completed ]; do
+            sleep 15
+            json="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id")"
+            test "$(jq -r .head_sha <<<"$json")" = "$TARGET_SHA"
+            status="$(jq -r .status <<<"$json")"
+            conclusion="$(jq -r '.conclusion // ""' <<<"$json")"
+          done
+          echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+          echo "conclusion=$conclusion" >> "$GITHUB_OUTPUT"
+          echo "Exact audio run: $run_id $status/$conclusion on $TARGET_SHA"
       - name: Publish discovery status
         if: always()
         uses: actions/github-script@v7
