@@ -1,0 +1,76 @@
+{
+  "final_activated": 1004,
+  "final_remaining": 1134,
+  "rounds": [
+    {
+      "activated_after": 1002,
+      "blocked": 1136,
+      "checkpoints": [
+        {
+          "ordinal": 1,
+          "rows": 20,
+          "sha": "431fbf1ea03f07144138ba5824a35d535fb8bac6",
+          "windows_run_id": 32392306541
+        }
+      ],
+      "integrated": 20,
+      "pass": 20,
+      "remaining_after": 1136,
+      "remaining_before": 1156,
+      "round_id": "round01"
+    },
+    {
+      "activated_after": 1004,
+      "blocked": 1134,
+      "checkpoints": [
+        {
+          "ordinal": 1,
+          "rows": 2,
+          "sha": "ed746e576f8f441b4bf88e0818d79c641ea9118f",
+          "windows_run_id": 32394004535
+        }
+      ],
+      "integrated": 2,
+      "pass": 2,
+      "remaining_after": 1134,
+      "remaining_before": 1136,
+      "round_id": "round02"
+    },
+    {
+      "activated_after": 1004,
+      "blocked": 1134,
+      "checkpoints": [
+        {
+          "ordinal": 0,
+          "review_only": true,
+          "rows": 0,
+          "sha": "1c9220b1af81472172051882765bedc37ef37784",
+          "windows_run_id": 32395564129
+        }
+      ],
+      "integrated": 0,
+      "pass": 0,
+      "remaining_after": 1134,
+      "remaining_before": 1134,
+      "round_id": "round03"
+    },
+    {
+      "activated_after": 1004,
+      "blocked": 1134,
+      "checkpoints": [
+        {
+          "ordinal": 0,
+          "review_only": true,
+          "rows": 0,
+          "sha": "966c834d12ea98b148d5b6b2859e7119f28b5f25",
+          "windows_run_id": 32397167363
+        }
+      ],
+      "integrated": 0,
+      "pass": 0,
+      "remaining_after": 1134,
+      "remaining_before": 1134,
+      "round_id": "round04"
+    }
+  ]
+}
