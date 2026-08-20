@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import shutil
+import sys
 import time
 from pathlib import Path
 
@@ -30,14 +31,10 @@ def wait_windows_ci_v6(sha: str) -> tuple[dict, dict]:
     live_sha = branch.get("commit", {}).get("sha")
     if live_sha != sha:
         raise RuntimeError(f"V6 refuses CI dispatch for non-live head: expected {sha}, branch has {live_sha}")
-
-    # Bot-authored pushes do not recursively trigger push workflows. Explicit dispatch is mandatory.
     runner.run("gh", "workflow", "run", "worddeck-windows.yml", "--repo", runner.REPO, "--ref", "worddeck-bootstrap")
     run_id = None
     for _ in range(180):
-        payload = runner.gh_json(
-            f"repos/{runner.REPO}/actions/workflows/worddeck-windows.yml/runs?branch=worddeck-bootstrap&event=workflow_dispatch&per_page=50"
-        )
+        payload = runner.gh_json(f"repos/{runner.REPO}/actions/workflows/worddeck-windows.yml/runs?branch=worddeck-bootstrap&event=workflow_dispatch&per_page=50")
         for item in payload.get("workflow_runs", []):
             if item.get("head_sha") == sha and item.get("head_branch") == "worddeck-bootstrap":
                 run_id = int(item["id"])
@@ -47,7 +44,6 @@ def wait_windows_ci_v6(sha: str) -> tuple[dict, dict]:
         time.sleep(5)
     if not run_id:
         raise RuntimeError(f"V6 explicit dispatch produced no exact-head Windows run for {sha}")
-
     for _ in range(240):
         info = runner.gh_json(f"repos/{runner.REPO}/actions/runs/{run_id}")
         if info.get("head_sha") != sha or info.get("head_branch") != "worddeck-bootstrap" or info.get("event") != "workflow_dispatch":
@@ -153,23 +149,30 @@ def commit_review_only_v6(qadir: Path, round_id: str) -> str:
 
 
 def self_test_dispatch_contract() -> None:
-    # Regression: the V6 gate never searches only event=push; bot commits require workflow_dispatch.
     source = Path(__file__).read_text(encoding="utf-8")
+    forbidden = "event=" + "push"
     assert "event=workflow_dispatch" in source
     assert '"gh", "workflow", "run", "worddeck-windows.yml"' in source
-    assert "event=push" not in source
+    assert forbidden not in source
     print("V6 CI-dispatch regression passed: bot-authored checkpoints explicitly dispatch exact-head Windows workflow.")
 
 
-def main() -> int:
-    self_test_dispatch_contract()
+def install() -> None:
     runner.wait_windows_ci = wait_windows_ci_v6
     runner.rename_manual_slices = rename_manual_slices_v6
     runner.stage_review_evidence = stage_review_evidence_v6
     runner.integrate_round = integrate_round_v6
     runner.commit_review_only = commit_review_only_v6
+
+
+def main() -> int:
+    self_test_dispatch_contract()
+    install()
     return runner.main()
 
 
 if __name__ == "__main__":
+    if "--self-test-dispatch" in sys.argv:
+        self_test_dispatch_contract()
+        raise SystemExit(0)
     raise SystemExit(main())
