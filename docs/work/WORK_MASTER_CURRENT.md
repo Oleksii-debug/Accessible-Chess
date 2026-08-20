@@ -1,23 +1,23 @@
 # Accessible Chess — Work Master Current
 
-Updated: `2026-08-20T10:07:54Z`
+Updated: `2026-08-20T10:16:23Z`
 
 ## Recovery pointer
 
 - `CURRENT_BRANCH`: `completion/full-product-critical-path-20260819`
 - `START_SHA`: `588058634b378793b3c9aa0dca113af6b8a2dc8f`
-- `CURRENT_REMOTE_SHA`: `794e3bff14fe7243f07b0dfffbc0968f387c5001`
-- `LAST_SAFE_SHA`: `794e3bff14fe7243f07b0dfffbc0968f387c5001`
+- `CURRENT_REMOTE_SHA`: `c0aef81107e6fa399e1b3846d1314c70f9a9e7cf`
+- `LAST_SAFE_SHA`: `c0aef81107e6fa399e1b3846d1314c70f9a9e7cf`
 - `INTEGRATION_SHA`: `e8cd992d306975955784118364ce950963133d7e`
 - `QA_SHA`: `07971835cb8fc294996165e577913ed350ae9f0e`
 - `RESEARCH_SHA`: `0213f54f3f36fb30379f95c9979aea3a1cc41481`
-- `COMPLETION_SHA`: `794e3bff14fe7243f07b0dfffbc0968f387c5001`
+- `COMPLETION_SHA`: `c0aef81107e6fa399e1b3846d1314c70f9a9e7cf`
 - `COMPETITOR_EVIDENCE_BRANCH`: `research/competitor-interaction-lab-20260820`
 - `COMPETITOR_EVIDENCE_SHA`: `0213f54f3f36fb30379f95c9979aea3a1cc41481`
 - `CURRENT_STAGE1_STATE`: `BLOCKED — Issues #14 and #22 open; classification does not authorize a product-source change`
 - `CURRENT_OWNER`: `WORK_MASTER — completion/shared-core/spec/test hardening only; Windows QA remains QA-owned`
 - `CURRENT_PRIORITY`: `Highest-risk shared-core completion while Stage 1 remains ownership-gated`
-- `CURRENT_SUBSYSTEM`: fail-closed PGN provenance and duplicate evidence
+- `CURRENT_SUBSYSTEM`: canonical bounded GameTree navigation and editing
 - `STATUS`: `WIP_SAFE`
 - `NVDA_VERIFIED`: `NO`
 
@@ -74,6 +74,7 @@ Commit `11b92a1e827bf66f8075ac7f3571ae20b908c1af` added integrity-verified bound
 - Local legality-linker verification after `77a6640`: broad unittest `820/820` passed; focused legality/GameTree/chesscore/Stage1-core/architecture `74 tests`, `88 subtests` passed. Standard and SetUp/FEN starts, correct pre-parent RAV positions, illegal-mainline isolation, coordinate/noncanonical SAN, move-number warnings, castling, en passant, promotion, check/checkmate, forced results, recovery separation, cycle/reuse and node bounds are proven without mutating GameTree.
 - Local legality-persistence verification after `f559a56`: broad unittest `824/824` passed; focused legality/GameTree/PGN/concurrency/ACSDB/identity/import/duplicate/architecture `120 tests`, `172 subtests` passed. Full pytest is `904 passed`, `1499 subtests`, with exactly the two unchanged Stage1 PRODUCT failures. Mixed inspection yields DAMAGED/WARNING/FULL independently; illegal mixed imports and direct store fail atomically with a recorded attempt; coordinate SAN persists as warning evidence.
 - Local PGN provenance verification after `794e3bf`: broad unittest `828/828` passed; focused ACSDB/duplicate/identity/legality `62 tests`, `68 subtests` passed. Full pytest is `913 passed`, `1499 subtests`, with exactly the two unchanged Stage1 PRODUCT failures. Raw overrides must be one clean, legal, record-identical game; warning-only equivalent source bytes retain diagnostics; illegal incoming duplicate collections fail before any claim; illegal legacy rows are explicitly skipped; exact-source SHA evidence is unchanged.
+- Local GameTree-navigation verification after `c0aef81`: broad unittest `836/836` passed; focused navigation/GameTree/legality/architecture `47 tests`, `71 subtests` passed. Full pytest is `921 passed`, `1512 subtests`, with exactly the two unchanged Stage1 PRODUCT failures. The adapted legacy cursor now uses the canonical legality path type, exact scalar/tuple boundaries, deterministic nested enter/leave return, immutable addresses and explicit cycle/reuse/depth/node guards without mutating round-trip content.
 - Competitor lab run `32342624286`: five jobs completed successfully and published compact evidence to `0213f54...`.
 
 ## Known failures and blockers
@@ -83,11 +84,10 @@ Commit `11b92a1e827bf66f8075ac7f3571ae20b908c1af` added integrity-verified bound
 3. Strict Windows run `32220453450`: BLOCKED / NO PRODUCT ATTRIBUTION YET at native Ctrl+A/Ctrl+C; QA owns the focused evidence pass.
 4. Canonical ChessBase CBG move/variation/annotation decoding remains `UNSUPPORTED`; real licensed fixture corpus is absent; CBV/CBF/2CBH/CBONE content remains `UNSUPPORTED`.
 5. Full licensed ChessBase/Fritz interactive/NVDA execution remains unavailable. Robot evidence must not be labelled `NVDA_VERIFIED`.
-6. Canonical GameTree editing/navigation operations (promote, reorder, delete,
-   deterministic branch return) are not yet exposed as one bounded immutable
-   service with adversarial state-restoration tests. Parser/import/persistence
-   trust boundaries are now fail closed, but this editing layer remains before
-   PGN/GameTree can be declared complete.
+6. Canonical navigation and deterministic branch return are now bounded and
+   immutable. Promote/reorder/delete still need a copy-on-write editing service
+   that preserves exact surviving-node cursor context and proves atomic failure;
+   this is the remaining GameTree core gap before fuzz/property coverage.
 
 ## Current ownership and invariants
 
@@ -100,10 +100,11 @@ Commit `11b92a1e827bf66f8075ac7f3571ae20b908c1af` added integrity-verified bound
 
 ## Next exact action
 
-Commit and checkpoint fail-closed raw PGN and duplicate evidence, then finish
-the dependency-safe GameTree editing/navigation contract: immutable stable node
-paths, promote/reorder/delete, exact branch-return context, cycle/reuse/depth
-guards, atomic failure, and round-trip/property-style tests over nested sibling
-RAVs. Do not change the Stage 1 product or QA line. If Issue #14 transfers a
+Commit and checkpoint canonical bounded GameTree navigation, then implement the
+copy-on-write editing contract: promote/reorder/delete one addressed RAV,
+return a deterministic cursor remap for every surviving context, reject stale
+or invalid paths atomically, preserve tags/comments/NAG/result/recovery evidence,
+and prove nested-sibling round trips plus adversarial graph bounds. Do not change
+the Stage 1 product or QA line. If Issue #14 transfers a
 PRODUCT fix, stop shared-core work and make the minimum central rank/file Action
 Registry plus live-Help repair before returning the exact SHA to QA.

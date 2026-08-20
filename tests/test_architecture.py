@@ -15,6 +15,7 @@ CORE_MODULES = (
     'acs/history.py',
     'acs/gametree.py',
     'acs/gametree_legality.py',
+    'acs/gametree_navigation.py',
     'acs/pgn.py',
     'acs/pgn_service.py',
     'acs/bookdocument.py',
@@ -135,6 +136,7 @@ class ArchitectureBoundaryTests(unittest.TestCase):
             'acs/game_identity.py',
             'acs/gametree.py',
             'acs/gametree_legality.py',
+            'acs/gametree_navigation.py',
             'acs/interaction_contracts.py',
             'acs/interaction_router.py',
         }

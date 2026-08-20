@@ -22,6 +22,7 @@ from .gametree import (
     RESULTS,
     VariationLine,
 )
+from .gametree_navigation import VariationStep
 
 
 class LegalityContractCode(str, Enum):
@@ -61,18 +62,6 @@ class MoveLinkStatus(str, Enum):
     LEGAL_NONCANONICAL = "legal_noncanonical"
     ILLEGAL = "illegal"
     UNVERIFIED = "unverified"
-
-
-@dataclass(frozen=True, slots=True)
-class VariationStep:
-    parent_move_index: int
-    variation_index: int
-
-    def __post_init__(self) -> None:
-        if type(self.parent_move_index) is not int or self.parent_move_index < 0:
-            raise TypeError("parent_move_index must be a non-negative exact integer")
-        if type(self.variation_index) is not int or self.variation_index < 0:
-            raise TypeError("variation_index must be a non-negative exact integer")
 
 
 @dataclass(frozen=True, slots=True)

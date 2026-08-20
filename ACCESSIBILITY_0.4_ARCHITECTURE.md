@@ -10,6 +10,11 @@ The existing 0.3.x architecture note already warned that Tkinter had not establi
 
 The Windows presentation layer moves to semantic HTML hosted in Edge/WebView2. The chess core, PGN, engine adapter and storage remain ordinary Python modules.
 
+PGN structure, legality links, and navigation are separate neutral services over
+the same canonical `PgnGame`. `acs.gametree_navigation` exposes bounded immutable
+paths/cursors and exact RAV return context; it does not flatten or duplicate the
+GameTree for accessibility presentation.
+
 The UI uses ordinary HTML headings, text, buttons, edit fields, labels, live regions and landmarks so the screen reader consumes a real document instead of a canvas/listbox simulation.
 
 ## NVDA interaction contract
