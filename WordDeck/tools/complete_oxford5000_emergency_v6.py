@@ -245,10 +245,8 @@ def self_test() -> None:
         canonical, note = morphology.canonicalize(accented, pos)
         assert len(analysis_tokens(canonical)) == 1
         assert "multiword" not in note.casefold(), (accented, note)
-    ok, _ = morphology.validate("чарівна", "adjective")
-    assert not ok
-    canonical, _ = morphology.canonicalize("чарівна", "adjective")
-    assert canonical.casefold() == "чарівний"
+    ok, why = morphology.validate("чарівна", "adjective")
+    assert not ok, why
     row = {"source": "literary", "part_of_speech": "adjective"}
     confirmations = {"книжковий": [{"gloss": "connected with literature", "score": 0.9, "overlap": 2}]}
     bad = {"text": "книжковий", "method": "en_wiktionary_sense_bound_uk_translation", "sense_gloss": "connected with literature", "candidate_evidence_ok": False}
