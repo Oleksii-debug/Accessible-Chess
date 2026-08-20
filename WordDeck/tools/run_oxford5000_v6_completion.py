@@ -21,6 +21,8 @@ def run_v6(*args: str, capture: bool = False) -> str:
         if arg == "WordDeck/tools/complete_oxford5000_emergency_v5.py" else arg
         for arg in args
     )
+    if rewritten == ("python", "WordDeck/tools/complete_oxford5000_emergency_v6.py", "--self-test"):
+        rewritten = ("python", "WordDeck/tools/test_oxford5000_emergency_v6.py")
     return ORIGINAL_RUN(*rewritten, capture=capture)
 
 runner.run = run_v6
