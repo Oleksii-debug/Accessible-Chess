@@ -1,23 +1,23 @@
 # Accessible Chess — Work Master Current
 
-Updated: `2026-08-20T10:31:03Z`
+Updated: `2026-08-20T11:02:12Z`
 
 ## Recovery pointer
 
 - `CURRENT_BRANCH`: `completion/full-product-critical-path-20260819`
 - `START_SHA`: `588058634b378793b3c9aa0dca113af6b8a2dc8f`
-- `CURRENT_REMOTE_SHA`: `2af1311e412e4fc5163b8fbb7549a2fdc86d2696`
-- `LAST_SAFE_SHA`: `2af1311e412e4fc5163b8fbb7549a2fdc86d2696`
+- `CURRENT_REMOTE_SHA`: `2fea86a65874c033fbe357f9e17d6a0026798785`
+- `LAST_SAFE_SHA`: `2fea86a65874c033fbe357f9e17d6a0026798785`
 - `INTEGRATION_SHA`: `e8cd992d306975955784118364ce950963133d7e`
 - `QA_SHA`: `07971835cb8fc294996165e577913ed350ae9f0e`
 - `RESEARCH_SHA`: `0213f54f3f36fb30379f95c9979aea3a1cc41481`
-- `COMPLETION_SHA`: `2af1311e412e4fc5163b8fbb7549a2fdc86d2696`
+- `COMPLETION_SHA`: `2fea86a65874c033fbe357f9e17d6a0026798785`
 - `COMPETITOR_EVIDENCE_BRANCH`: `research/competitor-interaction-lab-20260820`
 - `COMPETITOR_EVIDENCE_SHA`: `0213f54f3f36fb30379f95c9979aea3a1cc41481`
 - `CURRENT_STAGE1_STATE`: `BLOCKED — Issues #14 and #22 open; classification does not authorize a product-source change`
 - `CURRENT_OWNER`: `WORK_MASTER — completion/shared-core/spec/test hardening only; Windows QA remains QA-owned`
 - `CURRENT_PRIORITY`: `Highest-risk shared-core completion while Stage 1 remains ownership-gated`
-- `CURRENT_SUBSYSTEM`: ChessBase proprietary-format evidence boundary
+- `CURRENT_SUBSYSTEM`: ACSDB v3 migration, rollback and recovery boundary
 - `STATUS`: `WIP_SAFE`
 - `NVDA_VERIFIED`: `NO`
 
@@ -45,14 +45,13 @@ All four branch heads were verified live with `git ls-remote` on 2026-08-20. Git
 
 ## Last safe product result
 
-Commit `11b92a1e827bf66f8075ac7f3571ae20b908c1af` added integrity-verified bounded ChessBase evidence windows:
+Commit `2fea86a65874c033fbe357f9e17d6a0026798785` completed the bounded classic ChessBase evidence stack without making unsupported chess claims:
 
-- maximum 1024 CBH records per call;
-- required read-only CBG/CBP/CBT companions;
-- bounded exact payload/record reads;
-- pre/post SHA-256 snapshots of the complete source family;
-- per-record fault isolation;
-- fail-closed `decoder_available=false` and `safe_to_import=false`.
+- exact CBG payload/source offsets and SHA-256 are revalidated;
+- one-byte, two-byte and variation-control frames retain their raw evidence;
+- counter wrap, balanced nesting, final termination and resource limits fail closed;
+- no piece, square, SAN, FEN, legality or GameTree meaning is inferred;
+- `decoder_available=false` and `safe_to_import=false` remain mandatory.
 
 `STAGE1_RELEASE_IMPACT=NONE`; `DATA_MIGRATION_IMPACT=NONE`.
 
@@ -77,6 +76,7 @@ Commit `11b92a1e827bf66f8075ac7f3571ae20b908c1af` added integrity-verified bound
 - Local GameTree-navigation verification after `c0aef81`: broad unittest `836/836` passed; focused navigation/GameTree/legality/architecture `47 tests`, `71 subtests` passed. Full pytest is `921 passed`, `1512 subtests`, with exactly the two unchanged Stage1 PRODUCT failures. The adapted legacy cursor now uses the canonical legality path type, exact scalar/tuple boundaries, deterministic nested enter/leave return, immutable addresses and explicit cycle/reuse/depth/node guards without mutating round-trip content.
 - Local GameTree-editing verification after `5609dcc`: broad unittest `844/844` passed; focused editing/navigation/GameTree/legality/identity/architecture `64 tests`, `85 subtests` passed. Full pytest is `929 passed`, `1526 subtests`, with exactly the two unchanged Stage1 PRODUCT failures. Promote/reorder/delete are copy-on-write and stale-revision protected; every source cursor receives a deterministic valid remap or explicit deletion; comments/NAG/results/warnings/recovery survive and edited clean games retain round-trip record identity.
 - Local generated GameTree-corpus verification after `2af1311`: broad unittest `849/849` passed; generated corpus `5 tests`, `156 subtests` passed. Full pytest is `934 passed`, `1682 subtests`, with exactly the two unchanged Stage1 PRODUCT failures. Sixty-four generated nested/sibling trees retain record identity and stable addresses; generated and chained edits have total composable cursor maps; repeated malformed delimiters remain blockers; forced small token/node/depth envelopes raise exact domain codes.
+- Local CBG token-framing verification at `2fea86a`: focused CBG/capability/architecture `22/22` passed; broad unittest `859/859` passed with one existing skip; full pytest is `944 passed`, `1959 subtests`, with exactly the same two unchanged Stage1 PRODUCT failures; compileall and `git diff --check` passed.
 - Competitor lab run `32342624286`: five jobs completed successfully and published compact evidence to `0213f54...`.
 
 ## Known failures and blockers
@@ -102,12 +102,11 @@ Commit `11b92a1e827bf66f8075ac7f3571ae20b908c1af` added integrity-verified bound
 
 ## Next exact action
 
-Commit and checkpoint the generated PGN/GameTree adversarial corpus, then move
-immediately to the ChessBase read-only evidence boundary. Compare the current
-modules against `integration/data-forward-vertical-20260816`, preserve the
-current integrity window and pinned MIT attribution, identify the smallest
-still-missing evidence-backed binary slice, and stop rather than infer any
-undocumented move semantics. Do not change the Stage 1 product or QA line. If
-Issue #14 transfers a
-PRODUCT fix, stop shared-core work and make the minimum central rank/file Action
-Registry plus live-Help repair before returning the exact SHA to QA.
+Port ACSDB v3 from `integration/data-forward-acsdb-v3` as a bounded migration,
+not a wholesale merge. Preserve every current v2 exact-type, legality,
+provenance, literal-search and transaction invariant; add deterministic catalog
+identities, backup-before-migration, rollback/recovery evidence and failure
+atomicity before enabling v3 import/search surfaces. Do not change the Stage 1
+product or QA line. If Issue #14 transfers a PRODUCT fix, stop shared-core work
+and make the minimum central rank/file Action Registry plus live-Help repair
+before returning the exact SHA to QA.
