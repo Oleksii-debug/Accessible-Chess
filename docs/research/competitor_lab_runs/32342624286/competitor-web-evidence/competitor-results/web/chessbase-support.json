@@ -1,0 +1,1575 @@
+{
+  "target": {
+    "id": "chessbase-support",
+    "url": "https://support.chessbase.com/en/downloads"
+  },
+  "startedAt": "2026-08-20T07:10:54.547Z",
+  "navigation": {
+    "status": 200,
+    "ok": true
+  },
+  "title": "downloads - FrontPage",
+  "finalUrl": "https://support.chessbase.com/en/downloads",
+  "surfaceBefore": {
+    "headings": [
+      {
+        "tag": "H1",
+        "text": "Downloads"
+      },
+      {
+        "tag": "H3",
+        "text": ""
+      },
+      {
+        "tag": "H3",
+        "text": "The ChessBase Product-Installer"
+      },
+      {
+        "tag": "H3",
+        "text": "The ultimate chess experience. Try it out now!"
+      },
+      {
+        "tag": "H3",
+        "text": "ChessBase Reader 2017"
+      },
+      {
+        "tag": "H3",
+        "text": "Manuals"
+      }
+    ],
+    "landmarks": [
+      {
+        "tag": "NAV",
+        "role": null,
+        "ariaLabel": null,
+        "ariaLabelledBy": null,
+        "text": "ChessBase Support Center Languages: de en Home Shop News Downloads LOGIN Search"
+      },
+      {
+        "tag": "FOOTER",
+        "role": null,
+        "ariaLabel": null,
+        "ariaLabelledBy": null,
+        "text": "© 2023 - Support Center | ChessBase GmbH | Osterbekstr. 90a |22083 Hamburg | Germany | Privacy"
+      }
+    ],
+    "interactives": [
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "/index",
+        "text": ""
+      },
+      {
+        "tag": "BUTTON",
+        "type": "button",
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": "Toggle navigation",
+        "ariaExpanded": "false",
+        "ariaSelected": null,
+        "ariaControls": "navbarSupportedContent",
+        "title": null,
+        "href": null,
+        "text": ""
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "/de",
+        "text": "de"
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "/en",
+        "text": "en"
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "/en/index",
+        "text": "Home"
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "https://shop.chessbase.com/en/",
+        "text": "Shop"
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "https://en.chessbase.com/",
+        "text": "News"
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "https://downloads.chessbase.com/en",
+        "text": "Downloads"
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "/en/login",
+        "text": "LOGIN"
+      },
+      {
+        "tag": "INPUT",
+        "type": null,
+        "role": null,
+        "id": "SearchTag",
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": null,
+        "text": ""
+      },
+      {
+        "tag": "INPUT",
+        "type": "search",
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": null,
+        "text": ""
+      },
+      {
+        "tag": "INPUT",
+        "type": "submit",
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": null,
+        "text": ""
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "https://downloads.chessbase.com/en",
+        "text": "Download"
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "https://download.chessbase.com/download/playchess/PlayChessV9Setup.exe",
+        "text": "Try out playchess.com free of charge and without any obligation."
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "https://download.chessbase.com/download/chessbasereader/Reader2017Setup_x86.msi",
+        "text": "Free download available here."
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "https://download.chessbase.com/download/pdf/cb18-eng.pdf",
+        "text": "ChessBase 18"
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "https://download.chessbase.com/download/pdf/cb17-eng.pdf",
+        "text": "ChessBase 17"
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "https://download.chessbase.com/download/pdf/cb16-eng.pdf",
+        "text": "ChessBase 16"
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "https://download.chessbase.com/download/pdf/chessbase16-firststeps.pdf",
+        "text": "ChessBase 16 First Steps"
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "https://download.chessbase.com/download/pdf/ChessBase16_cn.pdf",
+        "text": "ChessBase 16 First Steps Chinese"
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "https://help.chessbase.com/cb16-fra.pdf",
+        "text": "ChessBase 16 French"
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "https://download.chessbase.com/download/pdf/CB16-ita.pdf",
+        "text": "ChessBase 16 Italian"
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "https://download.chessbase.com/download/pdf/CB16-ned.pdf",
+        "text": "ChessBase 16 Dutch"
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "http://help.chessbase.com/cb15_eng.pdf",
+        "text": "ChessBase 15"
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "https://download.chessbase.com/download/pdf/cb15/FirstStepsChessBase15.pdf",
+        "text": "ChessBase 15 First Steps"
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "http://help.chessbase.com/cb14-eng.pdf",
+        "text": "ChessBase 14"
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "https://download.chessbase.com/download/pdf/ChessBase14-FirstSteps.pdf",
+        "text": "ChessBase 14 First Steps"
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "https://help.chessbase.com/f19-eng.pdf",
+        "text": "Fritz 19"
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "https://help.chessbase.com/pdf/FirstStepswithPowerFritz18.pdf",
+        "text": "First steps with PowerFritz 18"
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "https://help.chessbase.com/f18-eng.pdf",
+        "text": "Fritz18"
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "http://help.chessbase.com/F17-eng.pdf",
+        "text": "Fritz17"
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "http://help.chessbase.com/Fritz16-eng.pdf",
+        "text": "Fritz16"
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "https://download.chessbase.com/download/pdf/ChessBaseAccountFirstSteps.pdf",
+        "text": "ChessBase Account First Steps"
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "http://help.chessbase.com/webapps-eng.pdf",
+        "text": "ChessBase Account"
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "/Home/Privacy",
+        "text": "Privacy"
+      }
+    ],
+    "ariaSnapshot": "- navigation:\n  - link:\n    - /url: /index\n    - img\n  - text: \"ChessBase Support Center Languages:\"\n  - link \"de\":\n    - /url: /de\n  - link \"en\":\n    - /url: /en\n  - list:\n    - listitem:\n      - link \"Home\":\n        - /url: /en/index\n    - listitem:\n      - link \"Shop\":\n        - /url: https://shop.chessbase.com/en/\n    - listitem:\n      - link \"News\":\n        - /url: https://en.chessbase.com/\n    - listitem:\n      - link \"Downloads\":\n        - /url: https://downloads.chessbase.com/en\n  - link \"Login\":\n    - /url: /en/login\n    - img\n    - text: Login\n  - text: Search\n  - searchbox \"Find answers\"\n  - button \"=>\"\n- heading \"Downloads\" [level=1]\n- heading [level=3]\n- heading \"The ChessBase Product-Installer\" [level=3]\n- paragraph\n- paragraph:\n  - text: \"Have you purchased a ChessBase software booklet with a printed serial number? Download the product installer here:\"\n  - link \"Download\":\n    - /url: https://downloads.chessbase.com/en\n- heading \"The ultimate chess experience. Try it out now!\" [level=3]\n- paragraph\n- text: If there is one place to play online chess, this is it! On Playchess.com, the world’s biggest chess server, you will find 20,000 chess lovers every day, from all over the world. You will immediately be able to find an opponent of your own playing strength, or if you fancy watching, you can kibitz grandmaster games and follow world class tournaments. Why not attend a training lesson or take part in a simultaneous exhibition against a grandmaster while you're at it? There is a room for beginners and hobby players, where you can also play without a chess clock.\n- strong\n- link \"Try out playchess.com free of charge and without any obligation.\":\n  - /url: https://download.chessbase.com/download/playchess/PlayChessV9Setup.exe\n  - strong: Try out playchess.com free of charge and without any obligation.\n- heading \"ChessBase Reader 2017\" [level=3]\n- paragraph\n- paragraph:\n  - text: ChessBase Reader 2017. The new ChessBase Reader conveniently displays all installed databases and training titles - with a modern menu ribbon look. With the free ChessBase reader, you can open all standard file formats (.cbh, .cbf, .pgn), play through games on a stunningly rendered board, watch ChessBase training videos and much more. Download it for free now!\n  - strong:\n    - link \"Free download available here.\":\n      - /url: https://download.chessbase.com/download/chessbasereader/Reader2017Setup_x86.msi\n- heading \"Manuals\" [level=3]\n- paragraph:\n  - link \"ChessBase 18\":\n    - /url: https://download.chessbase.com/download/pdf/cb18-eng.pdf\n  - link \"ChessBase 17\":\n    - /url: https://download.chessbase.com/download/pdf/cb17-eng.pdf\n  - link \"ChessBase 16\":\n    - /url: https://download.chessbase.com/download/pdf/cb16-eng.pdf\n  - link \"ChessBase 16 First Steps\":\n    - /url: https://download.chessbase.com/download/pdf/chessbase16-firststeps.pdf\n  - link \"ChessBase 16 First Steps Chinese\":\n    - /url: https://download.chessbase.com/download/pdf/ChessBase16_cn.pdf\n  - link \"ChessBase 16 French\":\n    - /url: https://help.chessbase.com/cb16-fra.pdf\n  - link \"ChessBase 16 Italian\":\n    - /url: https://download.chessbase.com/download/pdf/CB16-ita.pdf\n  - link \"ChessBase 16 Dutch\":\n    - /url: https://download.chessbase.com/download/pdf/CB16-ned.pdf\n  - link \"ChessBase 15\":\n    - /url: http://help.chessbase.com/cb15_eng.pdf\n  - link \"ChessBase 15 First Steps\":\n    - /url: https://download.chessbase.com/download/pdf/cb15/FirstStepsChessBase15.pdf\n  - link \"ChessBase 14\":\n    - /url: http://help.chessbase.com/cb14-eng.pdf\n  - link \"ChessBase 14 First Steps\":\n    - /url: https://download.chessbase.com/download/pdf/ChessBase14-FirstSteps.pdf\n  - link \"Fritz 19\":\n    - /url: https://help.chessbase.com/f19-eng.pdf\n  - link \"First steps with PowerFritz 18\":\n    - /url: https://help.chessbase.com/pdf/FirstStepswithPowerFritz18.pdf\n  - link \"Fritz18\":\n    - /url: https://help.chessbase.com/f18-eng.pdf\n  - link \"Fritz17\":\n    - /url: http://help.chessbase.com/F17-eng.pdf\n  - link \"Fritz16\":\n    - /url: http://help.chessbase.com/Fritz16-eng.pdf\n  - link \"ChessBase Account First Steps\":\n    - /url: https://download.chessbase.com/download/pdf/ChessBaseAccountFirstSteps.pdf\n  - link \"ChessBase Account\":\n    - /url: http://help.chessbase.com/webapps-eng.pdf\n- contentinfo:\n  - text: © 2023 - Support Center | ChessBase GmbH | Osterbekstr. 90a |22083 Hamburg | Germany |\n  - link \"Privacy\":\n    - /url: /Home/Privacy"
+  },
+  "tabSequenceBefore": [
+    {
+      "step": 1,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "/index",
+        "text": ""
+      }
+    },
+    {
+      "step": 2,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "/de",
+        "text": "de"
+      }
+    },
+    {
+      "step": 3,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "/en",
+        "text": "en"
+      }
+    },
+    {
+      "step": 4,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "/en/index",
+        "text": "Home"
+      }
+    },
+    {
+      "step": 5,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "https://shop.chessbase.com/en/",
+        "text": "Shop"
+      }
+    },
+    {
+      "step": 6,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "https://en.chessbase.com/",
+        "text": "News"
+      }
+    },
+    {
+      "step": 7,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "https://downloads.chessbase.com/en",
+        "text": "Downloads"
+      }
+    },
+    {
+      "step": 8,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "/en/login",
+        "text": "LOGIN"
+      }
+    },
+    {
+      "step": 9,
+      "active": {
+        "tag": "INPUT",
+        "type": "search",
+        "role": null,
+        "id": null,
+        "name": "searchString",
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": null,
+        "text": ""
+      }
+    },
+    {
+      "step": 10,
+      "active": {
+        "tag": "INPUT",
+        "type": "submit",
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": null,
+        "text": ""
+      }
+    },
+    {
+      "step": 11,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "https://downloads.chessbase.com/en",
+        "text": "Download"
+      }
+    },
+    {
+      "step": 12,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "https://download.chessbase.com/download/playchess/PlayChessV9Setup.exe",
+        "text": "Try out playchess.com free of charge and without any obligation."
+      }
+    },
+    {
+      "step": 13,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "https://download.chessbase.com/download/chessbasereader/Reader2017Setup_x86.msi",
+        "text": "Free download available here."
+      }
+    },
+    {
+      "step": 14,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "https://download.chessbase.com/download/pdf/cb18-eng.pdf",
+        "text": "ChessBase 18"
+      }
+    },
+    {
+      "step": 15,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "https://download.chessbase.com/download/pdf/cb17-eng.pdf",
+        "text": "ChessBase 17"
+      }
+    },
+    {
+      "step": 16,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "https://download.chessbase.com/download/pdf/cb16-eng.pdf",
+        "text": "ChessBase 16"
+      }
+    },
+    {
+      "step": 17,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "https://download.chessbase.com/download/pdf/chessbase16-firststeps.pdf",
+        "text": "ChessBase 16 First Steps"
+      }
+    },
+    {
+      "step": 18,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "https://download.chessbase.com/download/pdf/ChessBase16_cn.pdf",
+        "text": "ChessBase 16 First Steps Chinese"
+      }
+    },
+    {
+      "step": 19,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "https://help.chessbase.com/cb16-fra.pdf",
+        "text": "ChessBase 16 French"
+      }
+    },
+    {
+      "step": 20,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "https://download.chessbase.com/download/pdf/CB16-ita.pdf",
+        "text": "ChessBase 16 Italian"
+      }
+    },
+    {
+      "step": 21,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "https://download.chessbase.com/download/pdf/CB16-ned.pdf",
+        "text": "ChessBase 16 Dutch"
+      }
+    },
+    {
+      "step": 22,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "http://help.chessbase.com/cb15_eng.pdf",
+        "text": "ChessBase 15"
+      }
+    },
+    {
+      "step": 23,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "https://download.chessbase.com/download/pdf/cb15/FirstStepsChessBase15.pdf",
+        "text": "ChessBase 15 First Steps"
+      }
+    },
+    {
+      "step": 24,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "http://help.chessbase.com/cb14-eng.pdf",
+        "text": "ChessBase 14"
+      }
+    },
+    {
+      "step": 25,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "https://download.chessbase.com/download/pdf/ChessBase14-FirstSteps.pdf",
+        "text": "ChessBase 14 First Steps"
+      }
+    },
+    {
+      "step": 26,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "https://help.chessbase.com/f19-eng.pdf",
+        "text": "Fritz 19"
+      }
+    },
+    {
+      "step": 27,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "https://help.chessbase.com/pdf/FirstStepswithPowerFritz18.pdf",
+        "text": "First steps with PowerFritz 18"
+      }
+    },
+    {
+      "step": 28,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "https://help.chessbase.com/f18-eng.pdf",
+        "text": "Fritz18"
+      }
+    },
+    {
+      "step": 29,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "http://help.chessbase.com/F17-eng.pdf",
+        "text": "Fritz17"
+      }
+    },
+    {
+      "step": 30,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "http://help.chessbase.com/Fritz16-eng.pdf",
+        "text": "Fritz16"
+      }
+    },
+    {
+      "step": 31,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "https://download.chessbase.com/download/pdf/ChessBaseAccountFirstSteps.pdf",
+        "text": "ChessBase Account First Steps"
+      }
+    },
+    {
+      "step": 32,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "http://help.chessbase.com/webapps-eng.pdf",
+        "text": "ChessBase Account"
+      }
+    },
+    {
+      "step": 33,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "/Home/Privacy",
+        "text": "Privacy"
+      }
+    },
+    {
+      "step": 34,
+      "active": {
+        "tag": "BODY",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": null,
+        "text": "ChessBase Support Center Languages: de en Home Shop News Downloads LOGIN Search Downloads The ChessBase Product-Installer Have you purchased a ChessBase software booklet with a printed serial number? Download the product installer here: Download The ultimate chess experience. Try it out now! If ther"
+      }
+    },
+    {
+      "step": 35,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "/index",
+        "text": ""
+      }
+    },
+    {
+      "step": 36,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "/de",
+        "text": "de"
+      }
+    },
+    {
+      "step": 37,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "/en",
+        "text": "en"
+      }
+    },
+    {
+      "step": 38,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "/en/index",
+        "text": "Home"
+      }
+    },
+    {
+      "step": 39,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "https://shop.chessbase.com/en/",
+        "text": "Shop"
+      }
+    },
+    {
+      "step": 40,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "https://en.chessbase.com/",
+        "text": "News"
+      }
+    },
+    {
+      "step": 41,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "https://downloads.chessbase.com/en",
+        "text": "Downloads"
+      }
+    },
+    {
+      "step": 42,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "/en/login",
+        "text": "LOGIN"
+      }
+    },
+    {
+      "step": 43,
+      "active": {
+        "tag": "INPUT",
+        "type": "search",
+        "role": null,
+        "id": null,
+        "name": "searchString",
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": null,
+        "text": ""
+      }
+    },
+    {
+      "step": 44,
+      "active": {
+        "tag": "INPUT",
+        "type": "submit",
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": null,
+        "text": ""
+      }
+    },
+    {
+      "step": 45,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "https://downloads.chessbase.com/en",
+        "text": "Download"
+      }
+    },
+    {
+      "step": 46,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "https://download.chessbase.com/download/playchess/PlayChessV9Setup.exe",
+        "text": "Try out playchess.com free of charge and without any obligation."
+      }
+    },
+    {
+      "step": 47,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "https://download.chessbase.com/download/chessbasereader/Reader2017Setup_x86.msi",
+        "text": "Free download available here."
+      }
+    },
+    {
+      "step": 48,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "https://download.chessbase.com/download/pdf/cb18-eng.pdf",
+        "text": "ChessBase 18"
+      }
+    },
+    {
+      "step": 49,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "https://download.chessbase.com/download/pdf/cb17-eng.pdf",
+        "text": "ChessBase 17"
+      }
+    },
+    {
+      "step": 50,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "https://download.chessbase.com/download/pdf/cb16-eng.pdf",
+        "text": "ChessBase 16"
+      }
+    },
+    {
+      "step": 51,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "https://download.chessbase.com/download/pdf/chessbase16-firststeps.pdf",
+        "text": "ChessBase 16 First Steps"
+      }
+    },
+    {
+      "step": 52,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "https://download.chessbase.com/download/pdf/ChessBase16_cn.pdf",
+        "text": "ChessBase 16 First Steps Chinese"
+      }
+    },
+    {
+      "step": 53,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "https://help.chessbase.com/cb16-fra.pdf",
+        "text": "ChessBase 16 French"
+      }
+    },
+    {
+      "step": 54,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "https://download.chessbase.com/download/pdf/CB16-ita.pdf",
+        "text": "ChessBase 16 Italian"
+      }
+    },
+    {
+      "step": 55,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "https://download.chessbase.com/download/pdf/CB16-ned.pdf",
+        "text": "ChessBase 16 Dutch"
+      }
+    },
+    {
+      "step": 56,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "http://help.chessbase.com/cb15_eng.pdf",
+        "text": "ChessBase 15"
+      }
+    },
+    {
+      "step": 57,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "https://download.chessbase.com/download/pdf/cb15/FirstStepsChessBase15.pdf",
+        "text": "ChessBase 15 First Steps"
+      }
+    },
+    {
+      "step": 58,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "http://help.chessbase.com/cb14-eng.pdf",
+        "text": "ChessBase 14"
+      }
+    },
+    {
+      "step": 59,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "https://download.chessbase.com/download/pdf/ChessBase14-FirstSteps.pdf",
+        "text": "ChessBase 14 First Steps"
+      }
+    },
+    {
+      "step": 60,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "https://help.chessbase.com/f19-eng.pdf",
+        "text": "Fritz 19"
+      }
+    }
+  ],
+  "scenarios": {},
+  "errors": [],
+  "finishedAt": "2026-08-20T07:11:01.287Z"
+}

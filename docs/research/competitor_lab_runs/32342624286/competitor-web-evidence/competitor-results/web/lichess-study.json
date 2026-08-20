@@ -1,0 +1,2566 @@
+{
+  "target": {
+    "id": "lichess-study",
+    "url": "https://lichess.org/study",
+    "enableLichessBlindMode": true
+  },
+  "startedAt": "2026-08-20T07:10:15.777Z",
+  "navigation": {
+    "status": 200,
+    "ok": true
+  },
+  "title": "All studies • lichess.org",
+  "finalUrl": "https://lichess.org/study",
+  "surfaceBefore": {
+    "headings": [
+      {
+        "tag": "H2",
+        "text": "Your network blocks the Lichess assets!"
+      },
+      {
+        "tag": "H2",
+        "text": "Italian game"
+      },
+      {
+        "tag": "H2",
+        "text": "Not So Simple - Pawn Endgames"
+      },
+      {
+        "tag": "H2",
+        "text": "Scorch The Scotch! Steinitz Gambit"
+      },
+      {
+        "tag": "H2",
+        "text": "The Italian Game"
+      },
+      {
+        "tag": "H2",
+        "text": "Crush Caro-Kann with Goldman!"
+      },
+      {
+        "tag": "H2",
+        "text": "25 ловушек Королевского гамбита"
+      },
+      {
+        "tag": "H2",
+        "text": "Grandmasters A-Z (NEW!)"
+      },
+      {
+        "tag": "H2",
+        "text": "CHESS GOT TALENT PART 6"
+      },
+      {
+        "tag": "H2",
+        "text": "My Road to 2200 (Complete!)"
+      },
+      {
+        "tag": "H2",
+        "text": "The Downfall of Cookies"
+      },
+      {
+        "tag": "H2",
+        "text": "The ULTIMATE French Defense"
+      },
+      {
+        "tag": "H2",
+        "text": "The 64 Secrets of Chess (PART 1)"
+      },
+      {
+        "tag": "H2",
+        "text": "Caro-Kann Defence"
+      },
+      {
+        "tag": "H2",
+        "text": "Как играть против Дебюта ГРОБА"
+      },
+      {
+        "tag": "H2",
+        "text": "King’s Gambit: How to win?"
+      },
+      {
+        "tag": "H2",
+        "text": "Alien Gambit Masterclass"
+      },
+      {
+        "tag": "H2",
+        "text": "Инопланетный гамбит"
+      },
+      {
+        "tag": "H2",
+        "text": "How to beat 98% players using the jobava london"
+      },
+      {
+        "tag": "H2",
+        "text": "My best games"
+      },
+      {
+        "tag": "H2",
+        "text": "All King's Indian Repertoire - Black is OK!"
+      },
+      {
+        "tag": "H2",
+        "text": "Najdorf Sicillian 101"
+      },
+      {
+        "tag": "H2",
+        "text": "Human Vs Ai"
+      },
+      {
+        "tag": "H2",
+        "text": "Prison escape"
+      },
+      {
+        "tag": "H2",
+        "text": "Impossible Puzzles"
+      },
+      {
+        "tag": "H2",
+        "text": "Woodpecker Method Puzzles (64 - 128)"
+      },
+      {
+        "tag": "H2",
+        "text": "The Caro Kann Defence: Complete Repertoire"
+      },
+      {
+        "tag": "H2",
+        "text": "DeepSeek vs Lavrentyev_2012"
+      },
+      {
+        "tag": "H2",
+        "text": "Ruy Lopez"
+      },
+      {
+        "tag": "H2",
+        "text": "The EXPLOSIVE Dubov Italian!"
+      },
+      {
+        "tag": "H2",
+        "text": "Road to 1700 elo! Part 2!"
+      },
+      {
+        "tag": "H2",
+        "text": "Your ENDGAME Instruction!"
+      },
+      {
+        "tag": "H2",
+        "text": "COMPLETE Fried Liver Repertoire"
+      }
+    ],
+    "landmarks": [
+      {
+        "tag": "HEADER",
+        "role": null,
+        "ariaLabel": null,
+        "ariaLabelledBy": null,
+        "text": "lichess.org PLAY PUZZLES LEARN WATCH COMMUNITY TOOLS DONATE SIGN IN REGISTER"
+      },
+      {
+        "tag": "NAV",
+        "role": null,
+        "ariaLabel": null,
+        "ariaLabelledBy": null,
+        "text": "PLAY PUZZLES LEARN WATCH COMMUNITY TOOLS"
+      },
+      {
+        "tag": "MAIN",
+        "role": null,
+        "ariaLabel": null,
+        "ariaLabelledBy": null,
+        "text": "All studies Topics Staff picks What are studies? Hot Italian game 1207 • GuptaYugal • 1 week ago How to play the italian The Italian gambit #1 (mainline) The italian gambit #2 (2nd line) The italian gambit #2 (correct way) GuptaYugal Not So Simple - Pawn Endgames 264 • Novacancy • 6 days ago Introdu"
+      },
+      {
+        "tag": "ASIDE",
+        "role": null,
+        "ariaLabel": null,
+        "ariaLabelledBy": null,
+        "text": "All studies Topics Staff picks What are studies?"
+      },
+      {
+        "tag": "NAV",
+        "role": null,
+        "ariaLabel": null,
+        "ariaLabelledBy": null,
+        "text": "All studies Topics Staff picks What are studies?"
+      },
+      {
+        "tag": "MAIN",
+        "role": null,
+        "ariaLabel": null,
+        "ariaLabelledBy": null,
+        "text": "Hot Italian game 1207 • GuptaYugal • 1 week ago How to play the italian The Italian gambit #1 (mainline) The italian gambit #2 (2nd line) The italian gambit #2 (correct way) GuptaYugal Not So Simple - Pawn Endgames 264 • Novacancy • 6 days ago Introduction Chapter 1.1 - The Rule of the Square Exerci"
+      },
+      {
+        "tag": "NAV",
+        "role": null,
+        "ariaLabel": null,
+        "ariaLabelledBy": null,
+        "text": "HotDate added (newest)Recently updatedMost popular"
+      }
+    ],
+    "interactives": [
+      {
+        "tag": "INPUT",
+        "type": "hidden",
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": null,
+        "text": ""
+      },
+      {
+        "tag": "INPUT",
+        "type": "hidden",
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": null,
+        "text": ""
+      },
+      {
+        "tag": "BUTTON",
+        "type": "submit",
+        "role": null,
+        "id": "nvui-button",
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": null,
+        "text": "Accessibility - Enable blind mode"
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "/page/network-administrators",
+        "text": "Your network blocks the Lichess assets!"
+      },
+      {
+        "tag": "INPUT",
+        "type": "checkbox",
+        "role": null,
+        "id": "tn-tg",
+        "tabindex": null,
+        "ariaLabel": "Navigation",
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": null,
+        "text": ""
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "/",
+        "text": "lichess.org"
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "/",
+        "text": "PLAY"
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "/?any#hook",
+        "text": "Create lobby game"
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "/tournament",
+        "text": "Arena tournaments"
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "/swiss",
+        "text": "Swiss tournaments"
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "/simul",
+        "text": "Simultaneous exhibitions"
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "/patron",
+        "text": "Donate"
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "/training",
+        "text": "PUZZLES"
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "/training",
+        "text": "Puzzles"
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "/training/themes",
+        "text": "Puzzle Themes"
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "/training/dashboard/30",
+        "text": "Puzzle Dashboard"
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "/streak",
+        "text": "Puzzle Streak"
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "/storm",
+        "text": "Puzzle Storm"
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "/racer",
+        "text": "Puzzle Racer"
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "/learn",
+        "text": "LEARN"
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "/learn",
+        "text": "Chess basics"
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "/practice",
+        "text": "Practice"
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "/training/coordinate",
+        "text": "Coordinates"
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "/study",
+        "text": "Study"
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "/coach",
+        "text": "Coaches"
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "/broadcast",
+        "text": "WATCH"
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "/broadcast",
+        "text": "Broadcasts"
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "/tv",
+        "text": "Lichess TV"
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "/games",
+        "text": "Current games"
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "/streamer",
+        "text": "Streamers"
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "/video",
+        "text": "Video library"
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "/player",
+        "text": "COMMUNITY"
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "/player",
+        "text": "Players"
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "/team",
+        "text": "Teams"
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "/forum",
+        "text": "Forum"
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "/blog/community",
+        "text": "Blog"
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "/analysis",
+        "text": "TOOLS"
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "/analysis",
+        "text": "Analysis board"
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "/opening",
+        "text": "Openings"
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "/editor",
+        "text": "Board editor"
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "/paste",
+        "text": "Import game"
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "/games/search",
+        "text": "Advanced search"
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "/patron",
+        "text": "DONATE"
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "/faq#autoplay",
+        "text": ""
+      },
+      {
+        "tag": "INPUT",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": "Search",
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": null,
+        "text": ""
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "/login?referrer=/study",
+        "text": "SIGN IN"
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "/signup",
+        "text": "REGISTER"
+      },
+      {
+        "tag": "BUTTON",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": "Preferences",
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": "Preferences",
+        "href": null,
+        "text": ""
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "/study/all/hot",
+        "text": "All studies"
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "/study/topic",
+        "text": "Topics"
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "/study/staff-picks",
+        "text": "Staff picks"
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "/@/lichess/blog/study-chess-the-lichess-way/V0KrLSkA",
+        "text": "What are studies?"
+      },
+      {
+        "tag": "INPUT",
+        "type": "hidden",
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": null,
+        "text": ""
+      },
+      {
+        "tag": "INPUT",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": null,
+        "text": ""
+      },
+      {
+        "tag": "BUTTON",
+        "type": "submit",
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": null,
+        "text": ""
+      },
+      {
+        "tag": "INPUT",
+        "type": "checkbox",
+        "role": null,
+        "id": "mselect-orders",
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": null,
+        "text": ""
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": "menuitem",
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "/study/all/hot",
+        "text": "Hot"
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": "menuitem",
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "/study/all/newest",
+        "text": "Date added (newest)"
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": "menuitem",
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "/study/all/updated",
+        "text": "Recently updated"
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": "menuitem",
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "/study/all/popular",
+        "text": "Most popular"
+      },
+      {
+        "tag": "BUTTON",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": "Switch to list view",
+        "href": null,
+        "text": ""
+      },
+      {
+        "tag": "BUTTON",
+        "type": "submit",
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": "Create study",
+        "href": null,
+        "text": ""
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": "Italian game",
+        "href": "/study/DfS37FyK",
+        "text": ""
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": "Not So Simple - Pawn Endgames",
+        "href": "/study/14rzvOfB",
+        "text": ""
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": "Scorch The Scotch! Steinitz Gambit",
+        "href": "/study/efv8ScvR",
+        "text": ""
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": "The Italian Game",
+        "href": "/study/6oItq189",
+        "text": ""
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": "Crush Caro-Kann with Goldman!",
+        "href": "/study/ADbEwfDE",
+        "text": ""
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": "25 ловушек Королевского гамбита",
+        "href": "/study/GdWCFIVd",
+        "text": ""
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": "Grandmasters A-Z (NEW!)",
+        "href": "/study/UsluyMhW",
+        "text": ""
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": "CHESS GOT TALENT PART 6",
+        "href": "/study/WdXtDwMV",
+        "text": ""
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": "My Road to 2200 (Complete!)",
+        "href": "/study/FJOWxm2A",
+        "text": ""
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": "The Downfall of Cookies",
+        "href": "/study/iOu3jpnA",
+        "text": ""
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": "The ULTIMATE French Defense",
+        "href": "/study/2g6DsEi9",
+        "text": ""
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": "The 64 Secrets of Chess (PART 1)",
+        "href": "/study/jfIlaOpz",
+        "text": ""
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": "Caro-Kann Defence",
+        "href": "/study/UtqriDEW",
+        "text": ""
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": "Как играть против  Дебюта ГРОБА",
+        "href": "/study/jDjIgJ4Y",
+        "text": ""
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": "King’s Gambit: How to win?",
+        "href": "/study/aQgnEL2i",
+        "text": ""
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": "Alien Gambit Masterclass",
+        "href": "/study/B6405eXw",
+        "text": ""
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": "Инопланетный гамбит",
+        "href": "/study/KmRuXMj1",
+        "text": ""
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": "How to beat 98% players using the jobava london",
+        "href": "/study/bFbaIX1Y",
+        "text": ""
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": "My best games",
+        "href": "/study/7Un5sVuc",
+        "text": ""
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": "All King's Indian Repertoire - Black is OK!",
+        "href": "/study/K8yrljmJ",
+        "text": ""
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": "Najdorf Sicillian 101",
+        "href": "/study/FKoV27l1",
+        "text": ""
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": "Human Vs Ai",
+        "href": "/study/t8jIg6qc",
+        "text": ""
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": "Prison escape",
+        "href": "/study/vaJ4cysJ",
+        "text": ""
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": "Impossible Puzzles",
+        "href": "/study/C2SZ2jLG",
+        "text": ""
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": "Woodpecker Method Puzzles (64 - 128)",
+        "href": "/study/FMQR9CQN",
+        "text": ""
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": "The Caro Kann Defence: Complete Repertoire",
+        "href": "/study/mmi2FbT3",
+        "text": ""
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": "DeepSeek vs Lavrentyev_2012",
+        "href": "/study/lxvr7n9S",
+        "text": ""
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": "Ruy Lopez",
+        "href": "/study/gH2uxrxY",
+        "text": ""
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": "The EXPLOSIVE Dubov Italian!",
+        "href": "/study/DAwSgE87",
+        "text": ""
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": "Road to 1700 elo! Part 2!",
+        "href": "/study/pntXLq6W",
+        "text": ""
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": "Your ENDGAME Instruction!",
+        "href": "/study/0ONQkQPb",
+        "text": ""
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": "COMPLETE Fried Liver Repertoire",
+        "href": "/study/Rj9l1r10",
+        "text": ""
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "/study/all/hot?page=3",
+        "text": "Next"
+      }
+    ],
+    "ariaSnapshot": "- button \"Accessibility - Enable blind mode\"\n- banner:\n  - link \"lichess.org\":\n    - /url: /\n  - navigation:\n    - link \"Play\":\n      - /url: /\n    - link \"Puzzles\":\n      - /url: /training\n    - link \"Learn\":\n      - /url: /learn\n    - link \"Watch\":\n      - /url: /broadcast\n    - link \"Community\":\n      - /url: /player\n    - link \"Tools\":\n      - /url: /analysis\n  - link \" Donate\":\n    - /url: /patron\n  - text: \n  - textbox \"Search\"\n  - link \"Sign in\":\n    - /url: /login?referrer=/study\n  - link \"Register\":\n    - /url: /signup\n  - button \"Preferences\": \n- main:\n  - complementary:\n    - navigation:\n      - link \"All studies\":\n        - /url: /study/all/hot\n      - link \"Topics\":\n        - /url: /study/topic\n      - link \"Staff picks\":\n        - /url: /study/staff-picks\n      - link \" What are studies?\":\n        - /url: /@/lichess/blog/study-chess-the-lichess-way/V0KrLSkA\n  - main:\n    - textbox \"All studies\"\n    - button \"\"\n    - checkbox\n    - menu: Hot \n    - navigation\n    - button \"\"\n    - button \"\"\n    - link \"Italian game\":\n      - /url: /study/DfS37FyK\n    - heading \"Italian game\" [level=2]\n    - text:  1207 • GuptaYugal •\n    - time: 1 week ago\n    - list:\n      - listitem:  How to play the italian\n      - listitem: \" The Italian gambit #1 (mainline)\"\n      - listitem: \" The italian gambit #2 (2nd line)\"\n      - listitem: \" The italian gambit #2 (correct way)\"\n    - list:\n      - listitem:  GuptaYugal\n    - link \"Not So Simple - Pawn Endgames\":\n      - /url: /study/14rzvOfB\n    - heading \"Not So Simple - Pawn Endgames\" [level=2]\n    - text:  264 • Novacancy •\n    - time: 6 days ago\n    - list:\n      - listitem:  Introduction\n      - listitem:  Chapter 1.1 - The Rule of the Square\n      - listitem:  Exercise 1.1\n      - listitem:  Exercise 1.2\n    - list:\n      - listitem:  Novacancy\n    - link \"Scorch The Scotch! Steinitz Gambit\":\n      - /url: /study/efv8ScvR\n    - heading \"Scorch The Scotch! Steinitz Gambit\" [level=2]\n    - text:  95 • Phil224 •\n    - time: 44 hours ago\n    - list:\n      - listitem:  ‍Bake Every Scotch Player!\n      - listitem: \" Steinitz Gambit: Modern Defense, Dangold Gambit, 6...Qe2?\"\n      - listitem: \" Steinitz Gambit: Modern Defense, Dangold Gambit, 6...Be2\"\n      - listitem: \" Steinitz Gambit: Modern Defense, Trabert Variation\"\n    - list:\n      - listitem:  Phil224\n    - link \"The Italian Game\":\n      - /url: /study/6oItq189\n    - heading \"The Italian Game\" [level=2]\n    - text:  134 • mohnish1234 •\n    - time: 4 days ago\n    - list:\n      - listitem:  Intro to the Italian!\n      - listitem: \" Italian Game Giuoco Piano: 3...Bc5 (First line)\"\n      - listitem: \" Italian Game Giuoco Piano: 3...Bc5 (Second line)\"\n      - listitem: \" Italian Game Giuoco Piano: 3...Bc5 (Third line)\"\n    - list:\n      - listitem:  mohnish1234\n    - link \"Crush Caro-Kann with Goldman!\":\n      - /url: /study/ADbEwfDE\n    - heading \"Crush Caro-Kann with Goldman!\" [level=2]\n    - text:  879 • Fr0gChess •\n    - time: 1 week ago\n    - list:\n      - listitem:  Introduction\n      - listitem:  Everything Covered\n      - listitem:  1. e4 c6 2. Nc3 d5 3. Qf3 dxe4 4. Nxe4 Nf6 5. Bc4 Trap 1\n      - listitem:  1. e4 c6 2. Nc3 d5 3. Qf3 dxe4 4. Nxe4 Nf6 5. Bc4 Trap 2\n    - list:\n      - listitem:  Fr0gChess\n    - link \"25 ловушек Королевского гамбита\":\n      - /url: /study/GdWCFIVd\n    - heading \"25 ловушек Королевского гамбита\" [level=2]\n    - text:  52 • Gorenshteyn •\n    - time: 27 hours ago\n    - list:\n      - listitem:  WELCOME | ЧИТАЙ ПЕРВЫМ\n      - listitem:  Основные варианты\n      - listitem:  Ловушка No1\n      - listitem:  Практика | Practice\n    - list:\n      - listitem:  Gorenshteyn\n    - link \"Grandmasters A-Z (NEW!)\":\n      - /url: /study/UsluyMhW\n    - heading \"Grandmasters A-Z (NEW!)\" [level=2]\n    - text:  1231 • RuyLopez1000 •\n    - time: 2 weeks ago\n    - list:\n      - listitem:  Intro!\n      - listitem:  A - Alexander Alekhine\n      - listitem:  A - Anna Muzychuk\n      - listitem:  B - Bibisara Assaubayeva\n    - list:\n      - listitem:  EyeSpyAll\n      - listitem:  Fairy_Dimples\n      - listitem:  Phil224\n      - listitem:  ronytabh\n    - link \"CHESS GOT TALENT PART 6\":\n      - /url: /study/WdXtDwMV\n    - heading \"CHESS GOT TALENT PART 6\" [level=2]\n    - text:  205 • mohnish1234 •\n    - time: 1 week ago\n    - list:\n      - listitem:  Welcome to Chess Got Talent Part 6!\n      - listitem:  The Pairings\n      - listitem:  ️ROUND 6️ White King vs Black King\n      - listitem:  ️ROUND 6️ White King vs Black King (The real one)\n    - list:\n      - listitem:  mohnish1234\n    - link \"My Road to 2200 (Complete!)\":\n      - /url: /study/FJOWxm2A\n    - heading \"My Road to 2200 (Complete!)\" [level=2]\n    - text:  279 • RuyLopez1000 •\n    - time: 1 week ago\n    - list:\n      - listitem:  Introduction\n      - listitem:  An Amazing Knight Dance (Giouco Piano)\n      - listitem:  A Wonderful Endgame (Fianchetto)\n      - listitem:  A Curious Game (Fried Liver)\n    - list:\n      - listitem:  RuyLopez1000\n    - link \"The Downfall of Cookies\":\n      - /url: /study/iOu3jpnA\n    - heading \"The Downfall of Cookies\" [level=2]\n    - text:  335 • DrCookieZ •\n    - time: 1 week ago\n    - list:\n      - listitem:  Intro\n      - listitem:  Storytelling\n      - listitem:  Rules ‍\n      - listitem:  Prepare\n    - list:\n      - listitem:  DrCookieZ\n    - link \"The ULTIMATE French Defense\":\n      - /url: /study/2g6DsEi9\n    - heading \"The ULTIMATE French Defense\" [level=2]\n    - text:  37 • parvathy_expt •\n    - time: 3 days ago\n    - list:\n      - listitem:  Intro\n      - listitem:  Hall of Fame\n      - listitem: \" #1 - The Exchange Variation\"\n      - listitem: \" Subvariation #1 - The Monte Carlo Variation (My repertoire against the French)\"\n    - list:\n      - listitem:  EmperorTung\n      - listitem:  trinityneo\n      - listitem:  parZival_006\n      - listitem:  Mannyqueen\n    - link \"The 64 Secrets of Chess (PART 1)\":\n      - /url: /study/jfIlaOpz\n    - heading \"The 64 Secrets of Chess (PART 1)\" [level=2]\n    - text:  194 • rishik14 •\n    - time: 1 week ago\n    - list:\n      - listitem:  Introduction\n      - listitem:  The Guidebook (Pg. 1)\n      - listitem:  The Guidebook (Pg. 2)\n      - listitem:  The Guidebook (Pg. 3)\n    - list:\n      - listitem:  ronytabh\n      - listitem:  DrCookieZ\n      - listitem:  rishik14\n      - listitem:  Saty26\n    - link \"Caro-Kann Defence\":\n      - /url: /study/UtqriDEW\n    - heading \"Caro-Kann Defence\" [level=2]\n    - text:  123 • RV_Kandy •\n    - time: 1 week ago\n    - list:\n      - listitem:  Introduction Statement\n      - listitem:  Chapter 1 | The Caro-Kann Main Line\n      - listitem:  Chapter 2 | The Caro-Kann Advance Variation\n      - listitem:  Chapter 3 | The Caro-Kann Exchange Variation\n    - list:\n      - listitem:  RV_Kandy\n    - link \"Как играть против Дебюта ГРОБА\":\n      - /url: /study/jDjIgJ4Y\n    - heading \"Как играть против Дебюта ГРОБА\" [level=2]\n    - text:  46 • Lavrentyev_2012 •\n    - time: 5 days ago\n    - list:\n      - listitem:  Главные идеи белых в дебюте Гроба\n      - listitem:  Вариант за чёрных, чтобы ничего не учить\n      - listitem:  Самая ЖЁСТКАЯ система против Гроба!\n    - list:\n      - listitem:  DmitryG2016\n      - listitem:  Lavrentyev_2012\n      - listitem:  BeLiAvSkIy_VlAd\n      - listitem:  treezycraazy\n    - 'link \"King’s Gambit: How to win?\"':\n      - /url: /study/aQgnEL2i\n    - 'heading \"King’s Gambit: How to win?\" [level=2]'\n    - text:  94 • Trangialac •\n    - time: 1 week ago\n    - list:\n      - listitem:  What is the King’s Gambit‍️‍️\n      - listitem:  What if Black plays Nc6?\n      - listitem:  What if Black don’t fall intro the trap.\n      - listitem:  What if Black in Other tactics besides this one of White?\n    - list:\n      - listitem:  Trangialac\n    - link \"Alien Gambit Masterclass\":\n      - /url: /study/B6405eXw\n    - heading \"Alien Gambit Masterclass\" [level=2]\n    - text:  223 • duptwds •\n    - time: 2 weeks ago\n    - list:\n      - listitem: \" Alien Gambit 7...Bg4 #1\"\n      - listitem: \" Alien Gambit 7...Bg4 #2\"\n      - listitem: \" Alien Gambit 7...Bg4 #3\"\n      - listitem: \" Alien Gambit 7...Bf5 8...Kg8 9...e6 #1\"\n    - list:\n      - listitem:  duptwds\n      - listitem:  QOQOQ\n    - link \"Инопланетный гамбит\":\n      - /url: /study/KmRuXMj1\n    - heading \"Инопланетный гамбит\" [level=2]\n    - text:  44 • Lavrentyev_2012 •\n    - time: 5 days ago\n    - list:\n      - listitem:  Введение\n      - listitem:  7. ... с.g4??\n      - listitem:  7. ... с.f5\n      - listitem:  7. ... с.е6\n    - list:\n      - listitem:  DmitryG2016\n      - listitem:  Lavrentyev_2012\n      - listitem:  BeLiAvSkIy_VlAd\n      - listitem:  treezycraazy\n    - link \"How to beat 98% players using the jobava london\":\n      - /url: /study/bFbaIX1Y\n    - heading \"How to beat 98% players using the jobava london\" [level=2]\n    - text:  155 • Chezzmania_2015 •\n    - time: 1 week ago\n    - list:\n      - listitem:  game 1 [ d5 variation ]\n      - listitem: \" Game 2 { e6 variation }\"\n      - listitem: \" game 3 { Nf5 variation }\"\n      - listitem: \" game 4 { Bd6 variation }\"\n    - list:\n      - listitem:  VentureChess_Academy\n      - listitem:  Chezzmania_2015\n    - link \"My best games\":\n      - /url: /study/7Un5sVuc\n    - heading \"My best games\" [level=2]\n    - text:  50 • cezarx2015 •\n    - time: 6 days ago\n    - list:\n      - listitem:  INTRO\n      - listitem:  Game 1\n      - listitem:  Game 2\n      - listitem:  ️Game 3️\n    - list:\n      - listitem:  cezarx2015\n    - link \"All King's Indian Repertoire - Black is OK!\":\n      - /url: /study/K8yrljmJ\n    - heading \"All King's Indian Repertoire - Black is OK!\" [level=2]\n    - text:  27 • ThatPenguinPlayer •\n    - time: 4 days ago\n    - list:\n      - listitem:  ️How to play King's Indian️\n      - listitem: \" Most Played Line: 5.Nf3\"\n      - listitem:  6...e5!\n      - listitem:  ️7.d5️\n    - list:\n      - listitem:  ThatPenguinPlayer\n      - listitem:  BXBCChess\n    - link \"Najdorf Sicillian 101\":\n      - /url: /study/FKoV27l1\n    - heading \"Najdorf Sicillian 101\" [level=2]\n    - text:  30 • Chessboy197 •\n    - time: 5 days ago\n    - list:\n      - listitem:  Intro\n      - listitem:  How to play the opening\n      - listitem: \" Part 1: Different second moves\"\n      - listitem:  2. d4 and 3. c3\n    - list:\n      - listitem:  Chessboy197\n    - link \"Human Vs Ai\":\n      - /url: /study/t8jIg6qc\n    - heading \"Human Vs Ai\" [level=2]\n    - text:  78 • opening2024 •\n    - time: 1 week ago\n    - list:\n      - listitem:  Intro\n      - listitem: \" Me Vs ChatGPT #1\"\n      - listitem:  Part 2\n      - listitem: \" ChatGPT Vs Me #2\"\n    - list:\n      - listitem:  opening2024\n    - link \"Prison escape\":\n      - /url: /study/vaJ4cysJ\n    - heading \"Prison escape\" [level=2]\n    - text:  23 • Dharsha_SaiKrishna •\n    - time: 3 days ago\n    - list:\n      - listitem:  Intro\n      - listitem:  Breaking out\n      - listitem:  The light tiles\n      - listitem:  Shut the DOOR!!!!!!\n    - list:\n      - listitem:  Dharsha_SaiKrishna\n    - link \"Impossible Puzzles\":\n      - /url: /study/C2SZ2jLG\n    - heading \"Impossible Puzzles\" [level=2]\n    - text:  71 • E_0_X_X_0 •\n    - time: 1 week ago\n    - list:\n      - listitem:  Intro\n      - listitem:  Crazy Endgame study\n      - listitem:  !?!?!\n      - listitem:  ?????\n    - list:\n      - listitem:  E_0_X_X_0\n    - link \"Woodpecker Method Puzzles (64 - 128)\":\n      - /url: /study/FMQR9CQN\n    - text: \n    - heading \"Woodpecker Method Puzzles (64 - 128)\" [level=2]\n    - text:  126 • zozchess111 •\n    - time: 1 week ago\n    - list:\n      - listitem:  Puzzle 65\n      - listitem:  Puzzle 66\n      - listitem:  Puzzle 67\n      - listitem:  Puzzle 68\n    - list:\n      - listitem:  zozchess111\n    - 'link \"The Caro Kann Defence: Complete Repertoire\"':\n      - /url: /study/mmi2FbT3\n    - 'heading \"The Caro Kann Defence: Complete Repertoire\" [level=2]'\n    - text:  29 • Abhinavyadav008 •\n    - time: 4 days ago\n    - list:\n      - listitem: \" Introduction: - Caro Kann - Complete Repertoire - Author's Acknowledgement\"\n      - listitem:  Quickstarter Guide - Exchange Variation - e4 c6 d4 d5 exd5 cxe5\n      - listitem:  Quickstarter Guide - Panov-Botvinnik Attack - e4 c6 d4 d5 exd5 exd5 c4 Nf6 Nc3\n      - listitem:  Quickstarter Guide - Classical Variation - e4 c6 d4 d5 Nc3 dxe4 Nxe4 Nf6\n    - list:\n      - listitem:  Abhinavyadav008\n    - link \"DeepSeek vs Lavrentyev_2012\":\n      - /url: /study/lxvr7n9S\n    - heading \"DeepSeek vs Lavrentyev_2012\" [level=2]\n    - text:  63 • Lavrentyev_2012 •\n    - time: 1 week ago\n    - list:\n      - listitem:  Начало партии\n      - listitem:  9. С.d2\n      - listitem:  13. кр.d2\n      - listitem:  15. л.ae1\n    - list:\n      - listitem:  BeLiAvSkIy_VlAd\n      - listitem:  AlRemFed\n      - listitem:  bcffggd\n      - listitem:  The_Star_Move\n    - link \"Ruy Lopez\":\n      - /url: /study/gH2uxrxY\n    - heading \"Ruy Lopez\" [level=2]\n    - text:  880 • RV_Kandy •\n    - time: 3 weeks ago\n    - list:\n      - listitem:  Introduction\n      - listitem:  Credits\n      - listitem:  First Moves\n      - listitem:  Don't bite the bait... 5.Nxe5?\n    - list:\n      - listitem:  RV_Kandy\n    - link \"The EXPLOSIVE Dubov Italian!\":\n      - /url: /study/DAwSgE87\n    - heading \"The EXPLOSIVE Dubov Italian!\" [level=2]\n    - text:  827 • Novacancy •\n    - time: 3 weeks ago\n    - list:\n      - listitem:  Introduction\n      - listitem:  What is the Dubov Italian?\n      - listitem: \" 6... Bb6 Sidelines #1\"\n      - listitem: \" 6... Bb6 Sidelines #2\"\n    - list:\n      - listitem:  Novacancy\n      - listitem:  alagosi\n    - link \"Road to 1700 elo! Part 2!\":\n      - /url: /study/pntXLq6W\n    - heading \"Road to 1700 elo! Part 2!\" [level=2]\n    - text:  15 • aRjuN_rOy •\n    - time: 2 days ago\n    - list:\n      - listitem:  Welcome!\n      - listitem: \" Section 1: Caro Kann (Continuation)~White Side!\"\n      - listitem: \" Variation 1: Steinitz Variation\"\n      - listitem: \" Variation 2: Panov-Botvinnik Attack\"\n    - list:\n      - listitem:  badud12\n      - listitem:  aRjuN_rOy\n      - listitem:  RuyLopez1000\n      - listitem:  HIVE123\n    - link \"Your ENDGAME Instruction!\":\n      - /url: /study/0ONQkQPb\n    - heading \"Your ENDGAME Instruction!\" [level=2]\n    - text:  183 • an7cplayingchess •\n    - time: 2 weeks ago\n    - list:\n      - listitem:  Introduction\n      - listitem:  What are some IMPORTANT kinds of Endgames?\n      - listitem:  ----------Pawns Endgame----------\n      - listitem: \" King + Pawn VS King: Win!\"\n    - list:\n      - listitem:  an7cplayingchess\n    - link \"COMPLETE Fried Liver Repertoire\":\n      - /url: /study/Rj9l1r10\n    - heading \"COMPLETE Fried Liver Repertoire\" [level=2]\n    - text:  292 • Novacancy •\n    - time: 2 weeks ago\n    - list:\n      - listitem:  Introduction\n      - listitem: \" Traxler Countergambit #1\"\n      - listitem: \" Traxler Countergambit #2 ️\"\n      - listitem: \" Traxler Countergambit #3 ️\"\n    - list:\n      - listitem:  Novacancy\n    - link \"Next\":\n      - /url: /study/all/hot?page=3\n- text: \n- img"
+  },
+  "tabSequenceBefore": [
+    {
+      "step": 1,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "/",
+        "text": "lichess.org"
+      }
+    },
+    {
+      "step": 2,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "/",
+        "text": "PLAY"
+      }
+    },
+    {
+      "step": 3,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "/training",
+        "text": "PUZZLES"
+      }
+    },
+    {
+      "step": 4,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "/learn",
+        "text": "LEARN"
+      }
+    },
+    {
+      "step": 5,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "/broadcast",
+        "text": "WATCH"
+      }
+    },
+    {
+      "step": 6,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "/player",
+        "text": "COMMUNITY"
+      }
+    },
+    {
+      "step": 7,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "/analysis",
+        "text": "TOOLS"
+      }
+    },
+    {
+      "step": 8,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "/patron",
+        "text": "DONATE"
+      }
+    },
+    {
+      "step": 9,
+      "active": {
+        "tag": "INPUT",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": "Search",
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": null,
+        "text": ""
+      }
+    },
+    {
+      "step": 10,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "/login?referrer=/study",
+        "text": "SIGN IN"
+      }
+    },
+    {
+      "step": 11,
+      "active": {
+        "tag": "INPUT",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": "Search",
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": null,
+        "text": ""
+      }
+    },
+    {
+      "step": 12,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "/login?referrer=/study",
+        "text": "SIGN IN"
+      }
+    },
+    {
+      "step": 13,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "/signup",
+        "text": "REGISTER"
+      }
+    },
+    {
+      "step": 14,
+      "active": {
+        "tag": "BUTTON",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": "Preferences",
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": "Preferences",
+        "href": null,
+        "text": ""
+      }
+    },
+    {
+      "step": 15,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "/study/all/hot",
+        "text": "All studies"
+      }
+    },
+    {
+      "step": 16,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "/study/topic",
+        "text": "Topics"
+      }
+    },
+    {
+      "step": 17,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "/study/staff-picks",
+        "text": "Staff picks"
+      }
+    },
+    {
+      "step": 18,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "/@/lichess/blog/study-chess-the-lichess-way/V0KrLSkA",
+        "text": "What are studies?"
+      }
+    },
+    {
+      "step": 19,
+      "active": {
+        "tag": "INPUT",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": "q",
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": null,
+        "text": ""
+      }
+    },
+    {
+      "step": 20,
+      "active": {
+        "tag": "BUTTON",
+        "type": "submit",
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": null,
+        "text": ""
+      }
+    },
+    {
+      "step": 21,
+      "active": {
+        "tag": "INPUT",
+        "type": "checkbox",
+        "role": null,
+        "id": "mselect-orders",
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": null,
+        "text": ""
+      }
+    },
+    {
+      "step": 22,
+      "active": {
+        "tag": "BUTTON",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": "Switch to list view",
+        "href": null,
+        "text": ""
+      }
+    },
+    {
+      "step": 23,
+      "active": {
+        "tag": "BUTTON",
+        "type": "submit",
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": "Create study",
+        "href": null,
+        "text": ""
+      }
+    },
+    {
+      "step": 24,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": "Italian game",
+        "href": "/study/DfS37FyK",
+        "text": ""
+      }
+    },
+    {
+      "step": 25,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": "Not So Simple - Pawn Endgames",
+        "href": "/study/14rzvOfB",
+        "text": ""
+      }
+    },
+    {
+      "step": 26,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": "Scorch The Scotch! Steinitz Gambit",
+        "href": "/study/efv8ScvR",
+        "text": ""
+      }
+    },
+    {
+      "step": 27,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": "The Italian Game",
+        "href": "/study/6oItq189",
+        "text": ""
+      }
+    },
+    {
+      "step": 28,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": "Crush Caro-Kann with Goldman!",
+        "href": "/study/ADbEwfDE",
+        "text": ""
+      }
+    },
+    {
+      "step": 29,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": "25 ловушек Королевского гамбита",
+        "href": "/study/GdWCFIVd",
+        "text": ""
+      }
+    },
+    {
+      "step": 30,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": "Grandmasters A-Z (NEW!)",
+        "href": "/study/UsluyMhW",
+        "text": ""
+      }
+    },
+    {
+      "step": 31,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": "CHESS GOT TALENT PART 6",
+        "href": "/study/WdXtDwMV",
+        "text": ""
+      }
+    },
+    {
+      "step": 32,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": "My Road to 2200 (Complete!)",
+        "href": "/study/FJOWxm2A",
+        "text": ""
+      }
+    },
+    {
+      "step": 33,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": "The Downfall of Cookies",
+        "href": "/study/iOu3jpnA",
+        "text": ""
+      }
+    },
+    {
+      "step": 34,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": "The ULTIMATE French Defense",
+        "href": "/study/2g6DsEi9",
+        "text": ""
+      }
+    },
+    {
+      "step": 35,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": "The 64 Secrets of Chess (PART 1)",
+        "href": "/study/jfIlaOpz",
+        "text": ""
+      }
+    },
+    {
+      "step": 36,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": "Caro-Kann Defence",
+        "href": "/study/UtqriDEW",
+        "text": ""
+      }
+    },
+    {
+      "step": 37,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": "Как играть против  Дебюта ГРОБА",
+        "href": "/study/jDjIgJ4Y",
+        "text": ""
+      }
+    },
+    {
+      "step": 38,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": "King’s Gambit: How to win?",
+        "href": "/study/aQgnEL2i",
+        "text": ""
+      }
+    },
+    {
+      "step": 39,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": "Alien Gambit Masterclass",
+        "href": "/study/B6405eXw",
+        "text": ""
+      }
+    },
+    {
+      "step": 40,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": "Инопланетный гамбит",
+        "href": "/study/KmRuXMj1",
+        "text": ""
+      }
+    },
+    {
+      "step": 41,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": "How to beat 98% players using the jobava london",
+        "href": "/study/bFbaIX1Y",
+        "text": ""
+      }
+    },
+    {
+      "step": 42,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": "My best games",
+        "href": "/study/7Un5sVuc",
+        "text": ""
+      }
+    },
+    {
+      "step": 43,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": "All King's Indian Repertoire - Black is OK!",
+        "href": "/study/K8yrljmJ",
+        "text": ""
+      }
+    },
+    {
+      "step": 44,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": "Najdorf Sicillian 101",
+        "href": "/study/FKoV27l1",
+        "text": ""
+      }
+    },
+    {
+      "step": 45,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": "Human Vs Ai",
+        "href": "/study/t8jIg6qc",
+        "text": ""
+      }
+    },
+    {
+      "step": 46,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": "Prison escape",
+        "href": "/study/vaJ4cysJ",
+        "text": ""
+      }
+    },
+    {
+      "step": 47,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": "Impossible Puzzles",
+        "href": "/study/C2SZ2jLG",
+        "text": ""
+      }
+    },
+    {
+      "step": 48,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": "Woodpecker Method Puzzles (64 - 128)",
+        "href": "/study/FMQR9CQN",
+        "text": ""
+      }
+    },
+    {
+      "step": 49,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": "The Caro Kann Defence: Complete Repertoire",
+        "href": "/study/mmi2FbT3",
+        "text": ""
+      }
+    },
+    {
+      "step": 50,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": "DeepSeek vs Lavrentyev_2012",
+        "href": "/study/lxvr7n9S",
+        "text": ""
+      }
+    },
+    {
+      "step": 51,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": "Ruy Lopez",
+        "href": "/study/gH2uxrxY",
+        "text": ""
+      }
+    },
+    {
+      "step": 52,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": "The EXPLOSIVE Dubov Italian!",
+        "href": "/study/DAwSgE87",
+        "text": ""
+      }
+    },
+    {
+      "step": 53,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": "Road to 1700 elo! Part 2!",
+        "href": "/study/pntXLq6W",
+        "text": ""
+      }
+    },
+    {
+      "step": 54,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": "Your ENDGAME Instruction!",
+        "href": "/study/0ONQkQPb",
+        "text": ""
+      }
+    },
+    {
+      "step": 55,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": "COMPLETE Fried Liver Repertoire",
+        "href": "/study/Rj9l1r10",
+        "text": ""
+      }
+    },
+    {
+      "step": 56,
+      "active": {
+        "tag": "BODY",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": null,
+        "text": "Accessibility - Enable blind mode lichess.org PLAY PUZZLES LEARN WATCH COMMUNITY TOOLS DONATE SIGN IN REGISTER All studies Topics Staff picks What are studies? Hot Italian game 1207 • GuptaYugal • 1 week ago How to play the italian The Italian gambit #1 (mainline) The italian gambit #2 (2nd line) Th"
+      }
+    },
+    {
+      "step": 57,
+      "active": {
+        "tag": "BUTTON",
+        "type": "submit",
+        "role": null,
+        "id": "nvui-button",
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": null,
+        "text": "Accessibility - Enable blind mode"
+      }
+    },
+    {
+      "step": 58,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "/",
+        "text": "lichess.org"
+      }
+    },
+    {
+      "step": 59,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "/",
+        "text": "PLAY"
+      }
+    },
+    {
+      "step": 60,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "/training",
+        "text": "PUZZLES"
+      }
+    }
+  ],
+  "scenarios": {
+    "lichessBlindMode": {
+      "attempted": true,
+      "found": true,
+      "before": "Accessibility - Enable blind mode",
+      "error": "TimeoutError: locator.click: Timeout 10000ms exceeded.\nCall log:\n  - waiting for getByRole('button', { name: /Accessibility.*Enable blind mode/i }).first()\n    - locator resolved to <button type=\"submit\" id=\"nvui-button\">Accessibility - Enable blind mode</button>\n  - attempting click action\n    2 × waiting for element to be visible, enabled and stable\n      - element is visible, enabled and stable\n      - scrolling into view if needed\n      - done scrolling\n      - element is outside of the viewport\n    - retrying click action\n    - waiting 20ms\n    2 × waiting for element to be visible, enabled and stable\n      - element is visible, enabled and stable\n      - scrolling into view if needed\n      - done scrolling\n      - element is outside of the viewport\n    - retrying click action\n      - waiting 100ms\n    19 × waiting for element to be visible, enabled and stable\n       - element is visible, enabled and stable\n       - scrolling into view if needed\n       - done scrolling\n       - element is outside of the viewport\n     - retrying click action\n       - waiting 500ms\n"
+    }
+  },
+  "errors": [],
+  "finishedAt": "2026-08-20T07:10:32.255Z"
+}

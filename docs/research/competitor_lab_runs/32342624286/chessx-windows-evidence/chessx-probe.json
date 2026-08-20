@@ -1,0 +1,31 @@
+﻿{
+    "startedAt":  "2026-08-20T07:09:05.1315078Z",
+    "product":  "ChessX 1.6.10",
+    "source":  "https://downloads.sourceforge.net/project/chessx/chessx/1.6.10/setup-chessx7-64.exe",
+    "download":  {
+                     "bytes":  141078,
+                     "sha256":  "E6EF4CCF28FF1E6482B2E777EEF70DA240BD92B563CDCFC6242744283DD1734C"
+                 },
+    "authenticode":  {
+                         "status":  "UnknownError",
+                         "statusMessage":  "The form specified for the subject is not one supported or known by the specified trust provider",
+                         "signer":  null,
+                         "thumbprint":  null
+                     },
+    "install":  null,
+    "executable":  null,
+    "launch":  null,
+    "uia":  [
+
+            ],
+    "keyboard":  [
+
+                 ],
+    "errors":  [
+                   {
+                       "kind":  "install",
+                       "text":  "This command cannot be run due to the error: The file or directory is corrupted and unreadable."
+                   }
+               ],
+    "finishedAt":  "2026-08-20T07:13:06.0449272Z"
+}

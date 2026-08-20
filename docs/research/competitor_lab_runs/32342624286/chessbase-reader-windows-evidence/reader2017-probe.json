@@ -1,0 +1,507 @@
+﻿{
+    "startedAt":  "2026-08-20T07:09:06.7135832Z",
+    "runner":  "GitHub Actions 1000003349",
+    "os":  "Microsoft Windows NT 10.0.26100.0",
+    "product":  "ChessBase Reader 2017",
+    "source":  "https://download.chessbase.com/download/chessbasereader/Reader2017Setup_x86.msi",
+    "download":  {
+                     "exists":  true,
+                     "bytes":  48586752,
+                     "sha256":  "AC6C0AA5B8119FCFAF27D92815D4CEBB42BF0E9C9F81B2760452890631A4800E"
+                 },
+    "authenticode":  {
+                         "status":  "Valid",
+                         "statusMessage":  "Signature verified.",
+                         "signer":  "CN=ChessBase-Schachprogramme-Schachdatenbank VerlagsgesellschaftmbH, O=ChessBase-Schachprogramme-Schachdatenbank VerlagsgesellschaftmbH, L=Hamburg, S=Hamburg, C=DE",
+                         "issuer":  "CN=Symantec Class 3 SHA256 Code Signing CA, OU=Symantec Trust Network, O=Symantec Corporation, C=US",
+                         "thumbprint":  "D60387E7CD7F1231C2B7305B1BC5C8E25089CE49"
+                     },
+    "install":  {
+                    "exitCode":  0
+                },
+    "executable":  {
+                       "Path":  "C:\\Program Files (x86)\\ChessBase\\CBaseReader14\\CBReader14.exe",
+                       "ProductName":  "ChessBase 14",
+                       "FileDescription":  "ChessBase 14 Database Software",
+                       "FileVersion":  "14.42.0.0"
+                   },
+    "launch":  {
+                   "pid":  4636,
+                   "exited":  false,
+                   "mainWindowTitle":  "ChessBase Reader 2017",
+                   "mainWindowHandle":  262444
+               },
+    "uia":  [
+                {
+                    "name":  "ChessBase Reader 2017",
+                    "automationId":  "",
+                    "className":  "Afx:00090000:0",
+                    "frameworkId":  "Win32",
+                    "controlType":  "ControlType.Window",
+                    "enabled":  true,
+                    "keyboardFocusable":  false,
+                    "hasFocus":  true,
+                    "offscreen":  false,
+                    "nativeHandle":  262444
+                },
+                {
+                    "name":  "",
+                    "automationId":  "59398",
+                    "className":  "BCGPRibbonBar:90000:8:10003:10",
+                    "frameworkId":  "Win32",
+                    "controlType":  "ControlType.Pane",
+                    "enabled":  true,
+                    "keyboardFocusable":  false,
+                    "hasFocus":  false,
+                    "offscreen":  false,
+                    "nativeHandle":  196946
+                },
+                {
+                    "name":  "",
+                    "automationId":  "59648",
+                    "className":  "Afx:00090000:8:00000000:00000006:00000000",
+                    "frameworkId":  "Win32",
+                    "controlType":  "ControlType.Pane",
+                    "enabled":  true,
+                    "keyboardFocusable":  false,
+                    "hasFocus":  true,
+                    "offscreen":  false,
+                    "nativeHandle":  262494
+                },
+                {
+                    "name":  "",
+                    "automationId":  "59648",
+                    "className":  "Afx:00090000:8:00000000:00000006:00000000",
+                    "frameworkId":  "Win32",
+                    "controlType":  "ControlType.Pane",
+                    "enabled":  true,
+                    "keyboardFocusable":  false,
+                    "hasFocus":  true,
+                    "offscreen":  false,
+                    "nativeHandle":  131374
+                },
+                {
+                    "name":  "Folders",
+                    "automationId":  "1",
+                    "className":  "Afx:ControlBar:90000:8:10003:10",
+                    "frameworkId":  "Win32",
+                    "controlType":  "ControlType.Pane",
+                    "enabled":  true,
+                    "keyboardFocusable":  false,
+                    "hasFocus":  false,
+                    "offscreen":  false,
+                    "nativeHandle":  393526
+                },
+                {
+                    "name":  "",
+                    "automationId":  "153536880",
+                    "className":  "Afx:00090000:8:00000000:00000006:00000000",
+                    "frameworkId":  "Win32",
+                    "controlType":  "ControlType.Pane",
+                    "enabled":  true,
+                    "keyboardFocusable":  false,
+                    "hasFocus":  false,
+                    "offscreen":  false,
+                    "nativeHandle":  262238
+                },
+                {
+                    "name":  "Playchess.com",
+                    "automationId":  "10001",
+                    "className":  "Button",
+                    "frameworkId":  "Win32",
+                    "controlType":  "ControlType.Pane",
+                    "enabled":  true,
+                    "keyboardFocusable":  false,
+                    "hasFocus":  false,
+                    "offscreen":  false,
+                    "nativeHandle":  196912
+                },
+                {
+                    "name":  "",
+                    "automationId":  "10005",
+                    "className":  "SysTreeView32",
+                    "frameworkId":  "Win32",
+                    "controlType":  "ControlType.Pane",
+                    "enabled":  true,
+                    "keyboardFocusable":  false,
+                    "hasFocus":  false,
+                    "offscreen":  false,
+                    "nativeHandle":  131604
+                },
+                {
+                    "name":  "",
+                    "automationId":  "240378488",
+                    "className":  "ReBarWindow32",
+                    "frameworkId":  "Win32",
+                    "controlType":  "ControlType.Pane",
+                    "enabled":  true,
+                    "keyboardFocusable":  false,
+                    "hasFocus":  false,
+                    "offscreen":  false,
+                    "nativeHandle":  66084
+                },
+                {
+                    "name":  "",
+                    "automationId":  "55432",
+                    "className":  "ToolbarWindow32",
+                    "frameworkId":  "Win32",
+                    "controlType":  "ControlType.Pane",
+                    "enabled":  true,
+                    "keyboardFocusable":  false,
+                    "hasFocus":  false,
+                    "offscreen":  false,
+                    "nativeHandle":  196930
+                },
+                {
+                    "name":  "Games",
+                    "automationId":  "2",
+                    "className":  "Afx:ControlBar:90000:8:10003:10",
+                    "frameworkId":  "Win32",
+                    "controlType":  "ControlType.Pane",
+                    "enabled":  true,
+                    "keyboardFocusable":  false,
+                    "hasFocus":  false,
+                    "offscreen":  false,
+                    "nativeHandle":  196940
+                },
+                {
+                    "name":  "QLC",
+                    "automationId":  "10004",
+                    "className":  "SysListView32",
+                    "frameworkId":  "Win32",
+                    "controlType":  "ControlType.Pane",
+                    "enabled":  true,
+                    "keyboardFocusable":  false,
+                    "hasFocus":  false,
+                    "offscreen":  false,
+                    "nativeHandle":  262634
+                },
+                {
+                    "name":  "",
+                    "automationId":  "",
+                    "className":  "SysHeader32",
+                    "frameworkId":  "Win32",
+                    "controlType":  "ControlType.Pane",
+                    "enabled":  true,
+                    "keyboardFocusable":  false,
+                    "hasFocus":  false,
+                    "offscreen":  false,
+                    "nativeHandle":  196920
+                },
+                {
+                    "name":  "",
+                    "automationId":  "151470232",
+                    "className":  "Afx:00090000:8:00000000:00000006:00000000",
+                    "frameworkId":  "Win32",
+                    "controlType":  "ControlType.Pane",
+                    "enabled":  true,
+                    "keyboardFocusable":  false,
+                    "hasFocus":  true,
+                    "offscreen":  false,
+                    "nativeHandle":  262602
+                },
+                {
+                    "name":  "ILC",
+                    "automationId":  "10000",
+                    "className":  "SysListView32",
+                    "frameworkId":  "Win32",
+                    "controlType":  "ControlType.Pane",
+                    "enabled":  true,
+                    "keyboardFocusable":  false,
+                    "hasFocus":  true,
+                    "offscreen":  false,
+                    "nativeHandle":  328148
+                },
+                {
+                    "name":  "",
+                    "automationId":  "151472272",
+                    "className":  "Afx:00090000:8:00000000:00000006:00000000",
+                    "frameworkId":  "Win32",
+                    "controlType":  "ControlType.Pane",
+                    "enabled":  true,
+                    "keyboardFocusable":  false,
+                    "hasFocus":  false,
+                    "offscreen":  false,
+                    "nativeHandle":  131550
+                },
+                {
+                    "name":  "",
+                    "automationId":  "",
+                    "className":  "Shell Embedding",
+                    "frameworkId":  "Win32",
+                    "controlType":  "ControlType.Pane",
+                    "enabled":  true,
+                    "keyboardFocusable":  false,
+                    "hasFocus":  false,
+                    "offscreen":  false,
+                    "nativeHandle":  131578
+                },
+                {
+                    "name":  "",
+                    "automationId":  "",
+                    "className":  "Shell DocObject View",
+                    "frameworkId":  "Win32",
+                    "controlType":  "ControlType.Pane",
+                    "enabled":  true,
+                    "keyboardFocusable":  false,
+                    "hasFocus":  false,
+                    "offscreen":  false,
+                    "nativeHandle":  459218
+                },
+                {
+                    "name":  "",
+                    "automationId":  "",
+                    "className":  "Internet Explorer_Server",
+                    "frameworkId":  "Win32",
+                    "controlType":  "ControlType.Pane",
+                    "enabled":  true,
+                    "keyboardFocusable":  false,
+                    "hasFocus":  false,
+                    "offscreen":  false,
+                    "nativeHandle":  66178
+                },
+                {
+                    "name":  "",
+                    "automationId":  "",
+                    "className":  "Afx:Slider:90000:8:10003:10",
+                    "frameworkId":  "Win32",
+                    "controlType":  "ControlType.Pane",
+                    "enabled":  true,
+                    "keyboardFocusable":  false,
+                    "hasFocus":  false,
+                    "offscreen":  false,
+                    "nativeHandle":  66080
+                },
+                {
+                    "name":  "",
+                    "automationId":  "",
+                    "className":  "Afx:Slider:90000:8:10003:10",
+                    "frameworkId":  "Win32",
+                    "controlType":  "ControlType.Pane",
+                    "enabled":  true,
+                    "keyboardFocusable":  false,
+                    "hasFocus":  false,
+                    "offscreen":  false,
+                    "nativeHandle":  66082
+                },
+                {
+                    "name":  "sample:  1 Games",
+                    "automationId":  "",
+                    "className":  "Afx:00090000:0",
+                    "frameworkId":  "Win32",
+                    "controlType":  "ControlType.Window",
+                    "enabled":  true,
+                    "keyboardFocusable":  false,
+                    "hasFocus":  false,
+                    "offscreen":  false,
+                    "nativeHandle":  66086
+                },
+                {
+                    "name":  "",
+                    "automationId":  "59398",
+                    "className":  "BCGPRibbonBar:90000:8:10003:10",
+                    "frameworkId":  "Win32",
+                    "controlType":  "ControlType.Pane",
+                    "enabled":  true,
+                    "keyboardFocusable":  false,
+                    "hasFocus":  false,
+                    "offscreen":  false,
+                    "nativeHandle":  66096
+                },
+                {
+                    "name":  "Segoe UI",
+                    "automationId":  "3244",
+                    "className":  "RichEdit20A",
+                    "frameworkId":  "Win32",
+                    "controlType":  "ControlType.Pane",
+                    "enabled":  true,
+                    "keyboardFocusable":  false,
+                    "hasFocus":  false,
+                    "offscreen":  false,
+                    "nativeHandle":  66160
+                },
+                {
+                    "name":  "12",
+                    "automationId":  "3245",
+                    "className":  "RichEdit20A",
+                    "frameworkId":  "Win32",
+                    "controlType":  "ControlType.Pane",
+                    "enabled":  true,
+                    "keyboardFocusable":  false,
+                    "hasFocus":  false,
+                    "offscreen":  false,
+                    "nativeHandle":  66162
+                },
+                {
+                    "name":  "0",
+                    "automationId":  "3242",
+                    "className":  "RichEdit20A",
+                    "frameworkId":  "Win32",
+                    "controlType":  "ControlType.Pane",
+                    "enabled":  true,
+                    "keyboardFocusable":  false,
+                    "hasFocus":  false,
+                    "offscreen":  false,
+                    "nativeHandle":  66164
+                },
+                {
+                    "name":  "",
+                    "automationId":  "3242",
+                    "className":  "msctls_updown32",
+                    "frameworkId":  "Win32",
+                    "controlType":  "ControlType.Pane",
+                    "enabled":  true,
+                    "keyboardFocusable":  false,
+                    "hasFocus":  false,
+                    "offscreen":  false,
+                    "nativeHandle":  66166
+                },
+                {
+                    "name":  "",
+                    "automationId":  "3410",
+                    "className":  "RichEdit20A",
+                    "frameworkId":  "Win32",
+                    "controlType":  "ControlType.Pane",
+                    "enabled":  true,
+                    "keyboardFocusable":  false,
+                    "hasFocus":  false,
+                    "offscreen":  false,
+                    "nativeHandle":  66168
+                },
+                {
+                    "name":  "",
+                    "automationId":  "59648",
+                    "className":  "Afx:00090000:8:00000000:00000006:00000000",
+                    "frameworkId":  "Win32",
+                    "controlType":  "ControlType.Pane",
+                    "enabled":  true,
+                    "keyboardFocusable":  false,
+                    "hasFocus":  false,
+                    "offscreen":  false,
+                    "nativeHandle":  66106
+                },
+                {
+                    "name":  "",
+                    "automationId":  "146174752",
+                    "className":  "Afx:00090000:8:00000000:00000006:00000000",
+                    "frameworkId":  "Win32",
+                    "controlType":  "ControlType.Pane",
+                    "enabled":  true,
+                    "keyboardFocusable":  false,
+                    "hasFocus":  false,
+                    "offscreen":  false,
+                    "nativeHandle":  66108
+                },
+                {
+                    "name":  "",
+                    "automationId":  "153412704",
+                    "className":  "SysTabControl32",
+                    "frameworkId":  "Win32",
+                    "controlType":  "ControlType.Pane",
+                    "enabled":  true,
+                    "keyboardFocusable":  false,
+                    "hasFocus":  false,
+                    "offscreen":  false,
+                    "nativeHandle":  66110
+                },
+                {
+                    "name":  "",
+                    "automationId":  "59648",
+                    "className":  "Afx:00090000:8:00000000:00000006:00000000",
+                    "frameworkId":  "Win32",
+                    "controlType":  "ControlType.Pane",
+                    "enabled":  true,
+                    "keyboardFocusable":  false,
+                    "hasFocus":  false,
+                    "offscreen":  false,
+                    "nativeHandle":  66114
+                },
+                {
+                    "name":  "Games",
+                    "automationId":  "146175704",
+                    "className":  "Afx:00090000:8:00000000:00000006:00000000",
+                    "frameworkId":  "Win32",
+                    "controlType":  "ControlType.Pane",
+                    "enabled":  true,
+                    "keyboardFocusable":  false,
+                    "hasFocus":  false,
+                    "offscreen":  false,
+                    "nativeHandle":  131660
+                },
+                {
+                    "name":  "GLC",
+                    "automationId":  "10007",
+                    "className":  "SysListView32",
+                    "frameworkId":  "Win32",
+                    "controlType":  "ControlType.Pane",
+                    "enabled":  true,
+                    "keyboardFocusable":  false,
+                    "hasFocus":  false,
+                    "offscreen":  false,
+                    "nativeHandle":  66126
+                },
+                {
+                    "name":  "",
+                    "automationId":  "",
+                    "className":  "SysHeader32",
+                    "frameworkId":  "Win32",
+                    "controlType":  "ControlType.Pane",
+                    "enabled":  true,
+                    "keyboardFocusable":  false,
+                    "hasFocus":  false,
+                    "offscreen":  false,
+                    "nativeHandle":  66132
+                }
+            ],
+    "keyboard":  [
+                     {
+                         "action":  "SetForegroundWindow",
+                         "success":  true
+                     },
+                     {
+                         "action":  "{TAB}",
+                         "focusedName":  "",
+                         "focusedControlType":  "ControlType.Pane",
+                         "focusedAutomationId":  "10005"
+                     },
+                     {
+                         "action":  "{TAB}",
+                         "focusedName":  "QLC",
+                         "focusedControlType":  "ControlType.Pane",
+                         "focusedAutomationId":  "10004"
+                     },
+                     {
+                         "action":  "%f",
+                         "focusedName":  "",
+                         "focusedControlType":  "ControlType.Pane",
+                         "focusedAutomationId":  "59398"
+                     },
+                     {
+                         "action":  "{ESC}",
+                         "focusedName":  "",
+                         "focusedControlType":  "ControlType.Pane",
+                         "focusedAutomationId":  "59398"
+                     },
+                     {
+                         "action":  "{RIGHT}",
+                         "focusedName":  "",
+                         "focusedControlType":  "ControlType.Pane",
+                         "focusedAutomationId":  "59398"
+                     },
+                     {
+                         "action":  "{LEFT}",
+                         "focusedName":  "",
+                         "focusedControlType":  "ControlType.Pane",
+                         "focusedAutomationId":  "59398"
+                     }
+                 ],
+    "screenshot":  {
+                       "success":  true,
+                       "path":  "desktop.png",
+                       "bytes":  87189
+                   },
+    "errors":  [
+
+               ],
+    "finishedAt":  "2026-08-20T07:15:07.4950770Z"
+}

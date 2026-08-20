@@ -1,0 +1,1657 @@
+{
+  "target": {
+    "id": "chesscom-analysis",
+    "url": "https://www.chess.com/analysis"
+  },
+  "startedAt": "2026-08-20T07:10:32.302Z",
+  "navigation": {
+    "status": 200,
+    "ok": true
+  },
+  "title": "Chess Analysis Board and PGN Editor - Chess.com",
+  "finalUrl": "https://www.chess.com/analysis",
+  "surfaceBefore": {
+    "headings": [
+      {
+        "tag": "H2",
+        "text": "Search"
+      },
+      {
+        "tag": "H2",
+        "text": "Search"
+      }
+    ],
+    "landmarks": [
+      {
+        "tag": "HEADER",
+        "role": null,
+        "ariaLabel": null,
+        "ariaLabelledBy": null,
+        "text": "Sign Up Log In"
+      },
+      {
+        "tag": "NAV",
+        "role": null,
+        "ariaLabel": "Main",
+        "ariaLabelledBy": null,
+        "text": "Skip to content Play Puzzles Learn Train Watch Community Other Search Sign Up Log In Help & Support English"
+      }
+    ],
+    "interactives": [
+      {
+        "tag": "BUTTON",
+        "type": "button",
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": null,
+        "text": ""
+      },
+      {
+        "tag": "BUTTON",
+        "type": "button",
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": null,
+        "text": ""
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": "Chess.com - Play Chess Online",
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "https://www.chess.com/",
+        "text": ""
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": "signup-button-mobile",
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "https://www.chess.com/register?returnUrl=https://www.chess.com/analysis",
+        "text": "Sign Up"
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "https://www.chess.com/login_and_go?returnUrl=https://www.chess.com/analysis",
+        "text": "Log In"
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": "100",
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "#scroll-top-anchor",
+        "text": "Skip to content"
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": "Chess.com - Play Chess Online",
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "https://www.chess.com/",
+        "text": ""
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "https://www.chess.com/play",
+        "text": "Play"
+      },
+      {
+        "tag": "BUTTON",
+        "type": "button",
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": null,
+        "text": "Play"
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "https://www.chess.com/puzzles",
+        "text": "Puzzles"
+      },
+      {
+        "tag": "BUTTON",
+        "type": "button",
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": null,
+        "text": "Puzzles"
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "https://www.chess.com/learn",
+        "text": "Learn"
+      },
+      {
+        "tag": "BUTTON",
+        "type": "button",
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": null,
+        "text": "Learn"
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "https://www.chess.com/train",
+        "text": "Train"
+      },
+      {
+        "tag": "BUTTON",
+        "type": "button",
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": null,
+        "text": "Train"
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "https://www.chess.com/watch",
+        "text": "Watch"
+      },
+      {
+        "tag": "BUTTON",
+        "type": "button",
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": null,
+        "text": "Watch"
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "https://www.chess.com/community",
+        "text": "Community"
+      },
+      {
+        "tag": "BUTTON",
+        "type": "button",
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": null,
+        "text": "Community"
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "https://www.chess.com/other",
+        "text": "Other"
+      },
+      {
+        "tag": "BUTTON",
+        "type": "button",
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": null,
+        "text": "Other"
+      },
+      {
+        "tag": "DIV",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": "0",
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": null,
+        "text": "Search"
+      },
+      {
+        "tag": "BUTTON",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": null,
+        "text": "Search"
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": "menu-cta",
+        "tabindex": null,
+        "ariaLabel": "Sign Up",
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "https://www.chess.com/register?returnUrl=https://www.chess.com/analysis",
+        "text": "Sign Up"
+      },
+      {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": "Log In",
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": "https://www.chess.com/login_and_go?returnUrl=https://www.chess.com/analysis",
+        "text": "Log In"
+      },
+      {
+        "tag": "BUTTON",
+        "type": "button",
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": "Help & Support",
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": null,
+        "text": "Help & Support"
+      },
+      {
+        "tag": "BUTTON",
+        "type": "button",
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": "Change Language",
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": null,
+        "text": "English"
+      },
+      {
+        "tag": "BUTTON",
+        "type": "button",
+        "role": null,
+        "id": "board-controls-settings",
+        "tabindex": null,
+        "ariaLabel": "Settings",
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": null,
+        "text": ""
+      },
+      {
+        "tag": "BUTTON",
+        "type": "button",
+        "role": null,
+        "id": "board-controls-flip",
+        "tabindex": null,
+        "ariaLabel": "Flip Board",
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": null,
+        "text": ""
+      },
+      {
+        "tag": "BUTTON",
+        "type": "button",
+        "role": null,
+        "id": "board-controls-emoji-palette",
+        "tabindex": null,
+        "ariaLabel": "Emoji Palette",
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": null,
+        "text": ""
+      },
+      {
+        "tag": "BUTTON",
+        "type": "button",
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": null,
+        "text": "Set Up Position"
+      },
+      {
+        "tag": "BUTTON",
+        "type": "button",
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": null,
+        "text": "Explore"
+      },
+      {
+        "tag": "BUTTON",
+        "type": "button",
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": null,
+        "text": "Game Search"
+      },
+      {
+        "tag": "BUTTON",
+        "type": "button",
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": null,
+        "text": "Game Collections"
+      },
+      {
+        "tag": "TEXTAREA",
+        "type": null,
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": "Paste your FEN, PGN(s), or drag & drop your PGN file here.",
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": null,
+        "text": ""
+      },
+      {
+        "tag": "BUTTON",
+        "type": "button",
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": null,
+        "text": "Upload File"
+      },
+      {
+        "tag": "INPUT",
+        "type": "file",
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": "Upload a PGN File",
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": null,
+        "text": ""
+      },
+      {
+        "tag": "BUTTON",
+        "type": "button",
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": null,
+        "text": "Saved Analysis"
+      },
+      {
+        "tag": "BUTTON",
+        "type": "button",
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": null,
+        "text": "Import Study"
+      },
+      {
+        "tag": "BUTTON",
+        "type": "button",
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": null,
+        "text": "Game History"
+      },
+      {
+        "tag": "BUTTON",
+        "type": "button",
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": null,
+        "text": "Classroom"
+      },
+      {
+        "tag": "BUTTON",
+        "type": "button",
+        "role": null,
+        "id": null,
+        "tabindex": null,
+        "ariaLabel": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "ariaControls": null,
+        "title": null,
+        "href": null,
+        "text": "Start Analysis"
+      }
+    ],
+    "ariaSnapshot": "- navigation \"Main\":\n  - link \"Skip to content\":\n    - /url: \"#scroll-top-anchor\"\n  - link \"Chess.com - Play Chess Online\":\n    - /url: https://www.chess.com/\n  - link \"Play\":\n    - /url: https://www.chess.com/play\n  - link \"Puzzles\":\n    - /url: https://www.chess.com/puzzles\n  - link \"Learn\":\n    - /url: https://www.chess.com/learn\n  - link \"Train\":\n    - /url: https://www.chess.com/train\n  - link \"Watch\":\n    - /url: https://www.chess.com/watch\n  - link \"Community\":\n    - /url: https://www.chess.com/community\n  - link \"Other\":\n    - /url: https://www.chess.com/other\n  - heading \"Search\" [level=2]\n  - link \"Sign Up\":\n    - /url: https://www.chess.com/register?returnUrl=https://www.chess.com/analysis\n  - link \"Log In\":\n    - /url: https://www.chess.com/login_and_go?returnUrl=https://www.chess.com/analysis\n  - button \"Help & Support\"\n  - button \"Change Language\": English\n- img \"Avatar of ?\"\n- text: Black 0.3\n- img\n- button \"Settings\"\n- img \"Avatar of ?\"\n- text: White Analysis\n- button \"Set Up Position\"\n- button \"Explore\"\n- button \"Game Search\"\n- button \"Game Collections\"\n- textbox \"Paste your FEN, PGN(s), or drag & drop your PGN file here.\"\n- button \"Upload File\"\n- button \"Saved Analysis\"\n- button \"Import Study\"\n- button \"Game History\"\n- button \"Classroom\"\n- button \"Start Analysis\""
+  },
+  "tabSequenceBefore": [
+    {
+      "step": 1,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "#scroll-top-anchor",
+        "text": "Skip to content"
+      }
+    },
+    {
+      "step": 2,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": "Chess.com - Play Chess Online",
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "https://www.chess.com/",
+        "text": ""
+      }
+    },
+    {
+      "step": 3,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "https://www.chess.com/play",
+        "text": "Play"
+      }
+    },
+    {
+      "step": 4,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "https://www.chess.com/play/online",
+        "text": "Play Online"
+      }
+    },
+    {
+      "step": 5,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "https://www.chess.com/play/computer",
+        "text": "Play Bots"
+      }
+    },
+    {
+      "step": 6,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "https://www.chess.com/play/coach?source=play_nav",
+        "text": "Play Coach"
+      }
+    },
+    {
+      "step": 7,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "https://www.chess.com/stats",
+        "text": "Stats"
+      }
+    },
+    {
+      "step": 8,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "https://www.chess.com/play/online/tournaments",
+        "text": "Tournaments"
+      }
+    },
+    {
+      "step": 9,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "https://www.chess.com/variants",
+        "text": "Variants"
+      }
+    },
+    {
+      "step": 10,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "https://www.chess.com/games/archive",
+        "text": "Game History"
+      }
+    },
+    {
+      "step": 11,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "https://www.chess.com/puzzles",
+        "text": "Puzzles"
+      }
+    },
+    {
+      "step": 12,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "https://www.chess.com/puzzles",
+        "text": "Puzzles"
+      }
+    },
+    {
+      "step": 13,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "https://www.chess.com/daily",
+        "text": "Daily Puzzle"
+      }
+    },
+    {
+      "step": 14,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "https://www.chess.com/puzzles/rush",
+        "text": "Puzzle Rush"
+      }
+    },
+    {
+      "step": 15,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "https://www.chess.com/puzzles/battle",
+        "text": "Puzzle Battle"
+      }
+    },
+    {
+      "step": 16,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "https://www.chess.com/puzzles/learning",
+        "text": "Custom Puzzles"
+      }
+    },
+    {
+      "step": 17,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "https://www.chess.com/learn",
+        "text": "Learn"
+      }
+    },
+    {
+      "step": 18,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "https://www.chess.com/learn",
+        "text": "Lessons"
+      }
+    },
+    {
+      "step": 19,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "https://www.chess.com/play/coach?source=play_nav",
+        "text": "Play Coach"
+      }
+    },
+    {
+      "step": 20,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "https://www.chess.com/openings",
+        "text": "Openings"
+      }
+    },
+    {
+      "step": 21,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "https://www.chess.com/train",
+        "text": "Train"
+      }
+    },
+    {
+      "step": 22,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "https://www.chess.com/courses",
+        "text": "Courses"
+      }
+    },
+    {
+      "step": 23,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "https://www.chess.com/analysis",
+        "text": "Analysis"
+      }
+    },
+    {
+      "step": 24,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "https://www.chess.com/insights",
+        "text": "Insights"
+      }
+    },
+    {
+      "step": 25,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "https://www.chess.com/classroom",
+        "text": "Classroom"
+      }
+    },
+    {
+      "step": 26,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "https://www.chess.com/endgames",
+        "text": "Endgames"
+      }
+    },
+    {
+      "step": 27,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "https://www.chess.com/practice",
+        "text": "Practice"
+      }
+    },
+    {
+      "step": 28,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "https://aimchess.com/try",
+        "text": "Aimchess"
+      }
+    },
+    {
+      "step": 29,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "https://www.chess.com/watch",
+        "text": "Watch"
+      }
+    },
+    {
+      "step": 30,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "/events/info/2026-3-0-thursday",
+        "text": "3 0 Thursday 2026"
+      }
+    },
+    {
+      "step": 31,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "https://www.chess.com/events",
+        "text": "Events"
+      }
+    },
+    {
+      "step": 32,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "https://www.chess.com/tv",
+        "text": "ChessTV"
+      }
+    },
+    {
+      "step": 33,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "https://www.chess.com/streamers",
+        "text": "Streamers"
+      }
+    },
+    {
+      "step": 34,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "https://www.chess.com/play/online/watch",
+        "text": "Playing Now"
+      }
+    },
+    {
+      "step": 35,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "https://www.chess.com/community",
+        "text": "Community"
+      }
+    },
+    {
+      "step": 36,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "https://www.chess.com/friends",
+        "text": "Friends"
+      }
+    },
+    {
+      "step": 37,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "https://www.chess.com/clubs",
+        "text": "Clubs"
+      }
+    },
+    {
+      "step": 38,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "https://www.chess.com/members",
+        "text": "Members"
+      }
+    },
+    {
+      "step": 39,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "https://www.chess.com/coaches",
+        "text": "Coaches"
+      }
+    },
+    {
+      "step": 40,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "https://www.chess.com/players",
+        "text": "Top Players"
+      }
+    },
+    {
+      "step": 41,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "https://www.chess.com/ratings",
+        "text": "Chess Ratings"
+      }
+    },
+    {
+      "step": 42,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "https://www.chess.com/leaderboard",
+        "text": "Leaderboards"
+      }
+    },
+    {
+      "step": 43,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "https://www.chess.com/today",
+        "text": "Chess Today"
+      }
+    },
+    {
+      "step": 44,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "https://www.chess.com/news",
+        "text": "News"
+      }
+    },
+    {
+      "step": 45,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "https://www.chess.com/articles",
+        "text": "Articles"
+      }
+    },
+    {
+      "step": 46,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "https://www.chess.com/blogs",
+        "text": "Blogs"
+      }
+    },
+    {
+      "step": 47,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "https://www.chess.com/forum",
+        "text": "Forums"
+      }
+    },
+    {
+      "step": 48,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "https://www.chess.com/other",
+        "text": "Other"
+      }
+    },
+    {
+      "step": 49,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "https://www.chess.com/analysis/collections",
+        "text": "Collections"
+      }
+    },
+    {
+      "step": 50,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "https://www.chess.com/games",
+        "text": "Games Database"
+      }
+    },
+    {
+      "step": 51,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "https://www.chess.com/terms",
+        "text": "Chess Terms"
+      }
+    },
+    {
+      "step": 52,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "https://www.chess.com/learn-how-to-play-chess",
+        "text": "Rules"
+      }
+    },
+    {
+      "step": 53,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "https://www.chess.com/explorer",
+        "text": "Explorer"
+      }
+    },
+    {
+      "step": 54,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "https://www.chess.com/votechess",
+        "text": "Vote Chess"
+      }
+    },
+    {
+      "step": 55,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "https://www.chess.com/solo-chess",
+        "text": "Solo Chess"
+      }
+    },
+    {
+      "step": 56,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "https://www.chess.com/computer-chess-championship",
+        "text": "Computer Championship"
+      }
+    },
+    {
+      "step": 57,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "https://www.chesskid.com",
+        "text": "ChessKid"
+      }
+    },
+    {
+      "step": 58,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "https://www.chess.com/resources",
+        "text": "Tools"
+      }
+    },
+    {
+      "step": 59,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "https://www.chess.com/vision",
+        "text": "Vision"
+      }
+    },
+    {
+      "step": 60,
+      "active": {
+        "tag": "A",
+        "type": null,
+        "role": null,
+        "id": null,
+        "name": null,
+        "ariaLabel": null,
+        "ariaDescribedBy": null,
+        "ariaExpanded": null,
+        "ariaSelected": null,
+        "title": null,
+        "href": "https://www.chesscom.shop",
+        "text": "Shop / Merch"
+      }
+    }
+  ],
+  "scenarios": {},
+  "errors": [],
+  "finishedAt": "2026-08-20T07:10:39.365Z"
+}
