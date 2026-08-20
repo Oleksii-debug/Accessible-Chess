@@ -9,18 +9,50 @@ It never modifies source files in place.
 
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from enum import Enum
 import json
 from pathlib import Path
 import sqlite3
 from typing import Iterable
 
 from .gametree import PgnGame, parse_games, serialize_game
+from .gametree_legality import (
+    DiagnosticSeverity,
+    GameTreeLegalityReport,
+    LegalityDiagnosticCode,
+    link_game_legality,
+)
 from .import_contract import sha256_utf8_text
 from .position_editor import PositionState
 
 IMPORT_STATUSES = {"full", "partial", "damaged", "warning"}
 IMPORT_ATTEMPT_STATUSES = {"pending", "full", "warning", "damaged", "failed"}
 ACSDB_SCHEMA_VERSION = 2
+
+
+class AcsImportValidationCode(str, Enum):
+    LEGALITY_DAMAGED = "legality_damaged"
+
+
+class AcsImportValidationError(ValueError):
+    """Stable fail-closed rejection for a game that cannot be persisted safely."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        code: AcsImportValidationCode,
+        source_index: int,
+        diagnostic_codes: tuple[LegalityDiagnosticCode, ...],
+    ) -> None:
+        super().__init__(message)
+        self.code = AcsImportValidationCode(code)
+        self.source_index = _require_exact_int(source_index, "source_index", minimum=0)
+        if not isinstance(diagnostic_codes, tuple):
+            raise TypeError("diagnostic_codes must be a tuple")
+        self.diagnostic_codes = tuple(
+            LegalityDiagnosticCode(item) for item in diagnostic_codes
+        )
 
 
 def _require_exact_int(value: object, name: str, *, minimum: int | None = None) -> int:
@@ -72,6 +104,43 @@ class ImportReport:
     @property
     def total(self) -> int:
         return self.full + self.partial + self.damaged + self.warning
+
+
+@dataclass(frozen=True, slots=True)
+class _ValidatedGame:
+    serialized_pgn: str
+    warnings: tuple[str, ...]
+    legality: GameTreeLegalityReport
+
+
+def _validate_game_for_persistence(game: PgnGame) -> _ValidatedGame:
+    # Structural recovery/export policy remains authoritative and is checked
+    # before legality so its stable GameTreeSerializationError is preserved.
+    serialized = serialize_game(game)
+    legality = link_game_legality(game)
+    if legality.has_errors or not legality.all_moves_legal:
+        error_diagnostics = tuple(
+            diagnostic
+            for diagnostic in legality.diagnostics
+            if diagnostic.severity is DiagnosticSeverity.ERROR
+        )
+        evidence = error_diagnostics or legality.diagnostics
+        summaries = [diagnostic.summary for diagnostic in evidence[:8]]
+        if len(evidence) > 8:
+            summaries.append(f"{len(evidence) - 8} additional diagnostic(s)")
+        detail = "; ".join(summaries) or "move legality is incomplete"
+        raise AcsImportValidationError(
+            f"PGN game {game.source_index} failed legality validation: {detail}",
+            code=AcsImportValidationCode.LEGALITY_DAMAGED,
+            source_index=game.source_index,
+            diagnostic_codes=tuple(
+                diagnostic.code for diagnostic in evidence
+            ),
+        )
+    warnings = tuple(game.warnings) + tuple(
+        diagnostic.summary for diagnostic in legality.diagnostics
+    )
+    return _ValidatedGame(serialized, warnings, legality)
 
 
 class AcsDatabase:
@@ -244,27 +313,36 @@ class AcsDatabase:
             (self._now(), status, source_id, game_count, warning_count, error_message, attempt_id),
         )
 
-    def _insert_game(self, game: PgnGame, source_id: int, *, raw_pgn: str | None = None,
-                     import_status: str | None = None) -> int:
+    def _insert_game(
+        self,
+        game: PgnGame,
+        source_id: int,
+        *,
+        raw_pgn: str | None = None,
+        import_status: str | None = None,
+        validated: _ValidatedGame | None = None,
+    ) -> int:
         if not isinstance(game, PgnGame):
             raise TypeError("game must be a PgnGame")
         source_id = _require_id(source_id, "source_id")
         raw_pgn = _require_optional_text(raw_pgn, "raw_pgn")
         if import_status is not None:
             import_status = _require_text(import_status, "import_status")
-        status = import_status or ("warning" if game.warnings else "full")
+        if validated is not None and not isinstance(validated, _ValidatedGame):
+            raise TypeError("validated must be _ValidatedGame or None")
+        validation = validated or _validate_game_for_persistence(game)
+        status = import_status or ("warning" if validation.warnings else "full")
         if status not in IMPORT_STATUSES:
             raise ValueError(f"Unsupported import status: {status}")
-        # Validate mutable GameTree state even when caller supplies raw source
-        # text. This prevents malformed post-construction DTOs reaching SQLite.
-        validated_pgn = serialize_game(game)
+        if status == "full" and validation.warnings:
+            raise ValueError("a game with preserved warnings cannot be stored as full")
         tags = game.tags
-        pgn_text = raw_pgn if raw_pgn is not None else validated_pgn
+        pgn_text = raw_pgn if raw_pgn is not None else validation.serialized_pgn
         cur = self.conn.execute(
             """INSERT INTO games(source_id, source_index, import_status, warnings_json,
                event, site, game_date, round, white, black, result, eco, opening, start_fen, pgn_text)
                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-            (source_id, game.source_index, status, json.dumps(game.warnings, ensure_ascii=False),
+            (source_id, game.source_index, status, json.dumps(validation.warnings, ensure_ascii=False),
              tags.get("Event"), tags.get("Site"), tags.get("Date"), tags.get("Round"),
              tags.get("White"), tags.get("Black"), game.result, tags.get("ECO"), tags.get("Opening"),
              tags.get("FEN") if tags.get("SetUp") == "1" else None, pgn_text),
@@ -288,13 +366,21 @@ class AcsDatabase:
                     source_id = self._insert_source(source_name, "pgn", digest)
                     self._finish_import_attempt(attempt_id, status="damaged", source_id=source_id)
                 return ImportReport(source_id=source_id, attempt_id=attempt_id, damaged=1)
+            validated_games = tuple(
+                _validate_game_for_persistence(game) for game in games
+            )
             report = ImportReport(source_id=-1, attempt_id=attempt_id)
             with self.conn:
                 source_id = self._insert_source(source_name, "pgn", digest)
                 report.source_id = source_id
-                for game in games:
-                    status = "warning" if game.warnings else "full"
-                    game_id = self._insert_game(game, source_id, import_status=status)
+                for game, validation in zip(games, validated_games, strict=True):
+                    status = "warning" if validation.warnings else "full"
+                    game_id = self._insert_game(
+                        game,
+                        source_id,
+                        import_status=status,
+                        validated=validation,
+                    )
                     report.game_ids.append(game_id)
                     setattr(report, status, getattr(report, status) + 1)
                 self._finish_import_attempt(

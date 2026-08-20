@@ -30,6 +30,7 @@ import tempfile
 from typing import Iterable, Iterator
 
 from .gametree import PgnGame, parse_games, serialize_games
+from .gametree_legality import link_game_legality
 from .import_contract import (
     ImportQuality,
     ImportReport,
@@ -116,8 +117,16 @@ class PgnFileImporter:
             return report
 
         for game in opened.games:
-            warnings = tuple(game.warnings)
-            damaged = any(issue.blocks_export for issue in game.recovery_issues)
+            legality = link_game_legality(game)
+            legality_warnings = tuple(
+                diagnostic.summary for diagnostic in legality.diagnostics
+            )
+            warnings = tuple(game.warnings) + legality_warnings
+            structural_damage = any(
+                issue.blocks_export for issue in game.recovery_issues
+            )
+            legality_damage = legality.has_errors or not legality.all_moves_legal
+            damaged = structural_damage or legality_damage
             report.add(
                 ImportedRecord(
                     source_record_id=str(game.source_index),
@@ -127,9 +136,13 @@ class PgnFileImporter:
                         else ImportQuality.WARNING if warnings else ImportQuality.FULL
                     ),
                     message=(
-                        "PGN game requires explicit repair before export."
-                        if damaged
-                        else "PGN game parsed structurally."
+                        "PGN game requires explicit repair of structural damage before export."
+                        if structural_damage
+                        else "PGN game has unresolved chess-legality diagnostics."
+                        if legality_damage
+                        else "PGN game is legal with preserved warnings."
+                        if warnings
+                        else "PGN game parsed and linked legally."
                     ),
                     warnings=warnings,
                 )

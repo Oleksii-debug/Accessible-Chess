@@ -195,6 +195,39 @@ class PgnFileServiceTests(unittest.TestCase):
         )
         self.assertEqual(report.records[2].warnings, ())
 
+    def test_legality_quality_is_isolated_per_game_during_inspection(self):
+        collection = (
+            '[Event "Illegal"]\n[Result "*"]\n\n'
+            '1. e4 e5 2. Bh6 Nf6 *\n\n'
+            '[Event "Noncanonical"]\n[Result "*"]\n\n'
+            '1. e2e4 e7e5 *\n\n'
+            '[Event "Clean"]\n[Result "*"]\n\n'
+            '1. d4 d5 *\n'
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / 'legality-quality.pgn'
+            path.write_text(collection, encoding='utf-8')
+            report = PgnFileImporter().inspect(path)
+
+        self.assertEqual(
+            [record.quality for record in report.records],
+            [ImportQuality.DAMAGED, ImportQuality.WARNING, ImportQuality.FULL],
+        )
+        self.assertTrue(
+            any('illegal_san at root/move[2]' in item for item in report.records[0].warnings)
+        )
+        self.assertTrue(
+            any('position_unavailable at root/move[3]' in item for item in report.records[0].warnings)
+        )
+        self.assertTrue(
+            any('noncanonical_san at root/move[0]' in item for item in report.records[1].warnings)
+        )
+        self.assertEqual(report.records[2].warnings, ())
+        self.assertIn('legality', report.records[0].message)
+        self.assertIn('legal with preserved warnings', report.records[1].message)
+        self.assertIn('linked legally', report.records[2].message)
+
     def test_source_byte_limit_is_checked_before_unbounded_file_read(self):
         payload = '[Result "*"]\n\n1. e4 *\n'.encode('utf-8')
         with tempfile.TemporaryDirectory() as tmp:

@@ -1,10 +1,17 @@
+import json
 import os
 import sqlite3
 import tempfile
 import unittest
 
-from acs.acsdb import ACSDB_SCHEMA_VERSION, AcsDatabase
-from acs.gametree import GameTreeErrorCode, GameTreeSerializationError
+from acs.acsdb import (
+    ACSDB_SCHEMA_VERSION,
+    AcsDatabase,
+    AcsImportValidationCode,
+    AcsImportValidationError,
+)
+from acs.gametree import GameTreeErrorCode, GameTreeSerializationError, parse_games
+from acs.gametree_legality import LegalityDiagnosticCode
 
 
 class AcsDatabaseTests(unittest.TestCase):
@@ -239,6 +246,65 @@ class AcsDatabaseTests(unittest.TestCase):
         self.assertEqual(len(failures), 1)
         self.assertIsNone(failures[0]['source_id'])
         self.assertIn('explicit repair', failures[0]['error_message'])
+
+    def test_illegal_multi_game_import_rolls_back_and_records_failed_attempt(self):
+        source = (
+            '[Event "Clean first"]\n[Result "*"]\n\n'
+            '1. e4 e5 *\n\n'
+            '[Event "Illegal second"]\n[Result "*"]\n\n'
+            '1. e4 e5 2. Bh6 Nf6 *\n'
+        )
+
+        with self.assertRaises(AcsImportValidationError) as blocked:
+            self.db.import_pgn_text(source, 'illegal-mixed.pgn')
+
+        self.assertEqual(
+            blocked.exception.code,
+            AcsImportValidationCode.LEGALITY_DAMAGED,
+        )
+        self.assertEqual(blocked.exception.source_index, 1)
+        self.assertIn(
+            LegalityDiagnosticCode.ILLEGAL_SAN,
+            blocked.exception.diagnostic_codes,
+        )
+        self.assertEqual(self.db.conn.execute('SELECT COUNT(*) FROM sources').fetchone()[0], 0)
+        self.assertEqual(self.db.conn.execute('SELECT COUNT(*) FROM games').fetchone()[0], 0)
+        failures = self.db.list_import_attempts(status='failed')
+        self.assertEqual(len(failures), 1)
+        self.assertIsNone(failures[0]['source_id'])
+        self.assertIn('illegal_san at root/move[2]', failures[0]['error_message'])
+
+    def test_noncanonical_legal_san_is_stored_as_warning_with_evidence(self):
+        report = self.db.import_pgn_text(
+            '[Event "Coordinate"]\n[Result "*"]\n\n1. e2e4 e7e5 *',
+            'coordinate.pgn',
+        )
+
+        self.assertEqual(report.full, 0)
+        self.assertEqual(report.warning, 1)
+        row = self.db.get_game(report.game_ids[0])
+        self.assertEqual(row['import_status'], 'warning')
+        warnings = json.loads(row['warnings_json'])
+        self.assertTrue(
+            any('noncanonical_san at root/move[0]' in item for item in warnings)
+        )
+        self.assertIn('e2e4', row['pgn_text'])
+        attempt = self.db.get_import_attempt(report.attempt_id)
+        self.assertEqual(attempt['status'], 'warning')
+        self.assertEqual(attempt['warning_count'], 1)
+
+    def test_direct_store_game_cannot_bypass_legality_validation(self):
+        source_id = self.db.add_source('direct.pgn', 'pgn')
+        illegal = parse_games('[Result "*"]\n\n1. e4 e5 2. Bh6 *')[0]
+
+        with self.assertRaises(AcsImportValidationError) as blocked:
+            self.db.store_game(illegal, source_id)
+
+        self.assertEqual(
+            blocked.exception.code,
+            AcsImportValidationCode.LEGALITY_DAMAGED,
+        )
+        self.assertEqual(self.db.conn.execute('SELECT COUNT(*) FROM games').fetchone()[0], 0)
 
     def test_position_batch_is_atomic_if_one_row_is_invalid(self):
         report = self.db.import_pgn_text('[Result "*"]\n\n1. e4 *', 'positions.pgn')

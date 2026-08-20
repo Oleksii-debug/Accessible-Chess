@@ -1,23 +1,23 @@
 # Accessible Chess — Work Master Current
 
-Updated: `2026-08-20T09:52:00Z`
+Updated: `2026-08-20T09:58:43Z`
 
 ## Recovery pointer
 
 - `CURRENT_BRANCH`: `completion/full-product-critical-path-20260819`
 - `START_SHA`: `588058634b378793b3c9aa0dca113af6b8a2dc8f`
-- `CURRENT_REMOTE_SHA`: `77a6640dcc177c0c21a3c6b64ff1324ad0ff0ca5`
-- `LAST_SAFE_SHA`: `77a6640dcc177c0c21a3c6b64ff1324ad0ff0ca5`
+- `CURRENT_REMOTE_SHA`: `f559a56494cadca5435ed86e765d11f92c7ff671`
+- `LAST_SAFE_SHA`: `f559a56494cadca5435ed86e765d11f92c7ff671`
 - `INTEGRATION_SHA`: `e8cd992d306975955784118364ce950963133d7e`
 - `QA_SHA`: `07971835cb8fc294996165e577913ed350ae9f0e`
 - `RESEARCH_SHA`: `0213f54f3f36fb30379f95c9979aea3a1cc41481`
-- `COMPLETION_SHA`: `77a6640dcc177c0c21a3c6b64ff1324ad0ff0ca5`
+- `COMPLETION_SHA`: `f559a56494cadca5435ed86e765d11f92c7ff671`
 - `COMPETITOR_EVIDENCE_BRANCH`: `research/competitor-interaction-lab-20260820`
 - `COMPETITOR_EVIDENCE_SHA`: `0213f54f3f36fb30379f95c9979aea3a1cc41481`
 - `CURRENT_STAGE1_STATE`: `BLOCKED — Issues #14 and #22 open; classification does not authorize a product-source change`
 - `CURRENT_OWNER`: `WORK_MASTER — completion/shared-core/spec/test hardening only; Windows QA remains QA-owned`
 - `CURRENT_PRIORITY`: `Isolated shared-core PGN/GameTree corruption and recovery hardening`
-- `CURRENT_SUBSYSTEM`: non-destructive GameTree legality and immutable position links
+- `CURRENT_SUBSYSTEM`: legality-enforced PGN inspection and ACSDB persistence
 - `STATUS`: `WIP_SAFE`
 - `NVDA_VERIFIED`: `NO`
 
@@ -72,6 +72,7 @@ Commit `11b92a1e827bf66f8075ac7f3571ae20b908c1af` added integrity-verified bound
 - Local tag-pair verification after `0602189`: broad unittest `806/806` passed; focused GameTree/PGN/concurrency/identity/ACSDB `79 tests`, `120 subtests` passed. Only supported quote/backslash escapes are clean; unsupported escapes and malformed tag-looking lines remain structured blockers attached to one damaged game while clean siblings stay independent.
 - Local PGN resource-envelope verification after `b695444`: broad unittest `812/812` passed; focused GameTree/PGN/concurrency/identity/ACSDB/import/duplicate/architecture `108 tests`, `162 subtests` passed. Full pytest is `892 passed`, `1489 subtests`, with exactly the two unchanged Stage1 PRODUCT failures. Oversized source/output tests prove stable codes and no destination directory, lock, temp file or partial database write; a 200-game normal fixture round-trips.
 - Local legality-linker verification after `77a6640`: broad unittest `820/820` passed; focused legality/GameTree/chesscore/Stage1-core/architecture `74 tests`, `88 subtests` passed. Standard and SetUp/FEN starts, correct pre-parent RAV positions, illegal-mainline isolation, coordinate/noncanonical SAN, move-number warnings, castling, en passant, promotion, check/checkmate, forced results, recovery separation, cycle/reuse and node bounds are proven without mutating GameTree.
+- Local legality-persistence verification after `f559a56`: broad unittest `824/824` passed; focused legality/GameTree/PGN/concurrency/ACSDB/identity/import/duplicate/architecture `120 tests`, `172 subtests` passed. Full pytest is `904 passed`, `1499 subtests`, with exactly the two unchanged Stage1 PRODUCT failures. Mixed inspection yields DAMAGED/WARNING/FULL independently; illegal mixed imports and direct store fail atomically with a recorded attempt; coordinate SAN persists as warning evidence.
 - Competitor lab run `32342624286`: five jobs completed successfully and published compact evidence to `0213f54...`.
 
 ## Known failures and blockers
@@ -81,7 +82,7 @@ Commit `11b92a1e827bf66f8075ac7f3571ae20b908c1af` added integrity-verified bound
 3. Strict Windows run `32220453450`: BLOCKED / NO PRODUCT ATTRIBUTION YET at native Ctrl+A/Ctrl+C; QA owns the focused evidence pass.
 4. Canonical ChessBase CBG move/variation/annotation decoding remains `UNSUPPORTED`; real licensed fixture corpus is absent; CBV/CBF/2CBH/CBONE content remains `UNSUPPORTED`.
 5. Full licensed ChessBase/Fritz interactive/NVDA execution remains unavailable. Robot evidence must not be labelled `NVDA_VERIFIED`.
-6. Legality projection is not yet enforced by PGN importer inspection or ACSDB persistence: a structurally clean but illegal game can still be labelled FULL and stored. Integration must preserve per-game read-only diagnostics, reject illegal/unverified writes atomically, and retain warning-only noncanonical evidence.
+6. Duplicate detection still hashes and compares semantic identity before enforcing legality, and `store_game(raw_pgn=...)` can persist caller-supplied text that is not proven equivalent to the validated GameTree. Both boundaries need fail-closed equivalence/legality policy before PGN/GameTree can be declared complete.
 
 ## Current ownership and invariants
 
@@ -94,4 +95,4 @@ Commit `11b92a1e827bf66f8075ac7f3571ae20b908c1af` added integrity-verified bound
 
 ## Next exact action
 
-Commit and checkpoint the legality linker, then integrate it into read-only PGN inspection and ACSDB import. Per game, classify illegal/unverified/invalid-start evidence as DAMAGED, noncanonical SAN/move-number evidence as WARNING, clean games as FULL, and structural recovery independently; block/roll back any damaged persistence while recording the failed attempt. Do not change the Stage 1 product or QA line. If Issue #14 transfers a PRODUCT fix, stop shared-core work and make the minimum central rank/file Action Registry plus live-Help repair before returning the exact SHA to QA.
+Commit and checkpoint legality-enforced inspection/persistence, then close the remaining provenance bypasses: duplicate detection must reject or explicitly skip illegal incoming/stored games, and raw PGN overrides must parse to exactly one structurally clean, legal, semantically identical record before storage. Prove stable diagnostics, unchanged exact-source hashing, direct-store atomicity and no false duplicate claims. Do not change the Stage 1 product or QA line. If Issue #14 transfers a PRODUCT fix, stop shared-core work and make the minimum central rank/file Action Registry plus live-Help repair before returning the exact SHA to QA.

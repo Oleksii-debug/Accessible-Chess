@@ -111,6 +111,17 @@ PGN must never be silently reinterpreted as clean data.
     promotion, en passant and check/checkmate use the same chesscore rules.
     Parser recovery codes remain a distinct report field and the source
     GameTree is never mutated.
+20. Read-only file inspection combines structural and legality evidence per
+    game without contaminating clean siblings. Blocking recovery, invalid
+    starts, illegal/unverified moves and forced-result errors are `DAMAGED`;
+    legal noncanonical SAN and move-number diagnostics are `WARNING`; exact
+    legal games are `FULL`. ACSDB validates structure first (preserving stable
+    recovery failures), then legality before opening its source/game write
+    transaction. Any damaged game rejects the whole collection, leaves no
+    source/game rows and records a failed attempt with stable legality code,
+    source index and bounded path evidence. Warning-only games retain original
+    SAN and persist diagnostic summaries in `warnings_json`. Direct
+    `store_game` uses the same gate and cannot bypass legality validation.
 
 ## Compatibility
 
@@ -157,6 +168,11 @@ evidence. An illegal mainline move makes later mainline positions unverified,
 but a sibling RAV attached to that move remains independently verifiable from
 the known pre-move position. A legal but noncanonical spelling can advance the
 position while remaining explicitly diagnosable; no source SAN is rewritten.
+
+Importer quality is therefore evidence-backed rather than syntax-only. This
+changes no ACSDB schema: existing v2 rows remain readable, while new writes
+gain stricter validation and richer warning JSON. Legality-damaged input is
+never partially stored even when a clean game precedes it in the same source.
 
 ## Release boundary
 

@@ -128,6 +128,10 @@ class LegalityDiagnostic:
         if self.source_san is not None and not isinstance(self.source_san, str):
             raise TypeError("diagnostic source_san must be text or None")
 
+    @property
+    def summary(self) -> str:
+        return f"{self.code.value} at {self.location.label}: {self.message}"
+
 
 @dataclass(frozen=True, slots=True)
 class LinkedMove:
