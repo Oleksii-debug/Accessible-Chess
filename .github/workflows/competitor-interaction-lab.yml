@@ -9,6 +9,10 @@ on:
       - 'tools/competitor_lab/**'
   workflow_dispatch:
 
+concurrency:
+  group: competitor-interaction-lab
+  cancel-in-progress: true
+
 permissions:
   contents: write
 
