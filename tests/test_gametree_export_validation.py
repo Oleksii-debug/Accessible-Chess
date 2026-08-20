@@ -120,6 +120,82 @@ class GameTreeExportValidationTests(unittest.TestCase):
                 parse_games('1. e4 e5 *')
         self.assertEqual(caught.exception.code, GameTreeErrorCode.GRAPH_NODE_LIMIT)
 
+    def test_direct_parser_resource_limits_fail_with_stable_codes(self):
+        with self.assertRaises(GameTreeContractError) as invalid_type:
+            parse_games(b'1. e4 *')
+        self.assertEqual(invalid_type.exception.code, GameTreeErrorCode.INVALID_INPUT)
+
+        parser_cases = (
+            ('MAX_PGN_INPUT_CHARACTERS', 4, '1. e4 *', GameTreeErrorCode.INPUT_CHARACTER_LIMIT),
+            ('MAX_PGN_TOKENS', 2, '1. e4 *', GameTreeErrorCode.TOKEN_LIMIT),
+            ('MAX_PGN_LINES', 2, '1.\ne4\n*', GameTreeErrorCode.LINE_LIMIT),
+            (
+                'MAX_PGN_GAMES',
+                1,
+                '[Result "*"]\n\n1. e4 *\n\n[Result "*"]\n\n1. d4 *',
+                GameTreeErrorCode.GAME_LIMIT,
+            ),
+            (
+                'MAX_TAGS_PER_GAME',
+                1,
+                '[Event "A"]\n[Result "*"]\n\n1. e4 *',
+                GameTreeErrorCode.TAG_LIMIT,
+            ),
+            (
+                'MAX_TAG_VALUE_CHARACTERS',
+                3,
+                '[Event "Four"]\n[Result "*"]\n\n1. e4 *',
+                GameTreeErrorCode.FIELD_LIMIT,
+            ),
+            ('MAX_TOKEN_CHARACTERS', 3, '1. Nf3x *', GameTreeErrorCode.FIELD_LIMIT),
+            ('MAX_COMMENT_CHARACTERS', 3, '1. e4 {four} *', GameTreeErrorCode.FIELD_LIMIT),
+        )
+        for constant, limit, source, expected_code in parser_cases:
+            with self.subTest(constant=constant):
+                with mock.patch.object(gametree, constant, limit):
+                    with self.assertRaises(GameTreeContractError) as caught:
+                        parse_games(source)
+                self.assertEqual(caught.exception.code, expected_code)
+
+        two_games = '[Result "*"]\n\n1. e4 *\n\n[Result "*"]\n\n1. d4 *'
+        with mock.patch.object(gametree, 'MAX_TREE_NODES', 3):
+            with self.assertRaises(GameTreeContractError) as collection_nodes:
+                parse_games(two_games)
+        self.assertEqual(
+            collection_nodes.exception.code,
+            GameTreeErrorCode.GRAPH_NODE_LIMIT,
+        )
+
+    def test_serializer_resource_limits_precede_large_output_assembly(self):
+        game = self.game()
+        with mock.patch.object(gametree, 'MAX_PGN_OUTPUT_CHARACTERS', 10):
+            self.assert_serialization_code(game, GameTreeErrorCode.OUTPUT_LIMIT)
+
+        games = (self.game(), self.game())
+        with mock.patch.object(gametree, 'MAX_PGN_GAMES', 1):
+            with self.assertRaises(GameTreeSerializationError) as game_limit:
+                serialize_games(games)
+        self.assertEqual(game_limit.exception.code, GameTreeErrorCode.GAME_LIMIT)
+
+        game = self.game()
+        game.tags['Event'] = 'four'
+        with mock.patch.object(gametree, 'MAX_TAG_VALUE_CHARACTERS', 3):
+            self.assert_serialization_code(game, GameTreeErrorCode.FIELD_LIMIT)
+
+        game = self.game()
+        game.line.moves[0].comments_after.append(gametree.Comment('four'))
+        with mock.patch.object(gametree, 'MAX_COMMENT_CHARACTERS', 3):
+            self.assert_serialization_code(game, GameTreeErrorCode.FIELD_LIMIT)
+
+    def test_normal_multi_game_fixture_remains_well_inside_resource_envelope(self):
+        source = '\n\n'.join(
+            f'[Event "Game {index}"]\n[Result "*"]\n\n1. e4 e5 *'
+            for index in range(200)
+        )
+        games = parse_games(source)
+        self.assertEqual(len(games), 200)
+        self.assertEqual(len(parse_games(serialize_games(games))), 200)
+
     def test_valid_loss_aware_structure_still_round_trips(self):
         source = (
             '[Event "Rich"]\n[Result "1-0"]\n\n'

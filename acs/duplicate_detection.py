@@ -3,7 +3,6 @@ from __future__ import annotations
 """Neutral duplicate detection for PGN/ACSDB records."""
 
 from dataclasses import dataclass
-import hashlib
 import re
 from typing import Literal
 
@@ -14,6 +13,7 @@ from .game_identity import (
     identity_for_game,
 )
 from .gametree import parse_games
+from .import_contract import sha256_utf8_text
 
 DuplicateKind = Literal["exact_source", "record", "tree"]
 _DUPLICATE_KINDS = frozenset({"exact_source", "record", "tree"})
@@ -116,7 +116,7 @@ def detect_pgn_duplicates(database: AcsDatabase, text: str) -> DuplicateReport:
         raise TypeError("database must be AcsDatabase")
     if not isinstance(text, str):
         raise TypeError("text must be PGN text")
-    source_sha256 = hashlib.sha256(text.encode("utf-8")).hexdigest()
+    source_sha256 = sha256_utf8_text(text)
     matches: list[DuplicateMatch] = []
     skipped_stored_game_ids: list[int] = []
 

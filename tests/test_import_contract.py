@@ -1,6 +1,7 @@
+import hashlib
+from pathlib import Path
 import tempfile
 import unittest
-from pathlib import Path
 
 from acs.import_contract import (
     ImportQuality,
@@ -9,6 +10,7 @@ from acs.import_contract import (
     SourceFingerprint,
     UnsupportedChessBaseImporter,
     fingerprint,
+    sha256_utf8_text,
     summarize_reports,
     verify_source_unchanged,
 )
@@ -127,6 +129,24 @@ class ImportContractTests(unittest.TestCase):
             report = ImportReport(fingerprint(path), "Fake")
             with self.assertRaisesRegex(TypeError, "only ImportReport"):
                 summarize_reports((report, object()))
+
+    def test_utf8_text_hash_is_chunked_without_changing_provenance(self):
+        text = 'ASCII / Україна / ♟ / supplementary \U0001f9ed'
+        expected = hashlib.sha256(text.encode('utf-8')).hexdigest()
+        for chunk_characters in (1, 2, 7, len(text), len(text) + 1):
+            with self.subTest(chunk_characters=chunk_characters):
+                self.assertEqual(
+                    sha256_utf8_text(text, chunk_characters),
+                    expected,
+                )
+        self.assertEqual(
+            sha256_utf8_text('', 1),
+            hashlib.sha256(b'').hexdigest(),
+        )
+        for invalid in (True, 0, -1, 1.5, '1'):
+            with self.subTest(invalid=invalid):
+                with self.assertRaises((TypeError, ValueError)):
+                    sha256_utf8_text(text, invalid)
 
 
 if __name__ == '__main__':

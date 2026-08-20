@@ -33,9 +33,31 @@ NAG_SYMBOLS = frozenset({"!", "?", "!!", "??", "!?", "?!"})
 # nesting from exhausting the Python stack or unbounded traversal resources.
 MAX_VARIATION_DEPTH = 128
 MAX_TREE_NODES = 100_000
+MAX_PGN_INPUT_CHARACTERS = 64 * 1024 * 1024
+MAX_PGN_OUTPUT_CHARACTERS = 64 * 1024 * 1024
+MAX_PGN_TOKENS = 1_000_000
+MAX_PGN_LINES = 2_000_000
+MAX_PGN_GAMES = 100_000
+MAX_PGN_TAGS = 1_000_000
+MAX_TAGS_PER_GAME = 512
+MAX_TAG_NAME_CHARACTERS = 255
+MAX_TAG_VALUE_CHARACTERS = 64 * 1024
+MAX_TAG_LINE_CHARACTERS = MAX_TAG_NAME_CHARACTERS + MAX_TAG_VALUE_CHARACTERS + 16
+MAX_TOKEN_CHARACTERS = 16 * 1024
+MAX_COMMENT_CHARACTERS = 1024 * 1024
+MAX_LINE_CHARACTERS = 1024 * 1024
+MAX_RECOVERY_MESSAGE_CHARACTERS = 128 * 1024
 
 
 class GameTreeErrorCode(str, Enum):
+    INVALID_INPUT = "invalid_input"
+    INPUT_CHARACTER_LIMIT = "input_character_limit"
+    TOKEN_LIMIT = "token_limit"
+    LINE_LIMIT = "line_limit"
+    GAME_LIMIT = "game_limit"
+    TAG_LIMIT = "tag_limit"
+    FIELD_LIMIT = "field_limit"
+    OUTPUT_LIMIT = "output_limit"
     INVALID_COMMENT_TEXT = "invalid_comment_text"
     UNSUPPORTED_COMMENT_STYLE = "unsupported_comment_style"
     UNREPRESENTABLE_COMMENT = "unrepresentable_comment"
@@ -110,9 +132,10 @@ class PgnRecoveryIssue:
             or not self.message.strip()
             or "\r" in self.message
             or "\n" in self.message
+            or len(self.message) > MAX_RECOVERY_MESSAGE_CHARACTERS
         ):
             raise GameTreeContractError(
-                "PGN recovery message must be non-empty single-line text",
+                "PGN recovery message must be bounded non-empty single-line text",
                 code=GameTreeErrorCode.INVALID_RECOVERY_ISSUE,
             )
         if self.variation_depth is not None and (
@@ -193,6 +216,36 @@ class _Token:
     value: str
 
 
+def _raise_resource_limit(message: str, code: GameTreeErrorCode) -> None:
+    raise GameTreeContractError(message, code=code)
+
+
+def _checked_slice(
+    text: str,
+    start: int,
+    end: int,
+    *,
+    limit: int,
+    label: str,
+) -> str:
+    if end - start > limit:
+        _raise_resource_limit(
+            f"PGN {label} exceeds the character safety limit",
+            GameTreeErrorCode.FIELD_LIMIT,
+        )
+    return text[start:end]
+
+
+def _emit_token(out: list[_Token], token: _Token, budget: list[int]) -> None:
+    if budget[0] >= MAX_PGN_TOKENS:
+        _raise_resource_limit(
+            "PGN exceeds the token safety limit",
+            GameTreeErrorCode.TOKEN_LIMIT,
+        )
+    budget[0] += 1
+    out.append(token)
+
+
 def _unescape_tag(value: str) -> str:
     decoded: list[str] = []
     index = 0
@@ -229,33 +282,35 @@ def _is_canonical_numeric_nag(value: str) -> bool:
     return len(digits) <= 3 and int(digits) <= 255
 
 
-def _append_word_tokens(out: list[_Token], value: str) -> None:
+def _append_word_tokens(out: list[_Token], value: str, budget: list[int]) -> None:
     """Split one non-delimiter word into move-number, SAN and NAG tokens."""
 
     if not value:
         return
     if MOVE_NUMBER_RE.fullmatch(value):
-        out.append(_Token("MOVE_NUMBER", value))
+        _emit_token(out, _Token("MOVE_NUMBER", value), budget)
         return
     if MOVE_NUMBER_SHAPE_RE.fullmatch(value):
-        out.append(_Token("INVALID_MOVE_NUMBER", value))
+        _emit_token(out, _Token("INVALID_MOVE_NUMBER", value), budget)
         return
     if value in RESULTS:
-        out.append(_Token("RESULT", value))
+        _emit_token(out, _Token("RESULT", value), budget)
         return
     if value in NAG_SYMBOLS:
-        out.append(_Token("NAG_SYMBOL", value))
+        _emit_token(out, _Token("NAG_SYMBOL", value), budget)
         return
     prefixed = MOVE_NUMBER_PREFIX_RE.match(value)
     if prefixed:
         move_number = prefixed.group(1)
-        out.append(
+        _emit_token(
+            out,
             _Token(
                 "MOVE_NUMBER"
                 if MOVE_NUMBER_RE.fullmatch(move_number)
                 else "INVALID_MOVE_NUMBER",
                 move_number,
-            )
+            ),
+            budget,
         )
         value = prefixed.group(2)
 
@@ -274,15 +329,29 @@ def _append_word_tokens(out: list[_Token], value: str) -> None:
             kind = "INVALID_MOVE_NUMBER"
         else:
             kind = "SAN"
-        out.append(_Token(kind, value))
+        _emit_token(out, _Token(kind, value), budget)
 
     if suffix:
-        out.append(
-            _Token("NAG_SYMBOL" if suffix in NAG_SYMBOLS else "INVALID_NAG", suffix)
+        _emit_token(
+            out,
+            _Token("NAG_SYMBOL" if suffix in NAG_SYMBOLS else "INVALID_NAG", suffix),
+            budget,
         )
 
 
-def tokenize_movetext(text: str) -> list[_Token]:
+def tokenize_movetext(text: str, *, budget: list[int] | None = None) -> list[_Token]:
+    if not isinstance(text, str):
+        raise GameTreeContractError(
+            "PGN movetext must be text",
+            code=GameTreeErrorCode.INVALID_INPUT,
+        )
+    if len(text) > MAX_PGN_INPUT_CHARACTERS:
+        _raise_resource_limit(
+            "PGN movetext exceeds the input character safety limit",
+            GameTreeErrorCode.INPUT_CHARACTER_LIMIT,
+        )
+    if budget is None:
+        budget = [0]
     out: list[_Token] = []
     i = 0
     n = len(text)
@@ -296,29 +365,52 @@ def tokenize_movetext(text: str) -> list[_Token]:
             while j < n and text[j] != "}":
                 j += 1
             if j >= n:
-                out.append(_Token("COMMENT_BRACE", text[i + 1 :]))
-                out.append(_Token("WARNING", "unterminated brace comment"))
+                value = _checked_slice(
+                    text,
+                    i + 1,
+                    n,
+                    limit=MAX_COMMENT_CHARACTERS,
+                    label="brace comment",
+                )
+                _emit_token(out, _Token("COMMENT_BRACE", value), budget)
+                _emit_token(out, _Token("WARNING", "unterminated brace comment"), budget)
                 break
-            out.append(_Token("COMMENT_BRACE", text[i + 1 : j]))
+            value = _checked_slice(
+                text,
+                i + 1,
+                j,
+                limit=MAX_COMMENT_CHARACTERS,
+                label="brace comment",
+            )
+            _emit_token(out, _Token("COMMENT_BRACE", value), budget)
             i = j + 1
             continue
         if c == ";":
             j = text.find("\n", i + 1)
             if j < 0:
                 j = n
-            out.append(_Token("COMMENT_SEMI", text[i + 1 : j].rstrip("\r")))
+            value = _checked_slice(
+                text,
+                i + 1,
+                j,
+                limit=MAX_COMMENT_CHARACTERS,
+                label="semicolon comment",
+            ).rstrip("\r")
+            _emit_token(out, _Token("COMMENT_SEMI", value), budget)
             i = j
             continue
         if c == "(":
-            out.append(_Token("LPAREN", c)); i += 1; continue
+            _emit_token(out, _Token("LPAREN", c), budget); i += 1; continue
         if c == ")":
-            out.append(_Token("RPAREN", c)); i += 1; continue
+            _emit_token(out, _Token("RPAREN", c), budget); i += 1; continue
         if c == "$":
             j = i + 1
             while j < n and text[j].isdigit():
                 j += 1
             if j > i + 1:
-                value = text[i:j]
+                value = _checked_slice(
+                    text, i, j, limit=MAX_TOKEN_CHARACTERS, label="annotation token"
+                )
                 if (
                     j < n
                     and not text[j].isspace()
@@ -326,23 +418,34 @@ def tokenize_movetext(text: str) -> list[_Token]:
                 ):
                     while j < n and not text[j].isspace() and text[j] not in "{};()$":
                         j += 1
-                    value = text[i:j]
-                    out.append(_Token("INVALID_NAG", value)); i = j; continue
-                out.append(
-                    _Token("NAG" if _is_canonical_numeric_nag(value) else "INVALID_NAG", value)
+                    value = _checked_slice(
+                        text, i, j, limit=MAX_TOKEN_CHARACTERS, label="annotation token"
+                    )
+                    _emit_token(out, _Token("INVALID_NAG", value), budget)
+                    i = j
+                    continue
+                _emit_token(
+                    out,
+                    _Token("NAG" if _is_canonical_numeric_nag(value) else "INVALID_NAG", value),
+                    budget,
                 )
                 i = j
                 continue
             while j < n and not text[j].isspace() and text[j] not in "{};()$":
                 j += 1
-            out.append(_Token("INVALID_NAG", text[i:j]))
+            value = _checked_slice(
+                text, i, j, limit=MAX_TOKEN_CHARACTERS, label="annotation token"
+            )
+            _emit_token(out, _Token("INVALID_NAG", value), budget)
             i = j
             continue
         j = i
         while j < n and not text[j].isspace() and text[j] not in "{};()$":
             j += 1
-        value = text[i:j]
-        _append_word_tokens(out, value)
+        value = _checked_slice(
+            text, i, j, limit=MAX_TOKEN_CHARACTERS, label="movetext token"
+        )
+        _append_word_tokens(out, value, budget)
         i = j
     return out
 
@@ -653,26 +756,66 @@ def _split_games(
     split_issues: list[PgnRecoveryIssue] = []
     seen_movetext = False
     inside_brace_comment = False
+    game_tag_count = 0
+    total_tag_count = 0
 
     def flush() -> None:
         nonlocal tags, moves, split_issues, seen_movetext, inside_brace_comment
+        nonlocal game_tag_count
         if tags or any(x.strip() for x in moves) or split_issues:
+            if len(games) >= MAX_PGN_GAMES:
+                _raise_resource_limit(
+                    "PGN exceeds the game safety limit",
+                    GameTreeErrorCode.GAME_LIMIT,
+                )
             games.append((tags, "\n".join(moves).strip(), split_issues))
         tags = {}
         moves = []
         split_issues = []
         seen_movetext = False
         inside_brace_comment = False
+        game_tag_count = 0
+
+    def claim_tag_line() -> None:
+        nonlocal game_tag_count, total_tag_count
+        if game_tag_count >= MAX_TAGS_PER_GAME or total_tag_count >= MAX_PGN_TAGS:
+            _raise_resource_limit(
+                "PGN exceeds the tag-pair safety limit",
+                GameTreeErrorCode.TAG_LIMIT,
+            )
+        game_tag_count += 1
+        total_tag_count += 1
 
     for line in lines:
+        if len(line) > MAX_LINE_CHARACTERS:
+            _raise_resource_limit(
+                "PGN line exceeds the character safety limit",
+                GameTreeErrorCode.FIELD_LIMIT,
+            )
+        looks_like_tag = not inside_brace_comment and line.lstrip().startswith("[")
+        if looks_like_tag and len(line) > MAX_TAG_LINE_CHARACTERS:
+            _raise_resource_limit(
+                "PGN tag line exceeds the character safety limit",
+                GameTreeErrorCode.FIELD_LIMIT,
+            )
         m = None if inside_brace_comment else TAG_RE.match(line)
         candidate = None if inside_brace_comment else TAG_CANDIDATE_RE.match(line)
         if m or candidate:
             if seen_movetext:
                 flush()
+            claim_tag_line()
             tag_match = m or candidate
             assert tag_match is not None
             key = tag_match.group(1)
+            raw_value = tag_match.group(2)
+            if (
+                len(key) > MAX_TAG_NAME_CHARACTERS
+                or len(raw_value) > MAX_TAG_VALUE_CHARACTERS
+            ):
+                _raise_resource_limit(
+                    "PGN tag name or value exceeds the character safety limit",
+                    GameTreeErrorCode.FIELD_LIMIT,
+                )
             if key in tags:
                 split_issues.append(
                     PgnRecoveryIssue(
@@ -687,11 +830,12 @@ def _split_games(
                         message=f"tag {key} contains unsupported escape in {line!r}",
                     )
                 )
-            tags[key] = _unescape_tag(tag_match.group(2))
+            tags[key] = _unescape_tag(raw_value)
             continue
-        if not inside_brace_comment and line.lstrip().startswith("["):
+        if looks_like_tag:
             if seen_movetext:
                 flush()
+            claim_tag_line()
             split_issues.append(
                 PgnRecoveryIssue(
                     code=PgnRecoveryCode.MALFORMED_TAG,
@@ -712,11 +856,34 @@ def _split_games(
 
 
 def parse_games(text: str) -> list[PgnGame]:
+    if not isinstance(text, str):
+        raise GameTreeContractError(
+            "parse_games requires PGN text",
+            code=GameTreeErrorCode.INVALID_INPUT,
+        )
+    if len(text) > MAX_PGN_INPUT_CHARACTERS:
+        _raise_resource_limit(
+            "PGN exceeds the input character safety limit",
+            GameTreeErrorCode.INPUT_CHARACTER_LIMIT,
+        )
+    line_count = text.count("\n") + text.count("\r") - text.count("\r\n") + 1
+    if line_count > MAX_PGN_LINES:
+        _raise_resource_limit(
+            "PGN exceeds the line-count safety limit",
+            GameTreeErrorCode.LINE_LIMIT,
+        )
     games: list[PgnGame] = []
+    token_budget = [0]
+    node_budget = [0]
     for index, (tags, movetext, split_issues) in enumerate(_split_games(text)):
-        tokens = tokenize_movetext(movetext)
+        tokens = tokenize_movetext(movetext, budget=token_budget)
         recovery_issues = list(split_issues)
-        line, pos, warnings = _parse_line(tokens, recovery_issues=recovery_issues)
+        _claim_parse_node(node_budget)  # root VariationLine
+        line, pos, warnings = _parse_line(
+            tokens,
+            budget=node_budget,
+            recovery_issues=recovery_issues,
+        )
         warnings[:0] = [issue.message for issue in split_issues]
         if pos < len(tokens):
             remaining = len(tokens) - pos
@@ -737,6 +904,11 @@ def parse_games(text: str) -> list[PgnGame]:
         if not line.result:
             line.result = valid_header_result or "*"
         tags = dict(tags)
+        if "Result" not in tags and len(tags) >= MAX_TAGS_PER_GAME:
+            _raise_resource_limit(
+                "PGN game has no capacity for its effective Result tag",
+                GameTreeErrorCode.TAG_LIMIT,
+            )
         tags.setdefault("Result", line.result)
         games.append(
             PgnGame(
@@ -760,6 +932,11 @@ def _serialize_comment(c: Comment) -> str:
         raise GameTreeSerializationError(
             "comment text must be a string",
             code=GameTreeErrorCode.INVALID_COMMENT_TEXT,
+        )
+    if len(c.text) > MAX_COMMENT_CHARACTERS:
+        raise GameTreeSerializationError(
+            "comment exceeds the character safety limit",
+            code=GameTreeErrorCode.FIELD_LIMIT,
         )
     try:
         style = CommentStyle(c.style)
@@ -785,12 +962,18 @@ def _serialize_comment(c: Comment) -> str:
     return ";" + c.text + "\n"
 
 
-def _require_comment_list(value: object, *, field_name: str) -> list[Comment]:
+def _require_comment_list(
+    value: object,
+    *,
+    field_name: str,
+    state: dict[str, object],
+) -> list[Comment]:
     if type(value) is not list:
         raise GameTreeSerializationError(
             f"{field_name} must be a list",
             code=GameTreeErrorCode.INVALID_CONTAINER,
         )
+    _claim_export_fields(state, len(value))
     for comment in value:
         _serialize_comment(comment)
     return value
@@ -801,6 +984,11 @@ def _validate_san(san: object) -> None:
         raise GameTreeSerializationError(
             "move SAN must be non-empty canonical text",
             code=GameTreeErrorCode.INVALID_MOVE,
+        )
+    if len(san) > MAX_TOKEN_CHARACTERS:
+        raise GameTreeSerializationError(
+            "move SAN exceeds the character safety limit",
+            code=GameTreeErrorCode.FIELD_LIMIT,
         )
     if (
         any(character.isspace() for character in san)
@@ -817,13 +1005,19 @@ def _validate_san(san: object) -> None:
         )
 
 
-def _validate_nags(nags: object) -> None:
+def _validate_nags(nags: object, *, state: dict[str, object]) -> None:
     if type(nags) is not list:
         raise GameTreeSerializationError(
             "move nags must be a list",
             code=GameTreeErrorCode.INVALID_CONTAINER,
         )
+    _claim_export_fields(state, len(nags))
     for nag in nags:
+        if isinstance(nag, str) and len(nag) > MAX_TOKEN_CHARACTERS:
+            raise GameTreeSerializationError(
+                "move NAG exceeds the character safety limit",
+                code=GameTreeErrorCode.FIELD_LIMIT,
+            )
         if not isinstance(nag, str) or not (
             _is_canonical_numeric_nag(nag) or nag in NAG_SYMBOLS
         ):
@@ -840,6 +1034,16 @@ def _claim_export_node(state: dict[str, object]) -> None:
         raise GameTreeSerializationError(
             "GameTree exceeds the node safety limit",
             code=GameTreeErrorCode.GRAPH_NODE_LIMIT,
+        )
+
+
+def _claim_export_fields(state: dict[str, object], amount: int) -> None:
+    count = int(state["fields"]) + amount
+    state["fields"] = count
+    if count > MAX_PGN_TOKENS:
+        raise GameTreeSerializationError(
+            "GameTree exceeds the serialized-field safety limit",
+            code=GameTreeErrorCode.TOKEN_LIMIT,
         )
 
 
@@ -883,8 +1087,16 @@ def _validate_line_for_serialization(
             "variation moves must be a list",
             code=GameTreeErrorCode.INVALID_CONTAINER,
         )
-    _require_comment_list(line.leading_comments, field_name="leading_comments")
-    _require_comment_list(line.trailing_comments, field_name="trailing_comments")
+    _require_comment_list(
+        line.leading_comments,
+        field_name="leading_comments",
+        state=state,
+    )
+    _require_comment_list(
+        line.trailing_comments,
+        field_name="trailing_comments",
+        state=state,
+    )
     if line.result is not None and (
         not isinstance(line.result, str) or line.result not in RESULTS
     ):
@@ -908,6 +1120,14 @@ def _validate_line_for_serialization(
         seen.add(node_identity)
         _claim_export_node(state)
         _validate_san(node.san)
+        if (
+            isinstance(node.move_number, str)
+            and len(node.move_number) > MAX_TOKEN_CHARACTERS
+        ):
+            raise GameTreeSerializationError(
+                "move number exceeds the character safety limit",
+                code=GameTreeErrorCode.FIELD_LIMIT,
+            )
         if node.move_number is not None and (
             not isinstance(node.move_number, str)
             or not MOVE_NUMBER_RE.fullmatch(node.move_number)
@@ -916,9 +1136,17 @@ def _validate_line_for_serialization(
                 "move_number must be a canonical PGN move-number token",
                 code=GameTreeErrorCode.INVALID_MOVE,
             )
-        _validate_nags(node.nags)
-        _require_comment_list(node.comments_before, field_name="comments_before")
-        _require_comment_list(node.comments_after, field_name="comments_after")
+        _validate_nags(node.nags, state=state)
+        _require_comment_list(
+            node.comments_before,
+            field_name="comments_before",
+            state=state,
+        )
+        _require_comment_list(
+            node.comments_after,
+            field_name="comments_after",
+            state=state,
+        )
         if type(node.variations) is not list:
             raise GameTreeSerializationError(
                 "move variations must be a list",
@@ -945,16 +1173,31 @@ def _validate_game_for_serialization(game: object) -> None:
             "game tags must be a dictionary",
             code=GameTreeErrorCode.INVALID_CONTAINER,
         )
+    if len(game.tags) > MAX_TAGS_PER_GAME:
+        raise GameTreeSerializationError(
+            "game exceeds the tag-pair safety limit",
+            code=GameTreeErrorCode.TAG_LIMIT,
+        )
     for key, value in game.tags.items():
         if not isinstance(key, str) or not TAG_NAME_RE.fullmatch(key):
             raise GameTreeSerializationError(
                 "tag names must match the PGN tag-name grammar",
                 code=GameTreeErrorCode.INVALID_TAG,
             )
+        if len(key) > MAX_TAG_NAME_CHARACTERS:
+            raise GameTreeSerializationError(
+                "tag name exceeds the character safety limit",
+                code=GameTreeErrorCode.FIELD_LIMIT,
+            )
         if not isinstance(value, str) or "\r" in value or "\n" in value:
             raise GameTreeSerializationError(
                 "tag values must be single-line text",
                 code=GameTreeErrorCode.INVALID_TAG,
+            )
+        if len(value) > MAX_TAG_VALUE_CHARACTERS:
+            raise GameTreeSerializationError(
+                "tag value exceeds the character safety limit",
+                code=GameTreeErrorCode.FIELD_LIMIT,
             )
     # Header tags are source evidence. In particular an invalid historical
     # Result header is preserved verbatim and warned about by parse_games;
@@ -971,6 +1214,11 @@ def _validate_game_for_serialization(game: object) -> None:
             "game warnings must be a list of text values",
             code=GameTreeErrorCode.INVALID_CONTAINER,
         )
+    if any(len(warning) > MAX_RECOVERY_MESSAGE_CHARACTERS for warning in game.warnings):
+        raise GameTreeSerializationError(
+            "game warning exceeds the character safety limit",
+            code=GameTreeErrorCode.FIELD_LIMIT,
+        )
     if type(game.recovery_issues) is not list or any(
         not isinstance(issue, PgnRecoveryIssue) for issue in game.recovery_issues
     ):
@@ -986,7 +1234,18 @@ def _validate_game_for_serialization(game: object) -> None:
             code=GameTreeErrorCode.UNRESOLVED_RECOVERY,
         )
 
-    state: dict[str, object] = {"seen": set(), "active": set(), "count": 0}
+    initial_fields = len(game.tags) + len(game.warnings) + len(game.recovery_issues)
+    if initial_fields > MAX_PGN_TOKENS:
+        raise GameTreeSerializationError(
+            "game exceeds the serialized-field safety limit",
+            code=GameTreeErrorCode.TOKEN_LIMIT,
+        )
+    state: dict[str, object] = {
+        "seen": set(),
+        "active": set(),
+        "count": 0,
+        "fields": initial_fields,
+    }
     _validate_line_for_serialization(game.line, depth=0, state=state)
     if game.result not in RESULTS:
         raise GameTreeSerializationError(
@@ -1017,21 +1276,66 @@ def serialize_game(game: PgnGame) -> str:
     _validate_game_for_serialization(game)
     tags = dict(game.tags)
     tags.setdefault("Result", game.result)
+    if len(tags) > MAX_TAGS_PER_GAME:
+        raise GameTreeSerializationError(
+            "game exceeds the tag-pair safety limit",
+            code=GameTreeErrorCode.TAG_LIMIT,
+        )
     headers = [f'[{k} "{_escape_tag(v)}"]' for k, v in tags.items()]
-    return "\n".join(headers) + "\n\n" + _serialize_line(game.line, include_result=True).strip() + "\n"
+    payload = (
+        "\n".join(headers)
+        + "\n\n"
+        + _serialize_line(game.line, include_result=True).strip()
+        + "\n"
+    )
+    if len(payload) > MAX_PGN_OUTPUT_CHARACTERS:
+        raise GameTreeSerializationError(
+            "serialized PGN exceeds the output character safety limit",
+            code=GameTreeErrorCode.OUTPUT_LIMIT,
+        )
+    return payload
 
 
 def serialize_games(games: Iterable[PgnGame]) -> str:
     try:
-        snapshot = tuple(games)
+        iterator = iter(games)
     except TypeError as exc:
         raise GameTreeSerializationError(
             "serialize_games requires an iterable of PgnGame values",
             code=GameTreeErrorCode.INVALID_CONTAINER,
         ) from exc
+    snapshot: list[PgnGame] = []
+    for game in iterator:
+        if len(snapshot) >= MAX_PGN_GAMES:
+            raise GameTreeSerializationError(
+                "PGN exceeds the game safety limit",
+                code=GameTreeErrorCode.GAME_LIMIT,
+            )
+        snapshot.append(game)
+
+    blocks: list[str] = []
+    output_characters = 0
+    total_tags = 0
     for game in snapshot:
-        _validate_game_for_serialization(game)
-    blocks = [serialize_game(game).rstrip() for game in snapshot]
+        if isinstance(game, PgnGame):
+            total_tags += len(game.tags) + ("Result" not in game.tags)
+            if total_tags > MAX_PGN_TAGS:
+                raise GameTreeSerializationError(
+                    "PGN exceeds the tag-pair safety limit",
+                    code=GameTreeErrorCode.TAG_LIMIT,
+                )
+        block = serialize_game(game).rstrip()
+        separator_characters = 2 if blocks else 0
+        if (
+            output_characters + separator_characters + len(block) + 1
+            > MAX_PGN_OUTPUT_CHARACTERS
+        ):
+            raise GameTreeSerializationError(
+                "serialized PGN exceeds the output character safety limit",
+                code=GameTreeErrorCode.OUTPUT_LIMIT,
+            )
+        output_characters += separator_characters + len(block)
+        blocks.append(block)
     if not blocks:
         return ""
     return "\n\n".join(blocks) + "\n"

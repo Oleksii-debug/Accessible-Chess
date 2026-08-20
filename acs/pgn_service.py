@@ -22,6 +22,8 @@ the cooperative transaction.
 
 from contextlib import contextmanager
 from dataclasses import dataclass
+from enum import Enum
+import hashlib
 import os
 from pathlib import Path
 import tempfile
@@ -33,8 +35,13 @@ from .import_contract import (
     ImportReport,
     ImportedRecord,
     SourceFingerprint,
-    fingerprint,
 )
+
+
+MAX_PGN_FILE_BYTES = 64 * 1024 * 1024
+MAX_PGN_EXPORT_BYTES = 64 * 1024 * 1024
+PGN_READ_CHUNK_BYTES = 1024 * 1024
+PGN_TEXT_CHUNK_CHARACTERS = 256 * 1024
 
 
 class PgnFileError(RuntimeError):
@@ -47,6 +54,30 @@ class PgnSourceChangedError(PgnFileError):
 
 class PgnConcurrentWriteError(PgnFileError):
     """Raised when overwrite protection detects concurrent/newer content."""
+
+
+class PgnFileErrorCode(str, Enum):
+    SOURCE_BYTE_LIMIT = "source_byte_limit"
+    OUTPUT_BYTE_LIMIT = "output_byte_limit"
+
+
+class PgnResourceLimitError(PgnFileError):
+    """Stable failure raised before oversized PGN I/O can allocate unboundedly."""
+
+    def __init__(self, message: str, *, code: PgnFileErrorCode) -> None:
+        super().__init__(message)
+        self.code = PgnFileErrorCode(code)
+
+
+def _bounded_utf8_size(text: str, *, limit: int) -> int:
+    total = 0
+    for start in range(0, len(text), PGN_TEXT_CHUNK_CHARACTERS):
+        total += len(
+            text[start : start + PGN_TEXT_CHUNK_CHARACTERS].encode("utf-8")
+        )
+        if total > limit:
+            return total
+    return total
 
 
 @dataclass(frozen=True)
@@ -106,14 +137,63 @@ class PgnFileImporter:
         return report
 
 
-def _read_text_snapshot(path: Path) -> tuple[SourceFingerprint, str]:
-    before = fingerprint(path)
-    with path.open("r", encoding="utf-8-sig", errors="replace", newline=None) as handle:
-        text = handle.read()
-    after = fingerprint(path)
-    if before.size != after.size or before.sha256 != after.sha256:
+def _bounded_binary_snapshot(
+    path: Path,
+    *,
+    capture_payload: bool,
+) -> tuple[SourceFingerprint, bytearray | None]:
+    initial_size = path.stat().st_size
+    if initial_size > MAX_PGN_FILE_BYTES:
+        raise PgnResourceLimitError(
+            f"PGN exceeds the source byte safety limit: {path}",
+            code=PgnFileErrorCode.SOURCE_BYTE_LIMIT,
+        )
+
+    digest = hashlib.sha256()
+    payload = bytearray() if capture_payload else None
+    total = 0
+    with path.open("rb") as handle:
+        while True:
+            remaining = MAX_PGN_FILE_BYTES - total
+            chunk = handle.read(min(PGN_READ_CHUNK_BYTES, remaining + 1))
+            if not chunk:
+                break
+            total += len(chunk)
+            if total > MAX_PGN_FILE_BYTES:
+                raise PgnResourceLimitError(
+                    f"PGN exceeds the source byte safety limit: {path}",
+                    code=PgnFileErrorCode.SOURCE_BYTE_LIMIT,
+                )
+            digest.update(chunk)
+            if payload is not None:
+                payload.extend(chunk)
+
+    final_size = path.stat().st_size
+    if initial_size != total or final_size != total:
         raise PgnSourceChangedError(f"PGN changed while being read: {path}")
-    return before, text
+    return (
+        SourceFingerprint(
+            path=str(path.resolve()),
+            size=total,
+            sha256=digest.hexdigest(),
+            suffix=path.suffix.lower(),
+        ),
+        payload,
+    )
+
+
+def _read_text_snapshot(path: Path) -> tuple[SourceFingerprint, str]:
+    before, payload = _bounded_binary_snapshot(path, capture_payload=True)
+    after, _ = _bounded_binary_snapshot(path, capture_payload=False)
+    if (
+        before.path != after.path
+        or before.size != after.size
+        or before.sha256 != after.sha256
+        or before.suffix != after.suffix
+    ):
+        raise PgnSourceChangedError(f"PGN changed while being read: {path}")
+    assert payload is not None
+    return before, payload.decode("utf-8-sig", errors="replace")
 
 
 def open_pgn(path: str | Path) -> PgnOpenResult:
@@ -133,7 +213,8 @@ def open_pgn(path: str | Path) -> PgnOpenResult:
 def _current_sha256(path: Path) -> str | None:
     if not path.exists():
         return None
-    return fingerprint(path).sha256
+    source, _ = _bounded_binary_snapshot(path, capture_payload=False)
+    return source.sha256
 
 
 def _save_lock_path(destination: Path) -> Path:
@@ -200,7 +281,13 @@ def save_pgn_atomic(
     """
 
     destination = Path(path)
-    payload = serialize_games(tuple(games))
+    payload = serialize_games(games)
+    payload_size = _bounded_utf8_size(payload, limit=MAX_PGN_EXPORT_BYTES)
+    if payload_size > MAX_PGN_EXPORT_BYTES:
+        raise PgnResourceLimitError(
+            f"PGN exceeds the output byte safety limit: {destination}",
+            code=PgnFileErrorCode.OUTPUT_BYTE_LIMIT,
+        )
     destination.parent.mkdir(parents=True, exist_ok=True)
 
     with _exclusive_save_lock(destination):
@@ -211,16 +298,19 @@ def save_pgn_atomic(
         tmp_path: Path | None = None
         try:
             with tempfile.NamedTemporaryFile(
-                mode="w",
-                encoding="utf-8",
-                newline="\n",
+                mode="wb",
                 dir=str(destination.parent),
                 prefix=destination.name + ".",
                 suffix=".tmp",
                 delete=False,
             ) as handle:
                 tmp_path = Path(handle.name)
-                handle.write(payload)
+                for start in range(0, len(payload), PGN_TEXT_CHUNK_CHARACTERS):
+                    handle.write(
+                        payload[start : start + PGN_TEXT_CHUNK_CHARACTERS].encode(
+                            "utf-8"
+                        )
+                    )
                 handle.flush()
                 os.fsync(handle.fileno())
 
@@ -240,7 +330,8 @@ def save_pgn_atomic(
                 except FileNotFoundError:
                     pass
 
-    return fingerprint(destination)
+    saved, _ = _bounded_binary_snapshot(destination, capture_payload=False)
+    return saved
 
 
 def export_game_atomic(

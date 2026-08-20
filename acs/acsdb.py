@@ -9,13 +9,13 @@ It never modifies source files in place.
 
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-import hashlib
 import json
 from pathlib import Path
 import sqlite3
 from typing import Iterable
 
 from .gametree import PgnGame, parse_games, serialize_game
+from .import_contract import sha256_utf8_text
 from .position_editor import PositionState
 
 IMPORT_STATUSES = {"full", "partial", "damaged", "warning"}
@@ -279,7 +279,7 @@ class AcsDatabase:
     def import_pgn_text(self, text: str, source_name: str = "memory.pgn") -> ImportReport:
         text = _require_text(text, "text", allow_empty=True)
         source_name = _require_text(source_name, "source_name")
-        digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
+        digest = sha256_utf8_text(text)
         attempt_id = self._create_import_attempt(source_name, "pgn", digest)
         try:
             games = parse_games(text)

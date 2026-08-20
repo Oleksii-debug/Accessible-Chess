@@ -1,6 +1,7 @@
 import tempfile
 from pathlib import Path
 import unittest
+from unittest import mock
 
 from acs.gametree import (
     GameTreeErrorCode,
@@ -11,6 +12,8 @@ from acs.gametree import (
 from acs.import_contract import ImportQuality
 from acs.pgn_service import (
     PgnConcurrentWriteError,
+    PgnFileErrorCode,
+    PgnResourceLimitError,
     PgnFileImporter,
     _save_lock_path,
     export_game_atomic,
@@ -191,6 +194,50 @@ class PgnFileServiceTests(unittest.TestCase):
             any("malformed tag line" in warning for warning in report.records[1].warnings)
         )
         self.assertEqual(report.records[2].warnings, ())
+
+    def test_source_byte_limit_is_checked_before_unbounded_file_read(self):
+        payload = '[Result "*"]\n\n1. e4 *\n'.encode('utf-8')
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / 'bounded.pgn'
+            path.write_bytes(payload)
+
+            with mock.patch(
+                'acs.pgn_service.MAX_PGN_FILE_BYTES',
+                len(payload) - 1,
+            ):
+                with self.assertRaises(PgnResourceLimitError) as oversized:
+                    open_pgn(path)
+            self.assertEqual(
+                oversized.exception.code,
+                PgnFileErrorCode.SOURCE_BYTE_LIMIT,
+            )
+
+            with mock.patch('acs.pgn_service.MAX_PGN_FILE_BYTES', len(payload)):
+                opened = open_pgn(path)
+            self.assertEqual(opened.total_games, 1)
+            self.assertEqual(opened.source.size, len(payload))
+
+    def test_output_byte_limit_fails_before_directory_lock_or_temp_creation(self):
+        game = parse_games(
+            '[Event "Unicode ♟♟♟"]\n[Result "*"]\n\n1. e4 *'
+        )[0]
+        payload_size = len(serialize_games([game]).encode('utf-8'))
+
+        with tempfile.TemporaryDirectory() as tmp:
+            destination = Path(tmp) / 'not-created' / 'oversized.pgn'
+            with mock.patch(
+                'acs.pgn_service.MAX_PGN_EXPORT_BYTES',
+                payload_size - 1,
+            ):
+                with self.assertRaises(PgnResourceLimitError) as oversized:
+                    save_pgn_atomic(destination, [game])
+
+            self.assertEqual(
+                oversized.exception.code,
+                PgnFileErrorCode.OUTPUT_BYTE_LIMIT,
+            )
+            self.assertFalse(destination.parent.exists())
+            self.assertFalse(destination.exists())
 
 
 if __name__ == "__main__":

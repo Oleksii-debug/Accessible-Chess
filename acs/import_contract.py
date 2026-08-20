@@ -193,6 +193,21 @@ def fingerprint(path: str | Path, chunk_size: int = 1024 * 1024) -> SourceFinger
     )
 
 
+def sha256_utf8_text(text: str, chunk_characters: int = 256 * 1024) -> str:
+    """Hash UTF-8 text with bounded transient encoding memory."""
+
+    if type(text) is not str:
+        raise TypeError("text must be exact text")
+    if type(chunk_characters) is not int:
+        raise TypeError("chunk_characters must be an integer")
+    if chunk_characters <= 0:
+        raise ValueError("chunk_characters must be positive")
+    digest = hashlib.sha256()
+    for start in range(0, len(text), chunk_characters):
+        digest.update(text[start : start + chunk_characters].encode("utf-8"))
+    return digest.hexdigest()
+
+
 def verify_source_unchanged(before: SourceFingerprint, path: str | Path) -> bool:
     if not isinstance(before, SourceFingerprint):
         raise TypeError("before must be SourceFingerprint")

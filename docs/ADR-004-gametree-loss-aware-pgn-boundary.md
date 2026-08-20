@@ -88,6 +88,16 @@ PGN must never be silently reinterpreted as clean data.
     `[` outside a brace comment create a `malformed_tag` blocker rather than
     becoming SAN. A damaged header starts or remains with exactly one bounded
     game, so clean sibling records retain independent quality.
+18. Direct parsing and serialization use explicit collection-wide resource
+    envelopes before unbounded growth: 64 Mi characters, two million lines,
+    one million tokens/serialized fields/tags, 100,000 games/tree nodes, 512
+    tag pairs per game, depth 128, and bounded tag/comment/token/recovery
+    fields. File open rejects sources above 64 MiB before capture, uses bounded
+    chunks plus a second full fingerprint, and file save rejects UTF-8 output
+    above 64 MiB before creating a parent directory, lock, or temporary file.
+    Stable failures distinguish input characters, lines, tokens, games, tags,
+    fields, tree depth/nodes, output characters, source bytes and output bytes.
+    ACSDB and duplicate provenance hashing now encode UTF-8 incrementally.
 
 ## Compatibility
 
@@ -122,6 +132,12 @@ Valid tag values containing quotes and backslashes retain their decoded value
 through parse/serialize cycles. Unsupported escapes and malformed tag lines
 remain in structured source diagnostics and cannot become clean movetext,
 phantom moves, or silently normalized headers.
+
+Normal multi-game files remain in-memory and round-trip unchanged within this
+envelope. Larger collections must use a future streaming importer; they are
+never partially parsed or partially written by the current API. Oversized
+source rejection leaves the source untouched, and oversized export rejection
+creates no destination directory, save lock, or temporary file.
 
 ## Release boundary
 
