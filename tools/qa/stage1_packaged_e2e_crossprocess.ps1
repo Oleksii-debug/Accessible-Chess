@@ -183,6 +183,10 @@ public static class AccessibleChessQaNativeKeysV3 {
 "@
   }
 
+  [AccessibleChessQaNativeKeysV3]::Key([byte]0x23)
+  Start-Sleep -Milliseconds 120
+  if([string](ValuePattern $move 'Move after native End baseline').Current.Value -ne 'e9'){throw 'Native End baseline unexpectedly changed Move value'}
+  Write-Output 'NATIVE CARET BASELINE NORMALIZED WITH END'
   [AccessibleChessQaNativeKeysV3]::Key([byte]0x08)
   Start-Sleep -Milliseconds 250
   AssertFocusedRuntimeEventually $moveRid 'Native Backspace focus convergence'
@@ -198,6 +202,9 @@ public static class AccessibleChessQaNativeKeysV3 {
   $null=$ws.AppActivate($AppPid)
   $move.SetFocus()
   AssertFocusedRuntimeEventually $moveRid 'Native Ctrl+A focus convergence'
+  [AccessibleChessQaNativeKeysV3]::Key([byte]0x23)
+  Start-Sleep -Milliseconds 120
+  if([string](ValuePattern $move 'Move after End before Ctrl+A').Current.Value -ne 'e9'){throw 'End baseline before Ctrl+A unexpectedly changed Move value'}
   [AccessibleChessQaNativeKeysV3]::Ctrl([byte]0x41)
   Start-Sleep -Milliseconds 150
   [AccessibleChessQaNativeKeysV3]::Key([byte]0x08)
@@ -216,6 +223,9 @@ public static class AccessibleChessQaNativeKeysV3 {
   $null=$ws.AppActivate($AppPid)
   $move.SetFocus()
   AssertFocusedRuntimeEventually $moveRid 'Native copy focus convergence'
+  [AccessibleChessQaNativeKeysV3]::Key([byte]0x23)
+  Start-Sleep -Milliseconds 120
+  if([string](ValuePattern $move 'Move after End before copy').Current.Value -ne 'e9'){throw 'End baseline before copy unexpectedly changed Move value'}
   [AccessibleChessQaNativeKeysV3]::Ctrl([byte]0x41)
   Start-Sleep -Milliseconds 150
   [AccessibleChessQaNativeKeysV3]::Ctrl([byte]0x43)
