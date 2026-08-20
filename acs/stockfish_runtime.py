@@ -23,6 +23,14 @@ class StockfishRuntimeError(RuntimeError):
     """Base error for production Stockfish composition failures."""
 
 
+class StockfishRuntimeConfigError(StockfishRuntimeError):
+    """Raised when the runtime composition contract is invalid."""
+
+
+class StockfishProviderError(StockfishRuntimeError):
+    """Raised when the configured builder returns an incompatible provider."""
+
+
 class StockfishNotFoundError(StockfishRuntimeError):
     """Raised when the configured or packaged engine executable is missing."""
 
@@ -36,6 +44,20 @@ class StockfishRuntimeConfig:
     configured_path: str | Path | None = None
     application_dir: str | Path | None = None
 
+    def __post_init__(self) -> None:
+        for field_name in ("configured_path", "application_dir"):
+            value = getattr(self, field_name)
+            if value is None:
+                continue
+            if not isinstance(value, (str, Path)):
+                raise StockfishRuntimeConfigError(
+                    f"{field_name} must be text, Path, or None",
+                )
+            if isinstance(value, str) and not value.strip():
+                raise StockfishRuntimeConfigError(
+                    f"{field_name} must not be blank",
+                )
+
 
 def resolve_stockfish_path(config: StockfishRuntimeConfig) -> Path:
     """Resolve an explicit path or the stable packaged application-relative path.
@@ -46,20 +68,28 @@ def resolve_stockfish_path(config: StockfishRuntimeConfig) -> Path:
     filesystem layout.
     """
 
-    if config.configured_path is not None and str(config.configured_path).strip():
+    if not isinstance(config, StockfishRuntimeConfig):
+        raise StockfishRuntimeConfigError(
+            "config must be StockfishRuntimeConfig",
+        )
+
+    if config.configured_path is not None:
         candidate = Path(config.configured_path).expanduser()
         source = "configured"
     else:
-        if config.application_dir is None or not str(config.application_dir).strip():
+        if config.application_dir is None:
             raise StockfishNotFoundError(
                 "Stockfish path is not configured and application_dir was not supplied"
             )
-        candidate = Path(config.application_dir) / PACKAGED_STOCKFISH_RELATIVE_PATH
+        candidate = (
+            Path(config.application_dir).expanduser()
+            / PACKAGED_STOCKFISH_RELATIVE_PATH
+        )
         source = "packaged"
 
     try:
         candidate = candidate.resolve(strict=False)
-    except OSError as exc:
+    except (OSError, RuntimeError, ValueError) as exc:
         raise StockfishInvalidExecutableError(f"Cannot resolve {source} Stockfish path: {exc}") from exc
 
     if not candidate.exists():
@@ -92,8 +122,20 @@ class StockfishRuntime:
         *,
         engine_builder: EngineBuilder | None = None,
     ) -> None:
+        if not isinstance(config, StockfishRuntimeConfig):
+            raise StockfishRuntimeConfigError(
+                "config must be StockfishRuntimeConfig",
+            )
+        if engine_builder is not None and not callable(engine_builder):
+            raise StockfishRuntimeConfigError(
+                "engine_builder must be callable or None",
+            )
         self._config = config
-        self._engine_builder = engine_builder or (lambda path: UCIEngine(path))
+        self._engine_builder = (
+            (lambda path: UCIEngine(path))
+            if engine_builder is None
+            else engine_builder
+        )
         self._engine: ChessEnginePort | None = None
         self._lock = Lock()
         self._closed = False
@@ -109,20 +151,34 @@ class StockfishRuntime:
             if self._engine is None:
                 path = resolve_stockfish_path(self._config)
                 engine = self._engine_builder(str(path))
-                if not isinstance(engine, ChessEnginePort):
-                    raise TypeError("Stockfish engine builder returned an incompatible adapter")
+                if (
+                    isinstance(engine, type)
+                    or not isinstance(engine, ChessEnginePort)
+                    or not callable(getattr(engine, "analyze", None))
+                    or not callable(getattr(engine, "best_move", None))
+                    or not callable(getattr(engine, "close", None))
+                ):
+                    raise StockfishProviderError(
+                        "Stockfish engine builder returned an incompatible adapter"
+                    )
                 self._engine = engine
             return self._engine
 
     def close(self) -> None:
         with self._lock:
-            if self._closed:
+            if self._closed and self._engine is None:
                 return
             self._closed = True
             engine = self._engine
             self._engine = None
         if engine is not None:
-            engine.close()
+            try:
+                engine.close()
+            except Exception:
+                with self._lock:
+                    if self._engine is None:
+                        self._engine = engine
+                raise
 
     def __enter__(self) -> "StockfishRuntime":
         return self

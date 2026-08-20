@@ -1,6 +1,15 @@
 import unittest
+from dataclasses import replace
 
-from acs.history import HistoryError, ReviewHistory
+from acs.history import (
+    HISTORY_TREE_SCHEMA_VERSION,
+    HistoryError,
+    HistoryErrorCode,
+    HistoryNodeRecord,
+    HistoryTreeSnapshot,
+    PositionSnapshot,
+    ReviewHistory,
+)
 
 
 class ReviewHistoryTests(unittest.TestCase):
@@ -111,6 +120,148 @@ class ReviewHistoryTests(unittest.TestCase):
         h.next()
         self.assertEqual(external_undo_stack, ["a", "b", "c"])
         self.assertEqual(external_redo_stack, ["d"])
+
+    def test_snapshot_inputs_require_exact_types_and_invalid_append_is_atomic(self):
+        for invalid_fen in (None, True, 17, b"fen", "   "):
+            with self.subTest(kind="initial", value=invalid_fen):
+                with self.assertRaises(HistoryError) as caught:
+                    ReviewHistory(invalid_fen)
+                self.assertEqual(caught.exception.code, HistoryErrorCode.INVALID_SNAPSHOT)
+
+        history = self.make_history(2)
+        before = history.export_tree()
+        cases = (
+            {"fen": None},
+            {"fen": "fen-3", "san": 3},
+            {"fen": "fen-3", "san": "  "},
+            {"fen": "fen-3", "last_move": False},
+            {"fen": "fen-3", "side": "white"},
+            {"fen": "fen-3", "context": [("unsafe", True)]},
+        )
+        for kwargs in cases:
+            with self.subTest(kind="append", kwargs=kwargs):
+                with self.assertRaises(HistoryError) as caught:
+                    history.append(**kwargs)
+                self.assertEqual(caught.exception.code, HistoryErrorCode.INVALID_SNAPSHOT)
+                self.assertEqual(history.export_tree(), before)
+
+    def test_snapshot_context_is_copied_and_top_level_read_only(self):
+        source = {"token": 1}
+        history = ReviewHistory("root", context=source)
+        source["token"] = 2
+
+        snapshot = history.current().snapshot
+        self.assertEqual(snapshot.context["token"], 1)
+        with self.assertRaises(TypeError):
+            snapshot.context["token"] = 3
+
+        exported = history.export_tree().nodes[0].snapshot
+        self.assertEqual(exported.context["token"], 1)
+        self.assertIsNot(exported.context, snapshot.context)
+
+    def test_versioned_tree_rejects_boolean_and_container_coercion(self):
+        tree = self.make_history(2).export_tree()
+        cases = (
+            replace(tree, schema_version=True),
+            replace(tree, cursor_node_id=True),
+            replace(tree, nodes=list(tree.nodes)),
+            replace(tree, nodes=(object(),) + tree.nodes[1:]),
+            replace(
+                tree,
+                nodes=(replace(tree.nodes[0], node_id=False),) + tree.nodes[1:],
+            ),
+            replace(
+                tree,
+                nodes=(replace(tree.nodes[0], child_ids=(True,)),) + tree.nodes[1:],
+            ),
+            replace(
+                tree,
+                nodes=(replace(tree.nodes[0], active_child=True),) + tree.nodes[1:],
+            ),
+            replace(
+                tree,
+                nodes=(
+                    tree.nodes[0],
+                    replace(tree.nodes[1], parent_id=False),
+                    *tree.nodes[2:],
+                ),
+            ),
+            replace(
+                tree,
+                nodes=(replace(tree.nodes[0], child_ids=[1]),) + tree.nodes[1:],
+            ),
+        )
+        for invalid in cases:
+            with self.subTest(invalid=invalid):
+                with self.assertRaises(HistoryError) as caught:
+                    ReviewHistory.from_tree(invalid)
+                self.assertIn(
+                    caught.exception.code,
+                    {
+                        HistoryErrorCode.UNSUPPORTED_SCHEMA,
+                        HistoryErrorCode.INVALID_TREE,
+                    },
+                )
+
+    def test_disconnected_parent_cycle_is_rejected_before_restore(self):
+        snapshot = PositionSnapshot("fen")
+        tree = HistoryTreeSnapshot(
+            schema_version=HISTORY_TREE_SCHEMA_VERSION,
+            nodes=(
+                HistoryNodeRecord(0, None, (), None, snapshot),
+                HistoryNodeRecord(1, 2, (2,), 2, snapshot),
+                HistoryNodeRecord(2, 1, (1,), 1, snapshot),
+            ),
+            cursor_node_id=0,
+        )
+
+        with self.assertRaises(HistoryError) as caught:
+            ReviewHistory.from_tree(tree)
+
+        self.assertEqual(caught.exception.code, HistoryErrorCode.INVALID_TREE)
+        self.assertIn("unreachable", str(caught.exception))
+
+    def test_boolean_variation_index_never_selects_a_branch(self):
+        history = self.make_history(3)
+        history.previous()
+        history.append("branch", san="branch", side="w")
+        history.previous()
+        before = history.current()
+
+        with self.assertRaises(HistoryError) as caught:
+            history.select_variation(True)
+
+        self.assertEqual(caught.exception.code, HistoryErrorCode.INVALID_COMMAND)
+        self.assertEqual(history.current(), before)
+
+    def test_nonactivating_branch_insert_is_atomic_idempotent_and_preserves_cursor(self):
+        history = self.make_history(2)
+        origin = history.current()
+        active_before = history.active_line()
+        branch = (
+            PositionSnapshot("branch-3", san="c3", side="w", last_move="c3"),
+            PositionSnapshot("branch-4", san="c6", side="b", last_move="c6"),
+        )
+
+        inserted = history.append_branch(origin.node_id, branch)
+
+        self.assertEqual(inserted.created_count, 2)
+        self.assertEqual(history.current(), origin)
+        self.assertEqual(history.active_line(), active_before)
+        self.assertEqual(history.node_count, 5)
+
+        repeated = history.append_branch(origin.node_id, branch)
+        self.assertEqual(repeated.created_count, 0)
+        self.assertEqual(repeated.node_ids, inserted.node_ids)
+        self.assertEqual(history.node_count, 5)
+        self.assertEqual(history.current(), origin)
+
+        before = history.export_tree()
+        for invalid in ([], (), (object(),)):
+            with self.subTest(invalid=invalid):
+                with self.assertRaises(HistoryError):
+                    history.append_branch(origin.node_id, invalid)
+                self.assertEqual(history.export_tree(), before)
 
 
 if __name__ == "__main__":

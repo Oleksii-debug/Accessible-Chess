@@ -89,6 +89,11 @@ def _settings_actions(menus):
     return [item for item in settings.items if isinstance(item, FakeMenuAction)]
 
 
+def _game_actions(menus):
+    game = next(menu for menu in menus if menu.title in {"Гра", "Game"})
+    return [item for item in game.items if isinstance(item, FakeMenuAction)]
+
+
 def test_native_settings_menu_exposes_non_remappable_recovery_action() -> None:
     api = FakeAPI(lang="uk")
     window = FakeWindow()
@@ -97,6 +102,21 @@ def test_native_settings_menu_exposes_non_remappable_recovery_action() -> None:
     titles = [item.title for item in _settings_actions(menus)]
 
     assert titles == ["Клавіатура і команди", "Відновити всі клавіші та команди"]
+
+
+def test_native_game_menu_opens_the_stockfish_game_dialog() -> None:
+    api = FakeAPI(lang="uk")
+    window = FakeWindow()
+
+    menus = make_keymap_menu(fake_webview(), api, {"window": window})
+    action = next(
+        item for item in _game_actions(menus)
+        if item.title == "Нова гра проти Stockfish"
+    )
+
+    action.callback()
+
+    assert window.calls == ["openEngineGameDialog()"]
 
 
 def test_native_recovery_resets_core_then_clears_only_legacy_keymap_cache() -> None:

@@ -16,10 +16,19 @@ _LABELS_UK = {
     "settings": "Налаштування", "help": "Довідка",
     "new": "Нова стандартна позиція", "empty": "Порожня дошка", "exit": "Вихід",
     "undo": "Скасувати хід", "redo": "Повторити хід",
+    "engine_play_new": "Нова гра проти Stockfish",
     "history_previous": "Попередня позиція в історії", "history_next": "Наступна позиція в історії",
     "history_go": "Перейти до ходу", "board_go": "Перейти на дошку",
     "move_input": "Поле введення ходу", "position_input": "Текстовий редактор позиції",
     "engine_toggle": "Увімкнути / вимкнути Stockfish",
+    "analysis_restart": "Перезапустити аналіз",
+    "analysis_lock": "Зафіксувати ціль / стежити за позицією",
+    "analysis_previous_pv": "Попередній варіант",
+    "analysis_next_pv": "Наступний варіант",
+    "analysis_explore": "Тимчасово переглянути варіант",
+    "analysis_return": "Повернутися до джерела",
+    "analysis_insert_move": "Вставити вибраний хід",
+    "analysis_insert_line": "Вставити вибраний варіант",
     "keyboard": "Клавіатура і команди",
     "keyboard_reset": "Відновити всі клавіші та команди",
     "keyboard_reset_done": "Усі клавіші та команди відновлено за замовчуванням.",
@@ -32,10 +41,19 @@ _LABELS_EN = {
     "settings": "Settings", "help": "Help",
     "new": "New standard position", "empty": "Empty board", "exit": "Exit",
     "undo": "Undo move", "redo": "Redo move",
+    "engine_play_new": "New game against Stockfish",
     "history_previous": "Previous history position", "history_next": "Next history position",
     "history_go": "Go to move", "board_go": "Go to board",
     "move_input": "Move input", "position_input": "Position text editor",
     "engine_toggle": "Enable / disable Stockfish",
+    "analysis_restart": "Restart analysis",
+    "analysis_lock": "Lock target / follow position",
+    "analysis_previous_pv": "Previous variation",
+    "analysis_next_pv": "Next variation",
+    "analysis_explore": "Temporarily explore variation",
+    "analysis_return": "Return to source",
+    "analysis_insert_move": "Insert selected move",
+    "analysis_insert_line": "Insert selected variation",
     "keyboard": "Keyboard and commands",
     "keyboard_reset": "Reset all keyboard commands",
     "keyboard_reset_done": "All keyboard commands were reset to defaults.",
@@ -141,6 +159,13 @@ def _invoke_api(window: Any, fn: Callable[[], Any]) -> None:
         _safe_js(window, "refreshState()")
 
 
+def _optional_api_action(api: Any, name: str, *args: Any) -> Any:
+    """Invoke newer menu actions without breaking older compatible API doubles."""
+
+    action = getattr(api, name, None)
+    return action(*args) if callable(action) else None
+
+
 def make_keymap_menu(webview: Any, api: Any, window_holder: dict[str, Any]):
     """Legacy presentation projection used only by tests/compatibility."""
     Menu = webview.menu.Menu
@@ -165,6 +190,8 @@ def make_keymap_menu(webview: Any, api: Any, window_holder: dict[str, Any]):
             MenuAction(text["exit"], lambda: window() and window().destroy()),
         ]),
         Menu(text["game"], [
+            MenuAction(text["engine_play_new"], lambda: js("openEngineGameDialog()")),
+            MenuSeparator(),
             MenuAction(menu_caption(api, text["undo"], "edit.undo"), refresh(api.undo)),
             MenuAction(menu_caption(api, text["redo"], "edit.redo"), refresh(api.redo)),
             MenuSeparator(),
@@ -177,7 +204,19 @@ def make_keymap_menu(webview: Any, api: Any, window_holder: dict[str, Any]):
             MenuAction(text["move_input"], lambda: js("document.getElementById('move-input').focus()")),
             MenuAction(text["position_input"], lambda: js("document.getElementById('position-input').focus()")),
         ]),
-        Menu(text["analysis"], [MenuAction(text["engine_toggle"], refresh(api.toggle_engine))]),
+        Menu(text["analysis"], [
+            MenuAction(text["engine_toggle"], refresh(api.toggle_engine)),
+            MenuAction(menu_caption(api, text["analysis_restart"], "analysis.restart"), refresh(lambda: _optional_api_action(api, "restart_analysis"))),
+            MenuSeparator(),
+            MenuAction(menu_caption(api, text["analysis_previous_pv"], "analysis.previous_pv"), refresh(lambda: _optional_api_action(api, "select_relative_analysis_pv", -1))),
+            MenuAction(menu_caption(api, text["analysis_next_pv"], "analysis.next_pv"), refresh(lambda: _optional_api_action(api, "select_relative_analysis_pv", 1))),
+            MenuAction(menu_caption(api, text["analysis_lock"], "analysis.lock_target"), refresh(lambda: _optional_api_action(api, "toggle_analysis_lock"))),
+            MenuAction(menu_caption(api, text["analysis_explore"], "analysis.explore_pv"), refresh(lambda: _optional_api_action(api, "explore_analysis_pv"))),
+            MenuAction(menu_caption(api, text["analysis_return"], "analysis.return"), refresh(lambda: _optional_api_action(api, "return_from_analysis"))),
+            MenuSeparator(),
+            MenuAction(menu_caption(api, text["analysis_insert_move"], "analysis.insert_move"), refresh(lambda: _optional_api_action(api, "insert_analysis_move"))),
+            MenuAction(menu_caption(api, text["analysis_insert_line"], "analysis.insert_line"), refresh(lambda: _optional_api_action(api, "insert_analysis_line"))),
+        ]),
         Menu(text["settings"], [
             MenuAction(text["keyboard"], lambda: js("document.getElementById('key-search').focus()")),
             MenuSeparator(),
@@ -308,6 +347,8 @@ def install_windows_native_menu(window: Any, api: Any) -> bool:
             separator(), item(text["exit"], window.destroy),
         ]),
         submenu(mn["game"], [
+            item(text["engine_play_new"], lambda: _safe_js(window, "openEngineGameDialog()")),
+            separator(),
             item(menu_caption(api, text["undo"], "edit.undo"), lambda: _invoke_api(window, api.undo)),
             item(menu_caption(api, text["redo"], "edit.redo"), lambda: _invoke_api(window, api.redo)),
             separator(),
@@ -320,7 +361,19 @@ def install_windows_native_menu(window: Any, api: Any) -> bool:
             item(text["move_input"], lambda: _safe_js(window, "document.getElementById('move-input').focus()")),
             item(text["position_input"], lambda: _safe_js(window, "document.getElementById('position-input').focus()")),
         ]),
-        submenu(mn["analysis"], [item(text["engine_toggle"], lambda: _invoke_api(window, api.toggle_engine))]),
+        submenu(mn["analysis"], [
+            item(text["engine_toggle"], lambda: _invoke_api(window, api.toggle_engine)),
+            item(menu_caption(api, text["analysis_restart"], "analysis.restart"), lambda: _invoke_api(window, lambda: _optional_api_action(api, "restart_analysis"))),
+            separator(),
+            item(menu_caption(api, text["analysis_previous_pv"], "analysis.previous_pv"), lambda: _invoke_api(window, lambda: _optional_api_action(api, "select_relative_analysis_pv", -1))),
+            item(menu_caption(api, text["analysis_next_pv"], "analysis.next_pv"), lambda: _invoke_api(window, lambda: _optional_api_action(api, "select_relative_analysis_pv", 1))),
+            item(menu_caption(api, text["analysis_lock"], "analysis.lock_target"), lambda: _invoke_api(window, lambda: _optional_api_action(api, "toggle_analysis_lock"))),
+            item(menu_caption(api, text["analysis_explore"], "analysis.explore_pv"), lambda: _invoke_api(window, lambda: _optional_api_action(api, "explore_analysis_pv"))),
+            item(menu_caption(api, text["analysis_return"], "analysis.return"), lambda: _invoke_api(window, lambda: _optional_api_action(api, "return_from_analysis"))),
+            separator(),
+            item(menu_caption(api, text["analysis_insert_move"], "analysis.insert_move"), lambda: _invoke_api(window, lambda: _optional_api_action(api, "insert_analysis_move"))),
+            item(menu_caption(api, text["analysis_insert_line"], "analysis.insert_line"), lambda: _invoke_api(window, lambda: _optional_api_action(api, "insert_analysis_line"))),
+        ]),
         submenu(mn["settings"], [
             item(text["keyboard"], lambda: _safe_js(window, "document.getElementById('keymap-dialog').showModal();document.getElementById('key-search').focus()")),
             item(text["keyboard_reset"], lambda: reset_all_keybindings(api, lambda code: _safe_js(window, code), lang=lang)),

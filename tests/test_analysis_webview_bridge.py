@@ -32,3 +32,40 @@ def test_analysis_shortcuts_are_available_in_help_dialog_not_main_flow():
     assert '<dialog id="help-dialog"' in HTML
     for action_id in ("analysis.pv1", "analysis.pv2", "analysis.pv3", "analysis.pv4", "analysis.pv5"):
         assert f"line('{action_id}')" in HTML
+
+
+def test_professional_analysis_controls_are_semantic_and_non_live():
+    for marker in (
+        'id="analysis-multipv"',
+        'id="analysis-depth" type="number" min="1" max="40"',
+        'id="analysis-lock" type="button" aria-pressed="false"',
+        '<ol id="analysis-lines" aria-labelledby="analysis-lines-heading">',
+        'id="analysis-explore" type="button"',
+        'id="analysis-return" type="button"',
+        'id="analysis-insert-move" type="button"',
+        'id="analysis-insert-line" type="button"',
+        'id="analysis-exploration-status" class="block" aria-live="off"',
+    ):
+        assert marker in HTML
+
+
+def test_background_pv_refresh_preserves_nodes_and_never_announces():
+    render = HTML.split("function renderAnalysis(s)", 1)[1].split("function render(s)", 1)[0]
+    assert "list.textContent=''" not in render
+    assert "extra.contains(document.activeElement)" in render
+    assert "announce(" not in render
+
+
+def test_analysis_buttons_call_one_canonical_api_boundary():
+    for method in (
+        "restart_analysis",
+        "toggle_analysis_lock",
+        "configure_analysis",
+        "select_relative_analysis_pv",
+        "explore_analysis_pv",
+        "step_analysis_exploration",
+        "return_from_analysis",
+        "insert_analysis_move",
+        "insert_analysis_line",
+    ):
+        assert f"apiAction('{method}'" in HTML

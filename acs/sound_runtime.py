@@ -154,3 +154,8 @@ class GameSoundRuntime:
             return SoundPlaybackReport((), (), ())
         self._ended = True
         return self._runtime.dispatch(SoundEventPolicy.game_end())
+
+    def resume_after_takeback(self) -> SoundPlaybackReport:
+        """Re-arm a terminal game after takeback without replaying START."""
+        self._ended = False
+        return SoundPlaybackReport((), (), ())

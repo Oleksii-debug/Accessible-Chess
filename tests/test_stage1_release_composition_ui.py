@@ -145,6 +145,27 @@ class Stage1ReleaseCompositionUiTests(unittest.TestCase):
                 api.close_analysis()
                 runtime.close()
 
+    def test_engine_resignation_emits_one_game_end_sound(self) -> None:
+        playback = _Playback()
+        with tempfile.TemporaryDirectory() as td:
+            api, runtime = self.make_composed(td, playback)
+            try:
+                self.assertTrue(api.start_engine_game("white", 5, 0, 0)["ok"])
+                resigned = api.resign_engine_game()
+                self.assertTrue(resigned["ok"], resigned)
+                self.assertEqual(
+                    [event for event, _volume in playback.calls].count(SoundEvent.END),
+                    1,
+                )
+                api.get_state()
+                self.assertEqual(
+                    [event for event, _volume in playback.calls].count(SoundEvent.END),
+                    1,
+                )
+            finally:
+                api.close_analysis()
+                runtime.close()
+
     def test_webview_bootstrap_preserves_initial_move_edit_and_base_enter_dispatch(self) -> None:
         text = self.bootstrap
         self.assertIn("function installMoveEntryIdentity()", text)

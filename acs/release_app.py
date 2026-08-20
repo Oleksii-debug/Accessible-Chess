@@ -8,6 +8,7 @@ from typing import Any, Callable
 
 from .analysis_service import AnalysisService
 from .continuous_analysis import ContinuousAnalysisService
+from .engine_play_service import EnginePlayService
 from .settings import Settings
 from .sound_runtime import GameSoundRuntime, SoundRuntime, SoundRuntimeSettings
 from .sound_windows import PackagedSoundAssetResolver, WindowsSoundPlaybackAdapter
@@ -50,6 +51,7 @@ def create_release_api(
     runtime = runtime_factory(StockfishRuntimeConfig(application_dir=app_dir))
     analysis = AnalysisService(runtime.provider, owns_engine=False)
     continuous = ContinuousAnalysisService(analysis)
+    engine_play = EnginePlayService(runtime.provider, owns_engine=False)
 
     settings = Settings(Path(settings_path) if settings_path is not None else _settings_path())
     playback = sound_playback
@@ -69,6 +71,7 @@ def create_release_api(
         game_sounds=game_sounds,
         sound_runtime=sound_runtime,
         settings=settings,
+        engine_play_service=engine_play,
     )
     return api, runtime
 
