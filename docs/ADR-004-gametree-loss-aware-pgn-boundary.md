@@ -60,6 +60,13 @@ PGN must never be silently reinterpreted as clean data.
     `unresolved_recovery` until a caller explicitly repairs the GameTree and
     removes the issue. Read-only importer inspection classifies that game as
     `DAMAGED`; ACSDB import rolls back atomically and records a failed attempt.
+14. The same fail-closed policy covers every parser path that discards or
+    structurally repairs source data. Stable recovery codes now cover duplicate
+    tags, unterminated brace comments/RAVs, unmatched closing RAVs, orphan RAVs
+    and annotations, replaced/dangling move numbers, root post-result tails and
+    unknown tokens. Each becomes `DAMAGED` and blocks clean export. Invalid or
+    conflicting `Result` headers remain exportable warnings because both the
+    original header evidence and effective movetext result are preserved.
 
 ## Compatibility
 
@@ -79,6 +86,11 @@ Game identity schema v1 does not change: `CommentStyle` values serialize to the
 same `brace` and `semicolon` strings already used by the identity payload.
 Recovery evidence is source/provenance policy, not canonical chess content, and
 therefore remains outside the semantic tree/record hashes.
+
+Mixed multi-game inspection is per-game: a damaged record does not cause a
+clean sibling to be mislabeled. Persistence remains atomic: writing a
+collection containing any unresolved recovery issue produces no partial PGN,
+source row, or game row.
 
 ## Release boundary
 

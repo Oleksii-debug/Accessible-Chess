@@ -369,6 +369,46 @@ class GameTreeTests(unittest.TestCase):
         self.assertNotIn("d5", [move.san for move in reparsed.line.moves])
         self.assertNotIn("c4", [move.san for move in reparsed.line.moves])
 
+    def test_every_known_lossy_recovery_class_blocks_clean_export(self):
+        cases = (
+            (
+                '[Event "First"]\n[Event "Second"]\n[Result "*"]\n\n1. e4 *',
+                PgnRecoveryCode.DUPLICATE_TAG,
+            ),
+            ('[Result "*"]\n\n1. e4 {open comment', PgnRecoveryCode.UNTERMINATED_BRACE_COMMENT),
+            ('[Result "*"]\n\n1. e4 ) e5 *', PgnRecoveryCode.UNMATCHED_CLOSING_RAV),
+            ('[Result "*"]\n\n1. e4 (1... c5 *', PgnRecoveryCode.UNTERMINATED_RAV),
+            ('[Result "*"]\n\n(1. d4 d5) 1. e4 *', PgnRecoveryCode.ORPHAN_RAV),
+            ('[Result "*"]\n\n$1 1. e4 *', PgnRecoveryCode.ORPHAN_ANNOTATION),
+            ('[Result "*"]\n\n1. 2. e4 *', PgnRecoveryCode.DROPPED_MOVE_NUMBER),
+            ('[Result "*"]\n\n1. e4 * 1... e5', PgnRecoveryCode.ROOT_POST_RESULT_TAIL),
+        )
+
+        for source, expected_code in cases:
+            with self.subTest(code=expected_code):
+                game = parse_games(source)[0]
+                self.assertIn(expected_code, {issue.code for issue in game.recovery_issues})
+                self.assertTrue(any(issue.blocks_export for issue in game.recovery_issues))
+                with self.assertRaises(GameTreeSerializationError) as blocked:
+                    serialize_games([game])
+                self.assertEqual(
+                    blocked.exception.code,
+                    GameTreeErrorCode.UNRESOLVED_RECOVERY,
+                )
+
+    def test_result_evidence_warnings_remain_lossless_and_exportable(self):
+        sources = (
+            '[Result "1-0"]\n\n1. e4 0-1',
+            '[Result "later"]\n\n1. e4',
+        )
+
+        for source in sources:
+            with self.subTest(source=source):
+                game = parse_games(source)[0]
+                self.assertTrue(game.warnings)
+                self.assertEqual(game.recovery_issues, [])
+                self.assertTrue(serialize_games([game]))
+
 
 if __name__ == '__main__':
     unittest.main()

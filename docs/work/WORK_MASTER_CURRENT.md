@@ -1,23 +1,23 @@
 # Accessible Chess — Work Master Current
 
-Updated: `2026-08-20T09:01:42Z`
+Updated: `2026-08-20T09:07:25Z`
 
 ## Recovery pointer
 
 - `CURRENT_BRANCH`: `completion/full-product-critical-path-20260819`
 - `START_SHA`: `588058634b378793b3c9aa0dca113af6b8a2dc8f`
-- `CURRENT_REMOTE_SHA`: `19a94fa069f3a53917854ebb03ed231188d29e07`
-- `LAST_SAFE_SHA`: `19a94fa069f3a53917854ebb03ed231188d29e07`
+- `CURRENT_REMOTE_SHA`: `05ca9e8213f8690172aaa767ec7d45fa96e6c6ab`
+- `LAST_SAFE_SHA`: `05ca9e8213f8690172aaa767ec7d45fa96e6c6ab`
 - `INTEGRATION_SHA`: `e8cd992d306975955784118364ce950963133d7e`
 - `QA_SHA`: `07971835cb8fc294996165e577913ed350ae9f0e`
 - `RESEARCH_SHA`: `0213f54f3f36fb30379f95c9979aea3a1cc41481`
-- `COMPLETION_SHA`: `19a94fa069f3a53917854ebb03ed231188d29e07`
+- `COMPLETION_SHA`: `05ca9e8213f8690172aaa767ec7d45fa96e6c6ab`
 - `COMPETITOR_EVIDENCE_BRANCH`: `research/competitor-interaction-lab-20260820`
 - `COMPETITOR_EVIDENCE_SHA`: `0213f54f3f36fb30379f95c9979aea3a1cc41481`
 - `CURRENT_STAGE1_STATE`: `BLOCKED — Issues #14 and #22 open; classification does not authorize a product-source change`
 - `CURRENT_OWNER`: `WORK_MASTER — completion/shared-core/spec/test hardening only; Windows QA remains QA-owned`
 - `CURRENT_PRIORITY`: `Isolated shared-core PGN/GameTree corruption and recovery hardening`
-- `CURRENT_SUBSYSTEM`: structured PGN recovery evidence and fail-closed export/import
+- `CURRENT_SUBSYSTEM`: complete lossy-warning classification and PGN token correctness
 - `STATUS`: `WIP_SAFE`
 - `NVDA_VERIFIED`: `NO`
 
@@ -66,6 +66,7 @@ Commit `11b92a1e827bf66f8075ac7f3571ae20b908c1af` added integrity-verified bound
 - Local PGN/GameTree focused verification after `8178e45`: `66 passed`, `86 subtests passed`. A malformed nested RAV can no longer promote post-result child moves or nested branches into the parent mainline.
 - Local structured-recovery verification after `19a94fa`: `69 passed`, `86 subtests passed`. Quarantined nested-RAV tails are `DAMAGED`, block serializer/atomic save with stable `unresolved_recovery`, and roll ACSDB import back as a recorded failed attempt.
 - Current broad unittest at this checkpoint: `797/797` passed; compileall and `git diff --check` passed.
+- Local all-lossy-warning verification after `05ca9e8`: `72 passed`, `96 subtests passed`; broad unittest `800/800` passed. Duplicate tags, unterminated structures, unmatched/orphan RAVs, orphan annotations, dropped move numbers and root post-result tails all produce structured blocking recovery, while fully preserved Result warnings remain exportable.
 - Competitor lab run `32342624286`: five jobs completed successfully and published compact evidence to `0213f54...`.
 
 ## Known failures and blockers
@@ -75,7 +76,7 @@ Commit `11b92a1e827bf66f8075ac7f3571ae20b908c1af` added integrity-verified bound
 3. Strict Windows run `32220453450`: BLOCKED / NO PRODUCT ATTRIBUTION YET at native Ctrl+A/Ctrl+C; QA owns the focused evidence pass.
 4. Canonical ChessBase CBG move/variation/annotation decoding remains `UNSUPPORTED`; real licensed fixture corpus is absent; CBV/CBF/2CBH/CBONE content remains `UNSUPPORTED`.
 5. Full licensed ChessBase/Fritz interactive/NVDA execution remains unavailable. Robot evidence must not be labelled `NVDA_VERIFIED`.
-6. Other lossy parser warnings are not yet structured export blockers: orphan RAVs/annotations, unmatched parentheses, unterminated variations/comments, duplicate tags and root tokens after a result require an evidence-by-evidence policy so damaged content cannot be silently normalized.
+6. Attached symbolic NAG suffixes such as `Nc3!?` are still embedded in `MoveNode.san` instead of the canonical `nags` collection; attached numeric NAGs such as `e4$1` are also not tokenized correctly. This blocks a trustworthy SAN/annotation and legality-linking boundary.
 
 ## Current ownership and invariants
 
@@ -88,4 +89,4 @@ Commit `11b92a1e827bf66f8075ac7f3571ae20b908c1af` added integrity-verified bound
 
 ## Next exact action
 
-Checkpoint structured nested-RAV recovery and fail-closed persistence. Then classify every remaining parser warning as lossless warning or structured blocking recovery, starting with orphan variations/annotations and root post-result tokens; add corrupt-input tests that prove no dropped token can be saved as clean data. Do not change the Stage 1 product or QA line. If Issue #14 transfers a PRODUCT fix, stop shared-core work and make the minimum central rank/file Action Registry plus live-Help repair before returning the exact SHA to QA.
+Checkpoint complete lossy-warning classification. Then canonicalize attached symbolic and numeric NAG tokenization without accepting malformed annotation syntax: separate SAN from `!`, `?`, `!!`, `??`, `!?`, `?!` and `$digits`, preserve order, fail closed on invalid `$` forms, and prove nested/multi-game round-trip plus identity behavior. Do not change the Stage 1 product or QA line. If Issue #14 transfers a PRODUCT fix, stop shared-core work and make the minimum central rank/file Action Registry plus live-Help repair before returning the exact SHA to QA.

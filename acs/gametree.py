@@ -67,7 +67,16 @@ class CommentStyle(str, Enum):
 
 
 class PgnRecoveryCode(str, Enum):
+    DUPLICATE_TAG = "duplicate_tag"
+    UNTERMINATED_BRACE_COMMENT = "unterminated_brace_comment"
+    UNMATCHED_CLOSING_RAV = "unmatched_closing_rav"
+    UNTERMINATED_RAV = "unterminated_rav"
+    ORPHAN_RAV = "orphan_rav"
+    ORPHAN_ANNOTATION = "orphan_annotation"
+    DROPPED_MOVE_NUMBER = "dropped_move_number"
     POST_RESULT_RAV_TAIL = "post_result_rav_tail"
+    ROOT_POST_RESULT_TAIL = "root_post_result_tail"
+    UNKNOWN_TOKEN = "unknown_token"
 
 
 @dataclass(frozen=True, slots=True)
@@ -76,8 +85,8 @@ class PgnRecoveryIssue:
 
     code: PgnRecoveryCode
     message: str
-    variation_depth: int
-    token_count: int
+    variation_depth: int | None = None
+    token_count: int | None = None
     blocks_export: bool = True
 
     def __post_init__(self) -> None:
@@ -98,14 +107,18 @@ class PgnRecoveryIssue:
                 "PGN recovery message must be non-empty single-line text",
                 code=GameTreeErrorCode.INVALID_RECOVERY_ISSUE,
             )
-        if type(self.variation_depth) is not int or self.variation_depth < 1:
+        if self.variation_depth is not None and (
+            type(self.variation_depth) is not int or self.variation_depth < 0
+        ):
             raise GameTreeContractError(
-                "PGN recovery variation depth must be a positive exact integer",
+                "PGN recovery variation depth must be a non-negative exact integer or None",
                 code=GameTreeErrorCode.INVALID_RECOVERY_ISSUE,
             )
-        if type(self.token_count) is not int or self.token_count < 1:
+        if self.token_count is not None and (
+            type(self.token_count) is not int or self.token_count < 1
+        ):
             raise GameTreeContractError(
-                "PGN recovery token count must be a positive exact integer",
+                "PGN recovery token count must be a positive exact integer or None",
                 code=GameTreeErrorCode.INVALID_RECOVERY_ISSUE,
             )
         if type(self.blocks_export) is not bool:
@@ -272,6 +285,26 @@ def _quarantine_after_nested_result(tokens: list[_Token], pos: int) -> tuple[int
     return pos, pos - start
 
 
+def _add_recovery(
+    recovery_issues: list[PgnRecoveryIssue],
+    warnings: list[str],
+    *,
+    code: PgnRecoveryCode,
+    message: str,
+    depth: int | None = None,
+    token_count: int | None = None,
+) -> None:
+    warnings.append(message)
+    recovery_issues.append(
+        PgnRecoveryIssue(
+            code=code,
+            message=message,
+            variation_depth=depth,
+            token_count=token_count,
+        )
+    )
+
+
 def _parse_line(
     tokens: list[_Token],
     pos: int = 0,
@@ -299,10 +332,29 @@ def _parse_line(
     while pos < len(tokens):
         tok = tokens[pos]
         if tok.kind == "WARNING":
-            warnings.append(tok.value); pos += 1; continue
+            if tok.value == "unterminated brace comment":
+                _add_recovery(
+                    recovery_issues,
+                    warnings,
+                    code=PgnRecoveryCode.UNTERMINATED_BRACE_COMMENT,
+                    message=tok.value,
+                    depth=depth,
+                    token_count=1,
+                )
+            else:
+                warnings.append(tok.value)
+            pos += 1
+            continue
         if tok.kind == "RPAREN":
             if not nested:
-                warnings.append("unmatched closing parenthesis")
+                _add_recovery(
+                    recovery_issues,
+                    warnings,
+                    code=PgnRecoveryCode.UNMATCHED_CLOSING_RAV,
+                    message="unmatched closing parenthesis",
+                    depth=depth,
+                    token_count=1,
+                )
                 pos += 1
                 continue
             break
@@ -314,6 +366,7 @@ def _parse_line(
                 )
             _claim_parse_node(budget)  # child VariationLine
             pos += 1
+            child_start = pos
             child, pos, child_warnings = _parse_line(
                 tokens,
                 pos,
@@ -323,14 +376,30 @@ def _parse_line(
                 recovery_issues=recovery_issues,
             )
             warnings.extend(child_warnings)
-            if pos < len(tokens) and tokens[pos].kind == "RPAREN":
+            child_token_count = max(1, pos - child_start)
+            closed = pos < len(tokens) and tokens[pos].kind == "RPAREN"
+            if closed:
                 pos += 1
             else:
-                warnings.append("unterminated variation")
+                _add_recovery(
+                    recovery_issues,
+                    warnings,
+                    code=PgnRecoveryCode.UNTERMINATED_RAV,
+                    message=f"unterminated variation at depth {depth + 1}",
+                    depth=depth + 1,
+                    token_count=child_token_count,
+                )
             if last is not None:
                 last.variations.append(child)
             else:
-                warnings.append("variation has no preceding move")
+                _add_recovery(
+                    recovery_issues,
+                    warnings,
+                    code=PgnRecoveryCode.ORPHAN_RAV,
+                    message=f"variation has no preceding move at depth {depth + 1}",
+                    depth=depth + 1,
+                    token_count=child_token_count,
+                )
                 line.trailing_comments.extend(child.leading_comments)
             continue
         if tok.kind in {"COMMENT_BRACE", "COMMENT_SEMI"}:
@@ -344,12 +413,31 @@ def _parse_line(
             pos += 1
             continue
         if tok.kind == "MOVE_NUMBER":
+            if pending_number is not None:
+                _add_recovery(
+                    recovery_issues,
+                    warnings,
+                    code=PgnRecoveryCode.DROPPED_MOVE_NUMBER,
+                    message=(
+                        f"move number {pending_number} replaced by {tok.value} "
+                        f"before a move at depth {depth}"
+                    ),
+                    depth=depth,
+                    token_count=1,
+                )
             pending_number = tok.value
             pos += 1
             continue
         if tok.kind in {"NAG", "NAG_SYMBOL"}:
             if last is None:
-                warnings.append(f"orphan annotation {tok.value}")
+                _add_recovery(
+                    recovery_issues,
+                    warnings,
+                    code=PgnRecoveryCode.ORPHAN_ANNOTATION,
+                    message=f"orphan annotation {tok.value} at depth {depth}",
+                    depth=depth,
+                    token_count=1,
+                )
             else:
                 last.nags.append(tok.value)
             pos += 1
@@ -378,14 +466,13 @@ def _parse_line(
                     f"{quarantined} token(s) after result quarantined "
                     f"inside variation at depth {depth}"
                 )
-                warnings.append(message)
-                recovery_issues.append(
-                    PgnRecoveryIssue(
-                        code=PgnRecoveryCode.POST_RESULT_RAV_TAIL,
-                        message=message,
-                        variation_depth=depth,
-                        token_count=quarantined,
-                    )
+                _add_recovery(
+                    recovery_issues,
+                    warnings,
+                    code=PgnRecoveryCode.POST_RESULT_RAV_TAIL,
+                    message=message,
+                    depth=depth,
+                    token_count=quarantined,
                 )
             break
         if tok.kind == "SAN":
@@ -397,9 +484,25 @@ def _parse_line(
             last = node
             pos += 1
             continue
-        warnings.append(f"unknown token {tok.kind}:{tok.value}")
+        _add_recovery(
+            recovery_issues,
+            warnings,
+            code=PgnRecoveryCode.UNKNOWN_TOKEN,
+            message=f"unknown token {tok.kind}:{tok.value} at depth {depth}",
+            depth=depth,
+            token_count=1,
+        )
         pos += 1
 
+    if pending_number is not None:
+        _add_recovery(
+            recovery_issues,
+            warnings,
+            code=PgnRecoveryCode.DROPPED_MOVE_NUMBER,
+            message=f"move number {pending_number} has no following move at depth {depth}",
+            depth=depth,
+            token_count=1,
+        )
     if pending_comments:
         if line.moves:
             line.trailing_comments.extend(pending_comments)
@@ -469,10 +572,26 @@ def parse_games(text: str) -> list[PgnGame]:
     for index, (tags, movetext, split_warnings) in enumerate(_split_games(text)):
         tokens = tokenize_movetext(movetext)
         recovery_issues: list[PgnRecoveryIssue] = []
+        for warning in split_warnings:
+            if warning.startswith("duplicate tag "):
+                recovery_issues.append(
+                    PgnRecoveryIssue(
+                        code=PgnRecoveryCode.DUPLICATE_TAG,
+                        message=warning,
+                    )
+                )
         line, pos, warnings = _parse_line(tokens, recovery_issues=recovery_issues)
         warnings[:0] = split_warnings
         if pos < len(tokens):
-            warnings.append(f"{len(tokens) - pos} unconsumed token(s)")
+            remaining = len(tokens) - pos
+            _add_recovery(
+                recovery_issues,
+                warnings,
+                code=PgnRecoveryCode.ROOT_POST_RESULT_TAIL,
+                message=f"{remaining} token(s) after root result quarantined",
+                depth=0,
+                token_count=remaining,
+            )
         header_result = tags.get("Result")
         valid_header_result = header_result if header_result in RESULTS else None
         if header_result is not None and valid_header_result is None:

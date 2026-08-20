@@ -137,6 +137,27 @@ class PgnFileServiceTests(unittest.TestCase):
             self.assertFalse(_save_lock_path(destination).exists())
             self.assertEqual(list(Path(tmp).glob("must-not-exist.pgn.*.tmp")), [])
 
+    def test_import_inspection_isolates_damaged_and_full_games(self):
+        collection = (
+            '[Event "Damaged"]\n[Result "*"]\n\n'
+            '$1 1. e4 *\n\n'
+            '[Event "Clean"]\n[Result "*"]\n\n'
+            '1. d4 d5 *\n'
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "mixed.pgn"
+            path.write_text(collection, encoding="utf-8")
+            report = PgnFileImporter().inspect(path)
+
+        self.assertEqual([record.source_record_id for record in report.records], ["0", "1"])
+        self.assertEqual(
+            [record.quality for record in report.records],
+            [ImportQuality.DAMAGED, ImportQuality.FULL],
+        )
+        self.assertTrue(any("orphan annotation" in warning for warning in report.records[0].warnings))
+        self.assertEqual(report.records[1].warnings, ())
+
 
 if __name__ == "__main__":
     unittest.main()
