@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   web-robot:
@@ -26,18 +26,20 @@ jobs:
         shell: bash
         run: |
           set -euxo pipefail
-          mkdir -p .competitor-lab-node
-          cd .competitor-lab-node
-          npm init -y
-          npm install playwright
+          npm install --no-save playwright
           npx playwright install --with-deps chromium
-          node -p "require('playwright/package.json').version" > ../playwright-version.txt
+          node -p "require('playwright/package.json').version" > playwright-version.txt
       - name: Run web interaction probe
         shell: bash
         run: |
           set -euxo pipefail
-          export NODE_PATH="$PWD/.competitor-lab-node/node_modules"
           node tools/competitor_lab/web_interaction_probe.mjs
+      - name: Record web job status
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p competitor-results/web
+          printf '%s\n' "job_status=${{ job.status }}" "run_id=${{ github.run_id }}" "sha=${{ github.sha }}" > competitor-results/web/job-status.txt
       - name: Upload web evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -58,6 +60,12 @@ jobs:
       - name: Run legal free Reader probe
         shell: powershell
         run: ./tools/competitor_lab/windows_reader_probe.ps1
+      - name: Record Reader job status
+        if: always()
+        shell: powershell
+        run: |
+          New-Item -ItemType Directory -Force competitor-results/windows | Out-Null
+          @('job_status=${{ job.status }}','run_id=${{ github.run_id }}','sha=${{ github.sha }}') | Set-Content -Encoding utf8 competitor-results/windows/job-status.txt
       - name: Upload Windows evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -76,6 +84,12 @@ jobs:
       - name: Run Scid portable probe
         shell: powershell
         run: ./tools/competitor_lab/windows_scid_probe.ps1
+      - name: Record Scid job status
+        if: always()
+        shell: powershell
+        run: |
+          New-Item -ItemType Directory -Force competitor-results/windows-scid | Out-Null
+          @('job_status=${{ job.status }}','run_id=${{ github.run_id }}','sha=${{ github.sha }}') | Set-Content -Encoding utf8 competitor-results/windows-scid/job-status.txt
       - name: Upload Scid Windows evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -84,3 +98,49 @@ jobs:
           path: competitor-results/windows-scid/**
           if-no-files-found: error
           retention-days: 14
+
+  publish-evidence:
+    name: Publish compact robot evidence to research branch
+    if: always()
+    needs: [web-robot, chessbase-reader-windows, scid-windows]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: research/competitor-interaction-lab-20260820
+          fetch-depth: 0
+      - name: Download all evidence
+        uses: actions/download-artifact@v4
+        with:
+          pattern: '*evidence'
+          path: _lab_artifacts
+          merge-multiple: false
+      - name: Stage evidence snapshot
+        shell: bash
+        run: |
+          set -euxo pipefail
+          dest="docs/research/competitor_lab_runs/${{ github.run_id }}"
+          mkdir -p "$dest"
+          cp -R _lab_artifacts/. "$dest/"
+          cat > "$dest/RUN_SUMMARY.md" <<EOF
+          # Competitor Interaction Lab Run ${{ github.run_id }}
+
+          - Trigger SHA: `${{ github.sha }}`
+          - Web robot: `${{ needs.web-robot.result }}`
+          - ChessBase Reader Windows robot: `${{ needs.chessbase-reader-windows.result }}`
+          - Scid Windows robot: `${{ needs.scid-windows.result }}`
+          - Evidence level: robot/UIA/keyboard automation only; never human NVDA verification.
+          EOF
+      - name: Commit evidence snapshot
+        shell: bash
+        run: |
+          set -euxo pipefail
+          git config user.name 'accessible-chess-competitor-lab'
+          git config user.email 'actions@users.noreply.github.com'
+          git add -- "docs/research/competitor_lab_runs/${{ github.run_id }}"
+          if git diff --cached --quiet; then
+            echo 'No evidence changes to commit.'
+            exit 0
+          fi
+          git commit -m "research: capture competitor lab run ${{ github.run_id }}"
+          git push origin HEAD:research/competitor-interaction-lab-20260820
