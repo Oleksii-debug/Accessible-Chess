@@ -1,18 +1,22 @@
 # Accessible Chess — Work Master Current
 
-Updated: `2026-08-20T07:58:53Z`
+Updated: `2026-08-20T08:25:44Z`
 
 ## Recovery pointer
 
 - `CURRENT_BRANCH`: `completion/full-product-critical-path-20260819`
-- `STARTING_SHA`: `11b92a1e827bf66f8075ac7f3571ae20b908c1af`
-- `CURRENT_SHA`: `11b92a1e827bf66f8075ac7f3571ae20b908c1af` (this state file is the next commit)
-- `LAST_SAFE_SHA`: `11b92a1e827bf66f8075ac7f3571ae20b908c1af`
+- `START_SHA`: `588058634b378793b3c9aa0dca113af6b8a2dc8f`
+- `CURRENT_REMOTE_SHA`: `588058634b378793b3c9aa0dca113af6b8a2dc8f`
+- `LAST_SAFE_SHA`: `588058634b378793b3c9aa0dca113af6b8a2dc8f`
 - `INTEGRATION_SHA`: `e8cd992d306975955784118364ce950963133d7e`
 - `QA_SHA`: `07971835cb8fc294996165e577913ed350ae9f0e`
-- `COMPLETION_SHA`: `11b92a1e827bf66f8075ac7f3571ae20b908c1af`
+- `RESEARCH_SHA`: `0213f54f3f36fb30379f95c9979aea3a1cc41481`
+- `COMPLETION_SHA`: `588058634b378793b3c9aa0dca113af6b8a2dc8f`
 - `COMPETITOR_EVIDENCE_BRANCH`: `research/competitor-interaction-lab-20260820`
 - `COMPETITOR_EVIDENCE_SHA`: `0213f54f3f36fb30379f95c9979aea3a1cc41481`
+- `CURRENT_STAGE1_STATE`: `BLOCKED — Issues #14 and #22 open; classification does not authorize a product-source change`
+- `CURRENT_OWNER`: `WORK_MASTER — completion/shared-core/spec/test hardening only; Windows QA remains QA-owned`
+- `CURRENT_PRIORITY`: `Restore the lost competitor-derived interaction contract from durable evidence`
 - `CURRENT_SUBSYSTEM`: competitor-derived interaction contracts before user-facing UX freeze
 - `STATUS`: `WIP_SAFE`
 - `NVDA_VERIFIED`: `NO`
