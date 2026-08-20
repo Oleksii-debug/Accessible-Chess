@@ -1,7 +1,7 @@
 {
   "source": "oxford5000",
   "start": 0,
-  "limit": 606,
+  "limit": 0,
   "accent": "en-GB",
   "femaleVoice": "bf_emma",
   "maleVoice": "bm_george",

@@ -1,0 +1,1157 @@
+entry_id	source	part_of_speech	level	user_ukrainian	prior_v7_ukrainian	prior_v7_present	action
+ox5000-6cb94901ee4c66a30fb3	bold	adjective	B2	сміливий		no	activate_user_tail_identity
+ox5000-336cd82ab74183c72edd	bombing	noun	B2	бомбардування		no	activate_user_tail_identity
+ox5000-0324076e988934c9c7ca	booking	noun	B2	бронювання		no	activate_user_tail_identity
+ox5000-00636bc1e91847dc273e	boost	noun	B2	підвищення		no	activate_user_tail_identity
+ox5000-c0b4a3f25a5eb7edbd5f	boost	verb	B2	підвищувати		no	activate_user_tail_identity
+ox5000-1f5a6ea35a13b0e40dd1	bound	adjective	B2	неминучий		no	activate_user_tail_identity
+ox5000-f36df4a285a808895f17	brick	noun	B2	цеглина		no	activate_user_tail_identity
+ox5000-c8c42d98d7e616f8064a	briefly	adverb	B2	коротко		no	activate_user_tail_identity
+ox5000-a29b52dd76fad8a77358	broadcaster	noun	B2	телерадіомовник		no	activate_user_tail_identity
+ox5000-c665d95862829f444fe3	broadly	adverb	B2	загалом		no	activate_user_tail_identity
+ox5000-7e010b349356a4ff144c	bug	noun	B2	помилка; жук		no	activate_user_tail_identity
+ox5000-bc1029015aec50c2aea1	cabin	noun	B2	каюта; хатина		no	activate_user_tail_identity
+ox5000-b575091301cde0aab47c	canal	noun	B2	канал		no	activate_user_tail_identity
+ox5000-6c90d20f57eaa3951076	candle	noun	B2	свічка		no	activate_user_tail_identity
+ox5000-aadc5f65541eae6cccd0	carbon	noun	B2	вуглець		no	activate_user_tail_identity
+ox5000-9c94f94be7b1a888dd21	casual	adjective	B2	повсякденний; випадковий		no	activate_user_tail_identity
+ox5000-2f11663a968a94ccb406	cave	noun	B2	печера		no	activate_user_tail_identity
+ox5000-1a9ae9f38cefadbdbe69	certainty	noun	B2	впевненість		no	activate_user_tail_identity
+ox5000-f65ec664052307d40e5e	certificate	noun	B2	сертифікат		no	activate_user_tail_identity
+ox5000-d11e4137c39c91300aa9	challenging	adjective	B2	складний		no	activate_user_tail_identity
+ox5000-371ffb23c06cf5d1b8ef	championship	noun	B2	чемпіонат	чемпіонат	yes	replace_v7_with_user_value
+ox5000-aa38df2298e6ecac59b2	charming	adjective	B2	чарівний		no	activate_user_tail_identity
+ox5000-faf95786d6bb15f92757	chase	noun	B2	переслідування		no	activate_user_tail_identity
+ox5000-1c569c97ca81d70efaf2	chase	verb	B2	переслідувати		no	activate_user_tail_identity
+ox5000-9f02d00aa1a75bbfe2ec	cheek	noun	B2	щока		no	activate_user_tail_identity
+ox5000-e9afbf1e9b9ba09c65ee	cheer	noun	B2	підбадьорення		no	activate_user_tail_identity
+ox5000-042f56b4f8aa0bfb23f1	cheer	verb	B2	підбадьорювати		no	activate_user_tail_identity
+ox5000-4e45db7231a1deb4a27d	choir	noun	B2	хор		no	activate_user_tail_identity
+ox5000-5f21cc31a80fe8b694f6	chop	verb	B2	рубати		no	activate_user_tail_identity
+ox5000-14a30058a90886f8f5dc	circuit	noun	B2	електричне коло		no	activate_user_tail_identity
+ox5000-50c859b7eef5dc7ea1e0	civilization	noun	B2	цивілізація		no	activate_user_tail_identity
+ox5000-086a5e82dfa259ffe944	clarify	verb	B2	уточнювати		no	activate_user_tail_identity
+ox5000-6d64823d57328578c4d4	classify	verb	B2	класифікувати		no	activate_user_tail_identity
+ox5000-123000ccb24aad3cb552	clerk	noun	B2	службовець		no	activate_user_tail_identity
+ox5000-bf7922083634871fd76e	cliff	noun	B2	скеля		no	activate_user_tail_identity
+ox5000-065f94e1d344097a9fb6	clinic	noun	B2	клініка		no	activate_user_tail_identity
+ox5000-a57faf81bb42681a8e1a	clip	noun	B2	уривок; затискач		no	activate_user_tail_identity
+ox5000-716808837b74db6359aa	coincidence	noun	B2	збіг		no	activate_user_tail_identity
+ox5000-8c5031daad7f45108dc2	collector	noun	B2	колекціонер		no	activate_user_tail_identity
+ox5000-d986169e6087570a695b	colony	noun	B2	колонія		no	activate_user_tail_identity
+ox5000-e8838df3182b0d30fd61	colourful	adjective	B2	барвистий		no	activate_user_tail_identity
+ox5000-85c56babf231b6fd11a6	comic	adjective	B2	смішний		no	activate_user_tail_identity
+ox5000-3ef335dbc548cf6ee9a2	comic	noun	B2	комікс		no	activate_user_tail_identity
+ox5000-8088b7e5636be8851c0c	commander	noun	B2	командир		no	activate_user_tail_identity
+ox5000-39d12fcbbe01c1f981f5	comparative	adjective	B2	порівняльний		no	activate_user_tail_identity
+ox5000-3b7af52b2f41a82a1271	completion	noun	B2	завершення		no	activate_user_tail_identity
+ox5000-e07de55ff108c88cf492	compose	verb	B2	складати		no	activate_user_tail_identity
+ox5000-9a75af8e33d69fd7d823	composer	noun	B2	композитор	композитор	yes	replace_v7_with_user_value
+ox5000-0f76508d4a3a6e8d10e7	compound	noun	B2	сполука		no	activate_user_tail_identity
+ox5000-cef7e9caa766c637d105	comprehensive	adjective	B2	всебічний		no	activate_user_tail_identity
+ox5000-6836ebe09ea109e5cb9c	comprise	verb	B2	включати		no	activate_user_tail_identity
+ox5000-ab47bcb0aeacbb3a4f2b	compulsory	adjective	B2	обов'язковий		no	activate_user_tail_identity
+ox5000-3dbc882686b6ebef26d1	concrete	adjective	B2	конкретний		no	activate_user_tail_identity
+ox5000-d782f68d3229c5a378fe	concrete	noun	B2	бетон	бетон	yes	replace_v7_with_user_value
+ox5000-5bc4fd2b67e8c09eca85	confess	verb	B2	зізнаватися		no	activate_user_tail_identity
+ox5000-85a7a64b9f86bcca1831	confusion	noun	B2	плутанина		no	activate_user_tail_identity
+ox5000-c88a5ab0c123045d4363	consequently	adverb	B2	внаслідок цього		no	activate_user_tail_identity
+ox5000-0af7e2fe2fa36ccfdcac	conservation	noun	B2	збереження		no	activate_user_tail_identity
+ox5000-26a00e51322ff7c8d3ee	considerable	adjective	B2	значний		no	activate_user_tail_identity
+ox5000-326407a82f0ca95e4a7e	considerably	adverb	B2	значно		no	activate_user_tail_identity
+ox5000-29eb47fd6a314aa1730d	consistently	adverb	B2	послідовно		no	activate_user_tail_identity
+ox5000-b3dd4396526c004c1d2a	conspiracy	noun	B2	змова		no	activate_user_tail_identity
+ox5000-53a7b9ea5ca0a81c0606	consult	verb	B2	консультуватися		no	activate_user_tail_identity
+ox5000-e55a43ce5b36ea4927c8	consultant	noun	B2	консультант		no	activate_user_tail_identity
+ox5000-3c252e710be02044ad41	consumption	noun	B2	споживання		no	activate_user_tail_identity
+ox5000-82041bb10d995697e45c	controversial	adjective	B2	суперечливий		no	activate_user_tail_identity
+ox5000-e8a0747e227d712361ce	controversy	noun	B2	суперечка		no	activate_user_tail_identity
+ox5000-dec69195d3cbcb283102	convenience	noun	B2	зручність		no	activate_user_tail_identity
+ox5000-0f41dc7cf551486cfea5	convention	noun	B2	конвенція; з'їзд		no	activate_user_tail_identity
+ox5000-e1c13a38e16cdfc2623d	conventional	adjective	B2	традиційний		no	activate_user_tail_identity
+ox5000-3ed6772c28d9fdbd70ca	convey	verb	B2	передавати		no	activate_user_tail_identity
+ox5000-acdf0358f54cd515da09	convincing	adjective	B2	переконливий		no	activate_user_tail_identity
+ox5000-7a10e528e2e5ee26cb22	cope	verb	B2	справлятися		no	activate_user_tail_identity
+ox5000-71efa31e1845bf3e367e	corporation	noun	B2	корпорація		no	activate_user_tail_identity
+ox5000-1c94148d8ef30f683882	corridor	noun	B2	коридор		no	activate_user_tail_identity
+ox5000-a5d502e140ed298b6b90	corrupt	adjective	C1	корумпований		no	activate_user_tail_identity
+ox5000-9ebdcc1221c51b64dc68	corruption	noun	C1	корупція		no	activate_user_tail_identity
+ox5000-66fcf81c27cba109d948	counter	noun	B2	прилавок		no	activate_user_tail_identity
+ox5000-7ab982c1e86cfa8707dd	coup	noun	C1	переворот		no	activate_user_tail_identity
+ox5000-55a15b7d5ef384c80100	coverage	noun	B2	охоплення; висвітлення		no	activate_user_tail_identity
+ox5000-d1c900d343f498dba838	crack	noun	B2	тріщина		no	activate_user_tail_identity
+ox5000-b4e92bed580e34479f83	crack	verb	B2	тріскатися		no	activate_user_tail_identity
+ox5000-58b2e3328e4ac0838b4d	craft	noun	B2	ремесло		no	activate_user_tail_identity
+ox5000-95c41b3fd9cb792c67d3	creativity	noun	B2	творчість		no	activate_user_tail_identity
+ox5000-ce478e8e55423fc0eab3	critically	adverb	B2	критично		no	activate_user_tail_identity
+ox5000-83013615bdf6bfabd81c	cruise	noun	B2	круїз		no	activate_user_tail_identity
+ox5000-66932a98dca84a2dbbc3	cruise	verb	B2	здійснювати круїз		no	activate_user_tail_identity
+ox5000-816dc4076d218bff7be8	cue	noun	B2	сигнал		no	activate_user_tail_identity
+ox5000-bd34112b30a90cadea44	cult	adjective	C1	культовий		no	activate_user_tail_identity
+ox5000-f0ac4360614dd59c0109	cult	noun	C1	культ		no	activate_user_tail_identity
+ox5000-979c0fd9679daf0c797f	curious	adjective	B2	допитливий		no	activate_user_tail_identity
+ox5000-0061f78f727f6b7f1472	curriculum	noun	B2	навчальна програма		no	activate_user_tail_identity
+ox5000-6ae71c9ddb8dfc06bde3	cute	adjective	B2	милий		no	activate_user_tail_identity
+ox5000-90712ba3e8da49f8900a	dairy	adjective	B2	молочний		no	activate_user_tail_identity
+ox5000-d88bfcbe9f4406457552	dairy	noun	B2	молочні продукти		no	activate_user_tail_identity
+ox5000-558d5b9a795fc132d65a	dare	verb	B2	наважуватися		no	activate_user_tail_identity
+ox5000-e3068d3ca8d1e091b785	darkness	noun	B2	темрява	темрява	yes	replace_v7_with_user_value
+ox5000-fc30e2bef2db8ea80919	database	noun	B2	база даних		no	activate_user_tail_identity
+ox5000-4071455ab57c18eb70f1	deadline	noun	B2	кінцевий термін		no	activate_user_tail_identity
+ox5000-9d962d3c830072d569ab	deadly	adjective	B2	смертельний		no	activate_user_tail_identity
+ox5000-46328b590c1ec5303a0c	dealer	noun	B2	дилер; торговець		no	activate_user_tail_identity
+ox5000-0c6fa7977832afceb6d7	deck	noun	B2	палуба; колода		no	activate_user_tail_identity
+ox5000-8de1d29a7d671e7035ab	defender	noun	B2	захисник		no	activate_user_tail_identity
+ox5000-e841597e446a171297b2	delete	verb	B2	видаляти		no	activate_user_tail_identity
+ox5000-adf847cb368aff039402	democracy	noun	B2	демократія	демократія	yes	replace_v7_with_user_value
+ox5000-df0c2f847440bde50b2f	democratic	adjective	B2	демократичний		no	activate_user_tail_identity
+ox5000-75f4e15f239ab6722fa1	demonstration	noun	B2	демонстрація		no	activate_user_tail_identity
+ox5000-e32b57bb1abb824248d0	depart	verb	B2	від'їжджати		no	activate_user_tail_identity
+ox5000-854fea13ca3a1e284c5e	dependent	adjective	B2	залежний		no	activate_user_tail_identity
+ox5000-14bbb1e944709030158a	deposit	noun	B2	депозит; завдаток		no	activate_user_tail_identity
+ox5000-0e8d749dcccf250478e8	depression	noun	B2	депресія		no	activate_user_tail_identity
+ox5000-71e206a3f3fcd711ce46	derive	verb	B2	походити; виводити		no	activate_user_tail_identity
+ox5000-d2c5893907a6fb9d1136	desperately	adverb	B2	відчайдушно		no	activate_user_tail_identity
+ox5000-850f52e28a1e074a2e01	destruction	noun	B2	руйнування		no	activate_user_tail_identity
+ox5000-5b3bd8fde7b374b2bfab	determination	noun	B2	рішучість		no	activate_user_tail_identity
+ox5000-56ba360389067adbba25	devote	verb	B2	присвячувати		no	activate_user_tail_identity
+ox5000-20aefe39996728251d78	differ	verb	B2	відрізнятися		no	activate_user_tail_identity
+ox5000-80fd9e80dfc8af738c00	disability	noun	B2	інвалідність		no	activate_user_tail_identity
+ox5000-dc02fc8291ad0b3d636e	disabled	adjective	B2	з інвалідністю		no	activate_user_tail_identity
+ox5000-cf8453ee7b04d2901e89	disagreement	noun	B2	незгода		no	activate_user_tail_identity
+ox5000-7cd186c49026db39bc01	disappoint	verb	B2	розчаровувати		no	activate_user_tail_identity
+ox5000-870e1a0c943fb0418b9d	disappointment	noun	B2	розчарування		no	activate_user_tail_identity
+ox5000-7218b3757288c078fffe	discourage	verb	B2	знеохочувати		no	activate_user_tail_identity
+ox5000-d779cdf09bbb40a923d2	disorder	noun	B2	розлад		no	activate_user_tail_identity
+ox5000-5e7d80af5eef97168291	distant	adjective	B2	віддалений		no	activate_user_tail_identity
+ox5000-1d3333e465f30469350d	distinct	adjective	B2	відмінний; чітко окреслений		no	activate_user_tail_identity
+ox5000-a0c4ad550df69bfe8740	distinguish	verb	B2	розрізняти		no	activate_user_tail_identity
+ox5000-d06af1a8a59f85351d09	distract	verb	B2	відволікати		no	activate_user_tail_identity
+ox5000-4d721e65830d97429964	disturb	verb	B2	турбувати		no	activate_user_tail_identity
+ox5000-ed14861541109f849043	dive	noun	B2	пірнання		no	activate_user_tail_identity
+ox5000-6295e7f64b9eba4b0db2	dive	verb	B2	пірнати		no	activate_user_tail_identity
+ox5000-75ddd65afc704f846e0d	diverse	adjective	B2	різноманітний		no	activate_user_tail_identity
+ox5000-4933941ca6507b1fe891	diversity	noun	B2	різноманітність		no	activate_user_tail_identity
+ox5000-78eb3d58aa21dba7fa05	divorce	noun	B2	розлучення		no	activate_user_tail_identity
+ox5000-b660b49beb0bdf43c376	divorce	verb	B2	розлучатися		no	activate_user_tail_identity
+ox5000-55e604d6e26994b92541	dominant	adjective	B2	домінуючий		no	activate_user_tail_identity
+ox5000-33b32b3d1d0304f7c6cf	donation	noun	B2	пожертва		no	activate_user_tail_identity
+ox5000-d5832386f841cb656fdd	dot	noun	B2	крапка		no	activate_user_tail_identity
+ox5000-b73b2ba3671d7892c96a	downtown	adjective	B2	центральний		no	activate_user_tail_identity
+ox5000-b43793232b19c48ccb87	downtown	adverb	B2	у центрі міста		no	activate_user_tail_identity
+ox5000-ec48035f7d2c76a494d0	downtown	noun	B2	центр міста		no	activate_user_tail_identity
+ox5000-3f076cc2e24ceeab0e19	dramatically	adverb	B2	різко; драматично		no	activate_user_tail_identity
+ox5000-28fce2fd6625072758dd	drought	noun	B2	посуха		no	activate_user_tail_identity
+ox5000-315c08663012957ec8b3	dull	adjective	B2	нудний; тьмяний		no	activate_user_tail_identity
+ox5000-c6dc877cf05d2ddfc872	dump	verb	B2	викидати		no	activate_user_tail_identity
+ox5000-7f327ac67d3382af1f36	duration	noun	B2	тривалість		no	activate_user_tail_identity
+ox5000-ef71bf152c656a55a7d0	dynamic	adjective	B2	динамічний		no	activate_user_tail_identity
+ox5000-ca7f9728fd25d9f579b4	economics	noun	B2	економіка	економіка	yes	replace_v7_with_user_value
+ox5000-fbacc78ff91e8803a76c	economist	noun	B2	економіст		no	activate_user_tail_identity
+ox5000-0dffd09878151b2d113b	editorial	adjective	B2	редакційний		no	activate_user_tail_identity
+ox5000-0f9b904543c55dfc5a83	efficiently	adverb	B2	ефективно		no	activate_user_tail_identity
+ox5000-5c9a079bb10c55b83870	elbow	noun	B2	лікоть		no	activate_user_tail_identity
+ox5000-c3007be8ab4931bb3d62	electronics	noun	B2	електроніка		no	activate_user_tail_identity
+ox5000-2fe3e13b6adf5d961d3c	elegant	adjective	B2	елегантний		no	activate_user_tail_identity
+ox5000-c051d0b14e7554a2af4d	elementary	adjective	B2	початковий		no	activate_user_tail_identity
+ox5000-5ac94dbba9ae436c39a6	eliminate	verb	B2	усувати		no	activate_user_tail_identity
+ox5000-08c78f8c2b7984d83249	embrace	verb	B2	обіймати; приймати		no	activate_user_tail_identity
+ox5000-bda1ffe3536ced59e99a	emission	noun	B2	викид		no	activate_user_tail_identity
+ox5000-240af653d10714d95f2d	emotionally	adverb	B2	емоційно		no	activate_user_tail_identity
+ox5000-ee093cc46d1da14394f0	empire	noun	B2	імперія		no	activate_user_tail_identity
+ox5000-31d2c935d6d641420ba1	enjoyable	adjective	B2	приємний		no	activate_user_tail_identity
+ox5000-f49dfbb082c50aed8b4c	entertaining	adjective	B2	розважальний		no	activate_user_tail_identity
+ox5000-8a474e14891c7a2f46d6	entrepreneur	noun	B2	підприємець		no	activate_user_tail_identity
+ox5000-9ef7efb306accd10f03f	envelope	noun	B2	конверт		no	activate_user_tail_identity
+ox5000-69666b6f95ecaf8dceb5	equip	verb	B2	оснащувати		no	activate_user_tail_identity
+ox5000-bedeed830a30bd59f7b8	equivalent	adjective	B2	рівнозначний		no	activate_user_tail_identity
+ox5000-eae218cc17da85168d23	equivalent	noun	B2	еквівалент		no	activate_user_tail_identity
+ox5000-56b353657dba1a61f24a	era	noun	B2	епоха		no	activate_user_tail_identity
+ox5000-30d669c469a9c6d1e040	erupt	verb	B2	вивергатися		no	activate_user_tail_identity
+ox5000-ad62bcd01b35a0aa8cf5	essentially	adverb	B2	по суті		no	activate_user_tail_identity
+ox5000-ae44c8e9073abc0a1382	ethic	noun	B2	етичний принцип		no	activate_user_tail_identity
+ox5000-b5fe4ca0cb57767b5696	ethnic	adjective	B2	етнічний		no	activate_user_tail_identity
+ox5000-d8b18880e169486d11a5	evaluation	noun	B2	оцінювання		no	activate_user_tail_identity
+ox5000-38fabc705df782f15f98	evident	adjective	B2	очевидний		no	activate_user_tail_identity
+ox5000-c10da450920e83775e89	evolution	noun	B2	еволюція		no	activate_user_tail_identity
+ox5000-7ff21e9a0227dd05a0e5	evolve	verb	B2	розвиватися		no	activate_user_tail_identity
+ox5000-a4eb18bbc1606607a948	exceed	verb	B2	перевищувати		no	activate_user_tail_identity
+ox5000-3eaa6e8cecd547ed3cb7	exception	noun	B2	виняток		no	activate_user_tail_identity
+ox5000-f04760f861e36a60749e	excessive	adjective	B2	надмірний		no	activate_user_tail_identity
+ox5000-7ba09d1c95fa8a9511c4	exclude	verb	B2	виключати		no	activate_user_tail_identity
+ox5000-423378269c32f713c96b	exhibit	noun	B2	експонат		no	activate_user_tail_identity
+ox5000-31c37db5211ae9d29e59	exhibit	verb	B2	виставляти		no	activate_user_tail_identity
+ox5000-19adc9708cbcd84850ba	exit	noun	B2	вихід		no	activate_user_tail_identity
+ox5000-8a0eec8f77097262e252	exotic	adjective	B2	екзотичний		no	activate_user_tail_identity
+ox5000-b02ca5f0dad7df4d2555	expansion	noun	B2	розширення		no	activate_user_tail_identity
+ox5000-db878068101448926700	expertise	noun	B2	фаховість; експертиза		no	activate_user_tail_identity
+ox5000-ef4a7e83e64103fd38d7	exploit	verb	B2	використовувати		no	activate_user_tail_identity
+ox5000-da3a344a90cc77842f0f	exposure	noun	B2	вплив; експозиція		no	activate_user_tail_identity
+ox5000-47ce42b1dcae59990d04	extension	noun	B2	розширення		no	activate_user_tail_identity
+ox5000-293e2fc606e4bb1f9c71	extensive	adjective	B2	широкий; масштабний		no	activate_user_tail_identity
+ox5000-0a3468782d34d84170d5	extensively	adverb	B2	широко; значною мірою		no	activate_user_tail_identity
+ox5000-332726e8976ae1dd9d77	extract	noun	B2	витяг; екстракт		no	activate_user_tail_identity
+ox5000-0f7caa6befc952d04c09	fabric	noun	B2	тканина		no	activate_user_tail_identity
+ox5000-ef35efd68f20517aad21	fabulous	adjective	B2	чудовий		no	activate_user_tail_identity
+ox5000-17a2d8b159c132a215ea	failed	adjective	B2	невдалий		no	activate_user_tail_identity
+ox5000-2134f21a7877889bc152	fake	adjective	B2	підроблений		no	activate_user_tail_identity
+ox5000-af9f6fc2822a5032991b	fame	noun	B2	слава		no	activate_user_tail_identity
+ox5000-5838fae45af6b7342ff4	fantasy	noun	B2	фантазія		no	activate_user_tail_identity
+ox5000-e62ff1e0d169e7695c4a	fare	noun	B2	плата за проїзд		no	activate_user_tail_identity
+ox5000-5c5f6469717804efa6ca	federal	adjective	B2	федеральний		no	activate_user_tail_identity
+ox5000-6da150f86ef5e4cdec6d	fever	noun	B2	лихоманка		no	activate_user_tail_identity
+ox5000-b780af72eaa52c9bcfa6	firefighter	noun	B2	пожежник		no	activate_user_tail_identity
+ox5000-6e881b75f8a8d383a4fe	firework	noun	B2	феєрверк		no	activate_user_tail_identity
+ox5000-e8f9305cf8015bbc5cee	firm	adjective	B2	твердий; стійкий		no	activate_user_tail_identity
+ox5000-4f6617b9287ff2da9ea7	firmly	adverb	B2	твердо		no	activate_user_tail_identity
+ox5000-bd79c052fa5d352fbb27	flavour	noun	B2	смак; аромат		no	activate_user_tail_identity
+ox5000-cc984d8d5615f983c4c8	fond	adjective	B2	люблячий; прихильний		no	activate_user_tail_identity
+ox5000-afa74ec045528b9642d4	fool	noun	B2	дурень		no	activate_user_tail_identity
+ox5000-e74afd4a21b32dd7948a	forbid	verb	B2	забороняти		no	activate_user_tail_identity
+ox5000-8f0a5905b743e6145587	forecast	noun	B2	прогноз		no	activate_user_tail_identity
+ox5000-3a0f5941248926ec1d37	forecast	verb	B2	прогнозувати		no	activate_user_tail_identity
+ox5000-727991f6048fe8ce77d0	foreigner	noun	C1	іноземець		no	activate_user_tail_identity
+ox5000-0ca7565db377e67a8c2c	format	noun	B2	формат		no	activate_user_tail_identity
+ox5000-44a935daea3b2b80e426	formation	noun	B2	формування		no	activate_user_tail_identity
+ox5000-364abe382625d64bbd07	formerly	adverb	B2	раніше; колись		no	activate_user_tail_identity
+ox5000-99537d5150d0cdb742b2	formula	noun	C1	формула		no	activate_user_tail_identity
+ox5000-9f9486a0d8382b5782ea	fortunate	adjective	B2	щасливий; вдалий		no	activate_user_tail_identity
+ox5000-51f9239c5d82f1daf597	forum	noun	B2	форум		no	activate_user_tail_identity
+ox5000-fdfbff9a3658ec4c47d7	fossil	noun	B2	викопна рештка		no	activate_user_tail_identity
+ox5000-3826a189ea9ac3d0931e	foundation	noun	B2	основа; фонд		no	activate_user_tail_identity
+ox5000-01eabf8856766ebc8e63	founder	noun	B2	засновник		no	activate_user_tail_identity
+ox5000-1bc4348190f7b6ca8ea3	fraction	noun	B2	частка; дріб		no	activate_user_tail_identity
+ox5000-29bed3900aea762df21c	fragment	noun	B2	фрагмент		no	activate_user_tail_identity
+ox5000-8eb2e0b61582abcd29fd	framework	noun	B2	структура; рамкова система		no	activate_user_tail_identity
+ox5000-d11ee536f206623dd9f9	fraud	noun	B2	шахрайство		no	activate_user_tail_identity
+ox5000-a2f3332e44595061040d	freely	adverb	B2	вільно		no	activate_user_tail_identity
+ox5000-af3d7f706d9de6258253	frequent	adjective	B2	частий		no	activate_user_tail_identity
+ox5000-7d8f5e0b4363007ea90f	fulfil	verb	B2	виконувати		no	activate_user_tail_identity
+ox5000-842908a0c1db6a162da8	full-time	adjective	B2	повний робочий день		no	activate_user_tail_identity
+ox5000-02b2b92d62fbdb8d9849	full-time	adverb	B2	повний робочий день		no	activate_user_tail_identity
+ox5000-40c7d5e1dedb6b8d1d14	fundamentally	adverb	B2	фундаментально; по суті		no	activate_user_tail_identity
+ox5000-f0d18f20e6160ed0969d	furious	adjective	B2	лютий; розлючений		no	activate_user_tail_identity
+ox5000-19dcdb5e045a76a294ff	gaming	noun	B2	ігрова діяльність		no	activate_user_tail_identity
+ox5000-75514d52c27e0f4cd7f7	gay	adjective	B2	гомосексуальний		no	activate_user_tail_identity
+ox5000-59f5f085529f2ddbf319	gender	noun	B2	гендер		no	activate_user_tail_identity
+ox5000-46c3d06bb042acc4ae37	gene	noun	B2	ген		no	activate_user_tail_identity
+ox5000-94877a610fe8476c7f15	genetic	adjective	B2	генетичний		no	activate_user_tail_identity
+ox5000-38ca77b3038a730f48dc	genius	noun	B2	геній		no	activate_user_tail_identity
+ox5000-05655f6fadd0b485ca75	genuine	adjective	B2	справжній		no	activate_user_tail_identity
+ox5000-80a11eeb9358a7e9644e	genuinely	adverb	B2	щиро; справді		no	activate_user_tail_identity
+ox5000-50d8b4ca875ee4a7096d	gesture	noun	B2	жест		no	activate_user_tail_identity
+ox5000-0910ae2efee31d9ab3a4	gig	noun	B2	виступ; концерт		no	activate_user_tail_identity
+ox5000-127e5b46dd0bae6f7a06	glance	noun	C1	погляд		no	activate_user_tail_identity
+ox5000-7a202570f29a7f4daf74	glance	verb	C1	глянути		no	activate_user_tail_identity
+ox5000-78a493bf921bb7477c7c	glimpse	noun	C1	проблиск; короткий погляд		no	activate_user_tail_identity
+ox5000-2a12e5e092f583e5e7b5	globalization	noun	B2	глобалізація		no	activate_user_tail_identity
+ox5000-2c70ba897b47d73650bb	globe	noun	B2	земна куля		no	activate_user_tail_identity
+ox5000-c4006c27fe4f74c08ec9	golden	adjective	B2	золотий		no	activate_user_tail_identity
+ox5000-29f67b0d52a0d9907076	goodness	noun	B2	доброта		no	activate_user_tail_identity
+ox5000-8645840cb5bbd2168ad2	gorgeous	adjective	B2	розкішний; чудовий		no	activate_user_tail_identity
+ox5000-4e4e1337cc88e43cc243	governor	noun	B2	губернатор		no	activate_user_tail_identity
+ox5000-9fa3b95bc325a8e5a0bc	graphic	adjective	B2	графічний		no	activate_user_tail_identity
+ox5000-f6db7a1824f60f3e32a1	graphics	noun	B2	графіка		no	activate_user_tail_identity
+ox5000-f20da69ea37da6663eb9	greatly	adverb	B2	значно; дуже		no	activate_user_tail_identity
+ox5000-b31fc31f4e51a7bcac20	greenhouse	noun	B2	теплиця		no	activate_user_tail_identity
+ox5000-ff9332c8a6a6a58fb82f	grocery	noun	B2	бакалія; продуктовий магазин		no	activate_user_tail_identity
+ox5000-889e167db140abcc55ee	guideline	noun	B2	настанова; рекомендація		no	activate_user_tail_identity
+ox5000-196e7e40d3dea9806f88	habitat	noun	B2	середовище існування		no	activate_user_tail_identity
+ox5000-e1c41e9f875382fe57b7	harbour	noun	B2	гавань		no	activate_user_tail_identity
+ox5000-2810d4945e0b4cbb8892	headquarters	noun	B2	штаб-квартира		no	activate_user_tail_identity
+ox5000-ef704d39fcedac1879a3	heal	verb	B2	лікувати; загоювати		no	activate_user_tail_identity
+ox5000-984f901bff540521430c	healthcare	noun	B2	охорона здоров'я		no	activate_user_tail_identity
+ox5000-391293d6fb6a7618d9b1	helmet	noun	B2	шолом		no	activate_user_tail_identity
+ox5000-b0e9a621ac9c68faa293	hence	adverb	B2	отже; звідси		no	activate_user_tail_identity
+ox5000-94aa2afe2d9372cb4229	herb	noun	B2	трава; лікарська рослина		no	activate_user_tail_identity
+ox5000-d3e2e909a6622cd172bf	hidden	adjective	B2	прихований		no	activate_user_tail_identity
+ox5000-50fc0bc84b3fc5dc83ac	highway	noun	B2	автомагістраль		no	activate_user_tail_identity
+ox5000-b6f7336242fe1a0172bf	hilarious	adjective	B2	дуже смішний		no	activate_user_tail_identity
+ox5000-dfe0006f6faea4481b74	hip	noun	B2	стегно		no	activate_user_tail_identity
+ox5000-65b7be2b102eaacebdf0	historian	noun	B2	історик		no	activate_user_tail_identity
+ox5000-45d3403127f71104c337	homeless	adjective	B2	бездомний		no	activate_user_tail_identity
+ox5000-101f93ba1a99dadfbee0	honesty	noun	B2	чесність		no	activate_user_tail_identity
+ox5000-5a8626cc70e9e3ad32a4	hook	noun	B2	гачок		no	activate_user_tail_identity
+ox5000-b6de68069d4b1653da28	hopefully	adverb	B2	сподіваюся		no	activate_user_tail_identity
+ox5000-5b96940d18199354bf42	hunger	noun	B2	голод		no	activate_user_tail_identity
+ox5000-6826ffff72382c3098c5	hypothesis	noun	B2	гіпотеза		no	activate_user_tail_identity
+ox5000-dac0118b6e5ac4e7e31f	icon	noun	B2	значок; ікона		no	activate_user_tail_identity
+ox5000-0266b44058e618706301	ID	noun	B2	посвідчення особи		no	activate_user_tail_identity
+ox5000-cba028b70a26fb8e973b	identical	adjective	B2	ідентичний		no	activate_user_tail_identity
+ox5000-530d3802d61ad0aefab6	illusion	noun	B2	ілюзія		no	activate_user_tail_identity
+ox5000-fe7c0867a2f339b6f398	immigration	noun	B2	імміграція		no	activate_user_tail_identity
+ox5000-39a64cc0f2bccb1d329c	immune	adjective	B2	імунний		no	activate_user_tail_identity
+ox5000-c1c5fbcd8bef4eef712e	implement	verb	B2	впроваджувати		no	activate_user_tail_identity
+ox5000-2ab7636cef93aa6ee33e	implication	noun	B2	наслідок; підтекст		no	activate_user_tail_identity
+ox5000-45c8c81f5a8d00df51ee	incentive	noun	B2	стимул		no	activate_user_tail_identity
+ox5000-0619be0d2f24cb68b967	incorporate	verb	B2	включати		no	activate_user_tail_identity
+ox5000-e6ba4bdf14d730fcb39b	incorrect	adjective	B2	неправильний		no	activate_user_tail_identity
+ox5000-ef97a46763f2c6c5b237	independence	noun	B2	незалежність		no	activate_user_tail_identity
+ox5000-be988b1dff39f57ff813	index	noun	B2	індекс		no	activate_user_tail_identity
+ox5000-cc1a0296595578e3be05	indication	noun	B2	ознака; вказівка		no	activate_user_tail_identity
+ox5000-06646a689dd3273e1c93	inevitable	adjective	B2	неминучий		no	activate_user_tail_identity
+ox5000-7b3cb0765f05e7460306	inevitably	adverb	B2	неминуче		no	activate_user_tail_identity
+ox5000-7ff9e2bdabdf73fcdf4d	infer	verb	B2	робити висновок		no	activate_user_tail_identity
+ox5000-f0ae610ae73d64453087	inflation	noun	B2	інфляція		no	activate_user_tail_identity
+ox5000-49955cd8897590e06eb7	info	noun	B2	інформація		no	activate_user_tail_identity
+ox5000-36319883199e948ad332	infrastructure	noun	B2	інфраструктура		no	activate_user_tail_identity
+ox5000-24da19bb4ce0d5ceeacb	inhabitant	noun	B2	мешканець		no	activate_user_tail_identity
+ox5000-f4321412ab9f41d8e2db	inherit	verb	B2	успадковувати		no	activate_user_tail_identity
+ox5000-f6248e466730f68b14a2	ink	noun	B2	чорнило		no	activate_user_tail_identity
+ox5000-5262606cd574af131a21	innovation	noun	B2	інновація		no	activate_user_tail_identity
+ox5000-bb2305964c87f26f785b	innovative	adjective	B2	інноваційний		no	activate_user_tail_identity
+ox5000-e1ca54e0e4d0e1a16fac	input	noun	B2	внесок; вхідні дані		no	activate_user_tail_identity
+ox5000-272fbc928cd10bef3371	insert	verb	B2	вставляти		no	activate_user_tail_identity
+ox5000-5f09fb5782151e5b31f9	inspector	noun	B2	інспектор		no	activate_user_tail_identity
+ox5000-057f0fb509e5dcf12e33	installation	noun	B2	встановлення		no	activate_user_tail_identity
+ox5000-d6cbb323c712ce894586	instant	adjective	B2	миттєвий		no	activate_user_tail_identity
+ox5000-badf4a8930fc7d79c357	instantly	adverb	B2	миттєво		no	activate_user_tail_identity
+ox5000-c12f00903c72d68024f3	integrate	verb	B2	інтегрувати		no	activate_user_tail_identity
+ox5000-c6ed2c694d610997a7df	intellectual	adjective	B2	інтелектуальний		no	activate_user_tail_identity
+ox5000-c54f9279e34437f21931	interact	verb	B2	взаємодіяти		no	activate_user_tail_identity
+ox5000-dadeebf8bd921477bf3b	interaction	noun	B2	взаємодія		no	activate_user_tail_identity
+ox5000-4f4fbda46ce05ce575f1	interpretation	noun	B2	тлумачення		no	activate_user_tail_identity
+ox5000-23f96e4f7e768533f9e1	interval	noun	B2	інтервал		no	activate_user_tail_identity
+ox5000-67085d75a6593c5849c3	invade	verb	B2	вторгатися		no	activate_user_tail_identity
+ox5000-d20215e9e0ba29c2222f	invasion	noun	B2	вторгнення		no	activate_user_tail_identity
+ox5000-5ec2e0bf7bd7159c4fa2	investor	noun	B2	інвестор		no	activate_user_tail_identity
+ox5000-68dfdd415bb302e71b0a	isolate	verb	B2	ізолювати		no	activate_user_tail_identity
+ox5000-b7446723645accf54c52	isolated	adjective	B2	ізольований		no	activate_user_tail_identity
+ox5000-2bdd3cdbe3b5841b8f62	jail	noun	B2	в'язниця		no	activate_user_tail_identity
+ox5000-031f0c28f6bfce2b6e15	jail	verb	B2	ув'язнювати		no	activate_user_tail_identity
+ox5000-fb7375e0f3874e5647c5	jet	noun	B2	реактивний літак		no	activate_user_tail_identity
+ox5000-70c5c8f51acbab122f67	joint	adjective	B2	спільний		no	activate_user_tail_identity
+ox5000-dd96500677d3ca51e52e	joint	noun	B2	суглоб; з'єднання		no	activate_user_tail_identity
+ox5000-2f08ca6f381da258e455	journalism	noun	B2	журналістика		no	activate_user_tail_identity
+ox5000-daa9b791eff027caf0b2	jury	noun	B2	присяжні		no	activate_user_tail_identity
+ox5000-11266ab8c09eb5c57402	kit	noun	B2	набір		no	activate_user_tail_identity
+ox5000-c3113232c1fb2e5bbaa0	ladder	noun	B2	драбина		no	activate_user_tail_identity
+ox5000-a218d28b896b2bdb62f8	landing	noun	B2	посадка		no	activate_user_tail_identity
+ox5000-b9a7aa2033cb2e0c7400	lane	noun	B2	смуга		no	activate_user_tail_identity
+ox5000-c1b92733baa2264f3999	lately	adverb	B2	останнім часом		no	activate_user_tail_identity
+ox5000-e7ea035601a37a9a4722	leaflet	noun	B2	листівка		no	activate_user_tail_identity
+ox5000-717eebb531c2bbf433f9	legend	noun	B2	легенда		no	activate_user_tail_identity
+ox5000-ffb8e573cf446633d5cb	lens	noun	B2	лінза		no	activate_user_tail_identity
+ox5000-51bc5ea8a66b539c5223	lifetime	noun	B2	тривалість життя		no	activate_user_tail_identity
+ox5000-a3a2e9e256bd13e3e541	lighting	noun	B2	освітлення		no	activate_user_tail_identity
+ox5000-328c1d56fad5d18c8f23	likewise	adverb	B2	так само		no	activate_user_tail_identity
+ox5000-fdce7e0032ae59989c61	limitation	noun	B2	обмеження		no	activate_user_tail_identity
+ox5000-112880a33f9d8e34a9b3	literally	adverb	B2	буквально		no	activate_user_tail_identity
+ox5000-9eabcb2d708b14389152	literary	adjective	B2	літературний		no	activate_user_tail_identity
+ox5000-ef0b492c57cfb957db02	litre	noun	B2	літр		no	activate_user_tail_identity
+ox5000-772478c07738c9ee4fbc	litter	noun	B2	сміття		no	activate_user_tail_identity
+ox5000-88df5e9d39518566d1f6	logo	noun	B2	логотип		no	activate_user_tail_identity
+ox5000-a7622314f2c3bb2b4d35	lottery	noun	B2	лотерея		no	activate_user_tail_identity
+ox5000-b23be88bc8ebf7098db0	loyal	adjective	B2	відданий		no	activate_user_tail_identity
+ox5000-5ffdbbd8fd821d1622a7	lyric	noun	B2	текст пісні		no	activate_user_tail_identity
+ox5000-3e0bca958a799ee3c3b2	magnificent	adjective	B2	величний		no	activate_user_tail_identity
+ox5000-6c870370430f84ac75d1	make-up	noun	B2	макіяж		no	activate_user_tail_identity
+ox5000-e01fe6e6100e610146cf	making	noun	B2	створення		no	activate_user_tail_identity
+ox5000-1dbbc1fd29bbf32a3e10	manufacture	verb	B2	виробляти		no	activate_user_tail_identity
+ox5000-9c59e86010b806d83fec	manufacturing	noun	B2	виробництво		no	activate_user_tail_identity
+ox5000-3b407a089918c14984a8	marathon	noun	B2	марафон		no	activate_user_tail_identity
+ox5000-edc3408926156df88b49	margin	noun	B2	межа; поля		no	activate_user_tail_identity
+ox5000-84fa239e44c4093c7cfe	marker	noun	B2	маркер		no	activate_user_tail_identity
+ox5000-d86503c48a8e8690c121	martial	adjective	B2	військовий		no	activate_user_tail_identity
+ox5000-79019916bd7e8a187527	mate	noun	B2	товариш; партнер		no	activate_user_tail_identity
+ox5000-803233f8756ba059a15c	mate	verb	B2	спаровуватися		no	activate_user_tail_identity
+ox5000-9eb52d5916fd39ec8a75	mayor	noun	B2	мер		no	activate_user_tail_identity
+ox5000-30593521f63578f24f57	mechanic	noun	B2	механік		no	activate_user_tail_identity
+ox5000-bc744c53b635188752ff	mechanical	adjective	B2	механічний		no	activate_user_tail_identity
+ox5000-feb14135e748e0ec9422	mechanism	noun	B2	механізм		no	activate_user_tail_identity
+ox5000-aafc6f9c171aa1d3e4ab	medal	noun	B2	медаль		no	activate_user_tail_identity
+ox5000-885e13683538fe87553d	medication	noun	B2	ліки; медикаментозне лікування		no	activate_user_tail_identity
+ox5000-6ecd6860e0bf3c45ceec	membership	noun	B2	членство		no	activate_user_tail_identity
+ox5000-88c7868cbefd07d53bac	memorable	adjective	B2	пам'ятний		no	activate_user_tail_identity
+ox5000-a0b66ab8c1eda0867006	metaphor	noun	B2	метафора		no	activate_user_tail_identity
+ox5000-986de09a91776341ea71	miner	noun	B2	шахтар		no	activate_user_tail_identity
+ox5000-d5da00c3d1c99d2ce05a	miserable	adjective	B2	нещасний		no	activate_user_tail_identity
+ox5000-c7c8003562442221d355	mode	noun	B2	режим		no	activate_user_tail_identity
+ox5000-1c1409a8020c89e8377e	modest	adjective	B2	скромний		no	activate_user_tail_identity
+ox5000-22e3da986f5cef99f6ae	monster	noun	B2	монстр		no	activate_user_tail_identity
+ox5000-06cb5472f60a2edbcf2b	monthly	adjective	B2	щомісячний		no	activate_user_tail_identity
+ox5000-625446803ce6f0d5cf1a	monument	noun	B2	пам'ятник		no	activate_user_tail_identity
+ox5000-88734672e90f2e89d10b	moreover	adverb	B2	крім того		no	activate_user_tail_identity
+ox5000-8bc8e2f1c11fbf198d37	mortgage	noun	B2	іпотека		no	activate_user_tail_identity
+ox5000-35c00beb3d8396332a3a	mosque	noun	B2	мечеть	мечеть	yes	replace_v7_with_user_value
+ox5000-85ff0bace6a2ff8b3896	motion	noun	B2	рух		no	activate_user_tail_identity
+ox5000-15358dfd67542bac5588	motivate	verb	B2	мотивувати		no	activate_user_tail_identity
+ox5000-636c6bf1b2aeff69bbd1	motivation	noun	B2	мотивація		no	activate_user_tail_identity
+ox5000-98811a8ef5eeb939e28e	moving	adjective	B2	зворушливий		no	activate_user_tail_identity
+ox5000-badee9d8f307959df126	ongoing	adjective	B2	триваючий		no	activate_user_tail_identity
+ox5000-2f6f191c073dce6857c8	openly	adverb	B2	відкрито		no	activate_user_tail_identity
+ox5000-3b99ee42b5cd8d914754	opera	noun	B2	опера		no	activate_user_tail_identity
+ox5000-bb16b4d78505cc19a95b	operator	noun	B2	оператор	оператор	yes	replace_v7_with_user_value
+ox5000-019a4aa3fdffda49fc88	optimistic	adjective	B2	оптимістичний		no	activate_user_tail_identity
+ox5000-35b1a402b7c754fe5305	orchestra	noun	B2	оркестр		no	activate_user_tail_identity
+ox5000-b4389a2bac4330cc53ad	organic	adjective	B2	органічний		no	activate_user_tail_identity
+ox5000-e588b4bfc5ae52073336	outfit	noun	B2	вбрання		no	activate_user_tail_identity
+ox5000-8d38d3d7d5e03f2abaae	output	noun	B2	результат; вихідні дані		no	activate_user_tail_identity
+ox5000-9884417c4c0fe5bde7b6	outstanding	adjective	B2	видатний		no	activate_user_tail_identity
+ox5000-021eeabab2a596d30a62	overcome	verb	B2	подолати		no	activate_user_tail_identity
+ox5000-1167b9a5705478ca1c8f	overnight	adverb	B2	за ніч		no	activate_user_tail_identity
+ox5000-a93b7e958b34078785e0	overseas	adjective	B2	закордонний		no	activate_user_tail_identity
+ox5000-14a1cc720a6156b2bef8	overseas	adverb	B2	за кордоном		no	activate_user_tail_identity
+ox5000-875ac29835bedd3f8fe9	ownership	noun	B2	власність; право власності		no	activate_user_tail_identity
+ox5000-4ad6c70bffbabb30bef5	oxygen	noun	B2	кисень		no	activate_user_tail_identity
+ox5000-ebd3aca4366331cbbecb	packet	noun	B2	пакет		no	activate_user_tail_identity
+ox5000-30fd4723cd451189f603	palm	noun	B2	долоня		no	activate_user_tail_identity
+ox5000-d10729e289ea7b28417a	panic	noun	B2	паніка		no	activate_user_tail_identity
+ox5000-7a6e9f9445697c021a81	parade	noun	B2	парад		no	activate_user_tail_identity
+ox5000-fd6ca5be73f93fb3556b	parallel	adjective	B2	паралельний		no	activate_user_tail_identity
+ox5000-7ebeea756d3860dfe0d4	parallel	noun	B2	паралель		no	activate_user_tail_identity
+ox5000-9a69ec83b0e36255adb9	part-time	adjective	B2	неповний робочий день		no	activate_user_tail_identity
+ox5000-2cbeb1855517af42f649	participation	noun	B2	участь		no	activate_user_tail_identity
+ox5000-e99d3a619738b2e246d6	partnership	noun	B2	партнерство		no	activate_user_tail_identity
+ox5000-311fd2e67b591781d96e	passionate	adjective	B2	пристрасний		no	activate_user_tail_identity
+ox5000-6d4a81e66902a45caa21	passive	adjective	C1	пасивний		no	activate_user_tail_identity
+ox5000-e998bda7a717be49bec6	password	noun	B2	пароль		no	activate_user_tail_identity
+ox5000-d11dcce3a28b447255da	pastor	noun	C1	пастор		no	activate_user_tail_identity
+ox5000-9a43f8a85ef922837b3c	patch	noun	C1	латка; ділянка		no	activate_user_tail_identity
+ox5000-5af766941fb0ffd07856	patent	noun	C1	патент		no	activate_user_tail_identity
+ox5000-9c211817fb234e7e024f	pathway	noun	C1	шлях		no	activate_user_tail_identity
+ox5000-feac7d068345b41bf9b8	patience	noun	B2	терпіння		no	activate_user_tail_identity
+ox5000-8b10bfc43d80bd6a1b1e	patrol	noun	C1	патруль		no	activate_user_tail_identity
+ox5000-33ef55c0137f6d5d734c	patrol	verb	C1	патрулювати		no	activate_user_tail_identity
+ox5000-0c74f2ed819a03c75dcc	patron	noun	C1	покровитель; клієнт		no	activate_user_tail_identity
+ox5000-5bf6bb98b0aa6e88e25d	pause	noun	B2	пауза		no	activate_user_tail_identity
+ox5000-b65a62db9abd8eef3cff	pause	verb	B2	робити паузу		no	activate_user_tail_identity
+ox5000-9a85f61c8b8cc997a0b0	peak	noun	C1	вершина; пік		no	activate_user_tail_identity
+ox5000-8a40036adfd1df61e55e	peasant	noun	C1	селянин		no	activate_user_tail_identity
+ox5000-35de66642784aeeb9ee5	peculiar	adjective	C1	своєрідний; дивний		no	activate_user_tail_identity
+ox5000-781a985da79bb4af5cdf	peer	noun	B2	ровесник; колега		no	activate_user_tail_identity
+ox5000-2cb6429f8e617379c52e	penalty	noun	B2	штраф; покарання		no	activate_user_tail_identity
+ox5000-99e9d2cc172cc5434f56	perceive	verb	B2	сприймати		no	activate_user_tail_identity
+ox5000-d74d8ec5476e2ae9ebb7	perception	noun	B2	сприйняття		no	activate_user_tail_identity
+ox5000-3532569e450a869942b8	permanently	adverb	B2	постійно		no	activate_user_tail_identity
+ox5000-9f15b17f09337ac45081	persist	verb	C1	наполягати; зберігатися		no	activate_user_tail_identity
+ox5000-a7b952c88c032e59859f	persistent	adjective	C1	наполегливий; стійкий		no	activate_user_tail_identity
+ox5000-eb9457a81d9f62a179b8	personnel	noun	C1	персонал		no	activate_user_tail_identity
+ox5000-b491a88f6456bbb0cfb8	petition	noun	C1	петиція		no	activate_user_tail_identity
+ox5000-97e75b56a14dcea93cd6	philosopher	noun	C1	філософ		no	activate_user_tail_identity
+ox5000-4ed777656d24b1976443	philosophical	adjective	C1	філософський	філософський	yes	replace_v7_with_user_value
+ox5000-7f50e5d4ea8b939bb645	physician	noun	C1	лікар		no	activate_user_tail_identity
+ox5000-3f779a09de200359c0e7	pill	noun	B2	таблетка		no	activate_user_tail_identity
+ox5000-4d12a2450049f476f743	pioneer	noun	C1	піонер; першопроходець		no	activate_user_tail_identity
+ox5000-a69f31481890fe668be4	pioneer	verb	C1	започатковувати		no	activate_user_tail_identity
+ox5000-aa936da664ebf419cd8b	pipeline	noun	C1	трубопровід		no	activate_user_tail_identity
+ox5000-0dd6137a2f1a6a9a12e6	pirate	noun	C1	пірат		no	activate_user_tail_identity
+ox5000-69c6a831bfe7dfdfa3dd	pit	noun	C1	яма		no	activate_user_tail_identity
+ox5000-d150b012b581766179eb	pity	noun	B2	жаль		no	activate_user_tail_identity
+ox5000-714d19b7df6bf047fb12	placement	noun	B2	розміщення		no	activate_user_tail_identity
+ox5000-160c8d7d475bdeee5fa4	plea	noun	C1	прохання; заява		no	activate_user_tail_identity
+ox5000-da6c1e1198461773e1dc	plead	verb	C1	благати; заявляти у суді		no	activate_user_tail_identity
+ox5000-83df4ff41fec9e689188	pledge	noun	C1	обіцянка		no	activate_user_tail_identity
+ox5000-f7ec77c63ef59898cba2	pledge	verb	C1	обіцяти		no	activate_user_tail_identity
+ox5000-f363b0d81ea651cb2c6a	plug	noun	C1	штекер; пробка		no	activate_user_tail_identity
+ox5000-30f8b5e2f3659b82af9e	plug	verb	C1	підключати; затикати		no	activate_user_tail_identity
+ox5000-a2a56181aff99fea04b0	plunge	verb	C1	занурюватися		no	activate_user_tail_identity
+ox5000-ec99e1e8c7830791d513	pole	noun	C1	стовп; полюс		no	activate_user_tail_identity
+ox5000-63da2a1947e89c7e3bbd	poll	noun	C1	опитування		no	activate_user_tail_identity
+ox5000-14f031faff13a37dc5da	pond	noun	C1	ставок		no	activate_user_tail_identity
+ox5000-a56bffc14b7623ca92d5	pop	verb	C1	луснути; вискочити		no	activate_user_tail_identity
+ox5000-e8093e2d8ad2399dab1e	portfolio	noun	C1	портфоліо		no	activate_user_tail_identity
+ox5000-61157023f5c6f7cae979	portion	noun	B2	частина; порція		no	activate_user_tail_identity
+ox5000-56711d8b015a24df31cf	portray	verb	C1	зображати		no	activate_user_tail_identity
+ox5000-c15e293b147fe2223274	post-war	adjective	C1	повоєнний		no	activate_user_tail_identity
+ox5000-f68f5a29d94b8b03690e	postpone	verb	C1	відкладати		no	activate_user_tail_identity
+ox5000-711718c5c7cfed4346b5	potentially	adverb	B2	потенційно		no	activate_user_tail_identity
+ox5000-beb52a5555437b39995b	practitioner	noun	C1	практик; фахівець		no	activate_user_tail_identity
+ox5000-74daeda551245ecd75df	preach	verb	C1	проповідувати		no	activate_user_tail_identity
+ox5000-9a62e37d0085deb94e17	precede	verb	B2	передувати		no	activate_user_tail_identity
+ox5000-9ea970eafe26ff604aa5	precedent	noun	C1	прецедент		no	activate_user_tail_identity
+ox5000-09b263abf182e4e60c79	precious	adjective	B2	дорогоцінний		no	activate_user_tail_identity
+ox5000-366987964a8ab382bc33	precise	adjective	B2	точний		no	activate_user_tail_identity
+ox5000-07a37e93b46b0272d38d	precisely	adverb	B2	точно		no	activate_user_tail_identity
+ox5000-e79d85a69185862ee9d0	precision	noun	C1	точність		no	activate_user_tail_identity
+ox5000-0c69381b3616424379da	predator	noun	C1	хижак		no	activate_user_tail_identity
+ox5000-2dca3be5c1eb81910a5e	predecessor	noun	C1	попередник		no	activate_user_tail_identity
+ox5000-0075e875d49c550e0129	predictable	adjective	B2	передбачуваний		no	activate_user_tail_identity
+ox5000-8ab5d933d24fc645f982	predominantly	adverb	C1	переважно		no	activate_user_tail_identity
+ox5000-f3c417c667c17aef688f	preference	noun	B2	перевага; уподобання		no	activate_user_tail_identity
+ox5000-1d0e11bac57e7f23988b	pregnancy	noun	C1	вагітність		no	activate_user_tail_identity
+ox5000-8ac0c5af2413dbb6d70d	prejudice	noun	C1	упередження		no	activate_user_tail_identity
+ox5000-3db493fbc047bbb130b0	preliminary	adjective	C1	попередній		no	activate_user_tail_identity
+ox5000-0d4c9a47753a14c4905c	premier	adjective	C1	головний; провідний		no	activate_user_tail_identity
+ox5000-16a18c346465b0809338	premise	noun	C1	передумова		no	activate_user_tail_identity
+ox5000-dd232a1e434e044d510f	premium	noun	C1	премія; надбавка		no	activate_user_tail_identity
+ox5000-d056bc62812b9372974f	prescribe	verb	C1	призначати		no	activate_user_tail_identity
+ox5000-348b91b4e7de9e998ca1	prescription	noun	C1	рецепт		no	activate_user_tail_identity
+ox5000-3b9665fac679b54735b9	presently	adverb	C1	наразі		no	activate_user_tail_identity
+ox5000-4a1e89ce5360f3ea74a0	preservation	noun	C1	збереження		no	activate_user_tail_identity
+ox5000-15097a8cdb577f28ab80	preside	verb	C1	головувати		no	activate_user_tail_identity
+ox5000-626708635e9ca62f55fd	presidency	noun	C1	президентство		no	activate_user_tail_identity
+ox5000-304888d5b3b34cdf8f1a	presidential	adjective	C1	президентський		no	activate_user_tail_identity
+ox5000-b149024523e283a89471	prestigious	adjective	C1	престижний		no	activate_user_tail_identity
+ox5000-abfa3a9d7dde6c0b639b	presumably	adverb	C1	ймовірно		no	activate_user_tail_identity
+ox5000-0de61af433bd2562aabd	presume	verb	C1	припускати		no	activate_user_tail_identity
+ox5000-fb17dd90d15283541768	prevail	verb	C1	переважати; перемагати		no	activate_user_tail_identity
+ox5000-720fe693d139db569134	prevalence	noun	C1	поширеність		no	activate_user_tail_identity
+ox5000-83688944d1f5d4e61640	prevention	noun	C1	запобігання		no	activate_user_tail_identity
+ox5000-770257e1113a4e67d77a	prey	noun	C1	здобич		no	activate_user_tail_identity
+ox5000-30d651fc921ad00b63ae	pride	noun	B2	гордість		no	activate_user_tail_identity
+ox5000-c89fe72ec539245bc6d4	primarily	adverb	B2	насамперед		no	activate_user_tail_identity
+ox5000-451ecb3cefa2fed9058c	principal	adjective	B2	головний	головний	yes	replace_v7_with_user_value
+ox5000-ad4ef8e9f1d30f7387b6	principal	noun	C1	директор; керівник		no	activate_user_tail_identity
+ox5000-68462507f2904d5c48d2	prior	adjective	B2	попередній		no	activate_user_tail_identity
+ox5000-735d2fc0c5365227caa0	privatization	noun	C1	приватизація		no	activate_user_tail_identity
+ox5000-206be67da166f791b624	privilege	noun	C1	привілей		no	activate_user_tail_identity
+ox5000-3f480e4f3cad8f3e7633	probability	noun	B2	ймовірність		no	activate_user_tail_identity
+ox5000-61a7b9ce4472358ebc62	probable	adjective	B2	ймовірний		no	activate_user_tail_identity
+ox5000-28bb6a0bf28e3e32fc63	probe	noun	C1	зонд; розслідування		no	activate_user_tail_identity
+ox5000-4aeb7f96a546ae5c38dc	probe	verb	C1	досліджувати		no	activate_user_tail_identity
+ox5000-48325aefe1723d71cdea	problematic	adjective	C1	проблемний		no	activate_user_tail_identity
+ox5000-e849cd2876d9a4e77753	proceed	verb	B2	продовжувати		no	activate_user_tail_identity
+ox5000-ebeab91aea8d3bf23114	proceeding	noun	C1	провадження		no	activate_user_tail_identity
+ox5000-90f8226b2495c8b502e3	proceeds	noun	C1	виручка; доходи		no	activate_user_tail_identity
+ox5000-df0312b92094c5740bdb	processing	noun	C1	обробка		no	activate_user_tail_identity
+ox5000-1f2f56a3e0a76bb3e5e5	processor	noun	C1	процесор		no	activate_user_tail_identity
+ox5000-6fa116eb25ddd97065e1	proclaim	verb	C1	проголошувати		no	activate_user_tail_identity
+ox5000-0a3631a760b0c96b1aff	productive	adjective	C1	продуктивний		no	activate_user_tail_identity
+ox5000-8ae55da584a524fb2e44	productivity	noun	C1	продуктивність		no	activate_user_tail_identity
+ox5000-41fbf08475112e172260	profitable	adjective	C1	прибутковий		no	activate_user_tail_identity
+ox5000-9bfc0299d5cbf77457ab	profound	adjective	C1	глибокий		no	activate_user_tail_identity
+ox5000-e7a611cfa41abec93a0e	programming	noun	B2	програмування		no	activate_user_tail_identity
+ox5000-a966e7e88a6fd2370e2e	progressive	adjective	B2	прогресивний		no	activate_user_tail_identity
+ox5000-87f79a47a3d406def88a	prohibit	verb	B2	забороняти		no	activate_user_tail_identity
+ox5000-e20bbb038fe79f4c477d	projection	noun	C1	прогноз; проєкція		no	activate_user_tail_identity
+ox5000-b1d82ddeb70360d85d9e	prominent	adjective	C1	видатний; помітний		no	activate_user_tail_identity
+ox5000-55777456e6ec76d23cd7	promising	adjective	B2	перспективний		no	activate_user_tail_identity
+ox5000-05e4562c21dd147b7fd0	promotion	noun	B2	просування; підвищення		no	activate_user_tail_identity
+ox5000-a0d10e0fce2fb8012e7e	prompt	verb	B2	спонукати		no	activate_user_tail_identity
+ox5000-ce708c928b594b9a6027	pronounced	adjective	C1	виражений		no	activate_user_tail_identity
+ox5000-3639a66436d614547a4f	propaganda	noun	C1	пропаганда		no	activate_user_tail_identity
+ox5000-c4827f2829cded7522d5	proportion	noun	B2	частка; пропорція		no	activate_user_tail_identity
+ox5000-58465406ddb00a4ab660	proposition	noun	C1	пропозиція; твердження		no	activate_user_tail_identity
+ox5000-4bb8d65260da2fa814ee	prosecute	verb	C1	переслідувати за законом		no	activate_user_tail_identity
+ox5000-472252ddcc7788ceb848	prosecution	noun	C1	обвинувачення; судове переслідування		no	activate_user_tail_identity
+ox5000-35ba008bb2f4727a7054	prosecutor	noun	C1	прокурор		no	activate_user_tail_identity
+ox5000-f04358c550167dff6b4c	prospective	adjective	C1	майбутній; потенційний		no	activate_user_tail_identity
+ox5000-d0b371017109d0ab1235	prosperity	noun	C1	добробут		no	activate_user_tail_identity
+ox5000-c68475adc97d62708bf1	protective	adjective	C1	захисний		no	activate_user_tail_identity
+ox5000-da65dfcb87abf26fbe6b	protein	noun	B2	білок		no	activate_user_tail_identity
+ox5000-2af3bad78661603d5f3d	protester	noun	B2	протестувальник		no	activate_user_tail_identity
+ox5000-623f07f44898502aec44	protocol	noun	C1	протокол		no	activate_user_tail_identity
+ox5000-094f273ac00a981be8ef	province	noun	C1	провінція	область	yes	replace_v7_with_user_value
+ox5000-b0176df6d31bd546cb4f	provincial	adjective	C1	провінційний		no	activate_user_tail_identity
+ox5000-37f9eeeb75524cee3ab6	provision	noun	C1	положення; забезпечення		no	activate_user_tail_identity
+ox5000-d4c9465438f4799972e7	provoke	verb	C1	провокувати		no	activate_user_tail_identity
+ox5000-e72aef296449310d3771	psychiatric	adjective	C1	психіатричний		no	activate_user_tail_identity
+ox5000-c1385d112ea2efa50773	psychological	adjective	B2	психологічний		no	activate_user_tail_identity
+ox5000-03aa5af70263c59cb020	publicity	noun	B2	публічність; реклама		no	activate_user_tail_identity
+ox5000-1a3a79b493580cdcfd44	publishing	noun	B2	видавнича справа		no	activate_user_tail_identity
+ox5000-3631f2773b187680d3a9	pulse	noun	C1	пульс		no	activate_user_tail_identity
+ox5000-5fef76f716acb428b470	pump	noun	C1	насос		no	activate_user_tail_identity
+ox5000-496b6fa809f3e321f985	pump	verb	C1	качати; перекачувати		no	activate_user_tail_identity
+ox5000-5e11e486d4f68608018c	punch	noun	C1	удар кулаком		no	activate_user_tail_identity
+ox5000-8f1c8ff0d448af6b1b00	punch	verb	C1	бити кулаком		no	activate_user_tail_identity
+ox5000-32da952952c71765a893	punk	noun	B2	панк		no	activate_user_tail_identity
+ox5000-161377f3aa55e4869856	purely	adverb	B2	суто		no	activate_user_tail_identity
+ox5000-0fbbc2a505e3fca073f1	pursuit	noun	B2	переслідування; прагнення		no	activate_user_tail_identity
+ox5000-16b6e35306f2d3819ba9	puzzle	noun	B2	головоломка		no	activate_user_tail_identity
+ox5000-fef76f9ad1ae3b385d52	query	noun	C1	запит		no	activate_user_tail_identity
+ox5000-f8f10d86fe3b2b70cd7b	quest	noun	C1	пошук		no	activate_user_tail_identity
+ox5000-bd79fce62a6106e6ae81	questionnaire	noun	B2	анкета		no	activate_user_tail_identity
+ox5000-09c9b402a9dd868c0c4f	quota	noun	C1	квота		no	activate_user_tail_identity
+ox5000-3c42cbde1b0db6056f57	racial	adjective	B2	расовий		no	activate_user_tail_identity
+ox5000-ae90908d4616264014c6	racism	noun	B2	расизм		no	activate_user_tail_identity
+ox5000-183ec8d2749196d55d07	racist	adjective	B2	расистський		no	activate_user_tail_identity
+ox5000-3b6e26cd4bcc3291f712	racist	noun	B2	расист		no	activate_user_tail_identity
+ox5000-638f021918f23d527d49	radar	noun	C1	радар		no	activate_user_tail_identity
+ox5000-6ce48c0a27b361c09fb2	radiation	noun	B2	радіація		no	activate_user_tail_identity
+ox5000-d5aeb06b1d88e01c047f	radical	adjective	C1	радикальний		no	activate_user_tail_identity
+ox5000-bb993f48a066dd5c990a	rage	noun	C1	лють		no	activate_user_tail_identity
+ox5000-deb86df67a8ab2ba1e09	raid	noun	C1	рейд; наліт		no	activate_user_tail_identity
+ox5000-4d67d866c647b72f7c3c	raid	verb	C1	здійснювати рейд; нападати		no	activate_user_tail_identity
+ox5000-1ef92015b92c1e37fb27	rail	noun	B2	рейка		no	activate_user_tail_identity
+ox5000-cfb300586a991fa0eabe	rally	noun	C1	мітинг; ралі		no	activate_user_tail_identity
+ox5000-7da870e0b860693f3ac5	rally	verb	C1	згуртовуватися		no	activate_user_tail_identity
+ox5000-295bea1c47af665a1dba	random	adjective	B2	випадковий		no	activate_user_tail_identity
+ox5000-5a6744b97184b4a0cb6a	ranking	noun	C1	рейтинг		no	activate_user_tail_identity
+ox5000-163c1aaea653b97b76ad	rape	noun	C1	зґвалтування		no	activate_user_tail_identity
+ox5000-44e91337ba5dff9097c9	rape	verb	C1	ґвалтувати		no	activate_user_tail_identity
+ox5000-fe7ba1256d19f8c2e57f	rat	noun	B2	щур		no	activate_user_tail_identity
+ox5000-a926d9b4d561f0479900	rating	noun	B2	рейтинг; оцінка		no	activate_user_tail_identity
+ox5000-f01536bcc125902c07c7	ratio	noun	C1	співвідношення		no	activate_user_tail_identity
+ox5000-4b5e8fe7429e7586b3b3	rational	adjective	C1	раціональний		no	activate_user_tail_identity
+ox5000-406daaee7c9e0713271e	ray	noun	C1	промінь		no	activate_user_tail_identity
+ox5000-93c2c995db4f9c123eaa	readily	adverb	C1	охоче; легко		no	activate_user_tail_identity
+ox5000-e3d550f6c3247fc800d6	realization	noun	C1	усвідомлення		no	activate_user_tail_identity
+ox5000-f6e06778ccf9167c70f9	realm	noun	C1	сфера; царство		no	activate_user_tail_identity
+ox5000-82db79a2e4cd3cde65f1	rear	adjective	C1	задній		no	activate_user_tail_identity
+ox5000-69b2f9590153df6988ce	rear	noun	C1	задня частина		no	activate_user_tail_identity
+ox5000-9297029e6028ab551ec4	reasonably	adverb	B2	розумно; досить		no	activate_user_tail_identity
+ox5000-fbe2d3432c02ae63c10f	reasoning	noun	C1	міркування		no	activate_user_tail_identity
+ox5000-1278d12e916dee475af0	reassure	verb	C1	заспокоювати		no	activate_user_tail_identity
+ox5000-2f6ac118ca4cecab6315	rebel	noun	C1	повстанець		no	activate_user_tail_identity
+ox5000-733394b847c11155a769	rebellion	noun	C1	повстання		no	activate_user_tail_identity
+ox5000-b511afcdef6aaf02980d	rebuild	verb	B2	відбудовувати		no	activate_user_tail_identity
+ox5000-82e5e823e0220b1f8d8d	receiver	noun	B2	приймач; одержувач		no	activate_user_tail_identity
+ox5000-58cf60dcbb0b202c2d54	recession	noun	B2	рецесія		no	activate_user_tail_identity
+ox5000-509759e82384ed740f3c	recipient	noun	C1	одержувач		no	activate_user_tail_identity
+ox5000-378f3b22f72b712307df	reckon	verb	B2	вважати		no	activate_user_tail_identity
+ox5000-6e280ae2dd1681720f95	recognition	noun	B2	визнання		no	activate_user_tail_identity
+ox5000-ddae4d5e51503e1a8ffd	reconstruction	noun	C1	реконструкція		no	activate_user_tail_identity
+ox5000-948b85bbe7732bc16534	recount	verb	C1	переказувати		no	activate_user_tail_identity
+ox5000-8f636332013cc3a777c9	recovery	noun	B2	відновлення		no	activate_user_tail_identity
+ox5000-2fed7b0a384991dc97d4	recruit	noun	B2	новобранець		no	activate_user_tail_identity
+ox5000-585e02d27fde1a6416d9	recruit	verb	B2	набирати		no	activate_user_tail_identity
+ox5000-07b39c7d2b02aa9f8e69	recruitment	noun	B2	набір; рекрутинг		no	activate_user_tail_identity
+ox5000-9d471a0aecbe7bc0ce6c	referee	noun	B2	суддя		no	activate_user_tail_identity
+ox5000-cb92c41178d16df358d5	referendum	noun	C1	референдум		no	activate_user_tail_identity
+ox5000-bd41821d02479eb199aa	reflection	noun	C1	відображення; роздуми		no	activate_user_tail_identity
+ox5000-1d95ed508bd14265061f	reform	noun	C1	реформа		no	activate_user_tail_identity
+ox5000-be774d750b11aad42701	reform	verb	C1	реформувати		no	activate_user_tail_identity
+ox5000-57fa865cd40bc14f9f2e	refuge	noun	C1	притулок		no	activate_user_tail_identity
+ox5000-1f874af05695c3e7245e	refugee	noun	B2	біженець		no	activate_user_tail_identity
+ox5000-d7e008335aeb580b9f87	refusal	noun	C1	відмова		no	activate_user_tail_identity
+ox5000-dbd50724500be7d1c07d	regain	verb	C1	повернути; відновити		no	activate_user_tail_identity
+ox5000-483abc4f09223bd18c48	regardless	adverb	C1	незалежно		no	activate_user_tail_identity
+ox5000-770cb1cb41ee7278607c	regime	noun	C1	режим		no	activate_user_tail_identity
+ox5000-b7ec0bd40a2fc11dfaa3	registration	noun	B2	реєстрація		no	activate_user_tail_identity
+ox5000-5d112ff6a8457bb4ac57	regulate	verb	B2	регулювати		no	activate_user_tail_identity
+ox5000-3f70ec0b50c6082d68cd	regulator	noun	C1	регулятор		no	activate_user_tail_identity
+ox5000-89fc68aa89e0ce017d46	regulatory	adjective	C1	регуляторний		no	activate_user_tail_identity
+ox5000-ddf683838d0c717cdaa6	rehabilitation	noun	C1	реабілітація		no	activate_user_tail_identity
+ox5000-c75dbfcf2cdc43a6bffd	reign	noun	C1	правління		no	activate_user_tail_identity
+ox5000-7d47951ec14eb266e85b	reign	verb	C1	правити		no	activate_user_tail_identity
+ox5000-cc2967651d71a7068ca8	reinforce	verb	B2	посилювати		no	activate_user_tail_identity
+ox5000-cb8f971d89616d8fc057	rejection	noun	C1	відмова; відхилення		no	activate_user_tail_identity
+ox5000-647655f1ee5e1d3ecef4	relevance	noun	C1	актуальність; доречність		no	activate_user_tail_identity
+ox5000-f803ff8677e60cca35f4	reliability	noun	C1	надійність		no	activate_user_tail_identity
+ox5000-302058e7a3d7857fa595	relieve	verb	B2	полегшувати		no	activate_user_tail_identity
+ox5000-b992f758262a990feb46	relieved	adjective	B2	полегшений		no	activate_user_tail_identity
+ox5000-30e4fdf929282bee2e41	reluctant	adjective	C1	неохочий		no	activate_user_tail_identity
+ox5000-ad3d9b9fbe9bfc9922d4	remainder	noun	C1	залишок		no	activate_user_tail_identity
+ox5000-eaf9c9c29dc9134fdc06	remains	noun	C1	рештки		no	activate_user_tail_identity
+ox5000-c5cf348853a28d5a4697	remarkable	adjective	B2	визначний		no	activate_user_tail_identity
+ox5000-7d9c7f501d331eeb13b1	remarkably	adverb	B2	надзвичайно; помітно		no	activate_user_tail_identity
+ox5000-7a422dddafa973b3ef5b	remedy	noun	C1	засіб; ліки		no	activate_user_tail_identity
+ox5000-2d10dd4cc44f2dc69524	reminder	noun	C1	нагадування		no	activate_user_tail_identity
+ox5000-b3b931657b2f20d42654	removal	noun	C1	видалення; усунення		no	activate_user_tail_identity
+ox5000-72494ae94d9b371b61d7	render	verb	C1	робити; надавати		no	activate_user_tail_identity
+ox5000-eb3cacd1e12c5acc5328	renew	verb	C1	поновлювати		no	activate_user_tail_identity
+ox5000-de598a185376641994a0	renowned	adjective	C1	відомий		no	activate_user_tail_identity
+ox5000-c38154f0b0dc7bc68cca	rental	noun	C1	оренда		no	activate_user_tail_identity
+ox5000-51727a0baf0fdc68ff9c	replacement	noun	C1	заміна		no	activate_user_tail_identity
+ox5000-807618fb1ab06afab56f	reportedly	adverb	C1	за повідомленнями		no	activate_user_tail_identity
+ox5000-d551fb505cb60befe61d	reporting	noun	B2	звітність; репортаж		no	activate_user_tail_identity
+ox5000-26aafd547d2b978fab33	representation	noun	C1	представництво; зображення		no	activate_user_tail_identity
+ox5000-c3bb081811e8ea86c41e	reproduce	verb	C1	відтворювати		no	activate_user_tail_identity
+ox5000-6cefb270b02e3e99fea6	reproduction	noun	C1	відтворення		no	activate_user_tail_identity
+ox5000-471ca43ce42bd1eee79a	republic	noun	C1	республіка		no	activate_user_tail_identity
+ox5000-e479fa4b3f34648974c8	resemble	verb	C1	бути схожим		no	activate_user_tail_identity
+ox5000-3e450a4dbd3782654ccb	reside	verb	C1	проживати		no	activate_user_tail_identity
+ox5000-dc3467fb5f0849fdcdc4	residence	noun	C1	місце проживання		no	activate_user_tail_identity
+ox5000-512b88682f546a2c0938	residential	adjective	C1	житловий		no	activate_user_tail_identity
+ox5000-68db8de8e4fc890ab09c	residue	noun	C1	залишок		no	activate_user_tail_identity
+ox5000-20a1f65811686513d9f4	resign	verb	B2	звільнятися		no	activate_user_tail_identity
+ox5000-ec47378a07e16683b704	resignation	noun	C1	відставка		no	activate_user_tail_identity
+ox5000-1ab91c8bb657fca97c46	resistance	noun	C1	опір		no	activate_user_tail_identity
+ox5000-41515350cf5b0dac18c0	resolution	noun	B2	рішення; резолюція		no	activate_user_tail_identity
+ox5000-0025be25ef16855099a4	respective	adjective	C1	відповідний		no	activate_user_tail_identity
+ox5000-9728d53a61a5aee10a0f	respectively	adverb	C1	відповідно		no	activate_user_tail_identity
+ox5000-50e11205519ecec5b407	restoration	noun	C1	відновлення		no	activate_user_tail_identity
+ox5000-5d20149d99ee9637e163	restore	verb	B2	відновлювати		no	activate_user_tail_identity
+ox5000-0670fb24df06e519b69b	restraint	noun	C1	стриманість; обмеження		no	activate_user_tail_identity
+ox5000-91db5baf228ad1faa80b	restrict	verb	B2	обмежувати		no	activate_user_tail_identity
+ox5000-dfcb6fb371da1f235512	restriction	noun	B2	обмеження		no	activate_user_tail_identity
+ox5000-889a381eef3e62e7724c	resume	verb	C1	відновлювати; продовжувати		no	activate_user_tail_identity
+ox5000-4624f0a076289b652979	retail	noun	B2	роздрібна торгівля		no	activate_user_tail_identity
+ox5000-696955c5f883270a9d0c	retirement	noun	B2	вихід на пенсію		no	activate_user_tail_identity
+ox5000-3e9d83fd1c7fb3445500	retreat	noun	C1	відступ		no	activate_user_tail_identity
+ox5000-8e4c7fdab2a371068a91	retreat	verb	C1	відступати		no	activate_user_tail_identity
+ox5000-1d1c7f32d3feeeaa1f7b	retrieve	verb	C1	отримувати; повертати		no	activate_user_tail_identity
+ox5000-e5c257cc77ac4a08ef80	revelation	noun	C1	одкровення; викриття		no	activate_user_tail_identity
+ox5000-403a262123ef7179b6c7	revenge	noun	C1	помста		no	activate_user_tail_identity
+ox5000-a3bdd3de0b78cccadf30	revenue	noun	B2	дохід		no	activate_user_tail_identity
+ox5000-d9e41e62104e2e2c56ee	reverse	adjective	C1	зворотний		no	activate_user_tail_identity
+ox5000-5c13445451c35b3fdf6e	reverse	noun	C1	зворотний бік		no	activate_user_tail_identity
+ox5000-09672226d1b64a0b6aa3	reverse	verb	C1	скасовувати; розвертати		no	activate_user_tail_identity
+ox5000-2c5234bac76339e1dcfd	revision	noun	B2	перегляд; редакція		no	activate_user_tail_identity
+ox5000-5b2ae027f51366bee7c7	revival	noun	C1	відродження		no	activate_user_tail_identity
+ox5000-9bd54337e6ebc0e55b60	revive	verb	C1	відроджувати		no	activate_user_tail_identity
+ox5000-aaf930aa90cdde500437	revolutionary	adjective	C1	революційний		no	activate_user_tail_identity
+ox5000-254ebaaf358609011d07	rhetoric	noun	C1	риторика		no	activate_user_tail_identity
+ox5000-973224264c14dee0ed22	ridiculous	adjective	B2	безглуздий		no	activate_user_tail_identity
+ox5000-40b2c9b77830c900da18	rifle	noun	C1	гвинтівка		no	activate_user_tail_identity
+ox5000-43dead8e818487401b8c	riot	noun	C1	заворушення		no	activate_user_tail_identity
+ox5000-cea8cee4e720619285f1	rip	verb	C1	рвати		no	activate_user_tail_identity
+ox5000-0a7089aeca671246d9d4	risky	adjective	B2	ризикований		no	activate_user_tail_identity
+ox5000-623d5a0eb34670f915a1	ritual	noun	C1	ритуал		no	activate_user_tail_identity
+ox5000-0c88c4e63156b3a83e3b	rival	adjective	B2	конкуруючий		no	activate_user_tail_identity
+ox5000-dac23ee9598106867c47	rival	noun	B2	суперник		no	activate_user_tail_identity
+ox5000-500fd17c9e36773f7ba3	rob	verb	B2	грабувати		no	activate_user_tail_identity
+ox5000-c9990220c195a3899e7d	robbery	noun	B2	пограбування		no	activate_user_tail_identity
+ox5000-f11435c18693f1833847	robust	adjective	C1	міцний; надійний		no	activate_user_tail_identity
+ox5000-d4fc02188ccee21bdd73	rock	verb	C1	хитати		no	activate_user_tail_identity
+ox5000-b7960accb9da1a3abf6f	rocket	noun	B2	ракета		no	activate_user_tail_identity
+ox5000-385bd6859d1f5cd67083	rod	noun	C1	стрижень		no	activate_user_tail_identity
+ox5000-c23aaa4d8bcbe8a32faf	romance	noun	B2	романтика; роман		no	activate_user_tail_identity
+ox5000-1208715b598e0fba7b74	rose	noun	B2	троянда		no	activate_user_tail_identity
+ox5000-abc7d4c542db8e757daf	rotate	verb	C1	обертати		no	activate_user_tail_identity
+ox5000-2b30e3f36e7293f6ded9	rotation	noun	C1	обертання		no	activate_user_tail_identity
+ox5000-2843cad9aa08f31a5848	roughly	adverb	B2	приблизно		no	activate_user_tail_identity
+ox5000-c6d01d673c9b956fb8b7	ruin	noun	B2	руїна		no	activate_user_tail_identity
+ox5000-5df5cb77ae1681072483	ruin	verb	B2	руйнувати		no	activate_user_tail_identity
+ox5000-864bba3e87bfdad57702	ruling	noun	C1	рішення; постанова		no	activate_user_tail_identity
+ox5000-4236cda79c17e2e2fd1c	rumour	noun	C1	чутка		no	activate_user_tail_identity
+ox5000-8d27293d75e4127e70d3	sack	verb	C1	звільняти		no	activate_user_tail_identity
+ox5000-4aa0b479680b11e1787d	sacred	adjective	C1	священний		no	activate_user_tail_identity
+ox5000-db446976af899b0bf839	sacrifice	noun	C1	жертва		no	activate_user_tail_identity
+ox5000-bb788d95f9d070364e6e	sacrifice	verb	C1	жертвувати		no	activate_user_tail_identity
+ox5000-d497fd9a71970e5fe295	saint	noun	C1	святий		no	activate_user_tail_identity
+ox5000-0417d4afb8b747832299	sake	noun	C1	благо; заради		no	activate_user_tail_identity
+ox5000-6ae77755b68bdc591694	sanction	noun	C1	санкція		no	activate_user_tail_identity
+ox5000-eae0572fec04502130f5	satisfaction	noun	B2	задоволення		no	activate_user_tail_identity
+ox5000-2d0378e6f60450a4e78c	say	noun	C1	слово; право голосу		no	activate_user_tail_identity
+ox5000-1b53fef53eb21569d70c	scandal	noun	B2	скандал		no	activate_user_tail_identity
+ox5000-ee7afd5b64a301aee7d6	scare	noun	B2	переляк		no	activate_user_tail_identity
+ox5000-4380114ee2ca12fbcf96	scare	verb	B2	лякати		no	activate_user_tail_identity
+ox5000-f89d240b3237a67d25cb	scattered	adjective	C1	розкиданий		no	activate_user_tail_identity
+ox5000-ec9d25a572db338403d1	scenario	noun	B2	сценарій		no	activate_user_tail_identity
+ox5000-5fdb661427fb2416a77b	sceptical	adjective	C1	скептичний		no	activate_user_tail_identity
+ox5000-8b3b2396f2c6ac0ac855	scholar	noun	B2	науковець		no	activate_user_tail_identity
+ox5000-410a4d8064f346b81160	scholarship	noun	B2	стипендія		no	activate_user_tail_identity
+ox5000-a3e2bf2714271c9afd7d	scope	noun	C1	сфера; обсяг		no	activate_user_tail_identity
+ox5000-f8891ee0328da0b3b79a	scratch	noun	B2	подряпина		no	activate_user_tail_identity
+ox5000-f2e0ce9a5923766253d1	scratch	verb	B2	дряпати		no	activate_user_tail_identity
+ox5000-5f1633f73def75e46766	screening	noun	B2	перевірка; показ		no	activate_user_tail_identity
+ox5000-0f5815bb4f9655175d9a	screw	noun	C1	гвинт		no	activate_user_tail_identity
+ox5000-31812c64a559ba0e6be3	screw	verb	C1	закручувати		no	activate_user_tail_identity
+ox5000-e4ee69dd73a8bb73a78a	scrutiny	noun	C1	ретельна перевірка		no	activate_user_tail_identity
+ox5000-6716c67c225124fb95ac	seal	noun	C1	печатка; тюлень		no	activate_user_tail_identity
+ox5000-db3ceafda1454861cd55	seal	verb	C1	запечатувати		no	activate_user_tail_identity
+ox5000-c01c6baa129f1167a903	secular	adjective	C1	світський		no	activate_user_tail_identity
+ox5000-f135a53ed4965a23fbbc	seeker	noun	B2	шукач		no	activate_user_tail_identity
+ox5000-477a1ec3087bffb2fc14	seemingly	adverb	C1	здавалося б		no	activate_user_tail_identity
+ox5000-8e7233a18eabccdd3370	segment	noun	C1	сегмент		no	activate_user_tail_identity
+ox5000-75eee68ef68baad02a6c	seize	verb	C1	захоплювати		no	activate_user_tail_identity
+ox5000-1731efc4f3191f6cc39e	seldom	adverb	C1	рідко		no	activate_user_tail_identity
+ox5000-c358f1aaee6dd2091d18	selective	adjective	C1	вибірковий		no	activate_user_tail_identity
+ox5000-4c5a68658e17364aec5c	seminar	noun	B2	семінар		no	activate_user_tail_identity
+ox5000-812cde90deabfbe68d6a	senator	noun	C1	сенатор		no	activate_user_tail_identity
+ox5000-92197d1d4bc1b8336e03	sensation	noun	C1	відчуття		no	activate_user_tail_identity
+ox5000-a2d2a0cadcd41338c011	sensitivity	noun	C1	чутливість		no	activate_user_tail_identity
+ox5000-a65a55e1b5d084563b73	sentiment	noun	C1	почуття; настрій		no	activate_user_tail_identity
+ox5000-7f715330b02df62ded5a	separation	noun	C1	розділення		no	activate_user_tail_identity
+ox5000-346897b419b5e99d5b6d	serial	adjective	C1	серійний		no	activate_user_tail_identity
+ox5000-ec0ef04aa89a267d0603	set-up	noun	C1	налаштування; організація		no	activate_user_tail_identity
+ox5000-38120b4981e352fc7d63	settlement	noun	C1	поселення; врегулювання		no	activate_user_tail_identity
+ox5000-dcf65fb66f09637a6013	settler	noun	B2	поселенець		no	activate_user_tail_identity
+ox5000-9ceb6f48ee4ce0fbc1a9	severely	adverb	B2	серйозно; суворо		no	activate_user_tail_identity
+ox5000-db08192bd577be065a58	sexuality	noun	C1	сексуальність		no	activate_user_tail_identity
+ox5000-d673e76e39b7545cd641	sexy	adjective	B2	сексуальний		no	activate_user_tail_identity
+ox5000-0a860de45afe655f17cd	shaped	adjective	B2	формований; у формі		no	activate_user_tail_identity
+ox5000-351ced5f86497f5f4a9e	shareholder	noun	C1	акціонер	акціонер	yes	replace_v7_with_user_value
+ox5000-964d8fd1fcb5f146fdc6	shatter	verb	C1	розбивати		no	activate_user_tail_identity
+ox5000-a8750364b0bf00f55b71	shed	verb	C1	скидати; проливати		no	activate_user_tail_identity
+ox5000-00f794702182a285364c	sheer	adjective	C1	суцільний; чистий		no	activate_user_tail_identity
+ox5000-c182c4aaf92aa43b7d78	shipping	noun	C1	доставка; судноплавство		no	activate_user_tail_identity
+ox5000-7190c72389b69360fcb4	shocking	adjective	B2	шокуючий		no	activate_user_tail_identity
+ox5000-f14cfdecffdef8e98007	shoot	noun	C1	зйомка; пагін		no	activate_user_tail_identity
+ox5000-228daf6af9cabc126097	shore	noun	B2	берег		no	activate_user_tail_identity
+ox5000-3108d7347a7e81705a85	short-term	adjective	B2	короткостроковий		no	activate_user_tail_identity
+ox5000-1a031da6eac7d925338b	shortage	noun	B2	нестача		no	activate_user_tail_identity
+ox5000-6cda0681410675b159d9	shortly	adverb	B2	незабаром		no	activate_user_tail_identity
+ox5000-d64e66d05e0c72293139	shrink	verb	C1	скорочуватися		no	activate_user_tail_identity
+ox5000-e9398be87e92c4565700	shrug	verb	C1	знизувати плечима		no	activate_user_tail_identity
+ox5000-3560fef85dd1fc6debc0	sibling	noun	B2	брат або сестра		no	activate_user_tail_identity
+ox5000-b0fded582d3311d3af45	sigh	noun	C1	зітхання		no	activate_user_tail_identity
+ox5000-0d870e0fda6ba6d93f94	sigh	verb	C1	зітхати		no	activate_user_tail_identity
+ox5000-c18d434123fca63aa7f7	signature	noun	B2	підпис		no	activate_user_tail_identity
+ox5000-4993892b52f0aadb8436	significance	noun	B2	значення; важливість		no	activate_user_tail_identity
+ox5000-ebeeff851e05dff3f17c	simulate	verb	C1	моделювати		no	activate_user_tail_identity
+ox5000-63848ba81689d33f92ac	simulation	noun	C1	моделювання		no	activate_user_tail_identity
+ox5000-10facdce071582e626d6	simultaneously	adverb	C1	одночасно		no	activate_user_tail_identity
+ox5000-79062f39d67197eaae65	sin	noun	C1	гріх		no	activate_user_tail_identity
+ox5000-55316c416a7c5af7e278	situated	adjective	C1	розташований		no	activate_user_tail_identity
+ox5000-2861f57961b0b110b904	sketch	noun	C1	ескіз		no	activate_user_tail_identity
+ox5000-067976a3fc213d3e15bc	skilled	adjective	B2	кваліфікований		no	activate_user_tail_identity
+ox5000-6b53840672b325aa032d	skip	verb	C1	пропускати		no	activate_user_tail_identity
+ox5000-1286d019f6a2e99874dc	skull	noun	B2	череп		no	activate_user_tail_identity
+ox5000-5cfb8a0fa422d38e65ee	slam	verb	C1	грюкати		no	activate_user_tail_identity
+ox5000-3b3a7ce403b20d8fc4af	slap	verb	C1	ляпасувати		no	activate_user_tail_identity
+ox5000-fbee093b230e25594ad6	slash	verb	C1	різати; скорочувати		no	activate_user_tail_identity
+ox5000-70e90712fcd58b7b0a34	slavery	noun	C1	рабство		no	activate_user_tail_identity
+ox5000-2a995e3c360aad349aa0	slogan	noun	B2	гасло		no	activate_user_tail_identity
+ox5000-09549192d95b46653d2b	slot	noun	C1	слот; місце		no	activate_user_tail_identity
+ox5000-45ce43966d81aa1e49c2	smash	verb	C1	розбивати		no	activate_user_tail_identity
+ox5000-fd37b4b2ae6240ee9ec1	snap	verb	C1	ламатися; клацати		no	activate_user_tail_identity
+ox5000-13f2331bae5d898ae95a	so-called	adjective	B2	так званий		no	activate_user_tail_identity
+ox5000-20919655f6e7d5062f90	soak	verb	C1	замочувати		no	activate_user_tail_identity
+ox5000-64a492fdbd43b68e3427	soar	verb	C1	злітати; стрімко зростати		no	activate_user_tail_identity
+ox5000-81811128ebe7ad5e2425	socialist	adjective	C1	соціалістичний		no	activate_user_tail_identity
+ox5000-5731592e4ea7dc2a7eac	sole	adjective	C1	єдиний		no	activate_user_tail_identity
+ox5000-43d3a9fa9183ee7d1ea2	solely	adverb	C1	виключно		no	activate_user_tail_identity
+ox5000-c4f3415deb86368145e7	solicitor	noun	C1	адвокат		no	activate_user_tail_identity
+ox5000-0f421e0338a534c5fdbe	solidarity	noun	C1	солідарність		no	activate_user_tail_identity
+ox5000-504941675ad8a7232c26	solo	adjective	C1	сольний		no	activate_user_tail_identity
+ox5000-bbb1638496bf283345b8	solo	noun	C1	соло		no	activate_user_tail_identity
+ox5000-f6ede09439d26c81a2e3	somehow	adverb	B2	якось		no	activate_user_tail_identity
+ox5000-293d1b73e1a52bb7a6b4	sometime	adverb	B2	колись		no	activate_user_tail_identity
+ox5000-65d1fc396bc0804805a1	sophisticated	adjective	B2	складний; витончений		no	activate_user_tail_identity
+ox5000-a6dcbf692802d9819c27	sound	adjective	C1	надійний; обґрунтований		no	activate_user_tail_identity
+ox5000-5bab904f7b7385f0726a	sovereignty	noun	C1	суверенітет		no	activate_user_tail_identity
+ox5000-94f0e84773d2caa9c3e4	spam	noun	C1	спам		no	activate_user_tail_identity
+ox5000-8fd493c6b8c66d55716d	span	noun	C1	проміжок		no	activate_user_tail_identity
+ox5000-3bab93a0f0ba68954ca0	span	verb	C1	охоплювати		no	activate_user_tail_identity
+ox5000-dc4fbe2d5fe2f3d96177	spare	adjective	B2	запасний		no	activate_user_tail_identity
+ox5000-b4691477dac3ae734168	spare	verb	C1	щадити		no	activate_user_tail_identity
+ox5000-af276684cc6b331a5780	spark	verb	C1	спричиняти; запалювати		no	activate_user_tail_identity
+ox5000-345d9d8b2f2626231f20	specialize	verb	B2	спеціалізуватися		no	activate_user_tail_identity
+ox5000-59b760aca1f541ce0d42	specialized	adjective	C1	спеціалізований		no	activate_user_tail_identity
+ox5000-0c232fac165e903627d5	specification	noun	C1	специфікація		no	activate_user_tail_identity
+ox5000-0acb45a595cce0df20be	specify	verb	B2	вказувати		no	activate_user_tail_identity
+ox5000-4ab9e24a28cd210a312d	specimen	noun	C1	зразок		no	activate_user_tail_identity
+ox5000-4caf07a464d00cf4d539	spectacle	noun	C1	видовище		no	activate_user_tail_identity
+ox5000-0b9548c40b5d9e0a2415	spectacular	adjective	B2	вражаючий		no	activate_user_tail_identity
+ox5000-50fef483f79b06b5214e	spectator	noun	B2	глядач		no	activate_user_tail_identity
+ox5000-f782db5a9e90f01155f8	spectrum	noun	C1	спектр		no	activate_user_tail_identity
+ox5000-602abdcb3ba37942bc00	speculate	verb	B2	припускати		no	activate_user_tail_identity
+ox5000-c63350e4086215a6068c	speculation	noun	B2	припущення		no	activate_user_tail_identity
+ox5000-f320d9d13d4ccd549468	spell	noun	C1	період; заклинання		no	activate_user_tail_identity
+ox5000-72a5645b1bf466d48c27	sphere	noun	C1	сфера		no	activate_user_tail_identity
+ox5000-256c8185b1dfd96e9f19	spice	noun	B2	спеція		no	activate_user_tail_identity
+ox5000-59f3b01cef3db8471f79	spill	verb	B2	проливати		no	activate_user_tail_identity
+ox5000-24a88df216defcf68a7d	spin	noun	C1	обертання		no	activate_user_tail_identity
+ox5000-0de976d449afd0d958f1	spin	verb	C1	обертати		no	activate_user_tail_identity
+ox5000-b97520fdd3dde5fb23d2	spine	noun	C1	хребет		no	activate_user_tail_identity
+ox5000-8b05c3e4886c904c7b15	spite	noun	B2	злість		no	activate_user_tail_identity
+ox5000-14d85262aab9f4e3bb18	spoil	verb	B2	псувати		no	activate_user_tail_identity
+ox5000-7ede5024152dd882302d	spokesman	noun	B2	речник		no	activate_user_tail_identity
+ox5000-771535acfeed7beab067	spokesperson	noun	B2	речник		no	activate_user_tail_identity
+ox5000-9c15615ce8548856f3f4	spokeswoman	noun	B2	речниця		no	activate_user_tail_identity
+ox5000-b2661fb6e14062c3248f	sponsorship	noun	B2	спонсорство		no	activate_user_tail_identity
+ox5000-9071c6c768dd47a699e1	sporting	adjective	B2	спортивний		no	activate_user_tail_identity
+ox5000-7ec49338a4a6d9c02a0f	spotlight	noun	C1	прожектор; увага		no	activate_user_tail_identity
+ox5000-74d7b573de8710a0722e	spouse	noun	C1	чоловік або дружина		no	activate_user_tail_identity
+ox5000-0aa63cde40e1bdba7606	spy	noun	C1	шпигун		no	activate_user_tail_identity
+ox5000-c2a6686ec496e6cb62f6	spy	verb	C1	шпигувати		no	activate_user_tail_identity
+ox5000-71db30d2a889c264257c	squad	noun	C1	загін		no	activate_user_tail_identity
+ox5000-626b716b54d1acca747d	squeeze	verb	C1	стискати		no	activate_user_tail_identity
+ox5000-e6f44a958562bf7abf7c	stab	verb	C1	колоти		no	activate_user_tail_identity
+ox5000-442407d81c34948f3e01	stability	noun	C1	стабільність		no	activate_user_tail_identity
+ox5000-fd492cc26eb07b2e4fa9	stabilize	verb	C1	стабілізувати		no	activate_user_tail_identity
+ox5000-1f971ffc38a84dfdc9eb	stake	noun	C1	ставка; частка		no	activate_user_tail_identity
+ox5000-8eaceadbb1ee581b62f9	stall	noun	B2	кіоск; стійло		no	activate_user_tail_identity
+ox5000-7a3a677b37b7297ea39e	stance	noun	B2	позиція		no	activate_user_tail_identity
+ox5000-980507a355dc07024a5e	standing	adjective	C1	постійний; чинний		no	activate_user_tail_identity
+ox5000-4a62354eea2aa0c1fe7e	stark	adjective	C1	різкий; суворий		no	activate_user_tail_identity
+ox5000-cdc26e4c72368b040b24	starve	verb	B2	голодувати		no	activate_user_tail_identity
+ox5000-616ed2e87cf312a1d154	statistical	adjective	C1	статистичний		no	activate_user_tail_identity
+ox5000-1d6a1167f6e0068fbfc2	steadily	adverb	B2	стабільно		no	activate_user_tail_identity
+ox5000-14abb43eba14f012e5eb	steam	noun	B2	пара		no	activate_user_tail_identity
+ox5000-f26f65eeec860e7aee0e	steer	verb	C1	керувати		no	activate_user_tail_identity
+ox5000-13c31eaba6790c6b13a1	stem	noun	C1	стебло		no	activate_user_tail_identity
+ox5000-953f191b3f02189d014a	stem	verb	C1	стримувати		no	activate_user_tail_identity
+ox5000-e38d745fe829cedf1374	stereotype	noun	C1	стереотип		no	activate_user_tail_identity
+ox5000-3f1e3d183d1cbfa4b4c6	stimulate	verb	B2	стимулювати		no	activate_user_tail_identity
+ox5000-9ac8563a536ea0c05871	stimulus	noun	C1	стимул		no	activate_user_tail_identity
+ox5000-89ee912889a76e3be149	stir	verb	C1	помішувати		no	activate_user_tail_identity
+ox5000-5a639bd32b6fa05828e2	storage	noun	C1	зберігання		no	activate_user_tail_identity
+ox5000-f6b29aa22c04b745a26a	straightforward	adjective	C1	простий; зрозумілий		no	activate_user_tail_identity
+ox5000-9459734beb39d10c7e71	strain	noun	C1	напруження		no	activate_user_tail_identity
+ox5000-a1c00469b0bc4fe597c6	strand	noun	C1	пасмо; нитка		no	activate_user_tail_identity
+ox5000-f4d56c8c46e4d6f772c3	strategic	adjective	C1	стратегічний		no	activate_user_tail_identity
+ox5000-17714dd4e4a9a5258b0d	strengthen	verb	B2	зміцнювати		no	activate_user_tail_identity
+ox5000-5596e88919f103c35872	strictly	adverb	B2	суворо		no	activate_user_tail_identity
+ox5000-41f1166ff1765ca1a266	striking	adjective	C1	вражаючий		no	activate_user_tail_identity
+ox5000-257a7edd9932fb46a134	strip	noun	C1	смуга		no	activate_user_tail_identity
+ox5000-8fdf7c3fa1ff0749e888	strip	verb	C1	знімати; позбавляти		no	activate_user_tail_identity
+ox5000-a00df9b6f8f4eda1bb71	strive	verb	C1	прагнути		no	activate_user_tail_identity
+ox5000-daeb6d79b4d634b68b53	stroke	noun	B2	інсульт; удар		no	activate_user_tail_identity
+ox5000-49b93769290b41d3ccca	structural	adjective	C1	структурний		no	activate_user_tail_identity
+ox5000-e83d2cfb6067f7ef6f2b	stumble	verb	C1	спотикатися		no	activate_user_tail_identity
+ox5000-55ac4bfa74eaba162150	stun	verb	C1	оглушувати		no	activate_user_tail_identity
+ox5000-d26b4cc191e0d78756fd	stunning	adjective	B2	приголомшливий		no	activate_user_tail_identity
+ox5000-3d00922475004cf93a94	submission	noun	C1	подання		no	activate_user_tail_identity
+ox5000-f2e7ff182fba2f7b32ce	subscriber	noun	C1	передплатник		no	activate_user_tail_identity
+ox5000-82524e734d9ba7cdeb6d	subscription	noun	C1	передплата		no	activate_user_tail_identity
+ox5000-723f59ddea1be37debf4	subsequent	adjective	B2	наступний		no	activate_user_tail_identity
+ox5000-deeafc102a5fc0edcb7e	subsequently	adverb	B2	згодом		no	activate_user_tail_identity
+ox5000-4a4f06882bc795737f54	subsidy	noun	C1	субсидія		no	activate_user_tail_identity
+ox5000-8497fff50f2f4451b1fa	substantial	adjective	C1	суттєвий		no	activate_user_tail_identity
+ox5000-ccb0aa16d20fc2fac36c	substantially	adverb	C1	суттєво		no	activate_user_tail_identity
+ox5000-ccf6c1169dbd08cdf21d	substitute	noun	C1	заміна		no	activate_user_tail_identity
+ox5000-3c58d0022914fdbdef9d	substitute	verb	C1	замінювати		no	activate_user_tail_identity
+ox5000-0d5fda15b316d6849f9b	substitution	noun	C1	заміна		no	activate_user_tail_identity
+ox5000-e74fd3b31557c9905855	subtle	adjective	C1	тонкий; непомітний		no	activate_user_tail_identity
+ox5000-76af4dafb040a67a8415	suburb	noun	B2	передмістя		no	activate_user_tail_identity
+ox5000-bb9ca1bf424237d86e34	suburban	adjective	C1	приміський		no	activate_user_tail_identity
+ox5000-7825b41eb321cdf7f96a	succession	noun	C1	послідовність		no	activate_user_tail_identity
+ox5000-7b16ec3d91247c36cd14	successive	adjective	C1	послідовний		no	activate_user_tail_identity
+ox5000-e4c75e1c4323b1a9129c	successor	noun	C1	наступник		no	activate_user_tail_identity
+ox5000-78c91736c18630ab8264	suck	verb	C1	смоктати		no	activate_user_tail_identity
+ox5000-8f9ed5ef41a7acfc59ed	sue	verb	C1	подавати до суду		no	activate_user_tail_identity
+ox5000-f4962865b424cf13c615	suffering	noun	B2	страждання		no	activate_user_tail_identity
+ox5000-ddd9d4b54015a4746b00	sufficient	adjective	B2	достатній		no	activate_user_tail_identity
+ox5000-9c9d29e2d90c4d840d2a	sufficiently	adverb	B2	достатньо		no	activate_user_tail_identity
+ox5000-f14a9f52de234c78bc5b	suicide	noun	C1	самогубство		no	activate_user_tail_identity
+ox5000-26cdfee87f685bfe771c	suite	noun	C1	номер-люкс; набір		no	activate_user_tail_identity
+ox5000-d3218ed691f57338f79e	summit	noun	C1	саміт; вершина	верхівка	yes	replace_v7_with_user_value
+ox5000-8607021522147aedac9a	super	adjective	B2	чудовий		no	activate_user_tail_identity
+ox5000-824eec4d0d7f52aa8d7b	superb	adjective	C1	чудовий		no	activate_user_tail_identity
+ox5000-7064fdc8b7ba04f54658	superior	adjective	C1	вищий; кращий		no	activate_user_tail_identity
+ox5000-4d0da66a5d904274e542	supervise	verb	C1	наглядати		no	activate_user_tail_identity
+ox5000-fde1789bdbf890c1d0f3	supervision	noun	C1	нагляд		no	activate_user_tail_identity
+ox5000-5b59a8ab069bcaef408e	supervisor	noun	C1	керівник		no	activate_user_tail_identity
+ox5000-08b83131fe088fbcbcae	supplement	noun	C1	додаток		no	activate_user_tail_identity
+ox5000-10812603ad461c08338d	supplement	verb	C1	доповнювати		no	activate_user_tail_identity
+ox5000-f982dcdb54241885dad3	supportive	adjective	C1	підтримувальний		no	activate_user_tail_identity
+ox5000-8b486bdadff5e1388afd	supposedly	adverb	C1	нібито		no	activate_user_tail_identity
+ox5000-70bac98958c4279b6c15	suppress	verb	C1	придушувати		no	activate_user_tail_identity
+ox5000-000b17fde2cc5f0c75cf	supreme	adjective	C1	найвищий		no	activate_user_tail_identity
+ox5000-75c216147dc0dd0f318a	surge	noun	C1	сплеск; різке зростання		no	activate_user_tail_identity
+ox5000-b474e0b4944829bd2037	surge	verb	C1	різко зростати		no	activate_user_tail_identity
+ox5000-683371fe98fb2494347e	surgeon	noun	B2	хірург		no	activate_user_tail_identity
+ox5000-d19985124a31691cc7cb	surgical	adjective	C1	хірургічний		no	activate_user_tail_identity
+ox5000-d05afcb7a745bdf587c0	surplus	noun	C1	надлишок		no	activate_user_tail_identity
+ox5000-1ad5757d788c4f542a4f	surrender	verb	C1	здаватися		no	activate_user_tail_identity
+ox5000-8b89abec05a631c8437d	surveillance	noun	C1	спостереження; нагляд		no	activate_user_tail_identity
+ox5000-db20d124b37485de324e	survival	noun	B2	виживання		no	activate_user_tail_identity
+ox5000-11c346a58277eceedce7	survivor	noun	B2	той, хто вижив		no	activate_user_tail_identity
+ox5000-39b76d8929e1165dbad4	suspend	verb	B2	призупиняти		no	activate_user_tail_identity
+ox5000-90a3b2270d93e39c774d	suspension	noun	C1	призупинення; відсторонення		no	activate_user_tail_identity
+ox5000-ccac0f8d2524d168842b	suspicion	noun	C1	підозра		no	activate_user_tail_identity
+ox5000-87789fecff14f054965c	suspicious	adjective	C1	підозрілий		no	activate_user_tail_identity
+ox5000-29a86954fd91de4cdea4	sustain	verb	C1	підтримувати		no	activate_user_tail_identity
+ox5000-564c6a5ae7b34c28f825	sustainable	adjective	B2	сталий		no	activate_user_tail_identity
+ox5000-5fb1dc01382b06997232	swallow	verb	B2	ковтати		no	activate_user_tail_identity
+ox5000-e676b279f6201e401869	swing	noun	C1	гойдання; коливання		no	activate_user_tail_identity
+ox5000-0ce5eb78861b273aaf1c	swing	verb	C1	гойдатися		no	activate_user_tail_identity
+ox5000-ee3e98c4ee0c3fc8fa11	sword	noun	C1	меч	меч	yes	replace_v7_with_user_value
+ox5000-f1e0eb9752570d31badb	symbolic	adjective	C1	символічний		no	activate_user_tail_identity
+ox5000-0da3c3e4cf1530bf6b67	sympathetic	adjective	B2	співчутливий		no	activate_user_tail_identity
+ox5000-f9b6574078afc869f7a3	syndrome	noun	C1	синдром		no	activate_user_tail_identity
+ox5000-75247d85028f1327c80b	synthesis	noun	C1	синтез		no	activate_user_tail_identity
+ox5000-fdc941a14c67d54d8c1d	systematic	adjective	C1	систематичний		no	activate_user_tail_identity
+ox5000-d452052b6bcd9d0b63b7	tackle	noun	C1	спорядження; снасті		no	activate_user_tail_identity
+ox5000-ce168d9f42f9cfc043c4	tackle	verb	B2	вирішувати; братися за		no	activate_user_tail_identity
+ox5000-61cc25f17497ca0aed5f	tactic	noun	C1	тактика		no	activate_user_tail_identity
+ox5000-f54e2a87429c7fa46ea5	tactical	adjective	C1	тактичний		no	activate_user_tail_identity
+ox5000-e1f09b75c5cfde794c49	tag	noun	B2	ярлик		no	activate_user_tail_identity
+ox5000-c13c5c56d6aa8c66105e	tag	verb	B2	позначати		no	activate_user_tail_identity
+ox5000-3ada6e998994d52e1f02	tap	noun	B2	кран		no	activate_user_tail_identity
+ox5000-36b311e1c376086e7c8b	tap	verb	B2	постукувати; натискати		no	activate_user_tail_identity
+ox5000-a05d4c94029b73346d6c	taxpayer	noun	C1	платник податків		no	activate_user_tail_identity
+ox5000-8f563d5c5fbf6a5dd303	technological	adjective	B2	технологічний		no	activate_user_tail_identity
+ox5000-b23d3e8ce57013836f05	teens	noun	B2	підліткові роки		no	activate_user_tail_identity
+ox5000-281f72b8f526e2643f8c	temple	noun	B2	храм		no	activate_user_tail_identity
+ox5000-a9aee38b0ff16defe4a9	temporarily	adverb	B2	тимчасово		no	activate_user_tail_identity
+ox5000-12e64d13126ed167af0d	tempt	verb	C1	спокушати		no	activate_user_tail_identity
+ox5000-8aacf4124321ebc82973	tenant	noun	C1	орендар		no	activate_user_tail_identity
+ox5000-01af49ce53e4d6902091	tendency	noun	B2	тенденція		no	activate_user_tail_identity
+ox5000-443429b7023a796eed5f	tender	adjective	C1	ніжний		no	activate_user_tail_identity
+ox5000-2f462c0cf8af1c75f9dd	tension	noun	B2	напруження		no	activate_user_tail_identity
+ox5000-b5861253624427055cb6	tenure	noun	C1	термін перебування на посаді		no	activate_user_tail_identity
+ox5000-8689367dc831422e6281	terminal	adjective	C1	кінцевий; невиліковний		no	activate_user_tail_identity
+ox5000-a0d1e2111578bd0f1e71	terminal	noun	B2	термінал	аеровокзал	yes	replace_v7_with_user_value
+ox5000-f0295bdc35545089ba26	terminate	verb	C1	припиняти		no	activate_user_tail_identity
+ox5000-550dcec360ef03858332	terms	noun	B2	умови		no	activate_user_tail_identity
+ox5000-9831ff9660bcaeb2b9cc	terrain	noun	C1	місцевість		no	activate_user_tail_identity
+ox5000-0a12ac0cb859d36ef42c	terribly	adverb	B2	жахливо		no	activate_user_tail_identity
+ox5000-8467812af37b5bb10cb1	terrific	adjective	C1	чудовий		no	activate_user_tail_identity
+ox5000-96d49f016884d37e2cb8	terrify	verb	B2	жахати		no	activate_user_tail_identity
+ox5000-30bc3871f94be042ac8d	territory	noun	B2	територія		no	activate_user_tail_identity
+ox5000-6b4fed09d6a7acdd3dc7	terror	noun	B2	терор; жах		no	activate_user_tail_identity
+ox5000-97fd97c2b8c7282d936e	terrorism	noun	B2	тероризм		no	activate_user_tail_identity
+ox5000-5916322693483a5d7b4b	terrorist	noun	B2	терорист		no	activate_user_tail_identity
+ox5000-81809345392305d7171b	testify	verb	C1	свідчити		no	activate_user_tail_identity
+ox5000-f838d055d14abf8c2ebb	testimony	noun	C1	свідчення		no	activate_user_tail_identity
+ox5000-4adb2d62b9dc0969ac4d	testing	noun	B2	тестування		no	activate_user_tail_identity
+ox5000-95d845718fe19a04a8d2	textbook	noun	B2	підручник		no	activate_user_tail_identity
+ox5000-bef207622e2f6e60411d	texture	noun	C1	текстура		no	activate_user_tail_identity
+ox5000-d1fca0f4d400117f6854	thankfully	adverb	C1	на щастя		no	activate_user_tail_identity
+ox5000-55a146661c1df5d9fd5c	theatrical	adjective	C1	театральний		no	activate_user_tail_identity
+ox5000-991a9d01246ffbf9a9c5	theft	noun	B2	крадіжка		no	activate_user_tail_identity
+ox5000-de667f6f04e5e8ccfed5	theology	noun	C1	теологія	теологія	yes	replace_v7_with_user_value
+ox5000-b052aa70ffc82c01e0e6	theoretical	adjective	C1	теоретичний		no	activate_user_tail_identity
+ox5000-f0a9b9c6b02ef2064253	therapist	noun	B2	терапевт		no	activate_user_tail_identity
+ox5000-d9676d7d2512249a7e9e	thereafter	adverb	C1	після цього		no	activate_user_tail_identity
+ox5000-b245a804462b0d41915a	thereby	adverb	C1	тим самим		no	activate_user_tail_identity
+ox5000-7bc234c4dcd2f3c2875b	thesis	noun	B2	теза; дисертація		no	activate_user_tail_identity
+ox5000-feaf4b50d932346d1b13	thorough	adjective	B2	ретельний		no	activate_user_tail_identity
+ox5000-d28109a222083a7e6991	thoroughly	adverb	B2	ретельно		no	activate_user_tail_identity
+ox5000-cbd9ca36a79de9b55081	thought-provoking	adjective	C1	спонукаючий до роздумів		no	activate_user_tail_identity
+ox5000-4dbc6b87df9f0ea26bb9	thoughtful	adjective	C1	вдумливий; турботливий		no	activate_user_tail_identity
+ox5000-1fdcd2759a6e1b7adbd8	thread	noun	C1	нитка		no	activate_user_tail_identity
+ox5000-1709abceec97aee34dc2	threshold	noun	C1	поріг		no	activate_user_tail_identity
+ox5000-4e4dfe0384c9e2bd4d60	thrilled	adjective	C1	у захваті		no	activate_user_tail_identity
+ox5000-f75147390c58f9b7da57	thrive	verb	C1	процвітати		no	activate_user_tail_identity
+ox5000-09f564b8c1cd8dfc3904	thumb	noun	B2	великий палець		no	activate_user_tail_identity
+ox5000-f2480d9023b56c509839	tide	noun	C1	приплив; течія		no	activate_user_tail_identity
+ox5000-eec8e05bb7719b3d5517	tighten	verb	C1	затягувати		no	activate_user_tail_identity
+ox5000-4a9663ae5209cddb6bba	timber	noun	C1	деревина		no	activate_user_tail_identity
+ox5000-64e08b8dd68be475a5a4	timely	adjective	C1	своєчасний		no	activate_user_tail_identity
+ox5000-ac2009687f3aff82b4f8	timing	noun	B2	вибір часу; хронометраж		no	activate_user_tail_identity
+ox5000-e94181c64d5aa8e60302	tissue	noun	B2	тканина		no	activate_user_tail_identity
+ox5000-9b063fe1a598738fa02d	tobacco	noun	C1	тютюн	тютюн	yes	replace_v7_with_user_value
+ox5000-f235f1b098d32e02ad29	tolerance	noun	C1	толерантність; терпимість		no	activate_user_tail_identity
+ox5000-d5ec64b91510270b2158	tolerate	verb	C1	терпіти		no	activate_user_tail_identity
+ox5000-e2eb585666597b22d60b	toll	noun	C1	плата; кількість жертв		no	activate_user_tail_identity
+ox5000-4adeed3e1291e2cb9565	ton	noun	B2	тонна		no	activate_user_tail_identity
+ox5000-11d2abac5382987dddf5	tonne	noun	B2	тонна		no	activate_user_tail_identity
+ox5000-d4c9367c23e5a72152e3	top	verb	C1	очолювати; перевищувати		no	activate_user_tail_identity
+ox5000-7042e0637e91deb575b0	torture	noun	C1	катування		no	activate_user_tail_identity
+ox5000-7e9ceec203d2d50cf233	torture	verb	C1	катувати		no	activate_user_tail_identity
+ox5000-639d0f39bd92fd319b5a	toss	verb	C1	кидати		no	activate_user_tail_identity
+ox5000-1cd96ead96b42105fd96	total	verb	C1	становити загалом		no	activate_user_tail_identity
+ox5000-38e4c949712c87056e5c	tournament	noun	B2	турнір		no	activate_user_tail_identity
+ox5000-2bd8b089e3ccff628106	toxic	adjective	C1	токсичний		no	activate_user_tail_identity
+ox5000-adafbb1bafb76a511fd1	trace	noun	C1	слід		no	activate_user_tail_identity
+ox5000-42868b1c764b72b41688	trace	verb	B2	простежувати		no	activate_user_tail_identity
+ox5000-4a18d82d9fb6080d2f82	trademark	noun	C1	торгова марка		no	activate_user_tail_identity
+ox5000-6c8f6df01d66058d990b	trading	noun	B2	торгівля		no	activate_user_tail_identity
+ox5000-4171a075bcbae5c10c48	tragedy	noun	B2	трагедія		no	activate_user_tail_identity
+ox5000-d225ff4e87c4cf923056	tragic	adjective	B2	трагічний		no	activate_user_tail_identity
+ox5000-ddc7244d12a4925f1a9a	trail	noun	C1	стежка		no	activate_user_tail_identity
+ox5000-4db0352bf40a8fbb1a02	trail	verb	C1	відставати; тягнутися		no	activate_user_tail_identity
+ox5000-4c2ff8c38be3fe6c8dd4	trailer	noun	C1	причіп; трейлер		no	activate_user_tail_identity
+ox5000-9ada24c1b2e76e84a42f	trait	noun	B2	риса		no	activate_user_tail_identity
+ox5000-33958a180c21e9c2392f	transaction	noun	C1	транзакція; операція		no	activate_user_tail_identity
+ox5000-cb988ddc79bd599be3e4	transcript	noun	C1	стенограма		no	activate_user_tail_identity
+ox5000-da0eaeba3b2a9298e5a8	transformation	noun	C1	перетворення		no	activate_user_tail_identity
+ox5000-4b88d3cffcad8bc82c9d	transit	noun	C1	транзит		no	activate_user_tail_identity
+ox5000-2d305ec23cbf7b219f80	transmission	noun	C1	передача		no	activate_user_tail_identity
+ox5000-f064dd91c4aa81d7c3ee	transmit	verb	B2	передавати		no	activate_user_tail_identity
+ox5000-9c611a0fde284f713dce	transparency	noun	C1	прозорість		no	activate_user_tail_identity
+ox5000-1259e134246bea0b9a1e	transparent	adjective	C1	прозорий		no	activate_user_tail_identity
+ox5000-d8d8f389f6b761ee2bf6	transportation	noun	B2	транспорт; перевезення		no	activate_user_tail_identity
+ox5000-e9aebc4072b2c4955b95	trap	noun	B2	пастка		no	activate_user_tail_identity
+ox5000-753d9d8240ce68a8b47d	trap	verb	B2	заманювати в пастку		no	activate_user_tail_identity
+ox5000-dcddf2c3d5af4ca55dbf	trauma	noun	C1	травма		no	activate_user_tail_identity
+ox5000-31ae2f33f40ae3c9992c	treasure	noun	B2	скарб		no	activate_user_tail_identity
+ox5000-e3e9d21582b8898e7c77	treaty	noun	C1	договір		no	activate_user_tail_identity
+ox5000-ba5c96ee38f220c30435	tremendous	adjective	C1	величезний		no	activate_user_tail_identity
+ox5000-e78ef76ea1e0cf2914d2	tribal	adjective	C1	племінний		no	activate_user_tail_identity
+ox5000-8f9f9f9e959b1fc183ea	tribe	noun	B2	плем'я		no	activate_user_tail_identity
+ox5000-4f47419fcb1747bded2a	tribunal	noun	C1	трибунал		no	activate_user_tail_identity
+ox5000-3f2080ac50b135059225	tribute	noun	C1	данина; вшанування		no	activate_user_tail_identity
+ox5000-f690888a2be766e69ec3	trigger	noun	C1	спусковий гачок; тригер		no	activate_user_tail_identity
+ox5000-8a322f6cdbb221721285	trigger	verb	B2	спричиняти		no	activate_user_tail_identity
+ox5000-a65a2ff14d99ea1e9c57	trillion	number	B2	трильйон		no	activate_user_tail_identity
+ox5000-1e0f1f9883740273fd03	trio	noun	C1	тріо		no	activate_user_tail_identity
+ox5000-436d3c02b7b6f2193c9a	triumph	noun	C1	тріумф		no	activate_user_tail_identity
+ox5000-754bf5b535795ee81c6c	troop	noun	B2	військовий підрозділ; війська		no	activate_user_tail_identity
+ox5000-ff9efa27d739a9feea65	trophy	noun	C1	трофей		no	activate_user_tail_identity
+ox5000-f3b4954e52dd15e340f3	troubled	adjective	C1	стурбований; проблемний		no	activate_user_tail_identity
+ox5000-a5a78ed8b6c48cbea038	trustee	noun	C1	довірена особа		no	activate_user_tail_identity
+ox5000-f77eb1ad9e40664daa2c	tsunami	noun	B2	цунамі	цунамі	yes	replace_v7_with_user_value
+ox5000-dfc95a3f0a8deaf00e0c	tuition	noun	C1	плата за навчання; навчання		no	activate_user_tail_identity
+ox5000-3b0b580582d680bcb24e	turnout	noun	C1	явка		no	activate_user_tail_identity
+ox5000-41ab3d9468b22c0ac1e8	turnover	noun	C1	оборот; плинність		no	activate_user_tail_identity
+ox5000-d7b56fa49ed8752c0082	twist	noun	C1	поворот; скручування		no	activate_user_tail_identity
+ox5000-8240ce2b0fa801fdd05b	twist	verb	C1	скручувати		no	activate_user_tail_identity
+ox5000-0fe97df4cbc24e26a41e	ultimate	adjective	B2	остаточний		no	activate_user_tail_identity
+ox5000-ca6bb00374122035b654	unacceptable	adjective	B2	неприйнятний		no	activate_user_tail_identity
+ox5000-7872cc2ff1d802a34afb	uncertainty	noun	B2	невизначеність		no	activate_user_tail_identity
+ox5000-05fda40c6a6fd499174b	undergo	verb	B2	зазнавати		no	activate_user_tail_identity
+ox5000-eb49f89e6eed3c18fab5	undergraduate	noun	C1	студент бакалаврату		no	activate_user_tail_identity
+ox5000-23bff02510376b6c99d7	underlying	adjective	C1	основний; прихований		no	activate_user_tail_identity
+ox5000-51a085e259ff4699152f	undermine	verb	C1	підривати		no	activate_user_tail_identity
+ox5000-ee46540b05341ccdb424	undertake	verb	B2	братися за		no	activate_user_tail_identity
+ox5000-bcd6058b3b378fadeb46	undoubtedly	adverb	C1	безсумнівно		no	activate_user_tail_identity
+ox5000-b4aced670657eb3906ef	unfold	verb	B2	розгортатися		no	activate_user_tail_identity
+ox5000-b704a7b67453b3bfa6ef	unfortunate	adjective	B2	невдалий; нещасливий		no	activate_user_tail_identity
+ox5000-98c27296b81648365f0f	unify	verb	C1	об'єднувати		no	activate_user_tail_identity
+ox5000-1bd133aa12f2ec343c3d	unite	verb	B2	об'єднувати		no	activate_user_tail_identity
+ox5000-a103d57f9e4d2fd03225	unity	noun	B2	єдність		no	activate_user_tail_identity
+ox5000-00df3e607e9d82617ce7	universal	adjective	B2	універсальний		no	activate_user_tail_identity
+ox5000-50f08014a135ea159734	unprecedented	adjective	C1	безпрецедентний		no	activate_user_tail_identity
+ox5000-8e7c0a06f8f57745c0b7	unveil	verb	C1	представляти; відкривати		no	activate_user_tail_identity
+ox5000-c8b54b1440d341ab58ef	upcoming	adjective	C1	майбутній		no	activate_user_tail_identity
+ox5000-4b41eda57504f137ea52	upgrade	noun	C1	оновлення		no	activate_user_tail_identity
+ox5000-3d60b590a346562cd040	upgrade	verb	C1	оновлювати		no	activate_user_tail_identity
+ox5000-5be5d98a1e3ccf304f5d	uphold	verb	C1	підтримувати; відстоювати		no	activate_user_tail_identity
+ox5000-357c4c424c06919ba573	urgent	adjective	B2	терміновий		no	activate_user_tail_identity
+ox5000-3e59de5e9bc8a2475a44	usage	noun	B2	використання		no	activate_user_tail_identity
+ox5000-84e4202be2d54ae3a880	useless	adjective	B2	марний		no	activate_user_tail_identity
+ox5000-48d7737ea24a48e9d6b1	utility	noun	C1	корисність; комунальна послуга		no	activate_user_tail_identity
+ox5000-70d2e3907f919877957a	utilize	verb	C1	використовувати		no	activate_user_tail_identity
+ox5000-a5f501c79a3cead3aed5	utterly	adverb	C1	цілковито		no	activate_user_tail_identity
+ox5000-bd2b3c3621e5e5dac378	vacuum	noun	C1	вакуум		no	activate_user_tail_identity
+ox5000-ff91b36a2919e9f4b7c0	vague	adjective	C1	нечіткий		no	activate_user_tail_identity
+ox5000-3a4b0d5d3856131ca280	valid	adjective	B2	дійсний		no	activate_user_tail_identity
+ox5000-d4b51e751f8ac1388a7d	validity	noun	C1	дійсність		no	activate_user_tail_identity
+ox5000-b6451053f7b0c44aee73	vanish	verb	C1	зникати		no	activate_user_tail_identity
+ox5000-b96d44955b0116a8b189	variable	adjective	C1	змінний		no	activate_user_tail_identity
+ox5000-ba63498dec4f81c1b9de	variable	noun	C1	змінна		no	activate_user_tail_identity
+ox5000-97f16a4e14fd89f0282c	variation	noun	B2	варіація		no	activate_user_tail_identity
+ox5000-884db0a3021eb9703686	varied	adjective	C1	різноманітний		no	activate_user_tail_identity
+ox5000-f9d3c8583b91249a82cf	vein	noun	C1	вена		no	activate_user_tail_identity
+ox5000-ead1e6c209960fbc9a63	venture	noun	C1	підприємство; ризикована справа		no	activate_user_tail_identity
+ox5000-c4a906d99fd676e40339	venture	verb	C1	наважуватися		no	activate_user_tail_identity
+ox5000-40cca0dcc06cac43159c	verbal	adjective	C1	словесний		no	activate_user_tail_identity
+ox5000-c0f3d588f4f4edb1473a	verdict	noun	C1	вирок		no	activate_user_tail_identity
+ox5000-00204dee3aa7d984c985	verify	verb	C1	перевіряти		no	activate_user_tail_identity
+ox5000-4fd068d2506743727f02	verse	noun	C1	вірш		no	activate_user_tail_identity
+ox5000-ac5c591f2fae87d58646	versus	preposition	C1	проти		no	activate_user_tail_identity
+ox5000-b223ea69d03f2788ad88	vertical	adjective	B2	вертикальний		no	activate_user_tail_identity
+ox5000-3ee81464f01abd4b789d	vessel	noun	C1	судно; посудина		no	activate_user_tail_identity
+ox5000-f6bbcd6016aa6874a3f7	veteran	noun	C1	ветеран		no	activate_user_tail_identity
+ox5000-121cec9e5ac562503098	viable	adjective	C1	життєздатний		no	activate_user_tail_identity
+ox5000-6aea81a74e4cb4122b29	vibrant	adjective	C1	яскравий; жвавий		no	activate_user_tail_identity
+ox5000-4a87b56fc5f2c92f2d14	vice	noun	C1	порок		no	activate_user_tail_identity
+ox5000-9eadee768474116a6389	vicious	adjective	C1	жорстокий		no	activate_user_tail_identity
+ox5000-3143b1c6f122d8cbb915	viewpoint	noun	B2	точка зору		no	activate_user_tail_identity
+ox5000-642e71f0ef3e4ecc6bac	villager	noun	C1	селянин; мешканець села		no	activate_user_tail_identity
+ox5000-6791fac69a8e0c0a1fbc	violate	verb	C1	порушувати		no	activate_user_tail_identity
+ox5000-599362e4e8fd0e21eb59	violation	noun	C1	порушення		no	activate_user_tail_identity
+ox5000-4bbf63568389861f19a6	virtue	noun	C1	чеснота		no	activate_user_tail_identity
+ox5000-f912150dbfa4ff420e3e	visa	noun	B2	віза		no	activate_user_tail_identity
+ox5000-2ed2ff1e8e1305b1c767	visible	adjective	B2	видимий	видимий	yes	replace_v7_with_user_value
+ox5000-4aeb806a56db651cb840	vocal	adjective	C1	голосовий; відвертий		no	activate_user_tail_identity
+ox5000-f0b43c80674358bf7398	voluntary	adjective	B2	добровільний		no	activate_user_tail_identity
+ox5000-b8342c014fdb4dec91ab	voting	noun	B2	голосування		no	activate_user_tail_identity
+ox5000-18b3037108db5178098c	vow	verb	C1	присягатися		no	activate_user_tail_identity
+ox5000-b2724644535a93be515d	vulnerability	noun	C1	вразливість		no	activate_user_tail_identity
+ox5000-33e9f5df7261de30ea45	vulnerable	adjective	C1	вразливий		no	activate_user_tail_identity
+ox5000-5dba045c182acbd5d5f1	wander	verb	B2	блукати		no	activate_user_tail_identity
+ox5000-12e52edf213e46dde87f	ward	noun	C1	палата		no	activate_user_tail_identity
+ox5000-705f1a27b761df9f1e69	warehouse	noun	C1	склад		no	activate_user_tail_identity
+ox5000-f2c98b2052900e93144b	warfare	noun	C1	воєнні дії		no	activate_user_tail_identity
+ox5000-a83fb8d4dafe378c4bf7	warming	noun	B2	потепління		no	activate_user_tail_identity
+ox5000-bfe64fa77c8faf43888f	warrant	noun	C1	ордер		no	activate_user_tail_identity
+ox5000-00e1a806d10fa572f24a	warrant	verb	C1	виправдовувати; заслуговувати		no	activate_user_tail_identity
+ox5000-ad79a2d51bcb5fc3e45b	warrior	noun	C1	воїн		no	activate_user_tail_identity
+ox5000-e6998e43c663c8bd9cc2	weaken	verb	C1	послаблювати		no	activate_user_tail_identity
+ox5000-f662904e395de55b38b4	weave	verb	C1	ткати		no	activate_user_tail_identity
+ox5000-82d9b319c21a0b7d136e	weed	noun	C1	бур'ян		no	activate_user_tail_identity
+ox5000-42395c79a4205a07c136	weekly	adjective	B2	щотижневий	щотижневий	yes	replace_v7_with_user_value
+ox5000-c260921c2eae534f69c9	weird	adjective	B2	дивний		no	activate_user_tail_identity
+ox5000-541687f5159f48b0e181	welfare	noun	B2	добробут; соціальне забезпечення		no	activate_user_tail_identity
+ox5000-7ac66d34ed6d2d18ab7a	well	noun	C1	криниця		no	activate_user_tail_identity
+ox5000-1cd1f0e83f936b72f299	well-being	noun	C1	добробут	благополуччя	yes	replace_v7_with_user_value
+ox5000-136d53cda0c01d3d92c3	whatever	adverb	C1	як би там не було		no	activate_user_tail_identity
+ox5000-aaa881c3f408681d7e11	whatsoever	adverb	C1	зовсім		no	activate_user_tail_identity
+ox5000-9da29962568e275f6173	wheat	noun	B2	пшениця		no	activate_user_tail_identity
+ox5000-b687b0f57fa5366486ca	whereby	adverb	C1	за допомогою чого		no	activate_user_tail_identity
+ox5000-8eb4dc7709c4780bf6a5	whilst	conjunction	C1	тоді як		no	activate_user_tail_identity
+ox5000-7af578b8eda8386576e3	whip	verb	C1	бити батогом		no	activate_user_tail_identity
+ox5000-e0481a3d4119e74acd4e	whoever	pronoun	B2	хто б не		no	activate_user_tail_identity
+ox5000-bba3d8405583d811c7fb	wholly	adverb	C1	цілком		no	activate_user_tail_identity
+ox5000-1ad42173d6a47044c4fc	widen	verb	C1	розширювати		no	activate_user_tail_identity
+ox5000-e70719b36c73f2262a94	widespread	adjective	B2	поширений		no	activate_user_tail_identity
+ox5000-7cef906b837d8dff4657	widow	noun	C1	вдова	вдова	yes	replace_v7_with_user_value
+ox5000-e60944697898fda86318	width	noun	C1	ширина		no	activate_user_tail_identity
+ox5000-fb8ecb4cb23d479816a5	willingness	noun	C1	готовність		no	activate_user_tail_identity
+ox5000-00c15dea7c61b8c6848d	wipe	verb	C1	витирати		no	activate_user_tail_identity
+ox5000-53f7030f25a42ed5f75d	wisdom	noun	B2	мудрість		no	activate_user_tail_identity
+ox5000-71cfc35fecd6d31f3d90	wit	noun	C1	дотепність		no	activate_user_tail_identity
+ox5000-4a0d80cb3aee1630ef88	withdraw	verb	B2	відкликати; виводити		no	activate_user_tail_identity
+ox5000-b500ac68bf72138c5bbf	withdrawal	noun	C1	вилучення; відмова		no	activate_user_tail_identity
+ox5000-b21cce758fc50a0848db	workforce	noun	B2	робоча сила		no	activate_user_tail_identity
+ox5000-c4df7b62298c6a0e1e19	workout	noun	C1	тренування		no	activate_user_tail_identity
+ox5000-c12d12f9f3c1cebbd720	workplace	noun	B2	робоче місце		no	activate_user_tail_identity
+ox5000-a239d20d2b0886b804d3	workshop	noun	B2	майстерня; семінар		no	activate_user_tail_identity
+ox5000-152aa939ce8e22a8cba8	worm	noun	B2	черв'як		no	activate_user_tail_identity
+ox5000-ebe5ca9d165e19c0739b	worship	noun	C1	поклоніння		no	activate_user_tail_identity
+ox5000-facbf2da8bf54e09d106	worship	verb	C1	поклонятися		no	activate_user_tail_identity
+ox5000-25f500256746f398eb9c	worthwhile	adjective	C1	вартий зусиль		no	activate_user_tail_identity
+ox5000-780d6e175fa7df70d661	worthy	adjective	C1	гідний		no	activate_user_tail_identity
+ox5000-50b98ac704c3bc34a67f	wrist	noun	B2	зап'ястя		no	activate_user_tail_identity
+ox5000-b4375e50137f50a3167c	yell	verb	C1	кричати		no	activate_user_tail_identity
+ox5000-cc76f33fcb4c9bc2e444	yield	noun	C1	врожайність; дохід		no	activate_user_tail_identity
+ox5000-965201ceb2ed31dc1820	yield	verb	C1	давати; поступатися		no	activate_user_tail_identity
+ox5000-ac6f5aa49f2b06653bf9	youngster	noun	C1	молода людина; підліток		no	activate_user_tail_identity

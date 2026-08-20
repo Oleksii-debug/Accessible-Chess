@@ -1,0 +1,23 @@
+{
+  "actual_sheet_level_counts": {
+    "B2": 643,
+    "C1": 513
+  },
+  "auditor_text_level_counts_note": "Audit text said B2=397/C1=759; current Sheet actually contains B2=643/C1=513, so current Sheet values were used.",
+  "developer_translation_corrections": 0,
+  "input_rows": 1156,
+  "new_user_tail_identities_after_v7_replacement": 1134,
+  "oxford3000_preserved": 3308,
+  "primary_input": "USER_APPROVED_INPUT Google Sheet 13NjX7gg1iooze1HZvs4wq8E33bpWXWqalCVnqLCxvGQ",
+  "superseded_v7_slices_archived": [
+    "oxford5000_rejected_v7_round01_rows_0020.tsv",
+    "oxford5000_rejected_v7_round02_rows_0002.tsv"
+  ],
+  "target_remaining": 0,
+  "target_total_additional_identities": 2138,
+  "unique_user_stable_ids": 1156,
+  "v7_technical_rows_reconciled": 22,
+  "v7_user_translation_differences": 4,
+  "validated_final_activated": 2138,
+  "validated_final_remaining": 0
+}
