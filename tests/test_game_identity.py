@@ -49,6 +49,16 @@ def test_comments_and_nags_are_loss_sensitive_for_duplicate_identity():
     assert not same_game_tree(a, b)
 
 
+def test_attached_and_separated_nags_have_one_canonical_identity():
+    attached = one('[Result "*"]\n\n1.e4!? e5$1 2.Nf3!! *\n')
+    separated = one('[Result "*"]\n\n1. e4 !? e5 $1 2. Nf3 !! *\n')
+
+    assert same_game_tree(attached, separated)
+    assert same_game_record(attached, separated)
+    assert attached.line.moves[0].san == "e4"
+    assert attached.line.moves[0].nags == ["!?"]
+
+
 def test_semicolon_comment_identity_survives_pgn_round_trip():
     from acs.gametree import serialize_games
 

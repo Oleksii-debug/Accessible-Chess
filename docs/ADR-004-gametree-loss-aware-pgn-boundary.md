@@ -67,6 +67,13 @@ PGN must never be silently reinterpreted as clean data.
     unknown tokens. Each becomes `DAMAGED` and blocks clean export. Invalid or
     conflicting `Result` headers remain exportable warnings because both the
     original header evidence and effective movetext result are preserved.
+15. Symbolic NAG suffixes attached to SAN and numeric NAGs attached without
+    whitespace are tokenized as annotations, never retained inside `MoveNode.san`.
+    Mixed forms preserve source order, so `e4!?$1` becomes SAN `e4` with NAGs
+    `!?`, `$1`. Malformed dollar forms or unsupported symbolic runs create an
+    `invalid_annotation` recovery blocker. Mutable DTOs containing `!`, `?` or
+    `$` inside SAN fail serializer validation instead of reintroducing the old
+    ambiguity.
 
 ## Compatibility
 

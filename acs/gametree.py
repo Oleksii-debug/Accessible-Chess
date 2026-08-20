@@ -73,6 +73,7 @@ class PgnRecoveryCode(str, Enum):
     UNTERMINATED_RAV = "unterminated_rav"
     ORPHAN_RAV = "orphan_rav"
     ORPHAN_ANNOTATION = "orphan_annotation"
+    INVALID_ANNOTATION = "invalid_annotation"
     DROPPED_MOVE_NUMBER = "dropped_move_number"
     POST_RESULT_RAV_TAIL = "post_result_rav_tail"
     ROOT_POST_RESULT_TAIL = "root_post_result_tail"
@@ -193,6 +194,46 @@ def _escape_tag(value: str) -> str:
     return value.replace("\\", "\\\\").replace('"', r'\"')
 
 
+def _append_word_tokens(out: list[_Token], value: str) -> None:
+    """Split one non-delimiter word into move-number, SAN and NAG tokens."""
+
+    if not value:
+        return
+    if MOVE_NUMBER_RE.fullmatch(value) or re.fullmatch(r"\d+\.{1,3}", value):
+        out.append(_Token("MOVE_NUMBER", value))
+        return
+    if value in RESULTS:
+        out.append(_Token("RESULT", value))
+        return
+    if value in NAG_SYMBOLS:
+        out.append(_Token("NAG_SYMBOL", value))
+        return
+    prefixed = re.match(r"^(\d+\.{1,3})(.+)$", value)
+    if prefixed:
+        out.append(_Token("MOVE_NUMBER", prefixed.group(1)))
+        value = prefixed.group(2)
+
+    suffix_start = len(value)
+    while suffix_start > 0 and value[suffix_start - 1] in "!?":
+        suffix_start -= 1
+    suffix = value[suffix_start:]
+    value = value[:suffix_start]
+
+    if value:
+        if value in RESULTS:
+            kind = "RESULT"
+        elif MOVE_NUMBER_RE.fullmatch(value) or re.fullmatch(r"\d+\.{1,3}", value):
+            kind = "MOVE_NUMBER"
+        else:
+            kind = "SAN"
+        out.append(_Token(kind, value))
+
+    if suffix:
+        out.append(
+            _Token("NAG_SYMBOL" if suffix in NAG_SYMBOLS else "INVALID_NAG", suffix)
+        )
+
+
 def tokenize_movetext(text: str) -> list[_Token]:
     out: list[_Token] = []
     i = 0
@@ -230,24 +271,16 @@ def tokenize_movetext(text: str) -> list[_Token]:
                 j += 1
             if j > i + 1:
                 out.append(_Token("NAG", text[i:j])); i = j; continue
+            while j < n and not text[j].isspace() and text[j] not in "{};()$":
+                j += 1
+            out.append(_Token("INVALID_NAG", text[i:j]))
+            i = j
+            continue
         j = i
-        while j < n and not text[j].isspace() and text[j] not in "{};()":
+        while j < n and not text[j].isspace() and text[j] not in "{};()$":
             j += 1
         value = text[i:j]
-        if value in RESULTS:
-            kind = "RESULT"
-        elif MOVE_NUMBER_RE.fullmatch(value) or re.fullmatch(r"\d+\.{1,3}", value):
-            kind = "MOVE_NUMBER"
-        elif value in NAG_SYMBOLS:
-            kind = "NAG_SYMBOL"
-        else:
-            m = re.match(r"^(\d+\.{1,3})(.+)$", value)
-            if m:
-                out.append(_Token("MOVE_NUMBER", m.group(1)))
-                value = m.group(2)
-            kind = "SAN"
-        if value:
-            out.append(_Token(kind, value))
+        _append_word_tokens(out, value)
         i = j
     return out
 
@@ -440,6 +473,17 @@ def _parse_line(
                 )
             else:
                 last.nags.append(tok.value)
+            pos += 1
+            continue
+        if tok.kind == "INVALID_NAG":
+            _add_recovery(
+                recovery_issues,
+                warnings,
+                code=PgnRecoveryCode.INVALID_ANNOTATION,
+                message=f"invalid annotation {tok.value!r} at depth {depth}",
+                depth=depth,
+                token_count=1,
+            )
             pos += 1
             continue
         if tok.kind == "RESULT":
@@ -669,6 +713,7 @@ def _validate_san(san: object) -> None:
     if (
         any(character.isspace() for character in san)
         or any(character in "{};()" for character in san)
+        or any(character in "!?$" for character in san)
         or san in RESULTS
         or MOVE_NUMBER_TOKEN_RE.fullmatch(san)
         or NAG_RE.fullmatch(san)

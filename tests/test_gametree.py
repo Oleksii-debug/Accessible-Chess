@@ -32,7 +32,8 @@ class GameTreeTests(unittest.TestCase):
         self.assertEqual([m.san for m in variation.moves], ['c5', 'Nf3'])
         self.assertIn('$1', variation.moves[0].nags)
         nested = variation.moves[1].variations[0]
-        self.assertEqual([m.san for m in nested.moves], ['Nc3!?', 'Nc6'])
+        self.assertEqual([m.san for m in nested.moves], ['Nc3', 'Nc6'])
+        self.assertEqual(nested.moves[0].nags, ['!?'])
 
         reparsed = parse_games(serialize_games(games))[0]
         self.assertEqual([m.san for m in reparsed.line.moves], ['e4', 'e5', 'Nf3', 'Nc6'])
@@ -408,6 +409,53 @@ class GameTreeTests(unittest.TestCase):
                 self.assertTrue(game.warnings)
                 self.assertEqual(game.recovery_issues, [])
                 self.assertTrue(serialize_games([game]))
+
+    def test_attached_symbolic_and_numeric_nags_are_canonical_and_ordered(self):
+        source = (
+            '[Result "*"]\n\n'
+            '1.e4!?$1 e5$2?! 2.Nf3!! Nc6?! '
+            '(2... d6? 3.d4$14) *\n'
+        )
+
+        game = parse_games(source)[0]
+        self.assertEqual([move.san for move in game.line.moves], ["e4", "e5", "Nf3", "Nc6"])
+        self.assertEqual(
+            [move.nags for move in game.line.moves],
+            [["!?", "$1"], ["$2", "?!"], ["!!"], ["?!"]],
+        )
+        variation = game.line.moves[-1].variations[0]
+        self.assertEqual([move.san for move in variation.moves], ["d6", "d4"])
+        self.assertEqual([move.nags for move in variation.moves], [["?"], ["$14"]])
+        self.assertEqual(game.recovery_issues, [])
+
+        reparsed = parse_games(serialize_games([game]))[0]
+        self.assertEqual(
+            [(move.san, move.nags) for move in reparsed.line.moves],
+            [(move.san, move.nags) for move in game.line.moves],
+        )
+        self.assertEqual(
+            [(move.san, move.nags) for move in reparsed.line.moves[-1].variations[0].moves],
+            [(move.san, move.nags) for move in variation.moves],
+        )
+
+    def test_malformed_attached_annotations_are_damaged_not_san(self):
+        sources = (
+            '[Result "*"]\n\n1. e4$ *',
+            '[Result "*"]\n\n1. e4$bad *',
+            '[Result "*"]\n\n1. e4!!! *',
+        )
+
+        for source in sources:
+            with self.subTest(source=source):
+                game = parse_games(source)[0]
+                self.assertEqual(game.line.moves[0].san, "e4")
+                self.assertIn(
+                    PgnRecoveryCode.INVALID_ANNOTATION,
+                    {issue.code for issue in game.recovery_issues},
+                )
+                with self.assertRaises(GameTreeSerializationError) as blocked:
+                    serialize_games([game])
+                self.assertEqual(blocked.exception.code, GameTreeErrorCode.UNRESOLVED_RECOVERY)
 
 
 if __name__ == '__main__':

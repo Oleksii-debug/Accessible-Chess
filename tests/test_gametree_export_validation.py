@@ -29,7 +29,7 @@ class GameTreeExportValidationTests(unittest.TestCase):
         self.assertEqual(caught.exception.code, code)
 
     def test_mutated_empty_or_structural_san_fails_instead_of_disappearing(self):
-        for invalid in ('', '   ', '1-0', '2...', '$4', 'e4 e5', 'e4)'):
+        for invalid in ('', '   ', '1-0', '2...', '$4', 'e4 e5', 'e4)', 'e4!?', 'e4$1'):
             game = self.game()
             game.line.moves[0].san = invalid
             with self.subTest(san=invalid):
