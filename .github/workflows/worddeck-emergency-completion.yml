@@ -12,7 +12,7 @@ on:
 
 concurrency:
   group: worddeck-emergency-completion-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 permissions:
   contents: write
@@ -31,15 +31,21 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Install deterministic translation dependencies
+      - name: Install source-grounded semantic QA dependencies
         shell: bash
         run: |
           set -euo pipefail
           python -m pip install --upgrade pip
-          python -m pip install 'transformers<5' sentencepiece requests
+          python -m pip install 'transformers<5' sentencepiece requests beautifulsoup4 'sentence-transformers<4'
           python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
 
-      - name: Build exact authoritative starting ledgers
+      - name: Validate corrective fail-closed semantic gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          python WordDeck/tools/complete_oxford5000_emergency.py --self-test
+
+      - name: Build exact trusted starting ledgers
         shell: bash
         run: |
           set -euo pipefail
@@ -52,8 +58,10 @@ jobs:
             --unaccounted /tmp/worddeck-emergency-input/pre-unaccounted.tsv
           test "$(($(wc -l < /tmp/worddeck-emergency-input/pre-runtime.tsv) - 1))" -eq 982
           test "$(($(wc -l < /tmp/worddeck-emergency-input/pre-unaccounted.tsv) - 1))" -eq 1156
+          python WordDeck/tools/validate_oxford3000_baseline_files.py --report artifacts/emergency/rollback-oxford3000.tsv
+          grep -q $'rows\t3308' artifacts/emergency/rollback-oxford3000.tsv
 
-      - name: Produce all 1156 MANUAL_EMERGENCY_WORK candidates and separate semantic QA
+      - name: Produce all 1156 source-grounded MANUAL_EMERGENCY_WORK decisions
         shell: bash
         run: |
           set -euo pipefail
@@ -70,6 +78,15 @@ jobs:
             "${override_args[@]}"
           test "$(($(wc -l < artifacts/emergency/generated-qa/oxford5000_manual_emergency_first_pass_20260820.tsv) - 1))" -eq 1156
           test "$(($(wc -l < artifacts/emergency/generated-qa/oxford5000_manual_emergency_second_pass_20260820.tsv) - 1))" -eq 1156
+          pass_count=$(awk -F '\t' 'NR>1 && $7=="PASS" {n++} END{print n+0}' artifacts/emergency/generated-qa/oxford5000_manual_emergency_second_pass_20260820.tsv)
+          blocked_count=$(awk -F '\t' 'NR>1 && $7=="BLOCKED" {n++} END{print n+0}' artifacts/emergency/generated-qa/oxford5000_manual_emergency_second_pass_20260820.tsv)
+          echo "Corrective semantic QA: PASS=$pass_count BLOCKED=$blocked_count TOTAL=$((pass_count+blocked_count))"
+          test $((pass_count+blocked_count)) -eq 1156
+          # Fail closed before any lexical mutation. Holds are evidence requiring exact source-grounded correction.
+          if [ "$blocked_count" -ne 0 ]; then
+            echo "Semantic preflight is intentionally blocking integration until all HOLD identities are safely resolved." >&2
+            exit 42
+          fi
 
       - name: Start real <=120-row orchestration transaction
         shell: bash
@@ -109,7 +126,6 @@ jobs:
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-
           wait_windows_ci() {
             local sha="$1"; local run_id=""
             for attempt in $(seq 1 180); do
@@ -135,42 +151,31 @@ jobs:
             done
             echo "Timed out waiting for WordDeck Windows CI at $sha" >&2; return 1
           }
-
           total=$(jq '.checkpoints|length' /tmp/worddeck-emergency-run/orchestration.json)
           for index in $(seq 1 "$total"); do
             echo "=== MANUAL_EMERGENCY_WORK checkpoint $index/$total ==="
             python WordDeck/tools/orchestrate_oxford5000_bulk_run.py apply-next --worddeck-dir WordDeck --run-dir /tmp/worddeck-emergency-run
             file=$(jq -r --argjson i "$index" '.checkpoints[]|select(.index==$i)|.file' /tmp/worddeck-emergency-run/orchestration.json)
-            test -f "WordDeck/QA/$file"
             git add -- WordDeck/ReviewedOxford5000Bootstrap.cs WordDeck/WordDeck.csproj "WordDeck/QA/$file"
             if [ "$index" -eq 1 ]; then
               cp artifacts/emergency/generated-qa/oxford5000_manual_emergency_first_pass_20260820.tsv WordDeck/QA/
               cp artifacts/emergency/generated-qa/oxford5000_manual_emergency_second_pass_20260820.tsv WordDeck/QA/
-              cp artifacts/emergency/generated-qa/oxford5000_manual_emergency_low_confidence_20260820.tsv WordDeck/QA/
-              git add -- WordDeck/QA/oxford5000_manual_emergency_first_pass_20260820.tsv WordDeck/QA/oxford5000_manual_emergency_second_pass_20260820.tsv WordDeck/QA/oxford5000_manual_emergency_low_confidence_20260820.tsv
+              cp artifacts/emergency/generated-qa/oxford5000_manual_emergency_holds_20260820.tsv WordDeck/QA/
+              cp artifacts/emergency/generated-qa/oxford5000_manual_emergency_full_verified_tail_20260820.tsv WordDeck/QA/
+              git add -- WordDeck/QA/oxford5000_manual_emergency_first_pass_20260820.tsv WordDeck/QA/oxford5000_manual_emergency_second_pass_20260820.tsv WordDeck/QA/oxford5000_manual_emergency_holds_20260820.tsv WordDeck/QA/oxford5000_manual_emergency_full_verified_tail_20260820.tsv
             fi
             if [ "$index" -eq "$total" ]; then
               cat > WordDeck/Audio/generation-request.json <<'JSON'
-          {
-            "source": "oxford5000",
-            "start": 0,
-            "limit": 0,
-            "accent": "en-GB",
-            "femaleVoice": "bf_emma",
-            "maleVoice": "bm_george",
-            "speed": 1.0,
-            "format": "mp3"
-          }
+          {"source":"oxford5000","start":0,"limit":0,"accent":"en-GB","femaleVoice":"bf_emma","maleVoice":"bm_george","speed":1.0,"format":"mp3"}
           JSON
               git add -- WordDeck/Audio/generation-request.json
             fi
             git diff --cached --check
-            git commit -m "WordDeck: integrate emergency Oxford 5000 checkpoint $(printf '%02d' "$index")"
+            git commit -m "WordDeck: integrate corrected emergency Oxford 5000 checkpoint $(printf '%02d' "$index")"
             sha=$(git rev-parse HEAD); git push origin HEAD:worddeck-bootstrap
             wait_windows_ci "$sha"
             python WordDeck/tools/orchestrate_oxford5000_bulk_run.py mark-ci-green --worddeck-dir WordDeck --run-dir /tmp/worddeck-emergency-run --run-json /tmp/ci-run.json --artifacts-json /tmp/ci-artifacts.json
           done
-
           python WordDeck/tools/orchestrate_oxford5000_bulk_run.py finalize --worddeck-dir WordDeck --run-dir /tmp/worddeck-emergency-run
           cp /tmp/worddeck-emergency-run/final-summary.json artifacts/emergency/orchestration-final-summary.json
           final_sha=$(git rev-parse HEAD); echo "FINAL_SHA=$final_sha" >> "$GITHUB_ENV"
