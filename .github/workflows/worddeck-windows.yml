@@ -8,6 +8,7 @@ on:
       - 'WordDeck/**'
       - 'README-WORDDECK.md'
       - '.github/workflows/worddeck-windows.yml'
+      - '.github/workflows/worddeck-oxford-bulk-integration.yml'
   workflow_dispatch:
 
 concurrency:
