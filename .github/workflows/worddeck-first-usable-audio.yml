@@ -1,0 +1,249 @@
+name: WordDeck first usable audio release
+
+on:
+  push:
+    branches: [worddeck-bootstrap]
+    paths:
+      - .github/workflows/worddeck-first-usable-audio.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  statuses: write
+
+env:
+  RELEASE_NAME: WordDeck-v0.1-first-usable-win-x64
+
+jobs:
+  generate-audio:
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Publish pending release status
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            await github.rest.repos.createCommitStatus({
+              owner: context.repo.owner, repo: context.repo.repo, sha: context.sha,
+              state: 'pending', context: 'WordDeck first usable audio release',
+              description: 'Generating and validating complete 2138-ID British offline AudioPack.',
+              target_url: `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`
+            });
+
+      - name: Export canonical 2138-ID audio source
+        shell: bash
+        run: |
+          set -euo pipefail
+          python WordDeck/tools/validate_oxford5000_runtime_ledger.py --ledger /tmp/runtime.tsv --report /tmp/runtime-report.tsv
+          python - <<'PY'
+          import csv
+          from pathlib import Path
+          with Path('/tmp/runtime.tsv').open('r',encoding='utf-8-sig',newline='') as h:
+              rows=list(csv.DictReader(h,delimiter='\t'))
+          if len(rows)!=2138:
+              raise SystemExit(f'Expected canonical runtime 2138, got {len(rows)}')
+          ids=[r['entry_id'].strip() for r in rows]
+          if len(set(ids))!=2138 or any(not x for x in ids):
+              raise SystemExit('Duplicate or blank canonical stable IDs')
+          with Path('/tmp/audio-source.tsv').open('w',encoding='utf-8',newline='') as h:
+              w=csv.DictWriter(h,fieldnames=['entry_id','level','source'],delimiter='\t',lineterminator='\n')
+              w.writeheader()
+              for r in rows:
+                  w.writerow({'entry_id':r['entry_id'],'level':r['level'],'source':r['source']})
+          print('Canonical audio source PASS: 2138 rows, 2138 unique stable IDs.')
+          PY
+
+      - name: Install British TTS and media validation dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq espeak-ng ffmpeg
+          python -m pip install --upgrade pip
+          python -m pip install 'kokoro>=0.9.2' soundfile numpy
+
+      - name: Generate all British offline MP3s
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/audio
+          mkdir -p /tmp/audio
+          python WordDeck/tools/generate_british_audio.py \
+            --input /tmp/audio-source.tsv \
+            --output /tmp/audio \
+            --start 0 \
+            --limit 0 \
+            --female-voice bf_emma \
+            --male-voice bm_george \
+            --speed 1.0 \
+            --format mp3
+
+      - name: Validate 2138 playable files, stable IDs, hashes and mapping
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import csv, hashlib, json, subprocess
+          from pathlib import Path
+          root=Path('/tmp/audio')
+          records=[json.loads(x) for x in (root/'manifest.jsonl').read_text(encoding='utf-8').splitlines() if x.strip()]
+          with Path('/tmp/audio-source.tsv').open('r',encoding='utf-8-sig',newline='') as h:
+              source=list(csv.DictReader(h,delimiter='\t'))
+          physical=list(root.glob('*.mp3'))
+          if len(source)!=2138 or len(records)!=2138 or len(physical)!=2138:
+              raise SystemExit(f'Coverage mismatch source={len(source)} manifest={len(records)} physical={len(physical)}')
+          ids=[r['id'] for r in records]
+          files=[r['file'] for r in records]
+          if len(set(ids))!=2138 or len(set(files))!=2138:
+              raise SystemExit('Duplicate stable ID or filename')
+          if {p.stem for p in physical}!=set(ids):
+              raise SystemExit('Missing/orphan MP3 assets')
+          for i,(expected,record) in enumerate(zip(source,records,strict=True),1):
+              eid=expected['entry_id'].strip(); word=expected['source'].strip(); path=root/record['file']
+              if record['id']!=eid or record['source']!=word:
+                  raise SystemExit(f'Source mapping mismatch: {eid}')
+              if not path.is_file() or path.stat().st_size<=512:
+                  raise SystemExit(f'Missing/small MP3: {eid}')
+              if hashlib.sha256(path.read_bytes()).hexdigest()!=record['sha256']:
+                  raise SystemExit(f'SHA mismatch: {eid}')
+              if path.stat().st_size!=int(record['bytes']):
+                  raise SystemExit(f'Byte mismatch: {eid}')
+              expected_voice='bf_emma' if hashlib.sha256(eid.encode()).digest()[0]<128 else 'bm_george'
+              if record.get('voice')!=expected_voice or record.get('accent')!='en-GB' or int(record.get('sample_rate',0))!=24000 or float(record.get('speed',0))!=1.0:
+                  raise SystemExit(f'British metadata mismatch: {eid}')
+              probe=subprocess.run(['ffprobe','-v','error','-select_streams','a:0','-show_entries','stream=codec_name,sample_rate,channels:format=duration','-of','json',str(path)],capture_output=True,text=True,check=True)
+              data=json.loads(probe.stdout); streams=data.get('streams') or []
+              if not streams:
+                  raise SystemExit(f'No playable stream: {eid}')
+              st=streams[0]; duration=float((data.get('format') or {}).get('duration') or 0)
+              if st.get('codec_name')!='mp3' or int(st.get('sample_rate') or 0)!=24000 or int(st.get('channels') or 0)!=1 or duration<=0.05:
+                  raise SystemExit(f'Invalid MP3 stream: {eid}')
+              if i%250==0: print(f'ffprobe PASS {i}/2138')
+          print('British AudioPack raw QA PASS: covered=2138, physical=2138, missing=0, orphan=0, duplicate=0, corrupt=0.')
+          PY
+
+      - name: Build deterministic AudioPack manifest and integrity report
+        shell: bash
+        run: |
+          set -euo pipefail
+          python WordDeck/tools/build_audiopack_manifest.py --audio-root /tmp/audio --output /tmp/audio/audiopack-manifest.json --dictionary-id oxford-3000-en-uk
+          python - <<'PY'
+          import hashlib, json
+          from pathlib import Path
+          root=Path('/tmp/audio')
+          manifest=json.loads((root/'audiopack-manifest.json').read_text(encoding='utf-8'))
+          records=[json.loads(x) for x in (root/'manifest.jsonl').read_text(encoding='utf-8').splitlines() if x.strip()]
+          ids={r['id'] for r in records}; mids={r['entry_id'] for r in manifest['entries']}
+          if manifest['entry_count']!=2138 or ids!=mids or len(ids)!=2138:
+              raise SystemExit('AudioPack manifest stable-ID set mismatch')
+          lines=['metric\tvalue','expected_ids\t2138','covered_ids\t2138','physical_assets\t2138','missing\t0','orphan\t0','duplicate_id_collisions\t0','corrupt_or_unplayable\t0','accent\ten-GB','speed\t1.0','sample_rate\t24000','qa_result\tPASS']
+          lines.append('manifest_sha256\t'+hashlib.sha256((root/'audiopack-manifest.json').read_bytes()).hexdigest())
+          (root/'audio-integrity.tsv').write_text('\n'.join(lines)+'\n',encoding='utf-8')
+          print('Complete AudioPack integrity PASS: 2138/2138.')
+          PY
+
+      - name: Pack and upload complete AudioPack
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd /tmp/audio
+          zip -q -9 -r /tmp/worddeck-oxford5000-en-gb-complete.zip .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: worddeck-oxford5000-en-gb-complete
+          path: /tmp/worddeck-oxford5000-en-gb-complete.zip
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 0
+
+  package-windows:
+    needs: generate-audio
+    runs-on: windows-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - uses: actions/download-artifact@v4
+        with:
+          name: worddeck-oxford5000-en-gb-complete
+          path: .\artifacts\audio-download
+
+      - name: Build self-contained Windows package with actual AudioPack
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+          New-Item -ItemType Directory -Force .\artifacts\audio | Out-Null
+          $zip = Get-ChildItem .\artifacts\audio-download -Filter *.zip | Select-Object -First 1
+          if (-not $zip) { throw 'Complete AudioPack ZIP missing.' }
+          Expand-Archive -LiteralPath $zip.FullName -DestinationPath .\artifacts\audio -Force
+          if ((Get-ChildItem .\artifacts\audio -Filter *.mp3 -File).Count -ne 2138) { throw 'Unpacked AudioPack is not 2138 MP3s.' }
+          dotnet restore .\WordDeck\WordDeck.csproj
+          dotnet build .\WordDeck\WordDeck.csproj -c Release --no-restore
+          dotnet publish .\WordDeck\WordDeck.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:DebugType=None -p:DebugSymbols=false -o .\artifacts\release
+          Copy-Item .\WordDeck\README_FIRST_USABLE_UK.md .\artifacts\release\README_UK.md
+          Copy-Item .\WordDeck\THIRD_PARTY_NOTICES.md .\artifacts\release\THIRD_PARTY_NOTICES.md
+          $pack = '.\artifacts\release\AudioPacks\oxford-3000-en-uk'
+          New-Item -ItemType Directory -Force $pack | Out-Null
+          Copy-Item .\artifacts\audio\*.mp3 $pack
+          Copy-Item .\artifacts\audio\audiopack-manifest.json "$pack\manifest.json"
+          Copy-Item .\artifacts\audio\audio-integrity.tsv "$pack\audio-integrity.tsv"
+
+      - name: Validate packaged EXE, full corpus and offline 2138-ID resolution
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $root = '.\artifacts\release'
+          $pack = "$root\AudioPacks\oxford-3000-en-uk"
+          foreach ($required in @("$root\WordDeck.exe","$root\README_UK.md","$root\THIRD_PARTY_NOTICES.md","$pack\manifest.json","$pack\audio-integrity.tsv")) {
+            if (-not (Test-Path -LiteralPath $required)) { throw "Release file missing: $required" }
+          }
+          $self = Start-Process "$root\WordDeck.exe" -ArgumentList '--self-test' -Wait -PassThru
+          if ($self.ExitCode -ne 0) { throw "Published WordDeck self-test failed: $($self.ExitCode)" }
+          $source = '.\artifacts\published-audio-source.tsv'
+          $export = Start-Process "$root\WordDeck.exe" -ArgumentList @('--export-oxford5000-audio-source',$source) -Wait -PassThru
+          if ($export.ExitCode -ne 0) { throw "Published audio source export failed: $($export.ExitCode)" }
+          $rows = Import-Csv -Delimiter "`t" $source
+          if ($rows.Count -ne 2138) { throw "Published EXE exported $($rows.Count), expected 2138." }
+          $missing = @()
+          foreach ($row in $rows) {
+            $path = Join-Path $pack ($row.entry_id + '.mp3')
+            if (-not (Test-Path -LiteralPath $path) -or (Get-Item -LiteralPath $path).Length -le 512) { $missing += $row.entry_id }
+          }
+          if ($missing.Count -ne 0) { throw "Offline stable-ID resolution missing $($missing.Count) entries." }
+          if ((Get-ChildItem $pack -Filter *.mp3 -File).Count -ne 2138) { throw 'Packaged MP3 count mismatch.' }
+          $integrity = Import-Csv -Delimiter "`t" "$pack\audio-integrity.tsv"
+          $metrics = @{}; foreach ($row in $integrity) { $metrics[$row.metric] = $row.value }
+          foreach ($pair in @{'covered_ids'='2138';'physical_assets'='2138';'missing'='0';'orphan'='0';'duplicate_id_collisions'='0';'corrupt_or_unplayable'='0';'qa_result'='PASS'}) {
+            if ($metrics[$pair.Name] -ne $pair.Value) { throw "Integrity metric failed: $($pair.Name)=$($metrics[$pair.Name])" }
+          }
+          Write-Host 'FIRST-USABLE PACKAGE PASS: complete corpus self-test, 2138/2138 offline MP3 resolution, README and notices present.'
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: WordDeck-v0.1-first-usable-win-x64
+          path: .\artifacts\release\**
+          if-no-files-found: error
+          retention-days: 90
+
+  publish-status:
+    if: always()
+    needs: [generate-audio, package-windows]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@v7
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            const ok = '${{ needs.generate-audio.result }}' === 'success' && '${{ needs.package-windows.result }}' === 'success';
+            await github.rest.repos.createCommitStatus({
+              owner: context.repo.owner, repo: context.repo.repo, sha: context.sha,
+              state: ok ? 'success' : 'failure', context: 'WordDeck first usable audio release',
+              description: ok ? '2138/2138 British AudioPack and Windows first-usable package passed.' : 'First-usable audio/package release failed; inspect exact run.',
+              target_url: `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`
+            });
