@@ -18,10 +18,11 @@ from typing import Iterable
 
 RESULTS = {"1-0", "0-1", "1/2-1/2", "*"}
 TAG_RE = re.compile(r'^\s*\[([A-Za-z0-9_]+)\s+"((?:\\.|[^"\\])*)"\]\s*$')
-MOVE_NUMBER_RE = re.compile(r"^(\d+)\.(\.\.)?$")
+MOVE_NUMBER_RE = re.compile(r"^\d+(?:\.|\.\.\.)$")
+MOVE_NUMBER_SHAPE_RE = re.compile(r"^\d+\.+$")
+MOVE_NUMBER_PREFIX_RE = re.compile(r"^(\d+\.+)(.*)$")
 TAG_NAME_RE = re.compile(r"^[A-Za-z0-9_]+$")
 NAG_RE = re.compile(r"^\$\d+$")
-MOVE_NUMBER_TOKEN_RE = re.compile(r"^\d+\.{1,3}$")
 NAG_SYMBOLS = frozenset({"!", "?", "!!", "??", "!?", "?!"})
 
 # Defensive structural bounds. They are intentionally high enough for real
@@ -74,6 +75,7 @@ class PgnRecoveryCode(str, Enum):
     ORPHAN_RAV = "orphan_rav"
     ORPHAN_ANNOTATION = "orphan_annotation"
     INVALID_ANNOTATION = "invalid_annotation"
+    INVALID_MOVE_NUMBER = "invalid_move_number"
     DROPPED_MOVE_NUMBER = "dropped_move_number"
     POST_RESULT_RAV_TAIL = "post_result_rav_tail"
     ROOT_POST_RESULT_TAIL = "root_post_result_tail"
@@ -194,13 +196,27 @@ def _escape_tag(value: str) -> str:
     return value.replace("\\", "\\\\").replace('"', r'\"')
 
 
+def _is_canonical_numeric_nag(value: str) -> bool:
+    """Return whether *value* is the canonical PGN `$0`..`$255` form."""
+
+    if not NAG_RE.fullmatch(value):
+        return False
+    digits = value[1:]
+    if digits != "0" and digits.startswith("0"):
+        return False
+    return len(digits) <= 3 and int(digits) <= 255
+
+
 def _append_word_tokens(out: list[_Token], value: str) -> None:
     """Split one non-delimiter word into move-number, SAN and NAG tokens."""
 
     if not value:
         return
-    if MOVE_NUMBER_RE.fullmatch(value) or re.fullmatch(r"\d+\.{1,3}", value):
+    if MOVE_NUMBER_RE.fullmatch(value):
         out.append(_Token("MOVE_NUMBER", value))
+        return
+    if MOVE_NUMBER_SHAPE_RE.fullmatch(value):
+        out.append(_Token("INVALID_MOVE_NUMBER", value))
         return
     if value in RESULTS:
         out.append(_Token("RESULT", value))
@@ -208,9 +224,17 @@ def _append_word_tokens(out: list[_Token], value: str) -> None:
     if value in NAG_SYMBOLS:
         out.append(_Token("NAG_SYMBOL", value))
         return
-    prefixed = re.match(r"^(\d+\.{1,3})(.+)$", value)
+    prefixed = MOVE_NUMBER_PREFIX_RE.match(value)
     if prefixed:
-        out.append(_Token("MOVE_NUMBER", prefixed.group(1)))
+        move_number = prefixed.group(1)
+        out.append(
+            _Token(
+                "MOVE_NUMBER"
+                if MOVE_NUMBER_RE.fullmatch(move_number)
+                else "INVALID_MOVE_NUMBER",
+                move_number,
+            )
+        )
         value = prefixed.group(2)
 
     suffix_start = len(value)
@@ -222,8 +246,10 @@ def _append_word_tokens(out: list[_Token], value: str) -> None:
     if value:
         if value in RESULTS:
             kind = "RESULT"
-        elif MOVE_NUMBER_RE.fullmatch(value) or re.fullmatch(r"\d+\.{1,3}", value):
+        elif MOVE_NUMBER_RE.fullmatch(value):
             kind = "MOVE_NUMBER"
+        elif MOVE_NUMBER_SHAPE_RE.fullmatch(value):
+            kind = "INVALID_MOVE_NUMBER"
         else:
             kind = "SAN"
         out.append(_Token(kind, value))
@@ -270,7 +296,21 @@ def tokenize_movetext(text: str) -> list[_Token]:
             while j < n and text[j].isdigit():
                 j += 1
             if j > i + 1:
-                out.append(_Token("NAG", text[i:j])); i = j; continue
+                value = text[i:j]
+                if (
+                    j < n
+                    and not text[j].isspace()
+                    and text[j] not in "{};()$!?"
+                ):
+                    while j < n and not text[j].isspace() and text[j] not in "{};()$":
+                        j += 1
+                    value = text[i:j]
+                    out.append(_Token("INVALID_NAG", value)); i = j; continue
+                out.append(
+                    _Token("NAG" if _is_canonical_numeric_nag(value) else "INVALID_NAG", value)
+                )
+                i = j
+                continue
             while j < n and not text[j].isspace() and text[j] not in "{};()$":
                 j += 1
             out.append(_Token("INVALID_NAG", text[i:j]))
@@ -459,6 +499,17 @@ def _parse_line(
                     token_count=1,
                 )
             pending_number = tok.value
+            pos += 1
+            continue
+        if tok.kind == "INVALID_MOVE_NUMBER":
+            _add_recovery(
+                recovery_issues,
+                warnings,
+                code=PgnRecoveryCode.INVALID_MOVE_NUMBER,
+                message=f"invalid move number {tok.value!r} at depth {depth}",
+                depth=depth,
+                token_count=1,
+            )
             pos += 1
             continue
         if tok.kind in {"NAG", "NAG_SYMBOL"}:
@@ -715,7 +766,7 @@ def _validate_san(san: object) -> None:
         or any(character in "{};()" for character in san)
         or any(character in "!?$" for character in san)
         or san in RESULTS
-        or MOVE_NUMBER_TOKEN_RE.fullmatch(san)
+        or MOVE_NUMBER_SHAPE_RE.fullmatch(san)
         or NAG_RE.fullmatch(san)
         or san in NAG_SYMBOLS
     ):
@@ -732,7 +783,9 @@ def _validate_nags(nags: object) -> None:
             code=GameTreeErrorCode.INVALID_CONTAINER,
         )
     for nag in nags:
-        if not isinstance(nag, str) or not (NAG_RE.fullmatch(nag) or nag in NAG_SYMBOLS):
+        if not isinstance(nag, str) or not (
+            _is_canonical_numeric_nag(nag) or nag in NAG_SYMBOLS
+        ):
             raise GameTreeSerializationError(
                 "move NAG is not representable PGN annotation data",
                 code=GameTreeErrorCode.INVALID_NAG,
@@ -816,7 +869,7 @@ def _validate_line_for_serialization(
         _validate_san(node.san)
         if node.move_number is not None and (
             not isinstance(node.move_number, str)
-            or not MOVE_NUMBER_TOKEN_RE.fullmatch(node.move_number)
+            or not MOVE_NUMBER_RE.fullmatch(node.move_number)
         ):
             raise GameTreeSerializationError(
                 "move_number must be a canonical PGN move-number token",

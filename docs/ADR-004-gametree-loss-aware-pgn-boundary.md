@@ -74,6 +74,13 @@ PGN must never be silently reinterpreted as clean data.
     `invalid_annotation` recovery blocker. Mutable DTOs containing `!`, `?` or
     `$` inside SAN fail serializer validation instead of reintroducing the old
     ambiguity.
+16. Move-number indicators accept only the canonical `n.` and `n...` forms.
+    Other dot runs, including `n..`, create an `invalid_move_number` recovery
+    blocker while the following SAN remains inspectable. Numeric NAGs accept
+    only canonical `$0` through `$255`; leading-zero, out-of-range, oversized,
+    or alphanumeric forms retain their exact token in an `invalid_annotation`
+    issue and block export. Serializer validation applies the same grammar to
+    mutable GameTree DTOs.
 
 ## Compatibility
 
@@ -98,6 +105,11 @@ Mixed multi-game inspection is per-game: a damaged record does not cause a
 clean sibling to be mislabeled. Persistence remains atomic: writing a
 collection containing any unresolved recovery issue produces no partial PGN,
 source row, or game row.
+
+Canonical move numbers and numeric NAGs now have one parser/serializer domain.
+Valid boundary values `$0` and `$255` round-trip; spellings such as `$01`,
+`$256`, `$1bad`, `1..` and `1....` remain visible as damaged source evidence
+and cannot be normalized into a clean database record.
 
 ## Release boundary
 

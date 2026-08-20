@@ -29,7 +29,7 @@ class GameTreeExportValidationTests(unittest.TestCase):
         self.assertEqual(caught.exception.code, code)
 
     def test_mutated_empty_or_structural_san_fails_instead_of_disappearing(self):
-        for invalid in ('', '   ', '1-0', '2...', '$4', 'e4 e5', 'e4)', 'e4!?', 'e4$1'):
+        for invalid in ('', '   ', '1-0', '2...', '2..', '2....', '$4', 'e4 e5', 'e4)', 'e4!?', 'e4$1'):
             game = self.game()
             game.line.moves[0].san = invalid
             with self.subTest(san=invalid):
@@ -44,13 +44,21 @@ class GameTreeExportValidationTests(unittest.TestCase):
         game.tags['Event'] = 'line1\nline2'
         self.assert_serialization_code(game, GameTreeErrorCode.INVALID_TAG)
 
-        game = self.game()
-        game.line.moves[0].nags.append('not-a-nag')
-        self.assert_serialization_code(game, GameTreeErrorCode.INVALID_NAG)
+        for invalid_nag in ('not-a-nag', '$01', '$256', '$999999'):
+            game = self.game()
+            game.line.moves[0].nags.append(invalid_nag)
+            with self.subTest(nag=invalid_nag):
+                self.assert_serialization_code(game, GameTreeErrorCode.INVALID_NAG)
+
+        for invalid_move_number in (1, '1..', '1....'):
+            game = self.game()
+            game.line.moves[0].move_number = invalid_move_number
+            with self.subTest(move_number=invalid_move_number):
+                self.assert_serialization_code(game, GameTreeErrorCode.INVALID_MOVE)
 
         game = self.game()
-        game.line.moves[0].move_number = 1
-        self.assert_serialization_code(game, GameTreeErrorCode.INVALID_MOVE)
+        game.line.moves[0].nags = ['$0', '$255', '!?']
+        self.assertIn('$0 $255 !?', serialize_game(game))
 
         game = self.game()
         game.line.moves = tuple(game.line.moves)

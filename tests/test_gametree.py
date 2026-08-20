@@ -442,6 +442,7 @@ class GameTreeTests(unittest.TestCase):
         sources = (
             '[Result "*"]\n\n1. e4$ *',
             '[Result "*"]\n\n1. e4$bad *',
+            '[Result "*"]\n\n1. e4$1bad *',
             '[Result "*"]\n\n1. e4!!! *',
         )
 
@@ -453,6 +454,47 @@ class GameTreeTests(unittest.TestCase):
                     PgnRecoveryCode.INVALID_ANNOTATION,
                     {issue.code for issue in game.recovery_issues},
                 )
+                with self.assertRaises(GameTreeSerializationError) as blocked:
+                    serialize_games([game])
+                self.assertEqual(blocked.exception.code, GameTreeErrorCode.UNRESOLVED_RECOVERY)
+
+    def test_only_canonical_move_numbers_and_numeric_nag_domain_are_accepted(self):
+        valid = parse_games(
+            '[Result "*"]\n\n1.e4$0 1...e5$255 2.Nf3!?$1 *\n'
+        )[0]
+        self.assertEqual(
+            [(move.san, move.move_number, move.nags) for move in valid.line.moves],
+            [
+                ("e4", "1.", ["$0"]),
+                ("e5", "1...", ["$255"]),
+                ("Nf3", "2.", ["!?", "$1"]),
+            ],
+        )
+        self.assertEqual(valid.recovery_issues, [])
+        reparsed = parse_games(serialize_games([valid]))[0]
+        self.assertEqual(
+            [(move.san, move.move_number, move.nags) for move in reparsed.line.moves],
+            [(move.san, move.move_number, move.nags) for move in valid.line.moves],
+        )
+
+        invalid_cases = (
+            ('[Result "*"]\n\n1.. e4 *', PgnRecoveryCode.INVALID_MOVE_NUMBER, "1.."),
+            ('[Result "*"]\n\n1..e4 *', PgnRecoveryCode.INVALID_MOVE_NUMBER, "1.."),
+            ('[Result "*"]\n\n1....e4 *', PgnRecoveryCode.INVALID_MOVE_NUMBER, "1...."),
+            ('[Result "*"]\n\n1. e4 $256 *', PgnRecoveryCode.INVALID_ANNOTATION, "$256"),
+            ('[Result "*"]\n\n1. e4$01 *', PgnRecoveryCode.INVALID_ANNOTATION, "$01"),
+            ('[Result "*"]\n\n1. e4$1bad *', PgnRecoveryCode.INVALID_ANNOTATION, "$1bad"),
+        )
+        for source, expected_code, original_token in invalid_cases:
+            with self.subTest(source=source):
+                game = parse_games(source)[0]
+                self.assertEqual([move.san for move in game.line.moves], ["e4"])
+                issues = [
+                    issue for issue in game.recovery_issues if issue.code is expected_code
+                ]
+                self.assertEqual(len(issues), 1)
+                self.assertIn(original_token, issues[0].message)
+                self.assertEqual(issues[0].token_count, 1)
                 with self.assertRaises(GameTreeSerializationError) as blocked:
                     serialize_games([game])
                 self.assertEqual(blocked.exception.code, GameTreeErrorCode.UNRESOLVED_RECOVERY)

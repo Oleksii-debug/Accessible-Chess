@@ -50,13 +50,13 @@ def test_comments_and_nags_are_loss_sensitive_for_duplicate_identity():
 
 
 def test_attached_and_separated_nags_have_one_canonical_identity():
-    attached = one('[Result "*"]\n\n1.e4!? e5$1 2.Nf3!! *\n')
-    separated = one('[Result "*"]\n\n1. e4 !? e5 $1 2. Nf3 !! *\n')
+    attached = one('[Result "*"]\n\n1.e4!?$0 e5$255 2.Nf3!! *\n')
+    separated = one('[Result "*"]\n\n1. e4 !? $0 e5 $255 2. Nf3 !! *\n')
 
     assert same_game_tree(attached, separated)
     assert same_game_record(attached, separated)
     assert attached.line.moves[0].san == "e4"
-    assert attached.line.moves[0].nags == ["!?"]
+    assert attached.line.moves[0].nags == ["!?", "$0"]
 
 
 def test_semicolon_comment_identity_survives_pgn_round_trip():
