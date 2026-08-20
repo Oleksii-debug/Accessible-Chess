@@ -1,0 +1,3 @@
+job_status=success
+run_id=32341717710
+sha=dae924aa7427dc5e4bd496ba6895b401392bd6df
