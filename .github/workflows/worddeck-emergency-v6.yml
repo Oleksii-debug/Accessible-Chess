@@ -6,6 +6,7 @@ on:
       - worddeck-bootstrap
     paths:
       - WordDeck/tools/complete_oxford5000_emergency_v6.py
+      - WordDeck/tools/test_oxford5000_emergency_v6.py
       - WordDeck/tools/run_oxford5000_v6_completion.py
       - WordDeck/ReviewedOxford5000Bootstrap.cs
       - WordDeck/WordDeck.csproj
@@ -62,7 +63,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python WordDeck/tools/complete_oxford5000_emergency_v6.py --self-test
+          python WordDeck/tools/test_oxford5000_emergency_v6.py
           python WordDeck/tools/run_oxford5000_v6_completion.py
 
       - name: Publish final V6 status
