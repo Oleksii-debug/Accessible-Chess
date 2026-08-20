@@ -66,3 +66,21 @@ jobs:
           path: competitor-results/windows/**
           if-no-files-found: error
           retention-days: 14
+
+  scid-windows:
+    name: Scid 5.2 portable/UIA/keyboard probe
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run Scid portable probe
+        shell: powershell
+        run: ./tools/competitor_lab/windows_scid_probe.ps1
+      - name: Upload Scid Windows evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: scid-windows-evidence
+          path: competitor-results/windows-scid/**
+          if-no-files-found: error
+          retention-days: 14
