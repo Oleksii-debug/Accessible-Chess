@@ -1,0 +1,10 @@
+{
+  "blocked": 1134,
+  "first_pass_run_id": "MANUAL_EMERGENCY_WORK_20260820_FIRST_PASS_V7_round02",
+  "pass": 2,
+  "round_id": "round02",
+  "second_pass_run_id": "MANUAL_EMERGENCY_WORK_20260820_SECOND_PASS_V7_round02",
+  "sense_bound_policy": "surface MT never sole PASS; Wiktionary trans-top gloss must align to Oxford sense; canonical Ukrainian lemma required",
+  "total": 1136,
+  "version": "V7"
+}

@@ -12,7 +12,7 @@ internal static class ReviewedOxford5000Bootstrap
     private const int StandardSliceRows = 29;
     private const int HistoricalDeploymentMajorOrder = 2004;
     private const int VerifiedPostMutualRows = 28;
-    public const int ExpectedCanonicalRows = 1002;
+    public const int ExpectedCanonicalRows = 1004;
 
     private static readonly Dictionary<string, string> PosAbbreviations = new(StringComparer.Ordinal)
     {
@@ -110,6 +110,9 @@ internal static class ReviewedOxford5000Bootstrap
         AppendVerifiedSlice(result, "oxford5000_source_after_deployment_c1_0001_0029.tsv", StandardSliceRows, 9999);
 
         AppendVerifiedSlice(result, "oxford5000_source_after_manual_v7_round01_manual-emergency-work-20260820-second-pa_cp0001_rows_0020.tsv", 20, 10000);
+
+
+        AppendVerifiedSlice(result, "oxford5000_source_after_manual_v7_round02_manual-emergency-work-20260820-second-pa_cp0001_rows_0002.tsv", 2, 10001);
 
         result = result.OrderBy(row => row.MajorOrder).ThenBy(row => row.MinorOrder).ToList();
         if (result.Count != ExpectedCanonicalRows)
