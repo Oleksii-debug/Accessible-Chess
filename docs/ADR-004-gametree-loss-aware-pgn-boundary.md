@@ -49,6 +49,11 @@ PGN must never be silently reinterpreted as clean data.
     create a phantom game.
 11. Comments after a root or nested result marker remain ordered trailing
     comments and round-trip in their original syntax.
+12. A result marker terminates its current RAV. If a damaged nested RAV contains
+    more move, annotation, or variation tokens before its closing parenthesis,
+    the parser consumes that bounded tail inside the damaged child and emits an
+    explicit depth-qualified quarantine warning. Those tokens can never leak
+    into the parent mainline or become sibling variations.
 
 ## Compatibility
 
@@ -57,6 +62,12 @@ Semicolon comments become more faithful: their syntax is no longer normalized
 to braces. Header/movetext mismatches remain visibly mismatched instead of being
 silently repaired. Callers that construct impossible comments now receive a
 stable, actionable error rather than corrupted output.
+
+Post-result tokens inside a malformed nested RAV are excluded from the
+canonical recovered GameTree and reported as quarantined. Re-serializing such a
+warning-quality game currently emits only the recovered structure. A separate
+fail-closed export blocker for quarantined source fragments remains required
+before that damaged input can be described as lossless round-trip support.
 
 Game identity schema v1 does not change: `CommentStyle` values serialize to the
 same `brace` and `semicolon` strings already used by the identity payload.

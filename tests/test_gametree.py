@@ -318,6 +318,43 @@ class GameTreeTests(unittest.TestCase):
         )
         self.assertEqual(reparsed.line.trailing_comments, original.line.trailing_comments)
 
+    def test_tokens_after_nested_result_are_quarantined_from_parent_state(self):
+        source = (
+            '[Event "Damaged nested RAV"]\n'
+            '[Result "*"]\n\n'
+            '1. e4 '
+            '(1. d4 * {valid tail} 1... d5 (2. c4 c6) 2. Nf3) '
+            'e5 2. Nf3 *\n'
+        )
+
+        game = parse_games(source)[0]
+
+        self.assertEqual([move.san for move in game.line.moves], ["e4", "e5", "Nf3"])
+        self.assertEqual(
+            [move.san for move in game.line.moves[0].variations[0].moves],
+            ["d4"],
+        )
+        self.assertEqual(
+            [comment.text for comment in game.line.moves[0].variations[0].trailing_comments],
+            ["valid tail"],
+        )
+        self.assertTrue(
+            any(
+                "after result quarantined inside variation at depth 1" in warning
+                for warning in game.warnings
+            )
+        )
+        self.assertFalse(any("unterminated variation" in warning for warning in game.warnings))
+        self.assertFalse(any("unmatched closing parenthesis" in warning for warning in game.warnings))
+
+        # The malformed child tail must never be re-parented into the canonical
+        # mainline or appear after the variation on serialization.
+        serialized = serialize_games([game])
+        reparsed = parse_games(serialized)[0]
+        self.assertEqual([move.san for move in reparsed.line.moves], ["e4", "e5", "Nf3"])
+        self.assertNotIn("d5", [move.san for move in reparsed.line.moves])
+        self.assertNotIn("c4", [move.san for move in reparsed.line.moves])
+
 
 if __name__ == '__main__':
     unittest.main()

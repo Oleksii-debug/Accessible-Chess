@@ -196,6 +196,30 @@ def _claim_parse_node(budget: list[int]) -> None:
         )
 
 
+def _quarantine_after_nested_result(tokens: list[_Token], pos: int) -> tuple[int, int]:
+    """Advance to this variation's closing parenthesis without state leakage.
+
+    A result marker terminates a RAV line. Damaged sources sometimes contain
+    more moves or complete nested RAVs before the closing parenthesis. Returning
+    at the first post-result token would let the caller reinterpret that tail as
+    parent-line moves. Keep the current RPAREN for the caller, but consume every
+    token nested inside this variation and report the bounded damaged tail.
+    """
+
+    start = pos
+    child_depth = 0
+    while pos < len(tokens):
+        kind = tokens[pos].kind
+        if kind == "LPAREN":
+            child_depth += 1
+        elif kind == "RPAREN":
+            if child_depth == 0:
+                break
+            child_depth -= 1
+        pos += 1
+    return pos, pos - start
+
+
 def _parse_line(
     tokens: list[_Token],
     pos: int = 0,
@@ -292,6 +316,12 @@ def _parse_line(
                     )
                 )
                 pos += 1
+            if nested and pos < len(tokens) and tokens[pos].kind != "RPAREN":
+                pos, quarantined = _quarantine_after_nested_result(tokens, pos)
+                warnings.append(
+                    f"{quarantined} token(s) after result quarantined "
+                    f"inside variation at depth {depth}"
+                )
             break
         if tok.kind == "SAN":
             _claim_parse_node(budget)  # MoveNode
