@@ -181,3 +181,5 @@ jobs:
           gh api --method POST "repos/${{ github.repository }}/actions/workflows/windows-stage1-strict-release-crossprocess.yml/dispatches" -f ref='qa/windows-current-integration-candidate-20260815'
           if($LASTEXITCODE -ne 0){throw 'Strict workflow dispatch failed'}
           'STRICT WORKFLOW DISPATCHED'
+
+# Retriggered after Drive/Audit handoff verification on 2026-08-20.
