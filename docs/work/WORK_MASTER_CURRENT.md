@@ -1,23 +1,23 @@
 # Accessible Chess — Work Master Current
 
-Updated: `2026-08-20T12:14:09Z`
+Updated: `2026-08-20T12:44:57Z`
 
 ## Recovery pointer
 
 - `CURRENT_BRANCH`: `completion/full-product-critical-path-20260819`
 - `START_SHA`: `588058634b378793b3c9aa0dca113af6b8a2dc8f`
-- `CURRENT_REMOTE_SHA`: `1794bf391b2d0258cbfbd37068c7fd6531917194`
-- `LAST_SAFE_SHA`: `1794bf391b2d0258cbfbd37068c7fd6531917194`
+- `CURRENT_REMOTE_SHA`: `23bf915508a5f42a6e4606369fe99dd878caefa0`
+- `LAST_SAFE_SHA`: `23bf915508a5f42a6e4606369fe99dd878caefa0`
 - `INTEGRATION_SHA`: `e8cd992d306975955784118364ce950963133d7e`
 - `QA_SHA`: `07971835cb8fc294996165e577913ed350ae9f0e`
 - `RESEARCH_SHA`: `0213f54f3f36fb30379f95c9979aea3a1cc41481`
-- `COMPLETION_SHA`: `1794bf391b2d0258cbfbd37068c7fd6531917194`
+- `COMPLETION_SHA`: `23bf915508a5f42a6e4606369fe99dd878caefa0`
 - `COMPETITOR_EVIDENCE_BRANCH`: `research/competitor-interaction-lab-20260820`
 - `COMPETITOR_EVIDENCE_SHA`: `0213f54f3f36fb30379f95c9979aea3a1cc41481`
 - `CURRENT_STAGE1_STATE`: `PRODUCT CHECKPOINT READY — central rank/file actions plus Stockfish analysis/play are implemented; exact Windows/NVDA acceptance remains open`
 - `CURRENT_OWNER`: `WORK_MASTER — completion product/core/contracts; Windows QA and human NVDA evidence remain QA-owned`
-- `CURRENT_PRIORITY`: `Return exact Stage 1 product SHA to QA, then finish professional analysis/books/training while the human gate is pending; Classroom remains last`
-- `CURRENT_SUBSYSTEM`: `ACSDB v3 migration/catalog/recovery complete; professional analysis and books/training next`
+- `CURRENT_PRIORITY`: `Finish books/training and remaining non-Classroom product stages while the human gate is pending; Classroom remains last`
+- `CURRENT_SUBSYSTEM`: `Professional Stockfish analysis workspace complete; books/training next`
 - `STATUS`: `WIP_SAFE — PRODUCT TESTS PASS; WINDOWS/NVDA PENDING`
 - `NVDA_VERIFIED`: `NO`
 
@@ -44,6 +44,28 @@ All four branch heads were verified live with `git ls-remote` on 2026-08-20. Git
 - Do not merge the research branch wholesale. Do not copy competitor installers, fake download artifacts, or incidental screenshots into product history.
 
 ## Last safe product result
+
+Commit `cfabaee522b7f00752986fe868f4db555ace77b2` completes the
+professional Stockfish analysis workspace on the shared production runtime:
+
+- every provider PV is replayed legally from its exact target FEN and only
+  canonical SAN reaches the WebView or speech path; raw UCI and provider
+  exception/path text cannot become user-facing fallbacks;
+- bounded MultiPV/depth settings, restart, selected PV, previous/next PV and
+  target lock/follow are exposed through semantic controls, the central action
+  registry and the native Analysis menu;
+- temporary PV exploration renders validated positions without mutating the
+  canonical board or history, blocks accidental game mutation and returns to
+  the exact source node;
+- explicit Insert Move/Insert Line revalidates the frozen line and adds or
+  reuses a non-active branch without changing the main line or review cursor;
+- same-FEN restart/reconfiguration clears the prior analysis result before the
+  replacement revision can publish.
+
+The exact product tree is `c035d541b939a5b68a94b91feed4cd43c1e7ed24`.
+Commit `23bf915508a5f42a6e4606369fe99dd878caefa0` adds the final central
+advanced-action default assertions; its exact tree is
+`cf77758db3f59377f47d26af8bc8b050ede21336`.
 
 Commit `1794bf391b2d0258cbfbd37068c7fd6531917194` ports ACSDB v3 onto
 the hardened completion line without merging the legacy data branch:
@@ -102,6 +124,7 @@ Commit `6751827396283674a933a0b5c0c6142f6817a636` activates the Stage 1 game-aga
 - Commit `60ff50d6053c48d8e3308447324cb266b2561ff4` resolves both Stage 1 rank/file PRODUCT failures by registering all 16 actions centrally and generating Help from their live bindings.
 - Exact Stage 1 engine-play tree at `6751827396283674a933a0b5c0c6142f6817a636`: broad unittest `877/877` passed; full pytest `965 passed` plus `1959 subtests`; JavaScript parse, compileall and `git diff --check` passed. The remote tree SHA `38e70a7166adfd32ae1a48159cfe576875864a6b` exactly matches the tested local tree. No commit-associated GitHub workflow/status check was emitted for this push.
 - Exact ACSDB v3 tree at `1794bf391b2d0258cbfbd37068c7fd6531917194`: broad unittest `889/889` passed; full pytest `977 passed` plus `1965 subtests`; focused pre-v3 ACSDB/search/duplicate/data regression `48/48` passed; compileall and `git diff --check` passed. The remote tree SHA `9b9d485b970f5bfe06c70d988d94d56e752ecc9b` exactly matches the tested local tree. The v3 vertical includes a 600-game catalog corpus, verified v2 backup, injected migration rollback, stale-index fail-closed duplicate proof and recovery-copy reopen.
+- Exact professional-analysis tree at `cfabaee522b7f00752986fe868f4db555ace77b2`: focused analysis/history/keymap/WebView/native-menu/Stage1 regression `187/187` passed with `178` subtests; broad unittest `900/900` passed; full pytest `991 passed` plus `1973` subtests; JavaScript parse, compileall and `git diff --check` passed. Final action-registry assertion commit `23bf915508a5f42a6e4606369fe99dd878caefa0` changes tests only.
 - Competitor lab run `32342624286`: five jobs completed successfully and published compact evidence to `0213f54...`.
 
 ## Known failures and blockers
@@ -126,10 +149,9 @@ Commit `6751827396283674a933a0b5c0c6142f6817a636` activates the Stage 1 game-aga
 
 ## Next exact action
 
-Return Stage 1 product SHA `6751827396283674a933a0b5c0c6142f6817a636`
-to the QA-owned Windows candidate line without changing its workflows. While
-the exact Windows/NVDA gate is pending, inspect the current professional engine
-analysis, books and training surfaces against the canonical product/UX
-contracts; close the highest-risk persistence, lifecycle, accessibility and
-Windows composition gaps before adapting Teacher/Classroom. Preserve the new
-ACSDB v3 boundary and keep Classroom/remote work last.
+Inspect and complete the current BookDocument, BookReader and Training surfaces
+against the canonical product/UX contracts. Close legality, source-anchor,
+progress-persistence, reveal-policy, accessibility and composition gaps before
+adapting Teacher/Classroom. Preserve the ACSDB v3 and professional-analysis
+boundaries, do not change QA-owned workflows, and keep Classroom/remote work
+last.
