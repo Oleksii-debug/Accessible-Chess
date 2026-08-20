@@ -14,8 +14,10 @@ separately and are not licenses for this project.
   `acs/chessbase_cbt.py`, plus later modules that explicitly cite the same
   pinned source.
 - Excluded: the upstream `python-chess` runtime dependency and any GPL code.
-- Capability boundary: these adaptations do not currently decode classic CBG
-  move or variation tokens and do not establish full ChessBase compatibility.
+- Capability boundary: the neutral CBG layer frames pinned-source candidate and
+  variation-control tokens, but does not decode them into chess moves,
+  positions, annotations, legality, or a GameTree and does not establish full
+  ChessBase compatibility.
 
 The following notice is reproduced from the pinned upstream `LICENSE` file:
 

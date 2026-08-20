@@ -75,7 +75,19 @@ _CAPABILITIES = (
         surface="classic-cbg-opaque-payload",
         status="PARTIAL",
         evidence="Declared payload boundaries, exact bytes, and SHA-256 can be preserved.",
-        limitations=("Payload tokens have no move, variation, annotation, or legality semantics.",),
+        limitations=("Opaque bytes alone carry no move, annotation, or legality semantics.",),
+    ),
+    ChessBaseCapability(
+        surface="classic-cbg-token-framing",
+        status="PARTIAL",
+        evidence=(
+            "Bounded pinned-source de-obfuscation identifies exact one-byte, "
+            "two-byte, control, filler, null-candidate, and final-token frames."
+        ),
+        limitations=(
+            "Candidate values are not decoded into chess moves or positions.",
+            "Balanced control framing is not a GameTree or legality claim.",
+        ),
     ),
     ChessBaseCapability(
         surface="classic-integrity-verified-evidence-window",

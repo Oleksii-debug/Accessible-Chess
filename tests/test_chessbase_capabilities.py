@@ -25,6 +25,7 @@ class ChessBaseCapabilityReportTests(unittest.TestCase):
         by_surface = {item.surface: item for item in chessbase_capabilities()}
 
         self.assertEqual(by_surface["classic-cbg-opaque-payload"].status, "PARTIAL")
+        self.assertEqual(by_surface["classic-cbg-token-framing"].status, "PARTIAL")
         self.assertEqual(
             by_surface["classic-integrity-verified-evidence-window"].status,
             "PARTIAL",

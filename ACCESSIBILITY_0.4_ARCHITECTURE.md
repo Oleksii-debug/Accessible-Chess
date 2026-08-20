@@ -20,6 +20,12 @@ promote/reorder/delete. It binds an address to an expected record revision and
 returns a complete immutable cursor remap, so stale commands or deleted branch
 contexts cannot silently land on a different node.
 
+The proprietary ChessBase boundary remains replaceable and read-only.
+`acs.chessbase_cbg_tokens` may prove bounded token/control framing over an exact
+SHA-256 payload, but candidate values never bypass the canonical Position,
+legality, GameTree, and provenance services. Framing alone keeps both decoder
+availability and import safety false.
+
 The UI uses ordinary HTML headings, text, buttons, edit fields, labels, live regions and landmarks so the screen reader consumes a real document instead of a canvas/listbox simulation.
 
 ## NVDA interaction contract

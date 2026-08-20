@@ -54,6 +54,7 @@ CHESSBASE_READ_ONLY_MODULES = (
     'acs/chessbase_cbg.py',
     'acs/chessbase_cbg_payload.py',
     'acs/chessbase_cbg_payload_evidence.py',
+    'acs/chessbase_cbg_tokens.py',
     'acs/chessbase_cbp.py',
     'acs/chessbase_cbt.py',
     'acs/chessbase_cbh_cbg_link.py',

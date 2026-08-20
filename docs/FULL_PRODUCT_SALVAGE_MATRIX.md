@@ -55,6 +55,7 @@ work and must be evaluated directly.
 | Classic CBP players / CBT tournaments | `PARTIAL` | Evidence-backed fixed-record metadata projection with isolated failures | Versions outside the proven set and broader metadata fields. |
 | Classic CBG header and custom setup | `PARTIAL` | Declared-length bounds, unsupported flag rejection, fixed custom-position prefix and setup-piece token decoding | Move/variation token decoding and canonical Position/GameTree projection. |
 | Classic CBG move payload | `PARTIAL` as opaque evidence | Exact bounded payload span and SHA-256 evidence are preserved | Moves, variations and annotations are not decoded. |
+| Classic CBG token framing | `PARTIAL` | Exact counter de-obfuscation and one-byte/two-byte/control/null-candidate/filler/final boundaries; balanced variation controls; 100,000-token and 128-depth hard limits | Candidate values are not projected to pieces, squares, positions, legal moves, annotations, or a canonical GameTree. |
 | Classic CBH+CBG+CBP+CBT batch/file projection | `PARTIAL` | Per-record success/skip/failure isolation, exact source evidence, bounded windows, deterministic neutral reports | No canonical GameTree import yet because the move stream is opaque. |
 | CBV archive/container | `UNSUPPORTED` | Recognized distinctly from CBH component families | Safe archive enumeration/extraction, format validation and nested-source limits. |
 | CBF, 2CBH, CBONE | `UNSUPPORTED` | Filename family recognition only | Evidence-backed decoders and fixtures. |
@@ -82,11 +83,12 @@ The completion line now contains the hardened PGN/GameTree parser, legality,
 navigation, editing, provenance, and generated adversarial composition layers.
 The remaining dependency-safe order is:
 
-1. Continue the self-contained read-only classic ChessBase metadata/evidence
-   stack; keep `decoder_available=False` wherever moves remain opaque and stop
-   at the first evidence boundary rather than guessing proprietary bytes.
-2. Add only an evidence-backed CBG move-token decoder slice behind a replaceable
-   adapter, with bounded resource use and canonical GameTree output.
+1. Preserve the now-complete bounded classic ChessBase metadata/evidence and
+   token-framing stack; keep `decoder_available=False` and
+   `safe_to_import=False` while candidate bytes remain unmapped.
+2. Defer canonical CBG move/position/GameTree projection until a licensed real
+   fixture corpus can prove the mapping, legality, variations, annotations, and
+   round-trip behavior without importing the reference GPL runtime.
 3. Port ACSDB v3 while reapplying every current v2 validation, transaction, and
    literal-search invariant; prove migration backup, rollback, and recovery.
 4. Finish professional engine analysis, books/training, and Windows product
@@ -95,6 +97,6 @@ The remaining dependency-safe order is:
    last. Android, iOS, standalone PWA, and standalone Web products are outside
    the canonical Windows-only product scope.
 
-The next atomic implementation checkpoint remains item 1. It must not change
+The next dependency-safe implementation checkpoint is item 3. It must not change
 `NVDA_VERIFIED`, create a Stage 1 ZIP, modify QA-owned strict harnesses, or merge
 this completion line into the Stage 1 release lineage.
