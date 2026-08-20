@@ -234,6 +234,35 @@ class ReviewHistoryTests(unittest.TestCase):
         self.assertEqual(caught.exception.code, HistoryErrorCode.INVALID_COMMAND)
         self.assertEqual(history.current(), before)
 
+    def test_nonactivating_branch_insert_is_atomic_idempotent_and_preserves_cursor(self):
+        history = self.make_history(2)
+        origin = history.current()
+        active_before = history.active_line()
+        branch = (
+            PositionSnapshot("branch-3", san="c3", side="w", last_move="c3"),
+            PositionSnapshot("branch-4", san="c6", side="b", last_move="c6"),
+        )
+
+        inserted = history.append_branch(origin.node_id, branch)
+
+        self.assertEqual(inserted.created_count, 2)
+        self.assertEqual(history.current(), origin)
+        self.assertEqual(history.active_line(), active_before)
+        self.assertEqual(history.node_count, 5)
+
+        repeated = history.append_branch(origin.node_id, branch)
+        self.assertEqual(repeated.created_count, 0)
+        self.assertEqual(repeated.node_ids, inserted.node_ids)
+        self.assertEqual(history.node_count, 5)
+        self.assertEqual(history.current(), origin)
+
+        before = history.export_tree()
+        for invalid in ([], (), (object(),)):
+            with self.subTest(invalid=invalid):
+                with self.assertRaises(HistoryError):
+                    history.append_branch(origin.node_id, invalid)
+                self.assertEqual(history.export_tree(), before)
+
 
 if __name__ == "__main__":
     unittest.main()

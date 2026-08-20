@@ -29,6 +29,7 @@ class HistoryError(ValueError):
 
 
 HISTORY_TREE_SCHEMA_VERSION = 1
+MAX_BRANCH_INSERT_PLIES = 1024
 
 
 def _freeze_context_value(value: Any, *, path: str = "context") -> Any:
@@ -118,6 +119,15 @@ class HistoryTreeSnapshot:
     cursor_node_id: int
 
 
+@dataclass(frozen=True)
+class HistoryBranchInsert:
+    """Evidence returned after a non-activating branch insertion."""
+
+    origin_node_id: int
+    node_ids: tuple[int, ...]
+    created_count: int
+
+
 @dataclass
 class _Node:
     snapshot: PositionSnapshot
@@ -198,6 +208,72 @@ class ReviewHistory:
         self._cursor = node_id
         self._activate_lineage(node_id)
         return self.current()
+
+    def append_branch(
+        self,
+        parent_node_id: int,
+        snapshots: tuple[PositionSnapshot, ...],
+    ) -> HistoryBranchInsert:
+        """Insert or reuse one branch without moving the review cursor.
+
+        All snapshots are detached and validated before the first mutation.  An
+        existing chess-identical child is reused, so repeating an explicit
+        engine-line insertion cannot create duplicate sibling branches.  The
+        active line and current cursor remain byte-for-byte equivalent from the
+        caller's perspective.
+        """
+
+        if type(parent_node_id) is not int:
+            raise HistoryError(
+                "branch parent node ID must be an exact integer",
+                code=HistoryErrorCode.INVALID_COMMAND,
+            )
+        if parent_node_id < 0 or parent_node_id >= len(self._nodes):
+            raise HistoryError(
+                "branch parent node does not exist",
+                code=HistoryErrorCode.OUT_OF_RANGE,
+            )
+        if type(snapshots) is not tuple or not snapshots:
+            raise HistoryError(
+                "branch insertion requires a non-empty snapshot tuple",
+                code=HistoryErrorCode.INVALID_SNAPSHOT,
+            )
+        if len(snapshots) > MAX_BRANCH_INSERT_PLIES:
+            raise HistoryError(
+                "branch insertion exceeds the ply safety limit",
+                code=HistoryErrorCode.INVALID_SNAPSHOT,
+            )
+        if any(not isinstance(snapshot, PositionSnapshot) for snapshot in snapshots):
+            raise HistoryError(
+                "branch insertion contains an invalid snapshot",
+                code=HistoryErrorCode.INVALID_SNAPSHOT,
+            )
+        prepared = tuple(self._copy_snapshot(snapshot) for snapshot in snapshots)
+
+        current = parent_node_id
+        node_ids: list[int] = []
+        created_count = 0
+        for snapshot in prepared:
+            parent = self._nodes[current]
+            matches = [
+                child_id
+                for child_id in parent.children
+                if self._same_chess_snapshot(self._nodes[child_id].snapshot, snapshot)
+            ]
+            if matches:
+                current = (
+                    parent.active_child
+                    if parent.active_child in matches
+                    else matches[0]
+                )
+            else:
+                current = len(self._nodes)
+                self._nodes.append(_Node(snapshot, parent_node_id if not node_ids else node_ids[-1]))
+                parent.children.append(current)
+                created_count += 1
+            node_ids.append(current)
+
+        return HistoryBranchInsert(parent_node_id, tuple(node_ids), created_count)
 
     def previous(self) -> ReviewSelection:
         parent = self._nodes[self._cursor].parent
@@ -395,6 +471,15 @@ class ReviewHistory:
             side=snapshot.side,
             last_move=snapshot.last_move,
             context=snapshot.context,
+        )
+
+    @staticmethod
+    def _same_chess_snapshot(left: PositionSnapshot, right: PositionSnapshot) -> bool:
+        return (
+            left.fen == right.fen
+            and left.san == right.san
+            and left.side == right.side
+            and left.last_move == right.last_move
         )
 
     @classmethod

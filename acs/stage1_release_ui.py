@@ -678,6 +678,9 @@ class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
         initial_minutes: int = 0,
         increment_seconds: int = 0,
     ) -> dict[str, Any]:
+        blocked = self._temporary_exploration_error()
+        if blocked is not None:
+            return blocked
         if self._engine_play_service is None:
             return self._concise_error(
                 "Stockfish для гри недоступний.",

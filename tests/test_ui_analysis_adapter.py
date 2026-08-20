@@ -1,12 +1,15 @@
 from types import SimpleNamespace
 import unittest
 
+from acs.chesscore import Board
 from acs.engine_ports import EngineContractError, EngineContractErrorCode
 from acs.ui_analysis_adapter import (
     AnalysisPresentation,
     AnalysisPresentationAdapter,
     AnalysisPresentationLine,
 )
+
+START_FEN = Board.START
 
 
 class FakePresentationService:
@@ -24,6 +27,8 @@ class FakePresentationService:
         self.close_count = 0
         self.fail_start = False
         self.fail_update = False
+        self.fail_configure = False
+        self.configures = []
 
     def start(self, fen, multipv=5, depth=16):
         if self.fail_start:
@@ -46,6 +51,15 @@ class FakePresentationService:
         self.stop_count += 1
         self.current.running = False
         return self.stop_count
+
+    def configure(self, *, multipv=None, depth=None):
+        if self.fail_configure:
+            raise RuntimeError("configure failed")
+        self.configures.append((multipv, depth))
+        self.current.multipv = multipv
+        self.current.depth = depth
+        self.current.last_result = None
+        return len(self.configures)
 
     def close(self):
         self.close_count += 1
@@ -201,9 +215,9 @@ class AnalysisPresentationAdapterTests(unittest.TestCase):
     def test_projection_accepts_bounded_structural_and_dictionary_lines(self):
         service = FakePresentationService()
         adapter = AnalysisPresentationAdapter(service, multipv=2, depth=18)
-        adapter.enable("fen-a")
+        adapter.enable(START_FEN)
         service.current.last_result = structural_result(
-            "fen-a",
+            START_FEN,
             (
                 SimpleNamespace(
                     multipv=1,
@@ -222,15 +236,16 @@ class AnalysisPresentationAdapterTests(unittest.TestCase):
             ),
         )
 
-        snapshot = adapter.snapshot("fen-a")
+        snapshot = adapter.snapshot(START_FEN)
 
         self.assertEqual(len(snapshot.lines), 2)
         self.assertIsInstance(snapshot.lines[0], AnalysisPresentationLine)
         self.assertEqual(snapshot.lines[1].score_kind, "mate")
         self.assertEqual(
             snapshot.as_dict()["lines"][0]["pv"],
-            ["e2e4", "e7e5"],
+            ["e4", "e5"],
         )
+        self.assertEqual(len(snapshot.lines[0].position_fens), 2)
 
     def test_stale_and_error_results_suppress_untrusted_lines(self):
         service = FakePresentationService()
@@ -299,9 +314,9 @@ class AnalysisPresentationAdapterTests(unittest.TestCase):
     def test_text_commands_validate_index_language_and_fen(self):
         service = FakePresentationService()
         adapter = AnalysisPresentationAdapter(service)
-        adapter.enable("fen")
+        adapter.enable(START_FEN)
         service.current.last_result = structural_result(
-            "fen",
+            START_FEN,
             (
                 SimpleNamespace(
                     multipv=1,
@@ -313,21 +328,21 @@ class AnalysisPresentationAdapterTests(unittest.TestCase):
             ),
         )
 
-        self.assertIn("Варіант 1", adapter.read_pv(1, "fen", lang="uk"))
-        self.assertIn("Variation 1", adapter.read_pv(1, "fen", lang="en"))
-        self.assertIn("Оцінка", adapter.evaluation_text("fen", lang="uk"))
-        self.assertIn("e2e4", adapter.best_move_text("fen", lang="en"))
+        self.assertIn("Варіант 1", adapter.read_pv(1, START_FEN, lang="uk"))
+        self.assertIn("Variation 1", adapter.read_pv(1, START_FEN, lang="en"))
+        self.assertIn("Оцінка", adapter.evaluation_text(START_FEN, lang="uk"))
+        self.assertIn("e 4", adapter.best_move_text(START_FEN, lang="en"))
 
         for index in (True, "1", 1.0):
             with self.subTest(index=index):
                 with self.assertRaises(EngineContractError) as caught:
-                    adapter.read_pv(index, "fen")
+                    adapter.read_pv(index, START_FEN)
                 self.assertEqual(
                     caught.exception.code,
                     EngineContractErrorCode.INVALID_REQUEST,
                 )
         with self.assertRaises(EngineContractError) as language_error:
-            adapter.read_pv(1, "fen", lang="fr")
+            adapter.read_pv(1, START_FEN, lang="fr")
         self.assertEqual(
             language_error.exception.code,
             EngineContractErrorCode.INVALID_REQUEST,
@@ -338,6 +353,100 @@ class AnalysisPresentationAdapterTests(unittest.TestCase):
             fen_error.exception.code,
             EngineContractErrorCode.INVALID_REQUEST,
         )
+
+    def test_uci_is_legality_checked_then_projected_only_as_san(self):
+        service = FakePresentationService()
+        adapter = AnalysisPresentationAdapter(service)
+        adapter.enable(START_FEN)
+        service.current.last_result = structural_result(
+            START_FEN,
+            (
+                SimpleNamespace(
+                    multipv=1,
+                    depth=20,
+                    score_kind="cp",
+                    score_value=27,
+                    pv=("e2e4", "e7e5", "g1f3"),
+                ),
+            ),
+        )
+
+        snapshot = adapter.snapshot(START_FEN)
+
+        self.assertEqual(snapshot.lines[0].pv, ("e4", "e5", "Nf3"))
+        self.assertNotIn("e2e4", str(snapshot.as_dict()))
+        self.assertEqual(len(snapshot.lines[0].position_fens), 3)
+
+        service.current.last_result = structural_result(
+            START_FEN,
+            (
+                SimpleNamespace(
+                    multipv=1,
+                    depth=20,
+                    score_kind="cp",
+                    score_value=27,
+                    pv=("e2e5",),
+                ),
+            ),
+        )
+        with self.assertRaises(EngineContractError) as caught:
+            adapter.snapshot(START_FEN)
+        self.assertEqual(caught.exception.code, EngineContractErrorCode.INVALID_RESULT)
+
+    def test_lock_configuration_and_temporary_exploration_preserve_target(self):
+        service = FakePresentationService()
+        adapter = AnalysisPresentationAdapter(service)
+        adapter.enable(START_FEN)
+        service.current.last_result = structural_result(
+            START_FEN,
+            (
+                SimpleNamespace(
+                    multipv=1,
+                    depth=18,
+                    score_kind="cp",
+                    score_value=34,
+                    pv=("e2e4", "e7e5"),
+                ),
+            ),
+        )
+        after_e4 = Board(START_FEN)
+        after_e4.push_text("e4")
+
+        adapter.lock_target()
+        locked = adapter.snapshot(after_e4.fen())
+        self.assertTrue(locked.target_locked)
+        self.assertFalse(locked.stale)
+        self.assertEqual(locked.fen, START_FEN)
+
+        first = adapter.begin_exploration(after_e4.fen())
+        self.assertEqual(first.san, "e4")
+        second = adapter.step_exploration(1)
+        self.assertEqual(second.san, "e5")
+        self.assertEqual(adapter.snapshot(after_e4.fen()).exploration_ply, 2)
+        adapter.return_from_exploration()
+
+        adapter.unlock_target(after_e4.fen())
+        self.assertEqual(service.updates[-1], after_e4.fen())
+        self.assertFalse(adapter.target_locked)
+
+        adapter.configure(multipv=3, depth=24)
+        self.assertEqual(service.configures[-1], (3, 24))
+        configured = adapter.snapshot(after_e4.fen())
+        self.assertEqual((configured.multipv, configured.depth), (3, 24))
+
+    def test_provider_details_never_cross_user_bridge_or_spoken_text(self):
+        service = FakePresentationService()
+        adapter = AnalysisPresentationAdapter(service)
+        adapter.enable(START_FEN)
+        secret = r"C:\\Users\\person\\engine.exe: provider offline"
+        service.current.last_result = structural_result(START_FEN, error=secret)
+
+        snapshot = adapter.snapshot(START_FEN)
+
+        self.assertEqual(snapshot.error, secret)
+        self.assertEqual(snapshot.as_dict()["error"], "engine_error")
+        self.assertNotIn(secret, adapter.read_pv(1, START_FEN, lang="uk"))
+        self.assertEqual(adapter.read_pv(1, START_FEN, lang="uk"), "Помилка Stockfish.")
 
 
 if __name__ == "__main__":

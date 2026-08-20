@@ -69,6 +69,37 @@ class ContinuousAnalysisTests(unittest.TestCase):
             self.assertEqual(engine.calls[-1], ('fen-a', 5, 22)); self.assertEqual(len(results[-1].lines), 5)
         finally: service.close()
 
+    def test_reconfigure_clears_same_fen_result_until_new_revision_finishes(self):
+        release_second = threading.Event()
+        second_started = threading.Event()
+
+        class DelayedReconfigureEngine(RecordingEngine):
+            def analyze(self, fen, multipv=5, depth=16):
+                self.calls.append((fen, multipv, depth))
+                if len(self.calls) == 2:
+                    second_started.set()
+                    release_second.wait(timeout=2)
+                return [(depth, ("cp", len(self.calls)), [fen]) for _ in range(multipv)]
+
+        engine = DelayedReconfigureEngine()
+        service = ContinuousAnalysisService(AnalysisService(lambda: engine))
+        try:
+            service.start("fen-a", multipv=2, depth=8)
+            self.assertTrue(wait_until(lambda: service.state().last_result is not None))
+
+            service.configure(multipv=3, depth=22)
+            self.assertTrue(second_started.wait(timeout=1))
+
+            pending = service.state()
+            self.assertIsNone(pending.last_result)
+            self.assertEqual((pending.multipv, pending.depth), (3, 22))
+            release_second.set()
+            self.assertTrue(wait_until(lambda: service.state().last_result is not None))
+            self.assertEqual(service.state().last_result.lines[0].depth, 22)
+        finally:
+            release_second.set()
+            service.close()
+
     def test_stop_invalidates_in_flight_work_and_restart_is_clean(self):
         gate = threading.Event(); engine = RecordingEngine(gate); results = []
         service = ContinuousAnalysisService(AnalysisService(lambda: engine), results.append)

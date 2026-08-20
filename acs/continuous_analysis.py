@@ -155,6 +155,7 @@ class ContinuousAnalysisService:
             self._fen = fen
             self._multipv = multipv
             self._depth = depth
+            self._last_result = None
             self._revision += 1
             revision = self._revision
             self._pending = (revision, self._fen, multipv, depth)
@@ -170,6 +171,7 @@ class ContinuousAnalysisService:
                 raise RuntimeError("continuous analysis is not running")
             self._analysis.invalidate(fen)
             self._fen = fen
+            self._last_result = None
             self._revision += 1
             revision = self._revision
             self._pending = (revision, self._fen, self._multipv, self._depth)
@@ -187,6 +189,7 @@ class ContinuousAnalysisService:
                 self._analysis.invalidate(self._fen)
             self._multipv = new_multipv
             self._depth = new_depth
+            self._last_result = None
             self._revision += 1
             revision = self._revision
             if self._running and self._fen is not None:
@@ -200,6 +203,7 @@ class ContinuousAnalysisService:
                 return self._revision
             self._running = False
             self._pending = None
+            self._last_result = None
             self._revision += 1
             revision = self._revision
             self._analysis.invalidate(None)
@@ -213,6 +217,7 @@ class ContinuousAnalysisService:
             self._closed = True
             self._running = False
             self._pending = None
+            self._last_result = None
             self._revision += 1
             self._analysis.invalidate(None)
             self._condition.notify_all()
