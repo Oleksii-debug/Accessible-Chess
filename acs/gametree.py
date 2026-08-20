@@ -17,7 +17,10 @@ import re
 from typing import Iterable
 
 RESULTS = {"1-0", "0-1", "1/2-1/2", "*"}
-TAG_RE = re.compile(r'^\s*\[([A-Za-z0-9_]+)\s+"((?:\\.|[^"\\])*)"\]\s*$')
+TAG_RE = re.compile(r'^\s*\[([A-Za-z0-9_]+)\s+"((?:\\["\\]|[^"\\])*)"\]\s*$')
+TAG_CANDIDATE_RE = re.compile(
+    r'^\s*\[([A-Za-z0-9_]+)\s+"((?:\\.|[^"\\])*)"\]\s*$'
+)
 MOVE_NUMBER_RE = re.compile(r"^\d+(?:\.|\.\.\.)$")
 MOVE_NUMBER_SHAPE_RE = re.compile(r"^\d+\.+$")
 MOVE_NUMBER_PREFIX_RE = re.compile(r"^(\d+\.+)(.*)$")
@@ -69,6 +72,8 @@ class CommentStyle(str, Enum):
 
 class PgnRecoveryCode(str, Enum):
     DUPLICATE_TAG = "duplicate_tag"
+    INVALID_TAG_ESCAPE = "invalid_tag_escape"
+    MALFORMED_TAG = "malformed_tag"
     UNTERMINATED_BRACE_COMMENT = "unterminated_brace_comment"
     UNMATCHED_CLOSING_RAV = "unmatched_closing_rav"
     UNTERMINATED_RAV = "unterminated_rav"
@@ -189,7 +194,24 @@ class _Token:
 
 
 def _unescape_tag(value: str) -> str:
-    return value.replace(r'\"', '"').replace(r"\\", "\\")
+    decoded: list[str] = []
+    index = 0
+    while index < len(value):
+        character = value[index]
+        if character != "\\" or index + 1 >= len(value):
+            decoded.append(character)
+            index += 1
+            continue
+        escaped = value[index + 1]
+        if escaped in {'"', "\\"}:
+            decoded.append(escaped)
+        else:
+            # A permissive candidate tag may contain an unsupported escape.
+            # Preserve both code points as source evidence; its structured
+            # recovery issue prevents clean serialization.
+            decoded.extend(("\\", escaped))
+        index += 2
+    return "".join(decoded)
 
 
 def _escape_tag(value: str) -> str:
@@ -621,34 +643,61 @@ def _brace_comment_state_after_line(line: str, inside_comment: bool) -> bool:
     return inside_comment
 
 
-def _split_games(text: str) -> list[tuple[dict[str, str], str, list[str]]]:
+def _split_games(
+    text: str,
+) -> list[tuple[dict[str, str], str, list[PgnRecoveryIssue]]]:
     lines = text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
-    games: list[tuple[dict[str, str], str, list[str]]] = []
+    games: list[tuple[dict[str, str], str, list[PgnRecoveryIssue]]] = []
     tags: dict[str, str] = {}
     moves: list[str] = []
-    split_warnings: list[str] = []
+    split_issues: list[PgnRecoveryIssue] = []
     seen_movetext = False
     inside_brace_comment = False
 
     def flush() -> None:
-        nonlocal tags, moves, split_warnings, seen_movetext, inside_brace_comment
-        if tags or any(x.strip() for x in moves):
-            games.append((tags, "\n".join(moves).strip(), split_warnings))
+        nonlocal tags, moves, split_issues, seen_movetext, inside_brace_comment
+        if tags or any(x.strip() for x in moves) or split_issues:
+            games.append((tags, "\n".join(moves).strip(), split_issues))
         tags = {}
         moves = []
-        split_warnings = []
+        split_issues = []
         seen_movetext = False
         inside_brace_comment = False
 
     for line in lines:
         m = None if inside_brace_comment else TAG_RE.match(line)
-        if m:
+        candidate = None if inside_brace_comment else TAG_CANDIDATE_RE.match(line)
+        if m or candidate:
             if seen_movetext:
                 flush()
-            key = m.group(1)
+            tag_match = m or candidate
+            assert tag_match is not None
+            key = tag_match.group(1)
             if key in tags:
-                split_warnings.append(f"duplicate tag {key}; last value preserved")
-            tags[key] = _unescape_tag(m.group(2))
+                split_issues.append(
+                    PgnRecoveryIssue(
+                        code=PgnRecoveryCode.DUPLICATE_TAG,
+                        message=f"duplicate tag {key}; last value preserved",
+                    )
+                )
+            if m is None:
+                split_issues.append(
+                    PgnRecoveryIssue(
+                        code=PgnRecoveryCode.INVALID_TAG_ESCAPE,
+                        message=f"tag {key} contains unsupported escape in {line!r}",
+                    )
+                )
+            tags[key] = _unescape_tag(tag_match.group(2))
+            continue
+        if not inside_brace_comment and line.lstrip().startswith("["):
+            if seen_movetext:
+                flush()
+            split_issues.append(
+                PgnRecoveryIssue(
+                    code=PgnRecoveryCode.MALFORMED_TAG,
+                    message=f"malformed tag line {line!r}",
+                )
+            )
             continue
         if line.strip():
             seen_movetext = True
@@ -664,19 +713,11 @@ def _split_games(text: str) -> list[tuple[dict[str, str], str, list[str]]]:
 
 def parse_games(text: str) -> list[PgnGame]:
     games: list[PgnGame] = []
-    for index, (tags, movetext, split_warnings) in enumerate(_split_games(text)):
+    for index, (tags, movetext, split_issues) in enumerate(_split_games(text)):
         tokens = tokenize_movetext(movetext)
-        recovery_issues: list[PgnRecoveryIssue] = []
-        for warning in split_warnings:
-            if warning.startswith("duplicate tag "):
-                recovery_issues.append(
-                    PgnRecoveryIssue(
-                        code=PgnRecoveryCode.DUPLICATE_TAG,
-                        message=warning,
-                    )
-                )
+        recovery_issues = list(split_issues)
         line, pos, warnings = _parse_line(tokens, recovery_issues=recovery_issues)
-        warnings[:0] = split_warnings
+        warnings[:0] = [issue.message for issue in split_issues]
         if pos < len(tokens):
             remaining = len(tokens) - pos
             _add_recovery(

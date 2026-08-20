@@ -1,23 +1,23 @@
 # Accessible Chess — Work Master Current
 
-Updated: `2026-08-20T09:20:49Z`
+Updated: `2026-08-20T09:27:08Z`
 
 ## Recovery pointer
 
 - `CURRENT_BRANCH`: `completion/full-product-critical-path-20260819`
 - `START_SHA`: `588058634b378793b3c9aa0dca113af6b8a2dc8f`
-- `CURRENT_REMOTE_SHA`: `7406890575c70f73616128c12668123eca292c0a`
-- `LAST_SAFE_SHA`: `7406890575c70f73616128c12668123eca292c0a`
+- `CURRENT_REMOTE_SHA`: `06021892fcd8081c2be11c2debce1c251ee2e742`
+- `LAST_SAFE_SHA`: `06021892fcd8081c2be11c2debce1c251ee2e742`
 - `INTEGRATION_SHA`: `e8cd992d306975955784118364ce950963133d7e`
 - `QA_SHA`: `07971835cb8fc294996165e577913ed350ae9f0e`
 - `RESEARCH_SHA`: `0213f54f3f36fb30379f95c9979aea3a1cc41481`
-- `COMPLETION_SHA`: `7406890575c70f73616128c12668123eca292c0a`
+- `COMPLETION_SHA`: `06021892fcd8081c2be11c2debce1c251ee2e742`
 - `COMPETITOR_EVIDENCE_BRANCH`: `research/competitor-interaction-lab-20260820`
 - `COMPETITOR_EVIDENCE_SHA`: `0213f54f3f36fb30379f95c9979aea3a1cc41481`
 - `CURRENT_STAGE1_STATE`: `BLOCKED — Issues #14 and #22 open; classification does not authorize a product-source change`
 - `CURRENT_OWNER`: `WORK_MASTER — completion/shared-core/spec/test hardening only; Windows QA remains QA-owned`
 - `CURRENT_PRIORITY`: `Isolated shared-core PGN/GameTree corruption and recovery hardening`
-- `CURRENT_SUBSYSTEM`: canonical move-number and numeric-NAG grammar
+- `CURRENT_SUBSYSTEM`: loss-aware tag-pair grammar and game isolation
 - `STATUS`: `WIP_SAFE`
 - `NVDA_VERIFIED`: `NO`
 
@@ -69,6 +69,7 @@ Commit `11b92a1e827bf66f8075ac7f3571ae20b908c1af` added integrity-verified bound
 - Local all-lossy-warning verification after `05ca9e8`: `72 passed`, `96 subtests passed`; broad unittest `800/800` passed. Duplicate tags, unterminated structures, unmatched/orphan RAVs, orphan annotations, dropped move numbers and root post-result tails all produce structured blocking recovery, while fully preserved Result warnings remain exportable.
 - Local attached-NAG verification after `a7a0150`: broad unittest `802/802` passed; focused `57 tests`, `58 subtests` passed. Attached symbolic/numeric annotations are separated from SAN, preserve mixed order, round-trip through nested RAVs and share identity with spaced equivalents; malformed forms are `invalid_annotation` blockers.
 - Local canonical-token verification after `7406890`: broad unittest `803/803` passed; focused GameTree/PGN/concurrency/identity/ACSDB `76 tests`, `117 subtests` passed. Only `n.`/`n...` move numbers and canonical `$0`..`$255` numeric NAGs remain clean; invalid forms preserve their exact token in structured blocking recovery evidence.
+- Local tag-pair verification after `0602189`: broad unittest `806/806` passed; focused GameTree/PGN/concurrency/identity/ACSDB `79 tests`, `120 subtests` passed. Only supported quote/backslash escapes are clean; unsupported escapes and malformed tag-looking lines remain structured blockers attached to one damaged game while clean siblings stay independent.
 - Competitor lab run `32342624286`: five jobs completed successfully and published compact evidence to `0213f54...`.
 
 ## Known failures and blockers
@@ -78,7 +79,7 @@ Commit `11b92a1e827bf66f8075ac7f3571ae20b908c1af` added integrity-verified bound
 3. Strict Windows run `32220453450`: BLOCKED / NO PRODUCT ATTRIBUTION YET at native Ctrl+A/Ctrl+C; QA owns the focused evidence pass.
 4. Canonical ChessBase CBG move/variation/annotation decoding remains `UNSUPPORTED`; real licensed fixture corpus is absent; CBV/CBF/2CBH/CBONE content remains `UNSUPPORTED`.
 5. Full licensed ChessBase/Fritz interactive/NVDA execution remains unavailable. Robot evidence must not be labelled `NVDA_VERIFIED`.
-6. Tag-pair lexical recovery still needs an exact audit: only PGN-supported quote/backslash escapes may be accepted as clean, malformed tag-looking lines must remain bounded to their game, and parse/serialize identity must not erase evidence.
+6. Direct `parse_games` and file-level PGN opening still read/tokenize unbounded text before the existing tree-node/depth guards can act. Explicit byte, character, token, game, header and per-field ceilings need stable failure codes and before-allocation tests.
 
 ## Current ownership and invariants
 
@@ -91,4 +92,4 @@ Commit `11b92a1e827bf66f8075ac7f3571ae20b908c1af` added integrity-verified bound
 
 ## Next exact action
 
-Commit and checkpoint canonical move-number/NAG grammar, then audit tag-pair escape parsing and malformed tag-looking line recovery. Require exact non-loss evidence, per-game isolation, serializer symmetry and bounded input behavior before legality linking. Do not change the Stage 1 product or QA line. If Issue #14 transfers a PRODUCT fix, stop shared-core work and make the minimum central rank/file Action Registry plus live-Help repair before returning the exact SHA to QA.
+Commit and checkpoint tag-pair recovery, then add explicit PGN resource ceilings at direct-parser and file boundaries before whole-input tokenization: bytes/characters, tokens, games, tags, tag/comment/token length and exported payload. Prove stable codes, no partial file writes, normal large fixtures, and per-game behavior before legality linking. Do not change the Stage 1 product or QA line. If Issue #14 transfers a PRODUCT fix, stop shared-core work and make the minimum central rank/file Action Registry plus live-Help repair before returning the exact SHA to QA.

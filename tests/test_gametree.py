@@ -173,6 +173,81 @@ class GameTreeTests(unittest.TestCase):
                 reparsed = parse_games(serialize_games([game]))[0]
                 self.assertEqual(reparsed.tags["Event"], value)
 
+    def test_tag_pair_escape_grammar_is_exact_and_loss_aware(self):
+        valid_source = (
+            r'[Event "quote: \" slash: \\"]' "\n"
+            '[Result "*"]\n\n'
+            '1. e4 *\n'
+        )
+        valid = parse_games(valid_source)[0]
+        self.assertEqual(valid.tags["Event"], 'quote: " slash: \\')
+        self.assertEqual(valid.recovery_issues, [])
+        self.assertEqual(
+            parse_games(serialize_games([valid]))[0].tags["Event"],
+            valid.tags["Event"],
+        )
+
+        invalid_escape = parse_games(
+            r'[Event "literal \q escape"]' "\n"
+            '[Result "*"]\n\n'
+            '1. e4 *\n'
+        )[0]
+        self.assertEqual(invalid_escape.tags["Event"], r"literal \q escape")
+        self.assertEqual(
+            [issue.code for issue in invalid_escape.recovery_issues],
+            [PgnRecoveryCode.INVALID_TAG_ESCAPE],
+        )
+        self.assertIn(r"\q", invalid_escape.recovery_issues[0].message)
+        with self.assertRaises(GameTreeSerializationError) as blocked:
+            serialize_games([invalid_escape])
+        self.assertEqual(blocked.exception.code, GameTreeErrorCode.UNRESOLVED_RECOVERY)
+
+    def test_malformed_tag_lines_stay_with_their_bounded_game(self):
+        malformed_lines = (
+            '[Event "unterminated]',
+            '[Bad-Name "unsupported name"]',
+            '[Event "closed"] trailing junk',
+        )
+        for malformed in malformed_lines:
+            with self.subTest(line=malformed):
+                game = parse_games(
+                    malformed + '\n'
+                    '[Result "*"]\n\n'
+                    '1. e4 *\n'
+                )[0]
+                self.assertEqual([move.san for move in game.line.moves], ["e4"])
+                issues = [
+                    issue
+                    for issue in game.recovery_issues
+                    if issue.code is PgnRecoveryCode.MALFORMED_TAG
+                ]
+                self.assertEqual(len(issues), 1)
+                self.assertIn(malformed, issues[0].message)
+                with self.assertRaises(GameTreeSerializationError) as blocked:
+                    serialize_games([game])
+                self.assertEqual(
+                    blocked.exception.code,
+                    GameTreeErrorCode.UNRESOLVED_RECOVERY,
+                )
+
+        collection = parse_games(
+            '[Event "Clean"]\n'
+            '[Result "*"]\n\n'
+            '1. e4 *\n\n'
+            '[Event "broken]\n'
+            '[Result "*"]\n\n'
+            '1. d4 *\n'
+        )
+        self.assertEqual(len(collection), 2)
+        self.assertEqual([move.san for move in collection[0].line.moves], ["e4"])
+        self.assertEqual(collection[0].recovery_issues, [])
+        self.assertEqual([move.san for move in collection[1].line.moves], ["d4"])
+        self.assertEqual(
+            [issue.code for issue in collection[1].recovery_issues],
+            [PgnRecoveryCode.MALFORMED_TAG],
+        )
+        self.assertEqual([game.source_index for game in collection], [0, 1])
+
     def test_unrepresentable_or_unknown_comment_data_fails_with_stable_codes(self):
         with self.assertRaises(GameTreeContractError) as unknown_style:
             Comment("text", "future-style")

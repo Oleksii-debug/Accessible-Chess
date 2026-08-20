@@ -158,6 +158,40 @@ class PgnFileServiceTests(unittest.TestCase):
         self.assertTrue(any("orphan annotation" in warning for warning in report.records[0].warnings))
         self.assertEqual(report.records[1].warnings, ())
 
+    def test_tag_damage_is_bounded_per_game_during_import_inspection(self):
+        collection = (
+            r'[Event "unsupported \q escape"]' "\n"
+            '[Result "*"]\n\n'
+            '1. e4 *\n\n'
+            '[Event "unterminated]\n'
+            '[Result "*"]\n\n'
+            '1. d4 *\n\n'
+            '[Event "Clean"]\n'
+            '[Result "*"]\n\n'
+            '1. c4 *\n'
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "tag-damage.pgn"
+            path.write_text(collection, encoding="utf-8")
+            report = PgnFileImporter().inspect(path)
+
+        self.assertEqual(
+            [record.source_record_id for record in report.records],
+            ["0", "1", "2"],
+        )
+        self.assertEqual(
+            [record.quality for record in report.records],
+            [ImportQuality.DAMAGED, ImportQuality.DAMAGED, ImportQuality.FULL],
+        )
+        self.assertTrue(
+            any("unsupported escape" in warning for warning in report.records[0].warnings)
+        )
+        self.assertTrue(
+            any("malformed tag line" in warning for warning in report.records[1].warnings)
+        )
+        self.assertEqual(report.records[2].warnings, ())
+
 
 if __name__ == "__main__":
     unittest.main()

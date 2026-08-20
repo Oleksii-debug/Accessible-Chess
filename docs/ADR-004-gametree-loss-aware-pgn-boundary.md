@@ -81,6 +81,13 @@ PGN must never be silently reinterpreted as clean data.
     or alphanumeric forms retain their exact token in an `invalid_annotation`
     issue and block export. Serializer validation applies the same grammar to
     mutable GameTree DTOs.
+17. Tag-pair decoding accepts only PGN's `\"` and `\\` escapes as clean.
+    A syntactically tag-shaped line with any other escape keeps the intended
+    tag value for inspection, preserves the unsupported spelling in an
+    `invalid_tag_escape` issue, and blocks export. Other lines beginning with
+    `[` outside a brace comment create a `malformed_tag` blocker rather than
+    becoming SAN. A damaged header starts or remains with exactly one bounded
+    game, so clean sibling records retain independent quality.
 
 ## Compatibility
 
@@ -110,6 +117,11 @@ Canonical move numbers and numeric NAGs now have one parser/serializer domain.
 Valid boundary values `$0` and `$255` round-trip; spellings such as `$01`,
 `$256`, `$1bad`, `1..` and `1....` remain visible as damaged source evidence
 and cannot be normalized into a clean database record.
+
+Valid tag values containing quotes and backslashes retain their decoded value
+through parse/serialize cycles. Unsupported escapes and malformed tag lines
+remain in structured source diagnostics and cannot become clean movetext,
+phantom moves, or silently normalized headers.
 
 ## Release boundary
 
