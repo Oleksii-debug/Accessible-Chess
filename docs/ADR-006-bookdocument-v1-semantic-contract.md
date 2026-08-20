@@ -1,6 +1,7 @@
 # ADR-006: BookDocument v1 semantic serialization contract
 
-Status: accepted for the presentation-neutral books/training foundation.
+Status: accepted historical foundation; v2 legality and product behavior are
+superseded by ADR-029.
 
 ## Context
 

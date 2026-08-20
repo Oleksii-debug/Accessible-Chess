@@ -121,7 +121,7 @@ class BookDocumentTests(unittest.TestCase):
             BOOK_DOCUMENT_SCHEMA_VERSION,
         )
 
-        for invalid_version in (True, "1", 2, -1):
+        for invalid_version in (True, "1", 3, -1):
             with self.subTest(version=invalid_version):
                 with self.assertRaises(BookDocumentError) as caught:
                     BookDocument.from_dict(
@@ -179,8 +179,62 @@ class BookDocumentTests(unittest.TestCase):
                     BookDocumentErrorCode.INVALID_FIELD,
                 )
 
-        four_field = Position(fen="8/8/8/8/8/8/8/8 b - -")
-        self.assertEqual(four_field.fen, "8/8/8/8/8/8/8/8 b - -")
+        four_field = Position(fen="8/8/8/8/8/8/4K3/7k b - -")
+        self.assertEqual(four_field.fen, "8/8/8/8/8/8/4K3/7k b - -")
+
+    def test_fen_requires_a_playable_canonical_position(self):
+        invalid_fens = (
+            "8/8/8/8/8/8/8/8 w - - 0 1",
+            "8/8/8/8/8/8/8/4Kk2 w - - 0 1",
+            "7k/8/8/8/8/8/8/K6R w - - 0 1",
+            "7k/8/8/8/8/8/8/K7 w - e6 0 1",
+        )
+        for fen in invalid_fens:
+            with self.subTest(fen=fen):
+                with self.assertRaises(BookDocumentError):
+                    Position(fen=fen)
+
+    def test_embedded_pgn_is_exactly_one_lossless_legal_game(self):
+        Game(pgn='[Result "*"]\n\n1. e4 e5 *')
+
+        invalid_games = (
+            '1. e4 e5 2. Bh6 *',
+            '1. e4 (1... e5 *',
+            '[Result "*"]\n\n1. e4 *\n\n[Result "*"]\n\n1. d4 *',
+        )
+        for pgn in invalid_games:
+            with self.subTest(pgn=pgn):
+                with self.assertRaises(BookDocumentError) as caught:
+                    Game(pgn=pgn)
+                self.assertEqual(
+                    caught.exception.code,
+                    BookDocumentErrorCode.INVALID_CHESS_CONTENT,
+                )
+
+    def test_variation_and_exercise_solutions_are_linked_from_exact_root(self):
+        root = "8/8/8/8/8/8/8/K6k w - - 0 1"
+        VariationTree(root_fen=root, pgn="1. Ka2 *")
+        Exercise(fen=root, prompt="Move", solution_pgn="1. Ka2 *")
+
+        for construct in (
+            lambda: VariationTree(root_fen=root, pgn="1. Ka3 *"),
+            lambda: Exercise(fen=root, prompt="Move", solution_pgn="1. Ka3 *"),
+            lambda: VariationTree(
+                root_fen=root,
+                pgn='[SetUp "1"]\n[FEN "7k/8/8/8/8/8/8/K7 w - - 0 1"]\n\n1. Ka2 *',
+            ),
+            lambda: VariationTree(
+                root_fen=root,
+                pgn='[FEN "8/8/8/8/8/8/8/K6k w - - 0 1"]\n\n1. Ka2 *',
+            ),
+        ):
+            with self.subTest(construct=construct):
+                with self.assertRaises(BookDocumentError) as caught:
+                    construct()
+                self.assertEqual(
+                    caught.exception.code,
+                    BookDocumentErrorCode.INVALID_CHESS_CONTENT,
+                )
 
     def test_game_and_optional_metadata_require_exact_types(self):
         for invalid_id in (True, False, "7", 7.0, -1):

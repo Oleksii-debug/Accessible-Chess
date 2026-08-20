@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 from typing import Any, Callable
 
+from .acsdb import AcsDatabase
 from .analysis_service import AnalysisService
 from .continuous_analysis import ContinuousAnalysisService
 from .engine_play_service import EnginePlayService
@@ -34,12 +35,17 @@ def _settings_path() -> Path:
     return _user_root() / "settings.json"
 
 
+def _database_path() -> Path:
+    return _user_root() / "library.acsdb"
+
+
 def create_release_api(
     *,
     application_dir: str | Path | None = None,
     runtime_factory: Callable[[StockfishRuntimeConfig], Any] = StockfishRuntime,
     sound_playback: Any | None = None,
     settings_path: str | Path | None = None,
+    database_path: str | Path | None = None,
 ):
     """Compose one shared Stockfish provider, persisted settings and sound runtime.
 
@@ -53,7 +59,23 @@ def create_release_api(
     continuous = ContinuousAnalysisService(analysis)
     engine_play = EnginePlayService(runtime.provider, owns_engine=False)
 
-    settings = Settings(Path(settings_path) if settings_path is not None else _settings_path())
+    resolved_settings_path = Path(settings_path) if settings_path is not None else _settings_path()
+    settings = Settings(resolved_settings_path)
+    resolved_database_path = (
+        Path(database_path)
+        if database_path is not None
+        else (
+            resolved_settings_path.parent / "library.acsdb"
+            if settings_path is not None
+            else (
+                _database_path()
+                if os.environ.get("LOCALAPPDATA") or application_dir is None
+                else app_dir / ".accessible-chess-data" / "library.acsdb"
+            )
+        )
+    )
+    resolved_database_path.parent.mkdir(parents=True, exist_ok=True)
+    database = AcsDatabase(resolved_database_path)
     playback = sound_playback
     if playback is None:
         playback = WindowsSoundPlaybackAdapter(
@@ -72,6 +94,8 @@ def create_release_api(
         sound_runtime=sound_runtime,
         settings=settings,
         engine_play_service=engine_play,
+        database=database,
+        owns_database=True,
     )
     return api, runtime
 

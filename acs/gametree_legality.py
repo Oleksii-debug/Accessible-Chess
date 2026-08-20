@@ -11,7 +11,7 @@ including nested RAV branches, while leaving the source GameTree untouched.
 from dataclasses import dataclass
 from enum import Enum
 
-from .chesscore import Board, Move, sq_name
+from .chesscore import Board, Move, sq_name, validate_fen_semantics
 from .gametree import (
     MAX_TREE_NODES,
     MAX_VARIATION_DEPTH,
@@ -245,25 +245,6 @@ def _claim_node(state: dict[str, object]) -> None:
         )
 
 
-def _validate_fen_semantics(board: Board) -> None:
-    previous_side = "b" if board.turn == "w" else "w"
-    if board.in_check(previous_side):
-        raise ValueError("side not to move is already in check")
-    if board.ep is None:
-        return
-    target = board.ep
-    if board.board[target] is not None:
-        raise ValueError("en-passant target is occupied")
-    if board.turn == "w":
-        pawn_square, origin_square, pawn = target - 8, target + 8, "p"
-    else:
-        pawn_square, origin_square, pawn = target + 8, target - 8, "P"
-    if board.board[pawn_square] != pawn or board.board[origin_square] is not None:
-        raise ValueError("en-passant target lacks a matching double pawn move")
-    if board.halfmove != 0:
-        raise ValueError("en-passant target requires a zero halfmove clock")
-
-
 def _starting_board(
     game: PgnGame,
     diagnostics: list[LegalityDiagnostic],
@@ -305,7 +286,7 @@ def _starting_board(
 
     try:
         board = Board(fen) if fen is not None else Board()
-        _validate_fen_semantics(board)
+        validate_fen_semantics(board)
     except (TypeError, ValueError) as exc:
         diagnostics.append(
             LegalityDiagnostic(

@@ -1,6 +1,7 @@
 import unittest
 
 from acs.bookdocument import (
+    BOOK_DOCUMENT_SCHEMA_VERSION,
     BookDocument,
     BookDocumentError,
     BookDocumentErrorCode,
@@ -10,7 +11,7 @@ from acs.bookdocument import (
 )
 
 
-FEN = '8/8/8/8/8/8/8/8 w - - 0 1'
+FEN = '8/8/8/8/8/8/4K3/7k w - - 0 1'
 
 
 class BookDocumentExportValidationTests(unittest.TestCase):
@@ -71,7 +72,7 @@ class BookDocumentExportValidationTests(unittest.TestCase):
             document.extend([good, bad])
         self.assertEqual(document.blocks, [])
 
-    def test_valid_document_round_trip_still_uses_schema_v1(self):
+    def test_valid_document_round_trip_uses_current_schema(self):
         document = BookDocument(
             'Book',
             language='uk',
@@ -81,7 +82,7 @@ class BookDocumentExportValidationTests(unittest.TestCase):
         payload = document.as_dict()
         restored = BookDocument.from_dict(payload)
         self.assertEqual(restored.as_dict(), payload)
-        self.assertEqual(payload['schema_version'], 1)
+        self.assertEqual(payload['schema_version'], BOOK_DOCUMENT_SCHEMA_VERSION)
 
     def test_normalizable_mutations_export_one_canonical_wire_payload(self):
         heading = Heading(

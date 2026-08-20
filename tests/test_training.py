@@ -1,4 +1,7 @@
 import unittest
+from unittest.mock import patch
+
+import acs.training as training_module
 
 from acs.training import (
     TRAINING_SNAPSHOT_SCHEMA_VERSION,
@@ -6,6 +9,7 @@ from acs.training import (
     ExerciseSession,
     ExerciseStatus,
     ExerciseStep,
+    SolutionRevealPolicy,
     TrainingError,
     TrainingErrorCode,
 )
@@ -15,10 +19,10 @@ class ExerciseSessionTests(unittest.TestCase):
     def make_definition(self):
         return ExerciseDefinition(
             "mate-001",
-            "7k/6pp/8/8/8/8/6PP/7K w - - 0 1",
+            "7k/8/8/8/8/8/6R1/6K1 w - - 0 1",
             (
-                ExerciseStep(frozenset({"Qh6"}), hint="Look for a forcing queen move", explanation="Create the mating net."),
-                ExerciseStep(frozenset({"Qg7#", "Qg7++"}), hint="Finish on g7", explanation="Checkmate."),
+                ExerciseStep(frozenset({"Rh2+"}), hint="Use the open file", explanation="Force the king away."),
+                ExerciseStep(frozenset({"Kg8", "Kg8!"}), hint="Leave the rook file", explanation="The line is complete."),
             ),
             title="Two-step tactic",
             tags=("Mate", "Calculation"),
@@ -30,17 +34,42 @@ class ExerciseSessionTests(unittest.TestCase):
         self.assertEqual(definition.tags, ("mate", "calculation"))
         self.assertEqual(definition.source_id, "local-pack-1")
 
+    def test_definition_wire_roundtrip_revalidates_legal_solution(self):
+        definition = self.make_definition()
+        self.assertEqual(
+            ExerciseDefinition.from_dict(definition.as_dict()).as_dict(),
+            definition.as_dict(),
+        )
+        payload = definition.as_dict()
+        payload["steps"][0]["accepted_moves"] = ["Rh3"]
+        with self.assertRaises(TrainingError):
+            ExerciseDefinition.from_dict(payload)
+
+    def test_definition_linking_has_a_bounded_operation_envelope(self):
+        with patch.object(training_module, "MAX_TRAINING_LINK_OPERATIONS", 0):
+            with self.assertRaises(TrainingError) as caught:
+                ExerciseDefinition(
+                    "bounded",
+                    "7k/8/8/8/8/8/6R1/6K1 w - - 0 1",
+                    (ExerciseStep(frozenset({"Rh2+"})),),
+                )
+        self.assertEqual(caught.exception.code, TrainingErrorCode.INVALID_DEFINITION)
+
     def test_correct_move_advances_exactly_one_step(self):
         session = ExerciseSession(self.make_definition())
-        result = session.submit("  Qh6  ")
+        result = session.submit("  Rh2+  ")
         self.assertTrue(result.accepted)
         self.assertEqual(result.step_index, 1)
         self.assertEqual(result.status, ExerciseStatus.IN_PROGRESS)
-        self.assertEqual(result.explanation, "Create the mating net.")
+        self.assertEqual(result.explanation, "Force the king away.")
+        self.assertEqual(
+            result.position_fen,
+            "7k/8/8/8/8/8/7R/6K1 b - - 1 1",
+        )
 
     def test_incorrect_move_does_not_advance(self):
         session = ExerciseSession(self.make_definition())
-        result = session.submit("Qh5")
+        result = session.submit("Rh3")
         self.assertFalse(result.accepted)
         self.assertEqual(result.step_index, 0)
         self.assertEqual(session.step_index, 0)
@@ -49,16 +78,16 @@ class ExerciseSessionTests(unittest.TestCase):
 
     def test_multiple_accepted_moves_can_complete_step(self):
         session = ExerciseSession(self.make_definition())
-        session.submit("Qh6")
-        result = session.submit("Qg7++")
+        session.submit("Rh2+")
+        result = session.submit("Kg8!")
         self.assertTrue(result.accepted)
         self.assertTrue(result.completed)
         self.assertEqual(result.status, ExerciseStatus.COMPLETED)
 
     def test_completed_session_rejects_extra_submission(self):
         session = ExerciseSession(self.make_definition())
-        session.submit("Qh6")
-        session.submit("Qg7#")
+        session.submit("Rh2+")
+        session.submit("Kg8")
         with self.assertRaisesRegex(ValueError, "already completed"):
             session.submit("Kh2")
 
@@ -73,8 +102,8 @@ class ExerciseSessionTests(unittest.TestCase):
     def test_reset_restores_clean_session_state(self):
         session = ExerciseSession(self.make_definition())
         session.request_hint()
-        session.submit("Qh5")
-        session.submit("Qh6")
+        session.submit("Rh3")
+        session.submit("Rh2+")
         session.reset()
         self.assertEqual(session.status, ExerciseStatus.READY)
         self.assertEqual(session.step_index, 0)
@@ -86,8 +115,8 @@ class ExerciseSessionTests(unittest.TestCase):
         definition = self.make_definition()
         session = ExerciseSession(definition)
         session.request_hint()
-        session.submit("Qh5")
-        session.submit("Qh6")
+        session.submit("Rh3")
+        session.submit("Rh2+")
         restored = ExerciseSession.restore(definition, session.snapshot())
         self.assertEqual(restored.step_index, 1)
         self.assertEqual(restored.attempts, 2)
@@ -208,12 +237,12 @@ class ExerciseSessionTests(unittest.TestCase):
 
     def test_step_requires_exact_move_container_and_text_metadata(self):
         cases = (
-            lambda: ExerciseStep({"Qh6"}),
-            lambda: ExerciseStep(["Qh6"]),
-            lambda: ExerciseStep("Qh6"),
+            lambda: ExerciseStep({"Rh2+"}),
+            lambda: ExerciseStep(["Rh2+"]),
+            lambda: ExerciseStep("Rh2+"),
             lambda: ExerciseStep(frozenset({True})),
-            lambda: ExerciseStep(frozenset({"Qh6"}), hint=""),
-            lambda: ExerciseStep(frozenset({"Qh6"}), explanation=7),
+            lambda: ExerciseStep(frozenset({"Rh2+"}), hint=""),
+            lambda: ExerciseStep(frozenset({"Rh2+"}), explanation=7),
         )
         for construct in cases:
             with self.subTest(construct=construct):
@@ -228,7 +257,7 @@ class ExerciseSessionTests(unittest.TestCase):
         session = ExerciseSession(self.make_definition())
         before = session.snapshot()
 
-        for invalid in (True, False, 7, 1.0, None, b"Qh6", "   "):
+        for invalid in (True, False, 7, 1.0, None, b"Rh2+", "   "):
             with self.subTest(move=invalid):
                 with self.assertRaises(TrainingError) as caught:
                     session.submit(invalid)
@@ -241,19 +270,28 @@ class ExerciseSessionTests(unittest.TestCase):
     def test_snapshot_schema_is_explicit_with_bounded_legacy_read(self):
         definition = self.make_definition()
         session = ExerciseSession(definition)
-        session.submit("Qh5")
+        session.submit("Rh2+")
         snapshot = session.snapshot()
         self.assertEqual(
             snapshot["schema_version"],
             TRAINING_SNAPSHOT_SCHEMA_VERSION,
         )
 
-        legacy = dict(snapshot)
-        legacy.pop("schema_version")
+        legacy = {
+            key: snapshot[key]
+            for key in (
+                "exercise_id",
+                "step_index",
+                "attempts",
+                "mistakes",
+                "hints_used",
+                "status",
+            )
+        }
         restored = ExerciseSession.restore(definition, legacy)
         self.assertEqual(restored.snapshot(), snapshot)
 
-        for invalid_version in (True, False, "1", 0, 2, -1):
+        for invalid_version in (True, False, "2", 0, 3, -1):
             invalid = dict(snapshot, schema_version=invalid_version)
             with self.subTest(version=invalid_version):
                 with self.assertRaises(TrainingError) as caught:
@@ -283,7 +321,14 @@ class ExerciseSessionTests(unittest.TestCase):
     def test_snapshot_counters_require_exact_integer_scalars(self):
         definition = self.make_definition()
         snapshot = ExerciseSession(definition).snapshot()
-        for field in ("step_index", "attempts", "mistakes", "hints_used"):
+        for field in (
+            "step_index",
+            "attempts",
+            "mistakes",
+            "hints_used",
+            "current_step_attempts",
+            "current_step_hints",
+        ):
             for invalid_value in (True, False, "0", 0.0, None):
                 invalid = dict(snapshot, **{field: invalid_value})
                 with self.subTest(field=field, value=invalid_value):
@@ -355,6 +400,119 @@ class ExerciseSessionTests(unittest.TestCase):
                     caught.exception.code,
                     TrainingErrorCode.INVALID_SNAPSHOT,
                 )
+
+    def test_definition_rejects_invalid_fen_and_illegal_solution_lines(self):
+        cases = (
+            lambda: ExerciseDefinition(
+                "bad-fen",
+                "8/8/8/8/8/8/8/8 w - - 0 1",
+                (ExerciseStep(frozenset({"Ka2"})),),
+            ),
+            lambda: ExerciseDefinition(
+                "illegal-line",
+                "8/8/8/8/8/8/8/K6k w - - 0 1",
+                (ExerciseStep(frozenset({"Ka3"})),),
+            ),
+            lambda: ExerciseDefinition(
+                "wrong-turn",
+                "7k/8/8/8/8/8/6R1/6K1 w - - 0 1",
+                (
+                    ExerciseStep(frozenset({"Rh2+"})),
+                    ExerciseStep(frozenset({"Rh8"})),
+                ),
+            ),
+        )
+        for construct in cases:
+            with self.subTest(construct=construct):
+                with self.assertRaises(TrainingError) as caught:
+                    construct()
+                self.assertEqual(
+                    caught.exception.code,
+                    TrainingErrorCode.INVALID_DEFINITION,
+                )
+
+    def test_session_uses_canonical_legality_and_preserves_board_on_mistake(self):
+        definition = self.make_definition()
+        self.assertEqual(definition.steps[1].accepted_moves, frozenset({"Kg8"}))
+        session = ExerciseSession(definition)
+        before = session.position_fen
+
+        illegal = session.submit("Rh3")
+        self.assertFalse(illegal.accepted)
+        self.assertEqual(session.position_fen, before)
+        accepted = session.submit("g2h2")
+        self.assertTrue(accepted.accepted)
+        self.assertEqual(accepted.move, "Rh2+")
+        self.assertEqual(session.move_history, ("Rh2+",))
+
+    def test_snapshot_binds_progress_to_exact_move_history_and_fen(self):
+        definition = self.make_definition()
+        session = ExerciseSession(definition)
+        session.submit("Rh2+")
+        snapshot = session.snapshot()
+
+        tampered = (
+            dict(snapshot, move_history=["Rg2"]),
+            dict(snapshot, move_history=[]),
+            dict(snapshot, current_fen=definition.start_fen),
+            dict(snapshot, current_fen=True),
+        )
+        for payload in tampered:
+            with self.subTest(payload=payload):
+                with self.assertRaises(TrainingError):
+                    ExerciseSession.restore(definition, payload)
+
+    def test_solution_reveal_is_policy_gated_and_does_not_advance(self):
+        definition = self.make_definition()
+        session = ExerciseSession(definition)
+        self.assertFalse(session.reveal_solution().available)
+        session.submit("Rh3")
+        reveal = session.reveal_solution()
+        self.assertTrue(reveal.available)
+        self.assertEqual(reveal.moves, ("Rh2+",))
+        self.assertEqual(session.step_index, 0)
+        self.assertEqual(session.position_fen, definition.start_fen)
+
+        after_hint = ExerciseDefinition(
+            "hint-policy",
+            definition.start_fen,
+            definition.steps,
+            solution_reveal_policy=SolutionRevealPolicy.AFTER_HINT,
+        )
+        hinted = ExerciseSession(after_hint)
+        self.assertFalse(hinted.reveal_solution().available)
+        hinted.request_hint()
+        self.assertTrue(hinted.reveal_solution().available)
+
+        never = ExerciseDefinition(
+            "never-policy",
+            definition.start_fen,
+            definition.steps,
+            solution_reveal_policy=SolutionRevealPolicy.NEVER,
+        )
+        hidden = ExerciseSession(never)
+        hidden.submit("Rh3")
+        self.assertFalse(hidden.reveal_solution().available)
+
+    def test_analysis_policy_activates_only_after_legal_completion(self):
+        session = ExerciseSession(self.make_definition())
+        self.assertFalse(session.analysis_allowed)
+        session.submit("Rh2+")
+        self.assertFalse(session.analysis_allowed)
+        session.submit("Kg8")
+        self.assertTrue(session.analysis_allowed)
+
+        definition = self.make_definition()
+        blocked = ExerciseDefinition(
+            "no-analysis",
+            definition.start_fen,
+            definition.steps,
+            allow_analysis_after_completion=False,
+        )
+        session = ExerciseSession(blocked)
+        session.submit("Rh2+")
+        session.submit("Kg8")
+        self.assertFalse(session.analysis_allowed)
 
 
 if __name__ == "__main__":

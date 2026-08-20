@@ -19,6 +19,8 @@ import tempfile
 from typing import Iterable, Sequence
 import unicodedata
 
+from .bookdocument import BookDocument
+from .bookreader import BookReader, ReadingLocation
 from .game_identity import GameIdentity, identity_for_game, same_game_record
 from .gametree import PgnGame, parse_games, serialize_game
 from .gametree_legality import (
@@ -30,17 +32,26 @@ from .gametree_legality import (
 from .gametree_navigation import ROOT_PATH, VariationPath, resolve_line
 from .import_contract import sha256_utf8_text
 from .position_editor import PositionState
+from .training import (
+    ExerciseDefinition,
+    ExerciseSession,
+    TRAINING_DEFINITION_SCHEMA_VERSION,
+    TRAINING_SNAPSHOT_SCHEMA_VERSION,
+)
 
 IMPORT_STATUSES = {"full", "partial", "damaged", "warning"}
 IMPORT_ATTEMPT_STATUSES = {
     "pending", "full", "warning", "damaged", "failed", "duplicate",
 }
 DUPLICATE_POLICIES = {"keep", "skip_exact_source", "skip_record"}
-ACSDB_SCHEMA_VERSION = 3
+ACSDB_SCHEMA_VERSION = 4
 MAX_IMPORT_DIAGNOSTIC_CODES = 16
 MAX_ERROR_MESSAGE_CHARACTERS = 2048
 MAX_PROVENANCE_ID_CHARACTERS = 512
 MAX_CATALOG_TEXT_CHARACTERS = 4096
+MAX_BOOK_DOCUMENT_CHARACTERS = 64 * 1024 * 1024
+MAX_TRAINING_DEFINITION_CHARACTERS = 4 * 1024 * 1024
+MAX_TRAINING_SNAPSHOT_CHARACTERS = 1024 * 1024
 _DIGEST_RE = re.compile(r"^[0-9a-f]{64}$")
 
 
@@ -176,6 +187,21 @@ def _stable_catalog_id(kind: str, *parts: str) -> str:
         separators=(",", ":"),
     )
     return f"{kind}:v1:{sha256_utf8_text(payload)}"
+
+
+def _canonical_json(value: object, *, limit: int, name: str) -> str:
+    try:
+        payload = json.dumps(
+            value,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+    except (TypeError, ValueError) as exc:
+        raise TypeError(f"{name} must be JSON serializable") from exc
+    if len(payload) > limit:
+        raise ValueError(f"{name} exceeds the character safety limit")
+    return payload
 
 
 def escape_like_literal(value: str) -> str:
@@ -786,6 +812,69 @@ class AcsDatabase:
                     """,
                     (game_id, code, _bounded_error(exc), self._now()),
                 )
+
+    def _migrate_to_v4(self) -> None:
+        statements = (
+            """
+            CREATE TABLE IF NOT EXISTS books (
+                id INTEGER PRIMARY KEY,
+                book_key TEXT NOT NULL UNIQUE,
+                schema_version INTEGER NOT NULL,
+                document_digest TEXT NOT NULL,
+                title TEXT NOT NULL,
+                author TEXT,
+                language TEXT,
+                source_name TEXT,
+                document_json TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS book_bookmarks (
+                book_id INTEGER NOT NULL REFERENCES books(id) ON DELETE CASCADE,
+                name TEXT NOT NULL,
+                location_schema_version INTEGER NOT NULL,
+                snapshot_id TEXT NOT NULL,
+                location_json TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY(book_id, name)
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS training_definitions (
+                exercise_id TEXT PRIMARY KEY,
+                schema_version INTEGER NOT NULL,
+                definition_digest TEXT NOT NULL,
+                title TEXT NOT NULL,
+                source_id TEXT,
+                tags_json TEXT NOT NULL,
+                definition_json TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS training_progress (
+                exercise_id TEXT PRIMARY KEY
+                    REFERENCES training_definitions(exercise_id) ON DELETE CASCADE,
+                snapshot_schema_version INTEGER NOT NULL,
+                status TEXT NOT NULL,
+                current_fen TEXT NOT NULL,
+                attempts INTEGER NOT NULL,
+                mistakes INTEGER NOT NULL,
+                hints_used INTEGER NOT NULL,
+                snapshot_json TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """,
+            "CREATE INDEX IF NOT EXISTS idx_books_title ON books(title)",
+            "CREATE INDEX IF NOT EXISTS idx_books_digest ON books(document_digest)",
+            "CREATE INDEX IF NOT EXISTS idx_training_status ON training_progress(status)",
+            "CREATE INDEX IF NOT EXISTS idx_training_definition_digest ON training_definitions(definition_digest)",
+        )
+        for statement in statements:
+            self.conn.execute(statement)
 
     @staticmethod
     def position_key(fen: str) -> str:
@@ -1516,6 +1605,363 @@ class AcsDatabase:
         ).fetchall()
         return [dict(row) for row in rows]
 
+    @staticmethod
+    def _book_wire(document: BookDocument) -> tuple[str, str, str]:
+        if not isinstance(document, BookDocument):
+            raise TypeError("document must be a BookDocument")
+        payload = document.as_dict()
+        wire = _canonical_json(
+            payload,
+            limit=MAX_BOOK_DOCUMENT_CHARACTERS,
+            name="BookDocument",
+        )
+        digest = sha256_utf8_text(wire)
+        key = document.book_id or f"sha256:{digest}"
+        return _require_identity_text(key, "book_key"), digest, wire
+
+    def save_book(self, document: BookDocument) -> int:
+        """Atomically upsert one validated semantic book snapshot."""
+
+        book_key, digest, wire = self._book_wire(document)
+        now = self._now()
+        with self.conn:
+            self.conn.execute(
+                """
+                INSERT INTO books(
+                    book_key, schema_version, document_digest, title, author,
+                    language, source_name, document_json, created_at, updated_at
+                ) VALUES(?,?,?,?,?,?,?,?,?,?)
+                ON CONFLICT(book_key) DO UPDATE SET
+                    schema_version=excluded.schema_version,
+                    document_digest=excluded.document_digest,
+                    title=excluded.title,
+                    author=excluded.author,
+                    language=excluded.language,
+                    source_name=excluded.source_name,
+                    document_json=excluded.document_json,
+                    updated_at=excluded.updated_at
+                """,
+                (
+                    book_key,
+                    int(document.as_dict()["schema_version"]),
+                    digest,
+                    document.title,
+                    document.author,
+                    document.language,
+                    document.source_name,
+                    wire,
+                    now,
+                    now,
+                ),
+            )
+            row = self.conn.execute(
+                "SELECT id FROM books WHERE book_key=?", (book_key,)
+            ).fetchone()
+            if row is None:
+                raise sqlite3.DatabaseError("saved book row is unavailable")
+            book_id = int(row[0])
+            self.conn.execute(
+                "DELETE FROM book_bookmarks WHERE book_id=? AND snapshot_id<>?",
+                (book_id, digest),
+            )
+        return book_id
+
+    def _book_row(self, book: int | str) -> sqlite3.Row:
+        if type(book) is int:
+            query, value = "SELECT * FROM books WHERE id=?", _require_id(book, "book_id")
+        elif type(book) is str:
+            query, value = (
+                "SELECT * FROM books WHERE book_key=?",
+                _require_identity_text(book, "book_key"),
+            )
+        else:
+            raise TypeError("book must be an exact integer ID or text key")
+        row = self.conn.execute(query, (value,)).fetchone()
+        if row is None:
+            raise LookupError(f"Unknown book: {book}")
+        return row
+
+    def get_book(self, book: int | str) -> BookDocument:
+        row = self._book_row(book)
+        wire = row["document_json"]
+        if type(wire) is not str or len(wire) > MAX_BOOK_DOCUMENT_CHARACTERS:
+            raise sqlite3.DatabaseError("stored BookDocument payload is invalid")
+        try:
+            payload = json.loads(wire)
+            document = BookDocument.from_dict(payload)
+            canonical_wire = _canonical_json(
+                document.as_dict(),
+                limit=MAX_BOOK_DOCUMENT_CHARACTERS,
+                name="stored BookDocument",
+            )
+        except (TypeError, ValueError, json.JSONDecodeError) as exc:
+            raise sqlite3.DatabaseError("stored BookDocument failed validation") from exc
+        digest = sha256_utf8_text(canonical_wire)
+        expected_key = document.book_id or f"sha256:{digest}"
+        if (
+            wire != canonical_wire
+            or row["document_digest"] != digest
+            or row["book_key"] != expected_key
+        ):
+            raise sqlite3.DatabaseError("stored BookDocument identity does not match payload")
+        return document
+
+    def list_books(self, *, limit: int = 100, offset: int = 0) -> list[dict]:
+        offset = _require_exact_int(offset, "offset", minimum=0)
+        rows = self.conn.execute(
+            """
+            SELECT id, book_key, schema_version, document_digest, title, author,
+                   language, source_name, created_at, updated_at
+            FROM books ORDER BY title COLLATE NOCASE, id LIMIT ? OFFSET ?
+            """,
+            (_bounded_limit(limit), offset),
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+    def save_bookmark(
+        self,
+        book: int | str,
+        name: str,
+        location: ReadingLocation | dict[str, object],
+    ) -> None:
+        name = _require_identity_text(name.strip() if type(name) is str else name, "bookmark name")
+        row = self._book_row(book)
+        reader = BookReader(self.get_book(int(row["id"])))
+        restored = reader.restore_location(location)
+        payload = restored.as_dict()
+        wire = _canonical_json(
+            payload,
+            limit=MAX_TRAINING_SNAPSHOT_CHARACTERS,
+            name="book reading location",
+        )
+        with self.conn:
+            self.conn.execute(
+                """
+                INSERT INTO book_bookmarks(
+                    book_id, name, location_schema_version, snapshot_id,
+                    location_json, updated_at
+                ) VALUES(?,?,?,?,?,?)
+                ON CONFLICT(book_id, name) DO UPDATE SET
+                    location_schema_version=excluded.location_schema_version,
+                    snapshot_id=excluded.snapshot_id,
+                    location_json=excluded.location_json,
+                    updated_at=excluded.updated_at
+                """,
+                (
+                    int(row["id"]),
+                    name,
+                    int(payload["schema_version"]),
+                    restored.snapshot_id,
+                    wire,
+                    self._now(),
+                ),
+            )
+
+    def load_bookmark(
+        self,
+        book: int | str,
+        name: str,
+    ) -> ReadingLocation:
+        name = _require_identity_text(name.strip() if type(name) is str else name, "bookmark name")
+        row = self._book_row(book)
+        bookmark = self.conn.execute(
+            "SELECT * FROM book_bookmarks WHERE book_id=? AND name=?",
+            (int(row["id"]), name),
+        ).fetchone()
+        if bookmark is None:
+            raise LookupError(f"Unknown book bookmark: {name}")
+        try:
+            payload = json.loads(bookmark["location_json"])
+            reader = BookReader(self.get_book(int(row["id"])))
+            location = reader.restore_location(payload)
+        except (TypeError, ValueError, LookupError, json.JSONDecodeError) as exc:
+            raise sqlite3.DatabaseError("stored book bookmark failed validation") from exc
+        if location.snapshot_id != bookmark["snapshot_id"]:
+            raise sqlite3.DatabaseError("stored book bookmark snapshot does not match")
+        return location
+
+    @staticmethod
+    def _training_definition_wire(
+        definition: ExerciseDefinition,
+    ) -> tuple[str, str]:
+        if not isinstance(definition, ExerciseDefinition):
+            raise TypeError("definition must be an ExerciseDefinition")
+        wire = _canonical_json(
+            definition.as_dict(),
+            limit=MAX_TRAINING_DEFINITION_CHARACTERS,
+            name="training definition",
+        )
+        return sha256_utf8_text(wire), wire
+
+    def save_training_definition(self, definition: ExerciseDefinition) -> str:
+        digest, wire = self._training_definition_wire(definition)
+        now = self._now()
+        with self.conn:
+            existing = self.conn.execute(
+                "SELECT definition_digest FROM training_definitions WHERE exercise_id=?",
+                (definition.exercise_id,),
+            ).fetchone()
+            if existing is not None and existing[0] != digest:
+                self.conn.execute(
+                    "DELETE FROM training_progress WHERE exercise_id=?",
+                    (definition.exercise_id,),
+                )
+            self.conn.execute(
+                """
+                INSERT INTO training_definitions(
+                    exercise_id, schema_version, definition_digest, title,
+                    source_id, tags_json, definition_json, created_at, updated_at
+                ) VALUES(?,?,?,?,?,?,?,?,?)
+                ON CONFLICT(exercise_id) DO UPDATE SET
+                    schema_version=excluded.schema_version,
+                    definition_digest=excluded.definition_digest,
+                    title=excluded.title,
+                    source_id=excluded.source_id,
+                    tags_json=excluded.tags_json,
+                    definition_json=excluded.definition_json,
+                    updated_at=excluded.updated_at
+                """,
+                (
+                    definition.exercise_id,
+                    TRAINING_DEFINITION_SCHEMA_VERSION,
+                    digest,
+                    definition.title,
+                    definition.source_id,
+                    _canonical_json(list(definition.tags), limit=65536, name="training tags"),
+                    wire,
+                    now,
+                    now,
+                ),
+            )
+        return definition.exercise_id
+
+    def get_training_definition(self, exercise_id: str) -> ExerciseDefinition:
+        exercise_id = _require_identity_text(exercise_id, "exercise_id")
+        row = self.conn.execute(
+            "SELECT * FROM training_definitions WHERE exercise_id=?", (exercise_id,)
+        ).fetchone()
+        if row is None:
+            raise LookupError(f"Unknown training exercise: {exercise_id}")
+        wire = row["definition_json"]
+        try:
+            if type(wire) is not str or len(wire) > MAX_TRAINING_DEFINITION_CHARACTERS:
+                raise ValueError("definition payload size is invalid")
+            definition = ExerciseDefinition.from_dict(json.loads(wire))
+            digest, canonical_wire = self._training_definition_wire(definition)
+        except (TypeError, ValueError, json.JSONDecodeError) as exc:
+            raise sqlite3.DatabaseError("stored training definition failed validation") from exc
+        if (
+            definition.exercise_id != exercise_id
+            or canonical_wire != wire
+            or row["definition_digest"] != digest
+            or row["schema_version"] != TRAINING_DEFINITION_SCHEMA_VERSION
+        ):
+            raise sqlite3.DatabaseError("stored training definition identity does not match")
+        return definition
+
+    def list_training_definitions(self, *, limit: int = 100) -> list[dict]:
+        rows = self.conn.execute(
+            """
+            SELECT d.exercise_id, d.schema_version, d.definition_digest,
+                   d.title, d.source_id, d.tags_json, d.created_at, d.updated_at,
+                   p.status, p.current_fen, p.attempts, p.mistakes,
+                   p.hints_used, p.updated_at AS progress_updated_at
+            FROM training_definitions d
+            LEFT JOIN training_progress p ON p.exercise_id=d.exercise_id
+            ORDER BY d.title COLLATE NOCASE, d.exercise_id LIMIT ?
+            """,
+            (_bounded_limit(limit),),
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+    def save_training_progress(self, session: ExerciseSession) -> None:
+        if not isinstance(session, ExerciseSession):
+            raise TypeError("session must be an ExerciseSession")
+        self.save_training_definition(session.definition)
+        snapshot = session.snapshot()
+        ExerciseSession.restore(session.definition, snapshot)
+        wire = _canonical_json(
+            snapshot,
+            limit=MAX_TRAINING_SNAPSHOT_CHARACTERS,
+            name="training snapshot",
+        )
+        with self.conn:
+            self.conn.execute(
+                """
+                INSERT INTO training_progress(
+                    exercise_id, snapshot_schema_version, status, current_fen,
+                    attempts, mistakes, hints_used, snapshot_json, updated_at
+                ) VALUES(?,?,?,?,?,?,?,?,?)
+                ON CONFLICT(exercise_id) DO UPDATE SET
+                    snapshot_schema_version=excluded.snapshot_schema_version,
+                    status=excluded.status,
+                    current_fen=excluded.current_fen,
+                    attempts=excluded.attempts,
+                    mistakes=excluded.mistakes,
+                    hints_used=excluded.hints_used,
+                    snapshot_json=excluded.snapshot_json,
+                    updated_at=excluded.updated_at
+                """,
+                (
+                    session.definition.exercise_id,
+                    TRAINING_SNAPSHOT_SCHEMA_VERSION,
+                    session.status.value,
+                    session.position_fen,
+                    session.attempts,
+                    session.mistakes,
+                    session.hints_used,
+                    wire,
+                    self._now(),
+                ),
+            )
+
+    def load_training_session(self, exercise_id: str) -> ExerciseSession:
+        definition = self.get_training_definition(exercise_id)
+        row = self.conn.execute(
+            "SELECT * FROM training_progress WHERE exercise_id=?",
+            (definition.exercise_id,),
+        ).fetchone()
+        if row is None:
+            return ExerciseSession(definition)
+        wire = row["snapshot_json"]
+        try:
+            if type(wire) is not str or len(wire) > MAX_TRAINING_SNAPSHOT_CHARACTERS:
+                raise ValueError("snapshot payload size is invalid")
+            snapshot = json.loads(wire)
+            session = ExerciseSession.restore(definition, snapshot)
+            canonical_wire = _canonical_json(
+                session.snapshot(),
+                limit=MAX_TRAINING_SNAPSHOT_CHARACTERS,
+                name="stored training snapshot",
+            )
+        except (TypeError, ValueError, json.JSONDecodeError) as exc:
+            raise sqlite3.DatabaseError("stored training progress failed validation") from exc
+        if (
+            wire != canonical_wire
+            or row["snapshot_schema_version"] != TRAINING_SNAPSHOT_SCHEMA_VERSION
+            or row["status"] != session.status.value
+            or row["current_fen"] != session.position_fen
+            or row["attempts"] != session.attempts
+            or row["mistakes"] != session.mistakes
+            or row["hints_used"] != session.hints_used
+        ):
+            raise sqlite3.DatabaseError("stored training progress summary does not match")
+        return session
+
+    def list_training_progress(self, *, limit: int = 100) -> list[dict]:
+        rows = self.conn.execute(
+            """
+            SELECT p.exercise_id, d.title, d.source_id, d.tags_json,
+                   p.status, p.current_fen, p.attempts, p.mistakes,
+                   p.hints_used, p.updated_at
+            FROM training_progress p
+            JOIN training_definitions d ON d.exercise_id=p.exercise_id
+            ORDER BY p.updated_at DESC, p.exercise_id LIMIT ?
+            """,
+            (_bounded_limit(limit),),
+        ).fetchall()
+        return [dict(row) for row in rows]
+
     def search_games(
         self,
         *,
@@ -1624,7 +2070,8 @@ class AcsDatabase:
         for table in (
             "sources", "games", "players", "events", "annotators", "openings",
             "positions", "import_attempts", "game_catalog", "catalog_issues",
-            "schema_migrations",
+            "schema_migrations", "books", "book_bookmarks",
+            "training_definitions", "training_progress",
         ):
             result[table] = int(
                 self.conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]

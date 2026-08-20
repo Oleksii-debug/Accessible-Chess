@@ -1,6 +1,7 @@
 # ADR-008: Training snapshot v1 and immutable exercise definitions
 
-Status: accepted for the presentation-neutral local-training foundation.
+Status: accepted historical foundation; legal definitions, snapshot v2, and
+product behavior are superseded by ADR-029.
 
 ## Context
 

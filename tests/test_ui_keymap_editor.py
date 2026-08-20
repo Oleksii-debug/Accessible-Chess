@@ -21,7 +21,7 @@ def test_rows_are_searchable_localized_and_expose_context_and_defaults():
     assert row.status == "ok"
     assert row.status_text == "Конфліктів немає."
 
-    found = model.rows(query="перейти")
+    found = model.rows(query="до ходу")
     assert [x.action_id for x in found] == ["history.go_to_move"]
 
     model.set_language("en")

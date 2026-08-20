@@ -1,6 +1,7 @@
 # ADR-007: Book navigation snapshot isolation
 
-Status: accepted for the presentation-neutral reader/index foundation.
+Status: accepted historical foundation; durable exact-location and product
+behavior are superseded by ADR-029.
 
 ## Context
 

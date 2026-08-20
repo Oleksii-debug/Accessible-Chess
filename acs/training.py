@@ -5,8 +5,15 @@ from enum import Enum
 from types import MappingProxyType
 from typing import Mapping
 
+from .chesscore import Board, canonical_fen
 
-TRAINING_SNAPSHOT_SCHEMA_VERSION = 1
+
+TRAINING_SNAPSHOT_SCHEMA_VERSION = 2
+TRAINING_DEFINITION_SCHEMA_VERSION = 1
+MAX_TRAINING_STEPS = 512
+MAX_ACCEPTED_MOVES_PER_STEP = 256
+MAX_REACHABLE_POSITIONS = 4096
+MAX_TRAINING_LINK_OPERATIONS = 100_000
 
 
 class TrainingErrorCode(str, Enum):
@@ -32,6 +39,13 @@ class ExerciseStatus(str, Enum):
     COMPLETED = "completed"
 
 
+class SolutionRevealPolicy(str, Enum):
+    NEVER = "never"
+    AFTER_ATTEMPT = "after_attempt"
+    AFTER_HINT = "after_hint"
+    ANYTIME = "anytime"
+
+
 @dataclass(frozen=True)
 class ExerciseStep:
     """One canonical training step with one or more accepted chess moves."""
@@ -55,6 +69,11 @@ class ExerciseStep:
                 "exercise step requires at least one accepted move",
                 code=TrainingErrorCode.INVALID_DEFINITION,
             )
+        if len(normalized) > MAX_ACCEPTED_MOVES_PER_STEP:
+            raise TrainingError(
+                "exercise step has too many accepted moves",
+                code=TrainingErrorCode.INVALID_DEFINITION,
+            )
         for field_name in ("hint", "explanation"):
             value = getattr(self, field_name)
             if value is not None and (
@@ -66,15 +85,50 @@ class ExerciseStep:
                 )
         object.__setattr__(self, "accepted_moves", normalized)
 
+    def as_dict(self) -> dict[str, object]:
+        return {
+            "accepted_moves": sorted(self.accepted_moves),
+            "hint": self.hint,
+            "explanation": self.explanation,
+        }
+
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, object]) -> "ExerciseStep":
+        if not isinstance(payload, Mapping):
+            raise TrainingError(
+                "exercise step payload must be a mapping",
+                code=TrainingErrorCode.INVALID_DEFINITION,
+            )
+        data = dict(payload)
+        if set(data) != {"accepted_moves", "hint", "explanation"}:
+            raise TrainingError(
+                "exercise step fields are missing or unsupported",
+                code=TrainingErrorCode.INVALID_DEFINITION,
+            )
+        moves = data["accepted_moves"]
+        if (
+            type(moves) is not list
+            or len(moves) > MAX_ACCEPTED_MOVES_PER_STEP
+            or any(type(move) is not str for move in moves)
+        ):
+            raise TrainingError(
+                "exercise accepted_moves must be a text list",
+                code=TrainingErrorCode.INVALID_DEFINITION,
+            )
+        return cls(
+            frozenset(moves),
+            hint=data["hint"],
+            explanation=data["explanation"],
+        )
+
 
 @dataclass(frozen=True)
 class ExerciseDefinition:
     """Presentation-neutral local training exercise.
 
-    `start_fen` is intentionally opaque here: chess legality stays owned by the
-    chess core / game adapter rather than being duplicated in the training
-    module. Submitted moves are expected in canonical SAN/Lichess text from the
-    shared move parser.
+    Every solution token is linked against the shared chess core at definition
+    construction.  This prevents a training adapter from treating plausible
+    move text as trusted chess state.
     """
 
     exercise_id: str
@@ -84,6 +138,8 @@ class ExerciseDefinition:
     tags: tuple[str, ...] = ()
     source_id: str | None = None
     metadata: Mapping[str, str] = field(default_factory=dict)
+    solution_reveal_policy: SolutionRevealPolicy = SolutionRevealPolicy.AFTER_ATTEMPT
+    allow_analysis_after_completion: bool = True
 
     def __post_init__(self) -> None:
         exercise_id = _required_definition_text(
@@ -94,6 +150,11 @@ class ExerciseDefinition:
         if not isinstance(self.steps, tuple) or not self.steps:
             raise TrainingError(
                 "exercise steps must be a non-empty tuple",
+                code=TrainingErrorCode.INVALID_DEFINITION,
+            )
+        if len(self.steps) > MAX_TRAINING_STEPS:
+            raise TrainingError(
+                "exercise has too many steps",
                 code=TrainingErrorCode.INVALID_DEFINITION,
             )
         if not all(isinstance(step, ExerciseStep) for step in self.steps):
@@ -138,11 +199,98 @@ class ExerciseDefinition:
                     code=TrainingErrorCode.INVALID_DEFINITION,
                 )
             metadata[normalized_key] = value
+        try:
+            reveal_policy = SolutionRevealPolicy(self.solution_reveal_policy)
+        except (TypeError, ValueError) as exc:
+            raise TrainingError(
+                "solution_reveal_policy is invalid",
+                code=TrainingErrorCode.INVALID_DEFINITION,
+            ) from exc
+        if type(self.allow_analysis_after_completion) is not bool:
+            raise TrainingError(
+                "allow_analysis_after_completion must be a boolean",
+                code=TrainingErrorCode.INVALID_DEFINITION,
+            )
+        try:
+            start_fen = canonical_fen(start_fen)
+            canonical_steps = _link_definition_steps(start_fen, self.steps)
+        except (TypeError, ValueError) as exc:
+            if isinstance(exc, TrainingError):
+                raise
+            raise TrainingError(
+                f"exercise chess content is invalid: {exc}",
+                code=TrainingErrorCode.INVALID_DEFINITION,
+            ) from exc
         object.__setattr__(self, "exercise_id", exercise_id)
         object.__setattr__(self, "start_fen", start_fen)
+        object.__setattr__(self, "steps", canonical_steps)
         object.__setattr__(self, "tags", tuple(_normalize_tag(tag) for tag in self.tags))
         object.__setattr__(self, "source_id", source_id)
         object.__setattr__(self, "metadata", MappingProxyType(metadata))
+        object.__setattr__(self, "solution_reveal_policy", reveal_policy)
+
+    def as_dict(self) -> dict[str, object]:
+        return {
+            "schema_version": TRAINING_DEFINITION_SCHEMA_VERSION,
+            "exercise_id": self.exercise_id,
+            "start_fen": self.start_fen,
+            "steps": [step.as_dict() for step in self.steps],
+            "title": self.title,
+            "tags": list(self.tags),
+            "source_id": self.source_id,
+            "metadata": dict(self.metadata),
+            "solution_reveal_policy": self.solution_reveal_policy.value,
+            "allow_analysis_after_completion": self.allow_analysis_after_completion,
+        }
+
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, object]) -> "ExerciseDefinition":
+        if not isinstance(payload, Mapping):
+            raise TrainingError(
+                "exercise definition payload must be a mapping",
+                code=TrainingErrorCode.INVALID_DEFINITION,
+            )
+        data = dict(payload)
+        expected = {
+            "schema_version",
+            "exercise_id",
+            "start_fen",
+            "steps",
+            "title",
+            "tags",
+            "source_id",
+            "metadata",
+            "solution_reveal_policy",
+            "allow_analysis_after_completion",
+        }
+        if set(data) != expected:
+            raise TrainingError(
+                "exercise definition fields are missing or unsupported",
+                code=TrainingErrorCode.INVALID_DEFINITION,
+            )
+        if (
+            type(data["schema_version"]) is not int
+            or data["schema_version"] != TRAINING_DEFINITION_SCHEMA_VERSION
+            or type(data["steps"]) is not list
+            or len(data["steps"]) > MAX_TRAINING_STEPS
+            or type(data["tags"]) is not list
+            or type(data["metadata"]) is not dict
+        ):
+            raise TrainingError(
+                "exercise definition schema or containers are invalid",
+                code=TrainingErrorCode.INVALID_DEFINITION,
+            )
+        return cls(
+            exercise_id=data["exercise_id"],
+            start_fen=data["start_fen"],
+            steps=tuple(ExerciseStep.from_dict(step) for step in data["steps"]),
+            title=data["title"],
+            tags=tuple(data["tags"]),
+            source_id=data["source_id"],
+            metadata=data["metadata"],
+            solution_reveal_policy=data["solution_reveal_policy"],
+            allow_analysis_after_completion=data["allow_analysis_after_completion"],
+        )
 
 
 @dataclass(frozen=True)
@@ -155,6 +303,7 @@ class ExerciseResult:
     completed: bool
     move: str | None = None
     explanation: str | None = None
+    position_fen: str | None = None
 
 
 @dataclass(frozen=True)
@@ -163,6 +312,14 @@ class HintResult:
     step_index: int
     hint: str | None
     hints_used: int
+
+
+@dataclass(frozen=True)
+class SolutionResult:
+    available: bool
+    step_index: int
+    moves: tuple[str, ...]
+    solution_revealed: bool
 
 
 class ExerciseSession:
@@ -184,6 +341,11 @@ class ExerciseSession:
         self._mistakes = 0
         self._hints_used = 0
         self._status = ExerciseStatus.READY
+        self._board = Board(definition.start_fen)
+        self._move_history: list[str] = []
+        self._current_step_attempts = 0
+        self._current_step_hints = 0
+        self._solution_revealed = False
 
     @property
     def definition(self) -> ExerciseDefinition:
@@ -213,6 +375,24 @@ class ExerciseSession:
     def completed(self) -> bool:
         return self._status is ExerciseStatus.COMPLETED
 
+    @property
+    def position_fen(self) -> str:
+        return self._board.fen()
+
+    @property
+    def move_history(self) -> tuple[str, ...]:
+        return tuple(self._move_history)
+
+    @property
+    def solution_revealed(self) -> bool:
+        return self._solution_revealed
+
+    @property
+    def analysis_allowed(self) -> bool:
+        return bool(
+            self.completed and self.definition.allow_analysis_after_completion
+        )
+
     def current_step(self) -> ExerciseStep | None:
         if self.completed:
             return None
@@ -224,11 +404,19 @@ class ExerciseSession:
                 "exercise is already completed",
                 code=TrainingErrorCode.INVALID_STATE,
             )
-        canonical = _normalize_move(move)
+        normalized = _normalize_move(move)
         step = self.definition.steps[self._step_index]
+        candidate = self._board.clone()
+        try:
+            parsed = candidate.parse_move(normalized)
+            canonical = candidate.san(parsed)
+        except ValueError:
+            parsed = None
+            canonical = normalized
         self._attempts += 1
+        self._current_step_attempts += 1
 
-        if canonical not in step.accepted_moves:
+        if parsed is None or canonical not in step.accepted_moves:
             self._mistakes += 1
             if self._status is ExerciseStatus.READY:
                 self._status = ExerciseStatus.IN_PROGRESS
@@ -241,10 +429,17 @@ class ExerciseSession:
                 False,
                 canonical,
                 None,
+                self.position_fen,
             )
 
+        candidate.push(parsed)
+        self._board = candidate
+        self._move_history.append(canonical)
         explanation = step.explanation
         self._step_index += 1
+        self._current_step_attempts = 0
+        self._current_step_hints = 0
+        self._solution_revealed = False
         if self._step_index == len(self.definition.steps):
             self._status = ExerciseStatus.COMPLETED
         else:
@@ -258,6 +453,7 @@ class ExerciseSession:
             self.completed,
             canonical,
             explanation,
+            self.position_fen,
         )
 
     def request_hint(self) -> HintResult:
@@ -267,7 +463,39 @@ class ExerciseSession:
         if step.hint is None:
             return HintResult(False, self._step_index, None, self._hints_used)
         self._hints_used += 1
+        self._current_step_hints += 1
         return HintResult(True, self._step_index, step.hint, self._hints_used)
+
+    def reveal_solution(self) -> SolutionResult:
+        """Reveal only the current answer and only when policy permits it."""
+
+        if self.completed:
+            return SolutionResult(False, self._step_index, (), False)
+        if not self._solution_is_available():
+            return SolutionResult(False, self._step_index, (), False)
+        self._solution_revealed = True
+        return SolutionResult(
+            True,
+            self._step_index,
+            tuple(sorted(self.definition.steps[self._step_index].accepted_moves)),
+            True,
+        )
+
+    def _solution_is_available(self) -> bool:
+        if self.completed:
+            return False
+        policy = self.definition.solution_reveal_policy
+        return bool(
+            policy is SolutionRevealPolicy.ANYTIME
+            or (
+                policy is SolutionRevealPolicy.AFTER_ATTEMPT
+                and self._current_step_attempts > 0
+            )
+            or (
+                policy is SolutionRevealPolicy.AFTER_HINT
+                and self._current_step_hints > 0
+            )
+        )
 
     def reset(self) -> None:
         self._step_index = 0
@@ -275,6 +503,11 @@ class ExerciseSession:
         self._mistakes = 0
         self._hints_used = 0
         self._status = ExerciseStatus.READY
+        self._board = Board(self.definition.start_fen)
+        self._move_history = []
+        self._current_step_attempts = 0
+        self._current_step_hints = 0
+        self._solution_revealed = False
 
     def snapshot(self) -> dict[str, object]:
         """Return non-secret state suitable for persistence adapters."""
@@ -286,6 +519,11 @@ class ExerciseSession:
             "mistakes": self._mistakes,
             "hints_used": self._hints_used,
             "status": self._status.value,
+            "move_history": list(self._move_history),
+            "current_fen": self.position_fen,
+            "current_step_attempts": self._current_step_attempts,
+            "current_step_hints": self._current_step_hints,
+            "solution_revealed": self._solution_revealed,
         }
 
     @classmethod
@@ -312,7 +550,7 @@ class ExerciseSession:
             if (
                 not isinstance(schema_version, int)
                 or isinstance(schema_version, bool)
-                or schema_version != TRAINING_SNAPSHOT_SCHEMA_VERSION
+                or schema_version not in {1, TRAINING_SNAPSHOT_SCHEMA_VERSION}
             ):
                 raise TrainingError(
                     "unsupported exercise snapshot schema",
@@ -320,7 +558,7 @@ class ExerciseSession:
                 )
         else:
             schema_version = 0
-        required = {
+        common_required = {
             "exercise_id",
             "step_index",
             "attempts",
@@ -328,8 +566,18 @@ class ExerciseSession:
             "hints_used",
             "status",
         }
-        allowed = required | ({"schema_version"} if has_schema_version else set())
-        if set(payload) != allowed:
+        v2_required = {
+            "move_history",
+            "current_fen",
+            "current_step_attempts",
+            "current_step_hints",
+            "solution_revealed",
+        }
+        required = common_required | (
+            v2_required if schema_version == TRAINING_SNAPSHOT_SCHEMA_VERSION else set()
+        )
+        expected = required | ({"schema_version"} if has_schema_version else set())
+        if set(payload) != expected:
             raise TrainingError(
                 "exercise snapshot fields are missing or unsupported",
                 code=TrainingErrorCode.INVALID_SNAPSHOT,
@@ -351,6 +599,11 @@ class ExerciseSession:
             name: payload[name]
             for name in ("step_index", "attempts", "mistakes", "hints_used")
         }
+        if schema_version == TRAINING_SNAPSHOT_SCHEMA_VERSION:
+            counters.update(
+                current_step_attempts=payload["current_step_attempts"],
+                current_step_hints=payload["current_step_hints"],
+            )
         if any(
             not isinstance(value, int) or isinstance(value, bool)
             for value in counters.values()
@@ -363,6 +616,8 @@ class ExerciseSession:
         attempts = counters["attempts"]
         mistakes = counters["mistakes"]
         hints_used = counters["hints_used"]
+        current_step_attempts = counters.get("current_step_attempts", 0)
+        current_step_hints = counters.get("current_step_hints", 0)
         raw_status = payload["status"]
         if not isinstance(raw_status, str):
             raise TrainingError(
@@ -382,7 +637,13 @@ class ExerciseSession:
                 "invalid exercise step_index",
                 code=TrainingErrorCode.INVALID_STATE,
             )
-        if min(attempts, mistakes, hints_used) < 0:
+        if min(
+            attempts,
+            mistakes,
+            hints_used,
+            current_step_attempts,
+            current_step_hints,
+        ) < 0:
             raise TrainingError(
                 "invalid exercise counters",
                 code=TrainingErrorCode.INVALID_STATE,
@@ -414,14 +675,155 @@ class ExerciseSession:
                 "finished step index requires completed status",
                 code=TrainingErrorCode.INVALID_STATE,
             )
+        if current_step_attempts > mistakes or current_step_hints > hints_used:
+            raise TrainingError(
+                "current-step counters exceed aggregate counters",
+                code=TrainingErrorCode.INVALID_STATE,
+            )
+        if status in {ExerciseStatus.READY, ExerciseStatus.COMPLETED} and (
+            current_step_attempts or current_step_hints
+        ):
+            raise TrainingError(
+                "ready or completed snapshots cannot retain current-step counters",
+                code=TrainingErrorCode.INVALID_STATE,
+            )
 
         session = cls(definition)
+        if schema_version == TRAINING_SNAPSHOT_SCHEMA_VERSION:
+            history = payload["move_history"]
+            current_fen = payload["current_fen"]
+            solution_revealed = payload["solution_revealed"]
+            if (
+                type(history) is not list
+                or any(type(move) is not str or not move for move in history)
+                or len(history) != step_index
+                or type(current_fen) is not str
+                or type(solution_revealed) is not bool
+            ):
+                raise TrainingError(
+                    "exercise snapshot chess state is invalid",
+                    code=TrainingErrorCode.INVALID_SNAPSHOT,
+                )
+            _restore_move_history(session, history)
+            try:
+                canonical_current_fen = canonical_fen(current_fen)
+            except (TypeError, ValueError) as exc:
+                raise TrainingError(
+                    "exercise snapshot current_fen is invalid",
+                    code=TrainingErrorCode.INVALID_SNAPSHOT,
+                ) from exc
+            if current_fen != canonical_current_fen or session.position_fen != current_fen:
+                raise TrainingError(
+                    "exercise snapshot current_fen does not match move history",
+                    code=TrainingErrorCode.INVALID_STATE,
+                )
+            session._solution_revealed = solution_revealed
+        else:
+            legacy_history: list[str] = []
+            for step in definition.steps[:step_index]:
+                if len(step.accepted_moves) != 1:
+                    raise TrainingError(
+                        "legacy snapshot cannot reconstruct an ambiguous legal line",
+                        code=TrainingErrorCode.INVALID_SNAPSHOT,
+                    )
+                legacy_history.append(next(iter(step.accepted_moves)))
+            _restore_move_history(session, legacy_history)
+
         session._step_index = step_index
         session._attempts = attempts
         session._mistakes = mistakes
         session._hints_used = hints_used
         session._status = status
+        session._current_step_attempts = current_step_attempts
+        session._current_step_hints = current_step_hints
+        if session._solution_revealed:
+            if session.completed or not session._solution_is_available():
+                raise TrainingError(
+                    "exercise snapshot claims an unavailable solution reveal",
+                    code=TrainingErrorCode.INVALID_STATE,
+                )
         return session
+
+
+def _link_definition_steps(
+    start_fen: str,
+    steps: tuple[ExerciseStep, ...],
+) -> tuple[ExerciseStep, ...]:
+    """Canonicalize every accepted move over every reachable prior position."""
+
+    reachable = {start_fen}
+    linked: list[ExerciseStep] = []
+    operations = 0
+    for step_index, step in enumerate(steps):
+        operations += len(reachable) * len(step.accepted_moves)
+        if operations > MAX_TRAINING_LINK_OPERATIONS:
+            raise TrainingError(
+                "exercise solution validation exceeds the operation safety limit",
+                code=TrainingErrorCode.INVALID_DEFINITION,
+            )
+        canonical_moves: set[str] = set()
+        next_positions: set[str] = set()
+        for source_move in sorted(step.accepted_moves):
+            spelling_results: set[str] = set()
+            spelling_positions: set[str] = set()
+            for fen in reachable:
+                board = Board(fen)
+                try:
+                    move = board.parse_move(source_move)
+                    canonical = board.push(move)
+                except ValueError as exc:
+                    raise TrainingError(
+                        f"accepted move {source_move!r} is illegal at step {step_index}",
+                        code=TrainingErrorCode.INVALID_DEFINITION,
+                    ) from exc
+                spelling_results.add(canonical)
+                spelling_positions.add(board.fen())
+            if len(spelling_results) != 1:
+                raise TrainingError(
+                    f"accepted move {source_move!r} is ambiguous across solution branches",
+                    code=TrainingErrorCode.INVALID_DEFINITION,
+                )
+            canonical_moves.update(spelling_results)
+            next_positions.update(spelling_positions)
+        if len(next_positions) > MAX_REACHABLE_POSITIONS:
+            raise TrainingError(
+                "exercise solution branches exceed the position safety limit",
+                code=TrainingErrorCode.INVALID_DEFINITION,
+            )
+        linked.append(
+            ExerciseStep(
+                frozenset(canonical_moves),
+                hint=step.hint,
+                explanation=step.explanation,
+            )
+        )
+        reachable = next_positions
+    return tuple(linked)
+
+
+def _restore_move_history(session: ExerciseSession, history: list[str]) -> None:
+    board = Board(session.definition.start_fen)
+    canonical_history: list[str] = []
+    for step_index, source_move in enumerate(history):
+        try:
+            move = board.parse_move(source_move)
+            canonical = board.push(move)
+        except ValueError as exc:
+            raise TrainingError(
+                "exercise snapshot move history contains an illegal move",
+                code=TrainingErrorCode.INVALID_SNAPSHOT,
+            ) from exc
+        if (
+            canonical != source_move
+            or canonical not in session.definition.steps[step_index].accepted_moves
+        ):
+            raise TrainingError(
+                "exercise snapshot move history is not canonical for the solution",
+                code=TrainingErrorCode.INVALID_STATE,
+            )
+        canonical_history.append(canonical)
+    session._board = board
+    session._move_history = canonical_history
 
 
 def _normalize_move(

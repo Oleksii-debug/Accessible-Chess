@@ -9,15 +9,24 @@ exporters consume the blocks without needing to understand the source format.
 
 from dataclasses import dataclass, field
 from enum import Enum
-import re
 from typing import Any, Iterable, Iterator
 
+from .chesscore import canonical_fen
+from .gametree import GameTreeContractError, parse_games
+from .gametree_legality import (
+    GameTreeLegalityContractError,
+    link_game_legality,
+)
 
-BOOK_DOCUMENT_SCHEMA_VERSION = 1
+
+BOOK_DOCUMENT_SCHEMA_VERSION = 2
+MAX_BOOK_BLOCKS = 50_000
+MAX_BOOK_WARNINGS = 10_000
 
 
 class BookDocumentErrorCode(str, Enum):
     INVALID_FIELD = "invalid_field"
+    INVALID_CHESS_CONTENT = "invalid_chess_content"
     UNKNOWN_FIELD = "unknown_field"
     UNSUPPORTED_SCHEMA = "unsupported_schema"
     UNSUPPORTED_BLOCK_KIND = "unsupported_block_kind"
@@ -51,94 +60,74 @@ def _optional_identifier(value: object, field_name: str) -> str | None:
     return None if text is None else text.strip()
 
 
-_FEN_PIECES = frozenset("PNBRQKpnbrqk")
-_FEN_CASTLING = frozenset("KQkq")
-_FEN_EN_PASSANT_RE = re.compile(r"^[a-h][36]$")
-
-
 def _fen_text(value: object, field_name: str) -> str:
     text = _required_text(value, field_name).strip()
-    fields = text.split()
-    if len(fields) not in {4, 6}:
+    try:
+        return canonical_fen(text, allow_four_fields=True)
+    except (TypeError, ValueError) as exc:
         raise BookDocumentError(
-            f"{field_name} must contain exactly 4 or 6 FEN fields",
+            f"{field_name} is not a canonical playable FEN: {exc}",
             code=BookDocumentErrorCode.INVALID_FIELD,
-        )
-    board, turn, castling, en_passant = fields[:4]
-    ranks = board.split("/")
-    if len(ranks) != 8:
-        raise BookDocumentError(
-            f"{field_name} board must contain exactly 8 ranks",
-            code=BookDocumentErrorCode.INVALID_FIELD,
-        )
-    for rank in ranks:
-        if any(left.isdigit() and right.isdigit() for left, right in zip(rank, rank[1:])):
-            raise BookDocumentError(
-                f"{field_name} empty-square runs must use one canonical digit",
-                code=BookDocumentErrorCode.INVALID_FIELD,
-            )
-        squares = 0
-        for token in rank:
-            if token in "12345678":
-                squares += int(token)
-            elif token in _FEN_PIECES:
-                squares += 1
-            else:
-                raise BookDocumentError(
-                    f"{field_name} contains an invalid board token",
-                    code=BookDocumentErrorCode.INVALID_FIELD,
-                )
-        if squares != 8:
-            raise BookDocumentError(
-                f"{field_name} ranks must expand to exactly 8 squares",
-                code=BookDocumentErrorCode.INVALID_FIELD,
-            )
-    if turn not in {"w", "b"}:
-        raise BookDocumentError(
-            f"{field_name} turn must be 'w' or 'b'",
-            code=BookDocumentErrorCode.INVALID_FIELD,
-        )
-    if castling != "-" and (
-        not castling
-        or any(symbol not in _FEN_CASTLING for symbol in castling)
-        or len(set(castling)) != len(castling)
-        or castling != "".join(symbol for symbol in "KQkq" if symbol in castling)
-    ):
-        raise BookDocumentError(
-            f"{field_name} castling rights are invalid",
-            code=BookDocumentErrorCode.INVALID_FIELD,
-        )
-    if en_passant != "-":
-        expected_rank = "6" if turn == "w" else "3"
+        ) from exc
+
+
+def _full_fen(fen: str) -> str:
+    fields = fen.split()
+    return fen if len(fields) == 6 else f"{fen} 0 1"
+
+
+def _validate_pgn_text(
+    value: str,
+    field_name: str,
+    *,
+    root_fen: str | None = None,
+    require_mainline_move: bool = False,
+) -> None:
+    """Validate one complete, lossless and legal GameTree without rewriting it."""
+
+    try:
+        games = parse_games(value)
+        if len(games) != 1:
+            raise ValueError("exactly one PGN game is required")
+        game = games[0]
+        if game.recovery_issues:
+            raise ValueError("PGN contains unresolved recovery issues")
+        if require_mainline_move and not game.line.moves:
+            raise ValueError("PGN requires at least one main-line move")
+
+        if root_fen is not None:
+            expected_fen = _full_fen(root_fen)
+            supplied_setup = game.tags.get("SetUp")
+            supplied_fen = game.tags.get("FEN")
+            if supplied_setup not in {None, "1"}:
+                raise ValueError("embedded PGN SetUp conflicts with the block position")
+            if supplied_fen is not None and supplied_setup != "1":
+                raise ValueError("embedded PGN FEN requires SetUp \"1\"")
+            if supplied_fen is not None:
+                supplied_fen = canonical_fen(supplied_fen)
+                if supplied_fen != expected_fen:
+                    raise ValueError("embedded PGN FEN conflicts with the block position")
+            game.tags = dict(game.tags)
+            game.tags["SetUp"] = "1"
+            game.tags["FEN"] = expected_fen
+
+        report = link_game_legality(game)
         if (
-            _FEN_EN_PASSANT_RE.fullmatch(en_passant) is None
-            or en_passant[1] != expected_rank
+            not report.all_moves_legal
+            or report.has_errors
+            or report.recovery_issue_codes
         ):
-            raise BookDocumentError(
-                f"{field_name} en-passant square is invalid for the side to move",
-                code=BookDocumentErrorCode.INVALID_FIELD,
-            )
-    if len(fields) == 6:
-        halfmove, fullmove = fields[4:]
-        if (
-            not halfmove.isascii()
-            or not halfmove.isdigit()
-            or (len(halfmove) > 1 and halfmove.startswith("0"))
-        ):
-            raise BookDocumentError(
-                f"{field_name} halfmove clock must be canonical decimal text",
-                code=BookDocumentErrorCode.INVALID_FIELD,
-            )
-        if (
-            not fullmove.isascii()
-            or not fullmove.isdigit()
-            or fullmove.startswith("0")
-        ):
-            raise BookDocumentError(
-                f"{field_name} fullmove number must be canonical positive decimal text",
-                code=BookDocumentErrorCode.INVALID_FIELD,
-            )
-    return text
+            raise ValueError("PGN contains illegal or unverifiable chess content")
+    except (
+        GameTreeContractError,
+        GameTreeLegalityContractError,
+        TypeError,
+        ValueError,
+    ) as exc:
+        raise BookDocumentError(
+            f"{field_name} is not one lossless legal PGN game: {exc}",
+            code=BookDocumentErrorCode.INVALID_CHESS_CONTENT,
+        ) from exc
 
 
 @dataclass(slots=True)
@@ -256,6 +245,8 @@ class Game(BookBlock):
                 "Game requires PGN text or a game_id reference",
                 code=BookDocumentErrorCode.INVALID_FIELD,
             )
+        if self.pgn.strip():
+            _validate_pgn_text(self.pgn, "Game PGN")
 
 
 @dataclass(slots=True)
@@ -269,6 +260,12 @@ class VariationTree(BookBlock):
         self.root_fen = _fen_text(self.root_fen, "VariationTree root_fen")
         self.pgn = _required_text(self.pgn, "VariationTree PGN")
         self.title = _optional_text(self.title, "VariationTree title")
+        _validate_pgn_text(
+            self.pgn,
+            "VariationTree PGN",
+            root_fen=self.root_fen,
+            require_mainline_move=True,
+        )
 
 
 @dataclass(slots=True)
@@ -299,6 +296,13 @@ class Exercise(BookBlock):
             raise BookDocumentError(
                 "Exercise requires solution_pgn or answer_text",
                 code=BookDocumentErrorCode.INVALID_FIELD,
+            )
+        if self.solution_pgn is not None:
+            _validate_pgn_text(
+                self.solution_pgn,
+                "Exercise solution_pgn",
+                root_fen=self.fen,
+                require_mainline_move=True,
             )
 
 
@@ -365,17 +369,24 @@ class BookDocument:
     author: str | None = None
     source_name: str | None = None
     warnings: list[str] = field(default_factory=list)
+    book_id: str | None = None
 
     def __post_init__(self) -> None:
         self.title = _required_text(self.title, "Book title")
         self.language = _optional_text(self.language, "Book language")
         self.author = _optional_text(self.author, "Book author")
         self.source_name = _optional_text(self.source_name, "Book source_name")
+        self.book_id = _optional_identifier(self.book_id, "Book book_id")
         if not isinstance(self.blocks, list) or not all(
             isinstance(block, _SEMANTIC_BLOCK_TYPES) for block in self.blocks
         ):
             raise BookDocumentError(
                 "Book blocks must be a list of supported semantic blocks",
+                code=BookDocumentErrorCode.INVALID_FIELD,
+            )
+        if len(self.blocks) > MAX_BOOK_BLOCKS:
+            raise BookDocumentError(
+                "Book contains too many semantic blocks",
                 code=BookDocumentErrorCode.INVALID_FIELD,
             )
         if not isinstance(self.warnings, list) or not all(
@@ -384,6 +395,11 @@ class BookDocument:
         ):
             raise BookDocumentError(
                 "Book warnings must be a list of non-empty strings",
+                code=BookDocumentErrorCode.INVALID_FIELD,
+            )
+        if len(self.warnings) > MAX_BOOK_WARNINGS:
+            raise BookDocumentError(
+                "Book contains too many warnings",
                 code=BookDocumentErrorCode.INVALID_FIELD,
             )
         self.blocks = list(self.blocks)
@@ -396,6 +412,11 @@ class BookDocument:
                 code=BookDocumentErrorCode.UNSUPPORTED_BLOCK_KIND,
             )
         block.as_dict()
+        if len(self.blocks) >= MAX_BOOK_BLOCKS:
+            raise BookDocumentError(
+                "Book contains too many semantic blocks",
+                code=BookDocumentErrorCode.INVALID_FIELD,
+            )
         self.blocks.append(block)
         return block
 
@@ -408,6 +429,11 @@ class BookDocument:
             )
         for block in additions:
             block.as_dict()
+        if len(self.blocks) + len(additions) > MAX_BOOK_BLOCKS:
+            raise BookDocumentError(
+                "Book contains too many semantic blocks",
+                code=BookDocumentErrorCode.INVALID_FIELD,
+            )
         self.blocks.extend(additions)
 
     def iter_kind(self, kind: type[SemanticBlock]) -> Iterator[SemanticBlock]:
@@ -446,11 +472,17 @@ class BookDocument:
         _optional_text(self.language, "Book language")
         _optional_text(self.author, "Book author")
         _optional_text(self.source_name, "Book source_name")
+        _optional_identifier(self.book_id, "Book book_id")
         if type(self.blocks) is not list or not all(
             isinstance(block, _SEMANTIC_BLOCK_TYPES) for block in self.blocks
         ):
             raise BookDocumentError(
                 "Book blocks must remain a list of supported semantic blocks",
+                code=BookDocumentErrorCode.INVALID_FIELD,
+            )
+        if len(self.blocks) > MAX_BOOK_BLOCKS:
+            raise BookDocumentError(
+                "Book contains too many semantic blocks",
                 code=BookDocumentErrorCode.INVALID_FIELD,
             )
         if type(self.warnings) is not list or not all(
@@ -459,6 +491,11 @@ class BookDocument:
         ):
             raise BookDocumentError(
                 "Book warnings must remain a list of non-empty strings",
+                code=BookDocumentErrorCode.INVALID_FIELD,
+            )
+        if len(self.warnings) > MAX_BOOK_WARNINGS:
+            raise BookDocumentError(
+                "Book contains too many warnings",
                 code=BookDocumentErrorCode.INVALID_FIELD,
             )
         for block in self.blocks:
@@ -472,6 +509,7 @@ class BookDocument:
             "language": self.language,
             "author": self.author,
             "source_name": self.source_name,
+            "book_id": self.book_id,
             "warnings": list(self.warnings),
             "blocks": [block.as_dict() for block in self.blocks],
         }
@@ -488,7 +526,7 @@ class BookDocument:
         if (
             not isinstance(raw_version, int)
             or isinstance(raw_version, bool)
-            or raw_version not in {0, BOOK_DOCUMENT_SCHEMA_VERSION}
+            or raw_version not in {0, 1, BOOK_DOCUMENT_SCHEMA_VERSION}
         ):
             raise BookDocumentError(
                 f"Unsupported BookDocument schema_version: {raw_version!r}",
@@ -500,6 +538,7 @@ class BookDocument:
             "language",
             "author",
             "source_name",
+            "book_id",
             "warnings",
             "blocks",
         }
@@ -515,6 +554,11 @@ class BookDocument:
                 "BookDocument blocks must be a list",
                 code=BookDocumentErrorCode.INVALID_FIELD,
             )
+        if len(raw_blocks) > MAX_BOOK_BLOCKS:
+            raise BookDocumentError(
+                "BookDocument contains too many semantic blocks",
+                code=BookDocumentErrorCode.INVALID_FIELD,
+            )
         warnings = data.get("warnings", [])
         if not isinstance(warnings, list) or not all(
             isinstance(item, str) and item.strip() for item in warnings
@@ -523,11 +567,17 @@ class BookDocument:
                 "BookDocument warnings must be a list of non-empty strings",
                 code=BookDocumentErrorCode.INVALID_FIELD,
             )
+        if len(warnings) > MAX_BOOK_WARNINGS:
+            raise BookDocumentError(
+                "BookDocument contains too many warnings",
+                code=BookDocumentErrorCode.INVALID_FIELD,
+            )
         return cls(
             title=data.get("title", ""),
             language=data.get("language"),
             author=data.get("author"),
             source_name=data.get("source_name"),
+            book_id=data.get("book_id"),
             warnings=list(warnings),
             blocks=[block_from_dict(item) for item in raw_blocks],
         )

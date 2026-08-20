@@ -21,6 +21,7 @@ class BindingContext(str, Enum):
     ENGINE_GAME = "engine_game"
     DATABASE = "database"
     BOOK_READER = "book_reader"
+    TRAINING = "training"
 
 
 @dataclass(frozen=True)
@@ -167,6 +168,16 @@ DEFAULT_ACTIONS: tuple[ActionDefinition, ...] = (
     ActionDefinition("analysis.insert_move", BindingContext.ANALYSIS, "Insert selected engine move", "Ctrl+Alt+M"),
     ActionDefinition("analysis.insert_line", BindingContext.ANALYSIS, "Insert selected engine line", "Ctrl+Alt+V"),
     ActionDefinition("analysis.restart", BindingContext.ANALYSIS, "Restart engine analysis", "Alt+R"),
+    ActionDefinition("book_reader.previous_block", BindingContext.BOOK_READER, "Previous book block", "Alt+PageUp"),
+    ActionDefinition("book_reader.next_block", BindingContext.BOOK_READER, "Next book block", "Alt+PageDown"),
+    ActionDefinition("book_reader.open_chess_block", BindingContext.BOOK_READER, "Open book chess block", "Ctrl+Enter"),
+    ActionDefinition("book_reader.return_to_text", BindingContext.BOOK_READER, "Return to exact book text", "Alt+Escape"),
+    ActionDefinition("book_reader.bookmark", BindingContext.BOOK_READER, "Save book bookmark", "Ctrl+B"),
+    ActionDefinition("training.hint", BindingContext.TRAINING, "Request training hint", "Ctrl+H"),
+    ActionDefinition("training.reveal_solution", BindingContext.TRAINING, "Reveal training solution", "Ctrl+Shift+H"),
+    ActionDefinition("training.reset", BindingContext.TRAINING, "Reset training exercise", "Ctrl+Alt+R"),
+    ActionDefinition("training.analyse", BindingContext.TRAINING, "Analyse completed exercise", "Alt+A"),
+    ActionDefinition("training.close", BindingContext.TRAINING, "Close training exercise", "Alt+Escape"),
     ActionDefinition("board.current", BindingContext.BOARD, "Current square", "O"),
     ActionDefinition("board.last_captured", BindingContext.BOARD, "Last captured piece", "C"),
     ActionDefinition("board.last_move", BindingContext.BOARD, "Last move", "L"),

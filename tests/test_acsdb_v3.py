@@ -122,7 +122,7 @@ class AcsDatabaseV3Tests(unittest.TestCase):
                 provenance_id="provenance:test:catalog",
             )
             self.assertEqual(database.schema_version, ACSDB_SCHEMA_VERSION)
-            self.assertEqual(ACSDB_SCHEMA_VERSION, 3)
+            self.assertEqual(ACSDB_SCHEMA_VERSION, 4)
             source = database.get_source(report.source_id)
             self.assertEqual(source["provenance_id"], "provenance:test:catalog")
 
@@ -343,7 +343,7 @@ class AcsDatabaseV3Tests(unittest.TestCase):
 
             validation = AcsDatabase.validate_database(recovered)
             self.assertTrue(validation["ok"])
-            self.assertEqual(validation["schema_version"], 3)
+            self.assertEqual(validation["schema_version"], 4)
             with AcsDatabase(recovered) as database:
                 self.assertEqual(database.catalog_counts()["games"], 20)
                 self.assertEqual(database.catalog_counts()["players"], 40)
@@ -387,7 +387,7 @@ class AcsDatabaseV3Tests(unittest.TestCase):
             with AcsDatabase(path) as database:
                 evidence = database.last_migration
                 self.assertIsNotNone(evidence)
-                self.assertEqual((evidence.from_version, evidence.to_version), (2, 3))
+                self.assertEqual((evidence.from_version, evidence.to_version), (2, 4))
                 self.assertTrue(evidence.backup_path.exists())
                 backup_report = AcsDatabase.validate_database(evidence.backup_path)
                 self.assertEqual(backup_report["schema_version"], 2)
@@ -399,7 +399,7 @@ class AcsDatabaseV3Tests(unittest.TestCase):
                 self.assertEqual(len(row["record_digest"]), 64)
                 self.assertEqual(len(database.search_games(annotator="legacy")), 1)
                 event = database.list_migration_events()[0]
-                self.assertEqual((event["from_version"], event["to_version"]), (2, 3))
+                self.assertEqual((event["from_version"], event["to_version"]), (2, 4))
                 self.assertEqual(event["backup_name"], evidence.backup_path.name)
 
     def test_injected_migration_failure_rolls_back_and_keeps_verified_backup(self):

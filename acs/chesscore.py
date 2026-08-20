@@ -304,3 +304,79 @@ class Board:
         return sorted(set(out))
     def attackers_of(self,s):
         return [i for i,p in enumerate(self.board) if p and s in self.attacks_from(i)]
+
+
+def validate_fen_semantics(board):
+    """Reject structurally parseable positions that cannot arise legally.
+
+    ``Board.set_fen`` owns atomic structural parsing.  Importers and durable
+    content boundaries additionally need the historical invariants below so a
+    malformed source cannot become trusted chess state.
+    """
+
+    if not isinstance(board, Board):
+        raise TypeError("board must be a Board")
+    previous_side = "b" if board.turn == "w" else "w"
+    if board.in_check(previous_side):
+        raise ValueError("side not to move is already in check")
+    if board.ep is None:
+        return
+    target = board.ep
+    if board.board[target] is not None:
+        raise ValueError("en-passant target is occupied")
+    if board.turn == "w":
+        pawn_square, origin_square, pawn = target - 8, target + 8, "p"
+    else:
+        pawn_square, origin_square, pawn = target + 8, target - 8, "P"
+    if board.board[pawn_square] != pawn or board.board[origin_square] is not None:
+        raise ValueError("en-passant target lacks a matching double pawn move")
+    if board.halfmove != 0:
+        raise ValueError("en-passant target requires a zero halfmove clock")
+
+
+def canonical_fen(fen, *, allow_four_fields=False):
+    """Validate and return one canonical, playable FEN string.
+
+    Four-field FEN is supported only for legacy semantic book blocks.  All
+    other callers receive the full six-field form used by the chess core.
+    """
+
+    if not isinstance(fen, str):
+        raise TypeError("FEN must be text")
+    fields = fen.strip().split()
+    valid_counts = {6, 4} if allow_four_fields else {6}
+    if len(fields) not in valid_counts:
+        expected = "4 or 6" if allow_four_fields else "6"
+        raise ValueError(f"FEN must contain exactly {expected} fields")
+    if len(fields) == 6:
+        halfmove, fullmove = fields[4:]
+        if (
+            not halfmove.isascii()
+            or not halfmove.isdigit()
+            or (len(halfmove) > 1 and halfmove.startswith("0"))
+        ):
+            raise ValueError("FEN halfmove clock must be canonical decimal text")
+        if (
+            not fullmove.isascii()
+            or not fullmove.isdigit()
+            or fullmove.startswith("0")
+        ):
+            raise ValueError("FEN fullmove number must be canonical positive decimal text")
+
+    castling = fields[2]
+    if castling != "-":
+        canonical_castling = "".join(
+            symbol for symbol in "KQkq" if symbol in castling
+        )
+        if castling != canonical_castling or len(set(castling)) != len(castling):
+            raise ValueError("FEN castling rights are not canonical")
+
+    full_text = " ".join(fields if len(fields) == 6 else fields + ["0", "1"])
+    board = Board(full_text)
+    validate_fen_semantics(board)
+    canonical_fields = board.fen().split()
+    compare_count = len(fields)
+    canonical = " ".join(canonical_fields[:compare_count])
+    if " ".join(fields) != canonical:
+        raise ValueError("FEN is not canonical")
+    return canonical

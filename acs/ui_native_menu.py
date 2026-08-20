@@ -12,7 +12,7 @@ from typing import Any, Callable
 
 
 _LABELS_UK = {
-    "file": "Файл", "game": "Гра", "board": "Дошка", "analysis": "Аналіз",
+    "file": "Файл", "game": "Гра", "board": "Дошка", "analysis": "Аналіз", "library": "Бібліотека",
     "settings": "Налаштування", "help": "Довідка",
     "new": "Нова стандартна позиція", "empty": "Порожня дошка", "exit": "Вихід",
     "undo": "Скасувати хід", "redo": "Повторити хід",
@@ -29,6 +29,18 @@ _LABELS_UK = {
     "analysis_return": "Повернутися до джерела",
     "analysis_insert_move": "Вставити вибраний хід",
     "analysis_insert_line": "Вставити вибраний варіант",
+    "books_open": "Книги",
+    "training_open": "Тренування",
+    "book_previous": "Попередній блок книги",
+    "book_next": "Наступний блок книги",
+    "book_chess": "Відкрити шаховий блок",
+    "book_return": "Повернутися до тексту книги",
+    "book_bookmark": "Зберегти закладку",
+    "training_hint": "Підказка",
+    "training_reveal": "Показати рішення",
+    "training_reset": "Скинути вправу",
+    "training_analyse": "Аналізувати вправу",
+    "training_close": "Закрити вправу",
     "keyboard": "Клавіатура і команди",
     "keyboard_reset": "Відновити всі клавіші та команди",
     "keyboard_reset_done": "Усі клавіші та команди відновлено за замовчуванням.",
@@ -37,7 +49,7 @@ _LABELS_UK = {
 }
 
 _LABELS_EN = {
-    "file": "File", "game": "Game", "board": "Board", "analysis": "Analysis",
+    "file": "File", "game": "Game", "board": "Board", "analysis": "Analysis", "library": "Library",
     "settings": "Settings", "help": "Help",
     "new": "New standard position", "empty": "Empty board", "exit": "Exit",
     "undo": "Undo move", "redo": "Redo move",
@@ -54,6 +66,18 @@ _LABELS_EN = {
     "analysis_return": "Return to source",
     "analysis_insert_move": "Insert selected move",
     "analysis_insert_line": "Insert selected variation",
+    "books_open": "Books",
+    "training_open": "Training",
+    "book_previous": "Previous book block",
+    "book_next": "Next book block",
+    "book_chess": "Open chess block",
+    "book_return": "Return to book text",
+    "book_bookmark": "Save bookmark",
+    "training_hint": "Hint",
+    "training_reveal": "Reveal solution",
+    "training_reset": "Reset exercise",
+    "training_analyse": "Analyse exercise",
+    "training_close": "Close exercise",
     "keyboard": "Keyboard and commands",
     "keyboard_reset": "Reset all keyboard commands",
     "keyboard_reset_done": "All keyboard commands were reset to defaults.",
@@ -62,8 +86,8 @@ _LABELS_EN = {
 }
 
 _MNEMONIC = {
-    "uk": {"file": "&Файл", "game": "&Гра", "board": "&Дошка", "analysis": "&Аналіз", "settings": "&Налаштування", "help": "&Довідка"},
-    "en": {"file": "&File", "game": "&Game", "board": "&Board", "analysis": "&Analysis", "settings": "&Settings", "help": "&Help"},
+    "uk": {"file": "&Файл", "game": "&Гра", "board": "&Дошка", "analysis": "&Аналіз", "library": "&Бібліотека", "settings": "&Налаштування", "help": "&Довідка"},
+    "en": {"file": "&File", "game": "&Game", "board": "&Board", "analysis": "&Analysis", "library": "&Library", "settings": "&Settings", "help": "&Help"},
 }
 
 
@@ -216,6 +240,22 @@ def make_keymap_menu(webview: Any, api: Any, window_holder: dict[str, Any]):
             MenuSeparator(),
             MenuAction(menu_caption(api, text["analysis_insert_move"], "analysis.insert_move"), refresh(lambda: _optional_api_action(api, "insert_analysis_move"))),
             MenuAction(menu_caption(api, text["analysis_insert_line"], "analysis.insert_line"), refresh(lambda: _optional_api_action(api, "insert_analysis_line"))),
+        ]),
+        Menu(text["library"], [
+            MenuAction(text["books_open"], lambda: js("openBooksPanel()")),
+            MenuAction(text["training_open"], lambda: js("openTrainingPanel()")),
+            MenuSeparator(),
+            MenuAction(menu_caption(api, text["book_previous"], "book_reader.previous_block"), refresh(lambda: _optional_api_action(api, "book_previous_block"))),
+            MenuAction(menu_caption(api, text["book_next"], "book_reader.next_block"), refresh(lambda: _optional_api_action(api, "book_next_block"))),
+            MenuAction(menu_caption(api, text["book_chess"], "book_reader.open_chess_block"), refresh(lambda: _optional_api_action(api, "open_book_chess_block"))),
+            MenuAction(menu_caption(api, text["book_return"], "book_reader.return_to_text"), refresh(lambda: _optional_api_action(api, "return_to_book_text"))),
+            MenuAction(menu_caption(api, text["book_bookmark"], "book_reader.bookmark"), refresh(lambda: _optional_api_action(api, "save_bookmark"))),
+            MenuSeparator(),
+            MenuAction(menu_caption(api, text["training_hint"], "training.hint"), refresh(lambda: _optional_api_action(api, "request_training_hint"))),
+            MenuAction(menu_caption(api, text["training_reveal"], "training.reveal_solution"), refresh(lambda: _optional_api_action(api, "reveal_training_solution"))),
+            MenuAction(menu_caption(api, text["training_reset"], "training.reset"), refresh(lambda: _optional_api_action(api, "reset_training"))),
+            MenuAction(menu_caption(api, text["training_analyse"], "training.analyse"), refresh(lambda: _optional_api_action(api, "analyze_training_position"))),
+            MenuAction(menu_caption(api, text["training_close"], "training.close"), refresh(lambda: _optional_api_action(api, "close_training"))),
         ]),
         Menu(text["settings"], [
             MenuAction(text["keyboard"], lambda: js("document.getElementById('key-search').focus()")),
@@ -373,6 +413,22 @@ def install_windows_native_menu(window: Any, api: Any) -> bool:
             separator(),
             item(menu_caption(api, text["analysis_insert_move"], "analysis.insert_move"), lambda: _invoke_api(window, lambda: _optional_api_action(api, "insert_analysis_move"))),
             item(menu_caption(api, text["analysis_insert_line"], "analysis.insert_line"), lambda: _invoke_api(window, lambda: _optional_api_action(api, "insert_analysis_line"))),
+        ]),
+        submenu(mn["library"], [
+            item(text["books_open"], lambda: _safe_js(window, "openBooksPanel()")),
+            item(text["training_open"], lambda: _safe_js(window, "openTrainingPanel()")),
+            separator(),
+            item(menu_caption(api, text["book_previous"], "book_reader.previous_block"), lambda: _invoke_api(window, lambda: _optional_api_action(api, "book_previous_block"))),
+            item(menu_caption(api, text["book_next"], "book_reader.next_block"), lambda: _invoke_api(window, lambda: _optional_api_action(api, "book_next_block"))),
+            item(menu_caption(api, text["book_chess"], "book_reader.open_chess_block"), lambda: _invoke_api(window, lambda: _optional_api_action(api, "open_book_chess_block"))),
+            item(menu_caption(api, text["book_return"], "book_reader.return_to_text"), lambda: _invoke_api(window, lambda: _optional_api_action(api, "return_to_book_text"))),
+            item(menu_caption(api, text["book_bookmark"], "book_reader.bookmark"), lambda: _invoke_api(window, lambda: _optional_api_action(api, "save_bookmark"))),
+            separator(),
+            item(menu_caption(api, text["training_hint"], "training.hint"), lambda: _invoke_api(window, lambda: _optional_api_action(api, "request_training_hint"))),
+            item(menu_caption(api, text["training_reveal"], "training.reveal_solution"), lambda: _invoke_api(window, lambda: _optional_api_action(api, "reveal_training_solution"))),
+            item(menu_caption(api, text["training_reset"], "training.reset"), lambda: _invoke_api(window, lambda: _optional_api_action(api, "reset_training"))),
+            item(menu_caption(api, text["training_analyse"], "training.analyse"), lambda: _invoke_api(window, lambda: _optional_api_action(api, "analyze_training_position"))),
+            item(menu_caption(api, text["training_close"], "training.close"), lambda: _invoke_api(window, lambda: _optional_api_action(api, "close_training"))),
         ]),
         submenu(mn["settings"], [
             item(text["keyboard"], lambda: _safe_js(window, "document.getElementById('keymap-dialog').showModal();document.getElementById('key-search').focus()")),

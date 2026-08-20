@@ -11,7 +11,8 @@ from pathlib import Path
 import tempfile
 from typing import Any
 
-from .chesscore import parse_sq
+from .acsdb import AcsDatabase
+from .chesscore import Board, parse_sq
 from .clock_service import ClockSnapshot, TimeControl
 from .engine_game_session import (
     EngineGameSessionCoordinator,
@@ -29,6 +30,7 @@ from .engine_play_service import (
 from .game_lifecycle import EndReason, GameStatus
 from .sound_events import MoveSoundFacts, SoundEvent
 from .ui_native_menu import install_windows_native_menu
+from .ui_learning_adapter import LearningPresentationAdapter
 from .webapp_keymap import (
     KeymapAwareAccessibleChessAPI,
     _asset_root,
@@ -46,6 +48,8 @@ class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
         sound_runtime: Any | None = None,
         settings: Any | None = None,
         engine_play_service: EnginePlayService | None = None,
+        database: AcsDatabase | None = None,
+        owns_database: bool = False,
         **kwargs: Any,
     ) -> None:
         if engine_play_service is not None and not isinstance(
@@ -53,6 +57,10 @@ class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
             EnginePlayService,
         ):
             raise TypeError("engine_play_service must be EnginePlayService or None")
+        if database is not None and not isinstance(database, AcsDatabase):
+            raise TypeError("database must be AcsDatabase or None")
+        if type(owns_database) is not bool:
+            raise TypeError("owns_database must be a boolean")
         super().__init__(*args, **kwargs)
         self._game_sounds = game_sounds
         self._sound_runtime = sound_runtime
@@ -63,6 +71,16 @@ class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
         self._engine_game_error: str | None = None
         self._engine_thinking = False
         self._engine_clock_history: list[ClockSnapshot] = []
+        self._database = database or AcsDatabase()
+        self._owns_database = database is None or owns_database
+        self.learning_ui = LearningPresentationAdapter(
+            self._database,
+            language=self.lang,
+        )
+        self._book_workspace_snapshot: dict[str, Any] | None = None
+        self._training_workspace_snapshot: dict[str, Any] | None = None
+        self._training_analysis_was_enabled = False
+        self._database_closed = False
 
     def _concise_error(self, uk: str, en: str) -> dict[str, Any]:
         return self._error(uk if self.lang == "uk" else en)
@@ -457,13 +475,69 @@ class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
             )
         return base
 
+    def _capture_chess_workspace(self) -> dict[str, Any]:
+        return {
+            "board": self.board,
+            "start_fen": self.start_fen,
+            "sans": list(self.sans),
+            "move_sides": list(self.move_sides),
+            "redo_meta": list(self.redo_meta),
+            "selected_source": self.selected_source,
+            "mode": self.mode,
+            "review_history": self.review_history,
+            "review_adapter": self.review_adapter,
+            "live_history_node": self.live_history_node,
+        }
+
+    def _restore_chess_workspace(self, snapshot: dict[str, Any]) -> None:
+        self.board = snapshot["board"]
+        self.start_fen = snapshot["start_fen"]
+        self.sans = list(snapshot["sans"])
+        self.move_sides = list(snapshot["move_sides"])
+        self.redo_meta = list(snapshot["redo_meta"])
+        self.selected_source = snapshot["selected_source"]
+        self.mode = snapshot["mode"]
+        self.review_history = snapshot["review_history"]
+        self.review_adapter = snapshot["review_adapter"]
+        self.live_history_node = snapshot["live_history_node"]
+        self._reanchor_analysis_after_reset()
+
+    def _load_learning_position(self, fen: str, mode: str) -> None:
+        self.board = Board(fen)
+        self._reset_history()
+        self.mode = mode
+        self._reanchor_analysis_after_reset()
+
+    def _training_workspace_error(self) -> dict[str, Any] | None:
+        if self.learning_ui.session is None:
+            return None
+        return self._concise_error(
+            "У тренуванні вводьте відповідь у полі вправи.",
+            "Use the exercise answer field while training.",
+        )
+
     def get_state(self) -> dict[str, Any]:
         state = super().get_state()
         game = self._engine_game_projection()
         state["engineGame"] = game
         state["engineGameStatus"] = game["status"]
+        self.learning_ui.set_language(self.lang)
+        try:
+            state["bookReader"] = self.learning_ui.book_state()
+            state["training"] = self.learning_ui.training_state()
+        except Exception:
+            state["bookReader"] = {"open": False, "books": [], "location": None, "block": None, "embedded": None}
+            state["training"] = {"open": False, "exercises": [], "revealedMoves": [], "hint": None}
         if game["configured"]:
             state["mode"] = "engine_play"
+        elif self.learning_ui.session is not None:
+            state["mode"] = "training"
+        elif self.learning_ui.book_context is not None:
+            state["mode"] = "book"
+        state["learningWorkspaceActive"] = bool(
+            self.learning_ui.session is not None
+            or self.learning_ui.book_context is not None
+        )
         return state
 
     def _timeout_mating_capability(self, flagged_side: str) -> bool:
@@ -485,6 +559,370 @@ class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
             ]
             return bool(flagged_material)
         return True
+
+    def import_book_json(self, text: str) -> dict[str, Any]:
+        if self.learning_ui.session is not None or self.learning_ui.book_context is not None:
+            return self._concise_error(
+                "Спочатку завершіть поточний навчальний режим.",
+                "Finish the current learning workspace first.",
+            )
+        try:
+            self.learning_ui.import_book_json(text)
+            return self._ok(
+                "Книгу імпортовано й відкрито."
+                if self.lang == "uk"
+                else "Book imported and opened."
+            )
+        except Exception:
+            return self._concise_error(
+                "Книгу відхилено: перевірте структуру, FEN і PGN.",
+                "Book rejected: check its structure, FEN, and PGN.",
+            )
+
+    def open_book(self, book: int | str) -> dict[str, Any]:
+        if self.learning_ui.session is not None or self.learning_ui.book_context is not None:
+            return self._concise_error(
+                "Спочатку завершіть поточний навчальний режим.",
+                "Finish the current learning workspace first.",
+            )
+        try:
+            self.learning_ui.open_book(book)
+            return self._ok(
+                "Книгу відкрито." if self.lang == "uk" else "Book opened."
+            )
+        except Exception:
+            return self._concise_error(
+                "Не вдалося відкрити книгу.",
+                "The book could not be opened.",
+            )
+
+    def close_book(self) -> dict[str, Any]:
+        if self.learning_ui.book_context is not None:
+            returned = self.return_to_book_text()
+            if not returned.get("ok"):
+                return returned
+        self.learning_ui.close_book()
+        return self._ok(
+            "Книгу закрито." if self.lang == "uk" else "Book closed."
+        )
+
+    def book_next_block(self) -> dict[str, Any]:
+        if self.learning_ui.book_context is not None:
+            return self._concise_error(
+                "Спочатку поверніться до тексту книги.",
+                "Return to the book text first.",
+            )
+        try:
+            self.learning_ui.book_next()
+            return self._ok(
+                "Наступний блок." if self.lang == "uk" else "Next block."
+            )
+        except LookupError:
+            return self._concise_error("Кінець книги.", "End of book.")
+        except Exception:
+            return self._concise_error(
+                "Не вдалося перейти далі.", "Could not move forward."
+            )
+
+    def book_previous_block(self) -> dict[str, Any]:
+        if self.learning_ui.book_context is not None:
+            return self._concise_error(
+                "Спочатку поверніться до тексту книги.",
+                "Return to the book text first.",
+            )
+        try:
+            self.learning_ui.book_previous()
+            return self._ok(
+                "Попередній блок." if self.lang == "uk" else "Previous block."
+            )
+        except LookupError:
+            return self._concise_error("Початок книги.", "Beginning of book.")
+        except Exception:
+            return self._concise_error(
+                "Не вдалося перейти назад.", "Could not move backward."
+            )
+
+    def book_go_to(self, index: int, reading_offset: int = 0) -> dict[str, Any]:
+        if self.learning_ui.book_context is not None:
+            return self._concise_error(
+                "Спочатку поверніться до тексту книги.",
+                "Return to the book text first.",
+            )
+        try:
+            self.learning_ui.book_go_to(index, reading_offset)
+            return self._ok(
+                "Позицію читання відновлено."
+                if self.lang == "uk"
+                else "Reading position restored."
+            )
+        except Exception:
+            return self._concise_error(
+                "Некоректна позиція читання.", "Invalid reading position."
+            )
+
+    def save_bookmark(self, name: str = "default") -> dict[str, Any]:
+        if self.learning_ui.book_context is not None:
+            return self._concise_error(
+                "Спочатку поверніться до тексту книги.",
+                "Return to the book text first.",
+            )
+        try:
+            self.learning_ui.save_bookmark(name)
+            return self._ok(
+                "Закладку збережено." if self.lang == "uk" else "Bookmark saved."
+            )
+        except Exception:
+            return self._concise_error(
+                "Не вдалося зберегти закладку.", "Bookmark could not be saved."
+            )
+
+    def load_bookmark(self, name: str = "default") -> dict[str, Any]:
+        if self.learning_ui.book_context is not None:
+            return self._concise_error(
+                "Спочатку поверніться до тексту книги.",
+                "Return to the book text first.",
+            )
+        try:
+            self.learning_ui.load_bookmark(name)
+            return self._ok(
+                "Закладку відкрито." if self.lang == "uk" else "Bookmark opened."
+            )
+        except Exception:
+            return self._concise_error(
+                "Закладку не знайдено або вона застаріла.",
+                "Bookmark is missing or obsolete.",
+            )
+
+    def open_book_chess_block(self, index: int | None = None) -> dict[str, Any]:
+        if self.learning_ui.session is not None or self._engine_game_phase in {"active", "error"}:
+            return self._concise_error(
+                "Спочатку завершіть поточний робочий режим.",
+                "Finish the current workspace first.",
+            )
+        if self.learning_ui.book_context is not None:
+            return self._concise_error(
+                "Шаховий блок уже відкрито.", "A chess block is already open."
+            )
+        snapshot = self._capture_chess_workspace()
+        try:
+            context = self.learning_ui.open_book_chess_block(index)
+            self._load_learning_position(context.position_fen, "book")
+            self._book_workspace_snapshot = snapshot
+            return self._ok(
+                "Шаховий блок відкрито окремо; повернення відновить точне місце читання."
+                if self.lang == "uk"
+                else "Chess block opened in isolation; return restores the exact reading position."
+            )
+        except Exception:
+            try:
+                self._restore_chess_workspace(snapshot)
+                if self.learning_ui.book_context is not None:
+                    self.learning_ui.return_to_book_text()
+            except Exception:
+                pass
+            self._book_workspace_snapshot = None
+            return self._concise_error(
+                "Цей шаховий блок неможливо відкрити.",
+                "This chess block cannot be opened.",
+            )
+
+    def return_to_book_text(self) -> dict[str, Any]:
+        snapshot = self._book_workspace_snapshot
+        if snapshot is None:
+            return self._concise_error(
+                "Немає відкритого шахового блока.", "No chess block is open."
+            )
+        try:
+            self.learning_ui.return_to_book_text()
+            self._restore_chess_workspace(snapshot)
+            self._book_workspace_snapshot = None
+            return self._ok(
+                "Повернуто точне місце читання."
+                if self.lang == "uk"
+                else "Returned to the exact reading position."
+            )
+        except Exception:
+            return self._concise_error(
+                "Не вдалося відновити місце читання.",
+                "The reading position could not be restored."
+            )
+
+    def import_training_json(self, text: str) -> dict[str, Any]:
+        if self.learning_ui.book_context is not None or self._engine_game_phase in {"active", "error"}:
+            return self._concise_error(
+                "Спочатку завершіть поточний робочий режим.",
+                "Finish the current workspace first.",
+            )
+        try:
+            self.learning_ui.import_training_json(text)
+            return self._begin_training_workspace()
+        except Exception:
+            return self._concise_error(
+                "Вправу відхилено: перевірте FEN і легальність усіх ходів.",
+                "Exercise rejected: check the FEN and every move's legality.",
+            )
+
+    def start_training(self, exercise_id: str) -> dict[str, Any]:
+        if self.learning_ui.book_context is not None or self._engine_game_phase in {"active", "error"}:
+            return self._concise_error(
+                "Спочатку завершіть поточний робочий режим.",
+                "Finish the current workspace first.",
+            )
+        try:
+            self.learning_ui.start_training(exercise_id)
+            return self._begin_training_workspace()
+        except Exception:
+            return self._concise_error(
+                "Не вдалося відкрити вправу.", "The exercise could not be opened."
+            )
+
+    def _begin_training_workspace(self) -> dict[str, Any]:
+        session = self.learning_ui.session
+        if session is None:
+            raise RuntimeError("training session is unavailable")
+        if self._training_workspace_snapshot is None:
+            self._training_workspace_snapshot = self._capture_chess_workspace()
+            self._training_analysis_was_enabled = self.analysis_ui.enabled
+        if self.analysis_ui.enabled:
+            self.analysis_ui.disable()
+        self._load_learning_position(session.position_fen, "training")
+        return self._ok(
+            "Вправу відкрито. Введіть дозволений хід у полі відповіді."
+            if self.lang == "uk"
+            else "Exercise opened. Enter a move in the answer field."
+        )
+
+    def submit_training_move(self, move: str) -> dict[str, Any]:
+        try:
+            _state, accepted, explanation = self.learning_ui.submit_training(move)
+            session = self.learning_ui.session
+            if session is None:
+                raise RuntimeError("training session disappeared")
+            self._load_learning_position(session.position_fen, "training")
+            if session.completed:
+                message = "Вправу завершено."
+                if explanation:
+                    message += f" {explanation}"
+                return self._ok(message if self.lang == "uk" else "Exercise completed.")
+            if accepted:
+                return self._ok(
+                    (
+                        "Правильно." + (f" {explanation}" if explanation else "")
+                        if self.lang == "uk"
+                        else "Correct." + (f" {explanation}" if explanation else "")
+                    )
+                )
+            return self._error(
+                "Спроба не прийнята; позицію не змінено."
+                if self.lang == "uk"
+                else "Attempt not accepted; the position is unchanged."
+            )
+        except Exception:
+            return self._concise_error(
+                "Некоректна відповідь.", "Invalid answer."
+            )
+
+    def request_training_hint(self) -> dict[str, Any]:
+        try:
+            state = self.learning_ui.request_training_hint()
+            hint = state.get("hint")
+            if not hint:
+                return self._concise_error(
+                    "Підказка для цього кроку недоступна.",
+                    "No hint is available for this step.",
+                )
+            return self._ok(str(hint))
+        except Exception:
+            return self._concise_error(
+                "Не вдалося отримати підказку.", "Hint could not be requested."
+            )
+
+    def reveal_training_solution(self) -> dict[str, Any]:
+        try:
+            state = self.learning_ui.reveal_training_solution()
+            moves = state.get("revealedMoves") or []
+            if not moves:
+                return self._concise_error(
+                    "Рішення ще не можна показати.",
+                    "The solution cannot be revealed yet.",
+                )
+            return self._ok(
+                ("Рішення: " if self.lang == "uk" else "Solution: ")
+                + ", ".join(str(move) for move in moves)
+            )
+        except Exception:
+            return self._concise_error(
+                "Не вдалося показати рішення.", "Solution could not be revealed."
+            )
+
+    def reset_training(self) -> dict[str, Any]:
+        try:
+            if self.analysis_ui.enabled:
+                self.analysis_ui.disable()
+            self.learning_ui.reset_training()
+            session = self.learning_ui.session
+            if session is None:
+                raise RuntimeError("training session disappeared")
+            self._load_learning_position(session.position_fen, "training")
+            return self._ok(
+                "Вправу скинуто." if self.lang == "uk" else "Exercise reset."
+            )
+        except Exception:
+            return self._concise_error(
+                "Не вдалося скинути вправу.", "Exercise could not be reset."
+            )
+
+    def analyze_training_position(self) -> dict[str, Any]:
+        session = self.learning_ui.session
+        if session is None or not session.analysis_allowed:
+            return self._concise_error(
+                "Аналіз доступний лише після завершення цієї вправи.",
+                "Analysis is available only after this exercise is completed."
+            )
+        return self.start_analysis()
+
+    def start_analysis(self) -> dict[str, Any]:
+        session = self.learning_ui.session
+        if session is not None and not session.analysis_allowed:
+            return self._concise_error(
+                "Аналіз заблоковано до завершення вправи.",
+                "Analysis is locked until the exercise is completed."
+            )
+        return super().start_analysis()
+
+    def toggle_engine(self) -> dict[str, Any]:
+        session = self.learning_ui.session
+        if (
+            session is not None
+            and not session.analysis_allowed
+            and not self.analysis_ui.enabled
+        ):
+            return self._concise_error(
+                "Аналіз заблоковано до завершення вправи.",
+                "Analysis is locked until the exercise is completed."
+            )
+        return super().toggle_engine()
+
+    def close_training(self) -> dict[str, Any]:
+        snapshot = self._training_workspace_snapshot
+        if self.learning_ui.session is None or snapshot is None:
+            return self._concise_error(
+                "Немає відкритої вправи.", "No exercise is open."
+            )
+        restore_analysis = self._training_analysis_was_enabled
+        if self.analysis_ui.enabled and not restore_analysis:
+            self.analysis_ui.disable()
+        self.learning_ui.close_training()
+        self._restore_chess_workspace(snapshot)
+        self._training_workspace_snapshot = None
+        self._training_analysis_was_enabled = False
+        if restore_analysis and not self.analysis_ui.enabled:
+            super().start_analysis()
+        return self._ok(
+            "Вправу закрито; попередню шахову позицію відновлено."
+            if self.lang == "uk"
+            else "Exercise closed; the previous chess position was restored."
+        )
 
     def _resolve_engine_no_move(
         self,
@@ -678,6 +1116,14 @@ class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
         initial_minutes: int = 0,
         increment_seconds: int = 0,
     ) -> dict[str, Any]:
+        if (
+            self.learning_ui.session is not None
+            or self.learning_ui.book_context is not None
+        ):
+            return self._concise_error(
+                "Спочатку закрийте вправу або поверніться до тексту книги.",
+                "Close the exercise or return to the book text first.",
+            )
         blocked = self._temporary_exploration_error()
         if blocked is not None:
             return blocked
@@ -908,6 +1354,9 @@ class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
         )
 
     def new_game(self) -> dict[str, Any]:
+        blocked = self._training_workspace_error()
+        if blocked is not None:
+            return blocked
         self._reset_engine_game_state()
         result = super().new_game()
         if result.get("ok") and self._game_sounds is not None:
@@ -915,10 +1364,16 @@ class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
         return result
 
     def clear_board(self) -> dict[str, Any]:
+        blocked = self._training_workspace_error()
+        if blocked is not None:
+            return blocked
         self._reset_engine_game_state()
         return super().clear_board()
 
     def make_move(self, text: str) -> dict[str, Any]:
+        blocked = self._training_workspace_error()
+        if blocked is not None:
+            return blocked
         if self._engine_game_phase == "stopped":
             self._reset_engine_game_state()
         guard = self._human_engine_move_guard()
@@ -945,6 +1400,9 @@ class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
         return result
 
     def set_fen(self, fen: str) -> dict[str, Any]:
+        blocked = self._training_workspace_error()
+        if blocked is not None:
+            return blocked
         result = super().set_fen(fen)
         if result.get("ok"):
             message = str(result.get("announcement") or "")
@@ -953,6 +1411,9 @@ class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
         return self._concise_error("Некоректний FEN.", "Invalid FEN.")
 
     def set_position_text(self, text: str, turn: str | None = None) -> dict[str, Any]:
+        blocked = self._training_workspace_error()
+        if blocked is not None:
+            return blocked
         result = super().set_position_text(text, turn)
         if result.get("ok"):
             message = str(result.get("announcement") or "")
@@ -961,6 +1422,9 @@ class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
         return self._concise_error("Некоректна позиція.", "Invalid position.")
 
     def set_turn(self, color: str) -> dict[str, Any]:
+        blocked = self._training_workspace_error()
+        if blocked is not None:
+            return blocked
         result = super().set_turn(color)
         if result.get("ok"):
             message = str(result.get("announcement") or "")
@@ -969,6 +1433,9 @@ class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
         return result
 
     def undo(self) -> dict[str, Any]:
+        blocked = self._training_workspace_error()
+        if blocked is not None:
+            return blocked
         if self._engine_game_phase == "active":
             return self.engine_takeback()
         if self._engine_game_phase in {"stopped", "finished"}:
@@ -976,6 +1443,9 @@ class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
         return super().undo()
 
     def redo(self) -> dict[str, Any]:
+        blocked = self._training_workspace_error()
+        if blocked is not None:
+            return blocked
         if self._engine_game_phase in {"active", "error"}:
             return self._concise_error(
                 "Повтор ходу недоступний під час гри проти Stockfish.",
@@ -986,6 +1456,9 @@ class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
         return super().redo()
 
     def activate_square(self, square: str) -> dict[str, Any]:
+        blocked = self._training_workspace_error()
+        if blocked is not None:
+            return blocked
         if self._engine_game_phase == "stopped":
             self._reset_engine_game_state()
         guard = self._human_engine_move_guard()
@@ -1046,6 +1519,16 @@ class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
             "game.takeback": self.engine_takeback,
             "game.offer_draw": self.offer_draw_engine_game,
             "game.resign": self.resign_engine_game,
+            "book_reader.next_block": self.book_next_block,
+            "book_reader.previous_block": self.book_previous_block,
+            "book_reader.open_chess_block": self.open_book_chess_block,
+            "book_reader.return_to_text": self.return_to_book_text,
+            "book_reader.bookmark": self.save_bookmark,
+            "training.hint": self.request_training_hint,
+            "training.reveal_solution": self.reveal_training_solution,
+            "training.reset": self.reset_training,
+            "training.analyse": self.analyze_training_position,
+            "training.close": self.close_training,
         }
         handler = actions.get(str(action_id or ""))
         return handler() if handler is not None else super().dispatch_action(action_id)
@@ -1059,6 +1542,9 @@ class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
         finally:
             if service is not None:
                 service.close()
+            if self._owns_database and not self._database_closed:
+                self._database.close()
+                self._database_closed = True
 
 
 def complete_user_flow_diagnostic(

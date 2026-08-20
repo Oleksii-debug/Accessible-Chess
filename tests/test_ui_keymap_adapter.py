@@ -1,3 +1,6 @@
+import json
+from pathlib import Path
+
 from acs.keybindings import ActionRegistry
 from acs.ui_keymap_adapter import build_web_keymap
 
@@ -61,3 +64,9 @@ def test_move_entry_aliases_are_projected_without_changing_parser_syntax():
     assert rows["move.standard"]["alias"] == "s"
     assert rows["move.empty"]["alias"] == "e"
     assert all("W:" not in (row["alias"] or "") for row in rows.values())
+
+
+def test_packaged_static_keymap_is_the_exact_generated_default_projection():
+    root = Path(__file__).resolve().parents[1]
+    packaged = json.loads((root / "web" / "keybindings.json").read_text("utf-8"))
+    assert packaged == build_web_keymap()

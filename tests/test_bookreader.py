@@ -117,6 +117,70 @@ class BookReaderTests(unittest.TestCase):
         with self.assertRaises(BookDocumentError):
             BookReader(object())
 
+    def test_location_captures_exact_book_chapter_block_and_text_offset(self):
+        reader = BookReader(self.make_book())
+        reader.go_to(1)
+        location = reader.set_reading_offset(3)
+
+        self.assertTrue(location.book_id)
+        self.assertEqual(len(location.snapshot_id), 64)
+        self.assertEqual(location.chapter_index, 0)
+        self.assertEqual(location.chapter_block_id, "part-1")
+        self.assertEqual(location.chapter_source_anchor, "p1")
+        self.assertEqual(location.reading_offset, 3)
+
+        reader.save_return_point("paragraph")
+        reader.go_to(6)
+        self.assertEqual(reader.restore_return_point("paragraph"), location)
+
+    def test_durable_location_roundtrip_is_strict_and_atomic(self):
+        reader = BookReader(self.make_book())
+        reader.go_to(1, reading_offset=2)
+        payload = reader.location().as_dict()
+        reader.go_to(6)
+        self.assertEqual(reader.restore_location(payload).reading_offset, 2)
+
+        before = reader.location()
+        tampered = (
+            dict(payload, book_id="other"),
+            dict(payload, snapshot_id="0" * 64),
+            dict(payload, kind="Game"),
+            dict(payload, chapter_index=99),
+            dict(payload, reading_offset=999),
+            dict(payload, schema_version=True),
+        )
+        for invalid in tampered:
+            with self.subTest(payload=invalid):
+                with self.assertRaises((ValueError, LookupError, IndexError)):
+                    reader.restore_location(invalid)
+                self.assertEqual(reader.location(), before)
+
+    def test_embedded_chess_exploration_returns_to_exact_source_context(self):
+        reader = BookReader(self.make_book())
+        reader.go_to(1, reading_offset=4)
+        origin = reader.location()
+
+        context = reader.open_chess_block(3)
+        self.assertEqual(context.origin, origin)
+        self.assertEqual(context.block.block_id, "diagram")
+        self.assertEqual(context.position_fen, WHITE_FEN)
+        self.assertEqual(reader.location(), origin)
+
+        reader.go_to(6)
+        restored = reader.return_to_text()
+        self.assertEqual(restored, origin)
+        self.assertIsNone(reader.embedded_context)
+
+    def test_only_self_contained_chess_blocks_can_open(self):
+        reader = BookReader(self.make_book())
+        before = reader.location()
+        with self.assertRaisesRegex(LookupError, "no self-contained"):
+            reader.open_chess_block(1)
+        self.assertEqual(reader.location(), before)
+
+        context = reader.open_chess_block(4)
+        self.assertEqual(context.position_fen, "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1")
+
 
 if __name__ == "__main__":
     unittest.main()

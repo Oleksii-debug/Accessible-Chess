@@ -24,6 +24,7 @@ _UI_CONTEXT = {
     BindingContext.ENGINE_GAME: "engine-game",
     BindingContext.DATABASE: "database",
     BindingContext.BOOK_READER: "book-reader",
+    BindingContext.TRAINING: "training",
 }
 
 _UK_LABELS = {
@@ -45,6 +46,16 @@ _UK_LABELS = {
     "analysis.insert_move": "Вставити вибраний хід Stockfish",
     "analysis.insert_line": "Вставити вибраний варіант Stockfish",
     "analysis.restart": "Перезапустити аналіз Stockfish",
+    "book_reader.previous_block": "Попередній блок книги",
+    "book_reader.next_block": "Наступний блок книги",
+    "book_reader.open_chess_block": "Відкрити шаховий блок книги",
+    "book_reader.return_to_text": "Повернутися до точного місця в книзі",
+    "book_reader.bookmark": "Зберегти закладку книги",
+    "training.hint": "Попросити підказку",
+    "training.reveal_solution": "Показати рішення вправи",
+    "training.reset": "Скинути вправу",
+    "training.analyse": "Аналізувати завершену вправу",
+    "training.close": "Закрити вправу",
     "board.current": "Поточне поле",
     "board.last_captured": "Остання взята фігура",
     "board.last_move": "Останній хід",
@@ -80,6 +91,15 @@ _UK_LABELS = {
     "move.standard": "Команда стандартної позиції",
     "move.empty": "Команда порожньої позиції",
 }
+_UK_LABELS.update(
+    {f"board.rank_{rank}": f"Перейти на {rank} горизонталь" for rank in range(1, 9)}
+)
+_UK_LABELS.update(
+    {
+        f"board.file_{index}": f"Перейти на вертикаль {file_name}"
+        for index, file_name in enumerate("abcdefgh", start=1)
+    }
+)
 
 
 def build_web_keymap(registry: ActionRegistry | None = None) -> dict[str, Any]:
