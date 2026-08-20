@@ -1,17 +1,17 @@
 # Accessible Chess — Work Master Current
 
-Updated: `2026-08-20T10:16:23Z`
+Updated: `2026-08-20T10:26:03Z`
 
 ## Recovery pointer
 
 - `CURRENT_BRANCH`: `completion/full-product-critical-path-20260819`
 - `START_SHA`: `588058634b378793b3c9aa0dca113af6b8a2dc8f`
-- `CURRENT_REMOTE_SHA`: `c0aef81107e6fa399e1b3846d1314c70f9a9e7cf`
-- `LAST_SAFE_SHA`: `c0aef81107e6fa399e1b3846d1314c70f9a9e7cf`
+- `CURRENT_REMOTE_SHA`: `5609dcc2f35e00c51144399672a7fc157f5400e9`
+- `LAST_SAFE_SHA`: `5609dcc2f35e00c51144399672a7fc157f5400e9`
 - `INTEGRATION_SHA`: `e8cd992d306975955784118364ce950963133d7e`
 - `QA_SHA`: `07971835cb8fc294996165e577913ed350ae9f0e`
 - `RESEARCH_SHA`: `0213f54f3f36fb30379f95c9979aea3a1cc41481`
-- `COMPLETION_SHA`: `c0aef81107e6fa399e1b3846d1314c70f9a9e7cf`
+- `COMPLETION_SHA`: `5609dcc2f35e00c51144399672a7fc157f5400e9`
 - `COMPETITOR_EVIDENCE_BRANCH`: `research/competitor-interaction-lab-20260820`
 - `COMPETITOR_EVIDENCE_SHA`: `0213f54f3f36fb30379f95c9979aea3a1cc41481`
 - `CURRENT_STAGE1_STATE`: `BLOCKED — Issues #14 and #22 open; classification does not authorize a product-source change`
@@ -75,6 +75,7 @@ Commit `11b92a1e827bf66f8075ac7f3571ae20b908c1af` added integrity-verified bound
 - Local legality-persistence verification after `f559a56`: broad unittest `824/824` passed; focused legality/GameTree/PGN/concurrency/ACSDB/identity/import/duplicate/architecture `120 tests`, `172 subtests` passed. Full pytest is `904 passed`, `1499 subtests`, with exactly the two unchanged Stage1 PRODUCT failures. Mixed inspection yields DAMAGED/WARNING/FULL independently; illegal mixed imports and direct store fail atomically with a recorded attempt; coordinate SAN persists as warning evidence.
 - Local PGN provenance verification after `794e3bf`: broad unittest `828/828` passed; focused ACSDB/duplicate/identity/legality `62 tests`, `68 subtests` passed. Full pytest is `913 passed`, `1499 subtests`, with exactly the two unchanged Stage1 PRODUCT failures. Raw overrides must be one clean, legal, record-identical game; warning-only equivalent source bytes retain diagnostics; illegal incoming duplicate collections fail before any claim; illegal legacy rows are explicitly skipped; exact-source SHA evidence is unchanged.
 - Local GameTree-navigation verification after `c0aef81`: broad unittest `836/836` passed; focused navigation/GameTree/legality/architecture `47 tests`, `71 subtests` passed. Full pytest is `921 passed`, `1512 subtests`, with exactly the two unchanged Stage1 PRODUCT failures. The adapted legacy cursor now uses the canonical legality path type, exact scalar/tuple boundaries, deterministic nested enter/leave return, immutable addresses and explicit cycle/reuse/depth/node guards without mutating round-trip content.
+- Local GameTree-editing verification after `5609dcc`: broad unittest `844/844` passed; focused editing/navigation/GameTree/legality/identity/architecture `64 tests`, `85 subtests` passed. Full pytest is `929 passed`, `1526 subtests`, with exactly the two unchanged Stage1 PRODUCT failures. Promote/reorder/delete are copy-on-write and stale-revision protected; every source cursor receives a deterministic valid remap or explicit deletion; comments/NAG/results/warnings/recovery survive and edited clean games retain round-trip record identity.
 - Competitor lab run `32342624286`: five jobs completed successfully and published compact evidence to `0213f54...`.
 
 ## Known failures and blockers
@@ -84,10 +85,10 @@ Commit `11b92a1e827bf66f8075ac7f3571ae20b908c1af` added integrity-verified bound
 3. Strict Windows run `32220453450`: BLOCKED / NO PRODUCT ATTRIBUTION YET at native Ctrl+A/Ctrl+C; QA owns the focused evidence pass.
 4. Canonical ChessBase CBG move/variation/annotation decoding remains `UNSUPPORTED`; real licensed fixture corpus is absent; CBV/CBF/2CBH/CBONE content remains `UNSUPPORTED`.
 5. Full licensed ChessBase/Fritz interactive/NVDA execution remains unavailable. Robot evidence must not be labelled `NVDA_VERIFIED`.
-6. Canonical navigation and deterministic branch return are now bounded and
-   immutable. Promote/reorder/delete still need a copy-on-write editing service
-   that preserves exact surviving-node cursor context and proves atomic failure;
-   this is the remaining GameTree core gap before fuzz/property coverage.
+6. Canonical navigation and copy-on-write promote/reorder/delete are complete at
+   the deterministic contract layer. A generated adversarial/property corpus is
+   still needed to exercise parse/serialize/navigate/edit compositions across
+   many bounded nested sibling shapes before closing PGN/GameTree hardening.
 
 ## Current ownership and invariants
 
@@ -100,11 +101,12 @@ Commit `11b92a1e827bf66f8075ac7f3571ae20b908c1af` added integrity-verified bound
 
 ## Next exact action
 
-Commit and checkpoint canonical bounded GameTree navigation, then implement the
-copy-on-write editing contract: promote/reorder/delete one addressed RAV,
-return a deterministic cursor remap for every surviving context, reject stale
-or invalid paths atomically, preserve tags/comments/NAG/result/recovery evidence,
-and prove nested-sibling round trips plus adversarial graph bounds. Do not change
-the Stage 1 product or QA line. If Issue #14 transfers a
+Commit and checkpoint copy-on-write GameTree editing, then add a deterministic
+generated adversarial corpus covering nested/sibling PGN parse-serialize,
+navigation address uniqueness, edit cursor-map totality, malformed delimiters,
+and fixed resource-bound failures. If that corpus remains clean, classify the
+PGN/GameTree core boundary complete and move immediately to the proven
+ChessBase read-only evidence limit. Do not change the Stage 1 product or QA
+line. If Issue #14 transfers a
 PRODUCT fix, stop shared-core work and make the minimum central rank/file Action
 Registry plus live-Help repair before returning the exact SHA to QA.

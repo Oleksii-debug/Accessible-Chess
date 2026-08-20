@@ -15,6 +15,11 @@ the same canonical `PgnGame`. `acs.gametree_navigation` exposes bounded immutabl
 paths/cursors and exact RAV return context; it does not flatten or duplicate the
 GameTree for accessibility presentation.
 
+`acs.gametree_editing` is the sole copy-on-write structural edit boundary for
+promote/reorder/delete. It binds an address to an expected record revision and
+returns a complete immutable cursor remap, so stale commands or deleted branch
+contexts cannot silently land on a different node.
+
 The UI uses ordinary HTML headings, text, buttons, edit fields, labels, live regions and landmarks so the screen reader consumes a real document instead of a canvas/listbox simulation.
 
 ## NVDA interaction contract

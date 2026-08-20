@@ -196,6 +196,7 @@ def resolve_line(game: PgnGame, path: VariationPath = ROOT_PATH) -> VariationLin
     path = _validate_path(path)
     line = _root_line(game)
     seen = {id(line)}
+    seen_moves: set[int] = set()
     traversed: list[VariationStep] = []
     for step in path:
         moves = _line_moves(line)
@@ -206,7 +207,15 @@ def resolve_line(game: PgnGame, path: VariationPath = ROOT_PATH) -> VariationLin
                 f"after path {tuple(traversed)!r}",
                 code=GameTreeNavigationCode.INVALID_PATH,
             )
-        variations = _move_variations(moves[step.parent_move_index])
+        parent_move = moves[step.parent_move_index]
+        move_identity = id(parent_move)
+        if move_identity in seen_moves:
+            raise GameTreePathError(
+                "variation path revisits a move object",
+                code=GameTreeNavigationCode.GRAPH_REUSE,
+            )
+        seen_moves.add(move_identity)
+        variations = _move_variations(parent_move)
         if step.variation_index >= len(variations):
             raise GameTreePathError(
                 "variation path references variation "
@@ -385,7 +394,8 @@ def iter_move_addresses(game: PgnGame) -> Iterator[MoveAddress]:
 
     root = _root_line(game)
     active: set[int] = set()
-    seen: set[int] = set()
+    seen_lines: set[int] = set()
+    seen_moves: set[int] = set()
     count = [0]
 
     def claim(value: object) -> None:
@@ -412,16 +422,23 @@ def iter_move_addresses(game: PgnGame) -> Iterator[MoveAddress]:
                 "GameTree navigation found a cycle",
                 code=GameTreeNavigationCode.GRAPH_CYCLE,
             )
-        if identity in seen:
+        if identity in seen_lines:
             raise GameTreePathError(
                 "GameTree navigation found a reused line object",
                 code=GameTreeNavigationCode.GRAPH_REUSE,
             )
         claim(line)
         active.add(identity)
-        seen.add(identity)
+        seen_lines.add(identity)
         try:
             for move_index, move in enumerate(_line_moves(line)):
+                move_identity = id(move)
+                if move_identity in seen_moves:
+                    raise GameTreePathError(
+                        "GameTree navigation found a reused move object",
+                        code=GameTreeNavigationCode.GRAPH_REUSE,
+                    )
+                seen_moves.add(move_identity)
                 claim(move)
                 yield MoveAddress(path, move_index)
                 for variation_index, variation in enumerate(
