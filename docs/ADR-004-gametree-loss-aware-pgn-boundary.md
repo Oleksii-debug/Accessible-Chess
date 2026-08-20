@@ -129,6 +129,13 @@ PGN must never be silently reinterpreted as clean data.
     rejected before SQL insertion with stable validation codes. Warning
     evidence from both equivalent representations is retained without
     rewriting the supplied bytes.
+22. The composed boundary is exercised by a deterministic generated corpus:
+    64 nested/sibling/comment/NAG shapes round-trip with identical versioned
+    record identity and move addresses; 24 generated edit cases prove total
+    deterministic cursor remaps; chained reorder/promote/delete cases prove
+    remap composition; 56 repeated malformed delimiter cases remain blocking
+    recovery evidence; and patched small token/node/depth envelopes prove
+    stable domain failures instead of recursion or partial output.
 
 ## Compatibility
 
@@ -185,6 +192,13 @@ The optional raw-text path now has the same trust boundary as ordinary import.
 Whitespace and header ordering can remain byte-for-byte source evidence, but
 the bytes cannot describe a second game or a different semantic record than
 the indexed tags and GameTree. This changes no identity schema or ACSDB schema.
+
+Within the current explicit in-memory envelope, the PGN/GameTree shared-core
+boundary is complete: loss-aware parsing/serialization, file concurrency and
+atomicity, legality linking, inspection/persistence gates, duplicate evidence,
+canonical navigation, and copy-on-write branch editing compose over one tree.
+Streaming collections larger than the documented envelope remain a future
+import-service concern, not an unbounded mode of this API.
 
 ## Release boundary
 

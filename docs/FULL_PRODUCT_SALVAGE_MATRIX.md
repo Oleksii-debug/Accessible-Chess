@@ -78,18 +78,23 @@ compatibility.
 
 ## Ordered completion path
 
-1. Port the self-contained read-only classic ChessBase metadata/evidence stack
-   onto the hardened completion base; add a canonical capability report and
-   third-party notice; keep `decoder_available=False` while moves remain opaque.
-2. Add the smallest evidence-backed CBG move-token decoder slice behind a
-   replaceable adapter, with bounded resource use and canonical GameTree output.
-3. Port ACSDB v3 while reapplying all current v2 boundary and transaction
-   hardening; test rollback/recovery and imported ChessBase provenance.
-4. Port teaching/classroom foundation by commands/state/events rather than
-   copying chess rules or activating Stage 1 release paths.
-5. Continue online, Web/PWA and mobile clients only after shared application
-   semantics and persistence are proven.
+The completion line now contains the hardened PGN/GameTree parser, legality,
+navigation, editing, provenance, and generated adversarial composition layers.
+The remaining dependency-safe order is:
 
-The next atomic implementation checkpoint is item 1. It must not change
+1. Continue the self-contained read-only classic ChessBase metadata/evidence
+   stack; keep `decoder_available=False` wherever moves remain opaque and stop
+   at the first evidence boundary rather than guessing proprietary bytes.
+2. Add only an evidence-backed CBG move-token decoder slice behind a replaceable
+   adapter, with bounded resource use and canonical GameTree output.
+3. Port ACSDB v3 while reapplying every current v2 validation, transaction, and
+   literal-search invariant; prove migration backup, rollback, and recovery.
+4. Finish professional engine analysis, books/training, and Windows product
+   hardening before adapting Teacher/Classroom commands/state/events.
+5. Classes/courses, remote classroom, and replaceable voice/video providers are
+   last. Android, iOS, standalone PWA, and standalone Web products are outside
+   the canonical Windows-only product scope.
+
+The next atomic implementation checkpoint remains item 1. It must not change
 `NVDA_VERIFIED`, create a Stage 1 ZIP, modify QA-owned strict harnesses, or merge
 this completion line into the Stage 1 release lineage.
