@@ -153,45 +153,81 @@ try{
   $summary.invalid_e9_fen_unchanged=$true; NoRawError $els
 
   Set-Clipboard -Value '__sentinel__'
+  $null=$ws.AppActivate($AppPid)
   $move.SetFocus()
-  AssertFocusedRuntimeEventually $moveRid 'Clipboard focus convergence'
+  AssertFocusedRuntimeEventually $moveRid 'Native keyboard focus convergence'
   $focused=[System.Windows.Automation.AutomationElement]::FocusedElement
-  if((RuntimeId $focused) -ne $moveRid){throw "Clipboard keyboard focus mismatch: $(FocusDescription $focused)"}
-  $vp=ValuePattern $move 'Move before clipboard'
-  if([string]$vp.Current.Value -ne 'e9'){throw "Clipboard precondition ValuePattern mismatch: '$([string]$vp.Current.Value)'"}
-  $ws.SendKeys('^a')
-  Start-Sleep -Milliseconds 250
-  AssertFocusedRuntimeEventually $moveRid 'Clipboard selection focus convergence'
-  $focused=[System.Windows.Automation.AutomationElement]::FocusedElement
-  try{
-    $tp=$focused.GetCurrentPattern([System.Windows.Automation.TextPattern]::Pattern)
-    if($null -eq $tp){throw 'TextPattern unavailable'}
-    $selection=@($tp.GetSelection())
-    $summary.selection_uia_count=$selection.Count
-    if($selection.Count -gt 0){
-      $range=$selection[0]
-      $cmp=$range.CompareEndpoints([System.Windows.Automation.TextPatternRangeEndpoint]::Start,$range,[System.Windows.Automation.TextPatternRangeEndpoint]::End)
-      $summary.selection_uia_span=if($cmp -eq 0){'degenerate'}else{'nondegenerate'}
-      $summary.selection_uia_text=(@($selection|ForEach-Object {$_.GetText(-1)}) -join '')
-      Write-Output "CLIPBOARD UIA SELECTION OBSERVATION count=$($summary.selection_uia_count) span=$($summary.selection_uia_span) text='$($summary.selection_uia_text)'"
-    } else {
-      $summary.selection_uia_span='none'
-      Write-Output 'CLIPBOARD UIA SELECTION OBSERVATION count=0 span=none'
-    }
-  }catch{
-    $summary.selection_uia_span='unavailable'
-    Write-Output "CLIPBOARD UIA SELECTION OBSERVABILITY LIMITED: $($_.Exception.Message)"
+  if((RuntimeId $focused) -ne $moveRid){throw "Native keyboard focus mismatch: $(FocusDescription $focused)"}
+  $vp=ValuePattern $move 'Move before native keyboard proof'
+  if([string]$vp.Current.Value -ne 'e9'){throw "Native keyboard precondition ValuePattern mismatch: '$([string]$vp.Current.Value)'"}
+
+  if(-not ('AccessibleChessQaNativeKeysV3' -as [type])) {
+    Add-Type -TypeDefinition @"
+using System;
+using System.Runtime.InteropServices;
+public static class AccessibleChessQaNativeKeysV3 {
+  [DllImport("user32.dll")]
+  private static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, UIntPtr dwExtraInfo);
+  private const uint KEYEVENTF_KEYUP = 0x0002;
+  public static void Key(byte vk) {
+    keybd_event(vk, 0, 0, UIntPtr.Zero);
+    keybd_event(vk, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
   }
-  AssertFocusedRuntimeEventually $moveRid 'Clipboard copy focus convergence'
-  $focused=[System.Windows.Automation.AutomationElement]::FocusedElement
-  if((RuntimeId $focused) -ne $moveRid){throw "Clipboard copy focus mismatch: $(FocusDescription $focused)"}
-  $ws.SendKeys('^c')
+  public static void Ctrl(byte vk) {
+    keybd_event(0x11, 0, 0, UIntPtr.Zero);
+    keybd_event(vk, 0, 0, UIntPtr.Zero);
+    keybd_event(vk, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
+    keybd_event(0x11, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
+  }
+}
+"@
+  }
+
+  [AccessibleChessQaNativeKeysV3]::Key([byte]0x08)
+  Start-Sleep -Milliseconds 250
+  AssertFocusedRuntimeEventually $moveRid 'Native Backspace focus convergence'
+  $afterBackspace=[string](ValuePattern $move 'Move after native Backspace').Current.Value
+  if($afterBackspace -ne 'e'){
+    throw "NATIVE_KEY_DELIVERY_INCONCLUSIVE: expected plain Backspace to change e9 -> e, got '$afterBackspace'"
+  }
+  Write-Output 'NATIVE KEY DELIVERY CONTROL PASS e9->e'
+
+  $vp=ValuePattern $move 'Move restore before Ctrl+A selection proof'
+  $vp.SetValue('e9')
+  if([string]$vp.Current.Value -ne 'e9'){throw 'Could not restore e9 before native Ctrl+A proof'}
+  $null=$ws.AppActivate($AppPid)
+  $move.SetFocus()
+  AssertFocusedRuntimeEventually $moveRid 'Native Ctrl+A focus convergence'
+  [AccessibleChessQaNativeKeysV3]::Ctrl([byte]0x41)
+  Start-Sleep -Milliseconds 150
+  [AccessibleChessQaNativeKeysV3]::Key([byte]0x08)
+  Start-Sleep -Milliseconds 250
+  AssertFocusedRuntimeEventually $moveRid 'Native Ctrl+A plus Backspace focus convergence'
+  $afterSelectDelete=[string](ValuePattern $move 'Move after native Ctrl+A plus Backspace').Current.Value
+  if($afterSelectDelete -ne ''){
+    throw "NATIVE_CTRL_A_SELECTION_DEFECT_AFTER_PROVEN_KEY_DELIVERY: expected selected e9 to delete to empty, got '$afterSelectDelete'"
+  }
+  Write-Output 'NATIVE CTRL+A SELECTION BEHAVIOR PASS e9->empty via Backspace'
+
+  $vp=ValuePattern $move 'Move restore before native copy proof'
+  $vp.SetValue('e9')
+  if([string]$vp.Current.Value -ne 'e9'){throw 'Could not restore e9 before native copy proof'}
+  Set-Clipboard -Value '__sentinel__'
+  $null=$ws.AppActivate($AppPid)
+  $move.SetFocus()
+  AssertFocusedRuntimeEventually $moveRid 'Native copy focus convergence'
+  [AccessibleChessQaNativeKeysV3]::Ctrl([byte]0x41)
+  Start-Sleep -Milliseconds 150
+  [AccessibleChessQaNativeKeysV3]::Ctrl([byte]0x43)
   Start-Sleep -Milliseconds 400
+  AssertFocusedRuntimeEventually $moveRid 'Native copy post-chord focus convergence'
   $clip=([string](Get-Clipboard -Raw)).Trim()
-  if($clip -ne 'e9'){throw "Native Ctrl+A/Ctrl+C behavioral copy failed: clipboard='$clip' selection_count=$($summary.selection_uia_count) selection_span='$($summary.selection_uia_span)' selection_text='$($summary.selection_uia_text)'"}
+  if($clip -ne 'e9'){
+    throw "NATIVE_CTRL_C_COPY_DEFECT_AFTER_PROVEN_SELECTION: clipboard='$clip' expected='e9'"
+  }
   $summary.clipboard=$clip
-  Write-Output "CLIPBOARD NATIVE CTRL+A/CTRL+C BEHAVIOR PASS clipboard='$clip' selection_count=$($summary.selection_uia_count) selection_span='$($summary.selection_uia_span)' selection_text='$($summary.selection_uia_text)'"
-  Write-Output 'CLIPBOARD BOUNDED FOCUS/SELECTION PASS'
+  Write-Output "NATIVE CTRL+A/CTRL+C BEHAVIOR PASS clipboard='$clip'"
+  Write-Output 'CLIPBOARD DECISIVE NATIVE KEY/SELECTION/COPY PASS'
 
   $vp.SetValue('e5'); if([string]$vp.Current.Value -ne 'e5'){throw 'Could not prepare e5 before board entry'}
   Write-Output 'Prepared e5 before entering board'
