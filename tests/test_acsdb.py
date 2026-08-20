@@ -1,5 +1,6 @@
 import json
 import os
+from pathlib import Path
 import sqlite3
 import tempfile
 import unittest
@@ -82,6 +83,10 @@ class AcsDatabaseTests(unittest.TestCase):
                 self.assertIn('error_message', columns)
                 self.assertIn('status', columns)
         finally:
+            for backup in Path(path).parent.glob(
+                Path(path).name + '.pre-v1-to-v3.backup*'
+            ):
+                backup.unlink()
             os.unlink(path)
 
     def test_newer_schema_is_rejected_without_rewriting_database(self):
