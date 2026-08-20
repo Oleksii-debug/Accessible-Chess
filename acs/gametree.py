@@ -41,6 +41,8 @@ class GameTreeErrorCode(str, Enum):
     INVALID_LINE = "invalid_line"
     INVALID_MOVE = "invalid_move"
     INVALID_NAG = "invalid_nag"
+    INVALID_RECOVERY_ISSUE = "invalid_recovery_issue"
+    UNRESOLVED_RECOVERY = "unresolved_recovery"
     GRAPH_CYCLE = "graph_cycle"
     GRAPH_REUSE = "graph_reuse"
     GRAPH_DEPTH_LIMIT = "graph_depth_limit"
@@ -62,6 +64,55 @@ class GameTreeSerializationError(GameTreeContractError):
 class CommentStyle(str, Enum):
     BRACE = "brace"
     SEMICOLON = "semicolon"
+
+
+class PgnRecoveryCode(str, Enum):
+    POST_RESULT_RAV_TAIL = "post_result_rav_tail"
+
+
+@dataclass(frozen=True, slots=True)
+class PgnRecoveryIssue:
+    """Structured evidence that a damaged source needs explicit repair."""
+
+    code: PgnRecoveryCode
+    message: str
+    variation_depth: int
+    token_count: int
+    blocks_export: bool = True
+
+    def __post_init__(self) -> None:
+        try:
+            object.__setattr__(self, "code", PgnRecoveryCode(self.code))
+        except (TypeError, ValueError) as exc:
+            raise GameTreeContractError(
+                f"unsupported PGN recovery code: {self.code!r}",
+                code=GameTreeErrorCode.INVALID_RECOVERY_ISSUE,
+            ) from exc
+        if (
+            not isinstance(self.message, str)
+            or not self.message.strip()
+            or "\r" in self.message
+            or "\n" in self.message
+        ):
+            raise GameTreeContractError(
+                "PGN recovery message must be non-empty single-line text",
+                code=GameTreeErrorCode.INVALID_RECOVERY_ISSUE,
+            )
+        if type(self.variation_depth) is not int or self.variation_depth < 1:
+            raise GameTreeContractError(
+                "PGN recovery variation depth must be a positive exact integer",
+                code=GameTreeErrorCode.INVALID_RECOVERY_ISSUE,
+            )
+        if type(self.token_count) is not int or self.token_count < 1:
+            raise GameTreeContractError(
+                "PGN recovery token count must be a positive exact integer",
+                code=GameTreeErrorCode.INVALID_RECOVERY_ISSUE,
+            )
+        if type(self.blocks_export) is not bool:
+            raise GameTreeContractError(
+                "PGN recovery export policy must be an exact boolean",
+                code=GameTreeErrorCode.INVALID_RECOVERY_ISSUE,
+            )
 
 
 @dataclass(slots=True)
@@ -108,6 +159,7 @@ class PgnGame:
     line: VariationLine = field(default_factory=VariationLine)
     source_index: int = 0
     warnings: list[str] = field(default_factory=list)
+    recovery_issues: list[PgnRecoveryIssue] = field(default_factory=list)
 
     @property
     def result(self) -> str:
@@ -227,6 +279,7 @@ def _parse_line(
     nested: bool = False,
     depth: int = 0,
     budget: list[int] | None = None,
+    recovery_issues: list[PgnRecoveryIssue] | None = None,
 ) -> tuple[VariationLine, int, list[str]]:
     if depth > MAX_VARIATION_DEPTH:
         raise GameTreeContractError(
@@ -235,6 +288,8 @@ def _parse_line(
         )
     if budget is None:
         budget = [1]  # root VariationLine
+    if recovery_issues is None:
+        recovery_issues = []
     line = VariationLine()
     warnings: list[str] = []
     pending_number: str | None = None
@@ -265,6 +320,7 @@ def _parse_line(
                 nested=True,
                 depth=depth + 1,
                 budget=budget,
+                recovery_issues=recovery_issues,
             )
             warnings.extend(child_warnings)
             if pos < len(tokens) and tokens[pos].kind == "RPAREN":
@@ -318,9 +374,18 @@ def _parse_line(
                 pos += 1
             if nested and pos < len(tokens) and tokens[pos].kind != "RPAREN":
                 pos, quarantined = _quarantine_after_nested_result(tokens, pos)
-                warnings.append(
+                message = (
                     f"{quarantined} token(s) after result quarantined "
                     f"inside variation at depth {depth}"
+                )
+                warnings.append(message)
+                recovery_issues.append(
+                    PgnRecoveryIssue(
+                        code=PgnRecoveryCode.POST_RESULT_RAV_TAIL,
+                        message=message,
+                        variation_depth=depth,
+                        token_count=quarantined,
+                    )
                 )
             break
         if tok.kind == "SAN":
@@ -403,7 +468,8 @@ def parse_games(text: str) -> list[PgnGame]:
     games: list[PgnGame] = []
     for index, (tags, movetext, split_warnings) in enumerate(_split_games(text)):
         tokens = tokenize_movetext(movetext)
-        line, pos, warnings = _parse_line(tokens)
+        recovery_issues: list[PgnRecoveryIssue] = []
+        line, pos, warnings = _parse_line(tokens, recovery_issues=recovery_issues)
         warnings[:0] = split_warnings
         if pos < len(tokens):
             warnings.append(f"{len(tokens) - pos} unconsumed token(s)")
@@ -417,7 +483,15 @@ def parse_games(text: str) -> list[PgnGame]:
             line.result = valid_header_result or "*"
         tags = dict(tags)
         tags.setdefault("Result", line.result)
-        games.append(PgnGame(tags=tags, line=line, source_index=index, warnings=warnings))
+        games.append(
+            PgnGame(
+                tags=tags,
+                line=line,
+                source_index=index,
+                warnings=warnings,
+                recovery_issues=recovery_issues,
+            )
+        )
     return games
 
 
@@ -638,6 +712,20 @@ def _validate_game_for_serialization(game: object) -> None:
         raise GameTreeSerializationError(
             "game warnings must be a list of text values",
             code=GameTreeErrorCode.INVALID_CONTAINER,
+        )
+    if type(game.recovery_issues) is not list or any(
+        not isinstance(issue, PgnRecoveryIssue) for issue in game.recovery_issues
+    ):
+        raise GameTreeSerializationError(
+            "game recovery_issues must be a list of PgnRecoveryIssue values",
+            code=GameTreeErrorCode.INVALID_RECOVERY_ISSUE,
+        )
+    blockers = [issue for issue in game.recovery_issues if issue.blocks_export]
+    if blockers:
+        codes = ", ".join(sorted({issue.code.value for issue in blockers}))
+        raise GameTreeSerializationError(
+            f"PGN requires explicit repair before export: {codes}",
+            code=GameTreeErrorCode.UNRESOLVED_RECOVERY,
         )
 
     state: dict[str, object] = {"seen": set(), "active": set(), "count": 0}

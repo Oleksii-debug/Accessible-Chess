@@ -86,11 +86,20 @@ class PgnFileImporter:
 
         for game in opened.games:
             warnings = tuple(game.warnings)
+            damaged = any(issue.blocks_export for issue in game.recovery_issues)
             report.add(
                 ImportedRecord(
                     source_record_id=str(game.source_index),
-                    quality=ImportQuality.WARNING if warnings else ImportQuality.FULL,
-                    message="PGN game parsed structurally.",
+                    quality=(
+                        ImportQuality.DAMAGED
+                        if damaged
+                        else ImportQuality.WARNING if warnings else ImportQuality.FULL
+                    ),
+                    message=(
+                        "PGN game requires explicit repair before export."
+                        if damaged
+                        else "PGN game parsed structurally."
+                    ),
                     warnings=warnings,
                 )
             )

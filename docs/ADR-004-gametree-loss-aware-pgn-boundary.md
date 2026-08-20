@@ -54,6 +54,12 @@ PGN must never be silently reinterpreted as clean data.
     the parser consumes that bounded tail inside the damaged child and emits an
     explicit depth-qualified quarantine warning. Those tokens can never leak
     into the parent mainline or become sibling variations.
+13. Every quarantined nested-RAV tail creates a structured
+    `PgnRecoveryIssue(post_result_rav_tail)` with depth, token count, message and
+    export policy. `serialize_game(s)` and atomic PGN save fail closed with
+    `unresolved_recovery` until a caller explicitly repairs the GameTree and
+    removes the issue. Read-only importer inspection classifies that game as
+    `DAMAGED`; ACSDB import rolls back atomically and records a failed attempt.
 
 ## Compatibility
 
@@ -64,13 +70,15 @@ silently repaired. Callers that construct impossible comments now receive a
 stable, actionable error rather than corrupted output.
 
 Post-result tokens inside a malformed nested RAV are excluded from the
-canonical recovered GameTree and reported as quarantined. Re-serializing such a
-warning-quality game currently emits only the recovered structure. A separate
-fail-closed export blocker for quarantined source fragments remains required
-before that damaged input can be described as lossless round-trip support.
+canonical recovered GameTree and reported as quarantined. The untouched source
+file remains the raw evidence. The recovered tree can be inspected but cannot
+be exported or imported into ACSDB until explicit repair clears its structured
+blocker, so the damaged tail is never silently normalized away.
 
 Game identity schema v1 does not change: `CommentStyle` values serialize to the
 same `brace` and `semicolon` strings already used by the identity payload.
+Recovery evidence is source/provenance policy, not canonical chess content, and
+therefore remains outside the semantic tree/record hashes.
 
 ## Release boundary
 

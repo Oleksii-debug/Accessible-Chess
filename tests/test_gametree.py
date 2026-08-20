@@ -7,6 +7,7 @@ from acs.gametree import (
     GameTreeSerializationError,
     MoveNode,
     PgnGame,
+    PgnRecoveryCode,
     VariationLine,
     parse_games,
     serialize_games,
@@ -347,8 +348,21 @@ class GameTreeTests(unittest.TestCase):
         self.assertFalse(any("unterminated variation" in warning for warning in game.warnings))
         self.assertFalse(any("unmatched closing parenthesis" in warning for warning in game.warnings))
 
+        self.assertEqual(len(game.recovery_issues), 1)
+        issue = game.recovery_issues[0]
+        self.assertEqual(issue.code, PgnRecoveryCode.POST_RESULT_RAV_TAIL)
+        self.assertEqual(issue.variation_depth, 1)
+        self.assertGreater(issue.token_count, 0)
+        self.assertTrue(issue.blocks_export)
+
+        with self.assertRaises(GameTreeSerializationError) as blocked:
+            serialize_games([game])
+        self.assertEqual(blocked.exception.code, GameTreeErrorCode.UNRESOLVED_RECOVERY)
+
         # The malformed child tail must never be re-parented into the canonical
-        # mainline or appear after the variation on serialization.
+        # mainline. Clearing the structured issue represents an explicit caller
+        # repair decision; only then may the recovered structure be serialized.
+        game.recovery_issues.clear()
         serialized = serialize_games([game])
         reparsed = parse_games(serialized)[0]
         self.assertEqual([move.san for move in reparsed.line.moves], ["e4", "e5", "Nf3"])

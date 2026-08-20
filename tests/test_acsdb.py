@@ -4,6 +4,7 @@ import tempfile
 import unittest
 
 from acs.acsdb import ACSDB_SCHEMA_VERSION, AcsDatabase
+from acs.gametree import GameTreeErrorCode, GameTreeSerializationError
 
 
 class AcsDatabaseTests(unittest.TestCase):
@@ -221,6 +222,23 @@ class AcsDatabaseTests(unittest.TestCase):
         self.assertEqual(len(failures), 1)
         self.assertIsNone(failures[0]['source_id'])
         self.assertIn('synthetic second-game failure', failures[0]['error_message'])
+
+    def test_unresolved_pgn_recovery_is_atomic_and_recorded_as_failed(self):
+        damaged = (
+            '[Event "Damaged"]\n[Result "*"]\n\n'
+            '1. e4 (1. d4 * 1... d5) e5 *\n'
+        )
+
+        with self.assertRaises(GameTreeSerializationError) as blocked:
+            self.db.import_pgn_text(damaged, 'damaged-rav.pgn')
+
+        self.assertEqual(blocked.exception.code, GameTreeErrorCode.UNRESOLVED_RECOVERY)
+        self.assertEqual(self.db.conn.execute('SELECT COUNT(*) FROM sources').fetchone()[0], 0)
+        self.assertEqual(self.db.conn.execute('SELECT COUNT(*) FROM games').fetchone()[0], 0)
+        failures = self.db.list_import_attempts(status='failed')
+        self.assertEqual(len(failures), 1)
+        self.assertIsNone(failures[0]['source_id'])
+        self.assertIn('explicit repair', failures[0]['error_message'])
 
     def test_position_batch_is_atomic_if_one_row_is_invalid(self):
         report = self.db.import_pgn_text('[Result "*"]\n\n1. e4 *', 'positions.pgn')

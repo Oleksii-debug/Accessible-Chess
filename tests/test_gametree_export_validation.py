@@ -7,6 +7,8 @@ from acs.gametree import (
     GameTreeErrorCode,
     GameTreeSerializationError,
     MoveNode,
+    PgnRecoveryCode,
+    PgnRecoveryIssue,
     VariationLine,
     parse_games,
     serialize_game,
@@ -53,6 +55,26 @@ class GameTreeExportValidationTests(unittest.TestCase):
         game = self.game()
         game.line.moves = tuple(game.line.moves)
         self.assert_serialization_code(game, GameTreeErrorCode.INVALID_CONTAINER)
+
+        game = self.game()
+        game.recovery_issues = (PgnRecoveryIssue(
+            PgnRecoveryCode.POST_RESULT_RAV_TAIL,
+            "one damaged token",
+            1,
+            1,
+        ),)
+        self.assert_serialization_code(game, GameTreeErrorCode.INVALID_RECOVERY_ISSUE)
+
+    def test_unresolved_structured_recovery_evidence_blocks_export(self):
+        game = self.game()
+        game.recovery_issues.append(PgnRecoveryIssue(
+            PgnRecoveryCode.POST_RESULT_RAV_TAIL,
+            "three tokens quarantined inside variation",
+            2,
+            3,
+        ))
+
+        self.assert_serialization_code(game, GameTreeErrorCode.UNRESOLVED_RECOVERY)
 
     def test_cycle_and_shared_graph_references_are_rejected(self):
         game = self.game()

@@ -1,23 +1,23 @@
 # Accessible Chess — Work Master Current
 
-Updated: `2026-08-20T08:56:10Z`
+Updated: `2026-08-20T09:01:42Z`
 
 ## Recovery pointer
 
 - `CURRENT_BRANCH`: `completion/full-product-critical-path-20260819`
 - `START_SHA`: `588058634b378793b3c9aa0dca113af6b8a2dc8f`
-- `CURRENT_REMOTE_SHA`: `8178e45fd54cd1ff7d1940e092151a79e7662a24`
-- `LAST_SAFE_SHA`: `8178e45fd54cd1ff7d1940e092151a79e7662a24`
+- `CURRENT_REMOTE_SHA`: `19a94fa069f3a53917854ebb03ed231188d29e07`
+- `LAST_SAFE_SHA`: `19a94fa069f3a53917854ebb03ed231188d29e07`
 - `INTEGRATION_SHA`: `e8cd992d306975955784118364ce950963133d7e`
 - `QA_SHA`: `07971835cb8fc294996165e577913ed350ae9f0e`
 - `RESEARCH_SHA`: `0213f54f3f36fb30379f95c9979aea3a1cc41481`
-- `COMPLETION_SHA`: `8178e45fd54cd1ff7d1940e092151a79e7662a24`
+- `COMPLETION_SHA`: `19a94fa069f3a53917854ebb03ed231188d29e07`
 - `COMPETITOR_EVIDENCE_BRANCH`: `research/competitor-interaction-lab-20260820`
 - `COMPETITOR_EVIDENCE_SHA`: `0213f54f3f36fb30379f95c9979aea3a1cc41481`
 - `CURRENT_STAGE1_STATE`: `BLOCKED — Issues #14 and #22 open; classification does not authorize a product-source change`
 - `CURRENT_OWNER`: `WORK_MASTER — completion/shared-core/spec/test hardening only; Windows QA remains QA-owned`
 - `CURRENT_PRIORITY`: `Isolated shared-core PGN/GameTree corruption and recovery hardening`
-- `CURRENT_SUBSYSTEM`: malformed nested-RAV state isolation and loss-aware export boundary
+- `CURRENT_SUBSYSTEM`: structured PGN recovery evidence and fail-closed export/import
 - `STATUS`: `WIP_SAFE`
 - `NVDA_VERIFIED`: `NO`
 
@@ -64,6 +64,8 @@ Commit `11b92a1e827bf66f8075ac7f3571ae20b908c1af` added integrity-verified bound
 - Work Core CI `32346710032` on pre-recovery head `5880586`: raw core passed; full pytest remained `872 passed`, `1437` subtests, and two failures.
 - Local behavioral reclassification at `e4b8751`: the stale direct `actionByChord(...)` literal expectation was replaced by proof that `onBoardKey` awaits the central resolver and dispatches its returned `actionId`. That contract passes. Two unweakened PRODUCT failures remain: central rank/file actions are absent and Help omits their live bindings.
 - Local PGN/GameTree focused verification after `8178e45`: `66 passed`, `86 subtests passed`. A malformed nested RAV can no longer promote post-result child moves or nested branches into the parent mainline.
+- Local structured-recovery verification after `19a94fa`: `69 passed`, `86 subtests passed`. Quarantined nested-RAV tails are `DAMAGED`, block serializer/atomic save with stable `unresolved_recovery`, and roll ACSDB import back as a recorded failed attempt.
+- Current broad unittest at this checkpoint: `797/797` passed; compileall and `git diff --check` passed.
 - Competitor lab run `32342624286`: five jobs completed successfully and published compact evidence to `0213f54...`.
 
 ## Known failures and blockers
@@ -73,7 +75,7 @@ Commit `11b92a1e827bf66f8075ac7f3571ae20b908c1af` added integrity-verified bound
 3. Strict Windows run `32220453450`: BLOCKED / NO PRODUCT ATTRIBUTION YET at native Ctrl+A/Ctrl+C; QA owns the focused evidence pass.
 4. Canonical ChessBase CBG move/variation/annotation decoding remains `UNSUPPORTED`; real licensed fixture corpus is absent; CBV/CBF/2CBH/CBONE content remains `UNSUPPORTED`.
 5. Full licensed ChessBase/Fritz interactive/NVDA execution remains unavailable. Robot evidence must not be labelled `NVDA_VERIFIED`.
-6. Quarantined post-result nested-RAV tokens are explicitly warned and state-isolated, but a save currently emits only the recovered canonical structure. Export must fail closed until a caller explicitly repairs or removes that damaged source evidence.
+6. Other lossy parser warnings are not yet structured export blockers: orphan RAVs/annotations, unmatched parentheses, unterminated variations/comments, duplicate tags and root tokens after a result require an evidence-by-evidence policy so damaged content cannot be silently normalized.
 
 ## Current ownership and invariants
 
@@ -86,4 +88,4 @@ Commit `11b92a1e827bf66f8075ac7f3571ae20b908c1af` added integrity-verified bound
 
 ## Next exact action
 
-Checkpoint the nested-RAV parent-state isolation. Then add a stable, explicit loss-aware export blocker for quarantined post-result RAV tails so PGN file save and ACSDB import cannot silently normalize away damaged tokens. Preserve per-game diagnostics and do not change the Stage 1 product or QA line. If Issue #14 transfers a PRODUCT fix, stop shared-core work and make the minimum central rank/file Action Registry plus live-Help repair before returning the exact SHA to QA.
+Checkpoint structured nested-RAV recovery and fail-closed persistence. Then classify every remaining parser warning as lossless warning or structured blocking recovery, starting with orphan variations/annotations and root post-result tokens; add corrupt-input tests that prove no dropped token can be saved as clean data. Do not change the Stage 1 product or QA line. If Issue #14 transfers a PRODUCT fix, stop shared-core work and make the minimum central rank/file Action Registry plus live-Help repair before returning the exact SHA to QA.

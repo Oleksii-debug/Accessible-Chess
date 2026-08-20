@@ -2,9 +2,21 @@ import tempfile
 from pathlib import Path
 import unittest
 
-from acs.gametree import parse_games, serialize_games
+from acs.gametree import (
+    GameTreeErrorCode,
+    GameTreeSerializationError,
+    parse_games,
+    serialize_games,
+)
 from acs.import_contract import ImportQuality
-from acs.pgn_service import PgnConcurrentWriteError, PgnFileImporter, export_game_atomic, open_pgn, save_pgn_atomic
+from acs.pgn_service import (
+    PgnConcurrentWriteError,
+    PgnFileImporter,
+    _save_lock_path,
+    export_game_atomic,
+    open_pgn,
+    save_pgn_atomic,
+)
 
 
 RICH_PGN = '''[Event "Main"]
@@ -99,6 +111,31 @@ class PgnFileServiceTests(unittest.TestCase):
         self.assertEqual(reopened.tags["Result"], "1-0")
         self.assertEqual(reopened.line.result, "0-1")
         self.assertTrue(any("differs" in warning for warning in reopened.warnings))
+
+    def test_quarantined_nested_rav_is_damaged_and_atomic_export_fails_closed(self):
+        source = (
+            '[Event "Damaged"]\n[Result "*"]\n\n'
+            '1. e4 (1. d4 * 1... d5) e5 *\n'
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            source_path = Path(tmp) / "damaged.pgn"
+            destination = Path(tmp) / "must-not-exist.pgn"
+            source_path.write_text(source, encoding="utf-8")
+
+            opened = open_pgn(source_path)
+            self.assertEqual(len(opened.games[0].recovery_issues), 1)
+            report = PgnFileImporter().inspect(source_path)
+            self.assertEqual(report.records[0].quality, ImportQuality.DAMAGED)
+            self.assertIn("explicit repair", report.records[0].message)
+
+            with self.assertRaises(GameTreeSerializationError) as blocked:
+                export_game_atomic(destination, opened.games[0])
+
+            self.assertEqual(blocked.exception.code, GameTreeErrorCode.UNRESOLVED_RECOVERY)
+            self.assertFalse(destination.exists())
+            self.assertFalse(_save_lock_path(destination).exists())
+            self.assertEqual(list(Path(tmp).glob("must-not-exist.pgn.*.tmp")), [])
 
 
 if __name__ == "__main__":
