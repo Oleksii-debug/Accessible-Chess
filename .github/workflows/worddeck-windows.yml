@@ -51,27 +51,37 @@ jobs:
 
       - name: Validate sentence coverage and release-bundle tools
         run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
           python .\WordDeck\tools\resolve_sentence_coverage_gaps.py --self-test
           python .\WordDeck\tools\resolve_sentence_coverage_gaps.py --output .\artifacts\sentence-coverage-gap-records.tsv
           python .\WordDeck\tools\validate_sentencepack_release_bundle.py --self-test
 
       - name: Validate frozen Oxford 3000 baseline
         run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
           python .\WordDeck\tools\validate_oxford3000_baseline_files.py --self-test
           python .\WordDeck\tools\validate_oxford3000_baseline_files.py --report .\artifacts\oxford3000-baseline-integrity.tsv
 
       - name: Fetch official Oxford membership source
         run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
           python .\WordDeck\tools\fetch_oxford5000_official_html.py --self-test
           python .\WordDeck\tools\fetch_oxford5000_official_html.py --output .\artifacts\oxford3000-5000-official.html
 
       - name: Validate official Oxford 5000 inventory completeness
         run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
           python .\WordDeck\tools\validate_oxford5000_official_inventory.py --self-test
           python .\WordDeck\tools\validate_oxford5000_official_inventory.py --official-html .\artifacts\oxford3000-5000-official.html --report .\artifacts\oxford5000-official-inventory.tsv
 
       - name: Validate Oxford 5000 canonical extraction and corpus reconciliation
         run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
           python .\WordDeck\tools\extract_oxford5000_official.py --self-test
           python .\WordDeck\tools\canonicalize_oxford5000_reviewed.py --self-test
           python .\WordDeck\tools\validate_oxford5000_runtime_ledger.py --self-test
@@ -88,6 +98,8 @@ jobs:
 
       - name: Validate British pronunciation and AudioPack QA tools
         run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
           python .\WordDeck\tools\validate_pronunciation_overrides.py --self-test --emit-ready .\artifacts\pronunciation-regeneration-request.json
           python .\WordDeck\tools\validate_targeted_audio_artifact.py --self-test
           python .\WordDeck\tools\build_audiopack_manifest.py --self-test
