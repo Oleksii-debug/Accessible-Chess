@@ -79,6 +79,8 @@ internal static class StudyScopeSelfTest
             try { if (Directory.Exists(root)) Directory.Delete(root, true); } catch { }
         }
 
+        RunCompleteCorpusAcceptance();
+
         var shortcuts = new ShortcutManager(state);
         foreach (string scopeId in StudyScopeIds.Ordered)
         {
@@ -96,6 +98,105 @@ internal static class StudyScopeSelfTest
         Require(ShortcutFormatter.Format(Keys.Control | Keys.Alt | Keys.Delete) == "Ctrl+Alt+Delete", "Canonical formatter failed Ctrl+Alt+Delete.");
         Require(ShortcutFormatter.Format(Keys.Control | Keys.Shift | Keys.Delete) == "Ctrl+Shift+Delete", "Spelling delete display must match its actual default.");
         Require(ShortcutFormatter.Format(Keys.None) == "Unassigned", "Unassigned shortcut display changed.");
+    }
+
+    private static void RunCompleteCorpusAcceptance()
+    {
+        DictionaryPackage package = DictionaryLoader.LoadEmbeddedOxford();
+        IReadOnlyList<DictionaryEntry> entries = package.Entries;
+        Require(entries.Count == 5446, $"Complete Recall corpus must contain 5446 rows, got {entries.Count}.");
+
+        AppState state = AppStateStore.Normalize(new AppState());
+        Require(state.Decks.Count(deck => deck.IsCore) == 5,
+            "Fresh state must expose exactly five permanent core Recall decks.");
+        for (int number = 1; number <= 5; number++)
+            Require(state.Decks.Any(deck => deck.IsCore && deck.Id == DeckIds.Core(number)),
+                $"Permanent Recall Deck {number} is missing.");
+
+        var scopes = new RecallStudyScopeService(state, package.Id, entries);
+        var expected = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+        {
+            [StudyScopeIds.All] = 5446,
+            [StudyScopeIds.A1] = 900,
+            [StudyScopeIds.A2] = 872,
+            [StudyScopeIds.B1] = 809,
+            [StudyScopeIds.B2] = 1461,
+            [StudyScopeIds.C1] = 1404,
+        };
+        foreach ((string scopeId, int count) in expected)
+        {
+            Require(scopes.ScopeTotal(scopeId) == count,
+                $"Complete-corpus scope {scopeId} expected {count} rows, got {scopes.ScopeTotal(scopeId)}.");
+            Require(scopes.Assignments(scopeId).Count == count,
+                $"Complete-corpus scope {scopeId} assignment count mismatch.");
+            Require(scopes.Assignments(scopeId).Values.All(deck => deck == DeckIds.Core(1)),
+                $"Fresh complete-corpus scope {scopeId} did not initialize every entry in Deck 1.");
+        }
+
+        DictionaryEntry b2 = entries.First(entry => entry.Level.Equals("B2", StringComparison.OrdinalIgnoreCase));
+        DictionaryEntry a1 = entries.First(entry => entry.Level.Equals("A1", StringComparison.OrdinalIgnoreCase));
+        DictionaryEntry c1 = entries.First(entry => entry.Level.Equals("C1", StringComparison.OrdinalIgnoreCase));
+        Require(!scopes.Assignments(StudyScopeIds.B2).ContainsKey(a1.Id),
+            "A1 entry leaked into B2-only complete-corpus scope.");
+        Require(!scopes.Assignments(StudyScopeIds.C1).ContainsKey(a1.Id),
+            "A1 entry leaked into C1-only complete-corpus scope.");
+
+        scopes.Move(StudyScopeIds.B2, b2.Id, DeckIds.Core(5));
+        Require(scopes.Assignments(StudyScopeIds.B2)[b2.Id] == DeckIds.Core(5),
+            "B2 complete-corpus move did not reach Deck 5.");
+        Require(scopes.Assignments(StudyScopeIds.All)[b2.Id] == DeckIds.Core(1),
+            "B2 complete-corpus move leaked into All scope.");
+
+        scopes.SetActiveDeck(StudyScopeIds.All, DeckIds.Core(2));
+        scopes.SetActiveDeck(StudyScopeIds.B2, DeckIds.Core(4));
+        scopes.SetCurrentEntry(StudyScopeIds.All, a1.Id);
+        scopes.SetCurrentEntry(StudyScopeIds.B2, b2.Id);
+        scopes.SetRemainingShuffle(StudyScopeIds.All, new[] { a1.Id, c1.Id, a1.Id });
+        scopes.SetRemainingShuffle(StudyScopeIds.B2, new[] { b2.Id });
+        scopes.ActiveScopeId = StudyScopeIds.B2;
+
+        Require(scopes.Get(StudyScopeIds.All).ActiveDeckId == DeckIds.Core(2),
+            "All active deck changed while B2 state was edited.");
+        Require(scopes.Get(StudyScopeIds.B2).ActiveDeckId == DeckIds.Core(4),
+            "B2 active deck changed while All state was edited.");
+        Require(scopes.Get(StudyScopeIds.All).CurrentEntryId == a1.Id &&
+                scopes.Get(StudyScopeIds.B2).CurrentEntryId == b2.Id,
+            "Full-corpus current cards leaked between All and B2.");
+        Require(scopes.RemainingShuffle(StudyScopeIds.All).SequenceEqual(new[] { a1.Id, c1.Id }) &&
+                scopes.RemainingShuffle(StudyScopeIds.B2).SequenceEqual(new[] { b2.Id }),
+            "Full-corpus shuffle progress leaked between All and B2.");
+
+        string root = Path.Combine(Path.GetTempPath(), $"WordDeck-full-corpus-scope-{Guid.NewGuid():N}");
+        try
+        {
+            var store = new AppStateStore(root);
+            store.Save(state);
+            AppState reloaded = new AppStateStore(root).Load();
+            var restored = new RecallStudyScopeService(reloaded, package.Id, entries);
+            Require(restored.ActiveScopeId == StudyScopeIds.B2,
+                "Full-corpus active scope did not persist.");
+            Require(restored.Assignments(StudyScopeIds.B2)[b2.Id] == DeckIds.Core(5) &&
+                    restored.Assignments(StudyScopeIds.All)[b2.Id] == DeckIds.Core(1),
+                "Full-corpus independent deck assignments did not persist.");
+            Require(restored.Get(StudyScopeIds.All).ActiveDeckId == DeckIds.Core(2) &&
+                    restored.Get(StudyScopeIds.B2).ActiveDeckId == DeckIds.Core(4),
+                "Full-corpus independent active decks did not persist.");
+            Require(restored.Get(StudyScopeIds.All).CurrentEntryId == a1.Id &&
+                    restored.Get(StudyScopeIds.B2).CurrentEntryId == b2.Id,
+                "Full-corpus independent current cards did not persist.");
+            Require(restored.RemainingShuffle(StudyScopeIds.All).SequenceEqual(new[] { a1.Id, c1.Id }) &&
+                    restored.RemainingShuffle(StudyScopeIds.B2).SequenceEqual(new[] { b2.Id }),
+                "Full-corpus independent shuffle state did not persist.");
+            foreach ((string scopeId, int count) in expected)
+                Require(restored.ScopeTotal(scopeId) == count,
+                    $"Full-corpus scope {scopeId} count changed after save/reload.");
+        }
+        finally
+        {
+            try { if (Directory.Exists(root)) Directory.Delete(root, true); } catch { }
+        }
+
+        Console.WriteLine("WordDeck complete-corpus scope acceptance passed: All=5446, A1=900, A2=872, B1=809, B2=1461, C1=1404; five decks, scope isolation and persistence verified.");
     }
 
     private static void Require(bool condition, string message)
