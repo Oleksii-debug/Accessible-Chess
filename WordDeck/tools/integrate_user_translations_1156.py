@@ -33,6 +33,10 @@ V7_FILES = [
     QA / "oxford5000_source_after_manual_v7_round01_manual-emergency-work-20260820-second-pa_cp0001_rows_0020.tsv",
     QA / "oxford5000_source_after_manual_v7_round02_manual-emergency-work-20260820-second-pa_cp0001_rows_0002.tsv",
 ]
+V7_ARCHIVE_FILES = [
+    QA / "oxford5000_rejected_v7_round01_rows_0020.tsv",
+    QA / "oxford5000_rejected_v7_round02_rows_0002.tsv",
+]
 
 
 def lexical_id(source: str, pos: str, level: str) -> str:
@@ -146,6 +150,13 @@ def reconcile(rows: list[dict[str, str]]) -> tuple[list[dict[str, str]], dict[st
     return out, summary
 
 
+def archive_superseded_v7_slices() -> None:
+    for source, archived in zip(V7_FILES, V7_ARCHIVE_FILES, strict=True):
+        if archived.exists():
+            raise RuntimeError(f"Unexpected pre-existing V7 archive file: {archived}")
+        source.rename(archived)
+
+
 def modify_code() -> None:
     text = BOOTSTRAP.read_text(encoding="utf-8")
     old_const = "public const int ExpectedCanonicalRows = 1004;"
@@ -194,6 +205,7 @@ def main() -> int:
     write_tsv(RECON, recon, ["entry_id", "source", "part_of_speech", "level", "user_ukrainian", "prior_v7_ukrainian", "prior_v7_present", "action"])
     SUMMARY.write_text(json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     modify_code()
+    archive_superseded_v7_slices()
 
     # Remove transport-only payload parts from the final repository state.
     for part in PARTS:
@@ -218,6 +230,7 @@ def main() -> int:
     summary["validated_final_activated"] = 2138
     summary["validated_final_remaining"] = 0
     summary["oxford3000_preserved"] = 3308
+    summary["superseded_v7_slices_archived"] = [p.name for p in V7_ARCHIVE_FILES]
     SUMMARY.write_text(json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     print(json.dumps(summary, ensure_ascii=False, indent=2))
     return 0
