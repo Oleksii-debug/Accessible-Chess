@@ -19,11 +19,29 @@ jobs:
   build:
     runs-on: windows-latest
     permissions:
-      contents: read
+      contents: write
       statuses: write
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Apply pending user-approved Oxford 5000 tail
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+          if (Test-Path .\WordDeck\tools\user1156_payload.part01) {
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            python .\WordDeck\tools\integrate_user_translations_1156.py
+            git add -A -- .\WordDeck\ReviewedOxford5000Bootstrap.cs .\WordDeck\WordDeck.csproj .\WordDeck\Audio\generation-request.json .\WordDeck\QA .\WordDeck\tools\user1156_payload.part01 .\WordDeck\tools\user1156_payload.part02 .\WordDeck\tools\user1156_payload.part03 .\WordDeck\tools\user1156_payload.part04 .\WordDeck\tools\user1156_payload.part05 .\WordDeck\tools\user1156_payload.part06 .\WordDeck\tools\user1156_payload.part07 .\WordDeck\tools\user1156_payload.part08
+            git diff --cached --check
+            git commit -m 'WordDeck: integrate complete user-approved Oxford 5000 tail'
+            git push origin HEAD:worddeck-bootstrap
+            Write-Host 'User-approved 1156-row tail integrated and pushed. The pushed WordDeck changes trigger a fresh authoritative run on the exact final HEAD.'
+          } else {
+            Write-Host 'No pending user-approved transport payload; building exact current HEAD.'
+          }
 
       - name: Publish pending checkpoint status
         continue-on-error: true
