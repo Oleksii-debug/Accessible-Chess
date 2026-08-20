@@ -253,104 +253,104 @@ internal static class ReviewedOxford5000Bootstrap
         var missing = new List<Dictionary<string, string>>();
         foreach (Dictionary<string, string> row in ReadEmbeddedTsv("oxford5000_legacy_split_map_0001_0200.tsv"))
         {
+            if (!string.Equals(Required(row, "status"), "verified", StringComparison.Ordinal))
+                throw new InvalidDataException("Oxford 5000 split map contains a non-verified row.");
             string legacyId = Required(row, "legacy_id");
-            string relation = Required(row, "relation");
-            if (relation == "split")
-            {
-                if (!splits.TryGetValue(legacyId, out List<Dictionary<string, string>>? list))
-                {
-                    list = new List<Dictionary<string, string>>();
-                    splits[legacyId] = list;
-                }
-                list.Add(row);
-            }
-            else if (relation == "missing")
+            _ = Required(row, "source");
+            _ = Required(row, "part_of_speech");
+            ValidateLevel(Required(row, "level").ToUpperInvariant());
+            _ = Required(row, "ukrainian");
+            if (legacyId == "__missing__")
             {
                 missing.Add(row);
+                continue;
             }
-            else
-            {
-                throw new InvalidDataException($"Unknown Oxford 5000 legacy split relation '{relation}'.");
-            }
+            _ = LegacyNumber(legacyId);
+            if (!splits.TryGetValue(legacyId, out List<Dictionary<string, string>>? list))
+                splits[legacyId] = list = new List<Dictionary<string, string>>();
+            list.Add(row);
         }
         return (splits, missing);
-    }
-
-    private static (string Pos, string Level) ParseSingleMeta(string meta, string fallbackLevel)
-    {
-        Match match = Regex.Match(meta, @"^(?<pos>.+?)\s+(?<level>[ABC][12])$");
-        if (match.Success)
-        {
-            string rawPos = match.Groups["pos"].Value.Trim();
-            string pos = PosAbbreviations.GetValueOrDefault(rawPos, rawPos.TrimEnd('.'));
-            return (pos, match.Groups["level"].Value.ToUpperInvariant());
-        }
-        string level = fallbackLevel.ToUpperInvariant();
-        ValidateLevel(level);
-        return ("unknown", level);
-    }
-
-    private static int LegacyNumber(string id)
-    {
-        Match match = Regex.Match(id, @"(\d+)$");
-        if (!match.Success || !int.TryParse(match.Groups[1].Value, out int number))
-            throw new InvalidDataException($"Invalid legacy Oxford 5000 ID '{id}'.");
-        return number;
-    }
-
-    private static string LexicalEntryId(string source, string pos, string level)
-    {
-        string identity = string.Join("\u001f", source.Trim().ToLowerInvariant(), pos.Trim().ToLowerInvariant(), level.Trim().ToLowerInvariant());
-        byte[] digest = SHA256.HashData(Encoding.UTF8.GetBytes(identity));
-        return $"ox5000-{Convert.ToHexString(digest)[..20].ToLowerInvariant()}";
-    }
-
-    private static void ValidateLevel(string level)
-    {
-        if (level is not ("B2" or "C1"))
-            throw new InvalidDataException($"Unsupported Oxford 5000 level '{level}'.");
-    }
-
-    private static string Required(Dictionary<string, string> row, string key)
-    {
-        if (!row.TryGetValue(key, out string? value) || string.IsNullOrWhiteSpace(value))
-            throw new InvalidDataException($"Oxford 5000 QA row is missing required value '{key}'.");
-        return value.Trim();
-    }
-
-    private static void RequirePresence(List<CanonicalCandidate> rows, string source, string pos, string level)
-    {
-        if (!rows.Any(row => row.Source == source && row.PartOfSpeech == pos && row.Level == level))
-            throw new InvalidDataException($"Required canonical Oxford 5000 lexical identity is missing: {source}/{pos}/{level}.");
     }
 
     private static List<Dictionary<string, string>> ReadEmbeddedTsv(string fileName)
     {
         Assembly assembly = Assembly.GetExecutingAssembly();
-        string suffix = $"QA.{fileName}";
         string resourceName = assembly.GetManifestResourceNames()
-            .SingleOrDefault(name => name.EndsWith(suffix, StringComparison.OrdinalIgnoreCase))
-            ?? throw new InvalidDataException($"Embedded Oxford 5000 QA resource was not found: {fileName}.");
+            .SingleOrDefault(name => name.EndsWith(fileName, StringComparison.OrdinalIgnoreCase))
+            ?? throw new InvalidOperationException($"Embedded Oxford QA resource not found: {fileName}.");
         using Stream stream = assembly.GetManifestResourceStream(resourceName)
-            ?? throw new InvalidDataException($"Unable to open Oxford 5000 QA resource: {resourceName}.");
+            ?? throw new InvalidOperationException($"Could not open embedded Oxford QA resource: {resourceName}.");
         using var reader = new StreamReader(stream, Encoding.UTF8, true);
-        string text = reader.ReadToEnd();
-        string[] lines = text.Split(new[] { "\r\n", "\n" }, StringSplitOptions.None)
-            .Where(line => line.Length > 0)
-            .ToArray();
-        if (lines.Length < 2)
-            throw new InvalidDataException($"Oxford 5000 QA resource has no data rows: {fileName}.");
-        string[] headers = lines[0].Split('\t').Select(x => x.Trim()).ToArray();
-        var rows = new List<Dictionary<string, string>>();
-        for (int i = 1; i < lines.Length; i++)
+        string? headerLine = reader.ReadLine();
+        if (headerLine is null)
+            throw new InvalidDataException($"Embedded Oxford QA resource {fileName} is empty.");
+        string[] headers = headerLine.Split('\t');
+        var result = new List<Dictionary<string, string>>();
+        string? line;
+        while ((line = reader.ReadLine()) is not null)
         {
-            string[] values = lines[i].Split('\t');
-            if (values.Length != headers.Length)
-                throw new InvalidDataException($"Oxford 5000 QA resource {fileName} line {i + 1} has {values.Length} columns; expected {headers.Length}.");
+            if (string.IsNullOrWhiteSpace(line)) continue;
+            string[] fields = line.Split('\t');
+            if (fields.Length != headers.Length)
+                throw new InvalidDataException($"Malformed TSV row in embedded Oxford QA resource {fileName}.");
             var row = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-            for (int j = 0; j < headers.Length; j++) row[headers[j]] = values[j].Trim();
-            rows.Add(row);
+            for (int i = 0; i < headers.Length; i++) row[headers[i]] = fields[i];
+            result.Add(row);
         }
-        return rows;
+        return result;
+    }
+
+    internal static string LexicalEntryId(string source, string partOfSpeech, string level)
+    {
+        string identity = string.Join('\u001f', source.Trim().ToLowerInvariant(),
+            partOfSpeech.Trim().ToLowerInvariant(), level.Trim().ToLowerInvariant());
+        string hex = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(identity))).ToLowerInvariant();
+        return $"ox5000-{hex[..20]}";
+    }
+
+    private static (string PartOfSpeech, string Level) ParseSingleMeta(string meta, string declaredLevel)
+    {
+        string normalized = string.Join(' ', meta.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+        if (normalized.Contains(',') || declaredLevel.Contains('/'))
+            throw new InvalidDataException($"Merged Oxford 5000 meta must be resolved by split map: {meta} / {declaredLevel}.");
+        Match match = Regex.Match(normalized, @"\b([ABC][12])$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+        if (!match.Success)
+            throw new InvalidDataException($"Could not parse Oxford 5000 CEFR from meta '{meta}'.");
+        string level = match.Groups[1].Value.ToUpperInvariant();
+        ValidateLevel(level);
+        if (!string.Equals(level, declaredLevel.Trim(), StringComparison.OrdinalIgnoreCase))
+            throw new InvalidDataException($"Oxford 5000 declared level '{declaredLevel}' disagrees with meta '{meta}'.");
+        string posAbbreviation = normalized[..match.Index].Trim();
+        if (!PosAbbreviations.TryGetValue(posAbbreviation, out string? pos))
+            throw new InvalidDataException($"Unknown Oxford 5000 POS abbreviation '{posAbbreviation}' in meta '{meta}'.");
+        return (pos, level);
+    }
+
+    private static int LegacyNumber(string id)
+    {
+        Match match = Regex.Match(id, @"^ox5000-add-(\d{4})$", RegexOptions.CultureInvariant);
+        if (!match.Success)
+            throw new InvalidDataException($"Unexpected Oxford 5000 legacy ID '{id}'.");
+        return int.Parse(match.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture);
+    }
+
+    private static string Required(Dictionary<string, string> row, string key)
+    {
+        if (!row.TryGetValue(key, out string? value) || string.IsNullOrWhiteSpace(value))
+            throw new InvalidDataException($"Required Oxford 5000 field '{key}' is blank.");
+        return value.Trim();
+    }
+
+    private static void ValidateLevel(string level)
+    {
+        if (level is not "B2" and not "C1")
+            throw new InvalidDataException($"Oxford 5000 addition level '{level}' is unsupported; expected B2 or C1.");
+    }
+
+    private static void RequirePresence(IEnumerable<CanonicalCandidate> rows, string source, string pos, string level)
+    {
+        if (!rows.Any(row => row.Source == source && row.PartOfSpeech == pos && row.Level == level))
+            throw new InvalidDataException($"Verified Oxford 5000 row is missing from canonical ledger: {source} {pos} {level}.");
     }
 }
