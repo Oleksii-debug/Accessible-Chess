@@ -103,10 +103,34 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  chessx-windows:
+    name: ChessX 1.6.10 install/UIA/keyboard probe
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run ChessX probe
+        shell: powershell
+        run: ./tools/competitor_lab/windows_chessx_probe.ps1
+      - name: Record ChessX job status
+        if: always()
+        shell: powershell
+        run: |
+          New-Item -ItemType Directory -Force competitor-results/windows-chessx | Out-Null
+          @('job_status=${{ job.status }}','run_id=${{ github.run_id }}','sha=${{ github.sha }}') | Set-Content -Encoding utf8 competitor-results/windows-chessx/job-status.txt
+      - name: Upload ChessX Windows evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: chessx-windows-evidence
+          path: competitor-results/windows-chessx/**
+          if-no-files-found: error
+          retention-days: 14
+
   publish-evidence:
     name: Publish compact robot evidence to research branch
     if: always()
-    needs: [web-robot, chessbase-reader-windows, scid-windows]
+    needs: [web-robot, chessbase-reader-windows, scid-windows, chessx-windows]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -133,6 +157,7 @@ jobs:
           - Web robot: `${{ needs.web-robot.result }}`
           - ChessBase Reader Windows robot: `${{ needs.chessbase-reader-windows.result }}`
           - Scid Windows robot: `${{ needs.scid-windows.result }}`
+          - ChessX Windows robot: `${{ needs.chessx-windows.result }}`
           - Evidence level: robot/UIA/keyboard automation only; never human NVDA verification.
           EOF
       - name: Commit evidence snapshot
