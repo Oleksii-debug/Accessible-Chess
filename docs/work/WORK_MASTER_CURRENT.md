@@ -1,23 +1,23 @@
 # Accessible Chess — Work Master Current
 
-Updated: `2026-08-20T11:44:35Z`
+Updated: `2026-08-20T12:14:09Z`
 
 ## Recovery pointer
 
 - `CURRENT_BRANCH`: `completion/full-product-critical-path-20260819`
 - `START_SHA`: `588058634b378793b3c9aa0dca113af6b8a2dc8f`
-- `CURRENT_REMOTE_SHA`: `6751827396283674a933a0b5c0c6142f6817a636`
-- `LAST_SAFE_SHA`: `6751827396283674a933a0b5c0c6142f6817a636`
+- `CURRENT_REMOTE_SHA`: `1794bf391b2d0258cbfbd37068c7fd6531917194`
+- `LAST_SAFE_SHA`: `1794bf391b2d0258cbfbd37068c7fd6531917194`
 - `INTEGRATION_SHA`: `e8cd992d306975955784118364ce950963133d7e`
 - `QA_SHA`: `07971835cb8fc294996165e577913ed350ae9f0e`
 - `RESEARCH_SHA`: `0213f54f3f36fb30379f95c9979aea3a1cc41481`
-- `COMPLETION_SHA`: `6751827396283674a933a0b5c0c6142f6817a636`
+- `COMPLETION_SHA`: `1794bf391b2d0258cbfbd37068c7fd6531917194`
 - `COMPETITOR_EVIDENCE_BRANCH`: `research/competitor-interaction-lab-20260820`
 - `COMPETITOR_EVIDENCE_SHA`: `0213f54f3f36fb30379f95c9979aea3a1cc41481`
 - `CURRENT_STAGE1_STATE`: `PRODUCT CHECKPOINT READY — central rank/file actions plus Stockfish analysis/play are implemented; exact Windows/NVDA acceptance remains open`
 - `CURRENT_OWNER`: `WORK_MASTER — completion product/core/contracts; Windows QA and human NVDA evidence remain QA-owned`
-- `CURRENT_PRIORITY`: `Return exact Stage 1 product SHA to QA, then continue highest-risk data-forward work while the human gate is pending`
-- `CURRENT_SUBSYSTEM`: `Stage 1 Stockfish play checkpoint complete; ACSDB v3 migration/recovery next`
+- `CURRENT_PRIORITY`: `Return exact Stage 1 product SHA to QA, then finish professional analysis/books/training while the human gate is pending; Classroom remains last`
+- `CURRENT_SUBSYSTEM`: `ACSDB v3 migration/catalog/recovery complete; professional analysis and books/training next`
 - `STATUS`: `WIP_SAFE — PRODUCT TESTS PASS; WINDOWS/NVDA PENDING`
 - `NVDA_VERIFIED`: `NO`
 
@@ -44,6 +44,26 @@ All four branch heads were verified live with `git ls-remote` on 2026-08-20. Git
 - Do not merge the research branch wholesale. Do not copy competitor installers, fake download artifacts, or incidental screenshots into product history.
 
 ## Last safe product result
+
+Commit `1794bf391b2d0258cbfbd37068c7fd6531917194` ports ACSDB v3 onto
+the hardened completion line without merging the legacy data branch:
+
+- one atomic v1/v2-to-v3 transaction begins only after a verified sibling
+  SQLite backup exists; injected DDL failure rolls back to the starting schema
+  and exposes structured recovery evidence;
+- deterministic versioned catalog IDs cover players, events, annotators,
+  openings, games and default source provenance;
+- every new game still passes structural recovery, legality, raw-PGN identity,
+  warning and exact-scalar gates before its catalog row is written;
+- invalid legacy rows remain preserved but are excluded from the semantic
+  catalog with bounded `catalog_issues` evidence;
+- indexed exact-source/record duplicate policies, atomic batch import,
+  literal annotator/search filters, recursive GameTree retrieval and exact
+  position/provenance results are active;
+- validated backup/recovery copies publish atomically and never overwrite an
+  existing destination.
+
+The exact remote tree is `9b9d485b970f5bfe06c70d988d94d56e752ecc9b`.
 
 Commit `6751827396283674a933a0b5c0c6142f6817a636` activates the Stage 1 game-against-Stockfish path on the production composition boundary:
 
@@ -81,6 +101,7 @@ Commit `6751827396283674a933a0b5c0c6142f6817a636` activates the Stage 1 game-aga
 - Local CBG token-framing verification at `2fea86a`: focused CBG/capability/architecture `22/22` passed; broad unittest `859/859` passed with one existing skip; full pytest is `944 passed`, `1959 subtests`, with exactly the same two unchanged Stage1 PRODUCT failures; compileall and `git diff --check` passed.
 - Commit `60ff50d6053c48d8e3308447324cb266b2561ff4` resolves both Stage 1 rank/file PRODUCT failures by registering all 16 actions centrally and generating Help from their live bindings.
 - Exact Stage 1 engine-play tree at `6751827396283674a933a0b5c0c6142f6817a636`: broad unittest `877/877` passed; full pytest `965 passed` plus `1959 subtests`; JavaScript parse, compileall and `git diff --check` passed. The remote tree SHA `38e70a7166adfd32ae1a48159cfe576875864a6b` exactly matches the tested local tree. No commit-associated GitHub workflow/status check was emitted for this push.
+- Exact ACSDB v3 tree at `1794bf391b2d0258cbfbd37068c7fd6531917194`: broad unittest `889/889` passed; full pytest `977 passed` plus `1965 subtests`; focused pre-v3 ACSDB/search/duplicate/data regression `48/48` passed; compileall and `git diff --check` passed. The remote tree SHA `9b9d485b970f5bfe06c70d988d94d56e752ecc9b` exactly matches the tested local tree. The v3 vertical includes a 600-game catalog corpus, verified v2 backup, injected migration rollback, stale-index fail-closed duplicate proof and recovery-copy reopen.
 - Competitor lab run `32342624286`: five jobs completed successfully and published compact evidence to `0213f54...`.
 
 ## Known failures and blockers
@@ -105,11 +126,10 @@ Commit `6751827396283674a933a0b5c0c6142f6817a636` activates the Stage 1 game-aga
 
 ## Next exact action
 
-Return product SHA `6751827396283674a933a0b5c0c6142f6817a636` to the QA-owned
-Windows candidate line without changing its workflows. While the exact
-Windows/NVDA gate is pending, port ACSDB v3 from
-`integration/data-forward-acsdb-v3` as a bounded migration, not a wholesale
-merge. Preserve every current v2 exact-type, legality, provenance,
-literal-search and transaction invariant; add deterministic catalog identities,
-backup-before-migration, rollback/recovery evidence and failure atomicity before
-enabling v3 import/search surfaces.
+Return Stage 1 product SHA `6751827396283674a933a0b5c0c6142f6817a636`
+to the QA-owned Windows candidate line without changing its workflows. While
+the exact Windows/NVDA gate is pending, inspect the current professional engine
+analysis, books and training surfaces against the canonical product/UX
+contracts; close the highest-risk persistence, lifecycle, accessibility and
+Windows composition gaps before adapting Teacher/Classroom. Preserve the new
+ACSDB v3 boundary and keep Classroom/remote work last.
