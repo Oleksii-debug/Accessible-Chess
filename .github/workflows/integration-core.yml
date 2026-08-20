@@ -137,6 +137,41 @@ jobs:
           tests.test_ui_native_menu_recovery
           tests.test_release_stockfish_composition
 
+      - name: Official Stockfish 18 production UCI and MultiPV smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/stockfish-ubuntu-x86-64-avx2.tar"
+          extract_dir="$RUNNER_TEMP/stockfish18"
+          curl --fail --location --retry 3 \
+            https://github.com/official-stockfish/Stockfish/releases/download/sf_18/stockfish-ubuntu-x86-64-avx2.tar \
+            --output "$archive"
+          echo '536c0c2c0cf06450df0bfb5e876ef0d3119950703a8f143627f990c7b5417964  '"$archive" | sha256sum --check
+          mkdir -p "$extract_dir"
+          tar -xf "$archive" -C "$extract_dir"
+          engine="$(find "$extract_dir" -type f -name 'stockfish-ubuntu-x86-64-avx2' -print -quit)"
+          test -n "$engine"
+          chmod +x "$engine"
+          STOCKFISH18_PATH="$engine" python - <<'PY'
+          import os
+          import re
+          from acs.stockfish_runtime import StockfishRuntime, StockfishRuntimeConfig
+
+          start_fen = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1'
+          move_re = re.compile(r'^[a-h][1-8][a-h][1-8][qrbn]?$')
+          with StockfishRuntime(
+              StockfishRuntimeConfig(configured_path=os.environ['STOCKFISH18_PATH'])
+          ) as runtime:
+              provider = runtime.provider()
+              best = provider.best_move(start_fen, skill_level=20, movetime_ms=100)
+              assert best is not None and move_re.fullmatch(best), best
+              lines = provider.analyze(start_fen, multipv=5, depth=8)
+              assert len(lines) == 5, len(lines)
+              assert all(line.pv and all(move_re.fullmatch(move) for move in line.pv) for line in lines)
+              assert all(line.depth >= 1 for line in lines)
+          print('OFFICIAL STOCKFISH 18 UCI ISREADY BESTMOVE MULTIPV5 PASS')
+          PY
+
       - name: Board, move-entry, editor and history gates
         run: python -m unittest -v tests.test_board_service tests.test_move_entry tests.test_position_editor tests.test_ui_review_adapter tests.test_history_review_ui
 
