@@ -1,4 +1,5 @@
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 
@@ -17,11 +18,17 @@ class _FakeLine:
 class _FakeEngine:
     def __init__(self):
         self.closed = False
+        self.analyze_calls = 0
+        self.best_move_calls = 0
+        self.analyzed = threading.Event()
 
     def analyze(self, fen, multipv=5, depth=16):
+        self.analyze_calls += 1
+        self.analyzed.set()
         return tuple(_FakeLine(i) for i in range(1, multipv + 1))
 
     def best_move(self, fen, skill_level=10, movetime_ms=500):
+        self.best_move_calls += 1
         return 'e2e4'
 
     def close(self):
@@ -71,6 +78,24 @@ class ReleaseStockfishCompositionTests(unittest.TestCase):
         text = (root / 'acs' / 'webapp_keymap.py').read_text(encoding='utf-8')
         self.assertNotIn('MultiPV ще переноситься', text)
         self.assertNotIn('migration is still in progress', text)
+
+    def test_analysis_and_engine_game_share_the_one_runtime_provider(self):
+        _FakeRuntime.instances.clear()
+        with tempfile.TemporaryDirectory() as td:
+            api, runtime = create_release_api(application_dir=td, runtime_factory=_FakeRuntime)
+            try:
+                played = api.start_engine_game("black", 5, 0, 0)
+                self.assertTrue(played["ok"], played)
+                self.assertEqual(runtime.engine.best_move_calls, 1)
+
+                toggled = api.toggle_engine()
+                self.assertTrue(toggled["ok"], toggled)
+                self.assertTrue(runtime.engine.analyzed.wait(1))
+                self.assertEqual(runtime.engine.analyze_calls, 1)
+                self.assertIs(runtime.provider(), runtime.engine)
+            finally:
+                api.close_analysis()
+                runtime.close()
 
 
 if __name__ == '__main__':

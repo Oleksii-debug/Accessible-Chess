@@ -296,18 +296,37 @@ class EngineGameSessionCoordinator:
         self._clock = clock
         return snapshot
 
-    def reset(self) -> EngineGameSessionSnapshot:
+    def reset(
+        self,
+        *,
+        clock_snapshot: ClockSnapshot | None = None,
+    ) -> EngineGameSessionSnapshot:
         self._require_started()
         assert self._clock is not None and self._config is not None
         side = self._side_to_move()
-        clock = self._clock.reset(side_to_move=side)
-        if not self._config.time_control.untimed:
-            clock = self._clock.resume()
         turn_state = (
             EngineTurnState.ENGINE
             if side == self._config.engine_side
             else EngineTurnState.HUMAN
         )
+        if clock_snapshot is None:
+            clock = self._clock.reset(side_to_move=side)
+            if not self._config.time_control.untimed:
+                clock = self._clock.resume()
+        else:
+            if not isinstance(clock_snapshot, ClockSnapshot):
+                raise EngineContractError(
+                    "clock_snapshot must be ClockSnapshot or None",
+                    code=EngineContractErrorCode.INVALID_REQUEST,
+                )
+            EngineGameSessionSnapshot(
+                self._config,
+                side,
+                turn_state,
+                LifecycleSnapshot(GameStatus.ACTIVE, None, None, None),
+                clock_snapshot,
+            )
+            clock = self._clock.restore(clock_snapshot, resume_running=True)
         snapshot = EngineGameSessionSnapshot(
             self._config,
             side,
@@ -317,6 +336,20 @@ class EngineGameSessionCoordinator:
         )
         self._lifecycle.reset_for_new_game()
         return snapshot
+
+    def pause(self) -> EngineGameSessionSnapshot:
+        """Pause a recoverable active session without changing board ownership."""
+        self._require_active()
+        assert self._clock is not None
+        self._clock.pause()
+        return self.snapshot()
+
+    def resume(self) -> EngineGameSessionSnapshot:
+        """Resume a previously paused timed session; untimed games are stable."""
+        self._require_active()
+        assert self._clock is not None
+        self._clock.resume()
+        return self.snapshot()
 
     def snapshot(self) -> EngineGameSessionSnapshot:
         self._require_started()

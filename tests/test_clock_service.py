@@ -102,6 +102,13 @@ class ChessClockTests(unittest.TestCase):
         self.assertEqual(snap.white_ms, 0)
         self.assertIsNone(snap.flagged)
 
+    def test_untimed_reset_discards_side_to_move_from_stopped_clock(self):
+        clock = ChessClock(TimeControl(0, 0), now=self.now)
+
+        snap = clock.reset(side_to_move="b")
+
+        self.assertEqual(snap, ClockSnapshot(0, 0, None, ClockState.STOPPED))
+
     def test_reset_can_prepare_paused_clock_for_restored_side_to_move(self):
         clock = ChessClock(TimeControl(120_000, 5_000), now=self.now)
         clock.start("w")

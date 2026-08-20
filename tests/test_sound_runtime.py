@@ -58,6 +58,21 @@ class SoundRuntimeTests(unittest.TestCase):
             [SoundEvent.START, SoundEvent.CAPTURE, SoundEvent.CHECK, SoundEvent.END],
         )
 
+    def test_takeback_rearms_game_end_without_replaying_start(self):
+        fake = FakePlayback()
+        game = GameSoundRuntime(SoundRuntime(fake))
+        game.start()
+        game.end()
+
+        report = game.resume_after_takeback()
+        game.end()
+
+        self.assertEqual(report.requested, ())
+        self.assertEqual(
+            [event for event, _ in fake.calls],
+            [SoundEvent.START, SoundEvent.END, SoundEvent.END],
+        )
+
     def test_duplicate_event_ids_collapse_within_one_batch(self):
         fake = FakePlayback()
         runtime = SoundRuntime(fake)

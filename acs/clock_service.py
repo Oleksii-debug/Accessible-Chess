@@ -300,11 +300,12 @@ class ChessClock:
             self._validate_side(side_to_move)
         self._remaining = {"w": self.control.initial_ms, "b": self.control.initial_ms}
         self._flagged = None
-        self._active = side_to_move
         if self.control.untimed or side_to_move is None:
+            self._active = None
             self._state = ClockState.STOPPED
             self._last_tick = None
         else:
+            self._active = side_to_move
             self._state = ClockState.PAUSED
             self._last_tick = None
         return self.snapshot()

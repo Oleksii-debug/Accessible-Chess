@@ -269,6 +269,35 @@ class EngineGameSessionTests(unittest.TestCase):
         self.assertEqual(reset.clock.active, 'w')
         self.assertEqual(reset.clock.state, ClockState.RUNNING)
 
+    def test_reset_after_takeback_can_restore_exact_historical_clock(self):
+        now = FakeTime()
+        session, snap, state, engine, analysis, review = self.make_session(
+            time_control=TimeControl(12_000, 500), now=now
+        )
+        session.handle_handoff(EngineGameHandoff(EngineGameIntent.RESIGN, actor='w'))
+        historical = ClockSnapshot(8_250, 10_500, 'w', ClockState.RUNNING)
+
+        reset = session.reset(clock_snapshot=historical)
+
+        self.assertEqual(reset.lifecycle.status, GameStatus.ACTIVE)
+        self.assertEqual(reset.clock.white_ms, 8_250)
+        self.assertEqual(reset.clock.black_ms, 10_500)
+        self.assertEqual(reset.clock.active, 'w')
+        self.assertEqual(reset.clock.state, ClockState.RUNNING)
+
+    def test_reset_rejects_misaligned_historical_clock_before_mutation(self):
+        now = FakeTime()
+        session, snap, state, engine, analysis, review = self.make_session(
+            time_control=TimeControl(12_000, 500), now=now
+        )
+        before = session.snapshot()
+        invalid = ClockSnapshot(8_250, 10_500, 'b', ClockState.RUNNING)
+
+        with self.assertRaises(EngineContractError):
+            session.reset(clock_snapshot=invalid)
+
+        self.assertEqual(session.snapshot(), before)
+
     def test_unconfigured_secondary_handoff_fails_explicitly(self):
         engine = FakeMoveEngine()
         session = EngineGameSessionCoordinator(

@@ -16,6 +16,7 @@ _LABELS_UK = {
     "settings": "Налаштування", "help": "Довідка",
     "new": "Нова стандартна позиція", "empty": "Порожня дошка", "exit": "Вихід",
     "undo": "Скасувати хід", "redo": "Повторити хід",
+    "engine_play_new": "Нова гра проти Stockfish",
     "history_previous": "Попередня позиція в історії", "history_next": "Наступна позиція в історії",
     "history_go": "Перейти до ходу", "board_go": "Перейти на дошку",
     "move_input": "Поле введення ходу", "position_input": "Текстовий редактор позиції",
@@ -32,6 +33,7 @@ _LABELS_EN = {
     "settings": "Settings", "help": "Help",
     "new": "New standard position", "empty": "Empty board", "exit": "Exit",
     "undo": "Undo move", "redo": "Redo move",
+    "engine_play_new": "New game against Stockfish",
     "history_previous": "Previous history position", "history_next": "Next history position",
     "history_go": "Go to move", "board_go": "Go to board",
     "move_input": "Move input", "position_input": "Position text editor",
@@ -165,6 +167,8 @@ def make_keymap_menu(webview: Any, api: Any, window_holder: dict[str, Any]):
             MenuAction(text["exit"], lambda: window() and window().destroy()),
         ]),
         Menu(text["game"], [
+            MenuAction(text["engine_play_new"], lambda: js("openEngineGameDialog()")),
+            MenuSeparator(),
             MenuAction(menu_caption(api, text["undo"], "edit.undo"), refresh(api.undo)),
             MenuAction(menu_caption(api, text["redo"], "edit.redo"), refresh(api.redo)),
             MenuSeparator(),
@@ -308,6 +312,8 @@ def install_windows_native_menu(window: Any, api: Any) -> bool:
             separator(), item(text["exit"], window.destroy),
         ]),
         submenu(mn["game"], [
+            item(text["engine_play_new"], lambda: _safe_js(window, "openEngineGameDialog()")),
+            separator(),
             item(menu_caption(api, text["undo"], "edit.undo"), lambda: _invoke_api(window, api.undo)),
             item(menu_caption(api, text["redo"], "edit.redo"), lambda: _invoke_api(window, api.redo)),
             separator(),
