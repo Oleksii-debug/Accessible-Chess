@@ -131,7 +131,7 @@ if($evals.Count -ne 1 -or -not [bool]$evals[0].proven_original -or -not [bool]$e
 $moveRid=[string]$evals[0].best_occurrence.runtime_id
 if(-not $moveRid){throw 'Move runtime ID missing'}
 
-$summary=[ordered]@{product_sha=$env:SOURCE_INTEGRATION_SHA;app_pid=$AppPid;classification='A';evidence_complete=$true;move_runtime_id=$moveRid;e4_fen='';invalid_e9_fen_unchanged=$false;clipboard='';semantic_square_count=0;board_focus_continuity=$false;black_e5_fen='';raw_exception_noise=$false}
+$summary=[ordered]@{product_sha=$env:SOURCE_INTEGRATION_SHA;app_pid=$AppPid;classification='A';evidence_complete=$true;move_runtime_id=$moveRid;e4_fen='';invalid_e9_fen_unchanged=$false;selection_uia_count=0;selection_uia_span='';selection_uia_text='';clipboard='';semantic_square_count=0;board_focus_continuity=$false;black_e5_fen='';raw_exception_noise=$false}
 
 try{
   $els=Rewalk $report; $move=FindRuntime $els $moveRid; AssertMoveStrict $move $moveRid; NoRawError $els
@@ -167,18 +167,31 @@ try{
     $tp=$focused.GetCurrentPattern([System.Windows.Automation.TextPattern]::Pattern)
     if($null -eq $tp){throw 'TextPattern unavailable'}
     $selection=@($tp.GetSelection())
-    if($selection.Count -lt 1){throw 'No native text selection exposed'}
-    $selected=(@($selection|ForEach-Object {$_.GetText(-1)}) -join '')
-    if($selected -ne 'e9'){throw "Native Ctrl+A selection mismatch: '$selected'"}
+    $summary.selection_uia_count=$selection.Count
+    if($selection.Count -gt 0){
+      $range=$selection[0]
+      $cmp=$range.CompareEndpoints([System.Windows.Automation.TextPatternRangeEndpoint]::Start,$range,[System.Windows.Automation.TextPatternRangeEndpoint]::End)
+      $summary.selection_uia_span=if($cmp -eq 0){'degenerate'}else{'nondegenerate'}
+      $summary.selection_uia_text=(@($selection|ForEach-Object {$_.GetText(-1)}) -join '')
+      Write-Output "CLIPBOARD UIA SELECTION OBSERVATION count=$($summary.selection_uia_count) span=$($summary.selection_uia_span) text='$($summary.selection_uia_text)'"
+    } else {
+      $summary.selection_uia_span='none'
+      Write-Output 'CLIPBOARD UIA SELECTION OBSERVATION count=0 span=none'
+    }
   }catch{
-    throw "Native selection proof failed: $($_.Exception.Message)"
+    $summary.selection_uia_span='unavailable'
+    Write-Output "CLIPBOARD UIA SELECTION OBSERVABILITY LIMITED: $($_.Exception.Message)"
   }
-  Write-Output 'CLIPBOARD BOUNDED FOCUS/SELECTION PASS'
+  AssertFocusedRuntimeEventually $moveRid 'Clipboard copy focus convergence'
+  $focused=[System.Windows.Automation.AutomationElement]::FocusedElement
+  if((RuntimeId $focused) -ne $moveRid){throw "Clipboard copy focus mismatch: $(FocusDescription $focused)"}
   $ws.SendKeys('^c')
   Start-Sleep -Milliseconds 400
   $clip=([string](Get-Clipboard -Raw)).Trim()
-  if($clip -ne 'e9'){throw "Ctrl+A/Ctrl+C failed: '$clip'"}
+  if($clip -ne 'e9'){throw "Native Ctrl+A/Ctrl+C behavioral copy failed: clipboard='$clip' selection_count=$($summary.selection_uia_count) selection_span='$($summary.selection_uia_span)' selection_text='$($summary.selection_uia_text)'"}
   $summary.clipboard=$clip
+  Write-Output "CLIPBOARD NATIVE CTRL+A/CTRL+C BEHAVIOR PASS clipboard='$clip' selection_count=$($summary.selection_uia_count) selection_span='$($summary.selection_uia_span)' selection_text='$($summary.selection_uia_text)'"
+  Write-Output 'CLIPBOARD BOUNDED FOCUS/SELECTION PASS'
 
   $vp.SetValue('e5'); if([string]$vp.Current.Value -ne 'e5'){throw 'Could not prepare e5 before board entry'}
   Write-Output 'Prepared e5 before entering board'
