@@ -1,0 +1,115 @@
+name: QA Stage1 Native Proof V4 Bridge 20260820
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/qa-stage1-native-proof-v4-bridge-20260820.yml'
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: write
+
+concurrency:
+  group: qa-stage1-native-proof-v4-bridge-20260820
+  cancel-in-progress: false
+
+env:
+  QA_BRANCH: qa/windows-current-integration-candidate-20260815
+  TARGET_PRODUCT_SHA: 656e8ec311e364e6e54a30504fd30a4aaff586f9
+
+jobs:
+  patch-and-dispatch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: qa/windows-current-integration-candidate-20260815
+          fetch-depth: 0
+
+      - name: Normalize caret before native keyboard proof
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('tools/qa/stage1_packaged_e2e_crossprocess.ps1')
+          text = p.read_text(encoding='utf-8')
+          marker = 'NATIVE CARET BASELINE NORMALIZED WITH END'
+          if marker in text:
+              print('V4 caret normalization already present')
+              raise SystemExit(0)
+
+          old_control = """  [AccessibleChessQaNativeKeysV3]::Key([byte]0x08)\n  Start-Sleep -Milliseconds 250\n  AssertFocusedRuntimeEventually $moveRid 'Native Backspace focus convergence'\n"""
+          new_control = """  [AccessibleChessQaNativeKeysV3]::Key([byte]0x23)\n  Start-Sleep -Milliseconds 120\n  if([string](ValuePattern $move 'Move after native End baseline').Current.Value -ne 'e9'){throw 'Native End baseline unexpectedly changed Move value'}\n  Write-Output 'NATIVE CARET BASELINE NORMALIZED WITH END'\n  [AccessibleChessQaNativeKeysV3]::Key([byte]0x08)\n  Start-Sleep -Milliseconds 250\n  AssertFocusedRuntimeEventually $moveRid 'Native Backspace focus convergence'\n"""
+          if text.count(old_control) != 1:
+              raise SystemExit(f'control anchor count={text.count(old_control)}')
+          text = text.replace(old_control, new_control, 1)
+
+          old_select = """  AssertFocusedRuntimeEventually $moveRid 'Native Ctrl+A focus convergence'\n  [AccessibleChessQaNativeKeysV3]::Ctrl([byte]0x41)\n"""
+          new_select = """  AssertFocusedRuntimeEventually $moveRid 'Native Ctrl+A focus convergence'\n  [AccessibleChessQaNativeKeysV3]::Key([byte]0x23)\n  Start-Sleep -Milliseconds 120\n  if([string](ValuePattern $move 'Move after End before Ctrl+A').Current.Value -ne 'e9'){throw 'End baseline before Ctrl+A unexpectedly changed Move value'}\n  [AccessibleChessQaNativeKeysV3]::Ctrl([byte]0x41)\n"""
+          if text.count(old_select) != 1:
+              raise SystemExit(f'selection anchor count={text.count(old_select)}')
+          text = text.replace(old_select, new_select, 1)
+
+          old_copy = """  AssertFocusedRuntimeEventually $moveRid 'Native copy focus convergence'\n  [AccessibleChessQaNativeKeysV3]::Ctrl([byte]0x41)\n"""
+          new_copy = """  AssertFocusedRuntimeEventually $moveRid 'Native copy focus convergence'\n  [AccessibleChessQaNativeKeysV3]::Key([byte]0x23)\n  Start-Sleep -Milliseconds 120\n  if([string](ValuePattern $move 'Move after End before copy').Current.Value -ne 'e9'){throw 'End baseline before copy unexpectedly changed Move value'}\n  [AccessibleChessQaNativeKeysV3]::Ctrl([byte]0x41)\n"""
+          if text.count(old_copy) != 1:
+              raise SystemExit(f'copy anchor count={text.count(old_copy)}')
+          text = text.replace(old_copy, new_copy, 1)
+          p.write_text(text, encoding='utf-8')
+          PY
+
+      - name: Validate QA-only scope and syntax
+        shell: pwsh
+        run: |
+          $helper='tools\qa\stage1_packaged_e2e_crossprocess.ps1'
+          $tokens=$null; $errors=$null
+          [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $helper),[ref]$tokens,[ref]$errors)|Out-Null
+          if(@($errors).Count -gt 0){throw (@($errors|ForEach-Object{$_.Message}) -join ' | ')}
+          $text=Get-Content $helper -Raw
+          if($text -notmatch 'NATIVE CARET BASELINE NORMALIZED WITH END'){throw 'V4 caret normalization marker missing'}
+          if($text -notmatch 'NATIVE KEY DELIVERY CONTROL PASS'){throw 'Native delivery control missing'}
+          if($text -notmatch 'NATIVE CTRL\+A SELECTION BEHAVIOR PASS'){throw 'Native Ctrl+A proof missing'}
+          $changes=@(git status --short)
+          if($changes.Count -ne 1 -or $changes[0] -ne ' M tools/qa/stage1_packaged_e2e_crossprocess.ps1'){
+            throw "Expected exactly one QA helper change, got: $($changes -join ' | ')"
+          }
+
+      - name: Commit QA helper only
+        shell: bash
+        run: |
+          git config user.name 'Oleksii-debug'
+          git config user.email 'oleksiy.az.09@gmail.com'
+          git add -- tools/qa/stage1_packaged_e2e_crossprocess.ps1
+          git commit -m 'QA: normalize caret before native selection proof'
+          git push origin HEAD:qa/windows-current-integration-candidate-20260815
+
+      - name: Dispatch at most one strict run
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const workflow_id = 'windows-stage1-strict-release-crossprocess.yml';
+            const branch = process.env.QA_BRANCH;
+            const runs = await github.rest.actions.listWorkflowRuns({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id,
+              branch,
+              per_page: 20
+            });
+            const active = runs.data.workflow_runs.filter(r =>
+              ['queued','in_progress','waiting','pending','requested'].includes(r.status)
+            );
+            if (active.length > 0) {
+              core.info(`STRICT WORKFLOW ALREADY ACTIVE: ${active.map(r => r.id).join(',')}`);
+              return;
+            }
+            await github.rest.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id,
+              ref: branch
+            });
+            core.info('STRICT WORKFLOW DISPATCHED AFTER V4 CARET NORMALIZATION');
