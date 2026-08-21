@@ -1,10 +1,10 @@
 WORDDECK WORKER 02 WINDOWS GATE EVIDENCE
-overall=FAIL
-tested_sha=9fcffe9096a94f2c3bf8b08803d0f4a4a7169a51
-run_id=32474914284
+overall=PASS
+tested_sha=837a0700d3e64a2713ea9e0c3cf8f9f4f4eb2151
+run_id=32475082301
 run_attempt=1
 restore=success
 build=success
-selftest=failure
-publish_win_x64=skipped
-completed_utc=2026-08-21T10:57:10.3089434Z
+selftest=success
+publish_win_x64=success
+completed_utc=2026-08-21T11:00:53.0814298Z
