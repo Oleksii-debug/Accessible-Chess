@@ -81,6 +81,7 @@ internal static class TrainingEntryPoints
                 session.Store,
                 shortcuts,
                 owner.ActivePackageForTraining);
+            using SpellingAccessibilityBehavior helpBehavior = SpellingAccessibilityBehavior.Install(form, shortcuts);
             form.ShowDialog(owner);
             owner.SaveSharedStateAfterTraining();
         }
