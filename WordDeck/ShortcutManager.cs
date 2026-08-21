@@ -33,7 +33,7 @@ internal sealed class ShortcutManager
         if (_state.Shortcuts.TryGetValue(actionId, out string? raw) && Enum.TryParse(raw, out Keys keys))
         {
             if (keys == Keys.None) return Keys.None;
-            if (!IsUnsafe(keys)) return keys;
+            if (!IsUnsafe(actionId, keys)) return keys;
         }
         return definition.DefaultKeys;
     }
@@ -42,15 +42,14 @@ internal sealed class ShortcutManager
     {
         if (keyData == Keys.None) return null;
         ShortcutDefinition? definition = Definitions.FirstOrDefault(def => Get(def.Id) != Keys.None && Get(def.Id) == keyData);
-        if (definition is null) return null;
-        return definition.Id == ActionIds.PreviousWord ? ActionIds.NextWord : definition.Id;
+        return definition?.Id;
     }
 
     public bool TrySet(string actionId, Keys keys, out string? errorDescription)
     {
         if (!Definitions.Any(def => def.Id == actionId)) { errorDescription = "the function no longer exists"; return false; }
-        if (IsUnsafe(keys)) { errorDescription = "this combination is reserved for Windows or keyboard navigation"; return false; }
-        var conflict = Definitions.FirstOrDefault(def => def.Id != actionId && Get(def.Id) == keys);
+        if (keys != Keys.None && IsUnsafe(actionId, keys)) { errorDescription = "this combination is reserved for Windows or standard keyboard navigation"; return false; }
+        var conflict = keys == Keys.None ? null : Definitions.FirstOrDefault(def => def.Id != actionId && Get(def.Id) == keys);
         if (conflict is not null) { errorDescription = $"it is already assigned to {conflict.Description}"; return false; }
         _state.Shortcuts[actionId] = keys.ToString(); errorDescription = null; return true;
     }
@@ -77,20 +76,25 @@ internal sealed class ShortcutManager
         return prefix.Length > 0 && int.TryParse(id[prefix.Length..], out int number) && number is >= 1 and <= 5;
     }
 
-    private static bool IsUnsafe(Keys keys)
+    private static bool IsUnsafe(string actionId, Keys keys)
     {
         Keys code = keys & Keys.KeyCode; Keys modifiers = keys & Keys.Modifiers;
         if (code is Keys.None or Keys.Tab or Keys.Escape or Keys.Enter) return true;
         if (code == Keys.F4 && modifiers == Keys.Alt) return true;
         if (code == Keys.Delete && modifiers == (Keys.Control | Keys.Alt)) return true;
-        if (modifiers == Keys.None && code is Keys.Left or Keys.Right or Keys.Up or Keys.Down or Keys.Home or Keys.End or Keys.PageUp or Keys.PageDown) return true;
+        if (modifiers == Keys.None)
+        {
+            if (code == Keys.Down) return actionId != ActionIds.NextWord;
+            if (code == Keys.Up) return actionId != ActionIds.PreviousWord;
+            if (code is Keys.Left or Keys.Right or Keys.Home or Keys.End or Keys.PageUp or Keys.PageDown) return true;
+        }
         return false;
     }
 
     private static IReadOnlyList<ShortcutDefinition> BuildRecallDefinitions() => new List<ShortcutDefinition>
     {
-        new(ActionIds.NextWord, "Another random word (right)", Keys.Control | Keys.Right),
-        new(ActionIds.PreviousWord, "Another random word (left)", Keys.Control | Keys.Left),
+        new(ActionIds.NextWord, "Recall: next word", Keys.Down),
+        new(ActionIds.PreviousWord, "Recall: previous actually shown word", Keys.Up),
         new(ActionIds.RevealTranslation, "Reveal translation", Keys.Control | Keys.T),
         new(ActionIds.RepeatWord, "Repeat current English word with screen reader", Keys.Control | Keys.R),
         new(ActionIds.PlayPronunciation, "Play generated British pronunciation", Keys.Control | Keys.P),
@@ -98,6 +102,12 @@ internal sealed class ShortcutManager
         new(ActionIds.AddWords, "Add pasted word pairs to active deck", Keys.Control | Keys.Shift | Keys.A),
         new(ActionIds.SaveProgress, "Save progress now", Keys.Control | Keys.S),
         new(ActionIds.UndoMove, "Undo last deck move", Keys.Control | Keys.Z),
+        new(ActionIds.HideCurrentWord, "Hide current word from Recall study", Keys.Control | Keys.Delete),
+        new(ActionIds.RestoreHiddenWords, "Restore a hidden Recall word", Keys.Control | Keys.Alt | Keys.U),
+        new(ActionIds.RestoreAllHiddenWords, "Restore all hidden Recall words", Keys.None),
+        new(ActionIds.ExportProfile, "Export personal progress profile", Keys.Control | Keys.Alt | Keys.E),
+        new(ActionIds.ImportProfile, "Import personal progress profile", Keys.Control | Keys.Shift | Keys.I),
+        new(ActionIds.ResetLearningData, "Reset Recall learning data after backup", Keys.None),
         new(ActionIds.ShortcutSettings, "Open shortcut settings", Keys.Control | Keys.K),
         new(ActionIds.Help, "Open help", Keys.F1),
     };
@@ -127,7 +137,7 @@ internal sealed class ShortcutManager
     private static IReadOnlyList<ShortcutDefinition> BuildSentenceDefinitions() => new List<ShortcutDefinition>
     {
         new(ActionIds.OpenSentenceCoach, "Open Sentence Spelling trainer", Keys.Control | Keys.Shift | Keys.E),
-        new(ActionIds.SentenceShowAnswer, "Sentence Spelling: show required English sentence", Keys.Control | Keys.Alt | Keys.H),
+        new(ActionIds.SentenceShowAnswer, "Sentence Spelling: show required English answer", Keys.Control | Keys.Alt | Keys.H),
         new(ActionIds.SentenceRepeatPrompt, "Sentence Spelling: repeat Ukrainian sentence", Keys.Control | Keys.Alt | Keys.P),
         new(ActionIds.SentenceImportPack, "Sentence Spelling: import SentencePack", Keys.Control | Keys.Alt | Keys.I),
     };
