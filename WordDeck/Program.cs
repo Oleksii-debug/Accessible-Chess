@@ -20,6 +20,7 @@ internal static class Program
             {
                 StudyScopeSelfTest.Run();
                 UserDataSelfTest.Run();
+                ReleaseRegressionSelfTest.Run();
                 SpellingSelfTest.Run();
                 SentenceCoachSelfTest.Run();
                 SentencePackStoreSelfTest.Run();
