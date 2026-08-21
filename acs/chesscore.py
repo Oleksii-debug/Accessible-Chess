@@ -76,6 +76,12 @@ class Board:
             er=ep//8
             if er not in (2,5): raise ValueError('FEN: неправильне поле en passant')
             if (turn=='w' and er!=5) or (turn=='b' and er!=2): raise ValueError('FEN: en passant не відповідає стороні ходу')
+            if bd[ep] is not None: raise ValueError('FEN: поле en passant має бути порожнім')
+            moved_sq=ep-8 if turn=='w' else ep+8
+            origin_sq=ep+8 if turn=='w' else ep-8
+            moved_pawn='p' if turn=='w' else 'P'
+            if bd[moved_sq]!=moved_pawn or bd[origin_sq] is not None:
+                raise ValueError('FEN: en passant не відповідає попередньому подвійому ходу пішака')
 
         # Commit only after every syntactic and structural check has passed.
         self.board=bd; self.turn=turn; self.castling=castling; self.ep=ep
