@@ -6,8 +6,7 @@ on:
       - worddeck-worker-5-release
     paths:
       - 'WordDeck/**'
-      - '.github/workflows/worddeck-windows.yml'
-      - '.github/workflows/worddeck-worker5-release-regression.yml'
+      - '.github/workflows/worddeck-*.yml'
   workflow_dispatch:
 
 permissions:
@@ -40,6 +39,30 @@ jobs:
             throw 'Authoritative WordDeck validation workflow still requests write access to repository contents.'
           }
           Write-Host 'Workflow branch safety PASS: validation is source-read-only.'
+
+      - name: Superseded mutation workflows are inert
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $historical = @(
+            'worddeck-emergency-completion.yml',
+            'worddeck-emergency-completion-v4.yml',
+            'worddeck-emergency-v5.yml',
+            'worddeck-emergency-v5-strict.yml',
+            'worddeck-emergency-v6.yml',
+            'worddeck-emergency-v7.yml',
+            'worddeck-emergency-v8.yml',
+            'worddeck-emergency-v8b.yml',
+            'worddeck-user1156-v1-completion.yml'
+          )
+          foreach ($name in $historical) {
+            $path = Join-Path '.github\workflows' $name
+            $text = Get-Content $path -Raw
+            if ($text -match 'contents:\s*write' -or $text -match '(?m)^\s*push\s*:' -or $text -match 'git\s+push') {
+              throw "Historical workflow is still capable of automatic/source mutation: $name"
+            }
+          }
+          Write-Host 'Historical Oxford/1156 mutation workflows are manual read-only archive markers.'
 
       - name: Repository secret-file and private-state filename gate
         shell: pwsh
