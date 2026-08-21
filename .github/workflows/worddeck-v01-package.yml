@@ -96,19 +96,18 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $PSNativeCommandUseErrorActionPreference = $true
           $root = '.\artifacts\release'
           $pack = "$root\AudioPacks\oxford-3000-en-uk"
           foreach ($required in @("$root\WordDeck.exe","$root\README_UK.md","$root\THIRD_PARTY_NOTICES.md","$pack\manifest.json","$pack\audio-integrity.tsv")) {
             if (-not (Test-Path -LiteralPath $required)) { throw "Release file missing: $required" }
           }
 
-          & "$root\WordDeck.exe" --self-test
-          if ($LASTEXITCODE -ne 0) { throw "Packaged WordDeck self-test failed: $LASTEXITCODE" }
+          $self = Start-Process "$root\WordDeck.exe" -ArgumentList '--self-test' -Wait -PassThru
+          if ($self.ExitCode -ne 0) { throw "Packaged WordDeck self-test failed: $($self.ExitCode)" }
 
-          $source = '.\artifacts\published-audio-source.tsv'
-          & "$root\WordDeck.exe" --export-oxford5000-audio-source $source
-          if ($LASTEXITCODE -ne 0) { throw "Packaged audio-source export failed: $LASTEXITCODE" }
+          $source = (Join-Path (Resolve-Path .\artifacts).Path 'published-audio-source.tsv')
+          $export = Start-Process "$root\WordDeck.exe" -ArgumentList @('--export-oxford5000-audio-source', $source) -Wait -PassThru
+          if ($export.ExitCode -ne 0) { throw "Packaged audio-source export failed: $($export.ExitCode)" }
           $rows = @(Import-Csv -Delimiter "`t" $source)
           if ($rows.Count -ne 2138) { throw "Packaged EXE exported $($rows.Count) Oxford5000 audio rows; expected 2138." }
 
@@ -158,7 +157,7 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $forbidden = @(Get-ChildItem .\artifacts\release -Recurse -File | Where-Object {
-            $_.Name -match '^state(\.backup)?\.json$' -or $_.Name -like 'WordDeck-profile*.json' -or $_.Name -match '(token|secret|credential)' 
+            $_.Name -match '^state(\.backup)?\.json$' -or $_.Name -like 'WordDeck-profile*.json' -or $_.Name -match '(token|secret|credential)'
           })
           if ($forbidden.Count -ne 0) { throw "Release contains forbidden personal/secret files: $($forbidden.FullName -join ', ')" }
           Write-Host 'Clean public release PASS: no LocalAppData state or exported personal profile is packaged.'

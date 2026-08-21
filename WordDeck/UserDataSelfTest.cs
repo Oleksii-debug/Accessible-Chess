@@ -36,7 +36,6 @@ internal static class UserDataSelfTest
             var shortcuts = new ShortcutManager(legacy);
             Require(shortcuts.TrySet(ActionIds.RevealTranslation, Keys.Control | Keys.Alt | Keys.F9, out _), "Could not prepare custom shortcut.");
 
-            // Simulate an older on-disk V0.1 profile with no current schema marker.
             legacy.SchemaVersion = 0;
             string statePath = Path.Combine(root, "state.json");
             File.WriteAllText(statePath, JsonSerializer.Serialize(legacy, new JsonSerializerOptions { WriteIndented = true }));
@@ -107,7 +106,23 @@ internal static class UserDataSelfTest
             Require(navigation.TryForward(_ => true, out string? newest) && newest == "word-c",
                 "Navigation history did not remain valid after hiding/removing a card.");
 
-            Console.WriteLine("WordDeck user-data acceptance passed: schema migration+backup, LocalAppData continuity, profile export/reset/import rollback, hidden IDs, study history and true previous/forward Recall history verified.");
+            string missingDictionaryId = "worddeck-selftest-missing-" + Guid.NewGuid().ToString("N");
+            var missingPackage = new DictionaryPackage
+            {
+                Id = missingDictionaryId,
+                Name = "Missing audio self-test",
+                SourceLanguage = "en",
+                TargetLanguage = "uk",
+                Entries = new[] { new DictionaryEntry("missing-entry", "A1", "missing audio", "відсутнє аудіо") }
+            };
+            using (var audio = new PronunciationAudio())
+            {
+                bool played = audio.TryPlay(missingPackage, missingPackage.Entries[0], out string? missingAudioError);
+                Require(!played && !string.IsNullOrWhiteSpace(missingAudioError) && missingAudioError.Contains("not installed", StringComparison.OrdinalIgnoreCase),
+                    "Missing pronunciation audio did not return a readable non-crashing status.");
+            }
+
+            Console.WriteLine("WordDeck user-data acceptance passed: schema migration+backup, LocalAppData continuity, profile export/reset/import rollback, hidden IDs, study history, true previous/forward Recall history and missing-audio non-crash status verified.");
         }
         finally
         {
