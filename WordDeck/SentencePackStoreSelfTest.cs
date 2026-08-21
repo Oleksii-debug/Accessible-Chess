@@ -22,15 +22,17 @@ internal static class SentencePackStoreSelfTest
             Require(installed.SqlitePath is not null && File.Exists(installed.SqlitePath), "Imported SentencePack did not build its SQLite runtime companion.");
             Require(installed.Corpus is SentencePackSqliteCorpus, "Imported SentencePack did not expose the SQLite runtime corpus.");
             Require(installed.Corpus.LookupAllTargets(new[] { "ox-learn", "ox-words" }).Single().Id == "sentence-1", "SQLite runtime corpus two-target lookup failed after import.");
+            string manifestPath = Path.Combine(store.DirectoryPath, pack.PackId + ".installed.json");
+            Require(File.Exists(manifestPath), "SentencePack generation commit manifest was not created.");
 
             SentencePack compressedRoundTrip = SentencePackIo.Read(installed.Path);
             Require(compressedRoundTrip.PackId == pack.PackId, "Compressed SentencePack did not round-trip.");
 
             IReadOnlyList<InstalledSentencePack> loaded = store.LoadInstalled();
             Require(loaded.Count == 1, "Installed SentencePack did not reload.");
-            Require(loaded[0].PackId == pack.PackId && loaded[0].SentenceCount == 1, "Installed SentencePack metadata did not reload from SQLite.");
+            Require(loaded[0].PackId == pack.PackId && loaded[0].SentenceCount == 1, "Installed SentencePack metadata did not reload from committed SQLite generation.");
             Require(loaded[0].PortablePack is null, "Normal installed-pack discovery eagerly materialized the portable SentencePack.");
-            Require(loaded[0].Corpus is SentencePackSqliteCorpus, "Reloaded installed SentencePack did not discover its valid SQLite companion.");
+            Require(loaded[0].Corpus is SentencePackSqliteCorpus, "Reloaded installed SentencePack did not discover its committed SQLite generation.");
             Require(loaded[0].Corpus.LookupByEntryId("ox-learn").Single().Id == "sentence-1", "Reloaded SQLite corpus lookup failed.");
 
             string legacyPath = Path.Combine(store.DirectoryPath, "legacy-pack.json");
@@ -39,13 +41,30 @@ internal static class SentencePackStoreSelfTest
             Require(legacy?.PortablePack?.Sentences.Single().Id == "legacy-sentence", "Legacy uncompressed SentencePack compatibility was lost.");
             Require(legacy?.Corpus.LookupByEntryId("ox-learn").Single().Id == "legacy-sentence", "Legacy in-memory corpus fallback failed.");
 
+            // An orphan generation without a manifest must never supersede the committed pack.
+            SentencePack orphan = BuildPack(pack.PackId, "orphan-sentence");
+            string orphanPortable = Path.Combine(store.DirectoryPath, pack.PackId + ".orphan.json.gz");
+            SentencePackIo.WriteGZip(orphanPortable, orphan);
+            string orphanSqlite = Path.Combine(store.DirectoryPath, pack.PackId + ".orphan.sqlite");
+            SentencePackSqlitePrototype.Build(orphanSqlite, orphan);
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+            Require(store.Find(pack.PackId)?.Corpus.LookupByEntryId("ox-learn").Single().Id == "sentence-1",
+                "Uncommitted orphan SentencePack generation became active.");
+
             string replacementSource = Path.Combine(root, "replacement.json.gz");
             SentencePack replacement = BuildPack(pack.PackId, "sentence-2");
             SentencePackIo.WriteGZip(replacementSource, replacement);
             InstalledSentencePack replaced = store.Import(replacementSource);
-            Require(replaced.Path == installed.Path, "Same pack id did not replace its canonical compressed file.");
-            Require(replaced.SqlitePath == installed.SqlitePath, "Same pack id did not replace its stable SQLite companion path.");
-            Require(store.Find(pack.PackId)?.Corpus.LookupByEntryId("ox-learn").Single().Id == "sentence-2", "SQLite runtime companion was not replaced with the new pack content.");
+            Require(replaced.Path != installed.Path, "SentencePack replacement did not create a new immutable generation.");
+            Require(replaced.SqlitePath != installed.SqlitePath, "SentencePack replacement reused the previous SQLite generation path.");
+            Require(store.Find(pack.PackId)?.Corpus.LookupByEntryId("ox-learn").Single().Id == "sentence-2",
+                "Committed replacement generation did not become active.");
+
+            string manifestBackup = Path.Combine(store.DirectoryPath, pack.PackId + ".installed.backup.json");
+            Require(File.Exists(manifestBackup), "Replacing an installed SentencePack did not preserve the previous committed manifest.");
+            File.WriteAllText(manifestPath, "{ broken manifest");
+            Require(store.Find(pack.PackId)?.Corpus.LookupByEntryId("ox-learn").Single().Id == "sentence-1",
+                "Corrupt current manifest did not recover the previous committed generation.");
 
             TestSafePackIds();
         }
@@ -56,9 +75,7 @@ internal static class SentencePackStoreSelfTest
                 Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
                 if (Directory.Exists(root)) Directory.Delete(root, true);
             }
-            catch
-            {
-            }
+            catch { }
         }
     }
 
