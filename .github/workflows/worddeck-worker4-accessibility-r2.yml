@@ -1,0 +1,69 @@
+name: WordDeck Worker4 Accessibility Round2
+
+on:
+  push:
+    branches:
+      - worddeck-worker-4-accessibility-r2
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-selftest-uia:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout worker Round 2 branch
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Restore WordDeck
+        working-directory: WordDeck
+        run: dotnet restore
+
+      - name: Build Release
+        working-directory: WordDeck
+        run: dotnet build -c Release --no-restore
+
+      - name: Run full self-test including accessibility Round 2
+        working-directory: WordDeck
+        run: dotnet run -c Release --no-build -- --self-test
+
+      - name: Publish self-contained Windows x64
+        working-directory: WordDeck
+        run: dotnet publish -c Release -r win-x64 --self-contained true --no-restore -o ../artifacts/worddeck-worker4-r2
+
+      - name: Verify public publish hygiene
+        shell: pwsh
+        run: |
+          $root = Join-Path $PWD 'artifacts/worddeck-worker4-r2'
+          if (-not (Test-Path (Join-Path $root 'WordDeck.exe'))) { throw 'Published WordDeck.exe is missing.' }
+          $forbidden = Get-ChildItem -Path $root -Recurse -File | Where-Object {
+            $_.Name -match '^(state|spelling-state|sentence-coach-state)(\.backup)?\.json$' -or
+            $_.Name -match 'profile.*\.json$' -or
+            $_.Name -match 'token\.json$' -or
+            $_.Name -match '(password|secret|cookie|session)'
+          }
+          if ($forbidden) {
+            $names = ($forbidden | ForEach-Object FullName) -join '; '
+            throw "Personal/private state leaked into publish output: $names"
+          }
+          Write-Host 'Round2 publish hygiene passed.'
+
+      - name: Run Windows UI Automation focus regression
+        shell: pwsh
+        working-directory: WordDeck
+        run: ./scripts/worker4-r2-uia-smoke.ps1 -ExePath ../artifacts/worddeck-worker4-r2/WordDeck.exe
+
+      - name: Upload exact worker smoke artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: worddeck-worker4-r2-win-x64
+          path: artifacts/worddeck-worker4-r2
+          if-no-files-found: error
