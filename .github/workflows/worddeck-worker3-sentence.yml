@@ -10,6 +10,7 @@ on:
 
 permissions:
   contents: read
+  statuses: write
 
 concurrency:
   group: worddeck-worker3-sentence-${{ github.ref }}
@@ -22,6 +23,23 @@ jobs:
     steps:
       - name: Checkout isolated worker branch
         uses: actions/checkout@v4
+
+      - name: Publish pending worker checkpoint
+        continue-on-error: true
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const targetUrl = `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`;
+            await github.rest.repos.createCommitStatus({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              sha: context.sha,
+              state: 'pending',
+              context: 'WordDeck worker 3 Sentence gate',
+              description: 'Worker 3 Windows Sentence regression gate is running.',
+              target_url: targetUrl
+            });
 
       - name: Setup .NET 8
         uses: actions/setup-dotnet@v4
@@ -55,3 +73,24 @@ jobs:
           path: .\artifacts\WordDeck-win-x64\WordDeck.exe
           if-no-files-found: error
           retention-days: 14
+
+      - name: Publish final worker checkpoint
+        if: always()
+        continue-on-error: true
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const succeeded = '${{ job.status }}' === 'success';
+            const targetUrl = `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`;
+            await github.rest.repos.createCommitStatus({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              sha: context.sha,
+              state: succeeded ? 'success' : 'failure',
+              context: 'WordDeck worker 3 Sentence gate',
+              description: succeeded
+                ? 'Worker 3 Windows build, self-test, publish and EXE smoke passed.'
+                : 'Worker 3 Windows Sentence regression gate failed.',
+              target_url: targetUrl
+            });
