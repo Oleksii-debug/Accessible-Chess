@@ -6,6 +6,8 @@ import unittest
 from acs.webview2_accessibility import (
     FORCE_RENDERER_ACCESSIBILITY,
     WEBVIEW2_BROWSER_ARGUMENTS_ENV,
+    WEBVIEW2_PIPE_FOR_SCRIPT_DEBUGGER_ENV,
+    WEBVIEW2_WAIT_FOR_SCRIPT_DEBUGGER_ENV,
     enable_webview2_renderer_accessibility,
     install_pywebview_accessibility_host_patch,
 )
@@ -37,6 +39,8 @@ class WebViewBridgeSecurityTests(unittest.TestCase):
                 "--ignore-certificate-errors "
                 "--no-sandbox "
                 "--disable-site-isolation-trials "
+                "--load-extension=C:/temp/extension "
+                "--disable-extensions-except C:/temp/extension "
                 "--foo=bar"
             )
         }
@@ -51,15 +55,44 @@ class WebViewBridgeSecurityTests(unittest.TestCase):
         self.assertNotIn("--ignore-certificate-errors", value)
         self.assertNotIn("--no-sandbox", value)
         self.assertNotIn("--disable-site-isolation-trials", value)
+        self.assertNotIn("--load-extension", value)
+        self.assertNotIn("--disable-extensions-except", value)
         self.assertIn("--foo=bar", value)
         self.assertIn(FORCE_RENDERER_ACCESSIBILITY, value)
 
-    def test_split_remote_debugging_port_does_not_leave_orphan_scalar(self) -> None:
-        env = {WEBVIEW2_BROWSER_ARGUMENTS_ENV: "--remote-debugging-port 9222 --foo=bar"}
+    def test_split_and_quoted_remote_debugging_cannot_bypass_filter(self) -> None:
+        env = {
+            WEBVIEW2_BROWSER_ARGUMENTS_ENV: (
+                "\"--remote-debugging-port=9222\" "
+                "--remote-debugging-address \"0.0.0.0\" --foo=bar"
+            )
+        }
         value = enable_webview2_renderer_accessibility(env)
-        self.assertNotIn("remote-debugging-port", value)
+        self.assertNotIn("remote-debugging", value)
         self.assertNotIn("9222", value)
+        self.assertNotIn("0.0.0.0", value)
         self.assertIn("--foo=bar", value)
+
+    def test_documented_webview2_remote_debug_feature_is_removed(self) -> None:
+        env = {
+            WEBVIEW2_BROWSER_ARGUMENTS_ENV: (
+                "--enable-features=UsefulFeature,msEdgeDevToolsWdpRemoteDebugging --foo=bar"
+            )
+        }
+        value = enable_webview2_renderer_accessibility(env)
+        self.assertNotIn("msEdgeDevToolsWdpRemoteDebugging", value)
+        self.assertIn("--foo=bar", value)
+
+    def test_script_debugger_environment_channels_are_removed(self) -> None:
+        env = {
+            WEBVIEW2_BROWSER_ARGUMENTS_ENV: "--foo=bar",
+            WEBVIEW2_WAIT_FOR_SCRIPT_DEBUGGER_ENV: "1",
+            WEBVIEW2_PIPE_FOR_SCRIPT_DEBUGGER_ENV: "attacker-pipe",
+        }
+        enable_webview2_renderer_accessibility(env)
+        self.assertNotIn(WEBVIEW2_WAIT_FOR_SCRIPT_DEBUGGER_ENV, env)
+        self.assertNotIn(WEBVIEW2_PIPE_FOR_SCRIPT_DEBUGGER_ENV, env)
+        self.assertIn("--foo=bar", env[WEBVIEW2_BROWSER_ARGUMENTS_ENV])
 
     def test_incompatible_edge_runtime_without_ready_callback_fails_closed(self) -> None:
         class EdgeChrome:
