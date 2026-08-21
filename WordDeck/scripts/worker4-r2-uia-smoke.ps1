@@ -42,10 +42,17 @@ function Find-WindowByName([string]$name) {
 }
 function Value-Of($element) {
     if ($null -eq $element) { return $null }
+
     $pattern = $null
     if ($element.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern, [ref]$pattern)) {
         return ([System.Windows.Automation.ValuePattern]$pattern).Current.Value
     }
+
+    $textPattern = $null
+    if ($element.TryGetCurrentPattern([System.Windows.Automation.TextPattern]::Pattern, [ref]$textPattern)) {
+        return ([System.Windows.Automation.TextPattern]$textPattern).DocumentRange.GetText(-1).TrimEnd("`r", "`n")
+    }
+
     return $element.Current.Name
 }
 function Focused-Name {
@@ -70,6 +77,7 @@ function Combo-SelectionText($combo) {
 }
 function Exercise-Combo($combo, [string]$name, [int]$cycles) {
     if ($null -eq $combo) { Fail "Missing ComboBox '$name'." }
+    Start-Sleep -Milliseconds 350
     $combo.SetFocus()
     Assert-Focus $name "$name initial focus"
     $before = Combo-SelectionText $combo
@@ -139,6 +147,8 @@ try {
     Wait-Until { $null -ne (Find-WindowByName 'WordDeck help') } 5000 'F1 help did not open'
     $helpWindow = Find-WindowByName 'WordDeck help'
     $helpText = Find-ByName $helpWindow 'WordDeck help text'
+    if ($null -eq $helpText) { Fail 'F1 help text is not exposed to UI Automation.' }
+    Wait-Until { (Value-Of $helpText) -match 'ROUND 2 KEYBOARD FOCUS RULES' } 5000 'F1 did not receive the Round 2 focus-truth patch'
     $helpValue = Value-Of $helpText
     if ($helpValue -notmatch 'translation has focus' -or $helpValue -notmatch 'Alt\+F4') {
         Fail 'F1 help does not expose translation-native navigation and Spelling Alt+F4 truth.'
@@ -164,6 +174,7 @@ try {
     $spellingAnswer = Find-ByName $spelling 'Type English spelling answer'
     $spellingDeck = Find-ByName $spelling 'Active spelling deck'
     if ($null -eq $spellingAnswer -or $null -eq $spellingDeck) { Fail 'Spelling accessible controls missing' }
+    Start-Sleep -Milliseconds 500
     Exercise-Combo $spellingDeck 'Active spelling deck' 20
     Send '%{F4}'
     Wait-Until { $null -eq (Find-WindowByName 'WordDeck Spelling') } 7000 'Spelling did not close with Alt+F4'
@@ -178,6 +189,7 @@ try {
     $sentenceDeck = Find-ByName $sentence 'Sentence training spelling deck'
     $targetCount = Find-ByName $sentence 'Number of target words per sentence'
     if ($null -eq $sentenceAnswer -or $null -eq $sentenceDeck -or $null -eq $targetCount) { Fail 'Sentence accessible controls missing' }
+    Start-Sleep -Milliseconds 500
     Exercise-Combo $sentenceDeck 'Sentence training spelling deck' 20
     Exercise-Combo $targetCount 'Number of target words per sentence' 10
     Send '%{F4}'
