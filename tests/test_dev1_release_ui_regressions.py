@@ -75,6 +75,19 @@ class Dev1ReleaseUiRegressionTests(unittest.TestCase):
             self.assertIn("f 2", attackers["announcement"])
             self.assertNotIn("e 2", attackers["announcement"])
 
+    def test_board_bridge_claims_readiness_only_after_dependencies_and_routes_current_square_centrally(self) -> None:
+        source = (
+            Path(__file__).resolve().parents[1] / "web" / "stage1_board_actions.js"
+        ).read_text(encoding="utf-8")
+        dependency_gate = "typeof baseExecuteAction !== 'function' || typeof apiAction !== 'function'"
+        ready_guard = "window.__accessibleChessStage1BoardActions = true;"
+        self.assertIn(dependency_gate, source)
+        self.assertIn("typeof state !== 'undefined'", source)
+        self.assertIn("typeof keymap !== 'undefined'", source)
+        self.assertIn("'board.current', 'board.last_captured'", source)
+        self.assertLess(source.index(dependency_gate), source.index(ready_guard))
+        self.assertLess(source.index("window.renderHelp();"), source.index(ready_guard))
+
 
 if __name__ == "__main__":
     unittest.main()
