@@ -155,7 +155,7 @@ internal sealed partial class MainForm : Form
         {
             AutoSize = true,
             AccessibleName = "Keyboard hint",
-            Text = "Down: next word. Up: true previous word. Ctrl+T: translation. Ctrl+1..5 switches decks; Alt+1..5 moves the current word. F1: help."
+            Text = "Keyboard shortcuts are configurable. Open WordDeck help for the currently active bindings."
         };
 
         root.Controls.Add(top, 0, 0);
@@ -922,37 +922,54 @@ internal sealed partial class MainForm : Form
 
     private void OpenShortcutSettings()
     {
-        _shortcuts.RefreshDeckDefinitions();
+        _shortcuts.RefreshDeckDefinitions(new SpellingStateStore().Load().Decks);
         using var dialog = new ShortcutSettingsForm(_shortcuts);
         dialog.ShowDialog(this);
         SaveState();
+        RefreshAccessibleShortcutPresentation(reloadPersistedShortcuts: false);
         RepeatCurrentWord();
     }
 
     private void ShowHelp()
     {
-        _shortcuts.RefreshDeckDefinitions();
+        _shortcuts.RefreshDeckDefinitions(new SpellingStateStore().Load().Decks);
         string shortcutLines = string.Join(Environment.NewLine, _shortcuts.Definitions.Select(def => $"{def.Description}: {ShortcutFormatter.Format(_shortcuts.Get(def.Id))}"));
         string audioMode = _state.AutoPlayPronunciationOnCardChange ? "enabled" : "disabled";
         string help =
             "WORDDECK HELP\r\n\r\n" +
+            "SHORTCUT TRUTH\r\n" +
+            "The KEYBOARD SHORTCUTS section at the end of this help is generated from the bindings that are active now. If a line says Unassigned, that action has no key combination at the moment; use its menu route where available or assign a shortcut in Tools > Keyboard shortcuts.\r\n\r\n" +
             "RECALL STUDY SCOPES\r\n" +
-            "Recall has six independent study workspaces: All Oxford 5000, A1, A2, B1, B2 and C1. There is no Oxford C2 workspace because the Oxford 5000 list does not define a C2 subset. " +
-            "Choose the scope with the standard Study scope combo box. Each scope keeps its own deck assignments, active deck, current card and shuffle progress. Moving a word in A1 does not move it in All or any other scope. " +
-            "The five core deck definitions and their shortcuts are shared, so Ctrl+1 through Ctrl+5 switches decks inside the CURRENT scope and Alt+1 through Alt+5 moves the current word inside the CURRENT scope. Scope-switch actions are rebindable and start unassigned.\r\n\r\n" +
-            "WordDeck shows only the English side of a Recall card by default. Down Arrow moves to the next card; Up Arrow returns to the previous actually shown eligible card. After moving back, Down moves forward through history before drawing a new shuffled card. Left and Right remain normal text/caret navigation. Ctrl+Right and Ctrl+Left remain compatibility next/previous keys. Reveal the Ukrainian translation only when needed.\r\n\r\n" +
-            "The five default decks are permanent but may be renamed and reordered. User decks are shared definitions; saved Recall assignments remain scope-specific and are migrated safely if a user deck is deleted.\r\n\r\n" +
-            "Custom pasted cards are added only in All Oxford 5000 so CEFR workspaces remain restricted to official level-tagged entries. Use one card per line; the safest format is English, TAB, Ukrainian.\r\n\r\n" +
+            "Recall has six independent study workspaces: All Oxford 5000, A1, A2, B1, B2 and C1. There is no Oxford C2 workspace because the Oxford 5000 list does not define a C2 subset. Choose the scope with the standard Study scope combo box. Each scope keeps its own deck assignments, active deck, current card and shuffle progress. Moving a word in A1 does not move it in All or another scope. The five core deck definitions are shared; use the currently configured switch/move bindings shown below. Scope-switch actions are rebindable and may be Unassigned.\r\n\r\n" +
+            "RECALL NAVIGATION\r\n" +
+            "WordDeck shows only the English side of a Recall card by default. The currently configured next-card action advances to the next card; the currently configured previous-card action returns to the previous actually shown eligible card. After moving back, next-card first moves forward through history before drawing a new shuffled card. Left and Right remain normal text/caret navigation. Ctrl+Right and Ctrl+Left are fixed compatibility next/previous keys and are intentionally not available for reassignment. Revealing the Ukrainian translation does not advance the card.\r\n\r\n" +
+            "RECALL DECKS AND USER DATA\r\n" +
+            "The five default Recall decks are permanent but may be renamed and reordered. User decks are shared definitions; saved Recall assignments remain scope-specific and are migrated safely if a user deck is deleted. Custom pasted cards are added only in All Oxford 5000 so CEFR workspaces remain restricted to official level-tagged entries. Use one card per line; the safest format is English, TAB, Ukrainian.\r\n\r\n" +
+            "Deck > Hide current word removes a word only from normal Recall study. It does not delete the canonical dictionary, audio or saved deck assignments. Hidden words can be restored individually or all at once. File > Reset Recall learning data requires confirmation and creates a recovery profile before clearing learning overlays.\r\n\r\n" +
+            "Personal progress is stored outside the program ZIP under %LOCALAPPDATA%\\WordDeck. New program ZIPs reuse that state automatically. File > Export personal progress profile creates a small user-state-only JSON for backup or transfer; Import validates it, creates a recovery copy and restores it atomically. Progress is saved automatically after changes and on normal exit. Use the currently configured Save progress action shown below for an explicit checkpoint. state.json also has recovery protection and the profile format is versioned for migration.\r\n\r\n" +
+            "OFFLINE BRITISH PRONUNCIATION\r\n" +
             "Generated British pronunciation is an optional offline audio layer keyed by stable dictionary and entry IDs. " +
             $"Automatic pronunciation on card change is currently {audioMode}. If generated audio is unavailable, WordDeck reports a readable status and the normal screen-reader announcement remains the fallback.\r\n\r\n" +
-            "Personal progress is stored outside the program ZIP under %LOCALAPPDATA%\\WordDeck. New program ZIPs reuse that state automatically. File > Export personal progress profile creates a small user-state-only JSON for backup or transfer; Import validates it, creates a recovery copy and restores it atomically.\r\n\r\n" +
-            "Deck > Hide current word removes a word only from normal Recall study. It does not delete the canonical dictionary, audio or saved deck assignments. Hidden words can be restored individually or all at once. File > Reset Recall learning data requires confirmation and creates a recovery profile before clearing learning overlays.\r\n\r\n" +
-            "Progress is saved automatically after changes and on normal exit. Ctrl+S creates an explicit checkpoint. state.json has a recovery backup and the profile format is versioned for future migration.\r\n\r\n" +
-            "KEYBOARD SHORTCUTS\r\n" + shortcutLines + "\r\n\r\n" +
-            "Use Tools > Keyboard shortcuts to assign or reassign any shortcut. Unassigned scope shortcuts are shown as Unassigned.";
+            "SPELLING AND ADAPTIVE COACH\r\n" +
+            "Open the Spelling trainer with its current binding shown below or from the Tools menu. Type the exact English spelling and press Enter. Standard typing, caret movement and editing keys remain native in the answer field. Show-answer, repeat-prompt, British-pronunciation hint, Coach toggle, Coach undo and spelling-deck actions use the bindings shown below. The deterministic conservative Coach can move a word one core spelling deck earlier after an error or hint, or one core deck later after the configured clean-success threshold; its last automatic move can be undone. The five core spelling decks are permanent; user spelling decks can be created, renamed, reordered and safely deleted.\r\n\r\n" +
+            "SENTENCE SPELLING\r\n" +
+            "Open Sentence Spelling with its current binding shown below or from the Tools menu. Choose an installed offline SentencePack, spelling-deck scope and one- or two-target mode. Type the required English word forms and press Enter; word order is not assessed. Show-answer, repeat-Ukrainian and SentencePack-import actions use the current bindings shown below.\r\n\r\n" +
+            "ACCESSIBILITY\r\n" +
+            "Essential learning paths are designed for keyboard use with standard WinForms controls, accessible names, explicit status text and predictable focus. Combo boxes, menus and text fields keep their normal navigation behavior instead of having unrelated module shortcuts swallowed. Automated engineering checks do not equal a real manual NVDA acceptance test on the user's physical Windows computer.\r\n\r\n" +
+            "KEYBOARD SHORTCUTS — ACTIVE NOW\r\n" + shortcutLines + "\r\n\r\n" +
+            "Use Tools > Keyboard shortcuts to assign, clear or reassign shortcuts. Conflicts and unsafe Windows/text-navigation combinations are rejected instead of being silently accepted.";
 
         using var form = new Form { Text = "WordDeck help", Width = 820, Height = 650, StartPosition = FormStartPosition.CenterParent, AccessibleName = "WordDeck help" };
-        var box = new TextBox { Dock = DockStyle.Fill, Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical, Text = help, AccessibleName = "WordDeck help text" };
+        var box = new TextBox
+        {
+            Dock = DockStyle.Fill,
+            Multiline = true,
+            ReadOnly = true,
+            ScrollBars = ScrollBars.Vertical,
+            Text = help,
+            AccessibleName = "WordDeck help text",
+            AccessibleDescription = "Read-only help. The shortcut list reflects current saved bindings."
+        };
         form.Controls.Add(box);
         form.Shown += (_, _) => { box.Focus(); box.SelectionStart = 0; box.SelectionLength = 0; };
         form.ShowDialog(this);
