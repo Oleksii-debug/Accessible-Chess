@@ -1,0 +1,96 @@
+name: WordDeck worker 3 Sentence R2 gate
+
+on:
+  push:
+    branches: [worddeck-worker-3-sentence-r2]
+    paths:
+      - 'WordDeck/**'
+      - '.github/workflows/worddeck-worker3-sentence-r2.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  statuses: write
+
+concurrency:
+  group: worddeck-worker3-sentence-r2-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  sentence-r2-regression:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout isolated Round-2 worker branch
+        uses: actions/checkout@v4
+
+      - name: Publish pending worker checkpoint
+        continue-on-error: true
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const targetUrl = `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`;
+            await github.rest.repos.createCommitStatus({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              sha: context.sha,
+              state: 'pending',
+              context: 'WordDeck worker 3 Sentence R2 gate',
+              description: 'Round-2 Sentence Windows regression gate is running.',
+              target_url: targetUrl
+            });
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore
+        run: dotnet restore .\WordDeck\WordDeck.csproj
+
+      - name: Build Release
+        run: dotnet build .\WordDeck\WordDeck.csproj -c Release --no-restore
+
+      - name: Run full WordDeck and Sentence Round-2 self-test
+        run: dotnet run --project .\WordDeck\WordDeck.csproj -c Release --no-build -- --self-test
+
+      - name: Publish self-contained Windows EXE
+        run: dotnet publish .\WordDeck\WordDeck.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:DebugType=None -p:DebugSymbols=false -o .\artifacts\WordDeck-win-x64
+
+      - name: Smoke published EXE with full self-test
+        shell: pwsh
+        run: |
+          $process = Start-Process .\artifacts\WordDeck-win-x64\WordDeck.exe -ArgumentList '--self-test' -Wait -PassThru
+          if ($process.ExitCode -ne 0) {
+            throw "Published WordDeck self-test failed with exit code $($process.ExitCode)."
+          }
+
+      - name: Upload Round-2 worker EXE evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: WordDeck-worker3-r2-win-x64
+          path: .\artifacts\WordDeck-win-x64\WordDeck.exe
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Publish final worker checkpoint
+        if: always()
+        continue-on-error: true
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const succeeded = '${{ job.status }}' === 'success';
+            const targetUrl = `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`;
+            await github.rest.repos.createCommitStatus({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              sha: context.sha,
+              state: succeeded ? 'success' : 'failure',
+              context: 'WordDeck worker 3 Sentence R2 gate',
+              description: succeeded
+                ? 'Round-2 Sentence build, deep self-test, publish and EXE smoke passed.'
+                : 'Round-2 Sentence Windows regression gate failed.',
+              target_url: targetUrl
+            });
