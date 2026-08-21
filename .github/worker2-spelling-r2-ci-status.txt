@@ -1,11 +1,11 @@
 WORDDECK WORKER 02 ROUND 2 WINDOWS GATE EVIDENCE
 overall=FAIL
-tested_sha=58ecfe0149dd259ea41ae2e27eb6df4ff75d0544
-run_id=32496543209
+tested_sha=eac9f99db98c3b3419643cf130daab0150092c36
+run_id=32496727984
 run_attempt=1
 restore=success
 build=success
 selftest_source=failure
 publish_win_x64=skipped
 selftest_published_exe=skipped
-completed_utc=2026-08-21T15:16:08.9988697Z
+completed_utc=2026-08-21T15:17:43.8303382Z
