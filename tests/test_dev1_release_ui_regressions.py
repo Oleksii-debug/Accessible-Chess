@@ -88,6 +88,38 @@ class Dev1ReleaseUiRegressionTests(unittest.TestCase):
         self.assertLess(source.index(dependency_gate), source.index(ready_guard))
         self.assertLess(source.index("window.renderHelp();"), source.index(ready_guard))
 
+    def test_editable_controls_bypass_global_app_shortcuts_before_prevent_default(self) -> None:
+        html = (
+            Path(__file__).resolve().parents[1] / "web" / "index.html"
+        ).read_text(encoding="utf-8")
+        marker = "document.addEventListener('keydown',async e=>{if(capture)return;if(e.target.closest('#board-application'))return;"
+        start = html.index(marker)
+        end = html.index("el('move-submit').addEventListener", start)
+        handler = html[start:end]
+        editable_guard = "if(['INPUT','TEXTAREA','SELECT'].includes(e.target.tagName))return;"
+        binding_resolve = "resolveBinding(chord,'analysis','analysis')"
+        mapped_prevent_default = "if(a){e.preventDefault();executeAction(a.actionId)}"
+        self.assertIn(editable_guard, handler)
+        self.assertIn(binding_resolve, handler)
+        self.assertIn(mapped_prevent_default, handler)
+        self.assertLess(handler.index(editable_guard), handler.index(binding_resolve))
+        self.assertLess(handler.index(editable_guard), handler.index(mapped_prevent_default))
+
+        move_listener = "el('move-input').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();submitMove()}})"
+        self.assertIn(move_listener, html)
+        self.assertNotIn("'move-input').addEventListener('keydown',e=>{e.preventDefault()", html)
+
+    def test_board_square_accessible_names_are_concise_and_bilingual(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            api = Stage1ReleaseAccessibleChessAPI(keymap_path=Path(td) / "keymap.json")
+            api.new_game()
+            self.assertEqual(api.square_label("e2"), "e 2, білий пішак")
+            self.assertEqual(api.square_label("e4"), "e 4")
+            changed = api.set_language("en")
+            self.assertTrue(changed["ok"])
+            self.assertEqual(api.square_label("e2"), "e 2, white pawn")
+            self.assertEqual(api.square_label("e4"), "e 4")
+
 
 if __name__ == "__main__":
     unittest.main()
