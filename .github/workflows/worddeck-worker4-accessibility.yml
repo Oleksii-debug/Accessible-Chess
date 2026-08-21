@@ -10,9 +10,9 @@ permissions:
   contents: read
 
 jobs:
-  build-and-self-test:
+  build-self-test-and-uia:
     runs-on: windows-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     steps:
       - name: Checkout worker branch
         uses: actions/checkout@v4
@@ -36,7 +36,7 @@ jobs:
 
       - name: Publish Windows x64 smoke package
         working-directory: WordDeck
-        run: dotnet publish -c Release -r win-x64 --self-contained true --no-restore -o ../artifacts/worddeck-worker4
+        run: dotnet publish -c Release -r win-x64 --self-contained true -o ../artifacts/worddeck-worker4
 
       - name: Verify public package hygiene
         shell: pwsh
@@ -53,3 +53,8 @@ jobs:
             throw "Personal/private state leaked into publish output: $names"
           }
           Write-Host 'Worker4 publish hygiene passed.'
+
+      - name: Run keyboard and Windows UI Automation smoke
+        shell: pwsh
+        run: |
+          ./WordDeck/scripts/worker4-uia-smoke.ps1 -ExePath ./artifacts/worddeck-worker4/WordDeck.exe
