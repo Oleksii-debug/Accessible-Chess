@@ -4,7 +4,9 @@ from pathlib import Path
 import tempfile
 import unittest
 
+from acs.keybindings import ActionRegistry, BindingContext
 from acs.stage1_release_ui import Stage1ReleaseAccessibleChessAPI
+from acs.ui_keymap_adapter import build_web_keymap
 
 
 class Stage1BoardActionIntegrationTests(unittest.TestCase):
@@ -36,6 +38,46 @@ class Stage1BoardActionIntegrationTests(unittest.TestCase):
         self.assertIn("39", material["announcement"])
         self.assertEqual((api.board.fen(), tuple(api.sans), api.review_history.node_count), before)
 
+    def test_material_is_central_discoverable_unbound_and_remappable(self):
+        registry = ActionRegistry()
+        definition = registry.definition("board.material")
+        self.assertEqual(definition.context, BindingContext.BOARD)
+        self.assertIsNone(registry.get_binding("board.material"))
+        self.assertIsNone(definition.default_binding)
+
+        projected = {item["id"]: item for item in build_web_keymap(registry)} if False else None
+        snapshot = build_web_keymap(registry)
+        row = next(item for item in snapshot["actions"] if item["id"] == "board.material")
+        self.assertEqual(row["labelUk"], "Матеріальний баланс")
+        self.assertEqual(row["labelEn"], "Material balance")
+        self.assertIsNone(row["binding"])
+
+        registry.set_binding("board.material", "Ctrl+Shift+M")
+        resolved = registry.resolve_binding(BindingContext.BOARD, "Ctrl+Shift+M")
+        self.assertIsNotNone(resolved)
+        self.assertEqual(resolved.action_id, "board.material")
+
+        api = self.make_api()
+        saved = api.keymap_save("board.material", "Ctrl+Shift+M")
+        self.assertTrue(saved["ok"])
+        live = api.keymap_resolve_binding("board", "Ctrl+Shift+M")
+        self.assertEqual(live["actionId"], "board.material")
+
+    def test_current_square_query_covers_all_64_squares_without_mutation(self):
+        api = self.make_api()
+        api.new_game()
+        before = (api.board.fen(), tuple(api.sans), api.review_history.node_count)
+        visited = set()
+        for rank in "12345678":
+            for file_name in "abcdefgh":
+                square = file_name + rank
+                result = api.dispatch_action("board.current", square)
+                self.assertTrue(result["ok"], square)
+                self.assertEqual(result["focusSquare"], square)
+                visited.add(result["focusSquare"])
+        self.assertEqual(len(visited), 64)
+        self.assertEqual((api.board.fen(), tuple(api.sans), api.review_history.node_count), before)
+
     def test_attackers_defenders_captures_and_piece_cycle_use_displayed_board(self):
         api = self.make_api()
         loaded = api.set_fen("7k/8/8/3p1p2/4P3/2N5/8/K7 w - - 0 1")
@@ -55,6 +97,32 @@ class Stage1BoardActionIntegrationTests(unittest.TestCase):
         self.assertIn("c 3", defenders["announcement"])
         self.assertEqual(next_knight["focusSquare"], "c3")
         self.assertEqual(previous_knight["focusSquare"], "c3")
+
+    def test_edge_and_empty_square_controller_queries_do_not_wrap(self):
+        api = self.make_api()
+        self.assertTrue(api.set_fen("7k/8/8/8/8/8/1r6/K7 w - - 0 1")["ok"])
+        edge = api.dispatch_action("board.attackers", "a2")
+        surroundings = api.dispatch_action("board.surroundings", "a1")
+        self.assertTrue(edge["ok"])
+        self.assertIn("b 2", edge["announcement"])
+        self.assertNotIn("h 2", edge["announcement"])
+        self.assertTrue(surroundings["ok"])
+        self.assertIn("a 2", surroundings["announcement"])
+        self.assertIn("b 1", surroundings["announcement"])
+        self.assertIn("b 2", surroundings["announcement"])
+        self.assertNotIn("h 1", surroundings["announcement"])
+
+    def test_material_balance_tracks_capture_and_undo(self):
+        api = self.make_api()
+        for move in ("e4", "d5", "exd5"):
+            self.assertTrue(api.make_move(move)["ok"])
+        after_capture = api.dispatch_action("board.material", "d5")
+        self.assertTrue(after_capture["ok"])
+        self.assertIn("39 до 38", after_capture["announcement"])
+        self.assertIn("+1", after_capture["announcement"])
+        self.assertTrue(api.undo()["ok"])
+        restored = api.dispatch_action("board.material", "e4")
+        self.assertIn("39 до 39", restored["announcement"])
 
     def test_last_move_and_last_capture_follow_review_history(self):
         api = self.make_api()
@@ -110,6 +178,7 @@ class Stage1BoardActionIntegrationTests(unittest.TestCase):
             "board.captures",
             "board.attackers",
             "board.defenders",
+            "board.material",
             "board.next_knight",
             "board.previous_knight",
             "liveHelpBoardActions",
