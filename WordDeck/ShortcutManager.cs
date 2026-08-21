@@ -30,12 +30,17 @@ internal sealed class ShortcutManager
     {
         ShortcutDefinition? definition = Definitions.FirstOrDefault(x => x.Id == actionId);
         if (definition is null) return Keys.None;
-        if (_state.Shortcuts.TryGetValue(actionId, out string? raw) && Enum.TryParse(raw, out Keys keys))
-        {
-            if (keys == Keys.None) return Keys.None;
-            if (!IsUnsafe(actionId, keys)) return keys;
-        }
-        return definition.DefaultKeys;
+        Keys candidate = GetCandidateKey(definition);
+        if (candidate == Keys.None) return Keys.None;
+
+        // Imported/legacy profiles can contain duplicate shortcut strings even
+        // though the interactive editor prevents creating them. Ambiguous
+        // dispatch must fail closed instead of whichever definition happens to
+        // be enumerated first winning silently.
+        bool duplicate = Definitions.Any(other =>
+            !string.Equals(other.Id, actionId, StringComparison.OrdinalIgnoreCase) &&
+            GetCandidateKey(other) == candidate);
+        return duplicate ? Keys.None : candidate;
     }
 
     public string? FindAction(Keys keyData)
@@ -49,7 +54,8 @@ internal sealed class ShortcutManager
     {
         if (!Definitions.Any(def => def.Id == actionId)) { errorDescription = "the function no longer exists"; return false; }
         if (keys != Keys.None && IsUnsafe(actionId, keys)) { errorDescription = "this combination is reserved for Windows or standard keyboard navigation"; return false; }
-        var conflict = keys == Keys.None ? null : Definitions.FirstOrDefault(def => def.Id != actionId && Get(def.Id) == keys);
+        var conflict = keys == Keys.None ? null : Definitions.FirstOrDefault(def =>
+            !string.Equals(def.Id, actionId, StringComparison.OrdinalIgnoreCase) && GetCandidateKey(def) == keys);
         if (conflict is not null) { errorDescription = $"it is already assigned to {conflict.Description}"; return false; }
         _state.Shortcuts[actionId] = keys.ToString(); errorDescription = null; return true;
     }
@@ -57,6 +63,16 @@ internal sealed class ShortcutManager
     public void Clear(string actionId) { if (Definitions.Any(def => def.Id == actionId)) _state.Shortcuts[actionId] = Keys.None.ToString(); }
     public void ResetDefaults() { foreach (ShortcutDefinition def in Definitions) _state.Shortcuts[def.Id] = def.DefaultKeys.ToString(); }
     private void EnsureDefaults() { foreach (ShortcutDefinition def in Definitions) _state.Shortcuts.TryAdd(def.Id, def.DefaultKeys.ToString()); }
+
+    private Keys GetCandidateKey(ShortcutDefinition definition)
+    {
+        if (_state.Shortcuts.TryGetValue(definition.Id, out string? raw) && Enum.TryParse(raw, out Keys keys))
+        {
+            if (keys == Keys.None) return Keys.None;
+            if (!IsUnsafe(definition.Id, keys)) return keys;
+        }
+        return definition.DefaultKeys;
+    }
 
     private void RemoveOrphanedDeckShortcuts()
     {

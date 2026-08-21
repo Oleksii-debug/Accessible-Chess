@@ -20,15 +20,44 @@ internal static class ShortcutFormatter
             {
                 >= Keys.D0 and <= Keys.D9 => ((char)('0' + codeValue - (int)Keys.D0)).ToString(),
                 >= Keys.NumPad0 and <= Keys.NumPad9 => "Num" + (codeValue - (int)Keys.NumPad0),
+                Keys.Back => "Backspace",
+                Keys.Return => "Enter",
+                Keys.Escape => "Esc",
+                Keys.Space => "Space",
+                Keys.Prior => "PageUp",
+                Keys.Next => "PageDown",
+                Keys.Left => "Left",
+                Keys.Up => "Up",
+                Keys.Right => "Right",
+                Keys.Down => "Down",
+                Keys.Insert => "Insert",
+                Keys.Delete => "Delete",
+                Keys.Home => "Home",
+                Keys.End => "End",
                 Keys.Oemcomma => ",",
                 Keys.OemPeriod => ".",
                 Keys.OemMinus => "-",
                 Keys.Oemplus => "+",
-                _ => code.ToString()
+                Keys.OemQuestion => "/",
+                Keys.OemSemicolon => ";",
+                Keys.OemQuotes => "'",
+                Keys.OemOpenBrackets => "[",
+                Keys.OemCloseBrackets => "]",
+                Keys.OemPipe => "\\",
+                Keys.Oemtilde => "`",
+                _ => HumanizeFallback(code)
             };
             parts.Add(key);
         }
 
-        return parts.Count == 0 ? keys.ToString() : string.Join("+", parts);
+        return parts.Count == 0 ? "Unassigned" : string.Join("+", parts);
+    }
+
+    private static string HumanizeFallback(Keys code)
+    {
+        string value = code.ToString();
+        if (value.StartsWith("Oem", StringComparison.OrdinalIgnoreCase))
+            return "Key " + ((int)code).ToString(System.Globalization.CultureInfo.InvariantCulture);
+        return value;
     }
 }
