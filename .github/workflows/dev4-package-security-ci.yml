@@ -57,6 +57,13 @@ jobs:
           python -m unittest -v
           tests.test_legacy_release_workflow_safety
           tests.test_release_preflight
+          tests.test_settings_corruption_security
+          tests.test_keymap_corruption_security
+          tests.test_stage1_board_bridge_resource_safety
+          tests.test_stage1_resource_error_privacy
+          tests.test_webview_bridge_security
+          tests.test_webview_safe_server
+          tests.test_stage1_webview2_accessibility_boundary
           tests.test_sound_runtime
           tests.test_release_stockfish_composition
           tests.test_stage1_release_composition_ui
