@@ -5,6 +5,9 @@ on:
   push:
     branches:
       - dev/stage1-saturation-hardening-20260821
+  pull_request:
+    branches:
+      - integration/accessible-chess-next
 
 permissions:
   contents: read
