@@ -24,13 +24,13 @@ Completed coordinator decisions:
 - Started DEV4 reconciliation on validation branch manual5/dev5-reconcile-dev4-20260822 from known-green integration e24ff85ff9a6ad3ea19d33f7035526c7bcdf2c8e.
 - Recoverable slice 1 ports settings schema hardening and fixes a DEV4 contract gap: explicit schema_version=0 is rejected; only absence of schema_version is the legacy unversioned path.
 - Product fix commit: b3bbd89301a04aa8e599ff7b6bc0ee9f8daadb6c.
-- Regression commit: 09156cbca6bba0b6ba833cf3c867b127345014cf.
-- Draft validation PR #66 is DO NOT MERGE. Exact-head workflows queued: Stage1 Saturation Hardening CI run 32526672849; UI Semantic Gate run 32526672863.
-- Integration head was deliberately not moved while exact validation is pending.
+- Regression commit / validation head: 09156cbca6bba0b6ba833cf3c867b127345014cf.
+- Draft validation PR #66 is DO NOT MERGE.
+- Exact-head validation GREEN: UI Semantic Gate run 32526672863 SUCCESS; Stage1 Saturation Hardening CI run 32526672849 SUCCESS.
+- Integration head was deliberately not moved because this is only DEV4 reconciliation slice 1; the complete DEV4 final-state candidate still requires remaining security slices and exact revalidation.
 - PR #54 and frozen release refs remain untouched. No Windows candidate ZIP created.
 
 Next coordinator action:
-- Read exact conclusions for PR #66 head 09156cbca6bba0b6ba833cf3c867b127345014cf.
-- If either gate fails, diagnose/fix on the validation branch without moving integration.
-- If both gates pass, continue DEV4 reconciliation as separate recoverable slices: release_preflight resource-chain completeness, WebView2 debugger hardening, accepted DEV1 board-bridge transactional reconciliation, keymap/privacy/tombstone security regressions. Re-run exact gates after the completed DEV4 final-state candidate before any integration fast-forward.
+- Continue DEV4 reconciliation as separate recoverable slices: release_preflight resource-chain completeness, WebView2 debugger hardening, accepted DEV1 board-bridge transactional reconciliation, keymap/privacy/tombstone security regressions.
+- Re-run exact gates after the completed DEV4 final-state candidate before any integration fast-forward.
 - DEV2 intake remains ordered after DEV4 final-state reconciliation unless a new terminal blocker changes dependency ordering.
