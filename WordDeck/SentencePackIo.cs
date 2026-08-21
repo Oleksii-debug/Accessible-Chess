@@ -5,8 +5,6 @@ namespace WordDeck;
 
 internal static class SentencePackIo
 {
-    // Large enough for a practical offline Sentence corpus, but finite so malformed imports
-    // cannot request unbounded disk/JSON work or use a tiny gzip as an expansion bomb.
     internal const long MaxPortableFileBytes = 512L * 1024 * 1024;
     internal const long MaxDecompressedJsonBytes = 768L * 1024 * 1024;
 
@@ -53,7 +51,7 @@ internal static class SentencePackIo
         {
             SentencePack pack = JsonSerializer.Deserialize<SentencePack>(utf8Json, ReadOptions)
                 ?? throw new InvalidDataException("SentencePack JSON is empty.");
-            pack.Validate();
+            SentencePackStructuralLimits.Validate(pack);
             return pack;
         }
         catch (JsonException ex)
@@ -64,7 +62,7 @@ internal static class SentencePackIo
 
     public static void WriteGZip(string path, SentencePack pack)
     {
-        pack.Validate();
+        SentencePackStructuralLimits.Validate(pack);
         string fullPath = Path.GetFullPath(path);
         string? directory = Path.GetDirectoryName(fullPath);
         if (!string.IsNullOrWhiteSpace(directory)) Directory.CreateDirectory(directory);
@@ -123,8 +121,6 @@ internal static class SentencePackIo
             long remaining = _limit - _read;
             if (remaining <= 0)
             {
-                // Probe one byte so input exactly equal to the limit is accepted while larger input
-                // fails rather than looking like a clean EOF to JsonSerializer.
                 int probe = _inner.ReadByte();
                 if (probe >= 0)
                     throw new InvalidDataException($"SentencePack decompressed JSON exceeds the {_limit / (1024 * 1024)} MiB import limit.");
