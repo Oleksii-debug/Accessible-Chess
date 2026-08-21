@@ -2,6 +2,7 @@ namespace WordDeck;
 
 internal sealed partial class MainForm
 {
+    private const string Round2HelpMarker = "ROUND 2 KEYBOARD FOCUS RULES";
     private readonly HashSet<ComboBox> _round2HookedCombos = new();
     private bool _round2IdleHookInstalled;
     private bool _round2RefreshingShortcutPresentation;
@@ -83,7 +84,10 @@ internal sealed partial class MainForm
     private void Round2ApplicationIdle(object? sender, EventArgs e)
     {
         foreach (Form form in Application.OpenForms)
+        {
             HookRound2ComboFocus(form);
+            PatchRound2HelpIfOpen(form);
+        }
     }
 
     private void HookRound2ComboFocus(Control root)
@@ -119,6 +123,36 @@ internal sealed partial class MainForm
             if (!combo.IsDisposed && combo.Visible && combo.Enabled && combo.FindForm()?.ContainsFocus == true)
                 combo.Focus();
         }));
+    }
+
+    private static void PatchRound2HelpIfOpen(Form form)
+    {
+        if (!string.Equals(form.Text, "WordDeck help", StringComparison.OrdinalIgnoreCase) &&
+            !string.Equals(form.AccessibleName, "WordDeck help", StringComparison.OrdinalIgnoreCase))
+            return;
+
+        TextBox? box = FindRound2ControlByAccessibleName(form, "WordDeck help text") as TextBox;
+        if (box is null || box.Text.Contains(Round2HelpMarker, StringComparison.Ordinal)) return;
+
+        string corrected = box.Text;
+        corrected = corrected.Replace(
+            "The five core deck definitions and their shortcuts are shared, so Ctrl+1 through Ctrl+5 switches decks inside the CURRENT scope and Alt+1 through Alt+5 moves the current word inside the CURRENT scope. Scope-switch actions are rebindable and start unassigned.",
+            "The five core deck definitions are shared between Recall scopes. Use the actual active bindings listed in KEYBOARD SHORTCUTS below; scope-switch actions may be unassigned or rebound.",
+            StringComparison.Ordinal);
+        corrected = corrected.Replace(
+            "WordDeck shows only the English side of a Recall card by default. Down Arrow moves to the next card; Up Arrow returns to the previous actually shown eligible card. After moving back, Down moves forward through history before drawing a new shuffled card. Left and Right remain normal text/caret navigation. Ctrl+Right and Ctrl+Left remain compatibility next/previous keys. Reveal the Ukrainian translation only when needed.",
+            "WordDeck shows only the English side of a Recall card by default. Unmodified Down and Up are fast Recall navigation only while Current English word has focus. Down moves next; Up returns to the previous actually shown eligible card; after moving back, Down follows forward history before drawing a new shuffled card. After Reveal translation moves focus to Ukrainian translation, Up, Down, Left, Right, Home, End, Page Up and Page Down remain native text-reading/navigation keys and never change the card. Dictionary, Study scope and Deck selectors use native Up/Down without Enter and keep focus. Ctrl+Right and Ctrl+Left remain compatibility next/previous keys.",
+            StringComparison.Ordinal);
+
+        corrected =
+            Round2HelpMarker + "\r\n" +
+            "Fast unmodified Recall Up/Down works only on Current English word. Translation arrows stay inside translation. Dictionary, Study scope and Deck selectors change with native Up/Down without Enter and retain focus. Spelling closes safely with the fixed standard Windows Alt+F4 command.\r\n\r\n" +
+            corrected;
+
+        int selectionStart = Math.Min(box.SelectionStart, corrected.Length);
+        box.Text = corrected;
+        box.SelectionStart = selectionStart;
+        box.SelectionLength = 0;
     }
 
     private static Control? FindRound2ControlByAccessibleName(Control root, string accessibleName)
