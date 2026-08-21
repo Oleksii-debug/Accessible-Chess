@@ -28,10 +28,17 @@ internal static class ReleaseRegressionSelfTest
             int backupsBefore = Directory.GetFiles(Path.Combine(root, "Backups")).Length;
 
             string profilePath = Path.Combine(root, "incompatible.json");
-            store.ExportProfile(current, profilePath);
-            string profileJson = File.ReadAllText(profilePath)
-                .Replace(AppStateStore.CorpusIdentity, "different-corpus:999", StringComparison.Ordinal);
-            File.WriteAllText(profilePath, profileJson);
+            var incompatible = new WordDeckProfile
+            {
+                ProfileSchemaVersion = AppStateStore.ProfileSchemaVersion,
+                StateSchemaVersion = AppStateStore.CurrentSchemaVersion,
+                SourceAppVersion = AppStateStore.SourceAppVersion,
+                CorpusIdentity = "different-corpus:999",
+                State = current
+            };
+            File.WriteAllText(profilePath, JsonSerializer.Serialize(incompatible));
+            Require(File.ReadAllText(profilePath).Contains("different-corpus:999", StringComparison.Ordinal),
+                "Incompatible-corpus regression fixture did not contain the intended corpus identity.");
 
             bool rejected = false;
             try
