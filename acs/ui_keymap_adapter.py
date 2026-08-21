@@ -55,6 +55,7 @@ _UK_LABELS = {
     "board.surroundings": "Оточення поля",
     "board.attackers": "Атакуючі",
     "board.defenders": "Захисники",
+    "board.material": "Матеріальний баланс",
     "board.evaluation": "Оцінка позиції",
     "board.best_move": "Найкращий хід",
     "board.play_best": "Зіграти найкращий хід",
