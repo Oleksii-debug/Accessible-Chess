@@ -13,7 +13,7 @@ from . import webapp_keymap_core as _core
 from .webapp_keymap_core import *  # noqa: F401,F403 - compatibility surface
 from .webapp_keymap_core import AccessibleChessAPI, _asset_root, _shared_spoken_san
 from .board_service import BoardCommandService, BoardSnapshot, MoveView
-from .chesscore import Board, color_of, parse_sq, sq_name
+from .chesscore import Board, parse_sq, sq_name
 
 
 _BaseKeymapAwareAccessibleChessAPI = _core.KeymapAwareAccessibleChessAPI
@@ -114,8 +114,7 @@ class KeymapAwareAccessibleChessAPI(_BaseKeymapAwareAccessibleChessAPI):
     def _board_square(self, square: str | None) -> str:
         if not isinstance(square, str):
             raise ValueError("board square is required")
-        index = parse_sq(square)
-        return sq_name(index)
+        return sq_name(parse_sq(square))
 
     def _board_list_message(self, heading_uk: str, heading_en: str, values: list[str]) -> str:
         heading = heading_en if self.lang == "en" else heading_uk
@@ -195,7 +194,6 @@ class KeymapAwareAccessibleChessAPI(_BaseKeymapAwareAccessibleChessAPI):
             return self._error("Команда недоступна." if self.lang == "uk" else "Command unavailable.")
         action = action_id.strip()
 
-        # Existing analysis/global actions retain the frozen implementation.
         if not action.startswith("board."):
             return super().dispatch_action(action)
 
@@ -227,20 +225,10 @@ class KeymapAwareAccessibleChessAPI(_BaseKeymapAwareAccessibleChessAPI):
                 else "Opponent clock"
             )
             return self._ok(f"{label}: {value}.")
-        if action == "board.evaluation" or action == "board.best_move":
+        if action in {"board.evaluation", "board.best_move", "board.play_best"}:
+            # play_best intentionally remains explicit-unavailable in Stage 1;
+            # do not turn an informational key into a hidden mutation path.
             return super().dispatch_action(action)
-        if action == "board.play_best":
-            try:
-                line = self.analysis_ui.selected_line(self._display_review().fen)
-                if not line.pv:
-                    raise RuntimeError("empty analysis line")
-                return self.make_move(str(line.pv[0]))
-            except Exception:
-                return self._error(
-                    "Найкращий хід недоступний для гри."
-                    if self.lang == "uk"
-                    else "Best move is unavailable for play."
-                )
 
         try:
             current = self._board_square(square)
