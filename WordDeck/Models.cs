@@ -1,3 +1,6 @@
+using System.Text.Json;
+using System.Text.Json.Serialization;
+
 namespace WordDeck;
 
 internal sealed record DictionaryEntry(string Id, string Level, string Source, string Target);
@@ -45,6 +48,7 @@ internal sealed class RecallStudyScopeDictionaryState
 
 internal sealed class AppState
 {
+    public int SchemaVersion { get; set; }
     public string? ActiveDictionaryId { get; set; }
 
     public string? ActiveDeckId { get; set; }
@@ -63,6 +67,17 @@ internal sealed class AppState
 
     public Dictionary<string, string> Shortcuts { get; set; } = new(StringComparer.OrdinalIgnoreCase);
     public bool AutoPlayPronunciationOnCardChange { get; set; }
+
+    // User-only overlays. Canonical dictionary/audio assets are immutable and are
+    // never removed when a word is hidden from study.
+    public HashSet<string> HiddenEntryIds { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+    public Dictionary<string, WordStudyHistory> StudyHistoryByEntryId { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+    public List<string> QuarantinedProfileEntryIds { get; set; } = new();
+
+    // Preserve fields written by future WordDeck versions so an older build does
+    // not silently destroy data merely by loading/saving the profile.
+    [JsonExtensionData]
+    public Dictionary<string, JsonElement>? ExtensionData { get; set; }
 }
 
 internal static class ActionIds
@@ -76,6 +91,12 @@ internal static class ActionIds
     public const string AddWords = "add_words";
     public const string SaveProgress = "save_progress";
     public const string UndoMove = "undo_move";
+    public const string HideCurrentWord = "hide_current_word";
+    public const string RestoreHiddenWords = "restore_hidden_words";
+    public const string RestoreAllHiddenWords = "restore_all_hidden_words";
+    public const string ExportProfile = "export_profile";
+    public const string ImportProfile = "import_profile";
+    public const string ResetLearningData = "reset_learning_data";
     public const string ShortcutSettings = "shortcut_settings";
     public const string Help = "help";
 
