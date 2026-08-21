@@ -57,7 +57,7 @@ jobs:
       - name: Compile tracked Product and tests
         run: python -m compileall -q acs tests run_accessible_chess.py
 
-      - name: Parse every changed Stage1 JavaScript resource
+      - name: Parse and re-inject every changed Stage1 JavaScript resource
         shell: bash
         run: |
           set -euo pipefail
@@ -72,6 +72,32 @@ jobs:
           node --check /tmp/accessible-chess-inline.js
           node --check web/stage1_release_bootstrap.js
           node --check web/stage1_board_actions.js
+          node <<'JS'
+          const fs = require('fs');
+          global.window = {
+            executeAction: async id => id,
+            renderHelp: () => {},
+          };
+          global.state = {board: []};
+          global.boardIndex = 0;
+          global.keymap = [];
+          global.apiAction = async () => ({ok:true});
+          global.jumpBoardFocus = () => {};
+          const help = {appendChild: () => {}};
+          global.document = {
+            documentElement: {lang: 'uk'},
+            body: {dataset: {}},
+            getElementById: id => id === 'help' ? help : null,
+            createElement: () => ({id:'', textContent:'', append: () => {}, remove: () => {}}),
+          };
+          const source = fs.readFileSync('web/stage1_board_actions.js', 'utf8');
+          eval(source);
+          const first = window.executeAction;
+          if (!window.__accessibleChessStage1BoardActions) throw new Error('board bridge readiness guard missing');
+          eval(source);
+          if (window.executeAction !== first) throw new Error('repeat board bridge injection stacked wrappers');
+          console.log('STAGE1 BOARD BRIDGE REINJECTION IDEMPOTENCY PASS');
+          JS
 
       - name: Architecture refactor and frozen-scope gates
         run: >-
@@ -122,6 +148,7 @@ jobs:
           tests.test_sound_runtime
           tests.test_stage1_release_composition_ui
           tests.test_ui_native_menu_recovery
+          tests.test_stage1_native_menu_action_routing
           tests.test_keybindings
           tests.test_ui_keymap_editor
           tests.test_keymap_import_warning_confirmation
