@@ -73,6 +73,60 @@ class PositionEditorTests(unittest.TestCase):
                 with self.assertRaises(PositionValidationError):
                     PositionState.from_fen(fen)
 
+    def test_non_string_fen_is_rejected_without_coercion(self):
+        invalid = (
+            None,
+            123,
+            b"8/8/8/8/8/8/8/8 w - - 0 1",
+            ["8/8/8/8/8/8/8/8 w - - 0 1"],
+        )
+        for fen in invalid:
+            with self.subTest(fen=fen):
+                with self.assertRaisesRegex(PositionValidationError, "FEN must be text"):
+                    PositionState.from_fen(fen)  # type: ignore[arg-type]
+
+    def test_direct_counter_types_reject_bool_and_float(self):
+        pieces = (None,) * 64
+        invalid = (
+            {"halfmove": True, "fullmove": 1, "message": "halfmove"},
+            {"halfmove": 0.0, "fullmove": 1, "message": "halfmove"},
+            {"halfmove": 0, "fullmove": False, "message": "fullmove"},
+            {"halfmove": 0, "fullmove": 1.0, "message": "fullmove"},
+        )
+        for case in invalid:
+            with self.subTest(case=case):
+                with self.assertRaisesRegex(PositionValidationError, case["message"]):
+                    PositionState(
+                        pieces,
+                        halfmove=case["halfmove"],  # type: ignore[arg-type]
+                        fullmove=case["fullmove"],  # type: ignore[arg-type]
+                    )
+
+    def test_direct_state_rejects_mutable_or_coercible_field_shapes(self):
+        pieces = (None,) * 64
+        invalid = (
+            {"kwargs": {"pieces": [None] * 64}, "message": "immutable tuple"},
+            {"kwargs": {"pieces": pieces[:-1] + (1,)}, "message": "piece symbol"},
+            {"kwargs": {"pieces": pieces, "turn": 1}, "message": "turn"},
+            {"kwargs": {"pieces": pieces, "castling": ()}, "message": "castling rights"},
+            {"kwargs": {"pieces": pieces, "en_passant": None}, "message": "en-passant"},
+        )
+        for case in invalid:
+            with self.subTest(case=case):
+                with self.assertRaisesRegex(PositionValidationError, case["message"]):
+                    PositionState(**case["kwargs"])  # type: ignore[arg-type]
+
+    def test_edit_methods_fail_closed_on_non_text_piece_or_castling_symbols(self):
+        position = empty_position()
+        for piece in (1, True, ["Q"]):
+            with self.subTest(piece=piece):
+                with self.assertRaisesRegex(PositionValidationError, "piece symbol"):
+                    position.with_piece("a1", piece)  # type: ignore[arg-type]
+        for rights in (("K", 1), 3):
+            with self.subTest(rights=rights):
+                with self.assertRaisesRegex(PositionValidationError, "castling rights"):
+                    position.with_castling(rights)  # type: ignore[arg-type]
+
     def test_en_passant_rank_must_match_side_to_move(self):
         PositionState.from_fen("8/8/8/3pP3/8/8/8/K6k w - d6 0 12")
         PositionState.from_fen("8/8/8/8/3Pp3/8/8/K6k b - d3 0 12")

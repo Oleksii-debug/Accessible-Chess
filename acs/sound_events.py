@@ -42,6 +42,16 @@ class MoveSoundFacts:
     game_ended: bool = False
 
     def __post_init__(self) -> None:
+        for field_name in (
+            "legal",
+            "capture",
+            "check",
+            "castle",
+            "promotion",
+            "game_ended",
+        ):
+            if type(getattr(self, field_name)) is not bool:
+                raise TypeError(f"{field_name} must be boolean")
         if not self.legal and any(
             (self.capture, self.check, self.castle, self.promotion, self.game_ended)
         ):
@@ -78,6 +88,8 @@ class SoundEventPolicy:
 
     @staticmethod
     def for_move(facts: MoveSoundFacts) -> tuple[SoundEvent, ...]:
+        if not isinstance(facts, MoveSoundFacts):
+            raise TypeError("facts must be MoveSoundFacts")
         if not facts.legal:
             return (SoundEvent.ILLEGAL,)
 

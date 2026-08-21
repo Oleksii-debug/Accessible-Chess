@@ -226,7 +226,13 @@ class GameLifecycle:
         self._takeback_requested_by = side
         return self.snapshot()
 
-    def accept_takeback(self, side: str) -> LifecycleSnapshot:
+    def preflight_accept_takeback(self, side: str) -> LifecycleSnapshot:
+        """Validate takeback acceptance without mutating lifecycle state.
+
+        Coordinators that must invoke external canonical-history callbacks use
+        this before the destructive callback so a callback failure cannot leave
+        the lifecycle claiming that the request was already accepted.
+        """
         self._require_active()
         self._validate_side(side)
         if self._takeback_requested_by is None:
@@ -239,6 +245,10 @@ class GameLifecycle:
                 "a side cannot accept its own takeback request",
                 code=LifecycleErrorCode.SELF_RESPONSE,
             )
+        return self.snapshot()
+
+    def accept_takeback(self, side: str) -> LifecycleSnapshot:
+        self.preflight_accept_takeback(side)
         self._takeback_requested_by = None
         return self.snapshot()
 
