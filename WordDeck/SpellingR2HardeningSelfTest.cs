@@ -203,27 +203,43 @@ internal static class SpellingR2HardeningSelfTest
             appStore.Save(app);
             spellingStore.Save(spelling);
 
+            var jsonOptions = new JsonSerializerOptions { WriteIndented = true };
             string legacy = Path.Combine(root, "legacy-mismatch.json");
-            appStore.ExportProfile(app, legacy);
-            string json = File.ReadAllText(legacy).Replace(AppStateStore.CorpusIdentity, "incompatible-corpus-r2", StringComparison.Ordinal);
-            File.WriteAllText(legacy, json);
+            var legacyProfile = new WordDeckProfile
+            {
+                ProfileSchemaVersion = AppStateStore.ProfileSchemaVersion,
+                StateSchemaVersion = AppStateStore.CurrentSchemaVersion,
+                SourceAppVersion = AppStateStore.SourceAppVersion,
+                CorpusIdentity = "incompatible-corpus-r2",
+                ExportedAtUtc = DateTimeOffset.UtcNow,
+                State = AppStateStore.Normalize(new AppState { ActiveDictionaryId = "d" })
+            };
+            File.WriteAllText(legacy, JsonSerializer.Serialize(legacyProfile, jsonOptions));
 
             bool rejected = false;
             try { service.Import(legacy, app, spelling, new[] { "entry-1" }, new[] { "d" }); }
             catch (InvalidDataException) { rejected = true; }
             Require(rejected, "Legacy incompatible-corpus profile was accepted.");
-            Require(map["entry-1"] == SpellingDeckIds.Core(4), "Rejected incompatible profile mutated Spelling state.");
+            Require(map["entry-1"] == SpellingDeckIds.Core(4), "Rejected incompatible legacy profile mutated Spelling state.");
 
             string v2 = Path.Combine(root, "v2-mismatch.json");
-            service.Export(app, spelling, v2);
-            using JsonDocument doc = JsonDocument.Parse(File.ReadAllText(v2));
-            string v2Json = File.ReadAllText(v2).Replace(AppStateStore.CorpusIdentity, "incompatible-corpus-r2", StringComparison.Ordinal);
-            File.WriteAllText(v2, v2Json);
+            var v2Profile = new WordDeckCombinedProfile
+            {
+                ProfileSchemaVersion = SpellingProfileService.CurrentProfileSchemaVersion,
+                StateSchemaVersion = AppStateStore.CurrentSchemaVersion,
+                SpellingSchemaVersion = SpellingStateStore.CurrentSchemaVersion,
+                SourceAppVersion = AppStateStore.SourceAppVersion,
+                CorpusIdentity = "incompatible-corpus-r2",
+                ExportedAtUtc = DateTimeOffset.UtcNow,
+                State = AppStateStore.Normalize(new AppState { ActiveDictionaryId = "d" }),
+                SpellingState = SpellingStateStore.Clone(spelling)
+            };
+            File.WriteAllText(v2, JsonSerializer.Serialize(v2Profile, jsonOptions));
             rejected = false;
             try { service.Import(v2, app, spelling, new[] { "entry-1" }, new[] { "d" }); }
             catch (InvalidDataException) { rejected = true; }
             Require(rejected, "V2 incompatible-corpus profile was accepted.");
-            Require(map["entry-1"] == SpellingDeckIds.Core(4), "Rejected V2 profile mutated Spelling state.");
+            Require(map["entry-1"] == SpellingDeckIds.Core(4), "Rejected incompatible V2 profile mutated Spelling state.");
         }
         finally
         {
