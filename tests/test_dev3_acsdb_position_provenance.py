@@ -36,7 +36,7 @@ class Dev3AcsdbPositionProvenanceTests(unittest.TestCase):
         self.db.record_position(second.game_ids[0], 1, fen)
         self.db.record_position(third.game_ids[0], 1, fen)
 
-        page1 = self.db.search_position(fen, limit=2)
+        page1 = self.db.search_position(fen, 2)
         self.assertEqual(
             [(row['id'], row['matched_ply']) for row in page1],
             [(first.game_ids[0], 1), (second.game_ids[0], 1)],
