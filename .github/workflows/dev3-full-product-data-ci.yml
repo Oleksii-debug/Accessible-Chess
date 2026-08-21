@@ -21,6 +21,9 @@ jobs:
       - name: Compile Full Product data core
         run: python -m compileall -q acs/acsdb.py acs/gametree.py acs/import_contract.py tests
       - name: Focused ACSDB regressions
-        run: python -m unittest -v tests.test_acsdb
+        run: >-
+          python -m unittest -v
+          tests.test_acsdb
+          tests.test_dev3_acsdb_position_provenance
       - name: Full repository unittest discovery
         run: python -m unittest discover -s tests -v
