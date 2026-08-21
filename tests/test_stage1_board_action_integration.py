@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 import tempfile
 import unittest
@@ -45,7 +46,6 @@ class Stage1BoardActionIntegrationTests(unittest.TestCase):
         self.assertIsNone(registry.get_binding("board.material"))
         self.assertIsNone(definition.default_binding)
 
-        projected = {item["id"]: item for item in build_web_keymap(registry)} if False else None
         snapshot = build_web_keymap(registry)
         row = next(item for item in snapshot["actions"] if item["id"] == "board.material")
         self.assertEqual(row["labelUk"], "Матеріальний баланс")
@@ -61,7 +61,20 @@ class Stage1BoardActionIntegrationTests(unittest.TestCase):
         saved = api.keymap_save("board.material", "Ctrl+Shift+M")
         self.assertTrue(saved["ok"])
         live = api.keymap_resolve_binding("board", "Ctrl+Shift+M")
+        self.assertIsNotNone(live)
         self.assertEqual(live["actionId"], "board.material")
+
+    def test_static_fallback_keymap_matches_central_registry_projection_by_action_id(self):
+        root = Path(__file__).resolve().parents[1]
+        fallback = json.loads((root / "web" / "keybindings.json").read_text(encoding="utf-8"))
+        central = build_web_keymap(ActionRegistry())
+        self.assertEqual(fallback["schemaVersion"], central["schemaVersion"])
+        fallback_by_id = {item["id"]: item for item in fallback["actions"]}
+        central_by_id = {item["id"]: item for item in central["actions"]}
+        self.assertEqual(set(fallback_by_id), set(central_by_id))
+        for action_id, expected in central_by_id.items():
+            with self.subTest(action_id=action_id):
+                self.assertEqual(fallback_by_id[action_id], expected)
 
     def test_current_square_query_covers_all_64_squares_without_mutation(self):
         api = self.make_api()
