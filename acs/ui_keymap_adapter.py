@@ -4,7 +4,7 @@ from __future__ import annotations
 
 The UI may localize labels and project registry contexts to concrete WebView
 interaction scopes, but action IDs, defaults and aliases come from
-:mod:`acs.keybindings`.  This keeps the Web UI from becoming a second source
+:mod:`acs.keybindings`. This keeps the Web UI from becoming a second source
 of truth for keyboard behavior.
 """
 
@@ -82,9 +82,18 @@ _UK_LABELS = {
     "move.empty": "Команда порожньої позиції",
 }
 
+_EN_LABELS: dict[str, str] = {}
+
+# Dense rank/file navigation rows share the same imperative verb. Keeping the
+# rendered labels target-first makes screen-reader browsing and free-text search
+# concise: a generic query such as "перейти" / "go" finds the dedicated
+# history command instead of flooding results with all sixteen matrix jumps.
 for _number in range(1, 9):
-    _UK_LABELS[f"board.rank_{_number}"] = f"Перейти на {_number} горизонталь"
-    _UK_LABELS[f"board.file_{_number}"] = f"Перейти на вертикаль {'abcdefgh'[_number - 1]}"
+    _file = "abcdefgh"[_number - 1]
+    _UK_LABELS[f"board.rank_{_number}"] = f"Горизонталь {_number}"
+    _UK_LABELS[f"board.file_{_number}"] = f"Вертикаль {_file}"
+    _EN_LABELS[f"board.rank_{_number}"] = f"Rank {_number}"
+    _EN_LABELS[f"board.file_{_number}"] = f"File {_file}"
 
 
 def build_web_keymap(registry: ActionRegistry | None = None) -> dict[str, Any]:
@@ -99,7 +108,7 @@ def build_web_keymap(registry: ActionRegistry | None = None) -> dict[str, Any]:
                 "context": _UI_CONTEXT[definition.context],
                 "registryContext": definition.context.value,
                 "labelUk": _UK_LABELS.get(definition.action_id, definition.title),
-                "labelEn": definition.title,
+                "labelEn": _EN_LABELS.get(definition.action_id, definition.title),
                 "binding": registry.get_binding(definition.action_id),
                 "alias": registry.get_alias(definition.action_id),
                 "defaultBinding": definition.default_binding,

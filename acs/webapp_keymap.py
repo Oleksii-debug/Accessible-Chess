@@ -28,48 +28,24 @@ _PIECE_KIND_BY_ACTION = {
 }
 
 
-def _piece_controls_square(board: Board, origin: int, target: int) -> bool:
-    """Return geometric chess control without mutating canonical state."""
+def _canonical_controllers(board: Board, target: int) -> tuple[int, ...]:
+    """Return controller origins using the canonical chess move generator.
 
-    if origin == target:
-        return False
-    piece = board.board[origin]
-    if not piece:
-        return False
-    of, orank = origin % 8, origin // 8
-    tf, trank = target % 8, target // 8
-    df, dr = tf - of, trank - orank
-    kind = piece.upper()
+    Attack/defence is presentation information, but piece geometry must stay in
+    the canonical chess core.  A temporary opposite-colour target piece makes
+    ``Board.pseudo_moves`` expose captures into an empty or friendly-occupied
+    square without accidentally treating a pawn's straight advance as control.
+    The probe is detached and never mutates the displayed board.
+    """
 
-    if kind == "P":
-        step = 1 if piece.isupper() else -1
-        return dr == step and abs(df) == 1
-    if kind == "N":
-        return (abs(df), abs(dr)) in {(1, 2), (2, 1)}
-    if kind == "K":
-        return max(abs(df), abs(dr)) == 1
-
-    if kind == "B":
-        if abs(df) != abs(dr):
-            return False
-    elif kind == "R":
-        if not ((df == 0) ^ (dr == 0)):
-            return False
-    elif kind == "Q":
-        if not (abs(df) == abs(dr) or ((df == 0) ^ (dr == 0))):
-            return False
-    else:
-        return False
-
-    step_f = 0 if df == 0 else (1 if df > 0 else -1)
-    step_r = 0 if dr == 0 else (1 if dr > 0 else -1)
-    f, r = of + step_f, orank + step_r
-    while (f, r) != (tf, trank):
-        if board.board[r * 8 + f] is not None:
-            return False
-        f += step_f
-        r += step_r
-    return True
+    origins: set[int] = set()
+    for color in ("w", "b"):
+        probe = Board(board.fen())
+        probe.board[target] = "n" if color == "w" else "N"
+        for move in probe.pseudo_moves(color):
+            if move.to == target and not move.castle:
+                origins.add(move.frm)
+    return tuple(sorted(origins))
 
 
 class KeymapAwareAccessibleChessAPI(_BaseKeymapAwareAccessibleChessAPI):
@@ -81,7 +57,7 @@ class KeymapAwareAccessibleChessAPI(_BaseKeymapAwareAccessibleChessAPI):
             return Board(exploration.fen)
         return self._display_board()
 
-    def _board_query_service(self) -> BoardCommandService:
+    def _board_query_service(self, *, control_square: str | None = None) -> BoardCommandService:
         board = self._board_query_board()
         legal: list[MoveView] = []
         if self._position_complete(board):
@@ -99,12 +75,9 @@ class KeymapAwareAccessibleChessAPI(_BaseKeymapAwareAccessibleChessAPI):
                     )
                 )
         attacks: dict[int, tuple[int, ...]] = {}
-        for target in range(64):
-            origins = tuple(
-                origin
-                for origin, piece in enumerate(board.board)
-                if piece and _piece_controls_square(board, origin, target)
-            )
+        if control_square is not None:
+            target = parse_sq(control_square)
+            origins = _canonical_controllers(board, target)
             if origins:
                 attacks[target] = origins
         return BoardCommandService(
@@ -254,6 +227,8 @@ class KeymapAwareAccessibleChessAPI(_BaseKeymapAwareAccessibleChessAPI):
             ]
             return self._focus_result(self._board_list_message("Взяття", "Captures", values), current)
         if action in {"board.surroundings", "board.attackers", "board.defenders"}:
+            if action in {"board.attackers", "board.defenders"}:
+                service = self._board_query_service(control_square=current)
             getter = {
                 "board.surroundings": service.surroundings,
                 "board.attackers": service.attackers,
