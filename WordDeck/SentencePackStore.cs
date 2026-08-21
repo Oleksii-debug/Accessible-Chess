@@ -72,13 +72,10 @@ internal sealed class SentencePackStore
             SentencePackSqlitePrototype.Build(sqliteTemp, pack);
             SqliteConnection.ClearAllPools();
 
-            // Validate both staged artifacts before either can become active.
             SentencePack stagedPortable = SentencePackIo.Read(portableTemp);
-            using (var stagedSqlite = new SentencePackSqliteCorpus(sqliteTemp))
-            {
-                RequireSamePack(pack, stagedPortable.PackId, stagedPortable.License, stagedPortable.SentenceCount, "portable staged pack");
-                RequireSamePack(pack, stagedSqlite.PackId, stagedSqlite.License, stagedSqlite.SentenceCount, "SQLite staged pack");
-            }
+            var stagedSqlite = new SentencePackSqliteCorpus(sqliteTemp);
+            RequireSamePack(pack, stagedPortable.PackId, stagedPortable.License, stagedPortable.SentenceCount, "portable staged pack");
+            RequireSamePack(pack, stagedSqlite.PackId, stagedSqlite.License, stagedSqlite.SentenceCount, "SQLite staged pack");
             SqliteConnection.ClearAllPools();
 
             File.Move(portableTemp, portablePath, false);
@@ -96,15 +93,11 @@ internal sealed class SentencePackStore
             };
             File.WriteAllText(manifestTemp, JsonSerializer.Serialize(manifest, new JsonSerializerOptions { WriteIndented = true }));
 
-            // Preserve the previous committed pointer before switching generations.
             if (TryReadManifest(manifestPath, out SentencePackInstallManifest? previousManifest) && previousManifest is not null)
                 File.Copy(manifestPath, manifestBackupPath, true);
 
-            // This is the commit point. Before it, old manifest remains active;
-            // after it, both generation files already exist and were validated.
             File.Move(manifestTemp, manifestPath, true);
 
-            // Legacy fixed-name files are no longer active once a generation manifest exists.
             DeleteIfExists(Path.Combine(DirectoryPath, safeId + ".json"));
             DeleteIfExists(Path.Combine(DirectoryPath, safeId + ".json.gz"));
             DeleteIfExists(Path.Combine(DirectoryPath, safeId + ".sqlite"));
@@ -124,9 +117,6 @@ internal sealed class SentencePackStore
         catch
         {
             SqliteConnection.ClearAllPools();
-            // Uncommitted generation files are safe to remove. If the manifest
-            // was already committed, cleanup deliberately leaves the committed
-            // files in place because LoadInstalled now owns them.
             SentencePackInstallManifest? committed = ReadManifestOrNull(manifestPath);
             bool currentGenerationCommitted = committed is not null &&
                 string.Equals(committed.Generation, generation, StringComparison.Ordinal);
@@ -151,8 +141,6 @@ internal sealed class SentencePackStore
         var result = new List<InstalledSentencePack>();
         var representedPackIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        // Committed generation manifests are authoritative. Orphan generation
-        // files from interrupted imports are ignored because no manifest points at them.
         foreach (string manifestPath in Directory.EnumerateFiles(DirectoryPath, "*.installed.json", SearchOption.TopDirectoryOnly)
                      .OrderBy(path => path, StringComparer.OrdinalIgnoreCase))
         {
@@ -171,8 +159,6 @@ internal sealed class SentencePackStore
             }
             catch
             {
-                // If the current committed generation is unusable, use the
-                // previous committed pointer when one exists.
                 string safeId = SafeFileName(manifest.PackId);
                 SentencePackInstallManifest? backup = ReadManifestOrNull(ManifestBackupPath(safeId));
                 if (backup is null) continue;
@@ -185,7 +171,6 @@ internal sealed class SentencePackStore
             }
         }
 
-        // Backwards-compatible discovery for pre-manifest installations only.
         foreach (string sqlitePath in Directory.EnumerateFiles(DirectoryPath, "*.sqlite", SearchOption.TopDirectoryOnly)
                      .OrderBy(path => path, StringComparer.OrdinalIgnoreCase))
         {
@@ -221,7 +206,7 @@ internal sealed class SentencePackStore
                 if (representedPackIds.Contains(pack.PackId)) continue;
                 string safeId = SafeFileName(pack.PackId);
                 string expected = Path.Combine(DirectoryPath, safeId + (SentencePackIo.IsGZipPath(path) ? ".json.gz" : ".json"));
-                if (!PathEquals(path, expected)) continue; // orphan generation/staging file
+                if (!PathEquals(path, expected)) continue;
                 representedPackIds.Add(pack.PackId);
                 result.Add(new InstalledSentencePack(path, pack.PackId, pack.License, pack.SentenceCount, pack, null, pack));
             }
