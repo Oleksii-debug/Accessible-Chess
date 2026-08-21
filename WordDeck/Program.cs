@@ -24,6 +24,7 @@ internal static class Program
                 SentenceCoachSelfTest.Run();
                 SentencePackStoreSelfTest.Run();
                 TatoebaSentencePackSelfTest.Run();
+                AccessibilityRound2SelfTest.Run();
             }
             catch (Exception ex)
             {
@@ -136,7 +137,7 @@ internal static class Program
 
         AppState appState = new AppStateStore().Load();
         SpellingState spellingState = new SpellingStateStore().Load();
-        var shortcutManager = new ShortcutManager(appState, spellingState.Decks);
+        var shortcutManager = new ShortcutManager(appState, spellingState.Decks, ShortcutDispatchContext.All);
 
         var openSpelling = new ToolStripMenuItem("Open &Spelling trainer...")
         {
@@ -171,7 +172,7 @@ internal static class Program
         var appStore = new AppStateStore();
         AppState appState = appStore.Load();
         SpellingState spellingState = new SpellingStateStore().Load();
-        var shortcuts = new ShortcutManager(appState, spellingState.Decks);
+        var shortcuts = new ShortcutManager(appState, spellingState.Decks, ShortcutDispatchContext.All);
         using var dialog = new ShortcutSettingsForm(shortcuts);
         dialog.ShowDialog(owner);
         appStore.Save(appState);
@@ -185,7 +186,7 @@ internal static class Program
         AppState appState = appStore.Load();
         var spellingStore = new SpellingStateStore();
         SpellingState spellingState = spellingStore.Load();
-        var shortcuts = new ShortcutManager(appState, spellingState.Decks);
+        var shortcuts = new ShortcutManager(appState, spellingState.Decks, ShortcutDispatchContext.Spelling);
         DictionaryPackage package = BuildActivePackage(appState);
 
         using var form = new SpellingForm(appState, spellingState, spellingStore, shortcuts, package);
@@ -198,7 +199,7 @@ internal static class Program
         var appStore = new AppStateStore();
         AppState appState = appStore.Load();
         SpellingState spellingState = new SpellingStateStore().Load();
-        var shortcuts = new ShortcutManager(appState, spellingState.Decks);
+        var shortcuts = new ShortcutManager(appState, spellingState.Decks, ShortcutDispatchContext.Sentence);
         DictionaryPackage package = BuildActivePackage(appState);
         var sentenceStateStore = new SentenceCoachStateStore();
         SentenceCoachState sentenceState = sentenceStateStore.Load();
