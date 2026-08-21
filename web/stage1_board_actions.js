@@ -11,9 +11,9 @@ if (typeof baseExecuteAction !== 'function') return;
 const boardPythonActions = new Set([
     'board.last_captured', 'board.last_move', 'board.my_clock', 'board.opponent_clock',
     'board.legal_moves', 'board.captures', 'board.surroundings', 'board.attackers',
-    'board.defenders', 'board.evaluation', 'board.best_move', 'board.play_best',
-    'board.next_king', 'board.next_queen', 'board.next_rook', 'board.next_bishop',
-    'board.next_knight', 'board.next_pawn', 'board.previous_king',
+    'board.defenders', 'board.material', 'board.evaluation', 'board.best_move',
+    'board.play_best', 'board.next_king', 'board.next_queen', 'board.next_rook',
+    'board.next_bishop', 'board.next_knight', 'board.next_pawn', 'board.previous_king',
     'board.previous_queen', 'board.previous_rook', 'board.previous_bishop',
     'board.previous_knight', 'board.previous_pawn'
 ]);
@@ -21,11 +21,12 @@ const boardPythonActions = new Set([
 const liveHelpBoardActions = [
     'board.current', 'board.last_captured', 'board.last_move', 'board.my_clock',
     'board.opponent_clock', 'board.legal_moves', 'board.captures',
-    'board.surroundings', 'board.attackers', 'board.defenders', 'board.evaluation',
-    'board.best_move', 'board.play_best', 'board.next_king', 'board.next_queen',
-    'board.next_rook', 'board.next_bishop', 'board.next_knight', 'board.next_pawn',
-    'board.previous_king', 'board.previous_queen', 'board.previous_rook',
-    'board.previous_bishop', 'board.previous_knight', 'board.previous_pawn'
+    'board.surroundings', 'board.attackers', 'board.defenders', 'board.material',
+    'board.evaluation', 'board.best_move', 'board.play_best', 'board.next_king',
+    'board.next_queen', 'board.next_rook', 'board.next_bishop', 'board.next_knight',
+    'board.next_pawn', 'board.previous_king', 'board.previous_queen',
+    'board.previous_rook', 'board.previous_bishop', 'board.previous_knight',
+    'board.previous_pawn'
 ];
 
 function currentBoardSquare() {
