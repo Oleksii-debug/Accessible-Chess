@@ -15,6 +15,7 @@ from . import stage1_release_ui_core as _core
 from .stage1_release_ui_core import *  # noqa: F401,F403 - compatibility surface
 from .stage1_release_ui_core import _asset_root, _shared_spoken_san
 from .engine_play_service import EngineGameIntent
+from .stage1_native_menu_router import Stage1NativeMenuActionProxy
 from .webapp_keymap import KeymapAwareAccessibleChessAPI
 
 
@@ -23,6 +24,10 @@ class Stage1ReleaseAccessibleChessAPI(_core.Stage1ReleaseAccessibleChessAPI):
 
     def dispatch_action(self, action_id: str, square: str | None = None) -> dict[str, Any]:
         actions = {
+            "edit.undo": self.undo,
+            "edit.redo": self.redo,
+            "history.previous": self.review_previous,
+            "history.next": self.review_next,
             "engine_play.start": self.start_engine_game,
             "engine_play.stop": self.stop_engine_game,
             "game.takeback": self.engine_takeback,
@@ -34,8 +39,8 @@ class Stage1ReleaseAccessibleChessAPI(_core.Stage1ReleaseAccessibleChessAPI):
         if handler is not None:
             return handler()
         # Bypass the frozen one-argument Stage1 override only after preserving
-        # all engine-game actions above.  The canonical keymap layer owns the
-        # widened optional board-square argument.
+        # all engine-game/global/history actions above.  The canonical keymap
+        # layer owns the widened optional board-square argument and analysis IDs.
         return KeymapAwareAccessibleChessAPI.dispatch_action(self, action, square)
 
 
@@ -95,9 +100,10 @@ def run_release_window(api: Stage1ReleaseAccessibleChessAPI, runtime: Any | None
         min_size=(800, 600),
         text_select=True,
     )
+    menu_api = Stage1NativeMenuActionProxy(api)
 
     def install_menu_on_native_host(*_args: Any) -> None:
-        if not install_windows_native_menu(window, api):
+        if not install_windows_native_menu(window, menu_api):
             raise RuntimeError("Accessible native Windows menu could not be attached to the WebView2 host.")
 
     def install_release_web_contract(*_args: Any) -> None:
