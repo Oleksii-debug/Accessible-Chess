@@ -10,7 +10,18 @@ internal static class TrainingEntryPoints
             .FirstOrDefault(item => (item.Text ?? string.Empty).Replace("&", string.Empty).Equals("Tools", StringComparison.OrdinalIgnoreCase));
         if (tools is null) return;
 
-        SpellingState spellingState = new SpellingStateStore().Load();
+        // A broken optional training-state pair must not prevent Recall from
+        // starting. Use a normalized in-memory core-deck shape only to render
+        // menu shortcuts; opening a training mode still fails closed below.
+        SpellingState spellingState;
+        try
+        {
+            spellingState = TrainingStateContinuityGuard.LoadSpelling().State;
+        }
+        catch (InvalidDataException)
+        {
+            spellingState = SpellingStateStore.Normalize(new SpellingState());
+        }
         var shortcutManager = new ShortcutManager(main.SharedAppStateForTraining, spellingState.Decks);
 
         var openSpelling = new ToolStripMenuItem("Open &Spelling trainer...")
@@ -43,49 +54,80 @@ internal static class TrainingEntryPoints
 
     private static void OpenTrainingShortcutSettings(MainForm owner, ToolStripMenuItem spellingItem, ToolStripMenuItem sentenceItem)
     {
-        // Use the Recall window's live AppState instance. A second Load() here
-        // creates a stale-write race: whichever module saves last wins.
-        SpellingState spellingState = new SpellingStateStore().Load();
-        var shortcuts = new ShortcutManager(owner.SharedAppStateForTraining, spellingState.Decks);
-        using var dialog = new ShortcutSettingsForm(shortcuts);
-        dialog.ShowDialog(owner);
-        owner.SaveSharedStateAfterTraining();
-        spellingItem.ShortcutKeys = shortcuts.Get(ActionIds.OpenSpelling);
-        sentenceItem.ShortcutKeys = shortcuts.Get(ActionIds.OpenSentenceCoach);
+        try
+        {
+            // Use the Recall window's live AppState instance. A second AppState
+            // Load() here creates a stale-write race: whichever module saves
+            // last wins and can erase shortcut/profile changes from the other.
+            SpellingState spellingState = TrainingStateContinuityGuard.LoadSpelling().State;
+            var shortcuts = new ShortcutManager(owner.SharedAppStateForTraining, spellingState.Decks);
+            using var dialog = new ShortcutSettingsForm(shortcuts);
+            dialog.ShowDialog(owner);
+            owner.SaveSharedStateAfterTraining();
+            spellingItem.ShortcutKeys = shortcuts.Get(ActionIds.OpenSpelling);
+            sentenceItem.ShortcutKeys = shortcuts.Get(ActionIds.OpenSentenceCoach);
+        }
+        catch (InvalidDataException ex)
+        {
+            ShowTrainingStateError(owner, ex.Message);
+        }
     }
 
     private static void OpenSpelling(MainForm owner)
     {
-        var spellingStore = new SpellingStateStore();
-        SpellingState spellingState = spellingStore.Load();
-        var shortcuts = new ShortcutManager(owner.SharedAppStateForTraining, spellingState.Decks);
+        try
+        {
+            SpellingStateSession session = TrainingStateContinuityGuard.LoadSpelling();
+            var shortcuts = new ShortcutManager(owner.SharedAppStateForTraining, session.State.Decks);
 
-        using var form = new SpellingForm(
-            owner.SharedAppStateForTraining,
-            spellingState,
-            spellingStore,
-            shortcuts,
-            owner.ActivePackageForTraining);
-        form.ShowDialog(owner);
-        owner.SaveSharedStateAfterTraining();
+            using var form = new SpellingForm(
+                owner.SharedAppStateForTraining,
+                session.State,
+                session.Store,
+                shortcuts,
+                owner.ActivePackageForTraining);
+            form.ShowDialog(owner);
+            owner.SaveSharedStateAfterTraining();
+        }
+        catch (InvalidDataException ex)
+        {
+            ShowTrainingStateError(owner, ex.Message);
+        }
     }
 
     private static void OpenSentenceCoach(MainForm owner)
     {
-        SpellingState spellingState = new SpellingStateStore().Load();
-        var shortcuts = new ShortcutManager(owner.SharedAppStateForTraining, spellingState.Decks);
-        var sentenceStateStore = new SentenceCoachStateStore();
-        SentenceCoachState sentenceState = sentenceStateStore.Load();
+        try
+        {
+            SpellingStateSession spellingSession = TrainingStateContinuityGuard.LoadSpelling();
+            var shortcuts = new ShortcutManager(owner.SharedAppStateForTraining, spellingSession.State.Decks);
+            SentenceStateSession sentenceSession = TrainingStateContinuityGuard.LoadSentence();
 
-        using var form = new SentenceCoachForm(
-            owner.SharedAppStateForTraining,
-            spellingState,
-            shortcuts,
-            owner.ActivePackageForTraining,
-            new SentencePackStore(),
-            sentenceStateStore,
-            sentenceState);
-        form.ShowDialog(owner);
-        owner.SaveSharedStateAfterTraining();
+            using var form = new SentenceCoachForm(
+                owner.SharedAppStateForTraining,
+                spellingSession.State,
+                shortcuts,
+                owner.ActivePackageForTraining,
+                new SentencePackStore(),
+                sentenceSession.Store,
+                sentenceSession.State);
+            form.ShowDialog(owner);
+            owner.SaveSharedStateAfterTraining();
+        }
+        catch (InvalidDataException ex)
+        {
+            ShowTrainingStateError(owner, ex.Message);
+        }
+    }
+
+    private static void ShowTrainingStateError(Form owner, string message)
+    {
+        MessageBox.Show(
+            owner,
+            message + Environment.NewLine + Environment.NewLine +
+            "The existing files were left untouched. Restore a known-good backup before continuing this training mode.",
+            "WordDeck protected training progress",
+            MessageBoxButtons.OK,
+            MessageBoxIcon.Error);
     }
 }
