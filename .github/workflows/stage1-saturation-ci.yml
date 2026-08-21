@@ -57,7 +57,7 @@ jobs:
       - name: Compile tracked Product and tests
         run: python -m compileall -q acs tests run_accessible_chess.py
 
-      - name: Parse Stage1 JavaScript
+      - name: Parse every changed Stage1 JavaScript resource
         shell: bash
         run: |
           set -euo pipefail
@@ -71,8 +71,9 @@ jobs:
           PY
           node --check /tmp/accessible-chess-inline.js
           node --check web/stage1_release_bootstrap.js
+          node --check web/stage1_board_actions.js
 
-      - name: Architecture and frozen-scope gates
+      - name: Architecture refactor and frozen-scope gates
         run: >-
           python -m unittest -v
           tests.test_architecture
@@ -80,6 +81,7 @@ jobs:
           tests.test_nvda_p0_contract
           tests.test_stage1_webview2_accessibility_boundary
           tests.test_webview_safe_server
+          tests.test_stage1_saturation_refactor_contract
 
       - name: Move input board focus history editor gates
         run: >-
@@ -87,6 +89,7 @@ jobs:
           tests.test_move_entry
           tests.test_board_service
           tests.test_board_rank_file_remapping_ui
+          tests.test_stage1_board_action_integration
           tests.test_stage1_packaged_focus_origin_contract
           tests.test_history
           tests.test_ui_review_adapter
