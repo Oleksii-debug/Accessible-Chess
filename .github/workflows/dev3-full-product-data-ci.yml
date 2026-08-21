@@ -1,0 +1,26 @@
+name: DEV3 Full Product Data CI
+
+on:
+  push:
+    branches:
+      - auto/dev3-acsdb-stable-paging-20260821
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  data-core:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Compile Full Product data core
+        run: python -m compileall -q acs/acsdb.py acs/gametree.py acs/import_contract.py tests
+      - name: Focused ACSDB regressions
+        run: python -m unittest -v tests.test_acsdb
+      - name: Full repository unittest discovery
+        run: python -m unittest discover -s tests -v
