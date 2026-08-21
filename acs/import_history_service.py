@@ -15,6 +15,12 @@ from .acsdb import AcsDatabase, IMPORT_ATTEMPT_STATUSES
 ImportAttemptStatus = Literal["pending", "full", "warning", "damaged", "failed"]
 
 
+def _exact_int(value: object, *, name: str) -> int:
+    if type(value) is not int:
+        raise TypeError(f"{name} must be an integer")
+    return value
+
+
 @dataclass(frozen=True, slots=True)
 class ImportSourceRef:
     source_id: int
@@ -61,9 +67,10 @@ class ImportHistoryService:
         self._db = database
 
     def get(self, attempt_id: int) -> ImportAttemptItem | None:
-        if int(attempt_id) < 1:
+        normalized_id = _exact_int(attempt_id, name="attempt_id")
+        if normalized_id < 1:
             raise ValueError("attempt_id must be positive")
-        row = self._db.get_import_attempt(int(attempt_id))
+        row = self._db.get_import_attempt(normalized_id)
         if row is None:
             return None
         source_id = row.get("source_id")
@@ -81,27 +88,46 @@ class ImportHistoryService:
 
     def search(self, query: ImportHistoryQuery | None = None) -> ImportHistoryPage:
         query = query or ImportHistoryQuery()
-        if query.status is not None and query.status not in IMPORT_ATTEMPT_STATUSES:
-            raise ValueError(f"Unsupported import attempt status: {query.status}")
-        if query.after_attempt_id is not None and int(query.after_attempt_id) < 1:
-            raise ValueError("after_attempt_id must be positive")
-        if not 1 <= int(query.limit) <= 200:
+        if query.status is not None:
+            if type(query.status) is not str:
+                raise TypeError("status must be text")
+            if query.status not in IMPORT_ATTEMPT_STATUSES:
+                raise ValueError(f"Unsupported import attempt status: {query.status}")
+
+        after_attempt_id: int | None = None
+        if query.after_attempt_id is not None:
+            after_attempt_id = _exact_int(query.after_attempt_id, name="after_attempt_id")
+            if after_attempt_id < 1:
+                raise ValueError("after_attempt_id must be positive")
+
+        limit = _exact_int(query.limit, name="limit")
+        if not 1 <= limit <= 200:
             raise ValueError("limit must be between 1 and 200")
+
+        sha256 = query.sha256
+        if sha256 is not None and type(sha256) is not str:
+            raise TypeError("sha256 must be text")
+
+        source_format = query.source_format
+        if source_format is not None:
+            if type(source_format) is not str:
+                raise TypeError("source_format must be text")
+            source_format = source_format.strip().lower() or None
 
         clauses: list[str] = []
         params: list[object] = []
         if query.status is not None:
             clauses.append("a.status=?")
             params.append(query.status)
-        if query.sha256:
+        if sha256:
             clauses.append("a.sha256=?")
-            params.append(query.sha256)
-        if query.source_format:
+            params.append(sha256)
+        if source_format:
             clauses.append("a.source_format=?")
-            params.append(query.source_format.lower())
-        if query.after_attempt_id is not None:
+            params.append(source_format)
+        if after_attempt_id is not None:
             clauses.append("a.id < ?")
-            params.append(int(query.after_attempt_id))
+            params.append(after_attempt_id)
 
         sql = """
             SELECT a.*, s.source_name AS linked_source_name,
@@ -114,11 +140,11 @@ class ImportHistoryService:
         if clauses:
             sql += " WHERE " + " AND ".join(clauses)
         sql += " ORDER BY a.id DESC LIMIT ?"
-        params.append(int(query.limit) + 1)
+        params.append(limit + 1)
 
         rows = [dict(row) for row in self._db.conn.execute(sql, params).fetchall()]
-        has_more = len(rows) > int(query.limit)
-        rows = rows[: int(query.limit)]
+        has_more = len(rows) > limit
+        rows = rows[:limit]
         items = tuple(self._item(row) for row in rows)
         cursor = items[-1].attempt_id if has_more and items else None
         return ImportHistoryPage(items=items, next_after_attempt_id=cursor)
