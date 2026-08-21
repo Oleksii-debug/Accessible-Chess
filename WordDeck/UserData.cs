@@ -17,7 +17,10 @@ internal sealed class WordDeckProfile : IJsonOnDeserialized
     public int ProfileSchemaVersion { get; set; } = AppStateStore.ProfileSchemaVersion;
     public int StateSchemaVersion { get; set; } = AppStateStore.CurrentSchemaVersion;
     public string SourceAppVersion { get; set; } = AppStateStore.SourceAppVersion;
-    public string CorpusIdentity { get; set; } = AppStateStore.CorpusIdentity;
+
+    [JsonRequired]
+    public string CorpusIdentity { get; set; } = string.Empty;
+
     public DateTimeOffset ExportedAtUtc { get; set; } = DateTimeOffset.UtcNow;
     public AppState State { get; set; } = new();
 
@@ -26,7 +29,7 @@ internal sealed class WordDeckProfile : IJsonOnDeserialized
         if (!string.Equals(CorpusIdentity, AppStateStore.CorpusIdentity, StringComparison.Ordinal))
         {
             throw new JsonException(
-                $"This WordDeck profile belongs to incompatible corpus '{CorpusIdentity ?? "<missing>"}'. " +
+                $"This WordDeck profile belongs to incompatible corpus '{(string.IsNullOrWhiteSpace(CorpusIdentity) ? "<missing>" : CorpusIdentity)}'. " +
                 $"This build expects '{AppStateStore.CorpusIdentity}'. No personal progress was changed.");
         }
     }
