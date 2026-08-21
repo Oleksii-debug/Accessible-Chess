@@ -36,7 +36,7 @@ class Board:
         if type(clear_history) is not bool:
             raise ValueError('clear_history має бути логічним значенням')
         parts=fen.strip().split()
-        if len(parts)!=6: raise ValueError('FEN має містити рівно 6 полів')
+        if len(parts)<4 or len(parts)>6: raise ValueError('FEN має містити від 4 до 6 полів')
         rows=parts[0].split('/')
         if len(rows)!=8: raise ValueError('FEN: потрібно 8 горизонталей')
         bd=[None]*64
@@ -61,7 +61,8 @@ class Board:
         ep=None if parts[3]=='-' else parse_sq(parts[3])
         if any(not text.isascii() or not text.isdecimal() for text in parts[4:6]):
             raise ValueError('FEN: лічильники мають бути невід’ємними десятковими числами')
-        halfmove=int(parts[4]); fullmove=int(parts[5])
+        halfmove=int(parts[4]) if len(parts)>4 else 0
+        fullmove=int(parts[5]) if len(parts)>5 else 1
         if halfmove<0: raise ValueError('FEN: halfmove не може бути від’ємним')
         if fullmove<1: raise ValueError('FEN: fullmove має бути не менше 1')
         for s,p in enumerate(bd):

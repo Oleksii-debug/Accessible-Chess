@@ -11,6 +11,16 @@ class Dev2FenAtomicityTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     Board(value)
 
+    def test_abbreviated_fen_compatibility_preserves_stage1_defaults(self):
+        four = Board("7k/8/8/8/8/8/8/K7 w - -")
+        self.assertEqual(four.fen(), "7k/8/8/8/8/8/8/K7 w - - 0 1")
+
+        five = Board("7k/8/8/8/8/8/8/K7 b - - 17")
+        self.assertEqual(five.fen(), "7k/8/8/8/8/8/8/K7 b - - 17 1")
+
+        six = Board("7k/8/8/8/8/8/8/K7 w - - 17 23")
+        self.assertEqual(six.fen(), "7k/8/8/8/8/8/8/K7 w - - 17 23")
+
     def test_rejected_fen_is_atomic_for_state_history_redo_and_last_move(self):
         board = Board()
         board.push_text("e4")
@@ -26,11 +36,12 @@ class Dev2FenAtomicityTests(unittest.TestCase):
             False,
             0,
             [],
-            "7k/8/8/8/8/8/8/K7 w - -",
+            "7k/8/8/8/8/8/8/K7 w -",
             "7k/8/8/8/8/8/8/K7 w - - 0 1 extra",
             "7k/8/8/8/8/8/8/K7 w - - +0 1",
             "7k/8/8/8/8/8/8/K7 w - - 0 +1",
             "7k/8/8/8/8/8/8/K7 w - - ٠ 1",
+            "7k/8/8/8/8/8/8/K7 w - - 0 ١",
         )
         for bad in bad_values:
             with self.subTest(bad=bad):
