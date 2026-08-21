@@ -83,6 +83,19 @@ class WebViewBridgeSecurityTests(unittest.TestCase):
         self.assertNotIn("msEdgeDevToolsWdpRemoteDebugging", value)
         self.assertIn("--foo=bar", value)
 
+    def test_split_enable_features_remote_debugging_is_removed(self) -> None:
+        env = {
+            WEBVIEW2_BROWSER_ARGUMENTS_ENV: (
+                "--enable-features \"UsefulFeature,msEdgeDevToolsWdpRemoteDebugging\" --foo=bar"
+            )
+        }
+        value = enable_webview2_renderer_accessibility(env)
+        self.assertNotIn("--enable-features", value)
+        self.assertNotIn("msEdgeDevToolsWdpRemoteDebugging", value)
+        self.assertNotIn("UsefulFeature", value)
+        self.assertIn("--foo=bar", value)
+        self.assertIn(FORCE_RENDERER_ACCESSIBILITY, value)
+
     def test_script_debugger_environment_channels_are_removed(self) -> None:
         env = {
             WEBVIEW2_BROWSER_ARGUMENTS_ENV: "--foo=bar",
