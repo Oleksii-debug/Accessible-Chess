@@ -17,7 +17,7 @@ internal static class SelfTest
             TestShortcutRegistryAndRebinding();
             TestPronunciationAudioLayer();
             TestStatePersistenceAndRecovery();
-            Console.WriteLine("WordDeck self-test passed: Oxford 5000 verified beta bridge, baseline-ID preservation, strict imports, pasted custom cards, dynamic decks, scoped shortcut registry, pronunciation paths, resume state, and recovery persistence validated.");
+            Console.WriteLine("WordDeck self-test passed: Oxford 5000 verified beta bridge, baseline-ID preservation, strict imports, pasted custom cards, dynamic decks, shared Recall/Spelling/Sentence shortcut registry, pronunciation paths, resume state, and recovery persistence validated.");
             return 0;
         }
         catch (Exception ex)
@@ -163,10 +163,22 @@ internal static class SelfTest
     private static void TestShortcutRegistryAndRebinding()
     {
         var state = AppStateStore.Normalize(new AppState());
-        var manager = new ShortcutManager(state);
-        Require(manager.Definitions.Count == 33, $"Expected 33 Recall/scope/core-deck actions, got {manager.Definitions.Count}.");
+        SpellingState spelling = SpellingStateStore.Normalize(new SpellingState());
+        var manager = new ShortcutManager(state, spelling.Decks);
+        Require(manager.Definitions.Count == 59, $"Expected 59 shared Recall/scope/Spelling/Sentence/core-deck actions, got {manager.Definitions.Count}.");
         Require(manager.Definitions.Select(def => def.Id).Distinct(StringComparer.OrdinalIgnoreCase).Count() == manager.Definitions.Count, "Shortcut action IDs must be unique.");
         Require(manager.Definitions.Where(def => def.DefaultKeys != Keys.None).Select(def => def.DefaultKeys).Distinct().Count() == manager.Definitions.Count(def => def.DefaultKeys != Keys.None), "Assigned default shortcuts must be unique.");
+        Require(manager.Definitions.Any(def => def.Id == ActionIds.OpenSpelling) && manager.Definitions.Any(def => def.Id == ActionIds.OpenSentenceCoach),
+            "Training entry points are missing from the shared shortcut registry.");
+        Require(manager.Get(ActionIds.SpellingShowAnswer) == (Keys.Control | Keys.Shift | Keys.H), "Spelling show-answer default changed.");
+        Require(manager.Get(ActionIds.SpellingDeleteDeck) == (Keys.Control | Keys.Shift | Keys.Delete), "Spelling delete must remain capturable and avoid Ctrl+Alt+Delete.");
+        for (int number = 1; number <= 5; number++)
+        {
+            Require(manager.Get(ActionIds.SpellingSwitchDeck(SpellingDeckIds.Core(number))) == (Keys.Control | Keys.Shift | (Keys)((int)Keys.D0 + number)),
+                $"Spelling core deck {number} switch binding changed.");
+            Require(manager.Get(ActionIds.SpellingMoveToDeck(SpellingDeckIds.Core(number))) == (Keys.Alt | Keys.Shift | (Keys)((int)Keys.D0 + number)),
+                $"Spelling core deck {number} move binding changed.");
+        }
         foreach (string scopeId in StudyScopeIds.Ordered)
         {
             string actionId = ActionIds.SwitchStudyScope(scopeId);
@@ -192,18 +204,18 @@ internal static class SelfTest
 
         var service = new DeckService(state);
         DeckDefinition userDeck = service.Create("Custom study");
-        manager.RefreshDeckDefinitions();
-        Require(manager.Definitions.Count == 35, "Creating a Recall user deck did not add switch/move actions.");
+        manager.RefreshDeckDefinitions(spelling.Decks);
+        Require(manager.Definitions.Count == 61, "Creating a Recall user deck did not add exactly one stable switch/move action pair to the shared registry.");
         string switchAction = ActionIds.SwitchDeck(userDeck.Id);
         string moveAction = ActionIds.MoveToDeck(userDeck.Id);
         Require(manager.Get(switchAction) == Keys.None && manager.Get(moveAction) == Keys.None, "User-deck shortcuts must start unassigned.");
         Require(manager.TrySet(switchAction, Keys.Control | Keys.Alt | Keys.F10, out _), "Could not bind user-deck switch shortcut.");
         service.Rename(userDeck.Id, "Renamed custom study");
         service.Move(userDeck.Id, -1);
-        manager.RefreshDeckDefinitions();
+        manager.RefreshDeckDefinitions(spelling.Decks);
         Require(manager.Get(switchAction) == (Keys.Control | Keys.Alt | Keys.F10), "Stable user-deck shortcut broke after rename/reorder.");
         service.DeleteUserDeck(userDeck.Id, null);
-        manager.RefreshDeckDefinitions();
+        manager.RefreshDeckDefinitions(spelling.Decks);
         Require(!manager.Definitions.Any(def => def.Id == switchAction || def.Id == moveAction), "Deleted user deck left orphaned shortcut actions.");
     }
 
