@@ -176,7 +176,7 @@ internal static class SentenceRound2SelfTest
             var sentences = new List<SentenceRecord>(sentenceCount);
             for (int i = 0; i < sentenceCount; i++)
             {
-                string english = $"common practice word item";
+                string english = "common practice word item";
                 string target = $"target-{i % 400:D3}";
                 List<string> tokens = SentenceTokenizer.Tokenize(english).ToList();
                 sentences.Add(new SentenceRecord
@@ -192,9 +192,9 @@ internal static class SentenceRound2SelfTest
                     EntryLevels = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
                     {
                         ["target-common"] = "A1",
-                        [target] = i % 5 switch { 0 => "A1", 1 => "A2", 2 => "B1", 3 => "B2", _ => "C1" }
+                        [target] = (i % 5) switch { 0 => "A1", 1 => "A2", 2 => "B1", 3 => "B2", _ => "C1" }
                     },
-                    DifficultyLevel = i % 5 switch { 0 => "A1", 1 => "A2", 2 => "B1", 3 => "B2", _ => "C1" }
+                    DifficultyLevel = (i % 5) switch { 0 => "A1", 1 => "A2", 2 => "B1", 3 => "B2", _ => "C1" }
                 });
             }
 
@@ -287,7 +287,7 @@ internal static class SentenceRound2SelfTest
     {
         InstalledSentencePack? current = new SentencePackStore(root).Find("CasePack");
         Require(current is not null, "Last-known-good SentencePack disappeared after failed replacement.");
-        Require(current.Corpus.LookupByEntryId("target-old").Single().Id == "old-sentence",
+        Require(current!.Corpus.LookupByEntryId("target-old").Single().Id == "old-sentence",
             "Failed replacement changed the last-known-good SentencePack content.");
     }
 
