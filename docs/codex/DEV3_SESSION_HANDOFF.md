@@ -1,41 +1,32 @@
 # AUTO-CHESS DEV3 session handoff
 
-Delivered a second coherent Full Product P1 increment on `auto/dev3-acsdb-stable-paging-20260821`, extending the earlier ACSDB stable-paging package without touching frozen Stage1 lineage.
+Continued the same DEV3 Full Product Work-run on `auto/dev3-acsdb-stable-paging-20260821` / draft PR #65 without returning to the already-accepted Stage1 engine package and without touching frozen release refs.
 
-Product/test checkpoint: `b6e5b0a6f801083462581c49c834793490dba465`.
-Verification-workflow checkpoint: `820d3d54294e19d9f3fbbd28937f45cc0b27c10b`.
-Draft PR: #65, base `codex/full-product-20260821`.
+Latest Product/test checkpoint: `37ab4921f0eff14ba198d9766e37dd6a86898d8d`.
+Exact verification run/job: `32527342947` / `96912093583`.
 
-Product/test delta for this continuation:
-- `acs/acsdb.py`
-- `tests/test_dev3_acsdb_position_provenance.py`
+Important overlap handling:
+- the branch advanced concurrently after the initial checkpoint;
+- the newer same-lane commits had already added exact-position composite paging and source provenance;
+- an attempted stale-SHA write was rejected by GitHub, after which the new head/file state was re-read and no concurrent work was overwritten or duplicated.
 
-Verification support delta:
-- `.github/workflows/dev3-full-product-data-ci.yml`
+New Product work added in this continuation:
+- ACSDB schema v3 migration adding `idx_positions_key_game_ply(position_key, game_id, ply)`;
+- file-backed SQLite WAL mode and 5000 ms busy timeout after supported-schema migration;
+- strict cursor/limit no-coercion and SQLite integer-range validation in ACSDB;
+- strict integer/text query validation in `GameSearchQuery` and `ImportHistoryService`;
+- adversarial tests for schema migration preservation, WAL reader/writer concurrency, coercive scalar rejection and deterministic pagination over 1,200 imported games.
 
-Behavior added:
-- `search_position(..., after_game_id=..., after_ply=...)` composite keyset cursor over the unique `(game_id, ply)` ordering;
-- stable exact-position paging when matching rows/imports are inserted between pages;
-- provenance fields on game-search and exact-position rows: `source_name`, `source_format`, `source_sha256`, `source_imported_at`;
-- strict composite-cursor validation;
-- backward-compatible positional `search_position(fen, limit)` behavior retained after second-pass review.
+Exact terminal evidence on Product/test checkpoint `37ab4921...`:
+- focused ACSDB: 14/14 PASS;
+- full unittest: 559/559 PASS;
+- full pytest: 637 passed + 537 subtests passed;
+- compile/diff hygiene PASS;
+- Stage1 engine/play/analysis/lifecycle regressions included in full repository discovery remained GREEN.
 
-Regression coverage added:
-- provenance on game-search rows;
-- provenance on exact-position rows;
-- exact-position paging stability with a late row behind the cursor and a later imported game ahead of it;
-- incomplete, boolean and negative composite cursors;
-- positional limit compatibility exercised directly.
-
-CI/test evidence:
-- added `DEV3 Full Product Data CI` on branch pushes;
-- workflow compiles ACSDB/GameTree/import-contract/tests, runs focused `tests.test_acsdb` + `tests.test_dev3_acsdb_position_provenance`, then full `unittest discover`;
-- outbound git clone still fails in this runtime due DNS resolution, so local executable tests were not available;
-- the available GitHub connector enumerates only pull-request-associated workflow runs for a commit and did not provide an observable result for this push-only workflow before handoff;
-- therefore this handoff does NOT claim executable GREEN.
-
-Current decision:
-- `READY_FOR_INTEGRATION=NO` pending observable terminal focused/full test evidence;
+Decision:
+- isolated ACSDB/Library/Search slice: `READY_FOR_INTEGRATION=YES`;
+- overall DEV3 Full Product mission: PARTIAL, not falsely marked complete;
+- next work is bounded query-plan/performance review, then non-duplicative import/export and engine-assisted training/teacher analytics review;
 - `NVDA_VERIFIED=NO`;
-- do not merge into frozen Stage1 refs;
-- next DEV3 wave should inspect PR #65/head first and consume exact CI evidence before any further Product expansion.
+- DEV5/Auditor remain integration/release authorities.

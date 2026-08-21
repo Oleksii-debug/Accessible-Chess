@@ -1,28 +1,31 @@
 # AUTO-CHESS DEV3 run state
 
-STATUS: COMPLETE
+STATUS: COMPLETE FOR CURRENT ACSDB P1 SLICE / FULL PRODUCT MISSION PARTIAL
 BRANCH: `auto/dev3-acsdb-stable-paging-20260821`
 PR: #65
-DIRECTIVE: autonomous Full Product P1 / ACSDB-Library-Search
-SAFE_OVERLAP: not triggered; no competing active DEV3/auto branch was present at the start of this continuation.
+DIRECTIVE: Full Product DEV3 / ACSDB-Library-Search-performance
 
-Latest Product/test checkpoint: `b6e5b0a6f801083462581c49c834793490dba465`
-Latest verification-workflow checkpoint: `820d3d54294e19d9f3fbbd28937f45cc0b27c10b`
+Latest Product/test checkpoint: `37ab4921f0eff14ba198d9766e37dd6a86898d8d`
+Exact CI run: `32527342947`
+Exact CI job: `96912093583`
 
-Terminal result:
-- prior stable game/import keyset paging retained;
-- exact-position search now has stable composite keyset paging;
-- game and position search rows now expose source provenance directly;
-- positional `search_position(fen, limit)` compatibility was reviewed and preserved;
-- new regression tests cover provenance, cursor validation and late-row paging stability;
-- dedicated Full Product data CI workflow added with compile, focused ACSDB tests and full unittest discovery.
+Terminal result for this current slice:
+- stable game/import keyset paging retained;
+- exact-position composite paging and source provenance retained from same-lane concurrent DEV3 progress instead of duplicated;
+- schema advanced to v3 with composite exact-position index;
+- file-backed ACSDB now uses WAL and 5000 ms busy timeout after schema validation/migration;
+- ACSDB, SearchService and ImportHistoryService reject coercive string/float/bool integer scalars;
+- regression suite adds v2->v3 migration preservation, WAL read/write concurrency, SQLite integer-range cursor checks and deterministic 1,200-game pagination.
 
-Evidence state:
-- GitHub accepted all commits and PR #65 remains mergeable at last metadata read.
-- local checkout/test execution is unavailable because outbound git DNS resolution fails in this runtime.
-- branch CI is push-triggered, but the available connector cannot enumerate push-only workflow runs by commit; no observable run ID/result was available before handoff.
-- no tests were weakened or skipped for GREEN.
+Exact executable evidence:
+- diff hygiene PASS;
+- compile PASS;
+- focused ACSDB 14/14 PASS;
+- full unittest 559/559 PASS;
+- full pytest 637 passed + 537 subtests passed;
+- no weakened/skipped tests.
 
-READY_FOR_INTEGRATION: NO
+READY_FOR_INTEGRATION: YES for the isolated verified ACSDB/Library/Search slice.
+OVERALL_FULL_PRODUCT_DEV3: PARTIAL; additional task packages remain for later continuation.
 NVDA_VERIFIED: NO
-BLOCKER: terminal executable test/CI evidence is not observable in this runtime.
+BLOCKER: none for this isolated slice; release/integration authority remains DEV5/Auditor.

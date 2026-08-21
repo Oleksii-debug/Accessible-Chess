@@ -1,11 +1,13 @@
 # AUTO-CHESS DEV3 next work
 
-1. Re-read live PR #65 and exact branch head before any new edit.
-2. Obtain observable executable evidence for the current ACSDB package. Preferred proof: branch `DEV3 Full Product Data CI` with focused `tests.test_acsdb` + `tests.test_dev3_acsdb_position_provenance` and full `unittest discover` terminal results.
-3. If that CI is not observable through the current connector, validate the exact Product/test checkpoint in the first repository-capable runner; do not infer GREEN from mergeability or static inspection.
-4. If tests expose a regression, fix the root cause without weakening coverage and preserve the backward-compatible `search_position(fen, limit)` call shape.
-5. Only after terminal executable evidence, consider the next unclaimed ACSDB/Library/Search P1: large-dataset query/index profiling, provenance-facing library adapters, or atomic cross-read/import consistency.
-6. Do not merge or retarget frozen Stage1 release refs. DEV5 may integrate only after exact evidence is terminal.
+1. Re-read live PR #65/head before any edit and do not overwrite concurrent same-lane DEV3 work.
+2. Preserve the verified ACSDB paging/provenance/WAL/scalar package at Product checkpoint `37ab4921f0eff14ba198d9766e37dd6a86898d8d` and exact GREEN run `32527342947`.
+3. Next unclaimed READY P1 is bounded large-dataset/query-plan profiling: inspect indexes/query plans for player/event/ECO/opening/source and exact-position searches, add deterministic regressions rather than fabricated latency claims, and avoid accidental full-table materialization.
+4. Review higher-level import/export application services for atomicity/provenance only where not already covered by ImportRegistry/PgnFileService/ImportHistoryService. Do not duplicate DEV4 ChessBase decoding/security ownership.
+5. Then review engine-assisted training/book/teacher/progress analytics boundaries for concrete DEV3-owned defects only; canonical GameTree/domain stays DEV2-owned and UI stays DEV1-owned.
+6. Keep frozen Stage1 release refs untouched. DEV5 owns cross-lane integration/promotion.
+7. Every substantial new Product change requires an exact-head terminal CI run before integration readiness is claimed.
 
-Current integration readiness: `READY_FOR_INTEGRATION=NO` pending observable executable test/CI evidence.
+Current isolated ACSDB slice: `READY_FOR_INTEGRATION=YES`.
+Overall DEV3 Full Product mission: `PARTIAL / CONTINUE ON NEXT SCHEDULED WORK-RUN`.
 `NVDA_VERIFIED=NO`.
