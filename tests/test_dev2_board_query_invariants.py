@@ -19,23 +19,26 @@ class Dev2BoardQueryInvariantTests(unittest.TestCase):
             )
         )
 
-    def test_empty_square_attackers_and_defenders_are_side_relative(self):
+    def test_empty_square_attackers_preserve_stage1_all_controllers_contract(self):
+        for turn in ("w", "b"):
+            with self.subTest(turn=turn):
+                service = self._service(turn)
+                self.assertEqual(
+                    {item.square for item in service.all_controllers("e4")},
+                    {"c3", "d5"},
+                )
+                self.assertEqual(
+                    {item.square for item in service.attackers("e4")},
+                    {"c3", "d5"},
+                )
+
+    def test_empty_square_defenders_keep_side_to_move_projection(self):
         white_to_move = self._service("w")
-        self.assertEqual(
-            {item.square for item in white_to_move.all_controllers("e4")},
-            {"c3", "d5"},
-        )
-        self.assertEqual(
-            {item.square for item in white_to_move.attackers("e4")}, {"d5"}
-        )
         self.assertEqual(
             {item.square for item in white_to_move.defenders("e4")}, {"c3"}
         )
 
         black_to_move = self._service("b")
-        self.assertEqual(
-            {item.square for item in black_to_move.attackers("e4")}, {"c3"}
-        )
         self.assertEqual(
             {item.square for item in black_to_move.defenders("e4")}, {"d5"}
         )

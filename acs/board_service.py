@@ -229,8 +229,9 @@ class BoardCommandService:
     def attackers(self, square: str | int) -> tuple[SquareView, ...]:
         idx = parse_square(square)
         occupant_color = piece_color(self.board.pieces[idx])
-        reference_color = occupant_color or self.board.turn
-        target_color = "b" if reference_color == "w" else "w"
+        if occupant_color is None:
+            return self.all_controllers(idx)
+        target_color = "b" if occupant_color == "w" else "w"
         return tuple(
             item for item in self.all_controllers(idx)
             if piece_color(item.piece) == target_color
