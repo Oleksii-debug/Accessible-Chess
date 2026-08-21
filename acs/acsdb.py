@@ -396,10 +396,10 @@ class AcsDatabase:
     def search_position(
         self,
         fen: str,
+        limit: int = 100,
         *,
         after_game_id: int | None = None,
         after_ply: int | None = None,
-        limit: int = 100,
     ) -> list[dict]:
         """Search exact positions with stable composite-key paging and provenance.
 
