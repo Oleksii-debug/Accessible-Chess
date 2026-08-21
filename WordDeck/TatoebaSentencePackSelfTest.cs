@@ -9,6 +9,7 @@ internal static class TatoebaSentencePackSelfTest
     {
         TestSupportedPairLayouts();
         TestPackBuildAndStableIds();
+        TestFinalOxford5000Integration();
         TestLanguageAndMalformedInputRejection();
         TestVerifiedManifestProvenance();
     }
@@ -91,6 +92,27 @@ internal static class TatoebaSentencePackSelfTest
         SentencePack reparsed = SentencePackJson.Parse(SentencePackJson.Serialize(pack));
         Require(reparsed.Sentences.Count == pack.Sentences.Count && reparsed.License == "CC BY 2.0 FR",
             "Built Tatoeba SentencePack did not survive JSON round-trip.");
+    }
+
+    private static void TestFinalOxford5000Integration()
+    {
+        DictionaryPackage dictionary = DictionaryLoader.LoadEmbeddedOxford();
+        Require(dictionary.Entries.Count == 5446,
+            "SentencePack builder is not seeing the final 5,446-entry Oxford training dictionary.");
+
+        DictionaryEntry addition = dictionary.Entries.Single(entry =>
+            entry.Source.Equals("abolish", StringComparison.OrdinalIgnoreCase) &&
+            entry.Level.Equals("C1", StringComparison.OrdinalIgnoreCase));
+
+        (SentencePack pack, SentencePackBuildReport report) = TatoebaSentencePackBuilder.Build(
+            new[] { new TatoebaSentencePair(501, "They abolish.", 601, "Вони скасовують.") },
+            dictionary,
+            "full-oxford5000-regression",
+            "Synthetic full Oxford 5000 integration regression fixture",
+            "CC0 1.0");
+
+        Require(report.AcceptedPairs == 1 && pack.Sentences.Single().TargetEntryIds.Contains(addition.Id),
+            "SentencePack indexing did not include an Oxford 5000 addition outside the frozen Oxford 3000 baseline.");
     }
 
     private static void TestLanguageAndMalformedInputRejection()
