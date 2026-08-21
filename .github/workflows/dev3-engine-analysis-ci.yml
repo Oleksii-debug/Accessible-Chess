@@ -61,6 +61,7 @@ jobs:
           python -m unittest -v
           tests.test_dev3_uci_failure_recovery
           tests.test_dev3_sound_failure_isolation
+          tests.test_dev3_takeback_atomicity
           tests.test_stockfish_runtime
           tests.test_release_stockfish_composition
           tests.test_engine_play_service
