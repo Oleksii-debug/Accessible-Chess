@@ -164,7 +164,7 @@ internal static class SelfTest
     {
         var state = AppStateStore.Normalize(new AppState());
         var manager = new ShortcutManager(state);
-        Require(manager.Definitions.Count == 27, $"Expected 27 Recall/scope/core-deck actions, got {manager.Definitions.Count}.");
+        Require(manager.Definitions.Count == 33, $"Expected 33 Recall/scope/core-deck actions, got {manager.Definitions.Count}.");
         Require(manager.Definitions.Select(def => def.Id).Distinct(StringComparer.OrdinalIgnoreCase).Count() == manager.Definitions.Count, "Shortcut action IDs must be unique.");
         Require(manager.Definitions.Where(def => def.DefaultKeys != Keys.None).Select(def => def.DefaultKeys).Distinct().Count() == manager.Definitions.Count(def => def.DefaultKeys != Keys.None), "Assigned default shortcuts must be unique.");
         foreach (string scopeId in StudyScopeIds.Ordered)
@@ -173,6 +173,12 @@ internal static class SelfTest
             Require(manager.Definitions.Any(def => def.Id == actionId), $"Missing stable scope action {actionId}.");
             Require(manager.Get(actionId) == Keys.None, "Scope actions must start unassigned.");
         }
+        Require(manager.Get(ActionIds.NextWord) == Keys.Down, "Down Arrow must be the primary Recall next-card key.");
+        Require(manager.Get(ActionIds.PreviousWord) == Keys.Up, "Up Arrow must be the primary true previous-card key.");
+        Require(manager.FindAction(Keys.Down) == ActionIds.NextWord && manager.FindAction(Keys.Up) == ActionIds.PreviousWord,
+            "Recall Up/Down dispatch does not preserve distinct next/previous actions.");
+        Require(!manager.TrySet(ActionIds.SaveProgress, Keys.Left, out _), "Unmodified Left Arrow must remain standard caret/text navigation.");
+        Require(!manager.TrySet(ActionIds.SaveProgress, Keys.Right, out _), "Unmodified Right Arrow must remain standard caret/text navigation.");
         Require(manager.Get(ActionIds.SaveProgress) == (Keys.Control | Keys.S), "Ctrl+S save default changed.");
         Require(manager.Get(ActionIds.AddWords) == (Keys.Control | Keys.Shift | Keys.A), "Bulk-add default changed.");
         Require(ShortcutFormatter.Format(Keys.Control | Keys.Shift | Keys.B) == "Ctrl+Shift+B", "Shared shortcut formatter regression.");
@@ -187,7 +193,7 @@ internal static class SelfTest
         var service = new DeckService(state);
         DeckDefinition userDeck = service.Create("Custom study");
         manager.RefreshDeckDefinitions();
-        Require(manager.Definitions.Count == 29, "Creating a Recall user deck did not add switch/move actions.");
+        Require(manager.Definitions.Count == 35, "Creating a Recall user deck did not add switch/move actions.");
         string switchAction = ActionIds.SwitchDeck(userDeck.Id);
         string moveAction = ActionIds.MoveToDeck(userDeck.Id);
         Require(manager.Get(switchAction) == Keys.None && manager.Get(moveAction) == Keys.None, "User-deck shortcuts must start unassigned.");
@@ -210,6 +216,11 @@ internal static class SelfTest
         IReadOnlyList<string> sanitized = PronunciationAudio.CandidatePaths("custom dictionary/uk", "entry 1");
         Require(sanitized.All(path => path.Contains("custom_dictionary_uk", StringComparison.OrdinalIgnoreCase)), "Unsafe dictionary ID characters were not sanitized.");
         Require(sanitized.All(path => path.EndsWith(Path.Combine("custom_dictionary_uk", "entry_1.mp3"), StringComparison.OrdinalIgnoreCase)), "Unsafe entry ID characters were not sanitized.");
+        using var audio = new PronunciationAudio();
+        var package = new DictionaryPackage { Id = "self-test-dictionary", Name = "Self test", SourceLanguage = "en", TargetLanguage = "uk", Entries = Array.Empty<DictionaryEntry>() };
+        var missingEntry = new DictionaryEntry("definitely-missing-self-test-audio", "A1", "missing", "відсутній");
+        Require(!audio.TryPlay(package, missingEntry, out string? missingError) && missingError?.Contains("not installed", StringComparison.OrdinalIgnoreCase) == true,
+            "Missing local pronunciation did not return a readable non-crashing status.");
     }
 
     private static void TestStatePersistenceAndRecovery()

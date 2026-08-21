@@ -142,7 +142,7 @@ internal sealed class RecallNavigationHistory
             if (!string.Equals(_entryIds[i], entryId, StringComparison.OrdinalIgnoreCase)) continue;
             _entryIds.RemoveAt(i);
             if (i < _index) _index--;
-            else if (i == _index) _index = Math.Min(_index, _entryIds.Count - 1);
+            else if (i == _index) _index = i - 1;
         }
         if (_entryIds.Count == 0) _index = -1;
     }
