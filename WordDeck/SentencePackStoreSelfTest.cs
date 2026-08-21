@@ -127,7 +127,7 @@ internal static class SentencePackStoreSelfTest
             License = "CC BY 2.0 FR",
             Sentences = new List<SentenceRecord>
             {
-                CloneSentence(missingAttribution.Sentences[0], license: "CC BY 2.0 FR", source: "Tatoeba without per-side authors", sourceId: "101", translationId: "201")
+                CloneSentence(missingAttribution.Sentences[0], license: "CC BY 2.0 FR", provenanceSource: "Tatoeba without per-side authors", sourceId: "101", translationId: "201")
             }
         };
         string missingAttributionPath = Path.Combine(root, "missing-attribution.json");
@@ -145,7 +145,7 @@ internal static class SentencePackStoreSelfTest
                 CloneSentence(
                     BuildPack("placeholder").Sentences[0],
                     license: "CC BY 2.0 FR",
-                    source: "Tatoeba English sentence #101 by Alice; Ukrainian sentence #201 by Olena",
+                    provenanceSource: "Tatoeba English sentence #101 by Alice; Ukrainian sentence #201 by Olena",
                     sourceId: "101",
                     translationId: "201")
             }
@@ -158,28 +158,28 @@ internal static class SentencePackStoreSelfTest
     }
 
     private static SentenceRecord CloneSentence(
-        SentenceRecord source,
+        SentenceRecord original,
         string? license = null,
-        string? source = null,
+        string? provenanceSource = null,
         string? sourceId = null,
         string? translationId = null)
     {
         return new SentenceRecord
         {
-            Id = source.Id,
-            English = source.English,
-            Ukrainian = source.Ukrainian,
-            Source = source ?? source.Source,
-            License = license ?? source.License,
-            SourceSentenceId = sourceId ?? source.SourceSentenceId,
-            TranslationSentenceId = translationId ?? source.TranslationSentenceId,
-            Tokens = source.Tokens.ToList(),
-            Lemmas = source.Lemmas.ToList(),
-            TargetEntryIds = source.TargetEntryIds.ToList(),
-            EntryLevels = new Dictionary<string, string>(source.EntryLevels, StringComparer.OrdinalIgnoreCase),
-            DifficultyLevel = source.DifficultyLevel,
-            OffListTokenCount = source.OffListTokenCount,
-            QualityFlags = source.QualityFlags.ToList()
+            Id = original.Id,
+            English = original.English,
+            Ukrainian = original.Ukrainian,
+            Source = provenanceSource ?? original.Source,
+            License = license ?? original.License,
+            SourceSentenceId = sourceId ?? original.SourceSentenceId,
+            TranslationSentenceId = translationId ?? original.TranslationSentenceId,
+            Tokens = original.Tokens.ToList(),
+            Lemmas = original.Lemmas.ToList(),
+            TargetEntryIds = original.TargetEntryIds.ToList(),
+            EntryLevels = new Dictionary<string, string>(original.EntryLevels, StringComparer.OrdinalIgnoreCase),
+            DifficultyLevel = original.DifficultyLevel,
+            OffListTokenCount = original.OffListTokenCount,
+            QualityFlags = original.QualityFlags.ToList()
         };
     }
 
