@@ -1,0 +1,153 @@
+name: WordDeck worker 5 R2 release regression
+
+on:
+  push:
+    branches:
+      - worddeck-worker-5-release-r2
+    paths:
+      - 'WordDeck/**'
+      - 'README-WORDDECK.md'
+      - '.github/workflows/worddeck-*.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  statuses: write
+
+concurrency:
+  group: worddeck-worker5-r2-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  release-regression:
+    runs-on: windows-latest
+    timeout-minutes: 75
+    steps:
+      - name: Checkout exact R2 worker commit
+        uses: actions/checkout@v4
+
+      - name: Publish pending exact-tip status
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const targetUrl = `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`;
+            await github.rest.repos.createCommitStatus({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              sha: context.sha,
+              state: 'pending',
+              context: 'WordDeck worker 5 R2 release regression',
+              description: 'R2 release/regression gate is running.',
+              target_url: targetUrl
+            });
+
+      - name: Branch and workflow mutation safety
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:GITHUB_REF_NAME -ne 'worddeck-worker-5-release-r2') {
+            throw "Unexpected branch: $env:GITHUB_REF_NAME"
+          }
+          $authoritative = Get-Content .\.github\workflows\worddeck-windows.yml -Raw
+          if ($authoritative -match 'contents:\s*write') {
+            throw 'Authoritative validation still requests repository contents write permission.'
+          }
+          if ($authoritative -match 'git\s+push\s+origin\s+HEAD:worddeck-bootstrap') {
+            throw 'Authoritative validation can still self-write worddeck-bootstrap.'
+          }
+          Write-Host 'Branch/workflow source-mutation safety PASS.'
+
+      - name: Repository private-state and secret filename gate
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $tracked = @(git ls-files)
+          $forbidden = @($tracked | Where-Object {
+            $_ -match '(^|/)(token\.json|credentials?\.json|cookies?(\.sqlite|\.json)?|\.env|id_rsa|id_ed25519)$' -or
+            $_ -match '\.(pfx|p12|pem|key)$' -or
+            $_ -match '(^|/)(state|state\.backup|spelling-state|spelling-state\.backup|sentence-coach-state|sentence-coach-state\.backup)\.json$' -or
+            $_ -match '(^|/)WordDeck-profile.*\.json$'
+          })
+          if ($forbidden.Count -ne 0) {
+            throw "Tracked secret/private-state candidates: $($forbidden -join ', ')"
+          }
+          Write-Host 'Tracked-file security PASS.'
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore
+        run: dotnet restore .\WordDeck\WordDeck.csproj
+
+      - name: Release build with warnings as errors
+        run: dotnet build .\WordDeck\WordDeck.csproj -c Release --no-restore -warnaserror
+
+      - name: Full embedded regression suite
+        run: dotnet run --project .\WordDeck\WordDeck.csproj -c Release --no-build -- --self-test
+
+      - name: Self-contained win-x64 publish in spaces and Cyrillic path
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+          $publish = Join-Path $PWD 'artifacts\WordDeck тест release'
+          dotnet publish .\WordDeck\WordDeck.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:DebugType=None -p:DebugSymbols=false -o $publish
+          $exe = Join-Path $publish 'WordDeck.exe'
+          if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) { throw 'Published WordDeck.exe is missing.' }
+          $process = Start-Process -FilePath $exe -ArgumentList '--self-test' -Wait -PassThru
+          if ($process.ExitCode -ne 0) { throw "Published EXE self-test failed: $($process.ExitCode)" }
+          "head_sha=$env:GITHUB_SHA" | Set-Content .\artifacts\worker5-r2-release-evidence.txt -Encoding UTF8
+          "publish_path=$publish" | Add-Content .\artifacts\worker5-r2-release-evidence.txt -Encoding UTF8
+          'published_exe_self_test=PASS' | Add-Content .\artifacts\worker5-r2-release-evidence.txt -Encoding UTF8
+          'spaces_and_cyrillic_path=PASS' | Add-Content .\artifacts\worker5-r2-release-evidence.txt -Encoding UTF8
+
+      - name: Clean publish, offline shape and no-admin manifest gate
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $publish = Join-Path $PWD 'artifacts\WordDeck тест release'
+          $forbidden = @(Get-ChildItem -LiteralPath $publish -Recurse -File | Where-Object {
+            $_.Name -match '^state(\.backup)?\.json$' -or
+            $_.Name -match '^spelling-state(\.backup)?\.json$' -or
+            $_.Name -match '^sentence-coach-state(\.backup)?\.json$' -or
+            $_.Name -like 'WordDeck-profile*.json' -or
+            $_.Name -match '(^|[-_.])(token|secret|credential|cookie)([-_.]|$)'
+          })
+          if ($forbidden.Count -ne 0) {
+            throw "Published tree contains private-state/secret candidates: $($forbidden.FullName -join ', ')"
+          }
+          $manifest = Get-Content .\WordDeck\app.manifest -Raw
+          if ($manifest -notmatch 'requestedExecutionLevel\s+level="asInvoker"') {
+            throw 'Application manifest does not explicitly use asInvoker.'
+          }
+          'clean_publish_tree=PASS' | Add-Content .\artifacts\worker5-r2-release-evidence.txt -Encoding UTF8
+          'no_admin_required_manifest=PASS' | Add-Content .\artifacts\worker5-r2-release-evidence.txt -Encoding UTF8
+
+      - name: Upload exact-tip release evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: WordDeck-worker5-r2-release-evidence
+          path: .\artifacts\worker5-r2-release-evidence.txt
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish final exact-tip status
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const succeeded = '${{ job.status }}' === 'success';
+            const targetUrl = `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`;
+            await github.rest.repos.createCommitStatus({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              sha: context.sha,
+              state: succeeded ? 'success' : 'failure',
+              context: 'WordDeck worker 5 R2 release regression',
+              description: succeeded ? 'R2 release/regression gate passed.' : 'R2 release/regression gate failed.',
+              target_url: targetUrl
+            });
