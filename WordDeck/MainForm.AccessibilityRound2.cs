@@ -63,6 +63,7 @@ internal sealed partial class MainForm
 
             SpellingState spelling = new SpellingStateStore().Load();
             _shortcuts.RefreshDeckDefinitions(spelling.Decks);
+            SynchronizeRound2TrainingMenuShortcuts();
 
             Label? hint = FindRound2ControlByAccessibleName(this, "Keyboard hint") as Label;
             if (hint is not null)
@@ -78,6 +79,29 @@ internal sealed partial class MainForm
         finally
         {
             _round2RefreshingShortcutPresentation = false;
+        }
+    }
+
+    private void SynchronizeRound2TrainingMenuShortcuts()
+    {
+        if (MainMenuStrip is null) return;
+        SetRound2MenuShortcut(MainMenuStrip.Items, "Open Spelling trainer", _shortcuts.Get(ActionIds.OpenSpelling));
+        SetRound2MenuShortcut(MainMenuStrip.Items, "Open Sentence Spelling trainer", _shortcuts.Get(ActionIds.OpenSentenceCoach));
+    }
+
+    private static void SetRound2MenuShortcut(ToolStripItemCollection items, string accessibleName, Keys shortcut)
+    {
+        foreach (ToolStripItem item in items)
+        {
+            if (item is not ToolStripMenuItem menuItem) continue;
+            if (string.Equals(menuItem.AccessibleName, accessibleName, StringComparison.OrdinalIgnoreCase))
+            {
+                menuItem.ShortcutKeys = shortcut;
+                menuItem.ShowShortcutKeys = shortcut != Keys.None;
+                return;
+            }
+            if (menuItem.DropDownItems.Count > 0)
+                SetRound2MenuShortcut(menuItem.DropDownItems, accessibleName, shortcut);
         }
     }
 
