@@ -17,24 +17,67 @@ jobs:
   spelling-gate:
     runs-on: windows-latest
     permissions:
-      contents: read
+      contents: write
     steps:
       - name: Checkout isolated worker branch
+        id: checkout
         uses: actions/checkout@v4
 
       - name: Setup .NET 8
+        id: setup
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '8.0.x'
 
       - name: Restore
+        id: restore
         run: dotnet restore .\WordDeck\WordDeck.csproj
 
       - name: Build Release
+        id: build
         run: dotnet build .\WordDeck\WordDeck.csproj -c Release --no-restore
 
       - name: Run complete WordDeck self-test suite
+        id: selftest
         run: dotnet run --project .\WordDeck\WordDeck.csproj -c Release --no-build -- --self-test
 
       - name: Publish Windows x64 smoke artifact
+        id: publish
         run: dotnet publish .\WordDeck\WordDeck.csproj -c Release -r win-x64 --self-contained true -o .\artifacts\WordDeck-worker2
+
+      - name: Persist auditable worker gate evidence
+        if: always()
+        shell: pwsh
+        run: |
+          $testedSha = '${{ github.sha }}'
+          $runId = '${{ github.run_id }}'
+          $runAttempt = '${{ github.run_attempt }}'
+          $restore = '${{ steps.restore.outcome }}'
+          $build = '${{ steps.build.outcome }}'
+          $selftest = '${{ steps.selftest.outcome }}'
+          $publish = '${{ steps.publish.outcome }}'
+          $overall = if ($restore -eq 'success' -and $build -eq 'success' -and $selftest -eq 'success' -and $publish -eq 'success') { 'PASS' } else { 'FAIL' }
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git fetch origin worddeck-worker-2-spelling
+          git checkout -B worddeck-worker-2-spelling origin/worddeck-worker-2-spelling
+
+          $lines = @(
+            'WORDDECK WORKER 02 WINDOWS GATE EVIDENCE',
+            "overall=$overall",
+            "tested_sha=$testedSha",
+            "run_id=$runId",
+            "run_attempt=$runAttempt",
+            "restore=$restore",
+            "build=$build",
+            "selftest=$selftest",
+            "publish_win_x64=$publish",
+            "completed_utc=$([DateTime]::UtcNow.ToString('o'))"
+          )
+          Set-Content -LiteralPath '.github/worker2-spelling-ci-status.txt' -Value $lines -Encoding utf8
+          git add .github/worker2-spelling-ci-status.txt
+          if (-not (git diff --cached --quiet)) {
+            git commit -m "WordDeck worker2: record Windows gate $overall for $testedSha [skip ci]"
+            git push origin HEAD:worddeck-worker-2-spelling
+          }
