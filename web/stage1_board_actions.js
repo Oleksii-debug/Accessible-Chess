@@ -2,10 +2,13 @@
 'use strict';
 
 if (window.__accessibleChessStage1BoardActions) return;
-window.__accessibleChessStage1BoardActions = true;
 
 const baseExecuteAction = window.executeAction;
 const baseRenderHelp = window.renderHelp;
+// Fail open for later reinjection, not false-green: if the release bootstrap
+// has not installed executeAction yet, do not set the readiness guard. The
+// Product launcher deliberately evaluates bootstrap first and this bridge
+// second, but a stale/reordered resource chain must remain recoverable.
 if (typeof baseExecuteAction !== 'function') return;
 
 const boardPythonActions = new Set([
@@ -78,6 +81,10 @@ window.renderHelp = function() {
     node.appendChild(extra);
 };
 
+// Set the idempotence guard only after the prerequisite bootstrap function and
+// both wrappers exist. Rendering Help is deliberately after the guard so a
+// presentation-only failure cannot make a later injection stack wrappers.
+window.__accessibleChessStage1BoardActions = true;
 if (typeof window.renderHelp === 'function') window.renderHelp();
-document.body.dataset.stage1BoardActionBridgeReady = 'true';
+if (document.body) document.body.dataset.stage1BoardActionBridgeReady = 'true';
 })();
