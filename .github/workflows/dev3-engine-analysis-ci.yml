@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - manual5/dev3-engine-analysis-lifecycle-20260821
+  pull_request:
+    branches:
+      - integration/accessible-chess-next
   workflow_dispatch:
 
 permissions:
@@ -57,6 +60,7 @@ jobs:
         run: >-
           python -m unittest -v
           tests.test_dev3_uci_failure_recovery
+          tests.test_dev3_sound_failure_isolation
           tests.test_stockfish_runtime
           tests.test_release_stockfish_composition
           tests.test_engine_play_service
