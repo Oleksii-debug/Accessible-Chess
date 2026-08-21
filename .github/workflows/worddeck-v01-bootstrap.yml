@@ -1,0 +1,56 @@
+name: WordDeck V0.1 staging bootstrap
+
+on:
+  push:
+    branches: [worddeck-v01-user-safe-staging]
+    paths:
+      - '.github/workflows/worddeck-v01-bootstrap.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  patch-build-test:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: worddeck-v01-user-safe-staging
+          fetch-depth: 0
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Apply exact V0.1 user-safe UI patch
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+          python .\WordDeck\tools\apply_v01_user_safe_patch.py
+          Remove-Item .\WordDeck\tools\apply_v01_user_safe_patch.py -Force
+          Remove-Item .\.github\workflows\worddeck-v01-bootstrap.yml -Force
+          git diff --check
+
+      - name: Restore build and run complete self-test before push
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+          dotnet restore .\WordDeck\WordDeck.csproj
+          dotnet build .\WordDeck\WordDeck.csproj -c Release --no-restore
+          dotnet run --project .\WordDeck\WordDeck.csproj -c Release --no-build -- --self-test
+
+      - name: Commit validated patch to staging only
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -- .\WordDeck\MainForm.cs .\WordDeck\Program.cs .\WordDeck\SelfTest.cs .\WordDeck\tools\apply_v01_user_safe_patch.py .\.github\workflows\worddeck-v01-bootstrap.yml
+          git diff --cached --check
+          git commit -m 'WordDeck: integrate user-safe first-use Recall UX'
+          git push origin HEAD:worddeck-v01-user-safe-staging
