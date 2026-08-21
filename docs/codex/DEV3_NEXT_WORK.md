@@ -1,13 +1,14 @@
 # AUTO-CHESS DEV3 next work
 
-1. Re-read live PR #65/head before any edit and preserve same-lane concurrent progress instead of overwriting it.
-2. Preserve verified recovery package head `6c7e9212584ccf6c567d3b9297b7104d73e8b6b1` and exact GREEN run `32527856952`.
-3. Next unclaimed P1: bounded large-dataset/query-plan profiling. Use SQLite `EXPLAIN QUERY PLAN`/deterministic evidence, not invented latency. Review source/result/ECO/exact-position/index paths and ensure keyset/LIMIT queries never materialize an entire result set in application memory.
-4. Review higher-level import/export application services only for concrete atomicity/provenance gaps not already owned by PgnFileService, ImportRegistry and ImportHistoryService. Do not duplicate DEV4 ChessBase decoding/security work.
-5. Then inspect engine-assisted book/training/teacher/progress analytics boundaries for concrete DEV3-owned defects only; canonical GameTree/domain remains DEV2-owned and UI remains DEV1-owned.
-6. Keep frozen Stage1 release refs untouched. DEV5 owns cross-lane integration/promotion.
-7. Every substantial Product change requires exact-head terminal focused + full executable evidence before readiness is claimed.
+1. Re-read live PR #65/head and current lane ownership before any Product edit. Preserve same-lane concurrent progress; if touching DEV3 work is IN_PROGRESS, remain in SAFE OVERLAP MODE.
+2. Preserve verified executable package head `3f6fd2ff336eab4d0c8b9863da792f1c3d3e28f3` and exact GREEN run/job `32531622900` / `96924650174` for the completed query-plan / large-dataset evidence slice.
+3. Next unclaimed P1: audit higher-level import/export application services for concrete atomicity, provenance and lost-update gaps not already covered by `PgnFileService`, `ImportRegistry`, `ImportHistoryService` and ACSDB backup/recovery. Read existing code/tests first. Do not duplicate DEV2 GameTree/domain work or DEV4 ChessBase decoding/security work.
+4. Any discovered defect must be closed at the application/storage boundary without creating another canonical chess or GameTree source of truth. Preserve parameterized queries, bounded results, source provenance and failure atomicity.
+5. If import/export is already contract-complete, move immediately to DEV3-owned engine-assisted Books/Training/Teacher/progress analytics boundaries: engine evaluation/progress data and backend coordination only. Do not implement DEV1 presentation surfaces or DEV2 canonical GameTree edits.
+6. P2 maintenance only when no higher P1 remains: the DEV3 workflow still emits the GitHub Actions Node20-target deprecation warning for `actions/checkout@v4` / `actions/setup-python@v5`; update/pin only after verifying official Node24-capable action releases and without mixing maintenance into Product correctness changes.
+7. Keep frozen Stage1 release refs untouched. DEV5 owns cross-lane integration/promotion. Never create or claim a Windows/NVDA candidate from Linux CI.
+8. Every substantial Product change requires exact-head focused tests, full unittest, full pytest, compile/diff hygiene and applicable Actions before readiness is claimed.
 
-Current ACSDB/Library/Search/recovery slice: `READY_FOR_INTEGRATION=YES`.
+Current DEV3 ACSDB/Library/Search/recovery + performance-evidence package: `READY_FOR_INTEGRATION=YES`.
 Overall DEV3 Full Product mission: `PARTIAL / CONTINUE ON NEXT SCHEDULED WORK-RUN`.
 `NVDA_VERIFIED=NO`.
