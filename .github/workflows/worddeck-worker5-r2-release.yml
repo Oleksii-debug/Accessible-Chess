@@ -8,14 +8,24 @@ on:
       - 'WordDeck/**'
       - 'README-WORDDECK.md'
       - '.github/workflows/worddeck-*.yml'
+  pull_request:
+    branches:
+      - worddeck-bootstrap
+    paths:
+      - 'WordDeck/**'
+      - 'README-WORDDECK.md'
+      - '.github/workflows/worddeck-*.yml'
   workflow_dispatch:
 
 permissions:
   contents: read
   statuses: write
 
+env:
+  TARGET_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+
 concurrency:
-  group: worddeck-worker5-r2-${{ github.ref }}
+  group: worddeck-worker5-r2-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -25,6 +35,8 @@ jobs:
     steps:
       - name: Checkout exact R2 worker commit
         uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TARGET_SHA }}
 
       - name: Publish pending exact-tip status
         uses: actions/github-script@v7
@@ -35,7 +47,7 @@ jobs:
             await github.rest.repos.createCommitStatus({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              sha: context.sha,
+              sha: process.env.TARGET_SHA,
               state: 'pending',
               context: 'WordDeck worker 5 R2 release regression',
               description: 'R2 release/regression gate is running.',
@@ -46,9 +58,12 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          if ($env:GITHUB_REF_NAME -ne 'worddeck-worker-5-release-r2') {
-            throw "Unexpected branch: $env:GITHUB_REF_NAME"
+          $sourceBranch = if ($env:GITHUB_HEAD_REF) { $env:GITHUB_HEAD_REF } else { $env:GITHUB_REF_NAME }
+          if ($sourceBranch -ne 'worddeck-worker-5-release-r2') {
+            throw "Unexpected source branch: $sourceBranch"
           }
+          $actual = git rev-parse HEAD
+          if ($actual -ne $env:TARGET_SHA) { throw "Checkout is not exact worker head: $actual vs $env:TARGET_SHA" }
           $authoritative = Get-Content .\.github\workflows\worddeck-windows.yml -Raw
           if ($authoritative -match 'contents:\s*write') {
             throw 'Authoritative validation still requests repository contents write permission.'
@@ -58,7 +73,32 @@ jobs:
           }
           Write-Host 'Branch/workflow source-mutation safety PASS.'
 
-      - name: Repository private-state and secret filename gate
+      - name: Superseded mutation workflows are inert
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $historical = @(
+            'worddeck-emergency-completion.yml',
+            'worddeck-emergency-completion-v4.yml',
+            'worddeck-emergency-v5.yml',
+            'worddeck-emergency-v5-strict.yml',
+            'worddeck-emergency-v6.yml',
+            'worddeck-emergency-v7.yml',
+            'worddeck-emergency-v8.yml',
+            'worddeck-emergency-v8b.yml',
+            'worddeck-user1156-v1-completion.yml',
+            'worddeck-v01-package.yml'
+          )
+          foreach ($name in $historical) {
+            $path = Join-Path '.github\workflows' $name
+            $text = Get-Content $path -Raw
+            if ($text -match 'contents:\s*write' -or $text -match '(?m)^\s*push\s*:' -or $text -match 'git\s+push') {
+              throw "Historical workflow is still capable of automatic/source mutation: $name"
+            }
+          }
+          Write-Host 'Historical Oxford/1156/V0.1 mutation workflows are manual read-only markers.'
+
+      - name: Repository private-state, secret and personal-path gate
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
@@ -72,7 +112,12 @@ jobs:
           if ($forbidden.Count -ne 0) {
             throw "Tracked secret/private-state candidates: $($forbidden -join ', ')"
           }
-          Write-Host 'Tracked-file security PASS.'
+          $personalPaths = @(git grep -n -I -E 'C:\\Users\\[^%]|/home/[A-Za-z0-9._-]+/' -- WordDeck README-WORDDECK.md 2>$null)
+          if ($LASTEXITCODE -gt 1) { throw 'Personal-path grep failed.' }
+          if ($personalPaths.Count -ne 0) {
+            throw "Hard-coded personal path candidates were found: $($personalPaths -join '; ')"
+          }
+          Write-Host 'Tracked-file security and portable-path gate PASS.'
 
       - name: Setup .NET 8
         uses: actions/setup-dotnet@v4
@@ -99,7 +144,7 @@ jobs:
           if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) { throw 'Published WordDeck.exe is missing.' }
           $process = Start-Process -FilePath $exe -ArgumentList '--self-test' -Wait -PassThru
           if ($process.ExitCode -ne 0) { throw "Published EXE self-test failed: $($process.ExitCode)" }
-          "head_sha=$env:GITHUB_SHA" | Set-Content .\artifacts\worker5-r2-release-evidence.txt -Encoding UTF8
+          "head_sha=$env:TARGET_SHA" | Set-Content .\artifacts\worker5-r2-release-evidence.txt -Encoding UTF8
           "publish_path=$publish" | Add-Content .\artifacts\worker5-r2-release-evidence.txt -Encoding UTF8
           'published_exe_self_test=PASS' | Add-Content .\artifacts\worker5-r2-release-evidence.txt -Encoding UTF8
           'spaces_and_cyrillic_path=PASS' | Add-Content .\artifacts\worker5-r2-release-evidence.txt -Encoding UTF8
@@ -145,7 +190,7 @@ jobs:
             await github.rest.repos.createCommitStatus({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              sha: context.sha,
+              sha: process.env.TARGET_SHA,
               state: succeeded ? 'success' : 'failure',
               context: 'WordDeck worker 5 R2 release regression',
               description: succeeded ? 'R2 release/regression gate passed.' : 'R2 release/regression gate failed.',
