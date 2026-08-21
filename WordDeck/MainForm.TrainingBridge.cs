@@ -37,9 +37,15 @@ internal sealed partial class MainForm
                     combo.Focus();
             }));
         };
-        combo.Leave += (_, _) =>
+        combo.KeyUp += (_, e) =>
         {
-            if (ReferenceEquals(_keyboardSelectorPendingFocus, combo))
+            // If Up/Down was pressed at a list boundary and selection did not
+            // change, SelectedIndexChanged does not fire. Clear only after the
+            // key gesture finishes; do not clear on Leave because a selection
+            // handler may temporarily focus the current card before this late
+            // retention handler schedules focus back to the selector.
+            if (e.Modifiers == Keys.None && (e.KeyCode == Keys.Up || e.KeyCode == Keys.Down) &&
+                ReferenceEquals(_keyboardSelectorPendingFocus, combo))
                 _keyboardSelectorPendingFocus = null;
         };
     }
