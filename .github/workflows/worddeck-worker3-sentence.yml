@@ -1,0 +1,57 @@
+name: WordDeck worker 3 Sentence gate
+
+on:
+  push:
+    branches: [worddeck-worker-3-sentence]
+    paths:
+      - 'WordDeck/**'
+      - '.github/workflows/worddeck-worker3-sentence.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: worddeck-worker3-sentence-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  sentence-regression:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout isolated worker branch
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore
+        run: dotnet restore .\WordDeck\WordDeck.csproj
+
+      - name: Build Release
+        run: dotnet build .\WordDeck\WordDeck.csproj -c Release --no-restore
+
+      - name: Run full WordDeck self-test
+        run: dotnet run --project .\WordDeck\WordDeck.csproj -c Release --no-build -- --self-test
+
+      - name: Publish self-contained Windows EXE
+        run: dotnet publish .\WordDeck\WordDeck.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:DebugType=None -p:DebugSymbols=false -o .\artifacts\WordDeck-win-x64
+
+      - name: Smoke published EXE
+        shell: pwsh
+        run: |
+          $process = Start-Process .\artifacts\WordDeck-win-x64\WordDeck.exe -ArgumentList '--self-test' -Wait -PassThru
+          if ($process.ExitCode -ne 0) {
+            throw "Published WordDeck self-test failed with exit code $($process.ExitCode)."
+          }
+
+      - name: Upload worker EXE evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: WordDeck-worker3-win-x64
+          path: .\artifacts\WordDeck-win-x64\WordDeck.exe
+          if-no-files-found: error
+          retention-days: 14
