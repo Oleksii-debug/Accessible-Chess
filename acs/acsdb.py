@@ -173,6 +173,22 @@ class AcsDatabase:
             raise ValueError(f"{name} must be non-negative")
         return cursor
 
+    @classmethod
+    def _position_cursor(
+        cls,
+        after_game_id: int | None,
+        after_ply: int | None,
+    ) -> tuple[int, int] | None:
+        """Validate the composite keyset cursor used by exact-position search."""
+        if after_game_id is None and after_ply is None:
+            return None
+        if after_game_id is None or after_ply is None:
+            raise ValueError("after_game_id and after_ply must be provided together")
+        game_id = cls._positive_cursor(after_game_id, name="after_game_id")
+        ply = cls._positive_cursor(after_ply, name="after_ply")
+        assert game_id is not None and ply is not None
+        return game_id, ply
+
     @staticmethod
     def position_key(fen: str) -> str:
         parts = (fen or "").strip().split()
@@ -320,7 +336,8 @@ class AcsDatabase:
 
         ``after_id`` is intentionally part of the query rather than an OFFSET.
         Once a caller has consumed a page, later inserts cannot cause already
-        returned rows to shift into a subsequent page.
+        returned rows to shift into a subsequent page. Search rows include
+        source provenance so library surfaces do not need a second lookup.
         """
         clauses: list[str] = []
         params: list[object] = []
@@ -350,7 +367,11 @@ class AcsDatabase:
         if cursor is not None:
             clauses.append("g.id>?")
             params.append(cursor)
-        sql = "SELECT g.* FROM games g JOIN sources s ON s.id=g.source_id"
+        sql = (
+            "SELECT g.*, s.source_name, s.source_format, s.sha256 AS source_sha256, "
+            "s.imported_at AS source_imported_at FROM games g "
+            "JOIN sources s ON s.id=g.source_id"
+        )
         if clauses:
             sql += " WHERE " + " AND ".join(clauses)
         sql += " ORDER BY g.id LIMIT ?"
@@ -372,12 +393,37 @@ class AcsDatabase:
                 "INSERT OR REPLACE INTO positions(game_id, ply, fen, position_key) VALUES(?,?,?,?)", rows
             )
 
-    def search_position(self, fen: str, limit: int = 100) -> list[dict]:
+    def search_position(
+        self,
+        fen: str,
+        *,
+        after_game_id: int | None = None,
+        after_ply: int | None = None,
+        limit: int = 100,
+    ) -> list[dict]:
+        """Search exact positions with stable composite-key paging and provenance.
+
+        Position identity intentionally ignores only the FEN move counters. The
+        cursor is the final ``(game_id, matched_ply)`` from the previous page;
+        both cursor components must be supplied together.
+        """
         key = self.position_key(fen)
-        rows = self.conn.execute(
-            """SELECT g.*, p.ply AS matched_ply, p.fen AS matched_fen
-               FROM positions p JOIN games g ON g.id=p.game_id
-               WHERE p.position_key=? ORDER BY g.id, p.ply LIMIT ?""",
-            (key, self._bounded_limit(limit)),
-        ).fetchall()
+        cursor = self._position_cursor(after_game_id, after_ply)
+        clauses = ["p.position_key=?"]
+        params: list[object] = [key]
+        if cursor is not None:
+            game_id, ply = cursor
+            clauses.append("(p.game_id>? OR (p.game_id=? AND p.ply>?))")
+            params.extend([game_id, game_id, ply])
+        sql = (
+            "SELECT g.*, p.ply AS matched_ply, p.fen AS matched_fen, "
+            "s.source_name, s.source_format, s.sha256 AS source_sha256, "
+            "s.imported_at AS source_imported_at "
+            "FROM positions p JOIN games g ON g.id=p.game_id "
+            "JOIN sources s ON s.id=g.source_id WHERE "
+            + " AND ".join(clauses)
+            + " ORDER BY p.game_id, p.ply LIMIT ?"
+        )
+        params.append(self._bounded_limit(limit))
+        rows = self.conn.execute(sql, params).fetchall()
         return [dict(row) for row in rows]
