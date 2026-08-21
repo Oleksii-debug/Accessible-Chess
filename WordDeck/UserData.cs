@@ -11,10 +11,21 @@ internal sealed class WordStudyHistory
 
 internal sealed class WordDeckProfile
 {
+    private string _corpusIdentity = AppStateStore.CorpusIdentity;
+
     public int ProfileSchemaVersion { get; set; } = AppStateStore.ProfileSchemaVersion;
     public int StateSchemaVersion { get; set; } = AppStateStore.CurrentSchemaVersion;
     public string SourceAppVersion { get; set; } = AppStateStore.SourceAppVersion;
-    public string CorpusIdentity { get; set; } = AppStateStore.CorpusIdentity;
+    public string CorpusIdentity
+    {
+        get => _corpusIdentity;
+        set
+        {
+            if (!string.Equals(value, AppStateStore.CorpusIdentity, StringComparison.Ordinal))
+                throw new InvalidDataException($"This personal profile targets incompatible corpus '{value ?? "<missing>"}'. Expected '{AppStateStore.CorpusIdentity}'.");
+            _corpusIdentity = value;
+        }
+    }
     public DateTimeOffset ExportedAtUtc { get; set; } = DateTimeOffset.UtcNow;
     public AppState State { get; set; } = new();
 }
