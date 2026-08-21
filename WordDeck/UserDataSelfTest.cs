@@ -76,6 +76,8 @@ internal static class UserDataSelfTest
             Require(migrated.StudyHistoryByEntryId["word-a"].SeenCount == 1, "Profile round-trip did not restore study history.");
             Require(migrated.RecallStudyScopesByDictionary[dictionaryId].Scopes[StudyScopeIds.B2].DeckIds["word-b"] == DeckIds.Core(5),
                 "Profile round-trip did not restore per-scope assignment.");
+            Require(new ShortcutManager(migrated).Get(ActionIds.RevealTranslation) == (Keys.Control | Keys.Alt | Keys.F9),
+                "Profile round-trip did not restore the customized shortcut binding.");
 
             migrated.HiddenEntryIds.Add("future-word-id");
             string futureProfile = Path.Combine(root, "WordDeck-profile-future-id.json");
@@ -122,7 +124,7 @@ internal static class UserDataSelfTest
                     "Missing pronunciation audio did not return a readable non-crashing status.");
             }
 
-            Console.WriteLine("WordDeck user-data acceptance passed: schema migration+backup, LocalAppData continuity, profile export/reset/import rollback, hidden IDs, study history, true previous/forward Recall history and missing-audio non-crash status verified.");
+            Console.WriteLine("WordDeck user-data acceptance passed: schema migration+backup, LocalAppData continuity, profile export/reset/import rollback including shortcut persistence, hidden IDs, study history, true previous/forward Recall history and missing-audio non-crash status verified.");
         }
         finally
         {
