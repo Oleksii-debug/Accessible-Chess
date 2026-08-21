@@ -49,7 +49,7 @@ jobs:
           $forbidden = @($tracked | Where-Object {
             $_ -match '(^|/)(token\.json|credentials?\.json|cookies?(\.sqlite|\.json)?|\.env|id_rsa|id_ed25519)$' -or
             $_ -match '\.(pfx|p12|pem|key)$' -or
-            $_ -match '(^|/)(state|state\.backup|spelling-state|sentence-coach-state)\.json$' -or
+            $_ -match '(^|/)(state|state\.backup|spelling-state|spelling-state\.backup|sentence-coach-state|sentence-coach-state\.backup)\.json$' -or
             $_ -match '(^|/)WordDeck-profile.*\.json$'
           })
           if ($forbidden.Count -ne 0) {
@@ -80,7 +80,7 @@ jobs:
           dotnet publish .\WordDeck\WordDeck.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:DebugType=None -p:DebugSymbols=false -o $publish
           $exe = Join-Path $publish 'WordDeck.exe'
           if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) { throw 'Published WordDeck.exe is missing.' }
-          $process = Start-Process -LiteralPath $exe -ArgumentList '--self-test' -Wait -PassThru
+          $process = Start-Process -FilePath $exe -ArgumentList '--self-test' -Wait -PassThru
           if ($process.ExitCode -ne 0) { throw "Published EXE self-test failed: $($process.ExitCode)" }
           "publish_path=$publish" | Set-Content .\artifacts\worker5-release-evidence.txt -Encoding UTF8
           'published_exe_self_test=PASS' | Add-Content .\artifacts\worker5-release-evidence.txt -Encoding UTF8
