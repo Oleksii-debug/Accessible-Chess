@@ -9,6 +9,8 @@ internal static class ReleaseRegressionSelfTest
         TestIncompatibleCorpusProfileFailsClosed();
         TestNewerStateSchemaFailsClosed();
         TestCorruptPrimaryRecoversOnlyFromParseableBackup();
+        TestSpellingStateCorruptionFailsClosed();
+        TestSentenceStateCorruptionFailsClosed();
     }
 
     private static void TestIncompatibleCorpusProfileFailsClosed()
@@ -114,6 +116,79 @@ internal static class ReleaseRegressionSelfTest
                 rejected = true;
             }
             Require(rejected, "Corrupt primary plus corrupt backup silently created fresh state.");
+        }
+        finally
+        {
+            DeleteTree(root);
+        }
+    }
+
+    private static void TestSpellingStateCorruptionFailsClosed()
+    {
+        string root = TempRoot("spelling-corruption");
+        try
+        {
+            string primary = Path.Combine(root, "spelling-state.json");
+            string backup = Path.Combine(root, "spelling-state.backup.json");
+            SpellingState backupState = SpellingStateStore.Normalize(new SpellingState());
+            backupState.CoachEnabled = false;
+            File.WriteAllText(backup, JsonSerializer.Serialize(backupState));
+            File.WriteAllText(primary, "{broken-primary");
+
+            SpellingStateSession recovered = TrainingStateContinuityGuard.LoadSpelling(root);
+            Require(!recovered.State.CoachEnabled, "Spelling recovery did not preserve the valid backup state.");
+
+            File.WriteAllText(backup, "{broken-backup");
+            string primaryBytes = File.ReadAllText(primary);
+            string backupBytes = File.ReadAllText(backup);
+            bool rejected = false;
+            try
+            {
+                _ = TrainingStateContinuityGuard.LoadSpelling(root);
+            }
+            catch (InvalidDataException)
+            {
+                rejected = true;
+            }
+            Require(rejected, "Corrupt Spelling primary plus backup silently produced fresh state.");
+            Require(File.ReadAllText(primary) == primaryBytes && File.ReadAllText(backup) == backupBytes,
+                "Rejecting corrupt Spelling state changed the user's files.");
+        }
+        finally
+        {
+            DeleteTree(root);
+        }
+    }
+
+    private static void TestSentenceStateCorruptionFailsClosed()
+    {
+        string root = TempRoot("sentence-corruption");
+        try
+        {
+            string primary = Path.Combine(root, "sentence-coach-state.json");
+            string backup = Path.Combine(root, "sentence-coach-state.backup.json");
+            SentenceCoachState backupState = SentenceCoachStateStore.Normalize(new SentenceCoachState { TargetCount = 2 });
+            File.WriteAllText(backup, JsonSerializer.Serialize(backupState));
+            File.WriteAllText(primary, "{broken-primary");
+
+            SentenceStateSession recovered = TrainingStateContinuityGuard.LoadSentence(root);
+            Require(recovered.State.TargetCount == 2, "Sentence recovery did not preserve the valid backup state.");
+
+            File.WriteAllText(backup, "{broken-backup");
+            string primaryBytes = File.ReadAllText(primary);
+            string backupBytes = File.ReadAllText(backup);
+            bool rejected = false;
+            try
+            {
+                _ = TrainingStateContinuityGuard.LoadSentence(root);
+            }
+            catch (InvalidDataException)
+            {
+                rejected = true;
+            }
+            Require(rejected, "Corrupt Sentence primary plus backup silently produced fresh state.");
+            Require(File.ReadAllText(primary) == primaryBytes && File.ReadAllText(backup) == backupBytes,
+                "Rejecting corrupt Sentence state changed the user's files.");
         }
         finally
         {
