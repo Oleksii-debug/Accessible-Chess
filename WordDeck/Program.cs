@@ -20,6 +20,7 @@ internal static class Program
             {
                 StudyScopeSelfTest.Run();
                 UserDataSelfTest.Run();
+                ReleaseRegressionSelfTest.Run();
                 SpellingSelfTest.Run();
                 SentenceCoachSelfTest.Run();
                 SentencePackStoreSelfTest.Run();
@@ -37,7 +38,7 @@ internal static class Program
         AccessibilityAnnouncer.Install();
 
         var main = new MainForm();
-        InstallTrainingEntryPoints(main);
+        TrainingEntryPoints.Install(main);
         Application.Run(main);
         return 0;
     }
@@ -126,6 +127,9 @@ internal static class Program
         }
     }
 
+    // Historical helpers remain source-compatible for now. Startup no longer
+    // calls them because they load disconnected AppState copies; the R2 entry
+    // point above keeps Recall, Spelling and Sentence on one live AppState.
     private static void InstallTrainingEntryPoints(MainForm main)
     {
         MenuStrip? menu = main.Controls.OfType<MenuStrip>().FirstOrDefault();
