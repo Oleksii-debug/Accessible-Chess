@@ -23,7 +23,8 @@ internal sealed class ShortcutSettingsForm : Form
             AutoSize = true,
             Padding = new Padding(8),
             Text = "Select a function and press Enter, or choose Change selected. Then press the shortcut you want. Esc cancels shortcut capture. User-created deck and Recall scope shortcuts may start unassigned and can be assigned here.",
-            AccessibleName = "Shortcut settings instructions"
+            AccessibleName = "Shortcut settings instructions",
+            TabStop = false
         };
 
         _list = new ListView
@@ -34,7 +35,8 @@ internal sealed class ShortcutSettingsForm : Form
             MultiSelect = false,
             HideSelection = false,
             AccessibleName = "Shortcut actions",
-            AccessibleDescription = "Each row contains a WordDeck function and its currently assigned shortcut. Select a row and press Enter to change it."
+            AccessibleDescription = "Each row contains a WordDeck function and its currently assigned shortcut. Select a row and press Enter to change it.",
+            TabIndex = 0
         };
         _list.Columns.Add("Function", 480);
         _list.Columns.Add("Current shortcut", 220);
@@ -52,16 +54,45 @@ internal sealed class ShortcutSettingsForm : Form
             Dock = DockStyle.Bottom,
             AutoSize = true,
             FlowDirection = FlowDirection.LeftToRight,
-            Padding = new Padding(8)
+            Padding = new Padding(8),
+            TabStop = false
         };
 
-        var changeButton = new Button { Text = "Change selected", AutoSize = true, AccessibleName = "Change selected shortcut" };
+        var changeButton = new Button
+        {
+            Text = "Change selected",
+            AutoSize = true,
+            AccessibleName = "Change selected shortcut",
+            AccessibleDescription = "Open shortcut capture for the selected action.",
+            TabIndex = 1
+        };
         changeButton.Click += (_, _) => ChangeSelected();
-        var clearButton = new Button { Text = "Clear selected", AutoSize = true, AccessibleName = "Clear selected shortcut" };
+        var clearButton = new Button
+        {
+            Text = "Clear selected",
+            AutoSize = true,
+            AccessibleName = "Clear selected shortcut",
+            AccessibleDescription = "Remove the key binding from the selected action. F1 will report it as Unassigned.",
+            TabIndex = 2
+        };
         clearButton.Click += (_, _) => ClearSelected();
-        var resetButton = new Button { Text = "Reset defaults", AutoSize = true, AccessibleName = "Reset all shortcuts to defaults" };
+        var resetButton = new Button
+        {
+            Text = "Reset defaults",
+            AutoSize = true,
+            AccessibleName = "Reset all shortcuts to defaults",
+            AccessibleDescription = "Restore the built-in default bindings for every currently available action.",
+            TabIndex = 3
+        };
         resetButton.Click += (_, _) => { _manager.ResetDefaults(); RefreshList(); };
-        var closeButton = new Button { Text = "Close", AutoSize = true, DialogResult = DialogResult.OK, AccessibleName = "Close shortcut settings" };
+        var closeButton = new Button
+        {
+            Text = "Close",
+            AutoSize = true,
+            DialogResult = DialogResult.OK,
+            AccessibleName = "Close shortcut settings",
+            TabIndex = 4
+        };
         buttons.Controls.Add(changeButton);
         buttons.Controls.Add(clearButton);
         buttons.Controls.Add(resetButton);
@@ -150,16 +181,26 @@ internal sealed class ShortcutCaptureForm : Form
             Dock = DockStyle.Top,
             AutoSize = true,
             Padding = new Padding(12),
-            AccessibleName = "Shortcut capture instructions"
+            AccessibleName = "Shortcut capture instructions",
+            TabStop = false
         };
         _value = new TextBox
         {
             Text = ShortcutFormatter.Format(current),
             ReadOnly = true,
             Dock = DockStyle.Top,
-            AccessibleName = "Captured shortcut"
+            AccessibleName = "Captured shortcut",
+            AccessibleDescription = "The key combination currently captured for this action.",
+            TabIndex = 0
         };
-        var cancel = new Button { Text = "Cancel", Dock = DockStyle.Bottom, DialogResult = DialogResult.Cancel, AccessibleName = "Cancel shortcut change" };
+        var cancel = new Button
+        {
+            Text = "Cancel",
+            Dock = DockStyle.Bottom,
+            DialogResult = DialogResult.Cancel,
+            AccessibleName = "Cancel shortcut change",
+            TabIndex = 1
+        };
 
         Controls.Add(cancel);
         Controls.Add(_value);
