@@ -1,50 +1,59 @@
 # DEV5_SESSION_HANDOFF
 
-RUN_ID: 20260822-0008
+RUN_ID: 20260822-0124
 ROLE: Coordinator / Integrator / QA / General Fixer
-STATUS: COMPLETE / TERMINAL
-SNAPSHOT_CUTOFF: 2026-08-22T00:08:42+03:00
+STATUS: COMPLETE / TERMINAL / SAFE OVERLAP
+SNAPSHOT_CUTOFF: 2026-08-22T01:24:09+03:00
 NVDA_VERIFIED: NO
 FRESH_WINDOWS_CANDIDATE: NO
 
-## Terminal Product state
-- manual5/integration-20260821 exact head: 0fa442330bc2bb03636ff9297512da4c29e38684.
-- This run began from e24ff85ff9a6ad3ea19d33f7035526c7bcdf2c8e.
-- DEV1 and DEV3 accepted packages remain represented without duplicate intake.
-- Pre-cutoff terminal DEV4 source a4209d005ea0a1476f8eafb4822f4d39ac50ee5a was selectively reconciled on manual5/dev5-reconcile-dev4-20260822; whole-branch merge was not used.
-- Reconciled DEV4 final validated head abff45ebcc4b5af2a85ab0c456b025b5098c6e29: UI Semantic 32532343385 SUCCESS; Saturation 32532343373 SUCCESS.
-- The initial reconciliation head 998b71da629a504806010793f9c5d24014ae24fb exposed one accepted DEV1 readiness-order regression in saturation CI. DEV5 fixed Product code rather than weakening the test; exact gates then passed.
-- Terminal pre-cutoff DEV2 head 8b74ef94c91dbed8d9dfc73bcb39a9aa956a9afe was selectively ported after DEV4 validation. Validation head 0fa442330bc2bb03636ff9297512da4c29e38684: UI Semantic 32532503184 SUCCESS; Saturation 32532503262 SUCCESS.
-- Integration was fast-forwarded to 0fa4423 only after those exact-head gates were GREEN.
+## Accepted Stage1 state
+- manual5/integration-20260821 remains exact head 0fa442330bc2bb03636ff9297512da4c29e38684.
+- Prior exact accepted gates remain UI Semantic 32532503184 SUCCESS and Stage1 Saturation 32532503262 SUCCESS.
+- No Stage1 Product mutation occurred in this run.
+- DEV1/DEV2/DEV3 accepted Stage1 work plus selective DEV4 reconciliation and DEV5 regression fixes are already represented. Do not duplicate intake.
 
-## Reconciled DEV4 package represented in integration
-- settings fail-closed profile boundary; explicit schema_version=0 is invalid while an absent schema key is the legacy unversioned path;
-- release_preflight topology/checksum/Stockfish/source/notices/sound/manifest/UIA/native-menu validation;
-- DEV5 completeness correction requiring packaged web/index.html, web/stage1_release_bootstrap.js and web/stage1_board_actions.js;
-- WebView2 debugger/security-argument filtering, including DEV5 closure of split --enable-features remote-debug injection;
-- transactional board bridge preserving accepted DEV1 dependency/routing/current-square/readiness ordering while preventing wrapper stacking after render failure;
-- path-private packaged resource errors;
-- keymap profile/capture boundary hardening;
-- fail-closed tombstones for obsolete release workflows.
-Excluded intentionally: DEV4 lane-only dev4-package-security-ci workflow and any QA-owned strict Windows workflow changes.
+## Why this run used SAFE OVERLAP MODE
+The current full-product plane had live touching work beyond canonical terminal handoffs:
+- DEV2 live full-product PR #69 was at bf61402fb0601efb22417a11ad3d0851d807967a, but the canonical Drive handoff did not terminalize that full-product head before the cutoff. It was excluded from intake.
+- DEV3 canonical Drive handoff terminalized ACSDB/Library/Search/recovery at 70321dafb8fdd1f1aff3197f11d17154ccb942ed with CI 32528057942 SUCCESS, while live PR #65 later advanced to 65f4f2ede0b2c88b9f5c413d874b510fb2acb619. The pinned 70321d package was used only for inventory/conflict analysis, not a competing Product push.
+- DEV4 terminal QA handoff at e65bf755f7dba4090a6396c7086140062f85c5a9 is COMPLETE and records Product defects in DEV4-owned external-import/security scope; DEV5 did not race those fixes.
 
-## Terminal DEV2 package represented in integration
-- acs/chesscore.py en-passant FEN provenance validation;
-- tests/test_dev2_fen_atomicity.py regression coverage;
-- target square must be empty, alleged double-pushed pawn must occupy the landing square, alleged origin square must be empty;
-- invalid FEN remains atomic.
-Before final-state port, integration chesscore blob exactly matched accepted DEV2 baseline blob 743d5ab98bdf1855f9efaacb40a6b0003c63dce6, so unrelated core behavior was not overwritten.
+## Full-product evidence review
+- Pinned DEV3 terminal package 70321d is exactly 26 commits ahead / 0 behind base 656e8ec311e364e6e54a30504fd30a4aaff586f9.
+- Its diff is lane-contained to ACSDB/search/import-history Product files, focused tests, lane workflows and lane state docs.
+- Exact DEV3 workflow run 32528057942 is observable and SUCCESS.
+- Live PR #65 advancement beyond the terminal handoff proves touching same-lane activity, so persistent integration was deferred.
+- PR #52 head 6fa705f7ca80ee69b4183f99c9bc1c5a86048e64 is still not a safe wholesale baseline: its own description says the independently audited input 0cf4fe291ff6c349de99978cd2fc68866a218da8 was RETURN TO WORK, followed by later fixes without a newly accepted independent audit artifact in the inspected evidence.
+- No full5 integration ref was created from an unaudited aggregate.
 
-## Snapshot discipline
-DEV1-DEV4 coordination used only terminal evidence that existed before 2026-08-22T00:08:42+03:00. Later DEV3/DEV4 Drive handoff updates were visible but excluded from this wave's intake decisions. No active in-flight lane state was opportunistically consumed.
+## DEV4 terminal security findings
+QA PR #67 exact terminal head e65bf755f7dba4090a6396c7086140062f85c5a9 remains evidence-only. Two strict Product defects are recorded:
+1. generic/ChessBase import provenance follows symlink/reparse-style indirection instead of failing closed;
+2. PGN loading performs an unbounded full-text handle.read() without a source-size/resource cap.
+These remain DEV4-owned. Their strict tests must not be weakened. Absolute-path user leakage remains INCONCLUSIVE until end-to-end visibility is proven.
 
-## Full-product plane
-Requested docs/codex/CURRENT_STATE.md, NEXT_WORK.md and SESSION_HANDOFF.md were not present on the inspected live full-product refs. PR #52 remains an isolated shared-core draft whose own description records the independent audit input as RETURN TO WORK before later fixes. completion/full-product-critical-path-20260819 contains broader future-module work but is not safe for blind whole-branch intake. Therefore no full5/integration ref was manufactured from an unaudited aggregate.
+## Cross-lane blockers and order
+P0: none newly proven on accepted Stage1 head 0fa4423.
+P1:
+- no terminal full-product DEV2 GameTree/PGN package eligible at this cutoff;
+- DEV3 package must wait for a fresh terminal snapshot because its lane advanced beyond the pinned handoff;
+- DEV4 external-import security defects block safe external-format vertical-slice acceptance.
 
-Next full-product integration work must establish an exact safe base and accept coherent packages in dependency order, beginning with PGN/GameTree and ACSDB/library vertical slices. Do not duplicate canonical board/rules/core state.
+Required next integration order:
+1. DEV2 terminal canonical GameTree/PGN package with exact CI and precise base/inventory;
+2. latest terminal DEV3 ACSDB/Library/Search package;
+3. DEV5 validation-only cross-lane assembly proving PGN -> GameTree -> ACSDB -> search/open plus malformed-input/atomicity/provenance/retry behavior;
+4. persistent full5 integration only after that assembly has auditable exact-SHA evidence;
+5. DEV4 external-import/ChessBase package only after its security fixes terminalize.
+
+## Coordinator outputs
+- docs/automation/DEV5_RUN_STATE.md -> RUN_ID 20260822-0124, SAFE_OVERLAP_COORDINATION.
+- docs/automation/NEXT_WAVE_DIRECTIVES.md -> DIRECTIVE_VERSION 0004, effective 2026-08-22T03:00:00+03:00 for next invocations.
+- This session handoff records the terminal no-Product-mutation decision and exact blockers.
 
 ## Release invariants
-PR #66 and PR #70 are validation-only draft PRs and must not be merged as a shortcut. PR #54/frozen refs remain untouched. Old rejected release ZIP remains forbidden. No fresh Windows candidate was created. A candidate requires the complete strict Windows machine release chain on the exact final audited Product SHA. NVDA_VERIFIED=NO until Oleksii personally verifies that exact candidate.
+PR #54 and frozen refs were not touched. No old rejected ZIP was reused. No fresh Windows candidate was created. A future candidate requires the complete machine release chain on the exact final audited Product SHA. NVDA_VERIFIED=NO until Oleksii personally verifies that exact candidate.
 
-## Next action
-At the next scheduled wave, snapshot terminal lane evidence afresh against integration 0fa442330bc2bb03636ff9297512da4c29e38684. Do not re-intake work already represented in that SHA. Prioritize safe full-product package inventory/auditability and cross-lane vertical-slice preparation; return to Stage1 Product mutation only for a newly reproduced regression or authorized release-chain step.
+## Exact next action
+At the next scheduled DEV5 wave, take a fresh cutoff snapshot. Do not consume PR #69 or the newer PR #65 head unless their canonical terminal handoffs existed before that new cutoff. If DEV2 GameTree/PGN and DEV3 ACSDB are both terminal, build a validation-only full-product assembly package-by-package and run cross-lane regressions before creating or advancing persistent full5 integration.
