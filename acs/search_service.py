@@ -15,6 +15,12 @@ from .acsdb import AcsDatabase
 SearchResult = Literal["1-0", "0-1", "1/2-1/2", "*"]
 
 
+def _exact_int(value: object, *, name: str) -> int:
+    if type(value) is not int:
+        raise TypeError(f"{name} must be an integer")
+    return value
+
+
 @dataclass(frozen=True, slots=True)
 class GameSearchQuery:
     """Stable, neutral query contract for a page of ACSDB games.
@@ -35,31 +41,42 @@ class GameSearchQuery:
     limit: int = 50
 
     def normalized(self) -> "GameSearchQuery":
-        def clean(value: str | None) -> str | None:
+        def clean(value: str | None, *, name: str) -> str | None:
             if value is None:
                 return None
-            value = " ".join(value.split())
-            return value or None
+            if type(value) is not str:
+                raise TypeError(f"{name} must be text")
+            normalized = " ".join(value.split())
+            return normalized or None
 
-        limit = int(self.limit)
+        limit = _exact_int(self.limit, name="limit")
         if not 1 <= limit <= 200:
             raise ValueError("Search limit must be between 1 and 200")
-        if self.source_id is not None and int(self.source_id) <= 0:
-            raise ValueError("source_id must be a positive integer")
-        if self.after_game_id is not None and int(self.after_game_id) < 0:
-            raise ValueError("after_game_id must be zero or a positive integer")
+
+        source_id: int | None = None
+        if self.source_id is not None:
+            source_id = _exact_int(self.source_id, name="source_id")
+            if source_id <= 0:
+                raise ValueError("source_id must be a positive integer")
+
+        after_game_id: int | None = None
+        if self.after_game_id is not None:
+            after_game_id = _exact_int(self.after_game_id, name="after_game_id")
+            if after_game_id < 0:
+                raise ValueError("after_game_id must be zero or a positive integer")
+
         if self.result is not None and self.result not in {"1-0", "0-1", "1/2-1/2", "*"}:
             raise ValueError(f"Unsupported chess result: {self.result}")
 
         return GameSearchQuery(
-            player=clean(self.player),
-            event=clean(self.event),
-            eco=clean(self.eco),
-            opening=clean(self.opening),
+            player=clean(self.player, name="player"),
+            event=clean(self.event, name="event"),
+            eco=clean(self.eco, name="eco"),
+            opening=clean(self.opening, name="opening"),
             result=self.result,
-            source_id=int(self.source_id) if self.source_id is not None else None,
-            source_name=clean(self.source_name),
-            after_game_id=int(self.after_game_id) if self.after_game_id is not None else None,
+            source_id=source_id,
+            source_name=clean(self.source_name, name="source_name"),
+            after_game_id=after_game_id,
             limit=limit,
         )
 
