@@ -13,11 +13,6 @@ FORCE_RENDERER_ACCESSIBILITY = "--force-renderer-accessibility"
 _PATCH_MARKER = "_acs_stage1_accessibility_host_patched"
 _HANDLER_MARKER = "_acs_stage1_accessibility_host_handlers"
 
-# WebView2 inherits this environment variable before the packaged application
-# creates its Edge environment. Accessibility-related or cosmetic flags may be
-# supplied by the user's environment, but flags that expose DevTools/remote
-# control or disable browser security must never be inherited by a release that
-# binds a privileged ``js_api`` object into the document.
 _BLOCKED_BROWSER_ARGUMENTS = frozenset(
     {
         "--remote-debugging-port",
@@ -49,15 +44,7 @@ def _unquote_token(token: str) -> str:
 
 
 def _sanitize_browser_arguments(value: str) -> str:
-    """Drop security-sensitive WebView2 switches while preserving benign flags.
-
-    Chromium accepts both ``--flag=value`` and ``--flag value`` forms. When a
-    blocked switch uses the latter form, discard its following scalar value too
-    so an orphaned port/address does not survive in the environment string.
-    Whole-token quoting is normalized for security comparison so quoting cannot
-    bypass the release policy.
-    """
-
+    """Drop release-incompatible WebView2 switches without leaving values behind."""
     tokens = value.split()
     kept: list[str] = []
     index = 0
@@ -69,7 +56,14 @@ def _sanitize_browser_arguments(value: str) -> str:
             name == "--enable-features"
             and _REMOTE_DEBUG_FEATURE in comparable.casefold()
         )
-        if name in _BLOCKED_BROWSER_ARGUMENTS or blocked_feature:
+        split_feature = False
+        if name == "--enable-features" and "=" not in comparable and index + 1 < len(tokens):
+            following = _unquote_token(tokens[index + 1])
+            split_feature = (
+                not following.startswith("--")
+                and _REMOTE_DEBUG_FEATURE in following.casefold()
+            )
+        if name in _BLOCKED_BROWSER_ARGUMENTS or blocked_feature or split_feature:
             if "=" not in comparable and index + 1 < len(tokens):
                 following = _unquote_token(tokens[index + 1])
                 if not following.startswith("--"):
@@ -85,12 +79,7 @@ def _sanitize_browser_arguments(value: str) -> str:
 def enable_webview2_renderer_accessibility(
     environment: MutableMapping[str, str] | None = None,
 ) -> str:
-    """Preserve benign WebView2 arguments and request renderer accessibility.
-
-    Script-debugger environment channels are release-incompatible because they
-    can pause or expose the embedded document to an external debugger. Remove
-    them before any WebView2 environment is created.
-    """
+    """Preserve benign browser arguments while closing debugger exposure."""
     env = os.environ if environment is None else environment
     for name in _DEBUGGER_ENV_VARS:
         env.pop(name, None)
@@ -148,14 +137,7 @@ def _find_core_controller(webview_control: Any) -> Any | None:
 
 
 def repair_edgechromium_accessibility_host(edge_instance: Any) -> dict[str, bool]:
-    """Bind the real WebView2 controller to its actual visible WinForms host.
-
-    WebView2 documents that parent/ancestor HWND movement must be reported to the
-    controller for accessibility to work correctly. pywebview owns the WinForms
-    WebView2 control, while Accessible Chess also changes the top-level host by
-    attaching its native MenuStrip. Keep that controller notified instead of
-    creating any duplicate native Move control.
-    """
+    """Bind the real WebView2 controller to its actual visible WinForms host."""
     control = getattr(edge_instance, "webview", None)
     host = getattr(edge_instance, "form", None)
     if control is None or host is None:
@@ -189,9 +171,6 @@ def repair_edgechromium_accessibility_host(edge_instance: Any) -> dict[str, bool
             pass
 
     notify_parent()
-
-    # Keep handlers alive on the EdgeChrome instance. Location/size changes can
-    # alter an ancestor HWND after the WebView2 controller was created.
     handlers = getattr(edge_instance, _HANDLER_MARKER, None)
     if handlers is None:
         handlers = []
