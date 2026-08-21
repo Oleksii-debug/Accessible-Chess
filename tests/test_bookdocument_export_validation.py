@@ -83,6 +83,41 @@ class BookDocumentExportValidationTests(unittest.TestCase):
         self.assertEqual(restored.as_dict(), payload)
         self.assertEqual(payload['schema_version'], 1)
 
+    def test_normalizable_mutations_export_one_canonical_wire_payload(self):
+        heading = Heading(
+            text='Chapter',
+            block_id='heading-id',
+            source_anchor='source-1',
+        )
+        position = Position(fen=FEN, block_id='position-id')
+        heading.block_id = '  heading-id  '
+        heading.source_anchor = '  source-1  '
+        position.fen = f'  {FEN}  '
+        document = BookDocument('Book', blocks=[heading, position])
+
+        payload = document.as_dict()
+
+        self.assertEqual(payload['blocks'][0]['block_id'], 'heading-id')
+        self.assertEqual(payload['blocks'][0]['source_anchor'], 'source-1')
+        self.assertEqual(payload['blocks'][1]['fen'], FEN)
+        self.assertEqual(BookDocument.from_dict(payload).as_dict(), payload)
+
+    def test_direct_block_export_uses_rebuilt_canonical_values(self):
+        position = Position(
+            fen=FEN,
+            block_id='position-id',
+            source_anchor='diagram-3',
+        )
+        position.block_id = '  position-id  '
+        position.source_anchor = '  diagram-3  '
+        position.fen = f'\t{FEN}\n'
+
+        payload = position.as_dict()
+
+        self.assertEqual(payload['block_id'], 'position-id')
+        self.assertEqual(payload['source_anchor'], 'diagram-3')
+        self.assertEqual(payload['fen'], FEN)
+
 
 if __name__ == '__main__':
     unittest.main()
