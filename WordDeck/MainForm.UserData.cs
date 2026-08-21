@@ -134,8 +134,8 @@ internal sealed partial class MainForm
         if (dialog.ShowDialog(this) != DialogResult.OK) { FocusCurrentWord(); return; }
         try
         {
-            _store.ExportProfile(_state, dialog.FileName);
-            AnnounceStatus($"Personal WordDeck profile exported to {dialog.FileName}. It contains study state only, not the canonical dictionary or audio files.");
+            new PersonalProfileCoordinator(_store).Export(_state, dialog.FileName);
+            AnnounceStatus($"Personal WordDeck profile exported to {dialog.FileName}. It contains Recall and Sentence study state only, not the canonical dictionary, SentencePack corpus or audio files.");
         }
         catch (Exception ex)
         {
@@ -159,7 +159,7 @@ internal sealed partial class MainForm
                 .Concat(_state.CustomEntriesByDictionary.Values.SelectMany(list => list.Select(entry => entry.Id)))
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToArray();
-            ProfileImportResult result = _store.ImportProfile(dialog.FileName, _state, knownEntries, _packages.Keys);
+            ProfileImportResult result = new PersonalProfileCoordinator(_store).Import(dialog.FileName, _state, knownEntries, _packages.Keys);
             _navigationHistory.Clear();
             _autoPronunciationMenuItem.Checked = _state.AutoPlayPronunciationOnCardChange;
             DictionaryPackage selected = _state.ActiveDictionaryId is not null && _packages.TryGetValue(_state.ActiveDictionaryId, out DictionaryPackage? package)
@@ -170,7 +170,7 @@ internal sealed partial class MainForm
             string quarantine = result.QuarantinedIds.Count == 0
                 ? "No unknown stable IDs were found."
                 : $"{result.QuarantinedIds.Count} unknown IDs were preserved in quarantine for future migration.";
-            AnnounceStatus($"Personal profile imported successfully. A pre-import recovery profile was saved at {result.BackupPath}. {quarantine}");
+            AnnounceStatus($"Personal profile imported successfully. Recall and compatible Sentence state were restored. A pre-import recovery profile was saved at {result.BackupPath}. {quarantine}");
         }
         catch (Exception ex)
         {
@@ -184,7 +184,7 @@ internal sealed partial class MainForm
     {
         DialogResult answer = MessageBox.Show(
             this,
-            "Reset Recall learning progress? This clears hidden-word state, study history, current cards, shuffle progress and word-to-deck assignments. Canonical dictionary/audio files, custom cards, deck definitions, shortcuts and pronunciation preference are not deleted. An automatic recovery profile is created first.",
+            "Reset Recall learning progress? This clears hidden-word state, study history, current cards, shuffle progress and word-to-deck assignments. Canonical dictionary/audio files, custom cards, deck definitions, shortcuts, pronunciation preference and separate Sentence learning state are not deleted. An automatic recovery profile is created first.",
             "Reset WordDeck learning data",
             MessageBoxButtons.YesNo,
             MessageBoxIcon.Warning,
@@ -203,12 +203,12 @@ internal sealed partial class MainForm
                 : _packages.Values.First();
             ActivatePackage(selected);
             RestoreCurrentOrNextWord();
-            AnnounceStatus($"Recall learning data reset. All canonical words are available again with safe default assignments. Recovery profile: {recovery}");
+            AnnounceStatus($"Recall learning data reset. Sentence learning state was preserved. All canonical words are available again with safe default assignments. Recovery profile: {recovery}");
         }
         catch (Exception ex)
         {
             MessageBox.Show(this, ex.Message, "Reset failed", MessageBoxButtons.OK, MessageBoxIcon.Error);
-            AnnounceStatus("Reset failed. WordDeck did not intentionally delete canonical dictionary or audio files.");
+            AnnounceStatus("Reset failed. WordDeck did not intentionally delete canonical dictionary, Sentence state or audio files.");
         }
         FocusCurrentWord();
     }
