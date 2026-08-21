@@ -14,6 +14,7 @@ internal sealed record InstalledSentencePack(
 internal sealed class SentencePackStore
 {
     private readonly string _root;
+    private readonly Action<string>? _testCheckpoint;
     public string DirectoryPath { get; }
 
     public SentencePackStore()
@@ -21,12 +22,13 @@ internal sealed class SentencePackStore
     {
     }
 
-    internal SentencePackStore(string root)
+    internal SentencePackStore(string root, Action<string>? testCheckpoint = null)
     {
         if (string.IsNullOrWhiteSpace(root))
             throw new ArgumentException("SentencePack root must not be blank.", nameof(root));
 
-        _root = root;
+        _root = Path.GetFullPath(root);
+        _testCheckpoint = testCheckpoint;
         DirectoryPath = Path.Combine(_root, "SentencePacks");
         Directory.CreateDirectory(DirectoryPath);
     }
@@ -40,48 +42,105 @@ internal sealed class SentencePackStore
         if (!File.Exists(fullSource))
             throw new FileNotFoundException("SentencePack file was not found.", fullSource);
 
-        // Import validates the portable interchange pack once. Large-pack study sessions use the
-        // separately built disk-backed SQLite corpus and do not need to repeat this eager load.
+        _testCheckpoint?.Invoke("before-source-read");
         SentencePack pack = SentencePackIo.Read(fullSource);
+        SentencePackLicenseValidator.ValidateForInstallation(pack);
+        _testCheckpoint?.Invoke("source-validated");
+
         string safeId = SafeFileName(pack.PackId);
-        string destination = Path.Combine(DirectoryPath, safeId + ".json.gz");
-        string sqliteDestination = Path.Combine(DirectoryPath, safeId + ".sqlite");
-        string temp = destination + ".tmp";
-        string sqliteTemp = sqliteDestination + ".tmp";
+        string destination = ControlledPath(safeId + ".json.gz");
+        string sqliteDestination = ControlledPath(safeId + ".sqlite");
+        EnsureNoCaseInsensitiveIdentityCollision(safeId);
+
+        string transactionId = Guid.NewGuid().ToString("N");
+        string temp = ControlledPath(safeId + ".json.gz." + transactionId + ".tmp");
+        string sqliteTemp = ControlledPath(safeId + ".sqlite." + transactionId + ".tmp");
+        string portableBackup = ControlledPath(safeId + ".json.gz." + transactionId + ".rollback");
+        string sqliteBackup = ControlledPath(safeId + ".sqlite." + transactionId + ".rollback");
+
+        bool oldPortableBackedUp = false;
+        bool oldSqliteBackedUp = false;
+        bool newPortableInstalled = false;
+        bool newSqliteInstalled = false;
+        bool committed = false;
 
         try
         {
             SentencePackIo.WriteGZip(temp, pack);
-            SentencePackSqlitePrototype.Build(sqliteTemp, pack);
+            _testCheckpoint?.Invoke("portable-staged");
+            _testCheckpoint?.Invoke("before-sqlite-build");
 
-            // Microsoft.Data.Sqlite pools connections by default. The build connection has been
-            // disposed, but its pooled native handle can still keep the Windows file open. Clear
-            // the provider pool before the atomic replace so import/replacement is deterministic.
+            SentencePackSqlitePrototype.Build(sqliteTemp, pack);
+            _testCheckpoint?.Invoke("sqlite-built");
+            _testCheckpoint?.Invoke("before-candidate-validation");
+
+            var candidate = new SentencePackSqliteCorpus(sqliteTemp);
+            ValidateCompanionMatchesPortable(candidate, pack);
+            _testCheckpoint?.Invoke("candidate-validated");
+
             SqliteConnection.ClearAllPools();
 
-            File.Move(temp, destination, true);
-            File.Move(sqliteTemp, sqliteDestination, true);
+            if (File.Exists(destination))
+            {
+                File.Move(destination, portableBackup, false);
+                oldPortableBackedUp = true;
+            }
+            if (File.Exists(sqliteDestination))
+            {
+                File.Move(sqliteDestination, sqliteBackup, false);
+                oldSqliteBackedUp = true;
+            }
+            _testCheckpoint?.Invoke("old-installation-backed-up");
+
+            File.Move(temp, destination, false);
+            newPortableInstalled = true;
+            _testCheckpoint?.Invoke("portable-installed");
+
+            File.Move(sqliteTemp, sqliteDestination, false);
+            newSqliteInstalled = true;
+            _testCheckpoint?.Invoke("sqlite-installed");
+
+            var installedCorpus = new SentencePackSqliteCorpus(sqliteDestination);
+            ValidateCompanionMatchesPortable(installedCorpus, pack);
+            _testCheckpoint?.Invoke("replacement-validated");
+
+            committed = true;
+            TryDelete(portableBackup);
+            TryDelete(sqliteBackup);
+
+            string legacyJson = ControlledPath(safeId + ".json");
+            if (File.Exists(legacyJson))
+                File.Delete(legacyJson);
+
+            return new InstalledSentencePack(
+                destination,
+                pack.PackId,
+                pack.License,
+                pack.SentenceCount,
+                installedCorpus,
+                sqliteDestination,
+                pack);
+        }
+        catch
+        {
+            SqliteConnection.ClearAllPools();
+            if (newPortableInstalled) TryDelete(destination);
+            if (newSqliteInstalled) TryDelete(sqliteDestination);
+            RestoreRollback(portableBackup, destination, oldPortableBackedUp);
+            RestoreRollback(sqliteBackup, sqliteDestination, oldSqliteBackedUp);
+            throw;
         }
         finally
         {
-            // Also release any read-only pooled handle from a prior installed corpus before cleanup.
             SqliteConnection.ClearAllPools();
-            if (File.Exists(temp)) File.Delete(temp);
-            if (File.Exists(sqliteTemp)) File.Delete(sqliteTemp);
+            TryDelete(temp);
+            TryDelete(sqliteTemp);
+            if (committed)
+            {
+                TryDelete(portableBackup);
+                TryDelete(sqliteBackup);
+            }
         }
-
-        string legacyJson = Path.Combine(DirectoryPath, safeId + ".json");
-        if (File.Exists(legacyJson)) File.Delete(legacyJson);
-
-        var sqliteCorpus = new SentencePackSqliteCorpus(sqliteDestination);
-        return new InstalledSentencePack(
-            destination,
-            pack.PackId,
-            pack.License,
-            pack.SentenceCount,
-            sqliteCorpus,
-            sqliteDestination,
-            pack);
     }
 
     public IReadOnlyList<InstalledSentencePack> LoadInstalled()
@@ -90,9 +149,6 @@ internal sealed class SentencePackStore
         var representedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var representedPackIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        // Runtime-first discovery: a valid SQLite companion contains all metadata needed by the UI,
-        // so normal restart/study does not deserialize the potentially very large gzip interchange
-        // file. The portable file remains installed for provenance/export/backwards compatibility.
         foreach (string sqlitePath in Directory.EnumerateFiles(DirectoryPath, "*.sqlite", SearchOption.TopDirectoryOnly)
                      .OrderBy(path => path, StringComparer.OrdinalIgnoreCase))
         {
@@ -100,8 +156,8 @@ internal sealed class SentencePackStore
             {
                 var corpus = new SentencePackSqliteCorpus(sqlitePath);
                 string safeId = SafeFileName(corpus.PackId);
-                string gzipPath = Path.Combine(DirectoryPath, safeId + ".json.gz");
-                string jsonPath = Path.Combine(DirectoryPath, safeId + ".json");
+                string gzipPath = ControlledPath(safeId + ".json.gz");
+                string jsonPath = ControlledPath(safeId + ".json");
                 string portablePath = File.Exists(gzipPath) ? gzipPath : File.Exists(jsonPath) ? jsonPath : sqlitePath;
 
                 result.Add(new InstalledSentencePack(
@@ -117,8 +173,8 @@ internal sealed class SentencePackStore
             }
             catch
             {
-                // A corrupt optional SQLite companion must not block startup. Its portable pack,
-                // when present and valid, is considered below as the backwards-compatible fallback.
+                // Corrupt/incompatible optional SQLite is ignored. A valid portable source can still
+                // be discovered below; study never opens an unvalidated database.
             }
         }
 
@@ -135,6 +191,8 @@ internal sealed class SentencePackStore
             try
             {
                 SentencePack pack = SentencePackIo.Read(path);
+                SentencePackLicenseValidator.ValidateForInstallation(pack);
+                SafeFileName(pack.PackId);
                 if (!representedPackIds.Add(pack.PackId))
                     continue;
 
@@ -149,7 +207,7 @@ internal sealed class SentencePackStore
             }
             catch
             {
-                // A broken optional pack must never prevent WordDeck from starting.
+                // Broken optional portable packs never prevent WordDeck startup.
             }
         }
 
@@ -165,6 +223,80 @@ internal sealed class SentencePackStore
         if (string.IsNullOrWhiteSpace(packId))
             return null;
         return LoadInstalled().FirstOrDefault(item => string.Equals(item.PackId, packId, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private void EnsureNoCaseInsensitiveIdentityCollision(string safeId)
+    {
+        foreach (string path in Directory.EnumerateFiles(DirectoryPath, "*", SearchOption.TopDirectoryOnly))
+        {
+            string name = Path.GetFileName(path);
+            string? existingId = InstalledFileIdentity(name);
+            if (existingId is null)
+                continue;
+            if (string.Equals(existingId, safeId, StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(existingId, safeId, StringComparison.Ordinal))
+            {
+                throw new InvalidDataException(
+                    $"SentencePack id '{safeId}' would collide with installed pack id '{existingId}' on Windows case-insensitive storage.");
+            }
+        }
+    }
+
+    private static string? InstalledFileIdentity(string fileName)
+    {
+        if (fileName.EndsWith(".json.gz", StringComparison.OrdinalIgnoreCase))
+            return fileName[..^8];
+        if (fileName.EndsWith(".sqlite", StringComparison.OrdinalIgnoreCase))
+            return fileName[..^7];
+        if (fileName.EndsWith(".json", StringComparison.OrdinalIgnoreCase))
+            return fileName[..^5];
+        return null;
+    }
+
+    private string ControlledPath(string fileName)
+    {
+        string root = Path.GetFullPath(DirectoryPath).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar;
+        string candidate = Path.GetFullPath(Path.Combine(DirectoryPath, fileName));
+        if (!candidate.StartsWith(root, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidDataException("SentencePack path escaped the controlled installation directory.");
+        return candidate;
+    }
+
+    private static void ValidateCompanionMatchesPortable(SentencePackSqliteCorpus corpus, SentencePack pack)
+    {
+        if (!string.Equals(corpus.PackId, pack.PackId, StringComparison.Ordinal) ||
+            !string.Equals(corpus.License, pack.License, StringComparison.Ordinal) ||
+            !string.Equals(corpus.Provenance, pack.Provenance, StringComparison.Ordinal) ||
+            corpus.SentenceCount != pack.SentenceCount)
+        {
+            throw new InvalidDataException("SQLite SentencePack companion metadata does not match the validated portable pack.");
+        }
+    }
+
+    private static void RestoreRollback(string backup, string destination, bool expected)
+    {
+        if (!expected || !File.Exists(backup))
+            return;
+        try
+        {
+            if (File.Exists(destination)) File.Delete(destination);
+            File.Move(backup, destination, false);
+        }
+        catch
+        {
+            // Preserve rollback bytes if automatic restoration itself fails.
+        }
+    }
+
+    private static void TryDelete(string path)
+    {
+        try
+        {
+            if (File.Exists(path)) File.Delete(path);
+        }
+        catch
+        {
+        }
     }
 
     internal static string SafeFileName(string packId)
@@ -183,6 +315,7 @@ internal sealed class SentencePackStore
             throw new InvalidDataException("SentencePack id contains a path separator or invalid file-name character.");
         if (IsWindowsDeviceName(value))
             throw new InvalidDataException("SentencePack id is reserved by Windows and cannot be installed safely.");
+        SentenceTokenizer.ValidateUnicode(value, "SentencePack id");
         return value;
     }
 
