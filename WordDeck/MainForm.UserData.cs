@@ -59,7 +59,7 @@ internal sealed partial class MainForm
         string word = _current.Source;
         DialogResult answer = MessageBox.Show(
             this,
-            $"Hide {word} from normal Recall study in every scope? The canonical word, audio and deck assignments will be preserved and the word can be restored later.",
+            $"Hide {word} from normal Recall and Spelling study in every scope? The canonical word, audio and saved deck assignments will be preserved and the word can be restored later.",
             "Hide word from study",
             MessageBoxButtons.YesNo,
             MessageBoxIcon.Question,
@@ -74,7 +74,7 @@ internal sealed partial class MainForm
         _translationBox.Clear();
         SaveState();
         UpdateCounts();
-        AnnounceStatus($"Hidden {word} from normal Recall study. Its canonical dictionary entry, audio and per-scope deck assignments were preserved.");
+        AnnounceStatus($"Hidden {word} from normal Recall and Spelling study. Its canonical dictionary entry, audio and saved deck assignments were preserved.");
         NextWord();
     }
 
@@ -89,7 +89,7 @@ internal sealed partial class MainForm
                     : $"{id} — not present in current corpus; preserved for future migration";
                 return (Id: id, Label: label);
             }).ToList();
-        if (options.Count == 0) { AnnounceStatus("There are no hidden Recall words to restore."); FocusCurrentWord(); return; }
+        if (options.Count == 0) { AnnounceStatus("There are no hidden words to restore."); FocusCurrentWord(); return; }
 
         using var dialog = new HiddenWordRestoreDialog(options);
         if (dialog.ShowDialog(this) != DialogResult.OK || string.IsNullOrWhiteSpace(dialog.SelectedEntryId))
@@ -103,14 +103,14 @@ internal sealed partial class MainForm
         RestoreSequenceForScope();
         UpdateCounts();
         string word = _entriesById.TryGetValue(id, out DictionaryEntry? entry) ? entry.Source : id;
-        AnnounceStatus($"Restored {word} to normal Recall study. Existing per-scope deck assignments were kept.");
+        AnnounceStatus($"Restored {word} to normal Recall and Spelling study. Existing saved deck assignments were kept.");
         FocusCurrentWord();
     }
 
     private void RestoreAllHiddenWords()
     {
-        if (_state.HiddenEntryIds.Count == 0) { AnnounceStatus("There are no hidden Recall words to restore."); FocusCurrentWord(); return; }
-        DialogResult answer = MessageBox.Show(this, $"Restore all {_state.HiddenEntryIds.Count} hidden words to normal Recall study?", "Restore all hidden words", MessageBoxButtons.YesNo, MessageBoxIcon.Question, MessageBoxDefaultButton.Button2);
+        if (_state.HiddenEntryIds.Count == 0) { AnnounceStatus("There are no hidden words to restore."); FocusCurrentWord(); return; }
+        DialogResult answer = MessageBox.Show(this, $"Restore all {_state.HiddenEntryIds.Count} hidden words to normal Recall and Spelling study?", "Restore all hidden words", MessageBoxButtons.YesNo, MessageBoxIcon.Question, MessageBoxDefaultButton.Button2);
         if (answer != DialogResult.Yes) { FocusCurrentWord(); return; }
         int restored = UserProgressService.RestoreAll(_state);
         SaveState();
@@ -127,15 +127,17 @@ internal sealed partial class MainForm
         {
             Title = "Export WordDeck personal progress profile",
             Filter = "WordDeck personal profile (*.json)|*.json",
-            FileName = "WordDeck-profile-v1.json",
+            FileName = "WordDeck-profile-v2.json",
             AddExtension = true,
             DefaultExt = "json"
         };
         if (dialog.ShowDialog(this) != DialogResult.OK) { FocusCurrentWord(); return; }
         try
         {
-            _store.ExportProfile(_state, dialog.FileName);
-            AnnounceStatus($"Personal WordDeck profile exported to {dialog.FileName}. It contains study state only, not the canonical dictionary or audio files.");
+            var spellingStore = new SpellingStateStore();
+            SpellingState spellingState = spellingStore.Load();
+            new SpellingProfileService(_store, spellingStore).Export(_state, spellingState, dialog.FileName);
+            AnnounceStatus($"Personal WordDeck profile exported to {dialog.FileName}. It contains Recall and Spelling study state only, not the canonical dictionary or audio files.");
         }
         catch (Exception ex)
         {
@@ -159,7 +161,10 @@ internal sealed partial class MainForm
                 .Concat(_state.CustomEntriesByDictionary.Values.SelectMany(list => list.Select(entry => entry.Id)))
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToArray();
-            ProfileImportResult result = _store.ImportProfile(dialog.FileName, _state, knownEntries, _packages.Keys);
+            var spellingStore = new SpellingStateStore();
+            SpellingState spellingState = spellingStore.Load();
+            var profileService = new SpellingProfileService(_store, spellingStore);
+            CombinedProfileImportResult result = profileService.Import(dialog.FileName, _state, spellingState, knownEntries, _packages.Keys);
             _navigationHistory.Clear();
             _autoPronunciationMenuItem.Checked = _state.AutoPlayPronunciationOnCardChange;
             DictionaryPackage selected = _state.ActiveDictionaryId is not null && _packages.TryGetValue(_state.ActiveDictionaryId, out DictionaryPackage? package)
@@ -170,12 +175,15 @@ internal sealed partial class MainForm
             string quarantine = result.QuarantinedIds.Count == 0
                 ? "No unknown stable IDs were found."
                 : $"{result.QuarantinedIds.Count} unknown IDs were preserved in quarantine for future migration.";
-            AnnounceStatus($"Personal profile imported successfully. A pre-import recovery profile was saved at {result.BackupPath}. {quarantine}");
+            string spelling = result.SpellingImported
+                ? "Spelling decks, scopes, statistics and Adaptive Coach state were restored too."
+                : "This was an older V0.1 profile without Spelling data, so the current Spelling progress was preserved unchanged.";
+            AnnounceStatus($"Personal profile imported successfully. A pre-import recovery profile was saved at {result.RecallBackupPath}. {spelling} {quarantine}");
         }
         catch (Exception ex)
         {
             MessageBox.Show(this, ex.Message, "Profile import failed", MessageBoxButtons.OK, MessageBoxIcon.Error);
-            AnnounceStatus("Profile import failed. Existing personal state was not replaced.");
+            AnnounceStatus("Profile import failed. Existing Recall and Spelling personal state was not intentionally replaced.");
         }
         FocusCurrentWord();
     }
@@ -184,7 +192,7 @@ internal sealed partial class MainForm
     {
         DialogResult answer = MessageBox.Show(
             this,
-            "Reset Recall learning progress? This clears hidden-word state, study history, current cards, shuffle progress and word-to-deck assignments. Canonical dictionary/audio files, custom cards, deck definitions, shortcuts and pronunciation preference are not deleted. An automatic recovery profile is created first.",
+            "Reset Recall learning progress? This clears hidden-word state, study history, current cards, shuffle progress and Recall word-to-deck assignments. Canonical dictionary/audio files, Spelling progress, custom cards, deck definitions, shortcuts and pronunciation preference are not deleted. An automatic recovery profile is created first.",
             "Reset WordDeck learning data",
             MessageBoxButtons.YesNo,
             MessageBoxIcon.Warning,
@@ -203,12 +211,12 @@ internal sealed partial class MainForm
                 : _packages.Values.First();
             ActivatePackage(selected);
             RestoreCurrentOrNextWord();
-            AnnounceStatus($"Recall learning data reset. All canonical words are available again with safe default assignments. Recovery profile: {recovery}");
+            AnnounceStatus($"Recall learning data reset. All canonical words are available again with safe default Recall assignments. Spelling progress was preserved. Recovery profile: {recovery}");
         }
         catch (Exception ex)
         {
             MessageBox.Show(this, ex.Message, "Reset failed", MessageBoxButtons.OK, MessageBoxIcon.Error);
-            AnnounceStatus("Reset failed. WordDeck did not intentionally delete canonical dictionary or audio files.");
+            AnnounceStatus("Reset failed. WordDeck did not intentionally delete canonical dictionary, audio or Spelling progress.");
         }
         FocusCurrentWord();
     }
