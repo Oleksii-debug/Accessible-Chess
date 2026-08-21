@@ -21,6 +21,7 @@ internal static class Program
                 StudyScopeSelfTest.Run();
                 UserDataSelfTest.Run();
                 ReleaseRegressionSelfTest.Run();
+                ReleaseStateFailureSelfTest.Run();
                 SpellingSelfTest.Run();
                 SentenceCoachSelfTest.Run();
                 SentencePackStoreSelfTest.Run();
@@ -237,10 +238,7 @@ internal static class Program
                         break;
                     }
                 }
-                catch
-                {
-                    // An invalid optional import must not prevent training modes from opening.
-                }
+                catch { }
             }
         }
 
