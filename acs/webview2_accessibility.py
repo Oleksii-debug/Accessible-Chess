@@ -11,13 +11,59 @@ FORCE_RENDERER_ACCESSIBILITY = "--force-renderer-accessibility"
 _PATCH_MARKER = "_acs_stage1_accessibility_host_patched"
 _HANDLER_MARKER = "_acs_stage1_accessibility_host_handlers"
 
+# WebView2 inherits this environment variable before the packaged application
+# creates its Edge environment. Accessibility-related or cosmetic flags may be
+# supplied by the user's environment, but flags that expose DevTools/remote
+# control or disable browser security must never be inherited by a release that
+# binds a privileged ``js_api`` object into the document.
+_BLOCKED_BROWSER_ARGUMENTS = frozenset(
+    {
+        "--remote-debugging-port",
+        "--remote-debugging-address",
+        "--remote-debugging-pipe",
+        "--remote-allow-origins",
+        "--disable-web-security",
+        "--allow-running-insecure-content",
+        "--allow-file-access-from-files",
+        "--allow-universal-access-from-files",
+        "--ignore-certificate-errors",
+        "--no-sandbox",
+        "--disable-site-isolation-trials",
+    }
+)
+
+
+def _sanitize_browser_arguments(value: str) -> str:
+    """Drop security-sensitive WebView2 switches while preserving benign flags.
+
+    Chromium accepts both ``--flag=value`` and ``--flag value`` forms. When a
+    blocked switch uses the latter form, discard its following scalar value too
+    so an orphaned port/address does not survive in the environment string.
+    """
+
+    tokens = value.split()
+    kept: list[str] = []
+    index = 0
+    while index < len(tokens):
+        token = tokens[index]
+        name = token.split("=", 1)[0].casefold()
+        if name in _BLOCKED_BROWSER_ARGUMENTS:
+            if "=" not in token and index + 1 < len(tokens) and not tokens[index + 1].startswith("--"):
+                index += 2
+            else:
+                index += 1
+            continue
+        kept.append(token)
+        index += 1
+    return " ".join(kept)
+
 
 def enable_webview2_renderer_accessibility(
     environment: MutableMapping[str, str] | None = None,
 ) -> str:
-    """Preserve WebView2 browser arguments and request renderer accessibility."""
+    """Preserve benign WebView2 arguments and request renderer accessibility."""
     env = os.environ if environment is None else environment
-    current = str(env.get(WEBVIEW2_BROWSER_ARGUMENTS_ENV, "")).strip()
+    current = _sanitize_browser_arguments(str(env.get(WEBVIEW2_BROWSER_ARGUMENTS_ENV, "")).strip())
     tokens = current.split()
     if not any(
         token == FORCE_RENDERER_ACCESSIBILITY
@@ -25,8 +71,8 @@ def enable_webview2_renderer_accessibility(
         for token in tokens
     ):
         current = (current + " " + FORCE_RENDERER_ACCESSIBILITY).strip()
-        env[WEBVIEW2_BROWSER_ARGUMENTS_ENV] = current
-    return str(env.get(WEBVIEW2_BROWSER_ARGUMENTS_ENV, current))
+    env[WEBVIEW2_BROWSER_ARGUMENTS_ENV] = current
+    return current
 
 
 def _same_managed_object(left: Any, right: Any) -> bool:
@@ -144,7 +190,9 @@ def install_pywebview_accessibility_host_patch(edge_module: Any | None = None) -
     if bool(getattr(edge_class, _PATCH_MARKER, False)):
         return True
 
-    original = edge_class.on_webview_ready
+    original = getattr(edge_class, "on_webview_ready", None)
+    if not callable(original):
+        return False
 
     def on_webview_ready(self: Any, sender: Any, args: Any) -> Any:
         result = original(self, sender, args)
