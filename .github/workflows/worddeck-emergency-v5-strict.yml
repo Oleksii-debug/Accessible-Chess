@@ -1,93 +1,13 @@
-name: WordDeck emergency Oxford 5000 V5 strict completion
+name: WordDeck archived emergency Oxford 5000 V5 strict
 
 on:
-  push:
-    branches:
-      - worddeck-bootstrap
-    paths:
-      - WordDeck/tools/complete_oxford5000_emergency_v5_strict.py
-      - WordDeck/tools/run_oxford5000_v5_strict_completion.py
-      - .github/workflows/worddeck-emergency-v5-strict.yml
   workflow_dispatch:
 
-concurrency:
-  group: worddeck-emergency-${{ github.ref }}
-  cancel-in-progress: true
-
 permissions:
-  contents: write
-  statuses: write
-  actions: read
+  contents: read
 
 jobs:
-  complete-tail-v5-strict:
+  archived:
     runs-on: ubuntu-latest
-    timeout-minutes: 360
-    env:
-      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
-      - name: Checkout exact corrective branch head
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Publish V5 strict pending status
-        uses: actions/github-script@v7
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          script: |
-            const targetUrl = `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`;
-            await github.rest.repos.createCommitStatus({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              sha: context.sha,
-              state: 'pending',
-              context: 'WordDeck emergency V5 sense-bound gate',
-              description: 'Contrastive sense-bound Oxford 5000 V5 review is executing.',
-              target_url: targetUrl
-            });
-
-      - name: Install lexical QA and Ukrainian morphology dependencies
-        shell: bash
-        run: |
-          set -euo pipefail
-          python -m pip install --upgrade pip
-          python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
-          python -m pip install 'transformers<5' sentencepiece requests beautifulsoup4 'sentence-transformers<4' pymorphy3 pymorphy3-dicts-uk
-
-      - name: Execute contrastive V5 full-tail review and safe checkpoints
-        shell: bash
-        run: |
-          set -euo pipefail
-          python WordDeck/tools/run_oxford5000_v5_strict_completion.py
-
-      - name: Publish final V5 strict status
-        if: always()
-        uses: actions/github-script@v7
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          script: |
-            const remaining = process.env.FINAL_REMAINING || 'unknown';
-            const finalSha = process.env.FINAL_SHA || context.sha;
-            const complete = remaining === '0' && '${{ job.status }}' === 'success';
-            const targetUrl = `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`;
-            await github.rest.repos.createCommitStatus({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              sha: finalSha,
-              state: complete ? 'success' : 'failure',
-              context: 'WordDeck emergency V5 sense-bound gate',
-              description: complete
-                ? 'Strict V5 lexical tail complete; British offline audio validated.'
-                : `Strict V5 ended fail-closed with ${remaining} unresolved identities.`,
-              target_url: targetUrl
-            });
-
-      - name: Upload V5 strict lexical and CI evidence
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: WordDeck-oxford5000-emergency-v5-strict-evidence
-          path: artifacts/emergency-v5/**
-          if-no-files-found: warn
-          retention-days: 90
+      - run: echo 'Historical V5 strict completion is archived after the accepted corpus. No source mutation is permitted.'
