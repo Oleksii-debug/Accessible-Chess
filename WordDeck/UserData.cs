@@ -1,3 +1,6 @@
+using System.Text.Json;
+using System.Text.Json.Serialization;
+
 namespace WordDeck;
 
 internal sealed class WordStudyHistory
@@ -9,7 +12,7 @@ internal sealed class WordStudyHistory
     public string? LastDeckId { get; set; }
 }
 
-internal sealed class WordDeckProfile
+internal sealed class WordDeckProfile : IJsonOnDeserialized
 {
     public int ProfileSchemaVersion { get; set; } = AppStateStore.ProfileSchemaVersion;
     public int StateSchemaVersion { get; set; } = AppStateStore.CurrentSchemaVersion;
@@ -17,6 +20,16 @@ internal sealed class WordDeckProfile
     public string CorpusIdentity { get; set; } = AppStateStore.CorpusIdentity;
     public DateTimeOffset ExportedAtUtc { get; set; } = DateTimeOffset.UtcNow;
     public AppState State { get; set; } = new();
+
+    void IJsonOnDeserialized.OnDeserialized()
+    {
+        if (!string.Equals(CorpusIdentity, AppStateStore.CorpusIdentity, StringComparison.Ordinal))
+        {
+            throw new JsonException(
+                $"This WordDeck profile belongs to incompatible corpus '{CorpusIdentity ?? "<missing>"}'. " +
+                $"This build expects '{AppStateStore.CorpusIdentity}'. No personal progress was changed.");
+        }
+    }
 }
 
 internal sealed record ProfileImportResult(string BackupPath, IReadOnlyList<string> QuarantinedIds);
