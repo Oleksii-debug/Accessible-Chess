@@ -1,6 +1,7 @@
 import tempfile
 from pathlib import Path
 import unittest
+from unittest.mock import patch
 
 from acs.gametree import parse_games, serialize_games
 from acs.import_contract import ImportQuality
@@ -51,6 +52,30 @@ class PgnFileServiceTests(unittest.TestCase):
             with self.assertRaises(FileExistsError):
                 save_pgn_atomic(path, games)
             self.assertEqual(path.read_text(encoding="utf-8"), "do not replace")
+
+    def test_concurrent_creator_is_not_clobbered_when_overwrite_is_false(self):
+        games = parse_games('[Event "A"]\n[Result "*"]\n\n1. e4 *')
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "race.pgn"
+
+            def concurrent_create(_source, destination):
+                Path(destination).write_text("other writer", encoding="utf-8")
+                raise FileExistsError(destination)
+
+            with patch("acs.pgn_service.os.link", side_effect=concurrent_create):
+                with self.assertRaises(FileExistsError):
+                    save_pgn_atomic(path, games)
+
+            self.assertEqual(path.read_text(encoding="utf-8"), "other writer")
+            self.assertEqual(list(Path(tmp).glob("race.pgn.*.tmp")), [])
+
+    def test_overwrite_requires_exact_boolean(self):
+        games = parse_games('[Event "A"]\n[Result "*"]\n\n1. e4 *')
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "strict.pgn"
+            with self.assertRaises(TypeError):
+                save_pgn_atomic(path, games, overwrite=1)
+            self.assertFalse(path.exists())
 
     def test_expected_hash_prevents_lost_update(self):
         with tempfile.TemporaryDirectory() as tmp:
