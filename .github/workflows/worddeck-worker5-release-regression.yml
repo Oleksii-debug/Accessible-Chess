@@ -1,0 +1,115 @@
+name: WordDeck worker 5 release regression
+
+on:
+  push:
+    branches:
+      - worddeck-worker-5-release
+    paths:
+      - 'WordDeck/**'
+      - '.github/workflows/worddeck-windows.yml'
+      - '.github/workflows/worddeck-worker5-release-regression.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: worddeck-worker5-release-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  release-regression:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout exact worker commit
+        uses: actions/checkout@v4
+
+      - name: Branch and workflow write-safety gate
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:GITHUB_REF_NAME -ne 'worddeck-worker-5-release') {
+            throw "This isolated gate must run only on worddeck-worker-5-release; got $env:GITHUB_REF_NAME."
+          }
+          $authoritative = Get-Content .\.github\workflows\worddeck-windows.yml -Raw
+          if ($authoritative -match 'git\s+push\s+origin\s+HEAD:worddeck-bootstrap') {
+            throw 'Authoritative WordDeck validation workflow still contains a self-write to worddeck-bootstrap.'
+          }
+          if ($authoritative -match 'contents:\s*write') {
+            throw 'Authoritative WordDeck validation workflow still requests write access to repository contents.'
+          }
+          Write-Host 'Workflow branch safety PASS: validation is source-read-only.'
+
+      - name: Repository secret-file and private-state filename gate
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $tracked = @(git ls-files)
+          $forbidden = @($tracked | Where-Object {
+            $_ -match '(^|/)(token\.json|credentials?\.json|cookies?(\.sqlite|\.json)?|\.env|id_rsa|id_ed25519)$' -or
+            $_ -match '\.(pfx|p12|pem|key)$' -or
+            $_ -match '(^|/)(state|state\.backup|spelling-state|sentence-coach-state)\.json$' -or
+            $_ -match '(^|/)WordDeck-profile.*\.json$'
+          })
+          if ($forbidden.Count -ne 0) {
+            throw "Tracked secret/private-state candidates: $($forbidden -join ', ')"
+          }
+          Write-Host 'Repository tracked-file safety PASS.'
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore
+        run: dotnet restore .\WordDeck\WordDeck.csproj
+
+      - name: Release build with warnings as errors
+        run: dotnet build .\WordDeck\WordDeck.csproj -c Release --no-restore -warnaserror
+
+      - name: Full embedded regression suite
+        run: dotnet run --project .\WordDeck\WordDeck.csproj -c Release --no-build -- --self-test
+
+      - name: Publish self-contained build into spaces and Cyrillic path
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+          $publish = Join-Path $PWD 'artifacts\WordDeck тест release'
+          dotnet publish .\WordDeck\WordDeck.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:DebugType=None -p:DebugSymbols=false -o $publish
+          $exe = Join-Path $publish 'WordDeck.exe'
+          if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) { throw 'Published WordDeck.exe is missing.' }
+          $process = Start-Process -LiteralPath $exe -ArgumentList '--self-test' -Wait -PassThru
+          if ($process.ExitCode -ne 0) { throw "Published EXE self-test failed: $($process.ExitCode)" }
+          "publish_path=$publish" | Set-Content .\artifacts\worker5-release-evidence.txt -Encoding UTF8
+          'published_exe_self_test=PASS' | Add-Content .\artifacts\worker5-release-evidence.txt -Encoding UTF8
+          'spaces_and_cyrillic_path=PASS' | Add-Content .\artifacts\worker5-release-evidence.txt -Encoding UTF8
+
+      - name: Clean publish and no-admin manifest gate
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $publish = Join-Path $PWD 'artifacts\WordDeck тест release'
+          $forbidden = @(Get-ChildItem -LiteralPath $publish -Recurse -File | Where-Object {
+            $_.Name -match '^state(\.backup)?\.json$' -or
+            $_.Name -match '^spelling-state(\.backup)?\.json$' -or
+            $_.Name -match '^sentence-coach-state(\.backup)?\.json$' -or
+            $_.Name -like 'WordDeck-profile*.json' -or
+            $_.Name -match '(^|[-_.])(token|secret|credential|cookie)([-_.]|$)'
+          })
+          if ($forbidden.Count -ne 0) { throw "Published tree contains private-state/secret candidates: $($forbidden.FullName -join ', ')" }
+          $manifest = Get-Content .\WordDeck\app.manifest -Raw
+          if ($manifest -notmatch 'requestedExecutionLevel\s+level="asInvoker"') {
+            throw 'Application manifest does not explicitly use asInvoker.'
+          }
+          'clean_publish_tree=PASS' | Add-Content .\artifacts\worker5-release-evidence.txt -Encoding UTF8
+          'no_admin_required_manifest=PASS' | Add-Content .\artifacts\worker5-release-evidence.txt -Encoding UTF8
+
+      - name: Upload worker release evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: WordDeck-worker5-release-evidence
+          path: .\artifacts\worker5-release-evidence.txt
+          if-no-files-found: error
+          retention-days: 30
