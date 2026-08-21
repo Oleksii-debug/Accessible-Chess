@@ -13,11 +13,11 @@ internal sealed partial class MainForm
         return string.Equals(_deckMap.GetValueOrDefault(entryId, _decks.FirstDeck.Id), _activeDeckId, StringComparison.OrdinalIgnoreCase);
     }
 
-    private bool TryShowForwardHistory()
+    private bool TryShowForwardHistory(bool focusWord = true)
     {
         if (!_navigationHistory.TryForward(IsCurrentRecallEligible, out string? entryId) || entryId is null)
             return false;
-        ShowHistoryEntry(entryId);
+        ShowHistoryEntry(entryId, focusWord);
         return true;
     }
 
@@ -32,10 +32,10 @@ internal sealed partial class MainForm
         FocusCurrentWord();
     }
 
-    private void ShowHistoryEntry(string entryId)
+    private void ShowHistoryEntry(string entryId, bool focusWord = true)
     {
         _showingHistoryNavigation = true;
-        try { ShowEntryById(entryId); }
+        try { ShowEntryById(entryId, focusWord); }
         finally { _showingHistoryNavigation = false; }
     }
 
@@ -44,12 +44,13 @@ internal sealed partial class MainForm
         Keys code = keyData & Keys.KeyCode;
         Keys modifiers = keyData & Keys.Modifiers;
         if (modifiers != Keys.None || (code != Keys.Up && code != Keys.Down)) return false;
-        if (MainMenuStrip?.ContainsFocus == true) return true;
-        Control? active = ActiveControl;
-        if (active is ComboBox) return true;
-        // Up/Down are intentionally fast Recall keys only on the two main study
-        // text surfaces. Standard controls elsewhere keep native arrow behavior.
-        return active != _wordBox && active != _translationBox;
+
+        // Fast Recall Up/Down is deliberately restricted to the English word
+        // surface. Translation, ComboBoxes, menus and every other standard
+        // control keep their native arrow-key behavior for keyboard/NVDA use.
+        return !RecallKeyboardFocusPolicy.IsFastCardArrow(
+            keyData,
+            englishWordSurfaceFocused: ReferenceEquals(ActiveControl, _wordBox));
     }
 
     private void HideCurrentWord()

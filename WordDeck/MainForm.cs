@@ -81,7 +81,8 @@ internal sealed partial class MainForm : Form
             Width = 300,
             AccessibleName = "Dictionary"
         };
-        _dictionaryCombo.SelectedIndexChanged += (_, _) => ChangeDictionaryFromCombo();
+        _dictionaryCombo.SelectedIndexChanged += (_, _) =>
+            ChangeDictionaryFromCombo(RecallKeyboardFocusPolicy.ShouldFocusCardAfterSelectorChange(_dictionaryCombo.ContainsFocus));
         top.Controls.Add(_dictionaryCombo);
 
         top.Controls.Add(new Label { Text = "Study scope:", AutoSize = true, Padding = new Padding(12, 6, 4, 0) });
@@ -96,7 +97,7 @@ internal sealed partial class MainForm : Form
         {
             if (!_changingScopeUi && _scopeCombo.SelectedItem is ScopeOption option &&
                 !string.Equals(option.Id, ActiveScopeId, StringComparison.OrdinalIgnoreCase))
-                SwitchStudyScope(option.Id);
+                SwitchStudyScope(option.Id, RecallKeyboardFocusPolicy.ShouldFocusCardAfterSelectorChange(_scopeCombo.ContainsFocus));
         };
         top.Controls.Add(_scopeCombo);
 
@@ -113,7 +114,7 @@ internal sealed partial class MainForm : Form
         {
             if (_deckCombo.SelectedItem is DeckDefinition deck &&
                 !string.Equals(deck.Id, _activeDeckId, StringComparison.OrdinalIgnoreCase))
-                SwitchDeck(deck.Id);
+                SwitchDeck(deck.Id, RecallKeyboardFocusPolicy.ShouldFocusCardAfterSelectorChange(_deckCombo.ContainsFocus));
         };
         top.Controls.Add(_deckCombo);
 
@@ -146,6 +147,7 @@ internal sealed partial class MainForm : Form
             TextAlign = HorizontalAlignment.Center,
             Font = new Font(Font.FontFamily, 18),
             AccessibleName = "Ukrainian translation",
+            AccessibleDescription = "Use standard text navigation keys to read the revealed translation. Up and Down do not change Recall cards here.",
             TabStop = true
         };
         _translationBox.Enter += (_, _) => _translationBox.SelectAll();
@@ -155,7 +157,7 @@ internal sealed partial class MainForm : Form
         {
             AutoSize = true,
             AccessibleName = "Keyboard hint",
-            Text = "Down: next word. Up: true previous word. Ctrl+T: translation. Ctrl+1..5 switches decks; Alt+1..5 moves the current word. F1: help."
+            Text = "On the English word: Down next, Up true previous. Translation and selectors keep standard arrow behavior. Ctrl+T: translation. Ctrl+1..5 switches decks; Alt+1..5 moves the current word. F1: help."
         };
 
         root.Controls.Add(top, 0, 0);
@@ -339,12 +341,12 @@ internal sealed partial class MainForm : Form
         ActivatePackage(selected);
     }
 
-    private void ChangeDictionaryFromCombo()
+    private void ChangeDictionaryFromCombo(bool focusWord = true)
     {
         if (_dictionaryCombo.SelectedItem is DictionaryPackage package && (_package is null || package.Id != _package.Id))
         {
             ActivatePackage(package);
-            RestoreCurrentOrNextWord();
+            RestoreCurrentOrNextWord(focusWord);
         }
     }
 
@@ -393,7 +395,7 @@ internal sealed partial class MainForm : Form
         foreach (DictionaryEntry entry in _package.Entries) _entriesById[entry.Id] = entry;
     }
 
-    private void SwitchStudyScope(string scopeId)
+    private void SwitchStudyScope(string scopeId, bool focusWord = true)
     {
         if (!StudyScopeIds.Ordered.Contains(scopeId, StringComparer.OrdinalIgnoreCase)) return;
         PersistActiveShuffle();
@@ -414,7 +416,7 @@ internal sealed partial class MainForm : Form
         UpdateCounts();
         SaveState();
         AnnounceStatus($"Recall study scope: {StudyScopeIds.DisplayName(scopeId)}. {_scopeService.ScopeTotal(scopeId)} words in this scope.");
-        RestoreCurrentOrNextWord();
+        RestoreCurrentOrNextWord(focusWord);
     }
 
     private void RefreshDeckUi()
@@ -447,7 +449,7 @@ internal sealed partial class MainForm : Form
         }
     }
 
-    private void SwitchDeck(string deckId)
+    private void SwitchDeck(string deckId, bool focusWord = true)
     {
         DeckDefinition? deck = _decks.Find(deckId);
         if (deck is null) return;
@@ -463,7 +465,7 @@ internal sealed partial class MainForm : Form
         UpdateCounts();
         SaveState();
         AnnounceStatus($"{StudyScopeIds.DisplayName(ActiveScopeId)}: switched to {deck.Name}.");
-        NextWord();
+        NextWord(focusWord);
     }
 
     private void SelectActiveDeckInCombo()
@@ -524,17 +526,17 @@ internal sealed partial class MainForm : Form
         if (_scopeService is not null) _scopeService.SetRemainingShuffle(ActiveScopeId, _shuffleBag);
     }
 
-    private void RestoreCurrentOrNextWord()
+    private void RestoreCurrentOrNextWord(bool focusWord = true)
     {
         string? id = _scopeService.Get(ActiveScopeId).CurrentEntryId;
         if (id is not null && _entriesById.ContainsKey(id) && !UserProgressService.IsHidden(_state, id) &&
             string.Equals(_deckMap.GetValueOrDefault(id, _decks.FirstDeck.Id), _activeDeckId, StringComparison.OrdinalIgnoreCase))
         {
-            ShowEntryById(id);
+            ShowEntryById(id, focusWord);
             RemoveFromShuffleBag(id);
             return;
         }
-        NextWord();
+        NextWord(focusWord);
     }
 
     private void RemoveFromShuffleBag(string id)
@@ -545,9 +547,9 @@ internal sealed partial class MainForm : Form
         PersistActiveShuffle();
     }
 
-    private void NextWord()
+    private void NextWord(bool focusWord = true)
     {
-        if (TryShowForwardHistory()) return;
+        if (TryShowForwardHistory(focusWord)) return;
         IReadOnlyList<DictionaryEntry> active = EntriesInActiveDeck();
         DeckDefinition activeDeck = _decks.Find(_activeDeckId) ?? _decks.FirstDeck;
         if (active.Count == 0)
@@ -560,8 +562,11 @@ internal sealed partial class MainForm : Form
             _statusLabel.Text = $"{StudyScopeIds.DisplayName(ActiveScopeId)} — {activeDeck.Name} is empty.";
             UpdateCounts();
             SaveState();
-            _wordBox.Focus();
-            AccessibilityAnnouncer.Announce(_wordBox, _wordBox.Text);
+            if (focusWord)
+            {
+                _wordBox.Focus();
+                AccessibilityAnnouncer.Announce(_wordBox, _wordBox.Text);
+            }
             return;
         }
 
@@ -571,14 +576,14 @@ internal sealed partial class MainForm : Form
             string id = _shuffleBag.Dequeue();
             PersistActiveShuffle();
             if (!string.Equals(_deckMap.GetValueOrDefault(id, _decks.FirstDeck.Id), _activeDeckId, StringComparison.OrdinalIgnoreCase)) continue;
-            ShowEntryById(id);
+            ShowEntryById(id, focusWord);
             return;
         }
         FillShuffleBag();
-        if (_shuffleBag.Count > 0) NextWord();
+        if (_shuffleBag.Count > 0) NextWord(focusWord);
     }
 
-    private void ShowEntryById(string id)
+    private void ShowEntryById(string id, bool focusWord = true)
     {
         if (!_entriesById.TryGetValue(id, out DictionaryEntry? entry)) return;
         if (UserProgressService.IsHidden(_state, id)) return;
@@ -592,9 +597,9 @@ internal sealed partial class MainForm : Form
         _statusLabel.Text = $"Scope {StudyScopeIds.DisplayName(ActiveScopeId)}. Level {entry.Level}. {deckName}.";
         UpdateCounts();
         SaveState();
-        FocusCurrentWord();
+        if (focusWord) FocusCurrentWord();
         bool nativeAudioPlayed = _state.AutoPlayPronunciationOnCardChange && TryPlayCurrentPronunciation(announceFailure: false);
-        if (!nativeAudioPlayed) AccessibilityAnnouncer.Announce(_wordBox, entry.Source);
+        if (focusWord && !nativeAudioPlayed) AccessibilityAnnouncer.Announce(_wordBox, entry.Source);
     }
 
     private void RevealTranslation()
@@ -940,7 +945,9 @@ internal sealed partial class MainForm : Form
             "Recall has six independent study workspaces: All Oxford 5000, A1, A2, B1, B2 and C1. There is no Oxford C2 workspace because the Oxford 5000 list does not define a C2 subset. " +
             "Choose the scope with the standard Study scope combo box. Each scope keeps its own deck assignments, active deck, current card and shuffle progress. Moving a word in A1 does not move it in All or any other scope. " +
             "The five core deck definitions and their shortcuts are shared, so Ctrl+1 through Ctrl+5 switches decks inside the CURRENT scope and Alt+1 through Alt+5 moves the current word inside the CURRENT scope. Scope-switch actions are rebindable and start unassigned.\r\n\r\n" +
-            "WordDeck shows only the English side of a Recall card by default. Down Arrow moves to the next card; Up Arrow returns to the previous actually shown eligible card. After moving back, Down moves forward through history before drawing a new shuffled card. Left and Right remain normal text/caret navigation. Ctrl+Right and Ctrl+Left remain compatibility next/previous keys. Reveal the Ukrainian translation only when needed.\r\n\r\n" +
+            "WordDeck shows only the English side of a Recall card by default. Fast Down Arrow/Up Arrow card navigation works only while the Current English word field is focused: Down moves to the next card and Up returns to the previous actually shown eligible card. In the Ukrainian translation TextBox, Dictionary/Study scope/Deck selectors, menus, dialogs and other standard controls, arrow keys keep their native control behavior and do not switch Recall cards. Changing a selector with Up/Down keeps focus in that selector so its selected value remains available to the screen reader. Ctrl+Right and Ctrl+Left remain compatibility next/previous keys. Reveal the Ukrainian translation only when needed.\r\n\r\n" +
+            "SPELLING WINDOW\r\n" +
+            "Open Spelling with its configured shortcut or Tools menu entry. Close the Spelling window with Alt+F4; normal close saves through the existing state lifecycle. Alt+F4 remains a standard Windows close command and is not assignable as a WordDeck shortcut.\r\n\r\n" +
             "The five default decks are permanent but may be renamed and reordered. User decks are shared definitions; saved Recall assignments remain scope-specific and are migrated safely if a user deck is deleted.\r\n\r\n" +
             "Custom pasted cards are added only in All Oxford 5000 so CEFR workspaces remain restricted to official level-tagged entries. Use one card per line; the safest format is English, TAB, Ukrainian.\r\n\r\n" +
             "Generated British pronunciation is an optional offline audio layer keyed by stable dictionary and entry IDs. " +

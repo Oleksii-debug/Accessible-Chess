@@ -6,6 +6,20 @@ internal static class UserDataSelfTest
 {
     public static void Run()
     {
+        Require(RecallKeyboardFocusPolicy.IsFastCardArrow(Keys.Down, englishWordSurfaceFocused: true),
+            "Down Arrow must remain fast Recall navigation on the English word surface.");
+        Require(RecallKeyboardFocusPolicy.IsFastCardArrow(Keys.Up, englishWordSurfaceFocused: true),
+            "Up Arrow must remain true-previous Recall navigation on the English word surface.");
+        Require(!RecallKeyboardFocusPolicy.IsFastCardArrow(Keys.Down, englishWordSurfaceFocused: false) &&
+                !RecallKeyboardFocusPolicy.IsFastCardArrow(Keys.Up, englishWordSurfaceFocused: false),
+            "Unmodified Up/Down must remain native outside the English word surface, including the Ukrainian translation and selectors.");
+        Require(!RecallKeyboardFocusPolicy.IsFastCardArrow(Keys.Left, englishWordSurfaceFocused: true) &&
+                !RecallKeyboardFocusPolicy.IsFastCardArrow(Keys.Control | Keys.Down, englishWordSurfaceFocused: true),
+            "Recall fast-card policy intercepted a non-contract key.");
+        Require(!RecallKeyboardFocusPolicy.ShouldFocusCardAfterSelectorChange(selectorContainsFocus: true) &&
+                RecallKeyboardFocusPolicy.ShouldFocusCardAfterSelectorChange(selectorContainsFocus: false),
+            "Selector focus policy would steal focus from a focused Dictionary/Scope/Deck ComboBox.");
+
         const string dictionaryId = "oxford-3000-en-uk";
         string root = Path.Combine(Path.GetTempPath(), $"WordDeck-userdata-self-test-{Guid.NewGuid():N}");
         Directory.CreateDirectory(root);
@@ -122,7 +136,7 @@ internal static class UserDataSelfTest
                     "Missing pronunciation audio did not return a readable non-crashing status.");
             }
 
-            Console.WriteLine("WordDeck user-data acceptance passed: schema migration+backup, LocalAppData continuity, profile export/reset/import rollback, hidden IDs, study history, true previous/forward Recall history and missing-audio non-crash status verified.");
+            Console.WriteLine("WordDeck user-data acceptance passed: selector/translation keyboard policy, schema migration+backup, LocalAppData continuity, profile export/reset/import rollback, hidden IDs, study history, true previous/forward Recall history and missing-audio non-crash status verified.");
         }
         finally
         {
