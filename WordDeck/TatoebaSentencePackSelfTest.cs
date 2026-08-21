@@ -102,7 +102,7 @@ internal static class TatoebaSentencePackSelfTest
 
     private static void TestVerifiedManifestProvenance()
     {
-        string root = Path.Combine(Path.GetTempPath(), $"WordDeck-tatoeba-manifest-{Guid.NewGuid():N}");
+        string root = Path.Combine(Path.GetTempPath(), $"WordDeck-tatoeba-manifest-Київ space-{Guid.NewGuid():N}");
         Directory.CreateDirectory(root);
         try
         {
@@ -115,20 +115,27 @@ internal static class TatoebaSentencePackSelfTest
             TatoebaImportMetadata cc0 = TatoebaImportProvenance.Resolve(pairPath);
             Require(cc0.VerifiedCc0Manifest && cc0.License == "CC0 1.0", "Matching CC0 manifest/hash was not trusted.");
 
-            WriteManifest(manifestPath, "CC BY 2.0 FR with BOTH sentence-owner usernames retained", hash);
+            WriteManifest(manifestPath, "CC BY 2.0 FR with BOTH sentence-owner usernames retained", hash, "CC BY 2.0 FR");
             TatoebaImportMetadata ccBy = TatoebaImportProvenance.Resolve(pairPath);
             Require(ccBy.VerifiedAttributedCcByManifest && ccBy.License == "CC BY 2.0 FR",
                 "Matching attributed CC-BY manifest/hash was not trusted.");
 
             File.AppendAllText(pairPath, "3\teng\tChanged.\t4\tukr\tЗмінено.\n");
-            TatoebaImportMetadata tampered = TatoebaImportProvenance.Resolve(pairPath);
-            Require(!tampered.VerifiedCc0Manifest && !tampered.VerifiedAttributedCcByManifest,
-                "Hash-mismatched pair TSV was incorrectly trusted.");
+            ExpectInvalidProvenance(() => TatoebaImportProvenance.Resolve(pairPath), "hash-mismatched pair TSV");
+
+            File.WriteAllText(pairPath, "english_id\tenglish_lang\tenglish\tukrainian_id\tukrainian_lang\tukrainian\n1\teng\tHello.\t2\tukr\tПривіт.\n");
+            hash = Hash(pairPath);
+            WriteManifest(manifestPath, "unapproved-license-filter", hash);
+            ExpectInvalidProvenance(() => TatoebaImportProvenance.Resolve(pairPath), "unknown license filter");
+
+            WriteManifest(manifestPath, "CC BY 2.0 FR with BOTH sentence-owner usernames retained", hash, "CC0 1.0");
+            ExpectInvalidProvenance(() => TatoebaImportProvenance.Resolve(pairPath), "mismatched declared CC-BY license");
+
+            File.WriteAllText(manifestPath, "{ broken json");
+            ExpectInvalidProvenance(() => TatoebaImportProvenance.Resolve(pairPath), "malformed manifest JSON");
 
             File.Delete(manifestPath);
-            TatoebaImportMetadata missing = TatoebaImportProvenance.Resolve(pairPath);
-            Require(!missing.VerifiedCc0Manifest && !missing.VerifiedAttributedCcByManifest,
-                "Missing manifest was incorrectly trusted.");
+            ExpectInvalidProvenance(() => TatoebaImportProvenance.Resolve(pairPath), "missing manifest");
         }
         finally
         {
@@ -142,8 +149,24 @@ internal static class TatoebaSentencePackSelfTest
         return Convert.ToHexString(SHA256.HashData(stream)).ToLowerInvariant();
     }
 
-    private static void WriteManifest(string path, string licenseFilter, string hash) =>
-        File.WriteAllText(path, JsonSerializer.Serialize(new { schema_version = 1, license_filter = licenseFilter, output_sha256 = hash }));
+    private static void WriteManifest(string path, string licenseFilter, string hash, string? license = null)
+    {
+        var payload = new Dictionary<string, object?>
+        {
+            ["schema_version"] = 1,
+            ["license_filter"] = licenseFilter,
+            ["output_sha256"] = hash
+        };
+        if (license is not null) payload["license"] = license;
+        File.WriteAllText(path, JsonSerializer.Serialize(payload));
+    }
+
+    private static void ExpectInvalidProvenance(Action action, string description)
+    {
+        try { action(); }
+        catch (InvalidDataException) { return; }
+        throw new InvalidDataException($"Tatoeba provenance accepted invalid input: {description}.");
+    }
 
     private static void ExpectInvalid(IEnumerable<string> lines, string description)
     {
