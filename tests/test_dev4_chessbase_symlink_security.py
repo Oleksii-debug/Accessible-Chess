@@ -6,12 +6,13 @@ from pathlib import Path
 
 from acs.chessbase_integrity import capture_integrity_snapshot
 from acs.chessbase_manifest import build_chessbase_manifest
+from acs.import_contract import fingerprint
 
 
 class Dev4ChessBaseSymlinkSecurityTests(unittest.TestCase):
-    """QA gate for untrusted ChessBase filesystem indirection.
+    """QA gate for untrusted ChessBase/import filesystem indirection.
 
-    The full-product DEV4 security contract requires ChessBase/import inputs to
+    The full-product DEV4 security contract requires external import inputs to
     fail closed on symlink/reparse-style indirection. These tests intentionally
     exercise public provenance/integrity entry points rather than private helpers.
     """
@@ -21,6 +22,17 @@ class Dev4ChessBaseSymlinkSecurityTests(unittest.TestCase):
             link.symlink_to(target)
         except (OSError, NotImplementedError) as exc:
             self.skipTest(f"symlink creation unavailable in this environment: {exc}")
+
+    def test_generic_fingerprint_rejects_symlink_source(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            target = root / "real.pgn"
+            target.write_bytes(b"[Event \"safe\"]\n\n*")
+            submitted = root / "submitted.pgn"
+            self._symlink_or_skip(submitted, target)
+
+            with self.assertRaises((ValueError, OSError, RuntimeError)):
+                fingerprint(submitted)
 
     def test_integrity_snapshot_rejects_symlink_primary_source(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
