@@ -1,29 +1,33 @@
 # Accessible Chess autonomous next-wave directives
 
-DIRECTIVE_VERSION: 0003
+DIRECTIVE_VERSION: 0004
 ISSUED_BY: DEV5 Coordinator/Integrator
-EFFECTIVE_FROM_WAVE: 2026-08-22T02:00:00+03:00
-SNAPSHOT_SEMANTICS: Workers already running before the effective wave must ignore this directive until their next invocation.
+EFFECTIVE_FROM_WAVE: 2026-08-22T03:00:00+03:00
+SNAPSHOT_SEMANTICS: Workers already running before the effective wave must ignore this directive until their next invocation. Never abandon in-flight recoverable work merely because a newer directive appears.
 
-## DEV1 — DIRECTIVE 0003
-STATUS: accepted/integrated; canonical Release UI/accessibility/action-routing semantics preserved through final Stage1 integration 0fa442330bc2bb03636ff9297512da4c29e38684.
-NEXT WORK: evidence/regression only unless a concrete UI/accessibility defect is reproduced. Preserve board.current central routing, apiAction/document prerequisites, readiness-after-render ordering, retryability and reinjection idempotency. Do not churn accepted board bridge behavior speculatively.
+## GLOBAL SNAPSHOT
+Accepted Stage1 integration remains manual5/integration-20260821 @ 0fa442330bc2bb03636ff9297512da4c29e38684. Do not duplicate work already represented there. No Stage1 Product mutation is requested unless a concrete regression is reproduced or a release-chain step is explicitly authorized.
 
-## DEV2 — DIRECTIVE 0003
-STATUS: terminal pre-cutoff continuation 8b74ef94c91dbed8d9dfc73bcb39a9aa956a9afe has been selectively integrated through validated DEV5 head 0fa442330bc2bb03636ff9297512da4c29e38684.
-NEXT WORK: evidence/regression only unless a new concrete core/history/position defect is reproduced. Preserve all-controller empty-square attackers semantics, side-to-move defender projection, 4/5/6-field FEN compatibility, exact scalar validation, atomic rejection and en-passant double-push provenance.
+Full-product integration remains isolated and package-by-package. No wholesale PR #52, completion/full-product-critical-path, PR #65, PR #69 or other aggregate merge is authorized. Canonical core must stay singular; Windows/NVDA invariants remain mandatory.
 
-## DEV3 — DIRECTIVE 0003
-STATUS: accepted Stage1 backend package remains represented in final integration 0fa442330bc2bb03636ff9297512da4c29e38684. Post-cutoff handoff mutations from the 00:08 wave were deliberately not consumed by DEV5.
-NEXT WORK: remain within assigned backend lane. Any next-wave terminal delta must be evaluated against 0fa4423; do not assume work performed during the prior wave was already integrated merely because its handoff advanced later.
+## DEV1 — DIRECTIVE 0004
+Stage1 Release UI/action-routing package is accepted and integrated. On the next invocation that permits a dedicated isolated full-product branch, establish/reuse that branch from the DEV5-selected full-product base only after live coordination. Prioritize reusable accessible application shell and PGN/GameTree Windows UX only when the canonical backend package is terminal. Do not create duplicate board/game state, do not change Stage1 release lineage, and do not claim human accessibility evidence from mocks or semantic tests.
 
-## DEV4 — DIRECTIVE 0003
-STATUS: pre-cutoff terminal source a4209d005ea0a1476f8eafb4822f4d39ac50ee5a was selectively reconciled, not wholesale merged. Validated reconciliation head abff45ebcc4b5af2a85ab0c456b025b5098c6e29 is represented in final integration 0fa442330bc2bb03636ff9297512da4c29e38684.
-NEXT WORK: evidence/regression only unless DEV5/Auditor returns a concrete packaging/security defect. Authoritative reconciled semantics include explicit settings schema_version=0 rejection; packaged WebView resource completeness; split and inline WebView remote-debug rejection; path-private resource errors; fail-closed keymap profile boundary; legacy release workflow tombstones; no lane-only dev4-package-security-ci promotion; Nuitka compilation report CI-only and never user-package content.
+## DEV2 — DIRECTIVE 0004
+Live PR #69 is useful but was not eligible for DEV5 intake in wave 0124 because no matching terminal canonical Drive handoff for its full-product head existed at the cutoff. Next invocation: finish the current canonical GameTree/PGN package, then terminalize it with exact SHA, base, changed-path inventory, focused GameTree navigation/edit/legality/PGN round-trip evidence and full unweakened regression CI. Preserve one canonical board/rules/GameTree domain. Do not assume DEV5 consumed any PR #69 work until a later handoff explicitly says so.
 
-## DEV5 — DIRECTIVE 0003
-Stage1 current-wave Product integration is exact head 0fa442330bc2bb03636ff9297512da4c29e38684. Canonical exact-head gates: UI Semantic 32532503184 SUCCESS and Stage1 Saturation 32532503262 SUCCESS. Do not duplicate DEV1-DEV4 intake already represented in this SHA.
+## DEV3 — DIRECTIVE 0004
+A pre-wave terminal ACSDB/Library/Search/recovery package existed at 70321dafb8fdd1f1aff3197f11d17154ccb942ed with exact DEV3 CI 32528057942 SUCCESS, but live PR #65 advanced beyond that handoff. DEV5 therefore entered SAFE OVERLAP MODE and did not integrate it. Continue current DEV3 work on the same lane; on completion publish one new terminal handoff at the exact final head with focused/full CI and changed-path inventory. Preserve DEV2 ownership of canonical GameTree/domain and DEV4 ownership of external-format security.
 
-Next priority is integration/evidence preparation for the isolated full-product plane, not blind branch assembly. PR #52 shared-core and completion/full-product-critical-path contain useful future-module work but are not authorized as wholesale baselines. Establish package-level auditability first: canonical GameTree/PGN vertical slice, ACSDB/library vertical slice, then ChessBase/book/training/teacher session packages in dependency order. Create full5/integration only when a concrete safe base and accepted package inventory are proven. Preserve one canonical core and Stage1 release lineage isolation.
+## DEV4 — DIRECTIVE 0004
+Terminal QA evidence at e65bf755f7dba4090a6396c7086140062f85c5a9 records two strict Product defects in DEV4 ownership: external import symlink/reparse indirection is not fail-closed, and PGN text input has an unbounded full read. Next Product work should fix these contracts without weakening the strict QA tests, while preserving source provenance, atomicity, cancellation/recovery and explicit corruption/unsupported classifications. Keep private-path leakage INCONCLUSIVE until user-visible propagation is proven. Do not take over DEV2 GameTree, DEV3 ACSDB performance, DEV1 UI or Windows strict QA ownership.
 
-Never merge PR #54 or frozen release refs for convenience. Never reuse an old rejected ZIP. A fresh Windows candidate requires the complete machine release chain on the exact final audited Product SHA. NVDA_VERIFIED stays NO until Oleksii personally verifies that exact fresh candidate.
+## DEV5 — DIRECTIVE 0004
+Remain sole cross-lane integrator/coordinator. Next integration attempt must begin with a fresh terminal snapshot. Required dependency order:
+1. terminal DEV2 canonical GameTree/PGN package;
+2. latest terminal DEV3 ACSDB/Library/Search package;
+3. cross-lane validation-only assembly proving PGN -> canonical GameTree -> ACSDB -> search/open, with atomic failure/retry/provenance and full regression evidence;
+4. only then create/advance persistent full5 integration if the base and package inventory are independently auditable;
+5. external-import/ChessBase integration waits for DEV4 symlink/reparse + bounded-read fixes to terminalize.
+
+PR #52 remains inventory, not a wholesale baseline, until independent evidence accepts a specific exact head. Never merge PR #54 or frozen release refs for convenience. Never reuse a rejected ZIP. A fresh Windows candidate requires the complete machine release chain on the exact final audited Product SHA. NVDA_VERIFIED remains NO until Oleksii personally verifies that exact candidate.
