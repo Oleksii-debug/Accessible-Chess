@@ -68,7 +68,7 @@ class Dev3TakebackAtomicityTests(unittest.TestCase):
         self.assertEqual(state["fen"], "fen-w")
         self.assertEqual(state["node"], "node-2")
 
-    def test_invalid_clock_provider_fails_before_undo_or_lifecycle_mutation(self):
+    def test_invalid_clock_provider_cannot_clear_lifecycle_or_mutate_clock(self):
         undo_calls = []
         session, _state = self._session(
             undo=lambda: undo_calls.append("undo"),
@@ -83,11 +83,11 @@ class Dev3TakebackAtomicityTests(unittest.TestCase):
 
         self.assertEqual(caught.exception.code, EngineContractErrorCode.INVALID_PROVIDER)
         after = session.snapshot()
-        self.assertEqual(undo_calls, [])
+        self.assertEqual(undo_calls, ["undo"])
         self.assertEqual(after.lifecycle.takeback_requested_by, "w")
         self.assertEqual(after.clock, before.clock)
 
-    def test_incompatible_clock_snapshot_fails_before_undo(self):
+    def test_incompatible_post_undo_clock_snapshot_fails_closed_for_session_state(self):
         undo_calls = []
         incompatible = ClockSnapshot(1_000, 1_000, "w", ClockState.RUNNING)
         session, _state = self._session(
@@ -95,6 +95,7 @@ class Dev3TakebackAtomicityTests(unittest.TestCase):
             restore=lambda: incompatible,
             control=TimeControl(0),
         )
+        before = session.snapshot()
 
         with self.assertRaises(EngineContractError) as caught:
             session.handle_handoff(
@@ -102,25 +103,35 @@ class Dev3TakebackAtomicityTests(unittest.TestCase):
             )
 
         self.assertEqual(caught.exception.code, EngineContractErrorCode.INVALID_PROVIDER)
-        self.assertEqual(undo_calls, [])
-        self.assertEqual(session.snapshot().lifecycle.takeback_requested_by, "w")
+        self.assertEqual(undo_calls, ["undo"])
+        after = session.snapshot()
+        self.assertEqual(after.lifecycle.takeback_requested_by, "w")
+        self.assertEqual(after.clock, before.clock)
 
-    def test_valid_historical_clock_is_restored_only_after_successful_undo(self):
+    def test_historical_clock_provider_observes_restored_canonical_ply(self):
         state_ref = {}
+        order = []
         restored = ClockSnapshot(8_250, 9_500, "w", ClockState.RUNNING)
 
         def undo():
             state = state_ref["state"]
+            order.append("undo")
             state["side"] = "w"
             state["fen"] = "fen-restored"
             state["node"] = "node-0"
 
-        session, state = self._session(undo=undo, restore=lambda: restored)
+        def restore():
+            state = state_ref["state"]
+            order.append(f"restore:{state['fen']}:{state['node']}")
+            return restored
+
+        session, state = self._session(undo=undo, restore=restore)
         state_ref["state"] = state
         after = session.handle_handoff(
             EngineGameHandoff(EngineGameIntent.ACCEPT_TAKEBACK, actor="b")
         )
 
+        self.assertEqual(order, ["undo", "restore:fen-restored:node-0"])
         self.assertIsNone(after.lifecycle.takeback_requested_by)
         self.assertEqual(after.clock.white_ms, 8_250)
         self.assertEqual(after.clock.black_ms, 9_500)
