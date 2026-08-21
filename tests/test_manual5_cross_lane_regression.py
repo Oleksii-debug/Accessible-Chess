@@ -25,7 +25,7 @@ class _Engine:
         return tuple(_Line(index) for index in range(1, multipv + 1))
 
     def best_move(self, fen: str, skill_level: int = 10, movetime_ms: int = 500):
-        # The regression uses a human-as-White game and asks for one Black reply.
+        # The regressions use a human-as-White game and ask for one Black reply.
         return "e7e5"
 
     def close(self) -> None:
@@ -126,6 +126,61 @@ class Manual5CrossLaneRegressionTests(unittest.TestCase):
                 self.assertEqual(finished["phase"], "finished")
                 self.assertFalse(finished["active"])
                 self.assertIn((SoundEvent.END, 80), playback.calls)
+            finally:
+                api.close_analysis()
+                runtime.close()
+
+    def test_invalid_fen_and_editor_preserve_active_engine_game_and_history(self) -> None:
+        playback = _FailingPlayback()
+        with tempfile.TemporaryDirectory() as td:
+            api, runtime = self.make_composed(td, playback)
+            try:
+                started = api.start_engine_game("white", 5, 0, 0)
+                self.assertTrue(started["ok"], started)
+                turn = api.make_move("e4")
+                self.assertTrue(turn["ok"], turn)
+                self.assertEqual(tuple(api.sans), ("e4", "e5"))
+
+                before = (
+                    api.board.fen(),
+                    tuple(api.sans),
+                    tuple(api.move_sides),
+                    api.review_history.node_count,
+                    api.live_history_node,
+                    api.get_state()["engineGame"].copy(),
+                )
+
+                bad_fen = api.set_fen("not a fen")
+                self.assertFalse(bad_fen["ok"], bad_fen)
+                self.assertEqual(
+                    (
+                        api.board.fen(),
+                        tuple(api.sans),
+                        tuple(api.move_sides),
+                        api.review_history.node_count,
+                        api.live_history_node,
+                        api.get_state()["engineGame"],
+                    ),
+                    before,
+                )
+
+                bad_editor = api.set_position_text("broken position", "w")
+                self.assertFalse(bad_editor["ok"], bad_editor)
+                self.assertEqual(
+                    (
+                        api.board.fen(),
+                        tuple(api.sans),
+                        tuple(api.move_sides),
+                        api.review_history.node_count,
+                        api.live_history_node,
+                        api.get_state()["engineGame"],
+                    ),
+                    before,
+                )
+                for result in (bad_fen, bad_editor):
+                    announcement = str(result.get("announcement", ""))
+                    self.assertNotIn("Traceback", announcement)
+                    self.assertNotIn("C:\\private", announcement)
             finally:
                 api.close_analysis()
                 runtime.close()
