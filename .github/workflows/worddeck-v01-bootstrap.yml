@@ -47,11 +47,12 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $PSNativeCommandUseErrorActionPreference = $true
           python .\WordDeck\tools\apply_v01_user_safe_patch.py
-          $userData = Get-Content .\WordDeck\UserData.cs -Raw
+          $userDataPath = (Resolve-Path .\WordDeck\UserData.cs).Path
+          $userData = [System.IO.File]::ReadAllText($userDataPath)
           $old = 'else if (i == _index) _index = Math.Min(_index, _entryIds.Count - 1);'
           $new = 'else if (i == _index) _index = i - 1;'
           if (-not $userData.Contains($old)) { throw 'Expected RecallNavigationHistory removal line was not found exactly.' }
-          Set-Content .\WordDeck\UserData.cs ($userData.Replace($old, $new)) -Encoding utf8
+          [System.IO.File]::WriteAllText($userDataPath, $userData.Replace($old, $new), [System.Text.UTF8Encoding]::new($false))
           Remove-Item .\WordDeck\tools\apply_v01_user_safe_patch.py -Force
           Remove-Item .\.github\workflows\worddeck-v01-bootstrap.yml -Force
           git diff --check
