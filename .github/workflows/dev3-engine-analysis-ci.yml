@@ -1,0 +1,119 @@
+name: DEV3 Engine Analysis Lifecycle CI
+
+on:
+  push:
+    branches:
+      - manual5/dev3-engine-analysis-lifecycle-20260821
+  pull_request:
+    branches:
+      - integration/accessible-chess-next
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dev3-engine-analysis-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DEV3_BASE: 498989b4fda33e6529e29c9704fb4c724d0d3455
+
+jobs:
+  dev3-backend:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install verification dependencies
+        run: python -m pip install -q pytest
+
+      - name: Prove DEV3 ancestry and lane hygiene
+        shell: bash
+        run: |
+          set -euo pipefail
+          git cat-file -e "$DEV3_BASE^{commit}"
+          test "$(git merge-base "$DEV3_BASE" HEAD)" = "$DEV3_BASE"
+          git diff --check "$DEV3_BASE" HEAD
+          changed="$(git diff --name-only "$DEV3_BASE" HEAD)"
+          printf '%s\n' "$changed"
+          if printf '%s\n' "$changed" | grep -E '(^|/)tools/qa/|windows-stage1-strict' ; then
+            echo 'DEV3 must not modify QA strict harness/workflows' >&2
+            exit 1
+          fi
+          if printf '%s\n' "$changed" | grep -E '(^|/)(acsdb|chessbase|bookdocument|bookreader|book_index|training|teacher|classroom|remote_lesson)([^/]*)(/|\.|$)' ; then
+            echo 'Stage2/future subsystem contamination detected in DEV3 lane' >&2
+            exit 1
+          fi
+
+      - name: Compile Product and tests
+        run: python -m compileall -q acs tests run_accessible_chess.py
+
+      - name: Focused UCI Stockfish engine concurrency lifecycle analysis clocks sound
+        run: >-
+          python -m unittest -v
+          tests.test_dev3_uci_failure_recovery
+          tests.test_dev3_sound_failure_isolation
+          tests.test_dev3_takeback_atomicity
+          tests.test_stockfish_runtime
+          tests.test_release_stockfish_composition
+          tests.test_engine_play_service
+          tests.test_engine_play_service_concurrency
+          tests.test_engine_game_session
+          tests.test_engine_game_timeout_ownership
+          tests.test_clock_service
+          tests.test_game_lifecycle
+          tests.test_analysis_service
+          tests.test_continuous_analysis
+          tests.test_sound_events
+          tests.test_sound_runtime
+
+      - name: Official Stockfish 18 real UCI bestmove and MultiPV5
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/stockfish-ubuntu-x86-64-avx2.tar"
+          extract_dir="$RUNNER_TEMP/stockfish18"
+          curl --fail --location --retry 3 \
+            https://github.com/official-stockfish/Stockfish/releases/download/sf_18/stockfish-ubuntu-x86-64-avx2.tar \
+            --output "$archive"
+          echo '536c0c2c0cf06450df0bfb5e876ef0d3119950703a8f143627f990c7b5417964  '"$archive" | sha256sum --check
+          mkdir -p "$extract_dir"
+          tar -xf "$archive" -C "$extract_dir"
+          engine="$(find "$extract_dir" -type f -name 'stockfish-ubuntu-x86-64-avx2' -print -quit)"
+          test -n "$engine"
+          chmod +x "$engine"
+          STOCKFISH18_PATH="$engine" python - <<'PY'
+          import os, re
+          from acs.stockfish_runtime import StockfishRuntime, StockfishRuntimeConfig
+          fen='rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1'
+          move_re=re.compile(r'^[a-h][1-8][a-h][1-8][qrbn]?$')
+          with StockfishRuntime(StockfishRuntimeConfig(configured_path=os.environ['STOCKFISH18_PATH'])) as runtime:
+              provider=runtime.provider()
+              best=provider.best_move(fen, skill_level=0, movetime_ms=100)
+              assert best is not None and move_re.fullmatch(best), best
+              lines=provider.analyze(fen, multipv=5, depth=8)
+              assert len(lines)==5, len(lines)
+              assert all(line.pv and all(move_re.fullmatch(move) for move in line.pv) for line in lines)
+              best2=provider.best_move(fen, skill_level=20, movetime_ms=100)
+              assert best2 is not None and move_re.fullmatch(best2), best2
+          print('DEV3 OFFICIAL STOCKFISH 18 UCI/MULTIPV/OPTION-RESTORE PASS')
+          PY
+
+      - name: Full repository unittest discovery
+        run: python -m unittest discover -s tests -v
+
+      - name: Full repository pytest without weakening
+        if: always()
+        run: python -m pytest -q
+
+      - name: Complete Stage1 diagnostic
+        if: always()
+        run: python run_accessible_chess.py --diagnostic

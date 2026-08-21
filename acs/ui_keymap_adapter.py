@@ -55,6 +55,7 @@ _UK_LABELS = {
     "board.surroundings": "Оточення поля",
     "board.attackers": "Атакуючі",
     "board.defenders": "Захисники",
+    "board.material": "Матеріальний баланс",
     "board.evaluation": "Оцінка позиції",
     "board.best_move": "Найкращий хід",
     "board.play_best": "Зіграти найкращий хід",
@@ -80,6 +81,10 @@ _UK_LABELS = {
     "move.standard": "Команда стандартної позиції",
     "move.empty": "Команда порожньої позиції",
 }
+
+for _number in range(1, 9):
+    _UK_LABELS[f"board.rank_{_number}"] = f"Перейти на {_number} горизонталь"
+    _UK_LABELS[f"board.file_{_number}"] = f"Перейти на вертикаль {'abcdefgh'[_number - 1]}"
 
 
 def build_web_keymap(registry: ActionRegistry | None = None) -> dict[str, Any]:
