@@ -7,17 +7,83 @@ from collections.abc import MutableMapping
 from typing import Any
 
 WEBVIEW2_BROWSER_ARGUMENTS_ENV = "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS"
+WEBVIEW2_WAIT_FOR_SCRIPT_DEBUGGER_ENV = "WEBVIEW2_WAIT_FOR_SCRIPT_DEBUGGER"
+WEBVIEW2_PIPE_FOR_SCRIPT_DEBUGGER_ENV = "WEBVIEW2_PIPE_FOR_SCRIPT_DEBUGGER"
 FORCE_RENDERER_ACCESSIBILITY = "--force-renderer-accessibility"
 _PATCH_MARKER = "_acs_stage1_accessibility_host_patched"
 _HANDLER_MARKER = "_acs_stage1_accessibility_host_handlers"
+
+_BLOCKED_BROWSER_ARGUMENTS = frozenset(
+    {
+        "--remote-debugging-port",
+        "--remote-debugging-address",
+        "--remote-debugging-pipe",
+        "--remote-allow-origins",
+        "--disable-web-security",
+        "--allow-running-insecure-content",
+        "--allow-file-access-from-files",
+        "--allow-universal-access-from-files",
+        "--ignore-certificate-errors",
+        "--no-sandbox",
+        "--disable-site-isolation-trials",
+        "--load-extension",
+        "--disable-extensions-except",
+    }
+)
+_REMOTE_DEBUG_FEATURE = "msedgedevtoolswdpremotedebugging"
+_DEBUGGER_ENV_VARS = (
+    WEBVIEW2_WAIT_FOR_SCRIPT_DEBUGGER_ENV,
+    WEBVIEW2_PIPE_FOR_SCRIPT_DEBUGGER_ENV,
+)
+
+
+def _unquote_token(token: str) -> str:
+    if len(token) >= 2 and token[0] == token[-1] and token[0] in {"'", '"'}:
+        return token[1:-1]
+    return token
+
+
+def _sanitize_browser_arguments(value: str) -> str:
+    """Drop release-incompatible WebView2 switches without leaving values behind."""
+    tokens = value.split()
+    kept: list[str] = []
+    index = 0
+    while index < len(tokens):
+        token = tokens[index]
+        comparable = _unquote_token(token)
+        name = comparable.split("=", 1)[0].casefold()
+        blocked_feature = (
+            name == "--enable-features"
+            and _REMOTE_DEBUG_FEATURE in comparable.casefold()
+        )
+        split_feature = False
+        if name == "--enable-features" and "=" not in comparable and index + 1 < len(tokens):
+            following = _unquote_token(tokens[index + 1])
+            split_feature = (
+                not following.startswith("--")
+                and _REMOTE_DEBUG_FEATURE in following.casefold()
+            )
+        if name in _BLOCKED_BROWSER_ARGUMENTS or blocked_feature or split_feature:
+            if "=" not in comparable and index + 1 < len(tokens):
+                following = _unquote_token(tokens[index + 1])
+                if not following.startswith("--"):
+                    index += 2
+                    continue
+            index += 1
+            continue
+        kept.append(token)
+        index += 1
+    return " ".join(kept)
 
 
 def enable_webview2_renderer_accessibility(
     environment: MutableMapping[str, str] | None = None,
 ) -> str:
-    """Preserve WebView2 browser arguments and request renderer accessibility."""
+    """Preserve benign browser arguments while closing debugger exposure."""
     env = os.environ if environment is None else environment
-    current = str(env.get(WEBVIEW2_BROWSER_ARGUMENTS_ENV, "")).strip()
+    for name in _DEBUGGER_ENV_VARS:
+        env.pop(name, None)
+    current = _sanitize_browser_arguments(str(env.get(WEBVIEW2_BROWSER_ARGUMENTS_ENV, "")).strip())
     tokens = current.split()
     if not any(
         token == FORCE_RENDERER_ACCESSIBILITY
@@ -25,8 +91,8 @@ def enable_webview2_renderer_accessibility(
         for token in tokens
     ):
         current = (current + " " + FORCE_RENDERER_ACCESSIBILITY).strip()
-        env[WEBVIEW2_BROWSER_ARGUMENTS_ENV] = current
-    return str(env.get(WEBVIEW2_BROWSER_ARGUMENTS_ENV, current))
+    env[WEBVIEW2_BROWSER_ARGUMENTS_ENV] = current
+    return current
 
 
 def _same_managed_object(left: Any, right: Any) -> bool:
@@ -71,14 +137,7 @@ def _find_core_controller(webview_control: Any) -> Any | None:
 
 
 def repair_edgechromium_accessibility_host(edge_instance: Any) -> dict[str, bool]:
-    """Bind the real WebView2 controller to its actual visible WinForms host.
-
-    WebView2 documents that parent/ancestor HWND movement must be reported to the
-    controller for accessibility to work correctly. pywebview owns the WinForms
-    WebView2 control, while Accessible Chess also changes the top-level host by
-    attaching its native MenuStrip. Keep that controller notified instead of
-    creating any duplicate native Move control.
-    """
+    """Bind the real WebView2 controller to its actual visible WinForms host."""
     control = getattr(edge_instance, "webview", None)
     host = getattr(edge_instance, "form", None)
     if control is None or host is None:
@@ -112,9 +171,6 @@ def repair_edgechromium_accessibility_host(edge_instance: Any) -> dict[str, bool
             pass
 
     notify_parent()
-
-    # Keep handlers alive on the EdgeChrome instance. Location/size changes can
-    # alter an ancestor HWND after the WebView2 controller was created.
     handlers = getattr(edge_instance, _HANDLER_MARKER, None)
     if handlers is None:
         handlers = []
@@ -144,7 +200,9 @@ def install_pywebview_accessibility_host_patch(edge_module: Any | None = None) -
     if bool(getattr(edge_class, _PATCH_MARKER, False)):
         return True
 
-    original = edge_class.on_webview_ready
+    original = getattr(edge_class, "on_webview_ready", None)
+    if not callable(original):
+        return False
 
     def on_webview_ready(self: Any, sender: Any, args: Any) -> Any:
         result = original(self, sender, args)

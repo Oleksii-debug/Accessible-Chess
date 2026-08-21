@@ -31,19 +31,20 @@ class SoundRuntimeSettings:
     volume: int = 80
 
     def __post_init__(self) -> None:
-        if not isinstance(self.enabled, bool):
+        if type(self.enabled) is not bool:
             raise TypeError("enabled must be boolean")
-        if isinstance(self.volume, bool) or not isinstance(self.volume, int):
+        if type(self.volume) is not int:
             raise TypeError("volume must be an integer")
         if not 0 <= self.volume <= 100:
             raise ValueError("volume must be in 0..100")
 
     @classmethod
     def from_mapping(cls, settings: Mapping[str, object]) -> "SoundRuntimeSettings":
-        return cls(
-            enabled=bool(settings.get("sounds", True)),
-            volume=int(settings.get("volume", 80)),
-        )
+        if not isinstance(settings, Mapping):
+            raise TypeError("settings must be a mapping")
+        enabled = settings.get("sounds", True)
+        volume = settings.get("volume", 80)
+        return cls(enabled=enabled, volume=volume)  # type: ignore[arg-type]
 
 
 @dataclass(frozen=True)
@@ -52,6 +53,15 @@ class SoundPlaybackFailure:
     error_type: str
     message: str
 
+    def __post_init__(self) -> None:
+        if not isinstance(self.event, SoundEvent):
+            raise TypeError("failure event must be SoundEvent")
+        for name in ("error_type", "message"):
+            value = getattr(self, name)
+            if not isinstance(value, str) or not value.strip():
+                raise TypeError(f"failure {name} must be non-empty text")
+            object.__setattr__(self, name, value.strip())
+
 
 @dataclass(frozen=True)
 class SoundPlaybackReport:
@@ -59,6 +69,22 @@ class SoundPlaybackReport:
     delivered: tuple[SoundEvent, ...]
     failures: tuple[SoundPlaybackFailure, ...]
     disabled: bool = False
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.requested, tuple) or any(
+            not isinstance(event, SoundEvent) for event in self.requested
+        ):
+            raise TypeError("requested must be a SoundEvent tuple")
+        if not isinstance(self.delivered, tuple) or any(
+            not isinstance(event, SoundEvent) for event in self.delivered
+        ):
+            raise TypeError("delivered must be a SoundEvent tuple")
+        if not isinstance(self.failures, tuple) or any(
+            not isinstance(failure, SoundPlaybackFailure) for failure in self.failures
+        ):
+            raise TypeError("failures must be a SoundPlaybackFailure tuple")
+        if type(self.disabled) is not bool:
+            raise TypeError("disabled must be boolean")
 
     @property
     def ok(self) -> bool:
@@ -72,7 +98,7 @@ class SoundRuntime:
     * preserve event order supplied by ``SoundEventPolicy``;
     * collapse duplicate event IDs within one dispatch batch, preserving first;
     * when disabled or volume=0, do not touch the playback port;
-    * isolate adapter failures, report/log them, and continue with later events;
+    * isolate adapter and diagnostic-sink failures, and continue with later events;
     * never synthesize a fallback beep or alternate system sound.
     """
 
@@ -83,8 +109,14 @@ class SoundRuntime:
         settings: SoundRuntimeSettings | Callable[[], SoundRuntimeSettings] | None = None,
         error_sink: Callable[[SoundPlaybackFailure], None] | None = None,
     ) -> None:
+        if isinstance(playback, type) or not callable(getattr(playback, "play", None)):
+            raise TypeError("playback must expose callable play")
+        if settings is not None and not isinstance(settings, SoundRuntimeSettings) and not callable(settings):
+            raise TypeError("settings must be SoundRuntimeSettings, callable, or None")
+        if error_sink is not None and not callable(error_sink):
+            raise TypeError("error_sink must be callable or None")
         self._playback = playback
-        self._settings = settings or SoundRuntimeSettings()
+        self._settings = SoundRuntimeSettings() if settings is None else settings
         self._error_sink = error_sink
 
     def current_settings(self) -> SoundRuntimeSettings:
@@ -96,7 +128,11 @@ class SoundRuntime:
     def dispatch(self, events: Iterable[SoundEvent]) -> SoundPlaybackReport:
         ordered: list[SoundEvent] = []
         seen: set[SoundEvent] = set()
-        for event in events:
+        try:
+            iterator = iter(events)
+        except TypeError as exc:
+            raise TypeError("sound dispatch requires an iterable of SoundEvent values") from exc
+        for event in iterator:
             if not isinstance(event, SoundEvent):
                 raise TypeError("sound dispatch accepts SoundEvent values only")
             if event not in seen:
@@ -113,10 +149,16 @@ class SoundRuntime:
             try:
                 self._playback.play(event, volume=settings.volume)
             except Exception as exc:  # infrastructure boundary
-                failure = SoundPlaybackFailure(event, type(exc).__name__, str(exc))
+                message = str(exc).strip() or type(exc).__name__
+                failure = SoundPlaybackFailure(event, type(exc).__name__, message)
                 failures.append(failure)
                 if self._error_sink is not None:
-                    self._error_sink(failure)
+                    try:
+                        self._error_sink(failure)
+                    except Exception:
+                        # Diagnostic/reporting infrastructure must never corrupt
+                        # chess state, queue ordering, or later sound delivery.
+                        pass
             else:
                 delivered.append(event)
         return SoundPlaybackReport(requested, tuple(delivered), tuple(failures))
@@ -130,6 +172,8 @@ class GameSoundRuntime:
     """
 
     def __init__(self, runtime: SoundRuntime) -> None:
+        if not isinstance(runtime, SoundRuntime):
+            raise TypeError("runtime must be SoundRuntime")
         self._runtime = runtime
         self._ended = False
 
