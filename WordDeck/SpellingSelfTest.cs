@@ -134,6 +134,16 @@ internal static class SpellingSelfTest
         Require(!manager.TrySet(ActionIds.SpellingDeleteDeck, Keys.Control | Keys.Alt | Keys.Delete, out string? secureAttentionError) &&
                 !string.IsNullOrWhiteSpace(secureAttentionError),
             "Windows Ctrl+Alt+Delete secure-attention sequence was incorrectly accepted as a WordDeck shortcut.");
+        Require(ShortcutFormatter.Format(Keys.Control | Keys.OemQuestion) == "Ctrl+/" &&
+                ShortcutFormatter.Format(Keys.Shift | Keys.Back) == "Shift+Backspace",
+            "Human-readable shortcut formatter leaked a technical Windows key name.");
+
+        Keys importedConflict = Keys.Control | Keys.Alt | Keys.F10;
+        app.Shortcuts[ActionIds.SpellingShowAnswer] = importedConflict.ToString();
+        app.Shortcuts[ActionIds.SpellingRepeatPrompt] = importedConflict.ToString();
+        Require(manager.Get(ActionIds.SpellingShowAnswer) == Keys.None && manager.Get(ActionIds.SpellingRepeatPrompt) == Keys.None &&
+                manager.FindAction(importedConflict) is null,
+            "Ambiguous shortcut bindings imported from a profile did not fail closed.");
 
         Keys replacement = Keys.Control | Keys.Alt | Keys.Shift | Keys.F11;
         Require(manager.TrySet(ActionIds.SpellingShowAnswer, replacement, out string? error), $"Spelling shortcut could not be rebound: {error}");
