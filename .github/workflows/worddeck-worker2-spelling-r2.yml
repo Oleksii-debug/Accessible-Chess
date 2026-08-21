@@ -1,0 +1,85 @@
+name: WordDeck worker2 Spelling R2 gate
+
+on:
+  push:
+    branches:
+      - worddeck-worker-2-spelling-r2
+    paths:
+      - 'WordDeck/**'
+      - '.github/workflows/worddeck-worker2-spelling-r2.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: worddeck-worker2-spelling-r2-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  spelling-r2-gate:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout exact R2 worker branch
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore
+        id: restore
+        run: dotnet restore .\WordDeck\WordDeck.csproj
+
+      - name: Build Release
+        id: build
+        run: dotnet build .\WordDeck\WordDeck.csproj -c Release --no-restore
+
+      - name: Run complete source-build self-test suite
+        id: selftest
+        run: dotnet run --project .\WordDeck\WordDeck.csproj -c Release --no-build -- --self-test
+
+      - name: Publish self-contained Windows x64
+        id: publish
+        run: dotnet publish .\WordDeck\WordDeck.csproj -c Release -r win-x64 --self-contained true -o .\artifacts\WordDeck-worker2-r2
+
+      - name: Run published WordDeck EXE self-test
+        id: publishedtest
+        run: .\artifacts\WordDeck-worker2-r2\WordDeck.exe --self-test
+
+      - name: Persist exact R2 gate evidence
+        if: always()
+        shell: pwsh
+        run: |
+          $testedSha = '${{ github.sha }}'
+          $restore = '${{ steps.restore.outcome }}'
+          $build = '${{ steps.build.outcome }}'
+          $selftest = '${{ steps.selftest.outcome }}'
+          $publish = '${{ steps.publish.outcome }}'
+          $publishedtest = '${{ steps.publishedtest.outcome }}'
+          $overall = if ($restore -eq 'success' -and $build -eq 'success' -and $selftest -eq 'success' -and $publish -eq 'success' -and $publishedtest -eq 'success') { 'PASS' } else { 'FAIL' }
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git fetch origin worddeck-worker-2-spelling-r2
+          git checkout -B worddeck-worker-2-spelling-r2 origin/worddeck-worker-2-spelling-r2
+
+          $lines = @(
+            'WORDDECK WORKER 02 ROUND 2 WINDOWS GATE EVIDENCE',
+            "overall=$overall",
+            "tested_sha=$testedSha",
+            "run_id=${{ github.run_id }}",
+            "run_attempt=${{ github.run_attempt }}",
+            "restore=$restore",
+            "build=$build",
+            "selftest_source=$selftest",
+            "publish_win_x64=$publish",
+            "selftest_published_exe=$publishedtest",
+            "completed_utc=$([DateTime]::UtcNow.ToString('o'))"
+          )
+          Set-Content -LiteralPath '.github/worker2-spelling-r2-ci-status.txt' -Value $lines -Encoding utf8
+          git add .github/worker2-spelling-r2-ci-status.txt
+          if (-not (git diff --cached --quiet)) {
+            git commit -m "WordDeck worker2 R2: record Windows gate $overall for $testedSha [skip ci]"
+            git push origin HEAD:worddeck-worker-2-spelling-r2
+          }
