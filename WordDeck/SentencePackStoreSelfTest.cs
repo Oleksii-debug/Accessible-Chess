@@ -94,6 +94,8 @@ internal static class SentencePackStoreSelfTest
                 "Interrupted SentencePack replacement did not restore the last usable portable pack.");
             Require(!Directory.EnumerateFiles(store.DirectoryPath, "*.rollback", SearchOption.TopDirectoryOnly).Any(),
                 "Successful rollback left stale rollback files behind.");
+
+            TestLicenseValidation(root, store);
         }
         finally
         {
@@ -106,6 +108,86 @@ internal static class SentencePackStoreSelfTest
             {
             }
         }
+    }
+
+    private static void TestLicenseValidation(string root, SentencePackStore store)
+    {
+        SentencePack mixed = BuildPack("mixed-license-pack");
+        mixed.Sentences[0] = CloneSentence(mixed.Sentences[0], license: "CC BY 2.0 FR");
+        string mixedPath = Path.Combine(root, "mixed-license.json");
+        File.WriteAllText(mixedPath, SentencePackJson.Serialize(mixed));
+        ExpectInvalidImport(store, mixedPath, "mixed-license SentencePack");
+        Require(store.Find("mixed-license-pack") is null, "Mixed-license SentencePack left an installed artifact.");
+
+        SentencePack missingAttribution = BuildPack("tatoeba-attribution-missing");
+        missingAttribution = new SentencePack
+        {
+            PackId = missingAttribution.PackId,
+            Provenance = "Tatoeba official attributed regression fixture",
+            License = "CC BY 2.0 FR",
+            Sentences = new List<SentenceRecord>
+            {
+                CloneSentence(missingAttribution.Sentences[0], license: "CC BY 2.0 FR", source: "Tatoeba without per-side authors", sourceId: "101", translationId: "201")
+            }
+        };
+        string missingAttributionPath = Path.Combine(root, "missing-attribution.json");
+        File.WriteAllText(missingAttributionPath, SentencePackJson.Serialize(missingAttribution));
+        ExpectInvalidImport(store, missingAttributionPath, "attributed Tatoeba SentencePack without per-side authors");
+        Require(store.Find("tatoeba-attribution-missing") is null, "Unattributed Tatoeba SentencePack left an installed artifact.");
+
+        SentencePack attributed = new()
+        {
+            PackId = "tatoeba-attributed-valid",
+            Provenance = "Tatoeba official attributed regression fixture",
+            License = "CC BY 2.0 FR",
+            Sentences = new List<SentenceRecord>
+            {
+                CloneSentence(
+                    BuildPack("placeholder").Sentences[0],
+                    license: "CC BY 2.0 FR",
+                    source: "Tatoeba English sentence #101 by Alice; Ukrainian sentence #201 by Olena",
+                    sourceId: "101",
+                    translationId: "201")
+            }
+        };
+        string attributedPath = Path.Combine(root, "attributed-valid.json.gz");
+        SentencePackIo.WriteGZip(attributedPath, attributed);
+        InstalledSentencePack valid = store.Import(attributedPath);
+        Require(valid.License == "CC BY 2.0 FR" && valid.Corpus.LookupByEntryId("ox-learn").Count == 1,
+            "Properly attributed Tatoeba CC-BY SentencePack was rejected or lost its runtime index.");
+    }
+
+    private static SentenceRecord CloneSentence(
+        SentenceRecord source,
+        string? license = null,
+        string? source = null,
+        string? sourceId = null,
+        string? translationId = null)
+    {
+        return new SentenceRecord
+        {
+            Id = source.Id,
+            English = source.English,
+            Ukrainian = source.Ukrainian,
+            Source = source ?? source.Source,
+            License = license ?? source.License,
+            SourceSentenceId = sourceId ?? source.SourceSentenceId,
+            TranslationSentenceId = translationId ?? source.TranslationSentenceId,
+            Tokens = source.Tokens.ToList(),
+            Lemmas = source.Lemmas.ToList(),
+            TargetEntryIds = source.TargetEntryIds.ToList(),
+            EntryLevels = new Dictionary<string, string>(source.EntryLevels, StringComparer.OrdinalIgnoreCase),
+            DifficultyLevel = source.DifficultyLevel,
+            OffListTokenCount = source.OffListTokenCount,
+            QualityFlags = source.QualityFlags.ToList()
+        };
+    }
+
+    private static void ExpectInvalidImport(SentencePackStore store, string path, string description)
+    {
+        try { _ = store.Import(path); }
+        catch (InvalidDataException) { return; }
+        throw new InvalidDataException($"SentencePack store accepted invalid licensing data: {description}.");
     }
 
     private static SentencePack BuildPack(string packId, string sentenceId = "sentence-1")
