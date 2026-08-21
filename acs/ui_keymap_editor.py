@@ -92,6 +92,22 @@ class KeymapEditorModel:
     def set_language(self, lang: str) -> None:
         self.lang = "en" if lang == "en" else "uk"
 
+    def _is_shortcut_action(self, action_id: str) -> bool:
+        """Classify an action without confusing an unbound shortcut with an alias.
+
+        An action whose contract has an alias default remains an alias while it
+        has no binding.  All other app-owned actions are keyboard actions even
+        when their default shortcut is intentionally unassigned.  A persisted
+        binding always wins so migrated profiles remain editable.
+        """
+
+        definition = self.registry.definition(action_id)
+        return (
+            self.registry.get_binding(action_id) is not None
+            or definition.default_binding is not None
+            or definition.default_alias is None
+        )
+
     def rows(self, *, query: str = "", context: BindingContext | None = None) -> tuple[EditorRow, ...]:
         projection = build_web_keymap(self.registry)["actions"]
         term = query.strip().casefold()
@@ -101,8 +117,9 @@ class KeymapEditorModel:
             if context is not None and registry_context != context.value:
                 continue
             label = str(item["labelEn"] if self.lang == "en" else item["labelUk"])
-            current = item["binding"] if item["binding"] is not None else item["alias"]
-            default = item["defaultBinding"] if item["binding"] is not None else item["defaultAlias"]
+            shortcut = self._is_shortcut_action(str(item["id"]))
+            current = item["binding"] if shortcut else item["alias"]
+            default = item["defaultBinding"] if shortcut else item["defaultAlias"]
             current_text = "" if current is None else str(current)
             default_text = "" if default is None else str(default)
             haystack = " ".join((label, registry_context, current_text, default_text, str(item["id"]))).casefold()
@@ -118,7 +135,7 @@ class KeymapEditorModel:
                     context_label=context_labels.get(registry_context, registry_context),
                     value=current_text,
                     default_value=default_text,
-                    value_kind="shortcut" if item["binding"] is not None else "alias",
+                    value_kind="shortcut" if shortcut else "alias",
                     changed=current_text != default_text,
                     status=preview.status,
                     status_text=preview.message,
@@ -135,8 +152,8 @@ class KeymapEditorModel:
         conflict semantics out of JavaScript and prevents silent overwrite.
         """
 
-        definition = self.registry.definition(action_id)
-        is_shortcut = definition.default_binding is not None or self.registry.get_binding(action_id) is not None
+        self.registry.definition(action_id)
+        is_shortcut = self._is_shortcut_action(action_id)
         try:
             conflicts = (
                 self.registry.binding_conflicts(action_id, value)
@@ -192,9 +209,9 @@ class KeymapEditorModel:
         )
 
     def save(self, action_id: str, value: str, *, allow_warnings: bool = False) -> EditorResult:
-        definition = self.registry.definition(action_id)
+        self.registry.definition(action_id)
         try:
-            if definition.default_binding is not None or self.registry.get_binding(action_id) is not None:
+            if self._is_shortcut_action(action_id):
                 conflicts = self.registry.binding_conflicts(action_id, value)
                 blocking = tuple(c for c in conflicts if c.severity == "error" or not allow_warnings)
                 if blocking:
