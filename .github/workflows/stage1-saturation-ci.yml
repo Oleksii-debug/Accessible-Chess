@@ -1,0 +1,165 @@
+name: Stage1 Saturation Hardening CI
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - dev/stage1-saturation-hardening-20260821
+
+permissions:
+  contents: read
+
+concurrency:
+  group: stage1-saturation-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  FROZEN_STAGE1_BASE: 656e8ec311e364e6e54a30504fd30a4aaff586f9
+
+jobs:
+  stage1-saturation:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install verification dependencies
+        run: python -m pip install -q pytest
+
+      - name: Prove exact Stage1 ancestry and diff hygiene
+        shell: bash
+        run: |
+          set -euo pipefail
+          git cat-file -e "$FROZEN_STAGE1_BASE^{commit}"
+          git merge-base --is-ancestor "$FROZEN_STAGE1_BASE" HEAD
+          test "$(git merge-base "$FROZEN_STAGE1_BASE" HEAD)" = "$FROZEN_STAGE1_BASE"
+          git diff --check "$FROZEN_STAGE1_BASE" HEAD
+          changed="$(git diff --name-only "$FROZEN_STAGE1_BASE" HEAD)"
+          printf '%s\n' "$changed"
+          if printf '%s\n' "$changed" | grep -E '(^|/)(acsdb|chessbase|bookdocument|bookreader|book_index|training|teacher|classroom|remote_lesson)([^/]*)(/|\.|$)' ; then
+            echo 'Stage2/future subsystem contamination detected in Stage1 saturation delta' >&2
+            exit 1
+          fi
+          if printf '%s\n' "$changed" | grep -E '(^|/)tools/qa/|windows-stage1-strict' ; then
+            echo 'QA-owned strict Windows harness/workflow must not be changed by Work saturation' >&2
+            exit 1
+          fi
+
+      - name: Compile tracked Product and tests
+        run: python -m compileall -q acs tests run_accessible_chess.py
+
+      - name: Parse Stage1 JavaScript
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          import re
+          html = Path('web/index.html').read_text(encoding='utf-8')
+          scripts = re.findall(r'<script(?:\s[^>]*)?>(.*?)</script>', html, flags=re.I | re.S)
+          assert scripts, 'No inline JavaScript found'
+          Path('/tmp/accessible-chess-inline.js').write_text('\n;\n'.join(scripts), encoding='utf-8')
+          PY
+          node --check /tmp/accessible-chess-inline.js
+          node --check web/stage1_release_bootstrap.js
+
+      - name: Architecture and frozen-scope gates
+        run: >-
+          python -m unittest -v
+          tests.test_architecture
+          tests.test_issue22_release_contract
+          tests.test_nvda_p0_contract
+          tests.test_stage1_webview2_accessibility_boundary
+          tests.test_webview_safe_server
+
+      - name: Move input board focus history editor gates
+        run: >-
+          python -m unittest -v
+          tests.test_move_entry
+          tests.test_board_service
+          tests.test_board_rank_file_remapping_ui
+          tests.test_stage1_packaged_focus_origin_contract
+          tests.test_history
+          tests.test_ui_review_adapter
+          tests.test_history_review_ui
+          tests.test_position_editor
+          tests.test_stage1_core_full_flow
+
+      - name: Engine clocks lifecycle and analysis gates
+        run: >-
+          python -m unittest -v
+          tests.test_engine_play_service
+          tests.test_engine_play_service_concurrency
+          tests.test_engine_game_session
+          tests.test_engine_game_timeout_ownership
+          tests.test_clock_service
+          tests.test_game_lifecycle
+          tests.test_analysis_service
+          tests.test_continuous_analysis
+          tests.test_ui_analysis_adapter
+          tests.test_ui_analysis_webapp
+          tests.test_analysis_webview_bridge
+          tests.test_stockfish_runtime
+          tests.test_release_stockfish_composition
+          tests.test_stage1_engine_play_ui
+
+      - name: Sound settings native menu keymap language and release composition gates
+        run: >-
+          python -m unittest -v
+          tests.test_sound_events
+          tests.test_sound_runtime
+          tests.test_stage1_release_composition_ui
+          tests.test_ui_native_menu_recovery
+          tests.test_keybindings
+          tests.test_ui_keymap_editor
+          tests.test_keymap_import_warning_confirmation
+          tests.test_keymap_import_warning_confirmation_integration
+          tests.test_webview_keymap_bridge_contract
+          tests.test_notation
+          tests.test_accessible_webui
+          tests.test_stage1_complete_user_flow
+
+      - name: Official Stockfish 18 production UCI and MultiPV smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/stockfish-ubuntu-x86-64-avx2.tar"
+          extract_dir="$RUNNER_TEMP/stockfish18"
+          curl --fail --location --retry 3 \
+            https://github.com/official-stockfish/Stockfish/releases/download/sf_18/stockfish-ubuntu-x86-64-avx2.tar \
+            --output "$archive"
+          echo '536c0c2c0cf06450df0bfb5e876ef0d3119950703a8f143627f990c7b5417964  '"$archive" | sha256sum --check
+          mkdir -p "$extract_dir"
+          tar -xf "$archive" -C "$extract_dir"
+          engine="$(find "$extract_dir" -type f -name 'stockfish-ubuntu-x86-64-avx2' -print -quit)"
+          test -n "$engine"
+          chmod +x "$engine"
+          STOCKFISH18_PATH="$engine" python - <<'PY'
+          import os, re
+          from acs.stockfish_runtime import StockfishRuntime, StockfishRuntimeConfig
+          fen='rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1'
+          move_re=re.compile(r'^[a-h][1-8][a-h][1-8][qrbn]?$')
+          with StockfishRuntime(StockfishRuntimeConfig(configured_path=os.environ['STOCKFISH18_PATH'])) as runtime:
+              provider=runtime.provider()
+              best=provider.best_move(fen, skill_level=20, movetime_ms=100)
+              assert best is not None and move_re.fullmatch(best), best
+              lines=provider.analyze(fen, multipv=5, depth=8)
+              assert len(lines)==5
+              assert all(line.pv and all(move_re.fullmatch(move) for move in line.pv) for line in lines)
+          print('SATURATION OFFICIAL STOCKFISH 18 PASS')
+          PY
+
+      - name: Full repository unittest discovery
+        run: python -m unittest discover -s tests -v
+
+      - name: Full repository pytest without weakening
+        run: python -m pytest -q
+
+      - name: Complete Stage1 diagnostic
+        run: python run_accessible_chess.py --diagnostic
