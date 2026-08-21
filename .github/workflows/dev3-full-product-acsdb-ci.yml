@@ -43,7 +43,12 @@ jobs:
         run: python -m compileall -q acs tests
 
       - name: Focused ACSDB regression suite
-        run: python -m unittest -v tests.test_acsdb
+        run: >-
+          python -m unittest -v
+          tests.test_acsdb
+          tests.test_dev3_acsdb_position_provenance
+          tests.test_dev3_acsdb_wal_scalars
+          tests.test_dev3_acsdb_backup_recovery
 
       - name: Full unittest discovery
         run: python -m unittest discover -s tests -v
