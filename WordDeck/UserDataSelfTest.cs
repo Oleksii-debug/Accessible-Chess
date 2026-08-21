@@ -91,6 +91,16 @@ internal static class UserDataSelfTest
             Require(migrated.RecallStudyScopesByDictionary[dictionaryId].Scopes[StudyScopeIds.B2].DeckIds["word-b"] == DeckIds.Core(5),
                 "Profile round-trip did not restore per-scope assignment.");
 
+            string incompatibleProfile = Path.Combine(root, "WordDeck-profile-incompatible-corpus.json");
+            File.WriteAllText(incompatibleProfile,
+                File.ReadAllText(profile).Replace(AppStateStore.CorpusIdentity, "incompatible-corpus:1", StringComparison.Ordinal));
+            int incompatibleHiddenBefore = migrated.HiddenEntryIds.Count;
+            bool incompatibleRejected = false;
+            try { store.ImportProfile(incompatibleProfile, migrated, entries.Select(entry => entry.Id), new[] { dictionaryId }); }
+            catch (InvalidDataException) { incompatibleRejected = true; }
+            Require(incompatibleRejected && migrated.HiddenEntryIds.Count == incompatibleHiddenBefore,
+                "Incompatible-corpus profile was accepted or mutated current state instead of failing closed.");
+
             migrated.HiddenEntryIds.Add("future-word-id");
             string futureProfile = Path.Combine(root, "WordDeck-profile-future-id.json");
             store.ExportProfile(migrated, futureProfile);
@@ -136,7 +146,7 @@ internal static class UserDataSelfTest
                     "Missing pronunciation audio did not return a readable non-crashing status.");
             }
 
-            Console.WriteLine("WordDeck user-data acceptance passed: selector/translation keyboard policy, schema migration+backup, LocalAppData continuity, profile export/reset/import rollback, hidden IDs, study history, true previous/forward Recall history and missing-audio non-crash status verified.");
+            Console.WriteLine("WordDeck user-data acceptance passed: selector/translation keyboard policy, schema migration+backup, LocalAppData continuity, profile export/reset/import rollback, incompatible-corpus rejection, hidden IDs, study history, true previous/forward Recall history and missing-audio non-crash status verified.");
         }
         finally
         {

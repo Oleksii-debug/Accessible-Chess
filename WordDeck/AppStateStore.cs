@@ -180,6 +180,8 @@ internal sealed class AppStateStore
             throw new InvalidDataException("The selected profile was created by a newer incompatible WordDeck state schema. No data was changed.");
         if (string.IsNullOrWhiteSpace(profile.CorpusIdentity))
             throw new InvalidDataException("The selected profile has no corpus identity and cannot be validated safely.");
+        if (!string.Equals(profile.CorpusIdentity, CorpusIdentity, StringComparison.Ordinal))
+            throw new InvalidDataException($"The selected profile belongs to incompatible corpus '{profile.CorpusIdentity}'. This build requires '{CorpusIdentity}'. No data was changed.");
 
         string backupPath = CreateRecoveryProfile(destination, "pre-import");
         AppState before = Clone(destination);
