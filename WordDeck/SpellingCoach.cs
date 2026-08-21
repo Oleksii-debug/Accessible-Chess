@@ -277,8 +277,8 @@ internal sealed class SpellingForm : Form
     private readonly Random _random = new();
     private readonly ComboBox _deckCombo = new() { DropDownStyle = ComboBoxStyle.DropDownList, DisplayMember = nameof(DeckDefinition.Name), AccessibleName = "Active spelling deck", Width = 260 };
     private readonly Label _counts = new() { AutoSize = true, AccessibleName = "Spelling deck counts" };
-    private readonly TextBox _prompt = new() { ReadOnly = true, Multiline = true, Dock = DockStyle.Fill, AccessibleName = "Ukrainian spelling prompt", Font = new Font(SystemFonts.DefaultFont.FontFamily, 18) };
-    private readonly TextBox _answer = new() { Multiline = false, Dock = DockStyle.Fill, AccessibleName = "Type English spelling answer" };
+    private readonly TextBox _prompt = new() { ReadOnly = true, Multiline = true, Dock = DockStyle.Fill, AccessibleName = "Ukrainian spelling prompt", Font = new Font(SystemFonts.DefaultFont.FontFamily, 18), TabStop = true };
+    private readonly TextBox _answer = new() { Multiline = false, Dock = DockStyle.Fill, AccessibleName = "Type English spelling answer", AccessibleDescription = "Type the exact English spelling and press Enter. Standard editing and arrow keys remain available." };
     private readonly Label _status = new() { AutoSize = true, AccessibleName = "Spelling status" };
     private string _activeDeckId;
     private DictionaryEntry? _current;
@@ -308,13 +308,16 @@ internal sealed class SpellingForm : Form
         root.RowStyles.Add(new RowStyle(SizeType.AutoSize)); root.RowStyles.Add(new RowStyle(SizeType.Percent, 45));
         root.RowStyles.Add(new RowStyle(SizeType.AutoSize)); root.RowStyles.Add(new RowStyle(SizeType.AutoSize)); root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         var top = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true };
-        top.Controls.Add(new Label { Text = "Spelling deck:", AutoSize = true, Padding = new Padding(0, 6, 4, 0) }); top.Controls.Add(_deckCombo);
+        top.Controls.Add(new Label { Text = "Spelling deck:", AutoSize = true, Padding = new Padding(0, 6, 4, 0), TabStop = false }); top.Controls.Add(_deckCombo);
         root.Controls.Add(top, 0, 0); root.Controls.Add(_counts, 0, 1);
-        root.Controls.Add(new Label { Text = "Ukrainian prompt", AutoSize = true, Font = new Font(Font, FontStyle.Bold) }, 0, 2);
+        root.Controls.Add(new Label { Text = "Ukrainian prompt", AutoSize = true, Font = new Font(Font, FontStyle.Bold), TabStop = false }, 0, 2);
         root.Controls.Add(_prompt, 0, 3);
-        root.Controls.Add(new Label { Text = "Type exact English spelling and press Enter", AutoSize = true, Font = new Font(Font, FontStyle.Bold) }, 0, 4);
+        root.Controls.Add(new Label { Text = "Type exact English spelling and press Enter", AutoSize = true, Font = new Font(Font, FontStyle.Bold), TabStop = false }, 0, 4);
         root.Controls.Add(_answer, 0, 5); root.Controls.Add(_status, 0, 6); Controls.Add(root); root.BringToFront();
 
+        _deckCombo.TabIndex = 0;
+        _prompt.TabIndex = 1;
+        _answer.TabIndex = 2;
         _deckCombo.SelectedIndexChanged += (_, _) => { if (_deckCombo.SelectedItem is DeckDefinition d && !string.Equals(d.Id, _activeDeckId, StringComparison.OrdinalIgnoreCase)) SwitchDeck(d.Id); };
         _answer.KeyDown += (_, e) => { if (e.KeyCode == Keys.Enter) { e.SuppressKeyPress = true; Submit(); } };
         RefreshDeckUi();
@@ -351,7 +354,15 @@ internal sealed class SpellingForm : Form
     private void Next()
     {
         IReadOnlyList<DictionaryEntry> entries = ActiveEntries();
-        if (entries.Count == 0) { _current = null; _prompt.Text = "No words in this spelling deck"; _answer.Clear(); Announce("This spelling deck is empty."); return; }
+        if (entries.Count == 0)
+        {
+            _current = null;
+            _prompt.Text = "No words in this spelling deck";
+            _answer.Clear();
+            _answer.Focus();
+            Announce("This spelling deck is empty. Choose another spelling deck with the deck list or its configured shortcut.");
+            return;
+        }
         DictionaryEntry next = entries[_random.Next(entries.Count)]; if (_current is not null && entries.Count > 1) while (next.Id == _current.Id) next = entries[_random.Next(entries.Count)]; Show(next);
     }
     private void Show(DictionaryEntry entry)
@@ -361,7 +372,7 @@ internal sealed class SpellingForm : Form
     }
     private void Submit()
     {
-        if (_current is null) return;
+        if (_current is null) { Announce("No spelling word is currently available in this deck."); return; }
         string typed = _answer.Text.Trim();
         SpellingEntryStats stats = GetStats(_current.Id);
         if (!string.Equals(typed, _current.Source, StringComparison.Ordinal))
@@ -379,9 +390,9 @@ internal sealed class SpellingForm : Form
         if (!map.TryGetValue(entryId, out SpellingEntryStats? stats)) { stats = new(); map[entryId] = stats; } return stats;
     }
     private static void AddRecent(SpellingEntryStats stats, bool result) { stats.RecentOutcomes.Add(result); if (stats.RecentOutcomes.Count > 10) stats.RecentOutcomes.RemoveAt(0); }
-    private void ShowAnswer() { if (_current is null) return; _usedHint = true; SpellingEntryStats s = GetStats(_current.Id); s.HintUses++; s.ShowAnswerUses++; Save(); Announce($"Correct spelling: {_current.Source}. You must still type it correctly before this word can advance."); _answer.Focus(); }
-    private void RepeatPrompt() { if (_current is not null) { _prompt.Focus(); _prompt.SelectAll(); AccessibilityAnnouncer.Announce(_prompt, _current.Target); _answer.Focus(); } }
-    private void PlayPronunciation() { if (_current is null) return; _usedHint = true; GetStats(_current.Id).HintUses++; Save(); if (!_audio.TryPlay(_package, _current, out string? error) && error is not null) Announce(error); }
+    private void ShowAnswer() { if (_current is null) { Announce("No spelling word is currently available."); return; } _usedHint = true; SpellingEntryStats s = GetStats(_current.Id); s.HintUses++; s.ShowAnswerUses++; Save(); Announce($"Correct spelling: {_current.Source}. You must still type it correctly before this word can advance."); _answer.Focus(); }
+    private void RepeatPrompt() { if (_current is not null) { _prompt.Focus(); _prompt.SelectAll(); AccessibilityAnnouncer.Announce(_prompt, _current.Target); _answer.Focus(); } else Announce("No Ukrainian spelling prompt is currently available."); }
+    private void PlayPronunciation() { if (_current is null) { Announce("No spelling word is currently available."); return; } _usedHint = true; GetStats(_current.Id).HintUses++; Save(); if (!_audio.TryPlay(_package, _current, out string? error) && error is not null) Announce(error); }
     private void ToggleCoach() { _state.CoachEnabled = !_state.CoachEnabled; Save(); Announce(_state.CoachEnabled ? "Adaptive spelling coach enabled." : "Adaptive spelling coach disabled."); }
     private void ApplyCoach(SpellingEntryStats stats, bool cleanFirstTry)
     {
@@ -399,7 +410,7 @@ internal sealed class SpellingForm : Form
     }
     private void MoveCurrentChooser()
     {
-        if (_current is null) return; string? target = DeckDialogs.ChooseDeck(this, "Move spelling word", $"Move {_current.Source} to which spelling deck?", _decks.Decks, _activeDeckId); if (target is not null) MoveCurrent(target);
+        if (_current is null) { Announce("No spelling word is currently available."); return; } string? target = DeckDialogs.ChooseDeck(this, "Move spelling word", $"Move {_current.Source} to which spelling deck?", _decks.Decks, _activeDeckId); if (target is not null) MoveCurrent(target);
     }
     private void MoveCurrent(string target)
     {
@@ -422,19 +433,31 @@ internal sealed class SpellingForm : Form
 
     protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
     {
-        string? action = _shortcuts.FindAction(keyData); if (action is null) return base.ProcessCmdKey(ref msg, keyData);
-        if (action == ActionIds.SpellingShowAnswer) ShowAnswer(); else if (action == ActionIds.SpellingRepeatPrompt) RepeatPrompt(); else if (action == ActionIds.SpellingPlayPronunciation) PlayPronunciation();
-        else if (action == ActionIds.SpellingToggleCoach) ToggleCoach(); else if (action == ActionIds.SpellingUndoCoachMove) UndoCoachMove(); else if (action == ActionIds.SpellingMoveChooser) MoveCurrentChooser();
-        else if (action == ActionIds.SpellingCreateDeck) CreateDeck(); else if (action == ActionIds.SpellingRenameDeck) RenameDeck(); else if (action == ActionIds.SpellingDeleteDeck) DeleteDeck();
-        else if (action == ActionIds.SpellingMoveDeckUp) ReorderDeck(-1); else if (action == ActionIds.SpellingMoveDeckDown) ReorderDeck(1);
+        string? action = _shortcuts.FindAction(keyData);
+        if (action is null) return base.ProcessCmdKey(ref msg, keyData);
+
+        bool handled = true;
+        if (action == ActionIds.SpellingShowAnswer) ShowAnswer();
+        else if (action == ActionIds.SpellingRepeatPrompt) RepeatPrompt();
+        else if (action == ActionIds.SpellingPlayPronunciation) PlayPronunciation();
+        else if (action == ActionIds.SpellingToggleCoach) ToggleCoach();
+        else if (action == ActionIds.SpellingUndoCoachMove) UndoCoachMove();
+        else if (action == ActionIds.SpellingMoveChooser) MoveCurrentChooser();
+        else if (action == ActionIds.SpellingCreateDeck) CreateDeck();
+        else if (action == ActionIds.SpellingRenameDeck) RenameDeck();
+        else if (action == ActionIds.SpellingDeleteDeck) DeleteDeck();
+        else if (action == ActionIds.SpellingMoveDeckUp) ReorderDeck(-1);
+        else if (action == ActionIds.SpellingMoveDeckDown) ReorderDeck(1);
         else
         {
+            handled = false;
             foreach (DeckDefinition d in _decks.Decks)
             {
-                if (action == ActionIds.SpellingSwitchDeck(d.Id)) { SwitchDeck(d.Id); break; }
-                if (action == ActionIds.SpellingMoveToDeck(d.Id)) { MoveCurrent(d.Id); break; }
+                if (action == ActionIds.SpellingSwitchDeck(d.Id)) { SwitchDeck(d.Id); handled = true; break; }
+                if (action == ActionIds.SpellingMoveToDeck(d.Id)) { MoveCurrent(d.Id); handled = true; break; }
             }
         }
-        return true;
+
+        return handled || base.ProcessCmdKey(ref msg, keyData);
     }
 }
