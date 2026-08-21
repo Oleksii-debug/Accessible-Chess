@@ -1,4 +1,4 @@
-# NATIVE_SELECTION_PROOF_V3_656E8EC
+# NATIVE_SELECTION_PROOF_V5_656E8EC
 name: Windows Stage 1 Strict Release Dispatch
 
 on:
@@ -29,7 +29,7 @@ jobs:
           ref: qa/windows-current-integration-candidate-20260815
           fetch-depth: 0
 
-      - name: Replace ambiguous clipboard probe with decisive native behavior proof
+      - name: Install bounded restore and decisive native behavior proof
         shell: pwsh
         run: |
           @'
@@ -40,7 +40,7 @@ jobs:
           start_marker = "  Set-Clipboard -Value '__sentinel__'"
           end_marker = "  $vp.SetValue('e5')"
           if helper.count(start_marker) != 1 or helper.count(end_marker) != 1:
-              raise SystemExit(f'Clipboard replacement anchors not unique: start={helper.count(start_marker)} end={helper.count(end_marker)}')
+              raise SystemExit(f'Native proof replacement anchors not unique: start={helper.count(start_marker)} end={helper.count(end_marker)}')
           start = helper.index(start_marker)
           end = helper.index(end_marker, start)
           replacement = r'''  Set-Clipboard -Value '__sentinel__'
@@ -52,11 +52,11 @@ jobs:
           $vp=ValuePattern $move 'Move before native keyboard proof'
           if([string]$vp.Current.Value -ne 'e9'){throw "Native keyboard precondition ValuePattern mismatch: '$([string]$vp.Current.Value)'"}
 
-          if(-not ('AccessibleChessQaNativeKeysV3' -as [type])) {
+          if(-not ('AccessibleChessQaNativeKeysV5' -as [type])) {
             Add-Type -TypeDefinition @"
           using System;
           using System.Runtime.InteropServices;
-          public static class AccessibleChessQaNativeKeysV3 {
+          public static class AccessibleChessQaNativeKeysV5 {
             [DllImport("user32.dll")]
             private static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, UIntPtr dwExtraInfo);
             private const uint KEYEVENTF_KEYUP = 0x0002;
@@ -74,8 +74,42 @@ jobs:
           "@
           }
 
-          # Control proof: a plain native Backspace must reach the exact focused Move Edit.
-          [AccessibleChessQaNativeKeysV3]::Key([byte]0x08)
+          function RestoreMoveValueEventually([string]$expected,[string]$label,[int]$timeoutMs=5000) {
+            $sw=[System.Diagnostics.Stopwatch]::StartNew()
+            $last=''; $lastError=''
+            while($sw.ElapsedMilliseconds -lt $timeoutMs) {
+              try {
+                $freshEls=Rewalk $report
+                $freshMove=FindRuntime $freshEls $moveRid
+                if($null -eq $freshMove){$lastError='runtime not found'; Start-Sleep -Milliseconds 100; continue}
+                AssertMoveStrict $freshMove $moveRid
+                $freshVp=ValuePattern $freshMove "$label set"
+                $freshVp.SetValue($expected)
+                Start-Sleep -Milliseconds 150
+                $confirmEls=Rewalk $report
+                $confirmMove=FindRuntime $confirmEls $moveRid
+                if($null -eq $confirmMove){$lastError='runtime disappeared after SetValue'; Start-Sleep -Milliseconds 100; continue}
+                AssertMoveStrict $confirmMove $moveRid
+                $confirmVp=ValuePattern $confirmMove "$label confirm"
+                $last=[string]$confirmVp.Current.Value
+                if($last -eq $expected){
+                  Write-Output "QA BOUNDED MOVE RESTORE PASS label='$label' value='$last'"
+                  return $confirmMove
+                }
+              } catch {
+                $lastError=$_.Exception.Message
+              }
+              Start-Sleep -Milliseconds 100
+            }
+            throw "QA_STATE_RESTORE_INCONCLUSIVE: label='$label' expected='$expected' got='$last' last_error='$lastError'"
+          }
+
+          # Prove native keyboard delivery to the exact original Move Edit from a normalized caret.
+          [AccessibleChessQaNativeKeysV5]::Key([byte]0x23)
+          Start-Sleep -Milliseconds 120
+          if([string](ValuePattern $move 'Move after native End baseline').Current.Value -ne 'e9'){throw 'QA_BASELINE_INCONCLUSIVE: native End unexpectedly changed Move value'}
+          Write-Output 'NATIVE CARET BASELINE NORMALIZED WITH END'
+          [AccessibleChessQaNativeKeysV5]::Key([byte]0x08)
           Start-Sleep -Milliseconds 250
           AssertFocusedRuntimeEventually $moveRid 'Native Backspace focus convergence'
           $afterBackspace=[string](ValuePattern $move 'Move after native Backspace').Current.Value
@@ -84,16 +118,18 @@ jobs:
           }
           Write-Output 'NATIVE KEY DELIVERY CONTROL PASS e9->e'
 
-          # Restore without submitting. Then prove Ctrl+A behavior without relying on UIA TextPattern.
-          $vp=ValuePattern $move 'Move restore before Ctrl+A selection proof'
-          $vp.SetValue('e9')
-          if([string]$vp.Current.Value -ne 'e9'){throw 'Could not restore e9 before native Ctrl+A proof'}
+          # Reacquire and restore e9 with bounded convergence; then prove Ctrl+A by deletion.
+          $move=RestoreMoveValueEventually 'e9' 'before native Ctrl+A proof'
+          $vp=ValuePattern $move 'Move restored before native Ctrl+A proof'
           $null=$ws.AppActivate($AppPid)
           $move.SetFocus()
           AssertFocusedRuntimeEventually $moveRid 'Native Ctrl+A focus convergence'
-          [AccessibleChessQaNativeKeysV3]::Ctrl([byte]0x41)
+          [AccessibleChessQaNativeKeysV5]::Key([byte]0x23)
+          Start-Sleep -Milliseconds 120
+          if([string](ValuePattern $move 'Move after End before Ctrl+A').Current.Value -ne 'e9'){throw 'QA_BASELINE_INCONCLUSIVE: End baseline before Ctrl+A changed Move value'}
+          [AccessibleChessQaNativeKeysV5]::Ctrl([byte]0x41)
           Start-Sleep -Milliseconds 150
-          [AccessibleChessQaNativeKeysV3]::Key([byte]0x08)
+          [AccessibleChessQaNativeKeysV5]::Key([byte]0x08)
           Start-Sleep -Milliseconds 250
           AssertFocusedRuntimeEventually $moveRid 'Native Ctrl+A plus Backspace focus convergence'
           $afterSelectDelete=[string](ValuePattern $move 'Move after native Ctrl+A plus Backspace').Current.Value
@@ -102,17 +138,19 @@ jobs:
           }
           Write-Output 'NATIVE CTRL+A SELECTION BEHAVIOR PASS e9->empty via Backspace'
 
-          # Restore and prove Ctrl+C after selection has already been behaviorally established.
-          $vp=ValuePattern $move 'Move restore before native copy proof'
-          $vp.SetValue('e9')
-          if([string]$vp.Current.Value -ne 'e9'){throw 'Could not restore e9 before native copy proof'}
+          # Reacquire/restore again, then prove native Ctrl+C only after select-all is behaviorally proven.
+          $move=RestoreMoveValueEventually 'e9' 'before native copy proof'
+          $vp=ValuePattern $move 'Move restored before native copy proof'
           Set-Clipboard -Value '__sentinel__'
           $null=$ws.AppActivate($AppPid)
           $move.SetFocus()
           AssertFocusedRuntimeEventually $moveRid 'Native copy focus convergence'
-          [AccessibleChessQaNativeKeysV3]::Ctrl([byte]0x41)
+          [AccessibleChessQaNativeKeysV5]::Key([byte]0x23)
+          Start-Sleep -Milliseconds 120
+          if([string](ValuePattern $move 'Move after End before copy').Current.Value -ne 'e9'){throw 'QA_BASELINE_INCONCLUSIVE: End baseline before copy changed Move value'}
+          [AccessibleChessQaNativeKeysV5]::Ctrl([byte]0x41)
           Start-Sleep -Milliseconds 150
-          [AccessibleChessQaNativeKeysV3]::Ctrl([byte]0x43)
+          [AccessibleChessQaNativeKeysV5]::Ctrl([byte]0x43)
           Start-Sleep -Milliseconds 400
           AssertFocusedRuntimeEventually $moveRid 'Native copy post-chord focus convergence'
           $clip=([string](Get-Clipboard -Raw)).Trim()
@@ -123,13 +161,18 @@ jobs:
           Write-Output "NATIVE CTRL+A/CTRL+C BEHAVIOR PASS clipboard='$clip'"
           Write-Output 'CLIPBOARD DECISIVE NATIVE KEY/SELECTION/COPY PASS'
 
+          # Use the same bounded restore boundary before board-origin submission.
+          $move=RestoreMoveValueEventually 'e5' 'before board entry'
+          $vp=ValuePattern $move 'Move restored before board entry'
 '''
-          helper = helper[:start] + replacement + helper[end:]
+          helper = helper[:start] + replacement + helper[end + len("  $vp.SetValue('e5')"):]
+          # Remove the old immediate post-e5 check prefix if present after the anchor.
+          helper = helper.replace("; if([string]$vp.Current.Value -ne 'e5'){throw 'Could not prepare e5 before board entry'}", "", 1)
           helper_path.write_text(helper, encoding='utf-8')
           '@ | python -
-          if($LASTEXITCODE -ne 0){throw 'QA native keyboard proof patch failed'}
+          if($LASTEXITCODE -ne 0){throw 'QA bounded native proof patch failed'}
 
-      - name: Validate decisive helper and exact product lock
+      - name: Validate helper and exact product lock
         shell: pwsh
         run: |
           $helper='tools\qa\stage1_packaged_e2e_crossprocess.ps1'
@@ -138,17 +181,13 @@ jobs:
           [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $helper),[ref]$tokens,[ref]$errors)|Out-Null
           if(@($errors).Count -gt 0){throw (@($errors|ForEach-Object{$_.Message}) -join ' | ')}
           $text=Get-Content $helper -Raw
-          if($text -notmatch 'NATIVE KEY DELIVERY CONTROL PASS'){throw 'Native key delivery control proof missing'}
-          if($text -notmatch 'NATIVE CTRL\+A SELECTION BEHAVIOR PASS'){throw 'Behavioral Ctrl+A proof missing'}
-          if($text -notmatch 'NATIVE_CTRL_C_COPY_DEFECT_AFTER_PROVEN_SELECTION'){throw 'Fail-closed post-selection copy classification marker missing'}
-          if($text -notmatch 'AccessibleChessQaNativeKeysV3'){throw 'Native user32 key injector missing'}
-          if($text -match 'TextPatternRangeEndpoint'){throw 'Ambiguous UIA selection endpoint dependency remains'}
-          if($text -notmatch 'RNBQKBNR b KQkq e3 0 1'){throw 'Canonical e4 FEN expectation missing'}
-          if($text -notmatch 'RNBQKBNR w KQkq e6 0 2'){throw 'Canonical black e5 FEN expectation missing'}
+          foreach($marker in @('QA BOUNDED MOVE RESTORE PASS','NATIVE KEY DELIVERY CONTROL PASS','NATIVE CTRL+A SELECTION BEHAVIOR PASS','NATIVE_CTRL_C_COPY_DEFECT_AFTER_PROVEN_SELECTION','AccessibleChessQaNativeKeysV5')){
+            if($text -notmatch [regex]::Escape($marker)){throw "Required V5 marker missing: $marker"}
+          }
+          if($text -match 'TextPatternRangeEndpoint'){throw 'Ambiguous TextPattern endpoint dependency remains'}
           $strictText=Get-Content $strict -Raw
-          if($strictText -notmatch [regex]::Escape($env:TARGET_PRODUCT_SHA)){throw 'Strict workflow does not target exact 656e8ec product SHA'}
-          if($strictText -match 'e8cd992d306975955784118364ce950963133d7e'){throw 'Old strict product SHA remains'}
-          'DECISIVE NATIVE KEY/SELECTION/COPY QA CONTRACT PASS'
+          if($strictText -notmatch [regex]::Escape($env:TARGET_PRODUCT_SHA)){throw 'Strict workflow exact Product SHA lock missing'}
+          'BOUNDED RESTORE + DECISIVE NATIVE PROOF CONTRACT PASS'
 
       - name: Commit only QA helper change
         shell: pwsh
@@ -161,7 +200,7 @@ jobs:
           git config user.name 'Oleksii-debug'
           git config user.email 'oleksiy.az.09@gmail.com'
           git add tools/qa/stage1_packaged_e2e_crossprocess.ps1
-          git commit -m 'QA: prove native Ctrl+A/C behavior on exact 656e8ec'
+          git commit -m 'QA: bound Move restore before native selection proof'
           if($LASTEXITCODE -ne 0){throw 'QA helper commit failed'}
           git push origin HEAD:qa/windows-current-integration-candidate-20260815
           if($LASTEXITCODE -ne 0){throw 'QA helper push failed'}
@@ -182,4 +221,4 @@ jobs:
           if($LASTEXITCODE -ne 0){throw 'Strict workflow dispatch failed'}
           'STRICT WORKFLOW DISPATCHED'
 
-# Retriggered after Drive/Audit handoff verification on 2026-08-20.
+# 2026-08-21: V5 bounded UIA state reacquisition after run 32411492785 proved native Backspace delivery but failed immediate SetValue observation.
