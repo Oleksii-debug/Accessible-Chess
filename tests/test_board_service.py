@@ -1,8 +1,8 @@
 import unittest
 
 from acs.board_service import (
-    BoardCommandService, BoardSnapshot, ClockSnapshot, EngineSnapshot, MoveView,
-    parse_square,
+    BoardCommandService, BoardSnapshot, ClockSnapshot, EngineSnapshot,
+    MaterialView, MoveView, SquareView, parse_square, piece_color,
 )
 
 
@@ -90,6 +90,127 @@ class BoardCommandServiceTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             service.rank(9)
         self.assertIs(service.board, snapshot)
+
+    def test_move_view_rejects_coerced_or_impossible_shapes(self):
+        self.assertEqual(MoveView(0, 1, "a2", False).frm, 0)
+        invalid = (
+            (True, 1, None, False),
+            (0, 64, None, False),
+            (1, 1, None, False),
+            (0, 1, True, False),
+            (0, 1, "", False),
+            (0, 1, "a2\n", False),
+            (0, 1, "a2", 1),
+        )
+        for values in invalid:
+            with self.subTest(move=values):
+                with self.assertRaises((TypeError, ValueError)):
+                    MoveView(*values)
+
+    def test_board_snapshot_validates_and_detaches_all_collections(self):
+        pieces = tuple(empty())
+        attacks = {0: (1, 8)}
+        snapshot = BoardSnapshot(
+            pieces,
+            "w",
+            (MoveView(0, 1),),
+            attacks,
+        )
+        attacks.clear()
+        self.assertEqual(snapshot.attacks[0], (1, 8))
+        with self.assertRaises(TypeError):
+            snapshot.attacks[0] = (2,)
+
+        invalid = (
+            lambda: BoardSnapshot(list(pieces), "w"),
+            lambda: BoardSnapshot(("X",) + pieces[1:], "w"),
+            lambda: BoardSnapshot(pieces, True),
+            lambda: BoardSnapshot(pieces, "w", [MoveView(0, 1)]),
+            lambda: BoardSnapshot(pieces, "w", (object(),)),
+            lambda: BoardSnapshot(pieces, "w", attacks={True: ()}),
+            lambda: BoardSnapshot(pieces, "w", attacks={0: [1]}),
+            lambda: BoardSnapshot(pieces, "w", attacks={0: (0,)}),
+            lambda: BoardSnapshot(pieces, "w", attacks={0: (1, 1)}),
+            lambda: BoardSnapshot(pieces, "w", last_move=object()),
+            lambda: BoardSnapshot(pieces, "w", last_captured_piece="X"),
+        )
+        for operation in invalid:
+            with self.subTest(operation=operation):
+                with self.assertRaises((TypeError, ValueError)):
+                    operation()
+
+    def test_projection_dtos_are_exact_detached_and_internally_consistent(self):
+        for operation in (
+            lambda: EngineSnapshot(evaluation=True),
+            lambda: EngineSnapshot(best_move=""),
+            lambda: ClockSnapshot(my_clock="05:00\n"),
+            lambda: SquareView("A1", None),
+            lambda: SquareView("a1", "X"),
+            lambda: piece_color(True),
+        ):
+            with self.subTest(operation=operation):
+                with self.assertRaises((TypeError, ValueError)):
+                    operation()
+
+        white = {piece: 0 for piece in "PNBRQK"}
+        black = {piece: 0 for piece in "PNBRQK"}
+        white["Q"] = 1
+        material = MaterialView(white, black, 9, 0)
+        white["Q"] = 0
+        self.assertEqual(material.white["Q"], 1)
+        with self.assertRaises(TypeError):
+            material.white["Q"] = 0
+        with self.assertRaises(ValueError):
+            MaterialView({piece: 0 for piece in "PNBRQK"}, black, 1, 0)
+        invalid_counts = {piece: 0 for piece in "PNBRQK"}
+        invalid_counts["P"] = True
+        with self.assertRaises(TypeError):
+            MaterialView(invalid_counts, black, 1, 0)
+
+    def test_service_composition_requires_snapshots_and_preserves_falsey_values(self):
+        board = BoardSnapshot(tuple(empty()), "w")
+        with self.assertRaisesRegex(TypeError, "BoardSnapshot"):
+            BoardCommandService(object())
+        with self.assertRaisesRegex(TypeError, "EngineSnapshot"):
+            BoardCommandService(board, engine=object())
+        with self.assertRaisesRegex(TypeError, "ClockSnapshot"):
+            BoardCommandService(board, clocks=object())
+
+        class FalseyEngine(EngineSnapshot):
+            def __bool__(self):
+                return False
+
+        class FalseyClocks(ClockSnapshot):
+            def __bool__(self):
+                return False
+
+        engine = FalseyEngine("+0.1", "e4")
+        clocks = FalseyClocks("01:00", "02:00")
+        service = BoardCommandService(board, engine=engine, clocks=clocks)
+        self.assertIs(service.engine, engine)
+        self.assertIs(service.clocks, clocks)
+
+    def test_query_scalars_reject_object_string_and_boolean_coercion(self):
+        service = self.sample()
+
+        class LooksValid:
+            def __str__(self):
+                return "N"
+
+        for operation in (
+            lambda: service.current(LooksValid()),
+            lambda: service.cycle_piece(LooksValid(), "e4"),
+            lambda: service.cycle_piece("N", "e4", direction=True),
+            lambda: service.cycle_piece("N", "e4", color=True),
+            lambda: service.cycle_piece("N", "e4", color=""),
+            lambda: service.rank(True),
+            lambda: service.rank("1"),
+            lambda: service.file(1),
+            lambda: service.file(LooksValid()),
+        ):
+            with self.subTest(operation=operation):
+                with self.assertRaises((TypeError, ValueError)):
+                    operation()
 
 
 if __name__ == "__main__":
