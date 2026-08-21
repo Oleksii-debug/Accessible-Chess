@@ -87,7 +87,9 @@ def run_release_window(api: Stage1ReleaseAccessibleChessAPI, runtime: Any | None
         if not path.exists():
             if runtime is not None:
                 runtime.close()
-            raise RuntimeError(f"{label} not found: {path}")
+            # This failure can surface during packaged startup.  Do not expose
+            # a build machine/user profile path through the user-facing error.
+            raise RuntimeError(f"{label} not found in packaged resources.")
     bootstrap_source = bootstrap.read_text(encoding="utf-8")
     board_bridge_source = board_bridge.read_text(encoding="utf-8")
 
