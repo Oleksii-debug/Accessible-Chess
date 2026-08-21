@@ -11,7 +11,7 @@ on:
 
 concurrency:
   group: worddeck-worker2-spelling-r2-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   spelling-r2-gate:
