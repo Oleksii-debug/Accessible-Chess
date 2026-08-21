@@ -1,635 +1,299 @@
 from __future__ import annotations
 
-import os
-from pathlib import Path
-from typing import Any, Mapping
+"""Stage 1 saturation facade over the frozen WebView/keymap implementation.
 
-from . import webapp as _webapp
-from .chesscore import Board
-from .history import PositionSnapshot
-from .keybindings import BindingContext
-from .notation import NotationError, format_san
-from .ui_analysis_adapter import AnalysisPresentationAdapter
-from .ui_entitlement import project_entitlement, semantic_contract
-from .ui_keymap_service import KeymapService
-from .ui_native_menu import install_windows_native_menu
+The frozen 656e8ec implementation is retained byte-for-byte in
+``webapp_keymap_core``.  This facade closes Stage 1 board-command integration
+without importing Stage 2 services or changing the QA-owned Windows harness.
+"""
 
-AccessibleChessAPI = _webapp.AccessibleChessAPI
-_asset_root = _webapp._asset_root
+from typing import Any
+
+from . import webapp_keymap_core as _core
+from .webapp_keymap_core import *  # noqa: F401,F403 - compatibility surface
+from .webapp_keymap_core import AccessibleChessAPI, _asset_root, _shared_spoken_san
+from .board_service import BoardCommandService, BoardSnapshot, MoveView
+from .chesscore import Board, color_of, parse_sq, sq_name
 
 
-def _shared_spoken_san(san: str, lang: str = "uk") -> str:
-    profile = "uk_literal" if lang == "uk" else "en_literal"
-    try:
-        return format_san(san, profile)
-    except NotationError:
-        return str(san).strip().replace("0-0-0", "O-O-O").replace("0-0", "O-O")
+_BaseKeymapAwareAccessibleChessAPI = _core.KeymapAwareAccessibleChessAPI
+
+_PIECE_KIND_BY_ACTION = {
+    "king": "K",
+    "queen": "Q",
+    "rook": "R",
+    "bishop": "B",
+    "knight": "N",
+    "pawn": "P",
+}
 
 
-def default_keymap_path() -> Path:
-    appdata = os.environ.get("APPDATA")
-    base = Path(appdata) if appdata else Path.home() / ".accessible-chess"
-    return base / "AccessibleChess" / "keymap.json" if appdata else base / "keymap.json"
+def _piece_controls_square(board: Board, origin: int, target: int) -> bool:
+    """Return geometric chess control without mutating canonical state."""
 
+    if origin == target:
+        return False
+    piece = board.board[origin]
+    if not piece:
+        return False
+    of, orank = origin % 8, origin // 8
+    tf, trank = target % 8, target // 8
+    df, dr = tf - of, trank - orank
+    kind = piece.upper()
 
-class KeymapAwareAccessibleChessAPI(AccessibleChessAPI):
-    def __init__(
-        self,
-        lang: str = "uk",
-        *,
-        keymap_path: str | Path | None = None,
-        entitlement_payload: Mapping[str, Any] | None = None,
-        continuous_analysis: Any | None = None,
-    ) -> None:
-        super().__init__(lang)
-        self.keymap_service = KeymapService(keymap_path or default_keymap_path(), lang=self.lang)
-        self.analysis_ui = AnalysisPresentationAdapter(continuous_analysis, multipv=5, depth=16)
-        self._analysis_origin_node_id = self.review_history.cursor_node_id
-        self._entitlement_payload = dict(entitlement_payload or {"state": "free_beta"})
+    if kind == "P":
+        step = 1 if piece.isupper() else -1
+        return dr == step and abs(df) == 1
+    if kind == "N":
+        return (abs(df), abs(dr)) in {(1, 2), (2, 1)}
+    if kind == "K":
+        return max(abs(df), abs(dr)) == 1
 
-    def keymap_snapshot(self) -> dict[str, Any]:
-        data = self.keymap_service.snapshot()
-        # Never expose a Python exception or malformed persisted binding text to
-        # the normal user document. The service has already fallen back to sane
-        # defaults; the UI only needs to know that recovery happened.
-        if data.get("recoveryMessage"):
-            data["recoveryMessage"] = (
-                "Keyboard settings restored." if self.lang == "en"
-                else "Налаштування клавіш відновлено."
-            )
-        return data
-
-    def keymap_search(self, query: str = "", context: str | None = None) -> list[dict[str, Any]]:
-        return self.keymap_service.search(query, context)
-
-    def keymap_preview(self, action_id: str, value: str) -> dict[str, Any]:
-        try:
-            return self.keymap_service.preview(action_id, value)
-        except Exception:
-            return {
-                "actionId": action_id,
-                "value": value,
-                "canSave": False,
-                "requiresConfirmation": False,
-                "status": "error",
-                "message": "Invalid shortcut" if self.lang == "en" else "Некоректна комбінація.",
-                "conflicts": [],
-            }
-
-    def keymap_capture_shortcut(self, action_id: str, key: str, ctrl: bool = False, alt: bool = False,
-                                shift: bool = False, win: bool = False) -> dict[str, Any]:
-        try:
-            return self.keymap_service.capture_shortcut(
-                action_id, key, ctrl=ctrl, alt=alt, shift=shift, win=win
-            )
-        except Exception:
-            return {
-                "captured": False, "reason": "invalid", "binding": "", "status": "error",
-                "message": "Invalid shortcut" if self.lang == "en" else "Некоректна комбінація.",
-                "canSave": False, "requiresConfirmation": False, "conflicts": [],
-            }
-
-    def keymap_save(self, action_id: str, value: str, allow_warnings: bool = False) -> dict[str, Any]:
-        return self.keymap_service.save(action_id, value, allow_warnings=allow_warnings)
-
-    def keymap_reset_action(self, action_id: str) -> dict[str, Any]:
-        return self.keymap_service.reset_action(action_id)
-
-    def keymap_reset_context(self, context: str) -> dict[str, Any]:
-        return self.keymap_service.reset_context(context)
-
-    def keymap_reset_all(self) -> dict[str, Any]:
-        return self.keymap_service.reset_all()
-
-    def keymap_export_profile(self) -> str:
-        return self.keymap_service.export_profile()
-
-    def keymap_import_profile(self, text: str, allow_warnings: bool = False) -> dict[str, Any]:
-        return self.keymap_service.import_profile(text, allow_warnings=allow_warnings)
-
-    def keymap_resolve_binding(self, context: str, binding: str) -> dict[str, Any] | None:
-        try:
-            return self.keymap_service.resolve_binding(context, binding)
-        except Exception:
-            return None
-
-    def keymap_resolve_alias(self, context: str, alias: str) -> dict[str, Any] | None:
-        try:
-            return self.keymap_service.resolve_alias(context, alias)
-        except Exception:
-            return None
-
-    def _moves_text(self) -> str:
-        count = self._visible_ply_count()
-        if count == 0:
-            return self._t("no_moves")
-        sans, sides = self.sans[:count], self.move_sides[:count]
-        out: list[str] = []
-        move_no = 1
-        i = 0
-        while i < len(sans):
-            if sides[i] == "w":
-                white = _shared_spoken_san(sans[i], self.lang)
-                if i + 1 < len(sans) and sides[i + 1] == "b":
-                    black = _shared_spoken_san(sans[i + 1], self.lang)
-                    out.append(f"{move_no}. {white}, {black}.")
-                    i += 2
-                else:
-                    out.append(f"{move_no}. {white}.")
-                    i += 1
-                move_no += 1
-            else:
-                out.append(f"{move_no}... {_shared_spoken_san(sans[i], self.lang)}.")
-                move_no += 1
-                i += 1
-        return "\n".join(out)
-
-    def _analysis_status_text(self, analysis: dict[str, Any]) -> str:
-        if not analysis["enabled"]:
-            if not self.analysis_ui.available:
-                return "Stockfish недоступний." if self.lang == "uk" else "Stockfish unavailable."
-            return "Stockfish вимкнено." if self.lang == "uk" else "Stockfish disabled."
-        if analysis.get("error"):
-            return "Помилка Stockfish." if self.lang == "uk" else "Stockfish error."
-        if analysis.get("stale"):
-            return "Очікую новий аналіз." if self.lang == "uk" else "Waiting for fresh analysis."
-        lines = analysis.get("lines") or []
-        if not lines:
-            return "Stockfish аналізує позицію." if self.lang == "uk" else "Stockfish is analysing the position."
-        rendered: list[str] = []
-        for line in lines[: int(analysis.get("multipv", 5))]:
-            idx = line.get("multipv", len(rendered) + 1)
-            pv = " ".join(
-                _shared_spoken_san(str(move), self.lang)
-                for move in line.get("pv", ())
-            )
-            score = str(line.get("scoreText") or "")
-            if self.lang == "uk":
-                rendered.append(
-                    f"Варіант {idx}: глибина {line.get('depth', 0)}, оцінка "
-                    f"{score}. {pv}".strip()
-                )
-            else:
-                rendered.append(
-                    f"Variation {idx}: depth {line.get('depth', 0)}, evaluation "
-                    f"{score}. {pv}".strip()
-                )
-        lock = analysis.get("targetLocked")
-        if lock:
-            rendered.insert(
-                0,
-                "Ціль аналізу зафіксовано."
-                if self.lang == "uk"
-                else "Analysis target is locked.",
-            )
-        return "\n".join(rendered)
-
-    def _analysis_origin_matches(self) -> bool:
-        target_fen = self.analysis_ui.target_fen
-        if target_fen is None:
+    if kind == "B":
+        if abs(df) != abs(dr):
             return False
-        records = self.review_history.tree_nodes()
-        node_id = self._analysis_origin_node_id
-        return (
-            type(node_id) is int
-            and 0 <= node_id < len(records)
-            and records[node_id].snapshot.fen == target_fen
-        )
+    elif kind == "R":
+        if not ((df == 0) ^ (dr == 0)):
+            return False
+    elif kind == "Q":
+        if not (abs(df) == abs(dr) or ((df == 0) ^ (dr == 0))):
+            return False
+    else:
+        return False
 
-    def _analysis_line_message(self, index: int) -> str:
-        return self.analysis_ui.read_pv(
-            index,
-            self._display_review().fen,
-            lang=self.lang,
-        )
+    step_f = 0 if df == 0 else (1 if df > 0 else -1)
+    step_r = 0 if dr == 0 else (1 if dr > 0 else -1)
+    f, r = of + step_f, orank + step_r
+    while (f, r) != (tf, trank):
+        if board.board[r * 8 + f] is not None:
+            return False
+        f += step_f
+        r += step_r
+    return True
 
-    def get_state(self) -> dict[str, Any]:
-        state = super().get_state()
-        visible = self._visible_ply_count()
-        state["lastMove"] = _shared_spoken_san(self.sans[visible - 1], self.lang) if visible else self._t("no_last")
-        state["moves"] = self._moves_text()
-        entitlement_view = project_entitlement(self._entitlement_payload, lang=self.lang)
-        state["entitlement"] = semantic_contract(entitlement_view)
-        state["gameInfo"] = f"{state['gameInfo']}\n{entitlement_view.heading}: {entitlement_view.summary}"
-        displayed_fen = str(state["fen"])
-        try:
-            self.analysis_ui.sync_position(displayed_fen)
-            if self.analysis_ui.enabled and not self.analysis_ui.target_locked:
-                self._analysis_origin_node_id = self._display_review().node_id
-            snapshot = self.analysis_ui.snapshot(displayed_fen)
-            analysis = snapshot.as_dict()
-            for projected, line in zip(analysis["lines"], snapshot.lines):
-                projected["scoreText"] = self.analysis_ui.score_text(line, lang=self.lang)
-                projected["pvText"] = " ".join(
-                    _shared_spoken_san(move, self.lang) for move in line.pv
-                )
-        except Exception:
-            analysis = {
-                "enabled": self.analysis_ui.enabled, "fen": displayed_fen, "running": False,
-                "multipv": self.analysis_ui.multipv,
-                "depth": self.analysis_ui.depth,
-                "lines": [], "error": "engine_error", "stale": False,
-                "targetLocked": self.analysis_ui.target_locked,
-                "selectedPv": self.analysis_ui.selected_pv,
-                "exploring": False, "explorationPly": 0,
-                "explorationLength": 0, "explorationFen": None,
-            }
-        state["analysis"] = analysis
-        state["engineEnabled"] = analysis["enabled"]
-        state["engineStatus"] = self._analysis_status_text(analysis)
+
+class KeymapAwareAccessibleChessAPI(_BaseKeymapAwareAccessibleChessAPI):
+    """Complete the central board action surface declared by ActionRegistry."""
+
+    def _board_query_board(self) -> Board:
         exploration = self.analysis_ui.exploration
         if exploration is not None and self._analysis_origin_matches():
-            board = Board(exploration.fen)
-            state["fen"] = exploration.fen
-            state["board"] = self._board_cells(board)
-            state["whitePieces"] = self._pieces_text("w", board)
-            state["blackPieces"] = self._pieces_text("b", board)
-            state["gameStatus"] = self._game_status(board)
-            state["lastMove"] = _shared_spoken_san(exploration.san, self.lang)
-            state["reviewStatus"] = (
-                f"Тимчасовий перегляд варіанта {exploration.line.multipv}, "
-                f"хід {exploration.ply} з {len(exploration.line.pv)}."
-                if self.lang == "uk"
-                else f"Temporary variation {exploration.line.multipv}, "
-                f"move {exploration.ply} of {len(exploration.line.pv)}."
-            )
-            state["analysisViewingTemporaryPosition"] = True
-        else:
-            state["analysisViewingTemporaryPosition"] = False
-        return state
+            return Board(exploration.fen)
+        return self._display_board()
 
-    def set_language(self, lang: str) -> dict[str, Any]:
-        result = super().set_language(lang)
-        if result.get("ok"):
-            self.keymap_service.set_language(self.lang)
-        return result
-
-    def _temporary_exploration_error(self) -> dict[str, Any] | None:
-        if self.analysis_ui.exploration is None:
-            return None
-        return self._error(
-            "Спочатку поверніться з тимчасового варіанта Stockfish."
-            if self.lang == "uk"
-            else "Return from the temporary Stockfish variation first."
-        )
-
-    def _reanchor_analysis_after_reset(self) -> None:
-        if not self.analysis_ui.enabled:
-            self._analysis_origin_node_id = self.review_history.cursor_node_id
-            return
-        displayed = self._display_review()
-        if self.analysis_ui.target_locked:
-            self.analysis_ui.unlock_target(displayed.fen)
-        else:
-            self.analysis_ui.sync_position(displayed.fen)
-        self._analysis_origin_node_id = displayed.node_id
-
-    def _canonical_reset_result(self, operation: Any) -> dict[str, Any]:
-        blocked = self._temporary_exploration_error()
-        if blocked is not None:
-            return blocked
-        result = operation()
-        if not result.get("ok"):
-            return result
-        message = str(result.get("announcement") or "")
-        try:
-            self._reanchor_analysis_after_reset()
-        except Exception:
-            try:
-                self.analysis_ui.disable()
-            except Exception:
-                pass
-        return self._ok(message)
-
-    def new_game(self) -> dict[str, Any]:
-        return self._canonical_reset_result(super().new_game)
-
-    def clear_board(self) -> dict[str, Any]:
-        return self._canonical_reset_result(super().clear_board)
-
-    def set_position_text(self, text: str, turn: str | None = None) -> dict[str, Any]:
-        return self._canonical_reset_result(lambda: super(KeymapAwareAccessibleChessAPI, self).set_position_text(text, turn))
-
-    def set_turn(self, color: str) -> dict[str, Any]:
-        return self._canonical_reset_result(lambda: super(KeymapAwareAccessibleChessAPI, self).set_turn(color))
-
-    def set_fen(self, fen: str) -> dict[str, Any]:
-        return self._canonical_reset_result(lambda: super(KeymapAwareAccessibleChessAPI, self).set_fen(fen))
-
-    def review_previous(self) -> dict[str, Any]:
-        blocked = self._temporary_exploration_error()
-        return blocked if blocked is not None else super().review_previous()
-
-    def review_next(self) -> dict[str, Any]:
-        blocked = self._temporary_exploration_error()
-        return blocked if blocked is not None else super().review_next()
-
-    def go_to_move(self, target: str) -> dict[str, Any]:
-        blocked = self._temporary_exploration_error()
-        return blocked if blocked is not None else super().go_to_move(target)
-
-    def undo(self) -> dict[str, Any]:
-        blocked = self._temporary_exploration_error()
-        return blocked if blocked is not None else super().undo()
-
-    def redo(self) -> dict[str, Any]:
-        blocked = self._temporary_exploration_error()
-        return blocked if blocked is not None else super().redo()
-
-    def activate_square(self, square: str) -> dict[str, Any]:
-        blocked = self._temporary_exploration_error()
-        return blocked if blocked is not None else super().activate_square(square)
-
-    def toggle_engine(self) -> dict[str, Any]:
-        return self.stop_analysis() if self.analysis_ui.enabled else self.start_analysis()
-
-    def start_analysis(self) -> dict[str, Any]:
-        displayed = self._display_review()
-        try:
-            if not self.analysis_ui.enabled:
-                self.analysis_ui.enable(displayed.fen)
-                self._analysis_origin_node_id = displayed.node_id
-            return self._ok(
-                "Аналіз Stockfish увімкнено."
-                if self.lang == "uk"
-                else "Stockfish analysis enabled."
-            )
-        except Exception:
-            return self._error("Stockfish недоступний." if self.lang == "uk" else "Stockfish unavailable.")
-
-    def stop_analysis(self) -> dict[str, Any]:
-        try:
-            self.analysis_ui.disable()
-            return self._ok(
-                "Аналіз Stockfish вимкнено."
-                if self.lang == "uk"
-                else "Stockfish analysis disabled."
-            )
-        except Exception:
-            return self._error(
-                "Не вдалося зупинити Stockfish."
-                if self.lang == "uk"
-                else "Stockfish could not be stopped."
-            )
-
-    def restart_analysis(self) -> dict[str, Any]:
-        try:
-            displayed = self._display_review()
-            self.analysis_ui.restart(displayed.fen)
-            if not self.analysis_ui.target_locked:
-                self._analysis_origin_node_id = displayed.node_id
-            return self._ok(
-                "Аналіз Stockfish перезапущено."
-                if self.lang == "uk"
-                else "Stockfish analysis restarted."
-            )
-        except Exception:
-            return self._error("Stockfish недоступний." if self.lang == "uk" else "Stockfish unavailable.")
-
-    def configure_analysis(self, multipv: int, depth: int) -> dict[str, Any]:
-        if not self.analysis_ui.available:
-            return self._error("Stockfish недоступний." if self.lang == "uk" else "Stockfish unavailable.")
-        try:
-            self.analysis_ui.configure(multipv=multipv, depth=depth)
-            return self._ok(
-                f"Налаштування аналізу застосовано: MultiPV "
-                f"{self.analysis_ui.multipv}, глибина {self.analysis_ui.depth}."
-                if self.lang == "uk"
-                else f"Analysis settings applied: MultiPV {self.analysis_ui.multipv}, "
-                f"depth {self.analysis_ui.depth}."
-            )
-        except Exception:
-            return self._error(
-                "Некоректні налаштування аналізу."
-                if self.lang == "uk"
-                else "Invalid analysis settings."
-            )
-
-    def toggle_analysis_lock(self) -> dict[str, Any]:
-        displayed = self._display_review()
-        try:
-            if self.analysis_ui.target_locked:
-                self.analysis_ui.unlock_target(displayed.fen)
-                self._analysis_origin_node_id = displayed.node_id
-                message = "Аналіз знову стежить за поточною позицією." if self.lang == "uk" else "Analysis now follows the current position."
-            else:
-                self.analysis_ui.sync_position(displayed.fen)
-                self._analysis_origin_node_id = displayed.node_id
-                self.analysis_ui.lock_target()
-                message = "Ціль аналізу зафіксовано." if self.lang == "uk" else "Analysis target locked."
-            return self._ok(message)
-        except Exception:
-            return self._error(
-                "Ціль аналізу недоступна."
-                if self.lang == "uk"
-                else "Analysis target is unavailable."
-            )
-
-    def read_analysis_pv(self, index: int) -> dict[str, Any]:
-        try:
-            if type(index) is not int:
-                raise TypeError("PV index must be an exact integer")
-            message = self._analysis_line_message(index)
-            return self._ok(message)
-        except Exception:
-            return self._error("Варіант недоступний." if self.lang == "uk" else "Variation unavailable.")
-
-    def select_analysis_pv(self, index: int) -> dict[str, Any]:
-        return self.read_analysis_pv(index)
-
-    def select_relative_analysis_pv(self, delta: int) -> dict[str, Any]:
-        try:
-            line = self.analysis_ui.select_relative_pv(delta, self._display_review().fen)
-            return self._ok(self._analysis_line_message(line.multipv))
-        except Exception:
-            return self._error("Варіант недоступний." if self.lang == "uk" else "Variation unavailable.")
-
-    def explore_analysis_pv(self) -> dict[str, Any]:
-        try:
-            if not self._analysis_origin_matches():
-                raise RuntimeError("analysis origin changed")
-            exploration = self.analysis_ui.begin_exploration(self._display_review().fen)
-            self.selected_source = None
-            return self._ok(
-                f"Тимчасовий перегляд варіанта {exploration.line.multipv}: "
-                f"{_shared_spoken_san(exploration.san, self.lang)}."
-                if self.lang == "uk"
-                else f"Temporarily exploring variation {exploration.line.multipv}: "
-                f"{_shared_spoken_san(exploration.san, self.lang)}."
-            )
-        except Exception:
-            return self._error("Варіант недоступний." if self.lang == "uk" else "Variation unavailable.")
-
-    def step_analysis_exploration(self, delta: int) -> dict[str, Any]:
-        try:
-            exploration = self.analysis_ui.step_exploration(delta)
-            return self._ok(
-                f"Хід {exploration.ply} з {len(exploration.line.pv)}: "
-                f"{_shared_spoken_san(exploration.san, self.lang)}."
-                if self.lang == "uk"
-                else f"Move {exploration.ply} of {len(exploration.line.pv)}: "
-                f"{_shared_spoken_san(exploration.san, self.lang)}."
-            )
-        except Exception:
-            return self._error(
-                "Тимчасовий перегляд не активний."
-                if self.lang == "uk"
-                else "Temporary exploration is not active."
-            )
-
-    def return_from_analysis(self) -> dict[str, Any]:
-        try:
-            if not self._analysis_origin_matches():
-                raise RuntimeError("analysis origin changed")
-            self.review_history.select_node(self._analysis_origin_node_id)
-            self.analysis_ui.return_from_exploration()
-            self.selected_source = None
-            return self._ok(
-                "Повернено точну вихідну позицію аналізу."
-                if self.lang == "uk"
-                else "Returned to the exact analysis source position."
-            )
-        except Exception:
-            return self._error(
-                "Не вдалося відновити вихідну позицію аналізу."
-                if self.lang == "uk"
-                else "The analysis source position could not be restored."
-            )
-
-    def _insert_analysis_line(self, *, one_move: bool) -> dict[str, Any]:
-        try:
-            if not self._analysis_origin_matches():
-                raise RuntimeError("analysis origin changed")
-            line = self.analysis_ui.selected_line(self._display_review().fen)
-            count = 1 if one_move else len(line.pv)
-            if count == 0:
-                raise RuntimeError("analysis line is empty")
-            board = Board(str(self.analysis_ui.target_fen))
-            snapshots: list[PositionSnapshot] = []
-            for ply, (san, expected_fen) in enumerate(
-                zip(line.pv[:count], line.position_fens[:count]),
-                start=1,
-            ):
-                side = board.turn
-                canonical_san = board.push_text(san)
-                if canonical_san != san or board.fen() != expected_fen:
-                    raise RuntimeError("validated analysis line changed")
-                snapshots.append(
-                    PositionSnapshot(
-                        board.fen(),
-                        san=san,
-                        side=side,
-                        last_move=san,
-                        context={
-                            "source": "stockfish-analysis",
-                            "multipv": line.multipv,
-                            "sourceFen": str(self.analysis_ui.target_fen),
-                            "pvPly": ply,
-                        },
+    def _board_query_service(self) -> BoardCommandService:
+        board = self._board_query_board()
+        legal: list[MoveView] = []
+        if self._position_complete(board):
+            for move in board.legal_moves():
+                try:
+                    san = board.san(move)
+                except Exception:
+                    san = None
+                legal.append(
+                    MoveView(
+                        move.frm,
+                        move.to,
+                        san,
+                        bool(board.board[move.to]) or bool(move.en_passant),
                     )
                 )
-            inserted = self.review_history.append_branch(
-                self._analysis_origin_node_id,
-                tuple(snapshots),
+        attacks: dict[int, tuple[int, ...]] = {}
+        for target in range(64):
+            origins = tuple(
+                origin
+                for origin, piece in enumerate(board.board)
+                if piece and _piece_controls_square(board, origin, target)
             )
-            self.review_history.select_node(self._analysis_origin_node_id)
-            self.analysis_ui.return_from_exploration()
-            self.selected_source = None
-            subject = "Хід" if one_move else "Варіант"
-            subject_en = "Move" if one_move else "Variation"
-            status = "додано" if inserted.created_count else "вже існує"
-            status_en = "inserted" if inserted.created_count else "already exists"
-            return self._ok(
-                f"{subject} Stockfish {status} як окрему гілку; основну лінію не змінено."
-                if self.lang == "uk"
-                else f"Stockfish {subject_en.lower()} {status_en} as a separate branch; the main line was not changed."
+            if origins:
+                attacks[target] = origins
+        return BoardCommandService(
+            BoardSnapshot(tuple(board.board), board.turn, tuple(legal), attacks)
+        )
+
+    def _board_square(self, square: str | None) -> str:
+        if not isinstance(square, str):
+            raise ValueError("board square is required")
+        index = parse_sq(square)
+        return sq_name(index)
+
+    def _board_list_message(self, heading_uk: str, heading_en: str, values: list[str]) -> str:
+        heading = heading_en if self.lang == "en" else heading_uk
+        if not values:
+            return f"{heading}: " + ("none." if self.lang == "en" else "немає.")
+        return f"{heading}: " + ", ".join(values) + "."
+
+    def _last_captured_piece(self) -> str | None:
+        view = self._display_review()
+        records = {record.node_id: record for record in self.review_history.tree_nodes()}
+        record = records.get(view.node_id)
+        if record is None or record.parent_id is None:
+            return None
+        san = record.snapshot.san or record.snapshot.last_move
+        if not isinstance(san, str) or "x" not in san:
+            return None
+        parent = records.get(record.parent_id)
+        if parent is None:
+            return None
+        try:
+            board = Board(parent.snapshot.fen)
+            move = board.parse_move(san)
+            if move.en_passant:
+                capture_square = move.to - 8 if board.board[move.frm] == "P" else move.to + 8
+                return board.board[capture_square]
+            return board.board[move.to]
+        except Exception:
+            return None
+
+    def _clock_pair(self) -> tuple[str | None, str | None]:
+        projection = getattr(self, "_engine_game_projection", None)
+        if not callable(projection):
+            return None, None
+        try:
+            game = projection()
+        except Exception:
+            return None, None
+        if not game.get("configured"):
+            return None, None
+        if int(game.get("initialMinutes", 0)) == 0 and int(game.get("incrementSeconds", 0)) == 0:
+            untimed = "Untimed" if self.lang == "en" else "Без годинника"
+            return untimed, untimed
+        human = game.get("humanSide")
+        if human == "w":
+            return str(game.get("whiteClock") or ""), str(game.get("blackClock") or "")
+        if human == "b":
+            return str(game.get("blackClock") or ""), str(game.get("whiteClock") or "")
+        return None, None
+
+    def _material_message(self, service: BoardCommandService) -> str:
+        material = service.material()
+        labels_uk = {"Q": "ферзь", "R": "тура", "B": "слон", "N": "кінь", "P": "пішак"}
+        labels_en = {"Q": "queen", "R": "rook", "B": "bishop", "N": "knight", "P": "pawn"}
+        labels = labels_en if self.lang == "en" else labels_uk
+
+        def side_text(values: Any) -> str:
+            parts = [f"{labels[k]} {values[k]}" for k in ("Q", "R", "B", "N", "P") if values[k]]
+            return ", ".join(parts) if parts else ("none" if self.lang == "en" else "немає")
+
+        if self.lang == "en":
+            return (
+                f"Material. White: {side_text(material.white)}; Black: {side_text(material.black)}. "
+                f"Points {material.white_points} to {material.black_points}; balance {material.balance:+d}."
             )
+        return (
+            f"Матеріал. Білі: {side_text(material.white)}; чорні: {side_text(material.black)}. "
+            f"Очки {material.white_points} до {material.black_points}; баланс {material.balance:+d}."
+        )
+
+    def _focus_result(self, message: str, square: str) -> dict[str, Any]:
+        result = self._ok(message)
+        result["focusSquare"] = square
+        return result
+
+    def dispatch_action(self, action_id: str, square: str | None = None) -> dict[str, Any]:
+        if not isinstance(action_id, str):
+            return self._error("Команда недоступна." if self.lang == "uk" else "Command unavailable.")
+        action = action_id.strip()
+
+        # Existing analysis/global actions retain the frozen implementation.
+        if not action.startswith("board."):
+            return super().dispatch_action(action)
+
+        board = self._board_query_board()
+        service = self._board_query_service()
+
+        if action == "board.material":
+            return self._ok(self._material_message(service))
+        if action == "board.last_move":
+            last = self._display_review().last_move
+            if last:
+                rendered = _shared_spoken_san(last, self.lang)
+                return self._ok(("Останній хід: " if self.lang == "uk" else "Last move: ") + rendered)
+            return self._error("Останнього ходу немає." if self.lang == "uk" else "There is no last move.")
+        if action == "board.last_captured":
+            piece = self._last_captured_piece()
+            if piece:
+                return self._ok(("Остання взята фігура: " if self.lang == "uk" else "Last captured piece: ") + self._piece_name(piece) + ".")
+            return self._error("Останньої взятої фігури немає." if self.lang == "uk" else "There is no last captured piece.")
+        if action in {"board.my_clock", "board.opponent_clock"}:
+            mine, opponent = self._clock_pair()
+            value = mine if action == "board.my_clock" else opponent
+            if value is None:
+                return self._error("Годинник недоступний." if self.lang == "uk" else "Clock unavailable.")
+            label = (
+                "Мій час" if action == "board.my_clock" and self.lang == "uk"
+                else "Час суперника" if self.lang == "uk"
+                else "My clock" if action == "board.my_clock"
+                else "Opponent clock"
+            )
+            return self._ok(f"{label}: {value}.")
+        if action == "board.evaluation" or action == "board.best_move":
+            return super().dispatch_action(action)
+        if action == "board.play_best":
+            try:
+                line = self.analysis_ui.selected_line(self._display_review().fen)
+                if not line.pv:
+                    raise RuntimeError("empty analysis line")
+                return self.make_move(str(line.pv[0]))
+            except Exception:
+                return self._error(
+                    "Найкращий хід недоступний для гри."
+                    if self.lang == "uk"
+                    else "Best move is unavailable for play."
+                )
+
+        try:
+            current = self._board_square(square)
         except Exception:
             return self._error(
-                "Не вдалося безпечно вставити варіант Stockfish."
+                "Спочатку перейдіть на поле дошки."
                 if self.lang == "uk"
-                else "The Stockfish variation could not be inserted safely."
+                else "Move focus to a board square first."
             )
 
-    def insert_analysis_move(self) -> dict[str, Any]:
-        return self._insert_analysis_line(one_move=True)
+        if action == "board.current":
+            return self._focus_result(self.square_label(current, board), current)
+        if action == "board.legal_moves":
+            values = [
+                _shared_spoken_san(move.san or f"{sq_name(move.frm)}{sq_name(move.to)}", self.lang)
+                for move in service.legal_moves(current)
+            ]
+            return self._focus_result(self._board_list_message("Легальні ходи", "Legal moves", values), current)
+        if action == "board.captures":
+            values = [
+                _shared_spoken_san(move.san or f"{sq_name(move.frm)}{sq_name(move.to)}", self.lang)
+                for move in service.captures(current)
+            ]
+            return self._focus_result(self._board_list_message("Взяття", "Captures", values), current)
+        if action in {"board.surroundings", "board.attackers", "board.defenders"}:
+            getter = {
+                "board.surroundings": service.surroundings,
+                "board.attackers": service.attackers,
+                "board.defenders": service.defenders,
+            }[action]
+            values = [self.square_label(item.square, board) for item in getter(current)]
+            headings = {
+                "board.surroundings": ("Оточення", "Surroundings"),
+                "board.attackers": ("Атакуючі", "Attackers"),
+                "board.defenders": ("Захисники", "Defenders"),
+            }
+            uk, en = headings[action]
+            return self._focus_result(self._board_list_message(uk, en, values), current)
 
-    def insert_analysis_line(self) -> dict[str, Any]:
-        return self._insert_analysis_line(one_move=False)
+        import re
+        match = re.fullmatch(r"board\.(next|previous)_(king|queen|rook|bishop|knight|pawn)", action)
+        if match:
+            direction = 1 if match.group(1) == "next" else -1
+            piece_kind = _PIECE_KIND_BY_ACTION[match.group(2)]
+            target = service.cycle_piece(piece_kind, current, direction=direction)
+            if target is None:
+                return self._focus_result(
+                    "Такої фігури немає." if self.lang == "uk" else "No such piece is present.",
+                    current,
+                )
+            return self._focus_result(self.square_label(target.square, board), target.square)
 
-    def dispatch_action(self, action_id: str) -> dict[str, Any]:
-        action_id = str(action_id or "")
-        pv_actions = {f"analysis.pv{i}": i for i in range(1, 6)}
-        if action_id in pv_actions:
-            return self.read_analysis_pv(pv_actions[action_id])
-        analysis_actions = {
-            "analysis.start": self.start_analysis,
-            "analysis.stop": self.stop_analysis,
-            "analysis.restart": self.restart_analysis,
-            "analysis.previous_pv": lambda: self.select_relative_analysis_pv(-1),
-            "analysis.next_pv": lambda: self.select_relative_analysis_pv(1),
-            "analysis.lock_target": self.toggle_analysis_lock,
-            "analysis.explore_pv": self.explore_analysis_pv,
-            "analysis.return": self.return_from_analysis,
-            "analysis.insert_move": self.insert_analysis_move,
-            "analysis.insert_line": self.insert_analysis_line,
-        }
-        handler = analysis_actions.get(action_id)
-        if handler is not None:
-            return handler()
-        if action_id == "board.evaluation":
-            try:
-                return self._ok(self.analysis_ui.evaluation_text(self._display_review().fen, lang=self.lang))
-            except Exception:
-                return self._error("Оцінка недоступна." if self.lang == "uk" else "Evaluation unavailable.")
-        if action_id == "board.best_move":
-            try:
-                return self._ok(self.analysis_ui.best_move_text(self._display_review().fen, lang=self.lang))
-            except Exception:
-                return self._error("Найкращий хід недоступний." if self.lang == "uk" else "Best move unavailable.")
-        return self._error("Команда недоступна." if self.lang == "uk" else "Command unavailable.")
-
-    def make_move(self, text: str) -> dict[str, Any]:
-        blocked = self._temporary_exploration_error()
-        if blocked is not None:
-            return blocked
-        text = (text or "").strip()
-        if not text:
-            return self._error("Введіть хід." if self.lang == "uk" else "Enter a move.")
-        resolution = self.keymap_service.resolve_alias(BindingContext.MOVE_ENTRY.value, text)
-        if resolution is not None:
-            return self._dispatch_move_entry_action(str(resolution["actionId"]))
-        if not self._at_history_end():
-            return self._error(self._t("review_before_move"))
-        if not self._position_complete(self.board):
-            return self._error(self._t("setup_incomplete"))
-        try:
-            side = self.board.turn
-            san = self.board.push_text(text)
-            self.sans.append(san)
-            self.move_sides.append(side)
-            self.redo_meta.clear()
-            self.selected_source = None
-            self._record_position_after_move(san, side)
-            return self._ok(("Зіграно: " if self.lang == "uk" else "Played: ") + _shared_spoken_san(san, self.lang))
-        except Exception:
-            return self._error("Нелегальний хід." if self.lang == "uk" else "Illegal move.")
-
-    def _dispatch_move_entry_action(self, action_id: str) -> dict[str, Any]:
-        handlers = {
-            "move.undo": self.undo, "move.redo": self.redo,
-            "move.white_to_move": lambda: self.set_turn("w"),
-            "move.black_to_move": lambda: self.set_turn("b"),
-            "move.clear": self.clear_board, "move.standard": self.new_game, "move.empty": self.clear_board,
-        }
-        if action_id == "move.last":
-            return self._ok(("Останній хід: " if self.lang == "uk" else "Last move: ") + self.get_state()["lastMove"])
-        handler = handlers.get(action_id)
-        return handler() if handler else self._error("Команда недоступна." if self.lang == "uk" else "Command unavailable.")
-
-    def close_analysis(self) -> dict[str, Any]:
-        self.analysis_ui.close()
-        return {"ok": True}
+        return super().dispatch_action(action)
 
 
 def main() -> None:
@@ -646,11 +310,6 @@ def main() -> None:
     )
 
     def install_menu_on_native_host(*_args: Any) -> None:
-        # pywebview's before_show event fires only after the platform BrowserForm
-        # exists and window.native has been assigned, but before that Form is
-        # shown. Attach the native MenuStrip at that exact lifecycle point so
-        # the first exposed Windows UIA tree already contains the application
-        # menu. Never fall back to a WebView/HTML menu.
         if not install_windows_native_menu(window, api):
             raise RuntimeError("Accessible native Windows menu could not be attached to the WebView2 host.")
 
