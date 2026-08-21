@@ -19,6 +19,7 @@ internal static class Program
             try
             {
                 StudyScopeSelfTest.Run();
+                AccessibilityShortcutSelfTest.Run();
                 UserDataSelfTest.Run();
                 SpellingSelfTest.Run();
                 SentenceCoachSelfTest.Run();
