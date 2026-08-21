@@ -173,11 +173,29 @@ internal sealed class SentencePackStore
             throw new InvalidDataException("SentencePack id is required before installation.");
 
         string value = packId.Trim();
-        foreach (char invalid in Path.GetInvalidFileNameChars())
-            value = value.Replace(invalid, '_');
-        value = value.Replace('/', '_').Replace('\\', '_');
-        if (value.Length == 0)
-            throw new InvalidDataException("SentencePack id cannot be converted to a safe file name.");
+        if (value.Length == 0 || value.Length > 120)
+            throw new InvalidDataException("SentencePack id must contain 1 to 120 characters.");
+        if (!string.Equals(value, packId, StringComparison.Ordinal))
+            throw new InvalidDataException("SentencePack id cannot start or end with whitespace.");
+        if (value is "." or ".." || value.EndsWith(".", StringComparison.Ordinal) || value.EndsWith(' '))
+            throw new InvalidDataException("SentencePack id is not a safe Windows file name.");
+        if (value.Contains('/') || value.Contains('\\') || value.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
+            throw new InvalidDataException("SentencePack id contains a path separator or invalid file-name character.");
+        if (IsWindowsDeviceName(value))
+            throw new InvalidDataException("SentencePack id is reserved by Windows and cannot be installed safely.");
         return value;
+    }
+
+    private static bool IsWindowsDeviceName(string value)
+    {
+        string stem = value.Split('.')[0];
+        if (stem.Equals("CON", StringComparison.OrdinalIgnoreCase) ||
+            stem.Equals("PRN", StringComparison.OrdinalIgnoreCase) ||
+            stem.Equals("AUX", StringComparison.OrdinalIgnoreCase) ||
+            stem.Equals("NUL", StringComparison.OrdinalIgnoreCase))
+            return true;
+        if (stem.Length == 4 && int.TryParse(stem[3..], out int number) && number is >= 1 and <= 9)
+            return stem.StartsWith("COM", StringComparison.OrdinalIgnoreCase) || stem.StartsWith("LPT", StringComparison.OrdinalIgnoreCase);
+        return false;
     }
 }

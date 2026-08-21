@@ -46,6 +46,8 @@ internal static class SentencePackStoreSelfTest
             Require(replaced.Path == installed.Path, "Same pack id did not replace its canonical compressed file.");
             Require(replaced.SqlitePath == installed.SqlitePath, "Same pack id did not replace its stable SQLite companion path.");
             Require(store.Find(pack.PackId)?.Corpus.LookupByEntryId("ox-learn").Single().Id == "sentence-2", "SQLite runtime companion was not replaced with the new pack content.");
+
+            TestSafePackIds();
         }
         finally
         {
@@ -57,6 +59,19 @@ internal static class SentencePackStoreSelfTest
             catch
             {
             }
+        }
+    }
+
+    private static void TestSafePackIds()
+    {
+        Require(SentencePackStore.SafeFileName("tatoeba-en-uk-20260821") == "tatoeba-en-uk-20260821", "Normal SentencePack id changed during safe-name validation.");
+        Require(SentencePackStore.SafeFileName("український-пакет") == "український-пакет", "Unicode SentencePack id was not preserved.");
+
+        foreach (string unsafeId in new[] { "../escape", "..\\escape", "CON", "NUL.json", "COM1", "LPT9.txt", "pack.", " pack", "pack " })
+        {
+            bool rejected = false;
+            try { SentencePackStore.SafeFileName(unsafeId); } catch (InvalidDataException) { rejected = true; }
+            Require(rejected, $"Unsafe Windows/path SentencePack id was accepted: {unsafeId}");
         }
     }
 

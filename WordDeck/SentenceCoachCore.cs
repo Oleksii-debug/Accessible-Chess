@@ -22,7 +22,7 @@ internal sealed class SentencePack : ISentenceCorpus
     public string Provenance { get; init; } = string.Empty;
     public string License { get; init; } = string.Empty;
     public List<SentenceRecord> Sentences { get; init; } = new();
-    public int SentenceCount => Sentences.Count;
+    public int SentenceCount => Sentences?.Count ?? 0;
 
     private Dictionary<string, List<SentenceRecord>>? _byEntryId;
     private Dictionary<string, List<SentenceRecord>>? _byLemma;
@@ -32,8 +32,10 @@ internal sealed class SentencePack : ISentenceCorpus
         if (Version != CurrentVersion) throw new InvalidDataException($"Unsupported SentencePack version {Version}.");
         if (string.IsNullOrWhiteSpace(PackId)) throw new InvalidDataException("SentencePack id is required.");
         if (string.IsNullOrWhiteSpace(Provenance) || string.IsNullOrWhiteSpace(License)) throw new InvalidDataException("SentencePack provenance and license are required.");
-        if (!SourceLanguage.Equals("en", StringComparison.OrdinalIgnoreCase) || !TargetLanguage.Equals("uk", StringComparison.OrdinalIgnoreCase))
+        if (!string.Equals(SourceLanguage, "en", StringComparison.OrdinalIgnoreCase) || !string.Equals(TargetLanguage, "uk", StringComparison.OrdinalIgnoreCase))
             throw new InvalidDataException("This Sentence Coach build currently requires an EN-UA pack.");
+        if (Sentences is null) throw new InvalidDataException("SentencePack sentence list is missing.");
+        if (Sentences.Any(sentence => sentence is null)) throw new InvalidDataException("SentencePack contains a null sentence record.");
         if (Sentences.Select(s => s.Id).Distinct(StringComparer.OrdinalIgnoreCase).Count() != Sentences.Count)
             throw new InvalidDataException("SentencePack contains duplicate stable sentence IDs.");
         foreach (SentenceRecord sentence in Sentences) sentence.Validate();
@@ -104,7 +106,7 @@ internal sealed class SentenceRecord
     public int OffListTokenCount { get; init; }
     public List<string> QualityFlags { get; init; } = new();
 
-    public int Length => Tokens.Count;
+    public int Length => Tokens?.Count ?? 0;
 
     public void Validate()
     {
@@ -112,12 +114,31 @@ internal sealed class SentenceRecord
             throw new InvalidDataException("Sentence record requires id plus EN and UA text.");
         if (string.IsNullOrWhiteSpace(Source) || string.IsNullOrWhiteSpace(License))
             throw new InvalidDataException($"Sentence {Id} is missing provenance/license.");
+        if (Tokens is null || Lemmas is null || TargetEntryIds is null || EntryLevels is null || QualityFlags is null)
+            throw new InvalidDataException($"Sentence {Id} contains a missing collection field.");
+
         IReadOnlyList<string> canonical = SentenceTokenizer.Tokenize(English);
         if (Tokens.Count == 0 || !Tokens.SequenceEqual(canonical, StringComparer.Ordinal))
             throw new InvalidDataException($"Sentence {Id} token index does not match its English text.");
-        if (Lemmas.Count != Tokens.Count) throw new InvalidDataException($"Sentence {Id} must have one lemma per normalized token.");
-        if (TargetEntryIds.Count == 0) throw new InvalidDataException($"Sentence {Id} does not index any target dictionary entries.");
+        if (Lemmas.Count != Tokens.Count || Lemmas.Any(lemma => string.IsNullOrWhiteSpace(lemma)))
+            throw new InvalidDataException($"Sentence {Id} must have one non-blank lemma per normalized token.");
+        if (TargetEntryIds.Count == 0 || TargetEntryIds.Any(string.IsNullOrWhiteSpace))
+            throw new InvalidDataException($"Sentence {Id} does not index any valid target dictionary entries.");
+        if (TargetEntryIds.Distinct(StringComparer.OrdinalIgnoreCase).Count() != TargetEntryIds.Count)
+            throw new InvalidDataException($"Sentence {Id} contains duplicate target entry IDs.");
+        if (EntryLevels.Any(pair => string.IsNullOrWhiteSpace(pair.Key) || !IsSupportedLevel(pair.Value)))
+            throw new InvalidDataException($"Sentence {Id} contains an unsupported or blank CEFR entry level.");
+        if (TargetEntryIds.Any(entryId => !EntryLevels.ContainsKey(entryId)))
+            throw new InvalidDataException($"Sentence {Id} is missing CEFR metadata for a target entry.");
+        if (!IsSupportedLevel(DifficultyLevel))
+            throw new InvalidDataException($"Sentence {Id} has unsupported difficulty level {DifficultyLevel}. WordDeck v1 supports A1 through C1 only.");
+        if (OffListTokenCount < 0 || OffListTokenCount > Tokens.Count)
+            throw new InvalidDataException($"Sentence {Id} has an invalid off-list token count.");
+        if (QualityFlags.Any(string.IsNullOrWhiteSpace))
+            throw new InvalidDataException($"Sentence {Id} contains a blank quality flag.");
     }
+
+    private static bool IsSupportedLevel(string? level) => level?.ToUpperInvariant() is "A1" or "A2" or "B1" or "B2" or "C1";
 }
 
 internal static partial class SentenceTokenizer
@@ -244,6 +265,7 @@ internal sealed class SentenceSelector
 
         SentenceRecord? generated = _fallback?.TryGenerate(targetEntryIds, context);
         if (generated is null) return null;
+        generated.Validate();
         if (!targetEntryIds.All(target => generated.TargetEntryIds.Contains(target, StringComparer.OrdinalIgnoreCase)))
             throw new InvalidDataException("Controlled generator fallback returned a sentence that does not contain every requested target.");
         return new(generated, true, "No suitable corpus intersection existed; used the controlled offline generator fallback.");

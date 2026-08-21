@@ -5,11 +5,13 @@ internal static class SentenceCoachSelfTest
     public static void Run()
     {
         TestPackVersioningAndProvenance();
+        TestMalformedPackFailsClosed();
         TestTokenizationAndAnswerEvaluation();
         TestOneAndTwoTargetLookup();
         TestPersonalDifficultyRankingAndScope();
         TestRecentAvoidance();
         TestGeneratorFallbackContract();
+        TestGeneratorFallbackValidation();
         TestSentenceCoachStatePersistence();
     }
 
@@ -65,6 +67,33 @@ internal static class SentenceCoachSelfTest
         try { new SentencePack { Version = 999, PackId = "bad", Provenance = "x", License = "x", Sentences = new() }.Validate(); }
         catch (InvalidDataException) { rejected = true; }
         Require(rejected, "Unsupported SentencePack version was accepted.");
+    }
+
+    private static void TestMalformedPackFailsClosed()
+    {
+        var missingList = new SentencePack
+        {
+            PackId = "null-list",
+            Provenance = "test",
+            License = "CC0-1.0",
+            Sentences = null!
+        };
+        ExpectInvalid(missingList.Validate, "SentencePack with a null sentence list was not rejected cleanly.");
+
+        SentencePack duplicateTargets = BuildPack();
+        duplicateTargets.Sentences[0].TargetEntryIds.Add("ox-improve");
+        ExpectInvalid(duplicateTargets.Validate, "Sentence record with duplicate target stable IDs was accepted.");
+
+        SentencePack missingLevel = BuildPack();
+        missingLevel.Sentences[0].EntryLevels.Remove("ox-improve");
+        ExpectInvalid(missingLevel.Validate, "Sentence record missing target CEFR metadata was accepted.");
+
+        SentencePack unsupportedLevel = BuildPack();
+        unsupportedLevel.Sentences[0].EntryLevels["ox-improve"] = "C2";
+        ExpectInvalid(unsupportedLevel.Validate, "Sentence record invented unsupported C2 target metadata.");
+
+        const string malformedJson = "{\"PackId\":\"bad-json-pack\",\"Provenance\":\"test\",\"License\":\"CC0-1.0\",\"Sentences\":null}";
+        ExpectInvalid(() => SentencePackJson.Parse(malformedJson), "Malformed SentencePack JSON did not fail closed through package validation.");
     }
 
     private static void TestTokenizationAndAnswerEvaluation()
@@ -127,9 +156,20 @@ internal static class SentenceCoachSelfTest
         SentencePack pack = BuildPack();
         var selector = new SentenceSelector(pack, new StubGenerator());
         var allowed = new HashSet<string>(new[] { "missing-a", "missing-b" }, StringComparer.OrdinalIgnoreCase);
-        var context = new SentenceSelectionContext(allowed, new HashSet<string>(StringComparer.OrdinalIgnoreCase), new HashSet<string>(StringComparer.OrdinalIgnoreCase), new Dictionary<string,string>(StringComparer.OrdinalIgnoreCase));
+        var levels = new Dictionary<string,string>(StringComparer.OrdinalIgnoreCase) { ["missing-a"] = "A1", ["missing-b"] = "A1" };
+        var context = new SentenceSelectionContext(allowed, new HashSet<string>(StringComparer.OrdinalIgnoreCase), new HashSet<string>(StringComparer.OrdinalIgnoreCase), levels);
         SentenceSelectionResult? result = selector.Select(new[] { "missing-a", "missing-b" }, context);
         Require(result is not null && result.Generated && result.Sentence.TargetEntryIds.Count == 2, "Controlled generator fallback contract failed for a missing two-target corpus intersection.");
+    }
+
+    private static void TestGeneratorFallbackValidation()
+    {
+        SentencePack pack = BuildPack();
+        var selector = new SentenceSelector(pack, new MalformedGenerator());
+        var allowed = new HashSet<string>(new[] { "missing-a" }, StringComparer.OrdinalIgnoreCase);
+        var levels = new Dictionary<string,string>(StringComparer.OrdinalIgnoreCase) { ["missing-a"] = "A1" };
+        var context = new SentenceSelectionContext(allowed, new HashSet<string>(StringComparer.OrdinalIgnoreCase), new HashSet<string>(StringComparer.OrdinalIgnoreCase), levels);
+        ExpectInvalid(() => selector.Select(new[] { "missing-a" }, context), "Malformed controlled fallback sentence bypassed SentenceRecord validation.");
     }
 
     private static void TestSentenceCoachStatePersistence()
@@ -188,9 +228,37 @@ internal static class SentenceCoachSelfTest
             {
                 Id = "generated-test", English = english, Ukrainian = "альфа бета", Source = "controlled-test-generator", License = "internal-generated",
                 Tokens = SentenceTokenizer.Tokenize(english).ToList(), Lemmas = new List<string> { "alpha", "beta" }, TargetEntryIds = targetEntryIds.ToList(),
-                EntryLevels = targetEntryIds.ToDictionary(id => id, _ => "A1", StringComparer.OrdinalIgnoreCase)
+                EntryLevels = targetEntryIds.ToDictionary(id => id, id => context.EntryLevels.GetValueOrDefault(id, "A1"), StringComparer.OrdinalIgnoreCase),
+                DifficultyLevel = "A1"
             };
         }
+    }
+
+    private sealed class MalformedGenerator : IControlledSentenceGenerator
+    {
+        public SentenceRecord? TryGenerate(IReadOnlyList<string> targetEntryIds, SentenceSelectionContext context)
+        {
+            return new SentenceRecord
+            {
+                Id = "generated-malformed",
+                English = "alpha beta",
+                Ukrainian = "альфа бета",
+                Source = "controlled-test-generator",
+                License = "internal-generated",
+                Tokens = new List<string> { "alpha", "beta" },
+                Lemmas = new List<string> { "alpha", "beta" },
+                TargetEntryIds = targetEntryIds.ToList(),
+                EntryLevels = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase),
+                DifficultyLevel = "A1"
+            };
+        }
+    }
+
+    private static void ExpectInvalid(Action action, string message)
+    {
+        bool rejected = false;
+        try { action(); } catch (InvalidDataException) { rejected = true; }
+        Require(rejected, message);
     }
 
     private static void Require(bool condition, string message)
