@@ -1,0 +1,200 @@
+name: DEV4 Package Security Preflight
+
+on:
+  push:
+    branches:
+      - manual5/dev4-platform-security-packaging-20260821
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dev4-package-security-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  FROZEN_STAGE1_BASE: 656e8ec311e364e6e54a30504fd30a4aaff586f9
+  PYWEBVIEW_VERSION: '6.2.1'
+  NUITKA_UPSTREAM_FIX_COMMIT: b7ea05bf570e0b6950de6db7c4c8e579e1b77d29
+
+jobs:
+  package-security-contracts:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Scope lock and diff hygiene
+        shell: bash
+        run: |
+          set -euo pipefail
+          git cat-file -e "$FROZEN_STAGE1_BASE^{commit}"
+          git merge-base --is-ancestor "$FROZEN_STAGE1_BASE" HEAD
+          git diff --check "$FROZEN_STAGE1_BASE" HEAD
+          changed="$(git diff --name-only 498989b4fda33e6529e29c9704fb4c724d0d3455 HEAD)"
+          printf '%s\n' "$changed"
+          if printf '%s\n' "$changed" | grep -E '(^|/)tools/qa/|windows-stage1-strict' ; then
+            echo 'DEV4 must not modify QA-owned strict Windows files' >&2
+            exit 1
+          fi
+          if printf '%s\n' "$changed" | grep -E '(^|/)(acsdb|chessbase|bookdocument|bookreader|training|teacher|classroom|remote_lesson)([^/]*)(/|\.|$)' ; then
+            echo 'Stage2 contamination detected in DEV4 delta' >&2
+            exit 1
+          fi
+
+      - name: Compile package/security code and tests
+        run: python -m compileall -q acs tests run_accessible_chess.py
+
+      - name: Product package and security regressions
+        run: >-
+          python -m unittest -v
+          tests.test_legacy_release_workflow_safety
+          tests.test_release_preflight
+          tests.test_sound_runtime
+          tests.test_release_stockfish_composition
+          tests.test_stage1_release_composition_ui
+
+      - name: Prove extracted core byte equivalence and import topology
+        shell: bash
+        run: |
+          set -euo pipefail
+          git show "$FROZEN_STAGE1_BASE:acs/stage1_release_ui.py" > /tmp/frozen-stage1-release-ui.py
+          git show "$FROZEN_STAGE1_BASE:acs/webapp_keymap.py" > /tmp/frozen-webapp-keymap.py
+          cmp -s /tmp/frozen-stage1-release-ui.py acs/stage1_release_ui_core.py
+          cmp -s /tmp/frozen-webapp-keymap.py acs/webapp_keymap_core.py
+          python -m unittest -v \
+            tests.test_stage1_saturation_refactor_contract.Stage1SaturationRefactorContractTests.test_affected_modules_cold_import_in_fresh_processes \
+            tests.test_stage1_saturation_refactor_contract.Stage1SaturationRefactorContractTests.test_core_modules_are_static_imports_visible_to_packager \
+            tests.test_stage1_saturation_refactor_contract.Stage1SaturationRefactorContractTests.test_extracted_core_files_are_byte_identical_to_frozen_git_blobs \
+            tests.test_stage1_saturation_refactor_contract.Stage1SaturationRefactorContractTests.test_facades_preserve_frozen_public_import_surface \
+            tests.test_stage1_saturation_refactor_contract.Stage1SaturationRefactorContractTests.test_missing_board_bridge_fails_before_window_creation_and_closes_runtime \
+            tests.test_stage1_saturation_refactor_contract.Stage1SaturationRefactorContractTests.test_private_symbols_imported_by_product_or_tests_still_exist \
+            tests.test_stage1_saturation_refactor_contract.Stage1SaturationRefactorContractTests.test_subclass_mro_is_single_linear_chain_with_saturation_before_frozen_core
+
+      - name: JavaScript syntax and board bridge reinjection idempotence
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --check web/stage1_release_bootstrap.js
+          node --check web/stage1_board_actions.js
+          node <<'JS'
+          const fs = require('fs');
+          global.window = {executeAction: async id => id, renderHelp: () => {}};
+          global.state = {board: []}; global.boardIndex = 0; global.keymap = [];
+          global.apiAction = async () => ({ok:true}); global.jumpBoardFocus = () => {};
+          const help = {appendChild: () => {}};
+          global.document = {
+            documentElement: {lang:'uk'}, body:{dataset:{}},
+            getElementById: id => id === 'help' ? help : null,
+            createElement: () => ({id:'',textContent:'',append:()=>{},remove:()=>{}}),
+          };
+          const source = fs.readFileSync('web/stage1_board_actions.js','utf8');
+          eval(source); const first = window.executeAction;
+          if (!window.__accessibleChessStage1BoardActions) throw new Error('readiness guard missing');
+          eval(source);
+          if (window.executeAction !== first) throw new Error('repeat injection stacked wrappers');
+          console.log('DEV4 BOARD BRIDGE IDEMPOTENCY PASS');
+          JS
+
+      - name: Verify legacy release publishers are non-producing
+        shell: bash
+        run: |
+          set -euo pipefail
+          for f in .github/workflows/publish-stage1-release.yml .github/workflows/windows-stage1-build.yml .github/workflows/windows-stage1-webview-build.yml; do
+            grep -q 'LEGACY_RELEASE_PATH_DISABLED' "$f"
+            ! grep -Eq 'upload-artifact|Compress-Archive|gh release|contents: write|PyInstaller|python -m nuitka' "$f"
+          done
+
+  windows-standalone-preflight:
+    runs-on: windows-latest
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install pinned WebView2/Nuitka build toolchain
+        shell: pwsh
+        run: |
+          $nuitkaUrl="https://github.com/Nuitka/Nuitka/archive/$env:NUITKA_UPSTREAM_FIX_COMMIT.zip"
+          python -m pip install "pywebview==$env:PYWEBVIEW_VERSION" "Nuitka @ $nuitkaUrl" ordered-set zstandard
+          if($LASTEXITCODE -ne 0){throw 'Pinned runtime/compiler install failed'}
+          python -c "from pathlib import Path; import nuitka; p=Path(nuitka.__file__).parent/'plugins'/'standard'/'PywebViewPlugin.py'; assert 'webview.platforms.win32' in p.read_text(encoding='utf-8'); print('PINNED NUITKA PASS')"
+
+      - name: Generate real WAV resources and acquire official Stockfish 18
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path 'release-assets\assets\sounds','release-assets\engines\stockfish' | Out-Null
+          @'
+          import json,math,struct,wave
+          from pathlib import Path
+          root=Path('release-assets/assets/sounds')
+          events=['move','capture','check','castle','promotion','illegal','start','end','tick']
+          for index,name in enumerate(events,1):
+              p=root/f'{name}.wav'; sr=8000; frames=[]
+              for i in range(800): frames.append(struct.pack('<h',int(4000*math.sin(2*math.pi*(150+index*40)*i/sr))))
+              with wave.open(str(p),'wb') as w: w.setnchannels(1); w.setsampwidth(2); w.setframerate(sr); w.writeframes(b''.join(frames))
+          (root/'manifest.json').write_text(json.dumps({'schema_version':1,'files':{e:f'{e}.wav' for e in events}},indent=2),encoding='utf-8')
+          '@ | Set-Content -Encoding UTF8 make_dev4_sounds.py
+          python make_dev4_sounds.py
+          Invoke-WebRequest -Uri 'https://github.com/official-stockfish/Stockfish/releases/download/sf_18/stockfish-windows-x86-64.zip' -OutFile stockfish18.zip
+          Expand-Archive stockfish18.zip stockfish18 -Force
+          $engine=Get-ChildItem stockfish18 -Recurse -Filter '*.exe' | Where-Object {$_.Name -match 'stockfish.*x86-64'} | Select-Object -First 1
+          if(-not $engine){throw 'Official Stockfish 18 executable missing'}
+          Copy-Item $engine.FullName 'release-assets\engines\stockfish\stockfish.exe' -Force
+
+      - name: Build actual standalone in Unicode and space output path
+        shell: pwsh
+        run: |
+          $out=Join-Path $env:RUNNER_TEMP 'Accessible Chess пакування DEV4'
+          Remove-Item $out -Recurse -Force -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force -Path $out | Out-Null
+          python -m nuitka --standalone --assume-yes-for-downloads --windows-console-mode=disable --output-filename=AccessibleChess.exe --output-dir="$out" --include-data-dir=web=web --include-data-dir=release-assets\assets=assets --include-data-dir=release-assets\engines=engines --report=nuitka-compilation-report.xml run_accessible_chess.py
+          if($LASTEXITCODE -ne 0){throw 'Nuitka standalone compile failed'}
+          $dist=Get-ChildItem $out -Directory -Filter '*.dist' | Select-Object -First 1
+          if(-not $dist){throw 'Nuitka distribution directory missing'}
+          $stockfishTarget=Join-Path $dist.FullName 'engines\stockfish\stockfish.exe'
+          New-Item -ItemType Directory -Force -Path (Split-Path $stockfishTarget -Parent) | Out-Null
+          Copy-Item 'release-assets\engines\stockfish\stockfish.exe' $stockfishTarget -Force
+          $dist.FullName | Set-Content -Encoding UTF8 dev4_dist_path.txt
+
+      - name: Inspect actual generated standalone resource chain fail closed
+        shell: pwsh
+        run: |
+          $distPath=(Get-Content dev4_dist_path.txt -Raw).Trim()
+          $required=@('AccessibleChess.exe','web\index.html','web\stage1_release_bootstrap.js','web\stage1_board_actions.js','assets\sounds\manifest.json','engines\stockfish\stockfish.exe')
+          foreach($rel in $required){if(-not (Test-Path (Join-Path $distPath $rel))){throw "Standalone missing required path: $rel"}}
+          foreach($sound in @('move','capture','check','castle','promotion','illegal','start','end','tick')){if(-not (Test-Path (Join-Path $distPath "assets\sounds\$sound.wav"))){throw "Standalone missing WAV: $sound.wav"}}
+          $boardBridge=@(Get-ChildItem $distPath -Recurse -File -Filter 'stage1_board_actions.js')
+          if($boardBridge.Count -ne 1){throw "Expected one stage1_board_actions.js, found $($boardBridge.Count)"}
+          $raw=@(Get-ChildItem $distPath -Recurse -File | Where-Object {$_.Extension -in @('.py','.pyc','.pyo','.ipynb')})
+          if($raw.Count -gt 0){throw "Raw source leaked into standalone: $($raw.FullName -join ', ')"}
+          $stale=@(Get-ChildItem $distPath -Recurse -Directory | Where-Object {$_.Name -in @('__pycache__','tests','build','package','build_parts10k','build_snapshot_exact','build_snapshot_parts')})
+          if($stale.Count -gt 0){throw "Stale/build directory leaked into standalone: $($stale.FullName -join ', ')"}
+          if(Test-Path (Join-Path $distPath 'AccessibleChess\AccessibleChess.exe')){throw 'Accidental nested AccessibleChess output detected'}
+          python -c "from pathlib import Path; import sys; from acs.stockfish_runtime import StockfishRuntimeConfig,resolve_stockfish_path,PACKAGED_STOCKFISH_RELATIVE_PATH; from acs.sound_windows import PackagedSoundAssetResolver; app=Path(sys.argv[1]).resolve(); p=resolve_stockfish_path(StockfishRuntimeConfig(application_dir=app)); assert p==(app/PACKAGED_STOCKFISH_RELATIVE_PATH).resolve(); m=PackagedSoundAssetResolver(app).load_manifest(); assert len(m.files)==9; print('DEV4 ACTUAL RESOURCE RESOLVERS PASS')" "$distPath"
+          $exe=Join-Path $distPath 'AccessibleChess.exe'
+          $p=Start-Process $exe -ArgumentList '--diagnostic' -PassThru -Wait
+          if($p.ExitCode -ne 0){throw "Standalone diagnostic failed: $($p.ExitCode)"}
+          $root=(Resolve-Path $distPath).Path
+          $inventory=@(Get-ChildItem $distPath -Recurse -File | ForEach-Object {$_.FullName.Substring($root.Length+1)} | Sort-Object)
+          $inventoryHash=[BitConverter]::ToString(([Security.Cryptography.SHA256]::Create()).ComputeHash([Text.Encoding]::UTF8.GetBytes(($inventory -join "`n")))).Replace('-','').ToLowerInvariant()
+          "DEV4 ACTUAL STANDALONE PREFLIGHT PASS files=$($inventory.Count) inventory_sha256=$inventoryHash root_name=$((Split-Path $root -Leaf))"
+
+      - name: Prove runtime bootstrap then board bridge ordering in Product source
+        shell: pwsh
+        run: |
+          $text=Get-Content 'acs\stage1_release_ui.py' -Raw
+          $bootstrap=$text.IndexOf('window.evaluate_js(bootstrap_source)')
+          $board=$text.IndexOf('window.evaluate_js(board_bridge_source)')
+          if($bootstrap -lt 0 -or $board -lt 0 -or $bootstrap -ge $board){throw 'Release WebView resource evaluation order is not bootstrap then board bridge'}
+          'DEV4 PRODUCT RESOURCE ORDER PASS'
