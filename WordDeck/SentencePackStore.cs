@@ -71,11 +71,12 @@ internal sealed class SentencePackStore
             _testCheckpoint?.Invoke("before-sqlite-build");
 
             SentencePackSqlitePrototype.Build(sqliteTemp, pack);
+            SentencePackDerivativeIdentity.Stamp(sqliteTemp, pack, temp);
             _testCheckpoint?.Invoke("sqlite-built");
             _testCheckpoint?.Invoke("before-candidate-validation");
 
             var candidate = new SentencePackSqliteCorpus(sqliteTemp);
-            ValidateCompanionMatchesPortable(candidate, pack);
+            ValidateCompanionMatchesPortable(candidate, pack, sqliteTemp, temp);
             _testCheckpoint?.Invoke("candidate-validated");
 
             SqliteConnection.ClearAllPools();
@@ -101,7 +102,7 @@ internal sealed class SentencePackStore
             _testCheckpoint?.Invoke("sqlite-installed");
 
             var installedCorpus = new SentencePackSqliteCorpus(sqliteDestination);
-            ValidateCompanionMatchesPortable(installedCorpus, pack);
+            ValidateCompanionMatchesPortable(installedCorpus, pack, sqliteDestination, destination);
             _testCheckpoint?.Invoke("replacement-validated");
 
             committed = true;
@@ -158,23 +159,36 @@ internal sealed class SentencePackStore
                 string safeId = SafeFileName(corpus.PackId);
                 string gzipPath = ControlledPath(safeId + ".json.gz");
                 string jsonPath = ControlledPath(safeId + ".json");
-                string portablePath = File.Exists(gzipPath) ? gzipPath : File.Exists(jsonPath) ? jsonPath : sqlitePath;
+                string? portablePath = File.Exists(gzipPath) ? gzipPath : File.Exists(jsonPath) ? jsonPath : null;
 
+                // A Round-2 derivative that carries source identity metadata must match the
+                // installed portable source byte-for-byte. Pre-Round-2 databases without the
+                // metadata remain readable for compatibility until the user explicitly reimports.
+                if (portablePath is not null &&
+                    !SentencePackDerivativeIdentity.MatchesInstalledPortable(sqlitePath, portablePath))
+                {
+                    continue;
+                }
+
+                string surfacedPath = portablePath ?? sqlitePath;
                 result.Add(new InstalledSentencePack(
-                    portablePath,
+                    surfacedPath,
                     corpus.PackId,
                     corpus.License,
                     corpus.SentenceCount,
                     corpus,
                     sqlitePath));
                 representedPackIds.Add(corpus.PackId);
-                representedPaths.Add(gzipPath);
-                representedPaths.Add(jsonPath);
+                if (portablePath is not null)
+                {
+                    representedPaths.Add(gzipPath);
+                    representedPaths.Add(jsonPath);
+                }
             }
             catch
             {
-                // Corrupt/incompatible optional SQLite is ignored. A valid portable source can still
-                // be discovered below; study never opens an unvalidated database.
+                // Corrupt/incompatible/stale optional SQLite is ignored. A valid portable source
+                // can still be discovered below; study never opens an invalidated database.
             }
         }
 
@@ -262,7 +276,11 @@ internal sealed class SentencePackStore
         return candidate;
     }
 
-    private static void ValidateCompanionMatchesPortable(SentencePackSqliteCorpus corpus, SentencePack pack)
+    private static void ValidateCompanionMatchesPortable(
+        SentencePackSqliteCorpus corpus,
+        SentencePack pack,
+        string sqlitePath,
+        string portablePath)
     {
         if (!string.Equals(corpus.PackId, pack.PackId, StringComparison.Ordinal) ||
             !string.Equals(corpus.License, pack.License, StringComparison.Ordinal) ||
@@ -271,6 +289,7 @@ internal sealed class SentencePackStore
         {
             throw new InvalidDataException("SQLite SentencePack companion metadata does not match the validated portable pack.");
         }
+        SentencePackDerivativeIdentity.VerifyCandidate(sqlitePath, pack, portablePath);
     }
 
     private static void RestoreRollback(string backup, string destination, bool expected)
