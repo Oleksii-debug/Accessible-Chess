@@ -51,7 +51,6 @@ class ReleasePreflightTests(unittest.TestCase):
             "black_e5_fen": "rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq e6 0 2",
             "raw_exception_noise": False,
         }), encoding="utf-8")
-        (root / "nuitka-compilation-report.xml").write_text("<report/>", encoding="utf-8")
         (root / "RELEASE_MANIFEST.json").write_text(json.dumps({
             "product": "Accessible Chess",
             "label": "NVDA TEST CANDIDATE — WAITING FOR USER TEST",
@@ -114,9 +113,17 @@ class ReleasePreflightTests(unittest.TestCase):
         root = self.make_package(); path = root / "RELEASE_MANIFEST.json"; data = json.loads(path.read_text()); data["label"] = "NVDA VERIFIED"
         path.write_text(json.dumps(data)); self.rewrite_checksums(root); self.rejected(root, "waiting for user NVDA test")
 
+    def test_manifest_stockfish_version_must_be_exact_text(self) -> None:
+        root = self.make_package(); path = root / "RELEASE_MANIFEST.json"; data = json.loads(path.read_text()); data["stockfish"] = 18
+        path.write_text(json.dumps(data)); self.rewrite_checksums(root); self.rejected(root, "Stockfish version mismatch")
+
     def test_extra_unchecksummed_file_and_tamper_are_rejected(self) -> None:
         root = self.make_package(); (root / "AccessibleChess/unexpected.dll").write_bytes(b"x"); self.rejected(root, "inventory mismatch")
         root = self.make_package(); (root / "AccessibleChess/AccessibleChess.exe").write_bytes(b"tampered"); self.rejected(root, "checksum mismatch")
+
+    def test_compilation_report_is_rejected_as_build_privacy_artifact(self) -> None:
+        root = self.make_package(); (root / "nuitka-compilation-report.xml").write_text("<report source=\"C:/Users/private/project\"/>", encoding="utf-8")
+        self.rewrite_checksums(root); self.rejected(root, "unexpected top-level files")
 
     def test_corrupt_stockfish_source_and_unexpected_top_file_are_rejected(self) -> None:
         root = self.make_package(); source = root / "THIRD_PARTY_NOTICES/Stockfish-18-source.zip"; source.write_bytes(b"bad"); self.rewrite_checksums(root); self.rejected(root, "valid ZIP")

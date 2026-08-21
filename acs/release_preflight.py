@@ -33,7 +33,7 @@ _FORBIDDEN_COMPONENTS = {
 }
 _ALLOWED_TOP_LEVEL_FILES = {
     "RELEASE_MANIFEST.json", "SHA256SUMS.txt", "native-menu-self-diagnostic.json",
-    "packaged-uia-strict-summary.json", "nuitka-compilation-report.xml",
+    "packaged-uia-strict-summary.json",
 }
 _ALLOWED_TOP_LEVEL_DIRS = {"AccessibleChess", "THIRD_PARTY_NOTICES"}
 _REQUIRED_SOUND_EVENTS = tuple(event.value for event in SoundEvent)
@@ -243,7 +243,7 @@ def _validate_manifest(root: Path) -> tuple[str, str]:
         _fail("release manifest label must remain waiting for user NVDA test")
     if manifest.get("nvda_verified") is not False:
         _fail("release manifest must state nvda_verified=false before human acceptance")
-    if str(manifest.get("stockfish", "")) != _EXPECTED_STOCKFISH_VERSION:
+    if manifest.get("stockfish") != _EXPECTED_STOCKFISH_VERSION:
         _fail("release manifest Stockfish version mismatch")
     for field in ("native_menu_alt_arrows_enter_esc", "nvda_menu_usability"):
         if manifest.get(field) != _HUMAN_ONLY_UNPROVEN:
