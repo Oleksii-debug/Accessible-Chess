@@ -41,15 +41,15 @@ internal sealed partial class MainForm
 
     private bool ShouldDeferUnmodifiedRecallArrow(Keys keyData)
     {
-        Keys code = keyData & Keys.KeyCode;
-        Keys modifiers = keyData & Keys.Modifiers;
-        if (modifiers != Keys.None || (code != Keys.Up && code != Keys.Down)) return false;
-        if (MainMenuStrip?.ContainsFocus == true) return true;
-        Control? active = ActiveControl;
-        if (active is ComboBox) return true;
-        // Up/Down are intentionally fast Recall keys only on the two main study
-        // text surfaces. Standard controls elsewhere keep native arrow behavior.
-        return active != _wordBox && active != _translationBox;
+        if (!AccessibilityKeyboardPolicy.IsUnmodifiedVerticalArrow(keyData)) return false;
+
+        // Unmodified Up/Down are fast Recall navigation ONLY while the English
+        // word surface owns focus. Translation, selectors, menus and every other
+        // standard control keep native WinForms navigation so a screen-reader
+        // user can read/move inside the control without changing the card.
+        return !AccessibilityKeyboardPolicy.ShouldUseFastRecallArrow(
+            keyData,
+            ReferenceEquals(ActiveControl, _wordBox));
     }
 
     private void HideCurrentWord()
