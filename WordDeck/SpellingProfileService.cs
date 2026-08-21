@@ -81,9 +81,11 @@ internal sealed class SpellingProfileService
         int profileSchema = ReadProfileSchema(sourcePath);
         if (profileSchema == AppStateStore.ProfileSchemaVersion)
         {
-            // V0.1 profiles predate Spelling-in-profile. Import Recall through the
-            // proven V0.1 path and deliberately preserve the user's current
-            // Spelling state rather than resetting it to defaults.
+            // V0.1 profiles predate Spelling-in-profile. Validate the exact corpus
+            // identity here before delegating to the accepted Recall importer: the
+            // older importer only required a non-empty identity and therefore was
+            // too permissive for cross-corpus transfers.
+            ValidateLegacyProfileCorpus(sourcePath);
             ProfileImportResult legacy = _appStore.ImportProfile(sourcePath, destinationApp, knownEntryIds, knownDictionaryIds);
             return new CombinedProfileImportResult(legacy.BackupPath, null, legacy.QuarantinedIds, SpellingImported: false, LegacyProfile: true);
         }
@@ -156,6 +158,25 @@ internal sealed class SpellingProfileService
                 // storage-level rollback itself cannot be completed.
             }
             throw;
+        }
+    }
+
+    private static void ValidateLegacyProfileCorpus(string sourcePath)
+    {
+        try
+        {
+            WordDeckProfile profile = JsonSerializer.Deserialize<WordDeckProfile>(File.ReadAllText(sourcePath), JsonOptions)
+                ?? throw new InvalidDataException("The selected legacy profile contains no WordDeck state.");
+            if (!string.Equals(profile.CorpusIdentity, AppStateStore.CorpusIdentity, StringComparison.Ordinal))
+                throw new InvalidDataException("The selected legacy profile belongs to a different WordDeck corpus identity. Existing Recall and Spelling state was not changed.");
+        }
+        catch (InvalidDataException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            throw new InvalidDataException("The selected legacy profile is not readable WordDeck profile data.", ex);
         }
     }
 
