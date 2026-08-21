@@ -28,11 +28,6 @@ internal sealed class ShortcutManager
         }
         else if (_spellingDecks.Count == 0)
         {
-            // Main Recall owns a ShortcutManager without a SpellingState reference.
-            // Refresh before Help/Settings opportunistically loads current Spelling
-            // deck definitions so F1 and settings can truthfully show user-renamed
-            // and user-created training deck bindings. A damaged Spelling state is
-            // not silently replaced just to render help.
             try { _spellingDecks = new SpellingStateStore().Load().Decks.ToList(); }
             catch (InvalidDataException) { _spellingDecks = new List<DeckDefinition>(); }
         }
@@ -45,12 +40,13 @@ internal sealed class ShortcutManager
     {
         ShortcutDefinition? definition = Definitions.FirstOrDefault(x => x.Id == actionId);
         if (definition is null) return Keys.None;
-        if (_state.Shortcuts.TryGetValue(actionId, out string? raw) && Enum.TryParse(raw, out Keys keys))
-        {
-            if (keys == Keys.None) return Keys.None;
-            if (!IsUnsafe(actionId, keys)) return keys;
-        }
-        return definition.DefaultKeys;
+        Keys candidate = GetCandidateKey(definition);
+        if (candidate == Keys.None) return Keys.None;
+
+        bool duplicate = Definitions.Any(other =>
+            !string.Equals(other.Id, actionId, StringComparison.OrdinalIgnoreCase) &&
+            GetCandidateKey(other) == candidate);
+        return duplicate ? Keys.None : candidate;
     }
 
     public string? FindAction(Keys keyData)
@@ -64,7 +60,8 @@ internal sealed class ShortcutManager
     {
         if (!Definitions.Any(def => def.Id == actionId)) { errorDescription = "the function no longer exists"; return false; }
         if (keys != Keys.None && IsUnsafe(actionId, keys)) { errorDescription = "this combination is reserved for Windows or standard keyboard navigation"; return false; }
-        var conflict = keys == Keys.None ? null : Definitions.FirstOrDefault(def => def.Id != actionId && Get(def.Id) == keys);
+        var conflict = keys == Keys.None ? null : Definitions.FirstOrDefault(def =>
+            !string.Equals(def.Id, actionId, StringComparison.OrdinalIgnoreCase) && GetCandidateKey(def) == keys);
         if (conflict is not null) { errorDescription = $"it is already assigned to {conflict.Description}"; return false; }
         _state.Shortcuts[actionId] = keys.ToString(); errorDescription = null; return true;
     }
@@ -72,6 +69,16 @@ internal sealed class ShortcutManager
     public void Clear(string actionId) { if (Definitions.Any(def => def.Id == actionId)) _state.Shortcuts[actionId] = Keys.None.ToString(); }
     public void ResetDefaults() { foreach (ShortcutDefinition def in Definitions) _state.Shortcuts[def.Id] = def.DefaultKeys.ToString(); }
     private void EnsureDefaults() { foreach (ShortcutDefinition def in Definitions) _state.Shortcuts.TryAdd(def.Id, def.DefaultKeys.ToString()); }
+
+    private Keys GetCandidateKey(ShortcutDefinition definition)
+    {
+        if (_state.Shortcuts.TryGetValue(definition.Id, out string? raw) && Enum.TryParse(raw, out Keys keys))
+        {
+            if (keys == Keys.None) return Keys.None;
+            if (!IsUnsafe(definition.Id, keys)) return keys;
+        }
+        return definition.DefaultKeys;
+    }
 
     private void RemoveOrphanedDeckShortcuts()
     {
@@ -170,10 +177,6 @@ internal sealed class ShortcutManager
             defs.Add(new(ActionIds.MoveToDeck(deck.Id), $"Move current word to deck: {deck.Name}", moveDefault));
         }
 
-        // Training actions always live in the shared registry. That keeps F1 and
-        // both shortcut settings surfaces truthful even when the caller is the
-        // main Recall form, which historically constructed the manager without a
-        // SpellingState reference.
         defs.AddRange(SpellingDefinitions);
         defs.AddRange(SentenceDefinitions);
         foreach (DeckDefinition deck in _spellingDecks.OrderBy(deck => deck.Order))
