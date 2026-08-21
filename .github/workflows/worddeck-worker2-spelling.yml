@@ -1,0 +1,40 @@
+name: WordDeck worker2 Spelling gate
+
+on:
+  push:
+    branches:
+      - worddeck-worker-2-spelling
+    paths:
+      - 'WordDeck/**'
+      - '.github/workflows/worddeck-worker2-spelling.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: worddeck-worker2-spelling-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  spelling-gate:
+    runs-on: windows-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout isolated worker branch
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore
+        run: dotnet restore .\WordDeck\WordDeck.csproj
+
+      - name: Build Release
+        run: dotnet build .\WordDeck\WordDeck.csproj -c Release --no-restore
+
+      - name: Run complete WordDeck self-test suite
+        run: dotnet run --project .\WordDeck\WordDeck.csproj -c Release --no-build -- --self-test
+
+      - name: Publish Windows x64 smoke artifact
+        run: dotnet publish .\WordDeck\WordDeck.csproj -c Release -r win-x64 --self-contained true -o .\artifacts\WordDeck-worker2
