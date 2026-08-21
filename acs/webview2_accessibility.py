@@ -7,17 +7,94 @@ from collections.abc import MutableMapping
 from typing import Any
 
 WEBVIEW2_BROWSER_ARGUMENTS_ENV = "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS"
+WEBVIEW2_WAIT_FOR_SCRIPT_DEBUGGER_ENV = "WEBVIEW2_WAIT_FOR_SCRIPT_DEBUGGER"
+WEBVIEW2_PIPE_FOR_SCRIPT_DEBUGGER_ENV = "WEBVIEW2_PIPE_FOR_SCRIPT_DEBUGGER"
 FORCE_RENDERER_ACCESSIBILITY = "--force-renderer-accessibility"
 _PATCH_MARKER = "_acs_stage1_accessibility_host_patched"
 _HANDLER_MARKER = "_acs_stage1_accessibility_host_handlers"
+
+# WebView2 inherits this environment variable before the packaged application
+# creates its Edge environment. Accessibility-related or cosmetic flags may be
+# supplied by the user's environment, but flags that expose DevTools/remote
+# control or disable browser security must never be inherited by a release that
+# binds a privileged ``js_api`` object into the document.
+_BLOCKED_BROWSER_ARGUMENTS = frozenset(
+    {
+        "--remote-debugging-port",
+        "--remote-debugging-address",
+        "--remote-debugging-pipe",
+        "--remote-allow-origins",
+        "--disable-web-security",
+        "--allow-running-insecure-content",
+        "--allow-file-access-from-files",
+        "--allow-universal-access-from-files",
+        "--ignore-certificate-errors",
+        "--no-sandbox",
+        "--disable-site-isolation-trials",
+        "--load-extension",
+        "--disable-extensions-except",
+    }
+)
+_REMOTE_DEBUG_FEATURE = "msedgedevtoolswdpremotedebugging"
+_DEBUGGER_ENV_VARS = (
+    WEBVIEW2_WAIT_FOR_SCRIPT_DEBUGGER_ENV,
+    WEBVIEW2_PIPE_FOR_SCRIPT_DEBUGGER_ENV,
+)
+
+
+def _unquote_token(token: str) -> str:
+    if len(token) >= 2 and token[0] == token[-1] and token[0] in {"'", '"'}:
+        return token[1:-1]
+    return token
+
+
+def _sanitize_browser_arguments(value: str) -> str:
+    """Drop security-sensitive WebView2 switches while preserving benign flags.
+
+    Chromium accepts both ``--flag=value`` and ``--flag value`` forms. When a
+    blocked switch uses the latter form, discard its following scalar value too
+    so an orphaned port/address does not survive in the environment string.
+    Whole-token quoting is normalized for security comparison so quoting cannot
+    bypass the release policy.
+    """
+
+    tokens = value.split()
+    kept: list[str] = []
+    index = 0
+    while index < len(tokens):
+        token = tokens[index]
+        comparable = _unquote_token(token)
+        name = comparable.split("=", 1)[0].casefold()
+        blocked_feature = (
+            name == "--enable-features"
+            and _REMOTE_DEBUG_FEATURE in comparable.casefold()
+        )
+        if name in _BLOCKED_BROWSER_ARGUMENTS or blocked_feature:
+            if "=" not in comparable and index + 1 < len(tokens):
+                following = _unquote_token(tokens[index + 1])
+                if not following.startswith("--"):
+                    index += 2
+                    continue
+            index += 1
+            continue
+        kept.append(token)
+        index += 1
+    return " ".join(kept)
 
 
 def enable_webview2_renderer_accessibility(
     environment: MutableMapping[str, str] | None = None,
 ) -> str:
-    """Preserve WebView2 browser arguments and request renderer accessibility."""
+    """Preserve benign WebView2 arguments and request renderer accessibility.
+
+    Script-debugger environment channels are release-incompatible because they
+    can pause or expose the embedded document to an external debugger. Remove
+    them before any WebView2 environment is created.
+    """
     env = os.environ if environment is None else environment
-    current = str(env.get(WEBVIEW2_BROWSER_ARGUMENTS_ENV, "")).strip()
+    for name in _DEBUGGER_ENV_VARS:
+        env.pop(name, None)
+    current = _sanitize_browser_arguments(str(env.get(WEBVIEW2_BROWSER_ARGUMENTS_ENV, "")).strip())
     tokens = current.split()
     if not any(
         token == FORCE_RENDERER_ACCESSIBILITY
@@ -25,8 +102,8 @@ def enable_webview2_renderer_accessibility(
         for token in tokens
     ):
         current = (current + " " + FORCE_RENDERER_ACCESSIBILITY).strip()
-        env[WEBVIEW2_BROWSER_ARGUMENTS_ENV] = current
-    return str(env.get(WEBVIEW2_BROWSER_ARGUMENTS_ENV, current))
+    env[WEBVIEW2_BROWSER_ARGUMENTS_ENV] = current
+    return current
 
 
 def _same_managed_object(left: Any, right: Any) -> bool:
@@ -144,7 +221,9 @@ def install_pywebview_accessibility_host_patch(edge_module: Any | None = None) -
     if bool(getattr(edge_class, _PATCH_MARKER, False)):
         return True
 
-    original = edge_class.on_webview_ready
+    original = getattr(edge_class, "on_webview_ready", None)
+    if not callable(original):
+        return False
 
     def on_webview_ready(self: Any, sender: Any, args: Any) -> Any:
         result = original(self, sender, args)
