@@ -47,9 +47,10 @@ internal sealed partial class MainForm
         if (MainMenuStrip?.ContainsFocus == true) return true;
         Control? active = ActiveControl;
         if (active is ComboBox) return true;
-        // Up/Down are intentionally fast Recall keys only on the two main study
-        // text surfaces. Standard controls elsewhere keep native arrow behavior.
-        return active != _wordBox && active != _translationBox;
+        // Fast unmodified Up/Down Recall navigation is intentionally limited to
+        // the English card surface. Translation is readable text: its Up/Down
+        // keys must remain native caret/line navigation for NVDA users.
+        return active != _wordBox;
     }
 
     private void HideCurrentWord()
