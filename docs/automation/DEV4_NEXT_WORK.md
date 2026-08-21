@@ -2,19 +2,20 @@
 
 NEXT_ACTION_ORDER:
 
-1. Re-read live DEV5 PR #66 / integration head before touching any Stage1 reconciliation. Do not compete with an IN_PROGRESS integration owner.
-2. Recheck QA PR #67 exact head and Actions. Keep the symlink/reparse regression RED until Product code genuinely fails closed.
-3. Audit generic external-import boundary beyond ChessBase: `import_contract`, `import_registry`, PGN open/save provenance and filesystem indirection. Prefer evidence/tests over Product fixes while another owner is active.
-4. Build an evidence-backed ChessBase capability matrix for `.cbh`, `.cbg`, `.cbp`, `.cbt`, `.cbv`, `.cbf`, `.2cbh`, `.cbone`: SUPPORTED / PARTIAL / UNSUPPORTED / CORRUPT / BLOCKED. Recognition must never imply decoding support.
-5. Audit bounded-read/resource-exhaustion handling for large/truncated external files and explicit unknown-version behavior. Preserve original sources read-only.
-6. Review import report/provenance DTOs for source hash, adapter/version, warning/damage/loss state, duplicates, failed records and transaction result without absolute private-path leakage in user-facing surfaces.
-7. Coordinate migration/rollback evidence only around DEV3-owned ACSDB storage; do not modify query/storage performance work while PR #65 or another DEV3 owner is IN_PROGRESS.
-8. Continue Stage1 package/security reconciliation only when DEV5/Audit authorizes the relevant slice. Preserve accepted DEV1 board bridge semantics and keep `nuitka-compilation-report.xml` outside user ZIPs.
+1. Re-read live DEV5 PR #66 and manual5 integration before any Stage1 reconciliation. Do not compete with an IN_PROGRESS integration owner.
+2. Recheck QA PR #67 exact head and commit-associated Actions after the new PGN resource gate. Keep symlink/reparse and bounded-read assertions strict until real Product fixes exist.
+3. Audit PGN/import resource boundaries further: explicit maximum source size, chunked decoding/parsing strategy, truncated input, duplicate sources, encoding abuse and cancellation/recovery. Prefer QA evidence/tests over Product fixes during active DEV5 work.
+4. Trace absolute-path leakage end-to-end from `SourceFingerprint.path`, `BatchInspectionItem.error`, PGN exceptions and ChessBase evidence DTOs into actual UI/log/report surfaces. Classify only after proving visibility.
+5. Build an evidence-backed ChessBase capability matrix for `.cbh`, `.cbg`, `.cbp`, `.cbt`, `.cbv`, `.cbf`, `.2cbh`, `.cbone`: SUPPORTED / PARTIAL / UNSUPPORTED / CORRUPT / BLOCKED. Suffix recognition must never imply decoder support.
+6. Audit ChessBase bounded-read/resource-exhaustion and unknown-version handling beyond hashing; preserve original source read-only and do not invent proprietary semantics.
+7. Review PGN export safety: path handling, overwrite/concurrency policy, temporary-file permissions/cleanup, atomic replacement, deterministic output and provenance without private-path leakage.
+8. Coordinate migration/rollback evidence only at the DEV3 ACSDB boundary; do not modify query/storage performance work while another DEV3 Product owner is active.
+9. Continue Stage1 package/security reconciliation only when DEV5/Audit authorizes the slice. Preserve accepted DEV1 board-bridge semantics and keep `nuitka-compilation-report.xml` outside user ZIPs.
 
 CLASSIFICATION RULES:
-- `PROVEN_PRODUCT_DEFECT`: reproduced behavior contradicts active contract.
+- `PROVEN_PRODUCT_DEFECT`: live behavior/code path directly contradicts an active contract and is independently reproducible or locked by a strict regression.
 - `QA_OR_ENVIRONMENT_ONLY`: test/infrastructure failure without Product contract violation.
-- `INCONCLUSIVE`: evidence insufficient or conflicting.
+- `INCONCLUSIVE`: evidence insufficient, conflicting, or observability missing.
 - `HUMAN_ONLY`: requires exact fresh Windows/NVDA/manual interaction evidence.
 
 HARD INVARIANTS:
