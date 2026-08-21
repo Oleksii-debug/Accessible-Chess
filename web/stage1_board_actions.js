@@ -85,10 +85,17 @@ window.renderHelp = function() {
     node.appendChild(extra);
 };
 
-// Transactional reconciliation: wrapper installation is complete before any
-// presentation-only render attempt. If renderHelp throws, a later injection
-// must not stack executeAction/renderHelp wrappers on top of this installation.
+// Preserve accepted DEV1 readiness ordering while making installation
+// transactional. A presentation-only render failure remains observable, but
+// the wrappers are marked installed before that failure can escape, so a later
+// resource injection cannot stack executeAction/renderHelp wrappers.
+let renderFailure = null;
+try {
+    if (typeof window.renderHelp === 'function') window.renderHelp();
+} catch (error) {
+    renderFailure = error;
+}
 window.__accessibleChessStage1BoardActions = true;
 document.body.dataset.stage1BoardActionBridgeReady = 'true';
-if (typeof window.renderHelp === 'function') window.renderHelp();
+if (renderFailure !== null) throw renderFailure;
 })();
