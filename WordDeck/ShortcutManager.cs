@@ -22,8 +22,23 @@ internal sealed class ShortcutManager
 
     public void RefreshDeckDefinitions(IEnumerable<DeckDefinition>? spellingDecks = null)
     {
-        if (spellingDecks is not null) _spellingDecks = spellingDecks.ToList();
-        Definitions = BuildDefinitions(); EnsureDefaults(); RemoveOrphanedDeckShortcuts();
+        if (spellingDecks is not null)
+        {
+            _spellingDecks = spellingDecks.ToList();
+        }
+        else if (_spellingDecks.Count == 0)
+        {
+            // Main Recall owns a ShortcutManager without a SpellingState reference.
+            // Refresh before Help/Settings opportunistically loads current Spelling
+            // deck definitions so F1 and settings can truthfully show user-renamed
+            // and user-created training deck bindings. A damaged Spelling state is
+            // not silently replaced just to render help.
+            try { _spellingDecks = new SpellingStateStore().Load().Decks.ToList(); }
+            catch (InvalidDataException) { _spellingDecks = new List<DeckDefinition>(); }
+        }
+        Definitions = BuildDefinitions();
+        EnsureDefaults();
+        RemoveOrphanedDeckShortcuts();
     }
 
     public Keys Get(string actionId)
@@ -102,11 +117,11 @@ internal sealed class ShortcutManager
         new(ActionIds.AddWords, "Add pasted word pairs to active deck", Keys.Control | Keys.Shift | Keys.A),
         new(ActionIds.SaveProgress, "Save progress now", Keys.Control | Keys.S),
         new(ActionIds.UndoMove, "Undo last deck move", Keys.Control | Keys.Z),
-        new(ActionIds.HideCurrentWord, "Hide current word from Recall study", Keys.Control | Keys.Delete),
-        new(ActionIds.RestoreHiddenWords, "Restore a hidden Recall word", Keys.Control | Keys.Alt | Keys.U),
-        new(ActionIds.RestoreAllHiddenWords, "Restore all hidden Recall words", Keys.None),
-        new(ActionIds.ExportProfile, "Export personal progress profile", Keys.Control | Keys.Alt | Keys.E),
-        new(ActionIds.ImportProfile, "Import personal progress profile", Keys.Control | Keys.Shift | Keys.I),
+        new(ActionIds.HideCurrentWord, "Hide current word from Recall and Spelling study", Keys.Control | Keys.Delete),
+        new(ActionIds.RestoreHiddenWords, "Restore a hidden study word", Keys.Control | Keys.Alt | Keys.U),
+        new(ActionIds.RestoreAllHiddenWords, "Restore all hidden study words", Keys.None),
+        new(ActionIds.ExportProfile, "Export Recall and Spelling personal progress profile", Keys.Control | Keys.Alt | Keys.E),
+        new(ActionIds.ImportProfile, "Import Recall and Spelling personal progress profile", Keys.Control | Keys.Shift | Keys.I),
         new(ActionIds.ResetLearningData, "Reset Recall learning data after backup", Keys.None),
         new(ActionIds.ShortcutSettings, "Open shortcut settings", Keys.Control | Keys.K),
         new(ActionIds.Help, "Open help", Keys.F1),
@@ -154,18 +169,20 @@ internal sealed class ShortcutManager
             defs.Add(new(ActionIds.SwitchDeck(deck.Id), $"Switch to deck: {deck.Name}", switchDefault));
             defs.Add(new(ActionIds.MoveToDeck(deck.Id), $"Move current word to deck: {deck.Name}", moveDefault));
         }
-        if (_spellingDecks.Count > 0)
+
+        // Training actions always live in the shared registry. That keeps F1 and
+        // both shortcut settings surfaces truthful even when the caller is the
+        // main Recall form, which historically constructed the manager without a
+        // SpellingState reference.
+        defs.AddRange(SpellingDefinitions);
+        defs.AddRange(SentenceDefinitions);
+        foreach (DeckDefinition deck in _spellingDecks.OrderBy(deck => deck.Order))
         {
-            defs.AddRange(SpellingDefinitions);
-            defs.AddRange(SentenceDefinitions);
-            foreach (DeckDefinition deck in _spellingDecks.OrderBy(deck => deck.Order))
-            {
-                int coreNumber = SpellingDeckIds.CoreDecks.ToList().FindIndex(id => string.Equals(id, deck.Id, StringComparison.OrdinalIgnoreCase)) + 1;
-                Keys switchDefault = coreNumber is >= 1 and <= 5 ? Keys.Control | Keys.Shift | (Keys)((int)Keys.D0 + coreNumber) : Keys.None;
-                Keys moveDefault = coreNumber is >= 1 and <= 5 ? Keys.Alt | Keys.Shift | (Keys)((int)Keys.D0 + coreNumber) : Keys.None;
-                defs.Add(new(ActionIds.SpellingSwitchDeck(deck.Id), $"Spelling: switch to deck: {deck.Name}", switchDefault));
-                defs.Add(new(ActionIds.SpellingMoveToDeck(deck.Id), $"Spelling: move current word to deck: {deck.Name}", moveDefault));
-            }
+            int coreNumber = SpellingDeckIds.CoreDecks.ToList().FindIndex(id => string.Equals(id, deck.Id, StringComparison.OrdinalIgnoreCase)) + 1;
+            Keys switchDefault = coreNumber is >= 1 and <= 5 ? Keys.Control | Keys.Shift | (Keys)((int)Keys.D0 + coreNumber) : Keys.None;
+            Keys moveDefault = coreNumber is >= 1 and <= 5 ? Keys.Alt | Keys.Shift | (Keys)((int)Keys.D0 + coreNumber) : Keys.None;
+            defs.Add(new(ActionIds.SpellingSwitchDeck(deck.Id), $"Spelling: switch to deck: {deck.Name}", switchDefault));
+            defs.Add(new(ActionIds.SpellingMoveToDeck(deck.Id), $"Spelling: move current word to deck: {deck.Name}", moveDefault));
         }
         return defs;
     }
