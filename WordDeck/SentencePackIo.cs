@@ -13,12 +13,22 @@ internal static class SentencePackIo
     public static SentencePack Read(string path)
     {
         using FileStream file = File.OpenRead(path);
-        if (IsGZipPath(path))
+        bool isGzip = IsGZipPath(path) || HasGZipMagic(file);
+        file.Position = 0;
+        if (isGzip)
         {
             using var gzip = new GZipStream(file, CompressionMode.Decompress, leaveOpen: false);
             return Read(gzip);
         }
         return Read(file);
+    }
+
+    private static bool HasGZipMagic(FileStream file)
+    {
+        if (file.Length < 2) return false;
+        int first = file.ReadByte();
+        int second = file.ReadByte();
+        return first == 0x1F && second == 0x8B;
     }
 
     public static SentencePack Read(Stream utf8Json)
