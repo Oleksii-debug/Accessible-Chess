@@ -45,6 +45,7 @@ internal sealed class SentencePackStore
         // Import validates the portable interchange pack once. Large-pack study sessions use the
         // separately built disk-backed SQLite corpus and do not repeat this eager load.
         SentencePack pack = SentencePackIo.Read(fullSource);
+        SentencePackLicenseValidator.ValidateForInstallation(pack);
         string safeId = SafeFileName(pack.PackId);
         string destination = Path.Combine(DirectoryPath, safeId + ".json.gz");
         string sqliteDestination = Path.Combine(DirectoryPath, safeId + ".sqlite");
@@ -192,6 +193,7 @@ internal sealed class SentencePackStore
             try
             {
                 SentencePack pack = SentencePackIo.Read(path);
+                SentencePackLicenseValidator.ValidateForInstallation(pack);
                 if (!representedPackIds.Add(pack.PackId))
                     continue;
 
