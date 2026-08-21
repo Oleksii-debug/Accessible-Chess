@@ -12,6 +12,7 @@ from acs.release_preflight import ReleasePreflightError, inspect_release_package
 
 
 EVENTS = ("move", "capture", "check", "castle", "promotion", "illegal", "start", "end", "tick")
+WEB_RESOURCES = ("index.html", "stage1_release_bootstrap.js", "stage1_board_actions.js")
 
 
 class ReleasePreflightTests(unittest.TestCase):
@@ -22,10 +23,13 @@ class ReleasePreflightTests(unittest.TestCase):
         product = root / "AccessibleChess"
         sounds = product / "assets" / "sounds"
         engine = product / "engines" / "stockfish"
+        web = product / "web"
         notices = root / "THIRD_PARTY_NOTICES"
-        sounds.mkdir(parents=True); engine.mkdir(parents=True); notices.mkdir(parents=True)
+        sounds.mkdir(parents=True); engine.mkdir(parents=True); web.mkdir(parents=True); notices.mkdir(parents=True)
         (product / "AccessibleChess.exe").write_bytes(b"MZ-accessible-chess")
         (engine / "stockfish.exe").write_bytes(b"MZ-stockfish-18")
+        for name in WEB_RESOURCES:
+            (web / name).write_text(f"runtime resource: {name}\n", encoding="utf-8")
         for index, event in enumerate(EVENTS, start=1):
             with wave.open(str(sounds / f"{event}.wav"), "wb") as wav:
                 wav.setnchannels(1); wav.setsampwidth(2); wav.setframerate(8000)
@@ -83,6 +87,16 @@ class ReleasePreflightTests(unittest.TestCase):
         root = self.make_package(); first = inspect_release_package(root); second = inspect_release_package(root)
         self.assertEqual(first, second); self.assertEqual(first.checksums_verified, len(first.inventory) - 1)
         self.assertIn("AccessibleChess/assets/sounds/manifest.json", first.inventory)
+        for name in WEB_RESOURCES:
+            self.assertIn(f"AccessibleChess/web/{name}", first.inventory)
+
+    def test_required_webview_runtime_resources_are_fail_closed(self) -> None:
+        for name in WEB_RESOURCES:
+            with self.subTest(name=name):
+                root = self.make_package()
+                (root / "AccessibleChess" / "web" / name).unlink()
+                self.rewrite_checksums(root)
+                self.rejected(root, f"required release file missing: web/{name}")
 
     def test_checksum_traversal_is_rejected(self) -> None:
         root = self.make_package(); sums = root / "SHA256SUMS.txt"; digest = sums.read_text().split("  ", 1)[0]
