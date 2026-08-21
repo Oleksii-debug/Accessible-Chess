@@ -102,7 +102,6 @@ internal sealed class ShortcutSettingsForm : Form
         {
             var item = new ListViewItem(def.Description) { Tag = def.Id };
             item.SubItems.Add(ShortcutFormatter.Format(_manager.Get(def.Id)));
-            item.AccessibleName = $"{def.Description}; {ShortcutFormatter.Format(_manager.Get(def.Id))}";
             _list.Items.Add(item);
             if (def.Id == selectedId) item.Selected = true;
         }
