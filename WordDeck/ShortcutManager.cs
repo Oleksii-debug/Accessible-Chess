@@ -3,6 +3,7 @@ namespace WordDeck;
 internal sealed class ShortcutManager
 {
     private readonly AppState _state;
+    private readonly bool _dispatchTrainingActions;
     private List<DeckDefinition> _spellingDecks;
     private static IReadOnlyList<ShortcutDefinition> RecallDefinitions { get; } = BuildRecallDefinitions();
     private static IReadOnlyList<ShortcutDefinition> ScopeDefinitions { get; } = BuildScopeDefinitions();
@@ -15,6 +16,7 @@ internal sealed class ShortcutManager
     public ShortcutManager(AppState state, IEnumerable<DeckDefinition>? spellingDecks = null)
     {
         _state = AppStateStore.Normalize(state);
+        _dispatchTrainingActions = spellingDecks is not null;
         _spellingDecks = spellingDecks?.ToList() ?? new List<DeckDefinition>();
         Definitions = BuildDefinitions();
         EnsureDefaults();
@@ -23,7 +25,9 @@ internal sealed class ShortcutManager
     public void RefreshDeckDefinitions(IEnumerable<DeckDefinition>? spellingDecks = null)
     {
         if (spellingDecks is not null) _spellingDecks = spellingDecks.ToList();
-        Definitions = BuildDefinitions(); EnsureDefaults(); RemoveOrphanedDeckShortcuts();
+        Definitions = BuildDefinitions();
+        EnsureDefaults();
+        RemoveOrphanedDeckShortcuts();
     }
 
     public Keys Get(string actionId)
@@ -42,21 +46,50 @@ internal sealed class ShortcutManager
     {
         if (keyData == Keys.None) return null;
         ShortcutDefinition? definition = Definitions.FirstOrDefault(def => Get(def.Id) != Keys.None && Get(def.Id) == keyData);
-        return definition?.Id;
+        if (definition is null) return null;
+        if (!_dispatchTrainingActions && IsTrainingAction(definition.Id)) return null;
+        return definition.Id;
     }
 
     public bool TrySet(string actionId, Keys keys, out string? errorDescription)
     {
-        if (!Definitions.Any(def => def.Id == actionId)) { errorDescription = "the function no longer exists"; return false; }
-        if (keys != Keys.None && IsUnsafe(actionId, keys)) { errorDescription = "this combination is reserved for Windows or standard keyboard navigation"; return false; }
-        var conflict = keys == Keys.None ? null : Definitions.FirstOrDefault(def => def.Id != actionId && Get(def.Id) == keys);
-        if (conflict is not null) { errorDescription = $"it is already assigned to {conflict.Description}"; return false; }
-        _state.Shortcuts[actionId] = keys.ToString(); errorDescription = null; return true;
+        if (!Definitions.Any(def => def.Id == actionId))
+        {
+            errorDescription = "the function no longer exists";
+            return false;
+        }
+        if (keys != Keys.None && IsUnsafe(actionId, keys))
+        {
+            errorDescription = "this combination is reserved for Windows, text editing, or standard keyboard navigation";
+            return false;
+        }
+        ShortcutDefinition? conflict = keys == Keys.None
+            ? null
+            : Definitions.FirstOrDefault(def => def.Id != actionId && Get(def.Id) == keys);
+        if (conflict is not null)
+        {
+            errorDescription = $"it is already assigned to {conflict.Description}";
+            return false;
+        }
+        _state.Shortcuts[actionId] = keys.ToString();
+        errorDescription = null;
+        return true;
     }
 
-    public void Clear(string actionId) { if (Definitions.Any(def => def.Id == actionId)) _state.Shortcuts[actionId] = Keys.None.ToString(); }
-    public void ResetDefaults() { foreach (ShortcutDefinition def in Definitions) _state.Shortcuts[def.Id] = def.DefaultKeys.ToString(); }
-    private void EnsureDefaults() { foreach (ShortcutDefinition def in Definitions) _state.Shortcuts.TryAdd(def.Id, def.DefaultKeys.ToString()); }
+    public void Clear(string actionId)
+    {
+        if (Definitions.Any(def => def.Id == actionId)) _state.Shortcuts[actionId] = Keys.None.ToString();
+    }
+
+    public void ResetDefaults()
+    {
+        foreach (ShortcutDefinition def in Definitions) _state.Shortcuts[def.Id] = def.DefaultKeys.ToString();
+    }
+
+    private void EnsureDefaults()
+    {
+        foreach (ShortcutDefinition def in Definitions) _state.Shortcuts.TryAdd(def.Id, def.DefaultKeys.ToString());
+    }
 
     private void RemoveOrphanedDeckShortcuts()
     {
@@ -64,6 +97,10 @@ internal sealed class ShortcutManager
         foreach (string actionId in _state.Shortcuts.Keys.Where(IsDynamicDeckAction).Where(id => !valid.Contains(id) && !IsLegacyNumericDeckAction(id)).ToList())
             _state.Shortcuts.Remove(actionId);
     }
+
+    private static bool IsTrainingAction(string id) =>
+        id.StartsWith("spelling_", StringComparison.OrdinalIgnoreCase) ||
+        id.StartsWith("sentence_", StringComparison.OrdinalIgnoreCase);
 
     private static bool IsDynamicDeckAction(string id) =>
         id.StartsWith("switch_deck_", StringComparison.OrdinalIgnoreCase) || id.StartsWith("move_to_deck_", StringComparison.OrdinalIgnoreCase) ||
@@ -78,15 +115,30 @@ internal sealed class ShortcutManager
 
     private static bool IsUnsafe(string actionId, Keys keys)
     {
-        Keys code = keys & Keys.KeyCode; Keys modifiers = keys & Keys.Modifiers;
-        if (code is Keys.None or Keys.Tab or Keys.Escape or Keys.Enter) return true;
+        Keys code = keys & Keys.KeyCode;
+        Keys modifiers = keys & Keys.Modifiers;
+
+        if (code is Keys.None or Keys.Tab or Keys.Escape or Keys.Enter or Keys.LWin or Keys.RWin or Keys.Apps or Keys.ControlKey or Keys.ShiftKey or Keys.Menu)
+            return true;
         if (code == Keys.F4 && modifiers == Keys.Alt) return true;
+        if (code == Keys.Space && modifiers == Keys.Alt) return true;
         if (code == Keys.Delete && modifiers == (Keys.Control | Keys.Alt)) return true;
+        if (modifiers == Keys.Control && code is Keys.Left or Keys.Right or Keys.Home or Keys.End or Keys.PageUp or Keys.PageDown)
+            return true;
+        if (modifiers == Keys.Control && code is Keys.C or Keys.X or Keys.V)
+            return true;
+
         if (modifiers == Keys.None)
         {
             if (code == Keys.Down) return actionId != ActionIds.NextWord;
             if (code == Keys.Up) return actionId != ActionIds.PreviousWord;
-            if (code is Keys.Left or Keys.Right or Keys.Home or Keys.End or Keys.PageUp or Keys.PageDown) return true;
+            if (code is Keys.Left or Keys.Right or Keys.Home or Keys.End or Keys.PageUp or Keys.PageDown or Keys.Delete or Keys.Back or Keys.Insert or Keys.Space or Keys.F10)
+                return true;
+            if (code is >= Keys.A and <= Keys.Z) return true;
+            if (code is >= Keys.D0 and <= Keys.D9) return true;
+            if (code is >= Keys.NumPad0 and <= Keys.NumPad9) return true;
+            if (code is Keys.Oemcomma or Keys.OemPeriod or Keys.OemMinus or Keys.Oemplus or Keys.OemQuestion or Keys.OemSemicolon or Keys.OemQuotes or Keys.OemOpenBrackets or Keys.OemCloseBrackets or Keys.OemPipe)
+                return true;
         }
         return false;
     }
