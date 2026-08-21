@@ -57,7 +57,7 @@ jobs:
           }
           Write-Host 'Workflow branch safety PASS: validation is source-read-only.'
 
-      - name: Superseded mutation workflows are inert
+      - name: Superseded mutation and V0.1 package workflows are inert
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
@@ -70,7 +70,8 @@ jobs:
             'worddeck-emergency-v7.yml',
             'worddeck-emergency-v8.yml',
             'worddeck-emergency-v8b.yml',
-            'worddeck-user1156-v1-completion.yml'
+            'worddeck-user1156-v1-completion.yml',
+            'worddeck-v01-package.yml'
           )
           foreach ($name in $historical) {
             $path = Join-Path '.github\workflows' $name
@@ -79,7 +80,11 @@ jobs:
               throw "Historical workflow is still capable of automatic/source mutation: $name"
             }
           }
-          Write-Host 'Historical Oxford/1156 mutation workflows are manual read-only archive markers.'
+          $v01 = Get-Content .\.github\workflows\worddeck-v01-package.yml -Raw
+          if ($v01 -notmatch '588eec6c45def0f746946245149be1e3f57ea4d0') {
+            throw 'Frozen V0.1 workflow no longer records the independently accepted source commit.'
+          }
+          Write-Host 'Historical mutation workflows and frozen V0.1 package are manual read-only archive markers.'
 
       - name: Repository secret-file and private-state filename gate
         shell: pwsh
