@@ -113,10 +113,14 @@ jobs:
             throw "Tracked secret/private-state candidates: $($forbidden -join ', ')"
           }
           $personalPaths = @(git grep -n -I -E 'C:\\Users\\[^%]|/home/[A-Za-z0-9._-]+/' -- WordDeck README-WORDDECK.md 2>$null)
-          if ($LASTEXITCODE -gt 1) { throw 'Personal-path grep failed.' }
+          $grepExit = $LASTEXITCODE
+          if ($grepExit -gt 1) { throw "Personal-path grep failed with exit code $grepExit." }
           if ($personalPaths.Count -ne 0) {
             throw "Hard-coded personal path candidates were found: $($personalPaths -join '; ')"
           }
+          # git grep uses exit code 1 for a successful search with no matches.
+          # Normalize that expected result so PowerShell does not fail the step after printing PASS.
+          $global:LASTEXITCODE = 0
           Write-Host 'Tracked-file security and portable-path gate PASS.'
 
       - name: Setup .NET 8
