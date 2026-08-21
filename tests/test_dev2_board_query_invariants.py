@@ -5,11 +5,12 @@ from acs.squares import parse_square
 
 
 class Dev2BoardQueryInvariantTests(unittest.TestCase):
-    def _service(self, turn: str) -> BoardCommandService:
+    def _service(self, turn: str, occupant: str | None = None) -> BoardCommandService:
         pieces = [None] * 64
         pieces[parse_square("c3")] = "N"
         pieces[parse_square("d5")] = "p"
         target = parse_square("e4")
+        pieces[target] = occupant
         return BoardCommandService(
             BoardSnapshot(
                 tuple(pieces),
@@ -37,6 +38,23 @@ class Dev2BoardQueryInvariantTests(unittest.TestCase):
         )
         self.assertEqual(
             {item.square for item in black_to_move.defenders("e4")}, {"d5"}
+        )
+
+    def test_occupied_square_attackers_and_defenders_follow_occupant_color(self):
+        white_piece = self._service("w", "P")
+        self.assertEqual(
+            {item.square for item in white_piece.attackers("e4")}, {"d5"}
+        )
+        self.assertEqual(
+            {item.square for item in white_piece.defenders("e4")}, {"c3"}
+        )
+
+        black_piece = self._service("w", "p")
+        self.assertEqual(
+            {item.square for item in black_piece.attackers("e4")}, {"c3"}
+        )
+        self.assertEqual(
+            {item.square for item in black_piece.defenders("e4")}, {"d5"}
         )
 
 

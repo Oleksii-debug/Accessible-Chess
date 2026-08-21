@@ -152,7 +152,8 @@ class MaterialView:
             ("black_points", self.black_points),
         ):
             if type(points) is not int or points < 0:
-                raise TypeError(f"{field_name} must be a non-negative integer")
+                raise TypeError(
+                    f"{field_name} must be a non-negative integer")
         expected_white = sum(detached[0][piece] * value for piece, value in PIECE_VALUES.items())
         expected_black = sum(detached[1][piece] * value for piece, value in PIECE_VALUES.items())
         if self.white_points != expected_white or self.black_points != expected_black:
@@ -228,7 +229,8 @@ class BoardCommandService:
     def attackers(self, square: str | int) -> tuple[SquareView, ...]:
         idx = parse_square(square)
         occupant_color = piece_color(self.board.pieces[idx])
-        target_color = occupant_color or ("b" if self.board.turn == "w" else "w")
+        reference_color = occupant_color or self.board.turn
+        target_color = "b" if reference_color == "w" else "w"
         return tuple(
             item for item in self.all_controllers(idx)
             if piece_color(item.piece) == target_color
