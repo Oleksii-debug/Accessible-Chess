@@ -460,17 +460,13 @@ class EngineGameSessionCoordinator:
                 raise ValueError("review handoff is not configured")
             self._review_handoff(handoff)
             return self.snapshot()
-        if handoff.intent is EngineGameIntent.ACCEPT_TAKEBACK and self._undo_committed_move is None:
-            raise ValueError("takeback undo hook is not configured")
+        if handoff.intent is EngineGameIntent.ACCEPT_TAKEBACK:
+            if self._undo_committed_move is None:
+                raise ValueError("takeback undo hook is not configured")
+            return self._accept_takeback_atomically(handoff)
 
         before = self._lifecycle.snapshot()
         after = dispatch_lifecycle_handoff(self._lifecycle, handoff)
-        if handoff.intent is EngineGameIntent.ACCEPT_TAKEBACK:
-            assert self._undo_committed_move is not None
-            self._undo_committed_move()
-            self._lifecycle.invalidate_position_outcome()
-            self._restore_clock_after_takeback()
-            after = self._lifecycle.snapshot()
         if after.status is GameStatus.FINISHED and before.status is GameStatus.ACTIVE:
             self._stop_clock()
         return self.snapshot()
@@ -490,6 +486,52 @@ class EngineGameSessionCoordinator:
         )
         self.handle_handoff(handoff)
         return handoff
+
+    def _accept_takeback_atomically(
+        self,
+        handoff: EngineGameHandoff,
+    ) -> EngineGameSessionSnapshot:
+        """Accept a takeback without clearing lifecycle state before undo succeeds.
+
+        The canonical board/history owner remains the injected undo callback. We
+        preflight lifecycle and historical-clock inputs before invoking that
+        destructive callback. The callback contract itself must be atomic: if it
+        raises, canonical board/history must be unchanged.
+        """
+        assert self._undo_committed_move is not None
+        actor = handoff.actor
+        assert actor in {"w", "b"}
+        self._lifecycle.preflight_accept_takeback(actor)
+        restored_clock = self._prepare_clock_restore_after_takeback()
+        assert self._clock is not None
+        self._clock.snapshot()
+
+        self._undo_committed_move()
+
+        if restored_clock is not None:
+            self._clock.restore(restored_clock, resume_running=True)
+        self._lifecycle.accept_takeback(actor)
+        self._lifecycle.invalidate_position_outcome()
+        return self.snapshot()
+
+    def _prepare_clock_restore_after_takeback(self) -> ClockSnapshot | None:
+        if self._clock_restore_provider is None:
+            return None
+        assert self._config is not None
+        restored = self._clock_restore_provider()
+        if not isinstance(restored, ClockSnapshot):
+            raise EngineContractError(
+                "clock_restore_provider must return ClockSnapshot",
+                code=EngineContractErrorCode.INVALID_PROVIDER,
+            )
+        try:
+            ChessClock(self._config.time_control).restore(restored)
+        except Exception as exc:
+            raise EngineContractError(
+                "clock_restore_provider returned an incompatible snapshot",
+                code=EngineContractErrorCode.INVALID_PROVIDER,
+            ) from exc
+        return restored
 
     def _resolve_no_engine_move(self, fen: str, side_to_move: str) -> None:
         if self._no_move_resolver is None:
@@ -550,13 +592,6 @@ class EngineGameSessionCoordinator:
                     code=EngineContractErrorCode.INVALID_PROVIDER,
                 )
         self._lifecycle.record_timeout(flagged_side, opponent_can_mate=resolved)
-
-    def _restore_clock_after_takeback(self) -> None:
-        if self._clock_restore_provider is None or self._clock is None:
-            return
-        restored = self._clock_restore_provider()
-        resume = self._lifecycle.snapshot().status is GameStatus.ACTIVE
-        self._clock.restore(restored, resume_running=resume)
 
     def _stop_clock(self) -> None:
         if self._clock is not None:
