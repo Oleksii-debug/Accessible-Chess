@@ -11,8 +11,10 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 import hashlib
 import json
+import os
 from pathlib import Path
 import sqlite3
+import tempfile
 from typing import Iterable
 
 from .gametree import PgnGame, parse_games, serialize_game
@@ -198,6 +200,135 @@ class AcsDatabase:
         ply = cls._positive_cursor(after_ply, name="after_ply")
         assert game_id is not None and ply is not None
         return game_id, ply
+
+    @staticmethod
+    def _validate_overwrite(overwrite: bool) -> bool:
+        if type(overwrite) is not bool:
+            raise TypeError("overwrite must be a boolean")
+        return overwrite
+
+    @staticmethod
+    def _normalized_file_path(value: str | Path, *, name: str) -> Path:
+        if not isinstance(value, (str, Path)):
+            raise TypeError(f"{name} must be a filesystem path")
+        path = Path(value).expanduser()
+        if str(path) in {"", ":memory:"}:
+            raise ValueError(f"{name} must be a file path")
+        return path
+
+    @staticmethod
+    def _same_file_target(first: Path, second: Path) -> bool:
+        try:
+            return first.resolve(strict=False) == second.resolve(strict=False)
+        except OSError:
+            return os.path.abspath(first) == os.path.abspath(second)
+
+    @staticmethod
+    def _check_sqlite_integrity(conn: sqlite3.Connection) -> int:
+        try:
+            row = conn.execute("PRAGMA quick_check").fetchone()
+            if row is None or str(row[0]).lower() != "ok":
+                raise RuntimeError("ACSDB integrity check failed")
+            version = int(conn.execute("PRAGMA user_version").fetchone()[0])
+        except sqlite3.DatabaseError as exc:
+            raise RuntimeError("ACSDB integrity check failed") from exc
+        if version > ACSDB_SCHEMA_VERSION:
+            raise RuntimeError(
+                f"ACSDB schema {version} is newer than supported schema {ACSDB_SCHEMA_VERSION}"
+            )
+        return version
+
+    @staticmethod
+    def _temporary_peer(destination: Path) -> Path:
+        fd, raw_path = tempfile.mkstemp(
+            prefix=f".{destination.name}.",
+            suffix=".tmp",
+            dir=str(destination.parent),
+        )
+        os.close(fd)
+        return Path(raw_path)
+
+    def backup_to(self, destination: str | Path, *, overwrite: bool = False) -> Path:
+        """Write a consistent SQLite backup and atomically publish it.
+
+        The source database is never rewritten. The backup is first created as a
+        peer temporary file, validated with SQLite ``quick_check`` and only then
+        moved into place. Existing destinations require explicit ``overwrite``.
+        """
+        overwrite = self._validate_overwrite(overwrite)
+        destination_path = self._normalized_file_path(destination, name="destination")
+        if self.path != ":memory:":
+            source_path = Path(self.path)
+            if self._same_file_target(source_path, destination_path):
+                raise ValueError("backup destination must differ from the live database")
+        if destination_path.exists() or destination_path.is_symlink():
+            if destination_path.is_dir():
+                raise IsADirectoryError(destination_path)
+            if not overwrite:
+                raise FileExistsError(destination_path)
+
+        temporary = self._temporary_peer(destination_path)
+        try:
+            target = sqlite3.connect(str(temporary))
+            try:
+                self.conn.backup(target)
+                self._check_sqlite_integrity(target)
+            finally:
+                target.close()
+            if not overwrite and (destination_path.exists() or destination_path.is_symlink()):
+                raise FileExistsError(destination_path)
+            os.replace(temporary, destination_path)
+            return destination_path
+        finally:
+            if temporary.exists():
+                temporary.unlink()
+
+    @classmethod
+    def restore_backup(
+        cls,
+        backup: str | Path,
+        destination: str | Path,
+        *,
+        overwrite: bool = False,
+    ) -> Path:
+        """Validate an ACSDB backup and atomically restore it to a file path."""
+        overwrite = cls._validate_overwrite(overwrite)
+        backup_path = cls._normalized_file_path(backup, name="backup")
+        destination_path = cls._normalized_file_path(destination, name="destination")
+        if not backup_path.is_file():
+            raise FileNotFoundError(backup_path)
+        if cls._same_file_target(backup_path, destination_path):
+            raise ValueError("restore destination must differ from the backup source")
+        if destination_path.exists() or destination_path.is_symlink():
+            if destination_path.is_dir():
+                raise IsADirectoryError(destination_path)
+            if not overwrite:
+                raise FileExistsError(destination_path)
+
+        temporary = cls._temporary_peer(destination_path)
+        source: sqlite3.Connection | None = None
+        target: sqlite3.Connection | None = None
+        try:
+            try:
+                source = sqlite3.connect(backup_path.resolve().as_uri() + "?mode=ro", uri=True)
+                cls._check_sqlite_integrity(source)
+                target = sqlite3.connect(str(temporary))
+                source.backup(target)
+                cls._check_sqlite_integrity(target)
+            except sqlite3.DatabaseError as exc:
+                raise RuntimeError("ACSDB backup restore failed integrity validation") from exc
+            finally:
+                if target is not None:
+                    target.close()
+                if source is not None:
+                    source.close()
+            if not overwrite and (destination_path.exists() or destination_path.is_symlink()):
+                raise FileExistsError(destination_path)
+            os.replace(temporary, destination_path)
+            return destination_path
+        finally:
+            if temporary.exists():
+                temporary.unlink()
 
     @staticmethod
     def position_key(fen: str) -> str:
