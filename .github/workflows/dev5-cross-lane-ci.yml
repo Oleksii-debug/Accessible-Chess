@@ -7,6 +7,12 @@ on:
     paths:
       - 'tests/test_manual5_cross_lane_regression.py'
       - '.github/workflows/dev5-cross-lane-ci.yml'
+  pull_request:
+    branches:
+      - manual5/integration-20260821
+    paths:
+      - 'tests/test_manual5_cross_lane_regression.py'
+      - '.github/workflows/dev5-cross-lane-ci.yml'
   workflow_dispatch:
 
 permissions:
