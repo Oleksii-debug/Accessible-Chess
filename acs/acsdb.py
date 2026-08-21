@@ -154,6 +154,26 @@ class AcsDatabase:
         return datetime.now(timezone.utc).isoformat()
 
     @staticmethod
+    def _bounded_limit(limit: int) -> int:
+        """Return the public query limit without accepting booleans or nonsense values."""
+        if isinstance(limit, bool):
+            raise TypeError("limit must be an integer")
+        value = int(limit)
+        return max(1, min(value, 1000))
+
+    @staticmethod
+    def _positive_cursor(value: int | None, *, name: str) -> int | None:
+        """Validate an optional SQLite integer keyset cursor."""
+        if value is None:
+            return None
+        if isinstance(value, bool):
+            raise TypeError(f"{name} must be an integer")
+        cursor = int(value)
+        if cursor < 0:
+            raise ValueError(f"{name} must be non-negative")
+        return cursor
+
+    @staticmethod
     def position_key(fen: str) -> str:
         parts = (fen or "").strip().split()
         if len(parts) < 4:
@@ -263,7 +283,13 @@ class AcsDatabase:
         return dict(row) if row else None
 
     def list_import_attempts(self, *, status: str | None = None, sha256: str | None = None,
-                             limit: int = 100) -> list[dict]:
+                             before_id: int | None = None, limit: int = 100) -> list[dict]:
+        """List import attempts newest-first using a stable keyset cursor.
+
+        ``before_id`` is the last row id from the previous page.  Using the
+        primary key as the cursor avoids OFFSET drift if another import starts
+        between page requests.
+        """
         clauses: list[str] = []
         params: list[object] = []
         if status is not None:
@@ -274,17 +300,28 @@ class AcsDatabase:
         if sha256:
             clauses.append("sha256=?")
             params.append(sha256)
+        cursor = self._positive_cursor(before_id, name="before_id")
+        if cursor is not None:
+            clauses.append("id<?")
+            params.append(cursor)
         sql = "SELECT * FROM import_attempts"
         if clauses:
             sql += " WHERE " + " AND ".join(clauses)
         sql += " ORDER BY id DESC LIMIT ?"
-        params.append(max(1, min(int(limit), 1000)))
+        params.append(self._bounded_limit(limit))
         return [dict(row) for row in self.conn.execute(sql, params).fetchall()]
 
     def search_games(self, *, player: str | None = None, event: str | None = None,
                      eco: str | None = None, opening: str | None = None,
                      result: str | None = None, source_id: int | None = None,
-                     source_name: str | None = None, limit: int = 100) -> list[dict]:
+                     source_name: str | None = None, after_id: int | None = None,
+                     limit: int = 100) -> list[dict]:
+        """Search games in deterministic id order with optional keyset paging.
+
+        ``after_id`` is intentionally part of the query rather than an OFFSET.
+        Once a caller has consumed a page, later inserts cannot cause already
+        returned rows to shift into a subsequent page.
+        """
         clauses: list[str] = []
         params: list[object] = []
         if player:
@@ -309,11 +346,15 @@ class AcsDatabase:
         if source_name:
             clauses.append("s.source_name LIKE ? COLLATE NOCASE")
             params.append(f"%{source_name}%")
+        cursor = self._positive_cursor(after_id, name="after_id")
+        if cursor is not None:
+            clauses.append("g.id>?")
+            params.append(cursor)
         sql = "SELECT g.* FROM games g JOIN sources s ON s.id=g.source_id"
         if clauses:
             sql += " WHERE " + " AND ".join(clauses)
         sql += " ORDER BY g.id LIMIT ?"
-        params.append(max(1, min(int(limit), 1000)))
+        params.append(self._bounded_limit(limit))
         return [dict(row) for row in self.conn.execute(sql, params).fetchall()]
 
     def record_position(self, game_id: int, ply: int, fen: str) -> None:
@@ -337,6 +378,6 @@ class AcsDatabase:
             """SELECT g.*, p.ply AS matched_ply, p.fen AS matched_fen
                FROM positions p JOIN games g ON g.id=p.game_id
                WHERE p.position_key=? ORDER BY g.id, p.ply LIMIT ?""",
-            (key, max(1, min(int(limit), 1000))),
+            (key, self._bounded_limit(limit)),
         ).fetchall()
         return [dict(row) for row in rows]
