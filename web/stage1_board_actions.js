@@ -5,8 +5,9 @@ if (window.__accessibleChessStage1BoardActions) return;
 
 const baseExecuteAction = window.executeAction;
 const baseRenderHelp = window.renderHelp;
-// Fail before claiming installation so a deliberately early/partial resource
-// injection can be retried after the frozen bootstrap publishes its bridge.
+// Keep accepted DEV1 dependency semantics: the bridge is retryable until the
+// frozen bootstrap and Python API bridge are both available, and it never
+// claims readiness without a real document body.
 if (typeof baseExecuteAction !== 'function' || typeof apiAction !== 'function') return;
 if (typeof document === 'undefined' || !document.body) return;
 
@@ -84,7 +85,10 @@ window.renderHelp = function() {
     node.appendChild(extra);
 };
 
-if (typeof window.renderHelp === 'function') window.renderHelp();
+// Transactional reconciliation: wrapper installation is complete before any
+// presentation-only render attempt. If renderHelp throws, a later injection
+// must not stack executeAction/renderHelp wrappers on top of this installation.
 window.__accessibleChessStage1BoardActions = true;
 document.body.dataset.stage1BoardActionBridgeReady = 'true';
+if (typeof window.renderHelp === 'function') window.renderHelp();
 })();
