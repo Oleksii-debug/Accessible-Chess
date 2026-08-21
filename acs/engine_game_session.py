@@ -493,28 +493,29 @@ class EngineGameSessionCoordinator:
     ) -> EngineGameSessionSnapshot:
         """Accept a takeback without clearing lifecycle state before undo succeeds.
 
-        The canonical board/history owner remains the injected undo callback. We
-        preflight lifecycle and historical-clock inputs before invoking that
-        destructive callback. The callback contract itself must be atomic: if it
-        raises, canonical board/history must be unchanged.
+        The canonical board/history owner remains the injected undo callback.
+        Lifecycle acceptance is preflighted before that callback, but historical
+        clock resolution deliberately happens after undo because its canonical
+        key is the restored history ply. If the undo callback raises, lifecycle
+        and clock remain unchanged. The injected undo callback itself is required
+        to be atomic when it reports failure.
         """
         assert self._undo_committed_move is not None
         actor = handoff.actor
         assert actor in {"w", "b"}
         self._lifecycle.preflight_accept_takeback(actor)
-        restored_clock = self._prepare_clock_restore_after_takeback()
         assert self._clock is not None
         self._clock.snapshot()
 
         self._undo_committed_move()
-
+        restored_clock = self._resolve_clock_restore_after_takeback()
         if restored_clock is not None:
             self._clock.restore(restored_clock, resume_running=True)
         self._lifecycle.accept_takeback(actor)
         self._lifecycle.invalidate_position_outcome()
         return self.snapshot()
 
-    def _prepare_clock_restore_after_takeback(self) -> ClockSnapshot | None:
+    def _resolve_clock_restore_after_takeback(self) -> ClockSnapshot | None:
         if self._clock_restore_provider is None:
             return None
         assert self._config is not None
