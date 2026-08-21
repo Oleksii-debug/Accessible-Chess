@@ -19,7 +19,8 @@ from .gametree import PgnGame, parse_games, serialize_game
 
 IMPORT_STATUSES = {"full", "partial", "damaged", "warning"}
 IMPORT_ATTEMPT_STATUSES = {"pending", "full", "warning", "damaged", "failed"}
-ACSDB_SCHEMA_VERSION = 2
+ACSDB_SCHEMA_VERSION = 3
+_SQLITE_INTEGER_MAX = (1 << 63) - 1
 
 
 @dataclass(slots=True)
@@ -44,7 +45,10 @@ class AcsDatabase:
         try:
             self.conn.row_factory = sqlite3.Row
             self.conn.execute("PRAGMA foreign_keys = ON")
+            self.conn.execute("PRAGMA busy_timeout = 5000")
             self._migrate_schema()
+            if self.path != ":memory:":
+                self.conn.execute("PRAGMA journal_mode = WAL")
         except Exception:
             self.conn.close()
             raise
@@ -149,29 +153,35 @@ class AcsDatabase:
             """
         )
 
+    def _migrate_to_v3(self) -> None:
+        self.conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_positions_key_game_ply "
+            "ON positions(position_key, game_id, ply)"
+        )
+
     @staticmethod
     def _now() -> str:
         return datetime.now(timezone.utc).isoformat()
 
     @staticmethod
     def _bounded_limit(limit: int) -> int:
-        """Return the public query limit without accepting booleans or nonsense values."""
-        if isinstance(limit, bool):
+        """Return the public query limit without coercing non-integer scalars."""
+        if type(limit) is not int:
             raise TypeError("limit must be an integer")
-        value = int(limit)
-        return max(1, min(value, 1000))
+        return max(1, min(limit, 1000))
 
     @staticmethod
     def _positive_cursor(value: int | None, *, name: str) -> int | None:
-        """Validate an optional SQLite integer keyset cursor."""
+        """Validate an optional SQLite integer keyset cursor without coercion."""
         if value is None:
             return None
-        if isinstance(value, bool):
+        if type(value) is not int:
             raise TypeError(f"{name} must be an integer")
-        cursor = int(value)
-        if cursor < 0:
+        if value < 0:
             raise ValueError(f"{name} must be non-negative")
-        return cursor
+        if value > _SQLITE_INTEGER_MAX:
+            raise ValueError(f"{name} exceeds SQLite integer range")
+        return value
 
     @classmethod
     def _position_cursor(
