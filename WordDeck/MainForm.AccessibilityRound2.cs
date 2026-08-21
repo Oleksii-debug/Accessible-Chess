@@ -3,7 +3,6 @@ namespace WordDeck;
 internal sealed partial class MainForm
 {
     private readonly HashSet<ComboBox> _round2HookedCombos = new();
-    private readonly HashSet<ComboBox> _round2KeyboardSelectorChange = new();
     private bool _round2IdleHookInstalled;
     private bool _round2RefreshingShortcutPresentation;
 
@@ -94,35 +93,27 @@ internal sealed partial class MainForm
             if (child is ComboBox combo && _round2HookedCombos.Add(combo))
             {
                 combo.PreviewKeyDown += Round2ComboPreviewKeyDown;
-                combo.KeyUp += Round2ComboKeyUp;
-                combo.SelectedIndexChanged += Round2ComboSelectedIndexChanged;
+                combo.SelectionChangeCommitted += Round2ComboSelectionChangeCommitted;
             }
             if (child.HasChildren) HookRound2ComboFocus(child);
         }
     }
 
-    private void Round2ComboPreviewKeyDown(object? sender, PreviewKeyDownEventArgs e)
+    private static void Round2ComboPreviewKeyDown(object? sender, PreviewKeyDownEventArgs e)
     {
-        if (sender is not ComboBox combo || !AccessibilityKeyboardPolicy.IsSelectorNavigationKey(e.KeyData)) return;
-        e.IsInputKey = true;
-        _round2KeyboardSelectorChange.Add(combo);
+        if (sender is ComboBox && AccessibilityKeyboardPolicy.IsSelectorNavigationKey(e.KeyData))
+            e.IsInputKey = true;
     }
 
-    private void Round2ComboKeyUp(object? sender, KeyEventArgs e)
+    private static void Round2ComboSelectionChangeCommitted(object? sender, EventArgs e)
     {
-        if (sender is ComboBox combo && AccessibilityKeyboardPolicy.IsSelectorNavigationKey(e.KeyData))
-            _round2KeyboardSelectorChange.Remove(combo);
-    }
+        if (sender is not ComboBox combo || combo.IsDisposed || combo.FindForm()?.IsDisposed != false) return;
 
-    private void Round2ComboSelectedIndexChanged(object? sender, EventArgs e)
-    {
-        if (sender is not ComboBox combo || !_round2KeyboardSelectorChange.Contains(combo)) return;
-        if (combo.IsDisposed || combo.FindForm()?.IsDisposed != false) return;
-
-        // Existing handlers may refresh an exercise and focus its primary text
-        // surface. Restore the selector only after they finish; do not synthesize
-        // speech here because native ComboBox/UIA selection and focus events are
-        // the screen-reader source of truth.
+        // User-committed ComboBox changes can synchronously refresh an exercise
+        // and focus its card/input. Restore the selector after every user commit.
+        // Programmatic initialization does not raise SelectionChangeCommitted,
+        // so startup/population is unaffected and no reentrant selection loop is
+        // introduced. Native ComboBox/UIA events remain the speech source.
         combo.BeginInvoke(new Action(() =>
         {
             if (!combo.IsDisposed && combo.Visible && combo.Enabled && combo.FindForm()?.ContainsFocus == true)
