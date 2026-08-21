@@ -1,0 +1,55 @@
+name: WordDeck Worker4 Accessibility Gate
+
+on:
+  push:
+    branches:
+      - worddeck-worker-4-accessibility
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-self-test:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout worker branch
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Restore WordDeck
+        working-directory: WordDeck
+        run: dotnet restore
+
+      - name: Build WordDeck Release
+        working-directory: WordDeck
+        run: dotnet build -c Release --no-restore
+
+      - name: Run WordDeck extended self-tests
+        working-directory: WordDeck
+        run: dotnet run -c Release --no-build -- --self-test
+
+      - name: Publish Windows x64 smoke package
+        working-directory: WordDeck
+        run: dotnet publish -c Release -r win-x64 --self-contained true --no-restore -o ../artifacts/worddeck-worker4
+
+      - name: Verify public package hygiene
+        shell: pwsh
+        run: |
+          $root = Join-Path $PWD 'artifacts/worddeck-worker4'
+          if (-not (Test-Path (Join-Path $root 'WordDeck.exe'))) { throw 'Published WordDeck.exe is missing.' }
+          $forbidden = Get-ChildItem -Path $root -Recurse -File | Where-Object {
+            $_.Name -match '^(state|spelling-state|sentence-coach-state)(\.backup)?\.json$' -or
+            $_.Name -match 'profile.*\.json$' -or
+            $_.Name -match 'token\.json$'
+          }
+          if ($forbidden) {
+            $names = ($forbidden | ForEach-Object FullName) -join '; '
+            throw "Personal/private state leaked into publish output: $names"
+          }
+          Write-Host 'Worker4 publish hygiene passed.'
