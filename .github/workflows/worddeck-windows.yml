@@ -11,6 +11,13 @@ on:
       - '.github/workflows/worddeck-oxford-bulk-integration.yml'
   workflow_dispatch:
 
+# Validation must never rewrite product source or advance a branch. Historical
+# Oxford transport was completed before V0.1 acceptance; CI is now a read-only
+# verifier of the exact checked-out commit.
+permissions:
+  contents: read
+  statuses: write
+
 concurrency:
   group: worddeck-${{ github.ref }}
   cancel-in-progress: true
@@ -18,32 +25,13 @@ concurrency:
 jobs:
   build:
     runs-on: windows-latest
-    permissions:
-      contents: write
-      statuses: write
+    timeout-minutes: 90
     steps:
-      - name: Checkout
+      - name: Checkout exact commit
         uses: actions/checkout@v4
 
-      - name: Apply pending user-approved Oxford 5000 tail
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $PSNativeCommandUseErrorActionPreference = $true
-          if (Test-Path .\WordDeck\tools\user1156_payload.part01) {
-            git config user.name 'github-actions[bot]'
-            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-            python .\WordDeck\tools\integrate_user_translations_1156.py
-            git add -A -- .\WordDeck\ReviewedOxford5000Bootstrap.cs .\WordDeck\WordDeck.csproj .\WordDeck\Audio\generation-request.json .\WordDeck\QA .\WordDeck\tools\user1156_payload.part01 .\WordDeck\tools\user1156_payload.part02 .\WordDeck\tools\user1156_payload.part03 .\WordDeck\tools\user1156_payload.part04 .\WordDeck\tools\user1156_payload.part05 .\WordDeck\tools\user1156_payload.part06 .\WordDeck\tools\user1156_payload.part07 .\WordDeck\tools\user1156_payload.part08
-            git diff --cached --check
-            git commit -m 'WordDeck: integrate complete user-approved Oxford 5000 tail'
-            git push origin HEAD:worddeck-bootstrap
-            Write-Host 'User-approved 1156-row tail integrated and pushed. The pushed WordDeck changes trigger a fresh authoritative run on the exact final HEAD.'
-          } else {
-            Write-Host 'No pending user-approved transport payload; building exact current HEAD.'
-          }
-
-      - name: Publish pending checkpoint status
+      - name: Publish pending canonical checkpoint status
+        if: github.ref == 'refs/heads/worddeck-bootstrap'
         continue-on-error: true
         uses: actions/github-script@v7
         with:
@@ -69,6 +57,7 @@ jobs:
         run: python .\WordDeck\tools\build_tatoeba_cc0_pairs.py --self-test
 
       - name: Validate sentence coverage and release-bundle tools
+        shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
           $PSNativeCommandUseErrorActionPreference = $true
@@ -77,6 +66,7 @@ jobs:
           python .\WordDeck\tools\validate_sentencepack_release_bundle.py --self-test
 
       - name: Validate frozen Oxford 3000 baseline
+        shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
           $PSNativeCommandUseErrorActionPreference = $true
@@ -84,6 +74,7 @@ jobs:
           python .\WordDeck\tools\validate_oxford3000_baseline_files.py --report .\artifacts\oxford3000-baseline-integrity.tsv
 
       - name: Fetch official Oxford membership source
+        shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
           $PSNativeCommandUseErrorActionPreference = $true
@@ -91,6 +82,7 @@ jobs:
           python .\WordDeck\tools\fetch_oxford5000_official_html.py --output .\artifacts\oxford3000-5000-official.html
 
       - name: Validate official Oxford 5000 inventory completeness
+        shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
           $PSNativeCommandUseErrorActionPreference = $true
@@ -98,6 +90,7 @@ jobs:
           python .\WordDeck\tools\validate_oxford5000_official_inventory.py --official-html .\artifacts\oxford3000-5000-official.html --report .\artifacts\oxford5000-official-inventory.tsv
 
       - name: Validate Oxford 5000 canonical extraction and corpus reconciliation
+        shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
           $PSNativeCommandUseErrorActionPreference = $true
@@ -116,6 +109,7 @@ jobs:
           python .\WordDeck\tools\validate_oxford5000_second_pass_slice.py --self-test
 
       - name: Validate British pronunciation and AudioPack QA tools
+        shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
           $PSNativeCommandUseErrorActionPreference = $true
@@ -129,7 +123,7 @@ jobs:
       - name: Build
         run: dotnet build .\WordDeck\WordDeck.csproj -c Release --no-restore
 
-      - name: Validate embedded dictionary
+      - name: Validate embedded dictionary and extended regressions
         run: dotnet run --project .\WordDeck\WordDeck.csproj -c Release --no-build -- --self-test
 
       - name: Publish self-contained EXE
@@ -199,8 +193,8 @@ jobs:
           path: .\artifacts\pronunciation-regeneration-request.json
           if-no-files-found: error
 
-      - name: Publish final checkpoint status
-        if: always()
+      - name: Publish final canonical checkpoint status
+        if: always() && github.ref == 'refs/heads/worddeck-bootstrap'
         continue-on-error: true
         uses: actions/github-script@v7
         with:
