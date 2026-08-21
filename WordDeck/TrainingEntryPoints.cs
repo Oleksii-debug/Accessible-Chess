@@ -4,6 +4,8 @@ internal static class TrainingEntryPoints
 {
     public static void Install(MainForm main)
     {
+        main.InstallReleaseSelectorFocusRetention();
+
         MenuStrip? menu = main.Controls.OfType<MenuStrip>().FirstOrDefault();
         if (menu is null) return;
         ToolStripMenuItem? tools = menu.Items.OfType<ToolStripMenuItem>()
@@ -17,9 +19,6 @@ internal static class TrainingEntryPoints
         }
         catch (InvalidDataException)
         {
-            // Broken optional training state must not prevent Recall startup.
-            // This normalized in-memory shape is used only to render default
-            // shortcut labels; opening the affected trainer still fails closed.
             spellingState = SpellingStateStore.Normalize(new SpellingState());
         }
         var shortcutManager = new ShortcutManager(main.SharedAppStateForTraining, spellingState.Decks);
