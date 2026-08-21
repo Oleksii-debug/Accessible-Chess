@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 
 namespace WordDeck;
 
@@ -92,8 +93,11 @@ internal static class UserDataSelfTest
                 "Profile round-trip did not restore per-scope assignment.");
 
             string incompatibleProfile = Path.Combine(root, "WordDeck-profile-incompatible-corpus.json");
+            JsonObject incompatibleProfileJson = JsonNode.Parse(File.ReadAllText(profile))?.AsObject()
+                ?? throw new InvalidDataException("Exported profile JSON could not be parsed for incompatible-corpus regression setup.");
+            incompatibleProfileJson["CorpusIdentity"] = "incompatible-corpus:1";
             File.WriteAllText(incompatibleProfile,
-                File.ReadAllText(profile).Replace(AppStateStore.CorpusIdentity, "incompatible-corpus:1", StringComparison.Ordinal));
+                incompatibleProfileJson.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
             int incompatibleHiddenBefore = migrated.HiddenEntryIds.Count;
             bool incompatibleRejected = false;
             try { store.ImportProfile(incompatibleProfile, migrated, entries.Select(entry => entry.Id), new[] { dictionaryId }); }
