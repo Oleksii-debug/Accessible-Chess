@@ -263,6 +263,56 @@ def _validate_manifest(root: Path) -> tuple[str, str]:
     return integration_sha.casefold(), qa_commit.casefold()
 
 
+def _validate_release_evidence(root: Path, integration_sha: str) -> None:
+    menu = _read_json_object(
+        _require_file(root, "native-menu-self-diagnostic.json"),
+        label="native menu diagnostic",
+    )
+    for field in (
+        "host_exists", "menu_exists", "host_top_level", "parent_is_host",
+        "main_menu_strip_is_menu", "installed",
+    ):
+        if menu.get(field) is not True:
+            _fail(f"native menu diagnostic gate is not true: {field}")
+    if menu.get("menu_name") != "AccessibleChessMainMenu":
+        _fail("native menu diagnostic menu identity mismatch")
+    if not str(menu.get("accessible_role", "")).endswith("MenuBar"):
+        _fail("native menu diagnostic accessible role mismatch")
+    if menu.get("commands") != ["File", "Game", "Board", "Analysis", "Settings", "Help"]:
+        _fail("native menu diagnostic command inventory mismatch")
+
+    summary = _read_json_object(
+        _require_file(root, "packaged-uia-strict-summary.json"),
+        label="packaged UIA strict summary",
+    )
+    if summary.get("product_sha") != integration_sha:
+        _fail("packaged UIA summary product_sha does not match release integration_sha")
+    if summary.get("classification") != "A" or summary.get("evidence_complete") is not True:
+        _fail("packaged UIA summary is not classification A with complete evidence")
+    app_pid = summary.get("app_pid")
+    if isinstance(app_pid, bool) or not isinstance(app_pid, int) or app_pid <= 0:
+        _fail("packaged UIA summary app_pid must be a positive integer")
+    move_runtime_id = summary.get("move_runtime_id")
+    if not isinstance(move_runtime_id, str) or not move_runtime_id.strip():
+        _fail("packaged UIA summary move runtime identity is missing")
+    expected = {
+        "e4_fen": "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1",
+        "black_e5_fen": "rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq e6 0 2",
+        "clipboard": "e9",
+    }
+    for field, value in expected.items():
+        if summary.get(field) != value:
+            _fail(f"packaged UIA summary evidence mismatch: {field}")
+    for field in ("invalid_e9_fen_unchanged", "board_focus_continuity"):
+        if summary.get(field) is not True:
+            _fail(f"packaged UIA summary gate is not true: {field}")
+    square_count = summary.get("semantic_square_count")
+    if isinstance(square_count, bool) or square_count != 64:
+        _fail("packaged UIA summary must prove exactly 64 semantic squares")
+    if summary.get("raw_exception_noise") is not False:
+        _fail("packaged UIA summary must prove no raw exception noise")
+
+
 def _read_checksums(root: Path) -> dict[str, str]:
     path = _require_file(root, "SHA256SUMS.txt")
     try:
@@ -298,11 +348,10 @@ def inspect_release_package(root: str | Path) -> ReleasePreflightReport:
     _require_file(root_path, "AccessibleChess/AccessibleChess.exe")
     stockfish_rel = PurePosixPath("AccessibleChess", *PACKAGED_STOCKFISH_RELATIVE_PATH.parts).as_posix()
     _require_file(root_path, stockfish_rel)
-    _require_file(root_path, "native-menu-self-diagnostic.json")
-    _require_file(root_path, "packaged-uia-strict-summary.json")
     _validate_sound_pack(root_path / "AccessibleChess")
     _validate_third_party(root_path)
     integration_sha, qa_commit = _validate_manifest(root_path)
+    _validate_release_evidence(root_path, integration_sha)
     checksums = _read_checksums(root_path)
     expected_checksum_paths = set(inventory) - {"SHA256SUMS.txt"}
     if set(checksums) != expected_checksum_paths:

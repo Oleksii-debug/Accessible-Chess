@@ -36,8 +36,21 @@ class ReleasePreflightTests(unittest.TestCase):
             archive.writestr("Stockfish-sf_18/src/main.cpp", "int main(){}")
         (notices / "NOTICE.txt").write_text("Stockfish 18 GPLv3 complete corresponding source included", encoding="utf-8")
         (notices / "README.txt").write_text("Stockfish source included", encoding="utf-8")
-        (root / "native-menu-self-diagnostic.json").write_text("{}", encoding="utf-8")
-        (root / "packaged-uia-strict-summary.json").write_text("{}", encoding="utf-8")
+        (root / "native-menu-self-diagnostic.json").write_text(json.dumps({
+            "host_exists": True, "menu_exists": True, "host_top_level": True,
+            "parent_is_host": True, "main_menu_strip_is_menu": True, "installed": True,
+            "menu_name": "AccessibleChessMainMenu", "accessible_role": "MenuBar",
+            "commands": ["File", "Game", "Board", "Analysis", "Settings", "Help"],
+        }), encoding="utf-8")
+        (root / "packaged-uia-strict-summary.json").write_text(json.dumps({
+            "product_sha": "1" * 40, "app_pid": 4242, "classification": "A",
+            "evidence_complete": True, "move_runtime_id": "42.1.2.3",
+            "e4_fen": "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1",
+            "invalid_e9_fen_unchanged": True, "clipboard": "e9",
+            "semantic_square_count": 64, "board_focus_continuity": True,
+            "black_e5_fen": "rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq e6 0 2",
+            "raw_exception_noise": False,
+        }), encoding="utf-8")
         (root / "nuitka-compilation-report.xml").write_text("<report/>", encoding="utf-8")
         (root / "RELEASE_MANIFEST.json").write_text(json.dumps({
             "product": "Accessible Chess",
@@ -132,6 +145,26 @@ class ReleasePreflightTests(unittest.TestCase):
         root = self.make_package(); (root / "THIRD_PARTY_NOTICES/NOTICE.txt").write_text("Third party component", encoding="utf-8")
         (root / "THIRD_PARTY_NOTICES/README.txt").write_text("Source included", encoding="utf-8")
         self.rewrite_checksums(root); self.rejected(root, "notice/source disclosure")
+
+    def test_empty_release_evidence_json_is_rejected(self) -> None:
+        for name in ("native-menu-self-diagnostic.json", "packaged-uia-strict-summary.json"):
+            with self.subTest(name=name):
+                root = self.make_package(); (root / name).write_text("{}", encoding="utf-8")
+                self.rewrite_checksums(root); self.rejected(root, "diagnostic" if name.startswith("native") else "summary")
+
+    def test_packaged_uia_summary_is_bound_to_manifest_and_semantic_pass_facts(self) -> None:
+        root = self.make_package(); path = root / "packaged-uia-strict-summary.json"; data = json.loads(path.read_text()); data["product_sha"] = "3" * 40
+        path.write_text(json.dumps(data)); self.rewrite_checksums(root); self.rejected(root, "does not match release integration_sha")
+        root = self.make_package(); path = root / "packaged-uia-strict-summary.json"; data = json.loads(path.read_text()); data["semantic_square_count"] = 63
+        path.write_text(json.dumps(data)); self.rewrite_checksums(root); self.rejected(root, "exactly 64")
+        root = self.make_package(); path = root / "packaged-uia-strict-summary.json"; data = json.loads(path.read_text()); data["clipboard"] = "__sentinel__"
+        path.write_text(json.dumps(data)); self.rewrite_checksums(root); self.rejected(root, "clipboard")
+
+    def test_native_menu_evidence_is_semantically_validated(self) -> None:
+        root = self.make_package(); path = root / "native-menu-self-diagnostic.json"; data = json.loads(path.read_text()); data["installed"] = False
+        path.write_text(json.dumps(data)); self.rewrite_checksums(root); self.rejected(root, "installed")
+        root = self.make_package(); path = root / "native-menu-self-diagnostic.json"; data = json.loads(path.read_text()); data["commands"] = ["File", "Help"]
+        path.write_text(json.dumps(data)); self.rewrite_checksums(root); self.rejected(root, "command inventory")
 
     def test_symlink_escape_is_rejected_when_supported(self) -> None:
         root = self.make_package(); outside = root.parent / "outside.bin"; outside.write_bytes(b"outside"); link = root / "AccessibleChess/escape.dll"
