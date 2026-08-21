@@ -1,34 +1,35 @@
 # AUTO-CHESS DEV3 run state
 
-STATUS: COMPLETE FOR CURRENT ACSDB P1 RECOVERY SLICE / FULL PRODUCT MISSION PARTIAL
+STATUS: COMPLETE FOR QUERY-PLAN / LARGE-DATASET EVIDENCE SLICE / FULL PRODUCT MISSION PARTIAL
 BRANCH: `auto/dev3-acsdb-stable-paging-20260821`
 PR: #65
 DIRECTIVE: Full Product DEV3 / engine-analysis + ACSDB-Library-Search-performance
 
-Latest verified package head before docs sync: `6c7e9212584ccf6c567d3b9297b7104d73e8b6b1`
-Exact CI run: `32527856952`
-Exact CI job: `96913668679`
+Latest verified executable package head before documentation synchronization: `3f6fd2ff336eab4d0c8b9863da792f1c3d3e28f3`.
+Exact CI run: `32531622900`.
+Exact CI job: `96924650174` — SUCCESS.
+The PR workflow checked out merge ref `d9678a23e31b1bcb304d56f10e72e6fe70c8a215` for head `3f6fd2ff...` against frozen Full Product base `656e8ec311e364e6e54a30504fd30a4aaff586f9`.
 
-Terminal result for this slice:
-- stable game/import/position keyset paging and provenance retained;
-- schema v3 exact-position composite index retained;
-- file-backed WAL and 5000 ms busy timeout retained;
-- strict no-coercion query scalar contracts retained;
-- deterministic 1,200-game paging and WAL reader/writer proof retained;
-- new consistent backup uses SQLite backup API;
-- backup and restore validate `PRAGMA quick_check` plus supported schema before publication;
-- peer temporary files are atomically replaced only after validation;
-- existing destinations are protected unless exact boolean `overwrite=True` is supplied;
-- corrupt and future-schema restores fail closed without altering existing destination bytes.
+This continuation stayed in SAFE OVERLAP MODE and did not modify Product source. It added deterministic evidence for the next unclaimed P1 package:
+- actual public ACSDB SELECT statements are captured and checked with SQLite `EXPLAIN QUERY PLAN`;
+- 5,000-game keyset traversal is deterministic, complete and duplicate-free;
+- public game search remains hard-bounded to 1,000 rows even when a larger limit is requested;
+- unfiltered keyset search streams through the INTEGER PRIMARY KEY cursor without a temporary sort;
+- exact `result` and `source_id` filters use the existing `idx_games_result` / `idx_games_source` indexes and avoid `USE TEMP B-TREE`;
+- ECO prefix search preserves deterministic `g.id` streaming order without a temporary sort; no unsupported claim is made that leading-wildcard text searches are index-backed;
+- import-attempt status/SHA keyset filters use their existing indexes without temporary sorting;
+- exact-position paging uses `idx_positions_key_game_ply` and preserves stable `(game_id, ply)` order.
 
-Exact executable evidence on `6c7e9212...`:
-- focused DEV3 ACSDB suite 31/31 PASS;
-- full unittest 566/566 PASS;
-- full pytest 644 passed + 545 subtests passed;
-- compile/diff hygiene PASS;
-- no weakened/skipped tests.
+Exact executable evidence on `3f6fd2ff...`:
+- diff hygiene PASS;
+- compileall PASS;
+- focused DEV3 ACSDB suite: 36/36 PASS;
+- full unittest discovery: 571/571 PASS;
+- full pytest: 649 passed + 545 subtests passed;
+- no weakened or skipped tests for GREEN.
 
-READY_FOR_INTEGRATION: YES for the isolated ACSDB/Library/Search/recovery slice.
-OVERALL_FULL_PRODUCT_DEV3: PARTIAL; additional task packages remain.
+READY_FOR_INTEGRATION: YES for the isolated DEV3 ACSDB/Library/Search/recovery package including this evidence gate.
+OVERALL_FULL_PRODUCT_DEV3: PARTIAL; additional dependency-correct task packages remain.
 NVDA_VERIFIED: NO
+WINDOWS_CANDIDATE: NONE created by DEV3.
 BLOCKER: none for this isolated slice; integration/release authority remains DEV5/Auditor.
