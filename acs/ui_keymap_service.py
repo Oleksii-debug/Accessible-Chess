@@ -7,8 +7,9 @@ or persistence. This facade is deliberately JSON-friendly so pywebview can expos
 it without leaking filesystem or registry internals into JavaScript.
 """
 
+import json
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 from .keybindings import ActionRegistry, BindingContext, normalize_binding
 from .ui_keymap_adapter import build_web_keymap
@@ -31,10 +32,59 @@ _KEY_ALIASES = {
 }
 
 
+def _decode_user_keymap_profile(text: str) -> Mapping[str, object]:
+    """Validate the user-facing keymap envelope before migration/coercion.
+
+    ``ActionRegistry`` retains bounded legacy migration for internal callers.
+    The WebView/user-file boundary is stricter: an explicit schema version must
+    be a real JSON integer (not bool/float/numeric text), and mapping containers
+    must actually be objects. This prevents malformed data from being silently
+    reinterpreted as a valid profile.
+    """
+
+    if not isinstance(text, str):
+        raise ValueError("keymap profile must be text")
+    value = json.loads(text)
+    if not isinstance(value, Mapping):
+        raise ValueError("keymap profile must be a JSON object")
+    if "schema_version" in value:
+        version = value["schema_version"]
+        if isinstance(version, bool) or not isinstance(version, int) or version < 0:
+            raise ValueError("invalid keymap schema_version")
+    for current, legacy in (("bindings", "keys"), ("aliases", "commands")):
+        if current in value:
+            container = value[current]
+        elif "schema_version" not in value and legacy in value:
+            container = value[legacy]
+        else:
+            continue
+        if not isinstance(container, Mapping):
+            raise ValueError("invalid keymap profile")
+    return value
+
+
+def _invalid_profile_response(lang: str) -> dict[str, Any]:
+    return {
+        "ok": False,
+        "message": "Invalid keyboard profile." if lang == "en" else "Некоректний профіль клавіш.",
+        "conflicts": [],
+        "requiresConfirmation": False,
+    }
+
+
 class KeymapService:
     def __init__(self, path: str | Path, *, lang: str = "uk") -> None:
         self.path = Path(path)
-        registry, recovery = ActionRegistry.load(self.path)
+        recovery = None
+        if self.path.exists():
+            try:
+                profile = _decode_user_keymap_profile(self.path.read_text(encoding="utf-8"))
+                registry = ActionRegistry.from_profile(profile)
+            except Exception:
+                registry = ActionRegistry()
+                recovery = "invalid keymap profile"
+        else:
+            registry = ActionRegistry()
         self.editor = KeymapEditorModel(registry, lang=lang)
         self.recovery_message = recovery
 
@@ -90,7 +140,18 @@ class KeymapService:
         be assigned by a keyboard-only user.
         """
 
-        event_key = str(key or "")
+        if not isinstance(key, str) or any(not isinstance(flag, bool) for flag in (ctrl, alt, shift, win)):
+            return {
+                "captured": False,
+                "reason": "invalid",
+                "binding": "",
+                "status": "error",
+                "message": "Invalid shortcut" if self.editor.lang == "en" else "Некоректна комбінація.",
+                "canSave": False,
+                "requiresConfirmation": False,
+                "conflicts": [],
+            }
+        event_key = key
         raw_key = event_key if event_key == " " else event_key.strip()
         if raw_key == "Tab":
             return self._capture_control("navigation", "Tab")
@@ -206,15 +267,11 @@ class KeymapService:
         """
 
         try:
-            candidate = ActionRegistry.import_json(text, self.editor.registry.definitions())
+            profile = _decode_user_keymap_profile(text)
+            candidate = ActionRegistry.from_profile(profile, self.editor.registry.definitions())
             conflicts = candidate.validate()
-        except (ValueError, TypeError) as exc:
-            return {
-                "ok": False,
-                "message": str(exc),
-                "conflicts": [],
-                "requiresConfirmation": False,
-            }
+        except (ValueError, TypeError, AttributeError):
+            return _invalid_profile_response(self.editor.lang)
 
         blocking = tuple(item for item in conflicts if item.severity == "error")
         warnings = tuple(item for item in conflicts if item.severity != "error")
