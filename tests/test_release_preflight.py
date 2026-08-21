@@ -32,17 +32,27 @@ class ReleasePreflightTests(unittest.TestCase):
                 wav.writeframes((index.to_bytes(2, "little", signed=True)) * 80)
         (sounds / "manifest.json").write_text(json.dumps({"schema_version": 1, "files": {e: f"{e}.wav" for e in EVENTS}}), encoding="utf-8")
         with zipfile.ZipFile(notices / "Stockfish-18-source.zip", "w") as archive:
-            archive.writestr("Stockfish-sf_18/Copying.txt", "GPLv3")
-        (notices / "NOTICE.txt").write_text("Stockfish 18 GPLv3", encoding="utf-8")
-        (notices / "README.txt").write_text("Source included", encoding="utf-8")
+            archive.writestr("Stockfish-sf_18/Copying.txt", "GNU GENERAL PUBLIC LICENSE\nVersion 3, 29 June 2007")
+            archive.writestr("Stockfish-sf_18/src/main.cpp", "int main(){}")
+        (notices / "NOTICE.txt").write_text("Stockfish 18 GPLv3 complete corresponding source included", encoding="utf-8")
+        (notices / "README.txt").write_text("Stockfish source included", encoding="utf-8")
         (root / "native-menu-self-diagnostic.json").write_text("{}", encoding="utf-8")
         (root / "packaged-uia-strict-summary.json").write_text("{}", encoding="utf-8")
         (root / "nuitka-compilation-report.xml").write_text("<report/>", encoding="utf-8")
         (root / "RELEASE_MANIFEST.json").write_text(json.dumps({
-            "product": "Accessible Chess", "integration_sha": "1" * 40, "qa_commit": "2" * 40,
-            "nvda_verified": False, "strict_cross_process_uia": "PASS",
-            "packaged_e4_e9_clipboard_board_focus": "PASS", "packaged_sound": "PASS",
-            "stockfish_runtime_lifecycle": "PASS", "native_menu_automated_self_diagnostic": "PASS",
+            "product": "Accessible Chess",
+            "label": "NVDA TEST CANDIDATE — WAITING FOR USER TEST",
+            "integration_sha": "1" * 40,
+            "qa_commit": "2" * 40,
+            "stockfish": "18",
+            "nvda_verified": False,
+            "strict_cross_process_uia": "PASS",
+            "packaged_e4_e9_clipboard_board_focus": "PASS",
+            "packaged_sound": "PASS",
+            "stockfish_runtime_lifecycle": "PASS",
+            "native_menu_automated_self_diagnostic": "PASS",
+            "native_menu_alt_arrows_enter_esc": "HUMAN-ONLY UNPROVEN",
+            "nvda_menu_usability": "HUMAN-ONLY UNPROVEN",
         }), encoding="utf-8")
         self.rewrite_checksums(root)
         return root
@@ -81,6 +91,16 @@ class ReleasePreflightTests(unittest.TestCase):
         root = self.make_package(); path = root / "RELEASE_MANIFEST.json"; data = json.loads(path.read_text()); data["nvda_verified"] = True
         path.write_text(json.dumps(data)); self.rewrite_checksums(root); self.rejected(root, "nvda_verified=false")
 
+    def test_manifest_human_only_checks_cannot_claim_pass(self) -> None:
+        for field in ("native_menu_alt_arrows_enter_esc", "nvda_menu_usability"):
+            with self.subTest(field=field):
+                root = self.make_package(); path = root / "RELEASE_MANIFEST.json"; data = json.loads(path.read_text()); data[field] = "PASS"
+                path.write_text(json.dumps(data)); self.rewrite_checksums(root); self.rejected(root, "HUMAN-ONLY UNPROVEN")
+
+    def test_manifest_label_must_remain_waiting_for_user_nvda_test(self) -> None:
+        root = self.make_package(); path = root / "RELEASE_MANIFEST.json"; data = json.loads(path.read_text()); data["label"] = "NVDA VERIFIED"
+        path.write_text(json.dumps(data)); self.rewrite_checksums(root); self.rejected(root, "waiting for user NVDA test")
+
     def test_extra_unchecksummed_file_and_tamper_are_rejected(self) -> None:
         root = self.make_package(); (root / "AccessibleChess/unexpected.dll").write_bytes(b"x"); self.rejected(root, "inventory mismatch")
         root = self.make_package(); (root / "AccessibleChess/AccessibleChess.exe").write_bytes(b"tampered"); self.rejected(root, "checksum mismatch")
@@ -88,6 +108,30 @@ class ReleasePreflightTests(unittest.TestCase):
     def test_corrupt_stockfish_source_and_unexpected_top_file_are_rejected(self) -> None:
         root = self.make_package(); source = root / "THIRD_PARTY_NOTICES/Stockfish-18-source.zip"; source.write_bytes(b"bad"); self.rewrite_checksums(root); self.rejected(root, "valid ZIP")
         root = self.make_package(); (root / "debug.log").write_text("C:\\secret"); self.rewrite_checksums(root); self.rejected(root, "unexpected top-level files")
+
+    def test_stockfish_source_zip_traversal_wrong_root_and_missing_source_are_rejected(self) -> None:
+        root = self.make_package(); source = root / "THIRD_PARTY_NOTICES/Stockfish-18-source.zip"
+        with zipfile.ZipFile(source, "w") as archive:
+            archive.writestr("../escape.txt", "x")
+            archive.writestr("Stockfish-sf_18/Copying.txt", "GNU GENERAL PUBLIC LICENSE\nVersion 3")
+            archive.writestr("Stockfish-sf_18/src/main.cpp", "x")
+        self.rewrite_checksums(root); self.rejected(root, "unsafe path components")
+
+        root = self.make_package(); source = root / "THIRD_PARTY_NOTICES/Stockfish-18-source.zip"
+        with zipfile.ZipFile(source, "w") as archive:
+            archive.writestr("Wrong/Copying.txt", "GNU GENERAL PUBLIC LICENSE\nVersion 3")
+            archive.writestr("Wrong/src/main.cpp", "x")
+        self.rewrite_checksums(root); self.rejected(root, "sf_18 source root")
+
+        root = self.make_package(); source = root / "THIRD_PARTY_NOTICES/Stockfish-18-source.zip"
+        with zipfile.ZipFile(source, "w") as archive:
+            archive.writestr("Stockfish-sf_18/Copying.txt", "GNU GENERAL PUBLIC LICENSE\nVersion 3")
+        self.rewrite_checksums(root); self.rejected(root, "incomplete for sf_18")
+
+    def test_incomplete_stockfish_notice_is_rejected(self) -> None:
+        root = self.make_package(); (root / "THIRD_PARTY_NOTICES/NOTICE.txt").write_text("Third party component", encoding="utf-8")
+        (root / "THIRD_PARTY_NOTICES/README.txt").write_text("Source included", encoding="utf-8")
+        self.rewrite_checksums(root); self.rejected(root, "notice/source disclosure")
 
     def test_symlink_escape_is_rejected_when_supported(self) -> None:
         root = self.make_package(); outside = root.parent / "outside.bin"; outside.write_bytes(b"outside"); link = root / "AccessibleChess/escape.dll"

@@ -14,6 +14,7 @@ import hashlib
 import json
 from pathlib import Path, PurePosixPath
 import re
+import stat
 import wave
 import zipfile
 
@@ -36,6 +37,10 @@ _ALLOWED_TOP_LEVEL_FILES = {
 }
 _ALLOWED_TOP_LEVEL_DIRS = {"AccessibleChess", "THIRD_PARTY_NOTICES"}
 _REQUIRED_SOUND_EVENTS = tuple(event.value for event in SoundEvent)
+_EXPECTED_RELEASE_LABEL = "NVDA TEST CANDIDATE — WAITING FOR USER TEST"
+_EXPECTED_STOCKFISH_VERSION = "18"
+_STOCKFISH_SOURCE_ROOT = "Stockfish-sf_18"
+_HUMAN_ONLY_UNPROVEN = "HUMAN-ONLY UNPROVEN"
 
 
 class ReleasePreflightError(RuntimeError):
@@ -182,25 +187,67 @@ def _validate_sound_pack(product_root: Path) -> None:
             _fail(f"sound WAV is invalid: {event.value}")
 
 
+def _zip_member_token(info: zipfile.ZipInfo) -> str:
+    raw = info.filename[:-1] if info.is_dir() and info.filename.endswith("/") else info.filename
+    canonical = _validate_relative_token(raw, label="Stockfish source ZIP entry")
+    unix_mode = (info.external_attr >> 16) & 0xFFFF
+    if stat.S_IFMT(unix_mode) == stat.S_IFLNK:
+        _fail(f"Stockfish source ZIP contains symbolic link: {canonical}")
+    return canonical
+
+
 def _validate_third_party(root: Path) -> None:
     source = _require_file(root, "THIRD_PARTY_NOTICES/Stockfish-18-source.zip")
-    _require_file(root, "THIRD_PARTY_NOTICES/NOTICE.txt")
-    _require_file(root, "THIRD_PARTY_NOTICES/README.txt")
+    notice = _require_file(root, "THIRD_PARTY_NOTICES/NOTICE.txt")
+    readme = _require_file(root, "THIRD_PARTY_NOTICES/README.txt")
     try:
         with zipfile.ZipFile(source) as archive:
-            names = archive.namelist()
-            if not names or archive.testzip() is not None:
+            infos = archive.infolist()
+            if not infos or archive.testzip() is not None:
                 _fail("Stockfish source archive is empty or corrupt")
+            names = [_zip_member_token(info) for info in infos]
+            if any(
+                name != _STOCKFISH_SOURCE_ROOT
+                and not name.startswith(_STOCKFISH_SOURCE_ROOT + "/")
+                for name in names
+            ):
+                _fail("Stockfish source archive must use the sf_18 source root")
+            copying = f"{_STOCKFISH_SOURCE_ROOT}/Copying.txt"
+            has_source_file = any(
+                name.startswith(f"{_STOCKFISH_SOURCE_ROOT}/src/") and not info.is_dir()
+                for name, info in zip(names, infos)
+            )
+            if copying not in names or not has_source_file:
+                _fail("Stockfish source archive is incomplete for sf_18")
+            license_text = archive.read(copying).decode("utf-8", errors="replace")
+            if "GNU GENERAL PUBLIC LICENSE" not in license_text or "Version 3" not in license_text:
+                _fail("Stockfish source archive GPLv3 license is missing")
     except (OSError, zipfile.BadZipFile):
         _fail("Stockfish source archive is not a valid ZIP")
+
+    notices = (
+        notice.read_text(encoding="utf-8-sig", errors="replace")
+        + "\n"
+        + readme.read_text(encoding="utf-8-sig", errors="replace")
+    ).casefold()
+    for token in ("stockfish", "18", "gpl", "source"):
+        if token not in notices:
+            _fail("Stockfish third-party notice/source disclosure is incomplete")
 
 
 def _validate_manifest(root: Path) -> tuple[str, str]:
     manifest = _read_json_object(_require_file(root, "RELEASE_MANIFEST.json"), label="release manifest")
     if manifest.get("product") != "Accessible Chess":
         _fail("release manifest product identity mismatch")
+    if manifest.get("label") != _EXPECTED_RELEASE_LABEL:
+        _fail("release manifest label must remain waiting for user NVDA test")
     if manifest.get("nvda_verified") is not False:
         _fail("release manifest must state nvda_verified=false before human acceptance")
+    if str(manifest.get("stockfish", "")) != _EXPECTED_STOCKFISH_VERSION:
+        _fail("release manifest Stockfish version mismatch")
+    for field in ("native_menu_alt_arrows_enter_esc", "nvda_menu_usability"):
+        if manifest.get(field) != _HUMAN_ONLY_UNPROVEN:
+            _fail(f"release manifest human-only gate must remain {_HUMAN_ONLY_UNPROVEN}: {field}")
     integration_sha = manifest.get("integration_sha")
     qa_commit = manifest.get("qa_commit")
     if not isinstance(integration_sha, str) or not _SHA40_RE.fullmatch(integration_sha.casefold()):
