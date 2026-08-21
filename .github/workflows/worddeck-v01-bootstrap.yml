@@ -7,8 +7,13 @@ on:
       - '.github/workflows/worddeck-v01-bootstrap.yml'
   workflow_dispatch:
 
+concurrency:
+  group: worddeck-v01-staging-bootstrap
+  cancel-in-progress: true
+
 permissions:
   contents: write
+  statuses: write
 
 jobs:
   patch-build-test:
@@ -19,6 +24,18 @@ jobs:
         with:
           ref: worddeck-v01-user-safe-staging
           fetch-depth: 0
+
+      - name: Publish pending staging status
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            await github.rest.repos.createCommitStatus({
+              owner: context.repo.owner, repo: context.repo.repo, sha: context.sha,
+              state: 'pending', context: 'WordDeck V0.1 staging gate',
+              description: 'Applying and testing consolidated user-safe V0.1 patch.',
+              target_url: `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`
+            });
 
       - uses: actions/setup-dotnet@v4
         with:
@@ -54,3 +71,17 @@ jobs:
           git diff --cached --check
           git commit -m 'WordDeck: integrate user-safe first-use Recall UX'
           git push origin HEAD:worddeck-v01-user-safe-staging
+
+      - name: Publish final staging status
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            const ok = '${{ job.status }}' === 'success';
+            await github.rest.repos.createCommitStatus({
+              owner: context.repo.owner, repo: context.repo.repo, sha: context.sha,
+              state: ok ? 'success' : 'failure', context: 'WordDeck V0.1 staging gate',
+              description: ok ? 'Consolidated V0.1 patch built and self-tested before branch handoff.' : 'Staging patch/build/self-test failed; inspect exact run.',
+              target_url: `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`
+            });
