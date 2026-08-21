@@ -29,6 +29,7 @@
     {"id":"board.surroundings","context":"board","registryContext":"board","labelUk":"Оточення поля","labelEn":"Surroundings","binding":"X","alias":null,"defaultBinding":"X","defaultAlias":null},
     {"id":"board.attackers","context":"board","registryContext":"board","labelUk":"Атакуючі","labelEn":"Attackers","binding":"A","alias":null,"defaultBinding":"A","defaultAlias":null},
     {"id":"board.defenders","context":"board","registryContext":"board","labelUk":"Захисники","labelEn":"Defenders","binding":"D","alias":null,"defaultBinding":"D","defaultAlias":null},
+    {"id":"board.material","context":"board","registryContext":"board","labelUk":"Матеріальний баланс","labelEn":"Material balance","binding":null,"alias":null,"defaultBinding":null,"defaultAlias":null},
     {"id":"board.evaluation","context":"board","registryContext":"board","labelUk":"Оцінка позиції","labelEn":"Evaluation","binding":"V","alias":null,"defaultBinding":"V","defaultAlias":null},
     {"id":"board.best_move","context":"board","registryContext":"board","labelUk":"Найкращий хід","labelEn":"Best move","binding":"G","alias":null,"defaultBinding":"G","defaultAlias":null},
     {"id":"board.play_best","context":"board","registryContext":"board","labelUk":"Зіграти найкращий хід","labelEn":"Play best move in analysis","binding":"Shift+G","alias":null,"defaultBinding":"Shift+G","defaultAlias":null},
