@@ -11,6 +11,7 @@ internal static class SentenceCoachSelfTest
         TestRecentAvoidance();
         TestGeneratorFallbackContract();
         TestSentenceCoachStatePersistence();
+        SentencePackSqlitePrototypeSelfTest.Run();
     }
 
     private static SentencePack BuildPack()
@@ -65,31 +66,69 @@ internal static class SentenceCoachSelfTest
         try { new SentencePack { Version = 999, PackId = "bad", Provenance = "x", License = "x", Sentences = new() }.Validate(); }
         catch (InvalidDataException) { rejected = true; }
         Require(rejected, "Unsupported SentencePack version was accepted.");
+
+        SentenceRecord duplicateTargets = Make(
+            "duplicate-targets",
+            "We learn words",
+            "Ми вивчаємо слова",
+            new[] { "we", "learn", "words" },
+            new[] { "ox-learn", "ox-learn" },
+            new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { ["ox-learn"] = "A1" });
+        rejected = false;
+        try { duplicateTargets.Validate(); } catch (InvalidDataException) { rejected = true; }
+        Require(rejected, "SentencePack accepted duplicate target entry IDs.");
     }
 
     private static void TestTokenizationAndAnswerEvaluation()
     {
         IReadOnlyList<string> tokens = SentenceTokenizer.Tokenize("  Student’s   skills improve. ");
         Require(tokens.SequenceEqual(new[] { "student's", "skills", "improve" }), "Token normalization failed for apostrophe/whitespace/case.");
+
         SentenceAnswerResult exact = SentenceAnswerEvaluator.Evaluate("Oxford University improves the skills of students", "Oxford University improves the skills of students");
         Require(exact.Accepted && !exact.WordOrderIgnored, "Exact Sentence Spelling answer was rejected.");
+
         SentenceAnswerResult reordered = SentenceAnswerEvaluator.Evaluate("Oxford University improves the skills of students", "students skills the of improves University Oxford");
         Require(reordered.Accepted && reordered.WordOrderIgnored, "Correct token multiset in a different order was not accepted.");
+
         SentenceAnswerResult strictForm = SentenceAnswerEvaluator.Evaluate("She improves skills", "She improve skills");
         Require(!strictForm.Accepted && strictForm.Missing.Contains("improves") && strictForm.Extra.Contains("improve"), "Required inflected form was not enforced.");
+
         SentenceAnswerResult duplicate = SentenceAnswerEvaluator.Evaluate("we learn words", "we learn learn");
         Require(!duplicate.Accepted && duplicate.Missing.Contains("words") && duplicate.Extra.Contains("learn"), "Missing/duplicated token diagnosis failed.");
+
+        SentenceAnswerResult repeatedMissing = SentenceAnswerEvaluator.Evaluate("very very good", "good very");
+        Require(!repeatedMissing.Accepted && repeatedMissing.Missing.Count(token => token == "very") == 1,
+            "Repeated required tokens were not counted as a multiset.");
+        SentenceAnswerResult repeatedExtra = SentenceAnswerEvaluator.Evaluate("very very good", "very good very very");
+        Require(!repeatedExtra.Accepted && repeatedExtra.Extra.Count(token => token == "very") == 1,
+            "Repeated extra tokens were not counted as a multiset.");
+
         SentenceAnswerResult misspelled = SentenceAnswerEvaluator.Evaluate("students improve", "studnts improve");
         Require(!misspelled.Accepted && misspelled.PossibleMisspellings.Count == 1, "Misspelling was not rejected/diagnosed.");
+
+        SentenceAnswerResult hyphenEquivalent = SentenceAnswerEvaluator.Evaluate("Well-being improves", "improves well being");
+        Require(hyphenEquivalent.Accepted && hyphenEquivalent.WordOrderIgnored,
+            "Hyphen punctuation normalization changed the exact token multiset contract.");
+
+        SentenceAnswerResult unicodeCompatibility = SentenceAnswerEvaluator.Evaluate("Student's skills", "Ｓｔｕｄｅｎｔ’s SKILLS");
+        Require(unicodeCompatibility.Accepted,
+            "Unicode compatibility/case/apostrophe normalization did not preserve the intended technical equivalence.");
+
+        string malformed = new(new[] { '\uD800' });
+        SentenceAnswerResult malformedResult = SentenceAnswerEvaluator.Evaluate("students improve", malformed);
+        Require(!malformedResult.Accepted && malformedResult.Feedback.Contains("Unicode", StringComparison.OrdinalIgnoreCase),
+            "Malformed Unicode input was not rejected with a concise diagnostic.");
     }
 
     private static void TestOneAndTwoTargetLookup()
     {
         SentencePack pack = BuildPack();
-        Require(pack.LookupByEntryId("ox-improve").Count == 3, "One-target inverted index lookup returned the wrong count.");
+        Require(pack.LookupByEntryId(" OX-IMPROVE ").Count == 3, "One-target inverted index lookup did not normalize an entry ID safely.");
         IReadOnlyList<SentenceRecord> both = pack.LookupAllTargets(new[] { "ox-improve", "ox-skills" });
         Require(both.Count == 3 && both.All(s => s.TargetEntryIds.Contains("ox-improve") && s.TargetEntryIds.Contains("ox-skills")), "Two-target intersection did not require both targets.");
         Require(pack.LookupAllTargets(new[] { "ox-improve", "not-present" }).Count == 0, "Intersection lookup invented a missing target.");
+        Require(pack.LookupAllTargets(new[] { "ox-skills", "ox-improve", "OX-SKILLS" }).Count == 3,
+            "Deterministic in-memory intersection failed after duplicate requested-target normalization.");
     }
 
     private static void TestPersonalDifficultyRankingAndScope()
@@ -141,7 +180,7 @@ internal static class SentenceCoachSelfTest
         });
         Require(legacy.CurrentTargetEntryIds.SequenceEqual(new[] { "legacy-target" }), "Legacy one-target Sentence Coach state did not migrate to the target list.");
 
-        string root = Path.Combine(Path.GetTempPath(), $"WordDeck-sentence-state-{Guid.NewGuid():N}");
+        string root = Path.Combine(Path.GetTempPath(), $"WordDeck-sentence-state-Київ space-{Guid.NewGuid():N}");
         try
         {
             var store = new SentenceCoachStateStore(root);
@@ -186,8 +225,14 @@ internal static class SentenceCoachSelfTest
             string english = "alpha beta";
             return new SentenceRecord
             {
-                Id = "generated-test", English = english, Ukrainian = "альфа бета", Source = "controlled-test-generator", License = "internal-generated",
-                Tokens = SentenceTokenizer.Tokenize(english).ToList(), Lemmas = new List<string> { "alpha", "beta" }, TargetEntryIds = targetEntryIds.ToList(),
+                Id = "generated-test",
+                English = english,
+                Ukrainian = "альфа бета",
+                Source = "controlled-test-generator",
+                License = "internal-generated",
+                Tokens = SentenceTokenizer.Tokenize(english).ToList(),
+                Lemmas = new List<string> { "alpha", "beta" },
+                TargetEntryIds = targetEntryIds.ToList(),
                 EntryLevels = targetEntryIds.ToDictionary(id => id, _ => "A1", StringComparer.OrdinalIgnoreCase)
             };
         }
