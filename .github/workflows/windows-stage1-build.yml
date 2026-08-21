@@ -1,146 +1,21 @@
-name: Windows Stage 1 RC3 Build
-# Uses verified source chunks after two larger chunks were found truncated.
+name: Legacy Windows Stage 1 RC3 Build — DISABLED
 
+# SECURITY TOMBSTONE.
+# This workflow reconstructed obsolete RC3 source chunks and could create an
+# artifact outside the current fail-closed release chain.  It is intentionally
+# retained only to reject accidental/manual execution.
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - agent/stage1-final-0.3.3
-    paths:
-      - '.github/workflows/windows-stage1-build.yml'
-      - 'build_snapshot_exact/group00.b64'
-      - 'build_snapshot_exact/group01.b64'
-      - 'build_parts10k/**'
 
 permissions:
   contents: read
 
-concurrency:
-  group: accessible-chess-stage1-windows-rc3
-  cancel-in-progress: true
-
 jobs:
-  build-and-test:
-    runs-on: windows-latest
-    timeout-minutes: 45
+  legacy-release-disabled:
+    runs-on: ubuntu-24.04
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Reconstruct exact verified Stage 1 source
-        shell: pwsh
+      - name: Reject legacy release path
+        shell: bash
         run: |
-          $ordered = @(
-            'build_snapshot_exact\group00.b64',
-            'build_snapshot_exact\group01.b64',
-            'build_parts10k\part04.b64',
-            'build_parts10k\part05.b64',
-            'build_parts10k\part06.b64',
-            'build_parts10k\part07.b64'
-          )
-          foreach ($f in $ordered) { if (-not (Test-Path $f)) { throw "Missing source chunk: $f" } }
-          $b64 = ($ordered | ForEach-Object { Get-Content -LiteralPath $_ -Raw }) -join ''
-          $b64 = $b64 -replace '\s',''
-          if ($b64.Length -ne 77128) { throw "Unexpected Base64 length: $($b64.Length)" }
-          [IO.File]::WriteAllBytes('stage1_source.zip', [Convert]::FromBase64String($b64))
-          $size = (Get-Item 'stage1_source.zip').Length
-          if ($size -ne 57844) { throw "Unexpected source ZIP size: $size" }
-          $hash = (Get-FileHash 'stage1_source.zip' -Algorithm SHA256).Hash.ToLowerInvariant()
-          $expected = 'cb0a897286d0dce6ff9d05d985169d42e4f9540203115611356e6f831de2bce7'
-          if ($hash -ne $expected) { throw "Source ZIP SHA256 mismatch: $hash" }
-          Expand-Archive -LiteralPath 'stage1_source.zip' -DestinationPath 'work' -Force
-          foreach ($required in @('work\acs\main.py','work\acs\chesscore.py','work\acs\engine.py','work\acs\accessibility.py','work\acs\hotkeys.py','work\acs\threats.py','work\run_accessible_chess.py')) {
-            if (-not (Test-Path $required)) { throw "Missing required source file: $required" }
-          }
-          Write-Host 'Exact Stage 1 source reconstructed and verified.'
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-
-      - name: Install build tool
-        shell: pwsh
-        working-directory: work
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install pyinstaller
-
-      - name: Check chess rules and program functions
-        shell: pwsh
-        working-directory: work
-        run: |
-          python -m compileall -q acs tests run_accessible_chess.py
-          python -m unittest discover -s tests -v
-          python -m acs.selftest
-          python -m acs.stage1_smoketest
-
-      - name: Build autonomous Windows EXE
-        shell: pwsh
-        working-directory: work
-        run: |
-          python -m PyInstaller --noconfirm --clean --onefile --windowed --name AccessibleChess run_accessible_chess.py
-          if (-not (Test-Path 'dist\AccessibleChess.exe')) { throw 'AccessibleChess.exe was not produced' }
-
-      - name: Run the built EXE itself
-        shell: pwsh
-        working-directory: work
-        run: |
-          $p = Start-Process -FilePath '.\dist\AccessibleChess.exe' -ArgumentList '--diagnostic' -PassThru -Wait
-          if ($p.ExitCode -ne 0) { throw "AccessibleChess.exe diagnostic failed with code $($p.ExitCode)" }
-          Write-Host 'AccessibleChess.exe diagnostic completed successfully.'
-
-      - name: Add official Stockfish 18 generic Windows engine
-        shell: pwsh
-        working-directory: work
-        run: |
-          New-Item -ItemType Directory -Force -Path 'package\WINDOWS_EXE\engine' | Out-Null
-          New-Item -ItemType Directory -Force -Path 'package\THIRD_PARTY' | Out-Null
-          Copy-Item 'dist\AccessibleChess.exe' 'package\WINDOWS_EXE\AccessibleChess.exe' -Force
-          $engineUrl = 'https://github.com/official-stockfish/Stockfish/releases/download/sf_18/stockfish-windows-x86-64.zip'
-          Invoke-WebRequest -Uri $engineUrl -OutFile 'stockfish18-windows.zip'
-          Expand-Archive 'stockfish18-windows.zip' -DestinationPath 'stockfish18' -Force
-          $engine = Get-ChildItem -Path 'stockfish18' -Recurse -Filter '*.exe' | Where-Object { $_.Name -match 'stockfish.*x86-64' } | Select-Object -First 1
-          if (-not $engine) { throw 'Official Stockfish 18 generic Windows executable not found after extraction' }
-          Copy-Item $engine.FullName 'package\WINDOWS_EXE\engine\stockfish.exe' -Force
-          Invoke-WebRequest -Uri 'https://github.com/official-stockfish/Stockfish/archive/refs/tags/sf_18.zip' -OutFile 'package\THIRD_PARTY\Stockfish-18-source.zip'
-          @"
-          Stockfish 18 is a third-party chess engine licensed under GNU GPL v3.
-          Official release: sf_18, official-stockfish/Stockfish.
-          Complete corresponding source archive is included as Stockfish-18-source.zip.
-          "@ | Set-Content -Encoding UTF8 'package\THIRD_PARTY\STOCKFISH_LICENSE_NOTICE.txt'
-
-      - name: Assemble candidate package
-        shell: pwsh
-        working-directory: work
-        run: |
-          New-Item -ItemType Directory -Force -Path 'package\SOURCE' | Out-Null
-          Copy-Item 'acs' 'package\SOURCE\acs' -Recurse -Force
-          Copy-Item 'tests' 'package\SOURCE\tests' -Recurse -Force
-          Copy-Item 'run_accessible_chess.py' 'package\SOURCE\run_accessible_chess.py' -Force
-          foreach ($f in @('README_ДЛЯ_NVDA.txt','HOTKEYS_UA.txt','HOTKEYS_EN.txt','CHANGELOG_0.3.3_STAGE1.txt','TEST_REPORT_0.3.3_STAGE1.txt','STAGE1_STATUS.txt','VERSION.txt')) {
-            if (Test-Path $f) { Copy-Item $f 'package' -Force }
-          }
-          @"
-          Accessible Chess Stage 1 0.3.3 Windows build candidate
-          Windows runner: PASS
-          Autonomous EXE created: PASS
-          Built EXE diagnostic: PASS
-          Source tests: PASS
-          Stockfish 18 generic x86-64 bundled: PASS
-          Direct NVDA controller DLL is not bundled in this candidate; native accessible controls remain available. Real user NVDA verification is still required.
-          "@ | Set-Content -Encoding UTF8 'package\WINDOWS_BUILD_REPORT.txt'
-          Get-ChildItem 'package' -Recurse -File | ForEach-Object {
-            $h = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
-            $rel = $_.FullName.Substring((Resolve-Path 'package').Path.Length + 1)
-            "$h  $rel"
-          } | Set-Content -Encoding UTF8 'package\SHA256SUMS.txt'
-          Compress-Archive -Path 'package\*' -DestinationPath 'Accessible-Chess-Stage1-0.3.3-Windows-Candidate.zip' -Force
-
-      - name: Upload complete Windows candidate
-        uses: actions/upload-artifact@v4
-        with:
-          name: Accessible-Chess-Stage1-0.3.3-Windows-Candidate
-          path: work/Accessible-Chess-Stage1-0.3.3-Windows-Candidate.zip
-          if-no-files-found: error
-          retention-days: 14
+          echo "::error::LEGACY_RELEASE_PATH_DISABLED: obsolete RC3 build is forbidden; no artifact was created."
+          exit 1
