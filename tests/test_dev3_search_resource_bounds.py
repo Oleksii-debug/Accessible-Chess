@@ -20,10 +20,9 @@ class SearchResourceBoundsTests(unittest.TestCase):
         self.assertEqual(normalized.player, term)
 
     def test_whitespace_normalization_happens_before_resource_bound(self) -> None:
-        raw = (" word " * 80)
+        raw = "word" + (" " * 400) + "term"
         normalized = GameSearchQuery(event=raw).normalized()
-        self.assertLessEqual(len(normalized.event or ""), 256)
-        self.assertNotIn("  ", normalized.event or "")
+        self.assertEqual(normalized.event, "word term")
 
     def test_oversize_filter_is_rejected_without_executing_database_query(self) -> None:
         db = AcsDatabase()
