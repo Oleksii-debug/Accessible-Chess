@@ -1,38 +1,39 @@
 # AUTO-CHESS DEV3 session handoff
 
-UTC checkpoint: 2026-08-22T00:08Z executable verification completed.
+UTC checkpoint: 2026-08-22T01:07Z executable verification completed.
 
-Continued the same DEV3 Full Product Work-run on `auto/dev3-acsdb-stable-paging-20260821` / draft PR #65. Live ownership remained SAFE OVERLAP constrained: DEV2 is advancing canonical GameTree/domain, DEV1 presentation/UI, DEV4 QA/security evidence and DEV5 integration. This continuation therefore took the explicitly queued non-conflicting ACSDB backup/restore publication-atomicity P1 and did not create a competing canonical core.
+Continued the same DEV3 Full Product work on `auto/dev3-acsdb-stable-paging-20260821` / draft PR #65. Live ownership remained SAFE OVERLAP constrained: DEV2 owns canonical GameTree/domain, DEV1 presentation/UI and Teacher surfaces, DEV4 independent QA/security evidence, and DEV5 integration/promotion. This run therefore selected the queued non-conflicting presentation-neutral Training/progress backend P1.
 
-Latest verified executable package head before documentation-only synchronization: `24817c894fd84cdf0b8e63391249a95c09718e6a`.
-Exact verification run/job: `32539307522` / `96945995146` — SUCCESS.
-Workflow PR merge ref: `44e04d6d761f692d6e13ca4b9e2fcc5ca2f7be51` against Full Product base `656e8ec311e364e6e54a30504fd30a4aaff586f9`.
-Runner evidence: GitHub runner `2.336.0`, `ubuntu-24.04@20260816.277.1`, Python 3.12.14.
+Latest verified executable head: `d49482e90089c640869a697dce9fff9abd9f3519`.
+Exact verification run/job: `32542435950` / `96954884846` — SUCCESS.
+Workflow PR merge ref: `0d3e69a2207a4fb471ca84663e61292d66ebbeeb` against Full Product base `656e8ec311e364e6e54a30504fd30a4aaff586f9`.
+Runner: GitHub runner 2.336.0, Ubuntu 24.04 image 20260816.277.1, Python 3.12.14.
 
-Delivered in this continuation:
-- audited ACSDB `backup_to()` and `restore_backup()` final publication semantics and confirmed a concrete no-overwrite lost-update TOCTOU;
-- replaced the `overwrite=False` final recheck + unconditional replace with atomic same-directory `os.link()` create-if-absent publication;
-- preserved explicit `overwrite=True` atomic replacement via `os.replace()`;
-- preserved native SQLite backup, `quick_check`, supported-schema validation and peer-temp cleanup semantics;
-- added deterministic backup and restore regression coverage forcing a concurrent creator into the final publication syscall window;
-- proved the competing destination bytes survive and peer temporary files are cleaned up.
+Delivered:
+- audited `ExerciseSession` persistence exchange and found unversioned snapshots plus silent scalar/default coercion in restore;
+- introduced `TRAINING_SNAPSHOT_SCHEMA_VERSION = 1` and exact schema-v1 snapshot payload;
+- made restore reject missing and unknown fields;
+- made schema version, exercise identity, counters and status exact scalar contracts, rejecting bool/float/string coercion where inappropriate;
+- made unsupported future schema versions fail closed with explicit migration responsibility at the persistence adapter boundary;
+- retained counter, step-index and completion consistency checks;
+- added `tests/test_dev3_training_snapshot_contract.py` with 7 deterministic regressions covering exact payload, missing/unknown fields, schema versions, scalar coercion, invalid relationships and roundtrip preservation.
 
-No canonical GameTree/chess-rule source changed. No test was weakened, skipped or converted to allow-failure. DEV4 QA PR #67 retains its separate security ownership; this DEV3 slice neither claims nor modifies those findings.
+No canonical chess legality, GameTree, board or UI authority was introduced or modified. Training still consumes canonical move/FEN facts rather than owning chess rules. No test was weakened or skipped.
 
-Terminal executable evidence on `24817c8...`:
+Terminal executable evidence on `d49482e...`:
 - diff hygiene PASS;
 - compileall PASS;
-- focused DEV3 ACSDB suite: 36/36 PASS;
-- full unittest: 575/575 PASS;
-- full pytest: 653 passed + 545 subtests passed;
-- both new ACSDB publication-race regressions PASS.
+- focused DEV3 ACSDB suite 36/36 PASS;
+- full unittest 582/582 PASS;
+- full pytest 660 passed + 560 subtests PASS;
+- all 7 Training snapshot contract regressions PASS.
 
 Decision:
-- DEV3 ACSDB/Library/Search/recovery/query-plan package remains `READY_FOR_INTEGRATION=YES` and now includes the PGN plus ACSDB no-overwrite publication closures;
-- ACSDB backup/restore publication-race slice is COMPLETE and exact-head GREEN;
-- overall DEV3 Full Product mission remains PARTIAL, not falsely marked complete;
-- next executable action after a fresh ownership check: take one unclaimed DEV3 backend P1 in engine-assisted Training/Books/Teacher/progress analytics or another dependency-correct ACSDB/Library/Search boundary; if touching work is already owned, remain in SAFE OVERLAP MODE;
-- frozen Stage1 release refs remain untouched;
-- fresh Windows candidate: NONE from this DEV3 run;
+- strict Training snapshot-contract P1 is COMPLETE and executable-head GREEN;
+- existing DEV3 ACSDB/Library/Search/recovery/query-plan package remains `READY_FOR_INTEGRATION=YES`;
+- overall DEV3 Full Product mission remains PARTIAL;
+- next action after fresh live ownership check: another unclaimed presentation-neutral Training/Books/Teacher/progress analytics P1 or dependency-correct ACSDB/Library/Search boundary; remain SAFE OVERLAP if touching work is owned;
+- frozen Stage1 release refs untouched;
+- fresh Windows candidate: NONE;
 - `NVDA_VERIFIED=NO`;
-- DEV5/Auditor remain integration/release authorities.
+- DEV5/Auditor retain integration/release authority.
