@@ -25,10 +25,12 @@ internal sealed record SentenceCoachRuntimeDiagnostics(
     long OneTargetCoverageMilliseconds,
     int OneTargetCoveredEntries,
     int OneTargetUncoveredEntries,
+    IReadOnlyList<string> OneTargetUncoveredEntryIds,
     double OneTargetCoveragePercent,
     long TwoTargetCoverageMilliseconds,
     int TwoTargetCoveredEntries,
     int TwoTargetUncoveredEntries,
+    IReadOnlyList<string> TwoTargetUncoveredEntryIds,
     double TwoTargetCoveragePercent,
     long RepresentativeOneTargetMilliseconds,
     int RepresentativeOneTargetSentences,
@@ -196,8 +198,14 @@ internal static class SentencePackDiagnostics
         process.Refresh();
         long workingAfter = process.WorkingSet64;
 
-        int oneUncovered = scopeIds.Length - oneTargetCovered.Count;
-        int twoUncovered = scopeIds.Length - twoTargetCovered.Count;
+        string[] oneUncoveredIds = scopeIds
+            .Where(id => !oneTargetCovered.Contains(id))
+            .OrderBy(id => id, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        string[] twoUncoveredIds = scopeIds
+            .Where(id => !twoTargetCovered.Contains(id))
+            .OrderBy(id => id, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
         double onePercent = scopeIds.Length == 0 ? 0 : Math.Round(oneTargetCovered.Count * 100.0 / scopeIds.Length, 2);
         double twoPercent = scopeIds.Length == 0 ? 0 : Math.Round(twoTargetCovered.Count * 100.0 / scopeIds.Length, 2);
 
@@ -213,11 +221,13 @@ internal static class SentencePackDiagnostics
             openWatch.ElapsedMilliseconds,
             oneCoverageWatch.ElapsedMilliseconds,
             oneTargetCovered.Count,
-            oneUncovered,
+            oneUncoveredIds.Length,
+            oneUncoveredIds,
             onePercent,
             twoCoverageWatch.ElapsedMilliseconds,
             twoTargetCovered.Count,
-            twoUncovered,
+            twoUncoveredIds.Length,
+            twoUncoveredIds,
             twoPercent,
             oneQueryWatch.ElapsedMilliseconds,
             oneResults.Count,
