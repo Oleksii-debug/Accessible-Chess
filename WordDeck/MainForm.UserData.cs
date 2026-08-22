@@ -121,65 +121,13 @@ internal sealed partial class MainForm
         FocusCurrentWord();
     }
 
-    private void ExportPersonalProfile()
-    {
-        SaveState();
-        using var dialog = new SaveFileDialog
-        {
-            Title = "Export WordDeck personal progress profile",
-            Filter = "WordDeck personal profile (*.json)|*.json",
-            FileName = "WordDeck-profile-v1.json",
-            AddExtension = true,
-            DefaultExt = "json"
-        };
-        if (dialog.ShowDialog(this) != DialogResult.OK) { FocusCurrentWord(); return; }
-        try
-        {
-            _store.ExportProfile(_state, dialog.FileName);
-            AnnounceStatus($"Personal WordDeck profile exported to {dialog.FileName}. It contains study state only, not the canonical dictionary or audio files.");
-        }
-        catch (Exception ex)
-        {
-            MessageBox.Show(this, ex.Message, "Profile export failed", MessageBoxButtons.OK, MessageBoxIcon.Error);
-        }
-        FocusCurrentWord();
-    }
+    // The historical V0.1 File-menu actions and their configurable shortcuts now
+    // route through the full-v1 profile service. A user who chooses the standard
+    // "personal profile" path must not unknowingly export only Recall while
+    // Spelling and Sentence progress remain behind.
+    private void ExportPersonalProfile() => ExportUnifiedPersonalProfileInteractive();
 
-    private void ImportPersonalProfile()
-    {
-        using var dialog = new OpenFileDialog
-        {
-            Title = "Import WordDeck personal progress profile",
-            Filter = "WordDeck personal profile (*.json)|*.json|All files (*.*)|*.*"
-        };
-        if (dialog.ShowDialog(this) != DialogResult.OK) { FocusCurrentWord(); return; }
-        try
-        {
-            SaveState();
-            var knownEntries = _packages.Values.SelectMany(package => package.Entries.Select(entry => entry.Id))
-                .Concat(_state.CustomEntriesByDictionary.Values.SelectMany(list => list.Select(entry => entry.Id)))
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .ToArray();
-            ProfileImportResult result = _store.ImportProfile(dialog.FileName, _state, knownEntries, _packages.Keys);
-            _navigationHistory.Clear();
-            _autoPronunciationMenuItem.Checked = _state.AutoPlayPronunciationOnCardChange;
-            DictionaryPackage selected = _state.ActiveDictionaryId is not null && _packages.TryGetValue(_state.ActiveDictionaryId, out DictionaryPackage? package)
-                ? package
-                : _packages.Values.First();
-            ActivatePackage(selected);
-            RestoreCurrentOrNextWord();
-            string quarantine = result.QuarantinedIds.Count == 0
-                ? "No unknown stable IDs were found."
-                : $"{result.QuarantinedIds.Count} unknown IDs were preserved in quarantine for future migration.";
-            AnnounceStatus($"Personal profile imported successfully. A pre-import recovery profile was saved at {result.BackupPath}. {quarantine}");
-        }
-        catch (Exception ex)
-        {
-            MessageBox.Show(this, ex.Message, "Profile import failed", MessageBoxButtons.OK, MessageBoxIcon.Error);
-            AnnounceStatus("Profile import failed. Existing personal state was not replaced.");
-        }
-        FocusCurrentWord();
-    }
+    private void ImportPersonalProfile() => ImportUnifiedPersonalProfileInteractive();
 
     private void ResetLearningData()
     {
