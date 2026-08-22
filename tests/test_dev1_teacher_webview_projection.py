@@ -175,6 +175,25 @@ class TeacherWebViewProjectionTests(unittest.TestCase):
         self.assertIsInstance(snapshot["highlights"], tuple)
         self.assertIsInstance(snapshot["arrows"], tuple)
 
+    def test_snapshot_reads_canonical_provider_once(self):
+        calls = []
+        states = iter((
+            {"pointer_square": "f3"},
+            {"pointer_square": "c7"},
+        ))
+
+        def provider():
+            calls.append("read")
+            return next(states)
+
+        teacher = TeacherPresentationState(lambda action_id, payload: None, provider)
+        projection = TeacherWebViewProjection(teacher)
+        snapshot = projection.snapshot()
+        self.assertEqual(calls, ["read"])
+        self.assertEqual(snapshot["pointer"]["square"], "f3")
+        self.assertIn("f3", snapshot["accessible_summary"])
+        self.assertNotIn("c7", snapshot["accessible_summary"])
+
 
 if __name__ == "__main__":
     unittest.main()
