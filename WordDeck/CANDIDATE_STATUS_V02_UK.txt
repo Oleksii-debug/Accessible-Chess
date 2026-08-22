@@ -4,10 +4,12 @@ WORDDECK V0.2 — FULL-V1 ENGINEERING CANDIDATE
 
 У кандидата інтегровані Recall, Spelling, deterministic/statistical Adaptive Coach, Sentence Spelling/Sentence Coach runtime, повний Oxford 5000, британська офлайн-озвучка, Study Scopes, єдиний профіль Recall+Spelling+Sentence, резервні копії/міграції та клавіатурна доступність.
 
-Sentence runtime, імпорт, provenance-перевірки та SQLite-шар інтегровані. Проте цей ZIP НЕ заявляє, що містить фінальний production SentencePack: у канонічних вхідних даних цього раунду немає незалежно підтвердженого розповсюджуваного EN-UA SentencePack payload із завершеним source/license evidence. Програма має працювати без падіння без встановленого SentencePack і приймати валідований пакет через передбачений імпорт.
+Стандартні File-команди та клавіші експорту/імпорту персонального профілю використовують єдиний профіль Recall+Spelling+Sentence, а не історичний Recall-only маршрут. Особистий прогрес не входить у публічний ZIP і зберігається окремо у %LOCALAPPDATA%\WordDeck.
+
+У Spelling і Sentence Spelling порожній або лише пробільний Enter відсікається до зміни навчальної статистики. Це також захищає від випадкового швидкого другого Enter після правильної відповіді. F1 формує актуальну довідку з поточними Recall/Spelling/Sentence призначеннями клавіш і правдивою поведінкою стандартного Alt+F4.
+
+Sentence runtime, імпорт, provenance-перевірки, structural-limit trust boundary та SQLite-шар інтегровані. Проте цей ZIP НЕ заявляє, що містить фінальний production SentencePack: у канонічних вхідних даних цього раунду немає незалежно підтвердженого розповсюджуваного EN-UA SentencePack payload із завершеним source/license evidence. Програма має працювати без падіння без встановленого SentencePack і приймати валідований пакет через передбачений імпорт.
 
 Release safety: accepted V0.1 лишається історично незмінним; завершений 1156 transport та старі emergency source-mutation workflows переведені у ручні read-only archive markers; authoritative Windows validation не має права переписувати product source або рухати canonical branch.
 
 Автоматизований Windows/UI Automation тест не є ручним тестом NVDA. Ручний NVDA PASS не заявляється.
-
-Особистий прогрес не входить у публічний ZIP і зберігається окремо у %LOCALAPPDATA%\WordDeck.
