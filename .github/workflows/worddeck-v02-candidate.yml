@@ -86,7 +86,10 @@ jobs:
             const runId = Number(process.env.AUDIO_SOURCE_RUN_ID);
             const artifactId = Number(process.env.AUDIO_ARTIFACT_ID);
             const response = await github.rest.actions.listWorkflowRunArtifacts({
-              owner: context.repo.owner, repo: context.repo.repo, run_id: runId, per_page: 100
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              run_id: runId,
+              per_page: 100
             });
             const artifact = response.data.artifacts.find(a => a.id === artifactId && a.name === process.env.AUDIO_ARTIFACT_NAME);
             if (!artifact) throw new Error('Accepted AudioPack artifact is missing.');
@@ -208,7 +211,7 @@ jobs:
           retention-days: 90
 
       - name: Setup WinApp CLI for Windows UI Automation
-        uses: microsoft/setup-winapp@v1
+        uses: microsoft/setup-WinAppCli@v0.1
 
       - name: Run actual integrated Windows UI Automation regression
         shell: pwsh
