@@ -38,3 +38,5 @@ A state refresh may update the current exercise without taking focus away from t
 ## Evidence status
 
 Source-level protections and self-tests are present in the R3 worker branch. Final machine status must be filled from the exact-tip Windows GitHub Actions run; physical NVDA status remains human-only.
+
+The automated PR evidence run uses the isolated DEV4-only base branch `worddeck-worker-4-accessibility-r3-ci-base`. That branch is only a CI transport required because canonical advanced concurrently beyond the fixed Round-3 base; it is not a product integration target and must never be merged into canonical.
