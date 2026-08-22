@@ -173,7 +173,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          & .\WordDeck\scripts\worker3-r4b-uia-smoke.ps1 -ProjectPath .\WordDeck\WordDeck.csproj *>&1 | Tee-Object -FilePath .\artifacts\uia-r4b.log
+          & .\WordDeck\scripts\worker3-r4b-uia-smoke.ps1 -ExePath .\artifacts\WordDeck-worker3-r4b-win-x64.exe *>&1 | Tee-Object -FilePath .\artifacts\uia-r4b.log
           'PASS' | Set-Content .\artifacts\uia-r4b-status.txt -Encoding utf8
 
       - name: Write acceptance summary
