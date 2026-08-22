@@ -1,0 +1,146 @@
+name: DEV5 Shared Boundary Repair CI
+
+on:
+  push:
+    branches:
+      - full5/dev5-shared-boundary-repair-20260823
+  pull_request:
+    branches:
+      - full5/dev4-import-security-repair-20260822
+
+permissions:
+  contents: read
+
+env:
+  REPAIR_SHA: 00ffb09058cc90e1bb4d1e74172ebf0fc34ac85f
+  DEV4_BASE_SHA: 6298899cb112336ef220caa8d0e52334ddc0c0ae
+  QA_SHA: 67ab2789ea03e42526b37882cf93171591634b1e
+  DEV2_TERMINAL_SHA: 8d9c7c99ef8d1754555adaf286ab15f5da3224af
+  DEV4_REAL_LINK_QA_SHA: 1d90557905753b158b99b7d62321a5e1f1a423bb
+  PERSISTENT_GREEN_SHA: dd9ebf9414103c805892856fe6a04706fa69039f
+
+jobs:
+  repair-scope:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Checkout exact repair Product/test head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.REPAIR_SHA }}
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install verification dependencies
+        run: python -m pip install -q pytest
+      - name: Exact identity and diff hygiene
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$REPAIR_SHA"
+          git merge-base --is-ancestor "$DEV4_BASE_SHA" "$REPAIR_SHA"
+          git diff --check "$DEV4_BASE_SHA" "$REPAIR_SHA"
+          changed="$(git diff --name-only "$DEV4_BASE_SHA" "$REPAIR_SHA")"
+          printf '%s\n' "$changed"
+          for path in $changed; do
+            case "$path" in
+              acs/chessbase_adapter.py|acs/chessbase_integrity.py|acs/chessbase_manifest.py|acs/pgn_service.py|tests/test_dev5_shared_boundary_repair.py) ;;
+              *) echo "unexpected repair path: $path" >&2; exit 1 ;;
+            esac
+          done
+      - name: Compile exact repair
+        run: python -m compileall -q acs tests run_accessible_chess.py
+      - name: DEV5 Product regressions
+        run: python -m pytest -q tests/test_dev5_shared_boundary_repair.py
+      - name: Materialize exact independent QA oracles without editing them
+        shell: bash
+        run: |
+          set -euo pipefail
+          git show "$QA_SHA:tests/test_dev4_chessbase_cross_platform_path_privacy.py" > tests/test_dev4_chessbase_cross_platform_path_privacy.py
+          git show "$QA_SHA:tests/test_dev4_pgn_postcommit_cleanup_atomicity.py" > tests/test_dev4_pgn_postcommit_cleanup_atomicity.py
+          git diff --check
+      - name: Independent QA defect oracles
+        run: >-
+          python -m pytest -q
+          tests/test_dev4_chessbase_cross_platform_path_privacy.py
+          tests/test_dev4_pgn_postcommit_cleanup_atomicity.py
+      - name: Existing DEV4 focused security/resource/privacy gates
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pytest -q \
+            tests/test_dev4_chessbase_integrity_atomicity.py \
+            tests/test_dev4_chessbase_integrity_io_observability.py \
+            tests/test_dev4_chessbase_manifest_io_observability.py \
+            tests/test_dev4_chessbase_probe_observability.py \
+            tests/test_dev4_chessbase_report_path_privacy.py \
+            tests/test_dev4_chessbase_symlink_security.py \
+            tests/test_dev4_engine_error_path_privacy.py \
+            tests/test_dev4_import_batch_adapter_failure.py \
+            tests/test_dev4_import_fingerprint_atomicity.py \
+            tests/test_dev4_import_history_error_privacy.py \
+            tests/test_dev4_import_special_file_security.py \
+            tests/test_dev4_pgn_encoding_quality.py \
+            tests/test_dev4_pgn_export_failure_recovery.py \
+            tests/test_dev4_pgn_export_path_security.py \
+            tests/test_dev4_pgn_resource_security.py \
+            tests/test_pgn_service.py
+      - name: Canonical cross-lane semantic overlay for known ancestry conflicts
+        shell: bash
+        run: |
+          set -euo pipefail
+          git show "$DEV2_TERMINAL_SHA:acs/gametree.py" > acs/gametree.py
+          git show "$DEV4_REAL_LINK_QA_SHA:tests/test_dev4_pgn_export_concurrency_security.py" > tests/test_dev4_pgn_export_concurrency_security.py
+          git diff --check
+      - name: PGN concurrency and truncation cross-lane gates
+        run: >-
+          python -m pytest -q
+          tests/test_dev4_pgn_export_concurrency_security.py
+          tests/test_dev4_pgn_truncation_quality.py
+          tests/test_dev4_pgn_postcommit_cleanup_atomicity.py
+          tests/test_pgn_service.py
+
+  persistent-green-compatibility:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Checkout persistent exact-GREEN integration authority
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.PERSISTENT_GREEN_SHA }}
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install verification dependencies
+        run: python -m pip install -q pytest
+      - name: Overlay only repaired shared-boundary Product files
+        shell: bash
+        run: |
+          set -euo pipefail
+          for path in \
+            acs/chessbase_adapter.py \
+            acs/chessbase_integrity.py \
+            acs/chessbase_manifest.py \
+            acs/pgn_service.py \
+            tests/test_dev5_shared_boundary_repair.py; do
+            git show "$REPAIR_SHA:$path" > "$path"
+          done
+          git show "$QA_SHA:tests/test_dev4_chessbase_cross_platform_path_privacy.py" > tests/test_dev4_chessbase_cross_platform_path_privacy.py
+          git show "$QA_SHA:tests/test_dev4_pgn_postcommit_cleanup_atomicity.py" > tests/test_dev4_pgn_postcommit_cleanup_atomicity.py
+          git diff --check
+      - name: Compile selective compatibility tree
+        run: python -m compileall -q acs tests run_accessible_chess.py
+      - name: Repair + independent QA oracles on persistent GREEN
+        run: >-
+          python -m pytest -q
+          tests/test_dev5_shared_boundary_repair.py
+          tests/test_dev4_chessbase_cross_platform_path_privacy.py
+          tests/test_dev4_pgn_postcommit_cleanup_atomicity.py
+      - name: Full unittest regression
+        run: python -m unittest discover -s tests -v
+      - name: Full pytest regression
+        run: python -m pytest -q
+      - name: SELFTEST and complete WebView2 diagnostic
+        run: python run_accessible_chess.py --diagnostic
