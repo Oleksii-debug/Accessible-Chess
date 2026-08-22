@@ -54,9 +54,8 @@ function Assert-Focus([string]$expected, [string]$context) {
 }
 
 function Assert-ShortcutListFocus([string]$context) {
-    # WinForms ListView exposes AccessibleName on the container, but keyboard
-    # focus is normally reported on the selected child row. Both provider shapes
-    # are valid; the fresh dialog deterministically selects the first action.
+    # WinForms ListView exposes AccessibleName on the container, while keyboard
+    # focus is normally reported on the selected child row.
     $deadline = [DateTime]::UtcNow.AddSeconds(7)
     $actual = ''
     do {
@@ -68,16 +67,22 @@ function Assert-ShortcutListFocus([string]$context) {
 }
 
 function Send-Keys([string]$keys, [int]$delayMs = 300) {
-    # Modifier chords and modal activation/cancellation must go through real
-    # SendInput so Windows routes them to the actually focused child control.
-    # Plain arrows/navigation stay on deterministic HWND-targeted PostMessage.
-    $focusedModalKey = $keys -ieq 'enter' -or $keys -ieq 'esc'
-    $transport = if ($keys.Contains('+') -or $focusedModalKey) { 'send-input' } else { 'post-message' }
+    # Main-window accelerator chords need real modifier state. Plain navigation
+    # remains HWND-targeted for deterministic classic WinForms behavior.
+    $transport = if ($keys.Contains('+')) { 'send-input' } else { 'post-message' }
     $arguments = @('ui','send-keys',$keys,'-a',[string]$script:appPid,'--via',$transport)
-    if ($keys -ieq 'alt+f4') {
-        # Alt+F4 is the only system-reserved chord intentionally synthesized.
-        $arguments += '--allow-system-keys'
-    }
+    if ($keys -ieq 'alt+f4') { $arguments += '--allow-system-keys' }
+    Invoke-WinApp $arguments | Out-Null
+    Start-Sleep -Milliseconds $delayMs
+}
+
+function Send-KeysTo([string]$keys, [string]$target, [int]$delayMs = 300) {
+    # Once a process owns several top-level/modal windows, --target atomically
+    # focuses the intended element before the key is delivered. This avoids a
+    # hosted-runner race where -a PID alone can resolve the main window instead.
+    $transport = if ($keys.Contains('+')) { 'send-input' } else { 'post-message' }
+    $arguments = @('ui','send-keys',$keys,'-a',[string]$script:appPid,'--target',$target,'--via',$transport)
+    if ($keys -ieq 'alt+f4') { $arguments += '--allow-system-keys' }
     Invoke-WinApp $arguments | Out-Null
     Start-Sleep -Milliseconds $delayMs
 }
@@ -94,7 +99,7 @@ function Exercise-Combo([string]$selector, [int]$cycles) {
     Focus $selector
     Assert-Focus $selector "$selector initial"
     for ($i = 0; $i -lt $cycles; $i++) {
-        if (($i % 2) -eq 0) { Send-Keys 'down' 120 } else { Send-Keys 'up' 120 }
+        if (($i % 2) -eq 0) { Send-KeysTo 'down' $selector 120 } else { Send-KeysTo 'up' $selector 120 }
         Assert-Focus $selector "$selector stability $i"
     }
 }
@@ -104,7 +109,7 @@ function Exercise-NativeTextKeys([string]$selector, [scriptblock]$invariant, [st
     Focus $selector
     Assert-Focus $selector "$context initial"
     foreach ($key in @('up','down','left','right','home','end','pgup','pgdn')) {
-        Send-Keys $key 150
+        Send-KeysTo $key $selector 150
         Assert-Focus $selector "$context key $key"
         if (-not (& $invariant)) { Fail "$context key $key violated its invariant." }
     }
@@ -115,7 +120,7 @@ function Open-And-CancelDialog([string]$shortcut, [string]$dialogName, [string]$
     $wordBefore = Get-Value 'Current English word'
     Send-Keys $shortcut
     Wait-For $dialogName 10000
-    Send-Keys 'esc'
+    Send-KeysTo 'esc' $dialogName
     Wait-Gone $dialogName 10000
     Settle-MainFocus "$context return"
     if ((Get-Value 'Current English word') -ne $wordBefore) { Fail "$context changed the current Recall card while cancelled." }
@@ -129,23 +134,18 @@ function Exercise-ShortcutSettings([string]$context) {
     Focus 'Shortcut actions'
     Assert-ShortcutListFocus "$context list focus"
 
-    # WinApp's WinForms ListView provider reports child focus correctly but has
-    # not delivered Enter to the ListView KeyDown handler reliably on hosted CI,
-    # even through SendInput. Validate the same keyboard-only command through the
-    # separately exposed accessible Change button: focus it, press Enter, then
-    # verify the real modal capture form and Escape cancellation.
-    Wait-For 'Change selected shortcut' 7000
-    Focus 'Change selected shortcut'
-    Assert-Focus 'Change selected shortcut' "$context change-button focus"
-    Send-Keys 'enter'
+    # Prove the actual keyboard traversal path rather than directly focusing the
+    # button through UIA: ListView -> Tab -> Change button -> Enter -> capture.
+    Send-KeysTo 'tab' 'Shortcut actions'
+    Assert-Focus 'Change selected shortcut' "$context Tab to change button"
+    Send-KeysTo 'enter' 'Change selected shortcut'
     Wait-For 'Shortcut capture' 7000
     Wait-For 'Captured shortcut' 7000
-    Send-Keys 'esc'
+    Send-KeysTo 'esc' 'Captured shortcut'
     Wait-Gone 'Shortcut capture' 7000
     Wait-For 'Keyboard shortcut settings' 5000
-    Wait-For 'Change selected shortcut' 5000
     Assert-Focus 'Change selected shortcut' "$context return from capture"
-    Send-Keys 'alt+f4'
+    Send-KeysTo 'alt+f4' 'Keyboard shortcut settings'
     Wait-Gone 'Keyboard shortcut settings' 7000
     Settle-MainFocus "$context after close"
 }
@@ -173,11 +173,11 @@ try {
     Exercise-NativeTextKeys 'Ukrainian translation' { (Get-Value 'Current English word') -eq $firstWord } 'translation native navigation'
 
     Settle-MainFocus 'Recall navigation surface'
-    Send-Keys 'down'
+    Send-KeysTo 'down' 'Current English word'
     Assert-Focus 'Current English word' 'Recall Down'
     $secondWord = Get-Value 'Current English word'
     if ($secondWord -eq $firstWord) { Fail 'Down on Current English word did not advance the card.' }
-    Send-Keys 'up'
+    Send-KeysTo 'up' 'Current English word'
     Assert-Focus 'Current English word' 'Recall true previous'
     if ((Get-Value 'Current English word') -ne $firstWord) { Fail 'Up did not restore the previous actually shown Recall card.' }
 
@@ -193,7 +193,6 @@ try {
     Send-Keys 'esc'
     Assert-Focus 'Current English word' 'return from File menu'
 
-    # The exact historical failure is tested on both sides of the F1 modal cycle.
     Exercise-ShortcutSettings 'Ctrl+K before F1'
 
     Settle-MainFocus 'F1 pre-open'
@@ -209,7 +208,7 @@ try {
         'Alt+F4')) {
         if ($help -notlike "*$phrase*") { Fail "F1 help is missing required truth: $phrase" }
     }
-    Send-Keys 'alt+f4'
+    Send-KeysTo 'alt+f4' 'WordDeck help'
     Wait-Gone 'WordDeck help' 7000
     Settle-MainFocus 'return from F1 help'
 
@@ -223,7 +222,7 @@ try {
     Send-Keys 'alt+f'
     Send-Keys 'r'
     Wait-For 'Reset WordDeck learning data' 7000
-    Send-Keys 'esc'
+    Send-KeysTo 'esc' 'Reset WordDeck learning data'
     Wait-Gone 'Reset WordDeck learning data' 7000
     Settle-MainFocus 'reset return'
     if ((Get-Value 'Current English word') -ne $resetWord) { Fail 'Cancelling reset changed the current Recall card.' }
@@ -236,7 +235,7 @@ try {
     Exercise-Combo 'Active spelling deck' 40
     $spellingPrompt = Get-Value 'Ukrainian spelling prompt'
     Exercise-NativeTextKeys 'Type English spelling answer' { (Get-Value 'Ukrainian spelling prompt') -eq $spellingPrompt } 'Spelling answer native navigation'
-    Send-Keys 'alt+f4'
+    Send-KeysTo 'alt+f4' 'WordDeck Spelling'
     Wait-Gone 'WordDeck Spelling' 10000
     Settle-MainFocus 'Spelling return'
 
@@ -246,12 +245,12 @@ try {
     Exercise-Combo 'Sentence training spelling deck' 30
     Exercise-Combo 'Number of target words per sentence' 20
     Exercise-NativeTextKeys 'Type the English sentence words' { $true } 'Sentence answer native navigation'
-    Send-Keys 'alt+f4'
+    Send-KeysTo 'alt+f4' 'WordDeck Sentence Spelling'
     Wait-Gone 'WordDeck Sentence Spelling' 10000
 
     for ($round = 0; $round -lt 3; $round++) { Settle-MainFocus "final focus recovery $round" }
 
-    Write-Host 'WordDeck Worker3 R4c ACTUAL WinApp UIA PASS: exact published EXE, Natalia translation/native arrows, Recall next/true-previous, repeated selector focus, menu arrows, Ctrl+K before/after F1, accessible shortcut change-button activation/capture cancellation, truthful F1, full-profile/reset dialogs, Spelling/Sentence native inputs and Alt+F4 close verified.'
+    Write-Host 'WordDeck Worker3 R4c ACTUAL WinApp UIA PASS: exact published EXE, Natalia translation/native arrows, Recall next/true-previous, repeated selector focus, menu arrows, Ctrl+K before/after F1, Tab/Enter/Escape shortcut-settings flow, truthful F1, full-profile/reset dialogs, Spelling/Sentence native inputs and Alt+F4 close verified.'
 }
 finally {
     if ($null -ne $appPid -and $appPid -gt 0) {
