@@ -3,11 +3,13 @@ from __future__ import annotations
 """Evidence-backed integrity snapshots for read-only ChessBase-family sources."""
 
 from dataclasses import dataclass
+from hashlib import sha256
 from pathlib import Path
 from typing import Iterable
+import os
+import stat
 
 from .chessbase_adapter import ChessBaseSourceProbe, probe_chessbase_source
-from .import_contract import fingerprint
 
 
 @dataclass(frozen=True)
@@ -48,19 +50,52 @@ class ChessBaseIntegrityIOError(RuntimeError):
     """Raised when integrity evidence cannot be observed safely."""
 
 
+def _is_reparse_point(st: os.stat_result) -> bool:
+    attrs = getattr(st, "st_file_attributes", 0)
+    marker = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+    return bool(attrs & marker)
+
+
 def _fingerprint(path: Path, extension: str, role: str) -> SourceFileEvidence:
     try:
-        source = fingerprint(path)
-    except (OSError, ValueError, RuntimeError) as exc:
-        raise ChessBaseIntegrityIOError(
-            f"ChessBase source evidence is unavailable for {path.name}"
-        ) from exc
+        before = path.lstat()
+    except OSError as exc:
+        raise ChessBaseIntegrityIOError(f"ChessBase source evidence is unavailable for {path.name}") from exc
+    if stat.S_ISLNK(before.st_mode) or _is_reparse_point(before):
+        raise ChessBaseIntegrityIOError("ChessBase source evidence must not follow filesystem indirection")
+    if not stat.S_ISREG(before.st_mode):
+        raise ChessBaseIntegrityIOError("ChessBase source evidence must be a regular file")
+
+    digest = sha256()
+    size = 0
+    try:
+        with path.open("rb") as stream:
+            for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                size += len(chunk)
+                digest.update(chunk)
+    except OSError as exc:
+        raise ChessBaseIntegrityIOError(f"ChessBase source evidence is unavailable for {path.name}") from exc
+
+    try:
+        after = path.lstat()
+    except OSError as exc:
+        raise ChessBaseIntegrityIOError(f"ChessBase source evidence disappeared for {path.name}") from exc
+    if (
+        before.st_dev != after.st_dev
+        or before.st_ino != after.st_ino
+        or before.st_size != after.st_size
+        or before.st_mtime_ns != after.st_mtime_ns
+        or stat.S_ISLNK(after.st_mode)
+        or _is_reparse_point(after)
+    ):
+        raise ChessBaseSourceChangedError("ChessBase source changed while integrity evidence was being collected")
+
     return SourceFileEvidence(
-        path=Path(source.path),
+        path=Path(os.path.abspath(os.fspath(path))),
         extension=extension,
         role=role,
-        size_bytes=source.size,
-        sha256=source.sha256,
+        size_bytes=size,
+        sha256=digest.hexdigest(),
     )
 
 
@@ -74,6 +109,8 @@ def capture_integrity_snapshot(path: str | Path) -> ChessBaseIntegritySnapshot:
     probe = probe_chessbase_source(path)
     if not probe.recognized:
         raise ValueError(f"Unsupported ChessBase-family source: {probe.path.name}")
+    if probe.path.is_symlink():
+        raise ChessBaseIntegrityIOError("ChessBase primary source must not be a symlink")
     if not probe.path.exists() or not probe.path.is_file():
         raise FileNotFoundError(probe.path)
 
@@ -81,16 +118,15 @@ def capture_integrity_snapshot(path: str | Path) -> ChessBaseIntegritySnapshot:
         _fingerprint(file_path, extension, role)
         for file_path, extension, role in _evidence_paths(probe)
     )
-    return ChessBaseIntegritySnapshot(primary_path=Path(files[0].path), files=files)
+    return ChessBaseIntegritySnapshot(primary_path=files[0].path, files=files)
 
 
 def verify_integrity_snapshot(snapshot: ChessBaseIntegritySnapshot) -> ChessBaseIntegritySnapshot:
-    """Re-snapshot the family and fail closed on change or unavailable evidence."""
     try:
         current = capture_integrity_snapshot(snapshot.primary_path)
+    except ChessBaseSourceChangedError:
+        raise
     except (OSError, ValueError, RuntimeError) as exc:
-        if isinstance(exc, ChessBaseSourceChangedError):
-            raise
         raise ChessBaseIntegrityIOError("ChessBase integrity verification could not read source evidence") from exc
     if current != snapshot:
         raise ChessBaseSourceChangedError(
