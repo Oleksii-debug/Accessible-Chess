@@ -1,0 +1,23 @@
+name: Stage 2 Data Core
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - dev/stage2-data-core
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Compile Stage 2 data core
+        run: python -m compileall -q acs/gametree.py acs/acsdb.py acs/import_contract.py tests
+      - name: Run Stage 2 data-core tests
+        run: python -m unittest discover -s tests -v

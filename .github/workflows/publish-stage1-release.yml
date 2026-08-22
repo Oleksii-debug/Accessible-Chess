@@ -1,0 +1,111 @@
+name: Publish Stage 1 RC3 Test Package
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - agent/stage1-final-0.3.3
+    paths:
+      - '.github/workflows/publish-stage1-release.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Reconstruct exact verified source
+        shell: pwsh
+        run: |
+          $ordered = @(
+            'build_snapshot_exact\group00.b64',
+            'build_snapshot_exact\group01.b64',
+            'build_parts10k\part04.b64',
+            'build_parts10k\part05.b64',
+            'build_parts10k\part06.b64',
+            'build_parts10k\part07.b64'
+          )
+          foreach ($f in $ordered) { if (-not (Test-Path $f)) { throw "Missing source chunk: $f" } }
+          $b64 = ($ordered | ForEach-Object { Get-Content -LiteralPath $_ -Raw }) -join ''
+          $b64 = $b64 -replace '[^A-Za-z0-9+/=]',''
+          if ($b64.Length -ne 77128) { throw "Unexpected Base64 length: $($b64.Length)" }
+          [IO.File]::WriteAllBytes('stage1_source.zip', [Convert]::FromBase64String($b64))
+          if ((Get-Item 'stage1_source.zip').Length -ne 57844) { throw 'Source ZIP size mismatch' }
+          $hash = (Get-FileHash 'stage1_source.zip' -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($hash -ne 'cb0a89778b436cdf44c42e3207ef9638160a992b372156bc4d901391717a1e6a') { throw "Source ZIP hash mismatch: $hash" }
+          Expand-Archive 'stage1_source.zip' 'work' -Force
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Verify and build
+        shell: pwsh
+        working-directory: work
+        run: |
+          python -m pip install --upgrade pip pyinstaller
+          python -m compileall -q acs tests run_accessible_chess.py
+          python -m unittest discover -s tests -v
+          python -m acs.selftest
+          python -m acs.stage1_smoketest
+          python -m PyInstaller --noconfirm --clean --onefile --windowed --name AccessibleChess run_accessible_chess.py
+          if (-not (Test-Path 'dist\AccessibleChess.exe')) { throw 'EXE missing' }
+          $p = Start-Process '.\dist\AccessibleChess.exe' -ArgumentList '--diagnostic' -PassThru -Wait
+          if ($p.ExitCode -ne 0) { throw "EXE diagnostic failed: $($p.ExitCode)" }
+
+      - name: Assemble test package
+        shell: pwsh
+        working-directory: work
+        run: |
+          New-Item -ItemType Directory -Force -Path 'package\WINDOWS_EXE\engine' | Out-Null
+          New-Item -ItemType Directory -Force -Path 'package\SOURCE' | Out-Null
+          New-Item -ItemType Directory -Force -Path 'package\THIRD_PARTY' | Out-Null
+          Copy-Item 'dist\AccessibleChess.exe' 'package\WINDOWS_EXE\AccessibleChess.exe' -Force
+          Invoke-WebRequest 'https://github.com/official-stockfish/Stockfish/releases/download/sf_18/stockfish-windows-x86-64.zip' -OutFile 'stockfish18.zip'
+          Expand-Archive 'stockfish18.zip' 'stockfish18' -Force
+          $engine = Get-ChildItem 'stockfish18' -Recurse -Filter '*.exe' | Where-Object { $_.Name -match 'stockfish.*x86-64' } | Select-Object -First 1
+          if (-not $engine) { throw 'Stockfish 18 generic x86-64 not found' }
+          Copy-Item $engine.FullName 'package\WINDOWS_EXE\engine\stockfish.exe' -Force
+          Invoke-WebRequest 'https://github.com/official-stockfish/Stockfish/archive/refs/tags/sf_18.zip' -OutFile 'package\THIRD_PARTY\Stockfish-18-source.zip'
+          @"
+          Stockfish 18 is licensed under GNU GPL v3.
+          Official project: official-stockfish/Stockfish, tag sf_18.
+          Complete corresponding source archive is included in this package.
+          "@ | Set-Content -Encoding UTF8 'package\THIRD_PARTY\STOCKFISH_LICENSE_NOTICE.txt'
+          Copy-Item 'acs' 'package\SOURCE\acs' -Recurse -Force
+          Copy-Item 'tests' 'package\SOURCE\tests' -Recurse -Force
+          Copy-Item 'run_accessible_chess.py' 'package\SOURCE\run_accessible_chess.py' -Force
+          foreach ($f in @('README_ДЛЯ_NVDA.txt','HOTKEYS_UA.txt','HOTKEYS_EN.txt','CHANGELOG_0.3.3_STAGE1.txt','TEST_REPORT_0.3.3_STAGE1.txt','STAGE1_STATUS.txt','VERSION.txt')) { if (Test-Path $f) { Copy-Item $f 'package' -Force } }
+          @"
+          ACCESSIBLE CHESS STAGE 1 0.3.3 — WINDOWS TEST CANDIDATE
+          Autonomous EXE built on Windows: PASS
+          The built EXE itself started in diagnostic mode: PASS
+          Chess rules and Stage 1 automated checks: PASS
+          Stockfish 18 generic x86-64 bundled: PASS
+          Real NVDA usability verification: WAITING FOR USER TEST
+          Direct NVDA controller DLL is not bundled in this candidate; standard accessible Windows controls remain available.
+          "@ | Set-Content -Encoding UTF8 'package\WINDOWS_BUILD_REPORT.txt'
+          Get-ChildItem 'package' -Recurse -File | ForEach-Object {
+            $h=(Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            $rel=$_.FullName.Substring((Resolve-Path 'package').Path.Length+1)
+            "$h  $rel"
+          } | Set-Content -Encoding UTF8 'package\SHA256SUMS.txt'
+          Compress-Archive 'package\*' 'Accessible-Chess-Stage1-0.3.3-RC3-Windows-Test.zip' -Force
+
+      - name: Publish private-repository prerelease asset
+        shell: pwsh
+        working-directory: work
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag='stage1-0.3.3-rc3'
+          if (gh release view $tag 2>$null) {
+            gh release upload $tag 'Accessible-Chess-Stage1-0.3.3-RC3-Windows-Test.zip' --clobber
+          } else {
+            gh release create $tag 'Accessible-Chess-Stage1-0.3.3-RC3-Windows-Test.zip' --target $env:GITHUB_SHA --title 'Accessible Chess Stage 1 0.3.3 RC3' --notes 'Windows test candidate. Autonomous EXE built and launched on Windows. Waiting for real NVDA user test.' --prerelease
+          }

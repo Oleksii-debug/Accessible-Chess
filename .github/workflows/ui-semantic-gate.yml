@@ -1,0 +1,99 @@
+name: UI Semantic Gate
+
+on:
+  push:
+    branches:
+      - dev/stage1-nvda-userflow-0.4.0
+      - dev/stage1-nvda-userflow-0.4.0-r9
+    paths:
+      - 'web/**'
+      - 'run_accessible_chess.py'
+      - 'acs/stage1_release_ui.py'
+      - 'acs/release_app.py'
+      - 'acs/webview2_accessibility.py'
+      - 'tests/test_stage1_complete_user_flow.py'
+      - 'tests/test_stage1_release_composition_ui.py'
+      - 'tests/test_stage1_packaged_focus_origin_contract.py'
+      - 'tests/test_stage1_webview2_accessibility_boundary.py'
+      - 'tests/test_accessible_webui.py'
+      - 'tests/test_nvda_p0_contract.py'
+      - '.github/workflows/ui-semantic-gate.yml'
+  pull_request:
+    branches:
+      - integration/accessible-chess-next
+    paths:
+      - 'web/**'
+      - 'run_accessible_chess.py'
+      - 'acs/stage1_release_ui.py'
+      - 'acs/release_app.py'
+      - 'acs/webview2_accessibility.py'
+      - 'tests/test_stage1_complete_user_flow.py'
+      - 'tests/test_stage1_release_composition_ui.py'
+      - 'tests/test_stage1_packaged_focus_origin_contract.py'
+      - 'tests/test_stage1_webview2_accessibility_boundary.py'
+      - 'tests/test_accessible_webui.py'
+      - 'tests/test_nvda_p0_contract.py'
+      - '.github/workflows/ui-semantic-gate.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ui-semantic-gate-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  semantic:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install lightweight test dependency
+        run: python -m pip install -q pytest
+
+      - name: Compile Stage 1 release path
+        run: python -m compileall -q acs tests run_accessible_chess.py
+
+      - name: Complete WebView and NVDA semantic contracts
+        run: |
+          python -m unittest tests.test_accessible_webui -v
+          python -m unittest tests.test_nvda_p0_contract -v
+          python -m unittest tests.test_stage1_complete_user_flow -v
+          python -m unittest tests.test_stage1_release_composition_ui -v
+          python -m unittest tests.test_stage1_packaged_focus_origin_contract -v
+          python -m unittest tests.test_stage1_webview2_accessibility_boundary -v
+
+      - name: Complete release diagnostic
+        run: python run_accessible_chess.py --diagnostic
+
+      - name: History analysis sound settings and composition regressions
+        run: >-
+          python -m pytest -q
+          tests/test_history_review_ui.py
+          tests/test_ui_analysis_webapp.py
+          tests/test_analysis_webview_bridge.py
+          tests/test_release_stockfish_composition.py
+          tests/test_sound_events.py
+          tests/test_sound_runtime.py
+          tests/test_settings.py
+
+      - name: Action registry keymap native menu and copy-safe UI regressions
+        run: >-
+          python -m pytest -q
+          tests/test_keybindings.py
+          tests/test_ui_keymap_adapter.py
+          tests/test_ui_keymap_editor.py
+          tests/test_ui_keymap_service.py
+          tests/test_keymap_import_warning_confirmation.py
+          tests/test_webview_keymap_bridge_contract.py
+          tests/test_ui_native_menu_recovery.py
+          tests/test_windows_native_menu_smoke_contract.py
+          tests/test_webapp_keymap_api.py
+          tests/test_ui_review_adapter.py
+          tests/test_history.py
+          tests/test_notation.py
