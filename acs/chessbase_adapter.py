@@ -13,6 +13,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterable
 
+from .report_paths import report_safe_name
+
 
 _PRIMARY_EXTENSIONS = {
     ".cbh": "ChessBase database header/component set",
@@ -35,8 +37,8 @@ _ALL_EXTENSIONS = {**_PRIMARY_EXTENSIONS, **_COMPONENT_EXTENSIONS}
 
 
 def _report_name(path: Path) -> str:
-    """Return a stable report-safe identifier without workstation directories."""
-    return path.name
+    """Compatibility wrapper around the shared cross-platform sanitizer."""
+    return report_safe_name(path)
 
 
 class ChessBaseProbeIOError(RuntimeError):

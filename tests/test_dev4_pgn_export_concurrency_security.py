@@ -54,25 +54,25 @@ class Dev4PgnExportConcurrencySecurityTests(unittest.TestCase):
     def test_no_overwrite_mode_rechecks_nonexistence_at_commit_boundary(self):
         """``overwrite=False`` must not clobber a file created after preflight.
 
-        The default save contract protects existing destinations.  Creating the
-        destination immediately before the replacement deterministically models
-        a second writer winning the race after the initial ``exists()`` check.
+        The implementation publishes through ``os.link``. Creating the
+        destination immediately before that exact commit primitive models a
+        second writer winning the race after the initial ``exists()`` check.
         A safe implementation must preserve that file and refuse the commit.
         """
 
         games = parse_games('[Event "Our export"]\n[Result "*"]\n\n1. e4 *\n')
         with tempfile.TemporaryDirectory() as tmp:
             destination = Path(tmp) / "new-shared.pgn"
-            real_replace = os.replace
+            real_link = os.link
 
-            def concurrent_create(src, dst):
+            def concurrent_create(src, dst, *args, **kwargs):
                 Path(dst).write_text(
                     '[Event "Created by another writer"]\n[Result "*"]\n\n1. d4 *\n',
                     encoding="utf-8",
                 )
-                return real_replace(src, dst)
+                return real_link(src, dst, *args, **kwargs)
 
-            with mock.patch("acs.pgn_service.os.replace", side_effect=concurrent_create):
+            with mock.patch("acs.pgn_service.os.link", side_effect=concurrent_create):
                 with self.assertRaises(FileExistsError):
                     save_pgn_atomic(destination, games, overwrite=False)
 

@@ -13,6 +13,7 @@ from pathlib import Path
 
 from .chessbase_adapter import ChessBaseSourceProbe, probe_chessbase_source
 from .import_contract import fingerprint
+from .report_paths import report_safe_name
 
 MANIFEST_SCHEMA_VERSION = 1
 
@@ -46,7 +47,7 @@ class ChessBaseBundleManifest:
     def as_dict(self) -> dict[str, object]:
         def item(e: ComponentEvidence) -> dict[str, object]:
             return {
-                "path": Path(e.path).name,
+                "path": report_safe_name(e.path),
                 "extension": e.extension,
                 "role": e.role,
                 "size": e.size,
@@ -54,7 +55,7 @@ class ChessBaseBundleManifest:
             }
         return {
             "schema_version": self.schema_version,
-            "primary_path": Path(self.primary_path).name,
+            "primary_path": report_safe_name(self.primary_path),
             "source_kind": self.source_kind,
             "family_name": self.family_name,
             "status": self.status,
@@ -147,18 +148,19 @@ def verify_manifest_unchanged(manifest: ChessBaseBundleManifest) -> tuple[bool, 
     problems: list[str] = []
     for evidence in manifest.all_evidence:
         path = Path(evidence.path)
+        safe_name = report_safe_name(evidence.path)
         try:
             if not path.is_file() or path.is_symlink():
-                problems.append(f"Source evidence unavailable: {path.name}")
+                problems.append(f"Source evidence unavailable: {safe_name}")
                 continue
             current = _hash_file(path)
         except (OSError, ValueError, RuntimeError) as exc:
-            problems.append(f"Source evidence unavailable for {path.name}: {type(exc).__name__}")
+            problems.append(f"Source evidence unavailable for {safe_name}: {type(exc).__name__}")
             continue
         if current.size != evidence.size:
-            problems.append(f"Size changed for {path.name}: {evidence.size} -> {current.size}")
+            problems.append(f"Size changed for {safe_name}: {evidence.size} -> {current.size}")
         if current.sha256 != evidence.sha256:
-            problems.append(f"SHA-256 changed for {path.name}")
+            problems.append(f"SHA-256 changed for {safe_name}")
     return not problems, tuple(problems)
 
 

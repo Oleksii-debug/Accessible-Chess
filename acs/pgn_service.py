@@ -215,6 +215,36 @@ def _create_hardlink_snapshot(destination: Path) -> Path:
     raise PgnFileError("PGN commit snapshot could not reserve a unique path")
 
 
+def _cleanup_redundant_link_after_commit(path: Path) -> None:
+    """Best-effort cleanup after publication has already committed.
+
+    A hard-link publication or recovery snapshot can leave one redundant name
+    after the destination has become authoritative. Cleanup failure at that
+    point must never be reported as a failed save: callers would otherwise be
+    told to retry an operation whose destination already contains the requested
+    commit. We retry through the lower-level unlink primitive and, if the
+    filesystem still refuses removal, leave the redundant link intact rather
+    than falsifying commit state or deleting the committed destination.
+    """
+
+    try:
+        path.unlink()
+        return
+    except FileNotFoundError:
+        return
+    except OSError:
+        pass
+
+    try:
+        os.unlink(path)
+    except FileNotFoundError:
+        pass
+    except OSError:
+        # The destination is already committed. Residual cleanup is maintenance,
+        # not a reason to misreport the save as failed.
+        pass
+
+
 def _publish_no_clobber(tmp_path: Path, destination: Path) -> None:
     """Atomically publish ``tmp_path`` only if ``destination`` is still absent."""
 
@@ -224,7 +254,7 @@ def _publish_no_clobber(tmp_path: Path, destination: Path) -> None:
         raise
     except OSError as exc:
         raise PgnFileError("PGN no-clobber publication is unavailable") from exc
-    tmp_path.unlink()
+    _cleanup_redundant_link_after_commit(tmp_path)
 
 
 def _publish_expected_hash(
@@ -270,10 +300,7 @@ def _publish_expected_hash(
             raise PgnConcurrentWriteError(f"PGN changed during publication: {destination}")
     finally:
         if snapshot is not None and not preserve_snapshot:
-            try:
-                snapshot.unlink()
-            except FileNotFoundError:
-                pass
+            _cleanup_redundant_link_after_commit(snapshot)
 
 
 def save_pgn_atomic(
