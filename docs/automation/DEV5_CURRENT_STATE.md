@@ -1,27 +1,34 @@
 # DEV5_CURRENT_STATE
 
-UPDATED_FROM_RUN: 20260822-2225
-MODE: SAFE_OVERLAP_COORDINATION / EXACT_DEV4_EVIDENCE_RECONCILIATION
-SNAPSHOT_CUTOFF: 2026-08-22T22:25:45+03:00
+UPDATED_FROM_RUN: 20260822-2233
+MODE: SAFE_OVERLAP_COORDINATION / EXACT_DEV4_REPAIR_VALIDATION
+SNAPSHOT_CUTOFF: 2026-08-22T22:33:56+03:00
 
 Accepted Stage1 remains `manual5/integration-20260821 @ 0fa442330bc2bb03636ff9297512da4c29e38684`.
-Persistent exact-GREEN DEV5 full-product non-PGN validation authority remains `full5/dev5-compose-1700-20260822 @ dd9ebf9414103c805892856fe6a04706fa69039f`, PR #93 DRAFT / DO NOT MERGE, CI `32577600761 / 97042099941` SUCCESS.
+Persistent exact-GREEN DEV5 full-product non-PGN authority remains `full5/dev5-compose-1700-20260822 @ dd9ebf9414103c805892856fe6a04706fa69039f`, PR #93 DRAFT / DO NOT MERGE, CI `32577600761 / 97042099941` SUCCESS.
 
-## Cutoff / overlap truth
-At the immutable 22:25:45 cutoff, canonical `DEV1_RUN_STATE.txt` was genuinely `IN_PROGRESS` for RUN `20260822-1904`, branch `full5/dev1-pgn-webview-20260822-1904`, package PGN/GameTree Windows/WebView UX. Live compare from terminal parent `6b3e41f6c7bf0a436d70c9926e3761cc7f99260f` shows the branch 6 commits ahead / 0 behind with only four new DEV1 presentation paths: `acs/pgn_webview_bridge.py`, `acs/pgn_webview_projection.py`, `web/full_product_pgn.js`, `tests/test_dev1_pgn_webview_projection.py`. No later terminal DEV1 handoff existed at cutoff. Therefore Product composition remains SAFE OVERLAP and DEV5 made no competing Product/test integration push.
+## Active overlap
+DEV2 RUN `20260822-2226` was IN_PROGRESS at cutoff on the canonical Classroom/Student/Course/Lesson/Assignment/Progress domain package. DEV1 had active PGN presentation work around the cutoff and has since begun RUN `20260822-2236` for Library/Search WebView UX. This invocation therefore remains SAFE OVERLAP; no Product integration is authorized retroactively even when same-wave CI turns GREEN.
 
-DEV2 is terminal at canonical Product `7d525dd34f6ae1a2083a79e25638cbc101e9beaf`, validation PR #104, exact CI `32588670876 / 97068893601` SUCCESS. This head is a descendant of canonical missing-PGN-termination repair `918d4e560d99c12e24e0763dc3a6fc1f1fbd82d4`, so termination-loss semantics are already part of the current DEV2 intake ceiling.
+## DEV1
+Prior PGN/GameTree WebView package later terminalized at exact source `6336d917319f22e422fc3b541feecf7c40977ac9`, PR #112, CI `32594006323 / 97082049039` SUCCESS: focused 115/115, canonical+Stage1 accessibility 65/65, unittest 726/726, pytest 804 + 719 subtests, diagnostic PASS. It is eligible only at a later fresh cutoff after canonical terminal readback. New RUN `20260822-2236` is currently IN_PROGRESS for Library/Search WebView UX and blocks current Product composition.
 
-DEV3 latest wave is terminal evidence-only Unicode 100k query-plan characterization. Product authority remains PR #105 / `9c8a342e7dd98fee52c9776c0cb6a9b970d49296` READY_FOR_INTEGRATION=YES. Evidence CI `32589798970 / 97071708911` SUCCESS does not create a newer Product intake head.
+## DEV2
+Pre-cutoff canonical terminal ceiling remains `7d525dd34f6ae1a2083a79e25638cbc101e9beaf`, which retains missing-PGN-termination repair ancestor `918d4e560d99c12e24e0763dc3a6fc1f1fbd82d4`.
+Same-wave Classroom domain Product `8d9c7c99ef8d1754555adaf286ab15f5da3224af` is technically GREEN through validation PR #114 / run `32594221729 / 97082562977`: classroom 22/22, interaction 19/19, remote 14/14, unittest 787 OK + 1 skip, pytest 867 + 1336 subtests. Canonical RUN_STATE remains IN_PROGRESS, therefore WAITING_TERMINAL_HANDOFF and not current intake authority.
 
-DEV4 eligible pre-cutoff terminal Product head is `f44113ac3c7783aca761c0a7e9044a6cac334cb3`, PR #100, handoff status `COMPLETE_WITH_CI_UNOBSERVED`. DEV5 created evidence-only PR #111 on branch `full5/dev5-validate-dev4-f44113ac-20260822` with a workflow that explicitly checks out exact Product SHA `f44113ac...`; no DEV4 Product history was mutated.
+## DEV3
+Shippable Product authority remains PR #105 / `9c8a342e7dd98fee52c9776c0cb6a9b970d49296`, READY_FOR_INTEGRATION with exact CI `32586785490 / 97064264493` SUCCESS. Later 100k Unicode query-plan/shadow-column work is evidence-only and does not advance Product authority.
 
-Exact DEV5 validation run `32593848747 / 97081672853` verified checkout identity, ancestry/diff hygiene and compile, then exposed two focused RED assertions on the exact DEV4 Product snapshot:
-1. `test_no_overwrite_mode_rechecks_nonexistence_at_commit_boundary` is a stale QA harness after Product no-clobber publication changed from `os.replace` to atomic `os.link`. The old test still injects its competing creator by mocking `os.replace`, so the race is never injected. This is QA/test-maintenance evidence, NOT a proven no-clobber Product regression; the safety requirement itself must remain unchanged.
-2. `test_missing_game_termination_marker_is_not_counted_full` is a real semantic RED on the old DEV4 branch ancestry, but canonical DEV2 already repaired it in `8ef02d462f3af38a9620f9aae02cdf64654c0652` + `918d4e560d99c12e24e0763dc3a6fc1f1fbd82d4`, with exact CI `32583061094 / 97055206185` and the byte-identical DEV4 oracle passing. Current DEV2 `7d525dd...` is 6 commits ahead of `918d4e56...` and retains that repair. Therefore this RED proves why DEV4 cannot be wholesale merged; it is not an open canonical DEV2 defect.
+## DEV4
+Fresh repair head independently checked: PR #100 / `6298899cb112336ef220caa8d0e52334ddc0c0ae`. DEV5 evidence-only PR #113 validates the exact Product tree plus one CI workflow metadata file.
+Exact run `32594202023 / 97082512844`: focused strict slice 38 PASS / 2 FAIL after identity/diff/compile PASS.
 
-All other focused DEV4 security/resource/privacy gates reached before the stop passed on exact `f44113ac...`, including expected-hash race detection, import fingerprint stability, FIFO/symlink rejection, bounded PGN reads, invalid-UTF8 quality downgrade, ChessBase path/I/O guards, import-history privacy, batch RuntimeError isolation, export path-indirection and cleanup tests.
+RED A is stale QA instrumentation: no-overwrite race test mocks `os.replace`, but repaired `overwrite=False` uses atomic `os.link`; the test does not inject the race. Re-gate against actual commit primitive while preserving `FileExistsError` + competing-data-preservation semantics.
 
-Post-cutoff live PR #100 movement is quarantined from this wave's intake decision. It confirms DEV4 continued touching the shared boundary after cutoff and therefore must be re-snapshotted next wave.
+RED B is older DEV4 GameTree ancestry: missing termination marker false-FULL. Canonical DEV2 already closes this and passes the independent DEV4 truncation oracle. Future selective composition must keep current DEV2 `acs/gametree.py` and overlay only DEV4-owned file-service/import/security deltas.
 
-PR #54/frozen refs untouched. Old rejected ZIP not reused. Fresh Windows candidate NO. `NVDA_VERIFIED=NO`. `READY_FOR_RELEASE=NO`.
+DEV4 branch and persistent GREEN lineage diverge; never whole-merge PR #100. `acs/acsdb.py` also overlaps accepted DEV3/current-green behavior and requires semantic hunk-level reconciliation rather than blob replacement.
+
+## Release boundary
+No Product/test integration mutation this run. PR #54/frozen refs untouched. Old rejected ZIP forbidden. Fresh Windows candidate NO. `NVDA_VERIFIED=NO`. `READY_FOR_RELEASE=NO`.
