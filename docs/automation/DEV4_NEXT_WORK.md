@@ -3,13 +3,13 @@
 NEXT_ACTION_ORDER:
 
 1. Re-read live DEV5/integration and QA PR #67 before any write; SAFE OVERLAP remains mandatory while Product owners are active.
-2. Recheck QA head and commit-associated Actions. Absence is `INCONCLUSIVE`, never GREEN.
+2. Recheck final QA head and commit-associated Actions. Absence is `INCONCLUSIVE`, never GREEN.
 3. Preserve all twelve locked Product-defect classes; never weaken strict gates for GREEN.
-4. Preserve provenance atomicity on both paths now covered by strict gates: shared `import_contract.fingerprint()` and ChessBase `chessbase_integrity._fingerprint()` must reject in-flight source mutation instead of returning normal evidence.
-5. Preserve the concrete ACSDB import-history privacy gate: raw workstation paths, tokens, provider details, or other private exception internals must not be persisted/exposed verbatim.
-6. Continue generic import limits: huge/truncated inputs, encoding abuse, duplicate-source behavior, cancellation and recovery.
-7. Preserve special-file fail-closed behavior: external provenance must reject non-regular sources before open.
-8. Preserve ChessBase companion-directory and manifest verification I/O observability; extend component open/stat/hash failure tests without inventing proprietary decoder semantics.
+4. Preserve ChessBase verification I/O observability on both public verification paths: manifest verification and integrity-snapshot re-verification must not leak raw filesystem errors as if they were an acceptable verification result.
+5. Preserve provenance atomicity on shared `import_contract.fingerprint()` and ChessBase `chessbase_integrity._fingerprint()`; reject in-flight source mutation.
+6. Preserve the ACSDB import-history privacy gate: raw workstation paths, tokens, provider details, or other private exception internals must not be persisted/exposed verbatim.
+7. Continue generic import limits: huge/truncated inputs, encoding abuse, duplicate-source behavior, cancellation and recovery.
+8. Preserve special-file fail-closed behavior: external provenance must reject non-regular sources before open.
 9. Trace `SourceFingerprint.path`, `BatchInspectionItem.path/error`, PGN and engine exceptions only into concrete persisted/UI/report sinks before promoting additional leakage findings.
 10. Keep PGN parent-directory crash/power-loss durability `INCONCLUSIVE` without stronger evidence.
 11. Re-enter Stage1/package Product work only through DEV5/Audit authorization; preserve accepted DEV1 board-bridge semantics and keep `nuitka-compilation-report.xml` out of user ZIPs.
@@ -24,7 +24,7 @@ CURRENT LOCKED FINDINGS:
 - PROVEN_PRODUCT_DEFECT: PGN export path indirection is not fail-closed.
 - PROVEN_PRODUCT_DEFECT: ChessBase companion enumeration I/O false-green.
 - PROVEN_PRODUCT_DEFECT: generic import batch aborts on importer RuntimeError.
-- PROVEN_PRODUCT_DEFECT: ChessBase manifest verification propagates hash/open I/O failure instead of structured failed verification.
+- PROVEN_PRODUCT_DEFECT: ChessBase verification APIs can propagate raw hash/open I/O failure instead of structured domain verification failure.
 - PROVEN_PRODUCT_DEFECT: shared import fingerprinting can open FIFO/special files before regular-file validation.
 - PROVEN_PRODUCT_DEFECT: provenance hashing accepts in-flight same-size mutation in both shared import and ChessBase integrity snapshot paths.
 - PROVEN_PRODUCT_DEFECT: ACSDB import attempts persist raw parser/provider exception text and `ImportHistoryService` exposes it application-side.
