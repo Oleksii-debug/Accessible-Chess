@@ -13,6 +13,7 @@ chess/tree representation.
 from dataclasses import dataclass
 from enum import Enum
 import hashlib
+import json
 import re
 
 from .game_identity import GameIdentityContractError, identity_for_game
@@ -22,6 +23,7 @@ GAMETREE_SNAPSHOT_SCHEMA_VERSION = 1
 MAX_SNAPSHOT_TEXT_BYTES = 16 * 1024 * 1024
 MAX_SNAPSHOT_WARNINGS = 10_000
 MAX_WARNING_CHARS = 16_384
+MAX_SNAPSHOT_RECORD_BYTES = 20 * 1024 * 1024
 _DIGEST_RE = re.compile(r"^[0-9a-f]{64}$")
 _SNAPSHOT_RECORD_FIELDS = frozenset(
     {
@@ -87,6 +89,25 @@ def _require_warning_tuple(value: object) -> tuple[str, ...]:
                 code=GameTreeSnapshotCode.RESOURCE_LIMIT,
             )
     return value
+
+
+def _reject_duplicate_object_pairs(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    record: dict[str, object] = {}
+    for key, value in pairs:
+        if key in record:
+            raise GameTreeSnapshotError(
+                f"duplicate snapshot JSON field: {key}",
+                code=GameTreeSnapshotCode.INVALID_SNAPSHOT,
+            )
+        record[key] = value
+    return record
+
+
+def _reject_json_constant(value: str) -> object:
+    raise GameTreeSnapshotError(
+        f"non-finite JSON constant is forbidden: {value}",
+        code=GameTreeSnapshotCode.INVALID_SNAPSHOT,
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -221,6 +242,58 @@ def snapshot_from_record(record: object) -> GameTreeSnapshot:
         source_index=record["source_index"],
         warnings=warning_tuple,
     )
+
+
+def snapshot_to_json(snapshot: GameTreeSnapshot) -> str:
+    """Serialize a snapshot deterministically for durable/exchange storage."""
+
+    text = json.dumps(
+        snapshot_to_record(snapshot),
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    )
+    if len(text.encode("utf-8")) > MAX_SNAPSHOT_RECORD_BYTES:
+        raise GameTreeSnapshotError(
+            "snapshot JSON exceeds the safety limit",
+            code=GameTreeSnapshotCode.RESOURCE_LIMIT,
+        )
+    return text
+
+
+def snapshot_from_json(text: object) -> GameTreeSnapshot:
+    """Decode one strict JSON snapshot without duplicate-key normalization."""
+
+    if not isinstance(text, str):
+        raise GameTreeSnapshotError(
+            "snapshot JSON must be text",
+            code=GameTreeSnapshotCode.INVALID_SNAPSHOT,
+        )
+    if not text:
+        raise GameTreeSnapshotError(
+            "snapshot JSON must be non-empty",
+            code=GameTreeSnapshotCode.INVALID_SNAPSHOT,
+        )
+    if len(text.encode("utf-8")) > MAX_SNAPSHOT_RECORD_BYTES:
+        raise GameTreeSnapshotError(
+            "snapshot JSON exceeds the safety limit",
+            code=GameTreeSnapshotCode.RESOURCE_LIMIT,
+        )
+    try:
+        record = json.loads(
+            text,
+            object_pairs_hook=_reject_duplicate_object_pairs,
+            parse_constant=_reject_json_constant,
+        )
+    except GameTreeSnapshotError:
+        raise
+    except (json.JSONDecodeError, TypeError, ValueError) as exc:
+        raise GameTreeSnapshotError(
+            f"snapshot JSON is malformed: {exc}",
+            code=GameTreeSnapshotCode.INVALID_SNAPSHOT,
+        ) from exc
+    return snapshot_from_record(record)
 
 
 def restore_game(snapshot: GameTreeSnapshot) -> PgnGame:
