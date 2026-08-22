@@ -7,12 +7,15 @@ on:
       - auto/dev3-acsdb-stable-paging-20260821
       - auto/dev3-student-progress-store-20260822
       - auto/dev3-search-resource-bounds-20260822
+      - auto/dev3-bookreader-snapshot-bounds-20260822
   pull_request:
     branches:
       - codex/full-product-20260821
       - auto/dev3-acsdb-stable-paging-20260821
       - auto/dev3-student-progress-store-20260822
       - auto/dev3-search-resource-bounds-20260822
+      - auto/dev3-student-progress-resource-bounds-20260822
+      - auto/dev3-bookreader-snapshot-bounds-20260822
 
 permissions:
   contents: read
@@ -61,6 +64,7 @@ jobs:
           tests.test_dev3_bookreader_progress_contract
           tests.test_dev3_bookreader_ambiguous_persistence
           tests.test_dev3_bookreader_live_mutation_guard
+          tests.test_dev3_bookreader_snapshot_bounds
           tests.test_dev3_training_snapshot_contract
           tests.test_dev3_training_progress_store
           tests.test_dev3_engine_assisted_workflows

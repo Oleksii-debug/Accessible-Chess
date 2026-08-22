@@ -20,6 +20,9 @@ BOOK_READER_SNAPSHOT_SCHEMA_VERSION = 2
 _BOOK_READER_SNAPSHOT_FIELDS = frozenset(
     {"schema_version", "current_target", "return_points", "fallback_digests"}
 )
+_MAX_RETURN_POINTS = 1000
+_MAX_RETURN_POINT_NAME_CHARS = 256
+_MAX_TARGET_KEY_CHARS = 4096
 
 
 @dataclass(frozen=True, slots=True)
@@ -70,7 +73,21 @@ class BookReader:
             raise TypeError("Return point name must be a string")
         if not name.strip():
             raise ValueError("Return point name must not be empty")
+        if len(name) > _MAX_RETURN_POINT_NAME_CHARS:
+            raise ValueError(
+                f"Return point name exceeds {_MAX_RETURN_POINT_NAME_CHARS} characters"
+            )
         return name
+
+    @staticmethod
+    def _durable_target(value: object, *, name: str = "Book target key") -> str:
+        if type(value) is not str:
+            raise TypeError(f"{name} must be a string")
+        if not value:
+            raise ValueError(f"{name} must not be empty")
+        if len(value) > _MAX_TARGET_KEY_CHARS:
+            raise ValueError(f"{name} exceeds {_MAX_TARGET_KEY_CHARS} characters")
+        return value
 
     @staticmethod
     def _fallback_digest_for_block(block) -> str:
@@ -115,7 +132,7 @@ class BookReader:
         return-point state or publishing a snapshot so every emitted target is
         immediately restorable against the same document snapshot.
         """
-        key = self._target_key(index)
+        key = self._durable_target(self._target_key(index))
         self._book_index.resolve(key)
         return key
 
@@ -128,9 +145,8 @@ class BookReader:
 
     def _go_to_target(self, key: str) -> ReadingLocation:
         self._require_indexed_revision()
-        if type(key) is not str:
-            raise TypeError("Book target key must be a string")
-        entry = self._book_index.resolve(key)
+        validated_key = self._durable_target(key)
+        entry = self._book_index.resolve(validated_key)
         return self.go_to(entry.target.index)
 
     def _heading_path(self, index: int) -> tuple[str, ...]:
@@ -213,6 +229,8 @@ class BookReader:
     def save_return_point(self, name: str = "default") -> ReadingLocation:
         self._require_content()
         validated_name = self._return_point_name(name)
+        if validated_name not in self._return_points and len(self._return_points) >= _MAX_RETURN_POINTS:
+            raise ValueError(f"Book reader supports at most {_MAX_RETURN_POINTS} return points")
         key = self._durable_target_key()
         self._return_points[validated_name] = key
         return self.location()
@@ -226,13 +244,14 @@ class BookReader:
     def snapshot(self) -> dict[str, object]:
         """Return strict schema-v2 reading progress without positional drift."""
         self._require_indexed_revision()
+        if len(self._return_points) > _MAX_RETURN_POINTS:
+            raise ValueError(f"Book reader supports at most {_MAX_RETURN_POINTS} return points")
         current_target = None if self._index < 0 else self._durable_target_key()
         referenced_targets = set(self._return_points.values())
         if current_target is not None:
             referenced_targets.add(current_target)
-        # Return points may predate later authoring/import mutations. Never publish
-        # a durable snapshot containing a target that is now missing or ambiguous.
         for key in referenced_targets:
+            self._durable_target(key)
             self._book_index.resolve(key)
         fallback_digests = {
             key: self._fallback_digest(key)
@@ -258,6 +277,8 @@ class BookReader:
         """
         if not isinstance(snapshot, Mapping):
             raise TypeError("Book reader snapshot must be a mapping")
+        if len(snapshot) != len(_BOOK_READER_SNAPSHOT_FIELDS):
+            raise ValueError("invalid BookReader snapshot field count")
         fields = set(snapshot)
         if fields != _BOOK_READER_SNAPSHOT_FIELDS:
             missing = sorted(_BOOK_READER_SNAPSHOT_FIELDS - fields)
@@ -276,31 +297,35 @@ class BookReader:
             raise ValueError(f"unsupported BookReader snapshot schema_version: {schema_version}")
 
         current_target = snapshot["current_target"]
-        if current_target is not None and type(current_target) is not str:
-            raise TypeError("Book reader snapshot current_target must be a string or null")
+        if current_target is not None:
+            current_target = cls._durable_target(current_target, name="Book reader snapshot current_target")
 
         raw_return_points = snapshot["return_points"]
         if not isinstance(raw_return_points, Mapping):
             raise TypeError("Book reader snapshot return_points must be a mapping")
+        if len(raw_return_points) > _MAX_RETURN_POINTS:
+            raise ValueError(f"Book reader snapshot exceeds {_MAX_RETURN_POINTS} return points")
         return_points: dict[str, str] = {}
         for name, key in raw_return_points.items():
             validated_name = cls._return_point_name(name)
-            if type(key) is not str:
-                raise TypeError("Book reader snapshot target keys must be strings")
-            return_points[validated_name] = key
+            validated_key = cls._durable_target(key, name="Book reader snapshot target key")
+            return_points[validated_name] = validated_key
 
         raw_fallback_digests = snapshot["fallback_digests"]
         if not isinstance(raw_fallback_digests, Mapping):
             raise TypeError("Book reader snapshot fallback_digests must be a mapping")
+        if len(raw_fallback_digests) > _MAX_RETURN_POINTS + 1:
+            raise ValueError("Book reader snapshot contains too many fallback digests")
         fallback_digests: dict[str, str] = {}
         for key, digest in raw_fallback_digests.items():
-            if type(key) is not str or type(digest) is not str:
+            validated_key = cls._durable_target(key, name="Book reader fallback digest key")
+            if type(digest) is not str:
                 raise TypeError("Book reader fallback digest keys and values must be strings")
-            if not key.startswith("index:"):
+            if not validated_key.startswith("index:"):
                 raise ValueError("Book reader fallback digests may only bind index targets")
             if len(digest) != 64 or any(character not in "0123456789abcdef" for character in digest):
                 raise ValueError("Book reader fallback digest must be lowercase SHA-256 hex")
-            fallback_digests[key] = digest
+            fallback_digests[validated_key] = digest
 
         reader = cls(document)
         referenced_targets = set(return_points.values())

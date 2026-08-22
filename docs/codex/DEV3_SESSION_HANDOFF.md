@@ -1,55 +1,53 @@
 # AUTO-CHESS DEV3 session handoff
 
-Continued the same autonomous DEV3 Full Product sequence after a fresh live GitHub/Drive ownership read. Live technical truth showed the prior durable StudentProgress package already terminal GREEN in PR #90, so it was not duplicated. This run claimed one isolated unowned P1 in presentation-neutral ACSDB Library/Search request hardening.
+Continued the same autonomous DEV3 Full Product sequence after a fresh live GitHub ownership read. The prior StudentProgress resource-bound package was already terminal GREEN and was not duplicated. This run claimed one isolated unowned P1 in presentation-neutral Books durable-progress resource hardening.
 
-Package delivered:
-- branch `auto/dev3-search-resource-bounds-20260822`
-- draft PR #92 against `auto/dev3-student-progress-store-20260822`
-- base DEV3 coordination head `cad3921dff0a7dadafed253a90575d07b0b9c994`
-- verified executable Product head `6f90516a8beefa8c191a8c593aaf3f2e410aa738`
-- PR merge/evidence ref `4bab8883cd293a0aa25d2a39d92e3a1abd4f6ff1`
+Current package:
+- branch `auto/dev3-bookreader-snapshot-bounds-20260822`
+- draft PR #95
+- prior terminal coordination base `eb0279c151156bf3b3f3a0ffc43ef2ec38d0d200`
+- current executable Product/test/CI head `85fd447dbc2864fd7e507703aa0c4d342526854f`
+- PR retargeted to `auto/dev3-search-resource-bounds-20260822` so the trusted existing PR CI trigger can validate the cumulative exact DEV3 head.
 
 Implementation:
-- `acs/search_service.py` now rejects normalized user search terms over 256 characters before SQLite execution;
-- bound applies uniformly to `player`, `event`, `eco`, `opening`, and `source_name`;
-- exact 256-character terms remain valid;
-- whitespace is normalized before applying the bound;
-- existing literal LIKE escaping for `%`, `_`, and backslash is preserved;
-- existing strict text/integer no-coercion, stable keyset paging and provenance contracts remain intact;
-- no canonical chess, GameTree, UI, ChessBase/shared PGN-import, or integration ownership was added.
+- durable BookReader return points are capped at 1,000;
+- oversized return-point maps are rejected before restore iteration;
+- return-point names are capped at 256 characters before state mutation;
+- durable semantic target keys are capped at 4,096 characters before BookIndex resolution;
+- fallback-digest map cardinality is bounded before iteration;
+- strict schema-v2, semantic target identity, fallback-digest checks and live BookDocument revision protection remain intact;
+- no canonical chess/GameTree state, UI state, engine state, PGN/ChessBase security path or integration target was changed.
 
 Tests:
-- added `tests/test_dev3_search_resource_bounds.py` with 5 adversarial regressions covering every filter, exact boundary acceptance, normalization-before-bound, rejection before database work, and non-text fail-closed behavior;
-- extended `DEV3 Full Product ACSDB CI` focused suite to include the new tests.
+- added `tests/test_dev3_bookreader_snapshot_bounds.py`;
+- covers oversized name rejection without mutation, exact 256-character acceptance, 1,001-entry pre-iteration rejection, exact 1,000-entry acceptance, oversized current/return target rejection, fallback map cardinality/key bounds, and snapshot-side out-of-contract count rejection;
+- focused DEV3 CI list now includes the new module;
+- no existing assertion was weakened, skipped or removed.
 
-CI history and exact terminal evidence:
-- first run `32574603178`, job `97034972349` failed one newly-authored DEV3 fixture because the fixture itself normalized above 256 while expecting acceptance; Product behavior was correct;
-- commit `6f90516a8beefa8c191a8c593aaf3f2e410aa738` corrected only the fixture to model oversized raw whitespace collapsing to `word term`; no Product relaxation or assertion weakening;
-- terminal workflow `DEV3 Full Product ACSDB CI` run `32574651690`, job `97035089135` — SUCCESS;
-- Actions checkout/evidence ref `4bab8883cd293a0aa25d2a39d92e3a1abd4f6ff1`;
-- diff hygiene PASS;
-- compile PASS;
-- focused DEV3 suite `130/130 PASS`;
-- full unittest `660/660 PASS`;
-- full pytest `738 passed + 628 subtests passed`;
-- SELFTEST PASS;
-- `ACCESSIBLE CHESS 0.4 WEBVIEW2 COMPLETE USER FLOW DIAGNOSTIC PASS`;
-- no tests were skipped, xfailed, or weakened to obtain GREEN.
+Validation truth at handoff write:
+- a fresh push occurred after exact branch CI routing existed;
+- available connector lookup currently exposes no workflow run/status for exact executable head `85fd447d...` / its PR merge ref;
+- therefore this package is `CI=PENDING_OR_UNOBSERVED`, not GREEN by inference;
+- `READY_FOR_INTEGRATION=NO` until exact GitHub Actions evidence is observed.
+
+Prior terminal evidence remains independently valid for StudentProgress resource hardening:
+- Product head `4c0f5885e51aa93ad366dccaf61a962c930f5ef0`;
+- CI run `32577628215`, job `97042172326` SUCCESS;
+- focused 134/134, unittest 664/664, pytest 742 + 628 subtests, diagnostics PASS.
 
 Boundaries preserved:
 - DEV2 canonical GameTree/domain/core untouched.
 - DEV1 UI/WebView/Teacher presentation untouched.
 - DEV4 ChessBase/package/shared PGN-import security untouched.
 - DEV5 remains sole integration/promotion owner.
-- No frozen Stage1 ref was merged/promoted.
-- No force-push, foreign branch merge, or cherry-pick was used.
+- no frozen Stage1 ref was merged/promoted;
+- no force-push, foreign branch merge or cherry-pick was used.
 
 Readiness:
-- this isolated DEV3 package: `READY_FOR_INTEGRATION=YES` at executable Product head `6f90516a...`
-- overall Full Product DEV3: `PARTIAL`
-- fresh Windows candidate: NONE
-- `NVDA_VERIFIED=NO`
+- current BookReader bounds package: `READY_FOR_INTEGRATION=NO` pending exact CI observation;
+- prior StudentProgress resource package remains `READY_FOR_INTEGRATION=YES` at its exact verified Product head;
+- overall Full Product DEV3: `PARTIAL`;
+- fresh Windows candidate: NONE;
+- `NVDA_VERIFIED=NO`.
 
-Coordination note: commits after `6f90516a...` synchronize DEV3 RUN_STATE/CURRENT_STATE/NEXT_WORK/SESSION_HANDOFF only; verified executable Product code is unchanged by those documentation commits.
-
-Next exact action: perform a fresh live ownership read and claim only another high-value unowned DEV3 P0/P1 dependency-correct backend slice; if touching work is already owned or IN_PROGRESS, remain SAFE OVERLAP and do non-conflicting evidence/backlog work.
+Next exact action: re-check PR #95 exact Actions first. On RED, fix Product code without weakening tests. On GREEN, synchronize exact run/job/SHA/counts into all DEV3 coordination files and mark only this isolated package READY_FOR_INTEGRATION=YES; then perform a fresh ownership read before claiming another slice.

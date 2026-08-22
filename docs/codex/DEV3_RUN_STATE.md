@@ -1,48 +1,37 @@
 # AUTO-CHESS DEV3 run state
 
-STATUS: COMPLETE / CURRENT DEV3 P1 ACSDB SEARCH RESOURCE-BOUND PACKAGE TERMINAL GREEN
-BRANCH: `auto/dev3-search-resource-bounds-20260822`
-PRODUCT PR: #92 OPEN / DRAFT / MERGEABLE
+STATUS: IN_PROGRESS / P1 BOOKREADER SNAPSHOT RESOURCE-BOUND PACKAGE IMPLEMENTED, EXACT CI EVIDENCE PENDING
+BRANCH: `auto/dev3-bookreader-snapshot-bounds-20260822`
+PRODUCT PR: #95 OPEN / DRAFT / MERGEABLE
 DIRECTIVE: same Full Product DEV3 autonomous sequence; no ownership transfer
 
-VERIFIED_EXECUTABLE_PRODUCT_HEAD: `6f90516a8beefa8c191a8c593aaf3f2e410aa738`
-PR_MERGE_EVIDENCE_REF: `4bab8883cd293a0aa25d2a39d92e3a1abd4f6ff1`
-BASE_DEV3_HEAD: `cad3921dff0a7dadafed253a90575d07b0b9c994`
+CURRENT_EXECUTABLE_HEAD: `85fd447dbc2864fd7e507703aa0c4d342526854f`
+BASE_DEV3_HEAD: `eb0279c151156bf3b3f3a0ffc43ef2ec38d0d200`
+PR_BASE_FOR_TRUSTED_CI: `auto/dev3-search-resource-bounds-20260822`
 
-PACKAGE — BOUNDED ACSDB LIBRARY/SEARCH REQUESTS:
-- `acs/search_service.py`
-- all user text filters are normalized then bounded to 256 characters before SQLite execution
-- applies to player/event/eco/opening/source_name
-- exact 256-character terms remain accepted
-- LIKE `%`, `_`, and backslash remain literal search text through existing escaping
-- strict no-coercion integer/text validation and stable keyset paging remain unchanged
-- focused adversarial coverage in `tests/test_dev3_search_resource_bounds.py`
+PACKAGE — BOUNDED BOOKREADER DURABLE PROGRESS:
+- durable return points capped at 1,000; restore rejects overflow before iterating entries.
+- return-point names capped at 256 characters before state mutation.
+- durable semantic target keys capped at 4,096 characters before BookIndex resolution.
+- fallback-digest mapping cardinality capped before iteration.
+- exact boundary tests cover 256-character names and 1,000 return points.
+- strict schema-v2, semantic target identity, fallback digest validation and live document revision guard remain intact.
+- no canonical chess/GameTree state, UI state, engine state, PGN/ChessBase security or integration target was changed.
 
-TERMINAL VALIDATION:
-- workflow `DEV3 Full Product ACSDB CI`
-- run `32574651690` / job `97035089135` SUCCESS
-- Actions checkout/evidence ref `4bab8883cd293a0aa25d2a39d92e3a1abd4f6ff1`
-- diff hygiene PASS
-- compile PASS
-- focused DEV3 suite 130/130 PASS
-- full unittest 660/660 PASS
-- full pytest 738 passed + 628 subtests PASS
-- SELFTEST PASS
-- `ACCESSIBLE CHESS 0.4 WEBVIEW2 COMPLETE USER FLOW DIAGNOSTIC PASS`
-- no skip/xfail/test weakening used to obtain GREEN
-
-CI HISTORY:
-- run `32574603178` / job `97034972349` initially failed one newly-authored fixture only; Product behavior correctly rejected its normalized >256 term.
-- commit `6f90516a8beefa8c191a8c593aaf3f2e410aa738` corrected only that fixture to test whitespace normalization before the bound; no Product relaxation.
+VALIDATION STATUS:
+- focused adversarial tests added in `tests/test_dev3_bookreader_snapshot_bounds.py` and wired into `DEV3 Full Product ACSDB CI`.
+- a push on the exact branch was emitted after CI routing existed.
+- this connector currently exposes no observable workflow run/status for exact head `85fd447d...`; therefore CI is `PENDING / UNOBSERVED`, never GREEN by inference.
+- no tests were weakened.
 
 BLOCKERS:
-- PRODUCT: none for this isolated DEV3 package.
-- QA: no blocker for this package.
+- PRODUCT: none known from static review.
+- CI OBSERVABILITY: exact-head Actions result not yet observable through the available run lookup.
 - INTEGRATION: DEV5 remains sole cross-lane integration/promotion owner.
 - HUMAN_ONLY: no fresh Windows/NVDA run.
 
-READY_FOR_INTEGRATION: YES for executable Product head `6f90516a8beefa8c191a8c593aaf3f2e410aa738`.
+READY_FOR_INTEGRATION: NO until exact-head CI is observed GREEN.
 OVERALL_FULL_PRODUCT_DEV3: PARTIAL.
-NEXT_ACTION: fresh ownership/coordination read; claim the highest-value unowned DEV3 P0/P1 dependency-correct backend slice, otherwise SAFE OVERLAP evidence/backlog only.
+NEXT_ACTION: first re-check exact PR/head Actions. If RED, fix Product code without weakening assertions; if GREEN, synchronize terminal evidence and handoff, then claim the next unowned P0/P1 slice only after a fresh ownership read.
 NVDA_VERIFIED: NO
 WINDOWS_CANDIDATE: NONE created by DEV3.
