@@ -42,14 +42,16 @@ class ClassroomWebViewBridgeTests(unittest.TestCase):
         management[RecordKind.ASSIGNMENT].replace(
             (ManagementRecord("a1", RecordKind.ASSIGNMENT, "Assignment one"),)
         )
-        state = {
+        self.remote_state: dict[str, object] = {
             "status": "connected",
             "session_id": "private-session-id",
             "teacher_label": "Teacher",
             "student_label": "Student one",
             "last_sequence": 4,
         }
-        remote = RemoteLessonPresenter(lambda: dict(state), dispatch, language=UILanguage.EN)
+        remote = RemoteLessonPresenter(
+            lambda: dict(self.remote_state), dispatch, language=UILanguage.EN
+        )
         projection = ClassroomWebViewProjection(
             management,
             remote,
@@ -71,6 +73,7 @@ class ClassroomWebViewBridgeTests(unittest.TestCase):
         self.assertNotIn("must-not-cross-browser-boundary", repr(opened.payload))
 
     def test_remote_commands_keep_private_session_inside_presenter(self) -> None:
+        self.remote_state["status"] = "error"
         event = self.bridge.dispatch("remote.reconnect", {})
         self.assertEqual("remote-action", event.kind)
         self.assertEqual(
