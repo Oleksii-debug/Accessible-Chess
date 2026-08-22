@@ -13,12 +13,23 @@ from typing import Literal
 from .acsdb import AcsDatabase, IMPORT_ATTEMPT_STATUSES
 
 ImportAttemptStatus = Literal["pending", "full", "warning", "damaged", "failed"]
+_SQLITE_INTEGER_MAX = (1 << 63) - 1
 
 
 def _exact_int(value: object, *, name: str) -> int:
     if type(value) is not int:
         raise TypeError(f"{name} must be an integer")
     return value
+
+
+def _sqlite_record_id(value: object, *, name: str) -> int:
+    """Validate an application id before it reaches SQLite's integer binder."""
+    normalized = _exact_int(value, name=name)
+    if normalized < 1:
+        raise ValueError(f"{name} must be positive")
+    if normalized > _SQLITE_INTEGER_MAX:
+        raise ValueError(f"{name} exceeds SQLite integer range")
+    return normalized
 
 
 @dataclass(frozen=True, slots=True)
@@ -67,9 +78,7 @@ class ImportHistoryService:
         self._db = database
 
     def get(self, attempt_id: int) -> ImportAttemptItem | None:
-        normalized_id = _exact_int(attempt_id, name="attempt_id")
-        if normalized_id < 1:
-            raise ValueError("attempt_id must be positive")
+        normalized_id = _sqlite_record_id(attempt_id, name="attempt_id")
         row = self._db.get_import_attempt(normalized_id)
         if row is None:
             return None
@@ -96,9 +105,10 @@ class ImportHistoryService:
 
         after_attempt_id: int | None = None
         if query.after_attempt_id is not None:
-            after_attempt_id = _exact_int(query.after_attempt_id, name="after_attempt_id")
-            if after_attempt_id < 1:
-                raise ValueError("after_attempt_id must be positive")
+            after_attempt_id = _sqlite_record_id(
+                query.after_attempt_id,
+                name="after_attempt_id",
+            )
 
         limit = _exact_int(query.limit, name="limit")
         if not 1 <= limit <= 200:
