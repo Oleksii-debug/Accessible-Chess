@@ -1,11 +1,12 @@
 param(
     [Parameter(Mandatory = $true)]
-    [string]$ProjectPath
+    [string]$ExePath
 )
 
 $ErrorActionPreference = 'Stop'
 $PSNativeCommandUseErrorActionPreference = $true
 $appPid = $null
+$appProcess = $null
 
 function Fail([string]$message) { throw "UIA R4b FAIL: $message" }
 
@@ -94,10 +95,16 @@ function Open-And-CancelDialog([string]$shortcut, [string]$dialogName, [string]$
 }
 
 try {
-    $project = (Resolve-Path -LiteralPath $ProjectPath).Path
-    $launch = Invoke-WinApp @('run',$project,'-c','Release','--arch','x64','--detach','--json') -Json
-    $appPid = [int]$launch.ProcessId
-    if ($appPid -le 0) { Fail 'winapp run did not return a valid process ID.' }
+    $exe = (Resolve-Path -LiteralPath $ExePath).Path
+    if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) { Fail "exact published EXE not found: $exe" }
+    if ([IO.Path]::GetFileName($exe) -ne 'WordDeck.exe') { Fail "unexpected acceptance executable: $exe" }
+
+    # Launch the exact self-contained EXE that passed the artifact gate. WinApp CLI
+    # is used strictly as the UI Automation transport and attaches by process ID;
+    # it must not rebuild or launch a project for final release acceptance.
+    $appProcess = Start-Process -FilePath $exe -WorkingDirectory (Split-Path -Parent $exe) -PassThru
+    $appPid = [int]$appProcess.Id
+    if ($appPid -le 0) { Fail 'Start-Process did not return a valid WordDeck process ID.' }
 
     Wait-For 'Current English word' 30000
     foreach ($required in @('Ukrainian translation','Dictionary','Recall study scope','Active Recall deck')) { Wait-For $required }
@@ -215,7 +222,7 @@ try {
     Focus 'Current English word'
     Assert-Focus 'Current English word' 'final main focus recovery'
 
-    Write-Host 'WordDeck Worker3 R4b ACTUAL WinApp UIA PASS: Recall next/true-previous, translation/menu native arrows, repeated selector focus, truthful F1, shortcut capture cancellation, profile/reset dialogs, Spelling and Sentence keyboard surfaces verified.'
+    Write-Host 'WordDeck Worker3 R4b ACTUAL WinApp UIA PASS: exact published EXE, Recall next/true-previous, translation/menu native arrows, repeated selector focus, truthful F1, shortcut capture cancellation, profile/reset dialogs, Spelling and Sentence keyboard surfaces verified.'
 }
 finally {
     if ($null -ne $appPid -and $appPid -gt 0) {
