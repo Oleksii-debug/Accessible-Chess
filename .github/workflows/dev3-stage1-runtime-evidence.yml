@@ -6,13 +6,18 @@ on:
       - auto/dev3-stage1-runtime-evidence-20260823
     paths:
       - '.github/workflows/dev3-stage1-runtime-evidence.yml'
+  pull_request:
+    branches:
+      - manual5/integration-20260821
+    paths:
+      - '.github/workflows/dev3-stage1-runtime-evidence.yml'
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: dev3-stage1-runtime-evidence-0fa442
+  group: dev3-stage1-runtime-evidence-0fa442-${{ github.event_name }}
   cancel-in-progress: false
 
 env:
