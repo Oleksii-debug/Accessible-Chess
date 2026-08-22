@@ -16,15 +16,19 @@ class Dev5SharedBoundaryRepairTests(unittest.TestCase):
     WINDOWS_PRIVATE_PATH = r"C:\Users\PrivateUser\Documents\Training Database.CBH"
     SAFE_NAME = "Training Database.CBH"
 
-    def test_report_name_is_host_independent_for_both_separator_conventions(self) -> None:
+    def test_report_path_is_host_independent_and_preserves_safe_relative_provenance(self) -> None:
         self.assertEqual(report_safe_path_name(self.WINDOWS_PRIVATE_PATH), self.SAFE_NAME)
         self.assertEqual(
             report_safe_path_name("/home/private/Documents/Training Database.CBH"),
             self.SAFE_NAME,
         )
         self.assertEqual(
-            report_safe_path_name(r"mixed/root\private/Training Database.CBH"),
-            self.SAFE_NAME,
+            report_safe_path_name(r"incoming\Training Database.CBH"),
+            "incoming/Training Database.CBH",
+        )
+        self.assertEqual(
+            report_safe_path_name("incoming/Training Database.CBH"),
+            "incoming/Training Database.CBH",
         )
 
     def test_all_chessbase_serialized_sinks_share_safe_filename_semantics(self) -> None:
