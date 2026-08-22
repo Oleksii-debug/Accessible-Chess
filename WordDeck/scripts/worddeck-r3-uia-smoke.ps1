@@ -56,7 +56,12 @@ function Assert-Focus([string]$expected, [string]$context) {
 }
 
 function Send-Keys([string]$keys) {
-    Invoke-WinApp @('ui','send-keys',$keys,'-a',[string]$script:appPid,'--via','post-message') | Out-Null
+    # WinApp documents that accelerator/shortcut combinations need SendInput so
+    # the target process observes the held modifier state. Plain navigation keys
+    # stay on PostMessage because they are HWND-targeted and deterministic on a
+    # hosted runner.
+    $transport = if ($keys.Contains('+')) { 'send-input' } else { 'post-message' }
+    Invoke-WinApp @('ui','send-keys',$keys,'-a',[string]$script:appPid,'--via',$transport) | Out-Null
     Start-Sleep -Milliseconds 250
 }
 
@@ -191,7 +196,7 @@ try {
     Send-Keys 'alt+f4'
     Wait-Gone 'WordDeck Sentence Spelling' 7000
 
-    Write-Host 'WordDeck R4 integrated UIA PASS: Recall Natalia arrows/true previous, selector focus retention, native menu/text navigation, F1/shortcut settings, profile/reset dialogs, Spelling scope/answer and Sentence keyboard surfaces verified.'
+    Write-Host 'WordDeck R4 integrated UIA PASS: Recall arrows/true previous, selector focus retention, native menu/text navigation, F1/shortcut settings, profile/reset dialogs, Spelling scope/answer and Sentence keyboard surfaces verified.'
 }
 finally {
     if ($null -ne $appPid -and $appPid -gt 0) {
