@@ -224,7 +224,19 @@ def _publish_no_clobber(tmp_path: Path, destination: Path) -> None:
         raise
     except OSError as exc:
         raise PgnFileError("PGN no-clobber publication is unavailable") from exc
-    tmp_path.unlink()
+
+    # The hard link above is the commit point: the requested destination now
+    # exists with the complete payload.  Failure to remove the private temp
+    # name after that point must not make callers believe the save itself
+    # failed and invite an ambiguous retry against an already-committed file.
+    # Best-effort cleanup still removes the normal-path temp name; an OS-level
+    # cleanup failure can only leave the extra hard-link name behind.
+    try:
+        tmp_path.unlink()
+    except FileNotFoundError:
+        pass
+    except OSError:
+        pass
 
 
 def _publish_expected_hash(
