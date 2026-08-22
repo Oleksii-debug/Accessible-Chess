@@ -32,13 +32,11 @@ internal static class SentencePackStoreSelfTest
             Require(loaded[0].PortablePack is null, "Normal installed discovery eagerly loaded the portable SentencePack.");
             Require(loaded[0].Corpus.LookupByEntryId("ox-learn").Single().Id == "sentence-1", "Reloaded SQLite lookup failed.");
 
-            // Backward compatibility: pre-manifest portable-only install remains readable.
             string legacyPath = Path.Combine(store.DirectoryPath, "legacy-pack.json");
             File.WriteAllText(legacyPath, SentencePackJson.Serialize(BuildPack("legacy-pack", "legacy-sentence")));
             InstalledSentencePack? legacy = store.Find("legacy-pack");
             Require(legacy?.PortablePack?.Sentences.Single().Id == "legacy-sentence", "Legacy uncompressed SentencePack compatibility was lost.");
 
-            // Orphan generation files cannot become active without a manifest commit.
             SentencePack orphan = BuildPack(pack.PackId, "orphan-sentence");
             string orphanPortable = Path.Combine(store.DirectoryPath, pack.PackId + ".orphan.json.gz");
             SentencePackIo.WriteGZip(orphanPortable, orphan);
@@ -48,7 +46,6 @@ internal static class SentencePackStoreSelfTest
             Require(store.Find(pack.PackId)?.Corpus.LookupByEntryId("ox-learn").Single().Id == "sentence-1",
                 "Uncommitted orphan SentencePack generation became active.");
 
-            // Replacement creates a new immutable generation and atomically changes manifest pointer.
             string replacementSource = Path.Combine(root, "replacement.json.gz");
             SentencePack replacement = BuildPack(pack.PackId, "sentence-2");
             SentencePackIo.WriteGZip(replacementSource, replacement);
@@ -61,7 +58,6 @@ internal static class SentencePackStoreSelfTest
             string manifestBackup = Path.Combine(store.DirectoryPath, pack.PackId + ".installed.backup.json");
             Require(File.Exists(manifestBackup), "Replacement did not preserve previous committed manifest.");
 
-            // Failure after generation files exist but before manifest activation must leave sentence-2 active.
             string failedSource = Path.Combine(root, "failed-replacement.json.gz");
             SentencePackIo.WriteGZip(failedSource, BuildPack(pack.PackId, "sentence-3"));
             bool injected = false;
@@ -80,7 +76,6 @@ internal static class SentencePackStoreSelfTest
             Require(store.Find(pack.PackId)?.Corpus.LookupByEntryId("ox-learn").Single().Id == "sentence-2",
                 "Failed replacement changed active SentencePack before manifest commit.");
 
-            // Corrupt active manifest falls back to last-known-good committed generation.
             File.WriteAllText(manifestPath, "{ broken manifest");
             Require(store.Find(pack.PackId)?.Corpus.LookupByEntryId("ox-learn").Single().Id == "sentence-1",
                 "Corrupt current manifest did not recover previous committed generation.");
@@ -125,8 +120,7 @@ internal static class SentencePackStoreSelfTest
 
     private static void TestMixedLicenseRejected(string root)
     {
-        SentencePack mixed = BuildPack("mixed-license-pack", "mixed-sentence");
-        mixed.Sentences[0].License = "CC-BY-4.0";
+        SentencePack mixed = BuildPack("mixed-license-pack", "mixed-sentence", sentenceLicense: "CC-BY-4.0");
         string source = Path.Combine(root, "mixed-license.json");
         File.WriteAllText(source, SentencePackJson.Serialize(mixed));
         bool rejected = false;
@@ -135,7 +129,7 @@ internal static class SentencePackStoreSelfTest
         Require(rejected, "Mixed-license SentencePack was accepted without an explicit release format for mixed attribution.");
     }
 
-    private static SentencePack BuildPack(string packId, string sentenceId = "sentence-1")
+    private static SentencePack BuildPack(string packId, string sentenceId = "sentence-1", string sentenceLicense = "CC0-1.0")
     {
         const string english = "We learn words";
         var pack = new SentencePack
@@ -151,7 +145,7 @@ internal static class SentencePackStoreSelfTest
                     English = english,
                     Ukrainian = "Ми вивчаємо слова",
                     Source = "self-test",
-                    License = "CC0-1.0",
+                    License = sentenceLicense,
                     Tokens = SentenceTokenizer.Tokenize(english).ToList(),
                     Lemmas = new List<string> { "we", "learn", "words" },
                     TargetEntryIds = new List<string> { "ox-learn", "ox-words" },
