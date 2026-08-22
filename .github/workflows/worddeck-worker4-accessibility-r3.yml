@@ -1,0 +1,79 @@
+name: WordDeck Worker4 Accessibility Round3
+
+on:
+  push:
+    branches:
+      - worddeck-worker-4-accessibility-r3
+  pull_request:
+    branches:
+      - worddeck-bootstrap
+    paths:
+      - 'WordDeck/**'
+      - '.github/workflows/worddeck-worker4-accessibility-r3.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-selftest-uia:
+    runs-on: windows-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout exact worker Round 3 head
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Restore WordDeck
+        working-directory: WordDeck
+        run: dotnet restore
+
+      - name: Build Release
+        working-directory: WordDeck
+        run: dotnet build -c Release --no-restore
+
+      - name: Run full self-test including accessibility Round 3
+        working-directory: WordDeck
+        run: dotnet run -c Release --no-build -- --self-test
+
+      - name: Publish self-contained Windows x64
+        working-directory: WordDeck
+        run: dotnet publish -c Release -r win-x64 --self-contained true --no-restore -o ../artifacts/worddeck-worker4-r3
+
+      - name: Run self-test from published executable
+        shell: pwsh
+        run: ./artifacts/worddeck-worker4-r3/WordDeck.exe --self-test
+
+      - name: Verify public publish hygiene
+        shell: pwsh
+        run: |
+          $root = Join-Path $PWD 'artifacts/worddeck-worker4-r3'
+          if (-not (Test-Path (Join-Path $root 'WordDeck.exe'))) { throw 'Published WordDeck.exe is missing.' }
+          $forbidden = Get-ChildItem -Path $root -Recurse -File | Where-Object {
+            $_.Name -match '^(state|spelling-state|sentence-coach-state)(\.backup)?\.json$' -or
+            $_.Name -match 'profile.*\.json$' -or
+            $_.Name -match 'token\.json$' -or
+            $_.Name -match '(password|secret|cookie|session)'
+          }
+          if ($forbidden) {
+            $names = ($forbidden | ForEach-Object FullName) -join '; '
+            throw "Personal/private state leaked into publish output: $names"
+          }
+          Write-Host 'Round3 publish hygiene passed.'
+
+      - name: Run Windows UI Automation Round 3 regression
+        shell: pwsh
+        working-directory: WordDeck
+        run: ./scripts/worker4-r3-uia-smoke.ps1 -ExePath ../artifacts/worddeck-worker4-r3/WordDeck.exe
+
+      - name: Upload exact worker Windows artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: worddeck-worker4-r3-win-x64
+          path: artifacts/worddeck-worker4-r3
+          if-no-files-found: error
