@@ -55,14 +55,18 @@ class ClassroomWebViewPrivacyTests(unittest.TestCase):
         remote = RemoteLessonPresenter(lambda: dict(remote_state), dispatch)
         projection = ClassroomWebViewProjection(management, remote, dispatch)
 
-        events = (
+        events = [
             projection.open_selected("class"),
             projection.new_class(),
             projection.connect("lesson-public"),
-            projection.reconnect(),
-            projection.leave(),
-        )
+        ]
+        remote_state["status"] = "error"
+        events.append(projection.reconnect())
+        remote_state["status"] = "connected"
+        events.append(projection.leave())
+
         self.assertEqual(5, len(calls))
+        self.assertTrue(all(event.kind != "error" for event in events))
         serialized = repr(tuple(event.payload for event in events))
         for forbidden in (
             "SECRET-TOKEN",
