@@ -24,6 +24,7 @@ internal static class Program
                 SentenceCoachSelfTest.Run();
                 SentencePackStoreSelfTest.Run();
                 TatoebaSentencePackSelfTest.Run();
+                AccessibilityRound3SelfTest.Run();
             }
             catch (Exception ex)
             {
