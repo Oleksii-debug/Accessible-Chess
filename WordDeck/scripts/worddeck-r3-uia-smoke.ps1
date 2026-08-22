@@ -1,173 +1,155 @@
 param(
     [Parameter(Mandatory = $true)]
-    [string]$ExePath
+    [string]$ProjectPath
 )
 
 $ErrorActionPreference = 'Stop'
-Add-Type -AssemblyName UIAutomationClient
-Add-Type -AssemblyName UIAutomationTypes
-Add-Type -AssemblyName System.Windows.Forms
+$PSNativeCommandUseErrorActionPreference = $true
+$appPid = $null
 
 function Fail([string]$message) { throw "WordDeck R3 UIA FAIL: $message" }
-function Wait-Until([scriptblock]$condition, [int]$timeoutMs = 10000, [string]$message = 'condition timed out') {
-    $deadline = [DateTime]::UtcNow.AddMilliseconds($timeoutMs)
-    do {
-        if (& $condition) { return }
-        Start-Sleep -Milliseconds 100
-    } while ([DateTime]::UtcNow -lt $deadline)
-    Fail $message
-}
-function Find-Window([string]$name) {
-    $root = [System.Windows.Automation.AutomationElement]::RootElement
-    return $root.FindFirst(
-        [System.Windows.Automation.TreeScope]::Children,
-        (New-Object System.Windows.Automation.PropertyCondition(
-            [System.Windows.Automation.AutomationElement]::NameProperty, $name)))
-}
-function Find-ByName($root, [string]$name) {
-    if ($null -eq $root) { return $null }
-    return $root.FindFirst(
-        [System.Windows.Automation.TreeScope]::Descendants,
-        (New-Object System.Windows.Automation.PropertyCondition(
-            [System.Windows.Automation.AutomationElement]::NameProperty, $name)))
-}
-function Value-Of($element) {
-    if ($null -eq $element) { return $null }
-    $pattern = $null
-    if ($element.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern, [ref]$pattern)) {
-        return ([System.Windows.Automation.ValuePattern]$pattern).Current.Value
+
+function Invoke-WinApp([string[]]$arguments, [switch]$Json) {
+    $output = & winapp @arguments
+    $exitCode = $LASTEXITCODE
+    if ($exitCode -ne 0) {
+        Fail "winapp $($arguments -join ' ') exited with code $exitCode. Output: $($output -join ' ')"
     }
-    $textPattern = $null
-    if ($element.TryGetCurrentPattern([System.Windows.Automation.TextPattern]::Pattern, [ref]$textPattern)) {
-        return ([System.Windows.Automation.TextPattern]$textPattern).DocumentRange.GetText(-1).TrimEnd("`r", "`n")
+    if ($Json) {
+        try { return ($output | Out-String | ConvertFrom-Json) }
+        catch { Fail "winapp returned invalid JSON for: $($arguments -join ' ')" }
     }
-    return $element.Current.Name
+    return $output
 }
-function Focused-Name {
-    $focused = [System.Windows.Automation.AutomationElement]::FocusedElement
-    if ($null -eq $focused) { return '' }
-    return $focused.Current.Name
+
+function Wait-For([string]$selector, [int]$timeoutMs = 10000) {
+    Invoke-WinApp @('ui','wait-for',$selector,'-a',[string]$script:appPid,'--timeout',[string]$timeoutMs) | Out-Null
 }
+
+function Wait-Gone([string]$selector, [int]$timeoutMs = 5000) {
+    Invoke-WinApp @('ui','wait-for',$selector,'-a',[string]$script:appPid,'--gone','--timeout',[string]$timeoutMs) | Out-Null
+}
+
+function Get-Value([string]$selector) {
+    $result = Invoke-WinApp @('ui','get-value',$selector,'-a',[string]$script:appPid,'--json') -Json
+    return [string]$result.text
+}
+
+function Focus([string]$selector) {
+    Invoke-WinApp @('ui','focus',$selector,'-a',[string]$script:appPid) | Out-Null
+}
+
+function Get-FocusedName {
+    $result = Invoke-WinApp @('ui','get-focused','-a',[string]$script:appPid,'--json') -Json
+    if (-not $result.hasFocus -or $null -eq $result.element) { return '' }
+    return [string]$result.element.name
+}
+
 function Assert-Focus([string]$expected, [string]$context) {
-    Wait-Until { (Focused-Name) -eq $expected } 5000 "${context}: expected focus '$expected', actual '$(Focused-Name)'"
+    $deadline = [DateTime]::UtcNow.AddSeconds(5)
+    do {
+        $actual = Get-FocusedName
+        if ($actual -eq $expected) { return }
+        Start-Sleep -Milliseconds 150
+    } while ([DateTime]::UtcNow -lt $deadline)
+    Fail "$context expected focus '$expected', actual '$actual'."
 }
-function Send([string]$keys) {
-    [System.Windows.Forms.SendKeys]::SendWait($keys)
+
+function Send-Keys([string]$keys) {
+    Invoke-WinApp @('ui','send-keys',$keys,'-a',[string]$script:appPid,'--via','post-message') | Out-Null
     Start-Sleep -Milliseconds 250
 }
-function Combo-SelectionText($combo) {
-    $pattern = $null
-    if ($combo.TryGetCurrentPattern([System.Windows.Automation.SelectionPattern]::Pattern, [ref]$pattern)) {
-        $selected = ([System.Windows.Automation.SelectionPattern]$pattern).Current.GetSelection()
-        if ($selected.Count -gt 0) { return $selected[0].Current.Name }
-    }
-    return Value-Of $combo
-}
-function Exercise-Combo($combo, [string]$name, [int]$cycles) {
-    if ($null -eq $combo) { Fail "Missing ComboBox '$name'." }
-    Start-Sleep -Milliseconds 300
-    $combo.SetFocus()
-    Assert-Focus $name "$name initial"
-    $before = Combo-SelectionText $combo
-    Send '{DOWN}'
-    Assert-Focus $name "$name Down"
-    if ((Combo-SelectionText $combo) -eq $before) { Send '{UP}'; Assert-Focus $name "$name Up fallback" }
+
+function Exercise-Combo([string]$selector, [int]$cycles) {
+    Wait-For $selector
+    Focus $selector
+    Assert-Focus $selector "$selector initial"
     for ($i = 0; $i -lt $cycles; $i++) {
-        if (($i % 2) -eq 0) { Send '{UP}' } else { Send '{DOWN}' }
-        Assert-Focus $name "$name stability $i"
+        if (($i % 2) -eq 0) { Send-Keys 'down' } else { Send-Keys 'up' }
+        Assert-Focus $selector "$selector stability $i"
     }
 }
 
-$process = $null
 try {
-    $resolved = (Resolve-Path -LiteralPath $ExePath).Path
-    $process = Start-Process -FilePath $resolved -PassThru
-    Wait-Until { $null -ne (Find-Window 'WordDeck') } 15000 'main WordDeck window did not appear'
-    $main = Find-Window 'WordDeck'
+    $project = (Resolve-Path -LiteralPath $ProjectPath).Path
+    $launch = Invoke-WinApp @('run',$project,'-c','Release','--arch','x64','--detach','--json') -Json
+    $appPid = [int]$launch.ProcessId
+    if ($appPid -le 0) { Fail 'winapp run did not return a valid process ID.' }
 
-    $word = Find-ByName $main 'Current English word'
-    $translation = Find-ByName $main 'Ukrainian translation'
-    $dictionary = Find-ByName $main 'Dictionary'
-    $scope = Find-ByName $main 'Recall study scope'
-    $deck = Find-ByName $main 'Active Recall deck'
-    if ($null -eq $word -or $null -eq $translation -or $null -eq $dictionary -or $null -eq $scope -or $null -eq $deck) {
-        Fail 'required Recall controls are not fully exposed through UI Automation'
-    }
+    Wait-For 'Current English word' 30000
+    foreach ($required in @('Ukrainian translation','Dictionary','Recall study scope','Active Recall deck')) { Wait-For $required }
 
-    Wait-Until { (Value-Of $word) -notmatch '^$|No words' } 15000 'no Recall word became available'
-    $word.SetFocus(); Assert-Focus 'Current English word' 'startup Recall word'
-    $firstWord = Value-Of $word
+    Focus 'Current English word'
+    Assert-Focus 'Current English word' 'startup Recall word'
+    $firstWord = Get-Value 'Current English word'
+    if ([string]::IsNullOrWhiteSpace($firstWord) -or $firstWord -eq 'No words') { Fail 'no Recall word became available.' }
 
-    Send '^t'
+    Send-Keys 'ctrl+t'
     Assert-Focus 'Ukrainian translation' 'translation reveal'
-    if ((Value-Of $word) -ne $firstWord) { Fail 'Ctrl+T advanced the Recall card.' }
-    foreach ($key in @('{UP}','{DOWN}','{LEFT}','{RIGHT}','{HOME}','{END}','{PGUP}','{PGDN}')) {
-        Send $key
+    if ((Get-Value 'Current English word') -ne $firstWord) { Fail 'Ctrl+T advanced the Recall card.' }
+    foreach ($key in @('up','down','left','right','home','end','pgup','pgdn')) {
+        Send-Keys $key
         Assert-Focus 'Ukrainian translation' "translation native key $key"
-        if ((Value-Of $word) -ne $firstWord) { Fail "translation native key $key changed the Recall card" }
+        if ((Get-Value 'Current English word') -ne $firstWord) { Fail "translation native key $key changed the Recall card." }
     }
 
-    $word.SetFocus(); Send '{DOWN}'
+    Focus 'Current English word'
+    Send-Keys 'down'
     Assert-Focus 'Current English word' 'Recall Down'
-    $secondWord = Value-Of $word
+    $secondWord = Get-Value 'Current English word'
     if ($secondWord -eq $firstWord) { Fail 'Down on Current English word did not advance the card.' }
-    Send '{UP}'
+    Send-Keys 'up'
     Assert-Focus 'Current English word' 'Recall true previous'
-    if ((Value-Of $word) -ne $firstWord) { Fail 'Up did not restore the previous actually shown Recall card.' }
+    if ((Get-Value 'Current English word') -ne $firstWord) { Fail 'Up did not restore the previous actually shown Recall card.' }
 
-    Exercise-Combo $dictionary 'Dictionary' 5
-    Exercise-Combo $scope 'Recall study scope' 40
-    Exercise-Combo $deck 'Active Recall deck' 20
+    Exercise-Combo 'Dictionary' 5
+    Exercise-Combo 'Recall study scope' 40
+    Exercise-Combo 'Active Recall deck' 20
 
-    $word.SetFocus(); Send '{F1}'
-    Wait-Until { $null -ne (Find-Window 'WordDeck help') } 5000 'F1 help did not open'
-    $help = Find-Window 'WordDeck help'
-    $helpText = Find-ByName $help 'WordDeck help text'
-    if ($null -eq $helpText) { Fail 'F1 help text is not exposed to UI Automation.' }
-    $helpValue = Value-Of $helpText
-    if ($helpValue -notmatch 'Fast Down Arrow/Up Arrow card navigation works only while the Current English word field is focused' -or
-        $helpValue -notmatch 'Ukrainian translation TextBox' -or
-        $helpValue -notmatch 'Alt\+F4') {
-        Fail 'F1 help does not match the integrated keyboard/focus contract.'
+    Focus 'Current English word'
+    Send-Keys 'f1'
+    Wait-For 'WordDeck help' 5000
+    Wait-For 'WordDeck help text' 5000
+    $help = Get-Value 'WordDeck help text'
+    foreach ($phrase in @(
+        'Fast Down Arrow/Up Arrow card navigation works only while the Current English word field is focused',
+        'Ukrainian translation TextBox',
+        'Alt+F4')) {
+        if ($help -notlike "*$phrase*") { Fail "F1 help is missing required truth: $phrase" }
     }
-    Send '%{F4}'
-    Wait-Until { $null -eq (Find-Window 'WordDeck help') } 5000 'help did not close with Alt+F4'
+    Send-Keys 'alt+f4'
+    Wait-Gone 'WordDeck help' 5000
 
-    Send '^k'
-    Wait-Until { $null -ne (Find-Window 'Keyboard shortcuts') } 5000 'shortcut settings did not open'
+    Focus 'Current English word'
+    Send-Keys 'ctrl+k'
+    Wait-For 'Keyboard shortcuts' 5000
+    Wait-For 'Shortcut actions' 5000
     Assert-Focus 'Shortcut actions' 'shortcut settings initial focus'
-    if ($null -eq (Find-ByName (Find-Window 'Keyboard shortcuts') 'Shortcut actions')) { Fail 'shortcut actions list missing from UIA' }
-    Send '%{F4}'
-    Wait-Until { $null -eq (Find-Window 'Keyboard shortcuts') } 5000 'shortcut settings did not close'
+    Send-Keys 'alt+f4'
+    Wait-Gone 'Keyboard shortcuts' 5000
 
-    Send '^+s'
-    Wait-Until { $null -ne (Find-Window 'WordDeck Spelling') } 7000 'Spelling did not open'
-    $spelling = Find-Window 'WordDeck Spelling'
-    $spellingAnswer = Find-ByName $spelling 'Type English spelling answer'
-    $spellingDeck = Find-ByName $spelling 'Active spelling deck'
-    if ($null -eq $spellingAnswer -or $null -eq $spellingDeck) { Fail 'Spelling accessible controls missing' }
-    Exercise-Combo $spellingDeck 'Active spelling deck' 20
-    Send '%{F4}'
-    Wait-Until { $null -eq (Find-Window 'WordDeck Spelling') } 7000 'Spelling did not close with Alt+F4'
-    Wait-Until { $null -ne (Find-Window 'WordDeck') } 5000 'main window did not resume after Spelling close'
+    Focus 'Current English word'
+    Send-Keys 'ctrl+shift+s'
+    Wait-For 'WordDeck Spelling' 7000
+    foreach ($required in @('Type English spelling answer','Active spelling deck')) { Wait-For $required }
+    Exercise-Combo 'Active spelling deck' 20
+    Send-Keys 'alt+f4'
+    Wait-Gone 'WordDeck Spelling' 7000
+    Wait-For 'Current English word' 5000
 
-    Send '^+e'
-    Wait-Until { $null -ne (Find-Window 'WordDeck Sentence Spelling') } 7000 'Sentence Spelling did not open'
-    $sentence = Find-Window 'WordDeck Sentence Spelling'
-    $sentenceAnswer = Find-ByName $sentence 'Type the English sentence words'
-    $sentenceDeck = Find-ByName $sentence 'Sentence training spelling deck'
-    $targetCount = Find-ByName $sentence 'Number of target words per sentence'
-    if ($null -eq $sentenceAnswer -or $null -eq $sentenceDeck -or $null -eq $targetCount) { Fail 'Sentence Spelling accessible controls missing' }
-    Exercise-Combo $sentenceDeck 'Sentence training spelling deck' 20
-    Exercise-Combo $targetCount 'Number of target words per sentence' 10
-    Send '%{F4}'
-    Wait-Until { $null -eq (Find-Window 'WordDeck Sentence Spelling') } 7000 'Sentence Spelling did not close with Alt+F4'
+    Focus 'Current English word'
+    Send-Keys 'ctrl+shift+e'
+    Wait-For 'WordDeck Sentence Spelling' 7000
+    foreach ($required in @('Type the English sentence words','Sentence training spelling deck','Number of target words per sentence')) { Wait-For $required }
+    Exercise-Combo 'Sentence training spelling deck' 20
+    Exercise-Combo 'Number of target words per sentence' 10
+    Send-Keys 'alt+f4'
+    Wait-Gone 'WordDeck Sentence Spelling' 7000
 
-    Write-Host 'WordDeck R3 UIA PASS: Recall focus/arrows/native controls, F1 truth, shortcut dialog, Spelling and Sentence keyboard entry/control stability verified on packaged EXE.'
+    Write-Host 'WordDeck R3 UIA PASS: exact-head WinForms UI Automation verified Recall focus/arrows/native controls, F1 truth, shortcut settings, Spelling and Sentence keyboard entry/control stability.'
 }
 finally {
-    if ($null -ne $process -and -not $process.HasExited) {
-        try { $process.CloseMainWindow() | Out-Null; Start-Sleep -Milliseconds 500 } catch { }
-        if (-not $process.HasExited) { try { $process.Kill() } catch { } }
+    if ($null -ne $appPid -and $appPid -gt 0) {
+        try { Stop-Process -Id $appPid -Force -ErrorAction SilentlyContinue } catch { }
     }
 }

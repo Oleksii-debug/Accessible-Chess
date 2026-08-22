@@ -59,6 +59,9 @@ jobs:
         with:
           dotnet-version: 8.0.x
 
+      - name: Setup WinApp CLI for Windows UI Automation
+        uses: microsoft/setup-winapp@v1
+
       - name: Download accepted AudioPack
         uses: actions/download-artifact@v4
         with:
@@ -110,9 +113,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $env:LOCALAPPDATA = (Join-Path (Resolve-Path .\artifacts).Path 'uia-localappdata')
-          New-Item -ItemType Directory -Force $env:LOCALAPPDATA | Out-Null
-          & .\WordDeck\scripts\worddeck-r3-uia-smoke.ps1 -ExePath .\artifacts\release\WordDeck.exe
+          & .\WordDeck\scripts\worddeck-r3-uia-smoke.ps1 -ProjectPath .\WordDeck\WordDeck.csproj
 
       - name: Prove Cyrillic and spaces path launch
         shell: pwsh
