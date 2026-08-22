@@ -103,6 +103,7 @@ internal static class TrainingEntryPoints
             DictionaryPackage package = owner.ActivePackageForTraining;
 
             using var form = new SpellingForm(appState, spelling.State, spelling.Store, shortcuts, package);
+            using var blankSubmitGuard = BlankLearningSubmissionGuard.Attach(form, "Type English spelling answer");
             KeyboardSelectorFocusGuard.Attach(form, "Spelling study scope", "Active spelling deck");
             form.ShowDialog(owner);
             owner.SaveSharedStateAfterTraining();
@@ -132,6 +133,7 @@ internal static class TrainingEntryPoints
                 new SentencePackStore(),
                 sentence.Store,
                 sentence.State);
+            using var blankSubmitGuard = BlankLearningSubmissionGuard.Attach(form, "Type the English sentence words");
             KeyboardSelectorFocusGuard.Attach(form, "Sentence pack", "Sentence training spelling deck", "Number of target words per sentence");
             form.ShowDialog(owner);
             owner.SaveSharedStateAfterTraining();
