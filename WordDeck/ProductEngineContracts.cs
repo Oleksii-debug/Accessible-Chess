@@ -177,8 +177,8 @@ internal sealed record SentencePackProductDescriptor(
         Require(PackId, nameof(PackId), 160);
         Require(Provenance, nameof(Provenance), 2048);
         Require(License, nameof(License), 160);
-        Require(SourceIdentity, nameof(SourceIdentity), 256);
-        Require(DerivativeIdentity, nameof(DerivativeIdentity), 256);
+        RequireSha256Identity(SourceIdentity, nameof(SourceIdentity));
+        RequireSha256Identity(DerivativeIdentity, nameof(DerivativeIdentity));
         if (SentenceCount <= 0)
             throw new InvalidDataException("SentencePack release descriptor must contain at least one sentence.");
         if (IsSynthetic)
@@ -192,6 +192,15 @@ internal sealed record SentencePackProductDescriptor(
         if (!string.Equals(value, value.Trim(), StringComparison.Ordinal))
             throw new InvalidDataException($"SentencePack release descriptor {field} has outer whitespace.");
         SentenceTokenizer.ValidateUnicode(value, $"SentencePack release descriptor {field}");
+    }
+
+    private static void RequireSha256Identity(string? value, string field)
+    {
+        if (string.IsNullOrWhiteSpace(value) || !value.StartsWith("sha256:", StringComparison.Ordinal) || value.Length != 71)
+            throw new InvalidDataException($"SentencePack release descriptor {field} must be a sha256 identity.");
+        string hex = value[7..];
+        if (hex.Any(ch => !Uri.IsHexDigit(ch)))
+            throw new InvalidDataException($"SentencePack release descriptor {field} contains a malformed sha256 digest.");
     }
 }
 
