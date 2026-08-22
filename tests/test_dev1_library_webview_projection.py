@@ -133,8 +133,13 @@ class LibraryWebViewProjectionTests(unittest.TestCase):
         self.assertFalse(page2.payload["snapshot"]["paging"]["has_next"])
         self.assertTrue(page2.payload["snapshot"]["paging"]["has_previous"])
 
+        # Canonical LibraryPresenter intentionally stabilizes a cached page to its
+        # first row when the current selection belongs to another page. The WebView
+        # must preserve that exact presenter contract rather than invent page-local
+        # selection memory in a second UI model.
         page1 = self.projection.previous_page()
-        self.assertEqual(2, page1.payload["snapshot"]["selected_game_id"])
+        self.assertEqual(1, page1.payload["snapshot"]["selected_game_id"])
+        self.assertEqual(page1.payload["snapshot"]["rows"][0]["dom_id"], page1.payload["focus_target"])
         self.assertTrue(page1.payload["snapshot"]["paging"]["has_next"])
 
     def test_backend_return_payload_is_discarded_for_open_import_and_export(self) -> None:
