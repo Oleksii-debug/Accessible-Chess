@@ -1,6 +1,6 @@
 # DEV4 RUN STATE
 
-RUN_ID: 20260822-1000-full-product-qa
+RUN_ID: 20260822-1100-full-product-qa
 STATUS: COMPLETE
 MODE: SAFE_OVERLAP_QA_EVIDENCE
 ROLE: DEV4 independent QA/evidence/security
@@ -8,29 +8,31 @@ ROLE: DEV4 independent QA/evidence/security
 ## Live snapshot
 
 - DEV4 Stage1 Product source: `manual5/dev4-platform-security-packaging-20260821` @ `a4209d005ea0a1476f8eafb4822f4d39ac50ee5a`.
-- Manual5 integration remains `manual5/integration-20260821` @ `0fa442330bc2bb03636ff9297512da4c29e38684`; prior UI Semantic Gate `32532577650` and Stage1 Saturation `32532577641` remain SUCCESS evidence for that exact integration SHA.
-- DEV5 reconciliation PR #66 remains OPEN/DRAFT at `abff45ebcc4b5af2a85ab0c456b025b5098c6e29`; DEV4 did not modify that owner lane.
+- Accepted manual5 integration remains `manual5/integration-20260821` @ `0fa442330bc2bb03636ff9297512da4c29e38684`; prior UI Semantic Gate `32532577650` and Stage1 Saturation `32532577641` remain SUCCESS evidence for that exact SHA only.
+- DEV5 canonical RUN_ID `20260822-1100` is COMPLETE / TERMINAL / SAFE OVERLAP. DEV1 remains IN_PROGRESS, so competing Product integration is forbidden.
+- DEV2 has a new isolated GREEN terminal package at `e705c70300c7307255fe2be3ae92f651f103c221`; PR #80 is validation-only and not owned by DEV4.
+- DEV3 latest verified executable Product head is `1ca5784b3ce00837b40888a26dd1e94d8ce754ed`; DEV4 did not enter that ACSDB owner lane.
+- DEV5 reconciliation PR #66 remains OPEN/DRAFT at `abff45ebcc4b5af2a85ab0c456b025b5098c6e29`.
 - DEV4 QA branch: `qa/dev4-chessbase-symlink-security-20260822`.
-- New non-conflicting QA evidence commit: `bb685bdccdb6666060fd2271c8760f31496453e6` — `test(qa): gate non-aborting import adapter failures`.
+- New non-conflicting QA evidence commit: `f6f1f01bade024f65ba0838aae95951c58199998` — `test(qa): require finite PGN source cap`.
 - QA PR #67 remains OPEN/DRAFT/MERGEABLE.
 - Exact QA-head Actions were absent before this metadata synchronization; absence is `INCONCLUSIVE` CI observability, never GREEN.
-- Requested `AGENTS.md` and `docs/codex/CURRENT_STATE.md` remain absent on the checked QA ref; operative control state is live GitHub plus `docs/automation/DEV4_*` and canonical Drive handoff.
+- `AGENTS.md` and shared `docs/codex/{CURRENT_STATE,NEXT_WORK,SESSION_HANDOFF}.md` remain absent on inspected refs; operative state is live GitHub plus `docs/automation/DEV4_*` and canonical Drive handoff.
 - Windows strict WIP=1 remains untouched. `NVDA_VERIFIED=NO`.
 
-## New PROVEN_PRODUCT_DEFECT — generic import batch aborts on RuntimeError adapter failure
+## QA evidence extension — finite PGN source cap
 
-`ImportRegistry.inspect_batch()` documents a non-aborting multi-source preflight: adapter errors are recorded against the exact source while later sources continue to be inspected. The implementation catches `ImportRegistryError`, `OSError`, and `ValueError`, but an importer/decoder/provider `RuntimeError` escapes the batch entirely.
+The already-locked PGN resource-exhaustion defect was strengthened without creating a new defect class. Existing QA coverage proved `_read_text_snapshot()` performs an unbounded full-text read after bounded hashing. The new assertion additionally requires a finite fail-closed maximum source size: an absurd 8-EiB `SourceFingerprint` must be rejected before the PGN payload is opened.
 
-A runtime adapter failure therefore hides all later source results and violates the method's explicit non-aborting evidence contract.
+The test deliberately does not prescribe a practical application limit; it proves only that chunking alone is insufficient and that an explicit finite resource boundary must exist before parsing/decoding untrusted PGN content.
 
-Added strict QA gate `tests/test_dev4_import_batch_adapter_failure.py`. It registers a first importer that raises `RuntimeError` and a healthy second importer, then requires the first source to become a failed `BatchInspectionItem` while the second source is still inspected successfully. Product code is intentionally unchanged.
-
-Classification: `PROVEN_PRODUCT_DEFECT`.
+Strict gate: `tests/test_dev4_pgn_resource_security.py`.
+Product code is intentionally unchanged.
 
 ## Locked PROVEN_PRODUCT_DEFECT findings
 
 1. External import/ChessBase symlink-reparse indirection follows filesystem targets instead of failing closed.
-2. PGN import performs an unbounded full-text `handle.read()` after bounded hashing.
+2. PGN import has no bounded full-text/resource boundary: it performs an unbounded `handle.read()` after hashing and has no finite source-size rejection before payload open.
 3. Serialized ChessBase probe/integrity/manifest DTOs expose absolute/local paths.
 4. PGN `expected_sha256` optimistic overwrite has a TOCTOU lost-update window.
 5. PGN `overwrite=False` can clobber a destination created after preflight.
@@ -54,8 +56,8 @@ Classification: `PROVEN_PRODUCT_DEFECT`.
 ## Next action
 
 1. Re-read PR #67 exact head and Actions after handoff metadata commits.
-2. Continue generic import resource-limit evidence: explicit source caps, huge/truncated content, encoding abuse, duplicate-source behavior, cancellation and recovery.
+2. Continue generic import resource-limit evidence beyond PGN: huge/truncated content, encoding abuse, duplicate-source behavior, cancellation and recovery.
 3. Extend ChessBase observability checks for component hashing/stat/open failures so inaccessible evidence is never reported as absent or healthy.
 4. Trace generic import/provenance errors into real persisted/UI/report sinks; promote only direct exposure.
 5. Continue engine/UCI privacy guards only at real user-facing boundaries.
-6. Re-enter Stage1 package/security only through DEV5/Audit-authorized reconciliation.
+6. Remain in SAFE OVERLAP while DEV1 is IN_PROGRESS; no competing Product integration.
