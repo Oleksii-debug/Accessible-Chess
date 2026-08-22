@@ -1,21 +1,23 @@
 # DEV3 CURRENT STATE
 
-Latest DEV3 package is terminal GREEN evidence for large-library Unicode ACSDB search. It intentionally changes no Product behavior or schema, so this evidence package itself is not an integration candidate. The inherited Unicode correctness package remains PR #105 / validated Product head `9c8a342e7dd98fee52c9776c0cb6a9b970d49296`, READY_FOR_INTEGRATION=YES.
+Current DEV3 wave is an evidence-only Unicode ACSDB search optimization benchmark, not a Product migration.
 
-Evidence branch: `auto/dev3-unicode-search-performance-evidence-20260822`.
-Evidence PR: #107, open/draft/evidence-only.
-Validation PR: #108, validation-only.
-Probe commit: `19cc573f7588f13d6d988726c52d210b70e6e7eb`.
-Exact GREEN validation head: `06bb37a119f31d92dea93f537bc580facf5eebb2`.
-Validation merge ref: `770811ccaaeb694ca95dacf9b558b9efb0a06edf`.
+Branch: `auto/dev3-unicode-search-shadow-benchmark-20260822`.
+Evidence PR: #109, open/draft/evidence-only.
+Validation PR: #110, open/draft/validation-only.
+Executable benchmark head: `e930a53c3617da9f9676bc44a55a565bff630875`.
+Validation base: `0da0187f07e11e489d353e866ab679b3320e3a87`.
+Validation marker head: `5f98ee96214641e65417fee14e2f0d4010a1df34`.
 
-Exact machine evidence: `DEV3 Full Product ACSDB CI` run `32589798970`, job `97071708911`, SUCCESS. Focused 179/179 PASS; official Stockfish 18 bounded smoke PASS with verified archive SHA-256 `536c0c2c0cf06450df0bfb5e876ef0d3119950703a8f143627f990c7b5417964`; full unittest 695/695 PASS; pytest 773 passed + 641 subtests; SELFTEST and complete WebView2 diagnostic PASS; diff hygiene/compile PASS; no test weakening.
+The benchmark seeds 100,000 games into a disposable in-memory ACSDB and compares public `GameSearchService` result IDs against a candidate query shape using materialized NFKC+casefold shadow columns for white, black, event, ECO, opening and source name. It creates candidate indexes only inside that disposable database, captures `EXPLAIN QUERY PLAN`, reports whether a temporary ORDER BY B-tree appears, and measures baseline/candidate timings without any wall-clock acceptance threshold.
 
-The new public-service probe seeds 100,000 ACSDB games and captures exact traced SELECTs, `EXPLAIN QUERY PLAN`, and five repeated timings per case. On the Ubuntu 24.04 / CPython 3.12.14 Actions runner, first-page Unicode-folded no-hit queries performed full `SCAN g`: player median 145.941 ms, event 68.261 ms, ECO prefix 50.060 ms. A common player hit with `limit=50` still reported `SCAN g` but terminated early at median 1.190 ms. A keyset-tail no-hit after game 90,000 used `SEARCH g USING INTEGER PRIMARY KEY (rowid>?)` and median 16.432 ms. No tested query materialized a temporary ORDER BY B-tree.
+Semantic equivalence remains strict: player/event/ECO/opening/source-name cases, common hits, no-hits, literal `%`, `_`, backslash escaping and keyset-tail behavior must return exactly the same visible game IDs as the public service. Candidate plan characteristics are recorded as evidence rather than converted into correctness assertions.
 
-This is sufficient evidence for a separate optimization-design package, not for an immediate schema mutation. `ACS_SEARCH_FOLD(column)` prevents existing ordinary text indexes from directly serving folded predicates. Also, player/event/opening/source substring semantics use leading wildcards, so simply adding folded B-tree columns would not automatically make those predicates index-searchable. The next package must benchmark semantics-preserving alternatives before migration: materialized folded columns for UDF-cost removal/prefix paths, and carefully bounded substring-search strategies only if they preserve literal `%`/`_`/backslash behavior, keyset paging, provenance, resource bounds and the single canonical application model.
+No Product schema/version, migration, search-service behavior, canonical chess/application state, UI/WebView, GameTree/domain, PGN/ChessBase/import security, integration or release lineage is changed by this wave. The inherited shippable Unicode correctness package remains PR #105 at validated Product head `9c8a342e7dd98fee52c9776c0cb6a9b970d49296`, `READY_FOR_INTEGRATION=YES`.
 
-Audit trail is explicit: initial run `32589731207` / job `97071530281` had focused 179/179 PASS and failed only because the new probe was invoked by file path and could not import repo-root `acs`. Module invocation fixed that infrastructure issue; no Product code/test assertion was weakened.
+CI is not yet observable through the connected GitHub evidence API for validation head `5f98ee96214641e65417fee14e2f0d4010a1df34`; therefore this wave is `IN_PROGRESS / CI_EVIDENCE_PENDING`, not GREEN. Local execution was also unavailable because the execution container could not resolve github.com, so no local PASS is claimed.
+
+Previous 100k baseline evidence remains terminal GREEN: run `32589798970`, job `97071708911`; player/event/ECO first-page no-hit queries used full scans with medians 145.941 ms / 68.261 ms / 50.060 ms on that runner. Those values are environment-specific evidence, not Product thresholds.
 
 Ownership preserved: DEV1 UI/WebView; DEV2 canonical GameTree/domain/remote-session; DEV4 PGN/ChessBase/import security; DEV5 selective integration/promotion. Mistake/blunder scoring remains blocked on authoritative student/actor identity plus fixed evaluation perspective.
 
