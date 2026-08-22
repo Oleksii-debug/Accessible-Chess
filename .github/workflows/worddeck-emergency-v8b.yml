@@ -1,22 +1,13 @@
-name: WordDeck emergency Oxford 5000 V8b superseded
+name: WordDeck historical archive - emergency v8b
 
 on:
-  push:
-    branches: [worddeck-bootstrap]
-    paths:
-      - .github/workflows/worddeck-emergency-v8b.yml
   workflow_dispatch:
-
-concurrency:
-  group: worddeck-emergency-v8b-${{ github.ref }}
-  cancel-in-progress: true
 
 permissions:
   contents: read
 
 jobs:
-  superseded:
+  archive-marker:
     runs-on: ubuntu-latest
     steps:
-      - name: Hand off to direct Work lexical review
-        run: echo 'V8b machine-only bulk acceptance is superseded by direct full-tail Work lexical review; no lexical mutation from this run.'
+      - run: echo "Historical WordDeck emergency v8b is archived read-only. Original logic remains in Git history."

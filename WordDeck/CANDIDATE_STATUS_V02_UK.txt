@@ -6,6 +6,8 @@ WORDDECK V0.2 — FULL-V1 ENGINEERING CANDIDATE
 
 Sentence runtime, імпорт, provenance-перевірки та SQLite-шар інтегровані. Проте цей ZIP НЕ заявляє, що містить фінальний production SentencePack: у канонічних вхідних даних цього раунду немає незалежно підтвердженого розповсюджуваного EN-UA SentencePack payload із завершеним source/license evidence. Програма має працювати без падіння без встановленого SentencePack і приймати валідований пакет через передбачений імпорт.
 
+Release safety: accepted V0.1 лишається історично незмінним; завершений 1156 transport та старі emergency source-mutation workflows переведені у ручні read-only archive markers; authoritative Windows validation не має права переписувати product source або рухати canonical branch.
+
 Автоматизований Windows/UI Automation тест не є ручним тестом NVDA. Ручний NVDA PASS не заявляється.
 
 Особистий прогрес не входить у публічний ZIP і зберігається окремо у %LOCALAPPDATA%\WordDeck.
