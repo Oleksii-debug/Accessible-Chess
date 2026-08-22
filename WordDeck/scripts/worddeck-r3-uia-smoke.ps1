@@ -55,11 +55,12 @@ function Assert-Focus([string]$expected, [string]$context) {
     Fail "$context expected focus '$expected', actual '$actual'."
 }
 
-function Send-Keys([string]$keys) {
-    # Application shortcut combinations need SendInput so the target process sees
-    # the held modifier state. Plain navigation stays HWND-targeted. Alt+F4 is a
-    # special case: WinApp refuses OS-wide injection unless system keys are opted
-    # in, while PostMessage safely closes only the intended WordDeck window/dialog.
+function Send-Keys([string]$keys, [string]$target = '') {
+    # Application accelerators need real modifier state. Supplying --target first
+    # focuses the exact WordDeck surface before SendInput, which avoids a hosted
+    # runner delivering Ctrl/Alt shortcuts to the shell after a modal closes.
+    # Alt+F4 remains HWND-targeted because OS-wide injection is intentionally
+    # rejected for system-reserved combinations.
     $transport = if ($keys -ieq 'alt+f4') {
         'post-message'
     } elseif ($keys.Contains('+')) {
@@ -67,7 +68,13 @@ function Send-Keys([string]$keys) {
     } else {
         'post-message'
     }
-    Invoke-WinApp @('ui','send-keys',$keys,'-a',[string]$script:appPid,'--via',$transport) | Out-Null
+
+    $arguments = @('ui','send-keys',$keys,'-a',[string]$script:appPid)
+    if (-not [string]::IsNullOrWhiteSpace($target)) {
+        $arguments += @('--target',$target)
+    }
+    $arguments += @('--via',$transport)
+    Invoke-WinApp $arguments | Out-Null
     Start-Sleep -Milliseconds 250
 }
 
@@ -76,7 +83,7 @@ function Exercise-Combo([string]$selector, [int]$cycles) {
     Focus $selector
     Assert-Focus $selector "$selector initial"
     for ($i = 0; $i -lt $cycles; $i++) {
-        if (($i % 2) -eq 0) { Send-Keys 'down' } else { Send-Keys 'up' }
+        if (($i % 2) -eq 0) { Send-Keys 'down' $selector } else { Send-Keys 'up' $selector }
         Assert-Focus $selector "$selector stability $i"
     }
 }
@@ -86,7 +93,7 @@ function Exercise-NativeTextKeys([string]$selector, [scriptblock]$invariant, [st
     Focus $selector
     Assert-Focus $selector "$context initial"
     foreach ($key in @('up','down','left','right','home','end','pgup','pgdn')) {
-        Send-Keys $key
+        Send-Keys $key $selector
         Assert-Focus $selector "$context key $key"
         if (-not (& $invariant)) { Fail "$context key $key violated the current-card/prompt invariant." }
     }
@@ -95,8 +102,8 @@ function Exercise-NativeTextKeys([string]$selector, [scriptblock]$invariant, [st
 function Open-And-CancelDialog([string]$shortcut, [string]$dialogName, [string]$context) {
     Focus 'Current English word'
     $wordBefore = Get-Value 'Current English word'
-    Send-Keys $shortcut
-    Wait-For $dialogName 10000
+    Send-Keys $shortcut 'Current English word'
+    Wait-For $dialogName 12000
     Send-Keys 'esc'
     Wait-Gone $dialogName 10000
     Wait-For 'Current English word' 5000
@@ -117,17 +124,17 @@ try {
     $firstWord = Get-Value 'Current English word'
     if ([string]::IsNullOrWhiteSpace($firstWord) -or $firstWord -eq 'No words') { Fail 'no Recall word became available.' }
 
-    Send-Keys 'ctrl+t'
+    Send-Keys 'ctrl+t' 'Current English word'
     Assert-Focus 'Ukrainian translation' 'translation reveal'
     if ((Get-Value 'Current English word') -ne $firstWord) { Fail 'Ctrl+T advanced the Recall card.' }
     Exercise-NativeTextKeys 'Ukrainian translation' { (Get-Value 'Current English word') -eq $firstWord } 'translation native navigation'
 
     Focus 'Current English word'
-    Send-Keys 'down'
+    Send-Keys 'down' 'Current English word'
     Assert-Focus 'Current English word' 'Recall Down'
     $secondWord = Get-Value 'Current English word'
     if ($secondWord -eq $firstWord) { Fail 'Down on Current English word did not advance the card.' }
-    Send-Keys 'up'
+    Send-Keys 'up' 'Current English word'
     Assert-Focus 'Current English word' 'Recall true previous'
     if ((Get-Value 'Current English word') -ne $firstWord) { Fail 'Up did not restore the previous actually shown Recall card.' }
 
@@ -137,33 +144,38 @@ try {
 
     Focus 'Current English word'
     $menuWord = Get-Value 'Current English word'
-    Send-Keys 'alt+f'
+    Send-Keys 'alt+f' 'Current English word'
     Send-Keys 'down'
     if ((Get-Value 'Current English word') -ne $menuWord) { Fail 'Down in the File menu changed the Recall card.' }
     Send-Keys 'esc'
     Assert-Focus 'Current English word' 'return from File menu'
 
     Focus 'Current English word'
-    Send-Keys 'f1'
-    Wait-For 'WordDeck help' 5000
-    Wait-For 'WordDeck help text' 5000
+    Send-Keys 'f1' 'Current English word'
+    Wait-For 'WordDeck help' 7000
+    Wait-For 'WordDeck help text' 7000
     $help = Get-Value 'WordDeck help text'
     foreach ($phrase in @(
         'Fast Down Arrow/Up Arrow card navigation works only while the Current English word field is focused',
         'Ukrainian translation TextBox',
+        'Open Spelling trainer: Ctrl+Shift+S',
+        'Open Sentence Spelling trainer: Ctrl+Shift+E',
         'Alt+F4')) {
         if ($help -notlike "*$phrase*") { Fail "F1 help is missing required truth: $phrase" }
     }
     Send-Keys 'alt+f4'
-    Wait-Gone 'WordDeck help' 5000
+    Wait-Gone 'WordDeck help' 7000
 
+    # Verify the actual Ctrl+K accelerator, not only the Tools menu route. The
+    # explicit target is important after closing the modal F1 window on a hosted
+    # interactive runner.
     Focus 'Current English word'
-    Send-Keys 'ctrl+k'
-    Wait-For 'Keyboard shortcuts' 5000
-    Wait-For 'Shortcut actions' 5000
+    Send-Keys 'ctrl+k' 'Current English word'
+    Wait-For 'Keyboard shortcuts' 15000
+    Wait-For 'Shortcut actions' 7000
     Assert-Focus 'Shortcut actions' 'shortcut settings initial focus'
     Send-Keys 'alt+f4'
-    Wait-Gone 'Keyboard shortcuts' 5000
+    Wait-Gone 'Keyboard shortcuts' 7000
 
     # Standard profile shortcuts must route through the full-v1 profile service,
     # not the historical Recall-only profile path. Opening and cancelling must
@@ -174,7 +186,7 @@ try {
     # Reset is intentionally unbound, so exercise the real File-menu keyboard path.
     Focus 'Current English word'
     $resetWord = Get-Value 'Current English word'
-    Send-Keys 'alt+f'
+    Send-Keys 'alt+f' 'Current English word'
     Send-Keys 'r'
     Wait-For 'Reset WordDeck learning data' 7000
     Send-Keys 'esc'
@@ -183,28 +195,37 @@ try {
     if ((Get-Value 'Current English word') -ne $resetWord) { Fail 'Cancelling reset changed the current Recall card.' }
 
     Focus 'Current English word'
-    Send-Keys 'ctrl+shift+s'
-    Wait-For 'WordDeck Spelling' 7000
+    Send-Keys 'ctrl+shift+s' 'Current English word'
+    Wait-For 'WordDeck Spelling' 10000
     foreach ($required in @('Type English spelling answer','Ukrainian spelling prompt','Spelling study scope','Active spelling deck')) { Wait-For $required }
     Exercise-Combo 'Spelling study scope' 20
     Exercise-Combo 'Active spelling deck' 20
     $spellingPrompt = Get-Value 'Ukrainian spelling prompt'
+    Focus 'Type English spelling answer'
+    Send-Keys 'enter' 'Type English spelling answer'
+    Assert-Focus 'Type English spelling answer' 'Spelling blank Enter guard'
+    if ((Get-Value 'Ukrainian spelling prompt') -ne $spellingPrompt) { Fail 'Blank Enter advanced the Spelling card.' }
     Exercise-NativeTextKeys 'Type English spelling answer' { (Get-Value 'Ukrainian spelling prompt') -eq $spellingPrompt } 'Spelling answer native navigation'
     Send-Keys 'alt+f4'
     Wait-Gone 'WordDeck Spelling' 7000
     Wait-For 'Current English word' 5000
 
     Focus 'Current English word'
-    Send-Keys 'ctrl+shift+e'
-    Wait-For 'WordDeck Sentence Spelling' 7000
-    foreach ($required in @('Type the English sentence words','Sentence training spelling deck','Number of target words per sentence')) { Wait-For $required }
+    Send-Keys 'ctrl+shift+e' 'Current English word'
+    Wait-For 'WordDeck Sentence Spelling' 10000
+    foreach ($required in @('Type the English sentence words','Ukrainian sentence prompt','Sentence training spelling deck','Number of target words per sentence')) { Wait-For $required }
     Exercise-Combo 'Sentence training spelling deck' 20
     Exercise-Combo 'Number of target words per sentence' 10
-    Exercise-NativeTextKeys 'Type the English sentence words' { $true } 'Sentence answer native navigation'
+    $sentencePrompt = Get-Value 'Ukrainian sentence prompt'
+    Focus 'Type the English sentence words'
+    Send-Keys 'enter' 'Type the English sentence words'
+    Assert-Focus 'Type the English sentence words' 'Sentence blank Enter guard'
+    if ((Get-Value 'Ukrainian sentence prompt') -ne $sentencePrompt) { Fail 'Blank Enter advanced the Sentence exercise.' }
+    Exercise-NativeTextKeys 'Type the English sentence words' { (Get-Value 'Ukrainian sentence prompt') -eq $sentencePrompt } 'Sentence answer native navigation'
     Send-Keys 'alt+f4'
     Wait-Gone 'WordDeck Sentence Spelling' 7000
 
-    Write-Host 'WordDeck R4 integrated UIA PASS: Recall arrows/true previous, selector focus retention, native menu/text navigation, F1/shortcut settings, complete profile/reset dialogs, Spelling scope/answer and Sentence keyboard surfaces verified.'
+    Write-Host 'WordDeck R4 integrated UIA PASS: Recall arrows/true previous, selector focus retention, native menu/text navigation, truthful F1/current training bindings, Ctrl+K settings, complete profile/reset dialogs, blank-submit guards, Spelling scope/answer and Sentence keyboard surfaces verified.'
 }
 finally {
     if ($null -ne $appPid -and $appPid -gt 0) {
