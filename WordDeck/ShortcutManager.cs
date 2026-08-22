@@ -42,11 +42,7 @@ internal sealed class ShortcutManager
         if (definition is null) return Keys.None;
         Keys candidate = GetCandidateKey(definition);
         if (candidate == Keys.None) return Keys.None;
-
-        bool duplicate = Definitions.Any(other =>
-            !string.Equals(other.Id, actionId, StringComparison.OrdinalIgnoreCase) &&
-            GetCandidateKey(other) == candidate);
-        return duplicate ? Keys.None : candidate;
+        return FindConflictingActionId(actionId, candidate) is null ? candidate : Keys.None;
     }
 
     public string? FindAction(Keys keyData)
@@ -60,17 +56,45 @@ internal sealed class ShortcutManager
 
     public bool TrySet(string actionId, Keys keys, out string? errorDescription)
     {
-        if (!Definitions.Any(def => def.Id == actionId)) { errorDescription = "the function no longer exists"; return false; }
-        if (keys != Keys.None && IsUnsafe(actionId, keys)) { errorDescription = "this combination is reserved for Windows or standard keyboard navigation"; return false; }
-        var conflict = keys == Keys.None ? null : Definitions.FirstOrDefault(def =>
-            !string.Equals(def.Id, actionId, StringComparison.OrdinalIgnoreCase) && GetCandidateKey(def) == keys);
-        if (conflict is not null) { errorDescription = $"it is already assigned to {conflict.Description}"; return false; }
-        _state.Shortcuts[actionId] = keys.ToString(); errorDescription = null; return true;
+        if (!Definitions.Any(def => def.Id == actionId))
+        {
+            errorDescription = "the function no longer exists";
+            return false;
+        }
+        if (keys != Keys.None && IsUnsafe(actionId, keys))
+        {
+            errorDescription = "this combination is reserved for Windows or standard keyboard navigation";
+            return false;
+        }
+
+        string? conflictId = keys == Keys.None ? null : FindConflictingActionId(actionId, keys);
+        if (conflictId is not null)
+        {
+            string description = Definitions.FirstOrDefault(def =>
+                string.Equals(def.Id, conflictId, StringComparison.OrdinalIgnoreCase))?.Description ?? conflictId;
+            errorDescription = $"it is already assigned to {description}";
+            return false;
+        }
+
+        _state.Shortcuts[actionId] = keys.ToString();
+        errorDescription = null;
+        return true;
     }
 
-    public void Clear(string actionId) { if (Definitions.Any(def => def.Id == actionId)) _state.Shortcuts[actionId] = Keys.None.ToString(); }
-    public void ResetDefaults() { foreach (ShortcutDefinition def in Definitions) _state.Shortcuts[def.Id] = def.DefaultKeys.ToString(); }
-    private void EnsureDefaults() { foreach (ShortcutDefinition def in Definitions) _state.Shortcuts.TryAdd(def.Id, def.DefaultKeys.ToString()); }
+    public void Clear(string actionId)
+    {
+        if (Definitions.Any(def => def.Id == actionId)) _state.Shortcuts[actionId] = Keys.None.ToString();
+    }
+
+    public void ResetDefaults()
+    {
+        foreach (ShortcutDefinition def in Definitions) _state.Shortcuts[def.Id] = def.DefaultKeys.ToString();
+    }
+
+    private void EnsureDefaults()
+    {
+        foreach (ShortcutDefinition def in Definitions) _state.Shortcuts.TryAdd(def.Id, def.DefaultKeys.ToString());
+    }
 
     private Keys GetCandidateKey(ShortcutDefinition definition)
     {
@@ -80,6 +104,22 @@ internal sealed class ShortcutManager
             if (!IsUnsafe(definition.Id, keys)) return keys;
         }
         return definition.DefaultKeys;
+    }
+
+    private string? FindConflictingActionId(string actionId, Keys keys)
+    {
+        // Check the persisted registry, not only the definitions visible in the
+        // current window. This is what prevents a Recall-only settings surface
+        // from assigning a key already owned by a dynamic Spelling deck action.
+        // Ambiguous imported/persisted bindings therefore fail closed even
+        // before the other training mode has been opened in this process.
+        foreach ((string otherActionId, string raw) in _state.Shortcuts)
+        {
+            if (string.Equals(otherActionId, actionId, StringComparison.OrdinalIgnoreCase)) continue;
+            if (!Enum.TryParse(raw, out Keys otherKeys) || otherKeys == Keys.None) continue;
+            if (otherKeys == keys) return otherActionId;
+        }
+        return null;
     }
 
     private void RemoveOrphanedDeckShortcuts()
