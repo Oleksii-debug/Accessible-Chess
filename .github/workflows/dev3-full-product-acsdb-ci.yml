@@ -40,7 +40,7 @@ jobs:
           git diff --name-only 656e8ec311e364e6e54a30504fd30a4aaff586f9 HEAD
 
       - name: Compile ACSDB and Full Product tests
-        run: python -m compileall -q acs tests
+        run: python -m compileall -q acs tests run_accessible_chess.py
 
       - name: Focused DEV3 data and reading-progress regression suite
         run: >-
@@ -60,5 +60,7 @@ jobs:
         run: python -m unittest discover -s tests -v
 
       - name: Full pytest regression
-        if: always()
         run: python -m pytest -q
+
+      - name: Complete diagnostic
+        run: python run_accessible_chess.py --diagnostic
