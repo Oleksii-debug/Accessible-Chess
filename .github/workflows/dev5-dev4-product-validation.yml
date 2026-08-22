@@ -1,0 +1,123 @@
+name: DEV5 Validate DEV4 Product Repair
+
+on:
+  push:
+    branches:
+      - auto/dev5-validate-dev4-6298899c-20260822
+  pull_request:
+    branches:
+      - full5/dev4-import-security-repair-20260822
+
+permissions:
+  contents: read
+
+env:
+  DEV4_PRODUCT_SHA: 6298899cb112336ef220caa8d0e52334ddc0c0ae
+  DEV4_BASE_SHA: a4209d005ea0a1476f8eafb4822f4d39ac50ee5a
+  DEV2_TERMINAL_SHA: 8d9c7c99ef8d1754555adaf286ab15f5da3224af
+  DEV4_QA_REAL_LINK_SHA: 1d90557905753b158b99b7d62321a5e1f1a423bb
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Checkout exact terminal DEV4 Product head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.DEV4_PRODUCT_SHA }}
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install verification dependencies
+        run: python -m pip install -q pytest
+      - name: Exact provenance and diff hygiene
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$DEV4_PRODUCT_SHA"
+          git merge-base --is-ancestor "$DEV4_BASE_SHA" "$DEV4_PRODUCT_SHA"
+          git diff --check "$DEV4_BASE_SHA" "$DEV4_PRODUCT_SHA"
+          echo "EXACT DEV4 PRODUCT $DEV4_PRODUCT_SHA"
+      - name: Compile exact Product and regressions
+        run: python -m compileall -q acs tests run_accessible_chess.py
+      - name: Real primitive no-clobber race oracle on exact DEV4 Product
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          import tempfile
+          from unittest import mock
+          from acs.gametree import parse_games
+          from acs.pgn_service import save_pgn_atomic
+
+          games = parse_games('[Event "Our export"]\n[Result "*"]\n\n1. e4 *\n')
+          with tempfile.TemporaryDirectory() as tmp:
+              destination = Path(tmp) / 'new-shared.pgn'
+              real_link = os.link
+              injected = False
+              def concurrent_create(src, dst, *args, **kwargs):
+                  nonlocal_state[0] = True
+                  Path(dst).write_text('[Event "Created by another writer"]\n[Result "*"]\n\n1. d4 *\n', encoding='utf-8')
+                  return real_link(src, dst, *args, **kwargs)
+              nonlocal_state = [False]
+              with mock.patch('acs.pgn_service.os.link', side_effect=concurrent_create):
+                  try:
+                      save_pgn_atomic(destination, games, overwrite=False)
+                  except FileExistsError:
+                      pass
+                  else:
+                      raise AssertionError('FileExistsError not raised at actual os.link commit boundary')
+              assert nonlocal_state[0], 'actual os.link publication primitive was not exercised'
+              text = destination.read_text(encoding='utf-8')
+              assert 'Created by another writer' in text, text
+          print('DEV4 ACTUAL OS.LINK NO-CLOBBER RACE ORACLE PASS')
+          PY
+      - name: DEV4-owned focused gates on exact Product
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pytest -q \
+            tests/test_dev4_chessbase_integrity_atomicity.py \
+            tests/test_dev4_chessbase_integrity_io_observability.py \
+            tests/test_dev4_chessbase_manifest_io_observability.py \
+            tests/test_dev4_chessbase_probe_observability.py \
+            tests/test_dev4_chessbase_report_path_privacy.py \
+            tests/test_dev4_chessbase_symlink_security.py \
+            tests/test_dev4_engine_error_path_privacy.py \
+            tests/test_dev4_import_batch_adapter_failure.py \
+            tests/test_dev4_import_fingerprint_atomicity.py \
+            tests/test_dev4_import_history_error_privacy.py \
+            tests/test_dev4_import_special_file_security.py \
+            tests/test_dev4_pgn_encoding_quality.py \
+            tests/test_dev4_pgn_export_failure_recovery.py \
+            tests/test_dev4_pgn_export_path_security.py \
+            tests/test_dev4_pgn_resource_security.py \
+            tests/test_pgn_service.py
+          python -m unittest -v \
+            tests.test_dev4_pgn_export_concurrency_security.Dev4PgnExportConcurrencySecurityTests.test_expected_hash_rechecks_at_atomic_commit_boundary
+      - name: Apply validation-only canonical ownership overlays
+        shell: bash
+        run: |
+          set -euo pipefail
+          git show "$DEV2_TERMINAL_SHA:acs/gametree.py" > acs/gametree.py
+          git show "$DEV4_QA_REAL_LINK_SHA:tests/test_dev4_pgn_export_concurrency_security.py" > tests/test_dev4_pgn_export_concurrency_security.py
+          git diff --check
+          echo "Overlay only: canonical DEV2 GameTree + corrected DEV4 QA race oracle"
+      - name: Selective composition boundary gates
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pytest -q \
+            tests/test_dev4_pgn_export_concurrency_security.py \
+            tests/test_dev4_pgn_truncation_quality.py \
+            tests/test_pgn_service.py
+      - name: Full unittest discovery with canonical ownership overlays
+        run: python -m unittest discover -s tests -v
+      - name: Full pytest regression with canonical ownership overlays
+        run: python -m pytest -q
+      - name: Complete diagnostic
+        run: python run_accessible_chess.py --diagnostic
