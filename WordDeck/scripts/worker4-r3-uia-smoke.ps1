@@ -59,7 +59,7 @@ function Focused-Name {
     return $focused.Current.Name
 }
 function Assert-Focus([string]$expectedName, [string]$context) {
-    Wait-Until { (Focused-Name) -eq $expectedName } 5000 "$context: focus expected '$expectedName'; actual '$(Focused-Name)'"
+    Wait-Until { (Focused-Name) -eq $expectedName } 5000 "${context}: focus expected '$expectedName'; actual '$(Focused-Name)'"
 }
 function Send([string]$keys, [int]$delayMs = 300) {
     [System.Windows.Forms.SendKeys]::SendWait($keys)
@@ -134,7 +134,6 @@ try {
     Exercise-Combo $scope 'Recall study scope' 100
     Exercise-Combo $deck 'Active Recall deck' 40
 
-    # Native menu arrows must not leak into Recall card routing.
     $word.SetFocus()
     $menuWord = Value-Of $word
     Send '%f'
@@ -142,8 +141,6 @@ try {
     if ((Value-Of $word) -ne $menuWord) { Fail 'Down in the File menu changed the Recall card.' }
     Send '{ESC}'
 
-    # F1 truth: current canonical help plus shared registry must expose the focus
-    # contract and fixed Spelling Alt+F4.
     $word.SetFocus(); Send '{F1}'
     Wait-Until { $null -ne (Find-WindowByName 'WordDeck help') } 7000 'F1 help did not open'
     $helpWindow = Find-WindowByName 'WordDeck help'
@@ -158,8 +155,6 @@ try {
     Send '%{F4}'
     Wait-Until { $null -eq (Find-WindowByName 'WordDeck help') } 7000 'help did not close with Alt+F4'
 
-    # Shortcut settings start on the native ListView and include the fixed close
-    # command in the shared source of truth.
     Send '^k'
     Wait-Until { $null -ne (Find-WindowByName 'Keyboard shortcuts') } 7000 'shortcut settings did not open'
     $settings = Find-WindowByName 'Keyboard shortcuts'
@@ -171,8 +166,6 @@ try {
     Send '%{F4}'
     Wait-Until { $null -eq (Find-WindowByName 'Keyboard shortcuts') } 7000 'shortcut settings did not close'
 
-    # Spelling: selector arrows update deck/exercise while focus stays in the
-    # selector; text arrows in the answer stay native; Alt+F4 saves/closes.
     Send '^+s'
     Wait-Until { $null -ne (Find-WindowByName 'WordDeck Spelling') } 10000 'Spelling did not open'
     $spelling = Find-WindowByName 'WordDeck Spelling'
@@ -187,8 +180,6 @@ try {
     Wait-Until { $null -eq (Find-WindowByName 'WordDeck Spelling') } 10000 'Spelling did not close with Alt+F4'
     Wait-Until { $null -ne (Main-Window) } 7000 'main window did not resume after Spelling close'
 
-    # Sentence Spelling: deck/target selectors retain focus even with no pack;
-    # the answer remains a normal text input.
     Send '^+e'
     Wait-Until { $null -ne (Find-WindowByName 'WordDeck Sentence Spelling') } 10000 'Sentence Spelling did not open'
     $sentence = Find-WindowByName 'WordDeck Sentence Spelling'
