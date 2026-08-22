@@ -3,9 +3,9 @@
 NEXT_ACTION_ORDER:
 
 1. Re-read live DEV5 PR #66, manual5 integration and QA PR #67 before any new write. Do not compete with an IN_PROGRESS Product/integration owner.
-2. Recheck QA PR #67 exact head and commit-associated Actions. Keep all strict security assertions RED until genuine Product fixes exist; never weaken them for GREEN.
-3. Continue PGN export safety after the proven optimistic-concurrency race: parent/destination symlink or reparse behavior, temp-file permissions and cleanup, `os.replace`/`fsync` failure recovery, directory durability, deterministic serialization, overwrite policy and user-visible path/error leakage.
-4. Preserve the new strict gate `tests/test_dev4_pgn_export_concurrency_security.py`: `expected_sha256` must still protect against a writer that updates the destination after preflight but before atomic commit.
+2. Recheck QA PR #67 exact head and commit-associated Actions. Keep strict security assertions RED until genuine Product fixes exist; never weaken them for GREEN.
+3. Preserve all six strict QA gates: import symlink/reparse; bounded PGN import; ChessBase report path privacy; PGN expected_sha256 commit-boundary protection; PGN overwrite=False commit-boundary protection; PGN export symlink-parent rejection.
+4. Continue PGN export safety after the proven parent-indirection escape: destination-file symlink behavior, parent-chain indirection beyond one level, temp-file permissions/cleanup, `os.replace` failure, `fsync` failure, directory durability, deterministic serialization and user-visible path/error leakage.
 5. Continue generic import resource limits: explicit maximum source size, chunked/streaming strategy, huge/truncated content, encoding abuse, duplicate sources, cancellation and recovery. Bounded hashing alone is not a bounded import.
 6. Trace generic provenance/error path exposure end-to-end from `SourceFingerprint.path`, `BatchInspectionItem.path/error`, PGN exceptions and ChessBase evidence DTOs into persisted/UI/report surfaces. ChessBase report DTO leakage is already PROVEN; classify other surfaces only with direct evidence.
 7. Audit ChessBase bounded-read/resource-exhaustion and unknown-version handling beyond integrity hashing. Preserve source read-only and do not invent proprietary record semantics.
@@ -17,7 +17,9 @@ CURRENT LOCKED FINDINGS:
 - PROVEN_PRODUCT_DEFECT: external import/ChessBase symlink-reparse boundary follows indirection instead of failing closed.
 - PROVEN_PRODUCT_DEFECT: PGN import performs an unbounded full-text read after bounded hashing.
 - PROVEN_PRODUCT_DEFECT: serialized ChessBase probe/integrity/manifest report DTOs expose absolute local paths.
-- PROVEN_PRODUCT_DEFECT: PGN optimistic overwrite has a TOCTOU window; a newer destination write after preflight can be silently lost at unconditional `os.replace`.
+- PROVEN_PRODUCT_DEFECT: PGN expected_sha256 optimistic overwrite has a TOCTOU lost-update window.
+- PROVEN_PRODUCT_DEFECT: PGN overwrite=False can clobber a destination created after preflight.
+- PROVEN_PRODUCT_DEFECT: PGN export follows a symlink/reparse parent and writes outside the submitted directory tree.
 - PROVEN_PRODUCT_INTEGRATION_RISK: naive DEV4 board-action overwrite can regress accepted DEV1 semantics.
 - PROVEN_RELEASE_PIPELINE_BLOCKER: Nuitka compiler report must not ship in user candidate.
 - HUMAN_ONLY: exact fresh Windows/NVDA usability; `NVDA_VERIFIED=NO`.
