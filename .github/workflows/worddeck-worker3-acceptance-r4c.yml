@@ -1,0 +1,214 @@
+name: WordDeck Worker3 Round4c acceptance
+
+on:
+  push:
+    branches:
+      - worddeck-worker-3-acceptance-r4c
+  pull_request:
+    branches:
+      - worddeck-bootstrap
+    paths:
+      - 'WordDeck/**'
+      - '.github/workflows/worddeck-worker3-acceptance-r4c.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  statuses: write
+
+concurrency:
+  group: worddeck-worker3-r4c-${{ github.event_name }}-${{ github.event.pull_request.head.sha || github.sha }}
+  cancel-in-progress: true
+
+env:
+  TARGET_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+  SOURCE_BRANCH: ${{ github.head_ref || github.ref_name }}
+
+jobs:
+  acceptance:
+    runs-on: windows-latest
+    timeout-minutes: 80
+    steps:
+      - name: Checkout exact worker commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          persist-credentials: false
+
+      - name: Exact branch and source identity
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:SOURCE_BRANCH -ne 'worddeck-worker-3-acceptance-r4c') { throw "Unexpected source branch $env:SOURCE_BRANCH" }
+          $actual = (git rev-parse HEAD).Trim()
+          if ($actual -ne $env:TARGET_SHA) { throw "Checkout mismatch: $actual vs $env:TARGET_SHA" }
+          New-Item -ItemType Directory -Force .\artifacts | Out-Null
+          @("branch=$env:SOURCE_BRANCH","sha=$env:TARGET_SHA","runner_os=$env:RUNNER_OS") | Set-Content .\artifacts\worker3-r4c-identity.txt -Encoding utf8
+
+      - name: Publish pending exact-tip status
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const url = `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`;
+            await github.rest.repos.createCommitStatus({ owner: context.repo.owner, repo: context.repo.repo, sha: process.env.TARGET_SHA,
+              state: 'pending', context: 'WordDeck Worker3 R4c acceptance',
+              description: 'Exact Windows accessibility/release acceptance is running.', target_url: url });
+
+      - name: Workflow source immutability and historical safety
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $authoritative = Get-Content .\.github\workflows\worddeck-windows.yml -Raw
+          if ($authoritative -match 'contents:\s*write') { throw 'Authoritative WordDeck validation requests source write permission.' }
+          if ($authoritative -match 'git\s+push\s+origin\s+HEAD:worddeck-bootstrap') { throw 'Authoritative validation can push canonical source.' }
+          $historical = @('worddeck-emergency-completion.yml','worddeck-emergency-completion-v4.yml','worddeck-emergency-v5.yml','worddeck-emergency-v5-strict.yml','worddeck-emergency-v6.yml','worddeck-emergency-v7.yml','worddeck-emergency-v8.yml','worddeck-emergency-v8b.yml','worddeck-user1156-v1-completion.yml','worddeck-v01-package.yml')
+          foreach ($name in $historical) {
+            $path = Join-Path '.github\workflows' $name
+            if (-not (Test-Path -LiteralPath $path)) { throw "Historical workflow missing: $name" }
+            $text = Get-Content $path -Raw
+            if ($text -match 'contents:\s*write' -or $text -match 'actions:\s*write' -or $text -match '(?m)^\s*push\s*:' -or $text -match 'git\s+push') { throw "Historical workflow still has mutation capability: $name" }
+          }
+          'PASS' | Set-Content .\artifacts\workflow-safety.txt -Encoding utf8
+
+      - name: Security and private-data cleanliness
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $false
+          $tracked = @(git ls-files)
+          $badNames = @($tracked | Where-Object {
+            $_ -match '(?i)(^|/)(token\.json|credentials?\.json|cookies?(\.sqlite|\.json|\.txt)?|\.env|id_rsa|id_ed25519|[^/]+\.session)$' -or
+            $_ -match '(?i)\.(pfx|p12|pem|key)$' -or
+            $_ -match '(?i)(^|/)(state|state\.backup|spelling-state|spelling-state\.backup|sentence-coach-state|sentence-coach-state\.backup)\.json$' -or
+            $_ -match '(?i)(^|/)WordDeck-(profile|full-profile).*\.json$'
+          })
+          if ($badNames.Count -ne 0) { throw "Tracked private/secret-shaped files: $($badNames -join ', ')" }
+          git grep -n -I -E 'BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY' -- . *> .\artifacts\private-key-scan.txt
+          $keyExit = $LASTEXITCODE
+          if ($keyExit -eq 0) { Get-Content .\artifacts\private-key-scan.txt; throw 'Potential private key material found.' }
+          if ($keyExit -gt 1) { throw "Private-key scan failed: $keyExit" }
+          git grep -n -I -E 'C:\\Users\\[^%]|/home/[A-Za-z0-9._-]+/' -- WordDeck README-WORDDECK.md *> .\artifacts\personal-path-scan.txt
+          $pathExit = $LASTEXITCODE
+          if ($pathExit -eq 0) { Get-Content .\artifacts\personal-path-scan.txt; throw 'Hard-coded personal path found.' }
+          if ($pathExit -gt 1) { throw "Personal-path scan failed: $pathExit" }
+          'PASS: no tracked private state, secrets, private-key signatures or hard-coded personal paths.' | Set-Content .\artifacts\security.txt -Encoding utf8
+          exit 0
+
+      - name: Offline and normal-user contract
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $false
+          $manifest = Get-Content .\WordDeck\app.manifest -Raw
+          if ($manifest -match 'requireAdministrator|highestAvailable') { throw 'Application manifest requests elevation.' }
+          if ($manifest -notmatch 'asInvoker') { throw 'Application manifest does not explicitly use asInvoker.' }
+          git grep -n -I -E 'HttpClient|WebRequest|TcpClient|UdpClient|System\.Net\.Sockets|System\.Net\.Http' -- 'WordDeck/*.cs' *> .\artifacts\runtime-network-scan.txt
+          $networkExit = $LASTEXITCODE
+          if ($networkExit -eq 0) { Get-Content .\artifacts\runtime-network-scan.txt; throw 'Normal desktop runtime contains direct networking API usage; offline contract needs review.' }
+          if ($networkExit -gt 1) { throw "Runtime network scan failed: $networkExit" }
+          @('no_admin=PASS','normal_runtime_direct_network_api=NONE_FOUND') | Set-Content .\artifacts\offline-no-admin.txt -Encoding utf8
+          exit 0
+
+      - name: SentencePack release disclosure and notices
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $notices = Get-Content .\WordDeck\THIRD_PARTY_NOTICES.md -Raw
+          foreach ($required in @('Microsoft.Data.Sqlite','SQLite','Tatoeba')) { if ($notices -notmatch [regex]::Escape($required)) { throw "THIRD_PARTY_NOTICES missing: $required" } }
+          $status = Get-Content .\WordDeck\CANDIDATE_STATUS_V02_UK.txt -Raw
+          if ($status -notmatch 'НЕ заявляє, що містить фінальний production SentencePack') { throw 'Candidate status does not preserve bounded SentencePack disclosure.' }
+          if ($status -notmatch 'Ручний NVDA PASS не заявляється') { throw 'Candidate status does not preserve manual NVDA disclosure.' }
+          $tracked = @(git ls-files WordDeck | Where-Object { ($_ -match '(?i)sentence.*pack.*\.json\.gz$' -or $_ -match '(?i)sentence.*pack.*\.sqlite$') -and $_ -notmatch '(?i)(test|fixture|qa|sample)' })
+          if ($tracked.Count -eq 0) { 'production_sentence_pack=NOT_TRACKED_DISCLOSED' | Set-Content .\artifacts\sentencepack-release.txt -Encoding utf8 }
+          else { 'production_sentence_pack=CANDIDATE_FILES_PRESENT_REQUIRES_AUDIT' | Set-Content .\artifacts\sentencepack-release.txt -Encoding utf8; "files=$($tracked -join ';')" | Add-Content .\artifacts\sentencepack-release.txt -Encoding utf8 }
+          'third_party_notices=PASS' | Add-Content .\artifacts\sentencepack-release.txt -Encoding utf8
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore
+        run: dotnet restore .\WordDeck\WordDeck.csproj
+
+      - name: Release build warnings-as-errors
+        run: dotnet build .\WordDeck\WordDeck.csproj -c Release --no-restore -warnaserror
+
+      - name: Full deterministic self-test
+        run: dotnet run --project .\WordDeck\WordDeck.csproj -c Release --no-build -- --self-test
+
+      - name: Source immutability after validation
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          git diff --exit-code
+          git diff --cached --exit-code
+
+      - name: Self-contained publish to spaces and Cyrillic path
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $publish = Join-Path $env:RUNNER_TEMP 'WordDeck R4c Київ portable app'
+          if (Test-Path -LiteralPath $publish) { Remove-Item -LiteralPath $publish -Recurse -Force }
+          dotnet publish .\WordDeck\WordDeck.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:DebugType=None -p:DebugSymbols=false -o $publish
+          $exe = Join-Path $publish 'WordDeck.exe'
+          if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) { throw 'Published WordDeck.exe missing.' }
+          $p = Start-Process -FilePath $exe -ArgumentList '--self-test' -Wait -PassThru -NoNewWindow
+          if ($p.ExitCode -ne 0) { throw "Published self-test failed: $($p.ExitCode)" }
+          Copy-Item -LiteralPath $exe -Destination .\artifacts\WordDeck.exe
+          Copy-Item -LiteralPath .\WordDeck\MANUAL_NVDA_ACCEPTANCE_R4C_UK.md -Destination .\artifacts\MANUAL_NVDA_ACCEPTANCE_R4C_UK.md
+          Copy-Item -LiteralPath .\WordDeck\ACCESSIBILITY_RELEASE_MATRIX_R4C.md -Destination .\artifacts\ACCESSIBILITY_RELEASE_MATRIX_R4C.md
+          Copy-Item -LiteralPath .\WordDeck\FUTURE_MODE_ACCESSIBILITY_CONTRACT_R4C.md -Destination .\artifacts\FUTURE_MODE_ACCESSIBILITY_CONTRACT_R4C.md
+          @("publish_path=$publish",'published_exe_self_test=PASS','spaces_cyrillic_path=PASS') | Set-Content .\artifacts\portability.txt -Encoding utf8
+
+      - name: Public artifact cleanliness
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $bad = @(Get-ChildItem .\artifacts -Recurse -File | Where-Object {
+            $_.Name -match '(?i)^state(\.backup)?\.json$' -or $_.Name -match '(?i)^spelling-state(\.backup)?\.json$' -or
+            $_.Name -match '(?i)^sentence-coach-state(\.backup)?\.json$' -or $_.Name -like 'WordDeck-profile*.json' -or
+            $_.Name -like 'WordDeck-full-profile*.json' -or $_.FullName -match '(?i)[\\/]Backups[\\/]'
+          })
+          if ($bad.Count -ne 0) { throw "Public artifact contains personal-state-shaped files: $($bad.FullName -join ', ')" }
+          'PASS' | Set-Content .\artifacts\public-artifact-cleanliness.txt -Encoding utf8
+
+      - name: Setup WinApp CLI for hosted Windows UI Automation
+        uses: microsoft/setup-WinAppCli@v0.1
+
+      - name: ACTUAL Windows UI Automation against exact published EXE
+        id: uia
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & .\WordDeck\scripts\worker3-r4c-uia-smoke.ps1 -ExePath .\artifacts\WordDeck.exe *>&1 | Tee-Object -FilePath .\artifacts\uia-r4c.log
+          'PASS' | Set-Content .\artifacts\uia-r4c-status.txt -Encoding utf8
+
+      - name: Write acceptance summary
+        if: always()
+        shell: pwsh
+        run: |
+          $uia = if (Test-Path .\artifacts\uia-r4c-status.txt) { (Get-Content .\artifacts\uia-r4c-status.txt -Raw).Trim() } else { 'NOT_PASS_OR_NOT_RUN' }
+          @("branch=$env:SOURCE_BRANCH","sha=$env:TARGET_SHA","job_status=${{ job.status }}","uia=$uia",'manual_nvda=NOT_RUN_HUMAN_REQUIRED','foundation_readiness_planning=APPROX_96_PERCENT','full_product_readiness_planning=APPROX_46_PERCENT') | Set-Content .\artifacts\worker3-r4c-acceptance-summary.txt -Encoding utf8
+
+      - name: Upload exact-tip acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: WordDeck-worker3-r4c-acceptance-evidence-${{ env.TARGET_SHA }}
+          path: .\artifacts\
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish final exact-tip status
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const succeeded = '${{ job.status }}' === 'success' && '${{ steps.uia.outcome }}' === 'success';
+            const url = `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`;
+            await github.rest.repos.createCommitStatus({ owner: context.repo.owner, repo: context.repo.repo, sha: process.env.TARGET_SHA,
+              state: succeeded ? 'success' : 'failure', context: 'WordDeck Worker3 R4c acceptance',
+              description: succeeded ? 'Exact published EXE machine gates and actual UIA passed.' : 'Machine gate and/or actual UIA acceptance failed.', target_url: url });

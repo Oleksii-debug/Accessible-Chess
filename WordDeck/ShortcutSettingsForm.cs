@@ -39,13 +39,6 @@ internal sealed class ShortcutSettingsForm : Form
         _list.Columns.Add("Function", 480);
         _list.Columns.Add("Current shortcut", 220);
         _list.DoubleClick += (_, _) => ChangeSelected();
-        _list.KeyDown += (_, e) =>
-        {
-            if (e.KeyCode != Keys.Enter) return;
-            e.Handled = true;
-            e.SuppressKeyPress = true;
-            ChangeSelected();
-        };
 
         var buttons = new FlowLayoutPanel
         {
@@ -75,8 +68,25 @@ internal sealed class ShortcutSettingsForm : Form
         Shown += (_, _) =>
         {
             _list.Focus();
-            if (_list.SelectedItems.Count > 0) _list.SelectedItems[0].Focused = true;
+            EnsureListSelection();
         };
+    }
+
+    protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
+    {
+        // Handle the documented ListView Enter command at the form message-routing
+        // layer. Win32 ListView can expose keyboard focus on a child item provider,
+        // and relying only on ListView.KeyDown makes Enter sensitive to provider /
+        // message-routing details. ContainsFocus covers both the container and its
+        // focused row while keeping Enter native for every other control.
+        if (keyData == Keys.Enter && _list.ContainsFocus)
+        {
+            EnsureListSelection();
+            ChangeSelected();
+            return true;
+        }
+
+        return base.ProcessCmdKey(ref msg, keyData);
     }
 
     private void RefreshList()
@@ -92,8 +102,13 @@ internal sealed class ShortcutSettingsForm : Form
             if (def.Id == selectedId) item.Selected = true;
         }
         _list.EndUpdate();
+        EnsureListSelection();
+    }
 
-        if (_list.Items.Count > 0 && _list.SelectedItems.Count == 0) _list.Items[0].Selected = true;
+    private void EnsureListSelection()
+    {
+        if (_list.Items.Count == 0) return;
+        if (_list.SelectedItems.Count == 0) _list.Items[0].Selected = true;
         if (_list.SelectedItems.Count > 0)
         {
             _list.SelectedItems[0].Focused = true;
@@ -103,27 +118,40 @@ internal sealed class ShortcutSettingsForm : Form
 
     private void ChangeSelected()
     {
+        EnsureListSelection();
         if (_list.SelectedItems.Count == 0) return;
         string actionId = (string)_list.SelectedItems[0].Tag!;
         ShortcutDefinition? definition = _manager.CurrentDefinitions.FirstOrDefault(x => x.Id == actionId);
         if (definition is null) { RefreshList(); return; }
 
         using var dialog = new ShortcutCaptureForm(definition.Description, _manager.Get(actionId));
-        if (dialog.ShowDialog(this) != DialogResult.OK) return;
+        if (dialog.ShowDialog(this) != DialogResult.OK)
+        {
+            _list.Focus();
+            EnsureListSelection();
+            return;
+        }
         if (!_manager.TrySet(actionId, dialog.CapturedKeys, out string? error))
         {
             MessageBox.Show(this, $"Cannot use that shortcut because {error}.", "Shortcut not available", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            _list.Focus();
+            EnsureListSelection();
             return;
         }
         RefreshList();
+        _list.Focus();
+        EnsureListSelection();
     }
 
     private void ClearSelected()
     {
+        EnsureListSelection();
         if (_list.SelectedItems.Count == 0) return;
         string actionId = (string)_list.SelectedItems[0].Tag!;
         _manager.Clear(actionId);
         RefreshList();
+        _list.Focus();
+        EnsureListSelection();
     }
 }
 
