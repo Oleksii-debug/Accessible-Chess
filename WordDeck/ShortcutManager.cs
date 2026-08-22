@@ -14,10 +14,10 @@ internal sealed class ShortcutManager
     public IReadOnlyList<ShortcutDefinition> Definitions { get; private set; }
     public IReadOnlyList<ShortcutDefinition> CurrentDefinitions => Definitions;
 
-    // The one-argument manager is the main Recall-window dispatcher. Fixed
-    // Spelling/Sentence definitions stay visible for F1 and global conflict
-    // truth, but dispatch remains Recall-scoped so training accelerators fall
-    // through to their dedicated WinForms menu/window routing.
+    // The one-argument manager is the main Recall-window dispatcher. It may be
+    // refreshed later with Spelling deck definitions for complete F1/settings,
+    // but it must never swallow Spelling/Sentence accelerators before the menu
+    // system can route them to their dedicated windows.
     public ShortcutManager(AppState state)
         : this(state, null, ShortcutDispatchContext.Recall) { }
 
@@ -49,7 +49,11 @@ internal sealed class ShortcutManager
         if (definition is null) return Keys.None;
         Keys candidate = GetCandidateKey(definition);
         if (candidate == Keys.None) return Keys.None;
-        return FindConflictingActionId(actionId, candidate) is null ? candidate : Keys.None;
+
+        bool duplicate = Definitions.Any(other =>
+            !string.Equals(other.Id, actionId, StringComparison.OrdinalIgnoreCase) &&
+            GetCandidateKey(other) == candidate);
+        return duplicate ? Keys.None : candidate;
     }
 
     public string? FindAction(Keys keyData)
@@ -74,12 +78,11 @@ internal sealed class ShortcutManager
             return false;
         }
 
-        string? conflictId = keys == Keys.None ? null : FindConflictingActionId(actionId, keys);
-        if (conflictId is not null)
+        ShortcutDefinition? conflict = keys == Keys.None ? null : Definitions.FirstOrDefault(def =>
+            !string.Equals(def.Id, actionId, StringComparison.OrdinalIgnoreCase) && GetCandidateKey(def) == keys);
+        if (conflict is not null)
         {
-            string description = Definitions.FirstOrDefault(def =>
-                string.Equals(def.Id, conflictId, StringComparison.OrdinalIgnoreCase))?.Description ?? conflictId;
-            errorDescription = $"it is already assigned to {description}";
+            errorDescription = $"it is already assigned to {conflict.Description}";
             return false;
         }
 
@@ -113,31 +116,16 @@ internal sealed class ShortcutManager
         return definition.DefaultKeys;
     }
 
-    private string? FindConflictingActionId(string actionId, Keys keys)
-    {
-        // The persisted registry is global even when a particular window only
-        // dispatches one mode. Checking it prevents a Recall-only settings
-        // surface from stealing a key already owned by a dynamic Spelling
-        // action. Legacy numeric Recall aliases are inert migration remnants,
-        // not second live commands.
-        foreach ((string otherActionId, string raw) in _state.Shortcuts)
-        {
-            if (string.Equals(otherActionId, actionId, StringComparison.OrdinalIgnoreCase)) continue;
-            if (IsLegacyNumericDeckAction(otherActionId)) continue;
-            if (!Enum.TryParse(raw, out Keys otherKeys) || otherKeys == Keys.None) continue;
-            if (otherKeys == keys) return otherActionId;
-        }
-        return null;
-    }
-
     private void RemoveOrphanedDeckShortcuts()
     {
         var valid = new HashSet<string>(Definitions.Select(def => def.Id), StringComparer.OrdinalIgnoreCase);
         foreach (string actionId in _state.Shortcuts.Keys.Where(IsDynamicDeckAction).Where(id => !valid.Contains(id) && !IsLegacyNumericDeckAction(id)).ToList())
         {
-            // A Recall-only refresh does not know current Spelling deck topology.
-            // Preserve such bindings until an explicit Spelling-deck context can
-            // prove that the action is genuinely orphaned.
+            // A Recall-only manager may exist while Spelling state is protected by
+            // fail-closed recovery. In that state it does not know the live Spelling
+            // deck topology, so deleting those bindings would be user-data loss.
+            // Once TrainingEntryPoints supplies explicit Spelling decks, genuine
+            // orphaned bindings can be safely removed against that topology.
             if (!_hasSpellingDeckContext && IsSpellingDynamicDeckAction(actionId)) continue;
             _state.Shortcuts.Remove(actionId);
         }
@@ -228,11 +216,6 @@ internal sealed class ShortcutManager
     {
         var defs = new List<ShortcutDefinition>(RecallDefinitions);
         defs.AddRange(ScopeDefinitions);
-        // Fixed training actions are global shortcut truth even when this
-        // particular manager has no live Spelling deck topology yet.
-        defs.AddRange(SpellingDefinitions);
-        defs.AddRange(SentenceDefinitions);
-
         foreach (DeckDefinition deck in _state.Decks.OrderBy(deck => deck.Order))
         {
             int coreNumber = DeckIds.CoreDecks.ToList().FindIndex(id => string.Equals(id, deck.Id, StringComparison.OrdinalIgnoreCase)) + 1;
@@ -243,6 +226,8 @@ internal sealed class ShortcutManager
         }
         if (_hasSpellingDeckContext)
         {
+            defs.AddRange(SpellingDefinitions);
+            defs.AddRange(SentenceDefinitions);
             foreach (DeckDefinition deck in _spellingDecks.OrderBy(deck => deck.Order))
             {
                 int coreNumber = SpellingDeckIds.CoreDecks.ToList().FindIndex(id => string.Equals(id, deck.Id, StringComparison.OrdinalIgnoreCase)) + 1;
