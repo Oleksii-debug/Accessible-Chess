@@ -9,10 +9,13 @@ from acs.gametree_snapshot import (
     GAMETREE_SNAPSHOT_SCHEMA_VERSION,
     GameTreeSnapshotCode,
     GameTreeSnapshotError,
+    MAX_SNAPSHOT_RECORD_BYTES,
     MAX_WARNING_CHARS,
     restore_game,
+    snapshot_from_json,
     snapshot_from_record,
     snapshot_game,
+    snapshot_to_json,
     snapshot_to_record,
 )
 
@@ -179,6 +182,58 @@ class GameTreeSnapshotTests(unittest.TestCase):
     def test_record_export_rejects_invalid_snapshot_type(self):
         with self.assertRaises(TypeError):
             snapshot_to_record({})
+
+    def test_json_exchange_is_deterministic_and_round_trips_exactly(self):
+        snapshot = snapshot_game(self.game())
+        text_a = snapshot_to_json(snapshot)
+        text_b = snapshot_to_json(snapshot)
+        self.assertEqual(text_a, text_b)
+        self.assertEqual(snapshot, snapshot_from_json(text_a))
+        self.assertLess(len(text_a.encode("utf-8")), MAX_SNAPSHOT_RECORD_BYTES)
+        self.assertTrue(text_a.startswith('{"pgn_digest":'))
+
+    def test_json_rejects_duplicate_fields_instead_of_last_value_wins(self):
+        canonical = snapshot_to_json(snapshot_game(self.game()))
+        duplicate = canonical[:-1] + ',"source_index":999}'
+        with self.assertRaises(GameTreeSnapshotError) as caught:
+            snapshot_from_json(duplicate)
+        self.assertEqual(GameTreeSnapshotCode.INVALID_SNAPSHOT, caught.exception.code)
+
+    def test_json_rejects_nonfinite_constants_and_non_object_roots(self):
+        canonical = snapshot_to_json(snapshot_game(self.game()))
+        nonfinite = canonical.replace('"source_index":7', '"source_index":NaN')
+        with self.assertRaises(GameTreeSnapshotError) as caught:
+            snapshot_from_json(nonfinite)
+        self.assertEqual(GameTreeSnapshotCode.INVALID_SNAPSHOT, caught.exception.code)
+
+        for root in ('[]', '"text"', '7', 'null'):
+            with self.subTest(root=root):
+                with self.assertRaises(GameTreeSnapshotError):
+                    snapshot_from_json(root)
+
+    def test_json_rejects_malformed_empty_nontext_and_oversized_payloads(self):
+        cases = ("", "{", b"{}")
+        for value in cases:
+            with self.subTest(value_type=type(value).__name__):
+                with self.assertRaises(GameTreeSnapshotError):
+                    snapshot_from_json(value)
+
+        oversized = " " * (MAX_SNAPSHOT_RECORD_BYTES + 1)
+        with self.assertRaises(GameTreeSnapshotError) as caught:
+            snapshot_from_json(oversized)
+        self.assertEqual(GameTreeSnapshotCode.RESOURCE_LIMIT, caught.exception.code)
+
+    def test_json_unknown_field_and_tampered_payload_fail_closed(self):
+        canonical = snapshot_to_json(snapshot_game(self.game()))
+        unknown = canonical[:-1] + ',"future_field":1}'
+        with self.assertRaises(GameTreeSnapshotError) as caught:
+            snapshot_from_json(unknown)
+        self.assertEqual(GameTreeSnapshotCode.INVALID_SNAPSHOT, caught.exception.code)
+
+        tampered = canonical.replace("1. e4", "1. d4", 1)
+        with self.assertRaises(GameTreeSnapshotError) as caught:
+            snapshot_from_json(tampered)
+        self.assertEqual(GameTreeSnapshotCode.PAYLOAD_MISMATCH, caught.exception.code)
 
 
 if __name__ == "__main__":
