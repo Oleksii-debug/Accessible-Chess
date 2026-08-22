@@ -1,6 +1,6 @@
 # DEV4 SESSION HANDOFF
 
-SESSION: 20260822-1200 Full Product QA/security
+SESSION: 20260822-1300 Full Product QA/security
 STATUS: COMPLETE / SAFE OVERLAP
 
 ## Exact state basis
@@ -9,16 +9,16 @@ STATUS: COMPLETE / SAFE OVERLAP
 - Accepted integration: `manual5/integration-20260821@0fa442330bc2bb03636ff9297512da4c29e38684`.
 - DEV5 reconciliation PR #66: `abff45ebcc4b5af2a85ab0c456b025b5098c6e29`, OPEN/DRAFT.
 - DEV4 QA branch: `qa/dev4-chessbase-symlink-security-20260822`.
-- New evidence commit: `0f911daefd131f7eee1a6365c893e56c365eb1e5` — `test(qa): gate ChessBase manifest I/O observability`.
-- QA PR #67 remains OPEN/DRAFT/MERGEABLE. Metadata commits follow the evidence commit; canonical Drive/PR metadata records the final exact QA head.
-- Evidence-head Actions were absent at inspection; QA CI remains `INCONCLUSIVE`, not GREEN.
+- New evidence commit: `cf61bbf18f352522ae3333deaff1e2dc353475b1` — `test(security): reject special-file import sources`.
+- QA PR #67 remains OPEN/DRAFT/MERGEABLE. Metadata commits follow the evidence commit; canonical PR/Drive metadata records the final exact QA head.
+- Previous exact-head Actions were absent; QA CI remains `INCONCLUSIVE`, not GREEN until observed.
 - Windows strict WIP=1 untouched. `NVDA_VERIFIED=NO`.
 
 ## New finding
 
-`PROVEN_PRODUCT_DEFECT` — `verify_manifest_unchanged()` propagates `_hash_file()` I/O failures such as `PermissionError` instead of returning the API's structured `(False, problems)` verification result. Unreadable source evidence is therefore not representable as explicit failed verification and can abort callers before evidence is recorded.
+`PROVEN_PRODUCT_DEFECT` — shared `fingerprint()` opens the submitted import path before validating that it is a regular file. A FIFO can block indefinitely waiting for a peer, and special/device-like paths can trigger unintended I/O. The external import boundary must reject non-regular files before opening payload bytes.
 
-Strict deterministic gate: `tests/test_dev4_chessbase_manifest_io_observability.py`. Product code unchanged.
+Strict deterministic gate: `tests/test_dev4_import_special_file_security.py`. It creates a POSIX FIFO and guards the payload-open boundary so the test itself cannot hang. Product code unchanged.
 
 ## Locked defect classes
 
@@ -31,6 +31,7 @@ Strict deterministic gate: `tests/test_dev4_chessbase_manifest_io_observability.
 7. ChessBase companion-directory I/O false-green.
 8. Generic import batch RuntimeError abort.
 9. ChessBase manifest verification I/O observability failure.
+10. Shared import special-file/FIFO open-before-validation boundary.
 
 ## Other classifications
 
@@ -44,4 +45,4 @@ Strict deterministic gate: `tests/test_dev4_chessbase_manifest_io_observability.
 
 ## Next action
 
-Recheck PR #67 final head/CI, then continue generic import resource/cancellation evidence and ChessBase component open/stat/hash observability. Promote leakage only with concrete sink evidence. Stay out of Product-owner and Windows strict lanes.
+Recheck PR #67 final head/CI, then continue generic import huge/truncated/encoding/cancellation evidence and ChessBase component open/stat/hash observability. Promote leakage only with concrete sink evidence. Stay out of Product-owner and Windows strict lanes.
