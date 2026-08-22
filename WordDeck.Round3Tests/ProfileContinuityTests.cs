@@ -1,5 +1,6 @@
 using System.Runtime.CompilerServices;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using WordDeck;
 
 internal static class ProfileContinuityTests
@@ -57,8 +58,10 @@ internal static class ProfileContinuityTests
                 "Combined profile import lost Sentence statistics.");
 
             string incompatible = Path.Combine(root, "incompatible-profile.json");
-            string json = File.ReadAllText(profile).Replace(AppStateStore.CorpusIdentity, "incompatible-corpus", StringComparison.Ordinal);
-            File.WriteAllText(incompatible, json);
+            JsonObject incompatibleJson = JsonNode.Parse(File.ReadAllText(profile))?.AsObject()
+                ?? throw new InvalidDataException("Combined profile fixture was not a JSON object.");
+            incompatibleJson["CorpusIdentity"] = "incompatible-corpus";
+            File.WriteAllText(incompatible, incompatibleJson.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
             destination.HiddenEntryIds.Clear();
             SentenceCoachState beforeSentence = sentenceStore.Load();
             ExpectFailure(
