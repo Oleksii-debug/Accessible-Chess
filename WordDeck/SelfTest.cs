@@ -164,7 +164,9 @@ internal static class SelfTest
     {
         var state = AppStateStore.Normalize(new AppState());
         var manager = new ShortcutManager(state);
-        Require(manager.Definitions.Count == 33, $"Expected 33 Recall/scope/core-deck actions, got {manager.Definitions.Count}.");
+        Require(manager.Definitions.Count == 49, $"Expected 49 Recall/scope/core-deck plus static Spelling/Sentence actions, got {manager.Definitions.Count}.");
+        Require(manager.Definitions.Any(def => def.Id == ActionIds.OpenSpelling), "Global shortcut registry omitted Spelling actions.");
+        Require(manager.Definitions.Any(def => def.Id == ActionIds.OpenSentenceCoach), "Global shortcut registry omitted Sentence actions.");
         Require(manager.Definitions.Select(def => def.Id).Distinct(StringComparer.OrdinalIgnoreCase).Count() == manager.Definitions.Count, "Shortcut action IDs must be unique.");
         Require(manager.Definitions.Where(def => def.DefaultKeys != Keys.None).Select(def => def.DefaultKeys).Distinct().Count() == manager.Definitions.Count(def => def.DefaultKeys != Keys.None), "Assigned default shortcuts must be unique.");
         foreach (string scopeId in StudyScopeIds.Ordered)
@@ -193,7 +195,7 @@ internal static class SelfTest
         var service = new DeckService(state);
         DeckDefinition userDeck = service.Create("Custom study");
         manager.RefreshDeckDefinitions();
-        Require(manager.Definitions.Count == 35, "Creating a Recall user deck did not add switch/move actions.");
+        Require(manager.Definitions.Count == 51, "Creating a Recall user deck did not add switch/move actions to the global registry.");
         string switchAction = ActionIds.SwitchDeck(userDeck.Id);
         string moveAction = ActionIds.MoveToDeck(userDeck.Id);
         Require(manager.Get(switchAction) == Keys.None && manager.Get(moveAction) == Keys.None, "User-deck shortcuts must start unassigned.");
