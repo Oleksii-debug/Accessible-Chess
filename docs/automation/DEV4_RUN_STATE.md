@@ -1,46 +1,48 @@
 # DEV4 RUN STATE
 
-RUN_ID: 20260822-2100-full-product-repair
+RUN_ID: 20260822-2200-full-product-repair
 STATUS: COMPLETE_WITH_CI_UNOBSERVED
 MODE: DEV4_PRODUCT_REPAIR
 ROLE: DEV4 Product Developer — import/PGN/ChessBase/security ownership
 DIRECTIVE: AUDIT-20260822-1900-01
 
-## Exact state
+## Live state
 
 - Product branch: `full5/dev4-import-security-repair-20260822`.
-- New Product implementation commit: `f37ce643f86871d3680f376ff220502a2390cdc2` — commit-boundary PGN no-clobber plus recoverable expected-hash publication handling.
-- Product regression commit: `7d063008bb145a7a9012d442f6af13ef258b40c1` — regression coverage for both publication races.
-- QA concurrency gate was preserved semantically and moved to the actual `os.link` no-clobber primitive on QA branch commit `1d90557905753b158b99b7d62321a5e1f1a423bb`; assertion strength is unchanged.
-- Draft Product PR: #100, base `manual5/dev4-platform-security-packaging-20260821`.
+- Product PR #100 remains OPEN/DRAFT/MERGEABLE against `manual5/dev4-platform-security-packaging-20260821`.
+- Product candidate at run start: `05e85dbb794388afb390b2319e04b9f818c5ba1b`.
+- New Product QA-maintenance commit: `95b6183b7190d689227789fb5fb061969f9c3862` — temp-permission instrumentation follows the real `os.link` no-clobber publication primitive; assertion strength unchanged.
+- New Product cleanup-regression commit: `599b38577fe8b7fc017fd2397efba07bd2ba741e` — locks CAS snapshot/temp cleanup on expected-hash replace failure and temp cleanup on no-clobber hard-link failure.
+- QA evidence branch maintenance commit: `4b365c46950413d43df9d3da49d83f45ef17b5e3` — same stale temp-permission instrumentation repair on QA PR #67; no safety assertion weakened.
 - Accepted Stage1 integration remains `manual5/integration-20260821@0fa442330bc2bb03636ff9297512da4c29e38684`; not mutated.
 - DEV5 PR #66 remains separate at `abff45ebcc4b5af2a85ab0c456b025b5098c6e29`; not mutated.
 - Exact Product-head Actions remain unobserved: `INCONCLUSIVE`, not GREEN.
 - Windows strict WIP=1 untouched. `NVDA_VERIFIED=NO`.
 
-## Product repairs completed in PR #100
+## This run
 
-1. Shared import fingerprinting rejects symlink/reparse/special-file sources and unstable snapshots.
-2. PGN import/open has a finite 64 MiB bounded source/text contract.
-3. Lossy UTF-8 PGN decoding downgrades record quality.
-4. Generic import batch isolates importer `RuntimeError` per source.
-5. ChessBase report DTO path privacy and companion I/O observability are hardened.
-6. ChessBase integrity/manifest collection rejects unsafe indirection and normalizes verification I/O failures.
-7. ACSDB failed-import history persists only failure class plus generic public text; raw parser/provider internals are not persisted.
-8. PGN export rejects lexical symlink/reparse indirection across existing ancestors/destination.
-9. `overwrite=False` now publishes with same-directory atomic hard-link creation, so a destination created by a competing writer is not replaced.
-10. `expected_sha256` publication now creates a hard-link snapshot of the pre-publication inode, rechecks the expected digest at commit, and restores/raises if an in-place writer changes that inode in the final replacement window.
+No new Product defect was proven. The repaired publication implementation was audited for failure cleanup. A stale QA test was proven to be instrumenting `os.replace` after default no-clobber publication had moved to `os.link`; that would create a false RED (`observed_mode=None`) despite the underlying temp-file privacy assertion remaining valid. Classification: `QA_OR_ENVIRONMENT_ONLY` / QA harness defect, not Product defect.
 
-## Remaining classification
+The test now inspects the actual default publication primitive while preserving the exact POSIX privacy requirement: the temp file must have no group/world permission bits before publication.
 
-- The two previously proven DEV4 PGN publication race tests now have Product repairs and Product regression coverage.
-- A fully generic non-cooperative external writer that atomically swaps a different inode during the narrow replace window is not claimed solved by a portable filesystem CAS primitive; broader cross-process atomic-replace semantics remain `INCONCLUSIVE`, not a proven residual failure in the current strict evidence.
-- Missing explicit PGN termination marker can still be synthesized as `*` and counted FULL; this remains proven QA evidence but overlaps DEV2 canonical GameTree ownership.
-- Exact PR #100 CI is `INCONCLUSIVE` until commit-associated checks appear.
-- Windows-specific reparse behavior remains `INCONCLUSIVE` until exact Windows execution.
-- HUMAN_ONLY: exact fresh Windows/NVDA usability.
-- No tests weakened. No Ctrl+A/Ctrl+C Product defect claim.
+Additional positive regression coverage now requires:
+1. expected-hash `os.replace` failure preserves the existing destination and cleans both `.tmp` and `.cas-*.bak` files;
+2. no-clobber hard-link publication failure publishes nothing and cleans its complete `.tmp` file.
+
+## Product repair status
+
+The DEV4-owned import/PGN/ChessBase/privacy/concurrency defects repaired in PR #100 remain repaired in source. The two previously proven publication races retain Product implementation plus deterministic regression coverage. Missing explicit PGN termination-marker quality remains proven QA evidence but overlaps DEV2 canonical GameTree ownership and is not changed here.
+
+## Classification
+
+- `QA_OR_ENVIRONMENT_ONLY`: stale temp-permission test hook followed obsolete `os.replace`; repaired without weakening assertion.
+- `QA EVIDENCE`: CAS/temp cleanup and no-clobber failure cleanup are now locked by positive regressions.
+- `INCONCLUSIVE`: exact PR #100 CI until commit-associated checks appear.
+- `INCONCLUSIVE`: generic non-cooperative external atomic inode replacement in the narrow CAS window.
+- `INCONCLUSIVE`: Windows-specific reparse/hard-link behavior until exact Windows execution.
+- `HUMAN_ONLY`: exact fresh Windows/NVDA usability.
+- No Ctrl+A/Ctrl+C Product defect claim. `NVDA_VERIFIED=NO`.
 
 ## Next action
 
-Re-read PR #100 final exact head and CI. If no new Audit directive appears, independently inspect the repaired PGN publication paths for cleanup/durability/regression interactions and consume any exact CI failures. Stay out of DEV5 integration, strict Windows QA, Stage1 release, and DEV2 GameTree ownership.
+Re-read PR #100 final exact head and CI. If no new directive appears, inspect post-publication verification/rollback failure semantics, directory durability only where a concrete contract can be proven, and consume exact CI failures. Stay out of DEV5 integration, strict Windows QA, Stage1 release and DEV2 GameTree ownership.
