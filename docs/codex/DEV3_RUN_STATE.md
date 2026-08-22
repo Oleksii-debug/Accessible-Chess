@@ -1,35 +1,33 @@
 # AUTO-CHESS DEV3 run state
 
-STATUS: COMPLETE / SEARCH-SCALAR P1 TERMINAL GREEN
+STATUS: COMPLETE / CURRENT DEV3 P1 PACKAGE TERMINAL GREEN
 BRANCH: `auto/dev3-acsdb-stable-paging-20260821`
 PRODUCT PR: #65
-VALIDATION PR: #84 — CLOSED UNMERGED / EVIDENCE ONLY
 DIRECTIVE: Full Product DEV3 / engine-analysis + ACSDB-Library-Search-import-export safety + presentation-neutral Books/Training progress backend contracts
 
-Current executable Product head: `3dde3a7444c9cf594e92e32f5e084c8969015ad4`.
-Implementation: `fada1ed8fd31762cb8054ac67124c3a72bd39a28`.
-Regression tests: `3dde3a7444c9cf594e92e32f5e084c8969015ad4`.
+Current executable Product head: `51d77c4c6f6a70cd47ffb772fff476ce9480d135`.
+Latest implementation commit: `50c5a5a8cacdc249957877da62acd8c163cfcd96`.
+Latest regression-test commit: `51d77c4c6f6a70cd47ffb772fff476ce9480d135`.
 
-P1 completed:
-- `source_id` and `after_game_id` fail closed before SQLite bind above signed 64-bit INTEGER max;
-- exact upper bound remains valid;
-- strict non-bool integer and existing positivity/non-negativity contracts preserved;
-- deterministic overflow and upper-bound regressions added;
+Latest completed P1 packages:
+- ACSDB backup recovery now rejects foreign/structurally invalid SQLite backups before destructive restore, while genuine v1/v2 ACSDB backups remain supported and migrate forward;
+- recovery validation requires ACSDB schema identity, supported version, FK integrity, and the v3 composite position index in addition to SQLite quick_check;
+- ImportHistory `attempt_id` / `after_attempt_id` now fail closed before SQLite bind outside positive signed-64-bit INTEGER range;
+- exact SQLite maximum remains a valid application scalar; bool/non-int coercion remains rejected;
 - no GameTree/chess-rules/UI/keybinding/integration target changes.
 
 TERMINAL VALIDATION:
 - workflow `DEV3 Full Product ACSDB CI`;
-- run `32563847332` / job `97009443566` — SUCCESS;
-- validation head `2220325a1d69cf46bf4611b36f0337378e8ab527`;
-- workflow checkout merge ref `f1134af309c3fe687b039f2aea5c0068b353408c`;
+- run `32568754137` / job `97021116904` — SUCCESS;
 - diff hygiene PASS; compile PASS;
-- focused DEV3 suite 87/87 PASS;
-- full unittest 616/616 PASS;
-- full pytest 694 passed + 585 subtests PASS;
-- SELFTEST and complete WebView2 diagnostic PASS.
+- focused DEV3 data/Books/Training/Search suite 92/92 PASS;
+- full unittest 622/622 PASS;
+- full pytest 700 passed + 599 subtests PASS;
+- SELFTEST PASS;
+- complete WebView2 diagnostic PASS.
 
 SAFE OVERLAP: DEV2 canonical GameTree/domain untouched; DEV1 presentation/UI/Teacher untouched; DEV4 QA/security untouched; DEV5 integration/promotion untouched.
-NEXT_ACTION: fresh ownership read, then only an unclaimed dependency-correct DEV3 P0/P1; otherwise independent evidence/backlog work under SAFE OVERLAP.
-READY_FOR_INTEGRATION: YES for executable Product head `3dde3a7444c9cf594e92e32f5e084c8969015ad4`.
+NEXT_ACTION: fresh ownership read; claim only an unowned dependency-correct DEV3 P0/P1. If touching work is IN_PROGRESS, remain SAFE OVERLAP and perform independent evidence/backlog work instead of competing Product edits.
+READY_FOR_INTEGRATION: YES for executable Product head `51d77c4c6f6a70cd47ffb772fff476ce9480d135`.
 NVDA_VERIFIED: NO
 WINDOWS_CANDIDATE: NONE created by DEV3.
