@@ -11,6 +11,7 @@ output such as GameTree/ACSDB/PGN.
 
 from dataclasses import dataclass, field
 from pathlib import Path
+import re
 from typing import Iterable
 
 
@@ -32,11 +33,24 @@ _COMPONENT_EXTENSIONS = {
 }
 
 _ALL_EXTENSIONS = {**_PRIMARY_EXTENSIONS, **_COMPONENT_EXTENSIONS}
+_WINDOWS_ABSOLUTE_RE = re.compile(r"^[A-Za-z]:/")
 
 
-def _report_name(path: Path) -> str:
-    """Return a stable report-safe identifier without workstation directories."""
-    return path.name
+def report_safe_path_name(path: str | Path) -> str:
+    """Return report-safe portable provenance without host-private directories.
+
+    Relative provenance is useful and historically part of the public report
+    contract, so it is preserved with forward slashes. Absolute POSIX paths and
+    Windows drive paths are reduced to their filename regardless of the host OS;
+    this prevents a Windows path from being treated as one opaque POSIX name.
+    """
+
+    normalized = str(path).replace("\\", "/").rstrip("/")
+    if not normalized:
+        return "source"
+    if normalized.startswith("/") or _WINDOWS_ABSOLUTE_RE.match(normalized):
+        return normalized.rsplit("/", 1)[-1] or "source"
+    return normalized
 
 
 class ChessBaseProbeIOError(RuntimeError):
@@ -52,7 +66,7 @@ class ChessBaseComponent:
 
     def as_report_fields(self) -> dict[str, object]:
         return {
-            "path": _report_name(self.path),
+            "path": report_safe_path_name(self.path),
             "extension": self.extension,
             "role": self.role,
             "exists": self.exists,
@@ -88,7 +102,7 @@ class ChessBaseSourceProbe:
 
     def as_report_fields(self) -> dict[str, object]:
         return {
-            "source_path": _report_name(self.path),
+            "source_path": report_safe_path_name(self.path),
             "extension": self.extension,
             "family_name": self.family_name,
             "recognized": self.recognized,
