@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import unittest
 
-from acs.analysis_service import AnalysisService
+from acs.analysis_service import ANALYSIS_MAX_FEN_LENGTH, AnalysisService
 from acs.bookdocument import Exercise as BookExercise
 from acs.bookdocument import Heading, Position, VariationTree
 from acs.engine_assisted_workflows import (
+    AudienceAnalysisResult,
     EngineAssistedWorkflowService,
     EngineVisibility,
 )
@@ -278,6 +279,69 @@ class EngineAssistedWorkflowTests(unittest.TestCase):
                         )
         finally:
             analysis.close()
+        self.assertEqual(engine.calls, [])
+
+    def test_oversized_teacher_fen_is_rejected_before_revision_or_engine_work(self):
+        oversized = "x" * (ANALYSIS_MAX_FEN_LENGTH + 1)
+        revision_calls: list[int] = []
+        engine = FakeAnalysisEngine()
+        service, analysis = self.make_service(engine)
+
+        def revision_provider():
+            revision_calls.append(1)
+            return 8
+
+        try:
+            with self.assertRaises(EngineContractError):
+                service.analyze_teacher(
+                    oversized,
+                    visibility="hidden",
+                    context_revision=7,
+                    revision_provider=revision_provider,
+                )
+        finally:
+            analysis.close()
+        self.assertEqual(revision_calls, [])
+        self.assertEqual(engine.calls, [])
+
+    def test_assisted_fen_bound_applies_to_training_book_and_result_dto(self):
+        oversized = "x" * (ANALYSIS_MAX_FEN_LENGTH + 1)
+        session = make_session()
+        before = session.snapshot()
+        engine = FakeAnalysisEngine()
+        service, analysis = self.make_service(engine)
+        try:
+            with self.assertRaises(EngineContractError):
+                service.analyze_training(session, oversized)
+            with self.assertRaises(EngineContractError):
+                service.analyze_book_block(Position(fen=oversized))
+            with self.assertRaises(EngineContractError):
+                AudienceAnalysisResult(
+                    oversized,
+                    0,
+                    EngineVisibility.HIDDEN,
+                    True,
+                )
+        finally:
+            analysis.close()
+        self.assertEqual(session.snapshot(), before)
+        self.assertEqual(engine.calls, [])
+
+    def test_exact_assisted_fen_boundary_remains_valid_on_stale_precheck(self):
+        boundary = "x" * ANALYSIS_MAX_FEN_LENGTH
+        engine = FakeAnalysisEngine()
+        service, analysis = self.make_service(engine)
+        try:
+            result = service.analyze_teacher(
+                boundary,
+                visibility="hidden",
+                context_revision=1,
+                revision_provider=lambda: 2,
+            )
+        finally:
+            analysis.close()
+        self.assertTrue(result.stale)
+        self.assertEqual(result.fen, boundary)
         self.assertEqual(engine.calls, [])
 
 
