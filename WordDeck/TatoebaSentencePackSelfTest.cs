@@ -142,6 +142,11 @@ internal static class TatoebaSentencePackSelfTest
             Require(ccBy.VerifiedAttributedCcByManifest && ccBy.License == "CC BY 2.0 FR",
                 "Matching attributed CC-BY manifest/hash was not trusted.");
 
+            WriteLegacyAuditedManifest(manifestPath, hash);
+            TatoebaImportMetadata legacyCcBy = TatoebaImportProvenance.Resolve(pairPath);
+            Require(legacyCcBy.VerifiedAttributedCcByManifest && legacyCcBy.License == "CC BY 2.0 FR",
+                "Audited R3 sources/url/hash/selection-rule manifest compatibility was lost.");
+
             File.AppendAllText(pairPath, "3\teng\tChanged.\t4\tukr\tЗмінено.\n");
             ExpectInvalidProvenance(() => TatoebaImportProvenance.Resolve(pairPath), "hash-mismatched pair TSV");
 
@@ -212,6 +217,33 @@ internal static class TatoebaSentencePackSelfTest
         if (!omitInputHashes) payload["input_sha256"] = inputHashes;
         if (license is not null) payload["license"] = license;
         if (attributed) payload["attribution_policy"] = "Both sentence-owner usernames and upstream IDs are retained.";
+        File.WriteAllText(path, JsonSerializer.Serialize(payload));
+    }
+
+    private static void WriteLegacyAuditedManifest(string path, string hash)
+    {
+        static Dictionary<string, object> Source(string leaf, char digest) => new()
+        {
+            ["url"] = "https://downloads.tatoeba.org/exports/" + leaf,
+            ["sha256"] = new string(digest, 64),
+            ["bytes"] = 1234L
+        };
+
+        var payload = new Dictionary<string, object?>
+        {
+            ["schema_version"] = 1,
+            ["license_filter"] = "CC BY 2.0 FR with BOTH sentence-owner usernames retained",
+            ["license"] = "CC BY 2.0 FR",
+            ["output_sha256"] = hash,
+            ["pair_count"] = 1,
+            ["selection_rule"] = "Use linked EN-UA rows only when both detailed sentence sides retain a nonblank owner username.",
+            ["sources"] = new Dictionary<string, object>
+            {
+                ["english_detailed"] = Source("per_language/eng/eng_sentences_detailed.tsv.bz2", 'a'),
+                ["ukrainian_detailed"] = Source("per_language/ukr/ukr_sentences_detailed.tsv.bz2", 'b'),
+                ["english_ukrainian_links"] = Source("per_language/eng/eng-ukr_links.tsv.bz2", 'c')
+            }
+        };
         File.WriteAllText(path, JsonSerializer.Serialize(payload));
     }
 
