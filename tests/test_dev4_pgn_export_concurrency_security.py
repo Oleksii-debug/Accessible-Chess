@@ -51,6 +51,37 @@ class Dev4PgnExportConcurrencySecurityTests(unittest.TestCase):
                 "A concurrent destination update must survive a rejected stale save.",
             )
 
+    def test_no_overwrite_mode_rechecks_nonexistence_at_commit_boundary(self):
+        """``overwrite=False`` must not clobber a file created after preflight.
+
+        The default save contract protects existing destinations.  Creating the
+        destination immediately before the replacement deterministically models
+        a second writer winning the race after the initial ``exists()`` check.
+        A safe implementation must preserve that file and refuse the commit.
+        """
+
+        games = parse_games('[Event "Our export"]\n[Result "*"]\n\n1. e4 *\n')
+        with tempfile.TemporaryDirectory() as tmp:
+            destination = Path(tmp) / "new-shared.pgn"
+            real_replace = os.replace
+
+            def concurrent_create(src, dst):
+                Path(dst).write_text(
+                    '[Event "Created by another writer"]\n[Result "*"]\n\n1. d4 *\n',
+                    encoding="utf-8",
+                )
+                return real_replace(src, dst)
+
+            with mock.patch("acs.pgn_service.os.replace", side_effect=concurrent_create):
+                with self.assertRaises(FileExistsError):
+                    save_pgn_atomic(destination, games, overwrite=False)
+
+            self.assertIn(
+                "Created by another writer",
+                destination.read_text(encoding="utf-8"),
+                "Default no-overwrite mode must preserve a destination created by a racing writer.",
+            )
+
 
 if __name__ == "__main__":
     unittest.main()
