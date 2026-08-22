@@ -140,6 +140,12 @@ class PgnWebViewProjection:
         value = self._game_count()
         if type(value) is not int or value < 0 or value > 1_000_000_000:
             raise ValueError("PGN game count provider returned invalid count")
+        # PgnTreePresenter freezes its game collection as a tuple at construction.
+        # Reading that stable collection length does not re-read mutable selection
+        # state, and lets the WebView fail closed if an external count provider is
+        # stale or inflated instead of advertising inaccessible phantom games.
+        if value != len(self._presenter._games):
+            raise ValueError("PGN game count disagrees with presenter")
         if value == 0 and view.game_index != -1:
             raise ValueError("PGN game count disagrees with presenter")
         if value > 0 and not 0 <= view.game_index < value:
