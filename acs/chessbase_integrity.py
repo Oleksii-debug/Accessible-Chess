@@ -9,7 +9,7 @@ from typing import Iterable
 import os
 import stat
 
-from .chessbase_adapter import ChessBaseSourceProbe, probe_chessbase_source
+from .chessbase_adapter import ChessBaseSourceProbe, probe_chessbase_source, report_safe_name
 
 
 @dataclass(frozen=True)
@@ -22,7 +22,7 @@ class SourceFileEvidence:
 
     def as_report_fields(self) -> dict[str, object]:
         return {
-            "path": self.path.name,
+            "path": report_safe_name(self.path),
             "extension": self.extension,
             "role": self.role,
             "size_bytes": self.size_bytes,
@@ -37,7 +37,7 @@ class ChessBaseIntegritySnapshot:
 
     def as_report_fields(self) -> dict[str, object]:
         return {
-            "primary_path": self.primary_path.name,
+            "primary_path": report_safe_name(self.primary_path),
             "files": [item.as_report_fields() for item in self.files],
         }
 
