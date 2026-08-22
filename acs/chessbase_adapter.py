@@ -10,7 +10,7 @@ output such as GameTree/ACSDB/PGN.
 """
 
 from dataclasses import dataclass, field
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Iterable
 
 
@@ -34,9 +34,15 @@ _COMPONENT_EXTENSIONS = {
 _ALL_EXTENSIONS = {**_PRIMARY_EXTENSIONS, **_COMPONENT_EXTENSIONS}
 
 
-def _report_name(path: Path) -> str:
-    """Return a stable report-safe identifier without workstation directories."""
-    return path.name
+def report_safe_name(path: str | Path) -> str:
+    """Return a filename-only identifier independent of host path syntax.
+
+    External evidence may carry a Windows path while reporting runs on POSIX or
+    vice versa. Normalize both separator styles before taking the final path
+    component so workstation parent directories never cross report boundaries.
+    """
+
+    return PurePosixPath(str(path).replace("\\", "/")).name
 
 
 class ChessBaseProbeIOError(RuntimeError):
@@ -52,7 +58,7 @@ class ChessBaseComponent:
 
     def as_report_fields(self) -> dict[str, object]:
         return {
-            "path": _report_name(self.path),
+            "path": report_safe_name(self.path),
             "extension": self.extension,
             "role": self.role,
             "exists": self.exists,
@@ -88,7 +94,7 @@ class ChessBaseSourceProbe:
 
     def as_report_fields(self) -> dict[str, object]:
         return {
-            "source_path": _report_name(self.path),
+            "source_path": report_safe_name(self.path),
             "extension": self.extension,
             "family_name": self.family_name,
             "recognized": self.recognized,
