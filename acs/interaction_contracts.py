@@ -2,12 +2,16 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
+from itertools import islice
 from typing import ClassVar, Mapping, NoReturn, TypeAlias
 
 from .squares import normalize_square
 
 
 CONTRACT_VERSION = 1
+PRESENTATION_MAX_HIGHLIGHTS = 64
+PRESENTATION_MAX_ARROWS = 64
+PRESENTATION_MAX_STUDENT_EVENTS = 256
 
 
 class ContractErrorCode(str, Enum):
@@ -140,6 +144,24 @@ def _sequence(value: int | None) -> int | None:
     if type(value) is not int or value < 0:
         raise ContractValidationError("sequence must be a non-negative integer")
     return value
+
+
+def _bounded_tuple(value: object, label: str, limit: int) -> tuple[object, ...]:
+    """Detach an iterable while consuming at most limit + 1 values."""
+
+    try:
+        iterator = iter(value)
+    except TypeError as exc:
+        raise ContractValidationError("presentation collections must be iterable") from exc
+    items = tuple(islice(iterator, limit + 1))
+    if len(items) > limit:
+        raise ContractValidationError(f"{label} exceeds maximum of {limit}")
+    return items
+
+
+def _validate_json_collection_bound(value: list[object], label: str, limit: int) -> None:
+    if len(value) > limit:
+        raise ContractValidationError(f"{label} exceeds maximum of {limit}")
 
 
 _POSITION_EDITOR_PIECES = frozenset("PNBRQKpnbrqk")
@@ -471,12 +493,15 @@ class PresentationState:
         _validate_version(self.version)
         if not isinstance(self.pointer, TeacherPointerState):
             raise ContractValidationError("pointer must be TeacherPointerState")
-        try:
-            highlights = tuple(self.highlights)
-            arrows = tuple(self.arrows)
-            history = tuple(self.student_pointer_history)
-        except TypeError as exc:
-            raise ContractValidationError("presentation collections must be iterable") from exc
+        highlights = _bounded_tuple(
+            self.highlights, "highlights", PRESENTATION_MAX_HIGHLIGHTS
+        )
+        arrows = _bounded_tuple(self.arrows, "arrows", PRESENTATION_MAX_ARROWS)
+        history = _bounded_tuple(
+            self.student_pointer_history,
+            "student_pointer_history",
+            PRESENTATION_MAX_STUDENT_EVENTS,
+        )
         if any(not isinstance(item, SquareHighlight) for item in highlights):
             raise ContractValidationError("highlights must contain SquareHighlight values")
         if any(not isinstance(item, VisualArrow) for item in arrows):
@@ -620,6 +645,13 @@ def presentation_state_from_payload(payload: Mapping[str, object]) -> Presentati
     history = payload["student_pointer_history"]
     if not isinstance(highlights, list) or not isinstance(arrows, list) or not isinstance(history, list):
         raise ContractValidationError("presentation collections must be JSON arrays")
+    _validate_json_collection_bound(
+        highlights, "highlights", PRESENTATION_MAX_HIGHLIGHTS
+    )
+    _validate_json_collection_bound(arrows, "arrows", PRESENTATION_MAX_ARROWS)
+    _validate_json_collection_bound(
+        history, "student_pointer_history", PRESENTATION_MAX_STUDENT_EVENTS
+    )
     parsed_history = tuple(interaction_from_payload(item) for item in history)
     if any(not isinstance(item, (StudentHoverEvent, StudentSelectionEvent)) for item in parsed_history):
         raise ContractValidationError("student history may contain only hover/selection events")
