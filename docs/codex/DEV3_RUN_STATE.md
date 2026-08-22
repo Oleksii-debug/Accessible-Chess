@@ -1,34 +1,34 @@
 # AUTO-CHESS DEV3 run state
 
-STATUS: LITERAL ACSDB/LIBRARY/SEARCH P1 IMPLEMENTED / CI PENDING / FULL PRODUCT MISSION PARTIAL
+STATUS: COMPLETE FOR LITERAL ACSDB/LIBRARY/SEARCH P1 / FULL PRODUCT MISSION PARTIAL
 BRANCH: `auto/dev3-acsdb-stable-paging-20260821`
 PRODUCT PR: #65
-VALIDATION PR: #81 — EVIDENCE ONLY / DO NOT MERGE
+VALIDATION PR: #82 — EVIDENCE ONLY / DO NOT MERGE
 DIRECTIVE: Full Product DEV3 / engine-analysis + ACSDB-Library-Search-import-export safety + presentation-neutral Books/Training progress backend contracts
 
-Current executable Product checkpoint before handoff-only documentation commits: `753ba0ac27e37a944820b2917f2fd2518be283e5`.
-Slice commits:
-- `0bf8dc2041421914948350fe48b0e3a03e9d65bd` — literal SQLite LIKE escaping in `GameSearchService`;
-- `a3c93e319cc7c01126dd3a6dd8a3e945b9bf4032` — literal search regressions;
-- `753ba0ac27e37a944820b2917f2fd2518be283e5` — focused CI routing includes `tests.test_search_service`.
+Latest verified executable Product head: `85b88d2efd8fb92f0be5500e5a8da2b86228e46a`.
+Exact GREEN CI run: `32561369567`.
+Exact CI job: `97003308118`.
+Workflow PR merge ref executed: `d075bc872f40af64a3470fd5d4e869574a8a866a` = exact Product head plus evidence-only marker `fc41342087b2be2b82d318eaa090658c8c11b7b8`.
+Runner: GitHub runner 2.336.0; Ubuntu 24.04.4 image 20260816.277.1; Python 3.12.14.
 
-P1 implemented:
+P1 delivered:
 - user-entered `%`, `_` and `\\` are now literal ACSDB search text rather than implicit SQLite wildcard operators;
 - explicit `ESCAPE '\\'` clauses cover player, event, ECO, opening and source-name filters;
-- normal substring behavior remains intact; ECO remains a prefix filter;
-- SQL values remain fully parameterized;
+- normal case-insensitive substring behavior remains intact; ECO remains a prefix filter;
+- SQL values remain parameterized;
 - deterministic tests cover percent, underscore, backslash, mixed source names and ECO literal-prefix behavior;
 - no second chess rules, legality, GameTree, board, UI, keybinding or presentation authority was introduced.
 
-Verification at checkpoint:
-- independent SQLite LIKE semantic smoke: PASS for `%`, `_`, `\\`;
-- local repository clone/test from runtime: BLOCKED by DNS resolution failure for `github.com`;
-- validation PR #81 created against the exact DEV3 Product branch; initial merge ref before handoff-only Product docs: `1cf56c3ef57d5b9bddc3bb9e3e89347f5b649957`;
-- applicable GitHub Actions terminal result for the new final composition: PENDING / not yet returned by connector;
-- new slice therefore MUST NOT be described as GREEN or READY_FOR_INTEGRATION yet.
-
-Last terminally verified executable Product head remains `1ca5784b3ce00837b40888a26dd1e94d8ce754ed` with exact GREEN run/job `32558628088` / `96996629973` and merge ref `ff2fd2600e38b885a74f60fa1f61cf4956da1995`.
-Previous verified evidence: focused 78/78, full unittest 612/612, full pytest 690 passed + 585 subtests, compile/diff/diagnostic PASS.
+Executable evidence on `85b88d2...` through merge ref `d075bc8...`:
+- diff hygiene PASS;
+- compileall including launcher PASS;
+- focused DEV3 data/Books/Training/Search suite 85/85 PASS;
+- both new literal-search regressions PASS;
+- full unittest 614/614 PASS;
+- full pytest 692 passed + 585 subtests PASS;
+- `python run_accessible_chess.py --diagnostic`: SELFTEST PASS and complete WebView2 user-flow diagnostic PASS;
+- no tests weakened/skipped for GREEN.
 
 SAFE OVERLAP:
 - DEV2 canonical GameTree/domain untouched;
@@ -36,10 +36,9 @@ SAFE OVERLAP:
 - DEV4 QA/security ownership untouched;
 - DEV5 integration target/promotion ownership untouched.
 
-PREVIOUS_DEV3_PACKAGE_READY_FOR_INTEGRATION: YES.
-NEW_LITERAL_SEARCH_P1_READY_FOR_INTEGRATION: NO — CI_PENDING.
+READY_FOR_INTEGRATION: YES for the isolated DEV3 ACSDB/Library/Search/recovery/query-plan + literal-search package, Training revision-bound snapshot + durable CAS persistence slices, and Books durable reading-progress integrity slices.
 OVERALL_FULL_PRODUCT_DEV3: PARTIAL.
-NEXT_ACTION: re-read final branch head and PR #81, collect exact Actions run/job/merge-ref/test counts, fix any failure without weakening tests, then close #81 unmerged if GREEN and continue to the next unclaimed dependency-correct DEV3 P1.
+NEXT_ACTION: fresh ownership check, then another unclaimed dependency-correct ACSDB/Library/Search or presentation-neutral Books/Training/progress backend P1. P2 only when no higher-value P1 remains: Actions currently emit a non-blocking Node20-target deprecation warning while GitHub forces Node24.
 NVDA_VERIFIED: NO
 WINDOWS_CANDIDATE: NONE created by DEV3.
-BLOCKER: no Product blocker known; terminal CI evidence is pending and the local runtime cannot resolve github.com for clone-based verification.
+BLOCKER: none for this isolated slice; integration/release authority remains DEV5/Auditor.
