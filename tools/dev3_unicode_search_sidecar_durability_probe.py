@@ -5,6 +5,10 @@ from __future__ import annotations
 This probe uses only disposable SQLite files. It does not change Product schema.
 It validates the transaction and persistence properties required before a future
 ACSDB schema migration may adopt the sidecar design proven by the 100k benchmark.
+
+Important SQLite/Python boundary: a connection context manager does not itself
+start a transaction before DDL. A future schema migration that must make DDL plus
+backfill atomic therefore needs an explicit BEGIN before CREATE TABLE/backfill.
 """
 
 from pathlib import Path
@@ -111,42 +115,48 @@ def _seed(db: AcsDatabase) -> tuple[int, tuple[int, ...]]:
 
 def _prove_transactional_migration_rollback(db: AcsDatabase) -> None:
     assert not _table_exists(db, _ROLLBACK)
+    assert not db.conn.in_transaction
+
+    db.conn.execute("BEGIN IMMEDIATE")
+    assert db.conn.in_transaction, "future DDL migration must explicitly begin a transaction"
     try:
-        with db.conn:
-            db.conn.execute(
-                f"""CREATE TABLE {_ROLLBACK} (
-                       game_id INTEGER PRIMARY KEY REFERENCES games(id) ON DELETE CASCADE,
-                       white_fold TEXT,
-                       black_fold TEXT,
-                       event_fold TEXT,
-                       eco_fold TEXT,
-                       opening_fold TEXT
-                   )"""
-            )
-            rows = db.conn.execute(
-                "SELECT id, white, black, event, eco, opening FROM games ORDER BY id"
-            ).fetchall()
-            db.conn.executemany(
-                f"""INSERT INTO {_ROLLBACK}(
-                       game_id, white_fold, black_fold, event_fold, eco_fold, opening_fold
-                   ) VALUES(?,?,?,?,?,?)""",
-                [
-                    (
-                        int(row["id"]),
-                        _search_fold(row["white"]),
-                        _search_fold(row["black"]),
-                        _search_fold(row["event"]),
-                        _search_fold(row["eco"]),
-                        _search_fold(row["opening"]),
-                    )
-                    for row in rows
-                ],
-            )
-            raise RuntimeError("intentional migration rollback probe")
+        db.conn.execute(
+            f"""CREATE TABLE {_ROLLBACK} (
+                   game_id INTEGER PRIMARY KEY REFERENCES games(id) ON DELETE CASCADE,
+                   white_fold TEXT,
+                   black_fold TEXT,
+                   event_fold TEXT,
+                   eco_fold TEXT,
+                   opening_fold TEXT
+               )"""
+        )
+        rows = db.conn.execute(
+            "SELECT id, white, black, event, eco, opening FROM games ORDER BY id"
+        ).fetchall()
+        db.conn.executemany(
+            f"""INSERT INTO {_ROLLBACK}(
+                   game_id, white_fold, black_fold, event_fold, eco_fold, opening_fold
+               ) VALUES(?,?,?,?,?,?)""",
+            [
+                (
+                    int(row["id"]),
+                    _search_fold(row["white"]),
+                    _search_fold(row["black"]),
+                    _search_fold(row["event"]),
+                    _search_fold(row["eco"]),
+                    _search_fold(row["opening"]),
+                )
+                for row in rows
+            ],
+        )
+        raise RuntimeError("intentional migration rollback probe")
     except RuntimeError as exc:
+        db.conn.rollback()
         if str(exc) != "intentional migration rollback probe":
             raise
-    assert not _table_exists(db, _ROLLBACK), "DDL/backfill must roll back atomically"
+
+    assert not db.conn.in_transaction
+    assert not _table_exists(db, _ROLLBACK), "explicit DDL/backfill transaction must roll back atomically"
 
 
 def _prove_materialized_payload_isolation(db: AcsDatabase, game_ids: tuple[int, ...]) -> None:
@@ -265,6 +275,7 @@ def main() -> None:
         _prove_reopen_and_fk_cascade(path, committed_id)
 
     print("DEV3 UNICODE SEARCH SIDECAR DURABILITY PROBE PASS")
+    print("MIGRATION_REQUIRES_EXPLICIT_BEGIN=YES")
     print("DDL_BACKFILL_ROLLBACK=ATOMIC")
     print("SIDECAR_REOPEN=PERSISTENT")
     print("SIDECAR_FK_CASCADE=PASS")
