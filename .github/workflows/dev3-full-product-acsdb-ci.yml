@@ -47,6 +47,7 @@ jobs:
         run: >-
           python -m unittest -v
           tests.test_acsdb
+          tests.test_search_service
           tests.test_dev3_acsdb_position_provenance
           tests.test_dev3_acsdb_wal_scalars
           tests.test_dev3_acsdb_backup_recovery
