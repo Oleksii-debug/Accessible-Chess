@@ -48,6 +48,8 @@ jobs:
         run: python -m unittest tests.test_gametree_legality -v
       - name: Focused GameTree result and legality exchange contract
         run: python -m unittest tests.test_gametree_result_contract -v
+      - name: Focused interaction and presentation contracts
+        run: python -m unittest tests.test_interaction_contracts -v
       - name: Focused deterministic remote session domain
         run: python -m unittest tests.test_remote_session -v
       - name: Existing GameTree and identity regressions
