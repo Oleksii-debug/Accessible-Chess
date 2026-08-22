@@ -1,10 +1,11 @@
 # DEV5_CURRENT_STATE
 
-RUN_ID: 20260822-1801
+RUN_ID: 20260822-1844
 ROLE: Coordinator / Integrator / QA / General Fixer
-SNAPSHOT_CUTOFF: 2026-08-22T18:01:06+03:00
+SNAPSHOT_CUTOFF: 2026-08-22T18:44:30+03:00
 ACTIVE_DIRECTIVE: 0020 effective 18:00 Europe/Kyiv
-STATE: OWNERSHIP_SAFE / COORDINATION_ONLY / NO_PRODUCT_MUTATION
+NEXT_DIRECTIVE: 0021 revision 2 effective 19:00 Europe/Kyiv
+STATE: SAFE_OVERLAP_COORDINATION / NO_PRODUCT_MUTATION
 
 ## Technical authority
 - Accepted Stage1: manual5/integration-20260821 @ 0fa442330bc2bb03636ff9297512da4c29e38684.
@@ -18,22 +19,24 @@ STATE: OWNERSHIP_SAFE / COORDINATION_ONLY / NO_PRODUCT_MUTATION
 - Fresh Windows candidate: NO.
 - NVDA_VERIFIED: NO.
 
-## Lane state at cutoff
-- DEV1 terminal/no Product mutation; terminal Product head b873e18fe63e7fe9c01518627d33e4b6cc4f8646.
-- DEV2 terminal/no Product mutation; canonical full-product head 4dd706838881c0e328c7578eada17227de43cf60.
-- DEV3 terminal; verified non-PGN Product head 6f90516a8beefa8c191a8c593aaf3f2e410aa738.
-- DEV4 terminal QA-only; Product unchanged at a4209d005ea0a1476f8eafb4822f4d39ac50ee5a.
+## Cutoff lane state
+- DEV1: COMPLETE_TERMINAL / WAITING_INTEGRATION; Product terminal b873e18fe63e7fe9c01518627d33e4b6cc4f8646; no new mutation.
+- DEV2: COMPLETE; canonical full-product 4dd706838881c0e328c7578eada17227de43cf60; no new mutation.
+- DEV3: canonical Drive handoff IN_PROGRESS / READY_FOR_INTEGRATION=NO for BookReader snapshot bounds at cutoff. This alone requires SAFE OVERLAP for this invocation.
+- DEV4: COMPLETE QA-only; Product unchanged a4209d005ea0a1476f8eafb4822f4d39ac50ee5a.
+- Prior DEV5 coordinator 18:01: COMPLETE; no competing DEV5 writer.
+- replacement DEV-A/DEV-B/DEV-C handoffs: all NOT_STARTED_NEW_3DEV_CHAT.
 
-No touching Product worker was proven IN_PROGRESS before cutoff. Nevertheless, shared PGN/ChessBase/import repair is explicitly DEV4-owned, so DEV5 must not race it.
+## DEV3 post-cutoff technical truth
+PR #95 head 12763acb772e25524d58d58933a8f65b1f3434ea now has exact observable GREEN CI: run 32580759442 / job 97049661061 SUCCESS on merge ref f8c29c8b28fe41c1451621a41f98aa82c6afd342; focused 143/143; unittest 673/673; pytest 751 + 628 subtests; SELFTEST and complete diagnostic PASS. Product is technically GREEN but remains integration-ineligible until canonical DEV3 handoff synchronizes READY_FOR_INTEGRATION=YES. PR #95 coordination comment: 5381249552.
 
 ## Shared-boundary status
-PGN/ChessBase/import remains BLOCKED with THIRTEEN proven Product defect classes. QA exact head 588462042befb0be3f68aca34fee407716a3aed5 has no exact-head Actions, so QA CI is INCONCLUSIVE.
+PGN/ChessBase/import remains BLOCKED with FOURTEEN proven Product defect classes. Latest QA head c9159bfdba3685112b195b7bbc5ae59210ac4b3a has no observable exact-head Actions, so QA CI is INCONCLUSIVE.
 
-New class #13: invalid UTF-8 replacement decoding can allow structurally parseable games to be counted as FULL because lossy-source evidence is not propagated into per-record/aggregate quality semantics. Evidence commit: 96479111bd39a76bf7ebc5c40742f5b2275dcc29. Strict gate: tests/test_dev4_pgn_encoding_quality.py.
+New #14: missing explicit PGN termination marker can be silently synthesized into a result and counted FULL. Strict gate tests/test_dev4_pgn_truncation_quality.py. Existing #13 is invalid-UTF8 replacement decoding that can false-green as FULL. Previous twelve remain unresolved. PR #67 coordination comment 5381250282 raises the terminal Product repair gate to all fourteen.
 
 ## Current decision
-Preserve dd9ebf... as exact-GREEN non-PGN authority. No Product/test churn. Wait for one terminal DEV4 Product repair closing/reconciling all 13 classes with deterministic tests and observable exact-head GREEN CI, then perform selective DEV5 vertical integration.
+Preserve dd9ebf... as exact-GREEN non-PGN authority. No Product/test churn under this cutoff. After a future fresh cutoff: intake DEV3 BookReader bounds only if canonical handoff is terminal GREEN; shared PGN/ChessBase/import remains highest-value integration but must wait for one terminal DEV4 Product repair with exact observable GREEN CI.
 
-NEXT_DIRECTIVE: 0021 effective 19:00 Europe/Kyiv
 READY_FOR_RELEASE=NO
 NVDA_VERIFIED=NO
