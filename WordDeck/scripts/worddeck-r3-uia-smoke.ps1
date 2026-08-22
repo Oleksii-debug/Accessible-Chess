@@ -159,9 +159,11 @@ try {
     Send-Keys 'alt+f4'
     Wait-Gone 'Keyboard shortcuts' 5000
 
-    # Safe dialog smoke: opening and cancelling must not mutate the active card.
-    Open-And-CancelDialog 'ctrl+alt+e' 'Export WordDeck personal progress profile' 'profile export dialog'
-    Open-And-CancelDialog 'ctrl+shift+i' 'Import WordDeck personal progress profile' 'profile import dialog'
+    # Standard profile shortcuts must route through the full-v1 profile service,
+    # not the historical Recall-only profile path. Opening and cancelling must
+    # also leave the current Recall card untouched.
+    Open-And-CancelDialog 'ctrl+alt+e' 'Export complete WordDeck personal progress profile' 'complete profile export dialog'
+    Open-And-CancelDialog 'ctrl+shift+i' 'Import complete WordDeck personal progress profile' 'complete profile import dialog'
 
     # Reset is intentionally unbound, so exercise the real File-menu keyboard path.
     Focus 'Current English word'
@@ -196,7 +198,7 @@ try {
     Send-Keys 'alt+f4'
     Wait-Gone 'WordDeck Sentence Spelling' 7000
 
-    Write-Host 'WordDeck R4 integrated UIA PASS: Recall arrows/true previous, selector focus retention, native menu/text navigation, F1/shortcut settings, profile/reset dialogs, Spelling scope/answer and Sentence keyboard surfaces verified.'
+    Write-Host 'WordDeck R4 integrated UIA PASS: Recall arrows/true previous, selector focus retention, native menu/text navigation, F1/shortcut settings, complete profile/reset dialogs, Spelling scope/answer and Sentence keyboard surfaces verified.'
 }
 finally {
     if ($null -ne $appPid -and $appPid -gt 0) {
