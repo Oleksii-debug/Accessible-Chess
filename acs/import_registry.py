@@ -74,7 +74,7 @@ class BatchInspection:
 def _same_source(left: SourceFingerprint, right: SourceFingerprint) -> bool:
     """Compare source identity without trusting adapter-generated path spelling."""
     return (
-        Path(left.path).resolve() == Path(right.path).resolve()
+        Path(left.path).absolute() == Path(right.path).absolute()
         and left.size == right.size
         and left.sha256 == right.sha256
         and left.suffix.lower() == right.suffix.lower()
@@ -146,16 +146,18 @@ class ImportRegistry:
 
         This is the preferred preflight for multi-file families such as classic
         ChessBase databases. An unknown suffix, missing file, adapter error,
-        source mutation, or provenance mismatch is recorded against that exact
-        source while remaining sources are still inspected. No source is
-        silently skipped and no mutation is accepted as a successful result.
+        source mutation, provenance mismatch, or importer runtime failure is
+        recorded against that exact source while remaining sources are still
+        inspected. No source is silently skipped and no mutation is accepted as
+        a successful result. Process-control exceptions are intentionally not
+        swallowed.
         """
         items: list[BatchInspectionItem] = []
         for raw_path in paths:
             source = Path(raw_path)
             try:
                 report = self.inspect(source)
-            except (ImportRegistryError, OSError, ValueError) as exc:
+            except (ImportRegistryError, OSError, ValueError, RuntimeError) as exc:
                 items.append(BatchInspectionItem(path=source, error=str(exc)))
             else:
                 items.append(BatchInspectionItem(path=source, report=report))

@@ -1,6 +1,8 @@
+import os
 import tempfile
 from pathlib import Path
 import unittest
+from unittest import mock
 
 from acs.gametree import parse_games, serialize_games
 from acs.import_contract import ImportQuality
@@ -61,6 +63,49 @@ class PgnFileServiceTests(unittest.TestCase):
             with self.assertRaises(PgnConcurrentWriteError):
                 save_pgn_atomic(path, opened.games, overwrite=True, expected_sha256=opened.source.sha256)
             self.assertIn("Other editor", path.read_text(encoding="utf-8"))
+
+    def test_expected_hash_preserves_writer_racing_at_replace_boundary(self):
+        games = parse_games('[Event "Original"]\n[Result "*"]\n\n1. e4 *\n')
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "shared.pgn"
+            path.write_text('[Event "Original"]\n[Result "*"]\n\n1. e4 *\n', encoding="utf-8")
+            opened = open_pgn(path)
+            real_replace = os.replace
+
+            def racing_replace(src, dst):
+                Path(dst).write_text(
+                    '[Event "Concurrent writer"]\n[Result "*"]\n\n1. d4 *\n',
+                    encoding="utf-8",
+                )
+                return real_replace(src, dst)
+
+            with mock.patch("acs.pgn_service.os.replace", side_effect=racing_replace):
+                with self.assertRaises(PgnConcurrentWriteError):
+                    save_pgn_atomic(
+                        path,
+                        games,
+                        overwrite=True,
+                        expected_sha256=opened.source.sha256,
+                    )
+            self.assertIn("Concurrent writer", path.read_text(encoding="utf-8"))
+
+    def test_no_overwrite_publication_is_atomic_no_clobber(self):
+        games = parse_games('[Event "Our export"]\n[Result "*"]\n\n1. e4 *\n')
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "new-shared.pgn"
+            real_link = os.link
+
+            def racing_link(src, dst, *args, **kwargs):
+                Path(dst).write_text(
+                    '[Event "Created by another writer"]\n[Result "*"]\n\n1. d4 *\n',
+                    encoding="utf-8",
+                )
+                return real_link(src, dst, *args, **kwargs)
+
+            with mock.patch("acs.pgn_service.os.link", side_effect=racing_link):
+                with self.assertRaises(FileExistsError):
+                    save_pgn_atomic(path, games, overwrite=False)
+            self.assertIn("Created by another writer", path.read_text(encoding="utf-8"))
 
     def test_importer_reports_warning_and_blank_damage(self):
         with tempfile.TemporaryDirectory() as tmp:
