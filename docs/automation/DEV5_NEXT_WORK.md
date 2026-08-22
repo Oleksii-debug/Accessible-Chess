@@ -1,13 +1,16 @@
 # DEV5_NEXT_WORK
 
-NEXT_DIRECTIVE: 0022 revision 1 effective 20:00 Europe/Kyiv.
-INTERVENING_19_WAVE_AUTHORITY: AUDIT-20260822-1900-01.
+UPDATED_FROM_RUN: 20260822-1957
 
-1. At invocation start take a new immutable cutoff and read all canonical lane handoffs/RUN_STATE plus live GitHub branch/SHA/diff/CI.
-2. If any touching worker is IN_PROGRESS before cutoff, stay in SAFE OVERLAP: evidence review, conflict analysis, backlog ordering, integration preparation, directives only.
-3. Preserve `dd9ebf9414103c805892856fe6a04706fa69039f` as exact-GREEN non-PGN authority until a newer selective composition is independently exact-green.
-4. DEV3 intake condition: canonical RUN_STATE + Drive `12_DEV3_HANDOFF_CURRENT` must terminally synchronize the technically GREEN PR #95 evidence and no touching DEV3 run may be active. Select only the intended BookReader/resource-bound delta; never merge PR #95 wholesale.
-5. DEV4 intake condition: terminal Product repair, strict regressions, exact observable GREEN CI, and explicit reconciliation of all 14 locked PGN/ChessBase/import defect classes. Do not steal DEV4 ownership.
-6. Before persistent advancement execute PGN -> canonical GameTree -> ACSDB -> Search/Open vertical gates: malformed input atomicity, bounded resources, encoding/truncation quality, no lost updates, batch continuation, path/error privacy, stable provenance, retry/recovery, non-regular-file rejection, signed-64-bit SQLite boundaries, keyboard/focus/clipboard, Teacher interaction non-mutation, full unittest, full pytest, SELFTEST and complete diagnostic.
-7. Keep Stage1/frozen release line isolated. PR #54 untouched. Old rejected ZIP forbidden.
-8. Windows candidate requires complete exact-machine release chain on final audited SHA. `NVDA_VERIFIED=NO` until Oleksii personally verifies that exact candidate.
+1. Start every run with a fresh immutable cutoff and re-read live branches, PRs, lane handoffs, RUN_STATE and directives. Never coordinate DEV1-DEV4 from evidence created after that run begins.
+2. If any touching Product/integration worker is IN_PROGRESS, remain SAFE OVERLAP: CI/evidence review, conflict analysis, backlog ordering and directives only.
+3. Preserve persistent GREEN authority `full5/dev5-compose-1700-20260822 @ dd9ebf9414103c805892856fe6a04706fa69039f` until a later selective combined candidate is independently green.
+4. DEV1 eligible terminal evidence at this cutoff: `6b3e41f6c7bf0a436d70c9926e3761cc7f99260f`; intake only the incremental classroom/remote presentation delta after overlap clears.
+5. DEV2 eligible canonical terminal head: `371417c2ef43f35da99e6f6ea0bab09e2bae68bb`; PR #104 is validation evidence only. Reconcile remote-session model plus PGN termination semantics without overwriting accepted DEV1 semantics.
+6. DEV3 eligible terminal coordination head: `1dd2e9d69136a801b7943c1ee2a8b4df6d5e44f7`; reconcile BookReader -> GameReview -> AnalysisService bounds lineage selectively, never wholesale-merge validation PRs.
+7. DEV4 is the blocking shared-boundary lane. Do not intake PR #100 while exact-head CI is INCONCLUSIVE or while its stated remaining repairs are open. Require terminal Product evidence closing ACSDB failed-import privacy, PGN export destination/indirection safety, expected_sha256 lost-update race and overwrite=False clobber race, while retaining already repaired classes and DEV2 missing-termination semantics.
+8. When all touching lanes are terminal, create a disposable selective composition from `dd9ebf...`; validate PGN -> GameTree -> ACSDB -> Search/Open plus malformed input atomicity, 64 MiB/resource bounds, invalid UTF-8/truncation quality, special-file/symlink rejection, stable provenance, batch continuation, error/path privacy, CAS/lost-update/clobber prevention, signed-64-bit SQLite bounds, remote-session replay isolation, Teacher pointer/highlight/hover/selection non-mutation, keyboard/focus/clipboard behavior.
+9. Run focused suites, full unittest, full pytest, SELFTEST and complete WebView2 diagnostic. Do not weaken tests.
+10. Only after exact combined GREEN may persistent full5 authority advance. Fresh Windows candidate requires the complete machine release chain on the exact audited SHA. `NVDA_VERIFIED=NO` until Oleksii personally verifies that exact candidate.
+
+Do not merge PR #54 or frozen refs for convenience. Do not reuse the rejected ZIP. Do not force-push shared history.
