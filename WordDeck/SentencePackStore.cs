@@ -74,10 +74,10 @@ internal sealed class SentencePackStore
         string sqliteTemp = ControlledPath(sqliteFileName + ".tmp");
         string manifestPath = ManifestPath(safeId);
         string manifestBackupPath = ManifestBackupPath(safeId);
+        string manifestBackupTempPath = manifestBackupPath + ".tmp";
         string manifestTemp = ControlledPath(safeId + ".installed.json.tmp");
         bool committed = false;
         SentencePackInstallManifest? previousManifest = null;
-        string? previousManifestJson = null;
 
         try
         {
@@ -99,16 +99,13 @@ internal sealed class SentencePackStore
             SqliteConnection.ClearAllPools();
             _testCheckpoint?.Invoke("candidate-validated");
 
-            // Verify and durably preserve the old active pointer before any new generation
-            // can become activatable. If the import fails before manifest commit, this
-            // backup simply names the same last-known-good generation as the active pointer.
+            // Stage the current activation pointer as the rollback candidate, but do not
+            // replace the durable backup until the new manifest has actually committed.
+            // A pre-commit failure therefore cannot destroy the previous rollback point.
             if (TryReadManifest(manifestPath, out previousManifest) && previousManifest is not null)
             {
                 _ = LoadManifestGeneration(previousManifest);
-                previousManifestJson = File.ReadAllText(manifestPath);
-                string backupTemp = manifestBackupPath + ".tmp";
-                File.WriteAllText(backupTemp, previousManifestJson);
-                File.Move(backupTemp, manifestBackupPath, true);
+                File.WriteAllText(manifestBackupTempPath, File.ReadAllText(manifestPath));
                 _testCheckpoint?.Invoke("old-installation-backed-up");
             }
 
@@ -137,11 +134,13 @@ internal sealed class SentencePackStore
             File.WriteAllText(manifestTemp, JsonSerializer.Serialize(manifest, new JsonSerializerOptions { WriteIndented = true }));
             _testCheckpoint?.Invoke("before-manifest-commit");
 
-            // One small atomic pointer change activates the complete generation.
-            // The previous pointer is already durable in the backup before this point,
-            // including across a process interruption immediately after the commit.
+            // One atomic pointer change activates the complete generation. The previous
+            // pointer was already staged in a separate file. If the process is killed in
+            // the tiny interval before backup promotion, startup also recognizes that
+            // staged rollback pointer and can still recover the last-known-good generation.
             File.Move(manifestTemp, manifestPath, true);
             committed = true;
+            PromotePreparedBackup(manifestBackupTempPath, manifestBackupPath);
             _testCheckpoint?.Invoke("manifest-committed");
 
             DeleteIfExists(ControlledPath(safeId + ".json"));
@@ -153,10 +152,18 @@ internal sealed class SentencePackStore
         catch
         {
             SqliteConnection.ClearAllPools();
-            if (!committed)
+            if (committed)
+            {
+                // Managed failures after activation still finish publishing the staged
+                // rollback pointer. A hard process loss leaves the temp pointer for the
+                // startup recovery path below.
+                PromotePreparedBackup(manifestBackupTempPath, manifestBackupPath);
+            }
+            else
             {
                 DeleteIfExists(portablePath);
                 DeleteIfExists(sqlitePath);
+                DeleteIfExists(manifestBackupTempPath);
             }
             throw;
         }
@@ -166,7 +173,7 @@ internal sealed class SentencePackStore
             DeleteIfExists(portableTemp);
             DeleteIfExists(sqliteTemp);
             DeleteIfExists(manifestTemp);
-            DeleteIfExists(manifestBackupPath + ".tmp");
+            if (!committed) DeleteIfExists(manifestBackupTempPath);
         }
     }
 
@@ -180,6 +187,7 @@ internal sealed class SentencePackStore
         {
             string safeId = Path.GetFileName(manifestPath)[..^".installed.json".Length];
             InstalledSentencePack? installed = TryLoadGeneration(ReadManifestOrNull(manifestPath))
+                ?? TryLoadGeneration(ReadManifestOrNull(ManifestBackupTempPath(safeId)))
                 ?? TryLoadGeneration(ReadManifestOrNull(ManifestBackupPath(safeId)));
             if (installed is not null && representedPackIds.Add(installed.PackId)) result.Add(installed);
         }
@@ -240,6 +248,7 @@ internal sealed class SentencePackStore
     {
         string safeId = SafeFileName(packId);
         SentencePackInstallManifest? manifest = ReadManifestOrNull(ManifestPath(safeId))
+            ?? ReadManifestOrNull(ManifestBackupTempPath(safeId))
             ?? ReadManifestOrNull(ManifestBackupPath(safeId))
             ?? throw new InvalidDataException("No committed SentencePack manifest exists for integrity verification.");
         ValidateManifest(manifest);
@@ -307,7 +316,8 @@ internal sealed class SentencePackStore
     private void EnsureNoCaseInsensitiveIdentityCollision(string packId)
     {
         IEnumerable<string> manifestPointers = Directory.EnumerateFiles(DirectoryPath, "*.installed.json", SearchOption.TopDirectoryOnly)
-            .Concat(Directory.EnumerateFiles(DirectoryPath, "*.installed.backup.json", SearchOption.TopDirectoryOnly));
+            .Concat(Directory.EnumerateFiles(DirectoryPath, "*.installed.backup.json", SearchOption.TopDirectoryOnly))
+            .Concat(Directory.EnumerateFiles(DirectoryPath, "*.installed.backup.json.tmp", SearchOption.TopDirectoryOnly));
         foreach (string path in manifestPointers)
         {
             SentencePackInstallManifest? manifest = ReadManifestOrNull(path);
@@ -327,6 +337,7 @@ internal sealed class SentencePackStore
 
     private string ManifestPath(string safeId) => ControlledPath(safeId + ".installed.json");
     private string ManifestBackupPath(string safeId) => ControlledPath(safeId + ".installed.backup.json");
+    private string ManifestBackupTempPath(string safeId) => ManifestBackupPath(safeId) + ".tmp";
     private static bool TryReadManifest(string path, out SentencePackInstallManifest? manifest)
     {
         manifest = ReadManifestOrNull(path);
@@ -338,6 +349,11 @@ internal sealed class SentencePackStore
         catch { return null; }
     }
 
+    private static void PromotePreparedBackup(string preparedPath, string backupPath)
+    {
+        if (File.Exists(preparedPath)) File.Move(preparedPath, backupPath, true);
+    }
+
     private void CleanupOldGenerations(string safeId, SentencePackInstallManifest current, SentencePackInstallManifest? previous)
     {
         var keep = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { current.PortableFileName, current.SqliteFileName };
@@ -346,7 +362,8 @@ internal sealed class SentencePackStore
         {
             string name = Path.GetFileName(path);
             if (keep.Contains(name) || name.EndsWith(".installed.json", StringComparison.OrdinalIgnoreCase) ||
-                name.EndsWith(".installed.backup.json", StringComparison.OrdinalIgnoreCase)) continue;
+                name.EndsWith(".installed.backup.json", StringComparison.OrdinalIgnoreCase) ||
+                name.EndsWith(".installed.backup.json.tmp", StringComparison.OrdinalIgnoreCase)) continue;
             if (name.EndsWith(".json.gz", StringComparison.OrdinalIgnoreCase) || name.EndsWith(".sqlite", StringComparison.OrdinalIgnoreCase)) DeleteIfExists(path);
         }
     }
