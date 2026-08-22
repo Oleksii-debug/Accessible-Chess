@@ -1,37 +1,22 @@
 # Accessible Chess autonomous next-wave directives
 
-DIRECTIVE_VERSION: 0022
+DIRECTIVE_VERSION: 0023
 DIRECTIVE_REVISION: 1
 ISSUED_BY: DEV5 Coordinator/Integrator
-ISSUED_FROM_CUTOFF: 2026-08-22T18:58:35+03:00
-EFFECTIVE_FROM_WAVE: 2026-08-22T20:00:00+03:00
-INTERVENING_AUTHORITY: AUDIT-20260822-1900-01 is authoritative for workers beginning at/after 19:00; DEV5 directive 0021 must not compete with or override that Audit Master directive.
-SNAPSHOT_SEMANTICS: Workers consume only terminal evidence that existed before their own invocation cutoff. If a touching same-lane run is IN_PROGRESS, enter SAFE OVERLAP MODE and do not create competing Product pushes.
+ISSUED_FROM_CUTOFF: 2026-08-22T19:57:32+03:00
+EFFECTIVE_FROM_WAVE: 2026-08-22T21:00:00+03:00
+SNAPSHOT_SEMANTICS: Each worker consumes only terminal evidence that existed before its own invocation cutoff. If touching same-lane/integration work is IN_PROGRESS, enter SAFE OVERLAP and do not create competing Product pushes.
 
-## GLOBAL BASELINE
-Accepted Stage1 remains `manual5/integration-20260821` @ `0fa442330bc2bb03636ff9297512da4c29e38684`. PR #54 and frozen references remain protected. Old rejected release ZIP is forbidden. `NVDA_VERIFIED=NO`; fresh Windows candidate remains NONE.
+GLOBAL: accepted Stage1 remains `manual5/integration-20260821 @ 0fa442330bc2bb03636ff9297512da4c29e38684`. Persistent GREEN DEV5 composition remains `full5/dev5-compose-1700-20260822 @ dd9ebf9414103c805892856fe6a04706fa69039f`, PR #93 DRAFT/DO NOT MERGE, CI `32577600761 / 97042099941` SUCCESS. PR #54/frozen refs protected. Rejected ZIP forbidden. Fresh Windows candidate NONE. `NVDA_VERIFIED=NO`.
 
-Current exact-GREEN DEV5 full-product validation authority remains `full5/dev5-compose-1700-20260822` @ `dd9ebf9414103c805892856fe6a04706fa69039f`, PR #93 DRAFT / DO NOT MERGE. Exact CI run/job `32577600761 / 97042099941` SUCCESS: DEV1 focused 111/111; canonical GameTree/BookDocument 22/22; DEV3 focused 53/53; full unittest 789/789; full pytest 867 + 826 subtests; SELFTEST PASS; complete WebView2 diagnostic PASS. This authority excludes unresolved shared PGN/ChessBase/import repair and Windows release acceptance.
+DEV1: terminal pre-cutoff classroom/remote WebView head is `6b3e41f6c7bf0a436d70c9926e3761cc7f99260f`; exact-source validation is GREEN. Preserve prior shell/Teacher/WebView semantics; take only unowned UI/accessibility work and never duplicate canonical backend state.
 
-## DEV1 — 0022
-Reconcile any stale RUN_STATE against the latest terminal handoff and live branch before mutation. Preserve already accepted presentation/Teacher/WebView behavior represented by the GREEN DEV5 composition. Take only unowned UI/accessibility work under the Audit 19:00 routing. Preserve one ActionRegistry/command path, native edit/clipboard behavior, deterministic focus entry/exit/restore, concise UA/EN semantics, no live-region spam, and one canonical backend state source.
+DEV2: terminal canonical head is `371417c2ef43f35da99e6f6ea0bab09e2bae68bb`. Evidence-only PR #104 is GREEN but must not be merged wholesale. Preserve canonical GameTree, strict snapshot/JSON exchange, PGN termination-loss evidence, deterministic remote-session replay and bounded/corruption-rejecting semantics.
 
-## DEV2 — 0022
-Preserve terminal canonical GameTree/domain work. Re-read live terminal SHA/CI rather than relying on stale DEV5 prose before taking the next canonical P1. No duplicate UI, SQLite adapter, ChessBase, or integration ownership. Maintain exact serialization, atomic restore, corruption rejection, bounded deep structures, and no silent semantic loss.
+DEV3: terminal coordination head is `1dd2e9d69136a801b7943c1ee2a8b4df6d5e44f7` with exact final-head GREEN evidence through PR #103. Reconcile BookReader durable bounds, bounded cancellable GameReview, StudentProgress persistence/search bounds, and direct AnalysisService FEN bounds as one provenance-aware lineage; no parallel chess/UI/import ownership.
 
-## DEV3 — 0022
-The BookReader durable snapshot package on PR #95 is technically GREEN by exact observable CI: head `12763acb772e25524d58d58933a8f65b1f3434ea`, merge/evidence ref `f8c29c8b28fe41c1451621a41f98aa82c6afd342`, run/job `32580759442 / 97049661061` SUCCESS; focused 143/143, full unittest 673/673, full pytest 751 + 628 subtests, SELFTEST and complete diagnostic PASS. However canonical Drive `12_DEV3_HANDOFF_CURRENT` was still IN_PROGRESS / READY_FOR_INTEGRATION=NO at this 18:58:35 cutoff. First synchronize canonical RUN_STATE/handoff to exact terminal evidence and read it back. No DEV5 intake until that synchronization is terminal and no touching DEV3 run is active. Do not merge PR #95 wholesale.
+DEV4: highest shared risk. PR #100 head `41fee6049d045e847a72cc4c6452618e6b52ac83` remains Product-repair WIP and exact-head CI is INCONCLUSIVE. Finish only proven shared-boundary defects. In particular close remaining ACSDB failed-import error privacy, PGN export destination/path-indirection safety, expected_sha256 commit-boundary lost-update race and overwrite=False commit-boundary clobber race. Preserve prior repairs for special-file/symlink rejection, stable provenance snapshots, 64 MiB PGN bounds, invalid-UTF8 quality downgrade, batch continuation, ChessBase path privacy/I/O observability, and DEV2 missing-termination-marker loss evidence. Do not weaken QA.
 
-The Audit Master also records a separate earlier terminal DEV3 backend line through Product SHA `345d68f5d51687797089d5e03b5df6bf3bf719a2`; reconcile lineage/provenance explicitly before any new DEV3 package so older terminal and newer BookReader evidence are not conflated.
+DEV5: take a fresh cutoff. If any touching work is active, SAFE OVERLAP only. Once all required lane handoffs are terminal and DEV4 exact-head Product evidence is GREEN, create a disposable selective composition from `dd9ebf...`; never wholesale-merge evidence PR histories. Run PGN -> canonical GameTree -> ACSDB -> Search/Open plus malformed/oversized/encoding/truncation/concurrency/path/privacy/provenance/recovery/SQLite-bound/remote-session and keyboard/focus/clipboard/Teacher non-mutation gates; then full unittest, full pytest, SELFTEST and complete WebView2 diagnostic. Persistent full5 authority advances only after exact combined GREEN.
 
-## DEV4 — 0022 — HIGHEST SHARED PRODUCT RISK
-DEV4 owns the proven PGN/ChessBase/import Product repair. At cutoff the canonical DEV4 handoff is terminal QA/evidence only, Product unchanged at `a4209d005ea0a1476f8eafb4822f4d39ac50ee5a`, QA head `c9159bfdba3685112b195b7bbc5ae59210ac4b3a`, and exact QA-head Actions remain unobserved/inconclusive. Repair only strictly reproduced defects, on a DEV4 Product branch, with exact focused/full CI. Preserve all 14 locked defect classes currently recorded by DEV5, including invalid-UTF8 quality propagation and missing PGN termination-marker quality/truncation evidence. Do not weaken QA assertions and do not take strict Windows ownership.
-
-## DEV5 — 0022
-Take a fresh immutable cutoff. If DEV1/DEV2/DEV3/DEV4, replacement 3DEV workers, or another DEV5 run is touching the candidate surface and IN_PROGRESS before cutoff, use SAFE OVERLAP only.
-
-Do not advance persistent Product authority from stale reports. First reconcile terminal lane handoffs with live branch/SHA/diff/CI. When DEV3 canonical handoff is synchronized and no touching run is active, selectively validate only the BookReader/resource-bound delta against `dd9ebf...`; never wholesale-merge validation PR history. DEV4 Product repairs enter DEV5 only after terminal exact-green evidence.
-
-Before any persistent full5 advancement run the cross-lane vertical: PGN -> canonical GameTree -> ACSDB -> Search/Open; malformed-input atomicity; bounded resources; invalid-encoding and truncation quality; lost-update/clobber prevention; batch continuation; path/error privacy; provenance stability; retry/recovery; special-file rejection; signed-64-bit SQLite bounds; keyboard/focus/clipboard; Teacher Pointer/highlight/hover/selection non-mutation; full unittest; full pytest; SELFTEST; complete diagnostic.
-
-Fresh Windows candidate may be produced only after the complete machine release chain succeeds on the exact final audited Product SHA. `NVDA_VERIFIED` remains `NO` until Oleksii personally verifies that exact candidate.
+Fresh Windows candidate requires the complete machine release chain on the exact final audited Product SHA. `NVDA_VERIFIED` remains NO until Oleksii personally verifies that exact candidate.
