@@ -12,6 +12,9 @@ from enum import Enum
 from typing import Protocol, Sequence, runtime_checkable
 
 
+ENGINE_MAX_FEN_LENGTH = 512
+
+
 class EngineContractErrorCode(str, Enum):
     INVALID_REQUEST = "invalid_request"
     INVALID_RESULT = "invalid_result"
@@ -93,9 +96,15 @@ class EngineMoveRequest:
     movetime_ms: int | None = None
 
     def __post_init__(self) -> None:
-        if not isinstance(self.fen, str) or not self.fen.strip():
+        if not isinstance(self.fen, str):
             raise EngineContractError(
-                "engine move request FEN must be non-empty text",
+                "engine move request FEN must be bounded non-empty text",
+                code=EngineContractErrorCode.INVALID_REQUEST,
+            )
+        fen = self.fen.strip()
+        if not fen or len(fen) > ENGINE_MAX_FEN_LENGTH:
+            raise EngineContractError(
+                "engine move request FEN must be bounded non-empty text",
                 code=EngineContractErrorCode.INVALID_REQUEST,
             )
         if not isinstance(self.level, int) or isinstance(self.level, bool):
@@ -111,7 +120,7 @@ class EngineMoveRequest:
                 "engine move request movetime_ms must be an integer or None",
                 code=EngineContractErrorCode.INVALID_REQUEST,
             )
-        object.__setattr__(self, "fen", self.fen.strip())
+        object.__setattr__(self, "fen", fen)
 
 
 @dataclass(frozen=True)
