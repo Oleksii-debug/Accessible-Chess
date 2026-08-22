@@ -178,13 +178,13 @@ class EngineGameHandoff:
                 )
             if not isinstance(self.fen, str):
                 raise EngineContractError(
-                    "analyze-current-game handoff requires bounded fen text",
+                    "analyze-current-game handoff requires fen text within bounds",
                     code=EngineContractErrorCode.INVALID_HANDOFF,
                 )
             fen = self.fen.strip()
             if not fen or len(fen) > ENGINE_MAX_FEN_LENGTH:
                 raise EngineContractError(
-                    "analyze-current-game handoff requires bounded fen text",
+                    "analyze-current-game handoff requires fen text within bounds",
                     code=EngineContractErrorCode.INVALID_HANDOFF,
                 )
             object.__setattr__(self, "fen", fen)
