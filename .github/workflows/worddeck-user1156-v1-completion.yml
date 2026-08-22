@@ -1,114 +1,13 @@
-name: WordDeck user-approved 1156 V1 completion
-# Triggered after the complete transport payload and integration runner are present on worddeck-bootstrap.
+name: WordDeck historical archive - completed 1156 integration
 
 on:
-  push:
-    branches: [worddeck-bootstrap]
-    paths:
-      - .github/workflows/worddeck-user1156-v1-completion.yml
   workflow_dispatch:
 
-concurrency:
-  group: worddeck-user1156-v1-completion
-  cancel-in-progress: false
-
 permissions:
-  contents: write
-  actions: write
-  statuses: write
+  contents: read
 
 jobs:
-  integrate-build-audio:
+  archive-marker:
     runs-on: ubuntu-latest
-    timeout-minutes: 360
-    env:
-      GH_TOKEN: ${{ github.token }}
     steps:
-      - name: Checkout exact work branch
-        uses: actions/checkout@v4
-        with:
-          ref: worddeck-bootstrap
-          fetch-depth: 0
-
-      - name: Integrate exact user-approved 1156-row tail
-        id: lexical
-        shell: bash
-        run: |
-          set -euo pipefail
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          python WordDeck/tools/integrate_user_translations_1156.py
-          git add -A -- WordDeck/ReviewedOxford5000Bootstrap.cs WordDeck/WordDeck.csproj WordDeck/Audio/generation-request.json WordDeck/QA WordDeck/tools/user1156_payload.part01 WordDeck/tools/user1156_payload.part02 WordDeck/tools/user1156_payload.part03 WordDeck/tools/user1156_payload.part04 WordDeck/tools/user1156_payload.part05 WordDeck/tools/user1156_payload.part06 WordDeck/tools/user1156_payload.part07 WordDeck/tools/user1156_payload.part08
-          git diff --cached --check
-          git commit -m 'WordDeck: integrate complete user-approved Oxford 5000 tail'
-          git push origin HEAD:worddeck-bootstrap
-          sha="$(git rev-parse HEAD)"
-          echo "sha=$sha" >> "$GITHUB_OUTPUT"
-          echo "FINAL_LEXICAL_SHA=$sha" >> "$GITHUB_ENV"
-
-      - name: Run one authoritative Windows release gate on completed lexical corpus
-        id: windows
-        shell: bash
-        run: |
-          set -euo pipefail
-          sha='${{ steps.lexical.outputs.sha }}'
-          gh workflow run worddeck-windows.yml --repo "$GITHUB_REPOSITORY" --ref worddeck-bootstrap
-          run_id=''
-          for _ in $(seq 1 180); do
-            row="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow worddeck-windows.yml --branch worddeck-bootstrap --event workflow_dispatch --limit 50 --json databaseId,headSha,status,conclusion | jq -r --arg sha "$sha" '.[] | select(.headSha==$sha) | [.databaseId,.status,(.conclusion//"")] | @tsv' | head -n1)"
-            if [ -n "$row" ]; then run_id="$(printf '%s' "$row" | cut -f1)"; break; fi
-            sleep 5
-          done
-          test -n "$run_id"
-          echo "windows_run_id=$run_id" >> "$GITHUB_OUTPUT"
-          for _ in $(seq 1 240); do
-            json="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id")"
-            status="$(jq -r .status <<<"$json")"; conclusion="$(jq -r '.conclusion//""' <<<"$json")"
-            test "$(jq -r .head_sha <<<"$json")" = "$sha"
-            if [ "$status" = completed ]; then test "$conclusion" = success; break; fi
-            sleep 10
-          done
-          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id" --jq .conclusion)" = success
-          count="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id/artifacts?per_page=100" --jq '[.artifacts[]|select(.expired==false)]|length')"
-          test "$count" -ge 8
-
-      - name: Generate complete British offline AudioPack and Windows package
-        id: audio
-        shell: bash
-        run: |
-          set -euo pipefail
-          sha='${{ steps.lexical.outputs.sha }}'
-          gh workflow run worddeck-audio.yml --repo "$GITHUB_REPOSITORY" --ref worddeck-bootstrap
-          run_id=''
-          for _ in $(seq 1 180); do
-            row="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow worddeck-audio.yml --branch worddeck-bootstrap --event workflow_dispatch --limit 50 --json databaseId,headSha,status,conclusion | jq -r --arg sha "$sha" '.[] | select(.headSha==$sha) | [.databaseId,.status,(.conclusion//"")] | @tsv' | head -n1)"
-            if [ -n "$row" ]; then run_id="$(printf '%s' "$row" | cut -f1)"; break; fi
-            sleep 5
-          done
-          test -n "$run_id"
-          echo "audio_run_id=$run_id" >> "$GITHUB_OUTPUT"
-          for _ in $(seq 1 1800); do
-            json="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id")"
-            status="$(jq -r .status <<<"$json")"; conclusion="$(jq -r '.conclusion//""' <<<"$json")"
-            test "$(jq -r .head_sha <<<"$json")" = "$sha"
-            if [ "$status" = completed ]; then test "$conclusion" = success; break; fi
-            sleep 10
-          done
-          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id" --jq .conclusion)" = success
-          names="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id/artifacts?per_page=100" --jq '.artifacts[]|select(.expired==false)|.name')"
-          grep -Fx 'worddeck-oxford5000-en-gb-0-0' <<<"$names"
-          grep -Fx 'WordDeck-win-x64-with-oxford5000-audio' <<<"$names"
-
-      - name: Publish exact completion status
-        if: success()
-        uses: actions/github-script@v7
-        with:
-          github-token: ${{ github.token }}
-          script: |
-            const sha = process.env.FINAL_LEXICAL_SHA;
-            await github.rest.repos.createCommitStatus({
-              owner: context.repo.owner, repo: context.repo.repo, sha,
-              state: 'success', context: 'WordDeck first usable V1 completion',
-              description: 'User 1156 reconciled; Oxford5000 2138/2138; Windows + British offline AudioPack completed.',
-              target_url: `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`
-            });
+      - run: echo "The user-approved 1156-row Oxford 5000 integration is already accepted and complete. This historical workflow is intentionally read-only; original integration logic remains in Git history."
