@@ -83,10 +83,12 @@ internal sealed class SentencePackStore
         {
             SentencePackIo.WriteGZip(portableTemp, pack);
             _testCheckpoint?.Invoke("portable-staged");
+            _testCheckpoint?.Invoke("before-sqlite-build");
             SentencePackSqlitePrototype.Build(sqliteTemp, pack);
             SentencePackDerivativeIdentity.Stamp(sqliteTemp, pack, portableTemp);
             SqliteConnection.ClearAllPools();
             _testCheckpoint?.Invoke("sqlite-built");
+            _testCheckpoint?.Invoke("before-candidate-validation");
 
             SentencePack stagedPortable = SentencePackIo.Read(portableTemp);
             SentencePackLicenseValidator.ValidateForInstallation(stagedPortable);
@@ -97,10 +99,25 @@ internal sealed class SentencePackStore
             SqliteConnection.ClearAllPools();
             _testCheckpoint?.Invoke("candidate-validated");
 
+            // Verify and durably preserve the old active pointer before any new generation
+            // can become activatable. If the import fails before manifest commit, this
+            // backup simply names the same last-known-good generation as the active pointer.
+            if (TryReadManifest(manifestPath, out previousManifest) && previousManifest is not null)
+            {
+                _ = LoadManifestGeneration(previousManifest);
+                previousManifestJson = File.ReadAllText(manifestPath);
+                string backupTemp = manifestBackupPath + ".tmp";
+                File.WriteAllText(backupTemp, previousManifestJson);
+                File.Move(backupTemp, manifestBackupPath, true);
+                _testCheckpoint?.Invoke("old-installation-backed-up");
+            }
+
             File.Move(portableTemp, portablePath, false);
             _testCheckpoint?.Invoke("portable-generation-installed");
+            _testCheckpoint?.Invoke("portable-installed");
             File.Move(sqliteTemp, sqlitePath, false);
             _testCheckpoint?.Invoke("sqlite-generation-installed");
+            _testCheckpoint?.Invoke("sqlite-installed");
 
             var manifest = new SentencePackInstallManifest
             {
@@ -118,27 +135,14 @@ internal sealed class SentencePackStore
             };
             ValidateManifest(manifest);
             File.WriteAllText(manifestTemp, JsonSerializer.Serialize(manifest, new JsonSerializerOptions { WriteIndented = true }));
-
-            // Verify the old active generation before touching the activation pointer.
-            // The backup itself is updated only AFTER the new manifest commits.
-            if (TryReadManifest(manifestPath, out previousManifest) && previousManifest is not null)
-            {
-                _ = LoadManifestGeneration(previousManifest);
-                previousManifestJson = File.ReadAllText(manifestPath);
-            }
             _testCheckpoint?.Invoke("before-manifest-commit");
 
             // One small atomic pointer change activates the complete generation.
+            // The previous pointer is already durable in the backup before this point,
+            // including across a process interruption immediately after the commit.
             File.Move(manifestTemp, manifestPath, true);
             committed = true;
             _testCheckpoint?.Invoke("manifest-committed");
-
-            if (previousManifest is not null && previousManifestJson is not null)
-            {
-                string backupTemp = manifestBackupPath + ".tmp";
-                File.WriteAllText(backupTemp, previousManifestJson);
-                File.Move(backupTemp, manifestBackupPath, true);
-            }
 
             DeleteIfExists(ControlledPath(safeId + ".json"));
             DeleteIfExists(ControlledPath(safeId + ".json.gz"));
