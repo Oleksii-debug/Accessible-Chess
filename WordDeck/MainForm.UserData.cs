@@ -128,15 +128,17 @@ internal sealed partial class MainForm
         {
             Title = "Export WordDeck personal progress profile",
             Filter = "WordDeck personal profile (*.json)|*.json",
-            FileName = "WordDeck-profile-v1.json",
+            FileName = "WordDeck-profile-v3-full.json",
             AddExtension = true,
             DefaultExt = "json"
         };
         if (dialog.ShowDialog(this) != DialogResult.OK) { FocusCurrentWord(); return; }
         try
         {
-            _store.ExportProfile(_state, dialog.FileName);
-            AnnounceStatus($"Personal WordDeck profile exported to {dialog.FileName}. It contains study state only, not the canonical dictionary or audio files.");
+            SpellingStateSession spelling = TrainingStateContinuityGuard.LoadSpelling();
+            SentenceStateSession sentence = TrainingStateContinuityGuard.LoadSentence();
+            new FullV1ProfileService().Export(_state, spelling.State, sentence.State, dialog.FileName);
+            AnnounceStatus($"Full personal WordDeck profile exported to {dialog.FileName}. It contains Recall, Spelling and Sentence learning state only, not canonical dictionary, audio or SentencePack content.");
         }
         catch (Exception ex)
         {
@@ -156,11 +158,26 @@ internal sealed partial class MainForm
         try
         {
             SaveState();
+            SpellingStateSession spelling = TrainingStateContinuityGuard.LoadSpelling();
+            SentenceStateSession sentence = TrainingStateContinuityGuard.LoadSentence();
             var knownEntries = _packages.Values.SelectMany(package => package.Entries.Select(entry => entry.Id))
                 .Concat(_state.CustomEntriesByDictionary.Values.SelectMany(list => list.Select(entry => entry.Id)))
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToArray();
-            ProfileImportResult result = _store.ImportProfile(dialog.FileName, _state, knownEntries, _packages.Keys);
+            string[] knownPacks = new SentencePackStore().LoadInstalled()
+                .Select(item => item.PackId)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+
+            FullV1ProfileImportResult result = new FullV1ProfileService().Import(
+                dialog.FileName,
+                _state,
+                spelling.State,
+                sentence.State,
+                knownEntries,
+                _packages.Keys,
+                knownPacks);
+
             _navigationHistory.Clear();
             _autoPronunciationMenuItem.Checked = _state.AutoPlayPronunciationOnCardChange;
             DictionaryPackage selected = _state.ActiveDictionaryId is not null && _packages.TryGetValue(_state.ActiveDictionaryId, out DictionaryPackage? package)
@@ -171,12 +188,15 @@ internal sealed partial class MainForm
             string quarantine = result.QuarantinedIds.Count == 0
                 ? "No unknown stable IDs were found."
                 : $"{result.QuarantinedIds.Count} unknown IDs were preserved in quarantine for future migration.";
-            AnnounceStatus($"Personal profile imported successfully. A pre-import recovery profile was saved at {result.BackupPath}. {quarantine}");
+            string mode = result.LegacyRecallOnlyProfile
+                ? "The imported file was a legacy Recall-only profile; existing Spelling and Sentence state was preserved."
+                : "Recall, Spelling and Sentence state were imported as one protected profile transaction.";
+            AnnounceStatus($"Personal profile imported successfully. Recovery data: {result.RecoveryBundlePath}. {mode} {quarantine}");
         }
         catch (Exception ex)
         {
             MessageBox.Show(this, ex.Message, "Profile import failed", MessageBoxButtons.OK, MessageBoxIcon.Error);
-            AnnounceStatus("Profile import failed. Existing personal state was not replaced.");
+            AnnounceStatus("Profile import failed. Existing Recall, Spelling and Sentence personal state was not intentionally replaced.");
         }
         FocusCurrentWord();
     }
