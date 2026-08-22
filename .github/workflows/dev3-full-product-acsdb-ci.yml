@@ -9,6 +9,7 @@ on:
       - auto/dev3-search-resource-bounds-20260822
       - auto/dev3-bookreader-snapshot-bounds-20260822
       - auto/dev3-batch-game-review-20260822
+      - auto/dev3-analysis-request-bounds-20260822
   pull_request:
     branches:
       - codex/full-product-20260821
@@ -17,6 +18,8 @@ on:
       - auto/dev3-search-resource-bounds-20260822
       - auto/dev3-student-progress-resource-bounds-20260822
       - auto/dev3-bookreader-snapshot-bounds-20260822
+      - auto/dev3-batch-game-review-20260822
+      - auto/dev3-analysis-request-bounds-ci-base-20260822
 
 permissions:
   contents: read
@@ -69,6 +72,8 @@ jobs:
           tests.test_dev3_training_snapshot_contract
           tests.test_dev3_training_progress_store
           tests.test_dev3_engine_assisted_workflows
+          tests.test_analysis_service
+          tests.test_dev3_analysis_request_bounds
           tests.test_dev3_game_review_service
           tests.test_dev3_student_progress
           tests.test_dev3_student_progress_store
