@@ -42,6 +42,10 @@ _LABELS = {
         "variation_promote": "Підняти варіант",
         "copy": "Копіювати вибране",
         "export": "Експортувати вибране",
+        "comment_title": "Коментар PGN",
+        "comment_label": "Текст коментаря",
+        "save": "Зберегти",
+        "cancel": "Скасувати",
         "multiple_comments": "На цьому вузлі кілька коментарів. Редагування вимкнено, доки канонічний API не надасть однозначний вибір коментаря.",
         "local_path": "[локальний шлях приховано]",
     },
@@ -62,6 +66,10 @@ _LABELS = {
         "variation_promote": "Promote variation",
         "copy": "Copy selection",
         "export": "Export selection",
+        "comment_title": "PGN comment",
+        "comment_label": "Comment text",
+        "save": "Save",
+        "cancel": "Cancel",
         "multiple_comments": "This node has multiple comments. Editing is disabled until the canonical API exposes an unambiguous comment selection.",
         "local_path": "[local path hidden]",
     },
@@ -173,6 +181,18 @@ class PgnWebViewProjection:
             "has_parent": item.parent_id is not None,
         }
 
+    def _comment_editor(self, *, enabled: bool, value: str, message: str) -> dict[str, object]:
+        labels = _LABELS[self._language]
+        return {
+            "enabled": enabled,
+            "value": value,
+            "message": message,
+            "title": labels["comment_title"],
+            "label": labels["comment_label"],
+            "save_label": labels["save"],
+            "cancel_label": labels["cancel"],
+        }
+
     def _safe_view(self, view: PgnGameView, count: int) -> dict[str, object]:
         labels = _LABELS[self._language]
         if view.game_index < 0:
@@ -183,7 +203,7 @@ class PgnWebViewProjection:
                 "tree": (),
                 "focus_target": "",
                 "actions": (),
-                "comment_editor": {"enabled": False, "value": "", "message": ""},
+                "comment_editor": self._comment_editor(enabled=False, value="", message=""),
             }
 
         tree = tuple(self._tree_item(item) for item in view.items)
@@ -241,15 +261,15 @@ class PgnWebViewProjection:
                 {"action": "pgn.copy_selection", "label": labels["copy"], "enabled": has_selection},
                 {"action": "pgn.export_selection", "label": labels["export"], "enabled": has_selection},
             ),
-            "comment_editor": {
-                "enabled": has_selection and not ambiguous_comments,
-                "value": _bounded_text(
+            "comment_editor": self._comment_editor(
+                enabled=has_selection and not ambiguous_comments,
+                value=_bounded_text(
                     selected_comments[0] if single_comment else "",
                     language=self._language,
                     limit=8000,
                 ),
-                "message": labels["multiple_comments"] if ambiguous_comments else "",
-            },
+                message=labels["multiple_comments"] if ambiguous_comments else "",
+            ),
         }
 
     def snapshot(self) -> dict[str, object]:
@@ -266,8 +286,6 @@ class PgnWebViewProjection:
             {
                 "snapshot": snapshot,
                 "focus_target": snapshot.get("focus_target", ""),
-                # Tree focus itself provides the navigation speech. Only explicit
-                # action outcomes should use the host announcement channel.
                 "announcement": announce,
             },
         )
@@ -312,8 +330,6 @@ class PgnWebViewProjection:
         elif action_id in {"pgn.variation_delete", "pgn.variation_promote"}:
             if selected.kind != "variation":
                 raise ValueError("PGN variation action requires variation selection")
-        # The backend owns mutation, clipboard and export side effects. Never pass
-        # arbitrary backend return values through this browser presentation seam.
         self._presenter.dispatch_edit(action_id, self._dispatch, extra=extra)
         return PgnWebViewEvent("delegated", {"action": action_id})
 
