@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from threading import Condition, Thread, current_thread
 from typing import Callable
 
-from .analysis_service import AnalysisResult, AnalysisService
+from .analysis_service import ANALYSIS_MAX_FEN_LENGTH, AnalysisResult, AnalysisService
 from .engine_ports import EngineContractError, EngineContractErrorCode
 
 
@@ -31,10 +31,12 @@ class ContinuousAnalysisState:
                 code=EngineContractErrorCode.INVALID_SESSION,
             )
         if self.fen is not None and (
-            not isinstance(self.fen, str) or not self.fen.strip()
+            not isinstance(self.fen, str)
+            or not self.fen.strip()
+            or len(self.fen.strip()) > ANALYSIS_MAX_FEN_LENGTH
         ):
             raise EngineContractError(
-                "continuous-analysis FEN must be non-empty text or None",
+                "continuous-analysis FEN must be bounded non-empty text or None",
                 code=EngineContractErrorCode.INVALID_SESSION,
             )
         if self.running and self.fen is None:
@@ -126,12 +128,18 @@ class ContinuousAnalysisService:
 
     @staticmethod
     def _normalize_fen(fen: str) -> str:
-        if not isinstance(fen, str) or not fen.strip():
+        if not isinstance(fen, str):
             raise EngineContractError(
-                "continuous-analysis FEN must be non-empty text",
+                "continuous-analysis FEN must be bounded non-empty text",
                 code=EngineContractErrorCode.INVALID_REQUEST,
             )
-        return fen.strip()
+        normalized = fen.strip()
+        if not normalized or len(normalized) > ANALYSIS_MAX_FEN_LENGTH:
+            raise EngineContractError(
+                "continuous-analysis FEN must be bounded non-empty text",
+                code=EngineContractErrorCode.INVALID_REQUEST,
+            )
+        return normalized
 
     def state(self) -> ContinuousAnalysisState:
         with self._condition:
