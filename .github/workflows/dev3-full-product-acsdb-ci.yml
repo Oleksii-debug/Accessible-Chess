@@ -52,6 +52,7 @@ jobs:
           tests.test_dev3_acsdb_query_plan
           tests.test_bookreader
           tests.test_dev3_bookreader_progress_contract
+          tests.test_dev3_bookreader_ambiguous_persistence
           tests.test_dev3_training_snapshot_contract
 
       - name: Full unittest discovery
