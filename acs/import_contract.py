@@ -13,6 +13,8 @@ from enum import Enum
 from pathlib import Path
 from typing import Iterable, Protocol
 import hashlib
+import os
+import stat
 
 
 class ImportQuality(str, Enum):
@@ -73,21 +75,96 @@ class ReadOnlyImporter(Protocol):
         ...
 
 
+def _is_reparse_point(st: os.stat_result) -> bool:
+    attrs = getattr(st, "st_file_attributes", 0)
+    marker = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+    return bool(attrs & marker)
+
+
+def _lexical_absolute(path: Path) -> Path:
+    return Path(os.path.abspath(os.fspath(path.expanduser())))
+
+
+def _validate_source_path(path: Path) -> tuple[Path, os.stat_result]:
+    """Reject filesystem indirection and non-regular external sources.
+
+    Validation is intentionally lexical: it must not call ``resolve()`` before
+    deciding whether any path component is a symlink/reparse point.
+    """
+
+    absolute = _lexical_absolute(path)
+    parts = absolute.parts
+    if not parts:
+        raise ValueError("Import source path is empty")
+
+    current = Path(parts[0])
+    for part in parts[1:]:
+        current = current / part
+        try:
+            st = current.lstat()
+        except FileNotFoundError:
+            if current == absolute:
+                raise
+            continue
+        if stat.S_ISLNK(st.st_mode) or _is_reparse_point(st):
+            raise ValueError("Import source must not traverse filesystem indirection")
+
+    leaf = absolute.lstat()
+    if stat.S_ISLNK(leaf.st_mode) or _is_reparse_point(leaf):
+        raise ValueError("Import source must not be a symlink or reparse point")
+    if not stat.S_ISREG(leaf.st_mode):
+        raise ValueError("Import source must be a regular file")
+    return absolute, leaf
+
+
 def fingerprint(path: str | Path, chunk_size: int = 1024 * 1024) -> SourceFingerprint:
-    p = Path(path)
+    if chunk_size <= 0:
+        raise ValueError("chunk_size must be positive")
+
+    submitted = Path(path)
+    absolute, path_before = _validate_source_path(submitted)
     digest = hashlib.sha256()
-    with p.open("rb") as handle:
+    flags = os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0)
+    fd = os.open(os.fspath(absolute), flags)
+    try:
+        fd_before = os.fstat(fd)
+        if not stat.S_ISREG(fd_before.st_mode):
+            raise ValueError("Import source must be a regular file")
+        if (fd_before.st_dev, fd_before.st_ino) != (path_before.st_dev, path_before.st_ino):
+            raise ValueError("Import source changed before it could be opened safely")
+
         while True:
-            chunk = handle.read(chunk_size)
+            chunk = os.read(fd, chunk_size)
             if not chunk:
                 break
             digest.update(chunk)
-    stat = p.stat()
+        fd_after = os.fstat(fd)
+    finally:
+        os.close(fd)
+
+    path_after = absolute.lstat()
+    stable_fd = (
+        fd_before.st_dev == fd_after.st_dev
+        and fd_before.st_ino == fd_after.st_ino
+        and fd_before.st_size == fd_after.st_size
+        and fd_before.st_mtime_ns == fd_after.st_mtime_ns
+    )
+    stable_path = (
+        path_before.st_dev == path_after.st_dev
+        and path_before.st_ino == path_after.st_ino
+        and path_before.st_size == path_after.st_size
+        and path_before.st_mtime_ns == path_after.st_mtime_ns
+        and not stat.S_ISLNK(path_after.st_mode)
+        and not _is_reparse_point(path_after)
+    )
+    if not stable_fd or not stable_path:
+        raise ValueError("Import source changed while fingerprinting")
+
     return SourceFingerprint(
-        path=str(p.resolve()),
-        size=stat.st_size,
+        path=str(absolute),
+        size=fd_after.st_size,
         sha256=digest.hexdigest(),
-        suffix=p.suffix.lower(),
+        suffix=submitted.suffix.lower(),
     )
 
 
@@ -100,7 +177,7 @@ class UnsupportedChessBaseImporter:
     """Safety placeholder until a verified decoder exists.
 
     It recognizes ChessBase-family suffixes but intentionally refuses to claim
-    successful decoding.  This prevents future UI code from treating an
+    successful decoding. This prevents future UI code from treating an
     unimplemented or heuristic parser as full compatibility.
     """
 
