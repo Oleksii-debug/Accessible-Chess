@@ -1,6 +1,6 @@
 # DEV4 SESSION HANDOFF
 
-SESSION: 20260822-0657 Full Product QA/security
+SESSION: 20260822-0802 Full Product QA/security
 STATUS: COMPLETE / SAFE OVERLAP
 
 ## Exact branches and SHAs
@@ -9,8 +9,8 @@ STATUS: COMPLETE / SAFE OVERLAP
 - Manual5 integration: `manual5/integration-20260821` @ `0fa442330bc2bb03636ff9297512da4c29e38684`.
 - DEV5 reconciliation draft PR #66: `manual5/dev5-reconcile-dev4-20260822` @ `abff45ebcc4b5af2a85ab0c456b025b5098c6e29`, OPEN/DRAFT.
 - DEV4 QA evidence branch: `qa/dev4-chessbase-symlink-security-20260822`.
-- New QA evidence commit: `bb15c7f564114a09599600d0bbe99edd5bbd9f27` — `test(qa): lock PGN export failure recovery`.
-- QA draft PR #67 remains OPEN/DRAFT. Metadata/doc commits after the evidence commit advance the branch; use live PR #67 head as the final exact QA branch SHA.
+- New QA evidence commit: `7b97c1e46e52c1691b59c24949a76656be1b2a33` — `test(qa): lock Stockfish error path privacy`.
+- QA draft PR #67 remains OPEN/DRAFT/MERGEABLE. Metadata commits after the evidence commit advance the branch; use live PR #67 head as the final exact QA SHA.
 
 ## Live CI / evidence discipline
 
@@ -18,17 +18,15 @@ Manual5 integration exact SHA `0fa442330bc2bb03636ff9297512da4c29e38684` retains
 - UI Semantic Gate `32532577650`.
 - Stage1 Saturation Hardening `32532577641`.
 
-QA branch exact-head CI must be re-read after the metadata commits. Absence of commit-associated Actions is INCONCLUSIVE, never inferred GREEN. Existing integration/DEV5 GREEN does not validate QA-only external-format assertions.
+Exact workflow runs for evidence commit `7b97c1e46e52c1691b59c24949a76656be1b2a33`: none observed. QA CI therefore remains INCONCLUSIVE, never inferred GREEN. Existing integration/DEV5 GREEN does not validate QA-only external-format/privacy assertions.
 
-## New QA evidence — PGN export recovery
+## New QA evidence — Stockfish/UCI path privacy
 
-`tests/test_dev4_pgn_export_failure_recovery.py` adds non-conflicting failure-path regression coverage around the existing `save_pgn_atomic()` implementation:
+Low-level `UCIEngine`/`StockfishRuntime` exception text can legitimately contain filesystem/executable details for internal diagnostics. Release-facing APIs must not expose those details to screen-reader/WebView output.
 
-1. if `os.replace()` raises, the pre-existing destination must remain byte-for-byte intact and the generated temp file must be removed;
-2. if temp-file `os.fsync()` raises, the pre-existing destination must remain intact and the incomplete temp file must be removed;
-3. on POSIX, the temp PGN must not be group/world-readable before atomic replacement. Windows ACL semantics are not represented by this mode-bit assertion and are not falsely claimed.
+`tests/test_dev4_engine_error_path_privacy.py` injects a provider failure containing synthetic private path `C:\\Users\\qa-user\\secret-build\\stockfish.exe` during engine-game startup and asserts the release response omits both the full path and private path components while retaining a concise Stockfish-facing error.
 
-Product source is intentionally unchanged. This run does not promote a new Product defect from these paths; it adds positive recovery/non-regression evidence while preserving the six already-proven defect classes.
+Source inspection of `Stage1ReleaseAccessibleChessAPI.start_engine_game()` and `_request_engine_reply()` confirms provider exceptions are caught and replaced with concise localized messages rather than `str(exc)`. This is positive privacy/non-regression evidence, not a new Product defect.
 
 ## Locked PROVEN_PRODUCT_DEFECT findings
 
@@ -41,9 +39,11 @@ Product source is intentionally unchanged. This run does not promote a new Produ
 
 ## Additional classifications
 
+- QA EVIDENCE: PGN export failure-recovery assertions preserve existing destination/temp cleanup and POSIX temp privacy.
+- QA EVIDENCE: Stockfish provider path-bearing exceptions are sanitized at the release API boundary.
 - INCONCLUSIVE: exact QA-head CI until checks are observed.
-- INCONCLUSIVE: parent-directory durability across crash/power loss; file `fsync` alone is not treated as proof of directory-entry durability.
-- INCONCLUSIVE: generic `SourceFingerprint.path`, `BatchInspectionItem.path/error` and PGN exception path strings reaching actual UI/persistence/report sinks beyond already-proven ChessBase DTO leakage.
+- INCONCLUSIVE: PGN parent-directory durability across crash/power loss.
+- INCONCLUSIVE: generic `SourceFingerprint.path`, `BatchInspectionItem.path/error` and PGN exception strings reaching real UI/persistence/report sinks beyond already-proven ChessBase DTO leakage.
 - HUMAN_ONLY: exact fresh Windows native-menu/NVDA usability. `NVDA_VERIFIED=NO`.
 
 ## Preserved findings / boundaries
@@ -57,4 +57,4 @@ Product source is intentionally unchanged. This run does not promote a new Produ
 
 ## Next action
 
-Recheck live PR #67 exact head and Actions. Continue generic import size/encoding/cancellation limits and end-to-end path/error exposure tracing; keep PGN directory durability conservative unless reproducible evidence establishes a contract violation. Continue ChessBase unknown-version/resource-boundary evidence without inventing proprietary semantics. Re-enter Stage1 package work only through DEV5/Audit-authorized reconciliation.
+Recheck live PR #67 exact head and Actions after metadata commits. Continue generic import size/encoding/cancellation/resource-limit evidence and direct path/error sink tracing. Extend engine/UCI privacy guards only where a real user-facing surface is involved. Continue ChessBase unknown-version/resource-boundary evidence without inventing proprietary semantics. Re-enter Stage1 package work only through DEV5/Audit-authorized reconciliation.
