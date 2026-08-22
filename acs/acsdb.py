@@ -22,6 +22,18 @@ IMPORT_ATTEMPT_STATUSES = {"pending", "full", "warning", "damaged", "failed"}
 ACSDB_SCHEMA_VERSION = 2
 
 
+def _public_import_error(exc: BaseException) -> str:
+    """Return persisted import-failure evidence without private exception internals.
+
+    Parser/provider exceptions can contain local paths, credentials, engine
+    command lines, or other workstation diagnostics. Import history is an
+    application-facing persisted surface, so it records the failure class while
+    keeping the raw exception available only to the active caller via re-raise.
+    """
+
+    return f"{type(exc).__name__}: import failed"
+
+
 @dataclass(slots=True)
 class ImportReport:
     source_id: int
@@ -246,7 +258,7 @@ class AcsDatabase:
                 self._finish_import_attempt(
                     attempt_id,
                     status="failed",
-                    error_message=f"{type(exc).__name__}: {exc}",
+                    error_message=_public_import_error(exc),
                 )
             raise
 
