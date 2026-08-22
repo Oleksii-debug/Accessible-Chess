@@ -1,7 +1,7 @@
 """Accessible full-product navigation/focus model for the Windows WebView2 shell.
 
-This module deliberately contains presentation state only.  It does not own chess
-rules, GameTree, database, engine, import, or packaging behavior.  UI adapters
+This module deliberately contains presentation state only. It does not own chess
+rules, GameTree, database, engine, import, or packaging behavior. UI adapters
 bind the stable route/action identifiers here to the central application command
 registry owned by the product runtime.
 """
@@ -49,24 +49,41 @@ ROUTES: tuple[ModuleRoute, ...] = (
 
 _ROUTE_INDEX = {route.route_id: route for route in ROUTES}
 _INTERNAL_ERROR_PATTERN = re.compile(
-    r"(?:Traceback|File\s+\".*?\"|[A-Za-z]:\\|/[^\s]+\.py\b|sqlite|UCI\s+error|HRESULT)",
+    r'(?:Traceback|File\s+".*?"|[A-Za-z]:\\|/[^\s]+\.py\b|sqlite|UCI\s+error|HRESULT|'
+    r'OperationalError|PermissionError|WinError\s*\d+)',
     re.IGNORECASE,
 )
 
 
-class AccessibleShellState:
-    """Deterministic presentation-only route and focus state.
+@dataclass(frozen=True, slots=True)
+class DialogFocusFrame:
+    dialog_id: str
+    opener_focus_id: str
+    initial_focus_id: str
 
-    Focus is restored per route.  The shell never invents module hotkeys; callers
-    dispatch ``open_action_id`` through the central application action registry.
+
+class AccessibleShellState:
+    """Deterministic presentation-only route, dialog and focus state.
+
+    Focus is restored per route. Nested dialogs restore to their exact opener.
+    The shell never invents module hotkeys; callers dispatch ``open_action_id``
+    through the central application action registry.
     """
 
-    def __init__(self, *, language: UILanguage = UILanguage.UA, initial_route: str = "board") -> None:
+    def __init__(
+        self,
+        *,
+        language: UILanguage = UILanguage.UA,
+        initial_route: str = "board",
+    ) -> None:
+        if not isinstance(language, UILanguage):
+            raise TypeError("language must be UILanguage")
         if initial_route not in _ROUTE_INDEX:
             raise ValueError("unknown UI route")
         self._language = language
         self._route_id = initial_route
         self._focus_by_route: dict[str, str] = {}
+        self._dialogs: list[DialogFocusFrame] = []
 
     @property
     def language(self) -> UILanguage:
@@ -76,25 +93,70 @@ class AccessibleShellState:
     def current_route(self) -> ModuleRoute:
         return _ROUTE_INDEX[self._route_id]
 
+    @property
+    def active_dialog_id(self) -> str | None:
+        return self._dialogs[-1].dialog_id if self._dialogs else None
+
     def set_language(self, language: UILanguage) -> None:
+        if not isinstance(language, UILanguage):
+            raise TypeError("language must be UILanguage")
         self._language = language
 
+    @staticmethod
+    def _clean_focus_id(element_id: str) -> str:
+        if not isinstance(element_id, str):
+            raise TypeError("focus target id must be text")
+        return element_id.strip()
+
     def record_focus(self, element_id: str) -> None:
-        clean = element_id.strip()
+        clean = self._clean_focus_id(element_id)
         if clean:
             self._focus_by_route[self._route_id] = clean
 
     def open_route(self, route_id: str, *, current_focus_id: str = "") -> str:
         if route_id not in _ROUTE_INDEX:
             raise ValueError("unknown UI route")
-        if current_focus_id.strip():
+        if self._dialogs:
+            raise RuntimeError("close active dialog before changing application route")
+        if self._clean_focus_id(current_focus_id):
             self.record_focus(current_focus_id)
         self._route_id = route_id
         return self.restore_focus_target()
 
     def restore_focus_target(self) -> str:
+        if self._dialogs:
+            return self._dialogs[-1].initial_focus_id
         route = self.current_route
         return self._focus_by_route.get(route.route_id, route.default_focus_id)
+
+    def open_dialog(
+        self,
+        dialog_id: str,
+        *,
+        opener_focus_id: str,
+        initial_focus_id: str,
+    ) -> str:
+        dialog = self._clean_focus_id(dialog_id)
+        opener = self._clean_focus_id(opener_focus_id)
+        initial = self._clean_focus_id(initial_focus_id)
+        if not dialog or not opener or not initial:
+            raise ValueError("dialog id, opener focus and initial focus are required")
+        if any(frame.dialog_id == dialog for frame in self._dialogs):
+            raise ValueError("dialog is already open")
+        self._dialogs.append(DialogFocusFrame(dialog, opener, initial))
+        return initial
+
+    def close_dialog(self, dialog_id: str | None = None) -> str:
+        if not self._dialogs:
+            raise LookupError("no dialog is open")
+        frame = self._dialogs[-1]
+        if dialog_id is not None and self._clean_focus_id(dialog_id) != frame.dialog_id:
+            raise ValueError("only the active dialog may be closed")
+        self._dialogs.pop()
+        if self._dialogs:
+            return self._dialogs[-1].initial_focus_id
+        self.record_focus(frame.opener_focus_id)
+        return frame.opener_focus_id
 
     def navigation_items(self) -> tuple[dict[str, str], ...]:
         return tuple(
@@ -104,31 +166,66 @@ class AccessibleShellState:
                 "description": route.help_text(self._language),
                 "action_id": route.open_action_id,
                 "landmark": route.landmark,
+                "current": "true" if route.route_id == self._route_id else "false",
             }
             for route in ROUTES
         )
 
+    def semantic_snapshot(self) -> dict[str, object]:
+        route = self.current_route
+        return {
+            "route_id": route.route_id,
+            "heading": route.label(self._language),
+            "description": route.help_text(self._language),
+            "landmark": route.landmark,
+            "focus_target": self.restore_focus_target(),
+            "active_dialog": self.active_dialog_id,
+        }
+
 
 def is_standard_editing_shortcut(key: str, modifiers: Iterable[str]) -> bool:
     """Return True for editing shortcuts that global app keymaps must not steal."""
+    if not isinstance(key, str):
+        return False
     normalized = key.strip().lower()
-    mods = {item.strip().lower() for item in modifiers}
+    mods = {
+        str(item).strip().lower()
+        for item in modifiers
+    }
     return "ctrl" in mods and normalized in {"a", "c", "x", "v", "z", "y"}
 
 
-def should_global_keymap_handle(*, key: str, modifiers: Iterable[str], editable: bool) -> bool:
+def should_global_keymap_handle(
+    *,
+    key: str,
+    modifiers: Iterable[str],
+    editable: bool,
+) -> bool:
+    if type(editable) is not bool:
+        raise TypeError("editable flag must be boolean")
     if editable and is_standard_editing_shortcut(key, modifiers):
         return False
     return True
 
 
-def concise_user_error(message: object, *, language: UILanguage = UILanguage.UA) -> str:
+def concise_user_error(
+    message: object,
+    *,
+    language: UILanguage = UILanguage.UA,
+) -> str:
     """Project failures into concise user speech without developer internals."""
+    if not isinstance(language, UILanguage):
+        raise TypeError("language must be UILanguage")
     text = str(message or "").strip()
+    fallback = (
+        "Не вдалося виконати дію."
+        if language is UILanguage.UA
+        else "The action could not be completed."
+    )
     if not text:
-        return "Не вдалося виконати дію." if language is UILanguage.UA else "The action could not be completed."
+        return fallback
     if _INTERNAL_ERROR_PATTERN.search(text) or len(text) > 180:
-        return "Не вдалося виконати дію." if language is UILanguage.UA else "The action could not be completed."
+        return fallback
     return text
 
 
@@ -136,12 +233,16 @@ def validate_routes(routes: Iterable[ModuleRoute] = ROUTES) -> None:
     seen_routes: set[str] = set()
     seen_actions: set[str] = set()
     for route in routes:
+        if not isinstance(route, ModuleRoute):
+            raise TypeError("routes must contain ModuleRoute values")
         if not route.route_id or route.route_id in seen_routes:
             raise ValueError("duplicate or empty route id")
         if not route.open_action_id or route.open_action_id in seen_actions:
             raise ValueError("duplicate or empty action id")
         if not route.default_focus_id:
             raise ValueError("every route requires a keyboard focus target")
+        if route.landmark not in {"main", "navigation", "region", "form"}:
+            raise ValueError("unsupported landmark role")
         for language in UILanguage:
             if not route.heading.get(language, "").strip():
                 raise ValueError("missing localized heading")
