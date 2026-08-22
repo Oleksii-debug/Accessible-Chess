@@ -68,7 +68,11 @@ function Assert-ShortcutListFocus([string]$context) {
 }
 
 function Send-Keys([string]$keys, [int]$delayMs = 300) {
-    $transport = if ($keys.Contains('+')) { 'send-input' } else { 'post-message' }
+    # Modifier chords and modal activation/cancellation must go through real
+    # SendInput so Windows routes them to the actually focused child control.
+    # Plain arrows/navigation stay on deterministic HWND-targeted PostMessage.
+    $focusedModalKey = $keys -ieq 'enter' -or $keys -ieq 'esc'
+    $transport = if ($keys.Contains('+') -or $focusedModalKey) { 'send-input' } else { 'post-message' }
     $arguments = @('ui','send-keys',$keys,'-a',[string]$script:appPid,'--via',$transport)
     if ($keys -ieq 'alt+f4') {
         # Alt+F4 is the only system-reserved chord intentionally synthesized.
