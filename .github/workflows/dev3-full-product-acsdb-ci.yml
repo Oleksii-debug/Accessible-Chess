@@ -11,6 +11,7 @@ on:
       - auto/dev3-batch-game-review-20260822
       - auto/dev3-analysis-request-bounds-20260822
       - auto/dev3-unicode-library-search-20260822
+      - auto/dev3-unicode-search-performance-evidence-20260822
   pull_request:
     branches:
       - codex/full-product-20260821
@@ -53,7 +54,7 @@ jobs:
           git diff --name-only 656e8ec311e364e6e54a30504fd30a4aaff586f9 HEAD
 
       - name: Compile ACSDB and Full Product tests
-        run: python -m compileall -q acs tests run_accessible_chess.py
+        run: python -m compileall -q acs tests tools run_accessible_chess.py
 
       - name: Focused DEV3 data, engine-assisted, and progress regression suite
         run: >-
@@ -79,6 +80,9 @@ jobs:
           tests.test_dev3_game_review_service
           tests.test_dev3_student_progress
           tests.test_dev3_student_progress_store
+
+      - name: Unicode ACSDB 100k query-plan performance evidence
+        run: python tools/dev3_unicode_search_perf_probe.py
 
       - name: Official Stockfish 18 real bounded game-review smoke
         shell: bash
