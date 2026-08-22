@@ -9,7 +9,7 @@ replacement.
 
 The source PGN is read-only during inspection/open.  Saving always writes a
 complete temporary file in the destination directory and then atomically
-replaces the destination, so a crash cannot leave a half-written PGN.
+publishes the destination, so a crash cannot leave a half-written PGN.
 """
 
 from dataclasses import dataclass
@@ -118,6 +118,20 @@ def _current_sha256(path: Path) -> str | None:
     return fingerprint(path).sha256
 
 
+def _publish_new_file(tmp_path: Path, destination: Path) -> None:
+    """Publish without replacing a destination created by a concurrent writer.
+
+    ``os.link`` gives us an atomic create-if-absent operation in the destination
+    directory.  The temporary file remains available for cleanup if another
+    writer wins the race.
+    """
+
+    try:
+        os.link(tmp_path, destination)
+    except FileExistsError:
+        raise FileExistsError(f"PGN already exists: {destination}") from None
+
+
 def save_pgn_atomic(
     path: str | Path,
     games: Iterable[PgnGame],
@@ -127,11 +141,15 @@ def save_pgn_atomic(
 ) -> SourceFingerprint:
     """Serialize GameTree content and atomically commit one complete PGN file.
 
-    ``overwrite=False`` protects existing files by default.  When overwriting a
-    file that was previously opened, callers may pass ``expected_sha256`` from
-    :class:`PgnOpenResult`; a mismatch refuses the write instead of silently
-    replacing someone else's newer edits.
+    ``overwrite=False`` protects existing files by default, including a file
+    created by another writer while this save is preparing its temporary
+    payload.  When overwriting a file that was previously opened, callers may
+    pass ``expected_sha256`` from :class:`PgnOpenResult`; a mismatch refuses the
+    write instead of silently replacing someone else's newer edits.
     """
+
+    if type(overwrite) is not bool:
+        raise TypeError("overwrite must be a boolean")
 
     destination = Path(path)
     if destination.exists() and not overwrite:
@@ -159,7 +177,12 @@ def save_pgn_atomic(
             handle.write(payload)
             handle.flush()
             os.fsync(handle.fileno())
-        os.replace(tmp_path, destination)
+
+        if overwrite:
+            os.replace(tmp_path, destination)
+        else:
+            _publish_new_file(tmp_path, destination)
+            tmp_path.unlink()
         tmp_path = None
     finally:
         if tmp_path is not None:

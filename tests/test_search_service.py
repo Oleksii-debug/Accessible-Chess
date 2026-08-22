@@ -43,6 +43,19 @@ PGN = """[Event \"Kyiv Open\"]
 1. e4 c5 2. Nf3 d6 0-1
 """
 
+LITERAL_PGN = """[Event \"Under_score 100% Cup\"]
+[Site \"Literal\\Path\"]
+[Date \"2026.08.15\"]
+[Round \"4\"]
+[White \"100% Human\"]
+[Black \"Under_score\"]
+[Result \"1-0\"]
+[ECO \"A_1\"]
+[Opening \"Back\\slash 100% Attack\"]
+
+1. d4 d5 2. c4 e6 1-0
+"""
+
 
 class SearchServiceTests(unittest.TestCase):
     def setUp(self) -> None:
@@ -97,10 +110,46 @@ class SearchServiceTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "zero or a positive"):
             GameSearchQuery(after_game_id=-1).normalized()
 
+    def test_query_validation_rejects_sqlite_integer_overflow_before_bind(self) -> None:
+        too_large = 1 << 63
+        with self.assertRaisesRegex(ValueError, "source_id exceeds SQLite integer range"):
+            self.service.search(GameSearchQuery(source_id=too_large))
+        with self.assertRaisesRegex(ValueError, "after_game_id exceeds SQLite integer range"):
+            self.service.search(GameSearchQuery(after_game_id=too_large))
+
+    def test_sqlite_integer_upper_bound_remains_a_valid_empty_query(self) -> None:
+        sqlite_max = (1 << 63) - 1
+        source_page = self.service.search(GameSearchQuery(source_id=sqlite_max))
+        cursor_page = self.service.search(GameSearchQuery(after_game_id=sqlite_max))
+        self.assertEqual(source_page.items, ())
+        self.assertFalse(source_page.has_more)
+        self.assertEqual(cursor_page.items, ())
+        self.assertFalse(cursor_page.has_more)
+
     def test_search_values_are_parameters_not_sql_fragments(self) -> None:
         page = self.service.search(GameSearchQuery(player="Alpha' OR 1=1 --"))
         self.assertEqual(page.items, ())
         self.assertEqual(self.db.conn.execute("SELECT COUNT(*) FROM games").fetchone()[0], 3)
+
+    def test_like_metacharacters_are_literal_search_text(self) -> None:
+        self.db.import_pgn_text(LITERAL_PGN, source_name=r"literal%_source\games.pgn")
+
+        percent = self.service.search(GameSearchQuery(player="%"))
+        self.assertEqual([item.white for item in percent.items], ["100% Human"])
+
+        underscore = self.service.search(GameSearchQuery(event="_"))
+        self.assertEqual([item.event for item in underscore.items], ["Under_score 100% Cup"])
+
+        backslash = self.service.search(GameSearchQuery(opening="\\"))
+        self.assertEqual([item.opening for item in backslash.items], [r"Back\slash 100% Attack"])
+
+        source = self.service.search(GameSearchQuery(source_name=r"%_source\games"))
+        self.assertEqual([item.source_name for item in source.items], [r"literal%_source\games.pgn"])
+
+    def test_eco_like_metacharacters_remain_literal_prefix_text(self) -> None:
+        self.db.import_pgn_text(LITERAL_PGN, source_name="literal.pgn")
+        page = self.service.search(GameSearchQuery(eco="A_"))
+        self.assertEqual([item.eco for item in page.items], ["A_1"])
 
 
 if __name__ == "__main__":

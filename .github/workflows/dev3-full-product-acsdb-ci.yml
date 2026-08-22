@@ -1,0 +1,150 @@
+name: DEV3 Full Product ACSDB CI
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - auto/dev3-acsdb-stable-paging-20260821
+      - auto/dev3-student-progress-store-20260822
+      - auto/dev3-search-resource-bounds-20260822
+      - auto/dev3-bookreader-snapshot-bounds-20260822
+      - auto/dev3-batch-game-review-20260822
+      - auto/dev3-analysis-request-bounds-20260822
+      - auto/dev3-unicode-library-search-20260822
+      - auto/dev3-unicode-search-performance-evidence-20260822
+  pull_request:
+    branches:
+      - codex/full-product-20260821
+      - auto/dev3-acsdb-stable-paging-20260821
+      - auto/dev3-student-progress-store-20260822
+      - auto/dev3-search-resource-bounds-20260822
+      - auto/dev3-student-progress-resource-bounds-20260822
+      - auto/dev3-bookreader-snapshot-bounds-20260822
+      - auto/dev3-batch-game-review-20260822
+      - auto/dev3-analysis-request-bounds-ci-base-20260822
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dev3-full-product-acsdb-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  acsdb:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install verification dependencies
+        run: python -m pip install -q pytest
+
+      - name: Diff hygiene
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check 656e8ec311e364e6e54a30504fd30a4aaff586f9 HEAD
+          git diff --name-only 656e8ec311e364e6e54a30504fd30a4aaff586f9 HEAD
+
+      - name: Compile ACSDB and Full Product tests
+        run: python -m compileall -q acs tests tools run_accessible_chess.py
+
+      - name: Focused DEV3 data, engine-assisted, and progress regression suite
+        run: >-
+          python -m unittest -v
+          tests.test_acsdb
+          tests.test_search_service
+          tests.test_dev3_search_resource_bounds
+          tests.test_dev3_unicode_library_search
+          tests.test_dev3_acsdb_position_provenance
+          tests.test_dev3_acsdb_wal_scalars
+          tests.test_dev3_acsdb_backup_recovery
+          tests.test_dev3_acsdb_query_plan
+          tests.test_bookreader
+          tests.test_dev3_bookreader_progress_contract
+          tests.test_dev3_bookreader_ambiguous_persistence
+          tests.test_dev3_bookreader_live_mutation_guard
+          tests.test_dev3_bookreader_snapshot_bounds
+          tests.test_dev3_training_snapshot_contract
+          tests.test_dev3_training_progress_store
+          tests.test_dev3_engine_assisted_workflows
+          tests.test_analysis_service
+          tests.test_dev3_analysis_request_bounds
+          tests.test_dev3_game_review_service
+          tests.test_dev3_student_progress
+          tests.test_dev3_student_progress_store
+
+      - name: Unicode ACSDB 100k query-plan performance evidence
+        run: python -m tools.dev3_unicode_search_perf_probe
+
+      - name: Official Stockfish 18 real bounded game-review smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/stockfish-ubuntu-x86-64-avx2.tar"
+          extract_dir="$RUNNER_TEMP/stockfish18"
+          curl --fail --location --retry 3 \
+            https://github.com/official-stockfish/Stockfish/releases/download/sf_18/stockfish-ubuntu-x86-64-avx2.tar \
+            --output "$archive"
+          echo '536c0c2c0cf06450df0bfb5e876ef0d3119950703a8f143627f990c7b5417964  '"$archive" | sha256sum --check
+          mkdir -p "$extract_dir"
+          tar -xf "$archive" -C "$extract_dir"
+          engine="$(find "$extract_dir" -type f -name 'stockfish-ubuntu-x86-64-avx2' -print -quit)"
+          test -n "$engine"
+          chmod +x "$engine"
+          STOCKFISH18_PATH="$engine" python - <<'PY'
+          import os
+          from acs.analysis_service import AnalysisService
+          from acs.game_review_service import GameReviewPosition, GameReviewService, GameReviewStatus
+          from acs.stockfish_runtime import StockfishRuntime, StockfishRuntimeConfig
+
+          fens = (
+              'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
+              'rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2',
+          )
+          positions = tuple(
+              GameReviewPosition(
+                  student_id='stockfish-smoke-student',
+                  session_id='stockfish-smoke-session',
+                  game_ref='stockfish-smoke-game',
+                  source_revision='stockfish-smoke-rev1',
+                  position_id=f'ply-{index}',
+                  ply=index,
+                  fen=fen,
+              )
+              for index, fen in enumerate(fens)
+          )
+          with StockfishRuntime(
+              StockfishRuntimeConfig(configured_path=os.environ['STOCKFISH18_PATH'])
+          ) as runtime:
+              analysis = AnalysisService(runtime.provider, owns_engine=False)
+              try:
+                  batch = GameReviewService(analysis).review(positions, depth=6)
+              finally:
+                  analysis.close()
+          assert not batch.cancelled
+          assert batch.requested_count == 2
+          assert len(batch.points) == 2
+          assert all(point.status is GameReviewStatus.ANALYZED for point in batch.points)
+          assert [point.position_id for point in batch.points] == ['ply-0', 'ply-1']
+          assert all(point.depth is not None and point.depth >= 1 for point in batch.points)
+          assert all(point.score_kind in {'cp', 'mate'} for point in batch.points)
+          assert all(not hasattr(point, 'pv') for point in batch.points)
+          print('DEV3 OFFICIAL STOCKFISH 18 BOUNDED GAME REVIEW PASS')
+          PY
+
+      - name: Full unittest discovery
+        run: python -m unittest discover -s tests -v
+
+      - name: Full pytest regression
+        run: python -m pytest -q
+
+      - name: Complete diagnostic
+        run: python run_accessible_chess.py --diagnostic

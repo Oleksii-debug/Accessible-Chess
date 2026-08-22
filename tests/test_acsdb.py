@@ -142,6 +142,89 @@ class AcsDatabaseTests(unittest.TestCase):
         self.assertEqual(len(self.db.search_games(opening='sicilian')), 1)
         self.assertEqual(len(self.db.search_games(source_name='PLAYERS')), 1)
 
+    def test_game_search_keyset_paging_is_stable_when_new_rows_are_inserted(self):
+        text = '''[Event "One"]
+[White "A"]
+[Black "B"]
+[Result "*"]
+
+1. e4 *
+
+[Event "Two"]
+[White "C"]
+[Black "D"]
+[Result "*"]
+
+1. d4 *
+
+[Event "Three"]
+[White "E"]
+[Black "F"]
+[Result "*"]
+
+1. c4 *
+'''
+        report = self.db.import_pgn_text(text, 'page-source.pgn')
+        first_page = self.db.search_games(limit=2)
+        self.assertEqual([row['id'] for row in first_page], report.game_ids[:2])
+
+        later = self.db.import_pgn_text('[Event "Later"]\n[Result "*"]\n\n1. Nf3 *', 'later.pgn')
+        second_page = self.db.search_games(after_id=first_page[-1]['id'], limit=2)
+
+        self.assertEqual(second_page[0]['id'], report.game_ids[2])
+        self.assertEqual(second_page[1]['id'], later.game_ids[0])
+        self.assertTrue(set(row['id'] for row in first_page).isdisjoint(row['id'] for row in second_page))
+
+    def test_game_search_keyset_paging_preserves_filters(self):
+        self.db.import_pgn_text('''[Event "Keep"]
+[White "Alpha"]
+[Result "*"]
+
+1. e4 *
+
+[Event "Skip"]
+[White "Beta"]
+[Result "*"]
+
+1. d4 *
+
+[Event "Keep"]
+[White "Gamma"]
+[Result "*"]
+
+1. c4 *
+''', 'filters.pgn')
+        first = self.db.search_games(event='keep', limit=1)
+        second = self.db.search_games(event='keep', after_id=first[-1]['id'], limit=5)
+        self.assertEqual(len(first), 1)
+        self.assertEqual(len(second), 1)
+        self.assertEqual(second[0]['event'], 'Keep')
+        self.assertGreater(second[0]['id'], first[0]['id'])
+
+    def test_import_attempt_keyset_paging_is_stable_under_new_attempts(self):
+        first = self.db.import_pgn_text('[Event "A"]\n[Result "*"]\n\n1. e4 *', 'a.pgn')
+        second = self.db.import_pgn_text('[Event "B"]\n[Result "*"]\n\n1. d4 *', 'b.pgn')
+        third = self.db.import_pgn_text('[Event "C"]\n[Result "*"]\n\n1. c4 *', 'c.pgn')
+
+        newest_page = self.db.list_import_attempts(limit=2)
+        self.assertEqual([row['id'] for row in newest_page], [third.attempt_id, second.attempt_id])
+
+        later = self.db.import_pgn_text('[Event "D"]\n[Result "*"]\n\n1. Nf3 *', 'd.pgn')
+        older_page = self.db.list_import_attempts(before_id=newest_page[-1]['id'], limit=2)
+
+        self.assertEqual([row['id'] for row in older_page], [first.attempt_id])
+        self.assertNotIn(later.attempt_id, [row['id'] for row in older_page])
+
+    def test_keyset_cursor_and_limit_validation_rejects_ambiguous_values(self):
+        with self.assertRaises(TypeError):
+            self.db.search_games(after_id=True)
+        with self.assertRaises(ValueError):
+            self.db.search_games(after_id=-1)
+        with self.assertRaises(TypeError):
+            self.db.list_import_attempts(limit=False)
+        with self.assertRaises(ValueError):
+            self.db.list_import_attempts(before_id=-1)
+
     def test_exact_position_reference_ignores_move_counters_only(self):
         report = self.db.import_pgn_text('[Event "P"]\n[Result "*"]\n\n1. e4 *', 'position.pgn')
         game_id = report.game_ids[0]
