@@ -1,6 +1,6 @@
 # DEV4 SESSION HANDOFF
 
-SESSION: 20260822-1436 Full Product QA/security
+SESSION: 20260822-1503 Full Product QA/security
 STATUS: COMPLETE / SAFE OVERLAP
 
 ## Exact state basis
@@ -9,17 +9,15 @@ STATUS: COMPLETE / SAFE OVERLAP
 - Accepted integration: `manual5/integration-20260821@0fa442330bc2bb03636ff9297512da4c29e38684`.
 - DEV5 reconciliation PR #66 remains separate at `abff45ebcc4b5af2a85ab0c456b025b5098c6e29` and was not mutated.
 - DEV4 QA branch: `qa/dev4-chessbase-symlink-security-20260822`.
-- New evidence commit: `4f41b583755fca475becaf97eea6a7d8e9b20b7e` — `test(security): gate persisted import error privacy`.
-- QA PR #67 remains OPEN/DRAFT/MERGEABLE. Metadata commits follow the evidence commit; final exact branch head must be read live after synchronization.
-- Exact QA CI remains `INCONCLUSIVE` until commit-associated Actions are observed.
-- Local clean-checkout was blocked by sandbox DNS failure resolving `github.com`; `QA_OR_ENVIRONMENT_ONLY`, not Product evidence.
+- New evidence commit: `97044de22bbab7098f0ba6a06fd9dfa5cd37562f` — `test(security): gate unstable ChessBase integrity snapshots`.
+- QA PR #67 remains OPEN/DRAFT. Metadata commits follow the evidence commit; final exact branch head must be read live after synchronization.
 - Windows strict WIP=1 untouched. `NVDA_VERIFIED=NO`.
 
-## New finding
+## Evidence extension
 
-`PROVEN_PRODUCT_DEFECT` — failed ACSDB import diagnostics cross a concrete persisted/application-facing privacy boundary. `AcsDatabase.import_pgn_text()` stores raw exception type/text in `import_attempts.error_message`; `ImportHistoryService` returns that field unchanged. A parser/importer/provider exception carrying a private local path or secret-like diagnostic can therefore be persisted and exposed verbatim.
+`PROVEN_PRODUCT_DEFECT` class 11 is now independently proven on both provenance implementations: shared `acs.import_contract.fingerprint()` and ChessBase `acs.chessbase_integrity._fingerprint()`. The ChessBase path hashes in chunks without pre/post identity/stat stability validation, so an equal-size concurrent source mutation can still yield ordinary `SourceFileEvidence` rather than a fail-closed result.
 
-Strict gate: `tests/test_dev4_import_history_error_privacy.py`. It injects a synthetic parser exception containing a private Windows path and credential-like value and requires failed import history to retain useful failure evidence without retaining those private details. Product code unchanged.
+Strict gate: `tests/test_dev4_chessbase_integrity_atomicity.py`. Product code unchanged.
 
 ## Locked defect classes
 
@@ -33,14 +31,13 @@ Strict gate: `tests/test_dev4_import_history_error_privacy.py`. It injects a syn
 8. Generic import batch RuntimeError abort.
 9. ChessBase manifest verification I/O observability failure.
 10. Shared import special-file/FIFO open-before-validation boundary.
-11. Shared import fingerprint unstable-snapshot boundary.
+11. Provenance unstable-snapshot boundary on both shared import and ChessBase integrity hashing.
 12. ACSDB failed-import raw exception persistence/application exposure boundary.
 
 ## Other classifications
 
 - QA EVIDENCE: PGN export failure recovery/temp cleanup/POSIX temp privacy.
 - QA EVIDENCE: release-facing Stockfish path-bearing exceptions are sanitized.
-- QA_OR_ENVIRONMENT_ONLY: current sandbox DNS prevented clean GitHub checkout.
 - INCONCLUSIVE: exact QA CI until checks appear.
 - INCONCLUSIVE: PGN directory crash/power-loss durability.
 - HUMAN_ONLY: exact fresh Windows/NVDA usability.
@@ -48,4 +45,4 @@ Strict gate: `tests/test_dev4_import_history_error_privacy.py`. It injects a syn
 
 ## Next action
 
-Recheck PR #67 final exact head/CI, then continue generic import cancellation/encoding/truncation and ChessBase component snapshot/open/stat/hash observability. Trace further leakage only into concrete persisted/UI/report sinks. Stay out of Product-owner and Windows strict lanes.
+Recheck PR #67 final exact head/CI, then continue generic import cancellation/encoding/truncation and ChessBase component open/stat/hash observability. Trace further leakage only into concrete persisted/UI/report sinks. Stay out of Product-owner and Windows strict lanes.
