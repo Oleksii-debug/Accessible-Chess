@@ -182,8 +182,10 @@ class TrainingProjectionTests(unittest.TestCase):
         self.projection.submit("e4")
         en = self.projection.snapshot()
         ua = self.projection.set_language(UILanguage.UA).payload["snapshot"]
-        self.assertEqual(en["progress"], ua["progress"])
+        for key in ("step", "total", "attempts", "mistakes", "hints_used", "completed"):
+            self.assertEqual(en["progress"][key], ua["progress"][key])
         self.assertEqual(en["title"], ua["title"])
+        self.assertNotEqual(en["progress"]["step_label"], ua["progress"]["step_label"])
         self.assertNotEqual(en["heading"], ua["heading"])
 
 
