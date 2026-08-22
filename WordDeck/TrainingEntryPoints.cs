@@ -6,6 +6,12 @@ internal static class TrainingEntryPoints
     {
         MenuStrip? menu = main.Controls.OfType<MenuStrip>().FirstOrDefault();
         if (menu is null) return;
+
+        // Install the current, dynamically generated help route before loading
+        // optional training state. F1 and the visible Help menu must remain
+        // truthful and usable even if Spelling/Sentence state needs recovery.
+        main.InstallCurrentHelpRoute(menu);
+
         ToolStripMenuItem? tools = menu.Items.OfType<ToolStripMenuItem>()
             .FirstOrDefault(item => (item.Text ?? string.Empty).Replace("&", string.Empty).Equals("Tools", StringComparison.OrdinalIgnoreCase));
         if (tools is null) return;
