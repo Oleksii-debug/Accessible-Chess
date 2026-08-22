@@ -55,6 +55,24 @@ function Assert-Focus([string]$expected, [string]$context) {
     Fail "$context expected focus '$expected', actual '$actual'."
 }
 
+function Assert-ShortcutListFocus([string]$context) {
+    # Windows UIA commonly reports the focused ListBoxItem rather than the parent
+    # ListBox name. Both are correct accessible behavior. Require a real live
+    # shortcut action item, then prove Down stays within the action list.
+    $before = Get-FocusedName
+    if ($before -notmatch '^(Recall|Spelling|Sentence):') {
+        Fail "$context expected focus inside Shortcut actions, actual '$before'."
+    }
+    Send-Keys 'down' 'Shortcut actions'
+    $after = Get-FocusedName
+    if ($after -notmatch '^(Recall|Spelling|Sentence):') {
+        Fail "$context Down left Shortcut actions; actual '$after'."
+    }
+    if ($after -eq $before) {
+        Fail "$context Down did not move to another shortcut action from '$before'."
+    }
+}
+
 function Send-Keys([string]$keys, [string]$target = '') {
     # Application accelerators need real modifier state. Supplying --target first
     # focuses the exact WordDeck surface before SendInput, which avoids a hosted
@@ -175,7 +193,7 @@ try {
     Send-Keys 'ctrl+k' 'Current English word'
     Wait-For 'Keyboard shortcut settings' 15000
     Wait-For 'Shortcut actions' 7000
-    Assert-Focus 'Shortcut actions' 'shortcut settings initial focus'
+    Assert-ShortcutListFocus 'shortcut settings initial focus'
     Send-Keys 'alt+f4'
     Wait-Gone 'Keyboard shortcut settings' 7000
 
