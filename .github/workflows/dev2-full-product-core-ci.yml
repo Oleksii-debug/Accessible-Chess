@@ -52,6 +52,8 @@ jobs:
         run: python -m unittest tests.test_interaction_contracts -v
       - name: Focused classroom learning and privacy domain
         run: python -m unittest tests.test_classroom_domain -v
+      - name: Focused classroom corruption boundaries
+        run: python -m unittest tests.test_classroom_domain_corruption -v
       - name: Focused deterministic remote session domain
         run: python -m unittest tests.test_remote_session -v
       - name: Existing GameTree and identity regressions
