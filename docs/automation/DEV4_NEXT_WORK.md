@@ -2,21 +2,22 @@
 
 NEXT_ACTION_ORDER:
 
-1. Re-read live DEV5 PR #66, manual5 integration and QA PR #67 before any new write. Do not compete with an IN_PROGRESS Product/integration owner.
+1. Re-read live DEV5 canonical handoff, DEV1 active state, DEV2/DEV3 exact packages, manual5 integration and QA PR #67 before any new write. SAFE OVERLAP remains mandatory while DEV1 is IN_PROGRESS.
 2. Recheck QA PR #67 exact head and commit-associated Actions. Keep strict security assertions RED until genuine Product fixes exist; never weaken them for GREEN.
 3. Preserve all eight locked Product-defect classes plus positive QA guards for PGN export failure recovery and Stockfish error-path privacy.
-4. Preserve `tests/test_dev4_import_batch_adapter_failure.py`: importer/decoder/provider runtime failure must be recorded per source and must not hide later batch results.
-5. Continue generic import resource limits: explicit maximum source size, chunked/streaming strategy, huge/truncated content, encoding abuse, duplicate sources, cancellation and recovery. Bounded hashing alone is not a bounded import.
-6. Extend ChessBase evidence observability: companion-directory enumeration, component open/stat/hash failures and unreadable/inaccessible evidence must remain distinguishable from verified absence.
-7. Trace generic provenance/error exposure end-to-end from `SourceFingerprint.path`, `BatchInspectionItem.path/error`, PGN exceptions and engine/runtime exceptions into real persisted/UI/report surfaces. Promote only direct exposure.
-8. Extend UCI/engine failure-surface QA only where non-conflicting and user-facing.
-9. Keep PGN parent-directory durability INCONCLUSIVE unless stronger crash/power-loss evidence exists.
-10. Maintain `DEV4_CHESSBASE_CAPABILITY_MATRIX.md`; suffix recognition must never be presented as decoder compatibility.
-11. Re-enter Stage1 package/security reconciliation only when DEV5/Audit authorizes a slice. Preserve accepted DEV1 board-bridge semantics and keep `nuitka-compilation-report.xml` outside user ZIPs.
+4. Preserve the strengthened PGN resource gate in `tests/test_dev4_pgn_resource_security.py`: untrusted PGN must use bounded reads and must have a finite source-size rejection before payload open. The test intentionally does not prescribe a production threshold.
+5. Preserve `tests/test_dev4_import_batch_adapter_failure.py`: importer/decoder/provider runtime failure must be recorded per source and must not hide later batch results.
+6. Continue generic import resource limits beyond PGN: huge/truncated inputs, encoding abuse, duplicate sources, cancellation and recovery. Bounded hashing alone is not a bounded import.
+7. Extend ChessBase evidence observability: companion-directory enumeration, component open/stat/hash failures and unreadable/inaccessible evidence must remain distinguishable from verified absence.
+8. Trace generic provenance/error exposure end-to-end from `SourceFingerprint.path`, `BatchInspectionItem.path/error`, PGN exceptions and engine/runtime exceptions into real persisted/UI/report surfaces. Promote only direct exposure.
+9. Extend UCI/engine failure-surface QA only where non-conflicting and user-facing.
+10. Keep PGN parent-directory durability INCONCLUSIVE unless stronger crash/power-loss evidence exists.
+11. Maintain `DEV4_CHESSBASE_CAPABILITY_MATRIX.md`; suffix recognition must never be presented as decoder compatibility.
+12. Re-enter Stage1/package Product work only when DEV5/Audit authorizes a slice. Preserve accepted DEV1 board-bridge semantics and keep `nuitka-compilation-report.xml` outside user ZIPs.
 
 CURRENT LOCKED FINDINGS:
 - PROVEN_PRODUCT_DEFECT: external import/ChessBase symlink-reparse boundary follows indirection instead of failing closed.
-- PROVEN_PRODUCT_DEFECT: PGN import performs an unbounded full-text read after bounded hashing.
+- PROVEN_PRODUCT_DEFECT: PGN import has no bounded full-text/resource boundary: unbounded read plus no finite source-size rejection before payload open.
 - PROVEN_PRODUCT_DEFECT: serialized ChessBase probe/integrity/manifest report DTOs expose absolute local paths.
 - PROVEN_PRODUCT_DEFECT: PGN expected_sha256 optimistic overwrite has a TOCTOU lost-update window.
 - PROVEN_PRODUCT_DEFECT: PGN overwrite=False can clobber a destination created after preflight.
