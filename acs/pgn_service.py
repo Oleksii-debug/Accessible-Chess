@@ -14,6 +14,7 @@ contract.
 """
 
 from dataclasses import dataclass
+import logging
 import os
 from pathlib import Path
 import stat
@@ -31,6 +32,7 @@ from .import_contract import (
 
 
 MAX_PGN_SOURCE_BYTES = 64 * 1024 * 1024
+_LOG = logging.getLogger(__name__)
 
 
 class PgnFileError(RuntimeError):
@@ -224,7 +226,16 @@ def _publish_no_clobber(tmp_path: Path, destination: Path) -> None:
         raise
     except OSError as exc:
         raise PgnFileError("PGN no-clobber publication is unavailable") from exc
-    tmp_path.unlink()
+
+    # Publication is committed once the hard link exists. Cleanup of the
+    # redundant temporary pathname is best-effort and must not turn a committed
+    # save into a reported failure that invites an unsafe retry.
+    try:
+        tmp_path.unlink()
+    except FileNotFoundError:
+        pass
+    except OSError:
+        _LOG.warning("PGN was committed but redundant temporary cleanup could not complete")
 
 
 def _publish_expected_hash(
