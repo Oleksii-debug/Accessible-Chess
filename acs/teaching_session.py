@@ -13,6 +13,7 @@ from .interaction_contracts import (
     AnnotationCommand,
     AnnotationOperation,
     BoardPermissionState,
+    ContractValidationError,
     EngineVisibilityPolicy,
     PresentationState,
     SquareHighlight,
@@ -345,15 +346,22 @@ class TeachingSessionState:
         if type(self.presentation) is not PresentationState:
             raise TeachingSessionError("presentation must be PresentationState")
         object.__setattr__(self, "remaining_seconds", _optional_remaining(self.remaining_seconds))
-        object.__setattr__(self, "active_student_id", _optional_id(self.active_student_id, "active student id"))
+        active_student_id = _optional_id(self.active_student_id, "active student id")
+        object.__setattr__(self, "active_student_id", active_student_id)
         if self.last_response is not None and type(self.last_response) is not TeachingResponse:
             raise TeachingSessionError("last_response must be TeachingResponse or null")
         _revision(self.revision, "teaching session revision")
-        if self.phase is TeachingSessionPhase.COMPLETED:
-            if self.remaining_seconds is not None:
-                raise TeachingSessionError("completed session cannot retain a live timer")
+        if self.presentation.active_student_id != active_student_id:
+            raise TeachingSessionError("teaching state and presentation active student must match")
+        if self.last_response is not None and self.last_response.student_id != active_student_id:
+            raise TeachingSessionError("last response student must match active teaching student")
+        if self.phase in {TeachingSessionPhase.PAUSED, TeachingSessionPhase.COMPLETED}:
             if self.presentation.board_permission is not BoardPermissionState.LOCKED:
-                raise TeachingSessionError("completed session board must be locked")
+                raise TeachingSessionError("paused/completed teaching session board must be locked")
+            if self.presentation.engine_visibility is not EngineVisibilityPolicy.HIDDEN:
+                raise TeachingSessionError("paused/completed teaching session engine visibility must be hidden")
+        if self.phase is TeachingSessionPhase.COMPLETED and self.remaining_seconds is not None:
+            raise TeachingSessionError("completed session cannot retain a live timer")
 
     @property
     def digest(self) -> str:
@@ -380,13 +388,17 @@ class TeachingSessionState:
         )
         supplied = _digest_text(data["digest"], "teaching state digest")
         response = None if data["last_response"] is None else _response_from_record(data["last_response"])
+        try:
+            presentation = presentation_state_from_payload(_mapping(data["presentation"], "presentation"))
+        except ContractValidationError as exc:
+            raise TeachingSessionError("invalid teaching presentation payload") from exc
         state = cls(
             session_id=data["session_id"],
             plan_digest=data["plan_digest"],
             phase=data["phase"],
             step_index=data["step_index"],
             position_fen=data["position_fen"],
-            presentation=presentation_state_from_payload(_mapping(data["presentation"], "presentation")),
+            presentation=presentation,
             remaining_seconds=data["remaining_seconds"],
             active_student_id=data["active_student_id"],
             last_response=response,
@@ -514,14 +526,17 @@ def submit_selection(
     if step.policy.input_kind is not TeachingInputKind.SELECTION:
         raise TeachingSessionError("current teaching step does not accept board selection")
     square = _square(square, "student selection square")
-    history = state.presentation.student_pointer_history + (
-        StudentSelectionEvent(square=square, student_id=student_id, sequence=state.revision + 1),
-    )
-    presentation = replace(
-        state.presentation,
-        student_pointer_history=history,
-        active_student_id=student_id,
-    )
+    try:
+        history = state.presentation.student_pointer_history + (
+            StudentSelectionEvent(square=square, student_id=student_id, sequence=state.revision + 1),
+        )
+        presentation = replace(
+            state.presentation,
+            student_pointer_history=history,
+            active_student_id=student_id,
+        )
+    except ContractValidationError as exc:
+        raise TeachingSessionError("student selection violates bounded presentation contract") from exc
     response = TeachingResponse(student_id, step.step_id, TeachingInputKind.SELECTION, square)
     return replace(
         state,
@@ -551,7 +566,10 @@ def submit_move(
     except ValueError as exc:
         raise TeachingSessionError("student move is not legal in the canonical session position") from exc
     response = TeachingResponse(student_id, step.step_id, TeachingInputKind.MOVE, san)
-    presentation = replace(state.presentation, active_student_id=student_id)
+    try:
+        presentation = replace(state.presentation, active_student_id=student_id)
+    except ContractValidationError as exc:
+        raise TeachingSessionError("student move violates presentation contract") from exc
     return replace(
         state,
         position_fen=board.fen(),
@@ -571,8 +589,11 @@ def set_teacher_pointer(
     _mutable(plan, state, expected_revision)
     if state.phase is TeachingSessionPhase.COMPLETED:
         raise TeachingSessionError("completed session cannot change teacher pointer")
-    pointer = TeacherPointerState(None if square is None else _square(square, "teacher pointer square"))
-    presentation = replace(state.presentation, pointer=pointer)
+    try:
+        pointer = TeacherPointerState(None if square is None else _square(square, "teacher pointer square"))
+        presentation = replace(state.presentation, pointer=pointer)
+    except ContractValidationError as exc:
+        raise TeachingSessionError("teacher pointer violates presentation contract") from exc
     return replace(state, presentation=presentation, revision=state.revision + 1)
 
 
@@ -588,18 +609,21 @@ def apply_annotation(
     if type(command) is not AnnotationCommand:
         raise TeachingSessionError("annotation operation requires canonical AnnotationCommand")
     presentation = state.presentation
-    if command.operation is AnnotationOperation.CLEAR:
-        presentation = replace(presentation, highlights=(), arrows=())
-    elif command.operation is AnnotationOperation.SET_HIGHLIGHT:
-        highlight = SquareHighlight(command.start_square, command.tag or "teacher")
-        items = tuple(item for item in presentation.highlights if item.square != highlight.square) + (highlight,)
-        presentation = replace(presentation, highlights=items)
-    elif command.operation is AnnotationOperation.ADD_ARROW:
-        arrow = VisualArrow(command.start_square, command.end_square, command.tag or "teacher")
-        items = presentation.arrows if arrow in presentation.arrows else presentation.arrows + (arrow,)
-        presentation = replace(presentation, arrows=items)
-    else:
-        raise TeachingSessionError("unsupported teaching annotation operation")
+    try:
+        if command.operation is AnnotationOperation.CLEAR:
+            presentation = replace(presentation, highlights=(), arrows=())
+        elif command.operation is AnnotationOperation.SET_HIGHLIGHT:
+            highlight = SquareHighlight(command.start_square, command.tag or "teacher")
+            items = tuple(item for item in presentation.highlights if item.square != highlight.square) + (highlight,)
+            presentation = replace(presentation, highlights=items)
+        elif command.operation is AnnotationOperation.ADD_ARROW:
+            arrow = VisualArrow(command.start_square, command.end_square, command.tag or "teacher")
+            items = presentation.arrows if arrow in presentation.arrows else presentation.arrows + (arrow,)
+            presentation = replace(presentation, arrows=items)
+        else:
+            raise TeachingSessionError("unsupported teaching annotation operation")
+    except ContractValidationError as exc:
+        raise TeachingSessionError("annotation violates bounded presentation contract") from exc
     return replace(state, presentation=presentation, revision=state.revision + 1)
 
 
@@ -637,6 +661,8 @@ def _mutable(plan: LessonSession, state: TeachingSessionState, expected_revision
     expected = _revision(expected_revision, "expected teaching revision")
     if state.revision != expected:
         raise TeachingSessionError("stale teaching session revision")
+    if state.revision == MAX_WIRE_INTEGER:
+        raise TeachingSessionError("teaching session revision limit reached")
     return current_step(plan, state)
 
 
@@ -653,11 +679,14 @@ def _session_student(plan: LessonSession, value: object) -> str:
 
 
 def _presentation_for_step(step: TeachingStep, active_student_id: str | None = None) -> PresentationState:
-    return PresentationState(
-        active_student_id=active_student_id,
-        engine_visibility=step.policy.engine_visibility,
-        board_permission=step.policy.board_permission,
-    )
+    try:
+        return PresentationState(
+            active_student_id=active_student_id,
+            engine_visibility=step.policy.engine_visibility,
+            board_permission=step.policy.board_permission,
+        )
+    except ContractValidationError as exc:
+        raise TeachingSessionError("teaching step cannot be projected into presentation state") from exc
 
 
 def _replace_presentation_policy(
@@ -673,7 +702,10 @@ def _replace_presentation_policy(
     }
     if clear_transient:
         kwargs.update(pointer=TeacherPointerState(), highlights=(), arrows=(), student_pointer_history=())
-    return replace(presentation, **kwargs)
+    try:
+        return replace(presentation, **kwargs)
+    except ContractValidationError as exc:
+        raise TeachingSessionError("teaching presentation policy transition is invalid") from exc
 
 
 def _lesson_body(plan: LessonSession) -> dict[str, Any]:
@@ -689,6 +721,10 @@ def _lesson_body(plan: LessonSession) -> dict[str, Any]:
 
 
 def _state_body(state: TeachingSessionState) -> dict[str, Any]:
+    try:
+        presentation_payload = presentation_state_to_payload(state.presentation)
+    except ContractValidationError as exc:
+        raise TeachingSessionError("teaching presentation cannot be serialized") from exc
     return {
         "version": state.version,
         "session_id": state.session_id,
@@ -696,7 +732,7 @@ def _state_body(state: TeachingSessionState) -> dict[str, Any]:
         "phase": state.phase.value,
         "step_index": state.step_index,
         "position_fen": state.position_fen,
-        "presentation": presentation_state_to_payload(state.presentation),
+        "presentation": presentation_payload,
         "remaining_seconds": state.remaining_seconds,
         "active_student_id": state.active_student_id,
         "last_response": None if state.last_response is None else _response_record(state.last_response),
