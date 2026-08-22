@@ -7,7 +7,7 @@ import unittest
 from unittest import mock
 
 from acs.gametree import parse_games
-from acs.pgn_service import save_pgn_atomic
+from acs.pgn_service import PgnFileError, open_pgn, save_pgn_atomic
 
 
 class Dev4PgnExportFailureRecoveryTests(unittest.TestCase):
@@ -32,6 +32,47 @@ class Dev4PgnExportFailureRecoveryTests(unittest.TestCase):
                 list(root.glob(destination.name + ".*.tmp")),
                 [],
                 "A failed atomic replace must not leave a stale PGN temp file behind.",
+            )
+
+    def test_expected_hash_replace_failure_cleans_temp_and_cas_snapshot(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            destination = root / "expected.pgn"
+            original = '[Event "Original"]\n[Result "*"]\n\n1. d4 *\n'
+            destination.write_text(original, encoding="utf-8")
+            expected_sha256 = open_pgn(destination).source.sha256
+
+            with mock.patch("acs.pgn_service.os.replace", side_effect=OSError("replace failed")):
+                with self.assertRaises(OSError):
+                    save_pgn_atomic(
+                        destination,
+                        self._games(),
+                        overwrite=True,
+                        expected_sha256=expected_sha256,
+                    )
+
+            self.assertEqual(destination.read_text(encoding="utf-8"), original)
+            self.assertEqual(list(root.glob(destination.name + ".*.tmp")), [])
+            self.assertEqual(
+                list(root.glob(destination.name + ".cas-*.bak")),
+                [],
+                "A failed expected-hash publication must remove its recoverable CAS snapshot.",
+            )
+
+    def test_no_clobber_link_failure_cleans_temp_and_publishes_nothing(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            destination = root / "new.pgn"
+
+            with mock.patch("acs.pgn_service.os.link", side_effect=OSError("hard links unavailable")):
+                with self.assertRaises(PgnFileError):
+                    save_pgn_atomic(destination, self._games(), overwrite=False)
+
+            self.assertFalse(destination.exists())
+            self.assertEqual(
+                list(root.glob(destination.name + ".*.tmp")),
+                [],
+                "A failed no-clobber publication must clean its complete temp file.",
             )
 
     def test_fsync_failure_preserves_existing_destination_and_cleans_temp(self) -> None:
