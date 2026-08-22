@@ -1,18 +1,22 @@
 # DEV3 CURRENT STATE
 
-Latest DEV3 backend package is terminal technical GREEN and READY_FOR_INTEGRATION=YES.
+Latest completed DEV3 package in this branch is PR #137, terminal technical GREEN and READY_FOR_INTEGRATION=YES for the isolated Full Product slice.
 
-Authoritative branch: `auto/dev3-no-move-fen-bounds-20260822`.
-Parent coordination head: `aed57198d0c06375cb08c9a8cc486b72642f0f56`.
-Product code commit: `8f664ea80092bacdff46c252c44ab043831e78ec`.
-Validated Product/test head: `f9da6a149e72acb66e9993771e48948fd70389fa`.
-Draft PR: #132, validation against CI-only base `e32ef0f9d479bb579df49ab8cf8d03233e3d3f47`.
+Authoritative branch: `auto/dev3-analysis-provider-bounds-20260823`.
+Parent coordination head: `02241201b0fff72abdacd9157053d12f5c665d05`.
+Product code commit: `2e6e9e7767960c602d06a139948def6f9c400765`.
+Validated Product/test head: `7bcab25b54649663ba9f3094adbd14d49fdc3ced`.
+Draft PR: #137 against CI-only base `f5eea253770383b8212dfc1eb4af5815266cceca`.
 
-`EngineNoMoveHandoff` now reuses the shared 512-character `ENGINE_FEN_MAX_LENGTH` contract. Outer whitespace is normalized before validation; exact 512 remains valid; 513 fails closed at handoff DTO construction with `INVALID_HANDOFF`. No second chess/application core, state model, FEN parser, UI state, GameTree/domain state, ACSDB schema, importer/security behavior, or integration authority was introduced.
+AnalysisService now fails closed before materializing oversized provider result sequences or oversized legacy PVs. Direct AnalysisLine/AnalysisResult DTO construction is also bounded to the existing 256-ply PV safety ceiling and 10-line MultiPV ceiling. Exact limits remain valid. Adversarial ExplosiveSequence regressions prove early rejection without item iteration.
 
-Exact machine evidence: workflow `DEV3 No-Move FEN Bounds CI`, run `32598467907`, job `97092971137`, SUCCESS. Focused engine-session/resource regressions 89/89 PASS; full unittest 717/717 PASS; pytest 795 passed + 651 subtests; diff hygiene and compile PASS; SELFTEST and complete WebView2 diagnostic PASS; no test weakening.
+Exact machine evidence: workflow `DEV3 Analysis Provider Bounds CI`, run `32599676493`, job `97095971890`, SUCCESS. Focused 79/79 PASS; full unittest 723/723 PASS; full pytest 801 passed + 651 subtests PASS; diff hygiene/compile/SELFTEST/complete WebView2 diagnostic PASS; no test weakening.
 
-Fresh ownership read found no active competing Product branch/PR for this exact gap. Ownership constraints remain: DEV1 UI/WebView, DEV2 canonical GameTree/domain, DEV4 PGN/ChessBase/import security plus active shared ACSDB work, DEV5 selective integration/promotion.
+A separate parallel DEV3 PR #134 terminalized during this run and closes the final-review `history_node_id` resource bound. It is independent and must not be duplicated.
+
+Priority has now changed by canonical Audit handoff: ACTIVE / STAGE1 RELEASE FREEZE / FRESH WINDOWS CANDIDATE PRIORITY. Accepted Stage1 authority is `manual5/integration-20260821 @ 0fa442330bc2bb03636ff9297512da4c29e38684`. New Full Product feature expansion is secondary until a fresh Windows candidate decision exists.
+
+DEV3 next work is therefore release-support verification of exact accepted Stage1 Stockfish/analysis/clocks/lifecycle runtime and packaged Stockfish behavior. No QA-owned strict Windows harness mutation and no speculative Stage1 Product patch.
 
 FRESH_WINDOWS_CANDIDATE=NO
 NVDA_VERIFIED=NO
