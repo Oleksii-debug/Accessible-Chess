@@ -1,0 +1,171 @@
+name: DEV5 Stage1 UIA SetValue Observability
+
+on:
+  push:
+    branches:
+      - qa/dev5-stage1-uia-setvalue-observability-20260823
+
+permissions:
+  contents: read
+
+env:
+  SOURCE_INTEGRATION_SHA: 0fa442330bc2bb03636ff9297512da4c29e38684
+  PYWEBVIEW_VERSION: 6.2.1
+  NUITKA_UPSTREAM_FIX_COMMIT: b7ea05bf570e0b6950de6db7c4c8e579e1b77d29
+
+jobs:
+  setvalue-observability:
+    runs-on: windows-2025
+    timeout-minutes: 45
+    steps:
+      - name: Checkout evidence harness
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Materialize exact accepted Stage1
+        shell: pwsh
+        run: |
+          git config core.autocrlf false
+          git config core.eol lf
+          git cat-file -e "$env:SOURCE_INTEGRATION_SHA^{commit}"
+          if($LASTEXITCODE -ne 0){throw 'Accepted Stage1 SHA unavailable'}
+          if(Test-Path work){Remove-Item work -Recurse -Force}
+          git worktree add --detach work $env:SOURCE_INTEGRATION_SHA
+          if($LASTEXITCODE -ne 0){throw 'Exact worktree creation failed'}
+          $resolved=(git -C work rev-parse HEAD).Trim()
+          if($resolved -ne $env:SOURCE_INTEGRATION_SHA){throw "SOURCE LOCK mismatch: $resolved"}
+          "EXACT SOURCE PASS $resolved"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install exact Windows runtime/compiler
+        shell: pwsh
+        run: |
+          $nuitkaUrl="https://github.com/Nuitka/Nuitka/archive/$env:NUITKA_UPSTREAM_FIX_COMMIT.zip"
+          python -m pip install "pywebview==$env:PYWEBVIEW_VERSION" "Nuitka @ $nuitkaUrl" ordered-set zstandard
+          if($LASTEXITCODE -ne 0){throw 'Runtime/compiler install failed'}
+      - name: Build deterministic sound assets
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path 'work\release-assets\assets\sounds' | Out-Null
+          @'
+          import json,math,struct,wave
+          from pathlib import Path
+          root=Path('work/release-assets/assets/sounds'); root.mkdir(parents=True,exist_ok=True)
+          events=['move','capture','check','castle','promotion','illegal','start','end','tick']
+          freqs=[330,220,660,440,550,140,392,196,880]
+          for name,freq in zip(events,freqs):
+              path=root/f'{name}.wav'; rate=22050; duration=0.12 if name=='tick' else 0.18
+              frames=[]
+              for i in range(int(rate*duration)):
+                  envelope=max(0.0,1.0-i/(rate*duration)); value=int(9000*envelope*math.sin(2*math.pi*freq*i/rate)); frames.append(struct.pack('<h',value))
+              with wave.open(str(path),'wb') as out:
+                  out.setnchannels(1); out.setsampwidth(2); out.setframerate(rate); out.writeframes(b''.join(frames))
+          (root/'manifest.json').write_text(json.dumps({'schema_version':1,'files':{e:f'{e}.wav' for e in events}},indent=2),encoding='utf-8')
+          '@ | Set-Content -Encoding UTF8 make_obs_sounds.py
+          python make_obs_sounds.py
+      - name: Build exact-source packaged EXE
+        shell: pwsh
+        run: |
+          Push-Location work
+          try {
+            python -m nuitka --standalone --assume-yes-for-downloads --windows-console-mode=disable --output-filename=AccessibleChess.exe --include-data-dir=web=web --include-data-dir=release-assets\assets=assets run_accessible_chess.py
+            if($LASTEXITCODE -ne 0){throw 'Nuitka standalone compile failed'}
+            $exe=Get-ChildItem -Recurse -Filter AccessibleChess.exe | Where-Object {$_.FullName -match '\.dist\\'} | Select-Object -First 1
+            if(-not $exe){throw 'Packaged EXE missing'}
+            $exe.FullName | Set-Content -Encoding UTF8 ..\obs_exe_path.txt
+          } finally { Pop-Location }
+      - name: Launch packaged EXE
+        shell: pwsh
+        run: |
+          $exe=(Get-Content obs_exe_path.txt -Raw).Trim()
+          $app=Start-Process $exe -PassThru
+          Start-Sleep -Seconds 18
+          if($app.HasExited){throw "Packaged GUI exited during startup: $($app.ExitCode)"}
+          $app.Id | Set-Content obs_pid.txt
+          "PACKAGED OBSERVABILITY APP PASS pid=$($app.Id)"
+      - name: Probe ValuePattern SetValue convergence after native Backspace
+        shell: pwsh
+        run: |
+          $appPid=[int](Get-Content obs_pid.txt -Raw)
+          @'
+          param([int]$AppPid)
+          $ErrorActionPreference='Stop'
+          Add-Type -AssemblyName UIAutomationClient
+          Add-Type -AssemblyName UIAutomationTypes
+          function RuntimeId($e){try{(($e.GetRuntimeId()|ForEach-Object{[string]$_})-join '.')}catch{''}}
+          function Moves {
+            $all=[System.Windows.Automation.AutomationElement]::RootElement.FindAll([System.Windows.Automation.TreeScope]::Descendants,[System.Windows.Automation.Condition]::TrueCondition)
+            $out=@()
+            foreach($e in $all){
+              try{
+                if([string]$e.Current.ControlType.ProgrammaticName -eq 'ControlType.Edit' -and [string]$e.Current.Name -match '^(Move|Хід)$' -and [bool]$e.Current.IsEnabled -and [bool]$e.Current.IsKeyboardFocusable -and -not [bool]$e.Current.IsOffscreen){$out+=,$e}
+              }catch{}
+            }
+            return $out
+          }
+          function OneMove {
+            $deadline=[DateTime]::UtcNow.AddSeconds(12)
+            do{
+              $m=@(Moves)
+              $by=@{}
+              foreach($e in $m){$rid=RuntimeId $e;if($rid){$by[$rid]=$e}}
+              if($by.Count -eq 1){return @($by.Values)[0]}
+              Start-Sleep -Milliseconds 200
+            }while([DateTime]::UtcNow -lt $deadline)
+            throw "Expected one unique visible Move Edit, got $($by.Count)"
+          }
+          function VP($e){$e.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern)}
+          function ReadReacquired([string]$rid){
+            foreach($e in @(Moves)){if((RuntimeId $e)-eq $rid){return [string](VP $e).Current.Value}}
+            return '<missing>'
+          }
+          if(-not ('AccessibleChessQaObsKeys' -as [type])){
+            Add-Type -TypeDefinition @"
+          using System;
+          using System.Runtime.InteropServices;
+          public static class AccessibleChessQaObsKeys {
+            [DllImport("user32.dll")]
+            private static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, UIntPtr dwExtraInfo);
+            private const uint KEYEVENTF_KEYUP=0x0002;
+            public static void Key(byte vk){keybd_event(vk,0,0,UIntPtr.Zero);keybd_event(vk,0,KEYEVENTF_KEYUP,UIntPtr.Zero);}
+          }
+          "@
+          }
+          $move=OneMove; $rid=RuntimeId $move; $vp=VP $move
+          $vp.SetValue('e9'); Start-Sleep -Milliseconds 300
+          if((ReadReacquired $rid)-ne 'e9'){throw 'Could not establish e9 baseline through UIA ValuePattern'}
+          $move=OneMove; $move.SetFocus(); Start-Sleep -Milliseconds 200
+          [AccessibleChessQaObsKeys]::Key([byte]0x23); Start-Sleep -Milliseconds 120
+          [AccessibleChessQaObsKeys]::Key([byte]0x08); Start-Sleep -Milliseconds 250
+          $afterBackspace=ReadReacquired $rid
+          if($afterBackspace-ne'e'){throw "Native Backspace control did not produce e: '$afterBackspace'"}
+          $move=OneMove; $vp=VP $move
+          $vp.SetValue('e9')
+          $sameImmediate=[string]$vp.Current.Value
+          $samples=@()
+          foreach($delay in @(0,25,50,100,250,500,1000,2000)){
+            if($delay -gt 0){Start-Sleep -Milliseconds $delay}
+            $samples += [pscustomobject]@{delay_ms=$delay;same_pattern=[string]$vp.Current.Value;reacquired=(ReadReacquired $rid)}
+            if($samples[-1].reacquired -eq 'e9'){break}
+          }
+          $out=[ordered]@{product_sha=$env:SOURCE_INTEGRATION_SHA;runtime_id=$rid;after_backspace=$afterBackspace;same_pattern_immediate=$sameImmediate;samples=$samples;converged=($samples[-1].reacquired -eq 'e9')}
+          $out|ConvertTo-Json -Depth 6|Set-Content -Encoding UTF8 uia-setvalue-observability.json
+          $out|ConvertTo-Json -Depth 6|Write-Output
+          if(-not $out.converged){throw 'UIA SetValue did not converge to e9 within bounded reacquire probe'}
+          Write-Output 'UIA SETVALUE BOUNDED CONVERGENCE PASS'
+          '@ | Set-Content -Encoding UTF8 uia_setvalue_observability.ps1
+          & .\uia_setvalue_observability.ps1 -AppPid $appPid
+      - name: Upload observability evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dev5-stage1-uia-setvalue-observability
+          path: uia-setvalue-observability.json
+          if-no-files-found: warn
+          retention-days: 7
+      - name: Cleanup
+        if: always()
+        shell: pwsh
+        run: |
+          if(Test-Path obs_pid.txt){$pidValue=[int](Get-Content obs_pid.txt -Raw); Stop-Process -Id $pidValue -Force -ErrorAction SilentlyContinue}
