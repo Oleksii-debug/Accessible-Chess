@@ -8,6 +8,8 @@ Add-Type -AssemblyName UIAutomationClient
 Add-Type -AssemblyName UIAutomationTypes
 Add-Type -AssemblyName System.Windows.Forms
 
+$script:process = $null
+
 function Fail([string]$message) { throw "UIA R3 FAIL: $message" }
 function Wait-Until([scriptblock]$condition, [int]$timeoutMs = 10000, [string]$message = 'condition timed out') {
     $deadline = [DateTime]::UtcNow.AddMilliseconds($timeoutMs)
@@ -18,9 +20,20 @@ function Wait-Until([scriptblock]$condition, [int]$timeoutMs = 10000, [string]$m
     Fail $message
 }
 function Main-Window {
+    if ($null -ne $script:process) {
+        try {
+            if (-not $script:process.HasExited) {
+                $script:process.Refresh()
+                if ($script:process.MainWindowHandle -ne [IntPtr]::Zero) {
+                    return [System.Windows.Automation.AutomationElement]::FromHandle($script:process.MainWindowHandle)
+                }
+            }
+        } catch { }
+    }
+
     $root = [System.Windows.Automation.AutomationElement]::RootElement
     return $root.FindFirst(
-        [System.Windows.Automation.TreeScope]::Children,
+        [System.Windows.Automation.TreeScope]::Descendants,
         (New-Object System.Windows.Automation.PropertyCondition(
             [System.Windows.Automation.AutomationElement]::NameProperty,
             'WordDeck')))
@@ -36,7 +49,7 @@ function Find-ByName($root, [string]$name) {
 function Find-WindowByName([string]$name) {
     $root = [System.Windows.Automation.AutomationElement]::RootElement
     return $root.FindFirst(
-        [System.Windows.Automation.TreeScope]::Children,
+        [System.Windows.Automation.TreeScope]::Descendants,
         (New-Object System.Windows.Automation.PropertyCondition(
             [System.Windows.Automation.AutomationElement]::NameProperty,
             $name)))
@@ -94,12 +107,26 @@ function Exercise-NativeTextKeys($element, [string]$name, [scriptblock]$invarian
     }
 }
 
-$process = $null
 try {
     $resolved = (Resolve-Path $ExePath).Path
-    $process = Start-Process -FilePath $resolved -PassThru
-    Wait-Until { $null -ne (Main-Window) } 20000 'main WordDeck window did not appear'
-    $main = Main-Window
+    $workingDirectory = Split-Path -Parent $resolved
+    $script:process = Start-Process -FilePath $resolved -WorkingDirectory $workingDirectory -PassThru
+
+    $deadline = [DateTime]::UtcNow.AddSeconds(25)
+    $main = $null
+    do {
+        if ($script:process.HasExited) {
+            Fail "WordDeck exited before exposing its main window; exit code $($script:process.ExitCode)."
+        }
+        $main = Main-Window
+        if ($null -ne $main) { break }
+        Start-Sleep -Milliseconds 150
+    } while ([DateTime]::UtcNow -lt $deadline)
+
+    if ($null -eq $main) {
+        $script:process.Refresh()
+        Fail "main WordDeck window did not become automatable; process is alive, MainWindowHandle=$($script:process.MainWindowHandle), MainWindowTitle='$($script:process.MainWindowTitle)'."
+    }
 
     $word = Find-ByName $main 'Current English word'
     $translation = Find-ByName $main 'Ukrainian translation'
@@ -198,8 +225,8 @@ try {
     Write-Host 'WordDeck Worker4 Round3 UIA PASS: canonical Recall P0 preserved; menus/text controls keep native arrows; main/Spelling/Sentence selectors retain focus; shared F1/settings truth includes fixed Alt+F4; trainer close paths verified.'
 }
 finally {
-    if ($null -ne $process -and -not $process.HasExited) {
-        try { $process.CloseMainWindow() | Out-Null; Start-Sleep -Milliseconds 800 } catch {}
-        if (-not $process.HasExited) { try { $process.Kill() } catch {} }
+    if ($null -ne $script:process -and -not $script:process.HasExited) {
+        try { $script:process.CloseMainWindow() | Out-Null; Start-Sleep -Milliseconds 800 } catch {}
+        if (-not $script:process.HasExited) { try { $script:process.Kill() } catch {} }
     }
 }
