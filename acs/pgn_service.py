@@ -238,6 +238,7 @@ def _publish_expected_hash(
         raise PgnConcurrentWriteError(f"PGN changed since it was opened: {destination}")
 
     snapshot = _create_hardlink_snapshot(destination)
+    preserve_snapshot = False
     try:
         if _current_sha256(destination) != expected_sha256:
             raise PgnConcurrentWriteError(f"PGN changed since it was opened: {destination}")
@@ -249,12 +250,26 @@ def _publish_expected_hash(
         # ``snapshot`` references the pre-publication inode. A competing writer
         # that modified that inode immediately before our replace changes this
         # digest too. Restore those newer bytes before reporting the conflict.
-        if _current_sha256(snapshot) != expected_sha256:
-            os.replace(snapshot, destination)
+        try:
+            snapshot_sha256 = _current_sha256(snapshot)
+        except (OSError, ValueError, PgnFileError) as exc:
+            preserve_snapshot = True
+            raise PgnFileError(
+                "PGN publication could not be verified safely; recovery snapshot was preserved"
+            ) from exc
+
+        if snapshot_sha256 != expected_sha256:
+            try:
+                os.replace(snapshot, destination)
+            except OSError as exc:
+                preserve_snapshot = True
+                raise PgnFileError(
+                    "PGN concurrent-write rollback failed; recovery snapshot was preserved"
+                ) from exc
             snapshot = None
             raise PgnConcurrentWriteError(f"PGN changed during publication: {destination}")
     finally:
-        if snapshot is not None:
+        if snapshot is not None and not preserve_snapshot:
             try:
                 snapshot.unlink()
             except FileNotFoundError:
