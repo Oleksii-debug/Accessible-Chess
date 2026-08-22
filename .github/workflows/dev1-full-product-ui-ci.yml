@@ -1,0 +1,106 @@
+name: DEV1 Full Product UI CI
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - full5/dev1-accessible-shell-20260822
+      - full5/dev1-webview-composition-20260822-1439
+      - full5/dev1-teacher-webview-20260822-1538
+      - full5/dev1-classroom-remote-webview-20260822-1844
+      - full5/dev1-pgn-webview-20260822-1904
+  pull_request:
+    branches:
+      - manual5/integration-20260821
+
+permissions:
+  contents: read
+
+env:
+  DEV1_FULL_PRODUCT_BASE: e24ff85ff9a6ad3ea19d33f7035526c7bcdf2c8e
+
+jobs:
+  dev1-full-product-ui:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install verification dependency
+        run: python -m pip install -q pytest
+
+      - name: Prove exact head and isolated DEV1 scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected="${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}"
+          actual="$(git rev-parse HEAD)"
+          test "$actual" = "$expected"
+          git cat-file -e "$DEV1_FULL_PRODUCT_BASE^{commit}"
+          git merge-base --is-ancestor "$DEV1_FULL_PRODUCT_BASE" HEAD
+          test "$(git merge-base "$DEV1_FULL_PRODUCT_BASE" HEAD)" = "$DEV1_FULL_PRODUCT_BASE"
+          git diff --check "$DEV1_FULL_PRODUCT_BASE" HEAD
+          changed="$(git diff --name-only "$DEV1_FULL_PRODUCT_BASE" HEAD)"
+          printf '%s\n' "$changed"
+          allowed='^(acs/full_product_ui_shell\.py|acs/teacher_presentation\.py|acs/full_product_actions\.py|acs/full_product_presenters\.py|acs/classroom_presentation\.py|acs/full_product_webview_adapter\.py|acs/teacher_webview_projection\.py|acs/classroom_webview_projection\.py|acs/classroom_webview_bridge\.py|acs/pgn_webview_projection\.py|acs/pgn_webview_bridge\.py|web/full_product_classroom\.js|web/full_product_pgn\.js|tests/test_dev1_full_product_accessible_shell\.py|tests/test_dev1_full_product_ui_packages\.py|tests/test_dev1_classroom_remote_ui\.py|tests/test_dev1_full_product_webview_adapter\.py|tests/test_dev1_teacher_webview_projection\.py|tests/test_dev1_classroom_webview_projection\.py|tests/test_dev1_classroom_webview_privacy\.py|tests/test_dev1_classroom_webview_bridge\.py|tests/test_dev1_classroom_web_asset\.py|tests/test_dev1_pgn_webview_projection\.py|tests/test_dev1_pgn_webview_atomicity\.py|\.github/workflows/dev1-full-product-ui-ci\.yml|\.github/workflows/dev1-classroom-remote-webview-ci\.yml)$'
+          unexpected="$(printf '%s\n' "$changed" | grep -Ev "$allowed" || true)"
+          if [ -n "$unexpected" ]; then
+            echo "Unexpected DEV1 full-product path(s):" >&2
+            printf '%s\n' "$unexpected" >&2
+            exit 1
+          fi
+          if printf '%s\n' "$changed" | grep -E '(^|/)tools/qa/|windows-stage1-strict|stage1-product-candidate|publish-stage1-release|windows-stage1-build' ; then
+            echo 'Release/QA contamination detected' >&2
+            exit 1
+          fi
+
+      - name: Parse DEV1 browser assets
+        run: |
+          node --check web/full_product_classroom.js
+          node --check web/full_product_pgn.js
+
+      - name: Compile Product presentation and tests
+        run: python -m compileall -q acs tests run_accessible_chess.py
+
+      - name: DEV1 focused full-product UI packages
+        run: >-
+          python -m unittest -v
+          tests.test_dev1_full_product_accessible_shell
+          tests.test_dev1_full_product_ui_packages
+          tests.test_dev1_classroom_remote_ui
+          tests.test_dev1_full_product_webview_adapter
+          tests.test_dev1_teacher_webview_projection
+          tests.test_dev1_classroom_webview_projection
+          tests.test_dev1_classroom_webview_privacy
+          tests.test_dev1_classroom_webview_bridge
+          tests.test_dev1_classroom_web_asset
+          tests.test_dev1_pgn_webview_projection
+          tests.test_dev1_pgn_webview_atomicity
+
+      - name: Canonical service and Stage1 accessibility regressions
+        run: >-
+          python -m unittest -v
+          tests.test_keybindings
+          tests.test_gametree
+          tests.test_search_service
+          tests.test_bookdocument
+          tests.test_bookreader
+          tests.test_training
+          tests.test_dev1_release_ui_regressions
+          tests.test_accessible_webui
+
+      - name: Full repository unittest discovery
+        run: python -m unittest discover -s tests -v
+
+      - name: Full repository pytest without weakening
+        run: python -m pytest -q
+
+      - name: Complete product diagnostic
+        run: python run_accessible_chess.py --diagnostic
