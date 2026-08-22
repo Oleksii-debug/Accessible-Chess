@@ -111,8 +111,9 @@ internal static class TatoebaImportProvenance
         IReadOnlyList<string> legacyInputs,
         bool requireAttributionPolicy)
     {
-        bool currentShape = root.TryGetProperty("official_urls", out JsonElement urls) && urls.ValueKind == JsonValueKind.Object &&
-                            root.TryGetProperty("input_sha256", out JsonElement hashes) && hashes.ValueKind == JsonValueKind.Object;
+        bool hasCurrentUrls = root.TryGetProperty("official_urls", out JsonElement urls) && urls.ValueKind == JsonValueKind.Object;
+        bool hasCurrentHashes = root.TryGetProperty("input_sha256", out JsonElement hashes) && hashes.ValueKind == JsonValueKind.Object;
+        bool currentShape = hasCurrentUrls && hasCurrentHashes;
         if (currentShape)
         {
             foreach (string input in currentInputs)
