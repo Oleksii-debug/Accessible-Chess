@@ -168,14 +168,16 @@ try {
 
     # Verify the actual Ctrl+K accelerator, not only the Tools menu route. The
     # explicit target is important after closing the modal F1 window on a hosted
-    # interactive runner.
+    # interactive runner. WinApp resolves selectors through the UI Automation
+    # accessible name; the dialog's visible caption is "Keyboard shortcuts" but
+    # its stable accessible name is "Keyboard shortcut settings".
     Focus 'Current English word'
     Send-Keys 'ctrl+k' 'Current English word'
-    Wait-For 'Keyboard shortcuts' 15000
+    Wait-For 'Keyboard shortcut settings' 15000
     Wait-For 'Shortcut actions' 7000
     Assert-Focus 'Shortcut actions' 'shortcut settings initial focus'
     Send-Keys 'alt+f4'
-    Wait-Gone 'Keyboard shortcuts' 7000
+    Wait-Gone 'Keyboard shortcut settings' 7000
 
     # Standard profile shortcuts must route through the full-v1 profile service,
     # not the historical Recall-only profile path. Opening and cancelling must
