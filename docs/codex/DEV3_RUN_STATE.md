@@ -1,44 +1,33 @@
 # AUTO-CHESS DEV3 run state
 
-STATUS: COMPLETE FOR LITERAL ACSDB/LIBRARY/SEARCH P1 / FULL PRODUCT MISSION PARTIAL
+STATUS: IN_PROGRESS / SEARCH-SCALAR P1 IMPLEMENTED / CI_PENDING
 BRANCH: `auto/dev3-acsdb-stable-paging-20260821`
 PRODUCT PR: #65
-VALIDATION PR: #82 — EVIDENCE ONLY / DO NOT MERGE
+VALIDATION PR: #84 — EVIDENCE ONLY / DO NOT MERGE
 DIRECTIVE: Full Product DEV3 / engine-analysis + ACSDB-Library-Search-import-export safety + presentation-neutral Books/Training progress backend contracts
 
-Latest verified executable Product head: `85b88d2efd8fb92f0be5500e5a8da2b86228e46a`.
-Exact GREEN CI run: `32561369567`.
-Exact CI job: `97003308118`.
-Workflow PR merge ref executed: `d075bc872f40af64a3470fd5d4e869574a8a866a` = exact Product head plus evidence-only marker `fc41342087b2be2b82d318eaa090658c8c11b7b8`.
-Runner: GitHub runner 2.336.0; Ubuntu 24.04.4 image 20260816.277.1; Python 3.12.14.
+Current executable Product head: `3dde3a7444c9cf594e92e32f5e084c8969015ad4`.
+Implementation: `fada1ed8fd31762cb8054ac67124c3a72bd39a28`.
+Regression tests: `3dde3a7444c9cf594e92e32f5e084c8969015ad4`.
 
-P1 delivered:
-- user-entered `%`, `_` and `\\` are now literal ACSDB search text rather than implicit SQLite wildcard operators;
-- explicit `ESCAPE '\\'` clauses cover player, event, ECO, opening and source-name filters;
-- normal case-insensitive substring behavior remains intact; ECO remains a prefix filter;
-- SQL values remain parameterized;
-- deterministic tests cover percent, underscore, backslash, mixed source names and ECO literal-prefix behavior;
-- no second chess rules, legality, GameTree, board, UI, keybinding or presentation authority was introduced.
+P1 implemented:
+- `source_id` and `after_game_id` fail closed before SQLite bind when above signed 64-bit INTEGER max;
+- exact upper bound remains valid;
+- strict non-bool integer and existing positivity/non-negativity contracts preserved;
+- deterministic overflow and upper-bound regressions added;
+- no GameTree/chess-rules/UI/keybinding/integration target changes.
 
-Executable evidence on `85b88d2...` through merge ref `d075bc8...`:
-- diff hygiene PASS;
-- compileall including launcher PASS;
-- focused DEV3 data/Books/Training/Search suite 85/85 PASS;
-- both new literal-search regressions PASS;
-- full unittest 614/614 PASS;
-- full pytest 692 passed + 585 subtests PASS;
-- `python run_accessible_chess.py --diagnostic`: SELFTEST PASS and complete WebView2 user-flow diagnostic PASS;
-- no tests weakened/skipped for GREEN.
+CURRENT VALIDATION:
+- local clone/tests blocked by runtime DNS resolution failure for github.com;
+- validation branch `auto/dev3-search-scalar-ci-evidence-20260822`;
+- PR #84 head `2220325a1d69cf46bf4611b36f0337378e8ab527` contains documentation-only CI marker over exact executable Product base;
+- applicable Actions run not yet visible through connector;
+- DO NOT CLAIM GREEN until terminal exact-base workflow evidence exists.
 
-SAFE OVERLAP:
-- DEV2 canonical GameTree/domain untouched;
-- DEV1 presentation/UI/Teacher surfaces untouched;
-- DEV4 QA/security ownership untouched;
-- DEV5 integration target/promotion ownership untouched.
+LAST TERMINAL GREEN: executable head `85b88d2efd8fb92f0be5500e5a8da2b86228e46a`; run/job `32561369567` / `97003308118`; merge ref `d075bc872f40af64a3470fd5d4e869574a8a866a`; focused 85/85; unittest 614/614; pytest 692 + 585 subtests; compile/diff/diagnostic PASS.
 
-READY_FOR_INTEGRATION: YES for the isolated DEV3 ACSDB/Library/Search/recovery/query-plan + literal-search package, Training revision-bound snapshot + durable CAS persistence slices, and Books durable reading-progress integrity slices.
-OVERALL_FULL_PRODUCT_DEV3: PARTIAL.
-NEXT_ACTION: fresh ownership check, then another unclaimed dependency-correct ACSDB/Library/Search or presentation-neutral Books/Training/progress backend P1. P2 only when no higher-value P1 remains: Actions currently emit a non-blocking Node20-target deprecation warning while GitHub forces Node24.
+SAFE OVERLAP: DEV2 canonical GameTree/domain untouched; DEV1 presentation/UI/Teacher untouched; DEV4 QA/security untouched; DEV5 integration/promotion untouched.
+NEXT_ACTION: poll #84 exact-base CI; if RED inspect logs and repair without weakening tests; if GREEN close #84 unmerged, update PR #65 and all DEV3 coordination files to exact evidence.
+READY_FOR_INTEGRATION: previous verified DEV3 package YES; new search-scalar P1 NO while CI_PENDING.
 NVDA_VERIFIED: NO
 WINDOWS_CANDIDATE: NONE created by DEV3.
-BLOCKER: none for this isolated slice; integration/release authority remains DEV5/Auditor.
