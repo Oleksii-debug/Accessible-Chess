@@ -17,10 +17,12 @@ internal static class AccessibilityAcceptanceRound4SelfTest
     public static void Run()
     {
         TestShortcutContextIsolation();
+        TestUnifiedRegistryAndDynamicSpellingPreservation();
+        TestLegacyShortcutAliasCompatibility();
         TestUnsafeAndNativeKeysFailClosed();
         TestRecallArrowSurfaceContract();
         TestSelectorNavigationContract();
-        Console.WriteLine("WordDeck R4 accessibility acceptance passed: shortcut context isolation, unsafe/native keys, Recall arrow surface and selector navigation contracts verified.");
+        Console.WriteLine("WordDeck R4 accessibility acceptance passed: unified shortcut truth, context isolation, cross-mode conflict rejection, dynamic Spelling binding preservation, legacy shortcut aliases, unsafe/native keys, Recall arrow surface and selector navigation contracts verified.");
     }
 
     private static void TestShortcutContextIsolation()
@@ -41,6 +43,57 @@ internal static class AccessibilityAcceptanceRound4SelfTest
         var recallManager = new ShortcutManager(app, spelling.Decks, ShortcutDispatchContext.Recall);
         AssertEqual(ActionIds.RevealTranslation, recallManager.FindAction(Keys.Control | Keys.T), "Recall shortcut must dispatch in Recall context.");
         AssertNull(recallManager.FindAction(Keys.Control | Keys.Shift | Keys.H), "Spelling shortcut must not be swallowed in Recall context.");
+        AssertNull(recallManager.FindAction(Keys.Control | Keys.Shift | Keys.S), "Spelling entry-point shortcut must fall through to the WinForms menu command in Recall context.");
+        AssertNull(recallManager.FindAction(Keys.Control | Keys.Shift | Keys.E), "Sentence entry-point shortcut must fall through to the WinForms menu command in Recall context.");
+    }
+
+    private static void TestUnifiedRegistryAndDynamicSpellingPreservation()
+    {
+        AppState app = AppStateStore.Normalize(new AppState());
+        SpellingState spelling = SpellingStateStore.Normalize(new SpellingState());
+
+        var recallOnly = new ShortcutManager(app);
+        AssertTrue(recallOnly.Definitions.Any(def => def.Id == ActionIds.OpenSpelling), "Main/F1 registry must expose the Spelling entry point even without Spelling deck context.");
+        AssertTrue(recallOnly.Definitions.Any(def => def.Id == ActionIds.OpenSentenceCoach), "Main/F1 registry must expose the Sentence entry point even without Spelling deck context.");
+
+        string spellingDeckId = spelling.Decks.First().Id;
+        string dynamicAction = ActionIds.SpellingSwitchDeck(spellingDeckId);
+        Keys dynamicKey = Keys.Control | Keys.Shift | Keys.F8;
+        app.Shortcuts[dynamicAction] = dynamicKey.ToString();
+        recallOnly.RefreshDeckDefinitions();
+        AssertTrue(app.Shortcuts.ContainsKey(dynamicAction), "Recall-only shortcut refresh deleted a dynamic Spelling binding without Spelling deck context.");
+        AssertFalse(recallOnly.TrySet(ActionIds.SaveProgress, dynamicKey, out string? crossModeConflict) || string.IsNullOrWhiteSpace(crossModeConflict),
+            "Recall settings accepted a key already owned by a persisted dynamic Spelling action.");
+
+        // Imported/legacy state may already contain an ambiguous duplicate. No
+        // window may silently choose one action in that situation.
+        app.Shortcuts[ActionIds.SaveProgress] = dynamicKey.ToString();
+        AssertTrue(recallOnly.Get(ActionIds.SaveProgress) == Keys.None,
+            "Ambiguous persisted cross-mode shortcut did not fail closed.");
+        app.Shortcuts[ActionIds.SaveProgress] = (Keys.Control | Keys.S).ToString();
+
+        var full = new ShortcutManager(app, spelling.Decks, ShortcutDispatchContext.All);
+        AssertTrue(full.Definitions.Any(def => def.Id == dynamicAction), "Full shortcut registry omitted a valid dynamic Spelling deck action.");
+        AssertEqual(dynamicAction, full.FindAction(dynamicKey), "Valid dynamic Spelling binding did not survive into the full registry.");
+
+        string orphan = ActionIds.SpellingSwitchDeck("definitely-missing-r4-deck");
+        app.Shortcuts[orphan] = (Keys.Control | Keys.Shift | Keys.F9).ToString();
+        full.RefreshDeckDefinitions(spelling.Decks);
+        AssertFalse(app.Shortcuts.ContainsKey(orphan), "Full Spelling-context refresh failed to remove a proven orphaned dynamic Spelling binding.");
+    }
+
+    private static void TestLegacyShortcutAliasCompatibility()
+    {
+        var legacy = new AppState();
+        Keys legacyKey = Keys.Control | Keys.Shift | Keys.D3;
+        legacy.Shortcuts[ActionIds.LegacySwitchDeck(3)] = legacyKey.ToString();
+
+        var manager = new ShortcutManager(legacy);
+        string durableAction = ActionIds.SwitchDeck(DeckIds.Core(3));
+        AssertTrue(manager.Get(durableAction) == legacyKey,
+            "Legacy numeric Recall deck shortcut alias disabled the migrated durable shortcut.");
+        AssertEqual(durableAction, manager.FindAction(legacyKey),
+            "Migrated legacy Recall deck shortcut did not dispatch through its durable action.");
     }
 
     private static void TestUnsafeAndNativeKeysFailClosed()

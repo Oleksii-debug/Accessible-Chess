@@ -17,7 +17,7 @@ internal static class SelfTest
             TestShortcutRegistryAndRebinding();
             TestPronunciationAudioLayer();
             TestStatePersistenceAndRecovery();
-            Console.WriteLine("WordDeck self-test passed: Oxford 5000 verified beta bridge, baseline-ID preservation, strict imports, pasted custom cards, dynamic decks, scoped shortcut registry, pronunciation paths, resume state, and recovery persistence validated.");
+            Console.WriteLine("WordDeck self-test passed: Oxford 5000 verified beta bridge, baseline-ID preservation, strict imports, pasted custom cards, dynamic decks, unified shortcut registry, pronunciation paths, resume state, and recovery persistence validated.");
             return 0;
         }
         catch (Exception ex)
@@ -164,9 +164,13 @@ internal static class SelfTest
     {
         var state = AppStateStore.Normalize(new AppState());
         var manager = new ShortcutManager(state);
-        Require(manager.Definitions.Count == 33, $"Expected 33 Recall/scope/core-deck actions, got {manager.Definitions.Count}.");
+        Require(manager.Definitions.Count == 49, $"Expected 49 unified Recall/Spelling/Sentence/core-deck actions, got {manager.Definitions.Count}.");
         Require(manager.Definitions.Select(def => def.Id).Distinct(StringComparer.OrdinalIgnoreCase).Count() == manager.Definitions.Count, "Shortcut action IDs must be unique.");
         Require(manager.Definitions.Where(def => def.DefaultKeys != Keys.None).Select(def => def.DefaultKeys).Distinct().Count() == manager.Definitions.Count(def => def.DefaultKeys != Keys.None), "Assigned default shortcuts must be unique.");
+        Require(manager.Definitions.Any(def => def.Id == ActionIds.OpenSpelling), "Unified shortcut registry omitted the Spelling entry point.");
+        Require(manager.Definitions.Any(def => def.Id == ActionIds.OpenSentenceCoach), "Unified shortcut registry omitted the Sentence Spelling entry point.");
+        Require(manager.FindAction(Keys.Control | Keys.Shift | Keys.S) is null, "Recall dispatch context swallowed the Spelling entry-point shortcut.");
+        Require(manager.FindAction(Keys.Control | Keys.Shift | Keys.E) is null, "Recall dispatch context swallowed the Sentence entry-point shortcut.");
         foreach (string scopeId in StudyScopeIds.Ordered)
         {
             string actionId = ActionIds.SwitchStudyScope(scopeId);
@@ -193,7 +197,7 @@ internal static class SelfTest
         var service = new DeckService(state);
         DeckDefinition userDeck = service.Create("Custom study");
         manager.RefreshDeckDefinitions();
-        Require(manager.Definitions.Count == 35, "Creating a Recall user deck did not add switch/move actions.");
+        Require(manager.Definitions.Count == 51, "Creating a Recall user deck did not add exactly two switch/move actions to the unified registry.");
         string switchAction = ActionIds.SwitchDeck(userDeck.Id);
         string moveAction = ActionIds.MoveToDeck(userDeck.Id);
         Require(manager.Get(switchAction) == Keys.None && manager.Get(moveAction) == Keys.None, "User-deck shortcuts must start unassigned.");
