@@ -109,13 +109,15 @@ internal sealed class ShortcutManager
     private string? FindConflictingActionId(string actionId, Keys keys)
     {
         // Check the persisted registry, not only the definitions visible in the
-        // current window. This is what prevents a Recall-only settings surface
-        // from assigning a key already owned by a dynamic Spelling deck action.
-        // Ambiguous imported/persisted bindings therefore fail closed even
-        // before the other training mode has been opened in this process.
+        // current window. This prevents a Recall-only settings surface from
+        // assigning a key already owned by a dynamic Spelling deck action.
+        // Legacy numeric Recall deck aliases are intentionally ignored: state
+        // migration copies them to durable IDs but keeps the old keys for safe
+        // backward compatibility, so the alias is not a second live command.
         foreach ((string otherActionId, string raw) in _state.Shortcuts)
         {
             if (string.Equals(otherActionId, actionId, StringComparison.OrdinalIgnoreCase)) continue;
+            if (IsLegacyNumericDeckAction(otherActionId)) continue;
             if (!Enum.TryParse(raw, out Keys otherKeys) || otherKeys == Keys.None) continue;
             if (otherKeys == keys) return otherActionId;
         }
