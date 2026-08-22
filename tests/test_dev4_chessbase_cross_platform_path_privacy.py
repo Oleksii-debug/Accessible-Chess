@@ -33,6 +33,25 @@ class Dev4ChessBaseCrossPlatformPathPrivacyTests(unittest.TestCase):
             with self.subTest(source=source):
                 self.assertEqual(report_safe_name(source), self.SAFE_NAME)
 
+    def test_safe_relative_provenance_is_preserved_and_portable(self) -> None:
+        self.assertEqual(
+            report_safe_name(r"incoming\Training Database.CBH"),
+            "incoming/Training Database.CBH",
+        )
+        self.assertEqual(
+            report_safe_name("incoming/Training Database.CBH"),
+            "incoming/Training Database.CBH",
+        )
+        self.assertEqual(
+            report_safe_name(r"incoming\nested\Training Database.CBH"),
+            "incoming/nested/Training Database.CBH",
+        )
+        self.assertEqual(
+            report_safe_name(r"..\PrivateUser\Training Database.CBH"),
+            self.SAFE_NAME,
+            "relative traversal must fail closed to a basename instead of exposing parent provenance",
+        )
+
     def test_adapter_windows_style_private_path_is_not_serialized_whole_on_posix(self) -> None:
         report = probe_chessbase_source(self.WINDOWS_PRIVATE_PATH).as_report_fields()
         self._assert_report_safe_name(report["source_path"])
