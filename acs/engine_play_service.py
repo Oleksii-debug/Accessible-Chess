@@ -27,6 +27,9 @@ from .engine_ports import (
 from .game_lifecycle import GameLifecycle, LifecycleSnapshot
 
 
+ENGINE_HISTORY_NODE_ID_MAX_LENGTH = 256
+
+
 @dataclass(frozen=True)
 class EngineLevel:
     level: int
@@ -194,15 +197,17 @@ class EngineGameHandoff:
                     "final-review handoff cannot carry actor or position data",
                     code=EngineContractErrorCode.INVALID_HANDOFF,
                 )
-            if (
-                not isinstance(self.history_node_id, str)
-                or not self.history_node_id.strip()
-            ):
+            if not isinstance(self.history_node_id, str):
                 raise EngineContractError(
                     "final-review handoff requires history_node_id text",
                     code=EngineContractErrorCode.INVALID_HANDOFF,
                 )
             node_id = self.history_node_id.strip()
+            if not node_id or len(node_id) > ENGINE_HISTORY_NODE_ID_MAX_LENGTH:
+                raise EngineContractError(
+                    "final-review handoff requires history_node_id text",
+                    code=EngineContractErrorCode.INVALID_HANDOFF,
+                )
             object.__setattr__(self, "history_node_id", node_id)
 
 
