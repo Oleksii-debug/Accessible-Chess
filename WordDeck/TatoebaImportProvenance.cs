@@ -14,8 +14,10 @@ internal static class TatoebaImportProvenance
     private const int SupportedManifestSchemaVersion = 1;
     private const string VerifiedCc0Filter = "CC0 1.0 on BOTH sentence sides";
     private const string VerifiedCcByFilter = "CC BY 2.0 FR with BOTH sentence-owner usernames retained";
-    private static readonly string[] Cc0Inputs = { "english_cc0", "ukrainian_cc0", "links" };
-    private static readonly string[] CcByInputs = { "english_detailed", "ukrainian_detailed", "links" };
+    private static readonly string[] Cc0CurrentInputs = { "english_cc0", "ukrainian_cc0", "links" };
+    private static readonly string[] CcByCurrentInputs = { "english_detailed", "ukrainian_detailed", "links" };
+    private static readonly string[] Cc0LegacyInputs = { "english_cc0", "ukrainian_cc0", "english_ukrainian_links" };
+    private static readonly string[] CcByLegacyInputs = { "english_detailed", "ukrainian_detailed", "english_ukrainian_links" };
 
     public static TatoebaImportMetadata Resolve(string pairTsvPath)
     {
@@ -42,13 +44,30 @@ internal static class TatoebaImportProvenance
                 throw new InvalidDataException("Tatoeba provenance manifest has an unsupported or missing schema_version.");
             }
 
-            string source = RequireString(root, "source");
-            if (!source.Contains("Tatoeba", StringComparison.OrdinalIgnoreCase))
-                throw new InvalidDataException("Tatoeba provenance manifest does not identify Tatoeba as its source.");
+            bool hasLegacySources = root.TryGetProperty("sources", out JsonElement legacySources) && legacySources.ValueKind == JsonValueKind.Object;
+            if (root.TryGetProperty("source", out JsonElement sourceElement) && sourceElement.ValueKind == JsonValueKind.String)
+            {
+                string source = sourceElement.GetString() ?? string.Empty;
+                if (string.IsNullOrWhiteSpace(source) || !source.Contains("Tatoeba", StringComparison.OrdinalIgnoreCase))
+                    throw new InvalidDataException("Tatoeba provenance manifest does not identify Tatoeba as its source.");
+            }
+            else if (!hasLegacySources)
+            {
+                throw new InvalidDataException("Tatoeba provenance manifest is missing a source identity/evidence block.");
+            }
 
-            string outputName = RequireString(root, "output");
-            if (!string.Equals(outputName, Path.GetFileName(fullPairPath), StringComparison.Ordinal))
-                throw new InvalidDataException("Tatoeba provenance manifest output name does not match the selected pair TSV.");
+            if (root.TryGetProperty("output", out JsonElement outputElement))
+            {
+                if (outputElement.ValueKind != JsonValueKind.String ||
+                    !string.Equals(outputElement.GetString(), Path.GetFileName(fullPairPath), StringComparison.Ordinal))
+                {
+                    throw new InvalidDataException("Tatoeba provenance manifest output name does not match the selected pair TSV.");
+                }
+            }
+            else if (!hasLegacySources)
+            {
+                throw new InvalidDataException("Tatoeba provenance manifest is missing its output file identity.");
+            }
 
             string licenseFilter = RequireString(root, "license_filter");
             string expectedOutputHash = RequireSha256(root, "output_sha256");
@@ -60,9 +79,9 @@ internal static class TatoebaImportProvenance
 
             if (string.Equals(licenseFilter, VerifiedCc0Filter, StringComparison.Ordinal))
             {
-                ValidateOfficialSourceEvidence(root, Cc0Inputs, requireAttributionPolicy: false);
+                ValidateOfficialSourceEvidence(root, Cc0CurrentInputs, Cc0LegacyInputs, requireAttributionPolicy: false);
                 string provenance =
-                    "Tatoeba official weekly EN-UA exports filtered by WordDeck so BOTH English and Ukrainian sentence IDs are independently present in the official CC0 sentence exports. Upstream acquisition URLs and input/output SHA-256 values were retained in the adjacent manifest; the pair TSV hash was verified before import.";
+                    "Tatoeba official weekly EN-UA exports filtered by WordDeck so BOTH English and Ukrainian sentence IDs are independently present in the official CC0 sentence exports. Official acquisition URLs and upstream/input plus output SHA-256 evidence were retained in the adjacent manifest; the selected pair TSV hash was verified before import.";
                 return new TatoebaImportMetadata(provenance, "CC0 1.0", true);
             }
 
@@ -71,10 +90,10 @@ internal static class TatoebaImportProvenance
                 string declaredLicense = RequireString(root, "license");
                 if (!string.Equals(declaredLicense, "CC BY 2.0 FR", StringComparison.Ordinal))
                     throw new InvalidDataException("Attributed Tatoeba manifest does not declare the expected CC BY 2.0 FR license.");
-                ValidateOfficialSourceEvidence(root, CcByInputs, requireAttributionPolicy: true);
+                ValidateOfficialSourceEvidence(root, CcByCurrentInputs, CcByLegacyInputs, requireAttributionPolicy: true);
 
                 string provenance =
-                    "Tatoeba official weekly detailed EN-UA sentence exports linked by upstream sentence IDs. WordDeck retained nonblank Tatoeba owner usernames for BOTH sentence sides; official acquisition URLs and input/output SHA-256 values were retained in the adjacent manifest and verified before import. Per-sentence author attribution is embedded in each SentenceRecord.Source.";
+                    "Tatoeba official weekly detailed EN-UA sentence exports linked by upstream sentence IDs. WordDeck retained nonblank Tatoeba owner usernames for BOTH sentence sides; official acquisition URLs and upstream/input plus output SHA-256 evidence were retained in the adjacent manifest and verified before import. Per-sentence author attribution is embedded in each SentenceRecord.Source.";
                 return new TatoebaImportMetadata(provenance, "CC BY 2.0 FR", false, true);
             }
 
@@ -86,35 +105,67 @@ internal static class TatoebaImportProvenance
         }
     }
 
-    private static void ValidateOfficialSourceEvidence(JsonElement root, IReadOnlyList<string> requiredInputs, bool requireAttributionPolicy)
+    private static void ValidateOfficialSourceEvidence(
+        JsonElement root,
+        IReadOnlyList<string> currentInputs,
+        IReadOnlyList<string> legacyInputs,
+        bool requireAttributionPolicy)
     {
-        if (!root.TryGetProperty("official_urls", out JsonElement urls) || urls.ValueKind != JsonValueKind.Object)
-            throw new InvalidDataException("Tatoeba provenance manifest is missing official_urls.");
-        if (!root.TryGetProperty("input_sha256", out JsonElement hashes) || hashes.ValueKind != JsonValueKind.Object)
-            throw new InvalidDataException("Tatoeba provenance manifest is missing input_sha256 evidence.");
-        if (!root.TryGetProperty("stats", out JsonElement stats) || stats.ValueKind != JsonValueKind.Object)
-            throw new InvalidDataException("Tatoeba provenance manifest is missing transformation statistics.");
-
-        foreach (string input in requiredInputs)
+        bool currentShape = root.TryGetProperty("official_urls", out JsonElement urls) && urls.ValueKind == JsonValueKind.Object &&
+                            root.TryGetProperty("input_sha256", out JsonElement hashes) && hashes.ValueKind == JsonValueKind.Object;
+        if (currentShape)
         {
-            string urlText = RequireObjectString(urls, input, "official_urls");
-            if (!Uri.TryCreate(urlText, UriKind.Absolute, out Uri? uri) ||
-                !string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase) ||
-                !string.Equals(uri.Host, "downloads.tatoeba.org", StringComparison.OrdinalIgnoreCase))
+            foreach (string input in currentInputs)
             {
-                throw new InvalidDataException($"Tatoeba provenance manifest {input} acquisition URL is not an official HTTPS downloads.tatoeba.org URL.");
+                ValidateOfficialUrl(RequireObjectString(urls, input, "official_urls"), input);
+                string hash = RequireObjectString(hashes, input, "input_sha256");
+                if (!IsSha256(hash))
+                    throw new InvalidDataException($"Tatoeba provenance manifest input_sha256.{input} is not a valid SHA-256 digest.");
             }
 
-            string hash = RequireObjectString(hashes, input, "input_sha256");
-            if (!IsSha256(hash))
-                throw new InvalidDataException($"Tatoeba provenance manifest input_sha256.{input} is not a valid SHA-256 digest.");
+            if (!root.TryGetProperty("stats", out JsonElement stats) || stats.ValueKind != JsonValueKind.Object ||
+                !stats.TryGetProperty("pairs_emitted", out JsonElement emitted) || !emitted.TryGetInt32(out int pairCount) || pairCount <= 0)
+            {
+                throw new InvalidDataException("Tatoeba provenance manifest transformation statistics contain no positive pairs_emitted count.");
+            }
+
+            if (requireAttributionPolicy)
+                _ = RequireString(root, "attribution_policy");
+            return;
         }
 
-        if (!stats.TryGetProperty("pairs_emitted", out JsonElement emitted) || !emitted.TryGetInt32(out int pairCount) || pairCount <= 0)
-            throw new InvalidDataException("Tatoeba provenance manifest transformation statistics contain no positive pairs_emitted count.");
+        if (!root.TryGetProperty("sources", out JsonElement sources) || sources.ValueKind != JsonValueKind.Object)
+            throw new InvalidDataException("Tatoeba provenance manifest is missing official source acquisition/hash evidence.");
+        foreach (string input in legacyInputs)
+        {
+            if (!sources.TryGetProperty(input, out JsonElement evidence) || evidence.ValueKind != JsonValueKind.Object)
+                throw new InvalidDataException($"Tatoeba provenance manifest is missing sources.{input} evidence.");
+            ValidateOfficialUrl(RequireObjectString(evidence, "url", $"sources.{input}"), input);
+            string hash = RequireObjectString(evidence, "sha256", $"sources.{input}");
+            if (!IsSha256(hash))
+                throw new InvalidDataException($"Tatoeba provenance manifest sources.{input}.sha256 is invalid.");
+            if (!evidence.TryGetProperty("bytes", out JsonElement bytes) || !bytes.TryGetInt64(out long byteCount) || byteCount <= 0)
+                throw new InvalidDataException($"Tatoeba provenance manifest sources.{input}.bytes is missing or invalid.");
+        }
 
-        if (requireAttributionPolicy)
-            _ = RequireString(root, "attribution_policy");
+        if (!root.TryGetProperty("pair_count", out JsonElement legacyPairCount) ||
+            !legacyPairCount.TryGetInt32(out int legacyPairs) || legacyPairs <= 0)
+        {
+            throw new InvalidDataException("Tatoeba legacy provenance manifest contains no positive pair_count.");
+        }
+        string selectionRule = RequireString(root, "selection_rule");
+        if (requireAttributionPolicy && !selectionRule.Contains("owner", StringComparison.OrdinalIgnoreCase))
+            throw new InvalidDataException("Attributed Tatoeba legacy provenance selection_rule does not document owner attribution retention.");
+    }
+
+    private static void ValidateOfficialUrl(string urlText, string input)
+    {
+        if (!Uri.TryCreate(urlText, UriKind.Absolute, out Uri? uri) ||
+            !string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase) ||
+            !string.Equals(uri.Host, "downloads.tatoeba.org", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidDataException($"Tatoeba provenance manifest {input} acquisition URL is not an official HTTPS downloads.tatoeba.org URL.");
+        }
     }
 
     private static string RequireSha256(JsonElement root, string propertyName)
