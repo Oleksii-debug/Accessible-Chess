@@ -16,6 +16,7 @@ from .training import ExerciseSession
 
 
 STUDENT_PROGRESS_SNAPSHOT_SCHEMA_VERSION = 1
+STUDENT_PROGRESS_MAX_SNAPSHOT_RECORDS = 50_000
 _MAX_ID_LENGTH = 256
 _MAX_PAGE_SIZE = 1000
 _RECORD_FIELDS = frozenset(
@@ -428,6 +429,10 @@ class StudentProgressLedger:
         raw_records = payload["records"]
         if not isinstance(raw_records, list):
             raise TypeError("student progress snapshot records must be a list")
+        if len(raw_records) > STUDENT_PROGRESS_MAX_SNAPSHOT_RECORDS:
+            raise ValueError(
+                "student progress snapshot exceeds maximum record count"
+            )
 
         ledger = cls()
         for raw_record in raw_records:
