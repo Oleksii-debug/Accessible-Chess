@@ -63,7 +63,40 @@ class TeacherWebViewProjection:
             "cell": self._visual_cell(normalized, self._teacher.orientation),
         }
 
+    @staticmethod
+    def _accessible_summary(
+        *,
+        pointer: Mapping[str, object] | None,
+        highlights: tuple[Mapping[str, object], ...],
+        arrows: tuple[Mapping[str, object], ...],
+        language: str,
+    ) -> str:
+        parts: list[str] = []
+        if pointer is not None:
+            square = str(pointer["square"])
+            parts.append(f"Pointer {square}" if language == "en" else f"Вказівник {square}")
+        if highlights:
+            body = ", ".join(
+                f"{item['square']} {item['purpose']}" for item in highlights
+            )
+            parts.append(
+                f"Highlights: {body}"
+                if language == "en"
+                else f"Підсвічування: {body}"
+            )
+        if arrows:
+            body = ", ".join(
+                f"{item['start_square']}–{item['end_square']} {item['purpose']}"
+                for item in arrows
+            )
+            parts.append(f"Arrows: {body}" if language == "en" else f"Стрілки: {body}")
+        if not parts:
+            return "No teaching annotations." if language == "en" else "Навчальних позначок немає."
+        return ". ".join(parts) + "."
+
     def snapshot(self, *, language: str = "uk") -> dict[str, object]:
+        # Read canonical presentation state exactly once so visual and accessible
+        # projections can never describe different concurrent snapshots.
         state = self._teacher.snapshot()
         lang = "en" if str(language).lower() == "en" else "uk"
 
@@ -121,6 +154,8 @@ class TeacherWebViewProjection:
         if type(coordinates_visible) is not bool:
             raise ValueError("invalid teacher coordinates state")
 
+        highlight_items = tuple(highlights)
+        arrow_items = tuple(arrows)
         return {
             "board": {
                 "orientation": self._teacher.orientation.value,
@@ -129,11 +164,14 @@ class TeacherWebViewProjection:
                 "engine_visibility": engine_visibility,
             },
             "pointer": pointer_item,
-            "highlights": tuple(highlights),
-            "arrows": tuple(arrows),
+            "highlights": highlight_items,
+            "arrows": arrow_items,
             "mode": self._teacher.teaching_mode.value,
-            "accessible_summary": self._teacher.accessible_annotation_summary(
-                language=lang
+            "accessible_summary": self._accessible_summary(
+                pointer=pointer_item,
+                highlights=highlight_items,
+                arrows=arrow_items,
+                language=lang,
             ),
             "feedback": tuple(
                 self._teacher.concise_student_event(event, language=lang)
