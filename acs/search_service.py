@@ -9,10 +9,53 @@ keeps SQL/database identity inside the data layer.
 
 from dataclasses import dataclass
 from typing import Literal
+import unicodedata
 
 from .acsdb import AcsDatabase
 
 SearchResult = Literal["1-0", "0-1", "1/2-1/2", "*"]
+_SQLITE_INTEGER_MAX = (1 << 63) - 1
+_MAX_SEARCH_TERM_CHARS = 256
+_SEARCH_FOLD_SQL_FUNCTION = "ACS_SEARCH_FOLD"
+
+
+def _exact_int(value: object, *, name: str) -> int:
+    if type(value) is not int:
+        raise TypeError(f"{name} must be an integer")
+    return value
+
+
+def _sqlite_integer(value: object, *, name: str, minimum: int) -> int:
+    """Validate an application scalar before it reaches a SQLite INTEGER bind."""
+
+    integer = _exact_int(value, name=name)
+    if integer < minimum:
+        if minimum == 1:
+            raise ValueError(f"{name} must be a positive integer")
+        raise ValueError(f"{name} must be zero or a positive integer")
+    if integer > _SQLITE_INTEGER_MAX:
+        raise ValueError(f"{name} exceeds SQLite integer range")
+    return integer
+
+
+def _search_fold(value: str | None) -> str | None:
+    """Return a canonical Unicode form for case-insensitive literal searching.
+
+    SQLite's built-in ``NOCASE`` collation is ASCII-only. Chess libraries routinely
+    contain player, event and opening names in Cyrillic and accented Latin scripts,
+    so application search uses Unicode NFKC + ``casefold`` on both stored values and
+    query terms instead. ``None`` is preserved for nullable ACSDB text columns.
+    """
+
+    if value is None:
+        return None
+    return unicodedata.normalize("NFKC", value).casefold()
+
+
+def _escape_like(value: str) -> str:
+    """Escape a normalized user term for literal SQLite ``LIKE`` matching."""
+
+    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
 @dataclass(frozen=True, slots=True)
@@ -35,31 +78,46 @@ class GameSearchQuery:
     limit: int = 50
 
     def normalized(self) -> "GameSearchQuery":
-        def clean(value: str | None) -> str | None:
+        def clean(value: str | None, *, name: str) -> str | None:
             if value is None:
                 return None
-            value = " ".join(value.split())
-            return value or None
+            if type(value) is not str:
+                raise TypeError(f"{name} must be text")
+            normalized = " ".join(unicodedata.normalize("NFKC", value).split())
+            if len(normalized) > _MAX_SEARCH_TERM_CHARS:
+                raise ValueError(
+                    f"{name} exceeds maximum search term length of {_MAX_SEARCH_TERM_CHARS} characters"
+                )
+            return normalized or None
 
-        limit = int(self.limit)
+        limit = _exact_int(self.limit, name="limit")
         if not 1 <= limit <= 200:
             raise ValueError("Search limit must be between 1 and 200")
-        if self.source_id is not None and int(self.source_id) <= 0:
-            raise ValueError("source_id must be a positive integer")
-        if self.after_game_id is not None and int(self.after_game_id) < 0:
-            raise ValueError("after_game_id must be zero or a positive integer")
+
+        source_id: int | None = None
+        if self.source_id is not None:
+            source_id = _sqlite_integer(self.source_id, name="source_id", minimum=1)
+
+        after_game_id: int | None = None
+        if self.after_game_id is not None:
+            after_game_id = _sqlite_integer(
+                self.after_game_id,
+                name="after_game_id",
+                minimum=0,
+            )
+
         if self.result is not None and self.result not in {"1-0", "0-1", "1/2-1/2", "*"}:
             raise ValueError(f"Unsupported chess result: {self.result}")
 
         return GameSearchQuery(
-            player=clean(self.player),
-            event=clean(self.event),
-            eco=clean(self.eco),
-            opening=clean(self.opening),
+            player=clean(self.player, name="player"),
+            event=clean(self.event, name="event"),
+            eco=clean(self.eco, name="eco"),
+            opening=clean(self.opening, name="opening"),
             result=self.result,
-            source_id=int(self.source_id) if self.source_id is not None else None,
-            source_name=clean(self.source_name),
-            after_game_id=int(self.after_game_id) if self.after_game_id is not None else None,
+            source_id=source_id,
+            source_name=clean(self.source_name, name="source_name"),
+            after_game_id=after_game_id,
             limit=limit,
         )
 
@@ -96,25 +154,40 @@ class GameSearchService:
 
     def __init__(self, database: AcsDatabase) -> None:
         self._database = database
+        self._database.conn.create_function(
+            _SEARCH_FOLD_SQL_FUNCTION,
+            1,
+            _search_fold,
+            deterministic=True,
+        )
 
     def search(self, query: GameSearchQuery | None = None) -> GameSearchPage:
         q = (query or GameSearchQuery()).normalized()
         clauses: list[str] = []
         params: list[object] = []
 
+        def folded_pattern(value: str, *, prefix: bool = False) -> str:
+            folded = _search_fold(value)
+            assert folded is not None
+            escaped = _escape_like(folded)
+            return f"{escaped}%" if prefix else f"%{escaped}%"
+
         if q.player:
-            clauses.append("(g.white LIKE ? COLLATE NOCASE OR g.black LIKE ? COLLATE NOCASE)")
-            needle = f"%{q.player}%"
+            clauses.append(
+                f"({_SEARCH_FOLD_SQL_FUNCTION}(g.white) LIKE ? ESCAPE '\\' OR "
+                f"{_SEARCH_FOLD_SQL_FUNCTION}(g.black) LIKE ? ESCAPE '\\')"
+            )
+            needle = folded_pattern(q.player)
             params.extend((needle, needle))
         if q.event:
-            clauses.append("g.event LIKE ? COLLATE NOCASE")
-            params.append(f"%{q.event}%")
+            clauses.append(f"{_SEARCH_FOLD_SQL_FUNCTION}(g.event) LIKE ? ESCAPE '\\'")
+            params.append(folded_pattern(q.event))
         if q.eco:
-            clauses.append("g.eco LIKE ? COLLATE NOCASE")
-            params.append(f"{q.eco}%")
+            clauses.append(f"{_SEARCH_FOLD_SQL_FUNCTION}(g.eco) LIKE ? ESCAPE '\\'")
+            params.append(folded_pattern(q.eco, prefix=True))
         if q.opening:
-            clauses.append("g.opening LIKE ? COLLATE NOCASE")
-            params.append(f"%{q.opening}%")
+            clauses.append(f"{_SEARCH_FOLD_SQL_FUNCTION}(g.opening) LIKE ? ESCAPE '\\'")
+            params.append(folded_pattern(q.opening))
         if q.result:
             clauses.append("g.result=?")
             params.append(q.result)
@@ -122,8 +195,8 @@ class GameSearchService:
             clauses.append("g.source_id=?")
             params.append(q.source_id)
         if q.source_name:
-            clauses.append("s.source_name LIKE ? COLLATE NOCASE")
-            params.append(f"%{q.source_name}%")
+            clauses.append(f"{_SEARCH_FOLD_SQL_FUNCTION}(s.source_name) LIKE ? ESCAPE '\\'")
+            params.append(folded_pattern(q.source_name))
         if q.after_game_id is not None:
             clauses.append("g.id>?")
             params.append(q.after_game_id)
