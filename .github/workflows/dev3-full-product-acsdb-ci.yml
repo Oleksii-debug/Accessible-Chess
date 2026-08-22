@@ -55,6 +55,7 @@ jobs:
           tests.test_dev3_bookreader_ambiguous_persistence
           tests.test_dev3_bookreader_live_mutation_guard
           tests.test_dev3_training_snapshot_contract
+          tests.test_dev3_training_progress_store
 
       - name: Full unittest discovery
         run: python -m unittest discover -s tests -v
