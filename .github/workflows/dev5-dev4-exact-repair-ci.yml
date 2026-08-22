@@ -1,0 +1,61 @@
+name: DEV5 DEV4 Exact Repair Validation CI
+
+on:
+  push:
+    branches:
+      - full5/dev5-validate-dev4-f44113ac-20260822
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  DEV4_PRODUCT_SHA: f44113ac3c7783aca761c0a7e9044a6cac334cb3
+  DEV4_BASE_SHA: a4209d005ea0a1476f8eafb4822f4d39ac50ee5a
+
+jobs:
+  exact-dev4-repair:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Checkout exact DEV4 Product head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.DEV4_PRODUCT_SHA }}
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install test dependency
+        run: python -m pip install -q pytest
+
+      - name: Prove exact Product identity and diff hygiene
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$DEV4_PRODUCT_SHA"
+          git cat-file -e "$DEV4_BASE_SHA^{commit}"
+          git merge-base --is-ancestor "$DEV4_BASE_SHA" "$DEV4_PRODUCT_SHA"
+          git diff --check "$DEV4_BASE_SHA" "$DEV4_PRODUCT_SHA"
+          echo "DEV4 exact Product SHA verified: $DEV4_PRODUCT_SHA"
+
+      - name: Compile Product and tests
+        run: python -m compileall -q acs tests run_accessible_chess.py
+
+      - name: Focused DEV4 import PGN ChessBase regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m unittest discover -s tests -p 'test_dev4_*.py' -v
+          python -m unittest -v tests.test_pgn_service
+
+      - name: Full unittest discovery
+        run: python -m unittest discover -s tests -v
+
+      - name: Full pytest without weakening
+        run: python -m pytest -q
+
+      - name: Complete diagnostic
+        run: python run_accessible_chess.py --diagnostic
