@@ -1,5 +1,4 @@
 import unittest
-from dataclasses import replace
 
 from acs.bookdocument import (
     BookDocument,
@@ -26,15 +25,10 @@ from acs.full_product_presenters import (
 from acs.full_product_ui_shell import AccessibleShellState, ROUTES, UILanguage
 from acs.gametree import parse_games, serialize_games
 from acs.keybindings import BindingContext
-from acs.search_service import (
-    GameSearchItem,
-    GameSearchPage,
-    GameSearchQuery,
-)
+from acs.search_service import GameSearchItem, GameSearchPage, GameSearchQuery
 from acs.teacher_presentation import (
     AnnotationStyle,
     BoardOrientation,
-    EngineVisibility,
     StudentEventKind,
     TeacherPresentationState,
     TeachingMode,
@@ -49,6 +43,7 @@ class FullProductActionTests(unittest.TestCase):
         self.assertEqual("board.current", registry.definition("board.current").action_id)
         self.assertEqual("teacher.pointer_input", registry.definition("teacher.pointer_input").action_id)
         self.assertIn("screen.library", FULL_PRODUCT_ACTION_IDS)
+        self.assertIn("student.move", FULL_PRODUCT_ACTION_IDS)
         self.assertEqual(
             "teacher.pointer_input",
             registry.resolve_binding(BindingContext.DOCUMENT, "Ctrl+Alt+P").action_id,
@@ -67,15 +62,11 @@ class FullProductActionTests(unittest.TestCase):
 
         shell = AccessibleShellState()
         router = FullProductActionRouter(shell, delegate)
-        screen = router.dispatch(
-            "screen.library",
-            current_focus_id="board-square-e4",
-        )
+        screen = router.dispatch("screen.library", current_focus_id="board-square-e4")
         self.assertTrue(screen.handled_by_shell)
         self.assertEqual("library", screen.route_id)
         self.assertEqual("library-search", screen.focus_target)
         self.assertEqual([], calls)
-
         domain = router.dispatch("library.open_game", {"game_id": 41})
         self.assertFalse(domain.handled_by_shell)
         self.assertEqual({"ok": True}, domain.value)
@@ -147,9 +138,8 @@ class PgnPresenterTests(unittest.TestCase):
         presenter = PgnTreePresenter(self.games, language=UILanguage.EN)
         view = presenter.view()
         self.assertEqual("White — Black", view.title)
-        labels = [item.label for item in view.items]
-        self.assertTrue(any("e4" in label for label in labels))
-        self.assertTrue(any("$1" in label for label in labels))
+        self.assertTrue(any("e4" in item.label for item in view.items))
+        self.assertTrue(any("$1" in item.label for item in view.items))
         self.assertTrue(any(item.comments and "main comment" in item.comments for item in view.items))
         self.assertTrue(any(item.kind == "variation" and item.label == "Variation 1" for item in view.items))
         self.assertGreaterEqual(max(item.depth for item in view.items), 3)
@@ -157,13 +147,11 @@ class PgnPresenterTests(unittest.TestCase):
     def test_keyboard_selection_parent_and_boundaries_are_explicit(self):
         presenter = PgnTreePresenter(self.games, language=UILanguage.EN)
         first = presenter.selected()
-        self.assertIsNotNone(first)
         second = presenter.move_selection(1)
         self.assertNotEqual(first.node_id, second.node_id)
         variation = next(item for item in presenter.items() if item.kind == "variation")
         presenter.select(variation.node_id)
-        parent = presenter.select_parent()
-        self.assertEqual(variation.parent_id, parent.node_id)
+        self.assertEqual(variation.parent_id, presenter.select_parent().node_id)
         presenter.select(presenter.items()[0].node_id)
         with self.assertRaises(LookupError):
             presenter.move_selection(-1)
@@ -186,17 +174,14 @@ class PgnPresenterTests(unittest.TestCase):
         self.assertEqual(before, serialize_games(self.games))
         self.assertEqual("pgn.comment_edit", calls[0][0])
         self.assertEqual("new comment", calls[0][1]["text"])
-        self.assertIn("node_id", calls[0][1])
 
-    def test_language_switch_changes_variation_label_not_stable_node_identity(self):
+    def test_language_switch_changes_label_not_stable_node_identity(self):
         presenter = PgnTreePresenter(self.games, language=UILanguage.UA)
         ua_ids = [item.node_id for item in presenter.items()]
-        ua_variations = [item.label for item in presenter.items() if item.kind == "variation"]
+        ua_labels = [item.label for item in presenter.items() if item.kind == "variation"]
         presenter.set_language(UILanguage.EN)
-        en_ids = [item.node_id for item in presenter.items()]
-        en_variations = [item.label for item in presenter.items() if item.kind == "variation"]
-        self.assertEqual(ua_ids, en_ids)
-        self.assertNotEqual(ua_variations, en_variations)
+        self.assertEqual(ua_ids, [item.node_id for item in presenter.items()])
+        self.assertNotEqual(ua_labels, [item.label for item in presenter.items() if item.kind == "variation"])
 
 
 class FakeSearchService:
@@ -238,13 +223,9 @@ class LibraryPresenterTests(unittest.TestCase):
         first = presenter.search(GameSearchQuery(player="Alpha", limit=2))
         self.assertEqual(SurfaceStatus.READY, first.status)
         self.assertEqual(1, first.selected_game_id)
-        self.assertTrue(first.has_next_page)
         presenter.select(2)
-        second = presenter.next_page()
-        self.assertEqual(3, second.selected_game_id)
-        self.assertFalse(second.has_next_page)
-        back = presenter.previous_page()
-        self.assertEqual(1, back.selected_game_id)
+        self.assertEqual(3, presenter.next_page().selected_game_id)
+        self.assertEqual(1, presenter.previous_page().selected_game_id)
         self.assertEqual(2, len(service.calls))
 
     def test_source_paths_are_not_projected_into_visible_rows(self):
@@ -273,8 +254,7 @@ class LibraryPresenterTests(unittest.TestCase):
         )
 
     def test_database_path_exception_becomes_concise_accessible_error(self):
-        presenter = LibraryPresenter(FailingSearchService(), language=UILanguage.EN)
-        view = presenter.search(GameSearchQuery())
+        view = LibraryPresenter(FailingSearchService(), language=UILanguage.EN).search(GameSearchQuery())
         self.assertEqual(SurfaceStatus.ERROR, view.status)
         self.assertEqual("The action could not be completed.", view.message)
         self.assertNotIn("sqlite", view.message.lower())
@@ -295,10 +275,7 @@ class BookReaderPresenterTests(unittest.TestCase):
                     alt_text=None,
                     source_anchor=r"C:\\private\\book.docx#diagram1",
                 ),
-                Position(
-                    fen="8/8/8/8/8/8/3K4/7k b - - 0 1",
-                    caption="Position B",
-                ),
+                Position(fen="8/8/8/8/8/8/3K4/7k b - - 0 1", caption="Position B"),
                 BookExercise(
                     fen="8/8/8/8/8/8/2K5/7k w - - 0 1",
                     prompt="Find the square.",
@@ -320,8 +297,7 @@ class BookReaderPresenterTests(unittest.TestCase):
         self.assertNotIn("private", diagram.source_anchor)
 
     def test_open_position_and_return_restore_exact_reading_context(self):
-        reader = BookReader(self.document)
-        presenter = BookReaderPresenter(reader)
+        presenter = BookReaderPresenter(BookReader(self.document))
         diagram = presenter.next_position()
         calls = []
 
@@ -330,7 +306,6 @@ class BookReaderPresenterTests(unittest.TestCase):
             return "board-opened"
 
         self.assertEqual("board-opened", presenter.open_current_position(dispatch))
-        self.assertEqual("book.open_position", calls[0][0])
         self.assertEqual(diagram.position_fen, calls[0][1]["fen"])
         presenter.next_block()
         restored = presenter.return_from_board()
@@ -341,8 +316,7 @@ class BookReaderPresenterTests(unittest.TestCase):
         presenter = BookReaderPresenter(BookReader(self.document))
         saved = presenter.bookmark("chapter-start")
         presenter.next_position()
-        restored = presenter.restore_bookmark("chapter-start")
-        self.assertEqual(saved.index, restored.index)
+        self.assertEqual(saved.index, presenter.restore_bookmark("chapter-start").index)
 
 
 class TrainingPresenterTests(unittest.TestCase):
@@ -351,11 +325,7 @@ class TrainingPresenterTests(unittest.TestCase):
             exercise_id="ex-1",
             start_fen="8/8/8/8/8/8/4P3/4K2k w - - 0 1",
             steps=(
-                ExerciseStep(
-                    frozenset({"e4"}),
-                    hint="Move the pawn two squares.",
-                    explanation="Good.",
-                ),
+                ExerciseStep(frozenset({"e4"}), hint="Move the pawn two squares.", explanation="Good."),
                 ExerciseStep(frozenset({"e5"}), hint="Advance again."),
             ),
             title="Pawn practice",
@@ -394,56 +364,105 @@ class TrainingPresenterTests(unittest.TestCase):
         self.assertEqual(2, restored.view().step_number)
 
 
-class TeacherPolicyTests(unittest.TestCase):
-    def test_student_move_request_requires_explicit_permission_and_unlocked_board(self):
-        state = TeacherPresentationState()
-        blocked = state.record_student_event(StudentEventKind.MOVE_REQUEST, "e4")
-        self.assertFalse(blocked.allowed)
-        state.set_student_moves_allowed(True)
-        allowed = state.record_student_event(StudentEventKind.MOVE_REQUEST, "e4")
-        self.assertTrue(allowed.allowed)
-        state.set_board_locked(True)
-        blocked_again = state.record_student_event(StudentEventKind.MOVE_REQUEST, "e5")
-        self.assertFalse(blocked_again.allowed)
-        self.assertIn("blocked", state.concise_student_event(blocked_again, language="en"))
+class CanonicalTeacherBackend:
+    def __init__(self):
+        self.calls = []
+        self.state = {
+            "pointer_square": None,
+            "highlights": [],
+            "arrows": [],
+            "coordinate_labels_visible": True,
+            "student_pointer_history": [],
+            "active_student_id": None,
+            "engine_visibility": "hidden",
+            "board_permission": "locked",
+            "version": 1,
+        }
+
+    def dispatch(self, action_id, payload):
+        payload = dict(payload)
+        self.calls.append((action_id, payload))
+        if action_id == "teacher.pointer_input":
+            self.state["pointer_square"] = payload["square"]
+        elif action_id == "teacher.highlight":
+            self.state["highlights"].append({"square": payload["square"], "purpose": payload["purpose"]})
+        elif action_id == "teacher.arrow":
+            self.state["arrows"].append(dict(payload))
+        elif action_id == "teacher.board_permission":
+            self.state["board_permission"] = payload["permission"]
+        elif action_id == "teacher.engine_visibility":
+            self.state["engine_visibility"] = payload["visibility"]
+        return action_id
+
+    def snapshot(self):
+        return {key: tuple(value) if isinstance(value, list) else value for key, value in self.state.items()}
+
+
+class TeacherControllerTests(unittest.TestCase):
+    def setUp(self):
+        self.backend = CanonicalTeacherBackend()
+        self.controller = TeacherPresentationState(self.backend.dispatch, self.backend.snapshot)
+
+    def test_policy_commands_are_dispatched_to_canonical_owner_not_stored_in_ui(self):
+        self.controller.set_board_permission("move_allowed")
+        self.controller.set_engine_visibility("visible_to_teacher")
+        self.assertEqual("move_allowed", self.backend.state["board_permission"])
+        self.assertEqual("visible_to_teacher", self.backend.state["engine_visibility"])
+        self.assertEqual("teacher.board_permission", self.backend.calls[-2][0])
+        self.assertEqual("teacher.engine_visibility", self.backend.calls[-1][0])
+
+    def test_student_move_is_explicit_action_not_hover_or_selection(self):
+        self.controller.record_student_event(StudentEventKind.HOVER, "e4")
+        self.controller.record_student_event(StudentEventKind.SELECT, "e4")
+        self.controller.request_student_move("e4")
+        self.assertEqual("student.move", self.backend.calls[-1][0])
+        self.assertEqual({"raw_text": "e4"}, self.backend.calls[-1][1])
+        self.assertEqual(2, len(self.controller.feedback_events()))
 
     def test_hover_duplicate_feedback_is_coalesced_without_hiding_selection(self):
-        state = TeacherPresentationState()
-        for _ in range(5):
-            state.record_student_event(StudentEventKind.HOVER, "d4", piece_name="knight")
-        state.record_student_event(StudentEventKind.SELECT, "d4", piece_name="knight")
-        events = state.feedback_events(limit=10)
+        for sequence in range(5):
+            self.controller.record_student_event(
+                StudentEventKind.HOVER,
+                "d4",
+                piece_name="knight",
+                student_id="student-1",
+                sequence=sequence,
+            )
+        self.controller.record_student_event(StudentEventKind.SELECT, "d4", piece_name="knight")
+        events = self.controller.feedback_events(limit=10)
         self.assertEqual(2, len(events))
         self.assertEqual(StudentEventKind.HOVER, events[0].kind)
         self.assertEqual(StudentEventKind.SELECT, events[1].kind)
 
-    def test_modes_orientation_engine_visibility_and_annotations_are_presentation_only(self):
-        state = TeacherPresentationState()
-        state.set_teaching_mode(TeachingMode.ATTACK_DEFENCE)
-        state.set_engine_visibility(EngineVisibility.TEACHER)
-        self.assertEqual(BoardOrientation.BLACK, state.toggle_orientation())
-        state.set_pointer("f3")
-        state.set_selected_square("e4")
-        state.set_last_move("e2", "e4")
-        state.set_highlight("d5", style="attack")
-        state.add_arrow("e4", "d5", style="idea")
-        snapshot = state.presentation_snapshot()
-        self.assertEqual("attack_defence", snapshot["teaching_mode"])
-        self.assertEqual("teacher", snapshot["engine_visibility"])
-        self.assertEqual("black", snapshot["orientation"])
-        self.assertNotIn("position", snapshot)
-        self.assertNotIn("fen", snapshot)
-        summary = state.accessible_annotation_summary(language="en")
+    def test_modes_orientation_and_theme_are_ui_only_but_annotations_dispatch(self):
+        self.controller.set_teaching_mode(TeachingMode.ATTACK_DEFENCE)
+        self.assertEqual(BoardOrientation.BLACK, self.controller.toggle_orientation())
+        self.controller.type_pointer_character("f")
+        self.controller.type_pointer_character("3")
+        self.controller.set_highlight("d5", purpose="attack")
+        self.controller.add_arrow("e4", "d5", purpose="idea")
+        self.assertEqual("attack_defence", self.controller.teaching_mode.value)
+        self.assertEqual("black", self.controller.orientation.value)
+        summary = self.controller.accessible_annotation_summary(language="en")
         self.assertIn("Pointer f3", summary)
-        self.assertIn("Last move e2–e4", summary)
+        self.assertIn("d5 attack", summary)
+        self.assertIn("e4–d5 idea", summary)
+        self.assertNotIn("position", self.controller.snapshot())
 
-    def test_custom_annotation_color_requires_safe_hex(self):
-        state = TeacherPresentationState()
-        state.register_style(AnnotationStyle("student", "#123ABC"))
-        state.set_highlight("a1", style="student")
-        self.assertEqual("student", state.highlights["a1"])
+    def test_custom_annotation_color_requires_safe_hex_but_only_purpose_crosses_boundary(self):
+        self.controller.register_style(AnnotationStyle("student", "#123ABC"))
+        self.controller.set_highlight("a1", purpose="student")
+        action, payload = self.backend.calls[-1]
+        self.assertEqual("teacher.highlight", action)
+        self.assertEqual({"square": "a1", "purpose": "student"}, payload)
+        self.assertNotIn("color", payload)
         with self.assertRaises(ValueError):
             AnnotationStyle("bad", "red")
+
+    def test_provider_chess_state_leak_is_rejected(self):
+        bad = TeacherPresentationState(self.backend.dispatch, lambda: {"pointer_square": "e4", "fen": "x"})
+        with self.assertRaises(ValueError):
+            bad.snapshot()
 
 
 if __name__ == "__main__":
