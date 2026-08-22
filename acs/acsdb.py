@@ -275,9 +275,10 @@ class AcsDatabase:
                 self._check_sqlite_integrity(target)
             finally:
                 target.close()
-            if not overwrite and (destination_path.exists() or destination_path.is_symlink()):
-                raise FileExistsError(destination_path)
-            os.replace(temporary, destination_path)
+            if overwrite:
+                os.replace(temporary, destination_path)
+            else:
+                os.link(temporary, destination_path)
             return destination_path
         finally:
             if temporary.exists():
@@ -322,9 +323,10 @@ class AcsDatabase:
                     target.close()
                 if source is not None:
                     source.close()
-            if not overwrite and (destination_path.exists() or destination_path.is_symlink()):
-                raise FileExistsError(destination_path)
-            os.replace(temporary, destination_path)
+            if overwrite:
+                os.replace(temporary, destination_path)
+            else:
+                os.link(temporary, destination_path)
             return destination_path
         finally:
             if temporary.exists():
