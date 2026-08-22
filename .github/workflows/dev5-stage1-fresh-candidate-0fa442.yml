@@ -6,6 +6,11 @@ on:
       - qa/dev5-stage1-fresh-candidate-0fa442-20260823
     paths:
       - '.github/workflows/dev5-stage1-fresh-candidate-0fa442.yml'
+  pull_request:
+    branches:
+      - qa/windows-current-integration-candidate-20260815
+    paths:
+      - '.github/workflows/dev5-stage1-fresh-candidate-0fa442.yml'
   workflow_dispatch:
 
 permissions:
