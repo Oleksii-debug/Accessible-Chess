@@ -5,6 +5,9 @@ on:
   push:
     branches:
       - full5/dev1-classroom-remote-webview-20260822-1844
+  pull_request:
+    branches:
+      - full5/dev1-teacher-webview-20260822-1538
 
 permissions:
   contents: read
@@ -13,28 +16,31 @@ jobs:
   dev1-classroom-remote-webview:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    env:
+      EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          ref: ${{ env.EXPECTED_SHA }}
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
       - name: Install verification dependency
         run: python -m pip install -q pytest
-      - name: Prove exact push head and isolated DEV1 scope
+      - name: Prove exact source head and isolated DEV1 scope
         shell: bash
         run: |
           set -euo pipefail
           base='b873e18fe63e7fe9c01518627d33e4b6cc4f8646'
-          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
           git cat-file -e "$base^{commit}"
           git merge-base --is-ancestor "$base" HEAD
           test "$(git merge-base "$base" HEAD)" = "$base"
           git diff --check "$base" HEAD
           changed="$(git diff --name-only "$base" HEAD)"
           printf '%s\n' "$changed"
-          allowed='^(.github/workflows/dev1-classroom-remote-webview-ci.yml|acs/classroom_webview_projection.py|web/full_product_classroom.js|tests/test_dev1_classroom_webview_projection.py|tests/test_dev1_classroom_webview_privacy.py|tests/test_dev1_classroom_web_asset.py)$'
+          allowed='^(.github/workflows/dev1-classroom-remote-webview-ci.yml|acs/classroom_webview_projection.py|acs/classroom_webview_bridge.py|web/full_product_classroom.js|tests/test_dev1_classroom_webview_projection.py|tests/test_dev1_classroom_webview_privacy.py|tests/test_dev1_classroom_webview_bridge.py|tests/test_dev1_classroom_web_asset.py)$'
           unexpected="$(printf '%s\n' "$changed" | grep -Ev "$allowed" || true)"
           if [ -n "$unexpected" ]; then
             echo 'Unexpected path outside isolated DEV1 classroom/remote WebView package:' >&2
@@ -62,6 +68,7 @@ jobs:
           python -m unittest -v
           tests.test_dev1_classroom_webview_projection
           tests.test_dev1_classroom_webview_privacy
+          tests.test_dev1_classroom_webview_bridge
           tests.test_dev1_classroom_web_asset
           tests.test_dev1_classroom_remote_ui
           tests.test_dev1_teacher_webview_projection
