@@ -21,7 +21,6 @@ from .gametree import (
     MAX_TREE_NODES,
     MoveNode,
     PgnGame,
-    PgnRecoveryIssue,
     VariationLine,
 )
 from .gametree_navigation import (
@@ -193,13 +192,6 @@ def _validate_outer_game(game: object) -> PgnGame:
     ):
         raise GameTreeEditError(
             "warnings must be a list of text values",
-            code=GameTreeEditCode.INVALID_INPUT,
-        )
-    if not isinstance(game.recovery_issues, list) or any(
-        not isinstance(item, PgnRecoveryIssue) for item in game.recovery_issues
-    ):
-        raise GameTreeEditError(
-            "recovery_issues must be a list of PgnRecoveryIssue values",
             code=GameTreeEditCode.INVALID_INPUT,
         )
     return game
