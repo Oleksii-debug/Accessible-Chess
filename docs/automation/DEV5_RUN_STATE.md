@@ -1,7 +1,7 @@
 # DEV5_RUN_STATE
 
-RUN_ID: 20260822-1457
-STARTED_LOCAL: 14:57:15 Europe/Kyiv
+RUN_ID: 20260822-1602
+STARTED_LOCAL: 16:02:34 Europe/Kyiv
 STATUS: COMPLETE
 MODE: SAFE_OVERLAP_INTEGRATION_PREPARATION
 COORDINATION_BRANCH: manual5/dev5-regression-integration-20260821
@@ -9,91 +9,55 @@ VALIDATION_BRANCH: full5/dev5-selective-compose-20260822
 VALIDATION_PR: #88 OPEN/DRAFT/DO_NOT_MERGE
 STAGE1_INTEGRATION_TARGET: manual5/integration-20260821
 STAGE1_INTEGRATION_SHA: 0fa442330bc2bb03636ff9297512da4c29e38684
-FINAL_SNAPSHOT_CUTOFF: 2026-08-22T14:57:15+03:00
-ACTIVE_DIRECTIVE_AT_START: 0015 effective 14:00 Europe/Kyiv
-OBSERVED_FUTURE_DIRECTIVE_AT_START: 0017 effective 15:00 Europe/Kyiv; this invocation began before activation and therefore does not adopt it mid-run
+FINAL_SNAPSHOT_CUTOFF: 2026-08-22T16:02:34+03:00
+ACTIVE_DIRECTIVE_AT_START: 0018 effective 16:00 Europe/Kyiv
+NEXT_DIRECTIVE: 0019 effective 17:00 Europe/Kyiv
 NVDA_VERIFIED: NO
 FRESH_WINDOWS_CANDIDATE: NO
 READY_FOR_RELEASE: NO
 
 ## Instruction discovery
-AGENTS.md and shared docs/codex/CURRENT_STATE.md, NEXT_WORK.md and SESSION_HANDOFF.md are absent on the inspected DEV5 coordination ref. Live GitHub, canonical Drive lane handoffs/RUN_STATE, and docs/automation coordinator files remain operative.
+AGENTS.md and shared docs/codex/CURRENT_STATE.md, NEXT_WORK.md and SESSION_HANDOFF.md remain absent on the inspected DEV5 validation ref. Live GitHub, canonical Drive lane handoffs/RUN_STATE and docs/automation coordinator files govern this run.
 
-## Snapshot ruling
-SAFE OVERLAP is mandatory for this invocation. DEV1, DEV2 and DEV4 had terminal pre-cutoff evidence, but the newest DEV3 canonical terminal handoff was written after the cutoff: Drive modified_time 2026-08-22T11:57:50.290Z / 14:57:50 Europe/Kyiv, 35 seconds after the 14:57:15 cutoff. Therefore DEV3 was still in-flight at wave start for coordination purposes even though live GitHub later exposed a terminal GREEN package. No DEV5 Product push, cherry-pick, merge, validation-head mutation or competing backend edit is allowed in this invocation.
+## Snapshot ruling — SAFE OVERLAP is mandatory
+The immutable cutoff is 2026-08-22T16:02:34+03:00. Drive revision history proves 12_DEV3_HANDOFF_CURRENT was modified at 2026-08-22T13:02:16.069Z / 16:02:16 Europe/Kyiv, eighteen seconds before cutoff, with STATUS=IN_PROGRESS, branch auto/dev3-search-resource-bounds-20260822, head 266960e13062e9518d13ab83005bc60ad9ba57cb and exact-head CI 32574603178 still QUEUED. A touching DEV3 worker therefore existed before cutoff. DEV5 entered SAFE OVERLAP: no Product push, cherry-pick, merge, competing backend edit or validation-head mutation.
 
-## Accepted Stage1 / release plane
-manual5/integration-20260821 remains exact 0fa442330bc2bb03636ff9297512da4c29e38684. PR #54/frozen refs remain untouched. Old rejected ZIP was not reused. No fresh Windows candidate exists. NVDA_VERIFIED remains NO.
+## Stage1 / existing GREEN baseline
+Accepted Stage1 remains manual5/integration-20260821 @ 0fa442330bc2bb03636ff9297512da4c29e38684. PR #54/frozen refs untouched; rejected ZIP not reused; no Windows candidate.
 
-## Existing exact-GREEN full-product baseline
-full5/dev5-selective-compose-20260822 remains exact 7f4d2af3447d8d5046c9a75e1243a4ce36b11e4a; draft PR #88 remains OPEN/DRAFT/DO NOT MERGE and mergeable.
-Exact DEV5 Full Product Selective Composition CI run 32569504104 / job 97022845834 remains SUCCESS:
-- DEV1 presentation/accessibility 78/78 PASS
-- canonical GameTree/BookDocument 22/22 PASS
-- full unittest 718/718 PASS
-- full pytest 796 PASS + 791 subtests PASS
-- SELFTEST PASS
-- complete WebView2 diagnostic PASS
-This Product/test head was deliberately not mutated in this run.
+full5/dev5-selective-compose-20260822 remains exact 7f4d2af3447d8d5046c9a75e1243a4ce36b11e4a; PR #88 remains validation-only OPEN/DRAFT/DO NOT MERGE. Exact DEV5 Full Product Selective Composition CI 32569504104 / 97022845834 remains SUCCESS: DEV1 78/78, canonical GameTree/BookDocument 22/22, full unittest 718/718, full pytest 796 + 791 subtests, SELFTEST and complete WebView2 diagnostic PASS.
 
-## DEV1 eligible terminal package — new incremental WebView seam
-Canonical Drive handoff RUN_ID 20260822-1439 was terminal before cutoff.
-Branch: full5/dev1-webview-composition-20260822-1439
-Exact head: 98ad9347d1a4e4a4c6bf766b93146f380675d471
-Validation PR #89: OPEN/DRAFT/DO NOT MERGE, mergeable.
-Exact DEV1 CI run 32571036182: SUCCESS.
-Increment relative to prior accepted DEV1 terminal head 995f7846a56d7f52e6403544046da11e6d061c1c is exactly four commits / three paths:
-- acs/full_product_webview_adapter.py — added
-- tests/test_dev1_full_product_webview_adapter.py — added
-- .github/workflows/dev1-full-product-ui-ci.yml — modified
-GitHub compare confirms ahead_by=4, behind_by=0, merge-base exactly 995f7846.... No DEV2 core/history, DEV3 engine/database, DEV4 import/security, Stage1 release or Windows strict paths are touched.
-Exact CI evidence: focused DEV1 58/58; canonical service + Stage1 accessibility 65/65; unittest 669/669; pytest 747 + 713 subtests; SELFTEST and complete diagnostic PASS. A real raw-KeyError/action-id leakage was fixed in Product code without weakening tests.
-INTAKE_DECISION_THIS_RUN: ELIGIBLE_BUT_DEFERRED_BY_SAFE_OVERLAP. It is a low-conflict presentation-only overlay candidate for a later fresh DEV5 wave.
+## DEV1 — eligible terminal cumulative presentation chain
+Canonical DEV1 handoff RUN_ID 20260822-1538 terminalized at 15:45:46, before cutoff. Latest branch full5/dev1-teacher-webview-20260822-1538 @ b873e18fe63e7fe9c01518627d33e4b6cc4f8646; PR #91 OPEN/DRAFT/MERGEABLE/DO NOT MERGE WHOLESALE. It is based on prior terminal DEV1 WebView head 98ad9347d1a4e4a4c6bf766b93146f380675d471 and adds exactly three paths: acs/teacher_webview_projection.py, its dedicated test, and DEV1 workflow metadata. Exact CI 32573762014 / 97032967628 SUCCESS: focused 79/79, canonical service + Stage1 accessibility 65/65, unittest 690/690, pytest 768 + 713 subtests, SELFTEST and diagnostic PASS. A real false-green was fixed so sighted Teacher visual projection and NVDA textual summary derive atomically from one canonical provider snapshot.
 
-## DEV2 eligible terminal state
-DEV2_RUN_STATE RUN_ID 20260822-1441 started 14:41 and completed 14:46 before cutoff. No Product mutation. Canonical full-product head remains 4dd706838881c0e328c7578eada17227de43cf60; exact DEV2 CI 32565884179 / 97014330560 SUCCESS; already represented in PR #88. P0/P1 none proven in DEV2-owned lane.
+Future DEV5 intake must preserve dependency order: first the already-terminal DEV1 full_product_webview_adapter layer through 98ad9347..., then the Teacher WebView projection layer through b873e18..., selectively copying Product/tests only and excluding lane workflow history. This run defers intake solely because SAFE OVERLAP forbids Product mutation.
 
-## DEV4 eligible terminal QA state — blocker count increases to 12
-Canonical DEV4 handoff RUN_ID 20260822-1436-full-product-qa was modified 14:42:05 before cutoff and is terminal QA evidence only.
-Product source remains unchanged: a4209d005ea0a1476f8eafb4822f4d39ac50ee5a.
-QA branch exact head: c6b29e7beadbfbd0d49d22aafaaebaa7a412158a.
-Newest strict evidence commit: 4f41b583755fca475becaf97eea6a7d8e9b20b7e.
-PR #67 is OPEN/DRAFT/MERGEABLE. Commit-associated Actions for c6b29e7... are absent, therefore exact-head QA observability remains INCONCLUSIVE, never GREEN.
+## DEV2 — terminal / no new Product delta
+DEV2_RUN_STATE 20260822-1538 started 15:38 and completed 15:40 before cutoff. Canonical full-product SHA remains 4dd706838881c0e328c7578eada17227de43cf60 with exact DEV2 CI 32565884179 / 97014330560 SUCCESS and is already selectively represented in PR #88. No DEV2-owned P0/P1 or new Product mutation is proven.
 
-Twelve eligible proven Product defect classes now block PGN/ChessBase/import promotion:
-1. symlink/reparse import indirection follows targets instead of failing closed;
-2. PGN import lacks bounded full-text/source-size handling and a finite cap;
-3. serialized ChessBase/report provenance exposes private local paths;
-4. PGN expected_sha256 optimistic overwrite has a commit-boundary TOCTOU/lost-update window;
-5. PGN overwrite=False can clobber a competing creator after preflight;
-6. PGN export filesystem indirection/symlink handling is not fail-closed;
-7. ChessBase companion-directory I/O failure can collapse into ordinary no-companion absence;
-8. ImportRegistry.inspect_batch can abort the whole batch on importer RuntimeError instead of recording and continuing;
-9. ChessBase manifest verification can propagate hash/open OSError/PermissionError instead of explicit failed-verification evidence;
-10. shared fingerprinting can open FIFO/device-like special files before regular-file validation;
-11. SourceFingerprint collection is unstable against same-size concurrent mutation during hashing and can return stale/mixed provenance;
-12. ACSDB failed-import history persists raw parser/provider exception text and ImportHistoryService exposes it application-side, allowing private path or token-like provider diagnostics to cross a concrete persisted/application reporting boundary.
-No terminal DEV4 Product repair package exists for these twelve defects.
+## DEV3 — eligible terminal backlog plus active touching continuation
+A prior terminal DEV3 package is independently eligible: PR #90 executable Product head 6160d02b22c0a911082a3896f3fc9b09f5edd1b0 with exact CI 32571958759 / 97028547641 SUCCESS; focused 125/125, unittest 655/655, pytest 733 + 618 subtests, SELFTEST and diagnostic PASS. It adds durable CAS StudentProgressStore semantics over canonical StudentProgressLedger without UI/chess-state duplication or engine-answer persistence.
+
+However, pre-cutoff DEV3 was already mutating the touching descendant search branch, so neither PR #90 nor any newer DEV3 delta is composed in this run.
 
 ## DEV3 post-cutoff quarantine
-At live readback after cutoff, PR #65 showed a newer coordination head 05024f51e325732bce0c10eae32981889757a2a5 and verified Product commit 047bdea014964395f95a115fb21cc96c167f3130 with exact CI 32571590992 / 97027694064 SUCCESS for engine-assisted Book/Training/Teacher policy plus append-only Student progress analytics. The canonical Drive handoff declaring this package terminal was modified at 14:57:50, after this run cutoff. Therefore this package is OBSERVED_POST_CUTOFF / QUARANTINED and is not accepted, rejected, composed or used to coordinate current Product decisions. A later fresh wave must re-snapshot it.
+After cutoff, PR #92 advanced to head 6f90516a8beefa8c191a8c593aaf3f2e410aa738. Exact DEV3 Full Product ACSDB CI run 32574651690 started at 2026-08-22T13:02:47Z / 16:02:47 Europe/Kyiv, thirteen seconds after this cutoff, and later completed SUCCESS. Its evidence is observed but quarantined for the next fresh wave, never retroactively accepted here. Post-cutoff evidence: focused 130/130 PASS, full unittest 660/660 PASS, full pytest 738 PASS + 628 subtests, SELFTEST and complete WebView2 diagnostic PASS. The Product delta is isolated to acs/search_service.py with a 256-normalized-character bound for user text filters; test/workflow metadata are separable.
 
-## Integration preparation performed under SAFE OVERLAP
-No Product changes were made. Conflict preparation established:
-- DEV1 incremental delta is a clean 3-path presentation-only overlay candidate after existing PR #88 DEV1 baseline;
-- DEV2 remains already represented and requires no churn;
-- DEV4 has no Product repair to layer;
-- DEV3 newest package must wait for a fresh cutoff because its terminal evidence postdates this invocation start.
-The existing 7f4d2af... validation lineage is therefore the only accepted exact-GREEN full-product composition for this run.
+## DEV4 — terminal QA only / Product repair absent
+Canonical DEV4 handoff RUN_ID 20260822-1503-full-product-qa is terminal before cutoff. Product source remains unchanged at a4209d005ea0a1476f8eafb4822f4d39ac50ee5a. QA branch exact head bc72a86e16a55331a71d8d749d09870c1f018c6b; newest evidence 97044de22bbab7098f0ba6a06fd9dfa5cd37562f. PR #67 OPEN/DRAFT; exact-head Actions absent => INCONCLUSIVE, not GREEN.
 
-## Coordinator output / next action
-NEXT_WAVE_DIRECTIVES is advanced to version 0018 effective 16:00 Europe/Kyiv. Directive 0017 became effective at 15:00 only after this invocation had already started and is not retroactively activated here.
-Next fresh DEV5 wave must first determine whether DEV3's post-cutoff package and any DEV4 Product repair are terminal before that new cutoff. If touching work is active, stay SAFE OVERLAP. If all relevant touching lanes are terminal, selective order is:
-1. validate/compose eligible DEV1 WebView delta after the existing accepted DEV1 package;
-2. independently re-evaluate the quarantined DEV3 package and consume only terminal dependency-correct new paths;
-3. do not promote PGN/ChessBase/import until a terminal DEV4 Product repair closes/reconciles all twelve locked defects with deterministic tests and observable exact-head CI;
-4. only then run PGN -> canonical GameTree -> ACSDB -> Search/Open vertical plus full regressions.
-Persistent full5 integration authority remains blocked until the repaired affected vertical is exact-SHA GREEN with auditable provenance.
+Twelve proven shared PGN/ChessBase/import Product defect classes remain: symlink/reparse indirection; unbounded PGN reads/source size; private path serialization; expected_sha256 TOCTOU; overwrite=False creator race; PGN export indirection; companion I/O false absence; inspect_batch RuntimeError abort; manifest verification I/O propagation; FIFO/special-file pre-open; unstable provenance hashing under same-size concurrent mutation on both shared import and ChessBase integrity paths; and raw failed-import exception persistence/application exposure.
+
+## Product action this run
+NONE by design. Exact-GREEN validation 7f4d2af... was preserved. No test weakening, force push, frozen-ref mutation, evidence-PR wholesale merge, PGN promotion or Windows/release action occurred.
+
+## Next safe sequence
+1. Fresh cutoff first. If any touching lane is IN_PROGRESS, remain SAFE OVERLAP.
+2. If lanes are terminal, selectively compose cumulative DEV1 Product/test layers through b873e18... without workflow metadata.
+3. Re-evaluate DEV3 under that fresh cutoff. Accept only terminal dependency-correct non-PGN Product/test packages; post-cutoff 6f905... evidence from this run is not authority until the new snapshot confirms terminal state.
+4. Run combined Teacher/WebView + canonical GameTree + ACSDB/Search/Books/Training/Student focused suites, full unittest, full pytest and complete diagnostic on one exact validation SHA.
+5. Keep shared PGN/ChessBase/import promotion blocked until DEV4 supplies a terminal Product repair for all twelve classes with deterministic regressions and observable exact-head CI.
+6. Only then run repaired PGN -> canonical GameTree -> ACSDB -> Search/Open vertical and consider advancing persistent full5 integration authority.
 
 READY_FOR_AUDITOR_READBACK=YES
 READY_FOR_RELEASE=NO
