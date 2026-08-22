@@ -1,8 +1,25 @@
 from __future__ import annotations
 
+import hashlib
+import json
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Mapping
+
+
+TRAINING_SNAPSHOT_SCHEMA_VERSION = 2
+_TRAINING_SNAPSHOT_FIELDS = frozenset(
+    {
+        "schema_version",
+        "exercise_id",
+        "definition_digest",
+        "step_index",
+        "attempts",
+        "mistakes",
+        "hints_used",
+        "status",
+    }
+)
 
 
 class ExerciseStatus(str, Enum):
@@ -178,9 +195,16 @@ class ExerciseSession:
         self._status = ExerciseStatus.READY
 
     def snapshot(self) -> dict[str, object]:
-        """Return non-secret state suitable for persistence adapters."""
+        """Return the strict schema-v2 state for persistence adapters.
+
+        The definition digest binds progress to the start position and ordered
+        accepted-move sets. Presentation-only changes such as title, hints,
+        explanations, tags or metadata intentionally do not invalidate progress.
+        """
         return {
+            "schema_version": TRAINING_SNAPSHOT_SCHEMA_VERSION,
             "exercise_id": self.definition.exercise_id,
+            "definition_digest": _definition_digest(self.definition),
             "step_index": self._step_index,
             "attempts": self._attempts,
             "mistakes": self._mistakes,
@@ -190,33 +214,102 @@ class ExerciseSession:
 
     @classmethod
     def restore(cls, definition: ExerciseDefinition, snapshot: Mapping[str, object]) -> "ExerciseSession":
-        if snapshot.get("exercise_id") != definition.exercise_id:
-            raise ValueError("exercise snapshot belongs to a different exercise")
-        session = cls(definition)
-        try:
-            step_index = int(snapshot.get("step_index", 0))
-            attempts = int(snapshot.get("attempts", 0))
-            mistakes = int(snapshot.get("mistakes", 0))
-            hints_used = int(snapshot.get("hints_used", 0))
-            status = ExerciseStatus(str(snapshot.get("status", ExerciseStatus.READY.value)))
-        except (TypeError, ValueError) as exc:
-            raise ValueError("invalid exercise snapshot") from exc
+        """Restore an exact schema-v2 snapshot without scalar coercion.
 
-        if not 0 <= step_index <= len(definition.steps):
+        Persistence adapters must migrate older payloads explicitly before
+        calling this method. Schema v1 did not carry exercise-revision identity
+        and therefore cannot be safely inferred as compatible. Unknown fields,
+        missing fields and alternate scalar types fail closed so corrupt, stale
+        or future data cannot be reinterpreted.
+        """
+        if not isinstance(snapshot, Mapping):
+            raise TypeError("exercise snapshot must be a mapping")
+        fields = set(snapshot)
+        if fields != _TRAINING_SNAPSHOT_FIELDS:
+            missing = sorted(_TRAINING_SNAPSHOT_FIELDS - fields)
+            unknown = sorted(fields - _TRAINING_SNAPSHOT_FIELDS)
+            detail = []
+            if missing:
+                detail.append("missing fields: " + ", ".join(missing))
+            if unknown:
+                detail.append("unknown fields: " + ", ".join(unknown))
+            raise ValueError("invalid exercise snapshot fields (" + "; ".join(detail) + ")")
+
+        schema_version = snapshot["schema_version"]
+        if type(schema_version) is not int:
+            raise TypeError("exercise snapshot schema_version must be an integer")
+        if schema_version != TRAINING_SNAPSHOT_SCHEMA_VERSION:
+            raise ValueError(f"unsupported exercise snapshot schema_version: {schema_version}")
+
+        exercise_id = snapshot["exercise_id"]
+        if type(exercise_id) is not str:
+            raise TypeError("exercise snapshot exercise_id must be a string")
+        if exercise_id != definition.exercise_id:
+            raise ValueError("exercise snapshot belongs to a different exercise")
+
+        definition_digest = _snapshot_digest(snapshot["definition_digest"])
+        if definition_digest != _definition_digest(definition):
+            raise ValueError("exercise snapshot belongs to a different exercise revision")
+
+        step_index = _snapshot_counter(snapshot["step_index"], name="step_index")
+        attempts = _snapshot_counter(snapshot["attempts"], name="attempts")
+        mistakes = _snapshot_counter(snapshot["mistakes"], name="mistakes")
+        hints_used = _snapshot_counter(snapshot["hints_used"], name="hints_used")
+
+        status_value = snapshot["status"]
+        if type(status_value) is not str:
+            raise TypeError("exercise snapshot status must be a string")
+        try:
+            status = ExerciseStatus(status_value)
+        except ValueError as exc:
+            raise ValueError("invalid exercise snapshot status") from exc
+
+        if step_index > len(definition.steps):
             raise ValueError("invalid exercise step_index")
-        if min(attempts, mistakes, hints_used) < 0 or mistakes > attempts:
+        if mistakes > attempts:
             raise ValueError("invalid exercise counters")
         if status is ExerciseStatus.COMPLETED and step_index != len(definition.steps):
             raise ValueError("completed exercise snapshot has unfinished steps")
         if status is not ExerciseStatus.COMPLETED and step_index == len(definition.steps):
             raise ValueError("finished step index requires completed status")
 
+        session = cls(definition)
         session._step_index = step_index
         session._attempts = attempts
         session._mistakes = mistakes
         session._hints_used = hints_used
         session._status = status
         return session
+
+
+def _definition_digest(definition: ExerciseDefinition) -> str:
+    semantic_payload = {
+        "start_fen": definition.start_fen,
+        "steps": [sorted(step.accepted_moves) for step in definition.steps],
+    }
+    encoded = json.dumps(
+        semantic_payload,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _snapshot_digest(value: object) -> str:
+    if type(value) is not str:
+        raise TypeError("exercise snapshot definition_digest must be a string")
+    if len(value) != 64 or value != value.lower() or any(character not in "0123456789abcdef" for character in value):
+        raise ValueError("invalid exercise snapshot definition_digest")
+    return value
+
+
+def _snapshot_counter(value: object, *, name: str) -> int:
+    if type(value) is not int:
+        raise TypeError(f"exercise snapshot {name} must be an integer")
+    if value < 0:
+        raise ValueError("invalid exercise counters")
+    return value
 
 
 def _normalize_move(value: str) -> str:

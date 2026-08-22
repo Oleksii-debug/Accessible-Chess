@@ -89,6 +89,33 @@ class ImportHistoryServiceTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.service.search(ImportHistoryQuery(after_attempt_id=0))
 
+    def test_attempt_ids_reject_coercion_and_sqlite_integer_overflow(self) -> None:
+        sqlite_max = (1 << 63) - 1
+
+        # The exact SQLite upper bound is a valid application scalar and must not
+        # fail inside sqlite3 binding even when no matching row exists.
+        self.assertIsNone(self.service.get(sqlite_max))
+        self.assertEqual(
+            self.service.search(ImportHistoryQuery(after_attempt_id=sqlite_max)).items,
+            (),
+        )
+
+        for bad in (True, 1.0, "1"):
+            with self.subTest(api="get", value=bad):
+                with self.assertRaises(TypeError):
+                    self.service.get(bad)
+            with self.subTest(api="search", value=bad):
+                with self.assertRaises(TypeError):
+                    self.service.search(ImportHistoryQuery(after_attempt_id=bad))
+
+        for bad in (0, -1, sqlite_max + 1):
+            with self.subTest(api="get", value=bad):
+                with self.assertRaises(ValueError):
+                    self.service.get(bad)
+            with self.subTest(api="search", value=bad):
+                with self.assertRaises(ValueError):
+                    self.service.search(ImportHistoryQuery(after_attempt_id=bad))
+
 
 if __name__ == "__main__":
     unittest.main()
