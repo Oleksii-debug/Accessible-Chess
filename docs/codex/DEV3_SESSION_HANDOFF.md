@@ -1,32 +1,51 @@
 # AUTO-CHESS DEV3 session handoff
 
-UTC checkpoint: 2026-08-22T11:01Z coordination synchronized to live technical truth.
+Continued the same DEV3 Full Product Work-run on `auto/dev3-acsdb-stable-paging-20260821` / draft PR #65 after live Drive/GitHub/task/ownership reads.
 
-Continued the same DEV3 Full Product lane on `auto/dev3-acsdb-stable-paging-20260821` / draft PR #65. A fresh ownership read found that the DEV3 Product branch had advanced beyond the stale coordination files, so this run entered SAFE OVERLAP and did not create a competing Product patch.
+What changed in this continuation:
 
-Live executable Product head at synchronization: `51d77c4c6f6a70cd47ffb772fff476ce9480d135`.
+1. Engine-assisted Book / Training / Teacher policy
+- Product commit `62cff0cbbab905b0a3fccb17954e645ce44f3601`.
+- Added `acs/engine_assisted_workflows.py` and 13 adversarial tests.
+- Reuses existing `AnalysisService`; no new engine provider or canonical chess state.
+- Uses exact DEV1-compatible visibility tokens: `visible_to_teacher`, `visible_to_student`, `hidden`.
+- Teacher-only and hidden policies prevent student answer leakage.
+- Provider exception/path details are sanitized before audience projection.
+- Training progress, Book semantic FEN, or Teacher lesson revision drift during analysis marks the result stale and suppresses lines.
+- No canonical BookDocument, Training state, or Teacher presentation state mutation.
 
-Latest delivered P1 packages already present on that head:
-- ACSDB recovery schema identity / data-loss prevention: foreign, forged, or structurally invalid SQLite backups fail closed before destructive restore; supported genuine v1/v2 ACSDB backups remain recoverable and migrate forward; validation includes schema identity, supported version, FK integrity, SQLite quick_check, and the expected v3 composite position index.
-- ImportHistory SQLite identifier boundary: `attempt_id` / `after_attempt_id` are validated as strict application integers within positive signed-64-bit SQLite INTEGER range before bind; bool/non-int coercion and overflow fail deterministically; exact `(2**63)-1` remains valid.
+2. Append-only Student review/progress analytics
+- Product commit `047bdea014964395f95a115fb21cc96c167f3130`.
+- Added `acs/student_progress.py` and 12 adversarial tests.
+- Immutable Student/session records with globally unique IDs and strictly increasing per-session sequence.
+- Thread-safe append-only behavior prevents duplicate or same-sequence concurrent overwrite.
+- Bounded keyset paging (`after_sequence`, max 1000) and deterministic summary metrics.
+- Training review records bind to exercise identity + exact `definition_digest`.
+- Snapshot/restore schema v1 rejects future schema, unknown fields, invalid scalars, duplicate/nonmonotonic records.
+- Engine-derived persistence contains only generation/stale/availability metadata; PV and score are never serialized.
 
-Current exact-head machine evidence:
-- workflow `DEV3 Full Product ACSDB CI`;
-- run `32568754137`, job `97021116904` — SUCCESS;
-- diff hygiene PASS;
-- compile PASS;
-- focused DEV3 data / Books / Training / Search suite 92/92 PASS;
-- full unittest 622/622 PASS;
-- full pytest 700 passed + 599 subtests PASS;
-- SELFTEST PASS;
-- `ACCESSIBLE CHESS 0.4 WEBVIEW2 COMPLETE USER FLOW DIAGNOSTIC PASS`.
+Exact terminal Product evidence:
+- Product head `047bdea014964395f95a115fb21cc96c167f3130`
+- PR merge/evidence ref `49179718129d102048e9e80500c61a6d93f7b061`
+- workflow `DEV3 Full Product ACSDB CI`
+- run `32571453036`, job `97027381212` — SUCCESS
+- focused DEV3 suite `117/117 PASS`
+- full unittest `647/647 PASS`
+- full pytest `725 passed + 618 subtests passed`
+- diff hygiene PASS; compile PASS; SELFTEST PASS; complete WebView2 diagnostic PASS.
 
-Decision:
-- Product head `51d77c4c6f6a70cd47ffb772fff476ce9480d135` is COMPLETE / GREEN / READY_FOR_INTEGRATION=YES for the delivered DEV3 slices;
-- overall Full Product DEV3 mission remains PARTIAL;
-- no new Product edit was made in this synchronization run because live branch activity made competing work unsafe;
-- DEV2 canonical GameTree/domain, DEV1 presentation/UI/Teacher, DEV4 QA/security and DEV5 integration/promotion ownership remain untouched;
-- frozen Stage1 refs remain untouched;
-- no fresh Windows candidate was created; Linux CI is backend evidence only;
-- `NVDA_VERIFIED=NO`;
-- next action is another fresh ownership read followed only by an unclaimed dependency-correct DEV3 P0/P1, otherwise independent evidence/backlog work under SAFE OVERLAP.
+Boundaries preserved:
+- DEV2 canonical GameTree/domain/core untouched.
+- DEV1 UI/WebView/Teacher presentation untouched.
+- DEV4 ChessBase/package/shared PGN-import security untouched.
+- DEV5 integration/promotion untouched.
+- No frozen Stage1 ref was merged/promoted.
+- No foreign branch merge/cherry-pick was performed.
+
+Readiness:
+- current isolated DEV3 packages: `READY_FOR_INTEGRATION=YES`
+- overall Full Product DEV3: `PARTIAL`
+- fresh Windows candidate: NONE
+- `NVDA_VERIFIED=NO`
+
+Next exact action: after a fresh scheduled ownership read, add durable CAS-backed `StudentProgressLedger` persistence only if that boundary is still unclaimed; otherwise remain SAFE OVERLAP and do evidence/backlog only.

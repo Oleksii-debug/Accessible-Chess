@@ -1,32 +1,37 @@
 # AUTO-CHESS DEV3 current state
 
-Lane: Full Product engine/analysis + ACSDB / Library / Search / import-export safety + presentation-neutral Books/Training progress backend contracts.
+Lane: Full Product engine/analysis + ACSDB / Library / Search + presentation-neutral Books/Training/Teacher/Student backend contracts.
 
 Active Product branch: `auto/dev3-acsdb-stable-paging-20260821`
 Draft Product PR: #65 against `codex/full-product-20260821`
+Verified executable Product head: `047bdea014964395f95a115fb21cc96c167f3130`
+Verified PR merge/evidence ref: `49179718129d102048e9e80500c61a6d93f7b061`
 
-Current executable Product head: `51d77c4c6f6a70cd47ffb772fff476ce9480d135`.
-Latest implementation commit: `50c5a5a8cacdc249957877da62acd8c163cfcd96`.
-Latest regression-test commit: `51d77c4c6f6a70cd47ffb772fff476ce9480d135`.
+Latest terminal-GREEN P1 packages:
+- `62cff0cbbab905b0a3fccb17954e645ce44f3601`: `EngineAssistedWorkflowService` reuses `AnalysisService` for Book/Training/Teacher assistance. Visibility is explicit (`visible_to_teacher`, `visible_to_student`, `hidden`), provider errors are sanitized, and training/book/lesson revision drift suppresses stale answers without mutating canonical domain or presentation state.
+- `047bdea014964395f95a115fb21cc96c167f3130`: append-only `StudentProgressLedger` with immutable Student/session review records, monotonic per-session sequence, thread-safe duplicate/race rejection, bounded keyset paging, deterministic summaries, strict schema-v1 snapshot/restore, Training `definition_digest` binding, and engine metadata persistence that excludes PV/score material.
 
-Current terminal-GREEN DEV3 scope includes:
-- deterministic literal Library/Search semantics and stable ACSDB keyset paging/provenance;
-- schema-v3/WAL/query-plan hardening and atomic PGN/ACSDB publication;
-- durable Training revision-bound CAS progress and Books reading-progress integrity;
-- Library/Search signed-64-bit SQLite scalar validation;
-- ACSDB backup recovery schema-identity/data-loss prevention: foreign/forged/structurally invalid SQLite backups fail closed; genuine v1/v2 ACSDB backups remain migratable; v3 recovery requires expected composite position index and FK integrity;
-- ImportHistory signed-64-bit identifier boundary: `attempt_id` / `after_attempt_id` reject bool/non-int, zero/negative where invalid, and overflow before sqlite3 binding; exact `(2**63)-1` remains valid.
+Exact current Product evidence:
+- workflow `DEV3 Full Product ACSDB CI`
+- run `32571453036`, job `97027381212` — SUCCESS
+- diff hygiene PASS; compile PASS
+- focused DEV3 data/engine-assisted/progress suite `117/117 PASS`
+- full unittest `647/647 PASS`
+- full pytest `725 passed + 618 subtests passed`
+- SELFTEST PASS
+- `ACCESSIBLE CHESS 0.4 WEBVIEW2 COMPLETE USER FLOW DIAGNOSTIC PASS`
+- no skip/xfail/test weakening used to obtain GREEN.
 
-Exact current-head machine evidence:
-- workflow `DEV3 Full Product ACSDB CI` run `32568754137`, job `97021116904` — SUCCESS;
-- diff hygiene PASS; compile PASS;
-- focused DEV3 data/Books/Training/Search suite 92/92 PASS;
-- full unittest 622/622 PASS;
-- full pytest 700 passed + 599 subtests PASS;
-- SELFTEST PASS; `ACCESSIBLE CHESS 0.4 WEBVIEW2 COMPLETE USER FLOW DIAGNOSTIC PASS`.
+Previously delivered terminal-GREEN DEV3 work remains intact: stable/literal ACSDB Search, keyset paging/provenance, schema-v3/WAL/query-plan hardening, recovery identity/integrity and publication-race protection, strict SQLite scalar boundaries, ImportHistory bounds, durable Training CAS progress, and Books durable reading-progress integrity.
 
-Decision: current DEV3 Product head is COMPLETE / GREEN / READY_FOR_INTEGRATION=YES for the delivered slices. Overall Full Product DEV3 mission remains PARTIAL and must proceed only by fresh ownership reads and dependency-correct unowned P0/P1 work.
+Ownership / SAFE OVERLAP:
+- DEV2 owns canonical GameTree/domain/core.
+- DEV1 owns UI/WebView/Teacher presentation.
+- DEV4 owns ChessBase/package/shared PGN-import security; unresolved shared-boundary security fixes are not claimed here.
+- DEV5 owns cross-lane integration/promotion.
+- Frozen Stage1 refs remain untouched.
 
-SAFE OVERLAP ownership preserved: DEV2 canonical GameTree/domain; DEV1 presentation/UI/Teacher; DEV4 independent QA/security; DEV5 integration/promotion. Frozen Stage1 refs untouched.
+Decision: the isolated DEV3 packages through Product head `047bdea...` are `READY_FOR_INTEGRATION=YES`. Overall Full Product DEV3 mission remains `PARTIAL`.
 
-`NVDA_VERIFIED=NO`; no fresh Windows candidate was created by DEV3.
+Fresh Windows candidate: NONE from DEV3.
+`NVDA_VERIFIED=NO`.

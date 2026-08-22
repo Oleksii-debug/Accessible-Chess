@@ -1,33 +1,47 @@
 # AUTO-CHESS DEV3 run state
 
-STATUS: COMPLETE / CURRENT DEV3 P1 PACKAGE TERMINAL GREEN
+STATUS: COMPLETE / CURRENT TWO-PACKAGE DEV3 P1 WORK-RUN TERMINAL GREEN
 BRANCH: `auto/dev3-acsdb-stable-paging-20260821`
-PRODUCT PR: #65
-DIRECTIVE: Full Product DEV3 / engine-analysis + ACSDB-Library-Search-import-export safety + presentation-neutral Books/Training progress backend contracts
+PRODUCT PR: #65 OPEN / DRAFT / MERGEABLE
+DIRECTIVE: same Full Product DEV3 Work-run; no new round
 
-Current executable Product head: `51d77c4c6f6a70cd47ffb772fff476ce9480d135`.
-Latest implementation commit: `50c5a5a8cacdc249957877da62acd8c163cfcd96`.
-Latest regression-test commit: `51d77c4c6f6a70cd47ffb772fff476ce9480d135`.
+VERIFIED_EXECUTABLE_PRODUCT_HEAD: `047bdea014964395f95a115fb21cc96c167f3130`
+PR_MERGE_EVIDENCE_REF: `49179718129d102048e9e80500c61a6d93f7b061`
 
-Latest completed P1 packages:
-- ACSDB backup recovery now rejects foreign/structurally invalid SQLite backups before destructive restore, while genuine v1/v2 ACSDB backups remain supported and migrate forward;
-- recovery validation requires ACSDB schema identity, supported version, FK integrity, and the v3 composite position index in addition to SQLite quick_check;
-- ImportHistory `attempt_id` / `after_attempt_id` now fail closed before SQLite bind outside positive signed-64-bit INTEGER range;
-- exact SQLite maximum remains a valid application scalar; bool/non-int coercion remains rejected;
-- no GameTree/chess-rules/UI/keybinding/integration target changes.
+PACKAGE A — ENGINE-ASSISTED BOOK/TRAINING/TEACHER:
+- commit `62cff0cbbab905b0a3fccb17954e645ce44f3601`
+- reuses canonical `AnalysisService`
+- audience visibility exact and fail-closed
+- stale context suppresses answers
+- no Training/Book/Teacher presentation mutation
+- raw provider/path failures sanitized
+
+PACKAGE B — STUDENT REVIEW/PROGRESS ANALYTICS:
+- commit `047bdea014964395f95a115fb21cc96c167f3130`
+- immutable append-only records
+- unique IDs + monotonic per-session sequence under `RLock`
+- bounded keyset paging and deterministic summary metrics
+- strict schema-v1 snapshot/restore
+- Training exercise revision bound by `definition_digest`
+- engine persistence stores generation/stale/availability only, never PV/score
+- concurrent same-sequence writers cannot both publish
 
 TERMINAL VALIDATION:
-- workflow `DEV3 Full Product ACSDB CI`;
-- run `32568754137` / job `97021116904` — SUCCESS;
-- diff hygiene PASS; compile PASS;
-- focused DEV3 data/Books/Training/Search suite 92/92 PASS;
-- full unittest 622/622 PASS;
-- full pytest 700 passed + 599 subtests PASS;
-- SELFTEST PASS;
-- complete WebView2 diagnostic PASS.
+- workflow `DEV3 Full Product ACSDB CI`
+- run `32571453036` / job `97027381212` SUCCESS
+- focused suite 117/117 PASS
+- full unittest 647/647 PASS
+- full pytest 725 passed + 618 subtests PASS
+- diff hygiene / compile / SELFTEST / complete WebView2 diagnostic PASS
 
-SAFE OVERLAP: DEV2 canonical GameTree/domain untouched; DEV1 presentation/UI/Teacher untouched; DEV4 QA/security untouched; DEV5 integration/promotion untouched.
-NEXT_ACTION: fresh ownership read; claim only an unowned dependency-correct DEV3 P0/P1. If touching work is IN_PROGRESS, remain SAFE OVERLAP and perform independent evidence/backlog work instead of competing Product edits.
-READY_FOR_INTEGRATION: YES for executable Product head `51d77c4c6f6a70cd47ffb772fff476ce9480d135`.
+BLOCKERS:
+- PRODUCT: none for these isolated DEV3 slices.
+- QA: DEV4 shared PGN/import security findings remain outside DEV3 ownership.
+- INFRA: none; exact-head CI is GREEN.
+- HUMAN_ONLY: no fresh Windows/NVDA run.
+
+READY_FOR_INTEGRATION: YES for Product head `047bdea...`.
+OVERALL_FULL_PRODUCT_DEV3: PARTIAL.
+NEXT_ACTION: fresh scheduled ownership read, then durable CAS StudentProgress persistence only if unclaimed; otherwise SAFE OVERLAP evidence only.
 NVDA_VERIFIED: NO
 WINDOWS_CANDIDATE: NONE created by DEV3.
