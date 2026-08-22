@@ -885,8 +885,8 @@ def _optional_square(value: object, label: str) -> str | None:
 
 
 def _fen(value: object) -> str:
-    if type(value) is not str:
-        raise TeachingSessionError("teaching position FEN must be exact text")
+    if type(value) is not str or not value.strip():
+        raise TeachingSessionError("teaching position FEN must be non-empty exact text")
     try:
         return Board(value).fen()
     except (TypeError, ValueError) as exc:
