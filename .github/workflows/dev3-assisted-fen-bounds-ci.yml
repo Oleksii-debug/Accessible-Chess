@@ -29,6 +29,7 @@ jobs:
         run: >-
           python -m unittest -v
           tests.test_dev3_engine_assisted_workflows
+          tests.test_dev3_assisted_fen_bounds
           tests.test_analysis_service
           tests.test_dev3_analysis_request_bounds
           tests.test_dev3_game_review_service
