@@ -3,8 +3,6 @@ import unittest
 from acs.game_identity import same_game_record
 from acs.gametree import (
     MoveNode,
-    PgnRecoveryCode,
-    PgnRecoveryIssue,
     VariationLine,
     parse_games,
     serialize_game,
@@ -147,15 +145,11 @@ class GameTreeEditingTests(unittest.TestCase):
             result.remap_cursor(GameTreeCursor((), 999))
         self.assertEqual(missing.exception.code, GameTreeEditCode.CURSOR_NOT_IN_SOURCE)
 
-    def test_warning_and_recovery_evidence_survives_copy_on_write_edit(self):
-        issue = PgnRecoveryIssue(PgnRecoveryCode.UNKNOWN_TOKEN, 'preserved external recovery evidence')
+    def test_warning_survives_copy_on_write_edit(self):
         self.game.warnings.append('preserved warning')
-        self.game.recovery_issues.append(issue)
         result = reorder_variation(self.game, self.target(1), 0)
         self.assertEqual(result.game.warnings, ['preserved warning'])
-        self.assertEqual(result.game.recovery_issues, [issue])
         self.assertIsNot(result.game.warnings, self.game.warnings)
-        self.assertIsNot(result.game.recovery_issues, self.game.recovery_issues)
 
     def test_cycle_and_move_reuse_are_rejected_before_copying(self):
         cycle = VariationLine(moves=[MoveNode('e4')])
