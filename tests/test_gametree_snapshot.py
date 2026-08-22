@@ -37,6 +37,7 @@ class GameTreeSnapshotTests(unittest.TestCase):
         restored = restore_game(snapshot)
         self.assertEqual(GAMETREE_SNAPSHOT_SCHEMA_VERSION, snapshot.schema_version)
         self.assertEqual(before, identity_for_game(restored))
+        self.assertEqual(64, len(snapshot.pgn_digest))
         self.assertEqual(7, restored.source_index)
         self.assertEqual(["source warning"], restored.warnings)
         self.assertIsNot(game, restored)
@@ -53,12 +54,18 @@ class GameTreeSnapshotTests(unittest.TestCase):
         self.assertEqual("e4", restored.line.moves[0].san)
         self.assertEqual(["source warning"], restored.warnings)
 
-    def test_tampered_pgn_fails_identity_check(self):
+    def test_tampered_pgn_fails_payload_digest_before_restore(self):
         snapshot = snapshot_game(self.game())
-        tampered = replace(snapshot, pgn_text=snapshot.pgn_text.replace("e4", "d4", 1))
         with self.assertRaises(GameTreeSnapshotError) as caught:
-            restore_game(tampered)
-        self.assertEqual(GameTreeSnapshotCode.IDENTITY_MISMATCH, caught.exception.code)
+            replace(snapshot, pgn_text=snapshot.pgn_text.replace("e4", "d4", 1))
+        self.assertEqual(GameTreeSnapshotCode.PAYLOAD_MISMATCH, caught.exception.code)
+
+    def test_move_number_tamper_is_detected_even_when_semantic_identity_would_match(self):
+        snapshot = snapshot_game(self.game())
+        self.assertIn("1. e4", snapshot.pgn_text)
+        with self.assertRaises(GameTreeSnapshotError) as caught:
+            replace(snapshot, pgn_text=snapshot.pgn_text.replace("1. e4", "1... e4", 1))
+        self.assertEqual(GameTreeSnapshotCode.PAYLOAD_MISMATCH, caught.exception.code)
 
     def test_tampered_digest_fails_identity_check(self):
         snapshot = snapshot_game(self.game())
@@ -67,12 +74,11 @@ class GameTreeSnapshotTests(unittest.TestCase):
             restore_game(tampered)
         self.assertEqual(GameTreeSnapshotCode.IDENTITY_MISMATCH, caught.exception.code)
 
-    def test_multi_game_payload_is_rejected_before_restore(self):
+    def test_multi_game_payload_with_matching_old_digest_is_rejected_immediately(self):
         snapshot = snapshot_game(self.game())
-        tampered = replace(snapshot, pgn_text=snapshot.pgn_text + "\n" + snapshot.pgn_text)
         with self.assertRaises(GameTreeSnapshotError) as caught:
-            restore_game(tampered)
-        self.assertEqual(GameTreeSnapshotCode.PARSE_FAILURE, caught.exception.code)
+            replace(snapshot, pgn_text=snapshot.pgn_text + "\n" + snapshot.pgn_text)
+        self.assertEqual(GameTreeSnapshotCode.PAYLOAD_MISMATCH, caught.exception.code)
 
     def test_schema_and_scalar_boundaries_reject_bool_and_coercion(self):
         snapshot = snapshot_game(self.game())
@@ -83,6 +89,7 @@ class GameTreeSnapshotTests(unittest.TestCase):
             {"source_index": "7"},
             {"warnings": ["not a tuple"]},
             {"tree_digest": snapshot.tree_digest.upper()},
+            {"pgn_digest": snapshot.pgn_digest.upper()},
         )
         for patch in cases:
             with self.subTest(patch=patch):
