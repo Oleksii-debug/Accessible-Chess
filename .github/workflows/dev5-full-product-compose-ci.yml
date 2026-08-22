@@ -4,10 +4,10 @@ on:
   workflow_dispatch:
   push:
     branches:
-      - full5/dev5-selective-compose-20260822
+      - full5/dev5-compose-1700-20260822
   pull_request:
     branches:
-      - manual5/integration-20260821
+      - full5/dev5-selective-compose-20260822
 
 permissions:
   contents: read
@@ -27,14 +27,16 @@ jobs:
         run: python -m pip install -q pytest
       - name: Diff hygiene and compile
         run: |
-          git diff --check 0fa442330bc2bb03636ff9297512da4c29e38684 HEAD
+          git diff --check 7f4d2af3447d8d5046c9a75e1243a4ce36b11e4a HEAD
           python -m compileall -q acs tests run_accessible_chess.py
-      - name: DEV1 presentation and accessibility package
+      - name: DEV1 presentation WebView and accessibility package
         run: >-
           python -m unittest -v
           tests.test_dev1_full_product_accessible_shell
           tests.test_dev1_full_product_ui_packages
           tests.test_dev1_classroom_remote_ui
+          tests.test_dev1_full_product_webview_adapter
+          tests.test_dev1_teacher_webview_projection
           tests.test_keybindings
           tests.test_board_rank_file_remapping_ui
           tests.test_dev1_release_ui_regressions
@@ -44,6 +46,15 @@ jobs:
           python -m unittest -v
           tests.test_gametree
           tests.test_bookdocument
+      - name: DEV3 data progress search and engine-assisted package
+        run: >-
+          python -m unittest -v
+          tests.test_search_service
+          tests.test_dev3_search_resource_bounds
+          tests.test_dev3_engine_assisted_workflows
+          tests.test_dev3_student_progress
+          tests.test_dev3_student_progress_store
+          tests.test_import_history_service
       - name: Full unittest discovery
         run: python -m unittest discover -s tests -v
       - name: Full pytest without weakening
