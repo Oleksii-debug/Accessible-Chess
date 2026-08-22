@@ -24,8 +24,12 @@ internal sealed record SentenceCoachRuntimeDiagnostics(
     long CorpusOpenMilliseconds,
     long OneTargetCoverageMilliseconds,
     int OneTargetCoveredEntries,
+    int OneTargetUncoveredEntries,
+    double OneTargetCoveragePercent,
     long TwoTargetCoverageMilliseconds,
     int TwoTargetCoveredEntries,
+    int TwoTargetUncoveredEntries,
+    double TwoTargetCoveragePercent,
     long RepresentativeOneTargetMilliseconds,
     int RepresentativeOneTargetSentences,
     long RepresentativeTwoTargetMilliseconds,
@@ -192,6 +196,11 @@ internal static class SentencePackDiagnostics
         process.Refresh();
         long workingAfter = process.WorkingSet64;
 
+        int oneUncovered = scopeIds.Length - oneTargetCovered.Count;
+        int twoUncovered = scopeIds.Length - twoTargetCovered.Count;
+        double onePercent = scopeIds.Length == 0 ? 0 : Math.Round(oneTargetCovered.Count * 100.0 / scopeIds.Length, 2);
+        double twoPercent = scopeIds.Length == 0 ? 0 : Math.Round(twoTargetCovered.Count * 100.0 / scopeIds.Length, 2);
+
         GC.KeepAlive(corpus);
         GC.KeepAlive(oneResults);
         GC.KeepAlive(twoResults);
@@ -204,8 +213,12 @@ internal static class SentencePackDiagnostics
             openWatch.ElapsedMilliseconds,
             oneCoverageWatch.ElapsedMilliseconds,
             oneTargetCovered.Count,
+            oneUncovered,
+            onePercent,
             twoCoverageWatch.ElapsedMilliseconds,
             twoTargetCovered.Count,
+            twoUncovered,
+            twoPercent,
             oneQueryWatch.ElapsedMilliseconds,
             oneResults.Count,
             twoQueryWatch.ElapsedMilliseconds,
