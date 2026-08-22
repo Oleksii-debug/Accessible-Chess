@@ -1,13 +1,15 @@
 # AUTO-CHESS DEV3 next work
 
-Verified checkpoint: executable Product head `6f90516a8beefa8c191a8c593aaf3f2e410aa738`, PR merge/evidence ref `4bab8883cd293a0aa25d2a39d92e3a1abd4f6ff1`, CI run/job `32574651690` / `97035089135` SUCCESS; focused 130/130, unittest 660/660, pytest 738 + 628 subtests, diff/compile/diagnostic PASS.
+Verified checkpoint: executable Product head `4c0f5885e51aa93ad366dccaf61a962c930f5ef0`, PR merge/evidence ref `10598ff59d984d788dc303ce6bd4a8eec797b445`, CI run/job `32577628215` / `97042172326` SUCCESS; focused 134/134, unittest 664/664, pytest 742 + 628 subtests, diff/compile/diagnostic PASS.
 
 Preserve these latest contracts:
-- ACSDB Library/Search text filters are normalized then capped at 256 characters before SQLite execution;
-- literal `%`, `_`, and backslash search semantics remain escaped rather than wildcard-expanded;
-- strict no-coercion query scalars, stable keyset paging, provenance and prior query-plan guarantees remain unchanged;
-- durable Student progress persistence continues to wrap the existing `StudentProgressLedger`; it does not become a second domain authority;
-- prior engine-assisted Book/Training/Teacher flows reuse the existing `AnalysisService` and suppress stale/private answer material correctly.
+- StudentProgress snapshot restore is bounded to 50,000 records before iteration;
+- StudentProgressStore physical reads are bounded to 16 MiB + 1 and oversized files fail closed on load and CAS save checks;
+- newly serialized StudentProgress payloads above 16 MiB fail before temp-file publication;
+- strict schema-v1, append-only identity/order, exact SHA-256 CAS, create-only first save, peer locking and atomic publication remain unchanged;
+- no duplicate canonical chess state, UI state, engine PV or score is persisted;
+- ACSDB Library/Search text filters remain normalized then capped at 256 characters before SQLite execution, with literal LIKE escaping and stable keyset paging preserved;
+- prior engine-assisted Book/Training/Teacher flows continue to reuse the existing AnalysisService and suppress stale/private answer material.
 
 Preserve all prior terminal-GREEN ACSDB/Search/recovery/Training/Books/Student contracts and do not weaken tests.
 
