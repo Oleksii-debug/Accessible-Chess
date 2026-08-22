@@ -2,7 +2,8 @@
 
 Validation-only marker for the shadow-column optimization benchmark. No Product behavior or schema change is introduced by this marker.
 
-Base benchmark/CI state: `b0bdf222be267c74e495aaf35688d05aa786b8b9`.
+Current benchmark/CI base state: `0da0187f07e11e489d353e866ab679b3320e3a87`.
+The benchmark reports candidate temp-sort behavior as evidence rather than treating it as a correctness failure; exact result-id equivalence remains mandatory.
 
 FRESH_WINDOWS_CANDIDATE=NO
 NVDA_VERIFIED=NO
