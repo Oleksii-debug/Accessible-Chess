@@ -2,17 +2,20 @@
 
 Latest DEV3 isolated backend package is terminal GREEN and READY_FOR_INTEGRATION=YES.
 
-Branch `auto/dev3-analysis-request-bounds-20260822` extends terminal batch-review head `878396533a1b5d78c452202a6ecbbe764421e9ac`. The Product change bounds normalized FEN input at the shared `AnalysisService` boundary to 512 characters before any generation publication, provider construction, or UCI work. The same bound applies to `invalidate()` and `AnalysisResult`, preventing oversized request/result state from crossing the service contract. No canonical chess state, GameTree/domain semantics, UI model, import/security behavior, or integration logic was duplicated or changed.
+Branch `auto/dev3-unicode-library-search-20260822` extends prior terminal DEV3 head `1dd2e9d69136a801b7943c1ee2a8b4df6d5e44f7`. The Product change fixes the ACSDB Library/Search international-text correctness gap caused by SQLite built-in ASCII-only case folding: application filters now normalize text with Unicode NFKC + casefold on both stored values and query terms before literal LIKE matching. This covers player, event, ECO prefix, opening, and source-name filters without changing canonical chess/application state or database provenance semantics.
 
-Validated package head: `31647b904f6cbd112a8425db4017566e716d15e6`.
-Product code commit: `887e033db427837ed383a0f0ccbc1680aaa8ad63`.
-Adversarial tests commit: `f6103032fd9b0a7cb8c7a7f34404a656146e8b1c`.
-Product PR: #101 open/draft/evidence-only.
-Validation PR: #102 validation-only.
+Product code commit: `1a054f1d96cacc57104fa5fe6c0a43603c43b3ca`.
+Adversarial tests commit: `7ae6bb44630b8261a6753a68ebce7d0e8c83dc4b`.
+Validated Product/test/CI head: `9c8a342e7dd98fee52c9776c0cb6a9b970d49296`.
+Validation merge/evidence ref: `5e73ce3df212bf178ea7e263587ee31b1ab19f0b`.
+Product PR: #105 open/draft/evidence-only.
+Validation PR: #106 validation-only.
 
-Exact machine evidence: run `32583809015`, job `97057031894`, SUCCESS. Focused 173/173; official Stockfish 18 bounded smoke PASS with archive SHA-256 `536c0c2c0cf06450df0bfb5e876ef0d3119950703a8f143627f990c7b5417964`; unittest 689/689; pytest 767 + 641 subtests; SELFTEST and complete WebView2 diagnostic PASS; diff hygiene/compile PASS; no test weakening.
+Exact machine evidence: `DEV3 Full Product ACSDB CI` run `32586785490`, job `97064264493`, SUCCESS. Focused 179/179 PASS; official Stockfish 18 bounded smoke PASS with verified archive SHA-256 `536c0c2c0cf06450df0bfb5e876ef0d3119950703a8f143627f990c7b5417964`; full unittest 695/695 PASS; pytest 773 passed + 641 subtests; SELFTEST and complete WebView2 diagnostic PASS; diff hygiene/compile PASS; no test weakening.
 
-Mistake/blunder scoring remains blocked on authoritative student/actor identity plus fixed evaluation perspective. DEV3 will not infer this from alternating side-to-move UCI scores.
+Package delta from prior DEV3 terminal head is exactly three files: `.github/workflows/dev3-full-product-acsdb-ci.yml`, `acs/search_service.py`, and `tests/test_dev3_unicode_library_search.py`. Existing literal `%`/`_`/backslash escaping, 256-character resource bounds, strict scalar validation, keyset paging and provenance are retained. New regressions cover Cyrillic, accented Latin, German `ß` casefold expansion, canonical-equivalent Unicode and NFKC-before-bound behavior.
+
+Ownership preserved: DEV1 UI/WebView; DEV2 canonical GameTree/domain/remote-session; DEV4 PGN/ChessBase/import security; DEV5 selective integration/promotion. Mistake/blunder scoring remains blocked on authoritative student/actor identity plus fixed evaluation perspective. Next ACSDB work must measure Unicode-folded search on large databases before proposing schema/index changes.
 
 FRESH_WINDOWS_CANDIDATE=NO
 NVDA_VERIFIED=NO
