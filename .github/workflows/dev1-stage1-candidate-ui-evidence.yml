@@ -6,13 +6,18 @@ on:
       - auto/dev1-stage1-candidate-ui-evidence-20260823-0027
     paths:
       - '.github/workflows/dev1-stage1-candidate-ui-evidence.yml'
+  pull_request:
+    branches:
+      - manual5/integration-20260821
+    paths:
+      - '.github/workflows/dev1-stage1-candidate-ui-evidence.yml'
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: dev1-stage1-candidate-ui-evidence-20260823-0027
+  group: dev1-stage1-candidate-ui-evidence-20260823-0027-${{ github.event_name }}
   cancel-in-progress: false
 
 env:
