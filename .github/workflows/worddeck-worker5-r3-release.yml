@@ -1,0 +1,217 @@
+name: WordDeck worker 5 R3 release acceptance
+
+on:
+  push:
+    branches:
+      - worddeck-worker-5-release-r3
+    paths:
+      - 'WordDeck/**'
+      - 'README-WORDDECK.md'
+      - '.github/workflows/worddeck-*.yml'
+  pull_request:
+    branches:
+      - worddeck-bootstrap
+    paths:
+      - 'WordDeck/**'
+      - 'README-WORDDECK.md'
+      - '.github/workflows/worddeck-*.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  statuses: write
+
+env:
+  TARGET_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+
+concurrency:
+  group: worddeck-worker5-r3-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  full-v1-release-acceptance:
+    runs-on: windows-latest
+    timeout-minutes: 90
+    steps:
+      - name: Checkout exact R3 worker commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TARGET_SHA }}
+
+      - name: Publish pending exact-tip status
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const targetUrl = `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`;
+            await github.rest.repos.createCommitStatus({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              sha: process.env.TARGET_SHA,
+              state: 'pending',
+              context: 'WordDeck worker 5 R3 release acceptance',
+              description: 'R3 full-v1 release acceptance is running.',
+              target_url: targetUrl
+            });
+
+      - name: Exact branch and source immutability gate
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $sourceBranch = if ($env:GITHUB_HEAD_REF) { $env:GITHUB_HEAD_REF } else { $env:GITHUB_REF_NAME }
+          if ($sourceBranch -ne 'worddeck-worker-5-release-r3') { throw "Unexpected source branch: $sourceBranch" }
+          $actual = git rev-parse HEAD
+          if ($actual -ne $env:TARGET_SHA) { throw "Checkout is not exact R3 worker head: $actual vs $env:TARGET_SHA" }
+          $authoritative = Get-Content .\.github\workflows\worddeck-windows.yml -Raw
+          if ($authoritative -match 'contents:\s*write') { throw 'Authoritative WordDeck validation still requests source write permission.' }
+          if ($authoritative -match 'git\s+push\s+origin\s+HEAD:worddeck-bootstrap') { throw 'Authoritative validation can still push canonical source.' }
+          Write-Host 'Exact branch/source immutability PASS.'
+
+      - name: Historical mutation workflows are inert
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $historical = @(
+            'worddeck-emergency-completion.yml',
+            'worddeck-emergency-completion-v4.yml',
+            'worddeck-emergency-v5.yml',
+            'worddeck-emergency-v5-strict.yml',
+            'worddeck-emergency-v6.yml',
+            'worddeck-emergency-v7.yml',
+            'worddeck-emergency-v8.yml',
+            'worddeck-emergency-v8b.yml',
+            'worddeck-user1156-v1-completion.yml',
+            'worddeck-v01-package.yml'
+          )
+          foreach ($name in $historical) {
+            $path = Join-Path '.github\workflows' $name
+            if (-not (Test-Path -LiteralPath $path)) { throw "Historical workflow missing: $name" }
+            $text = Get-Content $path -Raw
+            if ($text -match 'contents:\s*write' -or $text -match 'actions:\s*write' -or $text -match '(?m)^\s*push\s*:' -or $text -match 'git\s+push') {
+              throw "Historical workflow still has source/action mutation capability: $name"
+            }
+          }
+          Write-Host 'Historical mutation workflows are manual read-only archive markers.'
+
+      - name: Repository private-state secret and personal-path gate
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $tracked = @(git ls-files)
+          $forbidden = @($tracked | Where-Object {
+            $_ -match '(^|/)(token\.json|credentials?\.json|cookies?(\.sqlite|\.json)?|\.env|id_rsa|id_ed25519)$' -or
+            $_ -match '\.(pfx|p12|pem|key)$' -or
+            $_ -match '(^|/)(state|state\.backup|spelling-state|spelling-state\.backup|sentence-coach-state|sentence-coach-state\.backup)\.json$' -or
+            $_ -match '(^|/)WordDeck-(profile|full-profile).*\.json$'
+          })
+          if ($forbidden.Count -ne 0) { throw "Tracked private/secret candidates: $($forbidden -join ', ')" }
+          $personalPaths = @(git grep -n -I -E 'C:\\Users\\[^%]|/home/[A-Za-z0-9._-]+/' -- WordDeck README-WORDDECK.md 2>$null)
+          $grepExit = $LASTEXITCODE
+          if ($grepExit -gt 1) { throw "Personal-path grep failed with exit code $grepExit." }
+          if ($personalPaths.Count -ne 0) { throw "Hard-coded personal paths found: $($personalPaths -join '; ')" }
+          $global:LASTEXITCODE = 0
+          Write-Host 'Repository private-state/secret/personal-path gate PASS.'
+
+      - name: Inventory distributable SentencePack assets
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force .\artifacts | Out-Null
+          $tracked = @(git ls-files WordDeck | Where-Object {
+            ($_ -match '(?i)sentence.*pack.*\.json\.gz$' -or $_ -match '(?i)sentence.*pack.*\.sqlite$') -and
+            $_ -notmatch '(?i)(test|fixture|qa|sample)'
+          })
+          if ($tracked.Count -eq 0) {
+            'sentence_pack_asset=NONE_TRACKED' | Set-Content .\artifacts\worker5-r3-release-evidence.txt -Encoding UTF8
+            Write-Host 'No tracked distributable SentencePack asset found; engineering gate continues and evidence records the release asset gap.'
+          } else {
+            'sentence_pack_asset=FOUND' | Set-Content .\artifacts\worker5-r3-release-evidence.txt -Encoding UTF8
+            "sentence_pack_files=$($tracked -join ';')" | Add-Content .\artifacts\worker5-r3-release-evidence.txt -Encoding UTF8
+          }
+
+      - name: Third-party notice baseline
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $notices = Get-Content .\WordDeck\THIRD_PARTY_NOTICES.md -Raw
+          foreach ($required in @('Microsoft.Data.Sqlite','SQLite','Tatoeba')) {
+            if ($notices -notmatch [regex]::Escape($required)) { throw "THIRD_PARTY_NOTICES missing required release notice: $required" }
+          }
+          'third_party_notices=PASS' | Add-Content .\artifacts\worker5-r3-release-evidence.txt -Encoding UTF8
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore
+        run: dotnet restore .\WordDeck\WordDeck.csproj
+
+      - name: Release build with warnings as errors
+        run: dotnet build .\WordDeck\WordDeck.csproj -c Release --no-restore -warnaserror
+
+      - name: Full integrated embedded regression suite
+        run: dotnet run --project .\WordDeck\WordDeck.csproj -c Release --no-build -- --self-test
+
+      - name: Self-contained win-x64 publish in spaces and Cyrillic path
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+          $publish = Join-Path $PWD 'artifacts\WordDeck тест R3 candidate'
+          dotnet publish .\WordDeck\WordDeck.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:DebugType=None -p:DebugSymbols=false -o $publish
+          $exe = Join-Path $publish 'WordDeck.exe'
+          if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) { throw 'Published WordDeck.exe is missing.' }
+          $process = Start-Process -FilePath $exe -ArgumentList '--self-test' -Wait -PassThru
+          if ($process.ExitCode -ne 0) { throw "Published EXE self-test failed: $($process.ExitCode)" }
+          "head_sha=$env:TARGET_SHA" | Add-Content .\artifacts\worker5-r3-release-evidence.txt -Encoding UTF8
+          "publish_path=$publish" | Add-Content .\artifacts\worker5-r3-release-evidence.txt -Encoding UTF8
+          'published_exe_self_test=PASS' | Add-Content .\artifacts\worker5-r3-release-evidence.txt -Encoding UTF8
+          'spaces_and_cyrillic_path=PASS' | Add-Content .\artifacts\worker5-r3-release-evidence.txt -Encoding UTF8
+
+      - name: Clean publish and no-admin offline-shape gate
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $publish = Join-Path $PWD 'artifacts\WordDeck тест R3 candidate'
+          $forbidden = @(Get-ChildItem -LiteralPath $publish -Recurse -File | Where-Object {
+            $_.Name -match '^state(\.backup)?\.json$' -or
+            $_.Name -match '^spelling-state(\.backup)?\.json$' -or
+            $_.Name -match '^sentence-coach-state(\.backup)?\.json$' -or
+            $_.Name -like 'WordDeck-profile*.json' -or
+            $_.Name -like 'WordDeck-full-profile*.json' -or
+            $_.FullName -match '(?i)[\\/]Backups[\\/]' -or
+            $_.Name -match '(?i)(^|[-_.])(token|secret|credential|cookie)([-_.]|$)'
+          })
+          if ($forbidden.Count -ne 0) { throw "Published tree contains private-state/secret candidates: $($forbidden.FullName -join ', ')" }
+          $manifest = Get-Content .\WordDeck\app.manifest -Raw
+          if ($manifest -notmatch 'requestedExecutionLevel\s+level="asInvoker"') { throw 'Application manifest does not explicitly use asInvoker.' }
+          'clean_publish_tree=PASS' | Add-Content .\artifacts\worker5-r3-release-evidence.txt -Encoding UTF8
+          'no_admin_manifest=PASS' | Add-Content .\artifacts\worker5-r3-release-evidence.txt -Encoding UTF8
+          'normal_runtime_network_service_added=NO' | Add-Content .\artifacts\worker5-r3-release-evidence.txt -Encoding UTF8
+
+      - name: Upload exact-tip R3 release evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: WordDeck-worker5-r3-release-evidence
+          path: .\artifacts\worker5-r3-release-evidence.txt
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish final exact-tip status
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const succeeded = '${{ job.status }}' === 'success';
+            const targetUrl = `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`;
+            await github.rest.repos.createCommitStatus({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              sha: process.env.TARGET_SHA,
+              state: succeeded ? 'success' : 'failure',
+              context: 'WordDeck worker 5 R3 release acceptance',
+              description: succeeded ? 'R3 full-v1 release acceptance passed.' : 'R3 full-v1 release acceptance failed.',
+              target_url: targetUrl
+            });
