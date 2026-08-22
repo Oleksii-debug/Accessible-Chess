@@ -218,13 +218,7 @@ def _create_hardlink_snapshot(destination: Path) -> Path:
 
 
 def _publish_no_clobber(tmp_path: Path, destination: Path) -> None:
-    """Atomically publish ``tmp_path`` only if ``destination`` is still absent.
-
-    Once ``os.link`` succeeds, ``destination`` already names the committed
-    bytes. Removing the redundant temporary pathname is housekeeping after the
-    commit boundary; a cleanup failure must remain observable without turning
-    an already successful save into an ambiguous caller-visible failure.
-    """
+    """Atomically publish ``tmp_path`` only if ``destination`` is still absent."""
 
     try:
         os.link(tmp_path, destination)
@@ -233,14 +227,15 @@ def _publish_no_clobber(tmp_path: Path, destination: Path) -> None:
     except OSError as exc:
         raise PgnFileError("PGN no-clobber publication is unavailable") from exc
 
+    # Publication is committed once the hard link exists. Cleanup of the
+    # redundant temporary pathname is best-effort and must not turn a committed
+    # save into a reported failure that invites an unsafe retry.
     try:
         tmp_path.unlink()
     except FileNotFoundError:
         pass
     except OSError:
-        _LOG.warning(
-            "PGN no-clobber publication committed; redundant temporary name cleanup failed"
-        )
+        _LOG.warning("PGN was committed but redundant temporary cleanup could not complete")
 
 
 def _publish_expected_hash(
