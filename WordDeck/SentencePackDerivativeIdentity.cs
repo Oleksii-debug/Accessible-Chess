@@ -39,6 +39,23 @@ internal static class SentencePackDerivativeIdentity
         RequireEqual(connection, SourceVersionKey, pack.Version.ToString(System.Globalization.CultureInfo.InvariantCulture));
     }
 
+    // Cheap normal-startup check for manifest-based R3 installations: compare
+    // the already stamped portable hash in SQLite with the signed/committed
+    // manifest value. It deliberately does not re-hash a potentially large pack.
+    public static bool MatchesExpectedPortableHash(string sqlitePath, string expectedPortableSha256)
+    {
+        if (!File.Exists(sqlitePath) || string.IsNullOrWhiteSpace(expectedPortableSha256)) return false;
+        try
+        {
+            using SqliteConnection connection = Open(sqlitePath, readOnly: true);
+            string? stored = Read(connection, PortableHashKey);
+            return string.Equals(stored, expectedPortableSha256, StringComparison.OrdinalIgnoreCase);
+        }
+        catch { return false; }
+    }
+
+    // Full portable-file hash verification is reserved for explicit integrity
+    // checks/self-tests and legacy installations without a manifest contract.
     public static bool MatchesInstalledPortable(string sqlitePath, string portablePath)
     {
         if (!File.Exists(sqlitePath) || !File.Exists(portablePath)) return false;
@@ -46,8 +63,6 @@ internal static class SentencePackDerivativeIdentity
         {
             using SqliteConnection connection = Open(sqlitePath, readOnly: true);
             string? stored = Read(connection, PortableHashKey);
-            // Pre-R3 derivatives without the stronger identity stamp remain readable
-            // only through the legacy compatibility path. A new import stamps them.
             if (string.IsNullOrWhiteSpace(stored)) return true;
             return string.Equals(stored, FileHash(portablePath), StringComparison.OrdinalIgnoreCase);
         }
