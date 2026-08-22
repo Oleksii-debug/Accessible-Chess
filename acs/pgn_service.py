@@ -98,9 +98,17 @@ class PgnFileImporter:
         return report
 
 
-def _bounded_source_size(path: Path) -> int:
+def _bounded_source_size(path: Path) -> int | None:
+    """Reject a real oversized file before hashing/opening its text payload.
+
+    Tests and higher-level callers may inject a synthetic fingerprint for a
+    virtual path, so a missing lexical path is left to ``fingerprint()`` rather
+    than being treated as a separate resource-policy failure here.
+    """
     try:
         size = path.lstat().st_size
+    except FileNotFoundError:
+        return None
     except OSError as exc:
         raise PgnFileError("PGN source is unavailable") from exc
     if size > MAX_PGN_SOURCE_BYTES:
