@@ -4,14 +4,15 @@ NEXT_ACTION_ORDER:
 
 1. Re-read live DEV5 PR #66, manual5 integration and QA PR #67 before any new write. Do not compete with an IN_PROGRESS Product/integration owner.
 2. Recheck QA PR #67 exact head and commit-associated Actions. Keep strict security assertions RED until genuine Product fixes exist; never weaken them for GREEN.
-3. Preserve all seven locked Product-defect classes plus positive QA guards for PGN export failure recovery and Stockfish error-path privacy.
-4. Continue generic import resource limits: explicit maximum source size, chunked/streaming strategy, huge/truncated content, encoding abuse, duplicate sources, cancellation and recovery. Bounded hashing alone is not a bounded import.
-5. Extend ChessBase evidence observability: companion-directory enumeration, component open/stat/hash failures and unreadable/inaccessible evidence must remain distinguishable from verified absence.
-6. Trace generic provenance/error exposure end-to-end from `SourceFingerprint.path`, `BatchInspectionItem.path/error`, PGN exceptions and engine/runtime exceptions into real persisted/UI/report surfaces. Promote only direct exposure.
-7. Extend UCI/engine failure-surface QA only where non-conflicting and user-facing: startup/provider/timeout failures must not leak executable/user-profile paths into WebView/NVDA messages.
-8. Keep PGN parent-directory durability INCONCLUSIVE unless a clear active contract plus reproducible crash/power-loss evidence justifies promotion.
-9. Maintain `DEV4_CHESSBASE_CAPABILITY_MATRIX.md` as evidence changes; suffix recognition must never be presented as decoder compatibility.
-10. Re-enter Stage1 package/security reconciliation only when DEV5/Audit authorizes a slice. Preserve accepted DEV1 board-bridge semantics and keep `nuitka-compilation-report.xml` outside user ZIPs.
+3. Preserve all eight locked Product-defect classes plus positive QA guards for PGN export failure recovery and Stockfish error-path privacy.
+4. Preserve `tests/test_dev4_import_batch_adapter_failure.py`: importer/decoder/provider runtime failure must be recorded per source and must not hide later batch results.
+5. Continue generic import resource limits: explicit maximum source size, chunked/streaming strategy, huge/truncated content, encoding abuse, duplicate sources, cancellation and recovery. Bounded hashing alone is not a bounded import.
+6. Extend ChessBase evidence observability: companion-directory enumeration, component open/stat/hash failures and unreadable/inaccessible evidence must remain distinguishable from verified absence.
+7. Trace generic provenance/error exposure end-to-end from `SourceFingerprint.path`, `BatchInspectionItem.path/error`, PGN exceptions and engine/runtime exceptions into real persisted/UI/report surfaces. Promote only direct exposure.
+8. Extend UCI/engine failure-surface QA only where non-conflicting and user-facing.
+9. Keep PGN parent-directory durability INCONCLUSIVE unless stronger crash/power-loss evidence exists.
+10. Maintain `DEV4_CHESSBASE_CAPABILITY_MATRIX.md`; suffix recognition must never be presented as decoder compatibility.
+11. Re-enter Stage1 package/security reconciliation only when DEV5/Audit authorizes a slice. Preserve accepted DEV1 board-bridge semantics and keep `nuitka-compilation-report.xml` outside user ZIPs.
 
 CURRENT LOCKED FINDINGS:
 - PROVEN_PRODUCT_DEFECT: external import/ChessBase symlink-reparse boundary follows indirection instead of failing closed.
@@ -19,8 +20,9 @@ CURRENT LOCKED FINDINGS:
 - PROVEN_PRODUCT_DEFECT: serialized ChessBase probe/integrity/manifest report DTOs expose absolute local paths.
 - PROVEN_PRODUCT_DEFECT: PGN expected_sha256 optimistic overwrite has a TOCTOU lost-update window.
 - PROVEN_PRODUCT_DEFECT: PGN overwrite=False can clobber a destination created after preflight.
-- PROVEN_PRODUCT_DEFECT: PGN export filesystem-indirection boundary is not fail-closed; strict coverage includes direct parent, deeper ancestor and destination-file symlinks.
-- PROVEN_PRODUCT_DEFECT: ChessBase CBH companion directory I/O failures are collapsed into ordinary no-companion evidence rather than explicit unavailable/error state.
+- PROVEN_PRODUCT_DEFECT: PGN export filesystem-indirection boundary is not fail-closed.
+- PROVEN_PRODUCT_DEFECT: ChessBase CBH companion directory I/O failures are collapsed into ordinary no-companion evidence.
+- PROVEN_PRODUCT_DEFECT: generic import `inspect_batch()` aborts on importer `RuntimeError` instead of recording failure and continuing later sources.
 - QA EVIDENCE: PGN export recovery guard locks destination preservation/temp cleanup on injected `os.replace`/`os.fsync` failures plus POSIX private temp-mode expectations.
 - QA EVIDENCE: release-facing engine-game startup sanitizes provider exceptions containing synthetic private Stockfish paths before WebView/NVDA output.
 - PROVEN_PRODUCT_INTEGRATION_RISK: naive DEV4 board-action overwrite can regress accepted DEV1 semantics.
