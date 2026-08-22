@@ -79,6 +79,14 @@ class FullProductWebViewAdapter:
         self._shell.record_focus(element_id)
         return WebViewCommand("focus-recorded", {"element_id": element_id.strip()})
 
+    def _safe_error(self, exc: Exception) -> WebViewCommand:
+        # Registry misses are developer/integration details, never user-facing IDs.
+        source: object = "" if isinstance(exc, KeyError) else exc
+        return WebViewCommand(
+            "error",
+            {"message": concise_user_error(source, language=self._shell.language)},
+        )
+
     def activate_action(
         self,
         action_id: str,
@@ -93,10 +101,7 @@ class FullProductWebViewAdapter:
                 current_focus_id=current_focus_id,
             )
         except Exception as exc:  # UI boundary: sanitize before user projection.
-            return WebViewCommand(
-                "error",
-                {"message": concise_user_error(exc, language=self._shell.language)},
-            )
+            return self._safe_error(exc)
         if result.handled_by_shell:
             return WebViewCommand(
                 "route",
@@ -125,10 +130,7 @@ class FullProductWebViewAdapter:
                 initial_focus_id=initial_focus_id,
             )
         except Exception as exc:
-            return WebViewCommand(
-                "error",
-                {"message": concise_user_error(exc, language=self._shell.language)},
-            )
+            return self._safe_error(exc)
         return WebViewCommand(
             "dialog-open",
             {"dialog_id": dialog_id.strip(), "focus_target": target},
@@ -138,10 +140,7 @@ class FullProductWebViewAdapter:
         try:
             target = self._shell.close_dialog(dialog_id)
         except Exception as exc:
-            return WebViewCommand(
-                "error",
-                {"message": concise_user_error(exc, language=self._shell.language)},
-            )
+            return self._safe_error(exc)
         return WebViewCommand("dialog-close", {"focus_target": target})
 
     @staticmethod
