@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - auto/dev2-full-product-core-20260822
+  pull_request:
+    branches:
+      - integration/accessible-chess-next
   workflow_dispatch:
 
 permissions:
