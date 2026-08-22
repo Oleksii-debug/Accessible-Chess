@@ -77,11 +77,13 @@ function Send-Keys([string]$keys, [string]$target = '') {
     # Application accelerators need real modifier state. Supplying --target first
     # focuses the exact WordDeck surface before SendInput, which avoids a hosted
     # runner delivering Ctrl/Alt shortcuts to the shell after a modal closes.
-    # Alt+F4 remains HWND-targeted because OS-wide injection is intentionally
-    # rejected for system-reserved combinations.
+    # The File-menu mnemonic "r" also needs SendInput once the native menu loop is
+    # active; PostMessage to the main HWND does not feed that menu loop. Alt+F4
+    # remains HWND-targeted because OS-wide injection is intentionally rejected
+    # for system-reserved combinations.
     $transport = if ($keys -ieq 'alt+f4') {
         'post-message'
-    } elseif ($keys.Contains('+')) {
+    } elseif ($keys.Contains('+') -or $keys -ieq 'r') {
         'send-input'
     } else {
         'post-message'
