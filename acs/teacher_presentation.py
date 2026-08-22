@@ -1,16 +1,18 @@
-"""Presentation-only Teacher/Classroom interaction state.
+"""Windows/WebView2 Teacher presentation controller over canonical contracts.
 
-Pointer, highlights, arrows, hover, selection and move requests are deliberately
-separate from Move Input and never mutate canonical chess Position state. This
-module stores only visual/interaction presentation facts for the Windows/WebView2
-surface and concise NVDA projection.
+This module deliberately owns only UI-local concerns: the two-character pointer
+editor buffer, visual theme/orientation preferences and bounded feedback used to
+avoid screen-reader flooding. Canonical pointer/highlight/arrow/permission state
+must come from ``state_provider``; mutations are emitted through ``dispatch``.
+It therefore cannot become a second source of chess or presentation truth.
 """
 from __future__ import annotations
 
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from enum import Enum
 import re
-from typing import Iterable
+from typing import Any
 
 _SQUARE = re.compile(r"^[a-h][1-8]$", re.IGNORECASE)
 _HEX_COLOR = re.compile(r"^#[0-9a-fA-F]{6}$")
@@ -19,7 +21,6 @@ _HEX_COLOR = re.compile(r"^#[0-9a-fA-F]{6}$")
 class StudentEventKind(str, Enum):
     HOVER = "hover"
     SELECT = "select"
-    MOVE_REQUEST = "move_request"
 
 
 class TeachingMode(str, Enum):
@@ -32,13 +33,6 @@ class TeachingMode(str, Enum):
     ATTACK_DEFENCE = "attack_defence"
 
 
-class EngineVisibility(str, Enum):
-    TEACHER = "teacher"
-    STUDENT = "student"
-    BOTH = "both"
-    HIDDEN = "hidden"
-
-
 class BoardOrientation(str, Enum):
     WHITE = "white"
     BLACK = "black"
@@ -46,35 +40,38 @@ class BoardOrientation(str, Enum):
 
 @dataclass(frozen=True, slots=True)
 class AnnotationStyle:
-    name: str
+    """UI theme only; canonical contracts keep semantic annotation purpose."""
+
+    purpose: str
     color: str
 
     def __post_init__(self) -> None:
-        clean = self.name.strip().lower()
+        clean = self.purpose.strip().lower()
         if not clean or not re.fullmatch(r"[a-z0-9_-]{1,32}", clean):
-            raise ValueError("annotation style name must be a safe token")
+            raise ValueError("annotation purpose must be a safe token")
         if not _HEX_COLOR.fullmatch(self.color):
             raise ValueError("annotation color must be #RRGGBB")
-        object.__setattr__(self, "name", clean)
+        object.__setattr__(self, "purpose", clean)
         object.__setattr__(self, "color", self.color.lower())
 
 
 @dataclass(frozen=True, slots=True)
-class VisualArrow:
-    start: str
-    end: str
-    style: str = "default"
-
-
-@dataclass(frozen=True, slots=True)
-class StudentBoardEvent:
+class StudentFeedbackEvent:
     kind: StudentEventKind
     square: str
     piece_name: str = ""
-    allowed: bool = True
+    student_id: str = ""
+    sequence: int | None = None
 
 
 class TeacherPresentationState:
+    """UI controller retaining the historical public name for DEV1 continuity.
+
+    Despite the name, authoritative presentation state is not stored here.
+    ``snapshot()`` always reads the canonical provider. All presentation changes
+    dispatch stable actions for the application/interaction router to validate.
+    """
+
     DEFAULT_STYLES = (
         AnnotationStyle("target", "#ffd54f"),
         AnnotationStyle("legal", "#66bb6a"),
@@ -83,29 +80,35 @@ class TeacherPresentationState:
         AnnotationStyle("selected", "#ab47bc"),
         AnnotationStyle("last-move", "#26a69a"),
         AnnotationStyle("idea", "#ffa726"),
-        AnnotationStyle("default", "#ffee58"),
+        AnnotationStyle("custom", "#ffee58"),
     )
 
-    def __init__(self, *, pointer_history_limit: int = 20) -> None:
-        if type(pointer_history_limit) is not int or pointer_history_limit < 1:
-            raise ValueError("pointer history limit must be positive")
-        self.pointer_square: str | None = None
-        self.pointer_history: list[str] = []
-        self.highlights: dict[str, str] = {}
-        self.arrows: list[VisualArrow] = []
-        self.student_events: list[StudentBoardEvent] = []
-        self.selected_square: str | None = None
-        self.last_move_squares: tuple[str, str] | None = None
-        self.show_coordinates = True
-        self.orientation = BoardOrientation.WHITE
-        self.board_locked = False
-        self.student_moves_allowed = False
-        self.teaching_mode = TeachingMode.TEACHER_EXPLAINS
-        self.engine_visibility = EngineVisibility.HIDDEN
-        self._history_limit = pointer_history_limit
+    _FORBIDDEN_STATE_KEYS = frozenset(
+        {"position", "fen", "move_history", "history", "board_fen", "moves"}
+    )
+
+    def __init__(
+        self,
+        dispatch: Callable[[str, Mapping[str, object]], Any],
+        state_provider: Callable[[], Mapping[str, object]],
+        *,
+        feedback_limit: int = 50,
+    ) -> None:
+        if not callable(dispatch):
+            raise TypeError("teacher presentation dispatcher must be callable")
+        if not callable(state_provider):
+            raise TypeError("teacher canonical state provider must be callable")
+        if type(feedback_limit) is not int or feedback_limit < 1:
+            raise ValueError("feedback limit must be positive")
+        self._dispatch = dispatch
+        self._state_provider = state_provider
         self._pointer_buffer = ""
+        self._feedback_limit = feedback_limit
+        self._student_feedback: list[StudentFeedbackEvent] = []
+        self._orientation = BoardOrientation.WHITE
+        self._teaching_mode = TeachingMode.TEACHER_EXPLAINS
         self._styles: dict[str, AnnotationStyle] = {
-            item.name: item for item in self.DEFAULT_STYLES
+            item.purpose: item for item in self.DEFAULT_STYLES
         }
 
     @staticmethod
@@ -121,8 +124,35 @@ class TeacherPresentationState:
     def pointer_input_buffer(self) -> str:
         return self._pointer_buffer
 
+    @property
+    def orientation(self) -> BoardOrientation:
+        return self._orientation
+
+    @property
+    def teaching_mode(self) -> TeachingMode:
+        return self._teaching_mode
+
+    def snapshot(self) -> dict[str, object]:
+        raw = self._state_provider()
+        if not isinstance(raw, Mapping):
+            raise TypeError("canonical teacher presentation state must be a mapping")
+        snapshot = dict(raw)
+        forbidden = self._FORBIDDEN_STATE_KEYS.intersection(snapshot)
+        if forbidden:
+            raise ValueError(
+                f"teacher presentation provider leaked chess-state field(s): {sorted(forbidden)!r}"
+            )
+        return snapshot
+
+    @property
+    def pointer_square(self) -> str | None:
+        value = self.snapshot().get("pointer_square")
+        if value is None:
+            return None
+        return self.normalize_square(value)
+
     def type_pointer_character(self, character: str) -> str | None:
-        """Accept f3/c7/a1 style input and auto-clear once a square completes."""
+        """Accept f3/c7/a1 and dispatch immediately when coordinate completes."""
         if not isinstance(character, str) or len(character) != 1:
             raise ValueError("pointer editor accepts one character at a time")
         candidate = self._pointer_buffer + character.lower()
@@ -138,7 +168,7 @@ class TeacherPresentationState:
             except (TypeError, ValueError):
                 self._pointer_buffer = ""
                 raise
-            self.set_pointer(square)
+            self._dispatch("teacher.pointer_input", {"square": square})
             self._pointer_buffer = ""
             return square
         self._pointer_buffer = ""
@@ -147,106 +177,87 @@ class TeacherPresentationState:
     def clear_pointer_input(self) -> None:
         self._pointer_buffer = ""
 
-    def set_pointer(self, square: str) -> None:
-        value = self.normalize_square(square)
-        self.pointer_square = value
-        if not self.pointer_history or self.pointer_history[-1] != value:
-            self.pointer_history.append(value)
-            del self.pointer_history[:-self._history_limit]
-
-    def clear_pointer(self) -> None:
-        self.pointer_square = None
+    def clear_pointer(self) -> Any:
         self._pointer_buffer = ""
+        return self._dispatch("teacher.pointer_clear", {})
 
     def register_style(self, style: AnnotationStyle) -> None:
         if not isinstance(style, AnnotationStyle):
             raise TypeError("style must be AnnotationStyle")
-        self._styles[style.name] = style
+        self._styles[style.purpose] = style
 
-    def style(self, name: str) -> AnnotationStyle:
-        token = str(name).strip().lower()
+    def style(self, purpose: str) -> AnnotationStyle:
+        token = str(purpose).strip().lower()
         try:
             return self._styles[token]
         except KeyError as exc:
-            raise LookupError(f"unknown annotation style: {token}") from exc
+            raise LookupError(f"unknown annotation purpose: {token}") from exc
 
-    def set_highlight(self, square: str, *, style: str = "target") -> None:
-        style_token = self.style(style).name
-        self.highlights[self.normalize_square(square)] = style_token
-
-    def clear_highlight(self, square: str) -> None:
-        self.highlights.pop(self.normalize_square(square), None)
-
-    def replace_highlights(self, squares: Iterable[str], *, style: str = "target") -> None:
-        style_token = self.style(style).name
-        normalized = [self.normalize_square(square) for square in squares]
-        self.highlights = {square: style_token for square in normalized}
-
-    def set_selected_square(self, square: str | None) -> None:
-        self.selected_square = None if square is None else self.normalize_square(square)
-
-    def set_last_move(self, start: str | None, end: str | None = None) -> None:
-        if start is None and end is None:
-            self.last_move_squares = None
-            return
-        if start is None or end is None:
-            raise ValueError("last move requires both start and end squares")
-        self.last_move_squares = (
-            self.normalize_square(start),
-            self.normalize_square(end),
+    def set_highlight(self, square: str, *, purpose: str = "target") -> Any:
+        token = self.style(purpose).purpose
+        return self._dispatch(
+            "teacher.highlight",
+            {"square": self.normalize_square(square), "purpose": token},
         )
 
-    def add_arrow(self, start: str, end: str, *, style: str = "default") -> VisualArrow:
-        style_token = self.style(style).name
-        arrow = VisualArrow(
-            self.normalize_square(start),
-            self.normalize_square(end),
-            style_token,
-        )
-        if arrow.start == arrow.end:
+    def add_arrow(self, start: str, end: str, *, purpose: str = "custom") -> Any:
+        start_square = self.normalize_square(start)
+        end_square = self.normalize_square(end)
+        if start_square == end_square:
             raise ValueError("teaching arrow must connect two different squares")
-        if arrow not in self.arrows:
-            self.arrows.append(arrow)
-        return arrow
+        token = self.style(purpose).purpose
+        return self._dispatch(
+            "teacher.arrow",
+            {
+                "start_square": start_square,
+                "end_square": end_square,
+                "purpose": token,
+            },
+        )
 
-    def clear_annotations(self) -> None:
-        self.highlights.clear()
-        self.arrows.clear()
-        self.selected_square = None
-        self.last_move_squares = None
+    def clear_annotations(self) -> Any:
+        return self._dispatch("teacher.clear_annotations", {})
+
+    def toggle_coordinates(self) -> Any:
+        return self._dispatch("teacher.coordinates_toggle", {})
+
+    def set_board_permission(self, permission: str) -> Any:
+        token = str(permission).strip().lower()
+        if token not in {"locked", "select_only", "move_allowed"}:
+            raise ValueError("unsupported board permission")
+        return self._dispatch("teacher.board_permission", {"permission": token})
+
+    def set_engine_visibility(self, visibility: str) -> Any:
+        token = str(visibility).strip().lower()
+        if token not in {"visible_to_teacher", "visible_to_student", "hidden"}:
+            raise ValueError("unsupported engine visibility")
+        return self._dispatch("teacher.engine_visibility", {"visibility": token})
+
+    def request_student_move(self, raw_text: str) -> Any:
+        text = str(raw_text).strip()
+        if not text:
+            raise ValueError("student move request must not be empty")
+        # This is deliberately a separate action. The application router alone
+        # decides whether policy permits conversion to a canonical MoveCommand.
+        return self._dispatch("student.move", {"raw_text": text})
 
     def set_orientation(self, orientation: BoardOrientation) -> None:
         if not isinstance(orientation, BoardOrientation):
             raise TypeError("orientation must be BoardOrientation")
-        self.orientation = orientation
+        self._orientation = orientation
 
     def toggle_orientation(self) -> BoardOrientation:
-        self.orientation = (
+        self._orientation = (
             BoardOrientation.BLACK
-            if self.orientation is BoardOrientation.WHITE
+            if self._orientation is BoardOrientation.WHITE
             else BoardOrientation.WHITE
         )
-        return self.orientation
+        return self._orientation
 
     def set_teaching_mode(self, mode: TeachingMode) -> None:
         if not isinstance(mode, TeachingMode):
             raise TypeError("mode must be TeachingMode")
-        self.teaching_mode = mode
-
-    def set_engine_visibility(self, visibility: EngineVisibility) -> None:
-        if not isinstance(visibility, EngineVisibility):
-            raise TypeError("visibility must be EngineVisibility")
-        self.engine_visibility = visibility
-
-    def set_board_locked(self, locked: bool) -> None:
-        if type(locked) is not bool:
-            raise TypeError("board lock state must be boolean")
-        self.board_locked = locked
-
-    def set_student_moves_allowed(self, allowed: bool) -> None:
-        if type(allowed) is not bool:
-            raise TypeError("student move permission must be boolean")
-        self.student_moves_allowed = allowed
+        self._teaching_mode = mode
 
     def record_student_event(
         self,
@@ -254,53 +265,47 @@ class TeacherPresentationState:
         square: str,
         *,
         piece_name: str = "",
-    ) -> StudentBoardEvent:
+        student_id: str = "",
+        sequence: int | None = None,
+    ) -> StudentFeedbackEvent:
+        """Record only bounded spoken-feedback cache, never canonical policy/state."""
         if not isinstance(kind, StudentEventKind):
             raise TypeError("student event kind must be StudentEventKind")
-        allowed = True
-        if kind is StudentEventKind.MOVE_REQUEST:
-            allowed = self.student_moves_allowed and not self.board_locked
-        event = StudentBoardEvent(
+        if sequence is not None and (type(sequence) is not int or sequence < 0):
+            raise ValueError("student event sequence must be non-negative")
+        event = StudentFeedbackEvent(
             kind,
             self.normalize_square(square),
             str(piece_name).strip(),
-            allowed,
+            str(student_id).strip(),
+            sequence,
         )
-        self.student_events.append(event)
-        del self.student_events[:-50]
+        self._student_feedback.append(event)
+        del self._student_feedback[:-self._feedback_limit]
         return event
 
     @staticmethod
-    def concise_student_event(event: StudentBoardEvent, *, language: str = "uk") -> str:
+    def concise_student_event(event: StudentFeedbackEvent, *, language: str = "uk") -> str:
         piece = f", {event.piece_name}" if event.piece_name else ""
         if language == "en":
-            verbs = {
-                StudentEventKind.HOVER: "Hover",
-                StudentEventKind.SELECT: "Selected",
-                StudentEventKind.MOVE_REQUEST: "Move requested",
-            }
-            blocked = " blocked" if event.kind is StudentEventKind.MOVE_REQUEST and not event.allowed else ""
+            verb = "Hover" if event.kind is StudentEventKind.HOVER else "Selected"
         else:
-            verbs = {
-                StudentEventKind.HOVER: "Навів",
-                StudentEventKind.SELECT: "Вибрав",
-                StudentEventKind.MOVE_REQUEST: "Запросив хід",
-            }
-            blocked = " заблоковано" if event.kind is StudentEventKind.MOVE_REQUEST and not event.allowed else ""
-        return f"{verbs[event.kind]} {event.square}{piece}{blocked}"
+            verb = "Навів" if event.kind is StudentEventKind.HOVER else "Вибрав"
+        return f"{verb} {event.square}{piece}"
 
-    def feedback_events(self, *, limit: int = 10) -> tuple[StudentBoardEvent, ...]:
+    def feedback_events(self, *, limit: int = 10) -> tuple[StudentFeedbackEvent, ...]:
         """Return bounded feedback with consecutive hover duplicates coalesced."""
         if type(limit) is not int or limit < 1:
             raise ValueError("feedback limit must be positive")
-        out: list[StudentBoardEvent] = []
-        for event in self.student_events:
+        out: list[StudentFeedbackEvent] = []
+        for event in self._student_feedback:
             if (
                 out
                 and event.kind is StudentEventKind.HOVER
                 and out[-1].kind is StudentEventKind.HOVER
                 and out[-1].square == event.square
                 and out[-1].piece_name == event.piece_name
+                and out[-1].student_id == event.student_id
             ):
                 out[-1] = event
             else:
@@ -308,56 +313,51 @@ class TeacherPresentationState:
         return tuple(out[-limit:])
 
     def accessible_annotation_summary(self, *, language: str = "uk") -> str:
+        state = self.snapshot()
         parts: list[str] = []
-        if self.pointer_square:
+        pointer = state.get("pointer_square")
+        if pointer:
+            pointer = self.normalize_square(pointer)
             parts.append(
-                f"Pointer {self.pointer_square}"
+                f"Pointer {pointer}"
                 if language == "en"
-                else f"Вказівник {self.pointer_square}"
+                else f"Вказівник {pointer}"
             )
-        if self.selected_square:
-            parts.append(
-                f"Selected {self.selected_square}"
-                if language == "en"
-                else f"Вибрано {self.selected_square}"
-            )
-        if self.last_move_squares:
-            start, end = self.last_move_squares
-            parts.append(
-                f"Last move {start}–{end}"
-                if language == "en"
-                else f"Останній хід {start}–{end}"
-            )
-        if self.highlights:
-            body = ", ".join(f"{square} {style}" for square, style in self.highlights.items())
-            parts.append(
-                f"Highlights: {body}"
-                if language == "en"
-                else f"Підсвічування: {body}"
-            )
-        if self.arrows:
-            body = ", ".join(f"{arrow.start}–{arrow.end} {arrow.style}" for arrow in self.arrows)
-            parts.append(
-                f"Arrows: {body}"
-                if language == "en"
-                else f"Стрілки: {body}"
-            )
+        highlights = state.get("highlights") or ()
+        if highlights:
+            rendered = []
+            for item in highlights:
+                if isinstance(item, Mapping):
+                    square = self.normalize_square(item.get("square"))
+                    purpose = str(item.get("purpose") or "custom")
+                    rendered.append(f"{square} {purpose}")
+            if rendered:
+                body = ", ".join(rendered)
+                parts.append(
+                    f"Highlights: {body}"
+                    if language == "en"
+                    else f"Підсвічування: {body}"
+                )
+        arrows = state.get("arrows") or ()
+        if arrows:
+            rendered = []
+            for item in arrows:
+                if isinstance(item, Mapping):
+                    start = self.normalize_square(item.get("start_square"))
+                    end = self.normalize_square(item.get("end_square"))
+                    purpose = str(item.get("purpose") or "custom")
+                    rendered.append(f"{start}–{end} {purpose}")
+            if rendered:
+                body = ", ".join(rendered)
+                parts.append(
+                    f"Arrows: {body}"
+                    if language == "en"
+                    else f"Стрілки: {body}"
+                )
         if not parts:
             return "No teaching annotations." if language == "en" else "Навчальних позначок немає."
         return ". ".join(parts) + "."
 
     def presentation_snapshot(self) -> dict[str, object]:
-        return {
-            "pointer": self.pointer_square,
-            "pointer_history": tuple(self.pointer_history),
-            "highlights": dict(self.highlights),
-            "arrows": tuple(self.arrows),
-            "selected_square": self.selected_square,
-            "last_move_squares": self.last_move_squares,
-            "show_coordinates": self.show_coordinates,
-            "orientation": self.orientation.value,
-            "board_locked": self.board_locked,
-            "student_moves_allowed": self.student_moves_allowed,
-            "teaching_mode": self.teaching_mode.value,
-            "engine_visibility": self.engine_visibility.value,
-        }
+        """Compatibility alias: always returns the provider-owned canonical state."""
+        return self.snapshot()
