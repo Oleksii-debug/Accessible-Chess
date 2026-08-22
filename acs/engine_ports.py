@@ -12,6 +12,10 @@ from enum import Enum
 from typing import Protocol, Sequence, runtime_checkable
 
 
+ENGINE_FEN_MAX_LENGTH = 512
+ENGINE_MOVE_MAX_MOVETIME_MS = 60_000
+
+
 class EngineContractErrorCode(str, Enum):
     INVALID_REQUEST = "invalid_request"
     INVALID_RESULT = "invalid_result"
@@ -93,9 +97,15 @@ class EngineMoveRequest:
     movetime_ms: int | None = None
 
     def __post_init__(self) -> None:
-        if not isinstance(self.fen, str) or not self.fen.strip():
+        if not isinstance(self.fen, str):
             raise EngineContractError(
-                "engine move request FEN must be non-empty text",
+                "engine move request FEN must be bounded non-empty text",
+                code=EngineContractErrorCode.INVALID_REQUEST,
+            )
+        normalized_fen = self.fen.strip()
+        if not normalized_fen or len(normalized_fen) > ENGINE_FEN_MAX_LENGTH:
+            raise EngineContractError(
+                "engine move request FEN must be bounded non-empty text",
                 code=EngineContractErrorCode.INVALID_REQUEST,
             )
         if not isinstance(self.level, int) or isinstance(self.level, bool):
@@ -111,7 +121,15 @@ class EngineMoveRequest:
                 "engine move request movetime_ms must be an integer or None",
                 code=EngineContractErrorCode.INVALID_REQUEST,
             )
-        object.__setattr__(self, "fen", self.fen.strip())
+        if (
+            self.movetime_ms is not None
+            and self.movetime_ms > ENGINE_MOVE_MAX_MOVETIME_MS
+        ):
+            raise EngineContractError(
+                "engine move request movetime_ms exceeds supported bound",
+                code=EngineContractErrorCode.INVALID_REQUEST,
+            )
+        object.__setattr__(self, "fen", normalized_fen)
 
 
 @dataclass(frozen=True)
@@ -140,10 +158,10 @@ class EngineMoveResult:
         if (
             not isinstance(self.movetime_ms, int)
             or isinstance(self.movetime_ms, bool)
-            or self.movetime_ms < 50
+            or not 50 <= self.movetime_ms <= ENGINE_MOVE_MAX_MOVETIME_MS
         ):
             raise EngineContractError(
-                "engine move result movetime_ms must be an integer of at least 50",
+                "engine move result movetime_ms must be between 50 and 60000",
                 code=EngineContractErrorCode.INVALID_RESULT,
             )
 
