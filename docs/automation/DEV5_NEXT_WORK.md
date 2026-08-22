@@ -1,16 +1,15 @@
 # DEV5_NEXT_WORK
 
-SOURCE_RUN: 20260822-2202
-MODE: SAFE_OVERLAP_FIRST
+SOURCE_RUN: 20260822-2225
+MODE: SAFE_OVERLAP_FIRST / SELECTIVE_RECONCILIATION_ONLY
 
-1. At the next invocation establish a fresh immutable cutoff and re-read live PRs/branches/handoffs/CI before any mutation.
-2. Use only terminal DEV1-DEV4 evidence that existed before that cutoff for integration decisions.
-3. Preserve accepted Stage1 `manual5/integration-20260821 @ 0fa442330bc2bb03636ff9297512da4c29e38684` and persistent GREEN DEV5 authority `full5/dev5-compose-1700-20260822 @ dd9ebf9414103c805892856fe6a04706fa69039f` until superseded by a newer exact-green selective composition.
-4. DEV1 ceiling: `6b3e41f6c7bf0a436d70c9926e3761cc7f99260f`.
-5. DEV2 canonical Product ceiling: `7d525dd34f6ae1a2083a79e25638cbc101e9beaf`; never wholesale-merge validation PR #104.
-6. DEV3 canonical Product ceiling: `9c8a342e7dd98fee52c9776c0cb6a9b970d49296`; PR #107/#108 is evidence-only performance characterization and does not change Product intake authority.
-7. DEV4 must be re-read first. Pre-cutoff terminal handoff `05e85dbb794388afb390b2319e04b9f818c5ba1b` repaired both previously proven PGN publication races but had no exact-head Actions. PR #100 moved after cutoff, proving active overlap. No DEV4 intake until its final touching work is terminal and exact executable CI is GREEN.
-8. While DEV4 or any touching integration worker is active, remain SAFE OVERLAP: CI/evidence review, conflict analysis, backlog ordering, disposable composition planning, directive maintenance. No competing Product push.
-9. Once all shared-boundary blockers are terminal exact-green, build a disposable selective composition from `dd9ebf...`; select canonical Product commits/files only, never evidence/validation PRs wholesale.
-10. Required vertical verification: PGN publication/open -> canonical GameTree -> ACSDB -> Unicode Search/Open; malformed/oversized/encoding/truncation/concurrency/path/provenance/privacy/recovery; bounded PresentationState; remote-session replay isolation; Teacher pointer/highlight/hover/selection non-mutation; keyboard/focus/clipboard accessibility; full unittest; full pytest; SELFTEST; complete WebView2 diagnostic; applicable exact-head CI.
-11. Do not merge PR #54 or move frozen refs for convenience. Never reuse the old rejected ZIP. A fresh Windows candidate requires the complete exact-SHA machine release chain. `NVDA_VERIFIED=NO` until Oleksii personally verifies that exact candidate.
+1. At the next invocation establish a fresh immutable cutoff and re-read live DEV1-DEV4 RUN_STATE/handoffs, PR heads and exact Actions before any Product mutation.
+2. Preserve Stage1 `manual5/integration-20260821 @ 0fa442330bc2bb03636ff9297512da4c29e38684` and persistent exact-GREEN DEV5 authority `full5/dev5-compose-1700-20260822 @ dd9ebf9414103c805892856fe6a04706fa69039f` until a newer selective candidate is exact-green.
+3. DEV1: current cutoff has RUN `20260822-1904` IN_PROGRESS on `full5/dev1-pgn-webview-20260822-1904`. Do not consume its 4-path PGN WebView delta until canonical terminal handoff + exact-source CI exist. If still active next cutoff, remain SAFE OVERLAP.
+4. DEV2: canonical Product ceiling is `7d525dd34f6ae1a2083a79e25638cbc101e9beaf`, exact CI `32588670876 / 97068893601` SUCCESS. It already contains the canonical missing-termination repair through ancestor `918d4e560d99c12e24e0763dc3a6fc1f1fbd82d4`. Never import the older DEV4 GameTree ancestry over this semantic authority.
+5. DEV3: Product ceiling remains `9c8a342e7dd98fee52c9776c0cb6a9b970d49296`; the newer 100k Unicode query-plan package is evidence-only and not Product authority.
+6. DEV4: eligible pre-cutoff head `f44113ac3c7783aca761c0a7e9044a6cac334cb3` received exact DEV5 machine validation via evidence-only PR #111, run `32593848747 / 97081672853`. Identity/diff/compile passed. The no-overwrite RED is stale test instrumentation because the test still patches obsolete `os.replace` while Product now uses `os.link`; preserve the safety assertion and update the injection primitive, do not weaken the test. The truncation-quality RED is already fixed in canonical DEV2 and demonstrates branch-ancestry conflict, not an open DEV2 defect.
+7. Re-snapshot DEV4 next wave because PR #100 moved after this cutoff. Do not use post-cutoff repair commits retroactively. Require terminal exact head plus observable machine evidence for DEV4-owned repair scope before intake.
+8. Once DEV1 is terminal and DEV4 touching work is terminal, build only a disposable selective composition from `dd9ebf...`. Apply canonical DEV2 first, preserving termination semantics; then current accepted DEV3; then only DEV4-owned import/PGN file-service/security changes; then terminal DEV1 presentation-only delta. Never wholesale-merge PR #100, #111, DEV2 validation PRs or evidence branches.
+9. Required combined validation: PGN publication/open -> canonical GameTree -> ACSDB -> Unicode Search/Open; missing termination; malformed/oversized/invalid-UTF8/truncation; expected-hash/no-clobber concurrency; cleanup/recovery; symlink/reparse/FIFO/special files; path/error privacy; import batch continuation; provenance stability; bounded PresentationState; remote-session replay isolation; Teacher pointer/highlight/hover/selection non-mutation; keyboard/focus/clipboard accessibility; full unittest; full pytest; SELFTEST; complete WebView2 diagnostic; applicable exact-head CI.
+10. Do not merge PR #54 or move frozen refs. Never reuse rejected ZIPs. Fresh Windows candidate only after complete machine release chain on one exact integrated SHA. `NVDA_VERIFIED=NO` until the user personally verifies that exact candidate.
