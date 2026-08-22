@@ -22,8 +22,18 @@ internal sealed class ShortcutManager
 
     public void RefreshDeckDefinitions(IEnumerable<DeckDefinition>? spellingDecks = null)
     {
-        if (spellingDecks is not null) _spellingDecks = spellingDecks.ToList();
-        Definitions = BuildDefinitions(); EnsureDefaults(); RemoveOrphanedDeckShortcuts();
+        if (spellingDecks is not null)
+        {
+            _spellingDecks = spellingDecks.ToList();
+        }
+        else if (_spellingDecks.Count == 0)
+        {
+            try { _spellingDecks = new SpellingStateStore().Load().Decks.ToList(); }
+            catch (InvalidDataException) { _spellingDecks = new List<DeckDefinition>(); }
+        }
+        Definitions = BuildDefinitions();
+        EnsureDefaults();
+        RemoveOrphanedDeckShortcuts();
     }
 
     public Keys Get(string actionId)
@@ -33,10 +43,6 @@ internal sealed class ShortcutManager
         Keys candidate = GetCandidateKey(definition);
         if (candidate == Keys.None) return Keys.None;
 
-        // Imported/legacy profiles can contain duplicate shortcut strings even
-        // though the interactive editor prevents creating them. Ambiguous
-        // dispatch must fail closed instead of whichever definition happens to
-        // be enumerated first winning silently.
         bool duplicate = Definitions.Any(other =>
             !string.Equals(other.Id, actionId, StringComparison.OrdinalIgnoreCase) &&
             GetCandidateKey(other) == candidate);
@@ -118,11 +124,11 @@ internal sealed class ShortcutManager
         new(ActionIds.AddWords, "Add pasted word pairs to active deck", Keys.Control | Keys.Shift | Keys.A),
         new(ActionIds.SaveProgress, "Save progress now", Keys.Control | Keys.S),
         new(ActionIds.UndoMove, "Undo last deck move", Keys.Control | Keys.Z),
-        new(ActionIds.HideCurrentWord, "Hide current word from Recall study", Keys.Control | Keys.Delete),
-        new(ActionIds.RestoreHiddenWords, "Restore a hidden Recall word", Keys.Control | Keys.Alt | Keys.U),
-        new(ActionIds.RestoreAllHiddenWords, "Restore all hidden Recall words", Keys.None),
-        new(ActionIds.ExportProfile, "Export personal progress profile", Keys.Control | Keys.Alt | Keys.E),
-        new(ActionIds.ImportProfile, "Import personal progress profile", Keys.Control | Keys.Shift | Keys.I),
+        new(ActionIds.HideCurrentWord, "Hide current word from Recall and Spelling study", Keys.Control | Keys.Delete),
+        new(ActionIds.RestoreHiddenWords, "Restore a hidden study word", Keys.Control | Keys.Alt | Keys.U),
+        new(ActionIds.RestoreAllHiddenWords, "Restore all hidden study words", Keys.None),
+        new(ActionIds.ExportProfile, "Export Recall and Spelling personal progress profile", Keys.Control | Keys.Alt | Keys.E),
+        new(ActionIds.ImportProfile, "Import Recall and Spelling personal progress profile", Keys.Control | Keys.Shift | Keys.I),
         new(ActionIds.ResetLearningData, "Reset Recall learning data after backup", Keys.None),
         new(ActionIds.ShortcutSettings, "Open shortcut settings", Keys.Control | Keys.K),
         new(ActionIds.Help, "Open help", Keys.F1),
@@ -170,18 +176,16 @@ internal sealed class ShortcutManager
             defs.Add(new(ActionIds.SwitchDeck(deck.Id), $"Switch to deck: {deck.Name}", switchDefault));
             defs.Add(new(ActionIds.MoveToDeck(deck.Id), $"Move current word to deck: {deck.Name}", moveDefault));
         }
-        if (_spellingDecks.Count > 0)
+
+        defs.AddRange(SpellingDefinitions);
+        defs.AddRange(SentenceDefinitions);
+        foreach (DeckDefinition deck in _spellingDecks.OrderBy(deck => deck.Order))
         {
-            defs.AddRange(SpellingDefinitions);
-            defs.AddRange(SentenceDefinitions);
-            foreach (DeckDefinition deck in _spellingDecks.OrderBy(deck => deck.Order))
-            {
-                int coreNumber = SpellingDeckIds.CoreDecks.ToList().FindIndex(id => string.Equals(id, deck.Id, StringComparison.OrdinalIgnoreCase)) + 1;
-                Keys switchDefault = coreNumber is >= 1 and <= 5 ? Keys.Control | Keys.Shift | (Keys)((int)Keys.D0 + coreNumber) : Keys.None;
-                Keys moveDefault = coreNumber is >= 1 and <= 5 ? Keys.Alt | Keys.Shift | (Keys)((int)Keys.D0 + coreNumber) : Keys.None;
-                defs.Add(new(ActionIds.SpellingSwitchDeck(deck.Id), $"Spelling: switch to deck: {deck.Name}", switchDefault));
-                defs.Add(new(ActionIds.SpellingMoveToDeck(deck.Id), $"Spelling: move current word to deck: {deck.Name}", moveDefault));
-            }
+            int coreNumber = SpellingDeckIds.CoreDecks.ToList().FindIndex(id => string.Equals(id, deck.Id, StringComparison.OrdinalIgnoreCase)) + 1;
+            Keys switchDefault = coreNumber is >= 1 and <= 5 ? Keys.Control | Keys.Shift | (Keys)((int)Keys.D0 + coreNumber) : Keys.None;
+            Keys moveDefault = coreNumber is >= 1 and <= 5 ? Keys.Alt | Keys.Shift | (Keys)((int)Keys.D0 + coreNumber) : Keys.None;
+            defs.Add(new(ActionIds.SpellingSwitchDeck(deck.Id), $"Spelling: switch to deck: {deck.Name}", switchDefault));
+            defs.Add(new(ActionIds.SpellingMoveToDeck(deck.Id), $"Spelling: move current word to deck: {deck.Name}", moveDefault));
         }
         return defs;
     }
