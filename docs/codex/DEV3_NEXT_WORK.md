@@ -1,13 +1,16 @@
 # AUTO-CHESS DEV3 next work
 
-Verified checkpoint: Product head `047bdea014964395f95a115fb21cc96c167f3130`, merge/evidence ref `49179718129d102048e9e80500c61a6d93f7b061`, CI run/job `32571453036` / `97027381212` SUCCESS; focused 117/117, unittest 647/647, pytest 725 + 618 subtests, diff/compile/diagnostic PASS.
+Verified checkpoint: executable Product head `6160d02b22c0a911082a3896f3fc9b09f5edd1b0`, PR merge/evidence ref `9f90dc0839a16ee16fd61c2910bd12e419b8759e`, CI run/job `32571958759` / `97028547641` SUCCESS; focused 125/125, unittest 655/655, pytest 733 + 618 subtests, diff/compile/diagnostic PASS.
 
 Preserve these latest contracts:
-- engine-assisted Book/Training/Teacher flows reuse the existing `AnalysisService`, never create a second chess/engine authority, sanitize provider failure details, obey exact audience visibility, and suppress stale answers on context drift;
-- Student review/progress is append-only, session-sequenced, bounded, strict-schema, concurrency-safe, definition-revision bound, and never persists engine PV/score answer material.
+- durable Student progress persistence wraps the existing `StudentProgressLedger`; it does not become a second domain authority;
+- first save is create-only, updates require the exact previously observed SHA-256 revision, stale writers fail closed, and peer lock + atomic publication protect concurrent writes;
+- restore remains strict-schema and delegates review identity/order validation to the ledger;
+- persisted Student analytics never contains engine PV/score answer material or canonical chess/UI state;
+- prior engine-assisted Book/Training/Teacher flows reuse the existing `AnalysisService` and suppress stale/private answer material correctly.
 
-Preserve prior terminal-GREEN ACSDB/Search/recovery/Training/Books contracts and do not weaken tests.
+Preserve all prior terminal-GREEN ACSDB/Search/recovery/Training/Books contracts and do not weaken tests.
 
-NEXT_ACTION: after the next fresh scheduled ownership read, implement a durable CAS-backed persistence store for `StudentProgressLedger` only if that persistence boundary remains unclaimed; otherwise stay SAFE OVERLAP and produce independent evidence/backlog only.
+NEXT_ACTION: perform a fresh live ownership and coordination read. Claim only the highest-value unowned DEV3 P0/P1 dependency-correct backend slice. Prefer ACSDB/Library/Search or presentation-neutral engine/Training/Books/Student infrastructure that composes with the single canonical core. If touching work is already IN_PROGRESS or owned by another lane, remain SAFE OVERLAP and produce non-conflicting tests/evidence/backlog refinement instead.
 
 Do not duplicate DEV2 canonical GameTree/domain, DEV1 UI/Teacher presentation, DEV4 ChessBase/shared PGN-import security, or DEV5 integration/promotion. Frozen Stage1 refs stay untouched. Linux CI is backend evidence only; `NVDA_VERIFIED=NO`.
