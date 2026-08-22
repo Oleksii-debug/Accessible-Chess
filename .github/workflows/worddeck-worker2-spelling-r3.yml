@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: worddeck-worker2-spelling-r3-${{ github.ref }}
@@ -30,21 +30,27 @@ jobs:
           dotnet-version: 8.0.x
 
       - name: Restore
+        id: restore
         run: dotnet restore .\WordDeck\WordDeck.csproj
 
       - name: Build Release warnings as errors
+        id: build
         run: dotnet build .\WordDeck\WordDeck.csproj -c Release --no-restore -warnaserror
 
       - name: Run complete source-build self-test suite
+        id: selftest
         run: dotnet run --project .\WordDeck\WordDeck.csproj -c Release --no-build -- --self-test
 
       - name: Publish self-contained Windows x64
+        id: publish
         run: dotnet publish .\WordDeck\WordDeck.csproj -c Release -r win-x64 --self-contained true -o .\artifacts\WordDeck-worker2-r3
 
       - name: Run published WordDeck EXE self-test
+        id: publishedtest
         run: .\artifacts\WordDeck-worker2-r3\WordDeck.exe --self-test
 
       - name: Verify no personal state in publish tree
+        id: privacy
         shell: pwsh
         run: |
           $bad = Get-ChildItem -LiteralPath '.\artifacts\WordDeck-worker2-r3' -Recurse -File | Where-Object {
@@ -59,6 +65,7 @@ jobs:
           Write-Host 'Publish tree contains no recognized personal state/profile files.'
 
       - name: Cyrillic and spaces path smoke
+        id: pathsmoke
         shell: pwsh
         run: |
           $target = Join-Path $env:RUNNER_TEMP 'WordDeck тест R3\Published App'
@@ -67,10 +74,52 @@ jobs:
           & (Join-Path $target 'WordDeck.exe') --self-test
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-      - name: Upload exact-tip R3 publish evidence
+      - name: Upload exact-tip R3 publish artifact
+        if: ${{ success() }}
         uses: actions/upload-artifact@v4
         with:
           name: WordDeck-worker2-r3-${{ github.sha }}
           path: artifacts/WordDeck-worker2-r3
           if-no-files-found: error
           retention-days: 7
+
+      - name: Persist exact R3 gate evidence
+        if: ${{ always() }}
+        shell: pwsh
+        run: |
+          $testedSha = '${{ github.sha }}'
+          $restore = '${{ steps.restore.outcome }}'
+          $build = '${{ steps.build.outcome }}'
+          $selftest = '${{ steps.selftest.outcome }}'
+          $publish = '${{ steps.publish.outcome }}'
+          $publishedtest = '${{ steps.publishedtest.outcome }}'
+          $privacy = '${{ steps.privacy.outcome }}'
+          $pathsmoke = '${{ steps.pathsmoke.outcome }}'
+          $overall = if ($restore -eq 'success' -and $build -eq 'success' -and $selftest -eq 'success' -and $publish -eq 'success' -and $publishedtest -eq 'success' -and $privacy -eq 'success' -and $pathsmoke -eq 'success') { 'PASS' } else { 'FAIL' }
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git fetch origin worddeck-worker-2-spelling-r3
+          git checkout -B worddeck-worker-2-spelling-r3 origin/worddeck-worker-2-spelling-r3
+
+          $lines = @(
+            'WORDDECK WORKER 02 ROUND 3 WINDOWS GATE EVIDENCE',
+            "overall=$overall",
+            "tested_sha=$testedSha",
+            "run_id=${{ github.run_id }}",
+            "run_attempt=${{ github.run_attempt }}",
+            "restore=$restore",
+            "build_warnaserror=$build",
+            "selftest_source=$selftest",
+            "publish_win_x64=$publish",
+            "selftest_published_exe=$publishedtest",
+            "publish_private_state_scan=$privacy",
+            "cyrillic_spaces_path_smoke=$pathsmoke",
+            "completed_utc=$([DateTime]::UtcNow.ToString('o'))"
+          )
+          Set-Content -LiteralPath '.github/worker2-spelling-r3-ci-status.txt' -Value $lines -Encoding utf8
+          git add .github/worker2-spelling-r3-ci-status.txt
+          if (-not (git diff --cached --quiet)) {
+            git commit -m "WordDeck worker2 R3: record Windows gate $overall for $testedSha [skip ci]"
+            git push origin HEAD:worddeck-worker-2-spelling-r3
+          }
