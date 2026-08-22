@@ -10,6 +10,7 @@ on:
       - auto/dev3-bookreader-snapshot-bounds-20260822
       - auto/dev3-batch-game-review-20260822
       - auto/dev3-analysis-request-bounds-20260822
+      - auto/dev3-unicode-library-search-20260822
   pull_request:
     branches:
       - codex/full-product-20260821
@@ -60,6 +61,7 @@ jobs:
           tests.test_acsdb
           tests.test_search_service
           tests.test_dev3_search_resource_bounds
+          tests.test_dev3_unicode_library_search
           tests.test_dev3_acsdb_position_provenance
           tests.test_dev3_acsdb_wal_scalars
           tests.test_dev3_acsdb_backup_recovery
