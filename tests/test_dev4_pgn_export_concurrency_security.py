@@ -12,11 +12,9 @@ class Dev4PgnExportConcurrencySecurityTests(unittest.TestCase):
     def test_expected_hash_rechecks_at_atomic_commit_boundary(self):
         """A writer racing after preflight must not be silently overwritten.
 
-        The public contract says ``expected_sha256`` protects a file opened
-        earlier from lost updates.  Mutating the destination immediately before
-        the atomic replacement deterministically models the TOCTOU window
-        between the current implementation's preflight hash and ``os.replace``.
-        A safe implementation must detect that newer content and preserve it.
+        Mutating the destination immediately before the replacement models the
+        final publication window. A safe implementation must detect the newer
+        bytes, preserve them, and reject the stale save.
         """
 
         games = parse_games('[Event "Original"]\n[Result "*"]\n\n1. e4 *\n')
@@ -51,28 +49,29 @@ class Dev4PgnExportConcurrencySecurityTests(unittest.TestCase):
                 "A concurrent destination update must survive a rejected stale save.",
             )
 
-    def test_no_overwrite_mode_rechecks_nonexistence_at_commit_boundary(self):
-        """``overwrite=False`` must not clobber a file created after preflight.
+    def test_no_overwrite_mode_is_atomic_at_real_publication_boundary(self):
+        """``overwrite=False`` must preserve a destination won by another writer.
 
-        The default save contract protects existing destinations.  Creating the
-        destination immediately before the replacement deterministically models
-        a second writer winning the race after the initial ``exists()`` check.
-        A safe implementation must preserve that file and refuse the commit.
+        The Product implementation now uses same-directory hard-link creation as
+        its atomic no-clobber primitive. Inject the competing create immediately
+        before that primitive rather than patching the obsolete replace path.
+        The safety assertion is unchanged: the competing file must survive and
+        our save must fail with ``FileExistsError``.
         """
 
         games = parse_games('[Event "Our export"]\n[Result "*"]\n\n1. e4 *\n')
         with tempfile.TemporaryDirectory() as tmp:
             destination = Path(tmp) / "new-shared.pgn"
-            real_replace = os.replace
+            real_link = os.link
 
-            def concurrent_create(src, dst):
+            def concurrent_create(src, dst, *args, **kwargs):
                 Path(dst).write_text(
                     '[Event "Created by another writer"]\n[Result "*"]\n\n1. d4 *\n',
                     encoding="utf-8",
                 )
-                return real_replace(src, dst)
+                return real_link(src, dst, *args, **kwargs)
 
-            with mock.patch("acs.pgn_service.os.replace", side_effect=concurrent_create):
+            with mock.patch("acs.pgn_service.os.link", side_effect=concurrent_create):
                 with self.assertRaises(FileExistsError):
                     save_pgn_atomic(destination, games, overwrite=False)
 
