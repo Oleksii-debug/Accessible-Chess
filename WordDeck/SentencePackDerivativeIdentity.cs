@@ -25,42 +25,48 @@ internal static class SentencePackDerivativeIdentity
 
     public static void Stamp(string sqlitePath, SentencePack pack, string portablePath)
     {
-        string logical = LogicalFingerprint(pack);
-        string portable = FileHash(portablePath);
         using SqliteConnection connection = Open(sqlitePath, readOnly: false);
-        Upsert(connection, FingerprintKey, logical);
-        Upsert(connection, PortableHashKey, portable);
+        Upsert(connection, FingerprintKey, LogicalFingerprint(pack));
+        Upsert(connection, PortableHashKey, FileHash(portablePath));
         Upsert(connection, SourceVersionKey, pack.Version.ToString(System.Globalization.CultureInfo.InvariantCulture));
     }
 
     public static void VerifyCandidate(string sqlitePath, SentencePack pack, string portablePath)
     {
         using SqliteConnection connection = Open(sqlitePath, readOnly: true);
-        string expectedLogical = LogicalFingerprint(pack);
-        string expectedPortable = FileHash(portablePath);
-        RequireEqual(connection, FingerprintKey, expectedLogical);
-        RequireEqual(connection, PortableHashKey, expectedPortable);
+        RequireEqual(connection, FingerprintKey, LogicalFingerprint(pack));
+        RequireEqual(connection, PortableHashKey, FileHash(portablePath));
         RequireEqual(connection, SourceVersionKey, pack.Version.ToString(System.Globalization.CultureInfo.InvariantCulture));
     }
 
-    public static bool MatchesInstalledPortable(string sqlitePath, string portablePath)
+    // Cheap normal-startup check for manifest-based R3 installations: compare
+    // the already stamped portable hash in SQLite with the signed/committed
+    // manifest value. It deliberately does not re-hash a potentially large pack.
+    public static bool MatchesExpectedPortableHash(string sqlitePath, string expectedPortableSha256)
     {
-        if (!File.Exists(sqlitePath) || !File.Exists(portablePath))
-            return false;
+        if (!File.Exists(sqlitePath) || string.IsNullOrWhiteSpace(expectedPortableSha256)) return false;
         try
         {
             using SqliteConnection connection = Open(sqlitePath, readOnly: true);
             string? stored = Read(connection, PortableHashKey);
-            // Pre-Round-2 derivative: allow legacy discovery rather than forcing an eager rebuild at startup.
-            // A subsequent explicit import/replacement stamps and verifies the strong identity metadata.
-            if (string.IsNullOrWhiteSpace(stored))
-                return true;
+            return string.Equals(stored, expectedPortableSha256, StringComparison.OrdinalIgnoreCase);
+        }
+        catch { return false; }
+    }
+
+    // Full portable-file hash verification is reserved for explicit integrity
+    // checks/self-tests and legacy installations without a manifest contract.
+    public static bool MatchesInstalledPortable(string sqlitePath, string portablePath)
+    {
+        if (!File.Exists(sqlitePath) || !File.Exists(portablePath)) return false;
+        try
+        {
+            using SqliteConnection connection = Open(sqlitePath, readOnly: true);
+            string? stored = Read(connection, PortableHashKey);
+            if (string.IsNullOrWhiteSpace(stored)) return true;
             return string.Equals(stored, FileHash(portablePath), StringComparison.OrdinalIgnoreCase);
         }
-        catch
-        {
-            return false;
-        }
+        catch { return false; }
     }
 
     private static SqliteConnection Open(string path, bool readOnly)

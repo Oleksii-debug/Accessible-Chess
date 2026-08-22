@@ -27,15 +27,25 @@ internal static class SentencePackIo
             throw new InvalidDataException($"SentencePack file exceeds the {MaxPortableFileBytes / (1024 * 1024)} MiB import limit.");
 
         using FileStream file = new(fullPath, FileMode.Open, FileAccess.Read, FileShare.Read);
-        if (IsGZipPath(fullPath))
+        bool gzip = IsGZipPath(fullPath) || HasGZipMagic(file);
+        file.Position = 0;
+        if (gzip)
         {
-            using var gzip = new GZipStream(file, CompressionMode.Decompress, leaveOpen: false);
-            using var limited = new LimitedReadStream(gzip, MaxDecompressedJsonBytes);
+            using var compressed = new GZipStream(file, CompressionMode.Decompress, leaveOpen: false);
+            using var limited = new LimitedReadStream(compressed, MaxDecompressedJsonBytes);
             return ReadCore(limited);
         }
 
         using var plainLimited = new LimitedReadStream(file, MaxDecompressedJsonBytes);
         return ReadCore(plainLimited);
+    }
+
+    private static bool HasGZipMagic(FileStream file)
+    {
+        if (file.Length < 2) return false;
+        int first = file.ReadByte();
+        int second = file.ReadByte();
+        return first == 0x1F && second == 0x8B;
     }
 
     public static SentencePack Read(Stream utf8Json)
