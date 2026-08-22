@@ -54,10 +54,8 @@ internal static class UnifiedProfileSelfTest
 
             app.HiddenEntryIds.Clear();
             appStore.Save(app);
-            SpellingState emptySpelling = SpellingStateStore.Normalize(new SpellingState());
-            spellingStore.Save(emptySpelling);
-            SentenceCoachState emptySentence = SentenceCoachStateStore.Normalize(new SentenceCoachState());
-            sentenceStore.Save(emptySentence);
+            spellingStore.Save(SpellingStateStore.Normalize(new SpellingState()));
+            sentenceStore.Save(SentenceCoachStateStore.Normalize(new SentenceCoachState()));
 
             UnifiedProfileImportResult result = service.Import(profile, app, new[] { knownId }, new[] { dictionaryId });
             Require(result.SpellingImported && result.SentenceImported && result.SourceProfileSchemaVersion == 3,
@@ -70,7 +68,6 @@ internal static class UnifiedProfileSelfTest
             Require(File.Exists(result.RecallBackupPath) && File.Exists(result.SpellingBackupPath!) && File.Exists(result.SentenceBackupPath!),
                 "Unified profile import did not create recovery evidence for all three states.");
 
-            // Schema-2 Recall+Spelling profiles remain importable and must not overwrite Sentence state.
             SentenceCoachState sentenceBeforeLegacy = sentenceStore.Load();
             sentenceBeforeLegacy.RecentSentenceIds.Add("sentinel-sentence");
             sentenceStore.Save(sentenceBeforeLegacy);
@@ -82,9 +79,11 @@ internal static class UnifiedProfileSelfTest
             Require(sentenceStore.Load().RecentSentenceIds.Contains("sentinel-sentence"),
                 "Importing a schema-2 profile unexpectedly replaced Sentence state.");
 
-            string incompatible = File.ReadAllText(profile).Replace(AppStateStore.CorpusIdentity, "different-corpus:1", StringComparison.Ordinal);
+            WordDeckUnifiedProfile incompatibleProfile = JsonSerializer.Deserialize<WordDeckUnifiedProfile>(File.ReadAllText(profile))
+                ?? throw new InvalidDataException("Could not construct incompatible-profile test fixture.");
+            incompatibleProfile.CorpusIdentity = "different-corpus:1";
             string bad = Path.Combine(root, "incompatible-v3.json");
-            File.WriteAllText(bad, incompatible);
+            File.WriteAllText(bad, JsonSerializer.Serialize(incompatibleProfile, new JsonSerializerOptions { WriteIndented = true }));
             string appBefore = JsonSerializer.Serialize(app);
             string spellingBefore = JsonSerializer.Serialize(spellingStore.Load());
             string sentenceBefore = JsonSerializer.Serialize(sentenceStore.Load());
