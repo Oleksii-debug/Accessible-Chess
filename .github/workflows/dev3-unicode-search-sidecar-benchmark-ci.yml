@@ -1,0 +1,51 @@
+name: DEV3 Unicode Search Sidecar Benchmark CI
+
+on:
+  pull_request:
+    branches:
+      - auto/dev3-unicode-search-performance-evidence-20260822
+    paths:
+      - "tools/dev3_unicode_search_sidecar_benchmark.py"
+      - ".github/workflows/dev3-unicode-search-sidecar-benchmark-ci.yml"
+      - "acs/**"
+      - "tests/**"
+      - "run_accessible_chess.py"
+  workflow_dispatch:
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install verification dependencies
+        run: python -m pip install -q pytest
+      - name: Diff hygiene
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check 4f10a19891e957544cf4dcb3df1be85977340097 HEAD
+          git diff --name-only 4f10a19891e957544cf4dcb3df1be85977340097 HEAD
+      - name: Compile benchmark and search surface
+        run: python -m compileall -q acs tests tools
+      - name: Focused Unicode search regressions
+        run: >-
+          python -m unittest -v
+          tests.test_search_service
+          tests.test_dev3_search_resource_bounds
+          tests.test_dev3_unicode_library_search
+          tests.test_dev3_acsdb_query_plan
+      - name: Existing 100k baseline evidence
+        run: python -m tools.dev3_unicode_search_perf_probe
+      - name: Normalized sidecar candidate benchmark
+        run: python -m tools.dev3_unicode_search_sidecar_benchmark
+      - name: Full unittest discovery
+        run: python -m unittest discover -s tests -v
+      - name: Full pytest regression
+        run: python -m pytest -q
+      - name: Complete diagnostic
+        run: python run_accessible_chess.py --diagnostic
