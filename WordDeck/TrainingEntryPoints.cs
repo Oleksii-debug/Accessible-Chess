@@ -1,0 +1,141 @@
+namespace WordDeck;
+
+internal static class TrainingEntryPoints
+{
+    public static void Install(MainForm main)
+    {
+        MenuStrip? menu = main.Controls.OfType<MenuStrip>().FirstOrDefault();
+        if (menu is null) return;
+        ToolStripMenuItem? tools = menu.Items.OfType<ToolStripMenuItem>()
+            .FirstOrDefault(item => (item.Text ?? string.Empty).Replace("&", string.Empty).Equals("Tools", StringComparison.OrdinalIgnoreCase));
+        if (tools is null) return;
+
+        SpellingStateSession spelling;
+        try
+        {
+            spelling = TrainingStateContinuityGuard.LoadSpelling();
+        }
+        catch (Exception ex)
+        {
+            AddUnavailableTrainingItems(tools, ex.Message);
+            return;
+        }
+
+        AppState appState = main.SharedAppStateForTraining;
+        var shortcutManager = new ShortcutManager(appState, spelling.State.Decks);
+
+        var openSpelling = new ToolStripMenuItem("Open &Spelling trainer...")
+        {
+            AccessibleName = "Open Spelling trainer",
+            ShortcutKeys = shortcutManager.Get(ActionIds.OpenSpelling),
+            ShowShortcutKeys = true
+        };
+        openSpelling.Click += (_, _) => OpenSpelling(main);
+
+        var openSentence = new ToolStripMenuItem("Open S&entence Spelling trainer...")
+        {
+            AccessibleName = "Open Sentence Spelling trainer",
+            ShortcutKeys = shortcutManager.Get(ActionIds.OpenSentenceCoach),
+            ShowShortcutKeys = true
+        };
+        openSentence.Click += (_, _) => OpenSentenceCoach(main);
+
+        var settings = new ToolStripMenuItem("Training &keyboard shortcuts...")
+        {
+            AccessibleName = "Spelling and Sentence Spelling keyboard shortcuts"
+        };
+        settings.Click += (_, _) => OpenTrainingShortcutSettings(main, openSpelling, openSentence);
+
+        tools.DropDownItems.Insert(0, openSpelling);
+        tools.DropDownItems.Insert(1, openSentence);
+        tools.DropDownItems.Insert(2, settings);
+        tools.DropDownItems.Insert(3, new ToolStripSeparator());
+    }
+
+    private static void OpenTrainingShortcutSettings(MainForm owner, ToolStripMenuItem spellingItem, ToolStripMenuItem sentenceItem)
+    {
+        try
+        {
+            SpellingStateSession spelling = TrainingStateContinuityGuard.LoadSpelling();
+            AppState appState = owner.SharedAppStateForTraining;
+            var shortcuts = new ShortcutManager(appState, spelling.State.Decks);
+            using var dialog = new ShortcutSettingsForm(shortcuts);
+            dialog.ShowDialog(owner);
+            owner.SaveSharedStateAfterTraining();
+            spellingItem.ShortcutKeys = shortcuts.Get(ActionIds.OpenSpelling);
+            sentenceItem.ShortcutKeys = shortcuts.Get(ActionIds.OpenSentenceCoach);
+        }
+        catch (Exception ex)
+        {
+            ShowProtectedProgressError(owner, "Training shortcuts", ex);
+        }
+    }
+
+    private static void OpenSpelling(MainForm owner)
+    {
+        try
+        {
+            AppState appState = owner.SharedAppStateForTraining;
+            SpellingStateSession spelling = TrainingStateContinuityGuard.LoadSpelling();
+            var shortcuts = new ShortcutManager(appState, spelling.State.Decks);
+            DictionaryPackage package = owner.ActivePackageForTraining;
+
+            using var form = new SpellingForm(appState, spelling.State, spelling.Store, shortcuts, package);
+            form.ShowDialog(owner);
+            owner.SaveSharedStateAfterTraining();
+        }
+        catch (Exception ex)
+        {
+            ShowProtectedProgressError(owner, "Spelling", ex);
+        }
+    }
+
+    private static void OpenSentenceCoach(MainForm owner)
+    {
+        try
+        {
+            AppState appState = owner.SharedAppStateForTraining;
+            SpellingStateSession spelling = TrainingStateContinuityGuard.LoadSpelling();
+            SentenceStateSession sentence = TrainingStateContinuityGuard.LoadSentence();
+            var shortcuts = new ShortcutManager(appState, spelling.State.Decks);
+            DictionaryPackage package = owner.ActivePackageForTraining;
+
+            using var form = new SentenceCoachForm(
+                appState,
+                spelling.State,
+                shortcuts,
+                package,
+                new SentencePackStore(),
+                sentence.Store,
+                sentence.State);
+            form.ShowDialog(owner);
+            owner.SaveSharedStateAfterTraining();
+        }
+        catch (Exception ex)
+        {
+            ShowProtectedProgressError(owner, "Sentence Spelling", ex);
+        }
+    }
+
+    private static void AddUnavailableTrainingItems(ToolStripMenuItem tools, string reason)
+    {
+        var unavailable = new ToolStripMenuItem("Training progress needs recovery")
+        {
+            AccessibleName = "Training progress needs recovery",
+            AccessibleDescription = reason,
+            Enabled = false
+        };
+        tools.DropDownItems.Insert(0, unavailable);
+        tools.DropDownItems.Insert(1, new ToolStripSeparator());
+    }
+
+    private static void ShowProtectedProgressError(IWin32Window owner, string area, Exception ex)
+    {
+        MessageBox.Show(
+            owner,
+            $"{area} was not opened because WordDeck could not safely load its learning state. Existing progress files were left untouched.\n\n{ex.Message}",
+            "WordDeck protected your learning progress",
+            MessageBoxButtons.OK,
+            MessageBoxIcon.Warning);
+    }
+}
