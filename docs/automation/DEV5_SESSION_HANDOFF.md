@@ -1,9 +1,9 @@
 # DEV5_SESSION_HANDOFF
 
-RUN_ID: 20260822-0801
+RUN_ID: 20260822-0858
 ROLE: Coordinator / Integrator / QA / General Fixer
 STATUS: COMPLETE / TERMINAL / SAFE OVERLAP
-SNAPSHOT_CUTOFF: 2026-08-22T08:01:34+03:00
+SNAPSHOT_CUTOFF: 2026-08-22T08:58:57+03:00
 NVDA_VERIFIED: NO
 FRESH_WINDOWS_CANDIDATE: NO
 
@@ -11,34 +11,34 @@ FRESH_WINDOWS_CANDIDATE: NO
 manual5/integration-20260821 remains exact 0fa442330bc2bb03636ff9297512da4c29e38684. Previously observed exact UI Semantic and Stage1 Saturation evidence remains GREEN. No Stage1 Product mutation, duplicate intake, frozen-ref change or release candidate was performed.
 
 ## SAFE OVERLAP ruling
-DEV1_RUN_STATE 20260822-0041 still existed before cutoff as IN_PROGRESS on full5/dev1-accessible-shell-20260822 with no terminal canonical handoff. Therefore competing Product integration is forbidden in this run.
+Canonical DEV1_RUN_STATE 20260822-0041 still existed before cutoff as IN_PROGRESS on full5/dev1-accessible-shell-20260822, and canonical 10_DEV1_HANDOFF_CURRENT does not terminalize the active full-product lane. Live PR #68 remains OPEN/DRAFT at c1425c898b3b6d1a4caea6a57a71544ee8582909. Therefore competing DEV5 Product integration is forbidden in this run.
 
-## DEV2 composition evidence — observable RED
-DEV2_RUN_STATE 20260822-0741 completed before cutoff and preserves canonical Product head 63bae9c1f17032b2046b4137694dc99d195ed9ec with FULL_PRODUCT_DEV2_READY_FOR_INTEGRATION=NO. Validation-only PR #74 head 98a6841348c38ba6d60d7194d1574d9a258236a6 has live exact machine evidence: DEV2 Full Product Core CI run 32552439717 / job 96981254332 is FAILURE on synthetic merge ref 723cce1d2f977773ca48ca26ac18a3a734048c01. Diff hygiene, compile, all focused canonical GameTree gates and full unittest are GREEN; full unittest is 707 PASS / 1 SKIP. Full pytest is 786 passed / 1 skipped / 1294 subtests / exactly 1 failed.
+## DEV2 composition evidence — exact GREEN
+DEV2_RUN_STATE 20260822-0838 completed before cutoff. Canonical Product head remains 63bae9c1f17032b2046b4137694dc99d195ed9ec. Validation-only PR #74 head 26abb02df7aae0dc4fc11615ca7494b628eed058 has live exact machine evidence: DEV2 Full Product Core CI run 32554979422 / job 96987608088 completed SUCCESS. Diff hygiene, compile, all focused canonical GameTree gates, full unittest and full pytest are GREEN. RUN_STATE records full unittest 707 PASS + 1 SKIP and full pytest 787 passed + 1 skipped + 1294 subtests PASS.
 
-The sole failure is tests/test_board_rank_file_remapping_ui.py::test_rank_and_file_navigation_are_exposed_as_remappable_actions. The validation HTML/test blob is present, but DEV2 canonical acs/keybindings.py does not register the accepted Stage1 board.rank_1..8 and board.file_1..8 definitions. Accepted Stage1 0fa44233 does register them with digit and Shift+digit defaults. This is a cross-lane composition defect, not a DEV2 GameTree defect. The test remains authoritative and was not weakened. DEV2 intake stays blocked until exact aggregate composition including accepted rank/file ActionRegistry semantics is GREEN. PR #74 remains validation-only / DO NOT MERGE.
+The prior sole board-rank/file ActionRegistry composition failure is closed by adding accepted Stage1 acs/keybindings.py semantics to validation only. Canonical DEV2 Product was not mutated. FULL_PRODUCT_DEV2_READY_FOR_INTEGRATION=YES. PR #74 remains evidence-only / DO NOT MERGE; future DEV5 assembly must use canonical DEV2 Product plus explicitly accepted UI/keybinding semantics with provenance.
 
 ## DEV3 exact terminal evidence
-Live PR #65 latest verified executable Product head 99b5c61c31585d7b2474a050eeb006bf639943dd has exact DEV3 Full Product ACSDB CI run 32550533728 / job 96976421604 SUCCESS. Documentation-synchronized branch head is 79802d22d8c7ed0c387526cfc76c56447400b22a. PR #65 marks READY_FOR_INTEGRATION=YES for the isolated ACSDB/Library/Search/recovery + Training/Books progress package. Intake is deferred because SAFE OVERLAP is active and DEV2 canonical GameTree composition is still RED.
+Live PR #65 latest verified executable Product head 86a2e6de3e1d89b939d31b6b5aa6de8100505c23 has exact DEV3 Full Product ACSDB CI run 32553387781 / job 96983670899 SUCCESS. Documentation-synchronized branch head is 6b31c601a4deb66a1cc9bbe3ed8dde0039a1eb4a. Evidence includes focused data/reading-progress 69/69 PASS, full unittest 603/603 PASS and full pytest 681 passed + 581 subtests PASS. PR #65 marks READY_FOR_INTEGRATION=YES for the isolated ACSDB/Library/Search/recovery/query-plan + Training/Books persistence package. Canonical Drive 12_DEV3_HANDOFF_CURRENT remains stale at older 70321daf/32528057942, so intake is deferred until Drive synchronization and SAFE OVERLAP clears.
 
 ## DEV4 security/QA evidence
-DEV4_RUN_STATE 20260822-0657-full-product-qa completed before cutoff at QA head c7c5c9df37c4044469d1cc874e8989aee9a2a677. Exact QA Actions remain unobserved, so QA remains INCONCLUSIVE. Six proven Product blockers remain: external import/ChessBase symlink-reparse indirection; unbounded PGN read; serialized local-path leakage; expected_sha256 publication TOCTOU; overwrite=False competing-creator lost update; PGN export symlink-parent escape. Positive replace/fsync failure-recovery/private-temp tests are non-regression evidence, not a new defect.
+DEV4_RUN_STATE 20260822-0802-full-product-qa completed before cutoff at QA head 38535dc85eed44496d2119e0e57cb9d45d08e327; live PR #67 matches that head. Exact commit-associated Actions remain absent, so QA remains INCONCLUSIVE. Six proven Product blockers remain: external import/ChessBase symlink-reparse indirection; unbounded PGN full-text read; serialized ChessBase local-path leakage; expected_sha256 optimistic-write TOCTOU; overwrite=False competing-creator lost update; PGN export filesystem-indirection/symlink escape. Stockfish/UCI path redaction is positive QA evidence, not a new Product defect.
 
 ## Product action
-None. SAFE OVERLAP only: live GitHub/Drive inspection, exact CI/log analysis, cross-lane root-cause analysis, coordinator checkpoint and directive issuance.
+None. SAFE OVERLAP only: live GitHub/Drive inspection, exact CI verification, cross-lane conflict analysis, coordinator checkpoint and directive issuance.
 
 ## Coordinator outputs
-- DEV5_RUN_STATE -> 20260822-0801 / COMPLETE / SAFE_OVERLAP_COORDINATION.
-- NEXT_WAVE_DIRECTIVES -> version 0010, effective 2026-08-22T09:00:00+03:00.
+- DEV5_RUN_STATE -> 20260822-0858 / COMPLETE / SAFE_OVERLAP_COORDINATION.
+- NEXT_WAVE_DIRECTIVES -> version 0011, effective 2026-08-22T10:00:00+03:00.
 - DEV5_SESSION_HANDOFF -> COMPLETE / TERMINAL / SAFE OVERLAP.
 
 ## Next integration order
 1. DEV1 terminal exact UI/accessibility package and canonical handoff.
-2. DEV2 validation composition reconciles accepted board rank/file ActionRegistry semantics and obtains exact full pytest GREEN; canonical READY remains NO until then.
-3. Synchronize and preserve DEV3 exact GREEN executable Product head 99b5c61c package.
+2. Preserve canonical DEV2 Product 63bae9c1... plus accepted UI/keybinding semantics proven by exact GREEN validation 26abb02d...; never merge PR #74 wholesale.
+3. Synchronize and preserve DEV3 exact GREEN executable Product head 86a2e6de... / run 32553387781.
 4. Resolve/reconcile DEV4 six PGN/import security/concurrency blockers.
-5. DEV5 validation-only PGN -> GameTree -> ACSDB -> search/open with malformed-input atomicity, bounded resources, no lost updates, path privacy/provenance and recovery.
-6. Persistent full5 integration only after exact GREEN validation and auditable provenance; UI layers on selected canonical backend plane.
+5. DEV5 validation-only PGN -> GameTree -> ACSDB -> search/open with malformed-input atomicity, bounded resources, no lost updates, path privacy/provenance, retry/recovery and keyboard/focus invariants.
+6. Persistent full5 integration only after exact GREEN validation and auditable provenance.
 
 ## Release invariants
 PR #54 and frozen refs untouched. Rejected ZIP not reused. No fresh Windows candidate. Fresh candidate requires complete machine release chain on exact final audited Product SHA. NVDA_VERIFIED=NO until the user personally verifies that exact candidate.
