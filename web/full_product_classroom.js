@@ -12,10 +12,6 @@
     return element;
   }
 
-  function setText(element, value) {
-    element.textContent = value == null ? "" : String(value);
-  }
-
   function applyEvent(result, announce) {
     if (!result || typeof result !== "object") return;
     const payload = result.payload && typeof result.payload === "object" ? result.payload : {};
@@ -28,10 +24,20 @@
     const heading = node("h2", section.heading || "");
     wrapper.appendChild(heading);
 
-    if (section.message) {
-      const message = node("p", section.message);
-      wrapper.appendChild(message);
+    const createAction = section.create_action && typeof section.create_action === "object"
+      ? section.create_action : null;
+    if (createAction && createAction.action) {
+      const createButton = node("button", createAction.label || createAction.action);
+      createButton.type = "button";
+      createButton.addEventListener("click", function () {
+        Promise.resolve(invoke(String(createAction.action), {})).then(function (result) {
+          applyEvent(result, announce);
+        });
+      });
+      wrapper.appendChild(createButton);
     }
+
+    if (section.message) wrapper.appendChild(node("p", section.message));
 
     const items = Array.isArray(section.items) ? section.items : [];
     if (!items.length) {
@@ -51,8 +57,7 @@
       option.setAttribute("aria-selected", item.selected ? "true" : "false");
       option.tabIndex = item.selected ? 0 : -1;
 
-      const primary = node("span", item.label || "");
-      option.appendChild(primary);
+      option.appendChild(node("span", item.label || ""));
       if (item.secondary) {
         option.appendChild(document.createTextNode(" — "));
         option.appendChild(node("span", item.secondary));
@@ -123,9 +128,8 @@
       button.type = "button";
       button.disabled = !action.enabled;
       button.addEventListener("click", function () {
-        let command = String(action.action || "");
-        let payload = {};
-        if (command === "remote.connect") payload.lesson_id = input.value;
+        const command = String(action.action || "");
+        const payload = command === "remote.connect" ? { lesson_id: input.value } : {};
         Promise.resolve(invoke(command, payload)).then(function (result) {
           applyEvent(result, announce);
         });
@@ -136,7 +140,19 @@
     host.appendChild(wrapper);
   }
 
-  function renderClassroomSurface(root, snapshot, invoke, announce) {
+  function focusRequestedOption(root, focusTarget) {
+    if (!focusTarget) return;
+    const options = root.querySelectorAll('[role="option"]');
+    for (let index = 0; index < options.length; index += 1) {
+      const option = options[index];
+      if (option.id === focusTarget && typeof option.focus === "function") {
+        option.focus({ preventScroll: true });
+        return;
+      }
+    }
+  }
+
+  function renderClassroomSurface(root, snapshot, invoke, announce, focusTarget) {
     if (!root || typeof root.replaceChildren !== "function") {
       throw new TypeError("classroom root must support replaceChildren");
     }
@@ -151,9 +167,7 @@
     });
     renderRemote(fragment, snapshot.remote || {}, invoke, announce);
     root.replaceChildren(fragment);
-
-    const selected = root.querySelector('[role="option"][aria-selected="true"]');
-    if (selected && typeof selected.focus === "function") selected.focus({ preventScroll: true });
+    focusRequestedOption(root, focusTarget || "");
   }
 
   global.AccessibleChessClassroomSurface = Object.freeze({
