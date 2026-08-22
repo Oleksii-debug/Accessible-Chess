@@ -10,6 +10,7 @@ on:
       - full5/dev1-classroom-remote-webview-20260822-1844
       - full5/dev1-pgn-webview-20260822-1904
       - full5/dev1-library-webview-20260822-2236
+      - full5/dev1-books-training-webview-20260822-2249
   pull_request:
     branches:
       - manual5/integration-20260821
@@ -50,7 +51,7 @@ jobs:
           git diff --check "$DEV1_FULL_PRODUCT_BASE" HEAD
           changed="$(git diff --name-only "$DEV1_FULL_PRODUCT_BASE" HEAD)"
           printf '%s\n' "$changed"
-          allowed='^(acs/full_product_ui_shell\.py|acs/teacher_presentation\.py|acs/full_product_actions\.py|acs/full_product_presenters\.py|acs/classroom_presentation\.py|acs/full_product_webview_adapter\.py|acs/teacher_webview_projection\.py|acs/classroom_webview_projection\.py|acs/classroom_webview_bridge\.py|acs/pgn_webview_projection\.py|acs/pgn_webview_bridge\.py|acs/library_webview_projection\.py|acs/library_webview_bridge\.py|web/full_product_classroom\.js|web/full_product_pgn\.js|web/full_product_library\.js|tests/test_dev1_full_product_accessible_shell\.py|tests/test_dev1_full_product_ui_packages\.py|tests/test_dev1_classroom_remote_ui\.py|tests/test_dev1_full_product_webview_adapter\.py|tests/test_dev1_teacher_webview_projection\.py|tests/test_dev1_classroom_webview_projection\.py|tests/test_dev1_classroom_webview_privacy\.py|tests/test_dev1_classroom_webview_bridge\.py|tests/test_dev1_classroom_web_asset\.py|tests/test_dev1_pgn_webview_projection\.py|tests/test_dev1_pgn_webview_atomicity\.py|tests/test_dev1_library_webview_projection\.py|\.github/workflows/dev1-full-product-ui-ci\.yml|\.github/workflows/dev1-classroom-remote-webview-ci\.yml)$'
+          allowed='^(acs/full_product_ui_shell\.py|acs/teacher_presentation\.py|acs/full_product_actions\.py|acs/full_product_presenters\.py|acs/classroom_presentation\.py|acs/full_product_webview_adapter\.py|acs/teacher_webview_projection\.py|acs/classroom_webview_projection\.py|acs/classroom_webview_bridge\.py|acs/pgn_webview_projection\.py|acs/pgn_webview_bridge\.py|acs/library_webview_projection\.py|acs/library_webview_bridge\.py|acs/book_webview_projection\.py|acs/book_webview_bridge\.py|acs/training_webview_projection\.py|acs/training_webview_bridge\.py|web/full_product_classroom\.js|web/full_product_pgn\.js|web/full_product_library\.js|web/full_product_books_training\.js|tests/test_dev1_full_product_accessible_shell\.py|tests/test_dev1_full_product_ui_packages\.py|tests/test_dev1_classroom_remote_ui\.py|tests/test_dev1_full_product_webview_adapter\.py|tests/test_dev1_teacher_webview_projection\.py|tests/test_dev1_classroom_webview_projection\.py|tests/test_dev1_classroom_webview_privacy\.py|tests/test_dev1_classroom_webview_bridge\.py|tests/test_dev1_classroom_web_asset\.py|tests/test_dev1_pgn_webview_projection\.py|tests/test_dev1_pgn_webview_atomicity\.py|tests/test_dev1_library_webview_projection\.py|tests/test_dev1_books_training_webview_projection\.py|tests/test_dev1_books_training_webview_bridge\.py|tests/test_dev1_books_training_web_asset\.py|tests/test_dev1_books_training_webview_atomicity\.py|\.github/workflows/dev1-full-product-ui-ci\.yml|\.github/workflows/dev1-classroom-remote-webview-ci\.yml|\.github/workflows/dev1-books-training-webview-ci\.yml)$'
           unexpected="$(printf '%s\n' "$changed" | grep -Ev "$allowed" || true)"
           if [ -n "$unexpected" ]; then
             echo "Unexpected DEV1 full-product path(s):" >&2
@@ -67,6 +68,7 @@ jobs:
           node --check web/full_product_classroom.js
           node --check web/full_product_pgn.js
           node --check web/full_product_library.js
+          node --check web/full_product_books_training.js
 
       - name: Compile Product presentation and tests
         run: python -m compileall -q acs tests run_accessible_chess.py
@@ -86,6 +88,10 @@ jobs:
           tests.test_dev1_pgn_webview_projection
           tests.test_dev1_pgn_webview_atomicity
           tests.test_dev1_library_webview_projection
+          tests.test_dev1_books_training_webview_projection
+          tests.test_dev1_books_training_webview_bridge
+          tests.test_dev1_books_training_web_asset
+          tests.test_dev1_books_training_webview_atomicity
 
       - name: Canonical service and Stage1 accessibility regressions
         run: >-
