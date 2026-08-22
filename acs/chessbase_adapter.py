@@ -10,7 +10,7 @@ output such as GameTree/ACSDB/PGN.
 """
 
 from dataclasses import dataclass, field
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Iterable
 
 
@@ -34,9 +34,22 @@ _COMPONENT_EXTENSIONS = {
 _ALL_EXTENSIONS = {**_PRIMARY_EXTENSIONS, **_COMPONENT_EXTENSIONS}
 
 
-def _report_name(path: Path) -> str:
-    """Return a stable report-safe identifier without workstation directories."""
-    return path.name
+def report_safe_name(path: str | Path) -> str:
+    """Return the final filename without leaking either slash style's parents.
+
+    ``Path.name`` follows the host platform.  A Windows-style path received on
+    POSIX therefore treats backslashes as ordinary characters and can expose a
+    complete workstation path in a report.  Normalize both separator styles to
+    one presentation-only form before extracting the final component.
+    """
+
+    return PurePosixPath(str(path).replace("\\", "/")).name
+
+
+def _report_name(path: str | Path) -> str:
+    """Backward-compatible private wrapper for report-safe filename projection."""
+
+    return report_safe_name(path)
 
 
 class ChessBaseProbeIOError(RuntimeError):
@@ -52,7 +65,7 @@ class ChessBaseComponent:
 
     def as_report_fields(self) -> dict[str, object]:
         return {
-            "path": _report_name(self.path),
+            "path": report_safe_name(self.path),
             "extension": self.extension,
             "role": self.role,
             "exists": self.exists,
@@ -88,7 +101,7 @@ class ChessBaseSourceProbe:
 
     def as_report_fields(self) -> dict[str, object]:
         return {
-            "source_path": _report_name(self.path),
+            "source_path": report_safe_name(self.path),
             "extension": self.extension,
             "family_name": self.family_name,
             "recognized": self.recognized,
