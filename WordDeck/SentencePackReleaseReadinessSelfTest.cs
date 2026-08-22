@@ -14,21 +14,24 @@ internal static class SentencePackReleaseReadinessSelfTestBootstrap
 
 internal static class SentencePackReleaseReadinessSelfTest
 {
+    private static readonly string SourceIdentity = "sha256:" + new string('a', 64);
+    private static readonly string DerivativeIdentity = "sha256:" + new string('b', 64);
+
     public static void Run()
     {
         SentencePack cc0 = BuildPack("release-ready-cc0", "CC0-1.0", "verified curated product source");
         SentencePackReleaseReadiness ready = SentencePackReleaseReadinessService.Evaluate(
             cc0,
-            "sha256:source-identity",
-            "sha256:derivative-identity",
+            SourceIdentity,
+            DerivativeIdentity,
             declaredSynthetic: false,
             attributionText: null);
         Require(ready.Ready && ready.Descriptor is not null, "Release-ready CC0 SentencePack was not accepted by the product readiness gate.");
 
         SentencePackReleaseReadiness synthetic = SentencePackReleaseReadinessService.Evaluate(
             cc0,
-            "sha256:source-identity",
-            "sha256:derivative-identity",
+            SourceIdentity,
+            DerivativeIdentity,
             declaredSynthetic: true,
             attributionText: null);
         Require(!synthetic.Ready && synthetic.Blockers.Any(x => x.Contains("synthetic", StringComparison.OrdinalIgnoreCase)),
@@ -37,8 +40,8 @@ internal static class SentencePackReleaseReadinessSelfTest
         SentencePack ccby = BuildPack("release-ccby", "CC BY 4.0", "verified attributed product source");
         SentencePackReleaseReadiness missingAttribution = SentencePackReleaseReadinessService.Evaluate(
             ccby,
-            "sha256:source-identity",
-            "sha256:derivative-identity",
+            SourceIdentity,
+            DerivativeIdentity,
             declaredSynthetic: false,
             attributionText: "");
         Require(!missingAttribution.Ready && missingAttribution.Blockers.Any(x => x.Contains("attribution", StringComparison.OrdinalIgnoreCase)),
@@ -46,8 +49,8 @@ internal static class SentencePackReleaseReadinessSelfTest
 
         SentencePackReleaseReadiness attributed = SentencePackReleaseReadinessService.Evaluate(
             ccby,
-            "sha256:source-identity",
-            "sha256:derivative-identity",
+            SourceIdentity,
+            DerivativeIdentity,
             declaredSynthetic: false,
             attributionText: "Example corpus contributors — CC BY 4.0 — provenance retained with the installed pack.");
         Require(attributed.Ready, "Attributed SentencePack did not pass after required attribution was supplied.");
@@ -55,13 +58,21 @@ internal static class SentencePackReleaseReadinessSelfTest
         SentencePackReleaseReadiness noIdentity = SentencePackReleaseReadinessService.Evaluate(
             cc0,
             "",
-            "sha256:derivative-identity",
+            DerivativeIdentity,
             declaredSynthetic: false,
             attributionText: null);
         Require(!noIdentity.Ready && noIdentity.Blockers.Any(x => x.Contains("identity", StringComparison.OrdinalIgnoreCase)),
             "SentencePack with missing source identity passed product readiness.");
 
-        Console.WriteLine("WordDeck R4b SentencePack release readiness passed: synthetic data, missing identities and missing attribution fail closed while explicit release-ready metadata passes.");
+        SentencePackReleaseReadiness malformedIdentity = SentencePackReleaseReadinessService.Evaluate(
+            cc0,
+            "sha256:not-a-hash",
+            DerivativeIdentity,
+            declaredSynthetic: false,
+            attributionText: null);
+        Require(!malformedIdentity.Ready, "SentencePack with malformed source identity passed product readiness.");
+
+        Console.WriteLine("WordDeck R4b SentencePack release readiness passed: synthetic data, missing/malformed identities and missing attribution fail closed while explicit release-ready metadata passes.");
     }
 
     private static SentencePack BuildPack(string packId, string license, string provenance)
