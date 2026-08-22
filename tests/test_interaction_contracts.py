@@ -10,6 +10,9 @@ from acs.interaction_contracts import (
     ContractValidationError,
     EngineVisibilityPolicy,
     MoveCommand,
+    PRESENTATION_MAX_ARROWS,
+    PRESENTATION_MAX_HIGHLIGHTS,
+    PRESENTATION_MAX_STUDENT_EVENTS,
     PositionEditorCommand,
     PositionEditorOperation,
     PresentationState,
@@ -211,6 +214,103 @@ class InteractionContractTests(unittest.TestCase):
         self.assertNotIn("move", payload)
         copied = json.loads(json.dumps(payload))
         self.assertEqual(presentation_state_from_payload(copied), state)
+
+    def test_presentation_collections_accept_exact_resource_boundaries(self):
+        state = PresentationState(
+            highlights=tuple(
+                SquareHighlight("e4", f"h-{index}")
+                for index in range(PRESENTATION_MAX_HIGHLIGHTS)
+            ),
+            arrows=tuple(
+                VisualArrow("e2", "e4", f"a-{index}")
+                for index in range(PRESENTATION_MAX_ARROWS)
+            ),
+            student_pointer_history=tuple(
+                StudentHoverEvent("f3", sequence=index)
+                for index in range(PRESENTATION_MAX_STUDENT_EVENTS)
+            ),
+        )
+        self.assertEqual(len(state.highlights), PRESENTATION_MAX_HIGHLIGHTS)
+        self.assertEqual(len(state.arrows), PRESENTATION_MAX_ARROWS)
+        self.assertEqual(
+            len(state.student_pointer_history), PRESENTATION_MAX_STUDENT_EVENTS
+        )
+        copied = json.loads(json.dumps(presentation_state_to_payload(state)))
+        self.assertEqual(presentation_state_from_payload(copied), state)
+
+    def test_presentation_collections_reject_limit_plus_one_in_process(self):
+        cases = (
+            (
+                "highlights",
+                lambda: PresentationState(
+                    highlights=tuple(
+                        SquareHighlight("e4")
+                        for _ in range(PRESENTATION_MAX_HIGHLIGHTS + 1)
+                    )
+                ),
+                PRESENTATION_MAX_HIGHLIGHTS,
+            ),
+            (
+                "arrows",
+                lambda: PresentationState(
+                    arrows=tuple(
+                        VisualArrow("e2", "e4")
+                        for _ in range(PRESENTATION_MAX_ARROWS + 1)
+                    )
+                ),
+                PRESENTATION_MAX_ARROWS,
+            ),
+            (
+                "student_pointer_history",
+                lambda: PresentationState(
+                    student_pointer_history=tuple(
+                        StudentHoverEvent("f3", sequence=index)
+                        for index in range(PRESENTATION_MAX_STUDENT_EVENTS + 1)
+                    )
+                ),
+                PRESENTATION_MAX_STUDENT_EVENTS,
+            ),
+        )
+        for label, constructor, limit in cases:
+            with self.subTest(label=label):
+                with self.assertRaisesRegex(
+                    ContractValidationError,
+                    rf"^{label} exceeds maximum of {limit}$",
+                ):
+                    constructor()
+
+    def test_presentation_payload_rejects_oversize_before_parsing_entries(self):
+        base = presentation_state_to_payload(PresentationState())
+        cases = (
+            ("highlights", PRESENTATION_MAX_HIGHLIGHTS),
+            ("arrows", PRESENTATION_MAX_ARROWS),
+            ("student_pointer_history", PRESENTATION_MAX_STUDENT_EVENTS),
+        )
+        for field, limit in cases:
+            with self.subTest(field=field):
+                payload = dict(base)
+                payload[field] = [None] * (limit + 1)
+                with self.assertRaisesRegex(
+                    ContractValidationError,
+                    rf"^{field} exceeds maximum of {limit}$",
+                ):
+                    presentation_state_from_payload(payload)
+
+    def test_presentation_generator_consumption_stops_at_limit_plus_one(self):
+        consumed = 0
+
+        def highlights():
+            nonlocal consumed
+            while True:
+                consumed += 1
+                yield SquareHighlight("e4")
+
+        with self.assertRaisesRegex(
+            ContractValidationError,
+            rf"^highlights exceeds maximum of {PRESENTATION_MAX_HIGHLIGHTS}$",
+        ):
+            PresentationState(highlights=highlights())
+        self.assertEqual(consumed, PRESENTATION_MAX_HIGHLIGHTS + 1)
 
     def test_presentation_history_rejects_move_commands(self):
         state_payload = presentation_state_to_payload(PresentationState())
