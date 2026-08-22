@@ -92,6 +92,38 @@ internal static class UserDataSelfTest
             Require(migrated.RecallStudyScopesByDictionary[dictionaryId].Scopes[StudyScopeIds.B2].DeckIds["word-b"] == DeckIds.Core(5),
                 "Profile round-trip did not restore per-scope assignment.");
 
+            // Repeated save and repeated import must be idempotent. They may create
+            // fresh recovery artifacts, but must not accumulate duplicate progress,
+            // increment history, duplicate hidden IDs or grow scope assignment maps.
+            int hiddenCountBeforeRepeat = migrated.HiddenEntryIds.Count;
+            int historyCountBeforeRepeat = migrated.StudyHistoryByEntryId.Count;
+            int allAssignmentCountBeforeRepeat = migrated.RecallStudyScopesByDictionary[dictionaryId].Scopes[StudyScopeIds.All].DeckIds.Count;
+            int b2AssignmentCountBeforeRepeat = migrated.RecallStudyScopesByDictionary[dictionaryId].Scopes[StudyScopeIds.B2].DeckIds.Count;
+            store.Save(migrated);
+            store.Save(migrated);
+            AppState afterRepeatedSave = new AppStateStore(root).Load();
+            Require(afterRepeatedSave.HiddenEntryIds.Count == hiddenCountBeforeRepeat &&
+                    afterRepeatedSave.StudyHistoryByEntryId.Count == historyCountBeforeRepeat &&
+                    afterRepeatedSave.StudyHistoryByEntryId["word-a"].SeenCount == 1 &&
+                    afterRepeatedSave.StudyHistoryByEntryId["word-a"].TranslationRevealCount == 1,
+                "Repeated saves duplicated or mutated Recall progress/history.");
+            Require(afterRepeatedSave.RecallStudyScopesByDictionary[dictionaryId].Scopes[StudyScopeIds.All].DeckIds.Count == allAssignmentCountBeforeRepeat &&
+                    afterRepeatedSave.RecallStudyScopesByDictionary[dictionaryId].Scopes[StudyScopeIds.B2].DeckIds.Count == b2AssignmentCountBeforeRepeat,
+                "Repeated saves changed scope assignment cardinality.");
+
+            ProfileImportResult repeatedImport = store.ImportProfile(profile, migrated, entries.Select(entry => entry.Id), new[] { dictionaryId });
+            Require(File.Exists(repeatedImport.BackupPath), "Repeated profile import did not create its recovery point.");
+            Require(migrated.HiddenEntryIds.Count == hiddenCountBeforeRepeat && migrated.HiddenEntryIds.Contains("word-c"),
+                "Repeated profile import duplicated or lost hidden-word state.");
+            Require(migrated.StudyHistoryByEntryId.Count == historyCountBeforeRepeat &&
+                    migrated.StudyHistoryByEntryId["word-a"].SeenCount == 1 &&
+                    migrated.StudyHistoryByEntryId["word-a"].TranslationRevealCount == 1,
+                "Repeated profile import accumulated study history instead of replacing state idempotently.");
+            Require(migrated.RecallStudyScopesByDictionary[dictionaryId].Scopes[StudyScopeIds.All].DeckIds.Count == allAssignmentCountBeforeRepeat &&
+                    migrated.RecallStudyScopesByDictionary[dictionaryId].Scopes[StudyScopeIds.B2].DeckIds.Count == b2AssignmentCountBeforeRepeat &&
+                    migrated.RecallStudyScopesByDictionary[dictionaryId].Scopes[StudyScopeIds.B2].DeckIds["word-b"] == DeckIds.Core(5),
+                "Repeated profile import duplicated or changed per-scope assignments.");
+
             string incompatibleProfile = Path.Combine(root, "WordDeck-profile-incompatible-corpus.json");
             JsonObject incompatibleProfileJson = JsonNode.Parse(File.ReadAllText(profile))?.AsObject()
                 ?? throw new InvalidDataException("Exported profile JSON could not be parsed for incompatible-corpus regression setup.");
@@ -112,6 +144,10 @@ internal static class UserDataSelfTest
             ProfileImportResult futureResult = store.ImportProfile(futureProfile, migrated, entries.Select(entry => entry.Id), new[] { dictionaryId });
             Require(futureResult.QuarantinedIds.Contains("future-word-id", StringComparer.OrdinalIgnoreCase),
                 "Unknown stable ID was silently discarded instead of quarantined.");
+            ProfileImportResult futureRepeat = store.ImportProfile(futureProfile, migrated, entries.Select(entry => entry.Id), new[] { dictionaryId });
+            Require(futureRepeat.QuarantinedIds.Count(id => id.Equals("future-word-id", StringComparison.OrdinalIgnoreCase)) == 1 &&
+                    migrated.QuarantinedProfileEntryIds.Count(id => id.Equals("future-word-id", StringComparison.OrdinalIgnoreCase)) == 1,
+                "Repeated import duplicated an unknown quarantined stable ID.");
 
             string badProfile = Path.Combine(root, "bad-profile.json");
             File.WriteAllText(badProfile, "{ this is not valid json");
@@ -150,7 +186,7 @@ internal static class UserDataSelfTest
                     "Missing pronunciation audio did not return a readable non-crashing status.");
             }
 
-            Console.WriteLine("WordDeck user-data acceptance passed: selector/translation keyboard policy, schema migration+backup, LocalAppData continuity, profile export/reset/import rollback, incompatible-corpus rejection, hidden IDs, study history, true previous/forward Recall history and missing-audio non-crash status verified.");
+            Console.WriteLine("WordDeck user-data acceptance passed: selector/translation keyboard policy, schema migration+backup, LocalAppData continuity, profile export/reset/import rollback, repeated save/import idempotence, incompatible-corpus rejection, unique unknown-ID quarantine, hidden IDs, study history, true previous/forward Recall history and missing-audio non-crash status verified.");
         }
         finally
         {
