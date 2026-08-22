@@ -11,7 +11,9 @@ from acs.gametree_snapshot import (
     GameTreeSnapshotError,
     MAX_WARNING_CHARS,
     restore_game,
+    snapshot_from_record,
     snapshot_game,
+    snapshot_to_record,
 )
 
 
@@ -107,6 +109,76 @@ class GameTreeSnapshotTests(unittest.TestCase):
             restore_game({})
         with self.assertRaises(TypeError):
             snapshot_game({})
+
+    def test_record_exchange_round_trip_preserves_exact_snapshot(self):
+        snapshot = snapshot_game(self.game())
+        record = snapshot_to_record(snapshot)
+        rebuilt = snapshot_from_record(record)
+        self.assertEqual(snapshot, rebuilt)
+        self.assertEqual(snapshot.pgn_text, snapshot_to_record(rebuilt)["pgn_text"])
+        self.assertIsInstance(record["warnings"], list)
+
+    def test_record_exchange_detaches_mutable_warning_container(self):
+        snapshot = snapshot_game(self.game())
+        record = snapshot_to_record(snapshot)
+        record["warnings"].append("caller mutation")
+        self.assertEqual(("source warning",), snapshot.warnings)
+        rebuilt_record = snapshot_to_record(snapshot)
+        self.assertEqual(["source warning"], rebuilt_record["warnings"])
+
+    def test_record_rejects_missing_and_unknown_fields_without_mutating_input(self):
+        canonical = snapshot_to_record(snapshot_game(self.game()))
+        for mutation in ("missing", "unknown"):
+            with self.subTest(mutation=mutation):
+                record = dict(canonical)
+                record["warnings"] = list(canonical["warnings"])
+                if mutation == "missing":
+                    del record["record_digest"]
+                else:
+                    record["future_field"] = "silent migration forbidden"
+                before = repr(record)
+                with self.assertRaises(GameTreeSnapshotError) as caught:
+                    snapshot_from_record(record)
+                self.assertEqual(GameTreeSnapshotCode.INVALID_SNAPSHOT, caught.exception.code)
+                self.assertEqual(before, repr(record))
+
+    def test_record_rejects_noncanonical_container_and_scalar_shapes(self):
+        canonical = snapshot_to_record(snapshot_game(self.game()))
+        cases = (
+            [],
+            tuple(canonical.items()),
+            {**canonical, "schema_version": True},
+            {**canonical, "source_index": "7"},
+            {**canonical, "warnings": tuple(canonical["warnings"])},
+            {**canonical, "warnings": [1]},
+        )
+        for record in cases:
+            with self.subTest(record_type=type(record).__name__):
+                with self.assertRaises(GameTreeSnapshotError):
+                    snapshot_from_record(record)
+
+    def test_record_rejects_unsupported_version_and_payload_tamper(self):
+        canonical = snapshot_to_record(snapshot_game(self.game()))
+        with self.assertRaises(GameTreeSnapshotError) as caught:
+            snapshot_from_record({**canonical, "schema_version": 2})
+        self.assertEqual(GameTreeSnapshotCode.UNSUPPORTED_VERSION, caught.exception.code)
+
+        tampered = dict(canonical)
+        tampered["pgn_text"] = tampered["pgn_text"].replace("e4", "d4", 1)
+        with self.assertRaises(GameTreeSnapshotError) as caught:
+            snapshot_from_record(tampered)
+        self.assertEqual(GameTreeSnapshotCode.PAYLOAD_MISMATCH, caught.exception.code)
+
+    def test_record_import_is_detached_from_later_warning_mutation(self):
+        record = snapshot_to_record(snapshot_game(self.game()))
+        rebuilt = snapshot_from_record(record)
+        record["warnings"].append("later")
+        self.assertEqual(("source warning",), rebuilt.warnings)
+        self.assertEqual(["source warning"], restore_game(rebuilt).warnings)
+
+    def test_record_export_rejects_invalid_snapshot_type(self):
+        with self.assertRaises(TypeError):
+            snapshot_to_record({})
 
 
 if __name__ == "__main__":
