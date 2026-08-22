@@ -234,7 +234,9 @@ internal static class Program
             string help =
                 "WORDDECK SPELLING HELP\r\n\r\n" +
                 "Spelling uses Ukrainian prompts and exact English typing. Press Enter to check the current card. A wrong answer stays on the same card. Showing the answer or using a pronunciation hint never passes the card automatically.\r\n\r\n" +
+                "Close the Spelling window with Alt+F4. Normal window close saves Spelling state before the window is disposed. Alt+F4 is a standard Windows close command and cannot be assigned as a WordDeck shortcut.\r\n\r\n" +
                 "Spelling has independent All/A1/A2/B1/B2/C1 deck assignments. Hidden words are excluded without deleting the canonical dictionary or audio. The current saved Spelling scope is " + scope + ".\r\n\r\n" +
+                "Within the current Spelling scope and deck, the next card is selected randomly. When more than one word is eligible the current implementation avoids an immediate repeat. WordDeck saves the current Spelling card, scope, deck assignments and statistics; unlike Recall, Spelling does not persist a remaining no-repeat shuffle sequence.\r\n\r\n" +
                 "Adaptive Coach is deterministic and local. Automatic moves are limited to the five core Spelling decks. User-created decks are never redistributed automatically. Coach decisions can be undone while the recorded assignment still matches.\r\n\r\n" +
                 "CURRENT TRAINING SHORTCUTS\r\n" + lines + "\r\n\r\n" +
                 "Use the keyboard shortcut settings command to rebind actions. Conflicts and Windows-reserved combinations fail closed.";
