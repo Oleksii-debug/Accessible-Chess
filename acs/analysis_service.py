@@ -20,6 +20,9 @@ from .engine_ports import (
 )
 
 
+ANALYSIS_MAX_FEN_LENGTH = 512
+
+
 @dataclass(frozen=True)
 class AnalysisLine:
     multipv: int
@@ -66,9 +69,15 @@ class AnalysisResult:
     error: str | None = None
 
     def __post_init__(self) -> None:
-        if not isinstance(self.fen, str) or not self.fen.strip():
+        if not isinstance(self.fen, str):
             raise EngineContractError(
-                "analysis result FEN must be non-empty text",
+                "analysis result FEN must be bounded non-empty text",
+                code=EngineContractErrorCode.INVALID_RESULT,
+            )
+        normalized_fen = self.fen.strip()
+        if not normalized_fen or len(normalized_fen) > ANALYSIS_MAX_FEN_LENGTH:
+            raise EngineContractError(
+                "analysis result FEN must be bounded non-empty text",
                 code=EngineContractErrorCode.INVALID_RESULT,
             )
         if (
@@ -104,7 +113,7 @@ class AnalysisResult:
                 "stale or failed analysis cannot carry lines",
                 code=EngineContractErrorCode.INVALID_RESULT,
             )
-        object.__setattr__(self, "fen", self.fen.strip())
+        object.__setattr__(self, "fen", normalized_fen)
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -222,12 +231,18 @@ class AnalysisService:
 
     @staticmethod
     def _normalize_fen(fen: str) -> str:
-        if not isinstance(fen, str) or not fen.strip():
+        if not isinstance(fen, str):
             raise EngineContractError(
-                "analysis FEN must be non-empty text",
+                "analysis FEN must be bounded non-empty text",
                 code=EngineContractErrorCode.INVALID_REQUEST,
             )
-        return fen.strip()
+        normalized_fen = fen.strip()
+        if not normalized_fen or len(normalized_fen) > ANALYSIS_MAX_FEN_LENGTH:
+            raise EngineContractError(
+                "analysis FEN must be bounded non-empty text",
+                code=EngineContractErrorCode.INVALID_REQUEST,
+            )
+        return normalized_fen
 
     @staticmethod
     def _normalize_limits(multipv: int, depth: int) -> tuple[int, int]:
