@@ -6,6 +6,7 @@ on:
       - auto/dev3-unicode-search-performance-evidence-20260822
     paths:
       - "tools/dev3_unicode_search_sidecar_benchmark.py"
+      - "tools/dev3_unicode_search_sidecar_durability_probe.py"
       - ".github/workflows/dev3-unicode-search-sidecar-benchmark-ci.yml"
       - "acs/**"
       - "tests/**"
@@ -43,6 +44,8 @@ jobs:
         run: python -m tools.dev3_unicode_search_perf_probe
       - name: Normalized sidecar candidate benchmark
         run: python -m tools.dev3_unicode_search_sidecar_benchmark
+      - name: Sidecar durability and transaction oracle
+        run: python -m tools.dev3_unicode_search_sidecar_durability_probe
       - name: Full unittest discovery
         run: python -m unittest discover -s tests -v
       - name: Full pytest regression
