@@ -57,10 +57,19 @@ internal static class ContextVocabularySnapshotBuilder
     internal static bool IsStrongSpellingEvidence(SpellingEntryStats stats)
     {
         ArgumentNullException.ThrowIfNull(stats);
-        return stats.CompletedReviews >= 3 &&
+        int completed = Math.Max(0, stats.CompletedReviews);
+        int firstTry = Math.Clamp(stats.FirstTrySuccesses, 0, completed);
+        IReadOnlyList<bool> recent = stats.RecentOutcomes ?? new List<bool>();
+        int recentClean = recent.Count(value => value);
+
+        // Keep the contextual "known" threshold exactly aligned with the current
+        // deterministic Spelling Coach promotion gate: 3+ completed reviews,
+        // streak 3+, lifetime first-try rate 75%+, recent clean rate 80%+.
+        return completed >= 3 &&
                stats.CurrentStreak >= 3 &&
-               stats.FirstTrySuccesses >= 0 &&
-               (long)stats.FirstTrySuccesses * 4L >= (long)stats.CompletedReviews * 3L;
+               (long)firstTry * 4L >= (long)completed * 3L &&
+               recent.Count > 0 &&
+               (long)recentClean * 5L >= (long)recent.Count * 4L;
     }
 
     private static bool HasAnySpellingEvidence(SpellingEntryStats stats) =>

@@ -93,9 +93,28 @@ internal static class ContextPracticeR4cSelfTest
         var spelling = new SpellingState();
         spelling.StatsByDictionary[dictionary.Id] = new Dictionary<string, SpellingEntryStats>(StringComparer.OrdinalIgnoreCase)
         {
-            [knownId] = new() { CompletedReviews = 4, FirstTrySuccesses = 3, CurrentStreak = 3 },
-            [spellingLearningId] = new() { CompletedReviews = 4, FirstTrySuccesses = 2, WrongAttempts = 2, CurrentStreak = 1 },
-            [unknownId] = new() { CompletedReviews = 100, FirstTrySuccesses = 100, CurrentStreak = 100 }
+            [knownId] = new()
+            {
+                CompletedReviews = 4,
+                FirstTrySuccesses = 3,
+                CurrentStreak = 3,
+                RecentOutcomes = new List<bool> { true, true, true, true }
+            },
+            [spellingLearningId] = new()
+            {
+                CompletedReviews = 4,
+                FirstTrySuccesses = 2,
+                WrongAttempts = 2,
+                CurrentStreak = 1,
+                RecentOutcomes = new List<bool> { false, true, false, true }
+            },
+            [unknownId] = new()
+            {
+                CompletedReviews = 100,
+                FirstTrySuccesses = 100,
+                CurrentStreak = 100,
+                RecentOutcomes = new List<bool> { true, true, true, true, true }
+            }
         };
 
         ContextVocabularySnapshot snapshot = ContextVocabularySnapshotBuilder.Build(dictionary, recall, spelling);
@@ -105,8 +124,34 @@ internal static class ContextPracticeR4cSelfTest
         Check(!snapshot.Vocabulary.IsKnown(hiddenOnlyId) && !snapshot.Vocabulary.IsLearning(hiddenOnlyId), "Hiding alone must never be treated as mastery evidence.");
         Check(snapshot.KnownCount == 1 && snapshot.LearningCount == 2, "Vocabulary snapshot counts are not deterministic.");
         Check(snapshot.IgnoredUnknownEntryIds == 1, "Unknown profile IDs must be ignored and counted instead of entering mastery.");
-        Check(ContextVocabularySnapshotBuilder.IsStrongSpellingEvidence(new SpellingEntryStats { CompletedReviews = 3, FirstTrySuccesses = 3, CurrentStreak = 3 }), "Minimum strong Spelling threshold should pass.");
-        Check(!ContextVocabularySnapshotBuilder.IsStrongSpellingEvidence(new SpellingEntryStats { CompletedReviews = 3, FirstTrySuccesses = 2, CurrentStreak = 3 }), "Below-75-percent first-try success must not be known.");
+        Check(ContextVocabularySnapshotBuilder.IsStrongSpellingEvidence(new SpellingEntryStats
+        {
+            CompletedReviews = 3,
+            FirstTrySuccesses = 3,
+            CurrentStreak = 3,
+            RecentOutcomes = new List<bool> { true, true, true }
+        }), "Minimum strong Spelling threshold should pass when recent clean evidence is also strong.");
+        Check(!ContextVocabularySnapshotBuilder.IsStrongSpellingEvidence(new SpellingEntryStats
+        {
+            CompletedReviews = 3,
+            FirstTrySuccesses = 2,
+            CurrentStreak = 3,
+            RecentOutcomes = new List<bool> { true, true, true }
+        }), "Below-75-percent lifetime first-try success must not be known.");
+        Check(!ContextVocabularySnapshotBuilder.IsStrongSpellingEvidence(new SpellingEntryStats
+        {
+            CompletedReviews = 5,
+            FirstTrySuccesses = 5,
+            CurrentStreak = 5,
+            RecentOutcomes = new List<bool> { true, true, true, false, false }
+        }), "Below-80-percent recent clean rate must not be known even with perfect lifetime evidence.");
+        Check(ContextVocabularySnapshotBuilder.IsStrongSpellingEvidence(new SpellingEntryStats
+        {
+            CompletedReviews = 5,
+            FirstTrySuccesses = 5,
+            CurrentStreak = 5,
+            RecentOutcomes = new List<bool> { true, true, true, true, false }
+        }), "Exactly-80-percent recent clean rate should satisfy the current Spelling Coach threshold.");
     }
 
     private static void TestStableIdPools(DictionaryPackage dictionary)
@@ -140,9 +185,10 @@ internal static class ContextPracticeR4cSelfTest
     private static void TestLocalTextAndGrammarMetadata()
     {
         var source = new ContextSourceDescriptor("local-book-1", ContextCorpusKind.LocalUserText, "local-user-import", "user-private-local", PrivacyLocalOnly: true);
-        var location = new LocalTextContextLocation("local-source-1", "book-1", "chapter-03", 120, 174, PrivacyLocalOnly: true);
+        var location = new LocalTextContextLocation("local-book-1", "book-1", "chapter-03", 120, 174, PrivacyLocalOnly: true);
+        var sentence = MakeSentence("local-sentence-1", "alpha beta gamma", new[] { "target-local" }, "B1", flags: new[] { "grammar:present-perfect" });
         var envelope = new ContextSentenceEnvelope(
-            MakeSentence("local-sentence-1", "alpha beta gamma", new[] { "target-local" }, "B1", flags: new[] { "grammar:present-perfect" }),
+            sentence,
             source,
             location,
             ContextGrammarMetadata.ExtractFromQualityFlags(new[] { "grammar:present-perfect", "long-sentence" }));
@@ -151,10 +197,22 @@ internal static class ContextPracticeR4cSelfTest
         Check(envelope.Source.PrivacyLocalOnly, "Imported local text must remain privacy-local by default.");
         Check(envelope.EffectiveGrammarSkillIds.SequenceEqual(new[] { "present-perfect" }), "Grammar readiness must remain metadata-only and stable.");
 
-        bool rejected = false;
+        bool privacyRejected = false;
         try { new ContextSourceDescriptor("bad-local", ContextCorpusKind.LocalUserText, "local", "private", PrivacyLocalOnly: false).Validate(); }
-        catch (InvalidDataException) { rejected = true; }
-        Check(rejected, "Local user text cannot silently opt out of privacy-local handling.");
+        catch (InvalidDataException) { privacyRejected = true; }
+        Check(privacyRejected, "Local user text cannot silently opt out of privacy-local handling.");
+
+        bool identityMismatchRejected = false;
+        try
+        {
+            new ContextSentenceEnvelope(
+                sentence,
+                source,
+                location with { SourceId = "different-local-source" },
+                Array.Empty<string>()).Validate();
+        }
+        catch (InvalidDataException) { identityMismatchRejected = true; }
+        Check(identityMismatchRejected, "Local book/text location cannot point to a different source identity.");
     }
 
     private static void TestExact5446Coverage(DictionaryPackage dictionary)

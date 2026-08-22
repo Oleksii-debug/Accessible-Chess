@@ -72,6 +72,8 @@ internal sealed record ContextSentenceEnvelope(
         LocalTextLocation?.Validate();
         if (LocalTextLocation is not null && Source.Kind != ContextCorpusKind.LocalUserText)
             throw new InvalidDataException("Book/chapter offsets may only be attached to a local user-text context source.");
+        if (LocalTextLocation is not null && !string.Equals(LocalTextLocation.SourceId, Source.SourceId, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidDataException("Local book/text location source identity does not match its context source descriptor.");
         if (EffectiveGrammarSkillIds.Any(string.IsNullOrWhiteSpace))
             throw new InvalidDataException("Context grammar-skill metadata contains a blank skill id.");
     }
@@ -147,7 +149,8 @@ internal sealed record ContextPracticeRequest(
     ContextLearnerVocabulary? Vocabulary = null,
     int MaxResults = 20,
     int CandidateLimit = 256,
-    bool AllowSyntheticFixtures = false);
+    bool AllowSyntheticFixtures = false,
+    ContextTargetLexicon? TargetLexicon = null);
 
 internal sealed record ContextDifficultyBreakdown(
     int KnownHelperEntries,
@@ -181,6 +184,13 @@ internal static class ContextPracticeService
             throw new ArgumentOutOfRangeException(nameof(request.CandidateLimit), "Candidate limit must be at least MaxResults and remain bounded by the SentencePack runtime limit.");
 
         string[] required = ContextTargetIds.NormalizeRequired(request.RequiredTargetEntryIds);
+        if (required.Length > 1)
+        {
+            if (request.TargetLexicon is null)
+                throw new InvalidDataException("Multi-target context selection requires the Oxford lexical catalog so same-written-form stable IDs cannot be miscounted as multiple physical target words.");
+            request.TargetLexicon.EnsureDistinctLexicalTargets(required);
+        }
+
         string[] pool = ContextTargetIds.NormalizeStudyPool(request.StudyPoolEntryIds ?? Array.Empty<string>());
         if (pool.Length > 0)
         {
@@ -202,7 +212,7 @@ internal static class ContextPracticeService
             if (required.Any(id => !candidateTargets.Contains(id)))
                 throw new InvalidDataException($"Context source returned sentence {candidate.Sentence.Id} without every requested stable target id.");
 
-            ContextDifficultyBreakdown difficulty = Score(candidate.Sentence, required, vocabulary);
+            ContextDifficultyBreakdown difficulty = Score(candidate.Sentence, required, vocabulary, request.TargetLexicon);
             ranked.Add(new RankedContextSentence(candidate, required, difficulty));
         }
 
@@ -219,24 +229,36 @@ internal static class ContextPracticeService
     internal static ContextDifficultyBreakdown Score(
         SentenceRecord sentence,
         IReadOnlyCollection<string> requiredTargetEntryIds,
-        ContextLearnerVocabulary vocabulary)
+        ContextLearnerVocabulary vocabulary,
+        ContextTargetLexicon? targetLexicon = null)
     {
         string[] required = ContextTargetIds.NormalizeRequired(requiredTargetEntryIds);
-        var requiredSet = new HashSet<string>(required, StringComparer.OrdinalIgnoreCase);
-        string[] helpers = sentence.TargetEntryIds
+        var requiredStableSet = new HashSet<string>(required, StringComparer.OrdinalIgnoreCase);
+        var requiredLexicalSet = targetLexicon is null
+            ? new HashSet<string>(required, StringComparer.OrdinalIgnoreCase)
+            : new HashSet<string>(required.Select(targetLexicon.LexicalKeyFor), StringComparer.OrdinalIgnoreCase);
+
+        var helperGroups = sentence.TargetEntryIds
             .Select(ContextTargetIds.NormalizeSingle)
-            .Where(id => !requiredSet.Contains(id))
+            .Where(id => !requiredStableSet.Contains(id))
             .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Select(id => new { Id = id, LexicalKey = targetLexicon?.LexicalKeyForOrStableId(id) ?? id })
+            .Where(item => !requiredLexicalSet.Contains(item.LexicalKey))
+            .GroupBy(item => item.LexicalKey, StringComparer.OrdinalIgnoreCase)
             .ToArray();
 
         int known = 0;
         int learning = 0;
         int unknown = 0;
-        foreach (string helper in helpers)
+        foreach (var group in helperGroups)
         {
-            if (vocabulary.IsKnown(helper)) known++;
-            else if (vocabulary.IsLearning(helper)) learning++;
-            else unknown++;
+            string[] ids = group.Select(item => item.Id).ToArray();
+            if (ids.All(vocabulary.IsKnown))
+                known++;
+            else if (ids.Any(id => vocabulary.IsKnown(id) || vocabulary.IsLearning(id)))
+                learning++;
+            else
+                unknown++;
         }
 
         int offList = sentence.OffListTokenCount;
@@ -244,10 +266,10 @@ internal static class ContextPracticeService
         int tokenCount = sentence.Length;
 
         // Actual learner lexical state intentionally dominates coarse CEFR metadata.
-        // Off-list words are the least predictable, unknown Oxford helpers next,
-        // learning helpers next; CEFR and length are deterministic tie-break signals.
+        // Same-written-form stable IDs are one helper lexical group for difficulty,
+        // while their stable identities remain separate in learner progress.
         long score = checked((long)offList * 1000L + (long)unknown * 200L + (long)learning * 60L + (long)cefr * 10L + Math.Min(tokenCount, 99));
-        string explanation = $"known helpers={known}; learning helpers={learning}; unknown helpers={unknown}; off-list tokens={offList}; CEFR={sentence.DifficultyLevel}; tokens={tokenCount}";
+        string explanation = $"known helper lexical groups={known}; learning helper lexical groups={learning}; unknown helper lexical groups={unknown}; off-list tokens={offList}; CEFR={sentence.DifficultyLevel}; tokens={tokenCount}";
         return new ContextDifficultyBreakdown(known, learning, unknown, offList, cefr, tokenCount, score, explanation);
     }
 
