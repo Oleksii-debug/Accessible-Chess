@@ -58,7 +58,14 @@ function Assert-Focus([string]$expected, [string]$context) {
 
 function Send-Keys([string]$keys, [int]$delayMs = 250) {
     $transport = if ($keys.Contains('+')) { 'send-input' } else { 'post-message' }
-    Invoke-WinApp @('ui','send-keys',$keys,'-a',[string]$script:appPid,'--via',$transport) | Out-Null
+    $arguments = @('ui','send-keys',$keys,'-a',[string]$script:appPid,'--via',$transport)
+    if ($keys -eq 'alt+f4') {
+        # This is the one system-reserved combination intentionally exercised by
+        # the acceptance suite: standard Windows close for help/settings/trainers.
+        # Do not opt other shortcuts into system-key synthesis.
+        $arguments += '--allow-system-keys'
+    }
+    Invoke-WinApp $arguments | Out-Null
     Start-Sleep -Milliseconds $delayMs
 }
 
