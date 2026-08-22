@@ -59,9 +59,6 @@ jobs:
         with:
           dotnet-version: 8.0.x
 
-      - name: Setup WinApp CLI for Windows UI Automation
-        uses: microsoft/setup-winapp@v1
-
       - name: Download accepted AudioPack
         uses: actions/download-artifact@v4
         with:
@@ -109,12 +106,6 @@ jobs:
           $status = Get-Content .\artifacts\release\CANDIDATE_STATUS_UK.txt -Raw
           if ($status -notmatch 'НЕ заявляє, що містить фінальний production SentencePack' -or $status -notmatch 'Ручний NVDA PASS не заявляється') { throw 'Candidate bounded-status disclosure is missing.' }
 
-      - name: Run actual integrated Windows UI Automation regression
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          & .\WordDeck\scripts\worddeck-r3-uia-smoke.ps1 -ProjectPath .\WordDeck\WordDeck.csproj
-
       - name: Prove Cyrillic and spaces path launch
         shell: pwsh
         run: |
@@ -132,19 +123,34 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $forbidden = @(Get-ChildItem .\artifacts\release -Recurse -File | Where-Object {
             $_.Name -match '^state(\.backup)?\.json$' -or
+            $_.Name -match '^spelling-state(\.backup)?\.json$' -or
+            $_.Name -match '^sentence-coach-state(\.backup)?\.json$' -or
             $_.Name -like 'WordDeck-profile*.json' -or
+            $_.FullName -match '[\\/]Backups[\\/]' -or
             $_.Name -match '(token|secret|credential|session)'
           })
           if ($forbidden.Count -ne 0) { throw "Candidate contains forbidden personal/secret-looking files: $($forbidden.FullName -join ', ')" }
           if (-not (Test-Path .\artifacts\release\CANDIDATE_STATUS_UK.txt)) { throw 'Candidate status disclosure missing.' }
-          Write-Host 'Clean candidate PASS: personal state/profile and secret-looking files are absent.'
+          Write-Host 'Clean candidate PASS: Recall/Spelling/Sentence state, profiles, backups and secret-looking files are absent.'
 
+      # Upload the engineering candidate before the external hosted-UIA gate. A
+      # strict UIA failure still makes the job/status fail, but it must not erase
+      # already-proven package evidence that the independent auditor needs.
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ env.RELEASE_NAME }}
           path: .\artifacts\release\**
           if-no-files-found: error
           retention-days: 90
+
+      - name: Setup WinApp CLI for Windows UI Automation
+        uses: microsoft/setup-winapp@v1
+
+      - name: Run actual integrated Windows UI Automation regression
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & .\WordDeck\scripts\worddeck-r3-uia-smoke.ps1 -ProjectPath .\WordDeck\WordDeck.csproj
 
       - name: Publish final candidate status
         if: always()
@@ -156,6 +162,6 @@ jobs:
             await github.rest.repos.createCommitStatus({
               owner: context.repo.owner, repo: context.repo.repo, sha: context.sha,
               state: ok ? 'success' : 'failure', context: 'WordDeck V0.2 full-v1 candidate',
-              description: ok ? 'Integrated candidate regression/UIA/package gates passed; bounded SentencePack status included.' : 'V0.2 candidate gate failed; inspect exact run.',
+              description: ok ? 'Integrated candidate regression/UIA/package gates passed; bounded SentencePack status included.' : 'V0.2 candidate package/evidence is available where reached, but at least one strict acceptance gate failed.',
               target_url: `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`
             });
