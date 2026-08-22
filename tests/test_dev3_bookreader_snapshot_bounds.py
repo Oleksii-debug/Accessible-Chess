@@ -20,6 +20,12 @@ class BookReaderSnapshotBoundsTests(unittest.TestCase):
             reader.save_return_point("x" * 257)
         self.assertEqual(reader.snapshot()["return_points"], {})
 
+    def test_exact_return_point_name_limit_is_accepted(self):
+        reader = BookReader(self.make_book())
+        name = "x" * 256
+        reader.save_return_point(name)
+        self.assertIn(name, reader.snapshot()["return_points"])
+
     def test_restore_rejects_too_many_return_points_before_iterating_entries(self):
         snapshot = self.valid_snapshot()
         snapshot["return_points"] = {
