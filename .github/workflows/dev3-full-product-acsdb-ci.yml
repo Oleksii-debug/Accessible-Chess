@@ -19,6 +19,7 @@ on:
       - auto/dev3-student-progress-resource-bounds-20260822
       - auto/dev3-bookreader-snapshot-bounds-20260822
       - auto/dev3-batch-game-review-20260822
+      - auto/dev3-analysis-request-bounds-ci-base-20260822
 
 permissions:
   contents: read
