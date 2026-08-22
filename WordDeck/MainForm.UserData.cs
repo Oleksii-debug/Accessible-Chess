@@ -135,8 +135,8 @@ internal sealed partial class MainForm
         if (dialog.ShowDialog(this) != DialogResult.OK) { FocusCurrentWord(); return; }
         try
         {
-            _store.ExportProfile(_state, dialog.FileName);
-            AnnounceStatus($"Personal WordDeck profile exported to {dialog.FileName}. It contains study state only, not the canonical dictionary or audio files.");
+            new PersonalProfileCoordinator(_store).Export(_state, dialog.FileName);
+            AnnounceStatus($"Personal WordDeck profile exported to {dialog.FileName}. It contains Recall and Sentence study state only, not canonical dictionary, audio or SentencePack data files.");
         }
         catch (Exception ex)
         {
@@ -160,7 +160,8 @@ internal sealed partial class MainForm
                 .Concat(_state.CustomEntriesByDictionary.Values.SelectMany(list => list.Select(entry => entry.Id)))
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToArray();
-            ProfileImportResult result = _store.ImportProfile(dialog.FileName, _state, knownEntries, _packages.Keys);
+            ProfileImportResult result = new PersonalProfileCoordinator(_store)
+                .Import(dialog.FileName, _state, knownEntries, _packages.Keys);
             _navigationHistory.Clear();
             _autoPronunciationMenuItem.Checked = _state.AutoPlayPronunciationOnCardChange;
             DictionaryPackage selected = _state.ActiveDictionaryId is not null && _packages.TryGetValue(_state.ActiveDictionaryId, out DictionaryPackage? package)
