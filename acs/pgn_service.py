@@ -14,6 +14,7 @@ contract.
 """
 
 from dataclasses import dataclass
+import logging
 import os
 from pathlib import Path
 import stat
@@ -31,6 +32,7 @@ from .import_contract import (
 
 
 MAX_PGN_SOURCE_BYTES = 64 * 1024 * 1024
+_LOG = logging.getLogger(__name__)
 
 
 class PgnFileError(RuntimeError):
@@ -216,7 +218,13 @@ def _create_hardlink_snapshot(destination: Path) -> Path:
 
 
 def _publish_no_clobber(tmp_path: Path, destination: Path) -> None:
-    """Atomically publish ``tmp_path`` only if ``destination`` is still absent."""
+    """Atomically publish ``tmp_path`` only if ``destination`` is still absent.
+
+    Once ``os.link`` succeeds, ``destination`` already names the committed
+    bytes. Removing the redundant temporary pathname is housekeeping after the
+    commit boundary; a cleanup failure must remain observable without turning
+    an already successful save into an ambiguous caller-visible failure.
+    """
 
     try:
         os.link(tmp_path, destination)
@@ -224,7 +232,15 @@ def _publish_no_clobber(tmp_path: Path, destination: Path) -> None:
         raise
     except OSError as exc:
         raise PgnFileError("PGN no-clobber publication is unavailable") from exc
-    tmp_path.unlink()
+
+    try:
+        tmp_path.unlink()
+    except FileNotFoundError:
+        pass
+    except OSError:
+        _LOG.warning(
+            "PGN no-clobber publication committed; redundant temporary name cleanup failed"
+        )
 
 
 def _publish_expected_hash(
