@@ -43,7 +43,7 @@ jobs:
       - name: Compile ACSDB and Full Product tests
         run: python -m compileall -q acs tests run_accessible_chess.py
 
-      - name: Focused DEV3 data and reading-progress regression suite
+      - name: Focused DEV3 data and engine-assisted workflow regression suite
         run: >-
           python -m unittest -v
           tests.test_acsdb
@@ -58,6 +58,7 @@ jobs:
           tests.test_dev3_bookreader_live_mutation_guard
           tests.test_dev3_training_snapshot_contract
           tests.test_dev3_training_progress_store
+          tests.test_dev3_engine_assisted_workflows
 
       - name: Full unittest discovery
         run: python -m unittest discover -s tests -v
