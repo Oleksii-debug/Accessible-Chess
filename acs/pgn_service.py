@@ -15,6 +15,7 @@ replaces the destination, so a crash cannot leave a half-written PGN.
 from dataclasses import dataclass
 import os
 from pathlib import Path
+import stat
 import tempfile
 from typing import Iterable
 
@@ -45,6 +46,10 @@ class PgnResourceLimitError(PgnFileError):
 
 class PgnConcurrentWriteError(PgnFileError):
     """Raised when optimistic overwrite protection detects a newer source."""
+
+
+class PgnUnsafePathError(PgnFileError):
+    """Raised when export would traverse filesystem indirection."""
 
 
 @dataclass(frozen=True)
@@ -96,6 +101,40 @@ class PgnFileImporter:
                 )
             )
         return report
+
+
+def _is_reparse_point(st: os.stat_result) -> bool:
+    attrs = getattr(st, "st_file_attributes", 0)
+    marker = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+    return bool(attrs & marker)
+
+
+def _reject_export_indirection(path: Path) -> None:
+    """Fail closed if any existing submitted path component is indirect.
+
+    ``Path.exists()`` and normal file opens follow symlinks/reparse points. For
+    an export boundary that can create or replace files, that would allow a
+    submitted lexical destination to escape into another directory tree. Walk
+    the lexical absolute path with ``lstat`` so existing ancestors and the
+    destination itself are checked without following them.
+    """
+
+    absolute = path.absolute()
+    parts = absolute.parts
+    if not parts:
+        raise PgnUnsafePathError("PGN export destination is invalid")
+
+    current = Path(parts[0])
+    for part in parts[1:]:
+        current = current / part
+        try:
+            current_stat = current.lstat()
+        except FileNotFoundError:
+            continue
+        except OSError as exc:
+            raise PgnUnsafePathError("PGN export path could not be validated safely") from exc
+        if stat.S_ISLNK(current_stat.st_mode) or _is_reparse_point(current_stat):
+            raise PgnUnsafePathError("PGN export path must not traverse filesystem indirection")
 
 
 def _bounded_source_size(path: Path) -> int | None:
@@ -174,6 +213,7 @@ def save_pgn_atomic(
     """
 
     destination = Path(path)
+    _reject_export_indirection(destination)
     if destination.exists() and not overwrite:
         raise FileExistsError(f"PGN already exists: {destination}")
 
@@ -183,6 +223,7 @@ def save_pgn_atomic(
 
     payload = serialize_games(tuple(games))
     destination.parent.mkdir(parents=True, exist_ok=True)
+    _reject_export_indirection(destination)
 
     tmp_path: Path | None = None
     try:
@@ -199,6 +240,7 @@ def save_pgn_atomic(
             handle.write(payload)
             handle.flush()
             os.fsync(handle.fileno())
+        _reject_export_indirection(destination)
         os.replace(tmp_path, destination)
         tmp_path = None
     finally:
