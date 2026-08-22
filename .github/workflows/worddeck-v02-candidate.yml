@@ -123,7 +123,7 @@ jobs:
           dotnet restore .\WordDeck\WordDeck.csproj
           dotnet build .\WordDeck\WordDeck.csproj -c Release --no-restore -warnaserror
           dotnet publish .\WordDeck\WordDeck.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:DebugType=None -p:DebugSymbols=false -o .\artifacts\release
-          Copy-Item .\WordDeck\README_FIRST_USABLE_UK.md .\artifacts\release\README_UK.md
+          Copy-Item .\WordDeck\README_V02_CANDIDATE_UK.md .\artifacts\release\README_UK.md
           Copy-Item .\WordDeck\THIRD_PARTY_NOTICES.md .\artifacts\release\THIRD_PARTY_NOTICES.md
           Copy-Item .\WordDeck\CANDIDATE_STATUS_V02_UK.txt .\artifacts\release\CANDIDATE_STATUS_UK.txt
           Copy-Item .\artifacts\source-identity.txt .\artifacts\release\SOURCE_IDENTITY.txt
@@ -148,6 +148,8 @@ jobs:
           if ([int]$manifest.entry_count -ne 2138) { throw 'Candidate manifest entry_count mismatch.' }
           $status = Get-Content .\artifacts\release\CANDIDATE_STATUS_UK.txt -Raw
           if ($status -notmatch 'НЕ заявляє, що містить фінальний production SentencePack' -or $status -notmatch 'Ручний NVDA PASS не заявляється') { throw 'Candidate bounded-status disclosure is missing.' }
+          $readme = Get-Content .\artifacts\release\README_UK.md -Raw
+          if ($readme -notmatch 'Recall \+ Spelling \+ Sentence' -or $readme -notmatch 'Порожній або лише пробільний `Enter`' -or $readme -notmatch 'не заявляє, що містить фінальний production SentencePack') { throw 'Candidate README does not describe the current full-profile, blank-submit and SentencePack boundaries.' }
 
       - name: Prove complete package from Cyrillic and spaces path
         shell: pwsh
