@@ -49,7 +49,15 @@ internal static class KeyboardSelectorFocusGuard
             }));
         };
 
-        combo.Leave += (_, _) => keyboardSelectionPending = false;
+        // At a selector boundary (for example pressing Up on the first item),
+        // SelectedIndexChanged does not fire. Clear the pending marker only on
+        // KeyUp so a synchronous focus move from an existing selection handler
+        // cannot erase the keyboard-origin information before our handler runs.
+        combo.KeyUp += (_, e) =>
+        {
+            if (IsNativeSelectionNavigation(e.KeyData))
+                keyboardSelectionPending = false;
+        };
     }
 
     private static IEnumerable<Control> EnumerateControls(Control root)
