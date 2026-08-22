@@ -1,43 +1,42 @@
 # DEV3 RUN STATE
 
-RUN_ID: 20260822-1902-analysis-request-bounds
+RUN_ID: 20260822-2007-engine-move-resource-bounds-safe-overlap
 STATUS: COMPLETE / TERMINAL
 READY_FOR_INTEGRATION: YES
 OVERALL_FULL_PRODUCT_DEV3: PARTIAL
 
-BRANCH: auto/dev3-analysis-request-bounds-20260822
-PRODUCT_PR: #101 (open/draft/evidence-only)
-VALIDATION_PR: #102 (validation-only; do not merge into Product history)
-BASE_TERMINAL_HEAD: 878396533a1b5d78c452202a6ecbbe764421e9ac
-PRODUCT_CODE_COMMIT: 887e033db427837ed383a0f0ccbc1680aaa8ad63
-TEST_COMMIT: f6103032fd9b0a7cb8c7a7f34404a656146e8b1c
-VALIDATED_PRODUCT_CI_HEAD: 31647b904f6cbd112a8425db4017566e716d15e6
-VALIDATION_MARKER_HEAD: ce0d7959cd89ba3ac7471ca7f676da7ca29fb405
-VALIDATION_MERGE_REF: e2d42745d216baaf507ee84ef2b49fc4adf16383
+BRANCH: auto/dev3-engine-move-resource-bounds-20260822
+VALIDATION_PR: #130 (SAFE OVERLAP validation-only; do not merge whole PR)
+PARENT_PRODUCT_HEAD: 6f5d19ead9d6b9176c64aaaf381a159c7c12fed8
+VALIDATED_PRODUCT_HEAD: 654679e6f0ecba119b61aaeba9267a815bf8cd10
+CI_BASE_HEAD: fb28b85035faf3b69fd682e1dc79e3cfe580a6fe
+VALIDATION_MERGE_REF: 8222ba727ca8db79ba3a2c51521482d912299fdb
 
-PACKAGE: direct AnalysisService FEN request resource bounds.
-- normalized FEN length is capped at 512 characters before generation publication, provider construction, or UCI work;
-- invalidate() uses the same bounded request contract;
-- AnalysisResult fails closed on oversized FEN output;
-- existing multipv/depth clamp, stale-generation semantics, engine serialization/ownership, GameReview behavior, and canonical state ownership are unchanged.
+PACKAGE: existing earlier DEV3 engine-move resource-bound wave, validated in SAFE OVERLAP mode.
+- normalized EngineMoveRequest FEN is capped at 512 characters before provider construction/use;
+- custom engine movetime is capped at 60,000 ms;
+- EngineMoveResult cannot claim movetime outside 50..60,000 ms;
+- existing low custom movetime minimum clamp to 50 ms remains unchanged;
+- no second chess/application state model or chess-legality parser was introduced.
 
 EXACT CI EVIDENCE:
-Workflow: DEV3 Full Product ACSDB CI
-Run: 32583809015
-Job: 97057031894
+Workflow: DEV3 Engine Move Resource Bounds CI
+Run: 32595776186
+Job: 97086347001
 Conclusion: SUCCESS
-Focused DEV3 suite: 173/173 PASS
-Official Stockfish 18 bounded game-review smoke: PASS
-Stockfish archive SHA-256: 536c0c2c0cf06450df0bfb5e876ef0d3119950703a8f143627f990c7b5417964 VERIFIED
-Full unittest: 689/689 PASS
-Full pytest: 767 passed + 641 subtests PASS
+Focused engine/direct-analysis/assisted/continuous boundaries: 67/67 PASS
+Full unittest: 708/708 PASS
+Full pytest: 786 passed + 641 subtests PASS
 SELFTEST: PASS
 ACCESSIBLE CHESS 0.4 WEBVIEW2 COMPLETE USER FLOW DIAGNOSTIC: PASS
 Diff hygiene: PASS
 Compile: PASS
 TEST_WEAKENING: NONE
 
-OWNERSHIP: DEV1 UI; DEV2 canonical GameTree/domain; DEV4 PGN/ChessBase/import security; DEV5 integration/promotion. DEV3 did not mutate those lanes.
-KNOWN_BLOCKER: mistake/blunder classification still awaits terminal authoritative student/actor plus fixed evaluation-perspective contract; no parallel domain model will be created.
+SAFE OVERLAP: hidden earlier DEV3 ownership was discovered after competing PRs #128/#129 were opened. Both were closed unmerged. Their RED run 32595657079 / job 97086034134 is retained as truthful compatibility evidence; no competing Product line remains active.
+
+FOLLOW_UP: EngineGameHandoff(ANALYZE_CURRENT_GAME) still needs the same 512-character FEN bound in a later non-overlapping package while preserving the stable `requires fen` error contract.
+
+OWNERSHIP: DEV1 UI/WebView; DEV2 canonical GameTree/domain; DEV4 PGN/ChessBase/import security and active shared ACSDB repair; DEV5 integration/promotion. DEV3 did not mutate those lanes.
 FRESH_WINDOWS_CANDIDATE: NO
 NVDA_VERIFIED: NO

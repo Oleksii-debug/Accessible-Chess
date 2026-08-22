@@ -1,23 +1,25 @@
 # DEV3 SESSION HANDOFF
 
-DEV3 completed a dependency-safe P1 resource-hardening package for the shared engine-analysis backend.
+DEV3 completed a SAFE OVERLAP validation and terminal coordination pass for the earlier same-lane engine-move resource-bound Product wave.
 
-Branch: `auto/dev3-analysis-request-bounds-20260822`
-Product PR: #101, open/draft/evidence-only
-Base terminal head: `878396533a1b5d78c452202a6ecbbe764421e9ac`
-Product code commit: `887e033db427837ed383a0f0ccbc1680aaa8ad63`
-Test commit: `f6103032fd9b0a7cb8c7a7f34404a656146e8b1c`
-Validated Product/CI head: `31647b904f6cbd112a8425db4017566e716d15e6`
-Validation PR: #102, marker head `ce0d7959cd89ba3ac7471ca7f676da7ca29fb405`, merge/evidence ref `e2d42745d216baaf507ee84ef2b49fc4adf16383`.
+Authoritative Product branch: `auto/dev3-engine-move-resource-bounds-20260822`
+Parent Product head: `6f5d19ead9d6b9176c64aaaf381a159c7c12fed8`
+Validated Product head: `654679e6f0ecba119b61aaeba9267a815bf8cd10`
+Validation PR: #130 (validation-only; do not merge whole PR)
+CI-only base: `fb28b85035faf3b69fd682e1dc79e3cfe580a6fe`
+Validation merge/evidence ref: `8222ba727ca8db79ba3a2c51521482d912299fdb`
 
-Behavior delivered: normalized direct `AnalysisService` FEN requests are capped at 512 characters before state generation/provider/UCI work; `invalidate()` and `AnalysisResult` enforce the same bounded contract. Existing one-provider serialization, stale-generation invalidation, multipv/depth clamp, engine ownership/shutdown and post-game GameReview contracts remain intact.
+Behavior validated: `EngineMoveRequest` normalizes and bounds FEN to 512 characters before provider construction/use; requested movetime is bounded at 60,000 ms; `EngineMoveResult` cannot claim movetime outside 50..60,000 ms; the existing minimum custom-movetime clamp to 50 ms remains intact. No canonical chess/application ownership moved.
 
-CI: `DEV3 Full Product ACSDB CI` run `32583809015`, job `97057031894`, SUCCESS. Focused 173/173 PASS; official Stockfish 18 bounded smoke PASS with verified SHA-256 `536c0c2c0cf06450df0bfb5e876ef0d3119950703a8f143627f990c7b5417964`; full unittest 689/689 PASS; pytest 767 passed + 641 subtests PASS; SELFTEST and complete WebView2 diagnostic PASS; diff hygiene and compile PASS; no test weakening.
+Exact CI: `DEV3 Engine Move Resource Bounds CI`, run `32595776186`, job `97086347001`, SUCCESS. Focused boundary suite 67/67 PASS; full unittest 708/708 PASS; full pytest 786 passed + 641 subtests PASS; diff hygiene and compile PASS; SELFTEST and complete WebView2 diagnostic PASS; no test weakening.
 
-Drive `12_DEV3_HANDOFF_CURRENT.txt` was first reconciled from the newer live PR #96 terminal truth before Product mutation, as required by the 19:00 Audit directive. It must be updated again to this final package state and read back before closing the run.
+SAFE OVERLAP history: a competing engine-play FEN attempt was briefly opened before hidden earlier branch ownership became observable. Product PR #129 and validation PR #128 were immediately closed unmerged. Their run `32595657079` / job `97086034134` remains truthful RED evidence for one inherited error-message compatibility mismatch. The competing branch is abandoned and is not integration authority.
 
-Ownership preserved: DEV1 UI; DEV2 canonical GameTree/domain; DEV4 PGN/ChessBase/import security; DEV5 selective integration/promotion. Mistake/blunder scoring remains dependency-blocked on authoritative actor + fixed evaluation perspective.
+Known follow-up: `EngineGameHandoff(ANALYZE_CURRENT_GAME)` still needs the same 512-character FEN resource bound. Implement only in a later fresh-ownership DEV3 wave, preserving the existing `requires fen` compatibility string.
 
+Ownership preserved: DEV1 UI/WebView; DEV2 canonical GameTree/domain; DEV4 PGN/ChessBase/import security and active shared ACSDB repair; DEV5 selective integration/promotion.
+
+READY_FOR_INTEGRATION=YES
 OVERALL_FULL_PRODUCT_DEV3=PARTIAL
 FRESH_WINDOWS_CANDIDATE=NO
 NVDA_VERIFIED=NO
