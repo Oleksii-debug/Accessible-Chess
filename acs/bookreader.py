@@ -41,6 +41,12 @@ class BookReader:
     their reading identity if a source-preserving edit reorders surrounding
     content. Index-only targets carry a strict semantic digest in durable
     snapshots so they fail closed if the document revision changes their meaning.
+
+    A reader is bound to the exact ``BookDocument.blocks`` snapshot used to build
+    its immutable ``BookIndex``. Authoring/import code may mutate ``BookDocument``
+    in place, but durable progress operations then fail closed instead of resolving
+    through stale index entries. Persist progress before editing and restore it
+    into a fresh ``BookReader`` for the new document revision.
     """
 
     def __init__(self, document: BookDocument):
@@ -48,6 +54,7 @@ class BookReader:
         self._index = 0 if document.blocks else -1
         self._book_index = BookIndex(document)
         self._return_points: dict[str, str] = {}
+        self._indexed_revision_digest = self._document_revision_digest()
 
     @property
     def index(self) -> int:
@@ -76,7 +83,25 @@ class BookReader:
         ).encode("utf-8")
         return hashlib.sha256(payload).hexdigest()
 
+    def _document_revision_digest(self) -> str:
+        """Fingerprint semantic blocks used by the immutable ``BookIndex``."""
+        payload = json.dumps(
+            [block.as_dict() for block in self.document.blocks],
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        return hashlib.sha256(payload).hexdigest()
+
+    def _require_indexed_revision(self) -> None:
+        """Reject durable target work after the indexed document changed in place."""
+        if self._document_revision_digest() != self._indexed_revision_digest:
+            raise RuntimeError(
+                "BookDocument changed after BookReader creation; create a fresh reader for this revision"
+            )
+
     def _target_key(self, index: int | None = None) -> str:
+        self._require_indexed_revision()
         self._require_content()
         target_index = self._index if index is None else index
         return self._book_index.entries[target_index].target.key
@@ -95,12 +120,14 @@ class BookReader:
         return key
 
     def _fallback_digest(self, key: str) -> str:
+        self._require_indexed_revision()
         if not key.startswith("index:"):
             raise ValueError("fallback digest is only defined for index targets")
         entry = self._book_index.resolve(key)
         return self._fallback_digest_for_block(self.document.blocks[entry.target.index])
 
     def _go_to_target(self, key: str) -> ReadingLocation:
+        self._require_indexed_revision()
         if type(key) is not str:
             raise TypeError("Book target key must be a string")
         entry = self._book_index.resolve(key)
@@ -198,6 +225,7 @@ class BookReader:
 
     def snapshot(self) -> dict[str, object]:
         """Return strict schema-v2 reading progress without positional drift."""
+        self._require_indexed_revision()
         current_target = None if self._index < 0 else self._durable_target_key()
         referenced_targets = set(self._return_points.values())
         if current_target is not None:
