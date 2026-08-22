@@ -11,6 +11,7 @@ output such as GameTree/ACSDB/PGN.
 
 from dataclasses import dataclass, field
 from pathlib import Path
+import re
 from typing import Iterable
 
 
@@ -32,22 +33,24 @@ _COMPONENT_EXTENSIONS = {
 }
 
 _ALL_EXTENSIONS = {**_PRIMARY_EXTENSIONS, **_COMPONENT_EXTENSIONS}
+_WINDOWS_ABSOLUTE_RE = re.compile(r"^[A-Za-z]:/")
 
 
 def report_safe_path_name(path: str | Path) -> str:
-    """Return a filename-only report identifier independent of host path syntax.
+    """Return report-safe portable provenance without host-private directories.
 
-    ``Path.name`` follows the runner's native path grammar. On POSIX that means
-    a Windows path such as ``C:\\Users\\Private\\db.cbh`` is treated as one
-    filename and can leak workstation directories into serialized evidence.
-    Report payloads must instead strip both slash conventions regardless of the
-    machine performing the inspection.
+    Relative provenance is useful and historically part of the public report
+    contract, so it is preserved with forward slashes. Absolute POSIX paths and
+    Windows drive paths are reduced to their filename regardless of the host OS;
+    this prevents a Windows path from being treated as one opaque POSIX name.
     """
 
     normalized = str(path).replace("\\", "/").rstrip("/")
     if not normalized:
         return "source"
-    return normalized.rsplit("/", 1)[-1] or "source"
+    if normalized.startswith("/") or _WINDOWS_ABSOLUTE_RE.match(normalized):
+        return normalized.rsplit("/", 1)[-1] or "source"
+    return normalized
 
 
 class ChessBaseProbeIOError(RuntimeError):
