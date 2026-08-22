@@ -11,6 +11,7 @@ on:
       - auto/dev3-batch-game-review-20260822
       - auto/dev3-analysis-request-bounds-20260822
       - auto/dev3-unicode-library-search-20260822
+      - auto/dev3-assisted-fen-bounds-20260822
   pull_request:
     branches:
       - codex/full-product-20260821
