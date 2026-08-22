@@ -43,9 +43,12 @@ internal static class SentencePackStoreSelfTest
             SentencePack replacement = BuildPack(pack.PackId, "sentence-2");
             SentencePackIo.WriteGZip(replacementSource, replacement);
             InstalledSentencePack replaced = store.Import(replacementSource);
-            Require(replaced.Path == installed.Path, "Same pack id did not replace its canonical compressed file.");
-            Require(replaced.SqlitePath == installed.SqlitePath, "Same pack id did not replace its stable SQLite companion path.");
-            Require(store.Find(pack.PackId)?.Corpus.LookupByEntryId("ox-learn").Single().Id == "sentence-2", "SQLite runtime companion was not replaced with the new pack content.");
+            Require(replaced.Path != installed.Path, "Same pack id did not activate a fresh immutable portable generation.");
+            Require(replaced.SqlitePath != installed.SqlitePath, "Same pack id did not activate a fresh immutable SQLite generation.");
+            Require(File.Exists(installed.Path) && installed.SqlitePath is not null && File.Exists(installed.SqlitePath), "Replacement destroyed the previous known-good generation instead of preserving recovery data.");
+            Require(File.Exists(Path.Combine(store.DirectoryPath, pack.PackId + ".installed.json")), "Replacement did not publish an active manifest commit point.");
+            Require(File.Exists(Path.Combine(store.DirectoryPath, pack.PackId + ".installed.backup.json")), "Replacement did not retain a previous known-good manifest.");
+            Require(store.Find(pack.PackId)?.Corpus.LookupByEntryId("ox-learn").Single().Id == "sentence-2", "Active manifest did not select the new SQLite generation.");
 
             TestSafePackIds();
         }
