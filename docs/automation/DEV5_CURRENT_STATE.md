@@ -7,28 +7,31 @@ SNAPSHOT_CUTOFF: 2026-08-22T22:33:56+03:00
 Accepted Stage1 remains `manual5/integration-20260821 @ 0fa442330bc2bb03636ff9297512da4c29e38684`.
 Persistent exact-GREEN DEV5 full-product non-PGN authority remains `full5/dev5-compose-1700-20260822 @ dd9ebf9414103c805892856fe6a04706fa69039f`, PR #93 DRAFT / DO NOT MERGE, CI `32577600761 / 97042099941` SUCCESS.
 
-## Active overlap
-DEV2 RUN `20260822-2226` was IN_PROGRESS at cutoff on the canonical Classroom/Student/Course/Lesson/Assignment/Progress domain package. DEV1 had active PGN presentation work around the cutoff and has since begun RUN `20260822-2236` for Library/Search WebView UX. This invocation therefore remains SAFE OVERLAP; no Product integration is authorized retroactively even when same-wave CI turns GREEN.
+## Live overlap
+DEV1 RUN `20260822-2236` remains IN_PROGRESS for Library/Search WebView UX over accepted DEV3 SearchService.
+DEV2 prior Classroom RUN `20260822-2226` terminalized at 22:39 after exact GREEN validation, but successor RUN `20260822-2240` immediately started from Product `8d9c7c99ef8d1754555adaf286ab15f5da3224af` to harden deterministic exchange/corruption boundaries. Therefore touching Product work remains active and DEV5 cannot advance composition in this invocation.
 
-## DEV1
-Prior PGN/GameTree WebView package later terminalized at exact source `6336d917319f22e422fc3b541feecf7c40977ac9`, PR #112, CI `32594006323 / 97082049039` SUCCESS: focused 115/115, canonical+Stage1 accessibility 65/65, unittest 726/726, pytest 804 + 719 subtests, diagnostic PASS. It is eligible only at a later fresh cutoff after canonical terminal readback. New RUN `20260822-2236` is currently IN_PROGRESS for Library/Search WebView UX and blocks current Product composition.
+## DEV1 evidence
+Prior PGN/GameTree WebView package is technical-GREEN at `6336d917319f22e422fc3b541feecf7c40977ac9`, PR #112, CI `32594006323 / 97082049039`: focused 115/115, canonical+Stage1 accessibility 65/65, unittest 726/726, pytest 804 + 719 subtests, diagnostic PASS. Intake waits for a future fresh cutoff after current DEV1 work terminalizes.
 
-## DEV2
-Pre-cutoff canonical terminal ceiling remains `7d525dd34f6ae1a2083a79e25638cbc101e9beaf`, which retains missing-PGN-termination repair ancestor `918d4e560d99c12e24e0763dc3a6fc1f1fbd82d4`.
-Same-wave Classroom domain Product `8d9c7c99ef8d1754555adaf286ab15f5da3224af` is technically GREEN through validation PR #114 / run `32594221729 / 97082562977`: classroom 22/22, interaction 19/19, remote 14/14, unittest 787 OK + 1 skip, pytest 867 + 1336 subtests. Canonical RUN_STATE remains IN_PROGRESS, therefore WAITING_TERMINAL_HANDOFF and not current intake authority.
+## DEV2 evidence and current defects
+Terminal Classroom Product `8d9c7c99ef8d1754555adaf286ab15f5da3224af` is technical-GREEN via PR #114 / CI `32594221729 / 97082562977`: classroom 22/22, interaction 19/19, remote 14/14, unittest 787 OK + 1 skip, pytest 867 + 1336 subtests.
+
+Successor RUN `20260822-2240` has two source-confirmed P1 boundaries on that terminal head: (1) text validation allows unpaired Unicode surrogates which can raise raw UTF-8 encoding errors in digest/JSON; (2) revision validation allows arbitrarily large non-negative Python ints which can fail during deterministic JSON integer conversion. These remain canonical DEV2 ownership and are being repaired there; DEV5 does not duplicate the fix.
+
+Clean future Classroom intake delta relative to prior DEV2 `7d525dd...`: exactly Product `acs/classroom_domain.py`, focused `tests/test_classroom_domain.py`, plus lane CI metadata. Consume only after successor hardening terminalizes.
 
 ## DEV3
-Shippable Product authority remains PR #105 / `9c8a342e7dd98fee52c9776c0cb6a9b970d49296`, READY_FOR_INTEGRATION with exact CI `32586785490 / 97064264493` SUCCESS. Later 100k Unicode query-plan/shadow-column work is evidence-only and does not advance Product authority.
+Shippable Product authority remains PR #105 / `9c8a342e7dd98fee52c9776c0cb6a9b970d49296`, exact CI `32586785490 / 97064264493` SUCCESS.
+Future selective delta from previously composed DEV3 `6f90516a...` is 40 commits ahead / 0 behind; Product overlay set is `acs/analysis_service.py`, `acs/bookreader.py`, new `acs/game_review_service.py`, `acs/search_service.py`, `acs/student_progress.py`, `acs/student_progress_store.py` plus focused tests. Exclude lane workflow/docs metadata. Later 100k Unicode performance/shadow-column work remains evidence-only.
 
 ## DEV4
-Fresh repair head independently checked: PR #100 / `6298899cb112336ef220caa8d0e52334ddc0c0ae`. DEV5 evidence-only PR #113 validates the exact Product tree plus one CI workflow metadata file.
-Exact run `32594202023 / 97082512844`: focused strict slice 38 PASS / 2 FAIL after identity/diff/compile PASS.
+Current repair head: PR #100 / `6298899cb112336ef220caa8d0e52334ddc0c0ae`. DEV5 evidence-only PR #113 exact run `32594202023 / 97082512844` reached 38 focused PASS / 2 FAIL after checkout/diff/compile PASS.
 
-RED A is stale QA instrumentation: no-overwrite race test mocks `os.replace`, but repaired `overwrite=False` uses atomic `os.link`; the test does not inject the race. Re-gate against actual commit primitive while preserving `FileExistsError` + competing-data-preservation semantics.
+RED A is stale QA instrumentation: race test mocks obsolete `os.replace`; repaired no-clobber publication uses `os.link`. Re-instrument at the actual commit primitive, preserving `FileExistsError` + competing-file preservation.
+RED B is older DEV4 GameTree ancestry; canonical DEV2 already repaired missing-termination quality and passes the independent truncation oracle. Preserve DEV2 `acs/gametree.py` and never whole-merge PR #100.
 
-RED B is older DEV4 GameTree ancestry: missing termination marker false-FULL. Canonical DEV2 already closes this and passes the independent DEV4 truncation oracle. Future selective composition must keep current DEV2 `acs/gametree.py` and overlay only DEV4-owned file-service/import/security deltas.
-
-DEV4 branch and persistent GREEN lineage diverge; never whole-merge PR #100. `acs/acsdb.py` also overlaps accepted DEV3/current-green behavior and requires semantic hunk-level reconciliation rather than blob replacement.
+DEV4 `acs/acsdb.py` overlaps accepted DEV3/current-green ACSDB and must be reconciled hunk-level, taking only DEV4 persisted import-error redaction while preserving current Unicode search/resource/provenance behavior.
 
 ## Release boundary
 No Product/test integration mutation this run. PR #54/frozen refs untouched. Old rejected ZIP forbidden. Fresh Windows candidate NO. `NVDA_VERIFIED=NO`. `READY_FOR_RELEASE=NO`.
