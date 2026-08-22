@@ -1,0 +1,76 @@
+name: WordDeck Worker 02 R3 Spelling Gate
+
+on:
+  push:
+    branches:
+      - worddeck-worker-2-spelling-r3
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: worddeck-worker2-spelling-r3-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  spelling-r3-gate:
+    runs-on: windows-2025
+    timeout-minutes: 30
+    steps:
+      - name: Checkout exact pushed revision
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Restore
+        run: dotnet restore .\WordDeck\WordDeck.csproj
+
+      - name: Build Release warnings as errors
+        run: dotnet build .\WordDeck\WordDeck.csproj -c Release --no-restore -warnaserror
+
+      - name: Run complete source-build self-test suite
+        run: dotnet run --project .\WordDeck\WordDeck.csproj -c Release --no-build -- --self-test
+
+      - name: Publish self-contained Windows x64
+        run: dotnet publish .\WordDeck\WordDeck.csproj -c Release -r win-x64 --self-contained true -o .\artifacts\WordDeck-worker2-r3
+
+      - name: Run published WordDeck EXE self-test
+        run: .\artifacts\WordDeck-worker2-r3\WordDeck.exe --self-test
+
+      - name: Verify no personal state in publish tree
+        shell: pwsh
+        run: |
+          $bad = Get-ChildItem -LiteralPath '.\artifacts\WordDeck-worker2-r3' -Recurse -File | Where-Object {
+            $_.Name -match '^(state|spelling-state|sentence-state)(\.backup)?\.json$' -or
+            $_.Name -match '^WordDeck-profile.*\.json$' -or
+            $_.FullName -match '[\\/]Backups[\\/]'
+          }
+          if ($bad) {
+            $bad | ForEach-Object { Write-Error "Personal state leaked into publish tree: $($_.FullName)" }
+            exit 1
+          }
+          Write-Host 'Publish tree contains no recognized personal state/profile files.'
+
+      - name: Cyrillic and spaces path smoke
+        shell: pwsh
+        run: |
+          $target = Join-Path $env:RUNNER_TEMP 'WordDeck тест R3\Published App'
+          New-Item -ItemType Directory -Force -Path $target | Out-Null
+          Copy-Item -LiteralPath '.\artifacts\WordDeck-worker2-r3\*' -Destination $target -Recurse -Force
+          & (Join-Path $target 'WordDeck.exe') --self-test
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Upload exact-tip R3 publish evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: WordDeck-worker2-r3-${{ github.sha }}
+          path: artifacts/WordDeck-worker2-r3
+          if-no-files-found: error
+          retention-days: 7
