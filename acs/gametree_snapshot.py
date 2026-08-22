@@ -3,6 +3,8 @@ from __future__ import annotations
 """Versioned, identity-bound snapshot/restore for the canonical GameTree.
 
 The snapshot stores canonical PGN exchange text plus semantic identity digests.
+An additional exact PGN digest protects loss-aware evidence such as move-number
+spelling and whitespace that is intentionally outside semantic GameIdentity.
 Restore always reparses through the existing structural parser and rejects any
 corruption before exposing a PgnGame.  This module does not create a second
 chess/tree representation.
@@ -10,6 +12,7 @@ chess/tree representation.
 
 from dataclasses import dataclass
 from enum import Enum
+import hashlib
 import re
 
 from .game_identity import GameIdentityContractError, identity_for_game
@@ -28,6 +31,7 @@ class GameTreeSnapshotCode(str, Enum):
     RESOURCE_LIMIT = "resource_limit"
     PARSE_FAILURE = "parse_failure"
     IDENTITY_MISMATCH = "identity_mismatch"
+    PAYLOAD_MISMATCH = "payload_mismatch"
 
 
 class GameTreeSnapshotError(ValueError):
@@ -43,6 +47,10 @@ def _require_digest(value: object, name: str) -> str:
             code=GameTreeSnapshotCode.INVALID_SNAPSHOT,
         )
     return value
+
+
+def _pgn_digest(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
 def _require_warning_tuple(value: object) -> tuple[str, ...]:
@@ -74,6 +82,7 @@ def _require_warning_tuple(value: object) -> tuple[str, ...]:
 class GameTreeSnapshot:
     schema_version: int
     pgn_text: str
+    pgn_digest: str
     tree_digest: str
     record_digest: str
     source_index: int
@@ -99,6 +108,12 @@ class GameTreeSnapshot:
             raise GameTreeSnapshotError(
                 "snapshot PGN exceeds the safety limit",
                 code=GameTreeSnapshotCode.RESOURCE_LIMIT,
+            )
+        _require_digest(self.pgn_digest, "pgn_digest")
+        if _pgn_digest(self.pgn_text) != self.pgn_digest:
+            raise GameTreeSnapshotError(
+                "snapshot PGN payload digest does not match",
+                code=GameTreeSnapshotCode.PAYLOAD_MISMATCH,
             )
         _require_digest(self.tree_digest, "tree_digest")
         _require_digest(self.record_digest, "record_digest")
@@ -126,6 +141,7 @@ def snapshot_game(game: PgnGame) -> GameTreeSnapshot:
     return GameTreeSnapshot(
         schema_version=GAMETREE_SNAPSHOT_SCHEMA_VERSION,
         pgn_text=pgn_text,
+        pgn_digest=_pgn_digest(pgn_text),
         tree_digest=identity.tree_digest,
         record_digest=identity.record_digest,
         source_index=game.source_index,
