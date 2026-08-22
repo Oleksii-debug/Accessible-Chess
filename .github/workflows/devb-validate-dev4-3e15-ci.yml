@@ -1,0 +1,144 @@
+name: DEV-B Validate DEV4 3e15 Product
+
+on:
+  pull_request:
+    branches:
+      - manual3/devb-ci-base-3e15-20260823
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  DEV4_PRODUCT_SHA: 3e15dc2e844cb825e482317fd024795130147011
+  DEV4_PRE_REPAIR_SHA: 6298899cb112336ef220caa8d0e52334ddc0c0ae
+  DEV4_QA_ORACLE_SHA: 1670bffa1202bdf49dd7e6479ade6542c94637da
+
+jobs:
+  product-security-gate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout exact DEV4 Product
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.DEV4_PRODUCT_SHA }}
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install verification dependency
+        run: python -m pip install -q pytest
+      - name: Exact provenance and repair diff hygiene
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$DEV4_PRODUCT_SHA"
+          git merge-base --is-ancestor "$DEV4_PRE_REPAIR_SHA" "$DEV4_PRODUCT_SHA"
+          test "$(git merge-base "$DEV4_PRE_REPAIR_SHA" "$DEV4_PRODUCT_SHA")" = "$DEV4_PRE_REPAIR_SHA"
+          git diff --check "$DEV4_PRE_REPAIR_SHA" "$DEV4_PRODUCT_SHA"
+          git diff --name-only "$DEV4_PRE_REPAIR_SHA" "$DEV4_PRODUCT_SHA"
+      - name: Compile exact Product
+        run: python -m compileall -q acs tests run_accessible_chess.py
+      - name: Exact independent QA oracles from PR 127 evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          git cat-file -e "$DEV4_QA_ORACLE_SHA^{commit}"
+          git show "$DEV4_QA_ORACLE_SHA:tests/test_dev4_chessbase_cross_platform_path_privacy.py" > /tmp/test_dev4_chessbase_cross_platform_path_privacy.py
+          git show "$DEV4_QA_ORACLE_SHA:tests/test_dev4_pgn_postcommit_cleanup_atomicity.py" > /tmp/test_dev4_pgn_postcommit_cleanup_atomicity.py
+          PYTHONPATH="$PWD" python -m pytest -q /tmp/test_dev4_chessbase_cross_platform_path_privacy.py /tmp/test_dev4_pgn_postcommit_cleanup_atomicity.py
+      - name: Current Product regressions for both repaired classes
+        run: python -m pytest -q tests/test_dev4_chessbase_cross_platform_path_privacy.py tests/test_dev4_pgn_postcommit_cleanup_atomicity.py
+      - name: Existing DEV4 focused security and recovery gates
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pytest -q \
+            tests/test_dev4_chessbase_integrity_atomicity.py \
+            tests/test_dev4_chessbase_integrity_io_observability.py \
+            tests/test_dev4_chessbase_manifest_io_observability.py \
+            tests/test_dev4_chessbase_probe_observability.py \
+            tests/test_dev4_chessbase_report_path_privacy.py \
+            tests/test_dev4_chessbase_symlink_security.py \
+            tests/test_dev4_engine_error_path_privacy.py \
+            tests/test_dev4_import_batch_adapter_failure.py \
+            tests/test_dev4_import_fingerprint_atomicity.py \
+            tests/test_dev4_import_history_error_privacy.py \
+            tests/test_dev4_import_special_file_security.py \
+            tests/test_dev4_pgn_encoding_quality.py \
+            tests/test_dev4_pgn_export_failure_recovery.py \
+            tests/test_dev4_pgn_export_path_security.py \
+            tests/test_dev4_pgn_resource_security.py \
+            tests/test_pgn_service.py
+          python -m unittest -v tests.test_dev4_pgn_export_concurrency_security.Dev4PgnExportConcurrencySecurityTests.test_expected_hash_rechecks_at_atomic_commit_boundary
+      - name: Real primitive no-clobber race oracle
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          import tempfile
+          from unittest import mock
+          from acs.gametree import parse_games
+          from acs.pgn_service import save_pgn_atomic
+          games = parse_games('[Event "Our export"]\n[Result "*"]\n\n1. e4 *\n')
+          with tempfile.TemporaryDirectory() as tmp:
+              destination = Path(tmp) / 'new-shared.pgn'
+              real_link = os.link
+              exercised = [False]
+              def concurrent_create(src, dst, *args, **kwargs):
+                  exercised[0] = True
+                  Path(dst).write_text('[Event "Created by another writer"]\n[Result "*"]\n\n1. d4 *\n', encoding='utf-8')
+                  return real_link(src, dst, *args, **kwargs)
+              with mock.patch('acs.pgn_service.os.link', side_effect=concurrent_create):
+                  try:
+                      save_pgn_atomic(destination, games, overwrite=False)
+                  except FileExistsError:
+                      pass
+                  else:
+                      raise AssertionError('FileExistsError not raised at actual os.link commit boundary')
+              assert exercised[0]
+              assert 'Created by another writer' in destination.read_text(encoding='utf-8')
+          print('DEV-B REAL OS.LINK RACE ORACLE PASS')
+          PY
+
+  full-regression-diagnostic:
+    needs: product-security-gate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Checkout exact DEV4 Product
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.DEV4_PRODUCT_SHA }}
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install verification dependency
+        run: python -m pip install -q pytest
+      - name: Full unittest discovery
+        id: unittest
+        continue-on-error: true
+        run: python -m unittest discover -s tests -v
+      - name: Full pytest regression
+        id: pytest
+        continue-on-error: true
+        run: python -m pytest -q
+      - name: Complete diagnostic
+        id: diagnostic
+        continue-on-error: true
+        run: python run_accessible_chess.py --diagnostic
+      - name: Preserve honest aggregate result
+        if: always()
+        shell: bash
+        run: |
+          echo "unittest=${{ steps.unittest.outcome }}"
+          echo "pytest=${{ steps.pytest.outcome }}"
+          echo "diagnostic=${{ steps.diagnostic.outcome }}"
+          if [ "${{ steps.unittest.outcome }}" != success ] || [ "${{ steps.pytest.outcome }}" != success ] || [ "${{ steps.diagnostic.outcome }}" != success ]; then
+            echo 'Exact Product full regression is RED; preserve and classify cross-lane failures.' >&2
+            exit 1
+          fi
