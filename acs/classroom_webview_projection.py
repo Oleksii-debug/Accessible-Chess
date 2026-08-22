@@ -19,7 +19,6 @@ from .classroom_presentation import (
     RecordKind,
     RemoteLessonPresenter,
     RemoteLessonView,
-    RemoteStatus,
 )
 from .full_product_ui_shell import UILanguage, concise_user_error
 
@@ -100,9 +99,9 @@ class ClassroomWebViewProjection:
 
     Management labels are projected as text only; stable backend identifiers are
     kept in action payloads and are not reused as raw DOM ids. Remote session ids,
-    transport/auth details, and chess state are never exposed to the browser
-    snapshot. Reconnect/leave remain methods on ``RemoteLessonPresenter`` so the
-    browser cannot forge those identifiers.
+    transport/auth details, backend return payloads, and chess state are never
+    exposed to the browser snapshot. Reconnect/leave remain methods on
+    ``RemoteLessonPresenter`` so the browser cannot forge those identifiers.
     """
 
     def __init__(
@@ -309,38 +308,35 @@ class ClassroomWebViewProjection:
     def open_selected(self, kind: RecordKind | str) -> ClassroomWebViewEvent:
         try:
             parsed = self._parse_kind(kind)
-            value = self._management[parsed].open_selected(self._dispatch)
+            self._management[parsed].open_selected(self._dispatch)
         except Exception as exc:
             return self._safe_error(exc)
-        return ClassroomWebViewEvent(
-            "delegated",
-            {"kind": parsed.value, "value": value},
-        )
+        return ClassroomWebViewEvent("delegated", {"kind": parsed.value})
 
     def new_class(self) -> ClassroomWebViewEvent:
         try:
-            value = self._dispatch("classes.new", {})
+            self._dispatch("classes.new", {})
         except Exception as exc:
             return self._safe_error(exc)
-        return ClassroomWebViewEvent("delegated", {"action": "classes.new", "value": value})
+        return ClassroomWebViewEvent("delegated", {"action": "classes.new"})
 
     def connect(self, lesson_id: str) -> ClassroomWebViewEvent:
         try:
-            value = self._remote.connect(lesson_id=lesson_id)
+            self._remote.connect(lesson_id=lesson_id)
         except Exception as exc:
             return self._safe_error(exc)
-        return ClassroomWebViewEvent("remote-action", {"action": "remote.connect", "value": value})
+        return ClassroomWebViewEvent("remote-action", {"action": "remote.connect"})
 
     def reconnect(self) -> ClassroomWebViewEvent:
         try:
-            value = self._remote.reconnect()
+            self._remote.reconnect()
         except Exception as exc:
             return self._safe_error(exc)
-        return ClassroomWebViewEvent("remote-action", {"action": "remote.reconnect", "value": value})
+        return ClassroomWebViewEvent("remote-action", {"action": "remote.reconnect"})
 
     def leave(self) -> ClassroomWebViewEvent:
         try:
-            value = self._remote.leave()
+            self._remote.leave()
         except Exception as exc:
             return self._safe_error(exc)
-        return ClassroomWebViewEvent("remote-action", {"action": "remote.leave", "value": value})
+        return ClassroomWebViewEvent("remote-action", {"action": "remote.leave"})
