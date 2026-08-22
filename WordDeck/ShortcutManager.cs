@@ -43,7 +43,7 @@ internal sealed class ShortcutManager
         return duplicate ? Keys.None : candidate;
     }
 
-    public string? FindAction(Keys keyData) => FindAction(keyData, ShortcutDispatchContext.Recall);
+    public string? FindAction(Keys keyData) => FindAction(keyData, ShortcutDispatchContext.All);
 
     public string? FindAction(Keys keyData, ShortcutDispatchContext context)
     {

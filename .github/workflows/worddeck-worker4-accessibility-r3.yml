@@ -65,10 +65,14 @@ jobs:
           }
           Write-Host 'Round3 publish hygiene passed.'
 
-      - name: Run Windows UI Automation Round 3 regression
+      - name: Run Windows UI Automation Round 3 regression in STA
         shell: pwsh
         working-directory: WordDeck
-        run: ./scripts/worker4-r3-uia-smoke.ps1 -ExePath ../artifacts/worddeck-worker4-r3/WordDeck.exe
+        run: |
+          $scriptPath = (Resolve-Path './scripts/worker4-r3-uia-smoke.ps1').Path
+          $exePath = (Resolve-Path '../artifacts/worddeck-worker4-r3/WordDeck.exe').Path
+          & powershell.exe -NoLogo -NoProfile -STA -ExecutionPolicy Bypass -File $scriptPath -ExePath $exePath
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Upload exact worker Windows artifact
         if: always()
