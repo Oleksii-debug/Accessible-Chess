@@ -82,12 +82,7 @@ def _scrub_local_paths(text: str, language: UILanguage) -> str:
     return _POSIX_LOCAL_PATH.sub(replacement, text)
 
 
-def _bounded_text(
-    value: object,
-    *,
-    language: UILanguage,
-    limit: int,
-) -> str:
+def _bounded_text(value: object, *, language: UILanguage, limit: int) -> str:
     if value is None:
         return ""
     if not isinstance(value, str):
@@ -107,7 +102,13 @@ class PgnWebViewEvent:
 
 
 class PgnWebViewProjection:
-    """JSON-ready PGN/GameTree surface backed by ``PgnTreePresenter`` only."""
+    """JSON-ready PGN/GameTree surface backed by ``PgnTreePresenter`` only.
+
+    A browser render is intentionally derived from exactly one immutable
+    ``PgnGameView``. This prevents a concurrent/re-entrant selection or game
+    transition from mixing tree, focus, comments, and action availability from
+    different presenter states in one sighted/NVDA snapshot.
+    """
 
     def __init__(
         self,
@@ -135,11 +136,10 @@ class PgnWebViewProjection:
     def language(self) -> UILanguage:
         return self._language
 
-    def _count(self) -> int:
+    def _count(self, view: PgnGameView) -> int:
         value = self._game_count()
         if type(value) is not int or value < 0 or value > 1_000_000_000:
             raise ValueError("PGN game count provider returned invalid count")
-        view = self._presenter.view()
         if value == 0 and view.game_index != -1:
             raise ValueError("PGN game count disagrees with presenter")
         if value > 0 and not 0 <= view.game_index < value:
@@ -158,14 +158,13 @@ class PgnWebViewProjection:
         self._presenter.set_language(language)
         return PgnWebViewEvent("render", self.snapshot())
 
-    def _tree_item(self, item: PgnTreeItem) -> dict[str, object]:
-        selected = item.node_id == self._presenter.selected_node_id
+    def _tree_item(self, item: PgnTreeItem, selected_node_id: str | None) -> dict[str, object]:
         return {
             "dom_id": _dom_token(item.node_id),
             "node_id": item.node_id,
             "kind": item.kind,
             "aria_level": item.depth + 1,
-            "selected": selected,
+            "selected": item.node_id == selected_node_id,
             "label": _bounded_text(item.label, language=self._language, limit=240),
             "san": _bounded_text(item.san, language=self._language, limit=80),
             "comments": tuple(
@@ -193,9 +192,24 @@ class PgnWebViewProjection:
             "cancel_label": labels["cancel"],
         }
 
+    @staticmethod
+    def _selected_from_view(view: PgnGameView) -> PgnTreeItem | None:
+        selected_node_id = view.selected_node_id
+        if selected_node_id is None:
+            return None
+        selected = next(
+            (item for item in view.items if item.node_id == selected_node_id),
+            None,
+        )
+        if selected is None:
+            raise ValueError("PGN presenter snapshot has an invalid selection")
+        return selected
+
     def _safe_view(self, view: PgnGameView, count: int) -> dict[str, object]:
         labels = _LABELS[self._language]
         if view.game_index < 0:
+            if view.items or view.selected_node_id is not None:
+                raise ValueError("empty PGN presenter snapshot is inconsistent")
             return {
                 "status": "empty",
                 "empty_message": labels["empty"],
@@ -206,14 +220,19 @@ class PgnWebViewProjection:
                 "comment_editor": self._comment_editor(enabled=False, value="", message=""),
             }
 
-        tree = tuple(self._tree_item(item) for item in view.items)
-        selected = self._presenter.selected()
+        selected = self._selected_from_view(view)
+        tree = tuple(
+            self._tree_item(item, view.selected_node_id)
+            for item in view.items
+        )
         selected_comments = tuple(selected.comments) if selected is not None else ()
         ambiguous_comments = len(selected_comments) > 1
         focus_target = next(
             (str(item["dom_id"]) for item in tree if item["selected"]),
             "",
         )
+        if selected is not None and not focus_target:
+            raise ValueError("PGN presenter snapshot selection has no browser focus target")
         tags = tuple(
             {
                 "name": _bounded_text(name, language=self._language, limit=80),
@@ -273,10 +292,11 @@ class PgnWebViewProjection:
         }
 
     def snapshot(self) -> dict[str, object]:
-        count = self._count()
+        view = self._presenter.view()
+        count = self._count(view)
         return {
             "document": {"lang": self._language.value, "landmark": "main"},
-            **self._safe_view(self._presenter.view(), count),
+            **self._safe_view(view, count),
         }
 
     def _render_event(self, *, announce: str = "") -> PgnWebViewEvent:
