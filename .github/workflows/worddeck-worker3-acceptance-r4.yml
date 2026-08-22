@@ -56,31 +56,36 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $false
           $suspicious = git ls-files | Where-Object { $_ -match '(?i)(^|/)(token\.json|credentials\.json|cookies?\.txt|[^/]+\.session)$' }
           if ($suspicious) { throw "Suspicious private-state filenames are tracked: $($suspicious -join ', ')" }
 
           $secretPattern = '(sk-[A-Za-z0-9_-]{20,}|gh[pousr]_[A-Za-z0-9]{20,}|AIza[A-Za-z0-9_-]{20,}|BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY)'
           git grep -n -I -E $secretPattern -- . *> .\artifacts\secret-scan.txt
-          if ($LASTEXITCODE -eq 0) { Get-Content .\artifacts\secret-scan.txt; throw 'Potential credential material found in tracked content.' }
-          if ($LASTEXITCODE -gt 1) { throw "git grep secret scan failed with exit code $LASTEXITCODE" }
+          $secretExit = $LASTEXITCODE
+          if ($secretExit -eq 0) { Get-Content .\artifacts\secret-scan.txt; throw 'Potential credential material found in tracked content.' }
+          if ($secretExit -gt 1) { throw "git grep secret scan failed with exit code $secretExit" }
           'PASS: no common credential signatures found.' | Set-Content .\artifacts\secret-scan.txt -Encoding utf8
 
           git grep -n -I -F 'C:\Users\' -- WordDeck ':!WordDeck/RELEASE_SECURITY_ACCEPTANCE_R4.md' *> .\artifacts\personal-path-scan.txt
-          if ($LASTEXITCODE -eq 0) { Get-Content .\artifacts\personal-path-scan.txt; throw 'Hard-coded personal Windows user path found.' }
-          if ($LASTEXITCODE -gt 1) { throw "git grep personal-path scan failed with exit code $LASTEXITCODE" }
+          $pathExit = $LASTEXITCODE
+          if ($pathExit -eq 0) { Get-Content .\artifacts\personal-path-scan.txt; throw 'Hard-coded personal Windows user path found.' }
+          if ($pathExit -gt 1) { throw "git grep personal-path scan failed with exit code $pathExit" }
           'PASS: no hard-coded C:\Users\ path found in product tree.' | Set-Content .\artifacts\personal-path-scan.txt -Encoding utf8
 
       - name: Verify normal-user and offline runtime contract
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $false
           $manifest = Get-Content .\WordDeck\app.manifest -Raw
           if ($manifest -match 'requireAdministrator|highestAvailable') { throw 'Application manifest requests elevation.' }
           if ($manifest -notmatch 'asInvoker') { throw 'Application manifest does not explicitly use asInvoker.' }
 
           git grep -n -I -E 'HttpClient|WebRequest|TcpClient|UdpClient|System\.Net\.Sockets|System\.Net\.Http' -- 'WordDeck/*.cs' *> .\artifacts\runtime-network-scan.txt
-          if ($LASTEXITCODE -eq 0) { Get-Content .\artifacts\runtime-network-scan.txt; throw 'Desktop runtime contains a direct networking dependency; offline contract requires review.' }
-          if ($LASTEXITCODE -gt 1) { throw "git grep runtime network scan failed with exit code $LASTEXITCODE" }
+          $networkExit = $LASTEXITCODE
+          if ($networkExit -eq 0) { Get-Content .\artifacts\runtime-network-scan.txt; throw 'Desktop runtime contains a direct networking dependency; offline contract requires review.' }
+          if ($networkExit -gt 1) { throw "git grep runtime network scan failed with exit code $networkExit" }
           'PASS: no direct runtime networking API found in top-level WordDeck C# sources.' | Set-Content .\artifacts\runtime-network-scan.txt -Encoding utf8
 
       - name: Restore and build warnings-as-errors
