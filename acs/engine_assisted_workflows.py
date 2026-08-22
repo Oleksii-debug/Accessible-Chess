@@ -12,7 +12,12 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
 
-from .analysis_service import AnalysisLine, AnalysisResult, AnalysisService
+from .analysis_service import (
+    ANALYSIS_MAX_FEN_LENGTH,
+    AnalysisLine,
+    AnalysisResult,
+    AnalysisService,
+)
 from .bookdocument import Exercise as BookExercise
 from .bookdocument import Position, VariationTree
 from .engine_ports import EngineContractError, EngineContractErrorCode
@@ -46,12 +51,18 @@ def _visibility(value: EngineVisibility | str) -> EngineVisibility:
 
 
 def _request_fen(value: object) -> str:
-    if not isinstance(value, str) or not value.strip():
+    if not isinstance(value, str):
         raise EngineContractError(
-            "assisted analysis FEN must be non-empty text",
+            "assisted analysis FEN must be bounded non-empty text",
             code=EngineContractErrorCode.INVALID_REQUEST,
         )
-    return value.strip()
+    normalized = value.strip()
+    if not normalized or len(normalized) > ANALYSIS_MAX_FEN_LENGTH:
+        raise EngineContractError(
+            "assisted analysis FEN must be bounded non-empty text",
+            code=EngineContractErrorCode.INVALID_REQUEST,
+        )
+    return normalized
 
 
 def _context_revision(value: object, *, name: str) -> str | int:
@@ -94,9 +105,15 @@ class AudienceAnalysisResult:
     error: str | None = None
 
     def __post_init__(self) -> None:
-        if not isinstance(self.fen, str) or not self.fen.strip():
+        if not isinstance(self.fen, str):
             raise EngineContractError(
-                "audience analysis FEN must be non-empty text",
+                "audience analysis FEN must be bounded non-empty text",
+                code=EngineContractErrorCode.INVALID_RESULT,
+            )
+        normalized_fen = self.fen.strip()
+        if not normalized_fen or len(normalized_fen) > ANALYSIS_MAX_FEN_LENGTH:
+            raise EngineContractError(
+                "audience analysis FEN must be bounded non-empty text",
                 code=EngineContractErrorCode.INVALID_RESULT,
             )
         if type(self.generation) is not int or self.generation < 0:
@@ -157,7 +174,7 @@ class AudienceAnalysisResult:
                 "teacher-only engine analysis cannot expose student lines",
                 code=EngineContractErrorCode.INVALID_RESULT,
             )
-        object.__setattr__(self, "fen", self.fen.strip())
+        object.__setattr__(self, "fen", normalized_fen)
 
     @property
     def available_to_teacher(self) -> bool:
@@ -245,9 +262,10 @@ class EngineAssistedWorkflowService:
                 code=EngineContractErrorCode.INVALID_REQUEST,
             )
         policy = _visibility(visibility)
+        normalized_fen = _request_fen(fen)
         before = session.snapshot()
         result = self._analysis.analyze(
-            _request_fen(fen), multipv=multipv, depth=depth
+            normalized_fen, multipv=multipv, depth=depth
         )
         after = session.snapshot()
         return self._project(result, policy, force_stale=after != before)
