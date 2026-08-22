@@ -110,6 +110,22 @@ class SearchServiceTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "zero or a positive"):
             GameSearchQuery(after_game_id=-1).normalized()
 
+    def test_query_validation_rejects_sqlite_integer_overflow_before_bind(self) -> None:
+        too_large = 1 << 63
+        with self.assertRaisesRegex(ValueError, "source_id exceeds SQLite integer range"):
+            self.service.search(GameSearchQuery(source_id=too_large))
+        with self.assertRaisesRegex(ValueError, "after_game_id exceeds SQLite integer range"):
+            self.service.search(GameSearchQuery(after_game_id=too_large))
+
+    def test_sqlite_integer_upper_bound_remains_a_valid_empty_query(self) -> None:
+        sqlite_max = (1 << 63) - 1
+        source_page = self.service.search(GameSearchQuery(source_id=sqlite_max))
+        cursor_page = self.service.search(GameSearchQuery(after_game_id=sqlite_max))
+        self.assertEqual(source_page.items, ())
+        self.assertFalse(source_page.has_more)
+        self.assertEqual(cursor_page.items, ())
+        self.assertFalse(cursor_page.has_more)
+
     def test_search_values_are_parameters_not_sql_fragments(self) -> None:
         page = self.service.search(GameSearchQuery(player="Alpha' OR 1=1 --"))
         self.assertEqual(page.items, ())
