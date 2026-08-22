@@ -14,7 +14,18 @@ internal sealed class ShortcutManager
     public IReadOnlyList<ShortcutDefinition> Definitions { get; private set; }
     public IReadOnlyList<ShortcutDefinition> CurrentDefinitions => Definitions;
 
-    public ShortcutManager(AppState state, IEnumerable<DeckDefinition>? spellingDecks = null, ShortcutDispatchContext dispatchContext = ShortcutDispatchContext.Recall)
+    // MainForm historically constructs the manager with AppState only. Keep
+    // that single-argument surface explicitly Recall-scoped so fixed Spelling
+    // and Sentence definitions remain visible for F1/conflict truth without
+    // swallowing their menu entry-point shortcuts in MainForm.ProcessCmdKey.
+    public ShortcutManager(AppState state)
+        : this(state, null, ShortcutDispatchContext.Recall)
+    {
+    }
+
+    // Callers that provide training deck context retain the canonical default
+    // All behavior used by training settings and existing regression tests.
+    public ShortcutManager(AppState state, IEnumerable<DeckDefinition>? spellingDecks, ShortcutDispatchContext dispatchContext = ShortcutDispatchContext.All)
     {
         _state = AppStateStore.Normalize(state);
         _dispatchContext = dispatchContext;
