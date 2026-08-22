@@ -224,7 +224,50 @@ class AcsDatabase:
             return os.path.abspath(first) == os.path.abspath(second)
 
     @staticmethod
-    def _check_sqlite_integrity(conn: sqlite3.Connection) -> int:
+    def _schema_columns(conn: sqlite3.Connection, table: str) -> set[str]:
+        return {str(row[1]) for row in conn.execute(f'PRAGMA table_info("{table}")').fetchall()}
+
+    @classmethod
+    def _check_acsdb_schema_identity(cls, conn: sqlite3.Connection, version: int) -> None:
+        """Reject healthy SQLite files that are not a supported ACSDB schema."""
+        if version < 1:
+            raise RuntimeError("backup is not a supported ACSDB database")
+
+        required_tables: dict[str, set[str]] = {
+            "sources": {"id", "source_name", "source_format", "sha256", "imported_at"},
+            "games": {
+                "id", "source_id", "source_index", "import_status", "warnings_json",
+                "event", "site", "game_date", "round", "white", "black", "result",
+                "eco", "opening", "start_fen", "pgn_text",
+            },
+            "positions": {"game_id", "ply", "fen", "position_key"},
+        }
+        if version >= 2:
+            required_tables["import_attempts"] = {
+                "id", "source_name", "source_format", "sha256", "started_at",
+                "finished_at", "status", "source_id", "game_count", "warning_count",
+                "error_message",
+            }
+
+        for table, required_columns in required_tables.items():
+            if not required_columns.issubset(cls._schema_columns(conn, table)):
+                raise RuntimeError("ACSDB schema identity check failed")
+
+        if conn.execute("PRAGMA foreign_key_check").fetchone() is not None:
+            raise RuntimeError("ACSDB foreign-key integrity check failed")
+
+        if version >= 3:
+            index_columns = [
+                str(row[2])
+                for row in conn.execute(
+                    'PRAGMA index_info("idx_positions_key_game_ply")'
+                ).fetchall()
+            ]
+            if index_columns != ["position_key", "game_id", "ply"]:
+                raise RuntimeError("ACSDB schema identity check failed")
+
+    @classmethod
+    def _check_sqlite_integrity(cls, conn: sqlite3.Connection) -> int:
         try:
             row = conn.execute("PRAGMA quick_check").fetchone()
             if row is None or str(row[0]).lower() != "ok":
@@ -236,6 +279,7 @@ class AcsDatabase:
             raise RuntimeError(
                 f"ACSDB schema {version} is newer than supported schema {ACSDB_SCHEMA_VERSION}"
             )
+        cls._check_acsdb_schema_identity(conn, version)
         return version
 
     @staticmethod
