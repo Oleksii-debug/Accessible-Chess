@@ -17,10 +17,11 @@ internal static class AccessibilityAcceptanceRound4SelfTest
     public static void Run()
     {
         TestShortcutContextIsolation();
+        TestTrainingRegistrySynchronization();
         TestUnsafeAndNativeKeysFailClosed();
         TestRecallArrowSurfaceContract();
         TestSelectorNavigationContract();
-        Console.WriteLine("WordDeck R4 accessibility acceptance passed: shortcut context isolation, unsafe/native keys, Recall arrow surface and selector navigation contracts verified.");
+        Console.WriteLine("WordDeck R4 accessibility acceptance passed: shortcut context isolation, synchronized F1/settings registry, Ctrl+K/F1 preservation, cross-mode conflict rejection, unsafe/native keys, Recall arrow surface and selector navigation contracts verified.");
     }
 
     private static void TestShortcutContextIsolation()
@@ -41,6 +42,37 @@ internal static class AccessibilityAcceptanceRound4SelfTest
         var recallManager = new ShortcutManager(app, spelling.Decks, ShortcutDispatchContext.Recall);
         AssertEqual(ActionIds.RevealTranslation, recallManager.FindAction(Keys.Control | Keys.T), "Recall shortcut must dispatch in Recall context.");
         AssertNull(recallManager.FindAction(Keys.Control | Keys.Shift | Keys.H), "Spelling shortcut must not be swallowed in Recall context.");
+        AssertNull(recallManager.FindAction(Keys.Control | Keys.Shift | Keys.S), "Spelling entry-point accelerator must fall through to the WinForms menu in Recall context.");
+        AssertNull(recallManager.FindAction(Keys.Control | Keys.Shift | Keys.E), "Sentence entry-point accelerator must fall through to the WinForms menu in Recall context.");
+    }
+
+    private static void TestTrainingRegistrySynchronization()
+    {
+        AppState app = AppStateStore.Normalize(new AppState());
+        SpellingState spelling = SpellingStateStore.Normalize(new SpellingState());
+
+        // MainForm starts as a Recall-only dispatcher, then TrainingEntryPoints
+        // supplies the live Spelling decks so F1/settings can expose the complete
+        // registry without making the Recall form consume training accelerators.
+        var mainRegistry = new ShortcutManager(app);
+        AssertEqual(ActionIds.ShortcutSettings, mainRegistry.FindAction(Keys.Control | Keys.K), "Ctrl+K must work before training definitions are synchronized.");
+        AssertEqual(ActionIds.Help, mainRegistry.FindAction(Keys.F1), "F1 must work before training definitions are synchronized.");
+
+        mainRegistry.RefreshDeckDefinitions(spelling.Decks);
+        AssertTrue(mainRegistry.Definitions.Any(def => def.Id == ActionIds.OpenSpelling), "Synchronized Main/F1 registry omitted Open Spelling.");
+        AssertTrue(mainRegistry.Definitions.Any(def => def.Id == ActionIds.OpenSentenceCoach), "Synchronized Main/F1 registry omitted Open Sentence Spelling.");
+        string spellingCore1 = ActionIds.SpellingSwitchDeck(SpellingDeckIds.Core(1));
+        AssertTrue(mainRegistry.Definitions.Any(def => def.Id == spellingCore1), "Synchronized Main/F1 registry omitted live Spelling deck actions.");
+        AssertEqual(ActionIds.ShortcutSettings, mainRegistry.FindAction(Keys.Control | Keys.K), "Ctrl+K became unavailable after training definitions were synchronized.");
+        AssertEqual(ActionIds.Help, mainRegistry.FindAction(Keys.F1), "F1 became unavailable after training definitions were synchronized.");
+        AssertNull(mainRegistry.FindAction(Keys.Control | Keys.Shift | Keys.S), "Recall dispatcher swallowed the synchronized Open Spelling accelerator.");
+        AssertNull(mainRegistry.FindAction(Keys.Control | Keys.Shift | Keys.E), "Recall dispatcher swallowed the synchronized Open Sentence accelerator.");
+
+        // Conflict validation must still use the complete synchronized registry.
+        AssertFalse(mainRegistry.TrySet(ActionIds.SpellingShowAnswer, Keys.Control | Keys.K, out string? ctrlKConflict) || string.IsNullOrWhiteSpace(ctrlKConflict),
+            "Training shortcut settings allowed a Spelling action to steal Ctrl+K from shortcut settings.");
+        AssertFalse(mainRegistry.TrySet(ActionIds.SentenceShowAnswer, Keys.F1, out string? f1Conflict) || string.IsNullOrWhiteSpace(f1Conflict),
+            "Training shortcut settings allowed a Sentence action to steal F1 from help.");
     }
 
     private static void TestUnsafeAndNativeKeysFailClosed()
