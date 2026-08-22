@@ -138,14 +138,23 @@ internal sealed class SentencePackStore
                 try
                 {
                     ValidateManifest(previous);
+                    ValidateGenerationFiles(
+                        previous,
+                        ControlledPath(previous.PortableFileName),
+                        ControlledPath(previous.SqliteFileName));
                     string previousText = JsonSerializer.Serialize(previous, ManifestJson);
                     File.WriteAllText(backupTemp, previousText);
-                    _ = ReadManifestRequired(backupTemp);
+                    SentencePackInstallManifest stagedBackup = ReadManifestRequired(backupTemp);
+                    ValidateManifest(stagedBackup);
+                    ValidateGenerationFiles(
+                        stagedBackup,
+                        ControlledPath(stagedBackup.PortableFileName),
+                        ControlledPath(stagedBackup.SqliteFileName));
                     File.Move(backupTemp, backupManifestPath, true);
                 }
                 catch
                 {
-                    // Do not destroy an already-valid backup merely because the current manifest is corrupt.
+                    // Preserve an already-good backup when the current active generation is not healthy.
                     TryDelete(backupTemp);
                 }
             }
@@ -195,7 +204,6 @@ internal sealed class SentencePackStore
                 result.Add(installed);
         }
 
-        // A backup without a readable current manifest remains recoverable and visible.
         foreach (string backupPath in Directory.EnumerateFiles(DirectoryPath, "*.installed.backup.json", SearchOption.TopDirectoryOnly)
                      .OrderBy(path => path, StringComparer.OrdinalIgnoreCase))
         {
@@ -206,8 +214,6 @@ internal sealed class SentencePackStore
                 result.Add(installed);
         }
 
-        // Legacy exact-name SQLite remains supported. Immutable generation files are never
-        // discovered by filename alone; they become active only through a validated manifest.
         foreach (string sqlitePath in Directory.EnumerateFiles(DirectoryPath, "*.sqlite", SearchOption.TopDirectoryOnly)
                      .Where(path => !IsGenerationAssetName(Path.GetFileName(path)))
                      .OrderBy(path => path, StringComparer.OrdinalIgnoreCase))
@@ -222,10 +228,17 @@ internal sealed class SentencePackStore
                 string gzipPath = ControlledPath(safeId + ".json.gz");
                 string jsonPath = ControlledPath(safeId + ".json");
                 string? portablePath = File.Exists(gzipPath) ? gzipPath : File.Exists(jsonPath) ? jsonPath : null;
-                if (portablePath is not null && !SentencePackDerivativeIdentity.MatchesInstalledPortable(sqlitePath, portablePath, allowLegacyUnstamped: true))
+                if (portablePath is not null &&
+                    !SentencePackDerivativeIdentity.MatchesInstalledPortable(sqlitePath, portablePath, allowLegacyUnstamped: true))
                     continue;
 
-                result.Add(new InstalledSentencePack(portablePath ?? sqlitePath, corpus.PackId, corpus.License, corpus.SentenceCount, corpus, sqlitePath));
+                result.Add(new InstalledSentencePack(
+                    portablePath ?? sqlitePath,
+                    corpus.PackId,
+                    corpus.License,
+                    corpus.SentenceCount,
+                    corpus,
+                    sqlitePath));
                 representedPackIds.Add(corpus.PackId);
             }
             catch { }
@@ -310,7 +323,10 @@ internal sealed class SentencePackStore
 
         RequireSqliteMetadata(sqlitePath, SentencePackDerivativeIdentity.FingerprintKey, manifest.LogicalSha256);
         RequireSqliteMetadata(sqlitePath, SentencePackDerivativeIdentity.PortableHashKey, manifest.PortableSha256);
-        RequireSqliteMetadata(sqlitePath, SentencePackDerivativeIdentity.SourceVersionKey, manifest.SourcePackVersion.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        RequireSqliteMetadata(
+            sqlitePath,
+            SentencePackDerivativeIdentity.SourceVersionKey,
+            manifest.SourcePackVersion.ToString(System.Globalization.CultureInfo.InvariantCulture));
     }
 
     private static void RequireSqliteMetadata(string sqlitePath, string key, string expected)
@@ -320,7 +336,11 @@ internal sealed class SentencePackStore
             throw new InvalidDataException($"SentencePack SQLite derivative metadata '{key}' does not match its active manifest.");
     }
 
-    private static void ValidateCompanionMatchesPortable(SentencePackSqliteCorpus corpus, SentencePack pack, string sqlitePath, string portablePath)
+    private static void ValidateCompanionMatchesPortable(
+        SentencePackSqliteCorpus corpus,
+        SentencePack pack,
+        string sqlitePath,
+        string portablePath)
     {
         if (!string.Equals(corpus.PackId, pack.PackId, StringComparison.Ordinal) ||
             !string.Equals(corpus.License, pack.License, StringComparison.Ordinal) ||
@@ -342,8 +362,8 @@ internal sealed class SentencePackStore
         if (!string.Equals(manifest.PortableFileName, expectedPortable, StringComparison.Ordinal) ||
             !string.Equals(manifest.SqliteFileName, expectedSqlite, StringComparison.Ordinal))
             throw new InvalidDataException("SentencePack manifest contains unexpected generation file names.");
-        SentencePack.RequireCanonicalValue(manifest.License, "SentencePack manifest license");
-        SentencePack.RequireCanonicalValue(manifest.Provenance, "SentencePack manifest provenance");
+        RequireCanonicalManifestValue(manifest.License, "SentencePack manifest license");
+        RequireCanonicalManifestValue(manifest.Provenance, "SentencePack manifest provenance");
         if (manifest.SentenceCount <= 0 || manifest.SentenceCount > SentencePackStructuralLimits.MaxSentences)
             throw new InvalidDataException("SentencePack manifest sentence count is invalid.");
         if (manifest.SourcePackVersion != SentencePack.CurrentVersion)
@@ -354,12 +374,22 @@ internal sealed class SentencePackStore
         _ = ControlledPath(manifest.SqliteFileName);
     }
 
+    private static void RequireCanonicalManifestValue(string? value, string description)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            throw new InvalidDataException($"{description} is required.");
+        if (!string.Equals(value, value.Trim(), StringComparison.Ordinal))
+            throw new InvalidDataException($"{description} must not have leading or trailing whitespace.");
+        SentenceTokenizer.ValidateUnicode(value, description);
+    }
+
     private static bool IsSafeGeneration(string value) =>
-        !string.IsNullOrWhiteSpace(value) && value.Length <= 80 && value.StartsWith("g-", StringComparison.Ordinal) &&
+        !string.IsNullOrWhiteSpace(value) &&
+        value.Length <= 80 &&
+        value.StartsWith("g-", StringComparison.Ordinal) &&
         value.All(ch => char.IsAsciiLetterOrDigit(ch) || ch == '-');
 
-    private static bool IsSha256(string value) =>
-        value is { Length: 64 } && value.All(Uri.IsHexDigit);
+    private static bool IsSha256(string value) => value is { Length: 64 } && value.All(Uri.IsHexDigit);
 
     private void EnsureNoCaseInsensitiveIdentityCollision(string safeId)
     {
@@ -369,7 +399,8 @@ internal sealed class SentencePackStore
             if (existingId is null) continue;
             if (string.Equals(existingId, safeId, StringComparison.OrdinalIgnoreCase) &&
                 !string.Equals(existingId, safeId, StringComparison.Ordinal))
-                throw new InvalidDataException($"SentencePack id '{safeId}' would collide with installed pack id '{existingId}' on Windows case-insensitive storage.");
+                throw new InvalidDataException(
+                    $"SentencePack id '{safeId}' would collide with installed pack id '{existingId}' on Windows case-insensitive storage.");
         }
     }
 
@@ -387,14 +418,25 @@ internal sealed class SentencePackStore
         return null;
     }
 
-    private void CleanupOldGenerations(string safeId, SentencePackInstallManifest current, SentencePackInstallManifest? previous)
+    private void CleanupOldGenerations(
+        string safeId,
+        SentencePackInstallManifest current,
+        SentencePackInstallManifest? previous)
     {
-        var keep = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { current.PortableFileName, current.SqliteFileName };
+        var keep = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            current.PortableFileName,
+            current.SqliteFileName
+        };
         if (previous is not null)
         {
             try
             {
                 ValidateManifest(previous);
+                ValidateGenerationFiles(
+                    previous,
+                    ControlledPath(previous.PortableFileName),
+                    ControlledPath(previous.SqliteFileName));
                 keep.Add(previous.PortableFileName);
                 keep.Add(previous.SqliteFileName);
             }
@@ -405,12 +447,14 @@ internal sealed class SentencePackStore
         {
             string name = Path.GetFileName(path);
             if (keep.Contains(name)) continue;
-            if (name.EndsWith(".json.gz", StringComparison.OrdinalIgnoreCase) || name.EndsWith(".sqlite", StringComparison.OrdinalIgnoreCase))
+            if (name.EndsWith(".json.gz", StringComparison.OrdinalIgnoreCase) ||
+                name.EndsWith(".sqlite", StringComparison.OrdinalIgnoreCase))
                 TryDelete(path);
         }
     }
 
-    private static bool IsGenerationAssetName(string fileName) => fileName.IndexOf(".g-", StringComparison.OrdinalIgnoreCase) > 0;
+    private static bool IsGenerationAssetName(string fileName) =>
+        fileName.IndexOf(".g-", StringComparison.OrdinalIgnoreCase) > 0;
 
     private string ManifestPath(string safeId) => ControlledPath(safeId + ".installed.json");
     private string ManifestBackupPath(string safeId) => ControlledPath(safeId + ".installed.backup.json");
@@ -436,7 +480,8 @@ internal sealed class SentencePackStore
 
     private string ControlledPath(string fileName)
     {
-        string root = Path.GetFullPath(DirectoryPath).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar;
+        string root = Path.GetFullPath(DirectoryPath)
+            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar;
         string candidate = Path.GetFullPath(Path.Combine(DirectoryPath, fileName));
         if (!candidate.StartsWith(root, StringComparison.OrdinalIgnoreCase))
             throw new InvalidDataException("SentencePack path escaped the controlled installation directory.");
@@ -474,10 +519,14 @@ internal sealed class SentencePackStore
     private static bool IsWindowsDeviceName(string value)
     {
         string stem = value.Split('.')[0];
-        if (stem.Equals("CON", StringComparison.OrdinalIgnoreCase) || stem.Equals("PRN", StringComparison.OrdinalIgnoreCase) ||
-            stem.Equals("AUX", StringComparison.OrdinalIgnoreCase) || stem.Equals("NUL", StringComparison.OrdinalIgnoreCase)) return true;
+        if (stem.Equals("CON", StringComparison.OrdinalIgnoreCase) ||
+            stem.Equals("PRN", StringComparison.OrdinalIgnoreCase) ||
+            stem.Equals("AUX", StringComparison.OrdinalIgnoreCase) ||
+            stem.Equals("NUL", StringComparison.OrdinalIgnoreCase))
+            return true;
         if (stem.Length == 4 && int.TryParse(stem[3..], out int number) && number is >= 1 and <= 9)
-            return stem.StartsWith("COM", StringComparison.OrdinalIgnoreCase) || stem.StartsWith("LPT", StringComparison.OrdinalIgnoreCase);
+            return stem.StartsWith("COM", StringComparison.OrdinalIgnoreCase) ||
+                   stem.StartsWith("LPT", StringComparison.OrdinalIgnoreCase);
         return false;
     }
 }
