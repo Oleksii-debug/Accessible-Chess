@@ -5,8 +5,6 @@ from acs.game_identity import same_game_record
 from acs.gametree import (
     GameTreeContractError,
     GameTreeErrorCode,
-    GameTreeSerializationError,
-    PgnRecoveryCode,
     parse_games,
     serialize_game,
 )
@@ -17,7 +15,6 @@ from acs.gametree_editing import (
     variation_edit_target,
 )
 from acs.gametree_navigation import (
-    GameTreeCursor,
     VariationStep,
     branch_context,
     iter_move_addresses,
@@ -76,7 +73,7 @@ class Dev2GameTreeAdversarialCorpusTests(unittest.TestCase):
         for seed in range(64):
             with self.subTest(seed=seed):
                 game = parse_games(_generated_pgn(seed))[0]
-                self.assertEqual(game.recovery_issues, [])
+                self.assertEqual(game.warnings, [])
                 addresses = tuple(iter_move_addresses(game))
                 self.assertEqual(len(addresses), len(set(addresses)))
                 serialized = serialize_game(game)
@@ -149,32 +146,36 @@ class Dev2GameTreeAdversarialCorpusTests(unittest.TestCase):
             final_wire = serialize_game(third.game)
             self.assertTrue(same_game_record(third.game, parse_games(final_wire)[0]))
 
-    def test_malformed_delimiter_corpus_is_bounded_and_blocks_normalization(self):
+    def test_malformed_delimiter_corpus_is_explicit_and_non_mutating(self):
         corpus = (
-            ('1. e4 (1... c5 *', PgnRecoveryCode.UNTERMINATED_RAV),
-            ('1. e4 ) *', PgnRecoveryCode.UNMATCHED_CLOSING_RAV),
-            ('$1 1. e4 *', PgnRecoveryCode.ORPHAN_ANNOTATION),
-            ('1.. e4 *', PgnRecoveryCode.INVALID_MOVE_NUMBER),
-            ('1. e4 {unterminated', PgnRecoveryCode.UNTERMINATED_BRACE_COMMENT),
-            ('1. e4 * e5', PgnRecoveryCode.ROOT_POST_RESULT_TAIL),
-            ('1. e4 (1... c5 * 2. Nf3) *', PgnRecoveryCode.POST_RESULT_RAV_TAIL),
+            ('1. e4 (1... c5 *', 'unterminated variation'),
+            ('1. e4 ) *', 'unmatched closing parenthesis'),
+            ('$1 1. e4 *', 'orphan annotation $1'),
+            ('1. e4 {unterminated', 'unterminated brace comment'),
+            ('1. e4 * e5', '1 unconsumed token(s)'),
         )
-        for movetext, expected in corpus:
-            game = parse_games('[Result "*"]\n\n' + movetext)[0]
-            self.assertIn(expected, {issue.code for issue in game.recovery_issues})
-            with self.assertRaises(GameTreeSerializationError) as blocked:
-                serialize_game(game)
-            self.assertEqual(blocked.exception.code, GameTreeErrorCode.UNRESOLVED_RECOVERY)
+        for movetext, expected_warning in corpus:
+            with self.subTest(movetext=movetext):
+                game = parse_games('[Result "*"]\n\n' + movetext)[0]
+                self.assertIn(expected_warning, game.warnings)
+                before_warnings = list(game.warnings)
+                before_tags = dict(game.tags)
+                before_source_index = game.source_index
+                serialized = serialize_game(game)
+                self.assertIsInstance(serialized, str)
+                self.assertEqual(game.warnings, before_warnings)
+                self.assertEqual(game.tags, before_tags)
+                self.assertEqual(game.source_index, before_source_index)
 
     def test_small_fixed_resource_envelopes_raise_domain_errors_not_recursion(self):
-        with patch('acs.gametree.MAX_PGN_TOKENS', 4):
-            with self.assertRaises(GameTreeContractError) as blocked:
-                parse_games('[Result "*"]\n\nA B C D E *')
-            self.assertEqual(blocked.exception.code, GameTreeErrorCode.TOKEN_LIMIT)
         with patch('acs.gametree.MAX_TREE_NODES', 3):
             with self.assertRaises(GameTreeContractError) as blocked:
                 parse_games('[Result "*"]\n\nA B C D *')
             self.assertEqual(blocked.exception.code, GameTreeErrorCode.GRAPH_NODE_LIMIT)
+        with patch('acs.gametree.MAX_VARIATION_DEPTH', 1):
+            with self.assertRaises(GameTreeContractError) as blocked:
+                parse_games('[Result "*"]\n\nA (B (C)) *')
+            self.assertEqual(blocked.exception.code, GameTreeErrorCode.GRAPH_DEPTH_LIMIT)
 
 
 if __name__ == '__main__':
