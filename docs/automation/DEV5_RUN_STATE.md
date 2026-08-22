@@ -1,73 +1,74 @@
 # DEV5_RUN_STATE
 
-RUN_ID: 20260822-0124
-STARTED_LOCAL: 01:24:09 Europe/Kyiv
+RUN_ID: 20260822-0206
+STARTED_LOCAL: 02:06:24 Europe/Kyiv
 STATUS: COMPLETE
 MODE: SAFE_OVERLAP_COORDINATION
 COORDINATION_BRANCH: manual5/dev5-regression-integration-20260821
 STAGE1_INTEGRATION_TARGET: manual5/integration-20260821
 STAGE1_INTEGRATION_SHA: 0fa442330bc2bb03636ff9297512da4c29e38684
-SNAPSHOT_CUTOFF: 2026-08-22T01:24:09+03:00
-SNAPSHOT_POLICY: coordinate DEV1-DEV4 only from terminal evidence that existed before the cutoff; live post-handoff branch advancement is overlap evidence, not intake authorization
+SNAPSHOT_CUTOFF: 2026-08-22T02:06:24+03:00
+SNAPSHOT_POLICY: coordinate DEV1-DEV4 only from terminal evidence that existed before the cutoff; post-cutoff completions and live branch movement are overlap/evidence only, never intake authorization
 NVDA_VERIFIED: NO
 FRESH_WINDOWS_CANDIDATE: NO
 STAGE_2: BLOCKED
 
 ## Repository instruction discovery
-- AGENTS.md was not present on the inspected live refs.
-- docs/codex/CURRENT_STATE.md, docs/codex/NEXT_WORK.md and docs/codex/SESSION_HANDOFF.md were not present as shared canonical files on the inspected integration/full-product refs.
-- Lane-specific automation files, canonical Drive handoffs, live GitHub refs/diffs/CI and exact PR metadata remain the factual coordination sources.
+- AGENTS.md is absent on the inspected repository refs.
+- Shared docs/codex/CURRENT_STATE.md, docs/codex/NEXT_WORK.md and docs/codex/SESSION_HANDOFF.md are absent on the inspected Stage1/full-product refs.
+- Lane-specific run-state/handoff files, canonical Drive handoffs, live GitHub refs/diffs/CI and exact PR metadata remain the factual coordination sources.
 
 ## Stage1 exact state
 - manual5/integration-20260821 remains exactly 0fa442330bc2bb03636ff9297512da4c29e38684; no Product mutation in this run.
-- Prior exact gates remain UI Semantic 32532503184 SUCCESS and Stage1 Saturation 32532503262 SUCCESS.
-- DEV1/DEV2/DEV3 Stage1 packages and the selectively reconciled DEV4 package are already represented. No duplicate intake is allowed.
-- PR #54 and frozen release refs remain untouched. No rejected ZIP was reused. No Windows candidate was created.
+- Live commit-associated evidence was re-read: UI Semantic runs 32532577650 and 32532503184 are SUCCESS; Stage1 Saturation runs 32532577641 and 32532503262 are SUCCESS.
+- DEV1/DEV2/DEV3 accepted Stage1 packages, selective DEV4 reconciliation and DEV5 cross-lane regressions are already represented. No duplicate intake.
+- PR #54/frozen refs remain untouched. No rejected ZIP was reused. No Windows candidate was created.
 
 ## Pre-cutoff lane snapshot
 ### DEV1
-- Canonical Drive handoff checkpoint 2026-08-22T00:03:00+03:00: Stage1 accepted/integrated; current continuation made no Product code change.
-- Full-product UI work was explicitly blocked in that invocation by branch-preservation/two-plane rules.
-- No new terminal DEV1 full-product Product package is eligible for intake.
+- DEV1_RUN_STATE RUN_ID 20260822-0041 existed before cutoff and still says STATUS: IN_PROGRESS on full5/dev1-accessible-shell-20260822.
+- Canonical Drive handoff before cutoff still describes Stage1 accepted/integrated and does not terminalize the full-product PR #68 package.
+- Result: active touching work existed before cutoff; DEV1 full-product Product intake is forbidden in this wave.
 
 ### DEV2
-- Canonical Drive handoff still terminalizes Stage1 head 8b74ef94c91dbed8d9dfc73bcb39a9aa956a9afe, already represented in Stage1 integration.
-- Live full-product draft PR #69 exists on auto/dev2-full-product-core-20260822 and has advanced to bf61402fb0601efb22417a11ad3d0851d807967a.
-- No matching terminal canonical Drive handoff for that full-product head existed at the cutoff. Therefore PR #69 is treated as IN_FLIGHT / NOT ELIGIBLE FOR DEV5 INTAKE in this wave, regardless of live code quality.
+- Before cutoff, canonical Drive handoff did not terminalize a full-product GameTree/PGN package; prior DEV5 snapshot classified PR #69 as IN_FLIGHT / NOT ELIGIBLE.
+- Post-cutoff DEV2_RUN_STATE 20260822-0241 completed at a4c9df1d0f21180549cb076ded9de739f91f241c but explicitly says FULL_PRODUCT_DEV2_READY_FOR_INTEGRATION=NO and exact machine CI is unobserved.
+- Because that completion is after cutoff, it is evidence for next-wave ordering only, not intake authorization now.
 
 ### DEV3
-- Terminal pre-cutoff Drive handoff at 2026-08-22T00:22 local marked ACSDB/Library/Search/recovery slice READY_FOR_INTEGRATION at exact head 70321dafb8fdd1f1aff3197f11d17154ccb942ed with DEV3 Full Product ACSDB CI 32528057942 SUCCESS.
-- Exact diff from base 656e8ec311e364e6e54a30504fd30a4aaff586f9 is lane-contained: acs/acsdb.py, acs/import_history_service.py, acs/search_service.py, focused tests, lane workflow and lane state docs.
-- Live PR #65 has since advanced to 65f4f2ede0b2c88b9f5c413d874b510fb2acb619, beyond the terminal handoff SHA. This is active-overlap evidence. The earlier 70321d package is pinned for conflict/inventory analysis only; no competing Product integration push is permitted while the same lane is advancing.
+- Pre-cutoff terminal evidence remains pinned at 70321dafb8fdd1f1aff3197f11d17154ccb942ed with exact DEV3 CI 32528057942 SUCCESS.
+- Same lane had already advanced beyond that pinned terminal package before this cutoff, and current live branch is 11 commits ahead of 70321d through df62686b915d96abd474aa0bbd8a2bb548f3725b.
+- The later delta now touches acs/pgn_service.py in addition to ACSDB/query-plan work, increasing overlap with DEV2/DEV4 PGN boundaries.
+- Current post-cutoff DEV3 run-state advertises a newer executable package and CI; that state is excluded from current intake by cutoff semantics.
 
 ### DEV4
-- Terminal pre-cutoff Drive handoff at 2026-08-22T01:10 local: COMPLETE / SAFE_OVERLAP_QA_EVIDENCE, QA PR #67 exact head e65bf755f7dba4090a6396c7086140062f85c5a9.
-- Two strict DEV4-owned Product defects are recorded: external import symlink/reparse indirection is not fail-closed, and PGN text loading performs an unbounded handle.read() without a source-size/resource cap.
-- These are DEV4-owned security/import boundaries. DEV5 does not race a Product fix in this run; tests must not be weakened.
+- Pre-cutoff accepted coordination evidence already recorded DEV4-owned external-import symlink/reparse and unbounded-PGN-read security defects.
+- Current DEV4 handoff/run-state were modified after cutoff and add further QA findings, including PGN publication TOCTOU and private-path DTO exposure. These are post-cutoff evidence only for the next wave.
+- DEV5 does not race DEV4 Product/security fixes and does not weaken strict tests.
 
-## Full-product integration assessment
-- SAFE OVERLAP MODE is mandatory for this run because touching full-product lanes are live beyond their canonical terminal snapshots.
-- No full5/integration branch is created or advanced.
-- PR #52 / 6fa705f7ca80ee69b4183f99c9bc1c5a86048e64 remains unsuitable as a wholesale baseline: its own description records the independently audited input 0cf4fe291ff6c349de99978cd2fc68866a218da8 as RETURN TO WORK, followed by later fixes without a new independent acceptance artifact in the inspected evidence.
-- completion/full-product-critical-path remains package inventory only, never wholesale intake.
-- Safe dependency order remains: terminal canonical GameTree/PGN package first; then terminal ACSDB/library package; then ChessBase/import-security; then Windows UX integration.
+## SAFE OVERLAP decision
+SAFE OVERLAP MODE is mandatory because DEV1 was explicitly IN_PROGRESS before cutoff and DEV2/DEV3/DEV4 have touching movement/evidence across the boundary.
+No full5 integration branch is created or advanced.
+No Product push competes with any active lane.
+Coordinator work in this run is limited to evidence review, conflict analysis, backlog ordering and next-wave directives.
 
-## Cross-lane conflicts / blockers
+## Cross-lane conflict analysis
 P0: none newly proven on accepted Stage1 head 0fa4423.
 P1:
-- Full-product integration cannot start safely until DEV2 publishes a terminal canonical GameTree/PGN handoff with exact CI and a pinned reusable base/inventory.
-- DEV3 ACSDB package is technically promising and exact-CI green at pinned 70321d, but live same-lane advancement means no competing intake this wave.
-- DEV4 symlink/reparse and unbounded-PGN-read defects must be fixed in the owning lane and terminalized before external-import vertical-slice acceptance.
+- DEV2 full-product package is not intake-eligible at this cutoff and its post-cutoff run still reports READY_FOR_INTEGRATION=NO pending exact machine evidence/audit.
+- DEV3 has a pinned older terminal GREEN package, but same-lane advancement and new PGN-service overlap require a fresh terminal snapshot before any selective integration.
+- DEV4 external-import security findings remain blockers for external-format vertical slices; post-cutoff PGN TOCTOU evidence increases the reason to keep PGN publication ownership isolated until terminalized.
+- DEV1 full-product UI shell is actively in progress and must not be raced.
 P2:
-- PR #52 shared-core history lacks a post-fix independent acceptance artifact in the inspected evidence.
-- Full-product branches still carry lane-specific workflows/state docs that should normally be excluded from a future coherent Product intake unless explicitly required.
+- PR #52 remains inventory, not a wholesale baseline, without independent acceptance of a specific post-fix exact head.
+- Lane workflows/state docs should normally be excluded from future Product intake unless explicitly required.
 
 ## Next three highest-value packages
-1. DEV2: terminalize canonical GameTree/PGN navigation/edit/round-trip package at an exact SHA with executable focused + full CI and a precise base/changed-path inventory.
-2. DEV5 after DEV2 terminalization: create a validation-only full-product assembly from a proven safe base, selectively layer DEV2 GameTree/PGN then the latest terminal DEV3 ACSDB package, and run cross-lane PGN -> ACSDB -> search/open regressions before any persistent full5 integration ref is promoted.
-3. DEV4: fix and terminalize the strict external-import symlink/reparse and bounded-PGN-read contracts, preserving provenance and atomicity; DEV5 will consume only after exact evidence and conflict review.
+1. DEV2: obtain exact machine evidence and a canonical terminal Drive handoff for the full-product GameTree/PGN package; READY_FOR_INTEGRATION must be explicit at the exact final SHA.
+2. DEV3: terminalize the latest ACSDB/Library/Search + PGN publication package after reconciling overlap with DEV2/DEV4 ownership; provide exact final SHA, changed-path inventory and exact full CI.
+3. DEV5: only after both are terminal before a future cutoff, build a validation-only assembly proving PGN -> canonical GameTree -> ACSDB -> search/open plus atomicity/provenance/retry/recovery; create/advance persistent full5 integration only after exact auditable GREEN evidence.
 
 ## Release boundary
-- No Stage1 release promotion in this run.
-- Fresh Windows candidate still requires the complete machine release chain on the exact final audited Product SHA.
-- NVDA_VERIFIED remains NO until Oleksii personally verifies that exact candidate.
+No Stage1 release promotion in this run.
+A fresh Windows candidate still requires the complete machine release chain on the exact final audited Product SHA.
+NVDA_VERIFIED remains NO until Oleksii personally verifies that exact candidate.
