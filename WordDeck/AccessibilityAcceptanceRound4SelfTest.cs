@@ -22,7 +22,7 @@ internal static class AccessibilityAcceptanceRound4SelfTest
         TestUnsafeAndNativeKeysFailClosed();
         TestRecallArrowSurfaceContract();
         TestSelectorNavigationContract();
-        Console.WriteLine("WordDeck R4 accessibility acceptance passed: shortcut context isolation, synchronized F1/settings registry, protected unknown Spelling binding preservation without live-key poisoning, live cross-mode conflict rejection, unsafe/native keys, Recall arrow surface and selector navigation contracts verified.");
+        Console.WriteLine("WordDeck R4 accessibility acceptance passed: shortcut context isolation, global fixed-action F1/settings registry, protected unknown Spelling binding preservation without live-key poisoning, live cross-mode conflict rejection, unsafe/native keys, Recall arrow surface and selector navigation contracts verified.");
     }
 
     private static void TestShortcutContextIsolation()
@@ -52,16 +52,20 @@ internal static class AccessibilityAcceptanceRound4SelfTest
         AppState app = AppStateStore.Normalize(new AppState());
         SpellingState spelling = SpellingStateStore.Normalize(new SpellingState());
 
-        // The main Recall dispatcher must preserve its own critical commands before
-        // training topology is loaded. Training/F1/settings truth is then expanded
-        // explicitly from the live Spelling deck context.
+        // Fixed cross-mode actions are global truth for F1/settings/conflict checks
+        // even before dynamic Spelling deck topology is available. Dispatch remains
+        // context-scoped, so the Recall form still does not consume training keys.
         var mainRegistry = new ShortcutManager(app);
         AssertEqual(ActionIds.ShortcutSettings, mainRegistry.FindAction(Keys.Control | Keys.K), "Ctrl+K must work before training definitions are synchronized.");
         AssertEqual(ActionIds.Help, mainRegistry.FindAction(Keys.F1), "F1 must work before training definitions are synchronized.");
-        AssertFalse(mainRegistry.Definitions.Any(def => def.Id == ActionIds.OpenSpelling),
-            "Recall-only registry exposed Spelling commands before a protected Spelling topology was loaded.");
-        AssertFalse(mainRegistry.Definitions.Any(def => def.Id == ActionIds.OpenSentenceCoach),
-            "Recall-only registry exposed Sentence commands before a protected Spelling topology was loaded.");
+        AssertTrue(mainRegistry.Definitions.Any(def => def.Id == ActionIds.OpenSpelling),
+            "Global F1/settings registry omitted fixed Open Spelling before dynamic deck synchronization.");
+        AssertTrue(mainRegistry.Definitions.Any(def => def.Id == ActionIds.OpenSentenceCoach),
+            "Global F1/settings registry omitted fixed Open Sentence Spelling before dynamic deck synchronization.");
+        AssertNull(mainRegistry.FindAction(Keys.Control | Keys.Shift | Keys.S),
+            "Recall dispatcher swallowed the fixed Open Spelling accelerator before dynamic deck synchronization.");
+        AssertNull(mainRegistry.FindAction(Keys.Control | Keys.Shift | Keys.E),
+            "Recall dispatcher swallowed the fixed Open Sentence accelerator before dynamic deck synchronization.");
 
         mainRegistry.RefreshDeckDefinitions(spelling.Decks);
         AssertTrue(mainRegistry.Definitions.Any(def => def.Id == ActionIds.OpenSpelling), "Synchronized Main/F1 registry omitted Open Spelling.");
