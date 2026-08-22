@@ -11,7 +11,7 @@ report-safe filenames rather than workstation directories.
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from .chessbase_adapter import ChessBaseSourceProbe, probe_chessbase_source
+from .chessbase_adapter import ChessBaseSourceProbe, probe_chessbase_source, report_safe_name
 from .import_contract import fingerprint
 
 MANIFEST_SCHEMA_VERSION = 1
@@ -46,7 +46,7 @@ class ChessBaseBundleManifest:
     def as_dict(self) -> dict[str, object]:
         def item(e: ComponentEvidence) -> dict[str, object]:
             return {
-                "path": Path(e.path).name,
+                "path": report_safe_name(e.path),
                 "extension": e.extension,
                 "role": e.role,
                 "size": e.size,
@@ -54,7 +54,7 @@ class ChessBaseBundleManifest:
             }
         return {
             "schema_version": self.schema_version,
-            "primary_path": Path(self.primary_path).name,
+            "primary_path": report_safe_name(self.primary_path),
             "source_kind": self.source_kind,
             "family_name": self.family_name,
             "status": self.status,
