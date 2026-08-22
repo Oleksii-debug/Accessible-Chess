@@ -123,12 +123,12 @@
     const editor = snapshot.comment_editor || {};
     const dialog = node("dialog");
     dialog.id = "pgn-comment-dialog";
-    const title = node("h2", "Comment");
+    const title = node("h2", editor.title || "");
     title.id = "pgn-comment-dialog-title";
     dialog.setAttribute("aria-labelledby", title.id);
     dialog.appendChild(title);
 
-    const label = node("label", "Comment");
+    const label = node("label", editor.label || "");
     const textarea = node("textarea");
     textarea.id = "pgn-comment-text";
     textarea.value = editor.value || "";
@@ -137,10 +137,10 @@
     dialog.appendChild(textarea);
     if (editor.message) dialog.appendChild(node("p", editor.message));
 
-    const save = node("button", "Save");
+    const save = node("button", editor.save_label || "");
     save.type = "button";
     save.disabled = !editor.enabled;
-    const cancel = node("button", "Cancel");
+    const cancel = node("button", editor.cancel_label || "");
     cancel.type = "button";
     let opener = null;
 
