@@ -1,6 +1,6 @@
 # DEV4 SESSION HANDOFF
 
-SESSION: 20260822-1503 Full Product QA/security
+SESSION: 20260822-1604 Full Product QA/security
 STATUS: COMPLETE / SAFE OVERLAP
 
 ## Exact state basis
@@ -9,15 +9,16 @@ STATUS: COMPLETE / SAFE OVERLAP
 - Accepted integration: `manual5/integration-20260821@0fa442330bc2bb03636ff9297512da4c29e38684`.
 - DEV5 reconciliation PR #66 remains separate at `abff45ebcc4b5af2a85ab0c456b025b5098c6e29` and was not mutated.
 - DEV4 QA branch: `qa/dev4-chessbase-symlink-security-20260822`.
-- New evidence commit: `97044de22bbab7098f0ba6a06fd9dfa5cd37562f` — `test(security): gate unstable ChessBase integrity snapshots`.
+- New evidence commit: `5a83ab0eb76455ad8e5ed63378acbfc08e02a462` — `test(qa): gate ChessBase integrity I/O observability`.
 - QA PR #67 remains OPEN/DRAFT. Metadata commits follow the evidence commit; final exact branch head must be read live after synchronization.
+- Pre-write exact QA head `bc72a86e16a55331a71d8d749d09870c1f018c6b` had no commit-associated Actions (`INCONCLUSIVE`, not GREEN).
 - Windows strict WIP=1 untouched. `NVDA_VERIFIED=NO`.
 
 ## Evidence extension
 
-`PROVEN_PRODUCT_DEFECT` class 11 is now independently proven on both provenance implementations: shared `acs.import_contract.fingerprint()` and ChessBase `acs.chessbase_integrity._fingerprint()`. The ChessBase path hashes in chunks without pre/post identity/stat stability validation, so an equal-size concurrent source mutation can still yield ordinary `SourceFileEvidence` rather than a fail-closed result.
+`PROVEN_PRODUCT_DEFECT` class 9 now covers both ChessBase verification surfaces. `verify_manifest_unchanged()` can propagate raw hash/open I/O failures, and `verify_integrity_snapshot()` can likewise leak a raw `PermissionError`/`OSError` when an already-recorded companion becomes unreadable during re-verification. Both surfaces should fail closed at a domain verification boundary instead of exposing filesystem exceptions as the API result.
 
-Strict gate: `tests/test_dev4_chessbase_integrity_atomicity.py`. Product code unchanged.
+Strict gate: `tests/test_dev4_chessbase_integrity_io_observability.py`. It accepts a domain RuntimeError-class verification failure and rejects raw OSError leakage. Product code unchanged.
 
 ## Locked defect classes
 
@@ -29,7 +30,7 @@ Strict gate: `tests/test_dev4_chessbase_integrity_atomicity.py`. Product code un
 6. PGN export path-indirection boundary.
 7. ChessBase companion-directory I/O false-green.
 8. Generic import batch RuntimeError abort.
-9. ChessBase manifest verification I/O observability failure.
+9. ChessBase verification I/O observability failure across manifest and integrity re-verification APIs.
 10. Shared import special-file/FIFO open-before-validation boundary.
 11. Provenance unstable-snapshot boundary on both shared import and ChessBase integrity hashing.
 12. ACSDB failed-import raw exception persistence/application exposure boundary.
@@ -45,4 +46,4 @@ Strict gate: `tests/test_dev4_chessbase_integrity_atomicity.py`. Product code un
 
 ## Next action
 
-Recheck PR #67 final exact head/CI, then continue generic import cancellation/encoding/truncation and ChessBase component open/stat/hash observability. Trace further leakage only into concrete persisted/UI/report sinks. Stay out of Product-owner and Windows strict lanes.
+Recheck PR #67 final exact head/CI, then continue generic import cancellation/encoding/truncation/duplicate-source recovery and concrete persisted/UI/report error-sink tracing. Preserve ChessBase verification observability gates without claiming proprietary decoder support. Stay out of Product-owner and Windows strict lanes.
