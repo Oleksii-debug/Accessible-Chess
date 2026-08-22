@@ -45,7 +45,7 @@ jobs:
           printf '%s\n' "$changed"
           for path in $changed; do
             case "$path" in
-              acs/chessbase_adapter.py|acs/chessbase_integrity.py|acs/chessbase_manifest.py|acs/pgn_service.py|tests/test_dev5_shared_boundary_repair.py) ;;
+              .github/workflows/dev5-shared-boundary-repair-ci.yml|acs/chessbase_adapter.py|acs/chessbase_integrity.py|acs/chessbase_manifest.py|acs/pgn_service.py|tests/test_dev5_shared_boundary_repair.py) ;;
               *) echo "unexpected repair path: $path" >&2; exit 1 ;;
             esac
           done
