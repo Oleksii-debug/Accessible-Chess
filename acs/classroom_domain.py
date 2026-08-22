@@ -13,6 +13,8 @@ MAX_LINKS_PER_RECORD = 2000
 MAX_SNAPSHOT_BYTES = 2_000_000
 MAX_TEXT = 512
 MAX_NOTE_TEXT = 4000
+# Keep exchanged counters exact for JSON/JavaScript consumers as well as Python.
+MAX_WIRE_INTEGER = (1 << 53) - 1
 _ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
 
 
@@ -340,8 +342,8 @@ class ClassroomSnapshot:
         return record
 
     def to_json(self) -> str:
-        text = json.dumps(self.to_record(), ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-        if len(text.encode("utf-8")) > MAX_SNAPSHOT_BYTES:
+        text = _canonical_json_text(self.to_record())
+        if _utf8_size(text, "classroom snapshot JSON") > MAX_SNAPSHOT_BYTES:
             raise ClassroomDomainError("classroom snapshot exceeds size limit")
         return text
 
@@ -367,12 +369,19 @@ class ClassroomSnapshot:
     def from_json(cls, text: str) -> "ClassroomSnapshot":
         if type(text) is not str:
             raise ClassroomDomainError("classroom snapshot JSON must be exact text")
-        if len(text.encode("utf-8")) > MAX_SNAPSHOT_BYTES:
+        if _utf8_size(text, "classroom snapshot JSON") > MAX_SNAPSHOT_BYTES:
             raise ClassroomDomainError("classroom snapshot exceeds size limit")
         try:
-            raw = json.loads(text, object_pairs_hook=_reject_duplicate_pairs, parse_constant=_reject_constant)
+            raw = json.loads(
+                text,
+                object_pairs_hook=_reject_duplicate_pairs,
+                parse_constant=_reject_constant,
+                parse_int=_parse_wire_integer,
+            )
         except json.JSONDecodeError as exc:
             raise ClassroomDomainError("invalid classroom snapshot JSON") from exc
+        except RecursionError as exc:
+            raise ClassroomDomainError("classroom snapshot JSON exceeds nesting limit") from exc
         return cls.from_record(raw)
 
 
@@ -487,6 +496,8 @@ def _optional_id(value, label):
 def _text(value, label, *, max_len=MAX_TEXT, canonical_edges=True) -> str:
     if type(value) is not str or not value.strip() or len(value) > max_len or "\x00" in value:
         raise ClassroomDomainError(f"{label} violates exact text boundary")
+    if any(0xD800 <= ord(character) <= 0xDFFF for character in value):
+        raise ClassroomDomainError(f"{label} contains an invalid Unicode scalar value")
     if canonical_edges and value != value.strip():
         raise ClassroomDomainError(f"{label} must not contain boundary whitespace")
     return value
@@ -497,8 +508,10 @@ def _timestamp(value, label) -> str:
 
 
 def _revision(value, label) -> int:
-    if type(value) is not int or value < 0:
-        raise ClassroomDomainError(f"{label} must be a non-negative integer")
+    if type(value) is not int or not 0 <= value <= MAX_WIRE_INTEGER:
+        raise ClassroomDomainError(
+            f"{label} must be a non-negative JSON-safe integer not greater than {MAX_WIRE_INTEGER}"
+        )
     return value
 
 
@@ -537,8 +550,42 @@ def _digest_text(value) -> str:
     return value
 
 
+def _utf8_size(value: str, label: str) -> int:
+    try:
+        return len(value.encode("utf-8"))
+    except UnicodeEncodeError as exc:
+        raise ClassroomDomainError(f"{label} contains an invalid Unicode scalar value") from exc
+
+
+def _canonical_json_text(value: object) -> str:
+    try:
+        return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    except (TypeError, ValueError, RecursionError) as exc:
+        raise ClassroomDomainError("classroom snapshot cannot be serialized canonically") from exc
+
+
 def _digest(value) -> str:
-    return hashlib.sha256(json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+    text = _canonical_json_text(value)
+    try:
+        data = text.encode("utf-8")
+    except UnicodeEncodeError as exc:
+        raise ClassroomDomainError("classroom snapshot contains an invalid Unicode scalar value") from exc
+    return hashlib.sha256(data).hexdigest()
+
+
+def _parse_wire_integer(value: str) -> int:
+    # Reject pathological Python integers before int() hits implementation digit limits,
+    # then enforce the cross-runtime exact JSON integer envelope.
+    digits = value[1:] if value.startswith("-") else value
+    if not digits or len(digits) > 16:
+        raise ClassroomDomainError("classroom JSON integer exceeds exact wire bounds")
+    try:
+        parsed = int(value, 10)
+    except ValueError as exc:
+        raise ClassroomDomainError("invalid classroom JSON integer") from exc
+    if not -MAX_WIRE_INTEGER <= parsed <= MAX_WIRE_INTEGER:
+        raise ClassroomDomainError("classroom JSON integer exceeds exact wire bounds")
+    return parsed
 
 
 def _reject_duplicate_pairs(pairs):
