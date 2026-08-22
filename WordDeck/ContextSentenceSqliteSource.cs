@@ -2,8 +2,9 @@ using Microsoft.Data.Sqlite;
 
 namespace WordDeck;
 
-internal sealed class ContextSentenceSqliteSource : IContextSentenceSource, IContextCoverageSource
+internal sealed class ContextSentenceSqliteSource : IContextSentenceSource, IContextCoverageSource, IContextTargetCountCoverageSource
 {
+    private const int ScopeChunkSize = 400;
     private readonly string _databasePath;
     private readonly SentencePackSqliteCorpus _corpus;
 
@@ -35,10 +36,56 @@ internal sealed class ContextSentenceSqliteSource : IContextSentenceSource, ICon
             ContextGrammarMetadata.ExtractFromQualityFlags(sentence.QualityFlags))).ToArray();
     }
 
-    public IReadOnlySet<string> GetCoveredOneTargetIds(IReadOnlyCollection<string> candidateEntryIds)
+    public IReadOnlySet<string> GetCoveredOneTargetIds(IReadOnlyCollection<string> candidateEntryIds) =>
+        GetCoveredTargetIds(candidateEntryIds, 1);
+
+    public IReadOnlySet<string> GetCoveredTargetIds(IReadOnlyCollection<string> candidateEntryIds, int requiredTargetCount)
     {
+        if (requiredTargetCount is < 1 or > 3)
+            throw new ArgumentOutOfRangeException(nameof(requiredTargetCount));
+
         string[] requested = ContextTargetIds.NormalizeStudyPool(candidateEntryIds);
-        return _corpus.GetCoveredScopeEntryIds(requested, requireSameScopePartner: false);
+        if (requested.Length == 0)
+            return new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (requiredTargetCount == 1)
+            return _corpus.GetCoveredScopeEntryIds(requested, requireSameScopePartner: false);
+        if (requiredTargetCount == 2)
+            return _corpus.GetCoveredScopeEntryIds(requested, requireSameScopePartner: true);
+
+        using SqliteConnection connection = OpenReadOnly();
+        CreateRequestedScope(connection, requested);
+        try
+        {
+            using SqliteCommand query = connection.CreateCommand();
+            query.CommandText = """
+                SELECT te.entry_id
+                FROM requested_scope rs
+                JOIN target_entries te ON te.target_num = rs.target_num
+                WHERE EXISTS (
+                    SELECT 1
+                    FROM sentence_targets st1
+                    JOIN sentence_targets st2
+                      ON st2.sentence_num = st1.sentence_num
+                     AND st2.target_num <> st1.target_num
+                    JOIN sentence_targets st3
+                      ON st3.sentence_num = st1.sentence_num
+                     AND st3.target_num <> st1.target_num
+                     AND st3.target_num <> st2.target_num
+                    JOIN requested_scope rs2 ON rs2.target_num = st2.target_num
+                    JOIN requested_scope rs3 ON rs3.target_num = st3.target_num
+                    WHERE st1.target_num = rs.target_num
+                    LIMIT 1
+                );
+                """;
+            var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            using SqliteDataReader reader = query.ExecuteReader();
+            while (reader.Read()) result.Add(reader.GetString(0));
+            return result;
+        }
+        finally
+        {
+            DropRequestedScope(connection);
+        }
     }
 
     internal IReadOnlyList<string> ExplainIntersectionPlan(IReadOnlyCollection<string> targetEntryIds, int maxCandidates = 32)
@@ -87,7 +134,38 @@ internal sealed class ContextSentenceSqliteSource : IContextSentenceSource, ICon
         return details;
     }
 
-    private Dictionary<string, long> ResolveTargetNumbers(SqliteConnection connection, IReadOnlyList<string> targetEntryIds)
+    private void CreateRequestedScope(SqliteConnection connection, IReadOnlyList<string> requested)
+    {
+        using (SqliteCommand create = connection.CreateCommand())
+        {
+            create.CommandText = "DROP TABLE IF EXISTS temp.requested_scope; CREATE TEMP TABLE requested_scope(target_num INTEGER PRIMARY KEY) WITHOUT ROWID;";
+            create.ExecuteNonQuery();
+        }
+
+        for (int offset = 0; offset < requested.Count; offset += ScopeChunkSize)
+        {
+            string[] chunk = requested.Skip(offset).Take(ScopeChunkSize).ToArray();
+            using SqliteCommand insert = connection.CreateCommand();
+            var placeholders = new List<string>(chunk.Length);
+            for (int i = 0; i < chunk.Length; i++)
+            {
+                string name = "$id" + i;
+                placeholders.Add(name);
+                insert.Parameters.AddWithValue(name, chunk[i]);
+            }
+            insert.CommandText = $"INSERT OR IGNORE INTO requested_scope(target_num) SELECT target_num FROM target_entries WHERE entry_id IN ({string.Join(",", placeholders)});";
+            insert.ExecuteNonQuery();
+        }
+    }
+
+    private static void DropRequestedScope(SqliteConnection connection)
+    {
+        using SqliteCommand drop = connection.CreateCommand();
+        drop.CommandText = "DROP TABLE IF EXISTS temp.requested_scope;";
+        drop.ExecuteNonQuery();
+    }
+
+    private static Dictionary<string, long> ResolveTargetNumbers(SqliteConnection connection, IReadOnlyList<string> targetEntryIds)
     {
         using SqliteCommand command = connection.CreateCommand();
         var placeholders = new List<string>(targetEntryIds.Count);
