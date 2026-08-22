@@ -13,12 +13,26 @@ from typing import Literal
 from .acsdb import AcsDatabase
 
 SearchResult = Literal["1-0", "0-1", "1/2-1/2", "*"]
+_SQLITE_INTEGER_MAX = (1 << 63) - 1
 
 
 def _exact_int(value: object, *, name: str) -> int:
     if type(value) is not int:
         raise TypeError(f"{name} must be an integer")
     return value
+
+
+def _sqlite_integer(value: object, *, name: str, minimum: int) -> int:
+    """Validate an application scalar before it reaches a SQLite INTEGER bind."""
+
+    integer = _exact_int(value, name=name)
+    if integer < minimum:
+        if minimum == 1:
+            raise ValueError(f"{name} must be a positive integer")
+        raise ValueError(f"{name} must be zero or a positive integer")
+    if integer > _SQLITE_INTEGER_MAX:
+        raise ValueError(f"{name} exceeds SQLite integer range")
+    return integer
 
 
 def _escape_like(value: str) -> str:
@@ -61,15 +75,15 @@ class GameSearchQuery:
 
         source_id: int | None = None
         if self.source_id is not None:
-            source_id = _exact_int(self.source_id, name="source_id")
-            if source_id <= 0:
-                raise ValueError("source_id must be a positive integer")
+            source_id = _sqlite_integer(self.source_id, name="source_id", minimum=1)
 
         after_game_id: int | None = None
         if self.after_game_id is not None:
-            after_game_id = _exact_int(self.after_game_id, name="after_game_id")
-            if after_game_id < 0:
-                raise ValueError("after_game_id must be zero or a positive integer")
+            after_game_id = _sqlite_integer(
+                self.after_game_id,
+                name="after_game_id",
+                minimum=0,
+            )
 
         if self.result is not None and self.result not in {"1-0", "0-1", "1/2-1/2", "*"}:
             raise ValueError(f"Unsupported chess result: {self.result}")
