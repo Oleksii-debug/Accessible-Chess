@@ -4,13 +4,13 @@ NEXT_ACTION_ORDER:
 
 1. Re-read live DEV5 PR #66, manual5 integration and QA PR #67 before any new write. Do not compete with an IN_PROGRESS Product/integration owner.
 2. Recheck QA PR #67 exact head and commit-associated Actions. Keep strict security assertions RED until genuine Product fixes exist; never weaken them for GREEN.
-3. Preserve all six locked Product-defect classes plus the positive recovery guard `tests/test_dev4_pgn_export_failure_recovery.py`.
-4. Continue PGN commit-safety audit after the recovery slice: parent-directory durability, deterministic serialization, error-surface/path leakage and any platform-specific atomicity caveats. Keep durability INCONCLUSIVE unless a clear contract and reproducible evidence justify promotion.
-5. Continue generic import resource limits: explicit maximum source size, chunked/streaming strategy, huge/truncated content, encoding abuse, duplicate sources, cancellation and recovery. Bounded hashing alone is not a bounded import.
-6. Trace generic provenance/error path exposure end-to-end from `SourceFingerprint.path`, `BatchInspectionItem.path/error`, PGN exceptions and ChessBase evidence DTOs into persisted/UI/report surfaces. ChessBase report DTO leakage is already PROVEN; classify other surfaces only with direct evidence.
-7. Audit ChessBase bounded-read/resource-exhaustion and unknown-version handling beyond integrity hashing. Preserve source read-only and do not invent proprietary record semantics.
-8. Maintain `DEV4_CHESSBASE_CAPABILITY_MATRIX.md` as evidence changes; suffix recognition must never be presented as decoder compatibility.
-9. Coordinate migration/rollback evidence only at the DEV3 ACSDB boundary; do not modify active ACSDB query/storage performance work.
+3. Preserve all six locked Product-defect classes plus positive QA guards for PGN export failure recovery and Stockfish error-path privacy.
+4. Continue generic import resource limits: explicit maximum source size, chunked/streaming strategy, huge/truncated content, encoding abuse, duplicate sources, cancellation and recovery. Bounded hashing alone is not a bounded import.
+5. Trace generic provenance/error exposure end-to-end from `SourceFingerprint.path`, `BatchInspectionItem.path/error`, PGN exceptions and engine/runtime exceptions into real persisted/UI/report surfaces. Promote only direct exposure.
+6. Extend UCI/engine failure-surface QA where non-conflicting: startup/provider errors, timeout/retry failures and diagnostic logging must not leak private executable/user-profile paths into WebView/NVDA messages.
+7. Keep PGN parent-directory durability INCONCLUSIVE unless a clear active contract plus reproducible crash/power-loss evidence justifies promotion.
+8. Audit ChessBase bounded-read/resource-exhaustion and unknown-version handling beyond integrity hashing. Preserve source read-only and do not invent proprietary record semantics.
+9. Maintain `DEV4_CHESSBASE_CAPABILITY_MATRIX.md` as evidence changes; suffix recognition must never be presented as decoder compatibility.
 10. Re-enter Stage1 package/security reconciliation only when DEV5/Audit authorizes a slice. Preserve accepted DEV1 board-bridge semantics and keep `nuitka-compilation-report.xml` outside user ZIPs.
 
 CURRENT LOCKED FINDINGS:
@@ -20,7 +20,8 @@ CURRENT LOCKED FINDINGS:
 - PROVEN_PRODUCT_DEFECT: PGN expected_sha256 optimistic overwrite has a TOCTOU lost-update window.
 - PROVEN_PRODUCT_DEFECT: PGN overwrite=False can clobber a destination created after preflight.
 - PROVEN_PRODUCT_DEFECT: PGN export filesystem-indirection boundary is not fail-closed; strict coverage includes direct parent, deeper ancestor and destination-file symlinks.
-- QA EVIDENCE: PGN export recovery gate now locks destination preservation/temp cleanup on injected `os.replace`/`fsync` failures plus POSIX private temp-mode expectations.
+- QA EVIDENCE: PGN export recovery guard locks destination preservation/temp cleanup on injected `os.replace`/`os.fsync` failures plus POSIX private temp-mode expectations.
+- QA EVIDENCE: release-facing engine-game startup sanitizes provider exceptions containing synthetic private Stockfish paths before WebView/NVDA output; gate `tests/test_dev4_engine_error_path_privacy.py`.
 - PROVEN_PRODUCT_INTEGRATION_RISK: naive DEV4 board-action overwrite can regress accepted DEV1 semantics.
 - PROVEN_RELEASE_PIPELINE_BLOCKER: Nuitka compiler report must not ship in user candidate.
 - INCONCLUSIVE: QA PR #67 exact-head Actions until observed.
