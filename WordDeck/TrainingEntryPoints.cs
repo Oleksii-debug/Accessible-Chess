@@ -24,6 +24,7 @@ internal static class TrainingEntryPoints
 
         AppState appState = main.SharedAppStateForTraining;
         var shortcutManager = new ShortcutManager(appState, spelling.State.Decks, ShortcutDispatchContext.All);
+        main.RefreshTrainingShortcutDefinitions(spelling.State.Decks);
 
         var openSpelling = new ToolStripMenuItem("Open &Spelling trainer...")
         {
@@ -82,6 +83,7 @@ internal static class TrainingEntryPoints
             using var dialog = new ShortcutSettingsForm(shortcuts);
             dialog.ShowDialog(owner);
             owner.SaveSharedStateAfterTraining();
+            owner.RefreshTrainingShortcutDefinitions(spelling.State.Decks);
             spellingItem.ShortcutKeys = shortcuts.Get(ActionIds.OpenSpelling);
             sentenceItem.ShortcutKeys = shortcuts.Get(ActionIds.OpenSentenceCoach);
         }
@@ -104,6 +106,7 @@ internal static class TrainingEntryPoints
             KeyboardSelectorFocusGuard.Attach(form, "Spelling study scope", "Active spelling deck");
             form.ShowDialog(owner);
             owner.SaveSharedStateAfterTraining();
+            owner.RefreshTrainingShortcutDefinitions(spelling.State.Decks);
         }
         catch (Exception ex)
         {
@@ -132,6 +135,7 @@ internal static class TrainingEntryPoints
             KeyboardSelectorFocusGuard.Attach(form, "Sentence pack", "Sentence training spelling deck", "Number of target words per sentence");
             form.ShowDialog(owner);
             owner.SaveSharedStateAfterTraining();
+            owner.RefreshTrainingShortcutDefinitions(spelling.State.Decks);
         }
         catch (Exception ex)
         {
