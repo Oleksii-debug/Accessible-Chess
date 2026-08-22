@@ -1,0 +1,54 @@
+name: DEV3 Engine Play FEN Bounds CI
+
+on:
+  pull_request:
+    branches:
+      - auto/dev3-engine-play-fen-bounds-ci-base-20260822
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dev3-engine-play-fen-bounds-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  engine-play-bounds:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install verification dependencies
+        run: python -m pip install -q pytest
+
+      - name: Diff hygiene
+        run: git diff --check 6f5d19ead9d6b9176c64aaaf381a159c7c12fed8 HEAD
+
+      - name: Compile Product and tests
+        run: python -m compileall -q acs tests run_accessible_chess.py
+
+      - name: Focused engine-play FEN boundary regressions
+        run: >-
+          python -m unittest -v
+          tests.test_engine_play_service
+          tests.test_dev3_engine_play_fen_bounds
+          tests.test_analysis_service
+          tests.test_dev3_analysis_request_bounds
+          tests.test_dev3_engine_assisted_workflows
+          tests.test_dev3_continuous_fen_bounds
+
+      - name: Full unittest regression
+        run: python -m unittest discover -s tests -v
+
+      - name: Full pytest regression
+        run: python -m pytest -q
+
+      - name: Accessible Chess complete diagnostic
+        run: python run_accessible_chess.py --diagnostic complete
