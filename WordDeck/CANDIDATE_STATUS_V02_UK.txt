@@ -1,0 +1,11 @@
+WORDDECK V0.2 — FULL-V1 ENGINEERING CANDIDATE
+
+Цей пакет є окремим кандидатом наступної версії й НЕ замінює прийнятий WordDeck V0.1.
+
+У кандидата інтегровані Recall, Spelling, deterministic/statistical Adaptive Coach, Sentence Spelling/Sentence Coach runtime, повний Oxford 5000, британська офлайн-озвучка, Study Scopes, єдиний профіль Recall+Spelling+Sentence, резервні копії/міграції та клавіатурна доступність.
+
+Sentence runtime, імпорт, provenance-перевірки та SQLite-шар інтегровані. Проте цей ZIP НЕ заявляє, що містить фінальний production SentencePack: у канонічних вхідних даних цього раунду немає незалежно підтвердженого розповсюджуваного EN-UA SentencePack payload із завершеним source/license evidence. Програма має працювати без падіння без встановленого SentencePack і приймати валідований пакет через передбачений імпорт.
+
+Автоматизований Windows/UI Automation тест не є ручним тестом NVDA. Ручний NVDA PASS не заявляється.
+
+Особистий прогрес не входить у публічний ZIP і зберігається окремо у %LOCALAPPDATA%\WordDeck.
