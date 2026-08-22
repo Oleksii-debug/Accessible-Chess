@@ -3,32 +3,36 @@
 Lane: Full Product engine/analysis + ACSDB / Library / Search / import-export safety + presentation-neutral Books/Training progress backend contracts.
 
 Active branch: `auto/dev3-acsdb-stable-paging-20260821`
-Draft PR: #65 against `codex/full-product-20260821`
+Draft Product PR: #65 against `codex/full-product-20260821`
+Evidence-only PR: #77, DO NOT MERGE.
 
-Latest verified executable Product head: `feaa097bb9c87667132fcede7c0d192503b1d7b9`.
-Exact GREEN CI run/job: `32556145719` / `96990471833`.
-Workflow PR merge ref: `4147f3cee7277db773f1cac16a87fd1b7cf63950` against Full Product base `656e8ec311e364e6e54a30504fd30a4aaff586f9`.
+Latest verified executable Product head: `1ca5784b3ce00837b40888a26dd1e94d8ce754ed`.
+Exact GREEN CI run/job: `32558628088` / `96996629973`.
+Workflow PR merge ref: `ff2fd2600e38b885a74f60fa1f61cf4956da1995`; its only delta above Product head is a documentation-only evidence marker.
 Runner: GitHub runner 2.336.0; Ubuntu 24.04.4 image 20260816.277.1; Python 3.12.14.
 
-New P1 delivered in this continuation: BookReader live-document mutation guard for durable progress.
-- `BookIndex` is an immutable semantic index built from one `BookDocument` snapshot, while the source document remains authoring-mutable.
-- Before this patch, in-place block reorder/insert or semantic identity edits could leave `save_return_point()`, `restore_return_point()` and `snapshot()` consulting stale index entries.
-- The reader now stores a SHA-256 semantic revision fingerprint for the indexed blocks and fails closed before durable target work whenever the live document differs.
-- Durable progress saved before an edit can still be restored into a fresh reader after a source-preserving reorder when stable semantic identity remains valid.
-- Four deterministic regressions cover reorder, identity edit, insertion and correct fresh-reader restore after edit.
-- Existing schema-v2 fallback digests, ambiguous-target preflight, Training revision-bound snapshots and ACSDB/Library/Search contracts remain intact.
-- No chess legality, GameTree, board, UI, keybinding, Windows or NVDA presentation authority was introduced.
+New P1 delivered in this continuation: durable Training progress compare-and-swap persistence.
+- `ExerciseSession` remains the canonical Training snapshot/restore semantic authority.
+- New `TrainingProgressStore` only owns durable filesystem publication and optimistic concurrency; it does not parse moves, validate board state, or create another application/chess core.
+- Create uses `expected_revision=None` and fails if progress already exists; updates require the exact SHA-256 revision returned by the previous load/save.
+- A stale reader cannot silently overwrite a newer writer.
+- Concurrent writers are serialized by an atomic peer lock directory and busy writes fail explicitly.
+- Publication uses a peer temporary file, flush + fsync and atomic replacement. Synthetic publication failure leaves the prior durable file intact and removes temp/lock artifacts.
+- Store envelope version/type/field validation fails closed; `ExerciseSession.restore()` rejects changed exercise definitions and malformed snapshots.
+- Five deterministic regressions cover round-trip update, stale writer/create-only protection, definition/corruption rejection, strict revision/busy lock behavior and publication-failure recovery.
+- Dedicated and Full Product DEV3 workflows now gate this module. The Full Product pull-request routing also accepts the exact active DEV3 branch as a validation base.
 
-Exact CI evidence on `feaa097b...` through merge ref `4147f3c...`:
+Exact CI evidence on `1ca5784b...` through merge ref `ff2fd260...`:
 - diff hygiene PASS;
 - compileall including `run_accessible_chess.py` PASS;
-- focused DEV3 data/reading-progress suite: 73/73 PASS;
-- full unittest discovery: 607/607 PASS;
-- full pytest: 685 passed + 581 subtests passed;
+- focused DEV3 data/Books/Training suite: 78/78 PASS;
+- full unittest discovery: 612/612 PASS;
+- full pytest: 690 passed + 585 subtests passed;
 - complete diagnostic: SELFTEST PASS and ACCESSIBLE CHESS 0.4 WEBVIEW2 COMPLETE USER FLOW DIAGNOSTIC PASS;
+- all five new persistence tests PASS;
 - no tests weakened or skipped for GREEN.
 
-Previously verified DEV3 packages remain intact: ACSDB stable keyset paging/provenance/schema-v3/WAL/strict scalars/backup-recovery/query-plan, PGN and ACSDB atomic no-overwrite publication, Training revision-bound snapshots, BookReader semantic-target progress, index-fallback revision integrity and ambiguous durable-target write integrity.
+Previously verified DEV3 packages remain intact: ACSDB stable keyset paging/provenance/schema-v3/WAL/strict scalars/backup-recovery/query-plan, PGN and ACSDB atomic no-overwrite publication, Training schema-v2 revision-bound snapshots, BookReader semantic-target progress, index-fallback revision integrity, ambiguous durable-target write integrity and live-document mutation guards.
 
 SAFE OVERLAP ownership remains:
 - DEV2 owns canonical GameTree/domain work.
@@ -38,8 +42,9 @@ SAFE OVERLAP ownership remains:
 
 Readiness:
 - DEV3 ACSDB/Library/Search/recovery/query-plan package: `READY_FOR_INTEGRATION=YES`.
-- Training revision-bound snapshot slice: COMPLETE / GREEN.
+- Training revision-bound snapshot + durable CAS progress slices: COMPLETE / GREEN.
 - Books durable reading-progress integrity slices: COMPLETE / GREEN.
 - Overall DEV3 Full Product mission: PARTIAL.
 - Next action: fresh ownership check, then another unclaimed dependency-correct ACSDB/Library/Search or presentation-neutral Books/Training/progress backend P1; stay SAFE OVERLAP on touching owned work.
-- Frozen Stage1 release refs untouched. No Windows candidate created. `NVDA_VERIFIED=NO`.
+- Non-blocking P2 hygiene: GitHub warns that actions target deprecated Node20 while the runner forces Node24.
+- Frozen Stage1 release refs untouched. No Windows candidate created. Linux semantic accessibility tests do not constitute personal NVDA verification. `NVDA_VERIFIED=NO`.
