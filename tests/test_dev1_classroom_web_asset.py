@@ -59,10 +59,14 @@ class ClassroomWebAssetTests(unittest.TestCase):
         self.assertNotIn("chesscore", lowered)
         self.assertNotIn("make_move", lowered)
 
-    def test_renderer_focuses_only_selected_option_after_render(self) -> None:
+    def test_renderer_never_steals_focus_without_explicit_focus_target(self) -> None:
         source = self.source
-        self.assertIn('[role="option"][aria-selected="true"]', source)
-        self.assertIn('selected.focus({ preventScroll: true })', source)
+        self.assertIn("function focusRequestedOption(root, focusTarget)", source)
+        self.assertIn('querySelectorAll(\'[role="option"]\')', source)
+        self.assertIn("option.id === focusTarget", source)
+        self.assertIn("option.focus({ preventScroll: true })", source)
+        self.assertIn('focusRequestedOption(root, focusTarget || "")', source)
+        self.assertNotIn('[role="option"][aria-selected="true"]', source)
         self.assertIn("root.replaceChildren(fragment)", source)
 
 
