@@ -7,7 +7,6 @@ from acs.game_identity import identity_for_game
 from acs.gametree import parse_games
 from acs.gametree_snapshot import (
     GAMETREE_SNAPSHOT_SCHEMA_VERSION,
-    GameTreeSnapshot,
     GameTreeSnapshotCode,
     GameTreeSnapshotError,
     MAX_WARNING_CHARS,
