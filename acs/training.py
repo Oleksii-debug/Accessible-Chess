@@ -1,15 +1,18 @@
 from __future__ import annotations
 
+import hashlib
+import json
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Mapping
 
 
-TRAINING_SNAPSHOT_SCHEMA_VERSION = 1
+TRAINING_SNAPSHOT_SCHEMA_VERSION = 2
 _TRAINING_SNAPSHOT_FIELDS = frozenset(
     {
         "schema_version",
         "exercise_id",
+        "definition_digest",
         "step_index",
         "attempts",
         "mistakes",
@@ -192,10 +195,16 @@ class ExerciseSession:
         self._status = ExerciseStatus.READY
 
     def snapshot(self) -> dict[str, object]:
-        """Return the strict schema-v1 state for persistence adapters."""
+        """Return the strict schema-v2 state for persistence adapters.
+
+        The definition digest binds progress to the start position and ordered
+        accepted-move sets. Presentation-only changes such as title, hints,
+        explanations, tags or metadata intentionally do not invalidate progress.
+        """
         return {
             "schema_version": TRAINING_SNAPSHOT_SCHEMA_VERSION,
             "exercise_id": self.definition.exercise_id,
+            "definition_digest": _definition_digest(self.definition),
             "step_index": self._step_index,
             "attempts": self._attempts,
             "mistakes": self._mistakes,
@@ -205,11 +214,13 @@ class ExerciseSession:
 
     @classmethod
     def restore(cls, definition: ExerciseDefinition, snapshot: Mapping[str, object]) -> "ExerciseSession":
-        """Restore an exact schema-v1 snapshot without scalar coercion.
+        """Restore an exact schema-v2 snapshot without scalar coercion.
 
         Persistence adapters must migrate older payloads explicitly before
-        calling this method. Unknown fields, missing fields and alternate scalar
-        types fail closed so corrupt or future data cannot be reinterpreted.
+        calling this method. Schema v1 did not carry exercise-revision identity
+        and therefore cannot be safely inferred as compatible. Unknown fields,
+        missing fields and alternate scalar types fail closed so corrupt, stale
+        or future data cannot be reinterpreted.
         """
         if not isinstance(snapshot, Mapping):
             raise TypeError("exercise snapshot must be a mapping")
@@ -235,6 +246,10 @@ class ExerciseSession:
             raise TypeError("exercise snapshot exercise_id must be a string")
         if exercise_id != definition.exercise_id:
             raise ValueError("exercise snapshot belongs to a different exercise")
+
+        definition_digest = _snapshot_digest(snapshot["definition_digest"])
+        if definition_digest != _definition_digest(definition):
+            raise ValueError("exercise snapshot belongs to a different exercise revision")
 
         step_index = _snapshot_counter(snapshot["step_index"], name="step_index")
         attempts = _snapshot_counter(snapshot["attempts"], name="attempts")
@@ -265,6 +280,28 @@ class ExerciseSession:
         session._hints_used = hints_used
         session._status = status
         return session
+
+
+def _definition_digest(definition: ExerciseDefinition) -> str:
+    semantic_payload = {
+        "start_fen": definition.start_fen,
+        "steps": [sorted(step.accepted_moves) for step in definition.steps],
+    }
+    encoded = json.dumps(
+        semantic_payload,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _snapshot_digest(value: object) -> str:
+    if type(value) is not str:
+        raise TypeError("exercise snapshot definition_digest must be a string")
+    if len(value) != 64 or value != value.lower() or any(character not in "0123456789abcdef" for character in value):
+        raise ValueError("invalid exercise snapshot definition_digest")
+    return value
 
 
 def _snapshot_counter(value: object, *, name: str) -> int:
