@@ -1,42 +1,41 @@
 # DEV3 RUN STATE
 
-RUN_ID: 20260822-engine-handoff-fen-bounds
+RUN_ID: 20260822-2103-no-move-fen-bounds
 STATUS: COMPLETE / TERMINAL
 READY_FOR_INTEGRATION: YES
 OVERALL_FULL_PRODUCT_DEV3: PARTIAL
 
-BRANCH: auto/dev3-engine-handoff-fen-bounds-20260822
-DRAFT_PR: #131
-PARENT_COORDINATION_HEAD: a73034926fbc660c3a1d908b4dc77d30185f63fd
-PRODUCT_CODE_COMMIT: 742f13b2611d4b7ed10431dff211244b706c440f
-VALIDATED_PRODUCT_TEST_HEAD: d3773b5d23946a9fe1ff15a25c6d8010e3bd9500
-CI_BASE_HEAD: 342cdef689bf46ceee4c85a4d20bac143249b998
+BRANCH: auto/dev3-no-move-fen-bounds-20260822
+DRAFT_PR: #132
+PARENT_COORDINATION_HEAD: aed57198d0c06375cb08c9a8cc486b72642f0f56
+PRODUCT_CODE_COMMIT: 8f664ea80092bacdff46c252c44ab043831e78ec
+VALIDATED_PRODUCT_TEST_HEAD: f9da6a149e72acb66e9993771e48948fd70389fa
+CI_BASE_HEAD: e32ef0f9d479bb579df49ab8cf8d03233e3d3f47
 
-PACKAGE: backend-only EngineGameHandoff ANALYZE_CURRENT_GAME resource boundary.
-- reuses shared ENGINE_FEN_MAX_LENGTH=512; no duplicate limit or chess/application state model;
+PACKAGE: backend-only EngineNoMoveHandoff FEN resource boundary.
+- reuses shared ENGINE_FEN_MAX_LENGTH=512; no duplicate limit, FEN parser, or chess/application state model;
 - normalizes outer whitespace before the length check;
 - exact 512-character normalized payload remains valid;
-- 513-character normalized payload fails closed at DTO construction before downstream analysis routing;
-- existing error message `analyze-current-game handoff requires fen text` and INVALID_HANDOFF code remain unchanged;
+- 513-character normalized payload fails closed with INVALID_HANDOFF at DTO construction;
 - no DEV1 UI, DEV2 GameTree/domain, DEV4 PGN/ChessBase/import/shared ACSDB, or DEV5 integration paths changed.
 
 EXACT CI EVIDENCE:
-Workflow: DEV3 Engine Handoff FEN Bounds CI
-Run: 32597620359
-Job: 97090954799
+Workflow: DEV3 No-Move FEN Bounds CI
+Run: 32598467907
+Job: 97092971137
 Conclusion: SUCCESS
-Focused handoff/engine/analysis boundaries: 72/72 PASS
-Full unittest: 713/713 PASS
-Full pytest: 791 passed + 645 subtests PASS
+Focused engine-session/resource regressions: 89/89 PASS
+Full unittest: 717/717 PASS
+Full pytest: 795 passed + 651 subtests PASS
 SELFTEST: PASS
 ACCESSIBLE CHESS 0.4 WEBVIEW2 COMPLETE USER FLOW DIAGNOSTIC: PASS
 Diff hygiene: PASS
 Compile: PASS
 TEST_WEAKENING: NONE
 
-OWNERSHIP: fresh read found no active competing EngineGameHandoff Product owner. Earlier PR #129 is closed/unmerged and non-authoritative. DEV5 remains selective integration/promotion owner.
+OWNERSHIP: fresh read found no active competing Product owner for this exact EngineNoMoveHandoff gap. DEV5 remains selective integration/promotion owner.
 
-NEXT: fresh ownership read, then audit the next backend-only engine lifecycle/cancellation/recovery/resource-bound gap; do not enter shared ACSDB while DEV4 ownership remains active.
+NEXT: fresh ownership read, then audit the next backend-only engine lifecycle/cancellation/recovery/resource-bound gap; use evidence-first characterization if no concrete high-value Product defect is found. Do not enter shared ACSDB while DEV4 ownership remains active.
 
 FRESH_WINDOWS_CANDIDATE: NO
 NVDA_VERIFIED: NO
