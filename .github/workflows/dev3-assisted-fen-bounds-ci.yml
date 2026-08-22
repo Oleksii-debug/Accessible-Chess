@@ -1,0 +1,40 @@
+name: DEV3 Assisted FEN Bounds CI
+
+on:
+  pull_request:
+    branches:
+      - auto/dev3-assisted-fen-bounds-ci-base-20260822
+
+permissions:
+  contents: read
+
+jobs:
+  assisted-fen-bounds:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install verification dependencies
+        run: python -m pip install -q pytest
+      - name: Diff hygiene
+        run: git diff --check 9c8a342e7dd98fee52c9776c0cb6a9b970d49296 HEAD
+      - name: Compile
+        run: python -m compileall -q acs tests run_accessible_chess.py
+      - name: Focused assisted-analysis regressions
+        run: >-
+          python -m unittest -v
+          tests.test_dev3_engine_assisted_workflows
+          tests.test_analysis_service
+          tests.test_dev3_analysis_request_bounds
+          tests.test_dev3_game_review_service
+      - name: Full unittest discovery
+        run: python -m unittest discover -s tests -v
+      - name: Full pytest regression
+        run: python -m pytest -q
+      - name: Complete diagnostic
+        run: python run_accessible_chess.py --diagnostic
