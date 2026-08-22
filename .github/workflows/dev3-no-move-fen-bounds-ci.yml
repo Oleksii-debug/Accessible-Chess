@@ -1,0 +1,55 @@
+name: DEV3 No-Move FEN Bounds CI
+
+on:
+  pull_request:
+    branches:
+      - auto/dev3-no-move-fen-bounds-ci-base-20260822
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dev3-no-move-fen-bounds-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  no-move-bounds:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install verification dependencies
+        run: python -m pip install -q pytest
+
+      - name: Diff hygiene
+        run: git diff --check aed57198d0c06375cb08c9a8cc486b72642f0f56 HEAD
+
+      - name: Compile Product and tests
+        run: python -m compileall -q acs tests run_accessible_chess.py
+
+      - name: Focused engine-session resource regressions
+        run: >-
+          python -m unittest -v
+          tests.test_dev3_no_move_fen_bounds
+          tests.test_engine_game_session
+          tests.test_engine_play_service
+          tests.test_dev3_engine_handoff_fen_bounds
+          tests.test_dev3_engine_move_resource_bounds
+          tests.test_analysis_service
+          tests.test_dev3_analysis_request_bounds
+
+      - name: Full unittest regression
+        run: python -m unittest discover -s tests -v
+
+      - name: Full pytest regression
+        run: python -m pytest -q
+
+      - name: Accessible Chess complete diagnostic
+        run: python run_accessible_chess.py --diagnostic complete
