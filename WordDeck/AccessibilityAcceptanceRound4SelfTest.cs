@@ -21,7 +21,7 @@ internal static class AccessibilityAcceptanceRound4SelfTest
         TestUnsafeAndNativeKeysFailClosed();
         TestRecallArrowSurfaceContract();
         TestSelectorNavigationContract();
-        Console.WriteLine("WordDeck R4 accessibility acceptance passed: unified shortcut truth, context isolation, dynamic Spelling binding preservation, unsafe/native keys, Recall arrow surface and selector navigation contracts verified.");
+        Console.WriteLine("WordDeck R4 accessibility acceptance passed: unified shortcut truth, context isolation, cross-mode conflict rejection, dynamic Spelling binding preservation, unsafe/native keys, Recall arrow surface and selector navigation contracts verified.");
     }
 
     private static void TestShortcutContextIsolation()
@@ -57,13 +57,23 @@ internal static class AccessibilityAcceptanceRound4SelfTest
 
         string spellingDeckId = spelling.Decks.First().Id;
         string dynamicAction = ActionIds.SpellingSwitchDeck(spellingDeckId);
-        app.Shortcuts[dynamicAction] = (Keys.Control | Keys.Shift | Keys.F8).ToString();
+        Keys dynamicKey = Keys.Control | Keys.Shift | Keys.F8;
+        app.Shortcuts[dynamicAction] = dynamicKey.ToString();
         recallOnly.RefreshDeckDefinitions();
         AssertTrue(app.Shortcuts.ContainsKey(dynamicAction), "Recall-only shortcut refresh deleted a dynamic Spelling binding without Spelling deck context.");
+        AssertFalse(recallOnly.TrySet(ActionIds.SaveProgress, dynamicKey, out string? crossModeConflict) || string.IsNullOrWhiteSpace(crossModeConflict),
+            "Recall settings accepted a key already owned by a persisted dynamic Spelling action.");
+
+        // Imported/legacy state may already contain an ambiguous duplicate. No
+        // window may silently choose one action in that situation.
+        app.Shortcuts[ActionIds.SaveProgress] = dynamicKey.ToString();
+        AssertTrue(recallOnly.Get(ActionIds.SaveProgress) == Keys.None,
+            "Ambiguous persisted cross-mode shortcut did not fail closed.");
+        app.Shortcuts[ActionIds.SaveProgress] = (Keys.Control | Keys.S).ToString();
 
         var full = new ShortcutManager(app, spelling.Decks, ShortcutDispatchContext.All);
         AssertTrue(full.Definitions.Any(def => def.Id == dynamicAction), "Full shortcut registry omitted a valid dynamic Spelling deck action.");
-        AssertEqual(dynamicAction, full.FindAction(Keys.Control | Keys.Shift | Keys.F8), "Valid dynamic Spelling binding did not survive into the full registry.");
+        AssertEqual(dynamicAction, full.FindAction(dynamicKey), "Valid dynamic Spelling binding did not survive into the full registry.");
 
         string orphan = ActionIds.SpellingSwitchDeck("definitely-missing-r4-deck");
         app.Shortcuts[orphan] = (Keys.Control | Keys.Shift | Keys.F9).ToString();
