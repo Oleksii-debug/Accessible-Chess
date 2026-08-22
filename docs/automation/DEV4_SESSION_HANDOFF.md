@@ -1,51 +1,50 @@
 # DEV4 SESSION HANDOFF
 
-SESSION: 20260822-1800 Full Product QA/security
-STATUS: COMPLETE / SAFE OVERLAP
+SESSION: 20260822-1900 Full Product repair
+STATUS: COMPLETE_WITH_CI_UNOBSERVED
+ROLE: DEV4 Product Developer
+DIRECTIVE: AUDIT-20260822-1900-01
+NVDA_VERIFIED=NO
 
 ## Exact state basis
 
-- DEV4 Product: `manual5/dev4-platform-security-packaging-20260821@a4209d005ea0a1476f8eafb4822f4d39ac50ee5a`.
-- Accepted integration remains `manual5/integration-20260821@0fa442330bc2bb03636ff9297512da4c29e38684` in the current canonical lane state.
-- DEV5 reconciliation PR #66 remains separate at `abff45ebcc4b5af2a85ab0c456b025b5098c6e29` and was not mutated.
-- DEV4 QA branch: `qa/dev4-chessbase-symlink-security-20260822`.
-- New evidence commit: `706babfe7b2ad894cf8552a4b109899784f48a23` — `test(qa): gate truncated PGN quality false-green`.
-- Evidence-commit Actions were absent: `INCONCLUSIVE`, not GREEN.
-- Windows strict WIP=1 untouched. `NVDA_VERIFIED=NO`.
+- Product branch: `full5/dev4-import-security-repair-20260822`.
+- Product repair code head before metadata commits: `6ebcca1dddfeafe2916936eaee0f6929ec56c2f2`.
+- Draft Product PR #100 targets `manual5/dev4-platform-security-packaging-20260821`.
+- QA evidence PR #67 remains separate; tests were preserved, not weakened.
+- Accepted Stage1 integration remains `0fa442330bc2bb03636ff9297512da4c29e38684`; untouched.
+- DEV5 PR #66 remains `abff45ebcc4b5af2a85ab0c456b025b5098c6e29`; untouched.
+- Exact Product-head Actions were absent at checkpoint: `INCONCLUSIVE`, not GREEN.
+- Local GitHub clone/test execution failed because sandbox DNS could not resolve github.com: `QA_OR_ENVIRONMENT_ONLY`.
+- Windows strict WIP=1 untouched.
 
-## New finding
+## Product repairs made
 
-`PROVEN_PRODUCT_DEFECT` — a PGN ending without its required game-termination marker can be silently repaired to `*` and counted as record-level FULL. `_parse_line()` emits no warning for end-of-input without a result token, `parse_games()` synthesizes `header_result or "*"`, and `PgnFileImporter.inspect()` treats an empty `game.warnings` list as FULL quality. This makes an abruptly truncated source false-green in `ImportReport.counts`.
+1. `acs.import_contract.fingerprint()` now validates lexical path components, rejects symlink/reparse and non-regular sources, opens with no-follow where available, and rejects unstable identity/mtime/size across hashing.
+2. `acs.pgn_service` now enforces a finite 64 MiB source/text boundary and bounded `read(size)`; invalid UTF-8 replacement is reflected at record quality.
+3. `acs.import_registry.inspect_batch()` now records importer `RuntimeError` per source and continues later inputs.
+4. `acs.chessbase_adapter` report serialization uses safe filenames and distinguishes companion-directory I/O unavailability from verified no-companion evidence.
+5. `acs.chessbase_integrity` rejects filesystem indirection, checks pre/post stability, removes absolute paths from report DTOs, and converts verification I/O into domain failure.
+6. `acs.chessbase_manifest` removes private directories from serialized DTOs, rejects unsafe symlink evidence, and converts re-verification I/O into explicit failed verification problems.
 
-Strict gate: `tests/test_dev4_pgn_truncation_quality.py`. Product code unchanged.
+## Still unresolved in DEV4 ownership
 
-## Locked defect classes
+- PGN expected-hash publication lost-update race.
+- PGN `overwrite=False` publication clobber race.
+- PGN export path-indirection/symlink escape.
+- ACSDB raw failed-import error persistence/application exposure.
 
-1. Import/ChessBase symlink-reparse indirection.
-2. PGN unbounded full-text/resource boundary and no finite cap.
-3. ChessBase private absolute paths in serialized evidence DTOs.
-4. PGN expected-hash TOCTOU lost update.
-5. PGN no-overwrite TOCTOU clobber.
-6. PGN export path-indirection boundary.
-7. ChessBase companion-directory I/O false-green.
-8. Generic import batch RuntimeError abort.
-9. ChessBase verification I/O observability failure.
-10. Shared import special-file/FIFO open-before-validation boundary.
-11. Provenance unstable-snapshot boundary on shared import and ChessBase integrity hashing.
-12. ACSDB failed-import raw exception persistence/application exposure.
-13. Lossy PGN encoding can be counted as FULL record quality.
-14. Missing PGN termination marker can be silently synthesized and counted FULL.
+The PGN missing-termination-marker quality defect remains proven by strict QA evidence, but changing canonical GameTree parsing overlaps DEV2 ownership; DEV4 did not mutate GameTree semantics in this run.
 
-## Other classifications
+## Classification
 
-- QA EVIDENCE: PGN export failure recovery/temp cleanup/POSIX temp privacy.
-- QA EVIDENCE: release-facing Stockfish path-bearing exceptions are sanitized.
-- INCONCLUSIVE: exact QA CI until checks appear.
-- INCONCLUSIVE: PGN directory crash/power-loss durability.
-- INCONCLUSIVE: duplicate-source/cancellation semantics without a stronger explicit contract.
-- HUMAN_ONLY: exact fresh Windows/NVDA usability.
+- Product repairs above: implemented, pushed, awaiting exact executable evidence.
+- Exact PR #100 CI: `INCONCLUSIVE` until observed.
+- Sandbox clone/test failure: `QA_OR_ENVIRONMENT_ONLY`.
+- Windows-specific reparse behavior: `INCONCLUSIVE` until exact Windows execution.
+- NVDA usability: `HUMAN_ONLY`; `NVDA_VERIFIED=NO`.
 - No Ctrl+A/Ctrl+C Product defect claim.
 
 ## Next action
 
-Recheck PR #67 exact head/CI, then continue explicit generic-import resource boundaries and concrete persisted/UI/report sink tracing. Treat duplicate/cancellation behavior conservatively unless a concrete contract violation is proven. Stay out of Product-owner and Windows strict lanes.
+Read PR #100 final head/Actions first. Continue with ACSDB failed-import privacy, then PGN export path indirection, then publication concurrency using a true commit-boundary design. Do not enter DEV5 integration, strict Windows QA, Stage1 release, or DEV2 canonical GameTree ownership.
