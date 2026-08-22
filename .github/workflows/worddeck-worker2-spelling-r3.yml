@@ -70,7 +70,7 @@ jobs:
         run: |
           $target = Join-Path $env:RUNNER_TEMP 'WordDeck тест R3\Published App'
           New-Item -ItemType Directory -Force -Path $target | Out-Null
-          Copy-Item -LiteralPath '.\artifacts\WordDeck-worker2-r3\*' -Destination $target -Recurse -Force
+          Copy-Item -Path '.\artifacts\WordDeck-worker2-r3\*' -Destination $target -Recurse -Force
           & (Join-Path $target 'WordDeck.exe') --self-test
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
