@@ -56,11 +56,17 @@ function Assert-Focus([string]$expected, [string]$context) {
 }
 
 function Send-Keys([string]$keys) {
-    # WinApp documents that accelerator/shortcut combinations need SendInput so
-    # the target process observes the held modifier state. Plain navigation keys
-    # stay on PostMessage because they are HWND-targeted and deterministic on a
-    # hosted runner.
-    $transport = if ($keys.Contains('+')) { 'send-input' } else { 'post-message' }
+    # Application shortcut combinations need SendInput so the target process sees
+    # the held modifier state. Plain navigation stays HWND-targeted. Alt+F4 is a
+    # special case: WinApp refuses OS-wide injection unless system keys are opted
+    # in, while PostMessage safely closes only the intended WordDeck window/dialog.
+    $transport = if ($keys -ieq 'alt+f4') {
+        'post-message'
+    } elseif ($keys.Contains('+')) {
+        'send-input'
+    } else {
+        'post-message'
+    }
     Invoke-WinApp @('ui','send-keys',$keys,'-a',[string]$script:appPid,'--via',$transport) | Out-Null
     Start-Sleep -Milliseconds 250
 }
