@@ -14,6 +14,7 @@ on:
       - auto/dev3-acsdb-stable-paging-20260821
       - auto/dev3-student-progress-store-20260822
       - auto/dev3-search-resource-bounds-20260822
+      - auto/dev3-student-progress-resource-bounds-20260822
       - auto/dev3-bookreader-snapshot-bounds-20260822
 
 permissions:
