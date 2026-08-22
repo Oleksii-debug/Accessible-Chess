@@ -10,7 +10,7 @@ output such as GameTree/ACSDB/PGN.
 """
 
 from dataclasses import dataclass, field
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Iterable
 
 
@@ -35,24 +35,14 @@ _ALL_EXTENSIONS = {**_PRIMARY_EXTENSIONS, **_COMPONENT_EXTENSIONS}
 
 
 def report_safe_name(path: str | Path) -> str:
-    """Return only the final filename across POSIX and Windows separators.
+    """Return a filename-only identifier independent of host path syntax.
 
-    ``Path.name`` follows the host operating system's path grammar. A Windows
-    path serialized on a POSIX runner therefore keeps its backslash-separated
-    workstation directories. Reports must be portable and must never expose
-    those directories, so report naming intentionally treats both separator
-    conventions as path boundaries without changing the underlying source path.
+    External evidence may carry a Windows path while reporting runs on POSIX or
+    vice versa. Normalize both separator styles before taking the final path
+    component so workstation parent directories never cross report boundaries.
     """
 
-    raw = str(path).rstrip("/\\")
-    if not raw:
-        return ""
-    return raw.replace("\\", "/").rsplit("/", 1)[-1]
-
-
-def _report_name(path: Path) -> str:
-    """Backward-compatible internal wrapper for the shared report sanitizer."""
-    return report_safe_name(path)
+    return PurePosixPath(str(path).replace("\\", "/")).name
 
 
 class ChessBaseProbeIOError(RuntimeError):
