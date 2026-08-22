@@ -1,40 +1,37 @@
 # DEV5 SESSION HANDOFF
 
-SESSION: 20260822-2225 Coordinator/Integrator/QA
+SESSION: 20260822-2233 Coordinator/Integrator/QA
 STATUS: COMPLETE / TERMINAL
-MODE: SAFE_OVERLAP_COORDINATION / EXACT_DEV4_EVIDENCE_RECONCILIATION
-BRANCH: `auto/dev5-coordinator-2225-20260822`
-SNAPSHOT: `docs/automation/SNAPSHOT_20260822_2225.md`
-CUTOFF: 2026-08-22T22:25:45+03:00
+MODE: SAFE_OVERLAP_COORDINATION / EXACT_DEV4_REPAIR_VALIDATION
+BRANCH: `auto/dev5-coordinator-2233-20260822`
+CUTOFF: 2026-08-22T22:33:56+03:00
+DIRECTIVE: `DEV5-0028 revision 1`
 
-## Why Product composition did not advance
-Canonical DEV1 RUN `20260822-1904` was genuinely IN_PROGRESS before cutoff on `full5/dev1-pgn-webview-20260822-1904`. The live branch is six commits ahead of its terminal parent and contains only the four new PGN WebView presentation/test paths, but no terminal handoff existed at cutoff. SAFE OVERLAP therefore prohibited a competing DEV5 Product push.
+## Terminal ruling
+No DEV5 Product composition was legal in this invocation because touching work was active at cutoff: DEV2 RUN `20260822-2226` was IN_PROGRESS on Classroom domain, and DEV1 work was moving around the cutoff and subsequently started RUN `20260822-2236` for Library/Search WebView. Same-wave GREEN evidence is recorded but quarantined from intake under the one-wave-lag rule.
 
 Accepted Stage1 remains `0fa442330bc2bb03636ff9297512da4c29e38684`. Persistent exact-GREEN full-product non-PGN authority remains `dd9ebf9414103c805892856fe6a04706fa69039f`, CI `32577600761 / 97042099941` SUCCESS.
 
-## Exact DEV4 evidence generated safely during overlap
-Eligible pre-cutoff DEV4 terminal Product head was `f44113ac3c7783aca761c0a7e9044a6cac334cb3`. DEV5 created evidence-only validation branch `full5/dev5-validate-dev4-f44113ac-20260822` and draft PR #111 DO NOT MERGE. The workflow explicitly checks out exact `f44113ac...`; it does not validate the workflow-harness commit as Product.
+## DEV4 independent machine validation performed
+Fresh DEV4 Product repair head was `6298899cb112336ef220caa8d0e52334ddc0c0ae`, PR #100. DEV5 created evidence-only branch `auto/dev5-validate-dev4-6298899c-20260822`, added only a validation workflow, and opened draft PR #113 DO NOT MERGE.
 
-Run `32593848747 / 97081672853` verified exact SHA identity, ancestry/diff hygiene and compile, then stopped on two focused REDs.
+Exact run `32594202023 / 97082512844`: checkout, diff hygiene and compile PASS; strict focused suite 38 PASS / 2 FAIL.
 
-RED 1 was correctly reclassified as stale QA instrumentation, not Product regression: the no-overwrite test still mocks `os.replace`, while repaired no-clobber Product publication now uses `os.link`. The race therefore was not injected. The safety contract remains `FileExistsError` + preservation of a competing destination and must be re-gated against the actual primitive without weakening assertions.
+Failure 1 is stale QA instrumentation: no-overwrite race test mocks `os.replace`, while repaired Product commits no-clobber through `os.link`. The race is not injected. The assertion must be re-instrumented at the actual `os.link` boundary, retaining the required `FileExistsError` and preservation of competing bytes.
 
-RED 2 is missing-PGN-termination quality on DEV4's older GameTree ancestry. Canonical DEV2 already fixed this in `8ef02d462f3af38a9620f9aae02cdf64654c0652` + `918d4e560d99c12e24e0763dc3a6fc1f1fbd82d4`; exact CI `32583061094 / 97055206185` passed the independent DEV4 oracle. Current terminal DEV2 `7d525dd34f6ae1a2083a79e25638cbc101e9beaf` is a descendant, so the canonical defect is closed and must be preserved during selective composition.
+Failure 2 is a known ancestry conflict: DEV4 historical GameTree lacks missing-termination loss warning. Canonical DEV2 fixed this in `8ef02d462f3af38a9620f9aae02cdf64654c0652` + `918d4e560d99c12e24e0763dc3a6fc1f1fbd82d4`; exact DEV2 CI `32583061094 / 97055206185` passes the independent DEV4 truncation oracle. Therefore future composition preserves DEV2 GameTree and overlays only DEV4-owned file-service/import/security changes.
 
-All other DEV4 security/resource/privacy gates reached before the focused stop passed on exact `f44113ac...`, including expected-hash race detection, stable fingerprinting, symlink/FIFO rejection, bounded PGN reads, invalid-UTF8 downgrade, ChessBase path/I/O guards, import-history redaction, batch continuation, export path rejection and cleanup.
+Coordination comment `5382238032` was posted on PR #100 with this exact evidence. PR #100 is NOT READY for intake until the real-primitive race oracle and exact machine GREEN are available.
 
-## Post-cutoff quarantine
-DEV4 PR #100 moved after cutoff to later repair work. Those post-cutoff commits were not used as current intake authority. They require a fresh next-wave snapshot and exact executable evidence. DEV1 also remains an overlap barrier until its current PGN WebView run terminalizes.
+## Same-wave package evidence
+DEV1 prior PGN/GameTree WebView package terminalized technically GREEN at `6336d917319f22e422fc3b541feecf7c40977ac9`, PR #112, CI `32594006323 / 97082049039`: focused 115/115; accessibility 65/65; unittest 726/726; pytest 804 + 719 subtests; diagnostic PASS. It was not consumed because it terminalized after the cutoff and a new DEV1 run is now active.
 
-## Coordinator outputs
-- `DEV5_CURRENT_STATE.md` commit `99f2d01a39a32ee491c3e013353cf5938d5f8e7f`
-- `DEV5_NEXT_WORK.md` commit `8428eaef1aea8ae3949fc900dc5087a87f742181`
-- `DEV5_RUN_STATE.md` commit `89ffce7eddab02277cc4a8cab63b8292703a684d`
-- `NEXT_WAVE_DIRECTIVES.md` -> `DEV5-0027 revision 1`, commit `e0b7448edeac6e35ee9da52160793f374974ce84`
-- immutable snapshot commit `685897dcbfe4e5524e23ecb6df7a126394e6d39a`
+DEV2 Classroom domain Product `8d9c7c99ef8d1754555adaf286ab15f5da3224af` obtained validation run `32594221729 / 97082562977` SUCCESS: classroom 22/22, interaction 19/19, remote 14/14, unittest 787 OK + 1 skip, pytest 867 + 1336 subtests. Canonical Drive RUN_STATE still reports IN_PROGRESS, so intake waits for terminal handoff/readback.
 
-## Next
-Fresh cutoff. If DEV1 or DEV4 touching work remains active, SAFE OVERLAP only. Once terminal, selectively compose from `dd9ebf...` using current canonical DEV2 first (including termination repair), accepted DEV3, DEV4-owned repaired import/PGN service/security paths only, then terminal DEV1 presentation paths. Run the full PGN -> GameTree -> ACSDB -> Unicode Search/Open + concurrency/privacy/recovery/accessibility matrix before any persistent full5 authority advances.
+DEV3 shippable Product remains `9c8a342e7dd98fee52c9776c0cb6a9b970d49296`, PR #105, exact CI GREEN. Newer 100k Unicode work remains evidence-only.
+
+## Next safe integration sequence
+Fresh cutoff first. When touching lanes are terminal and DEV4 has exact GREEN on the corrected real-primitive oracle, selectively compose from `dd9ebf...` using current canonical DEV2 first, then accepted DEV3 Product, then only DEV4-owned repaired import/PGN-security deltas, then latest terminal DEV1 presentation deltas. Preserve DEV2 GameTree; reconcile overlapping DEV4 ACSDB changes hunk-level against accepted DEV3/current-green behavior. Run the full PGN -> GameTree -> ACSDB -> Unicode Search/Open + concurrency/privacy/recovery/Classroom/Teacher/accessibility matrix before any persistent full5 authority advances.
 
 PR #54/frozen refs untouched. Rejected ZIP not reused. No fresh Windows candidate.
 
