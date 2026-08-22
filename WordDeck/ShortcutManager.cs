@@ -3,6 +3,7 @@ namespace WordDeck;
 internal sealed class ShortcutManager
 {
     private readonly AppState _state;
+    private readonly ShortcutDispatchContext _dispatchContext;
     private List<DeckDefinition> _spellingDecks;
     private static IReadOnlyList<ShortcutDefinition> RecallDefinitions { get; } = BuildRecallDefinitions();
     private static IReadOnlyList<ShortcutDefinition> ScopeDefinitions { get; } = BuildScopeDefinitions();
@@ -12,9 +13,10 @@ internal sealed class ShortcutManager
     public IReadOnlyList<ShortcutDefinition> Definitions { get; private set; }
     public IReadOnlyList<ShortcutDefinition> CurrentDefinitions => Definitions;
 
-    public ShortcutManager(AppState state, IEnumerable<DeckDefinition>? spellingDecks = null)
+    public ShortcutManager(AppState state, IEnumerable<DeckDefinition>? spellingDecks = null, ShortcutDispatchContext dispatchContext = ShortcutDispatchContext.All)
     {
         _state = AppStateStore.Normalize(state);
+        _dispatchContext = dispatchContext;
         _spellingDecks = spellingDecks?.ToList() ?? new List<DeckDefinition>();
         Definitions = BuildDefinitions();
         EnsureDefaults();
@@ -46,7 +48,9 @@ internal sealed class ShortcutManager
     public string? FindAction(Keys keyData)
     {
         if (keyData == Keys.None) return null;
-        ShortcutDefinition? definition = Definitions.FirstOrDefault(def => Get(def.Id) != Keys.None && Get(def.Id) == keyData);
+        ShortcutDefinition? definition = Definitions.FirstOrDefault(def =>
+            ShortcutDispatchPolicy.ActionMatchesContext(def.Id, _dispatchContext) &&
+            Get(def.Id) != Keys.None && Get(def.Id) == keyData);
         return definition?.Id;
     }
 
