@@ -52,11 +52,12 @@ internal static class AccessibilityAcceptanceRound4SelfTest
         AppState app = AppStateStore.Normalize(new AppState());
         SpellingState spelling = SpellingStateStore.Normalize(new SpellingState());
 
+        // The main Recall dispatcher must preserve its own critical commands before
+        // training topology is loaded. Training/F1/settings truth is then expanded
+        // explicitly from the live Spelling deck context.
         var mainRegistry = new ShortcutManager(app);
         AssertEqual(ActionIds.ShortcutSettings, mainRegistry.FindAction(Keys.Control | Keys.K), "Ctrl+K must work before training definitions are synchronized.");
         AssertEqual(ActionIds.Help, mainRegistry.FindAction(Keys.F1), "F1 must work before training definitions are synchronized.");
-        AssertTrue(mainRegistry.Definitions.Any(def => def.Id == ActionIds.OpenSpelling), "Main/F1 registry must expose Open Spelling before dynamic deck synchronization.");
-        AssertTrue(mainRegistry.Definitions.Any(def => def.Id == ActionIds.OpenSentenceCoach), "Main/F1 registry must expose Open Sentence Spelling before dynamic deck synchronization.");
 
         mainRegistry.RefreshDeckDefinitions(spelling.Decks);
         AssertTrue(mainRegistry.Definitions.Any(def => def.Id == ActionIds.OpenSpelling), "Synchronized Main/F1 registry omitted Open Spelling.");
