@@ -1,18 +1,24 @@
 # DEV3 NEXT WORK
 
-Start every next DEV3 wave with a fresh live ownership read. Preserve terminal packages unless a concrete defect is proven, and enter SAFE OVERLAP whenever another worker or earlier DEV3 wave owns touching Product paths.
+Canonical Audit status is now ACTIVE / STAGE1 RELEASE FREEZE / FRESH WINDOWS CANDIDATE PRIORITY. Until Oleksii receives and tests a fresh Stage1 Windows archive, do not start another DEV3 Full Product feature/Library/Search expansion wave.
 
-Highest safe DEV3 priorities after validated Product/test head `f9da6a149e72acb66e9993771e48948fd70389fa`:
-1. audit backend-only engine lifecycle/cancellation/recovery/resource-bound paths for one concrete fail-closed gap that does not overlap DEV1 UI, DEV2 GameTree/domain, DEV4 import/shared ACSDB, or DEV5 integration;
-2. if no such engine gap is high-value, perform evidence-first characterization on another unclaimed DEV3 backend surface before changing Product code;
-3. resume Unicode ACSDB sidecar Product migration only after DEV4 shared `acsdb.py` ownership clears and DEV5 authorizes shared-path reconciliation; existing sidecar evidence remains design authority, not Product schema authority;
-4. mistake/blunder analytics only after authoritative StudentGame/Assignment actor identity and a fixed evaluation-perspective contract are terminal.
+Accepted Stage1 source authority:
+`manual5/integration-20260821 @ 0fa442330bc2bb03636ff9297512da4c29e38684`.
 
-Completed in the current wave: `EngineNoMoveHandoff` now uses the shared 512-character FEN bound, with exact-boundary and overflow regressions. Do not reopen this package without a concrete regression.
+Highest DEV3 priority:
+1. fresh live ownership/release-chain read;
+2. verify exact accepted Stage1 Stockfish runtime, direct/continuous analysis, engine play, clocks and game lifecycle contracts;
+3. verify packaged Stockfish path/composition behavior on candidate source using source-faithful machine evidence;
+4. include a real official Stockfish component smoke where safely available, but never invent binary URLs/hashes or substitute Linux evidence for Windows artifact evidence;
+5. use Windows evidence for candidate-facing source/runtime contracts where available without modifying QA-owned strict Windows harness;
+6. classify any RED before repair; only a concrete release-facing blocker with clear ownership may justify Product mutation during freeze;
+7. report exact accepted SHA, workflow/run/job and whether any fresh Windows archive actually exists.
 
-Do not edit DEV2 canonical GameTree/domain semantics, DEV4 PGN/ChessBase/import security or active shared ACSDB repair, DEV1 UI/WebView models, DEV5 integration/promotion, or frozen Stage1 release lineage. Never create a second canonical chess/application state model.
+Current terminal Full Product package PR #137 remains technically GREEN and eligible for later selective DEV5 intake, but it does not advance release authority during this freeze. Parallel DEV3 PR #134 independently closes final-review history identity and must not be duplicated.
 
-For each package: focused adversarial tests, broad unittest/pytest, diff/compile, applicable diagnostic, exact observable CI, recoverable commits, and repo RUN_STATE/current/next/session synchronization. Preserve RED evidence instead of weakening tests.
+Do not modify DEV1 UI/WebView Product, DEV2 canonical GameTree/domain, DEV4 PGN/ChessBase/import/security, DEV5 integration/promotion, QA-owned strict Windows harness, frozen Stage1 refs, or rejected archives.
+
+Release success requires one fresh Windows archive built by the strict chain from exact accepted Stage1 source with required automated gates and artifact identity verified. Only after that condition is proven may the user be told: `Тепер тестуєте ви через NVDA.`
 
 FRESH_WINDOWS_CANDIDATE=NO
 NVDA_VERIFIED=NO
