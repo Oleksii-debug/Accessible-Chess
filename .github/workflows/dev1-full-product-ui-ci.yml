@@ -6,6 +6,7 @@ on:
     branches:
       - full5/dev1-accessible-shell-20260822
       - full5/dev1-webview-composition-20260822-1439
+      - full5/dev1-teacher-webview-20260822-1538
   pull_request:
     branches:
       - manual5/integration-20260821
@@ -46,7 +47,7 @@ jobs:
           git diff --check "$DEV1_FULL_PRODUCT_BASE" HEAD
           changed="$(git diff --name-only "$DEV1_FULL_PRODUCT_BASE" HEAD)"
           printf '%s\n' "$changed"
-          allowed='^(acs/full_product_ui_shell\.py|acs/teacher_presentation\.py|acs/full_product_actions\.py|acs/full_product_presenters\.py|acs/classroom_presentation\.py|acs/full_product_webview_adapter\.py|tests/test_dev1_full_product_accessible_shell\.py|tests/test_dev1_full_product_ui_packages\.py|tests/test_dev1_classroom_remote_ui\.py|tests/test_dev1_full_product_webview_adapter\.py|\.github/workflows/dev1-full-product-ui-ci\.yml)$'
+          allowed='^(acs/full_product_ui_shell\.py|acs/teacher_presentation\.py|acs/full_product_actions\.py|acs/full_product_presenters\.py|acs/classroom_presentation\.py|acs/full_product_webview_adapter\.py|acs/teacher_webview_projection\.py|tests/test_dev1_full_product_accessible_shell\.py|tests/test_dev1_full_product_ui_packages\.py|tests/test_dev1_classroom_remote_ui\.py|tests/test_dev1_full_product_webview_adapter\.py|tests/test_dev1_teacher_webview_projection\.py|\.github/workflows/dev1-full-product-ui-ci\.yml)$'
           unexpected="$(printf '%s\n' "$changed" | grep -Ev "$allowed" || true)"
           if [ -n "$unexpected" ]; then
             echo "Unexpected DEV1 full-product path(s):" >&2
@@ -68,6 +69,7 @@ jobs:
           tests.test_dev1_full_product_ui_packages
           tests.test_dev1_classroom_remote_ui
           tests.test_dev1_full_product_webview_adapter
+          tests.test_dev1_teacher_webview_projection
 
       - name: Canonical service and Stage1 accessibility regressions
         run: >-
