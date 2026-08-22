@@ -91,12 +91,22 @@ internal sealed class ShortcutManager
     {
         var valid = new HashSet<string>(Definitions.Select(def => def.Id), StringComparer.OrdinalIgnoreCase);
         foreach (string actionId in _state.Shortcuts.Keys.Where(IsDynamicDeckAction).Where(id => !valid.Contains(id) && !IsLegacyNumericDeckAction(id)).ToList())
+        {
+            // A Recall-only manager has no authoritative Spelling deck list. It must
+            // preserve dynamic Spelling bindings instead of mistaking them for orphans.
+            if (!_hasSpellingDeckContext && IsSpellingDynamicDeckAction(actionId))
+                continue;
             _state.Shortcuts.Remove(actionId);
+        }
     }
 
     private static bool IsDynamicDeckAction(string id) =>
         id.StartsWith("switch_deck_", StringComparison.OrdinalIgnoreCase) || id.StartsWith("move_to_deck_", StringComparison.OrdinalIgnoreCase) ||
-        id.StartsWith("spelling_switch_deck_", StringComparison.OrdinalIgnoreCase) || id.StartsWith("spelling_move_to_deck_", StringComparison.OrdinalIgnoreCase);
+        IsSpellingDynamicDeckAction(id);
+
+    private static bool IsSpellingDynamicDeckAction(string id) =>
+        id.StartsWith("spelling_switch_deck_", StringComparison.OrdinalIgnoreCase) ||
+        id.StartsWith("spelling_move_to_deck_", StringComparison.OrdinalIgnoreCase);
 
     private static bool IsLegacyNumericDeckAction(string id)
     {
