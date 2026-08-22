@@ -1,6 +1,6 @@
 # DEV4 SESSION HANDOFF
 
-SESSION: 20260822-0900 Full Product QA/security
+SESSION: 20260822-1000 Full Product QA/security
 STATUS: COMPLETE / SAFE OVERLAP
 
 ## Exact branches and SHAs
@@ -9,8 +9,8 @@ STATUS: COMPLETE / SAFE OVERLAP
 - Manual5 integration: `manual5/integration-20260821` @ `0fa442330bc2bb03636ff9297512da4c29e38684`.
 - DEV5 reconciliation draft PR #66: `manual5/dev5-reconcile-dev4-20260822` @ `abff45ebcc4b5af2a85ab0c456b025b5098c6e29`, OPEN/DRAFT.
 - DEV4 QA evidence branch: `qa/dev4-chessbase-symlink-security-20260822`.
-- New QA evidence commit: `7aaf647b13f98fb45cbdb4ba900b497ff1bcc20b` — `test(qa): gate ChessBase companion probe false-green`.
-- QA draft PR #67 remains OPEN/DRAFT/MERGEABLE. Metadata commits after the evidence commit advance the branch; use live PR #67 head as the final exact QA SHA.
+- New QA evidence commit: `bb685bdccdb6666060fd2271c8760f31496453e6` — `test(qa): gate non-aborting import adapter failures`.
+- QA draft PR #67 remains OPEN/DRAFT/MERGEABLE. Metadata synchronization commits follow the evidence commit; canonical Drive handoff records the final exact live QA head.
 
 ## Live CI / evidence discipline
 
@@ -18,17 +18,15 @@ Manual5 integration exact SHA `0fa442330bc2bb03636ff9297512da4c29e38684` retains
 - UI Semantic Gate `32532577650`.
 - Stage1 Saturation Hardening `32532577641`.
 
-Exact QA-head checks must be re-read after handoff metadata commits. Absence of commit-associated Actions is INCONCLUSIVE, never inferred GREEN. Existing integration/DEV5 GREEN does not validate QA-only external-format/security assertions.
+Exact QA-head checks were absent before metadata synchronization. Absence is `INCONCLUSIVE`, never inferred GREEN. Existing integration/DEV5 GREEN does not validate QA-only external-format/security assertions.
 
-## New PROVEN_PRODUCT_DEFECT — ChessBase companion probe false-green
+## New PROVEN_PRODUCT_DEFECT — non-aborting import batch contract breaks on RuntimeError
 
-`acs.chessbase_adapter._case_insensitive_directory_index()` catches `OSError` from directory enumeration and returns an empty index. `probe_chessbase_source()` then emits the same `No classic CBH companion files were detected beside the header` warning used for a successful enumeration that genuinely found no companions.
+`ImportRegistry.inspect_batch()` explicitly describes a preferred non-aborting multi-file preflight in which adapter errors are recorded against the failing source while remaining sources are still inspected. The implementation catches `ImportRegistryError`, `OSError`, and `ValueError` only. An importer/decoder/provider that raises `RuntimeError` escapes the method and aborts the batch.
 
-This collapses `inspection unavailable` into `verified absent`, creating false-green provenance. A permission/I/O failure cannot prove companion absence.
+Strict QA gate `tests/test_dev4_import_batch_adapter_failure.py` registers a RuntimeError-producing first importer and a healthy second importer. It requires the first source to become a failed `BatchInspectionItem` and the second source to remain successfully inspected. Product code is unchanged.
 
-Strict QA gate `tests/test_dev4_chessbase_probe_observability.py` injects `PermissionError` at the directory enumeration boundary and requires the probe to avoid the normal no-companion claim and surface explicit unavailable/access/I/O evidence. Product code is unchanged.
-
-Classification: `PROVEN_PRODUCT_DEFECT`.
+Classification: `PROVEN_PRODUCT_DEFECT` because the live implementation contradicts its explicit batch-continuation/evidence contract.
 
 ## Locked PROVEN_PRODUCT_DEFECT findings
 
@@ -37,8 +35,9 @@ Classification: `PROVEN_PRODUCT_DEFECT`.
 3. ChessBase serialized probe/integrity/manifest payloads expose absolute local paths.
 4. PGN `expected_sha256` optimistic-concurrency commit race can overwrite newer content.
 5. PGN `overwrite=False` commit race can clobber a destination created after preflight.
-6. PGN export filesystem indirection is not fail-closed; direct parent, deeper ancestor and destination symlinks are covered by strict QA evidence.
+6. PGN export filesystem indirection is not fail-closed.
 7. ChessBase CBH companion directory I/O failures are reported as ordinary no-companion evidence instead of explicit unavailable/error state.
+8. Generic import batch preflight aborts on importer `RuntimeError` instead of recording the failed source and continuing later sources.
 
 ## Additional classifications
 
@@ -46,7 +45,7 @@ Classification: `PROVEN_PRODUCT_DEFECT`.
 - QA EVIDENCE: Stockfish provider path-bearing exceptions are sanitized at the release API boundary.
 - INCONCLUSIVE: exact QA-head CI until checks are observed.
 - INCONCLUSIVE: PGN parent-directory durability across crash/power loss.
-- INCONCLUSIVE: generic `SourceFingerprint.path`, `BatchInspectionItem.path/error` and PGN exception strings reaching real UI/persistence/report sinks beyond already-proven ChessBase DTO leakage.
+- INCONCLUSIVE: generic provenance/error strings reaching real UI/persistence/report sinks beyond already-proven ChessBase DTO leakage.
 - HUMAN_ONLY: exact fresh Windows native-menu/NVDA usability. `NVDA_VERIFIED=NO`.
 
 ## Preserved findings / boundaries
@@ -60,4 +59,4 @@ Classification: `PROVEN_PRODUCT_DEFECT`.
 
 ## Next action
 
-Recheck live PR #67 exact head and Actions after metadata commits. Continue generic import resource-limit evidence and ChessBase component-open/stat/hash observability so inaccessible evidence is never represented as absent or healthy. Continue direct path/error sink tracing and user-facing engine privacy guards only where evidence is concrete. Re-enter Stage1 package work only through DEV5/Audit-authorized reconciliation.
+Recheck live PR #67 exact head and Actions after metadata synchronization. Continue generic import resource-limit evidence and ChessBase component-open/stat/hash observability; continue direct path/error sink tracing only where user-facing/persisted evidence is concrete. Re-enter Stage1 package work only through DEV5/Audit-authorized reconciliation.
