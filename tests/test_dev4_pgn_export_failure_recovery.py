@@ -55,16 +55,16 @@ class Dev4PgnExportFailureRecoveryTests(unittest.TestCase):
     @unittest.skipIf(os.name == "nt", "POSIX temp-mode assertion is not portable to Windows ACL semantics")
     def test_temp_file_is_not_group_or_world_readable_before_commit(self) -> None:
         observed_mode = None
-        real_replace = os.replace
+        real_link = os.link
 
-        def inspect_then_replace(src, dst):
+        def inspect_then_link(src, dst, *args, **kwargs):
             nonlocal observed_mode
             observed_mode = Path(src).stat().st_mode & 0o777
-            return real_replace(src, dst)
+            return real_link(src, dst, *args, **kwargs)
 
         with tempfile.TemporaryDirectory() as directory:
             destination = Path(directory) / "private.pgn"
-            with mock.patch("acs.pgn_service.os.replace", side_effect=inspect_then_replace):
+            with mock.patch("acs.pgn_service.os.link", side_effect=inspect_then_link):
                 save_pgn_atomic(destination, self._games())
 
         self.assertIsNotNone(observed_mode)
