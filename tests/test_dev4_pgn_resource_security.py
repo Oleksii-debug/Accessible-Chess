@@ -5,7 +5,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from acs.import_contract import SourceFingerprint
-from acs.pgn_service import open_pgn
+from acs.pgn_service import PgnFileError, open_pgn
 
 
 class _BoundedTextHandle:
@@ -29,7 +29,7 @@ class _BoundedTextHandle:
 
 
 class Dev4PgnResourceSecurityTests(unittest.TestCase):
-    """QA gate for bounded reads at the untrusted PGN file boundary."""
+    """QA gates for bounded resource use at the untrusted PGN file boundary."""
 
     def test_open_pgn_never_uses_unbounded_text_read(self) -> None:
         source = SourceFingerprint(
@@ -47,6 +47,30 @@ class Dev4PgnResourceSecurityTests(unittest.TestCase):
 
         self.assertEqual(opened.source, source)
         self.assertEqual(opened.total_games, 1)
+
+    def test_absurdly_large_source_is_rejected_before_payload_open(self) -> None:
+        """Chunked reads alone are insufficient without an explicit source cap.
+
+        The Full Product external-input boundary must reject clearly impossible
+        resource requests before opening/decoding the payload.  This test uses
+        an 8-EiB fingerprint so it does not prescribe a practical application
+        limit; it only requires that some finite fail-closed maximum exists.
+        """
+
+        source = SourceFingerprint(
+            path="huge.pgn",
+            size=8 * 1024**6,
+            sha256="1" * 64,
+            suffix=".pgn",
+        )
+
+        with patch("acs.pgn_service.fingerprint", return_value=source), patch.object(
+            Path, "open", side_effect=AssertionError("oversized PGN payload must not be opened")
+        ) as open_mock:
+            with self.assertRaises((PgnFileError, ValueError, OSError)):
+                open_pgn("huge.pgn")
+
+        open_mock.assert_not_called()
 
 
 if __name__ == "__main__":
