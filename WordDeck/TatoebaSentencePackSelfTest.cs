@@ -153,6 +153,12 @@ internal static class TatoebaSentencePackSelfTest
             WriteManifest(manifestPath, "CC BY 2.0 FR with BOTH sentence-owner usernames retained", hash, "CC0 1.0");
             ExpectInvalidProvenance(() => TatoebaImportProvenance.Resolve(pairPath), "mismatched declared CC-BY license");
 
+            WriteManifest(manifestPath, "CC0 1.0 on BOTH sentence sides", hash, badOfficialUrl: true);
+            ExpectInvalidProvenance(() => TatoebaImportProvenance.Resolve(pairPath), "unofficial acquisition URL");
+
+            WriteManifest(manifestPath, "CC0 1.0 on BOTH sentence sides", hash, omitInputHashes: true);
+            ExpectInvalidProvenance(() => TatoebaImportProvenance.Resolve(pairPath), "missing upstream input hashes");
+
             File.WriteAllText(manifestPath, "{ broken json");
             ExpectInvalidProvenance(() => TatoebaImportProvenance.Resolve(pairPath), "malformed manifest JSON");
 
@@ -171,15 +177,41 @@ internal static class TatoebaSentencePackSelfTest
         return Convert.ToHexString(SHA256.HashData(stream)).ToLowerInvariant();
     }
 
-    private static void WriteManifest(string path, string licenseFilter, string hash, string? license = null)
+    private static void WriteManifest(
+        string path,
+        string licenseFilter,
+        string hash,
+        string? license = null,
+        bool badOfficialUrl = false,
+        bool omitInputHashes = false)
     {
+        bool attributed = string.Equals(licenseFilter, "CC BY 2.0 FR with BOTH sentence-owner usernames retained", StringComparison.Ordinal);
+        string[] inputKeys = attributed
+            ? new[] { "english_detailed", "ukrainian_detailed", "links" }
+            : new[] { "english_cc0", "ukrainian_cc0", "links" };
+        string officialHost = badOfficialUrl ? "https://example.invalid/exports/" : "https://downloads.tatoeba.org/exports/";
+        var urls = inputKeys.ToDictionary(key => key, key => officialHost + key + ".tsv.bz2", StringComparer.Ordinal);
+        var inputHashes = inputKeys.ToDictionary(key => key, key => new string(key == "links" ? 'c' : key.StartsWith("english", StringComparison.Ordinal) ? 'a' : 'b', 64), StringComparer.Ordinal);
+        string manifestSuffix = ".manifest.json";
+        string outputName = path.EndsWith(manifestSuffix, StringComparison.Ordinal)
+            ? Path.GetFileName(path[..^manifestSuffix.Length])
+            : "pairs.tsv";
+
         var payload = new Dictionary<string, object?>
         {
             ["schema_version"] = 1,
+            ["source"] = attributed
+                ? "Tatoeba official weekly detailed sentence exports plus EN-UA links"
+                : "Tatoeba official weekly exports",
             ["license_filter"] = licenseFilter,
-            ["output_sha256"] = hash
+            ["official_urls"] = urls,
+            ["output"] = outputName,
+            ["output_sha256"] = hash,
+            ["stats"] = new Dictionary<string, int> { ["pairs_emitted"] = 1 }
         };
+        if (!omitInputHashes) payload["input_sha256"] = inputHashes;
         if (license is not null) payload["license"] = license;
+        if (attributed) payload["attribution_policy"] = "Both sentence-owner usernames and upstream IDs are retained.";
         File.WriteAllText(path, JsonSerializer.Serialize(payload));
     }
 
