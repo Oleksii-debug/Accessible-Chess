@@ -2,20 +2,18 @@
 
 Latest DEV3 backend package is terminal technical GREEN and READY_FOR_INTEGRATION=YES.
 
-Authoritative branch: `auto/dev3-engine-move-resource-bounds-20260822`.
-Validated Product head: `654679e6f0ecba119b61aaeba9267a815bf8cd10`.
-Parent Product head: `6f5d19ead9d6b9176c64aaaf381a159c7c12fed8` (PR #125 terminal GREEN).
-Validation PR: #130, SAFE OVERLAP validation-only.
+Authoritative branch: `auto/dev3-engine-handoff-fen-bounds-20260822`.
+Product code commit: `742f13b2611d4b7ed10431dff211244b706c440f`.
+Validated Product/test head: `d3773b5d23946a9fe1ff15a25c6d8010e3bd9500`.
+Draft PR: #131, validation against CI-only base.
 
-The Product delta bounds normalized `EngineMoveRequest` FEN to 512 characters before provider work, caps requested engine movetime at 60,000 ms, and prevents `EngineMoveResult` from exposing movetime outside 50..60,000 ms. The existing minimum custom-movetime clamp to 50 ms is preserved. No UI state, canonical GameTree/domain state, ACSDB schema, importer/security behavior, or integration authority was duplicated or changed.
+`EngineGameHandoff(ANALYZE_CURRENT_GAME)` now reuses the shared 512-character `ENGINE_FEN_MAX_LENGTH` contract. Outer whitespace is normalized before validation; exact 512 remains valid; 513 fails closed at handoff construction before downstream routing. The existing `analyze-current-game handoff requires fen text` message and `INVALID_HANDOFF` error code are preserved exactly. No second chess/application core, state model, FEN parser, UI state, GameTree/domain state, ACSDB schema, importer/security behavior, or integration authority was introduced.
 
-Exact machine evidence: workflow `DEV3 Engine Move Resource Bounds CI`, run `32595776186`, job `97086347001`, SUCCESS. Focused boundary regressions 67/67 PASS; full unittest 708/708 PASS; pytest 786 passed + 641 subtests; diff hygiene/compile PASS; SELFTEST and complete WebView2 diagnostic PASS; no test weakening.
+Exact machine evidence: workflow `DEV3 Engine Handoff FEN Bounds CI`, run `32597620359`, job `97090954799`, SUCCESS. Focused handoff/engine/analysis regressions 72/72 PASS; full unittest 713/713 PASS; pytest 791 passed + 645 subtests; diff hygiene and compile PASS; SELFTEST and complete WebView2 diagnostic PASS; no test weakening.
 
-SAFE OVERLAP was enforced after hidden earlier same-lane ownership became visible. Competing PRs #128/#129 were closed unmerged. The earlier owner remains Product authority.
+Fresh ownership read found no active competing Product branch/PR for this exact handoff gap. Earlier PR #129 is closed and unmerged, so it is retained only as historical evidence, not authority.
 
-Known next backend gap: `EngineGameHandoff(ANALYZE_CURRENT_GAME)` still accepts arbitrary-length non-empty FEN. A future non-overlapping DEV3 package should reuse the 512-character contract while preserving the established `requires fen` error-message compatibility.
-
-Active ownership constraints remain: DEV1 UI/WebView, DEV2 canonical GameTree/domain, DEV4 PGN/ChessBase/import security plus shared ACSDB repair, DEV5 integration/promotion.
+Ownership constraints remain: DEV1 UI/WebView, DEV2 canonical GameTree/domain, DEV4 PGN/ChessBase/import security plus active shared ACSDB work, DEV5 selective integration/promotion.
 
 FRESH_WINDOWS_CANDIDATE=NO
 NVDA_VERIFIED=NO
