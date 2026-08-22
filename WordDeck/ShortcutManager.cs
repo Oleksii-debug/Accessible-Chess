@@ -12,7 +12,7 @@ internal sealed class ShortcutManager
     private static IReadOnlyList<ShortcutDefinition> SpellingDefinitions { get; } = BuildSpellingDefinitions();
     private static IReadOnlyList<ShortcutDefinition> SentenceDefinitions { get; } = BuildSentenceDefinitions();
 
-    public IReadOnlyList<ShortcutDefinition> Definitions { get; private set; }
+    public IReadOnlyList<ShortcutDefinition> Definitions { get; private set; } = Array.Empty<ShortcutDefinition>();
     public IReadOnlyList<ShortcutDefinition> CurrentDefinitions => Definitions;
 
     public ShortcutManager(AppState state, IEnumerable<DeckDefinition>? spellingDecks = null)
@@ -59,54 +59,23 @@ internal sealed class ShortcutManager
     {
         if (keyData == Keys.None) return null;
         ShortcutDefinition? definition = Definitions.FirstOrDefault(def =>
-            _dispatchActionIds.Contains(def.Id) &&
-            Get(def.Id) != Keys.None &&
-            Get(def.Id) == keyData);
+            _dispatchActionIds.Contains(def.Id) && Get(def.Id) != Keys.None && Get(def.Id) == keyData);
         return definition?.Id;
     }
 
     public bool TrySet(string actionId, Keys keys, out string? errorDescription)
     {
-        if (!Definitions.Any(def => def.Id == actionId))
-        {
-            errorDescription = "the function no longer exists";
-            return false;
-        }
-        if (keys != Keys.None && IsUnsafe(actionId, keys))
-        {
-            errorDescription = "this combination is reserved for Windows or standard keyboard navigation";
-            return false;
-        }
-        ShortcutDefinition? conflict = keys == Keys.None ? null : Definitions.FirstOrDefault(def =>
-            !string.Equals(def.Id, actionId, StringComparison.OrdinalIgnoreCase) &&
-            GetCandidateKey(def) == keys);
-        if (conflict is not null)
-        {
-            errorDescription = $"it is already assigned to {conflict.Description}";
-            return false;
-        }
-        _state.Shortcuts[actionId] = keys.ToString();
-        errorDescription = null;
-        return true;
+        if (!Definitions.Any(def => def.Id == actionId)) { errorDescription = "the function no longer exists"; return false; }
+        if (keys != Keys.None && IsUnsafe(actionId, keys)) { errorDescription = "this combination is reserved for Windows or standard keyboard navigation"; return false; }
+        var conflict = keys == Keys.None ? null : Definitions.FirstOrDefault(def =>
+            !string.Equals(def.Id, actionId, StringComparison.OrdinalIgnoreCase) && GetCandidateKey(def) == keys);
+        if (conflict is not null) { errorDescription = $"it is already assigned to {conflict.Description}"; return false; }
+        _state.Shortcuts[actionId] = keys.ToString(); errorDescription = null; return true;
     }
 
-    public void Clear(string actionId)
-    {
-        if (Definitions.Any(def => def.Id == actionId))
-            _state.Shortcuts[actionId] = Keys.None.ToString();
-    }
-
-    public void ResetDefaults()
-    {
-        foreach (ShortcutDefinition def in Definitions)
-            _state.Shortcuts[def.Id] = def.DefaultKeys.ToString();
-    }
-
-    private void EnsureDefaults()
-    {
-        foreach (ShortcutDefinition def in Definitions)
-            _state.Shortcuts.TryAdd(def.Id, def.DefaultKeys.ToString());
-    }
+    public void Clear(string actionId) { if (Definitions.Any(def => def.Id == actionId)) _state.Shortcuts[actionId] = Keys.None.ToString(); }
+    public void ResetDefaults() { foreach (ShortcutDefinition def in Definitions) _state.Shortcuts[def.Id] = def.DefaultKeys.ToString(); }
+    private void EnsureDefaults() { foreach (ShortcutDefinition def in Definitions) _state.Shortcuts.TryAdd(def.Id, def.DefaultKeys.ToString()); }
 
     private Keys GetCandidateKey(ShortcutDefinition definition)
     {
@@ -121,23 +90,13 @@ internal sealed class ShortcutManager
     private void RemoveOrphanedDeckShortcuts()
     {
         var valid = new HashSet<string>(Definitions.Select(def => def.Id), StringComparer.OrdinalIgnoreCase);
-        foreach (string actionId in _state.Shortcuts.Keys.Where(IsDynamicDeckAction).ToList())
-        {
-            if (valid.Contains(actionId) || IsLegacyNumericDeckAction(actionId)) continue;
-            if (IsSpellingDynamicAction(actionId) && !_hasSpellingDeckContext)
-                continue; // A Recall-only window does not know which Spelling deck IDs are truly orphaned.
+        foreach (string actionId in _state.Shortcuts.Keys.Where(IsDynamicDeckAction).Where(id => !valid.Contains(id) && !IsLegacyNumericDeckAction(id)).ToList())
             _state.Shortcuts.Remove(actionId);
-        }
     }
 
     private static bool IsDynamicDeckAction(string id) =>
-        id.StartsWith("switch_deck_", StringComparison.OrdinalIgnoreCase) ||
-        id.StartsWith("move_to_deck_", StringComparison.OrdinalIgnoreCase) ||
-        IsSpellingDynamicAction(id);
-
-    private static bool IsSpellingDynamicAction(string id) =>
-        id.StartsWith("spelling_switch_deck_", StringComparison.OrdinalIgnoreCase) ||
-        id.StartsWith("spelling_move_to_deck_", StringComparison.OrdinalIgnoreCase);
+        id.StartsWith("switch_deck_", StringComparison.OrdinalIgnoreCase) || id.StartsWith("move_to_deck_", StringComparison.OrdinalIgnoreCase) ||
+        id.StartsWith("spelling_switch_deck_", StringComparison.OrdinalIgnoreCase) || id.StartsWith("spelling_move_to_deck_", StringComparison.OrdinalIgnoreCase);
 
     private static bool IsLegacyNumericDeckAction(string id)
     {
@@ -148,8 +107,7 @@ internal sealed class ShortcutManager
 
     private static bool IsUnsafe(string actionId, Keys keys)
     {
-        Keys code = keys & Keys.KeyCode;
-        Keys modifiers = keys & Keys.Modifiers;
+        Keys code = keys & Keys.KeyCode; Keys modifiers = keys & Keys.Modifiers;
         if (code is Keys.None or Keys.Tab or Keys.Escape or Keys.Enter) return true;
         if (code == Keys.F4 && modifiers == Keys.Alt) return true;
         if (code == Keys.Delete && modifiers == (Keys.Control | Keys.Alt)) return true;
@@ -217,6 +175,8 @@ internal sealed class ShortcutManager
     {
         var defs = new List<ShortcutDefinition>(RecallDefinitions);
         defs.AddRange(ScopeDefinitions);
+        defs.AddRange(SpellingDefinitions);
+        defs.AddRange(SentenceDefinitions);
         foreach (DeckDefinition deck in _state.Decks.OrderBy(deck => deck.Order))
         {
             int coreNumber = DeckIds.CoreDecks.ToList().FindIndex(id => string.Equals(id, deck.Id, StringComparison.OrdinalIgnoreCase)) + 1;
@@ -225,14 +185,7 @@ internal sealed class ShortcutManager
             defs.Add(new(ActionIds.SwitchDeck(deck.Id), $"Switch to deck: {deck.Name}", switchDefault));
             defs.Add(new(ActionIds.MoveToDeck(deck.Id), $"Move current word to deck: {deck.Name}", moveDefault));
         }
-
-        // Static training commands are global definitions for help, rebinding and conflict checks.
-        // A Recall-only MainForm manager does not dispatch them; the training entry-point manager
-        // is constructed with Spelling deck context and dispatches the training actions itself.
-        defs.AddRange(SpellingDefinitions);
-        defs.AddRange(SentenceDefinitions);
-
-        if (_hasSpellingDeckContext)
+        if (_spellingDecks.Count > 0)
         {
             foreach (DeckDefinition deck in _spellingDecks.OrderBy(deck => deck.Order))
             {
@@ -248,16 +201,22 @@ internal sealed class ShortcutManager
 
     private HashSet<string> BuildDispatchActionIds()
     {
-        if (_hasSpellingDeckContext)
-            return new HashSet<string>(Definitions.Select(def => def.Id), StringComparer.OrdinalIgnoreCase);
-
-        var ids = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (ShortcutDefinition def in RecallDefinitions) ids.Add(def.Id);
-        foreach (ShortcutDefinition def in ScopeDefinitions) ids.Add(def.Id);
+        var ids = new HashSet<string>(RecallDefinitions.Select(def => def.Id), StringComparer.OrdinalIgnoreCase);
+        ids.UnionWith(ScopeDefinitions.Select(def => def.Id));
         foreach (DeckDefinition deck in _state.Decks)
         {
             ids.Add(ActionIds.SwitchDeck(deck.Id));
             ids.Add(ActionIds.MoveToDeck(deck.Id));
+        }
+        if (_hasSpellingDeckContext)
+        {
+            ids.UnionWith(SpellingDefinitions.Select(def => def.Id));
+            ids.UnionWith(SentenceDefinitions.Select(def => def.Id));
+            foreach (DeckDefinition deck in _spellingDecks)
+            {
+                ids.Add(ActionIds.SpellingSwitchDeck(deck.Id));
+                ids.Add(ActionIds.SpellingMoveToDeck(deck.Id));
+            }
         }
         return ids;
     }
