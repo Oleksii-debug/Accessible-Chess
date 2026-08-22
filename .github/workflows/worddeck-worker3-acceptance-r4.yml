@@ -8,6 +8,7 @@ on:
 
 permissions:
   contents: read
+  statuses: write
 
 concurrency:
   group: worddeck-worker3-r4-${{ github.ref }}
@@ -28,6 +29,23 @@ jobs:
           "branch=$env:GITHUB_REF_NAME" | Set-Content .\artifacts\worker3-r4-identity.txt -Encoding utf8
           "sha=$env:GITHUB_SHA" | Add-Content .\artifacts\worker3-r4-identity.txt -Encoding utf8
           git status --short | Add-Content .\artifacts\worker3-r4-identity.txt -Encoding utf8
+
+      - name: Publish pending worker acceptance status
+        continue-on-error: true
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const targetUrl = `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`;
+            await github.rest.repos.createCommitStatus({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              sha: context.sha,
+              state: 'pending',
+              context: 'WordDeck Worker3 R4 acceptance',
+              description: 'Exact Windows accessibility/release acceptance is running.',
+              target_url: targetUrl
+            });
 
       - name: Setup .NET 8
         uses: actions/setup-dotnet@v4
@@ -141,3 +159,26 @@ jobs:
           name: WordDeck-worker3-r4-acceptance-evidence
           path: .\artifacts\
           if-no-files-found: error
+
+      - name: Publish final worker acceptance status
+        if: always()
+        continue-on-error: true
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const jobSucceeded = '${{ job.status }}' === 'success';
+            const uiaSucceeded = '${{ steps.uia.outcome }}' === 'success';
+            const succeeded = jobSucceeded && uiaSucceeded;
+            const targetUrl = `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`;
+            await github.rest.repos.createCommitStatus({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              sha: context.sha,
+              state: succeeded ? 'success' : 'failure',
+              context: 'WordDeck Worker3 R4 acceptance',
+              description: succeeded
+                ? 'Windows machine gates and hosted UIA acceptance passed.'
+                : 'Machine gate and/or hosted UIA acceptance needs inspection.',
+              target_url: targetUrl
+            });
