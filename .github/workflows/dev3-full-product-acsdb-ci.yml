@@ -8,6 +8,7 @@ on:
   pull_request:
     branches:
       - codex/full-product-20260821
+      - auto/dev3-acsdb-stable-paging-20260821
 
 permissions:
   contents: read
