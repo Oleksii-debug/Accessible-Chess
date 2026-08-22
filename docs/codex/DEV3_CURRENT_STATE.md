@@ -2,42 +2,34 @@
 
 Lane: Full Product engine/analysis + ACSDB / Library / Search + presentation-neutral Books/Training/Teacher/Student backend contracts.
 
-Active Product branch: `auto/dev3-student-progress-resource-bounds-20260822`
-Draft Product PR: #94 against `auto/dev3-search-resource-bounds-20260822`
-Verified executable Product head: `4c0f5885e51aa93ad366dccaf61a962c930f5ef0`
-Verified PR merge/evidence ref: `10598ff59d984d788dc303ce6bd4a8eec797b445`
-Base DEV3 coordination head: `d65dde9ee5e342e9b4b6d0bb64061f364e03193d`
+Active Product branch: `auto/dev3-bookreader-snapshot-bounds-20260822`
+Draft Product PR: #95
+Current executable Product/test/CI head: `85fd447dbc2864fd7e507703aa0c4d342526854f`
+Prior terminal coordination base: `eb0279c151156bf3b3f3a0ffc43ef2ec38d0d200`
 
-Latest terminal-GREEN P1 package:
-- caps restored StudentProgress snapshots at 50,000 records before record iteration;
-- bounds StudentProgressStore physical file reads to 16 MiB + 1 byte and fails closed above the limit;
-- applies the same bounded read to CAS save checks so an oversized existing file cannot force an unbounded read;
-- rejects newly serialized payloads above 16 MiB before temporary publication;
-- preserves append-only ledger authority, strict schema-v1 validation, exact SHA-256 CAS, create-only first save, peer locking, fsync/atomic replace and publication-failure cleanup;
-- persists no canonical chess/application state, UI state, engine PV or score.
+Current P1 package:
+- bounds BookReader durable return points at 1,000;
+- rejects oversized return-point maps before iterating restore entries;
+- bounds return-point names at 256 characters before mutation;
+- bounds durable semantic target keys at 4,096 characters before BookIndex resolution;
+- bounds fallback-digest map cardinality before iteration;
+- preserves strict schema-v2, exact semantic target identity, fallback-digest checks and the live BookDocument revision guard;
+- adds adversarial tests including exact-limit acceptance;
+- does not duplicate canonical chess/GameTree state, UI state or engine state.
 
-Exact current Product evidence:
-- workflow `DEV3 Full Product ACSDB CI`
-- run `32577628215`, job `97042172326` — SUCCESS
-- checkout/evidence ref `10598ff59d984d788dc303ce6bd4a8eec797b445`
-- diff hygiene PASS; compile PASS
-- focused DEV3 suite `134/134 PASS`
-- full unittest `664/664 PASS`
-- full pytest `742 passed + 628 subtests passed`
-- SELFTEST PASS
-- `ACCESSIBLE CHESS 0.4 WEBVIEW2 COMPLETE USER FLOW DIAGNOSTIC PASS`
-- no skip/xfail/test weakening used to obtain GREEN.
-
-Previously delivered terminal-GREEN DEV3 ACSDB/Search/recovery/Training/Books/engine-assisted contracts remain intact.
+Validation truth:
+- new focused tests are wired into `DEV3 Full Product ACSDB CI`.
+- exact-head Actions outcome for `85fd447d...` is not currently observable through the available connector lookup, so this package is NOT claimed GREEN.
+- `READY_FOR_INTEGRATION=NO` until exact CI is observed.
+- prior StudentProgress resource-bound package at `4c0f5885e51aa93ad366dccaf61a962c930f5ef0` remains terminal GREEN and independently ready for DEV5 intake.
 
 Ownership / SAFE OVERLAP:
 - DEV2 owns canonical GameTree/domain/core.
 - DEV1 owns UI/WebView/Teacher presentation.
 - DEV4 owns ChessBase/package/shared PGN-import security.
 - DEV5 owns cross-lane integration/promotion.
-- Frozen Stage1 refs remain untouched.
+- frozen Stage1 refs remain untouched.
 
-Decision: executable Product head `4c0f5885...` is `READY_FOR_INTEGRATION=YES` for this isolated DEV3 package. Overall Full Product DEV3 mission remains `PARTIAL`.
-
+Overall Full Product DEV3 mission remains `PARTIAL`.
 Fresh Windows candidate: NONE from DEV3.
 `NVDA_VERIFIED=NO`.
