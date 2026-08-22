@@ -23,7 +23,7 @@ internal static class TrainingEntryPoints
         }
 
         AppState appState = main.SharedAppStateForTraining;
-        var shortcutManager = new ShortcutManager(appState, spelling.State.Decks);
+        var shortcutManager = new ShortcutManager(appState, spelling.State.Decks, ShortcutDispatchContext.All);
 
         var openSpelling = new ToolStripMenuItem("Open &Spelling trainer...")
         {
@@ -78,7 +78,7 @@ internal static class TrainingEntryPoints
         {
             SpellingStateSession spelling = TrainingStateContinuityGuard.LoadSpelling();
             AppState appState = owner.SharedAppStateForTraining;
-            var shortcuts = new ShortcutManager(appState, spelling.State.Decks);
+            var shortcuts = new ShortcutManager(appState, spelling.State.Decks, ShortcutDispatchContext.All);
             using var dialog = new ShortcutSettingsForm(shortcuts);
             dialog.ShowDialog(owner);
             owner.SaveSharedStateAfterTraining();
@@ -97,10 +97,11 @@ internal static class TrainingEntryPoints
         {
             AppState appState = owner.SharedAppStateForTraining;
             SpellingStateSession spelling = TrainingStateContinuityGuard.LoadSpelling();
-            var shortcuts = new ShortcutManager(appState, spelling.State.Decks);
+            var shortcuts = new ShortcutManager(appState, spelling.State.Decks, ShortcutDispatchContext.Spelling);
             DictionaryPackage package = owner.ActivePackageForTraining;
 
             using var form = new SpellingForm(appState, spelling.State, spelling.Store, shortcuts, package);
+            KeyboardSelectorFocusGuard.Attach(form, "Spelling study scope", "Active spelling deck");
             form.ShowDialog(owner);
             owner.SaveSharedStateAfterTraining();
         }
@@ -117,7 +118,7 @@ internal static class TrainingEntryPoints
             AppState appState = owner.SharedAppStateForTraining;
             SpellingStateSession spelling = TrainingStateContinuityGuard.LoadSpelling();
             SentenceStateSession sentence = TrainingStateContinuityGuard.LoadSentence();
-            var shortcuts = new ShortcutManager(appState, spelling.State.Decks);
+            var shortcuts = new ShortcutManager(appState, spelling.State.Decks, ShortcutDispatchContext.Sentence);
             DictionaryPackage package = owner.ActivePackageForTraining;
 
             using var form = new SentenceCoachForm(
@@ -128,6 +129,7 @@ internal static class TrainingEntryPoints
                 new SentencePackStore(),
                 sentence.Store,
                 sentence.State);
+            KeyboardSelectorFocusGuard.Attach(form, "Sentence pack", "Sentence training spelling deck", "Number of target words per sentence");
             form.ShowDialog(owner);
             owner.SaveSharedStateAfterTraining();
         }
