@@ -1,37 +1,36 @@
 # DEV5_CURRENT_STATE
 
-UPDATED_FROM_RUN: 20260822-2233
-MODE: SAFE_OVERLAP_COORDINATION / EXACT_DEV4_REPAIR_VALIDATION
-SNAPSHOT_CUTOFF: 2026-08-22T22:33:56+03:00
+UPDATED_FROM_RUN: 20260822-2257
+MODE: SAFE_OVERLAP_COORDINATION / DEV4_REAL_PRIMITIVE_VALIDATION
+SNAPSHOT_CUTOFF: 2026-08-22T22:57:57+03:00
 
-Accepted Stage1 remains `manual5/integration-20260821 @ 0fa442330bc2bb03636ff9297512da4c29e38684`.
-Persistent exact-GREEN DEV5 full-product non-PGN authority remains `full5/dev5-compose-1700-20260822 @ dd9ebf9414103c805892856fe6a04706fa69039f`, PR #93 DRAFT / DO NOT MERGE, CI `32577600761 / 97042099941` SUCCESS.
+Accepted Stage1: `manual5/integration-20260821 @ 0fa442330bc2bb03636ff9297512da4c29e38684`.
+Persistent exact-GREEN DEV5 authority: `full5/dev5-compose-1700-20260822 @ dd9ebf9414103c805892856fe6a04706fa69039f`, CI `32577600761 / 97042099941` SUCCESS.
 
-## Live overlap
-DEV1 RUN `20260822-2236` remains IN_PROGRESS for Library/Search WebView UX over accepted DEV3 SearchService.
-DEV2 prior Classroom RUN `20260822-2226` terminalized at 22:39 after exact GREEN validation, but successor RUN `20260822-2240` immediately started from Product `8d9c7c99ef8d1754555adaf286ab15f5da3224af` to harden deterministic exchange/corruption boundaries. Therefore touching Product work remains active and DEV5 cannot advance composition in this invocation.
+## Active overlap
+DEV1 RUN `20260822-2249` Books/Training WebView UX is IN_PROGRESS from terminal parent `e358792a26c6d821c35fd99db426aeb3c056bff4`.
+DEV2 RUN `20260822-2240` Classroom exchange hardening is IN_PROGRESS from terminal `8d9c7c99ef8d1754555adaf286ab15f5da3224af`.
+Therefore no Product composition may advance this run.
 
-## DEV1 evidence
-Prior PGN/GameTree WebView package is technical-GREEN at `6336d917319f22e422fc3b541feecf7c40977ac9`, PR #112, CI `32594006323 / 97082049039`: focused 115/115, canonical+Stage1 accessibility 65/65, unittest 726/726, pytest 804 + 719 subtests, diagnostic PASS. Intake waits for a future fresh cutoff after current DEV1 work terminalizes.
+## Terminal lane ceilings
+DEV1 terminal canonical Library/Search `e358792a...`, exact CI `32594428387 / 97083064020` SUCCESS.
+DEV2 terminal Classroom `8d9c7c99...`, exact CI `32594221729 / 97082562977` SUCCESS, but successor hardening active.
+DEV3 shippable Product `9c8a342e...`, exact CI `32586785490 / 97064264493` SUCCESS.
+DEV4 terminal Product `6298899c...`, PR #100.
 
-## DEV2 evidence and current defects
-Terminal Classroom Product `8d9c7c99ef8d1754555adaf286ab15f5da3224af` is technical-GREEN via PR #114 / CI `32594221729 / 97082562977`: classroom 22/22, interaction 19/19, remote 14/14, unittest 787 OK + 1 skip, pytest 867 + 1336 subtests.
+## DEV4 evidence advancement
+PR #113 validation head `dcd0d9ee...`, run `32595341745 / 97085248183`:
+- exact DEV4 Product identity/diff/compile PASS;
+- actual `os.link` no-clobber race PASS;
+- DEV4-owned focused gates 37/37 PASS;
+- expected-hash race PASS;
+- canonical DEV2 GameTree + corrected real-link oracle selective boundary 11/11 PASS.
 
-Successor RUN `20260822-2240` has two source-confirmed P1 boundaries on that terminal head: (1) text validation allows unpaired Unicode surrogates which can raise raw UTF-8 encoding errors in digest/JSON; (2) revision validation allows arbitrarily large non-negative Python ints which can fail during deterministic JSON integer conversion. These remain canonical DEV2 ownership and are being repaired there; DEV5 does not duplicate the fix.
+Broad discovery failure is now narrowed to historical cross-lineage expectations plus one real integration contract conflict. Accepted baseline requires safe **relative** ChessBase provenance with portable separators, while DEV4 basename-only privacy reporting discards relative provenance. DEV4 privacy tests only forbid absolute workstation paths. PR #100 comment `5382330081` requests a DEV4-owned repair preserving relative POSIX/Windows provenance while redacting absolute paths.
 
-Clean future Classroom intake delta relative to prior DEV2 `7d525dd...`: exactly Product `acs/classroom_domain.py`, focused `tests/test_classroom_domain.py`, plus lane CI metadata. Consume only after successor hardening terminalizes.
+Old broad REDs for raw ACSDB exception details, GameTree brace normalization and Stage1 partial native-menu seam are not current canonical integration contracts and must not drive Product rollback.
 
-## DEV3
-Shippable Product authority remains PR #105 / `9c8a342e7dd98fee52c9776c0cb6a9b970d49296`, exact CI `32586785490 / 97064264493` SUCCESS.
-Future selective delta from previously composed DEV3 `6f90516a...` is 40 commits ahead / 0 behind; Product overlay set is `acs/analysis_service.py`, `acs/bookreader.py`, new `acs/game_review_service.py`, `acs/search_service.py`, `acs/student_progress.py`, `acs/student_progress_store.py` plus focused tests. Exclude lane workflow/docs metadata. Later 100k Unicode performance/shadow-column work remains evidence-only.
+## Integration constraints
+Never whole-merge PR #100/#113. Preserve canonical DEV2 `acs/gametree.py`. Reconcile DEV4 `acs/acsdb.py` hunk-level against current DEV3/current-green and retain persisted-error redaction without regressing Unicode search/resource/provenance semantics.
 
-## DEV4
-Current repair head: PR #100 / `6298899cb112336ef220caa8d0e52334ddc0c0ae`. DEV5 evidence-only PR #113 exact run `32594202023 / 97082512844` reached 38 focused PASS / 2 FAIL after checkout/diff/compile PASS.
-
-RED A is stale QA instrumentation: race test mocks obsolete `os.replace`; repaired no-clobber publication uses `os.link`. Re-instrument at the actual commit primitive, preserving `FileExistsError` + competing-file preservation.
-RED B is older DEV4 GameTree ancestry; canonical DEV2 already repaired missing-termination quality and passes the independent truncation oracle. Preserve DEV2 `acs/gametree.py` and never whole-merge PR #100.
-
-DEV4 `acs/acsdb.py` overlaps accepted DEV3/current-green ACSDB and must be reconciled hunk-level, taking only DEV4 persisted import-error redaction while preserving current Unicode search/resource/provenance behavior.
-
-## Release boundary
-No Product/test integration mutation this run. PR #54/frozen refs untouched. Old rejected ZIP forbidden. Fresh Windows candidate NO. `NVDA_VERIFIED=NO`. `READY_FOR_RELEASE=NO`.
+No release mutation. PR #54/frozen refs untouched. Rejected ZIP forbidden. Fresh Windows candidate NO. `NVDA_VERIFIED=NO`. `READY_FOR_RELEASE=NO`.
