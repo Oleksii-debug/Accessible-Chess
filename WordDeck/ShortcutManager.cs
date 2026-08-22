@@ -13,7 +13,14 @@ internal sealed class ShortcutManager
     public IReadOnlyList<ShortcutDefinition> Definitions { get; private set; }
     public IReadOnlyList<ShortcutDefinition> CurrentDefinitions => Definitions;
 
-    public ShortcutManager(AppState state, IEnumerable<DeckDefinition>? spellingDecks = null, ShortcutDispatchContext dispatchContext = ShortcutDispatchContext.All)
+    // The one-argument manager is the main Recall-window dispatcher. It may be
+    // refreshed later with Spelling deck definitions for complete F1/settings,
+    // but it must never swallow Spelling/Sentence accelerators before the menu
+    // system can route them to their dedicated windows.
+    public ShortcutManager(AppState state)
+        : this(state, null, ShortcutDispatchContext.Recall) { }
+
+    public ShortcutManager(AppState state, IEnumerable<DeckDefinition>? spellingDecks, ShortcutDispatchContext dispatchContext = ShortcutDispatchContext.All)
     {
         _state = AppStateStore.Normalize(state);
         _dispatchContext = dispatchContext;
@@ -121,8 +128,8 @@ internal sealed class ShortcutManager
         new(ActionIds.HideCurrentWord, "Hide current word from Recall study", Keys.Control | Keys.Delete),
         new(ActionIds.RestoreHiddenWords, "Restore a hidden Recall word", Keys.Control | Keys.Alt | Keys.U),
         new(ActionIds.RestoreAllHiddenWords, "Restore all hidden Recall words", Keys.None),
-        new(ActionIds.ExportProfile, "Export personal progress profile", Keys.Control | Keys.Alt | Keys.E),
-        new(ActionIds.ImportProfile, "Import personal progress profile", Keys.Control | Keys.Shift | Keys.I),
+        new(ActionIds.ExportProfile, "Export complete Recall Spelling and Sentence personal profile", Keys.Control | Keys.Alt | Keys.E),
+        new(ActionIds.ImportProfile, "Import complete Recall Spelling and Sentence personal profile", Keys.Control | Keys.Shift | Keys.I),
         new(ActionIds.ResetLearningData, "Reset Recall learning data after backup", Keys.None),
         new(ActionIds.ShortcutSettings, "Open shortcut settings", Keys.Control | Keys.K),
         new(ActionIds.Help, "Open help", Keys.F1),
