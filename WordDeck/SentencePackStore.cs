@@ -302,13 +302,15 @@ internal sealed class SentencePackStore
 
     private void EnsureNoCaseInsensitiveIdentityCollision(string packId)
     {
-        foreach (string path in Directory.EnumerateFiles(DirectoryPath, "*.installed.json", SearchOption.TopDirectoryOnly))
+        IEnumerable<string> manifestPointers = Directory.EnumerateFiles(DirectoryPath, "*.installed.json", SearchOption.TopDirectoryOnly)
+            .Concat(Directory.EnumerateFiles(DirectoryPath, "*.installed.backup.json", SearchOption.TopDirectoryOnly));
+        foreach (string path in manifestPointers)
         {
             SentencePackInstallManifest? manifest = ReadManifestOrNull(path);
             if (manifest is null) continue;
             if (string.Equals(manifest.PackId, packId, StringComparison.OrdinalIgnoreCase) &&
                 !string.Equals(manifest.PackId, packId, StringComparison.Ordinal))
-                throw new InvalidDataException($"SentencePack id '{packId}' collides with installed pack id '{manifest.PackId}' on Windows case-insensitive storage.");
+                throw new InvalidDataException($"SentencePack id '{packId}' collides with committed pack id '{manifest.PackId}' on Windows case-insensitive storage.");
         }
         foreach (string path in Directory.EnumerateFiles(DirectoryPath, "*.sqlite", SearchOption.TopDirectoryOnly))
         {
