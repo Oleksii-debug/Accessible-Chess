@@ -1,29 +1,35 @@
 # DEV3 SESSION HANDOFF
 
-DEV3 completed the evidence-first P1 follow-up for ACSDB Unicode Library/Search performance. This wave is intentionally evidence-only: no Product schema/index/search behavior was changed. The inherited Unicode correctness Product package remains PR #105 / validated Product head `9c8a342e7dd98fee52c9776c0cb6a9b970d49296`, READY_FOR_INTEGRATION=YES.
+Current package is still in progress because exact GitHub Actions evidence is not yet observable. Do not start a new Product package; continue this same shadow-column benchmark wave first.
 
-Evidence branch: `auto/dev3-unicode-search-performance-evidence-20260822`
-Evidence PR: #107, open/draft; do not merge as Product history
-Validation PR: #108, validation-only; do not merge
-Probe commit: `19cc573f7588f13d6d988726c52d210b70e6e7eb`
-Evidence workflow commit: `6a105ff88b61673e8543fa7f67030cf1c5485191`
-Canonical invocation fix: `f49897f77b5e0f62bafd0bec2b9c1ff6de85aa16`
-Exact GREEN validation head: `06bb37a119f31d92dea93f537bc580facf5eebb2`
-Validation merge ref: `770811ccaaeb694ca95dacf9b558b9efb0a06edf`
+Evidence branch: `auto/dev3-unicode-search-shadow-benchmark-20260822`
+Evidence PR: #109 (draft/evidence-only)
+Executable benchmark head: `e930a53c3617da9f9676bc44a55a565bff630875`
+Validation PR: #110 (draft/validation-only)
+Validation base: `0da0187f07e11e489d353e866ab679b3320e3a87`
+Validation marker head: `5f98ee96214641e65417fee14e2f0d4010a1df34`
+Inherited Product package: PR #105 / validated head `9c8a342e7dd98fee52c9776c0cb6a9b970d49296` remains `READY_FOR_INTEGRATION=YES`.
 
-Evidence delivered: reproducible `tools/dev3_unicode_search_perf_probe.py` seeds 100,000 games, calls the public `GameSearchService`, captures exact SELECT text through SQLite tracing, runs `EXPLAIN QUERY PLAN`, executes five repeated samples, and reports median/min/max without hard-coding a shared-runner latency threshold. It asserts expected page sizes and that no temporary ORDER BY B-tree is introduced.
+What was done:
+- added `tools/dev3_unicode_search_shadow_benchmark.py`;
+- benchmark seeds 100,000 games in a disposable in-memory ACSDB;
+- candidate materializes NFKC+casefold shadow values for white/black/event/ECO/opening/source name and benchmark-only indexes;
+- exact visible game IDs are compared against public `GameSearchService` for no-hit/common-hit, ECO prefix, source-name, literal `%`/`_`/backslash and keyset-tail cases;
+- candidate `EXPLAIN QUERY PLAN`, temp-sort flag and five repeated baseline/candidate timings are reported without a latency threshold;
+- added dedicated `DEV3 Unicode Search Shadow Benchmark CI` with focused Unicode/search tests, prior 100k baseline probe, candidate benchmark, full unittest, full pytest and complete diagnostic;
+- candidate temp-sort behavior is intentionally evidence-only; semantic result-id divergence remains a hard failure.
 
-Exact CI: `DEV3 Full Product ACSDB CI` run `32589798970`, job `97071708911`, SUCCESS. Focused 179/179 PASS; 100k probe PASS; official Stockfish 18 smoke PASS with verified SHA-256 `536c0c2c0cf06450df0bfb5e876ef0d3119950703a8f143627f990c7b5417964`; full unittest 695/695 PASS; pytest 773 passed + 641 subtests PASS; SELFTEST and complete WebView2 diagnostic PASS; diff hygiene/compile PASS; no test weakening.
+What was not done:
+- no ACSDB schema-version bump or migration;
+- no Product `GameSearchService` change;
+- no UI/WebView, GameTree/domain, PGN/ChessBase/import-security, integration, packaging, Windows or NVDA mutation;
+- no performance claim from local execution because the execution container could not resolve github.com.
 
-Measured on Ubuntu 24.04 / CPython 3.12.14 Actions runner, 100,000 rows: player no-hit median 145.941 ms, event no-hit 68.261 ms, ECO-prefix no-hit 50.060 ms; all three planned as `SCAN g` plus source primary-key lookup. Common player hit with limit 50 also planned `SCAN g` but stopped early at median 1.190 ms. Player keyset-tail no-hit after id 90,000 used `SEARCH g USING INTEGER PRIMARY KEY (rowid>?)`, median 16.432 ms. No case used a temp sort.
+CI truth at handoff: no Actions workflow run is observable yet through the connected GitHub commit/workflow/status surfaces for validation head `5f98ee96214641e65417fee14e2f0d4010a1df34`. Therefore status is `CI_EVIDENCE_PENDING / INCONCLUSIVE`, not GREEN.
 
-Interpretation: the folded UDF on stored columns prevents ordinary text indexes from directly serving these predicates, and the measured full scans justify an optimization-design package. Do not jump straight to a B-tree migration: leading-wildcard substring semantics for player/event/opening/source name remain inherently different from ECO prefix matching. Next DEV3 work should benchmark semantics-preserving shadow-fold/prefix and bounded substring strategies, including migration/reopen compatibility, before changing schema.
+Next exact action: re-read PR #110 and exact workflow evidence. If GREEN, record the benchmark plans/timings and determine whether shadow columns justify a separate schema-v4 migration package. If RED, repair benchmark/CI defects without weakening exact semantic equivalence. Preserve the previous terminal baseline evidence and PR #105 Product candidate.
 
-Audit trail retained: first validation run `32589731207` / job `97071530281` passed focused 179/179 then failed only because the new probe was invoked by file path and could not import repo-root `acs`. Invocation was changed to module mode; no Product code/test assertion was weakened.
-
-Ownership preserved: DEV1 UI/WebView; DEV2 canonical GameTree/domain/remote-session; DEV4 PGN/ChessBase/import security; DEV5 selective integration/promotion. Mistake/blunder scoring remains dependency-blocked on authoritative actor identity plus fixed evaluation perspective.
-
-READY_FOR_INTEGRATION=NO (evidence-only wave; inherited PR #105 remains YES)
+READY_FOR_INTEGRATION=NO for this evidence-only wave.
 OVERALL_FULL_PRODUCT_DEV3=PARTIAL
 FRESH_WINDOWS_CANDIDATE=NO
 NVDA_VERIFIED=NO
