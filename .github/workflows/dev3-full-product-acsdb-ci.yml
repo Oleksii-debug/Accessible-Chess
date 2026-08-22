@@ -83,7 +83,7 @@ jobs:
           tests.test_dev3_student_progress_store
 
       - name: Unicode ACSDB 100k query-plan performance evidence
-        run: python tools/dev3_unicode_search_perf_probe.py
+        run: python -m tools.dev3_unicode_search_perf_probe
 
       - name: Official Stockfish 18 real bounded game-review smoke
         shell: bash
