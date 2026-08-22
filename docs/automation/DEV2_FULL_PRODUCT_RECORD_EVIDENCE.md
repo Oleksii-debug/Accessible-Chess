@@ -2,6 +2,8 @@
 
 Validation-only marker for exact canonical DEV2 Product head `4dd706838881c0e328c7578eada17227de43cf60`.
 
+Validation PR: #85 (DRAFT / DO NOT MERGE).
+
 Scope under test:
 - strict closed-world GameTree snapshot record exchange;
 - deterministic JSON exchange;
