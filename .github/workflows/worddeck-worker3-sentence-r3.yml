@@ -120,7 +120,7 @@ jobs:
             .\artifacts\tatoeba-cc0\tatoeba-en-uk-both-cc0.tsv `
             .\artifacts\tatoeba-cc0\WordDeck-SentencePack-Tatoeba-EN-UA-CC0-v1.json `
             tatoeba-en-uk-both-cc0-v1
-          if ($LASTEXITCODE -ne 0) { throw "Real Tatoeba SentencePack build failed." }
+          if ($LASTEXITCODE -ne 0) { throw "Real Tatoeba CC0 SentencePack build failed." }
 
       - name: Create deterministic gzip portable candidate
         shell: pwsh
@@ -140,7 +140,7 @@ jobs:
           print(target)
           '@ | python -
 
-      - name: Validate real portable pack and build SQLite derivative metrics
+      - name: Validate CC0 portable pack and build SQLite derivative metrics
         shell: pwsh
         run: |
           dotnet run --project .\WordDeck\WordDeck.csproj -c Release --no-build -- `
@@ -149,13 +149,13 @@ jobs:
             .\artifacts\tatoeba-cc0\sentencepack-metrics.json `
             --sqlite `
             .\artifacts\tatoeba-cc0\WordDeck-SentencePack-Tatoeba-EN-UA-CC0-v1.sqlite
-          if ($LASTEXITCODE -ne 0) { throw "Real SentencePack validation/SQLite build failed." }
+          if ($LASTEXITCODE -ne 0) { throw "CC0 SentencePack validation/SQLite build failed." }
 
-      - name: Write distributable evidence hashes
+      - name: Write CC0 evidence hashes
         shell: pwsh
         run: |
           $root = Resolve-Path .\artifacts\tatoeba-cc0
-          $files = Get-ChildItem $root -File | Where-Object { $_.Name -notmatch '^upstream$' }
+          $files = Get-ChildItem $root -File
           $lines = @()
           foreach ($file in $files | Sort-Object Name) {
             $hash = (Get-FileHash $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -164,7 +164,7 @@ jobs:
           $lines | Set-Content -Encoding utf8 .\artifacts\tatoeba-cc0\SHA256SUMS.txt
           Copy-Item .\WordDeck\TATOEBA_SENTENCEPACK_NOTICE.md .\artifacts\tatoeba-cc0\TATOEBA_SENTENCEPACK_NOTICE.md
 
-      - name: Upload real SentencePack candidate and provenance evidence
+      - name: Upload CC0 SentencePack and provenance evidence
         uses: actions/upload-artifact@v4
         with:
           name: WordDeck-SentencePack-Tatoeba-EN-UA-CC0-r3
@@ -179,9 +179,114 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  real-tatoeba-attributed-sentencepack:
+    needs: sentence-r3-regression
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout isolated Round-3 worker branch
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Build attributed EN-UA pair evidence from official Tatoeba detailed exports
+        run: python .\tools\worddeck\build_tatoeba_attributed_pairs.py --output-dir .\artifacts\tatoeba-attributed
+
+      - name: Restore WordDeck
+        run: dotnet restore .\WordDeck\WordDeck.csproj
+
+      - name: Build WordDeck Release
+        run: dotnet build .\WordDeck\WordDeck.csproj -c Release --no-restore
+
+      - name: Build real attributed Tatoeba SentencePack
+        shell: pwsh
+        run: |
+          dotnet run --project .\WordDeck\WordDeck.csproj -c Release --no-build -- `
+            --build-tatoeba-sentence-pack `
+            .\artifacts\tatoeba-attributed\tatoeba-en-uk-attributed.tsv `
+            .\artifacts\tatoeba-attributed\WordDeck-SentencePack-Tatoeba-EN-UA-CCBY-v1.json `
+            tatoeba-en-uk-attributed-ccby-v1
+          if ($LASTEXITCODE -ne 0) { throw "Real attributed Tatoeba SentencePack build failed." }
+
+      - name: Create deterministic attributed gzip candidate
+        shell: pwsh
+        run: |
+          @'
+          from pathlib import Path
+          import gzip
+          source = Path(r'artifacts/tatoeba-attributed/WordDeck-SentencePack-Tatoeba-EN-UA-CCBY-v1.json')
+          target = Path(str(source) + '.gz')
+          with source.open('rb') as src, target.open('wb') as raw:
+              with gzip.GzipFile(filename='', mode='wb', fileobj=raw, compresslevel=9, mtime=0) as out:
+                  while True:
+                      block = src.read(1024 * 1024)
+                      if not block:
+                          break
+                      out.write(block)
+          print(target)
+          '@ | python -
+
+      - name: Validate attributed pack and build SQLite derivative metrics
+        shell: pwsh
+        run: |
+          dotnet run --project .\WordDeck\WordDeck.csproj -c Release --no-build -- `
+            --measure-sentence-pack `
+            .\artifacts\tatoeba-attributed\WordDeck-SentencePack-Tatoeba-EN-UA-CCBY-v1.json.gz `
+            .\artifacts\tatoeba-attributed\sentencepack-metrics.json `
+            --sqlite `
+            .\artifacts\tatoeba-attributed\WordDeck-SentencePack-Tatoeba-EN-UA-CCBY-v1.sqlite
+          if ($LASTEXITCODE -ne 0) { throw "Attributed SentencePack validation/SQLite build failed." }
+
+      - name: Measure practical Oxford 5446 runtime coverage on attributed SQLite
+        shell: pwsh
+        run: |
+          dotnet run --project .\WordDeck\WordDeck.csproj -c Release --no-build -- `
+            --measure-sentence-pack `
+            .\artifacts\tatoeba-attributed\WordDeck-SentencePack-Tatoeba-EN-UA-CCBY-v1.sqlite `
+            .\artifacts\tatoeba-attributed\sentencepack-runtime-metrics.json `
+            --runtime
+          if ($LASTEXITCODE -ne 0) { throw "Attributed SentencePack runtime coverage benchmark failed." }
+
+      - name: Write attributed evidence hashes
+        shell: pwsh
+        run: |
+          $root = Resolve-Path .\artifacts\tatoeba-attributed
+          $files = Get-ChildItem $root -File
+          $lines = @()
+          foreach ($file in $files | Sort-Object Name) {
+            $hash = (Get-FileHash $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            $lines += "$hash  $($file.Name)"
+          }
+          $lines | Set-Content -Encoding utf8 .\artifacts\tatoeba-attributed\SHA256SUMS.txt
+          Copy-Item .\WordDeck\TATOEBA_SENTENCEPACK_NOTICE.md .\artifacts\tatoeba-attributed\TATOEBA_SENTENCEPACK_NOTICE.md
+
+      - name: Upload attributed SentencePack and provenance evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: WordDeck-SentencePack-Tatoeba-EN-UA-CCBY-r3
+          path: |
+            .\artifacts\tatoeba-attributed\tatoeba-en-uk-attributed.tsv
+            .\artifacts\tatoeba-attributed\tatoeba-en-uk-attributed.tsv.manifest.json
+            .\artifacts\tatoeba-attributed\WordDeck-SentencePack-Tatoeba-EN-UA-CCBY-v1.json.gz
+            .\artifacts\tatoeba-attributed\WordDeck-SentencePack-Tatoeba-EN-UA-CCBY-v1.sqlite
+            .\artifacts\tatoeba-attributed\sentencepack-metrics.json
+            .\artifacts\tatoeba-attributed\sentencepack-runtime-metrics.json
+            .\artifacts\tatoeba-attributed\SHA256SUMS.txt
+            .\artifacts\tatoeba-attributed\TATOEBA_SENTENCEPACK_NOTICE.md
+          if-no-files-found: error
+          retention-days: 14
+
   final-r3-status:
     if: always()
-    needs: [sentence-r3-regression, real-tatoeba-cc0-sentencepack]
+    needs: [sentence-r3-regression, real-tatoeba-cc0-sentencepack, real-tatoeba-attributed-sentencepack]
     runs-on: ubuntu-latest
     steps:
       - name: Publish final combined worker checkpoint
@@ -190,8 +295,9 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
             const codeOk = '${{ needs.sentence-r3-regression.result }}' === 'success';
-            const corpusOk = '${{ needs.real-tatoeba-cc0-sentencepack.result }}' === 'success';
-            const succeeded = codeOk && corpusOk;
+            const cc0Ok = '${{ needs.real-tatoeba-cc0-sentencepack.result }}' === 'success';
+            const attributedOk = '${{ needs.real-tatoeba-attributed-sentencepack.result }}' === 'success';
+            const succeeded = codeOk && cc0Ok && attributedOk;
             const targetUrl = `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`;
             await github.rest.repos.createCommitStatus({
               owner: context.repo.owner,
@@ -200,8 +306,8 @@ jobs:
               state: succeeded ? 'success' : 'failure',
               context: 'WordDeck worker 3 Sentence R3 gate',
               description: succeeded
-                ? 'R3 code, Windows EXE and real Tatoeba CC0 SentencePack gates passed.'
-                : `R3 failed: code=${{ needs.sentence-r3-regression.result }}, corpus=${{ needs.real-tatoeba-cc0-sentencepack.result }}.`,
+                ? 'R3 code, Windows EXE, CC0 evidence and attributed practical corpus gates passed.'
+                : `R3 failed: code=${{ needs.sentence-r3-regression.result }}, cc0=${{ needs.real-tatoeba-cc0-sentencepack.result }}, attributed=${{ needs.real-tatoeba-attributed-sentencepack.result }}.`,
               target_url: targetUrl
             });
             if (!succeeded) core.setFailed('Round-3 combined Sentence gate failed.');
