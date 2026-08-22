@@ -9,6 +9,7 @@ internal sealed class SentencePackSqliteCorpus : ISentenceCorpus
     private readonly string _databasePath;
 
     public string PackId { get; }
+    public string Provenance { get; }
     public string License { get; }
     public int SentenceCount { get; }
 
@@ -27,11 +28,14 @@ internal sealed class SentencePackSqliteCorpus : ISentenceCorpus
             throw new InvalidDataException("Unsupported SQLite SentencePack schema version.");
 
         PackId = Require(metadata, "pack_id");
+        Provenance = Require(metadata, "provenance");
         License = Require(metadata, "license");
         string sourceLanguage = Require(metadata, "source_language");
         string targetLanguage = Require(metadata, "target_language");
         if (!sourceLanguage.Equals("en", StringComparison.OrdinalIgnoreCase) || !targetLanguage.Equals("uk", StringComparison.OrdinalIgnoreCase))
             throw new InvalidDataException("This Sentence Coach build currently requires an EN-UA SQLite corpus.");
+
+        ValidateRuntimeSchema(connection);
 
         using SqliteCommand count = connection.CreateCommand();
         count.CommandText = "SELECT COUNT(*) FROM sentences;";
@@ -41,10 +45,10 @@ internal sealed class SentencePackSqliteCorpus : ISentenceCorpus
     }
 
     public IReadOnlyList<SentenceRecord> LookupByEntryId(string entryId) =>
-        SentencePackSqlitePrototype.LookupAllTargets(_databasePath, new[] { entryId });
+        SentencePackSqliteRuntimeQuery.LookupAllTargets(_databasePath, new[] { entryId });
 
     public IReadOnlyList<SentenceRecord> LookupAllTargets(IReadOnlyCollection<string> targetEntryIds) =>
-        SentencePackSqlitePrototype.LookupAllTargets(_databasePath, targetEntryIds);
+        SentencePackSqliteRuntimeQuery.LookupAllTargets(_databasePath, targetEntryIds);
 
     public HashSet<string> GetCoveredScopeEntryIds(IReadOnlyCollection<string> scopeEntryIds, bool requireSameScopePartner)
     {
@@ -54,8 +58,7 @@ internal sealed class SentencePackSqliteCorpus : ISentenceCorpus
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToArray();
         var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        if (scope.Length == 0)
-            return result;
+        if (scope.Length == 0) return result;
 
         using var connection = OpenReadOnly(_databasePath);
         using (SqliteCommand create = connection.CreateCommand())
@@ -111,8 +114,7 @@ internal sealed class SentencePackSqliteCorpus : ISentenceCorpus
                     """;
 
             using SqliteDataReader reader = query.ExecuteReader();
-            while (reader.Read())
-                result.Add(reader.GetString(0));
+            while (reader.Read()) result.Add(reader.GetString(0));
             return result;
         }
         finally
@@ -143,9 +145,26 @@ internal sealed class SentencePackSqliteCorpus : ISentenceCorpus
         command.CommandText = "SELECT key, value FROM metadata;";
         var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         using SqliteDataReader reader = command.ExecuteReader();
-        while (reader.Read())
-            result[reader.GetString(0)] = reader.GetString(1);
+        while (reader.Read()) result[reader.GetString(0)] = reader.GetString(1);
         return result;
+    }
+
+    private static void ValidateRuntimeSchema(SqliteConnection connection)
+    {
+        string[] requiredTables = { "metadata", "sentences", "target_entries", "sentence_targets" };
+        foreach (string table in requiredTables)
+        {
+            using SqliteCommand tableCommand = connection.CreateCommand();
+            tableCommand.CommandText = "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = $name LIMIT 1;";
+            tableCommand.Parameters.AddWithValue("$name", table);
+            if (tableCommand.ExecuteScalar() is null)
+                throw new InvalidDataException($"SQLite SentencePack is missing required table {table}.");
+        }
+
+        using SqliteCommand indexCommand = connection.CreateCommand();
+        indexCommand.CommandText = "SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = 'ix_sentence_targets_sentence' LIMIT 1;";
+        if (indexCommand.ExecuteScalar() is null)
+            throw new InvalidDataException("SQLite SentencePack is missing its required sentence-target runtime index.");
     }
 
     private static string Require(IReadOnlyDictionary<string, string> metadata, string key)
