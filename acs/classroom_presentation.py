@@ -17,6 +17,14 @@ from .full_product_ui_shell import UILanguage, concise_user_error
 CommandDispatch = Callable[[str, Mapping[str, object]], Any]
 
 
+def _generic_action_failure(language: UILanguage) -> str:
+    return (
+        "Не вдалося виконати дію."
+        if language is UILanguage.UA
+        else "The action could not be completed."
+    )
+
+
 class RecordKind(str, Enum):
     CLASS = "class"
     STUDENT = "student"
@@ -243,7 +251,10 @@ class RemoteLessonPresenter:
                 raise ValueError("remote sequence must be a non-negative integer")
             teacher = self._optional_text(state.get("teacher_label"))
             student = self._optional_text(state.get("student_label"))
-        except Exception as exc:
+        except Exception:
+            # Provider/schema failures are internal boundary failures. Never
+            # project validation wording, secret-field names, transport details,
+            # or local paths into normal NVDA speech.
             return RemoteLessonView(
                 status=RemoteStatus.ERROR,
                 session_id=None,
@@ -253,7 +264,7 @@ class RemoteLessonPresenter:
                 can_connect=True,
                 can_reconnect=False,
                 can_leave=False,
-                message=concise_user_error(exc, language=self._language),
+                message=_generic_action_failure(self._language),
             )
         return RemoteLessonView(
             status=status,
