@@ -59,6 +59,94 @@ class Dev4PgnExportFailureRecoveryTests(unittest.TestCase):
                 "A failed expected-hash publication must remove its recoverable CAS snapshot.",
             )
 
+    def test_expected_hash_rollback_failure_preserves_concurrent_writer_snapshot(self) -> None:
+        """A failed rollback must never delete the only recoverable newer bytes."""
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            destination = root / "rollback.pgn"
+            original = '[Event "Original"]\n[Result "*"]\n\n1. d4 *\n'
+            concurrent = '[Event "Concurrent writer"]\n[Result "*"]\n\n1. c4 *\n'
+            destination.write_text(original, encoding="utf-8")
+            expected_sha256 = open_pgn(destination).source.sha256
+            real_replace = os.replace
+            replace_calls = 0
+
+            def publish_then_fail_rollback(src, dst):
+                nonlocal replace_calls
+                replace_calls += 1
+                if replace_calls == 1:
+                    # Mutate the pre-publication inode after all prechecks. The CAS
+                    # hard link observes these newer bytes and forces rollback.
+                    destination.write_text(concurrent, encoding="utf-8")
+                    return real_replace(src, dst)
+                raise OSError("rollback failed")
+
+            with mock.patch(
+                "acs.pgn_service.os.replace",
+                side_effect=publish_then_fail_rollback,
+            ):
+                with self.assertRaises(PgnFileError):
+                    save_pgn_atomic(
+                        destination,
+                        self._games(),
+                        overwrite=True,
+                        expected_sha256=expected_sha256,
+                    )
+
+            snapshots = list(root.glob(destination.name + ".cas-*.bak"))
+            self.assertEqual(
+                len(snapshots),
+                1,
+                "Rollback failure must preserve one recoverable CAS snapshot.",
+            )
+            self.assertEqual(snapshots[0].read_text(encoding="utf-8"), concurrent)
+            self.assertEqual(list(root.glob(destination.name + ".*.tmp")), [])
+
+    def test_post_publication_verification_failure_preserves_original_snapshot(self) -> None:
+        """If conflict verification becomes unavailable, keep recovery evidence."""
+
+        import acs.pgn_service as pgn_service
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            destination = root / "verify.pgn"
+            original = '[Event "Original"]\n[Result "*"]\n\n1. d4 *\n'
+            destination.write_text(original, encoding="utf-8")
+            expected_sha256 = open_pgn(destination).source.sha256
+            real_current_sha256 = pgn_service._current_sha256
+            snapshot_checks = 0
+
+            def fail_second_snapshot_check(path):
+                nonlocal snapshot_checks
+                candidate = Path(path)
+                if ".cas-" in candidate.name:
+                    snapshot_checks += 1
+                    if snapshot_checks == 2:
+                        raise OSError("snapshot verification unavailable")
+                return real_current_sha256(candidate)
+
+            with mock.patch(
+                "acs.pgn_service._current_sha256",
+                side_effect=fail_second_snapshot_check,
+            ):
+                with self.assertRaises(PgnFileError):
+                    save_pgn_atomic(
+                        destination,
+                        self._games(),
+                        overwrite=True,
+                        expected_sha256=expected_sha256,
+                    )
+
+            snapshots = list(root.glob(destination.name + ".cas-*.bak"))
+            self.assertEqual(
+                len(snapshots),
+                1,
+                "Post-publication verification failure must preserve recovery evidence.",
+            )
+            self.assertEqual(snapshots[0].read_text(encoding="utf-8"), original)
+            self.assertEqual(list(root.glob(destination.name + ".*.tmp")), [])
+
     def test_no_clobber_link_failure_cleans_temp_and_publishes_nothing(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
