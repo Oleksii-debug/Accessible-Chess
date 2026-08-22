@@ -2,12 +2,12 @@ from __future__ import annotations
 
 """Safe file-level PGN services for Accessible Chess.
 
-This module is deliberately presentation-neutral.  It connects the structural
+This module is deliberately presentation-neutral. It connects the structural
 GameTree parser/serializer to real files without teaching the UI about file
 encoding, provenance fingerprints, concurrent modification checks, or atomic
 replacement.
 
-The source PGN is read-only during inspection/open.  Saving always writes a
+The source PGN is read-only during inspection/open. Saving always writes a
 complete temporary file in the destination directory and then atomically
 replaces the destination, so a crash cannot leave a half-written PGN.
 """
@@ -28,12 +28,19 @@ from .import_contract import (
 )
 
 
+MAX_PGN_SOURCE_BYTES = 64 * 1024 * 1024
+
+
 class PgnFileError(RuntimeError):
     """Base error for safe PGN file operations."""
 
 
 class PgnSourceChangedError(PgnFileError):
     """Raised when a file changes while it is being read."""
+
+
+class PgnResourceLimitError(PgnFileError):
+    """Raised when an external PGN exceeds the bounded import contract."""
 
 
 class PgnConcurrentWriteError(PgnFileError):
@@ -75,26 +82,51 @@ class PgnFileImporter:
             )
             return report
 
+        lossy_source = bool(opened.global_warnings)
         for game in opened.games:
-            warnings = tuple(game.warnings)
+            warnings = list(game.warnings)
+            if lossy_source:
+                warnings.append("Source text required lossy UTF-8 replacement during decoding.")
             report.add(
                 ImportedRecord(
                     source_record_id=str(game.source_index),
                     quality=ImportQuality.WARNING if warnings else ImportQuality.FULL,
                     message="PGN game parsed structurally.",
-                    warnings=warnings,
+                    warnings=tuple(warnings),
                 )
             )
         return report
 
 
+def _bounded_source_size(path: Path) -> int:
+    try:
+        size = path.lstat().st_size
+    except OSError as exc:
+        raise PgnFileError("PGN source is unavailable") from exc
+    if size > MAX_PGN_SOURCE_BYTES:
+        raise PgnResourceLimitError(
+            f"PGN source exceeds the {MAX_PGN_SOURCE_BYTES}-byte safety limit"
+        )
+    return size
+
+
 def _read_text_snapshot(path: Path) -> tuple[SourceFingerprint, str]:
+    _bounded_source_size(path)
     before = fingerprint(path)
-    with path.open("r", encoding="utf-8-sig", errors="replace", newline=None) as handle:
-        text = handle.read()
+    if before.size > MAX_PGN_SOURCE_BYTES:
+        raise PgnResourceLimitError(
+            f"PGN source exceeds the {MAX_PGN_SOURCE_BYTES}-byte safety limit"
+        )
+    try:
+        with path.open("r", encoding="utf-8-sig", errors="replace", newline=None) as handle:
+            text = handle.read(MAX_PGN_SOURCE_BYTES + 1)
+    except OSError as exc:
+        raise PgnFileError("PGN source could not be read safely") from exc
+    if len(text.encode("utf-8", errors="replace")) > MAX_PGN_SOURCE_BYTES:
+        raise PgnResourceLimitError("PGN decoded text exceeds the safety limit")
     after = fingerprint(path)
     if before.size != after.size or before.sha256 != after.sha256:
-        raise PgnSourceChangedError(f"PGN changed while being read: {path}")
+        raise PgnSourceChangedError("PGN changed while being read")
     return before, text
 
 
@@ -127,7 +159,7 @@ def save_pgn_atomic(
 ) -> SourceFingerprint:
     """Serialize GameTree content and atomically commit one complete PGN file.
 
-    ``overwrite=False`` protects existing files by default.  When overwriting a
+    ``overwrite=False`` protects existing files by default. When overwriting a
     file that was previously opened, callers may pass ``expected_sha256`` from
     :class:`PgnOpenResult`; a mismatch refuses the write instead of silently
     replacing someone else's newer edits.
