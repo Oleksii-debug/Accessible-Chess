@@ -5,6 +5,9 @@ on:
   push:
     branches:
       - full5/dev1-accessible-shell-20260822
+  pull_request:
+    branches:
+      - manual5/integration-20260821
 
 permissions:
   contents: read
@@ -20,6 +23,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
 
       - uses: actions/setup-python@v5
         with:
@@ -28,10 +32,13 @@ jobs:
       - name: Install verification dependency
         run: python -m pip install -q pytest
 
-      - name: Prove isolated DEV1 scope and diff hygiene
+      - name: Prove exact head and isolated DEV1 scope
         shell: bash
         run: |
           set -euo pipefail
+          expected="${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}"
+          actual="$(git rev-parse HEAD)"
+          test "$actual" = "$expected"
           git cat-file -e "$DEV1_FULL_PRODUCT_BASE^{commit}"
           git merge-base --is-ancestor "$DEV1_FULL_PRODUCT_BASE" HEAD
           test "$(git merge-base "$DEV1_FULL_PRODUCT_BASE" HEAD)" = "$DEV1_FULL_PRODUCT_BASE"
