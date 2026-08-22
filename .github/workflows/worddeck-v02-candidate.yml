@@ -27,6 +27,21 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Verify exact canonical checkout
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $actual = (git rev-parse HEAD).Trim()
+          if ($actual -ne $env:GITHUB_SHA) { throw "Checkout/source mismatch: HEAD=$actual GITHUB_SHA=$env:GITHUB_SHA" }
+          if ($env:GITHUB_REF_NAME -ne 'worddeck-bootstrap') { throw "Candidate must run from worddeck-bootstrap, got $env:GITHUB_REF_NAME" }
+          New-Item -ItemType Directory -Force .\artifacts | Out-Null
+          @(
+            "branch=$env:GITHUB_REF_NAME",
+            "sha=$actual",
+            "workflow_run=$env:GITHUB_RUN_ID"
+          ) | Set-Content .\artifacts\source-identity.txt -Encoding utf8
+          Write-Host "Exact canonical checkout PASS: $actual"
+
       - name: Publish pending candidate status
         uses: actions/github-script@v7
         with:
@@ -38,6 +53,30 @@ jobs:
               description: 'Integrated full-v1 engineering candidate gate is running.',
               target_url: `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`
             });
+
+      - name: Verify repository safety and no-admin contract
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $tracked = @(git ls-files)
+          $badNames = @($tracked | Where-Object {
+            $_ -match '(?i)(^|/)(token\.json|credentials\.json|cookies?\.txt|[^/]+\.session|\.env)$'
+          })
+          if ($badNames.Count -ne 0) { throw "Tracked private-state/credential filenames: $($badNames -join ', ')" }
+
+          $sourceFiles = @(Get-ChildItem .\WordDeck -Recurse -File | Where-Object {
+            $_.Extension -in '.cs','.csproj','.json','.xml','.ps1','.yml','.yaml'
+          })
+          $personalPathHits = @($sourceFiles | Select-String -SimpleMatch 'C:\Users\')
+          if ($personalPathHits.Count -ne 0) { throw "Hard-coded personal Windows path found: $($personalPathHits.Path -join ', ')" }
+
+          $secretRegex = '(sk-[A-Za-z0-9_-]{20,}|gh[pousr]_[A-Za-z0-9]{20,}|AIza[A-Za-z0-9_-]{20,}|BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY)'
+          $secretHits = @($sourceFiles | Select-String -Pattern $secretRegex)
+          if ($secretHits.Count -ne 0) { throw "Potential credential material found in product/release sources: $($secretHits.Path -join ', ')" }
+
+          $manifestText = Get-Content .\WordDeck\app.manifest -Raw
+          if ($manifestText -notmatch 'requestedExecutionLevel\s+level="asInvoker"') { throw 'Application manifest is not asInvoker/no-admin.' }
+          Write-Host 'Repository safety/no-admin contract PASS.'
 
       - name: Verify exact accepted AudioPack identity
         uses: actions/github-script@v7
@@ -84,6 +123,7 @@ jobs:
           Copy-Item .\WordDeck\README_FIRST_USABLE_UK.md .\artifacts\release\README_UK.md
           Copy-Item .\WordDeck\THIRD_PARTY_NOTICES.md .\artifacts\release\THIRD_PARTY_NOTICES.md
           Copy-Item .\WordDeck\CANDIDATE_STATUS_V02_UK.txt .\artifacts\release\CANDIDATE_STATUS_UK.txt
+          Copy-Item .\artifacts\source-identity.txt .\artifacts\release\SOURCE_IDENTITY.txt
           $pack = '.\artifacts\release\AudioPacks\oxford-3000-en-uk'
           New-Item -ItemType Directory -Force $pack | Out-Null
           Copy-Item .\artifacts\audio\*.mp3 $pack
@@ -117,7 +157,7 @@ jobs:
           if ($proc.ExitCode -ne 0) { throw "Cyrillic/spaces path self-test failed: $($proc.ExitCode)" }
           Write-Host 'Cyrillic/spaces path self-test PASS.'
 
-      - name: Prove clean public candidate
+      - name: Prove clean public candidate and create versioned ZIP
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
@@ -130,16 +170,40 @@ jobs:
             $_.Name -match '(token|secret|credential|session)'
           })
           if ($forbidden.Count -ne 0) { throw "Candidate contains forbidden personal/secret-looking files: $($forbidden.FullName -join ', ')" }
-          if (-not (Test-Path .\artifacts\release\CANDIDATE_STATUS_UK.txt)) { throw 'Candidate status disclosure missing.' }
-          Write-Host 'Clean candidate PASS: Recall/Spelling/Sentence state, profiles, backups and secret-looking files are absent.'
+          foreach ($required in @('WordDeck.exe','README_UK.md','THIRD_PARTY_NOTICES.md','CANDIDATE_STATUS_UK.txt','SOURCE_IDENTITY.txt')) {
+            if (-not (Test-Path (Join-Path .\artifacts\release $required))) { throw "Candidate required file missing: $required" }
+          }
 
-      # Upload the engineering candidate before the external hosted-UIA gate. A
-      # strict UIA failure still makes the job/status fail, but it must not erase
-      # already-proven package evidence that the independent auditor needs.
+          $releaseRoot = (Resolve-Path .\artifacts\release).Path
+          $manifestLines = foreach ($file in Get-ChildItem $releaseRoot -Recurse -File | Sort-Object FullName) {
+            $relative = $file.FullName.Substring($releaseRoot.Length).TrimStart('\')
+            $hash = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            "$hash`t$($file.Length)`t$relative"
+          }
+          $manifestLines | Set-Content .\artifacts\release\PACKAGE_SHA256.tsv -Encoding utf8
+
+          $candidateZip = ".\artifacts\$env:RELEASE_NAME.zip"
+          Compress-Archive -Path .\artifacts\release\* -DestinationPath $candidateZip -CompressionLevel Optimal -Force
+          $zipHash = (Get-FileHash -LiteralPath $candidateZip -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$zipHash  $env:RELEASE_NAME.zip" | Set-Content ".\artifacts\$env:RELEASE_NAME.sha256" -Encoding ascii
+          Write-Host "Clean versioned candidate PASS. ZIP SHA-256: $zipHash"
+
+      # Upload both the unpacked engineering tree and explicit versioned ZIP before
+      # hosted UIA. A strict UIA failure still makes the final status fail, but the
+      # independent auditor keeps already-proven package evidence for diagnosis.
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ env.RELEASE_NAME }}
           path: .\artifacts\release\**
+          if-no-files-found: error
+          retention-days: 90
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.RELEASE_NAME }}-zip
+          path: |
+            .\artifacts\${{ env.RELEASE_NAME }}.zip
+            .\artifacts\${{ env.RELEASE_NAME }}.sha256
           if-no-files-found: error
           retention-days: 90
 
@@ -162,6 +226,6 @@ jobs:
             await github.rest.repos.createCommitStatus({
               owner: context.repo.owner, repo: context.repo.repo, sha: context.sha,
               state: ok ? 'success' : 'failure', context: 'WordDeck V0.2 full-v1 candidate',
-              description: ok ? 'Integrated candidate regression/UIA/package gates passed; bounded SentencePack status included.' : 'V0.2 candidate package/evidence is available where reached, but at least one strict acceptance gate failed.',
+              description: ok ? 'Exact candidate ZIP, regressions, security/portability and integrated UIA passed.' : 'Candidate evidence is available where reached, but at least one strict acceptance gate failed.',
               target_url: `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`
             });
