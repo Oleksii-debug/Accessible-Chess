@@ -166,6 +166,114 @@ class Dev3AcsdbBackupRecoveryTests(unittest.TestCase):
                 AcsDatabase.restore_backup(backup, destination)
             self.assertEqual(destination.read_bytes(), b"sentinel")
 
+    def test_empty_sqlite_database_is_not_accepted_as_acsdb_backup(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            backup = root / "foreign.sqlite"
+            destination = root / "destination.acsdb"
+            sqlite3.connect(backup).close()
+            destination.write_bytes(b"keep-me")
+
+            with self.assertRaisesRegex(RuntimeError, "supported ACSDB"):
+                AcsDatabase.restore_backup(backup, destination, overwrite=True)
+            self.assertEqual(destination.read_bytes(), b"keep-me")
+
+    def test_foreign_sqlite_with_forged_supported_version_is_rejected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            backup = root / "foreign.sqlite"
+            destination = root / "destination.acsdb"
+            destination.write_bytes(b"keep-me")
+
+            conn = sqlite3.connect(backup)
+            try:
+                conn.execute("CREATE TABLE unrelated(id INTEGER PRIMARY KEY, payload TEXT)")
+                conn.execute(f"PRAGMA user_version = {ACSDB_SCHEMA_VERSION}")
+                conn.commit()
+            finally:
+                conn.close()
+
+            with self.assertRaisesRegex(RuntimeError, "schema identity"):
+                AcsDatabase.restore_backup(backup, destination, overwrite=True)
+            self.assertEqual(destination.read_bytes(), b"keep-me")
+
+    def test_current_schema_missing_required_position_index_is_rejected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            live = root / "live.acsdb"
+            backup = root / "backup.acsdb"
+            destination = root / "destination.acsdb"
+            self._populate(live)
+            with AcsDatabase(live) as db:
+                db.backup_to(backup)
+
+            conn = sqlite3.connect(backup)
+            try:
+                conn.execute("DROP INDEX idx_positions_key_game_ply")
+                conn.commit()
+            finally:
+                conn.close()
+            destination.write_bytes(b"keep-me")
+
+            with self.assertRaisesRegex(RuntimeError, "schema identity"):
+                AcsDatabase.restore_backup(backup, destination, overwrite=True)
+            self.assertEqual(destination.read_bytes(), b"keep-me")
+
+    def test_foreign_key_corruption_is_rejected_even_when_quick_check_passes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            live = root / "live.acsdb"
+            backup = root / "backup.acsdb"
+            destination = root / "destination.acsdb"
+            source_id, _game_id = self._populate(live)
+            with AcsDatabase(live) as db:
+                db.backup_to(backup)
+
+            conn = sqlite3.connect(backup)
+            try:
+                self.assertEqual(conn.execute("PRAGMA quick_check").fetchone()[0], "ok")
+                conn.execute("PRAGMA foreign_keys = OFF")
+                conn.execute("DELETE FROM sources WHERE id=?", (source_id,))
+                conn.commit()
+                self.assertEqual(conn.execute("PRAGMA quick_check").fetchone()[0], "ok")
+                self.assertIsNotNone(conn.execute("PRAGMA foreign_key_check").fetchone())
+            finally:
+                conn.close()
+            destination.write_bytes(b"keep-me")
+
+            with self.assertRaisesRegex(RuntimeError, "foreign-key integrity"):
+                AcsDatabase.restore_backup(backup, destination, overwrite=True)
+            self.assertEqual(destination.read_bytes(), b"keep-me")
+
+    def test_supported_legacy_v1_and_v2_backups_restore_and_migrate_forward(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            live = root / "live.acsdb"
+            _source_id, game_id = self._populate(live)
+
+            for version in (1, 2):
+                with self.subTest(version=version):
+                    backup = root / f"legacy-v{version}.acsdb"
+                    restored_path = root / f"restored-v{version}.acsdb"
+                    with AcsDatabase(live) as db:
+                        db.backup_to(backup)
+
+                    conn = sqlite3.connect(backup)
+                    try:
+                        conn.execute("DROP INDEX idx_positions_key_game_ply")
+                        if version == 1:
+                            conn.execute("DROP TABLE import_attempts")
+                        conn.execute(f"PRAGMA user_version = {version}")
+                        conn.commit()
+                    finally:
+                        conn.close()
+
+                    AcsDatabase.restore_backup(backup, restored_path)
+                    with AcsDatabase(restored_path) as restored:
+                        self.assertEqual(restored.schema_version, ACSDB_SCHEMA_VERSION)
+                        self.assertEqual(restored.get_game(game_id)["event"], "Backup")
+                        self.assertEqual(restored.search_position(FEN)[0]["matched_ply"], 4)
+
 
 if __name__ == "__main__":
     unittest.main()
