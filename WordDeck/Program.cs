@@ -7,10 +7,8 @@ internal static class Program
     {
         if (args.Length > 0 && args[0].Equals("--build-tatoeba-sentence-pack", StringComparison.OrdinalIgnoreCase))
             return BuildTatoebaSentencePack(args);
-
         if (args.Length > 0 && args[0].Equals("--measure-sentence-pack", StringComparison.OrdinalIgnoreCase))
             return SentencePackDiagnostics.Run(args);
-
         if (args.Length > 0 && args[0].Equals("--export-oxford5000-audio-source", StringComparison.OrdinalIgnoreCase))
             return ExportOxford5000AudioSource(args);
 
@@ -35,7 +33,6 @@ internal static class Program
 
         ApplicationConfiguration.Initialize();
         AccessibilityAnnouncer.Install();
-
         var main = new MainForm();
         InstallTrainingEntryPoints(main);
         Application.Run(main);
@@ -49,35 +46,26 @@ internal static class Program
             Console.Error.WriteLine("Usage: WordDeck.exe --export-oxford5000-audio-source <output.tsv>");
             return 2;
         }
-
         try
         {
             string outputPath = Path.GetFullPath(args[1]);
             IReadOnlyList<DictionaryEntry> additions = ReviewedOxford5000Bootstrap.BuildEntriesForTest();
             if (additions.Count != ReviewedOxford5000Bootstrap.ExpectedCanonicalRows)
                 throw new InvalidDataException($"Expected {ReviewedOxford5000Bootstrap.ExpectedCanonicalRows} verified Oxford 5000 additions, got {additions.Count}.");
-
             string? directory = Path.GetDirectoryName(outputPath);
             if (!string.IsNullOrWhiteSpace(directory)) Directory.CreateDirectory(directory);
-
             using var writer = new StreamWriter(outputPath, false, new System.Text.UTF8Encoding(false));
             writer.WriteLine("entry_id\tlevel\tsource");
             var ids = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (DictionaryEntry entry in additions)
             {
-                if (!ids.Add(entry.Id))
-                    throw new InvalidDataException($"Duplicate Oxford 5000 audio stable ID: {entry.Id}.");
+                if (!ids.Add(entry.Id)) throw new InvalidDataException($"Duplicate Oxford 5000 audio stable ID: {entry.Id}.");
                 if (string.IsNullOrWhiteSpace(entry.Source) || string.IsNullOrWhiteSpace(entry.Level))
                     throw new InvalidDataException($"Oxford 5000 audio source contains incomplete entry {entry.Id}.");
                 if (entry.Source.Contains('\t') || entry.Source.Contains('\r') || entry.Source.Contains('\n'))
                     throw new InvalidDataException($"Oxford 5000 audio source is not TSV-safe: {entry.Id}.");
-                writer.Write(entry.Id);
-                writer.Write('\t');
-                writer.Write(entry.Level);
-                writer.Write('\t');
-                writer.WriteLine(entry.Source);
+                writer.Write(entry.Id); writer.Write('\t'); writer.Write(entry.Level); writer.Write('\t'); writer.WriteLine(entry.Source);
             }
-
             Console.WriteLine($"Oxford 5000 verified audio source written: {outputPath}; rows={additions.Count}.");
             return 0;
         }
@@ -95,25 +83,19 @@ internal static class Program
             Console.Error.WriteLine("Usage: WordDeck.exe --build-tatoeba-sentence-pack <en-uk-pairs.tsv> <output.json> [pack-id]");
             return 2;
         }
-
         try
         {
             string inputPath = Path.GetFullPath(args[1]);
             string outputPath = Path.GetFullPath(args[2]);
             string packId = args.Length == 4 ? args[3].Trim() : $"tatoeba-en-uk-{DateTime.UtcNow:yyyyMMdd}";
-            if (!File.Exists(inputPath))
-                throw new FileNotFoundException("Tatoeba EN-UA pair export was not found.", inputPath);
-
+            if (!File.Exists(inputPath)) throw new FileNotFoundException("Tatoeba EN-UA pair export was not found.", inputPath);
             TatoebaImportMetadata metadata = TatoebaImportProvenance.Resolve(inputPath);
             DictionaryPackage dictionary = DictionaryLoader.LoadEmbeddedOxford();
             IEnumerable<TatoebaSentencePair> pairs = TatoebaPairTsv.ParseLines(File.ReadLines(inputPath));
-            (SentencePack pack, SentencePackBuildReport report) = TatoebaSentencePackBuilder.Build(
-                pairs, dictionary, packId, metadata.Provenance, metadata.License);
-
+            (SentencePack pack, SentencePackBuildReport report) = TatoebaSentencePackBuilder.Build(pairs, dictionary, packId, metadata.Provenance, metadata.License);
             string? directory = Path.GetDirectoryName(outputPath);
             if (!string.IsNullOrWhiteSpace(directory)) Directory.CreateDirectory(directory);
             File.WriteAllText(outputPath, SentencePackJson.Serialize(pack));
-
             Console.WriteLine($"SentencePack written: {outputPath}");
             Console.WriteLine($"License metadata: {metadata.License}; verified CC0 manifest: {metadata.VerifiedCc0Manifest}; verified attributed CC-BY manifest: {metadata.VerifiedAttributedCcByManifest}.");
             Console.WriteLine($"Input pairs: {report.InputPairs}; accepted: {report.AcceptedPairs}; rejected: {report.RejectedPairs}; indexed entry references: {report.IndexedEntryIds}; off-list tokens: {report.OffListTokens}.");
@@ -135,7 +117,9 @@ internal static class Program
         if (tools is null) return;
 
         AppState appState = new AppStateStore().Load();
-        SpellingState spellingState = new SpellingStateStore().Load();
+        SpellingState spellingState;
+        try { spellingState = TrainingStateContinuityGuard.LoadSpelling().State; }
+        catch { spellingState = SpellingStateStore.Normalize(new SpellingState()); }
         var shortcutManager = new ShortcutManager(appState, spellingState.Decks);
 
         var openSpelling = new ToolStripMenuItem("Open &Spelling trainer...")
@@ -145,7 +129,6 @@ internal static class Program
             ShowShortcutKeys = true
         };
         openSpelling.Click += (_, _) => OpenSpelling(main);
-
         var openSentence = new ToolStripMenuItem("Open S&entence Spelling trainer...")
         {
             AccessibleName = "Open Sentence Spelling trainer",
@@ -153,24 +136,41 @@ internal static class Program
             ShowShortcutKeys = true
         };
         openSentence.Click += (_, _) => OpenSentenceCoach(main);
-
         var settings = new ToolStripMenuItem("Training &keyboard shortcuts...")
         {
             AccessibleName = "Spelling and Sentence Spelling keyboard shortcuts"
         };
         settings.Click += (_, _) => OpenTrainingShortcutSettings(main, openSpelling, openSentence);
+        var exportProfile = new ToolStripMenuItem("Export complete personal &profile...")
+        {
+            AccessibleName = "Export complete Recall Spelling and Sentence personal profile"
+        };
+        exportProfile.Click += (_, _) => main.ExportUnifiedPersonalProfileInteractive();
+        var importProfile = new ToolStripMenuItem("Import complete personal pro&file...")
+        {
+            AccessibleName = "Import complete Recall Spelling and Sentence personal profile"
+        };
+        importProfile.Click += (_, _) => main.ImportUnifiedPersonalProfileInteractive();
 
         tools.DropDownItems.Insert(0, openSpelling);
         tools.DropDownItems.Insert(1, openSentence);
         tools.DropDownItems.Insert(2, settings);
-        tools.DropDownItems.Insert(3, new ToolStripSeparator());
+        tools.DropDownItems.Insert(3, exportProfile);
+        tools.DropDownItems.Insert(4, importProfile);
+        tools.DropDownItems.Insert(5, new ToolStripSeparator());
     }
 
     private static void OpenTrainingShortcutSettings(Form owner, ToolStripMenuItem spellingItem, ToolStripMenuItem sentenceItem)
     {
         var appStore = new AppStateStore();
         AppState appState = appStore.Load();
-        SpellingState spellingState = new SpellingStateStore().Load();
+        SpellingState spellingState;
+        try { spellingState = TrainingStateContinuityGuard.LoadSpelling().State; }
+        catch (InvalidDataException ex)
+        {
+            MessageBox.Show(owner, ex.Message, "Spelling state recovery required", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            return;
+        }
         var shortcuts = new ShortcutManager(appState, spellingState.Decks);
         using var dialog = new ShortcutSettingsForm(shortcuts);
         dialog.ShowDialog(owner);
@@ -183,12 +183,16 @@ internal static class Program
     {
         var appStore = new AppStateStore();
         AppState appState = appStore.Load();
-        var spellingStore = new SpellingStateStore();
-        SpellingState spellingState = spellingStore.Load();
-        var shortcuts = new ShortcutManager(appState, spellingState.Decks);
+        SpellingStateSession session;
+        try { session = TrainingStateContinuityGuard.LoadSpelling(); }
+        catch (InvalidDataException ex)
+        {
+            MessageBox.Show(owner, ex.Message, "Spelling state recovery required", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            return;
+        }
+        var shortcuts = new ShortcutManager(appState, session.State.Decks);
         DictionaryPackage package = BuildActivePackage(appState);
-
-        using var form = new SpellingForm(appState, spellingState, spellingStore, shortcuts, package);
+        using var form = new SpellingForm(appState, session.State, session.Store, shortcuts, package);
         form.ShowDialog(owner);
         appStore.Save(appState);
     }
@@ -197,20 +201,21 @@ internal static class Program
     {
         var appStore = new AppStateStore();
         AppState appState = appStore.Load();
-        SpellingState spellingState = new SpellingStateStore().Load();
-        var shortcuts = new ShortcutManager(appState, spellingState.Decks);
+        SpellingStateSession spellingSession;
+        SentenceStateSession sentenceSession;
+        try
+        {
+            spellingSession = TrainingStateContinuityGuard.LoadSpelling();
+            sentenceSession = TrainingStateContinuityGuard.LoadSentence();
+        }
+        catch (InvalidDataException ex)
+        {
+            MessageBox.Show(owner, ex.Message, "Training state recovery required", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            return;
+        }
+        var shortcuts = new ShortcutManager(appState, spellingSession.State.Decks);
         DictionaryPackage package = BuildActivePackage(appState);
-        var sentenceStateStore = new SentenceCoachStateStore();
-        SentenceCoachState sentenceState = sentenceStateStore.Load();
-
-        using var form = new SentenceCoachForm(
-            appState,
-            spellingState,
-            shortcuts,
-            package,
-            new SentencePackStore(),
-            sentenceStateStore,
-            sentenceState);
+        using var form = new SentenceCoachForm(appState, spellingSession.State, shortcuts, package, new SentencePackStore(), sentenceSession.Store, sentenceSession.State);
         form.ShowDialog(owner);
         appStore.Save(appState);
     }
@@ -218,8 +223,7 @@ internal static class Program
     private static DictionaryPackage BuildActivePackage(AppState state)
     {
         DictionaryPackage basePackage = DictionaryLoader.LoadEmbeddedOxford();
-        if (!string.IsNullOrWhiteSpace(state.ActiveDictionaryId) &&
-            !string.Equals(state.ActiveDictionaryId, basePackage.Id, StringComparison.OrdinalIgnoreCase))
+        if (!string.IsNullOrWhiteSpace(state.ActiveDictionaryId) && !string.Equals(state.ActiveDictionaryId, basePackage.Id, StringComparison.OrdinalIgnoreCase))
         {
             var store = new AppStateStore();
             foreach (string path in store.EnumerateDictionaryFiles())
@@ -227,27 +231,16 @@ internal static class Program
                 try
                 {
                     DictionaryPackage candidate = DictionaryLoader.LoadFromFile(path);
-                    if (string.Equals(candidate.Id, state.ActiveDictionaryId, StringComparison.OrdinalIgnoreCase))
-                    {
-                        basePackage = candidate;
-                        break;
-                    }
+                    if (string.Equals(candidate.Id, state.ActiveDictionaryId, StringComparison.OrdinalIgnoreCase)) { basePackage = candidate; break; }
                 }
-                catch
-                {
-                    // An invalid optional import must not prevent training modes from opening.
-                }
+                catch { }
             }
         }
-
-        if (!state.CustomEntriesByDictionary.TryGetValue(basePackage.Id, out List<CustomEntryRecord>? custom) || custom.Count == 0)
-            return basePackage;
-
+        if (!state.CustomEntriesByDictionary.TryGetValue(basePackage.Id, out List<CustomEntryRecord>? custom) || custom.Count == 0) return basePackage;
         var seen = new HashSet<string>(basePackage.Entries.Select(entry => entry.Id), StringComparer.OrdinalIgnoreCase);
         var entries = new List<DictionaryEntry>(basePackage.Entries);
         foreach (CustomEntryRecord record in custom)
             if (seen.Add(record.Id)) entries.Add(new DictionaryEntry(record.Id, record.Level, record.Source, record.Target));
-
         return new DictionaryPackage
         {
             Id = basePackage.Id,
