@@ -164,18 +164,22 @@ internal static class ProductEngineSelfTest
 
     private static void TestSentencePackReleaseDescriptor()
     {
+        string sourceHash = "sha256:" + new string('a', 64);
+        string derivativeHash = "sha256:" + new string('b', 64);
         var real = new SentencePackProductDescriptor(
             "tatoeba-en-uk-verified",
             "Tatoeba EN-UA export with retained sentence identifiers and attribution manifest",
             "CC BY 2.0 FR",
             1000,
-            "sha256:source",
-            "sha256:sqlite",
+            sourceHash,
+            derivativeHash,
             IsSynthetic: false);
         real.ValidateForRelease();
 
         ExpectInvalid(() => (real with { IsSynthetic = true }).ValidateForRelease(), "synthetic release corpus");
         ExpectInvalid(() => (real with { SourceIdentity = " " }).ValidateForRelease(), "missing source identity");
+        ExpectInvalid(() => (real with { SourceIdentity = "sha256:not-a-real-hash" }).ValidateForRelease(), "malformed source hash identity");
+        ExpectInvalid(() => (real with { DerivativeIdentity = "sha256:" + new string('z', 64) }).ValidateForRelease(), "non-hex derivative hash identity");
         ExpectInvalid(() => (real with { SentenceCount = 0 }).ValidateForRelease(), "empty release corpus");
     }
 
