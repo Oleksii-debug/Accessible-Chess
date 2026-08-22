@@ -149,16 +149,19 @@ jobs:
           $status = Get-Content .\artifacts\release\CANDIDATE_STATUS_UK.txt -Raw
           if ($status -notmatch 'НЕ заявляє, що містить фінальний production SentencePack' -or $status -notmatch 'Ручний NVDA PASS не заявляється') { throw 'Candidate bounded-status disclosure is missing.' }
 
-      - name: Prove Cyrillic and spaces path launch
+      - name: Prove complete package from Cyrillic and spaces path
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
           $pathRoot = Join-Path (Resolve-Path .\artifacts).Path 'Тест шляху WordDeck'
+          if (Test-Path $pathRoot) { Remove-Item $pathRoot -Recurse -Force }
           New-Item -ItemType Directory -Force $pathRoot | Out-Null
-          Copy-Item .\artifacts\release\WordDeck.exe (Join-Path $pathRoot 'WordDeck.exe')
-          $proc = Start-Process (Join-Path $pathRoot 'WordDeck.exe') -ArgumentList '--self-test' -Wait -PassThru
-          if ($proc.ExitCode -ne 0) { throw "Cyrillic/spaces path self-test failed: $($proc.ExitCode)" }
-          Write-Host 'Cyrillic/spaces path self-test PASS.'
+          Copy-Item .\artifacts\release\* $pathRoot -Recurse -Force
+          $exe = Join-Path $pathRoot 'WordDeck.exe'
+          if (-not (Test-Path $exe)) { throw 'Cyrillic/spaces package copy is missing WordDeck.exe.' }
+          $proc = Start-Process $exe -ArgumentList '--self-test' -WorkingDirectory $pathRoot -Wait -PassThru
+          if ($proc.ExitCode -ne 0) { throw "Cyrillic/spaces full-package self-test failed: $($proc.ExitCode)" }
+          Write-Host 'Cyrillic/spaces full-package self-test PASS.'
 
       - name: Prove clean public candidate and create versioned ZIP
         shell: pwsh
