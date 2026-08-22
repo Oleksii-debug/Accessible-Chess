@@ -18,10 +18,11 @@ internal static class AccessibilityAcceptanceRound4SelfTest
     {
         TestShortcutContextIsolation();
         TestUnifiedRegistryAndDynamicSpellingPreservation();
+        TestLegacyShortcutAliasCompatibility();
         TestUnsafeAndNativeKeysFailClosed();
         TestRecallArrowSurfaceContract();
         TestSelectorNavigationContract();
-        Console.WriteLine("WordDeck R4 accessibility acceptance passed: unified shortcut truth, context isolation, cross-mode conflict rejection, dynamic Spelling binding preservation, unsafe/native keys, Recall arrow surface and selector navigation contracts verified.");
+        Console.WriteLine("WordDeck R4 accessibility acceptance passed: unified shortcut truth, context isolation, cross-mode conflict rejection, dynamic Spelling binding preservation, legacy shortcut aliases, unsafe/native keys, Recall arrow surface and selector navigation contracts verified.");
     }
 
     private static void TestShortcutContextIsolation()
@@ -79,6 +80,20 @@ internal static class AccessibilityAcceptanceRound4SelfTest
         app.Shortcuts[orphan] = (Keys.Control | Keys.Shift | Keys.F9).ToString();
         full.RefreshDeckDefinitions(spelling.Decks);
         AssertFalse(app.Shortcuts.ContainsKey(orphan), "Full Spelling-context refresh failed to remove a proven orphaned dynamic Spelling binding.");
+    }
+
+    private static void TestLegacyShortcutAliasCompatibility()
+    {
+        var legacy = new AppState();
+        Keys legacyKey = Keys.Control | Keys.Shift | Keys.D3;
+        legacy.Shortcuts[ActionIds.LegacySwitchDeck(3)] = legacyKey.ToString();
+
+        var manager = new ShortcutManager(legacy);
+        string durableAction = ActionIds.SwitchDeck(DeckIds.Core(3));
+        AssertTrue(manager.Get(durableAction) == legacyKey,
+            "Legacy numeric Recall deck shortcut alias disabled the migrated durable shortcut.");
+        AssertEqual(durableAction, manager.FindAction(legacyKey),
+            "Migrated legacy Recall deck shortcut did not dispatch through its durable action.");
     }
 
     private static void TestUnsafeAndNativeKeysFailClosed()
