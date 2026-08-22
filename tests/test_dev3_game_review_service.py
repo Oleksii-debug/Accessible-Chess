@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+from threading import Event, Thread
 import unittest
 
 from acs.analysis_service import AnalysisService
-from acs.engine_ports import EngineContractError, RawAnalysisLine
+from acs.engine_ports import EngineContractError, EngineContractErrorCode, RawAnalysisLine
 from acs.game_review_service import (
     GAME_REVIEW_MAX_POSITIONS,
     GAME_REVIEW_SAFE_ERROR,
@@ -108,6 +109,35 @@ class GameReviewServiceTests(unittest.TestCase):
             analysis.close()
         self.assertEqual(engine.calls, [])
 
+    def test_batch_scope_and_position_identity_are_validated_before_engine_work(self):
+        service, analysis, engine = self.make_service()
+        duplicate = GameReviewPosition(
+            "student-1",
+            "session-1",
+            "game-42",
+            "rev-a",
+            "ply-1",
+            2,
+            FEN_2,
+        )
+        mixed_scope = GameReviewPosition(
+            "student-2",
+            "session-1",
+            "game-42",
+            "rev-a",
+            "ply-2",
+            2,
+            FEN_2,
+        )
+        try:
+            with self.assertRaises(EngineContractError):
+                service.review((position(1), duplicate))
+            with self.assertRaises(EngineContractError):
+                service.review((position(1), mixed_scope))
+        finally:
+            analysis.close()
+        self.assertEqual(engine.calls, [])
+
     def test_cancel_before_first_position_never_calls_engine(self):
         service, analysis, engine = self.make_service()
         try:
@@ -184,6 +214,49 @@ class GameReviewServiceTests(unittest.TestCase):
         self.assertIsNone(point.score_value)
         self.assertIsNone(point.error)
 
+    def test_concurrent_batch_fails_busy_without_invalidating_active_batch(self):
+        service, analysis, engine = self.make_service()
+        entered = Event()
+        release = Event()
+        first_results = []
+        first_errors = []
+
+        def block_first(_call_number):
+            entered.set()
+            release.wait(2)
+
+        def run_first():
+            try:
+                first_results.append(service.review((position(1),)))
+            except Exception as exc:  # pragma: no cover - assertion captures it
+                first_errors.append(exc)
+
+        engine.on_analyze = block_first
+        worker = Thread(target=run_first, name="dev3-game-review-test")
+        worker.start()
+        try:
+            self.assertTrue(entered.wait(1))
+            with self.assertRaises(EngineContractError) as captured:
+                service.review((position(2),))
+            self.assertEqual(captured.exception.code, EngineContractErrorCode.INVALID_SESSION)
+            self.assertEqual(len(engine.calls), 1)
+        finally:
+            release.set()
+            worker.join(2)
+
+        try:
+            self.assertFalse(worker.is_alive())
+            self.assertEqual(first_errors, [])
+            self.assertEqual(len(first_results), 1)
+            self.assertFalse(first_results[0].cancelled)
+            self.assertEqual(first_results[0].points[0].status, GameReviewStatus.ANALYZED)
+
+            # The lock is not terminal: a later batch can run after completion.
+            later = service.review((position(2),))
+            self.assertEqual(later.points[0].status, GameReviewStatus.ANALYZED)
+        finally:
+            analysis.close()
+
     def test_position_identity_fen_and_scalars_fail_closed(self):
         for field, invalid in (
             ("student_id", ""),
@@ -222,9 +295,11 @@ class GameReviewServiceTests(unittest.TestCase):
                     (position(1),),
                     cancel_provider=lambda: (_ for _ in ()).throw(RuntimeError("secret")),
                 )
+            recovered = service.review((position(1),))
+            self.assertEqual(recovered.points[0].status, GameReviewStatus.ANALYZED)
         finally:
             analysis.close()
-        self.assertEqual(engine.calls, [])
+        self.assertEqual(len(engine.calls), 1)
 
 
 if __name__ == "__main__":
