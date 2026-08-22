@@ -100,6 +100,7 @@ class ClassroomWebViewProjectionTests(unittest.TestCase):
         self.assertEqual([], self.calls)
 
     def test_remote_actions_keep_session_identity_inside_presenter_boundary(self) -> None:
+        self.remote_state["status"] = "error"
         reconnect = self.projection.reconnect()
         self.assertEqual("remote-action", reconnect.kind)
         self.assertEqual(
