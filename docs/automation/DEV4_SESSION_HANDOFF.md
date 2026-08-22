@@ -1,6 +1,6 @@
 # DEV4 SESSION HANDOFF
 
-SESSION: 20260822-0802 Full Product QA/security
+SESSION: 20260822-0900 Full Product QA/security
 STATUS: COMPLETE / SAFE OVERLAP
 
 ## Exact branches and SHAs
@@ -9,7 +9,7 @@ STATUS: COMPLETE / SAFE OVERLAP
 - Manual5 integration: `manual5/integration-20260821` @ `0fa442330bc2bb03636ff9297512da4c29e38684`.
 - DEV5 reconciliation draft PR #66: `manual5/dev5-reconcile-dev4-20260822` @ `abff45ebcc4b5af2a85ab0c456b025b5098c6e29`, OPEN/DRAFT.
 - DEV4 QA evidence branch: `qa/dev4-chessbase-symlink-security-20260822`.
-- New QA evidence commit: `7b97c1e46e52c1691b59c24949a76656be1b2a33` — `test(qa): lock Stockfish error path privacy`.
+- New QA evidence commit: `7aaf647b13f98fb45cbdb4ba900b497ff1bcc20b` — `test(qa): gate ChessBase companion probe false-green`.
 - QA draft PR #67 remains OPEN/DRAFT/MERGEABLE. Metadata commits after the evidence commit advance the branch; use live PR #67 head as the final exact QA SHA.
 
 ## Live CI / evidence discipline
@@ -18,15 +18,17 @@ Manual5 integration exact SHA `0fa442330bc2bb03636ff9297512da4c29e38684` retains
 - UI Semantic Gate `32532577650`.
 - Stage1 Saturation Hardening `32532577641`.
 
-Exact workflow runs for evidence commit `7b97c1e46e52c1691b59c24949a76656be1b2a33`: none observed. QA CI therefore remains INCONCLUSIVE, never inferred GREEN. Existing integration/DEV5 GREEN does not validate QA-only external-format/privacy assertions.
+Exact QA-head checks must be re-read after handoff metadata commits. Absence of commit-associated Actions is INCONCLUSIVE, never inferred GREEN. Existing integration/DEV5 GREEN does not validate QA-only external-format/security assertions.
 
-## New QA evidence — Stockfish/UCI path privacy
+## New PROVEN_PRODUCT_DEFECT — ChessBase companion probe false-green
 
-Low-level `UCIEngine`/`StockfishRuntime` exception text can legitimately contain filesystem/executable details for internal diagnostics. Release-facing APIs must not expose those details to screen-reader/WebView output.
+`acs.chessbase_adapter._case_insensitive_directory_index()` catches `OSError` from directory enumeration and returns an empty index. `probe_chessbase_source()` then emits the same `No classic CBH companion files were detected beside the header` warning used for a successful enumeration that genuinely found no companions.
 
-`tests/test_dev4_engine_error_path_privacy.py` injects a provider failure containing synthetic private path `C:\\Users\\qa-user\\secret-build\\stockfish.exe` during engine-game startup and asserts the release response omits both the full path and private path components while retaining a concise Stockfish-facing error.
+This collapses `inspection unavailable` into `verified absent`, creating false-green provenance. A permission/I/O failure cannot prove companion absence.
 
-Source inspection of `Stage1ReleaseAccessibleChessAPI.start_engine_game()` and `_request_engine_reply()` confirms provider exceptions are caught and replaced with concise localized messages rather than `str(exc)`. This is positive privacy/non-regression evidence, not a new Product defect.
+Strict QA gate `tests/test_dev4_chessbase_probe_observability.py` injects `PermissionError` at the directory enumeration boundary and requires the probe to avoid the normal no-companion claim and surface explicit unavailable/access/I/O evidence. Product code is unchanged.
+
+Classification: `PROVEN_PRODUCT_DEFECT`.
 
 ## Locked PROVEN_PRODUCT_DEFECT findings
 
@@ -36,6 +38,7 @@ Source inspection of `Stage1ReleaseAccessibleChessAPI.start_engine_game()` and `
 4. PGN `expected_sha256` optimistic-concurrency commit race can overwrite newer content.
 5. PGN `overwrite=False` commit race can clobber a destination created after preflight.
 6. PGN export filesystem indirection is not fail-closed; direct parent, deeper ancestor and destination symlinks are covered by strict QA evidence.
+7. ChessBase CBH companion directory I/O failures are reported as ordinary no-companion evidence instead of explicit unavailable/error state.
 
 ## Additional classifications
 
@@ -57,4 +60,4 @@ Source inspection of `Stage1ReleaseAccessibleChessAPI.start_engine_game()` and `
 
 ## Next action
 
-Recheck live PR #67 exact head and Actions after metadata commits. Continue generic import size/encoding/cancellation/resource-limit evidence and direct path/error sink tracing. Extend engine/UCI privacy guards only where a real user-facing surface is involved. Continue ChessBase unknown-version/resource-boundary evidence without inventing proprietary semantics. Re-enter Stage1 package work only through DEV5/Audit-authorized reconciliation.
+Recheck live PR #67 exact head and Actions after metadata commits. Continue generic import resource-limit evidence and ChessBase component-open/stat/hash observability so inaccessible evidence is never represented as absent or healthy. Continue direct path/error sink tracing and user-facing engine privacy guards only where evidence is concrete. Re-enter Stage1 package work only through DEV5/Audit-authorized reconciliation.
