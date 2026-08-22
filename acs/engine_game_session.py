@@ -23,6 +23,7 @@ from .engine_play_service import (
     resolve_engine_game_config,
 )
 from .engine_ports import (
+    ENGINE_FEN_MAX_LENGTH,
     EngineContractError,
     EngineContractErrorCode,
     EngineMoveRequest,
@@ -145,9 +146,15 @@ class EngineNoMoveHandoff:
     history_node_id: str
 
     def __post_init__(self) -> None:
-        if not isinstance(self.fen, str) or not self.fen.strip():
+        if not isinstance(self.fen, str):
             raise EngineContractError(
-                "no-move handoff FEN must be non-empty text",
+                "no-move handoff FEN must be bounded non-empty text",
+                code=EngineContractErrorCode.INVALID_HANDOFF,
+            )
+        normalized_fen = self.fen.strip()
+        if not normalized_fen or len(normalized_fen) > ENGINE_FEN_MAX_LENGTH:
+            raise EngineContractError(
+                "no-move handoff FEN must be bounded non-empty text",
                 code=EngineContractErrorCode.INVALID_HANDOFF,
             )
         if not isinstance(self.side_to_move, str) or self.side_to_move not in {"w", "b"}:
@@ -160,7 +167,7 @@ class EngineNoMoveHandoff:
                 "no-move handoff history_node_id must be non-empty text",
                 code=EngineContractErrorCode.INVALID_HANDOFF,
             )
-        object.__setattr__(self, "fen", self.fen.strip())
+        object.__setattr__(self, "fen", normalized_fen)
         object.__setattr__(self, "history_node_id", self.history_node_id.strip())
 
 
