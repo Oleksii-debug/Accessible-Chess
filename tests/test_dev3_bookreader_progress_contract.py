@@ -44,6 +44,7 @@ class BookReaderProgressContractTests(unittest.TestCase):
                 "schema_version": BOOK_READER_SNAPSHOT_SCHEMA_VERSION,
                 "current_target": "block:diagram",
                 "return_points": {"analysis": "block:diagram"},
+                "fallback_digests": {},
             },
         )
 
@@ -83,6 +84,7 @@ class BookReaderProgressContractTests(unittest.TestCase):
             "schema_version": BOOK_READER_SNAPSHOT_SCHEMA_VERSION,
             "current_target": "source:p3",
             "return_points": {},
+            "fallback_digests": {},
         }
         ambiguous = BookDocument(
             "Ambiguous",
@@ -100,15 +102,30 @@ class BookReaderProgressContractTests(unittest.TestCase):
             "schema_version": BOOK_READER_SNAPSHOT_SCHEMA_VERSION,
             "current_target": "block:part",
             "return_points": {},
+            "fallback_digests": {},
         }
         cases = [
-            ({"schema_version": 1, "current_target": "block:part"}, ValueError),
+            (
+                {
+                    "schema_version": BOOK_READER_SNAPSHOT_SCHEMA_VERSION,
+                    "current_target": "block:part",
+                    "return_points": {},
+                },
+                ValueError,
+            ),
             ({**valid, "extra": "future"}, ValueError),
             ({**valid, "schema_version": True}, TypeError),
+            ({**valid, "schema_version": 1}, ValueError),
             ({**valid, "schema_version": 99}, ValueError),
             ({**valid, "current_target": 1}, TypeError),
             ({**valid, "return_points": []}, TypeError),
             ({**valid, "return_points": {"analysis": 3}}, TypeError),
+            ({**valid, "fallback_digests": []}, TypeError),
+            ({**valid, "fallback_digests": {1: "0" * 64}}, TypeError),
+            ({**valid, "fallback_digests": {"index:0": 1}}, TypeError),
+            ({**valid, "fallback_digests": {"block:part": "0" * 64}}, ValueError),
+            ({**valid, "fallback_digests": {"index:0": "A" * 64}}, ValueError),
+            ({**valid, "fallback_digests": {"index:0": "0" * 63}}, ValueError),
         ]
         for payload, error in cases:
             with self.subTest(payload=payload):
@@ -123,6 +140,7 @@ class BookReaderProgressContractTests(unittest.TestCase):
                     "schema_version": BOOK_READER_SNAPSHOT_SCHEMA_VERSION,
                     "current_target": None,
                     "return_points": {},
+                    "fallback_digests": {},
                 },
             )
 
@@ -130,6 +148,7 @@ class BookReaderProgressContractTests(unittest.TestCase):
         empty = BookDocument("Empty")
         snapshot = BookReader(empty).snapshot()
         self.assertEqual(snapshot["current_target"], None)
+        self.assertEqual(snapshot["fallback_digests"], {})
         restored = BookReader.restore_snapshot(empty, snapshot)
         self.assertEqual(restored.index, -1)
         with self.assertRaisesRegex(LookupError, "no readable blocks"):
@@ -143,6 +162,76 @@ class BookReaderProgressContractTests(unittest.TestCase):
             reader.save_return_point(1)
         with self.assertRaises(ValueError):
             reader.save_return_point("   ")
+
+    def test_index_only_targets_roundtrip_with_strict_semantic_digest(self):
+        document = BookDocument(
+            "Fallback",
+            blocks=[
+                Paragraph(text="Alpha"),
+                Paragraph(text="Beta"),
+            ],
+        )
+        reader = BookReader(document)
+        reader.go_to(1)
+        reader.save_return_point("beta")
+        snapshot = reader.snapshot()
+
+        self.assertEqual(snapshot["current_target"], "index:1")
+        self.assertEqual(snapshot["return_points"], {"beta": "index:1"})
+        self.assertEqual(set(snapshot["fallback_digests"]), {"index:1"})
+        self.assertEqual(len(snapshot["fallback_digests"]["index:1"]), 64)
+
+        restored = BookReader.restore_snapshot(document, snapshot)
+        self.assertEqual(restored.index, 1)
+        self.assertEqual(restored.restore_return_point("beta").index, 1)
+
+    def test_index_only_target_rejects_inserted_block_at_same_numeric_fallback(self):
+        original = BookDocument(
+            "Fallback",
+            blocks=[
+                Paragraph(text="Alpha"),
+                Paragraph(text="Beta"),
+            ],
+        )
+        reader = BookReader(original)
+        reader.go_to(1)
+        snapshot = reader.snapshot()
+
+        revised = BookDocument(
+            "Fallback revised",
+            blocks=[
+                Paragraph(text="Inserted"),
+                Paragraph(text="Alpha"),
+                Paragraph(text="Beta"),
+            ],
+        )
+        with self.assertRaisesRegex(LookupError, "no longer identifies the same block"):
+            BookReader.restore_snapshot(revised, snapshot)
+
+    def test_index_only_target_rejects_semantic_edit_at_same_index(self):
+        original = BookDocument("Fallback", blocks=[Paragraph(text="Alpha")])
+        snapshot = BookReader(original).snapshot()
+        revised = BookDocument("Fallback revised", blocks=[Paragraph(text="Changed")])
+
+        with self.assertRaisesRegex(LookupError, "no longer identifies the same block"):
+            BookReader.restore_snapshot(revised, snapshot)
+
+    def test_index_only_target_requires_exact_digest_key_set(self):
+        document = BookDocument("Fallback", blocks=[Paragraph(text="Alpha")])
+        snapshot = BookReader(document).snapshot()
+
+        missing = dict(snapshot)
+        missing["fallback_digests"] = {}
+        with self.assertRaisesRegex(ValueError, "do not match referenced index targets"):
+            BookReader.restore_snapshot(document, missing)
+
+        extra = dict(snapshot)
+        extra["fallback_digests"] = {
+            **snapshot["fallback_digests"],
+            "index:9": "0" * 64,
+        }
+        with self.assertRaisesRegex(ValueError, "do not match referenced index targets"):
+            BookReader.restore_snapshot(document, extra)
 
 
 if __name__ == "__main__":

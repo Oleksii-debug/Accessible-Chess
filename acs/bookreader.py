@@ -8,14 +8,18 @@ without the data layer owning shortcuts.
 """
 
 from dataclasses import dataclass
+import hashlib
+import json
 from typing import Mapping
 
 from .book_index import BookIndex
 from .bookdocument import BookDocument, Diagram, Exercise, Game, Heading, Position, VariationTree
 
 
-BOOK_READER_SNAPSHOT_SCHEMA_VERSION = 1
-_BOOK_READER_SNAPSHOT_FIELDS = frozenset({"schema_version", "current_target", "return_points"})
+BOOK_READER_SNAPSHOT_SCHEMA_VERSION = 2
+_BOOK_READER_SNAPSHOT_FIELDS = frozenset(
+    {"schema_version", "current_target", "return_points", "fallback_digests"}
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -35,7 +39,8 @@ class BookReader:
     Return points are stored as ``BookIndex`` semantic target keys rather than raw
     list offsets. Blocks with a ``block_id`` or ``source_anchor`` therefore keep
     their reading identity if a source-preserving edit reorders surrounding
-    content. Index-only targets deliberately remain snapshot-local fallbacks.
+    content. Index-only targets carry a strict semantic digest in durable
+    snapshots so they fail closed if the document revision changes their meaning.
     """
 
     def __init__(self, document: BookDocument):
@@ -60,10 +65,27 @@ class BookReader:
             raise ValueError("Return point name must not be empty")
         return name
 
+    @staticmethod
+    def _fallback_digest_for_block(block) -> str:
+        """Return strict semantic identity for an index-only fallback block."""
+        payload = json.dumps(
+            block.as_dict(),
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        return hashlib.sha256(payload).hexdigest()
+
     def _target_key(self, index: int | None = None) -> str:
         self._require_content()
         target_index = self._index if index is None else index
         return self._book_index.entries[target_index].target.key
+
+    def _fallback_digest(self, key: str) -> str:
+        if not key.startswith("index:"):
+            raise ValueError("fallback digest is only defined for index targets")
+        entry = self._book_index.resolve(key)
+        return self._fallback_digest_for_block(self.document.blocks[entry.target.index])
 
     def _go_to_target(self, key: str) -> ReadingLocation:
         if type(key) is not str:
@@ -161,12 +183,21 @@ class BookReader:
         return self._go_to_target(self._return_points[validated_name])
 
     def snapshot(self) -> dict[str, object]:
-        """Return strict schema-v1 reading progress without positional drift."""
+        """Return strict schema-v2 reading progress without positional drift."""
         current_target = None if self._index < 0 else self._target_key()
+        referenced_targets = set(self._return_points.values())
+        if current_target is not None:
+            referenced_targets.add(current_target)
+        fallback_digests = {
+            key: self._fallback_digest(key)
+            for key in sorted(referenced_targets)
+            if key.startswith("index:")
+        }
         return {
             "schema_version": BOOK_READER_SNAPSHOT_SCHEMA_VERSION,
             "current_target": current_target,
             "return_points": dict(sorted(self._return_points.items())),
+            "fallback_digests": fallback_digests,
         }
 
     @classmethod
@@ -176,7 +207,8 @@ class BookReader:
         Unknown/missing fields and scalar coercion fail closed. A target that no
         longer exists, or that became ambiguous because source identities were
         duplicated, is surfaced by ``BookIndex.resolve`` rather than silently
-        selecting a different block.
+        selecting a different block. Index-only targets additionally require an
+        exact semantic digest for the block currently occupying that fallback.
         """
         if not isinstance(snapshot, Mapping):
             raise TypeError("Book reader snapshot must be a mapping")
@@ -211,16 +243,40 @@ class BookReader:
                 raise TypeError("Book reader snapshot target keys must be strings")
             return_points[validated_name] = key
 
+        raw_fallback_digests = snapshot["fallback_digests"]
+        if not isinstance(raw_fallback_digests, Mapping):
+            raise TypeError("Book reader snapshot fallback_digests must be a mapping")
+        fallback_digests: dict[str, str] = {}
+        for key, digest in raw_fallback_digests.items():
+            if type(key) is not str or type(digest) is not str:
+                raise TypeError("Book reader fallback digest keys and values must be strings")
+            if not key.startswith("index:"):
+                raise ValueError("Book reader fallback digests may only bind index targets")
+            if len(digest) != 64 or any(character not in "0123456789abcdef" for character in digest):
+                raise ValueError("Book reader fallback digest must be lowercase SHA-256 hex")
+            fallback_digests[key] = digest
+
         reader = cls(document)
+        referenced_targets = set(return_points.values())
+        if current_target is not None:
+            referenced_targets.add(current_target)
+        required_fallbacks = {key for key in referenced_targets if key.startswith("index:")}
+        if set(fallback_digests) != required_fallbacks:
+            raise ValueError("Book reader snapshot fallback_digests do not match referenced index targets")
+
         if not document.blocks:
-            if current_target is not None or return_points:
+            if current_target is not None or return_points or fallback_digests:
                 raise LookupError("Book reader snapshot targets require readable content")
             return reader
         if current_target is None:
             raise ValueError("Book reader snapshot current_target is required for non-empty content")
 
-        reader._go_to_target(current_target)
-        for key in return_points.values():
+        for key in referenced_targets:
             reader._book_index.resolve(key)
+        for key, expected_digest in fallback_digests.items():
+            if reader._fallback_digest(key) != expected_digest:
+                raise LookupError(f"Book reader index fallback no longer identifies the same block: {key}")
+
+        reader._go_to_target(current_target)
         reader._return_points = return_points
         return reader
