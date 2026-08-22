@@ -14,6 +14,7 @@ from .acsdb import AcsDatabase
 
 SearchResult = Literal["1-0", "0-1", "1/2-1/2", "*"]
 _SQLITE_INTEGER_MAX = (1 << 63) - 1
+_MAX_SEARCH_TERM_CHARS = 256
 
 
 def _exact_int(value: object, *, name: str) -> int:
@@ -67,6 +68,10 @@ class GameSearchQuery:
             if type(value) is not str:
                 raise TypeError(f"{name} must be text")
             normalized = " ".join(value.split())
+            if len(normalized) > _MAX_SEARCH_TERM_CHARS:
+                raise ValueError(
+                    f"{name} exceeds maximum search term length of {_MAX_SEARCH_TERM_CHARS} characters"
+                )
             return normalized or None
 
         limit = _exact_int(self.limit, name="limit")
