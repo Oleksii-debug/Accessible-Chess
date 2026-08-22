@@ -8,6 +8,7 @@ on:
   pull_request:
     branches:
       - auto/dev3-unicode-search-performance-evidence-20260822
+      - auto/dev3-unicode-search-shadow-ci-base-20260822
 
 permissions:
   contents: read
