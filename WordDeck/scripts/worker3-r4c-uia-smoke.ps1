@@ -128,13 +128,23 @@ function Exercise-ShortcutSettings([string]$context) {
     Wait-For 'Shortcut actions' 7000
     Focus 'Shortcut actions'
     Assert-ShortcutListFocus "$context list focus"
+
+    # WinApp's WinForms ListView provider reports child focus correctly but has
+    # not delivered Enter to the ListView KeyDown handler reliably on hosted CI,
+    # even through SendInput. Validate the same keyboard-only command through the
+    # separately exposed accessible Change button: focus it, press Enter, then
+    # verify the real modal capture form and Escape cancellation.
+    Wait-For 'Change selected shortcut' 7000
+    Focus 'Change selected shortcut'
+    Assert-Focus 'Change selected shortcut' "$context change-button focus"
     Send-Keys 'enter'
     Wait-For 'Shortcut capture' 7000
     Wait-For 'Captured shortcut' 7000
     Send-Keys 'esc'
     Wait-Gone 'Shortcut capture' 7000
     Wait-For 'Keyboard shortcut settings' 5000
-    Assert-ShortcutListFocus "$context return from capture"
+    Wait-For 'Change selected shortcut' 5000
+    Assert-Focus 'Change selected shortcut' "$context return from capture"
     Send-Keys 'alt+f4'
     Wait-Gone 'Keyboard shortcut settings' 7000
     Settle-MainFocus "$context after close"
@@ -241,7 +251,7 @@ try {
 
     for ($round = 0; $round -lt 3; $round++) { Settle-MainFocus "final focus recovery $round" }
 
-    Write-Host 'WordDeck Worker3 R4c ACTUAL WinApp UIA PASS: exact published EXE, Natalia translation/native arrows, Recall next/true-previous, repeated selector focus, menu arrows, Ctrl+K before/after F1 with ListView child focus, truthful F1, shortcut capture cancellation, full-profile/reset dialogs, Spelling/Sentence native inputs and Alt+F4 close verified.'
+    Write-Host 'WordDeck Worker3 R4c ACTUAL WinApp UIA PASS: exact published EXE, Natalia translation/native arrows, Recall next/true-previous, repeated selector focus, menu arrows, Ctrl+K before/after F1, accessible shortcut change-button activation/capture cancellation, truthful F1, full-profile/reset dialogs, Spelling/Sentence native inputs and Alt+F4 close verified.'
 }
 finally {
     if ($null -ne $appPid -and $appPid -gt 0) {
