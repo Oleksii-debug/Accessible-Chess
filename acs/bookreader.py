@@ -81,6 +81,19 @@ class BookReader:
         target_index = self._index if index is None else index
         return self._book_index.entries[target_index].target.key
 
+    def _durable_target_key(self, index: int | None = None) -> str:
+        """Return a target only when it is uniquely resolvable in this snapshot.
+
+        ``BookIndex`` deliberately permits duplicate source identifiers so import
+        diagnostics can inspect imperfect source material, but durable progress
+        must never serialize an ambiguous semantic key. Validate before mutating
+        return-point state or publishing a snapshot so every emitted target is
+        immediately restorable against the same document snapshot.
+        """
+        key = self._target_key(index)
+        self._book_index.resolve(key)
+        return key
+
     def _fallback_digest(self, key: str) -> str:
         if not key.startswith("index:"):
             raise ValueError("fallback digest is only defined for index targets")
@@ -173,7 +186,8 @@ class BookReader:
     def save_return_point(self, name: str = "default") -> ReadingLocation:
         self._require_content()
         validated_name = self._return_point_name(name)
-        self._return_points[validated_name] = self._target_key()
+        key = self._durable_target_key()
+        self._return_points[validated_name] = key
         return self.location()
 
     def restore_return_point(self, name: str = "default") -> ReadingLocation:
@@ -184,10 +198,14 @@ class BookReader:
 
     def snapshot(self) -> dict[str, object]:
         """Return strict schema-v2 reading progress without positional drift."""
-        current_target = None if self._index < 0 else self._target_key()
+        current_target = None if self._index < 0 else self._durable_target_key()
         referenced_targets = set(self._return_points.values())
         if current_target is not None:
             referenced_targets.add(current_target)
+        # Return points may predate later authoring/import mutations. Never publish
+        # a durable snapshot containing a target that is now missing or ambiguous.
+        for key in referenced_targets:
+            self._book_index.resolve(key)
         fallback_digests = {
             key: self._fallback_digest(key)
             for key in sorted(referenced_targets)
