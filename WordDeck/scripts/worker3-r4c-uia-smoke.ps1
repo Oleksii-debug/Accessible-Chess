@@ -47,7 +47,7 @@ function Get-FocusedName {
 }
 
 function Assert-Focus([string]$expected, [string]$context) {
-    $deadline = [DateTime]::UtcNow.AddSeconds(6)
+    $deadline = [DateTime]::UtcNow.AddSeconds(7)
     $actual = ''
     do {
         $actual = Get-FocusedName
@@ -57,7 +57,7 @@ function Assert-Focus([string]$expected, [string]$context) {
     Fail "$context expected focus '$expected', actual '$actual'."
 }
 
-function Send-Keys([string]$keys, [int]$delayMs = 250) {
+function Send-Keys([string]$keys, [int]$delayMs = 300) {
     $transport = if ($keys.Contains('+')) { 'send-input' } else { 'post-message' }
     $arguments = @('ui','send-keys',$keys,'-a',[string]$script:appPid,'--via',$transport)
     if ($keys -ieq 'alt+f4') {
@@ -67,6 +67,13 @@ function Send-Keys([string]$keys, [int]$delayMs = 250) {
     }
     Invoke-WinApp $arguments | Out-Null
     Start-Sleep -Milliseconds $delayMs
+}
+
+function Settle-MainFocus([string]$context) {
+    Wait-For 'Current English word' 7000
+    Focus 'Current English word'
+    Assert-Focus 'Current English word' $context
+    Start-Sleep -Milliseconds 250
 }
 
 function Exercise-Combo([string]$selector, [int]$cycles) {
@@ -91,14 +98,32 @@ function Exercise-NativeTextKeys([string]$selector, [scriptblock]$invariant, [st
 }
 
 function Open-And-CancelDialog([string]$shortcut, [string]$dialogName, [string]$context) {
-    Focus 'Current English word'
+    Settle-MainFocus "$context pre-open"
     $wordBefore = Get-Value 'Current English word'
     Send-Keys $shortcut
     Wait-For $dialogName 10000
     Send-Keys 'esc'
     Wait-Gone $dialogName 10000
-    Wait-For 'Current English word' 5000
+    Settle-MainFocus "$context return"
     if ((Get-Value 'Current English word') -ne $wordBefore) { Fail "$context changed the current Recall card while cancelled." }
+}
+
+function Exercise-ShortcutSettings([string]$context) {
+    Settle-MainFocus "$context pre-Ctrl+K"
+    Send-Keys 'ctrl+k'
+    Wait-For 'Keyboard shortcuts' 10000
+    Wait-For 'Shortcut actions' 7000
+    Focus 'Shortcut actions'
+    Assert-Focus 'Shortcut actions' "$context list focus"
+    Send-Keys 'enter'
+    Wait-For 'Press new shortcut' 7000
+    Wait-For 'Captured shortcut' 7000
+    Send-Keys 'esc'
+    Wait-Gone 'Press new shortcut' 7000
+    Wait-For 'Keyboard shortcuts' 5000
+    Send-Keys 'alt+f4'
+    Wait-Gone 'Keyboard shortcuts' 7000
+    Settle-MainFocus "$context after close"
 }
 
 try {
@@ -115,8 +140,7 @@ try {
     Wait-For 'Current English word' 30000
     foreach ($required in @('Ukrainian translation','Dictionary','Recall study scope','Active Recall deck')) { Wait-For $required }
 
-    Focus 'Current English word'
-    Assert-Focus 'Current English word' 'startup Recall word'
+    Settle-MainFocus 'startup Recall word'
     $firstWord = Get-Value 'Current English word'
     if ([string]::IsNullOrWhiteSpace($firstWord) -or $firstWord -eq 'No words') { Fail 'no Recall word became available.' }
 
@@ -127,7 +151,7 @@ try {
     Exercise-NativeTextKeys 'Ukrainian translation' { (Get-Value 'Current English word') -eq $firstWord } 'translation native navigation'
 
     # Natalia P0: fast Up/Down belongs only to the English word surface.
-    Focus 'Current English word'
+    Settle-MainFocus 'Recall navigation surface'
     Send-Keys 'down'
     Assert-Focus 'Current English word' 'Recall Down'
     $secondWord = Get-Value 'Current English word'
@@ -142,7 +166,7 @@ try {
     Exercise-Combo 'Active Recall deck' 40
 
     # Menu arrows remain menu navigation rather than leaking into Recall.
-    Focus 'Current English word'
+    Settle-MainFocus 'File-menu test'
     $menuWord = Get-Value 'Current English word'
     Send-Keys 'alt+f'
     Send-Keys 'down'
@@ -150,8 +174,11 @@ try {
     Send-Keys 'esc'
     Assert-Focus 'Current English word' 'return from File menu'
 
+    # Prove Ctrl+K before F1 so the exact historical failure becomes diagnosable.
+    Exercise-ShortcutSettings 'Ctrl+K before F1'
+
     # F1 is acceptance evidence for the same live shortcut registry used by settings.
-    Focus 'Current English word'
+    Settle-MainFocus 'F1 pre-open'
     Send-Keys 'f1'
     Wait-For 'WordDeck help' 7000
     Wait-For 'WordDeck help text' 7000
@@ -166,40 +193,28 @@ try {
     }
     Send-Keys 'alt+f4'
     Wait-Gone 'WordDeck help' 7000
+    Settle-MainFocus 'return from F1 help'
 
-    # Shortcut settings: list focus, capture entry, Escape cancellation, dialog survives.
-    Focus 'Current English word'
-    Send-Keys 'ctrl+k'
-    Wait-For 'Keyboard shortcuts' 7000
-    Wait-For 'Shortcut actions' 7000
-    Focus 'Shortcut actions'
-    Assert-Focus 'Shortcut actions' 'shortcut settings initial focus'
-    Send-Keys 'enter'
-    Wait-For 'Press new shortcut' 7000
-    Wait-For 'Captured shortcut' 7000
-    Send-Keys 'esc'
-    Wait-Gone 'Press new shortcut' 7000
-    Wait-For 'Keyboard shortcuts' 5000
-    Send-Keys 'alt+f4'
-    Wait-Gone 'Keyboard shortcuts' 7000
+    # Re-prove Ctrl+K after F1; this is the exact canonical candidate failure point.
+    Exercise-ShortcutSettings 'Ctrl+K after F1'
 
     # Full-profile dialogs must be keyboard reachable/cancellable without mutation.
     Open-And-CancelDialog 'ctrl+alt+e' 'Export complete WordDeck personal progress profile' 'complete profile export dialog'
     Open-And-CancelDialog 'ctrl+shift+i' 'Import complete WordDeck personal progress profile' 'complete profile import dialog'
 
     # Reset is deliberately unbound: exercise the actual menu path and cancel.
-    Focus 'Current English word'
+    Settle-MainFocus 'reset pre-open'
     $resetWord = Get-Value 'Current English word'
     Send-Keys 'alt+f'
     Send-Keys 'r'
     Wait-For 'Reset WordDeck learning data' 7000
     Send-Keys 'esc'
     Wait-Gone 'Reset WordDeck learning data' 7000
-    Wait-For 'Current English word' 5000
+    Settle-MainFocus 'reset return'
     if ((Get-Value 'Current English word') -ne $resetWord) { Fail 'Cancelling reset changed the current Recall card.' }
 
     # Spelling mode: native selector/input arrows and standard Alt+F4 close.
-    Focus 'Current English word'
+    Settle-MainFocus 'Spelling pre-open'
     Send-Keys 'ctrl+shift+s'
     Wait-For 'WordDeck Spelling' 10000
     foreach ($required in @('Type English spelling answer','Ukrainian spelling prompt','Spelling study scope','Active spelling deck')) { Wait-For $required }
@@ -209,11 +224,10 @@ try {
     Exercise-NativeTextKeys 'Type English spelling answer' { (Get-Value 'Ukrainian spelling prompt') -eq $spellingPrompt } 'Spelling answer native navigation'
     Send-Keys 'alt+f4'
     Wait-Gone 'WordDeck Spelling' 10000
-    Wait-For 'Current English word' 5000
+    Settle-MainFocus 'Spelling return'
 
     # Sentence mode: do not require a production pack to be installed. Exercise
     # every control that must exist in the safe empty/import-capable shell.
-    Focus 'Current English word'
     Send-Keys 'ctrl+shift+e'
     Wait-For 'WordDeck Sentence Spelling' 10000
     foreach ($required in @('Sentence training spelling deck','Number of target words per sentence','Type the English sentence words')) { Wait-For $required }
@@ -225,12 +239,10 @@ try {
 
     # Repeated mode round-trip must return a useful main-window focus target.
     for ($round = 0; $round -lt 3; $round++) {
-        Wait-For 'Current English word' 5000
-        Focus 'Current English word'
-        Assert-Focus 'Current English word' "final focus recovery $round"
+        Settle-MainFocus "final focus recovery $round"
     }
 
-    Write-Host 'WordDeck Worker3 R4c ACTUAL WinApp UIA PASS: exact published EXE, Natalia translation/native arrows, Recall next/true-previous, repeated selector focus, menu arrows, truthful F1, shortcut capture cancellation, full-profile/reset dialogs, Spelling/Sentence native inputs and Alt+F4 close verified.'
+    Write-Host 'WordDeck Worker3 R4c ACTUAL WinApp UIA PASS: exact published EXE, Natalia translation/native arrows, Recall next/true-previous, repeated selector focus, menu arrows, Ctrl+K before/after F1, truthful F1, shortcut capture cancellation, full-profile/reset dialogs, Spelling/Sentence native inputs and Alt+F4 close verified.'
 }
 finally {
     if ($null -ne $appPid -and $appPid -gt 0) {
