@@ -17,7 +17,6 @@ internal sealed class SentenceCoachState
     public string? ActiveSpellingDeckId { get; set; }
     public int TargetCount { get; set; } = 1;
     public string? CurrentSentenceId { get; set; }
-    // Kept for backwards-compatible migration from the original one-target state.
     public string? CurrentTargetEntryId { get; set; }
     public List<string> CurrentTargetEntryIds { get; set; } = new();
     public List<string> RecentSentenceIds { get; set; } = new();
@@ -65,10 +64,8 @@ internal sealed class SentenceCoachStateStore
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .Take(2)
             .ToList();
-
         if (state.CurrentTargetEntryIds.Count == 0 && !string.IsNullOrWhiteSpace(state.CurrentTargetEntryId))
             state.CurrentTargetEntryIds.Add(state.CurrentTargetEntryId);
-
         state.CurrentTargetEntryId = state.CurrentTargetEntryIds.FirstOrDefault();
 
         state.RecentSentenceIds ??= new();
@@ -113,20 +110,22 @@ internal sealed class SentenceCoachForm : Form
         DropDownStyle = ComboBoxStyle.DropDownList,
         Width = 320,
         AccessibleName = "Sentence pack",
-        AccessibleDescription = "Choose an installed offline SentencePack. Disk-backed SQLite is preferred automatically when available."
+        AccessibleDescription = "Choose an installed offline SentencePack. Up and Down change the selection while focus remains in this list."
     };
     private readonly ComboBox _deckCombo = new()
     {
         DropDownStyle = ComboBoxStyle.DropDownList,
         Width = 260,
         DisplayMember = nameof(DeckDefinition.Name),
-        AccessibleName = "Sentence training spelling deck"
+        AccessibleName = "Sentence training spelling deck",
+        AccessibleDescription = "Choose the Spelling deck used as the Sentence target scope. Up and Down keep focus in this list."
     };
     private readonly ComboBox _targetCountCombo = new()
     {
         DropDownStyle = ComboBoxStyle.DropDownList,
         Width = 150,
-        AccessibleName = "Number of target words per sentence"
+        AccessibleName = "Number of target words per sentence",
+        AccessibleDescription = "Choose one or two targets. Up and Down keep focus in this list."
     };
     private readonly TextBox _prompt = new()
     {
@@ -134,6 +133,7 @@ internal sealed class SentenceCoachForm : Form
         Multiline = true,
         Dock = DockStyle.Fill,
         AccessibleName = "Ukrainian sentence prompt",
+        AccessibleDescription = "Read-only Ukrainian prompt. Standard text arrow navigation is preserved.",
         Font = new Font(SystemFonts.DefaultFont.FontFamily, 17)
     };
     private readonly TextBox _answer = new()
@@ -141,7 +141,8 @@ internal sealed class SentenceCoachForm : Form
         Multiline = true,
         Dock = DockStyle.Fill,
         AcceptsReturn = false,
-        AccessibleName = "Type the English sentence words"
+        AccessibleName = "Type the English sentence words",
+        AccessibleDescription = "Type all required English word forms. Press Enter to submit. Word order is not assessed."
     };
     private readonly Label _target = new() { AutoSize = true, AccessibleName = "Sentence target words" };
     private readonly Label _status = new() { AutoSize = true, AccessibleName = "Sentence Coach status" };
@@ -154,6 +155,7 @@ internal sealed class SentenceCoachForm : Form
     private readonly List<DictionaryEntry> _currentTargets = new();
     private bool _hadWrong;
     private bool _usedHint;
+    private bool _changingSelectors;
 
     public SentenceCoachForm(
         AppState appState,
@@ -221,29 +223,37 @@ internal sealed class SentenceCoachForm : Form
         Controls.Add(root);
         root.BringToFront();
 
-        _packCombo.SelectedIndexChanged += (_, _) => ChangePack();
+        _packCombo.SelectedIndexChanged += (_, _) =>
+        {
+            if (!_changingSelectors)
+                ChangePack(focusAnswer: !_packCombo.ContainsFocus);
+        };
         _deckCombo.SelectedIndexChanged += (_, _) =>
         {
+            if (_changingSelectors) return;
             if (_deckCombo.SelectedItem is DeckDefinition deck &&
                 !string.Equals(deck.Id, _activeDeckId, StringComparison.OrdinalIgnoreCase))
             {
+                bool focusAnswer = !_deckCombo.ContainsFocus;
                 _activeDeckId = deck.Id;
                 _state.ActiveSpellingDeckId = deck.Id;
                 ClearCurrent();
                 Save();
                 UpdateCoverage();
-                Next();
+                Next(focusAnswer);
             }
         };
         _targetCountCombo.SelectedIndexChanged += (_, _) =>
         {
+            if (_changingSelectors) return;
             if (_targetCountCombo.SelectedItem is TargetCountChoice choice && choice.Count != _state.TargetCount)
             {
+                bool focusAnswer = !_targetCountCombo.ContainsFocus;
                 _state.TargetCount = choice.Count;
                 ClearCurrent();
                 Save();
                 UpdateCoverage();
-                Next();
+                Next(focusAnswer);
             }
             UpdateModeInfo();
         };
@@ -286,27 +296,40 @@ internal sealed class SentenceCoachForm : Form
 
     private void PopulateTargetCounts()
     {
-        _targetCountCombo.BeginUpdate();
-        _targetCountCombo.Items.Clear();
-        _targetCountCombo.Items.Add(new TargetCountChoice(1, "1 target"));
-        _targetCountCombo.Items.Add(new TargetCountChoice(2, "2 targets"));
-        _targetCountCombo.SelectedIndex = _state.TargetCount - 1;
-        _targetCountCombo.EndUpdate();
+        _changingSelectors = true;
+        try
+        {
+            _targetCountCombo.BeginUpdate();
+            _targetCountCombo.Items.Clear();
+            _targetCountCombo.Items.Add(new TargetCountChoice(1, "1 target"));
+            _targetCountCombo.Items.Add(new TargetCountChoice(2, "2 targets"));
+            _targetCountCombo.SelectedIndex = _state.TargetCount - 1;
+            _targetCountCombo.EndUpdate();
+        }
+        finally { _changingSelectors = false; }
     }
 
     private void PopulateDecks()
     {
-        _deckCombo.BeginUpdate();
-        _deckCombo.Items.Clear();
-        foreach (DeckDefinition deck in _spellingDecks.Decks)
-            _deckCombo.Items.Add(deck);
-        for (int i = 0; i < _deckCombo.Items.Count; i++)
+        _changingSelectors = true;
+        try
         {
-            if (_deckCombo.Items[i] is DeckDefinition deck &&
-                string.Equals(deck.Id, _activeDeckId, StringComparison.OrdinalIgnoreCase))
-                _deckCombo.SelectedIndex = i;
+            _deckCombo.BeginUpdate();
+            _deckCombo.Items.Clear();
+            foreach (DeckDefinition deck in _spellingDecks.Decks)
+                _deckCombo.Items.Add(deck);
+            for (int i = 0; i < _deckCombo.Items.Count; i++)
+            {
+                if (_deckCombo.Items[i] is DeckDefinition deck &&
+                    string.Equals(deck.Id, _activeDeckId, StringComparison.OrdinalIgnoreCase))
+                {
+                    _deckCombo.SelectedIndex = i;
+                    break;
+                }
+            }
+            _deckCombo.EndUpdate();
         }
-        _deckCombo.EndUpdate();
+        finally { _changingSelectors = false; }
     }
 
     private void PopulatePacks(string? preferPackId = null)
@@ -316,23 +339,34 @@ internal sealed class SentenceCoachForm : Form
             .Select(item => new PackChoice($"{item.PackId} — {item.License} — {item.SentenceCount:N0} sentences", item))
             .ToList();
 
-        _packCombo.BeginUpdate();
-        _packCombo.Items.Clear();
-        foreach (PackChoice choice in choices)
-            _packCombo.Items.Add(choice);
-        _packCombo.EndUpdate();
+        _changingSelectors = true;
+        try
+        {
+            _packCombo.BeginUpdate();
+            _packCombo.Items.Clear();
+            foreach (PackChoice choice in choices)
+                _packCombo.Items.Add(choice);
+            _packCombo.EndUpdate();
 
-        string? wanted = preferPackId ?? _state.ActivePackId;
-        int index = choices.FindIndex(choice => string.Equals(choice.Installed.PackId, wanted, StringComparison.OrdinalIgnoreCase));
-        if (index < 0 && choices.Count > 0) index = 0;
-        if (index >= 0)
-        {
-            _packCombo.SelectedIndex = index;
+            string? wanted = preferPackId ?? _state.ActivePackId;
+            int index = choices.FindIndex(choice => string.Equals(choice.Installed.PackId, wanted, StringComparison.OrdinalIgnoreCase));
+            if (index < 0 && choices.Count > 0) index = 0;
+            if (index >= 0)
+            {
+                _packCombo.SelectedIndex = index;
+                _corpus = choices[index].Installed.Corpus;
+                _state.ActivePackId = _corpus.PackId;
+            }
+            else
+            {
+                _corpus = null;
+                _state.ActivePackId = null;
+            }
         }
-        else
+        finally { _changingSelectors = false; }
+
+        if (_corpus is null)
         {
-            _corpus = null;
-            _state.ActivePackId = null;
             UpdateCoverage();
             _prompt.Text = "No SentencePack installed";
             _answer.Clear();
@@ -340,7 +374,7 @@ internal sealed class SentenceCoachForm : Form
         }
     }
 
-    private void ChangePack()
+    private void ChangePack(bool focusAnswer = true)
     {
         if (_packCombo.SelectedItem is not PackChoice choice)
             return;
@@ -352,7 +386,7 @@ internal sealed class SentenceCoachForm : Form
         ClearCurrent();
         Save();
         UpdateCoverage();
-        Next();
+        Next(focusAnswer);
     }
 
     private void ImportPack()
@@ -369,6 +403,10 @@ internal sealed class SentenceCoachForm : Form
         {
             InstalledSentencePack installed = _packStore.Import(dialog.FileName);
             PopulatePacks(installed.PackId);
+            ClearCurrent();
+            Save();
+            UpdateCoverage();
+            Next();
             Announce($"Imported SentencePack {installed.PackId}, {installed.SentenceCount:N0} sentences, license {installed.License}. Disk-backed runtime index is ready.");
         }
         catch (Exception ex)
@@ -470,7 +508,7 @@ internal sealed class SentenceCoachForm : Form
                 if (sentence is not null && restoredTargets.All(target =>
                         sentence.TargetEntryIds.Contains(target.Id, StringComparer.OrdinalIgnoreCase)))
                 {
-                    Show(sentence, restoredTargets);
+                    Show(sentence, restoredTargets, focusAnswer: true);
                     return;
                 }
             }
@@ -478,7 +516,7 @@ internal sealed class SentenceCoachForm : Form
         Next();
     }
 
-    private void Next()
+    private void Next(bool focusAnswer = true)
     {
         if (_corpus is null)
             return;
@@ -512,7 +550,7 @@ internal sealed class SentenceCoachForm : Form
             {
                 Announce($"No second same-scope target is currently available with {primary.Target}. Trying another exercise.");
                 ClearCurrent();
-                Next();
+                Next(focusAnswer);
                 return;
             }
             targets.Add(ChooseWeakTarget(partners));
@@ -533,7 +571,7 @@ internal sealed class SentenceCoachForm : Form
             Announce($"No suitable corpus sentence is available for the selected {targets.Count}-target exercise.");
             return;
         }
-        Show(selected.Sentence, targets);
+        Show(selected.Sentence, targets, focusAnswer);
     }
 
     private List<DictionaryEntry> GetPartnerCandidates(string primaryId, IReadOnlyList<DictionaryEntry> scope)
@@ -587,7 +625,7 @@ internal sealed class SentenceCoachForm : Form
         return index >= 3;
     }
 
-    private void Show(SentenceRecord sentence, IReadOnlyList<DictionaryEntry> targets)
+    private void Show(SentenceRecord sentence, IReadOnlyList<DictionaryEntry> targets, bool focusAnswer = true)
     {
         _currentSentence = sentence;
         _currentTargets.Clear();
@@ -600,12 +638,13 @@ internal sealed class SentenceCoachForm : Form
             ? $"Target meaning from selected scope: {meanings}."
             : $"Two target meanings from selected scope: {meanings}.";
         _answer.Clear();
-        _answer.Focus();
+        if (focusAnswer) _answer.Focus();
         _state.CurrentSentenceId = sentence.Id;
         _state.CurrentTargetEntryIds = targets.Select(target => target.Id).ToList();
         _state.CurrentTargetEntryId = _state.CurrentTargetEntryIds.FirstOrDefault();
         Save();
-        AccessibilityAnnouncer.Announce(_prompt, sentence.Ukrainian);
+        if (focusAnswer)
+            AccessibilityAnnouncer.Announce(_prompt, sentence.Ukrainian);
     }
 
     private void Submit()
