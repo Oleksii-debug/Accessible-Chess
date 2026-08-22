@@ -2,9 +2,9 @@ from __future__ import annotations
 
 """Presentation-neutral bounded post-game engine review.
 
-The caller supplies stable domain references and explicit canonical FENs.  This
+The caller supplies stable domain references and explicit canonical FENs. This
 service does not reconstruct chess state, mutate GameTree/StudentProgress, or
-persist engine PV/score material.  It only produces transient derived
+persist engine PV/score material. It only produces transient derived
 per-position evaluation metadata with cooperative cancellation between engine
 requests.
 """
@@ -12,6 +12,7 @@ requests.
 from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
+from threading import Lock
 
 from .analysis_service import AnalysisService
 from .engine_ports import EngineContractError, EngineContractErrorCode
@@ -108,7 +109,7 @@ class GameReviewPoint:
     """Transient engine-derived metadata for one reviewed position.
 
     No PV is carried so this DTO can never be accidentally serialized as a
-    solution line by StudentProgress.  Score semantics remain engine-derived
+    solution line by StudentProgress. Score semantics remain engine-derived
     analytics, not canonical chess truth.
     """
 
@@ -178,7 +179,11 @@ class GameReviewPoint:
                     code=EngineContractErrorCode.INVALID_RESULT,
                 )
         else:
-            if self.depth is not None or self.score_kind is not None or self.score_value is not None:
+            if (
+                self.depth is not None
+                or self.score_kind is not None
+                or self.score_value is not None
+            ):
                 raise EngineContractError(
                     "non-analyzed review cannot carry evaluation data",
                     code=EngineContractErrorCode.INVALID_RESULT,
@@ -215,7 +220,10 @@ class GameReviewBatch:
                 "review batch cancelled flag must be boolean",
                 code=EngineContractErrorCode.INVALID_RESULT,
             )
-        if type(self.requested_count) is not int or not 0 <= self.requested_count <= GAME_REVIEW_MAX_POSITIONS:
+        if (
+            type(self.requested_count) is not int
+            or not 0 <= self.requested_count <= GAME_REVIEW_MAX_POSITIONS
+        ):
             raise EngineContractError(
                 "review batch requested_count is invalid",
                 code=EngineContractErrorCode.INVALID_RESULT,
@@ -228,7 +236,13 @@ class GameReviewBatch:
 
 
 class GameReviewService:
-    """Run a bounded sequential review through the shared AnalysisService."""
+    """Run a bounded sequential review through the shared AnalysisService.
+
+    A service admits at most one batch at a time. ``AnalysisService`` generations
+    are intentionally global to the shared provider; allowing two review batches
+    to interleave would let one batch invalidate another. A non-blocking busy
+    failure prevents hidden work queues and makes this ownership explicit.
+    """
 
     def __init__(self, analysis_service: AnalysisService) -> None:
         if not isinstance(analysis_service, AnalysisService):
@@ -237,6 +251,7 @@ class GameReviewService:
                 code=EngineContractErrorCode.INVALID_PROVIDER,
             )
         self._analysis = analysis_service
+        self._batch_lock = Lock()
 
     @staticmethod
     def _cancelled(provider: Callable[[], object] | None) -> bool:
@@ -261,6 +276,36 @@ class GameReviewService:
             )
         return value
 
+    @staticmethod
+    def _validate_batch(positions: tuple[GameReviewPosition, ...]) -> None:
+        if not positions:
+            return
+        first = positions[0]
+        scope = (
+            first.student_id,
+            first.session_id,
+            first.game_ref,
+            first.source_revision,
+        )
+        position_ids: set[str] = set()
+        for position in positions:
+            if (
+                position.student_id,
+                position.session_id,
+                position.game_ref,
+                position.source_revision,
+            ) != scope:
+                raise EngineContractError(
+                    "review batch positions must share one game scope",
+                    code=EngineContractErrorCode.INVALID_REQUEST,
+                )
+            if position.position_id in position_ids:
+                raise EngineContractError(
+                    "review batch position_id values must be unique",
+                    code=EngineContractErrorCode.INVALID_REQUEST,
+                )
+            position_ids.add(position.position_id)
+
     def review(
         self,
         positions: tuple[GameReviewPosition, ...],
@@ -283,6 +328,7 @@ class GameReviewService:
                 "review positions must contain GameReviewPosition values",
                 code=EngineContractErrorCode.INVALID_REQUEST,
             )
+        self._validate_batch(positions)
         if type(depth) is not int or not 1 <= depth <= 40:
             raise EngineContractError(
                 "review depth must be an integer between 1 and 40",
@@ -293,52 +339,60 @@ class GameReviewService:
                 "cancel_provider must be callable or None",
                 code=EngineContractErrorCode.INVALID_REQUEST,
             )
-
-        out: list[GameReviewPoint] = []
-        for position in positions:
-            if self._cancelled(cancel_provider):
-                self._analysis.invalidate()
-                return GameReviewBatch(tuple(out), True, len(positions))
-
-            result = self._analysis.analyze(position.fen, multipv=1, depth=depth)
-
-            # Cancellation that arrives while the provider is blocked suppresses
-            # that just-completed answer and invalidates the shared generation.
-            if self._cancelled(cancel_provider):
-                self._analysis.invalidate()
-                return GameReviewBatch(tuple(out), True, len(positions))
-
-            common = dict(
-                student_id=position.student_id,
-                session_id=position.session_id,
-                game_ref=position.game_ref,
-                source_revision=position.source_revision,
-                position_id=position.position_id,
-                ply=position.ply,
-                fen=position.fen,
-                generation=result.generation,
+        if not self._batch_lock.acquire(blocking=False):
+            raise EngineContractError(
+                "game review service is busy",
+                code=EngineContractErrorCode.INVALID_SESSION,
             )
-            if result.stale:
-                out.append(GameReviewPoint(**common, status=GameReviewStatus.STALE))
-                continue
-            if result.error is not None or not result.lines:
+
+        try:
+            out: list[GameReviewPoint] = []
+            for position in positions:
+                if self._cancelled(cancel_provider):
+                    self._analysis.invalidate()
+                    return GameReviewBatch(tuple(out), True, len(positions))
+
+                result = self._analysis.analyze(position.fen, multipv=1, depth=depth)
+
+                # Cancellation that arrives while the provider is blocked suppresses
+                # that just-completed answer and invalidates the shared generation.
+                if self._cancelled(cancel_provider):
+                    self._analysis.invalidate()
+                    return GameReviewBatch(tuple(out), True, len(positions))
+
+                common = dict(
+                    student_id=position.student_id,
+                    session_id=position.session_id,
+                    game_ref=position.game_ref,
+                    source_revision=position.source_revision,
+                    position_id=position.position_id,
+                    ply=position.ply,
+                    fen=position.fen,
+                    generation=result.generation,
+                )
+                if result.stale:
+                    out.append(GameReviewPoint(**common, status=GameReviewStatus.STALE))
+                    continue
+                if result.error is not None or not result.lines:
+                    out.append(
+                        GameReviewPoint(
+                            **common,
+                            status=GameReviewStatus.UNAVAILABLE,
+                            error=GAME_REVIEW_SAFE_ERROR,
+                        )
+                    )
+                    continue
+                line = result.lines[0]
                 out.append(
                     GameReviewPoint(
                         **common,
-                        status=GameReviewStatus.UNAVAILABLE,
-                        error=GAME_REVIEW_SAFE_ERROR,
+                        status=GameReviewStatus.ANALYZED,
+                        depth=line.depth,
+                        score_kind=line.score_kind,
+                        score_value=line.score_value,
                     )
                 )
-                continue
-            line = result.lines[0]
-            out.append(
-                GameReviewPoint(
-                    **common,
-                    status=GameReviewStatus.ANALYZED,
-                    depth=line.depth,
-                    score_kind=line.score_kind,
-                    score_value=line.score_value,
-                )
-            )
 
-        return GameReviewBatch(tuple(out), False, len(positions))
+            return GameReviewBatch(tuple(out), False, len(positions))
+        finally:
+            self._batch_lock.release()
