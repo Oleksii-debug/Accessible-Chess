@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - full5/dev5-validate-dev4-f44113ac-20260822
+  pull_request:
+    branches:
+      - manual5/dev4-platform-security-packaging-20260821
   workflow_dispatch:
 
 permissions:
