@@ -43,17 +43,17 @@ class ClassroomWebAssetTests(unittest.TestCase):
         self.assertNotIn('aria-live", "polite"', source)
         self.assertNotIn('setAttribute("role", "status")', source)
 
-    def test_browser_asset_delegates_management_and_remote_commands_only(self) -> None:
+    def test_browser_asset_delegates_management_and_snapshot_supplied_remote_actions(self) -> None:
         source = self.source
-        for command in (
-            "management.select",
-            "management.move",
-            "management.open",
-            "remote.connect",
-            "remote.reconnect",
-            "remote.leave",
-        ):
+        for command in ("management.select", "management.move", "management.open"):
             self.assertIn(command, source)
+        self.assertIn('const command = String(action.action || "")', source)
+        self.assertIn('command === "remote.connect"', source)
+        self.assertIn("actions.forEach(function (action)", source)
+        # Reconnect/leave action identity comes from the validated Python snapshot,
+        # rather than a second JavaScript action registry.
+        self.assertNotIn('invoke("remote.reconnect"', source)
+        self.assertNotIn('invoke("remote.leave"', source)
         lowered = source.casefold()
         self.assertNotIn("fen", lowered)
         self.assertNotIn("chesscore", lowered)
