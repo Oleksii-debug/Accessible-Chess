@@ -7,7 +7,7 @@ $ErrorActionPreference = 'Stop'
 $PSNativeCommandUseErrorActionPreference = $true
 $appPid = $null
 
-function Fail([string]$message) { throw "WordDeck R3 UIA FAIL: $message" }
+function Fail([string]$message) { throw "WordDeck R4 integrated UIA FAIL: $message" }
 
 function Invoke-WinApp([string[]]$arguments, [switch]$Json) {
     $output = & winapp @arguments
@@ -70,6 +70,28 @@ function Exercise-Combo([string]$selector, [int]$cycles) {
     }
 }
 
+function Exercise-NativeTextKeys([string]$selector, [scriptblock]$invariant, [string]$context) {
+    Wait-For $selector
+    Focus $selector
+    Assert-Focus $selector "$context initial"
+    foreach ($key in @('up','down','left','right','home','end','pgup','pgdn')) {
+        Send-Keys $key
+        Assert-Focus $selector "$context key $key"
+        if (-not (& $invariant)) { Fail "$context key $key violated the current-card/prompt invariant." }
+    }
+}
+
+function Open-And-CancelDialog([string]$shortcut, [string]$dialogName, [string]$context) {
+    Focus 'Current English word'
+    $wordBefore = Get-Value 'Current English word'
+    Send-Keys $shortcut
+    Wait-For $dialogName 10000
+    Send-Keys 'esc'
+    Wait-Gone $dialogName 10000
+    Wait-For 'Current English word' 5000
+    if ((Get-Value 'Current English word') -ne $wordBefore) { Fail "$context changed the current Recall card while being cancelled." }
+}
+
 try {
     $project = (Resolve-Path -LiteralPath $ProjectPath).Path
     $launch = Invoke-WinApp @('run',$project,'-c','Release','--arch','x64','--detach','--json') -Json
@@ -87,11 +109,7 @@ try {
     Send-Keys 'ctrl+t'
     Assert-Focus 'Ukrainian translation' 'translation reveal'
     if ((Get-Value 'Current English word') -ne $firstWord) { Fail 'Ctrl+T advanced the Recall card.' }
-    foreach ($key in @('up','down','left','right','home','end','pgup','pgdn')) {
-        Send-Keys $key
-        Assert-Focus 'Ukrainian translation' "translation native key $key"
-        if ((Get-Value 'Current English word') -ne $firstWord) { Fail "translation native key $key changed the Recall card." }
-    }
+    Exercise-NativeTextKeys 'Ukrainian translation' { (Get-Value 'Current English word') -eq $firstWord } 'translation native navigation'
 
     Focus 'Current English word'
     Send-Keys 'down'
@@ -102,9 +120,17 @@ try {
     Assert-Focus 'Current English word' 'Recall true previous'
     if ((Get-Value 'Current English word') -ne $firstWord) { Fail 'Up did not restore the previous actually shown Recall card.' }
 
-    Exercise-Combo 'Dictionary' 5
+    Exercise-Combo 'Dictionary' 6
     Exercise-Combo 'Recall study scope' 40
     Exercise-Combo 'Active Recall deck' 20
+
+    Focus 'Current English word'
+    $menuWord = Get-Value 'Current English word'
+    Send-Keys 'alt+f'
+    Send-Keys 'down'
+    if ((Get-Value 'Current English word') -ne $menuWord) { Fail 'Down in the File menu changed the Recall card.' }
+    Send-Keys 'esc'
+    Assert-Focus 'Current English word' 'return from File menu'
 
     Focus 'Current English word'
     Send-Keys 'f1'
@@ -128,11 +154,29 @@ try {
     Send-Keys 'alt+f4'
     Wait-Gone 'Keyboard shortcuts' 5000
 
+    # Safe dialog smoke: opening and cancelling must not mutate the active card.
+    Open-And-CancelDialog 'ctrl+alt+e' 'Export WordDeck personal progress profile' 'profile export dialog'
+    Open-And-CancelDialog 'ctrl+shift+i' 'Import WordDeck personal progress profile' 'profile import dialog'
+
+    # Reset is intentionally unbound, so exercise the real File-menu keyboard path.
+    Focus 'Current English word'
+    $resetWord = Get-Value 'Current English word'
+    Send-Keys 'alt+f'
+    Send-Keys 'r'
+    Wait-For 'Reset WordDeck learning data' 7000
+    Send-Keys 'esc'
+    Wait-Gone 'Reset WordDeck learning data' 7000
+    Wait-For 'Current English word' 5000
+    if ((Get-Value 'Current English word') -ne $resetWord) { Fail 'Cancelling reset changed the current Recall card.' }
+
     Focus 'Current English word'
     Send-Keys 'ctrl+shift+s'
     Wait-For 'WordDeck Spelling' 7000
-    foreach ($required in @('Type English spelling answer','Active spelling deck')) { Wait-For $required }
+    foreach ($required in @('Type English spelling answer','Ukrainian spelling prompt','Spelling study scope','Active spelling deck')) { Wait-For $required }
+    Exercise-Combo 'Spelling study scope' 20
     Exercise-Combo 'Active spelling deck' 20
+    $spellingPrompt = Get-Value 'Ukrainian spelling prompt'
+    Exercise-NativeTextKeys 'Type English spelling answer' { (Get-Value 'Ukrainian spelling prompt') -eq $spellingPrompt } 'Spelling answer native navigation'
     Send-Keys 'alt+f4'
     Wait-Gone 'WordDeck Spelling' 7000
     Wait-For 'Current English word' 5000
@@ -143,10 +187,11 @@ try {
     foreach ($required in @('Type the English sentence words','Sentence training spelling deck','Number of target words per sentence')) { Wait-For $required }
     Exercise-Combo 'Sentence training spelling deck' 20
     Exercise-Combo 'Number of target words per sentence' 10
+    Exercise-NativeTextKeys 'Type the English sentence words' { $true } 'Sentence answer native navigation'
     Send-Keys 'alt+f4'
     Wait-Gone 'WordDeck Sentence Spelling' 7000
 
-    Write-Host 'WordDeck R3 UIA PASS: exact-head WinForms UI Automation verified Recall focus/arrows/native controls, F1 truth, shortcut settings, Spelling and Sentence keyboard entry/control stability.'
+    Write-Host 'WordDeck R4 integrated UIA PASS: Recall Natalia arrows/true previous, selector focus retention, native menu/text navigation, F1/shortcut settings, profile/reset dialogs, Spelling scope/answer and Sentence keyboard surfaces verified.'
 }
 finally {
     if ($null -ne $appPid -and $appPid -gt 0) {
