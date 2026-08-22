@@ -1,6 +1,6 @@
 # DEV4 RUN STATE
 
-RUN_ID: 20260822-0308-full-product-qa
+RUN_ID: 20260822-0402-full-product-qa
 STATUS: COMPLETE
 MODE: SAFE_OVERLAP_QA_EVIDENCE
 ROLE: DEV4 independent QA/evidence/security
@@ -8,14 +8,14 @@ ROLE: DEV4 independent QA/evidence/security
 ## Live snapshot
 
 - DEV4 Stage1 Product source: `manual5/dev4-platform-security-packaging-20260821` @ `a4209d005ea0a1476f8eafb4822f4d39ac50ee5a`.
-- Manual5 integration: `manual5/integration-20260821` @ `0fa442330bc2bb03636ff9297512da4c29e38684`.
-- Exact integration CI remains UI Semantic Gate `32532577650` SUCCESS and Stage1 Saturation `32532577641` SUCCESS.
-- DEV5 reconciliation draft PR #66 remains open/draft at `abff45ebcc4b5af2a85ab0c456b025b5098c6e29` with UI Semantic Gate `32532415239` SUCCESS and Stage1 Saturation `32532415296` SUCCESS.
+- Manual5 integration: `manual5/integration-20260821` @ `0fa442330bc2bb03636ff9297512da4c29e38684` (live compare IDENTICAL).
+- Exact integration CI rechecked: UI Semantic Gate `32532577650` SUCCESS; Stage1 Saturation `32532577641` SUCCESS.
+- DEV5 reconciliation draft PR #66 remains open/draft at `abff45ebcc4b5af2a85ab0c456b025b5098c6e29`.
 - DEV4 QA branch: `qa/dev4-chessbase-symlink-security-20260822`.
-- New QA evidence commit: `262ba68f4a5845335f463df7b8b67dcd7b6adb1a` — `test(security): gate PGN atomic lost-update race`.
+- New QA evidence commit: `9f7ed301743aa049695fc667497993ca58155cf1` — `test(security): gate PGN export symlink-parent escape`.
 - DEV4 QA draft PR #67 remains open/draft.
-- Exact QA evidence commit Actions: none observed. Classification: INCONCLUSIVE CI observability, not GREEN.
-- Requested `AGENTS.md` and `docs/codex/{CURRENT_STATE,NEXT_WORK,SESSION_HANDOFF}.md` are absent on the checked repository ref.
+- Exact QA head `9f7ed301...` has no observed commit-associated Actions. Classification: INCONCLUSIVE CI observability, not GREEN.
+- Requested `AGENTS.md` and `docs/codex/CURRENT_STATE.md` remain absent on the checked QA ref; operative state is live GitHub + canonical Drive + `docs/automation/DEV4_*`.
 - Windows strict WIP=1 remains untouched. `NVDA_VERIFIED=NO`.
 
 ## Findings
@@ -34,13 +34,21 @@ Probe, integrity snapshot and bundle manifest report payloads serialize absolute
 
 ### PROVEN_PRODUCT_DEFECT — PGN optimistic overwrite TOCTOU can lose a newer writer
 
-`save_pgn_atomic()` checks `expected_sha256` before serializing/writing the temporary file, then commits with unconditional `os.replace()` and does not revalidate the destination at the commit boundary. A writer that changes the destination after the preflight hash but before replacement is silently overwritten, despite the public contract saying `expected_sha256` refuses newer edits.
+`save_pgn_atomic()` checks `expected_sha256` before temp-file creation, then commits with unconditional `os.replace()` without destination revalidation. Strict deterministic QA gate: `tests/test_dev4_pgn_export_concurrency_security.py`.
 
-DEV4 reproduced the state transition independently: original hash matches at preflight, a concurrent writer changes the destination immediately before replace, and the current algorithm replaces that newer content with the stale save. Strict deterministic QA gate: `tests/test_dev4_pgn_export_concurrency_security.py`. It injects the competing write at the atomic replacement boundary and requires `PgnConcurrentWriteError` plus preservation of the concurrent content. Product code is intentionally unchanged.
+### PROVEN_PRODUCT_DEFECT — PGN default no-overwrite TOCTOU can clobber a racing writer
 
-### Evidence artifact — ChessBase capability matrix
+`overwrite=False` checks destination nonexistence only before temp creation; final commit remains unconditional `os.replace()`. Strict deterministic QA gate: `tests/test_dev4_pgn_export_concurrency_security.py`.
 
-`docs/automation/DEV4_CHESSBASE_CAPABILITY_MATRIX.md` continues to separate suffix recognition/provenance from proprietary decoder compatibility.
+### PROVEN_PRODUCT_DEFECT — PGN export follows a symlink/reparse parent and writes outside the submitted directory tree
+
+`save_pgn_atomic()` accepts a destination whose parent is a symlink/reparse-style indirection. `NamedTemporaryFile(dir=str(destination.parent))` creates the temp file in the symlink target and `os.replace(tmp_path, destination)` commits there. DEV4 independently reproduced this filesystem transition: a destination under `submitted/exports -> external/` created `external/escaped.pgn`.
+
+Strict QA gate: `tests/test_dev4_pgn_export_path_security.py`. It requires fail-closed rejection before any file is created through the indirect parent. Product source is intentionally unchanged.
+
+## Evidence discipline
+
+Existing integration/DEV5 GREEN runs do not execute the QA-only external-format assertions. PR #67 has no observed exact-head Actions for `9f7ed301...`; CI remains INCONCLUSIVE, not GREEN. No assertion was weakened.
 
 ## Preserved findings / boundaries
 
@@ -50,15 +58,11 @@ DEV4 reproduced the state transition independently: original hash matches at pre
 - No Product Ctrl+A/Ctrl+C defect is claimed.
 - No force-push, DEV5/integration mutation, `tools/qa` or strict Windows workflow edit, frozen-release merge, Windows candidate creation, or DEV3 ACSDB performance takeover occurred.
 
-## Evidence discipline
-
-The existing integration/DEV5 GREEN runs do not execute or validate the new QA-only external-format assertions. QA PR #67 has no observed commit-associated Actions for the new evidence commit, so CI remains INCONCLUSIVE rather than inferred GREEN. The PGN race finding is based on the live implementation's check-then-replace ordering, its explicit optimistic-concurrency contract, an independently reproduced race state transition, and a strict deterministic regression.
-
 ## Next action
 
 1. Recheck PR #67 exact-head Actions without treating absence as GREEN.
-2. Audit PGN export failure recovery further: parent/destination indirection, temp cleanup/permissions, replacement/fsync failure, directory durability, deterministic serialization and path/error leakage.
-3. Continue generic import resource audit: explicit source caps, encoding abuse, truncation, cancellation/recovery and duplicate-source behavior.
-4. Trace `SourceFingerprint.path`, `BatchInspectionItem.path/error` and PGN exceptions into actual persisted/UI/report surfaces; classify only proven exposure.
-5. Continue ChessBase unknown-version/resource-limit evidence without inventing proprietary decoder semantics.
+2. Continue PGN export failure recovery: destination-symlink behavior, temp permissions/cleanup, `os.replace`/`fsync` failures, parent-directory durability, deterministic serialization and path/error leakage.
+3. Continue generic import resource audit: explicit size caps, encoding abuse, truncation, cancellation/recovery and duplicate-source behavior.
+4. Trace `SourceFingerprint.path`, `BatchInspectionItem.path/error` and PGN exceptions into persisted/UI/report surfaces; classify only direct exposure.
+5. Continue ChessBase unknown-version/resource-limit evidence without proprietary decoder claims.
 6. Re-enter Stage1 package/security only through DEV5/Audit-authorized reconciliation and verify future user ZIP excludes `nuitka-compilation-report.xml`.
