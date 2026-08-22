@@ -44,7 +44,7 @@ jobs:
             throw "DEV3 evidence branch contains Product/non-evidence changes: $($changed -join ', ')"
           }
           New-Item -ItemType Directory -Force -Path product | Out-Null
-          git archive --format=zip --output=stage1-product.zip $env:SOURCE_INTEGRATION_SHA -- acs tests run_accessible_chess.py VERSION.txt
+          git archive --format=zip --output=stage1-product.zip $env:SOURCE_INTEGRATION_SHA -- acs web tests run_accessible_chess.py VERSION.txt
           if($LASTEXITCODE -ne 0){throw 'Exact Stage1 export failed'}
           Expand-Archive stage1-product.zip product -Force
           "DEV3 EXACT STAGE1 SOURCE LOCK PASS: $resolved"
