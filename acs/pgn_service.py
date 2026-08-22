@@ -8,8 +8,9 @@ encoding, provenance fingerprints, concurrent modification checks, or atomic
 replacement.
 
 The source PGN is read-only during inspection/open. Saving always writes a
-complete temporary file in the destination directory and then atomically
-replaces the destination, so a crash cannot leave a half-written PGN.
+complete temporary file in the destination directory and then publishes that
+complete file through a commit primitive appropriate to the requested safety
+contract.
 """
 
 from dataclasses import dataclass
@@ -110,14 +111,7 @@ def _is_reparse_point(st: os.stat_result) -> bool:
 
 
 def _reject_export_indirection(path: Path) -> None:
-    """Fail closed if any existing submitted path component is indirect.
-
-    ``Path.exists()`` and normal file opens follow symlinks/reparse points. For
-    an export boundary that can create or replace files, that would allow a
-    submitted lexical destination to escape into another directory tree. Walk
-    the lexical absolute path with ``lstat`` so existing ancestors and the
-    destination itself are checked without following them.
-    """
+    """Fail closed if any existing submitted path component is indirect."""
 
     absolute = path.absolute()
     parts = absolute.parts
@@ -138,12 +132,6 @@ def _reject_export_indirection(path: Path) -> None:
 
 
 def _bounded_source_size(path: Path) -> int | None:
-    """Reject a real oversized file before hashing/opening its text payload.
-
-    Tests and higher-level callers may inject a synthetic fingerprint for a
-    virtual path, so a missing lexical path is left to ``fingerprint()`` rather
-    than being treated as a separate resource-policy failure here.
-    """
     try:
         size = path.lstat().st_size
     except FileNotFoundError:
@@ -192,9 +180,85 @@ def open_pgn(path: str | Path) -> PgnOpenResult:
 
 
 def _current_sha256(path: Path) -> str | None:
-    if not path.exists():
+    try:
+        path.lstat()
+    except FileNotFoundError:
         return None
     return fingerprint(path).sha256
+
+
+def _create_hardlink_snapshot(destination: Path) -> Path:
+    """Create a same-directory hard-link snapshot of an existing destination.
+
+    The link keeps the pre-publication inode reachable after ``os.replace``. If
+    an in-place competing writer mutates that inode in the final publication
+    window, its bytes remain recoverable and the stale save can roll back rather
+    than silently destroying the newer edit.
+    """
+
+    for _ in range(8):
+        fd, raw_name = tempfile.mkstemp(
+            dir=str(destination.parent),
+            prefix=destination.name + ".cas-",
+            suffix=".bak",
+        )
+        os.close(fd)
+        snapshot = Path(raw_name)
+        snapshot.unlink()
+        try:
+            os.link(destination, snapshot)
+            return snapshot
+        except FileExistsError:
+            continue
+        except OSError as exc:
+            raise PgnFileError("PGN commit snapshot could not be created safely") from exc
+    raise PgnFileError("PGN commit snapshot could not reserve a unique path")
+
+
+def _publish_no_clobber(tmp_path: Path, destination: Path) -> None:
+    """Atomically publish ``tmp_path`` only if ``destination`` is still absent."""
+
+    try:
+        os.link(tmp_path, destination)
+    except FileExistsError:
+        raise
+    except OSError as exc:
+        raise PgnFileError("PGN no-clobber publication is unavailable") from exc
+    tmp_path.unlink()
+
+
+def _publish_expected_hash(
+    tmp_path: Path,
+    destination: Path,
+    expected_sha256: str,
+) -> None:
+    """Publish with recoverable optimistic-CAS semantics for an existing file."""
+
+    if _current_sha256(destination) != expected_sha256:
+        raise PgnConcurrentWriteError(f"PGN changed since it was opened: {destination}")
+
+    snapshot = _create_hardlink_snapshot(destination)
+    try:
+        if _current_sha256(destination) != expected_sha256:
+            raise PgnConcurrentWriteError(f"PGN changed since it was opened: {destination}")
+        if _current_sha256(snapshot) != expected_sha256:
+            raise PgnConcurrentWriteError(f"PGN changed since it was opened: {destination}")
+
+        os.replace(tmp_path, destination)
+
+        # ``snapshot`` references the pre-publication inode. A competing writer
+        # that modified that inode immediately before our replace changes this
+        # digest too. Restore those newer bytes before reporting the conflict.
+        if _current_sha256(snapshot) != expected_sha256:
+            os.replace(snapshot, destination)
+            snapshot = None
+            raise PgnConcurrentWriteError(f"PGN changed during publication: {destination}")
+    finally:
+        if snapshot is not None:
+            try:
+                snapshot.unlink()
+            except FileNotFoundError:
+                pass
 
 
 def save_pgn_atomic(
@@ -204,12 +268,13 @@ def save_pgn_atomic(
     overwrite: bool = False,
     expected_sha256: str | None = None,
 ) -> SourceFingerprint:
-    """Serialize GameTree content and atomically commit one complete PGN file.
+    """Serialize GameTree content and commit one complete PGN file safely.
 
-    ``overwrite=False`` protects existing files by default. When overwriting a
-    file that was previously opened, callers may pass ``expected_sha256`` from
-    :class:`PgnOpenResult`; a mismatch refuses the write instead of silently
-    replacing someone else's newer edits.
+    ``overwrite=False`` uses an atomic no-clobber hard-link publication in the
+    destination directory. ``expected_sha256`` uses a recoverable pre-commit
+    inode snapshot so an in-place writer racing at publication is detected and
+    restored instead of silently lost. Plain ``overwrite=True`` without an
+    expected digest intentionally requests unconditional replacement.
     """
 
     destination = Path(path)
@@ -240,9 +305,17 @@ def save_pgn_atomic(
             handle.write(payload)
             handle.flush()
             os.fsync(handle.fileno())
+
         _reject_export_indirection(destination)
-        os.replace(tmp_path, destination)
-        tmp_path = None
+        if not overwrite:
+            _publish_no_clobber(tmp_path, destination)
+            tmp_path = None
+        elif expected_sha256 is not None:
+            _publish_expected_hash(tmp_path, destination, expected_sha256)
+            tmp_path = None
+        else:
+            os.replace(tmp_path, destination)
+            tmp_path = None
     finally:
         if tmp_path is not None:
             try:
