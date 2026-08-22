@@ -137,13 +137,25 @@ internal static class SentenceRound2SelfTest
 
             if (OperatingSystem.IsWindows())
             {
-                using FileStream locked = new(
+                // Generation-based replacement must not rewrite/delete the active old bytes
+                // before the new generation is complete and atomically activated. Holding the
+                // previous portable file open therefore must not block a valid replacement.
+                using (FileStream locked = new(
                     baseline.Path,
                     FileMode.Open,
                     FileAccess.Read,
-                    FileShare.None);
-                ExpectFailure(() => new SentencePackStore(root).Import(replacementPath),
-                    "Windows locked destination did not produce a controlled replacement failure.");
+                    FileShare.None))
+                {
+                    InstalledSentencePack lockedReplacement = new SentencePackStore(root).Import(replacementPath);
+                    Require(lockedReplacement.Corpus.LookupByEntryId("target-new").Single().Id == "new-sentence",
+                        "Generation replacement failed while the previous portable generation was locked.");
+                    Require(File.Exists(baseline.Path),
+                        "Generation replacement removed the locked previous generation instead of preserving rollback bytes.");
+                }
+
+                InstalledSentencePack restoredOld = new SentencePackStore(root).Import(source);
+                Require(restoredOld.Corpus.LookupByEntryId("target-old").Single().Id == "old-sentence",
+                    "Transaction fixture could not restore the old generation after the lock-safety check.");
             }
             AssertOldStillUsable(root);
 
