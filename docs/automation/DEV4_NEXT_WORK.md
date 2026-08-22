@@ -4,15 +4,16 @@ NEXT_ACTION_ORDER:
 
 1. Re-read live DEV5/integration and QA PR #67 before any write; SAFE OVERLAP remains mandatory while Product owners are active.
 2. Recheck QA head and commit-associated Actions. Absence is `INCONCLUSIVE`, never GREEN.
-3. Preserve all eleven locked Product-defect classes; never weaken strict gates for GREEN.
-4. Preserve special-file fail-closed and unstable-fingerprint gates: external provenance must reject non-regular sources before open and reject mutation during hashing.
+3. Preserve all twelve locked Product-defect classes; never weaken strict gates for GREEN.
+4. Preserve the concrete ACSDB import-history privacy gate: failed-import evidence may remain useful, but raw workstation paths, tokens, provider details, or other private exception internals must not be persisted/exposed verbatim.
 5. Continue generic import limits: huge/truncated inputs, encoding abuse, duplicate-source behavior, cancellation and recovery.
-6. Preserve ChessBase companion-directory and manifest verification I/O observability; extend component snapshot/open/stat/hash failure tests without inventing proprietary decoder semantics.
-7. Trace `SourceFingerprint.path`, `BatchInspectionItem.path/error`, PGN and engine exceptions only into concrete persisted/UI/report sinks before promoting leakage findings.
-8. Keep PGN parent-directory crash/power-loss durability `INCONCLUSIVE` without stronger evidence.
-9. Preserve accepted DEV1 board-bridge semantics; re-enter Stage1/package Product work only through DEV5/Audit authorization.
-10. Keep `nuitka-compilation-report.xml` out of user ZIPs.
-11. Windows strict WIP=1; do not take it over. `NVDA_VERIFIED=NO` until exact fresh candidate human verification.
+6. Preserve special-file fail-closed and unstable-fingerprint gates: external provenance must reject non-regular sources before open and reject mutation during hashing.
+7. Preserve ChessBase companion-directory and manifest verification I/O observability; extend component snapshot/open/stat/hash failure tests without inventing proprietary decoder semantics.
+8. Trace `SourceFingerprint.path`, `BatchInspectionItem.path/error`, PGN and engine exceptions only into concrete persisted/UI/report sinks before promoting additional leakage findings.
+9. Keep PGN parent-directory crash/power-loss durability `INCONCLUSIVE` without stronger evidence.
+10. Preserve accepted DEV1 board-bridge semantics; re-enter Stage1/package Product work only through DEV5/Audit authorization.
+11. Keep `nuitka-compilation-report.xml` out of user ZIPs.
+12. Windows strict WIP=1; do not take it over. `NVDA_VERIFIED=NO` until exact fresh candidate human verification.
 
 CURRENT LOCKED FINDINGS:
 - PROVEN_PRODUCT_DEFECT: import/ChessBase symlink-reparse boundary follows indirection.
@@ -26,8 +27,10 @@ CURRENT LOCKED FINDINGS:
 - PROVEN_PRODUCT_DEFECT: ChessBase manifest verification propagates hash/open I/O failure instead of structured failed verification.
 - PROVEN_PRODUCT_DEFECT: shared import fingerprinting can open FIFO/special files before regular-file validation.
 - PROVEN_PRODUCT_DEFECT: shared import fingerprinting does not reject a source that mutates during hashing.
+- PROVEN_PRODUCT_DEFECT: ACSDB import attempts persist raw parser/provider exception text and `ImportHistoryService` exposes it application-side, allowing private path/secret-like detail leakage.
 - QA EVIDENCE: PGN export failure recovery/temp cleanup/POSIX temp privacy.
 - QA EVIDENCE: release-facing engine errors redact private Stockfish paths.
+- QA_OR_ENVIRONMENT_ONLY: local clean-checkout unavailable in current sandbox because `github.com` DNS resolution failed.
 - INCONCLUSIVE: exact QA-head CI until observed.
 - HUMAN_ONLY: exact fresh Windows/NVDA usability.
 
