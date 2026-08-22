@@ -23,6 +23,17 @@ MAX_SNAPSHOT_TEXT_BYTES = 16 * 1024 * 1024
 MAX_SNAPSHOT_WARNINGS = 10_000
 MAX_WARNING_CHARS = 16_384
 _DIGEST_RE = re.compile(r"^[0-9a-f]{64}$")
+_SNAPSHOT_RECORD_FIELDS = frozenset(
+    {
+        "schema_version",
+        "pgn_text",
+        "pgn_digest",
+        "tree_digest",
+        "record_digest",
+        "source_index",
+        "warnings",
+    }
+)
 
 
 class GameTreeSnapshotCode(str, Enum):
@@ -146,6 +157,69 @@ def snapshot_game(game: PgnGame) -> GameTreeSnapshot:
         record_digest=identity.record_digest,
         source_index=game.source_index,
         warnings=warnings,
+    )
+
+
+def snapshot_to_record(snapshot: GameTreeSnapshot) -> dict[str, object]:
+    """Return a detached JSON-safe record for persisted/exchanged snapshots."""
+
+    if not isinstance(snapshot, GameTreeSnapshot):
+        raise TypeError("snapshot_to_record requires a GameTreeSnapshot")
+    return {
+        "schema_version": snapshot.schema_version,
+        "pgn_text": snapshot.pgn_text,
+        "pgn_digest": snapshot.pgn_digest,
+        "tree_digest": snapshot.tree_digest,
+        "record_digest": snapshot.record_digest,
+        "source_index": snapshot.source_index,
+        "warnings": list(snapshot.warnings),
+    }
+
+
+def snapshot_from_record(record: object) -> GameTreeSnapshot:
+    """Validate an external record and rebuild the exact versioned snapshot.
+
+    Version 1 is intentionally closed-world: missing or unknown fields are
+    rejected rather than silently normalized.  A future schema must opt into a
+    migration policy explicitly instead of changing v1 semantics in place.
+    """
+
+    if type(record) is not dict:
+        raise GameTreeSnapshotError(
+            "snapshot record must be an exact object",
+            code=GameTreeSnapshotCode.INVALID_SNAPSHOT,
+        )
+    fields = set(record)
+    if fields != _SNAPSHOT_RECORD_FIELDS:
+        missing = sorted(_SNAPSHOT_RECORD_FIELDS - fields)
+        unknown = sorted(str(field) for field in fields - _SNAPSHOT_RECORD_FIELDS)
+        details: list[str] = []
+        if missing:
+            details.append("missing=" + ",".join(missing))
+        if unknown:
+            details.append("unknown=" + ",".join(unknown))
+        raise GameTreeSnapshotError(
+            "snapshot record fields are not canonical" + (
+                ": " + "; ".join(details) if details else ""
+            ),
+            code=GameTreeSnapshotCode.INVALID_SNAPSHOT,
+        )
+    warnings = record["warnings"]
+    if type(warnings) is not list:
+        raise GameTreeSnapshotError(
+            "snapshot record warnings must be an exact list",
+            code=GameTreeSnapshotCode.INVALID_SNAPSHOT,
+        )
+    warning_tuple = tuple(warnings)
+    _require_warning_tuple(warning_tuple)
+    return GameTreeSnapshot(
+        schema_version=record["schema_version"],
+        pgn_text=record["pgn_text"],
+        pgn_digest=record["pgn_digest"],
+        tree_digest=record["tree_digest"],
+        record_digest=record["record_digest"],
+        source_index=record["source_index"],
+        warnings=warning_tuple,
     )
 
 
