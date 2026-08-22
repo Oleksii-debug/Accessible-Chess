@@ -113,20 +113,22 @@ internal sealed class SentenceCoachForm : Form
         DropDownStyle = ComboBoxStyle.DropDownList,
         Width = 320,
         AccessibleName = "Sentence pack",
-        AccessibleDescription = "Choose an installed offline SentencePack. Disk-backed SQLite is preferred automatically when available."
+        AccessibleDescription = "Choose an installed offline SentencePack with standard Up and Down selection. Focus remains in this selector when you change it."
     };
     private readonly ComboBox _deckCombo = new()
     {
         DropDownStyle = ComboBoxStyle.DropDownList,
         Width = 260,
         DisplayMember = nameof(DeckDefinition.Name),
-        AccessibleName = "Sentence training spelling deck"
+        AccessibleName = "Sentence training spelling deck",
+        AccessibleDescription = "Choose the spelling-deck scope with standard Up and Down selection. Focus remains in this selector when you change it."
     };
     private readonly ComboBox _targetCountCombo = new()
     {
         DropDownStyle = ComboBoxStyle.DropDownList,
         Width = 150,
-        AccessibleName = "Number of target words per sentence"
+        AccessibleName = "Number of target words per sentence",
+        AccessibleDescription = "Choose one or two targets with standard Up and Down selection. Focus remains in this selector when you change it."
     };
     private readonly TextBox _prompt = new()
     {
@@ -221,29 +223,31 @@ internal sealed class SentenceCoachForm : Form
         Controls.Add(root);
         root.BringToFront();
 
-        _packCombo.SelectedIndexChanged += (_, _) => ChangePack();
+        _packCombo.SelectedIndexChanged += (_, _) => ChangePack(focusAnswer: !_packCombo.ContainsFocus);
         _deckCombo.SelectedIndexChanged += (_, _) =>
         {
             if (_deckCombo.SelectedItem is DeckDefinition deck &&
                 !string.Equals(deck.Id, _activeDeckId, StringComparison.OrdinalIgnoreCase))
             {
+                bool focusAnswer = !_deckCombo.ContainsFocus;
                 _activeDeckId = deck.Id;
                 _state.ActiveSpellingDeckId = deck.Id;
                 ClearCurrent();
                 Save();
                 UpdateCoverage();
-                Next();
+                Next(focusAnswer);
             }
         };
         _targetCountCombo.SelectedIndexChanged += (_, _) =>
         {
             if (_targetCountCombo.SelectedItem is TargetCountChoice choice && choice.Count != _state.TargetCount)
             {
+                bool focusAnswer = !_targetCountCombo.ContainsFocus;
                 _state.TargetCount = choice.Count;
                 ClearCurrent();
                 Save();
                 UpdateCoverage();
-                Next();
+                Next(focusAnswer);
             }
             UpdateModeInfo();
         };
@@ -340,7 +344,7 @@ internal sealed class SentenceCoachForm : Form
         }
     }
 
-    private void ChangePack()
+    private void ChangePack(bool focusAnswer = true)
     {
         if (_packCombo.SelectedItem is not PackChoice choice)
             return;
@@ -352,7 +356,7 @@ internal sealed class SentenceCoachForm : Form
         ClearCurrent();
         Save();
         UpdateCoverage();
-        Next();
+        Next(focusAnswer);
     }
 
     private void ImportPack()
@@ -478,7 +482,7 @@ internal sealed class SentenceCoachForm : Form
         Next();
     }
 
-    private void Next()
+    private void Next(bool focusAnswer = true)
     {
         if (_corpus is null)
             return;
@@ -512,7 +516,7 @@ internal sealed class SentenceCoachForm : Form
             {
                 Announce($"No second same-scope target is currently available with {primary.Target}. Trying another exercise.");
                 ClearCurrent();
-                Next();
+                Next(focusAnswer);
                 return;
             }
             targets.Add(ChooseWeakTarget(partners));
@@ -533,7 +537,7 @@ internal sealed class SentenceCoachForm : Form
             Announce($"No suitable corpus sentence is available for the selected {targets.Count}-target exercise.");
             return;
         }
-        Show(selected.Sentence, targets);
+        Show(selected.Sentence, targets, focusAnswer);
     }
 
     private List<DictionaryEntry> GetPartnerCandidates(string primaryId, IReadOnlyList<DictionaryEntry> scope)
@@ -587,7 +591,7 @@ internal sealed class SentenceCoachForm : Form
         return index >= 3;
     }
 
-    private void Show(SentenceRecord sentence, IReadOnlyList<DictionaryEntry> targets)
+    private void Show(SentenceRecord sentence, IReadOnlyList<DictionaryEntry> targets, bool focusAnswer = true)
     {
         _currentSentence = sentence;
         _currentTargets.Clear();
@@ -600,7 +604,7 @@ internal sealed class SentenceCoachForm : Form
             ? $"Target meaning from selected scope: {meanings}."
             : $"Two target meanings from selected scope: {meanings}.";
         _answer.Clear();
-        _answer.Focus();
+        if (focusAnswer) _answer.Focus();
         _state.CurrentSentenceId = sentence.Id;
         _state.CurrentTargetEntryIds = targets.Select(target => target.Id).ToList();
         _state.CurrentTargetEntryId = _state.CurrentTargetEntryIds.FirstOrDefault();
@@ -723,13 +727,12 @@ internal sealed class SentenceCoachForm : Form
 
     protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
     {
-        string? action = _shortcuts.FindAction(keyData);
+        string? action = _shortcuts.FindAction(keyData, ShortcutDispatchContext.Sentence);
         if (action is null)
             return base.ProcessCmdKey(ref msg, keyData);
-        if (action == ActionIds.SentenceShowAnswer) ShowAnswer();
-        else if (action == ActionIds.SentenceRepeatPrompt) RepeatPrompt();
-        else if (action == ActionIds.SentenceImportPack) ImportPack();
-        else return base.ProcessCmdKey(ref msg, keyData);
-        return true;
+        if (action == ActionIds.SentenceShowAnswer) { ShowAnswer(); return true; }
+        if (action == ActionIds.SentenceRepeatPrompt) { RepeatPrompt(); return true; }
+        if (action == ActionIds.SentenceImportPack) { ImportPack(); return true; }
+        return base.ProcessCmdKey(ref msg, keyData);
     }
 }
