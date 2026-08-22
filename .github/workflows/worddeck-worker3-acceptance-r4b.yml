@@ -14,7 +14,7 @@ permissions:
   statuses: write
 
 concurrency:
-  group: worddeck-worker3-r4b-${{ github.event.pull_request.head.sha || github.sha }}
+  group: worddeck-worker3-r4b-${{ github.event_name }}-${{ github.event.pull_request.head.sha || github.sha }}
   cancel-in-progress: true
 
 env:
