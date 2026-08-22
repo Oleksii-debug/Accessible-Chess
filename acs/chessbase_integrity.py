@@ -1,18 +1,13 @@
 from __future__ import annotations
 
-"""Evidence-backed integrity snapshots for read-only ChessBase-family sources.
-
-This module does not decode proprietary formats.  It fingerprints the selected
-primary source and any discovered classic CBH companions so adapters can prove
-that every source byte remained unchanged across inspection/import attempts.
-"""
+"""Evidence-backed integrity snapshots for read-only ChessBase-family sources."""
 
 from dataclasses import dataclass
-from hashlib import sha256
 from pathlib import Path
 from typing import Iterable
 
 from .chessbase_adapter import ChessBaseSourceProbe, probe_chessbase_source
+from .import_contract import fingerprint
 
 
 @dataclass(frozen=True)
@@ -25,7 +20,7 @@ class SourceFileEvidence:
 
     def as_report_fields(self) -> dict[str, object]:
         return {
-            "path": str(self.path),
+            "path": self.path.name,
             "extension": self.extension,
             "role": self.role,
             "size_bytes": self.size_bytes,
@@ -40,7 +35,7 @@ class ChessBaseIntegritySnapshot:
 
     def as_report_fields(self) -> dict[str, object]:
         return {
-            "primary_path": str(self.primary_path),
+            "primary_path": self.primary_path.name,
             "files": [item.as_report_fields() for item in self.files],
         }
 
@@ -49,19 +44,23 @@ class ChessBaseSourceChangedError(RuntimeError):
     """Raised when a source family differs from an earlier integrity snapshot."""
 
 
+class ChessBaseIntegrityIOError(RuntimeError):
+    """Raised when integrity evidence cannot be observed safely."""
+
+
 def _fingerprint(path: Path, extension: str, role: str) -> SourceFileEvidence:
-    digest = sha256()
-    size = 0
-    with path.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-            size += len(chunk)
-            digest.update(chunk)
+    try:
+        source = fingerprint(path)
+    except (OSError, ValueError, RuntimeError) as exc:
+        raise ChessBaseIntegrityIOError(
+            f"ChessBase source evidence is unavailable for {path.name}"
+        ) from exc
     return SourceFileEvidence(
-        path=path,
+        path=Path(source.path),
         extension=extension,
         role=role,
-        size_bytes=size,
-        sha256=digest.hexdigest(),
+        size_bytes=source.size,
+        sha256=source.sha256,
     )
 
 
@@ -72,10 +71,9 @@ def _evidence_paths(probe: ChessBaseSourceProbe) -> Iterable[tuple[Path, str, st
 
 
 def capture_integrity_snapshot(path: str | Path) -> ChessBaseIntegritySnapshot:
-    """Fingerprint a recognized source family without modifying any source file."""
     probe = probe_chessbase_source(path)
     if not probe.recognized:
-        raise ValueError(f"Unsupported ChessBase-family source: {probe.path}")
+        raise ValueError(f"Unsupported ChessBase-family source: {probe.path.name}")
     if not probe.path.exists() or not probe.path.is_file():
         raise FileNotFoundError(probe.path)
 
@@ -83,12 +81,17 @@ def capture_integrity_snapshot(path: str | Path) -> ChessBaseIntegritySnapshot:
         _fingerprint(file_path, extension, role)
         for file_path, extension, role in _evidence_paths(probe)
     )
-    return ChessBaseIntegritySnapshot(primary_path=probe.path, files=files)
+    return ChessBaseIntegritySnapshot(primary_path=Path(files[0].path), files=files)
 
 
 def verify_integrity_snapshot(snapshot: ChessBaseIntegritySnapshot) -> ChessBaseIntegritySnapshot:
-    """Re-snapshot the family and fail if membership, size, or content changed."""
-    current = capture_integrity_snapshot(snapshot.primary_path)
+    """Re-snapshot the family and fail closed on change or unavailable evidence."""
+    try:
+        current = capture_integrity_snapshot(snapshot.primary_path)
+    except (OSError, ValueError, RuntimeError) as exc:
+        if isinstance(exc, ChessBaseSourceChangedError):
+            raise
+        raise ChessBaseIntegrityIOError("ChessBase integrity verification could not read source evidence") from exc
     if current != snapshot:
         raise ChessBaseSourceChangedError(
             "ChessBase source family changed after the integrity snapshot; "
