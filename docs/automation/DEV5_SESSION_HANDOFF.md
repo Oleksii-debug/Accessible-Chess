@@ -1,45 +1,63 @@
 # DEV5_SESSION_HANDOFF
 
-RUN_ID: 20260822-1257
+RUN_ID: 20260822-1341
 ROLE: Coordinator / Integrator / QA / General Fixer
 STATUS: COMPLETE / TERMINAL / SAFE OVERLAP
-SNAPSHOT_CUTOFF: 2026-08-22T12:57:33+03:00
+SNAPSHOT_CUTOFF: 2026-08-22T13:41:44+03:00
+ACTIVE_DIRECTIVE: 0014 effective 13:00
+FUTURE_DIRECTIVE_OBSERVED: 0015 effective 14:00; left intact for next wave
 NVDA_VERIFIED: NO
 FRESH_WINDOWS_CANDIDATE: NO
+READY_FOR_RELEASE: NO
 
 ## Accepted Stage1 state
-manual5/integration-20260821 remains exact 0fa442330bc2bb03636ff9297512da4c29e38684. Previously observed exact UI Semantic and Stage1 Saturation evidence remains GREEN. No Stage1 Product mutation, duplicate intake, frozen-ref change or release candidate was performed.
+manual5/integration-20260821 remains exact 0fa442330bc2bb03636ff9297512da4c29e38684. Exact current observable evidence is GREEN: Stage1 Saturation run 32532577641 and UI Semantic run 32532577650; the prior pair 32532503262 / 32532503184 is also SUCCESS. No Stage1 mutation, frozen-ref change, rejected-ZIP reuse or candidate production occurred.
 
 ## SAFE OVERLAP ruling
-Canonical DEV1_RUN_STATE 20260822-0041 still existed before cutoff as IN_PROGRESS on full5/dev1-accessible-shell-20260822. Live PR #68 remains OPEN/DRAFT at c1425c898b3b6d1a4caea6a57a71544ee8582909 and canonical 10_DEV1_HANDOFF_CURRENT is stale/non-terminal for this full-product continuation. Therefore competing DEV5 Product integration is forbidden in this run.
+Canonical DEV1_RUN_STATE 20260822-0041 still says IN_PROGRESS and has not been terminalized. PR #68 remains OPEN/DRAFT at c1425c898b3b6d1a4caea6a57a71544ee8582909. Exact PR delta is only acs/full_product_ui_shell.py, acs/teacher_presentation.py and tests/test_dev1_full_product_accessible_shell.py, but no exact PR workflow runs are observable. Age/staleness is not authority to assume completion. DEV5 therefore performs no competing full-product Product push.
 
-## DEV2 exact terminal evidence
-DEV2_RUN_STATE 20260822-1238 completed before cutoff. Canonical Product head advanced to 4dd706838881c0e328c7578eada17227de43cf60 with strict v1 GameTree snapshot record and deterministic JSON exchange. Validation-only PR #83 head 7822926f82354d86f03592c40fcafb2faf9342df has exact DEV2 Full Product Core CI run 32565884179 / job 97014330560 SUCCESS. Snapshot exchange 21/21, navigation 8/8, editing 8/8, insertion 6/6, annotations 8/8, legality 6/6, result/exchange 8/8, GameTree 14/14 and export 7/7 PASS; full unittest 742 OK + 1 SKIP; full pytest 822 PASS + 1 SKIP + 1330 subtests PASS. FULL_PRODUCT_DEV2_READY_FOR_INTEGRATION=YES. PR #83 remains evidence-only / DO NOT MERGE.
+## DEV2 exact terminal package
+Canonical DEV2 Product head 4dd706838881c0e328c7578eada17227de43cf60 remains READY_FOR_INTEGRATION=YES. Validation-only PR #83 head 7822926f82354d86f03592c40fcafb2faf9342df has exact DEV2 Full Product Core CI run 32565884179 / job 97014330560 SUCCESS: snapshot 21/21; navigation 8/8; editing 8/8; insertion 6/6; annotations 8/8; legality 6/6; result/exchange 8/8; GameTree 14/14; export 7/7; unittest 742 OK + 1 SKIP; pytest 822 PASS + 1 SKIP + 1330 subtests.
 
-## DEV3 exact technical evidence
-Live GitHub Product base 3dde3a7444c9cf594e92e32f5e084c8969015ad4 adds fail-closed signed-64-bit SQLite search-scalar validation. Validation-only PR #84 head 2220325a1d69cf46bf4611b36f0337378e8ab527 has exact DEV3 Full Product ACSDB CI run 32563847332 / job 97009443566 SUCCESS on synthetic merge ref f1134af309c3fe687b039f2aea5c0068b353408c. Focused suite 87/87 PASS; full unittest 616/616 PASS; full pytest 694 PASS + 585 subtests; SELFTEST and complete WebView2 diagnostic PASS. Canonical Drive 12_DEV3_HANDOFF_CURRENT is stale, so live GitHub is technical truth. Package remains isolated and is not intake-authorized during SAFE OVERLAP.
+Lineage audit proves future intake should be selective. Compared against reusable Work head 6fa705f7ca80ee69b4183f99c9bc1c5a86048e64, DEV2 4dd706... has merge-base 0cf4fe291ff6c349de99978cd2fc68866a218da8 and the meaningful post-Work delta is GameTree/BookDocument modules and focused tests only. Do not merge cumulative PR #69 history wholesale.
 
-## DEV4 security/QA evidence
-DEV4 terminal QA handoff 20260822-1200-full-product-qa completed before cutoff at QA head b0967db05bddb438a738a34d278628e069c9cc4b. Exact QA-head workflow lookup remains unobserved, so QA stays INCONCLUSIVE. Nine proven Product blockers remain: external import/ChessBase symlink-reparse indirection; unbounded PGN full-text/resource boundary; serialized ChessBase local-path leakage; expected_sha256 optimistic-write TOCTOU; overwrite=False competing-creator lost update; PGN export filesystem-indirection/symlink escape; ChessBase companion-directory I/O failure collapsed into ordinary no-companion absence; generic ImportRegistry.inspect_batch aborting on importer RuntimeError instead of recording failure and continuing later sources; ChessBase verify_manifest_unchanged propagating hash/open OSError/PermissionError instead of returning explicit failed-verification evidence.
+## DEV3 exact technical package
+Executable Product checkpoint remains 3dde3a7444c9cf594e92e32f5e084c8969015ad4. Live PR #65 branch head 23aba247aa47bc2f7aa7051798e1b9c1b84a3621 is eight commits ahead only in four docs/codex state files, so Product did not drift. Validation PR #84 is CLOSED UNMERGED. Exact GREEN evidence remains run 32563847332 / job 97009443566 on f1134af309c3fe687b039f2aea5c0068b353408c: focused 87/87, unittest 616/616, pytest 694 + 585 subtests, SELFTEST and WebView2 diagnostic PASS.
 
-## Product action
-None. SAFE OVERLAP only: live GitHub/Drive inspection, exact CI/log verification, cross-lane conflict analysis, coordinator checkpoint and directive issuance.
+DEV3 3dde3a... diverges from reusable Work head 6fa705... at merge-base e8cd992d306975955784118364ce950963133d7e. Therefore DEV3 must be selectively ported/revalidated; never wholesale merge the historical branch into a new full5 base. Preserve DEV2 canonical GameTree and accepted Stage1/UI semantics.
 
-## Coordinator outputs
-- DEV5_RUN_STATE -> 20260822-1257 / COMPLETE / SAFE_OVERLAP_COORDINATION.
-- NEXT_WAVE_DIRECTIVES -> version 0015, effective 2026-08-22T14:00:00+03:00.
-- DEV5_SESSION_HANDOFF -> COMPLETE / TERMINAL / SAFE OVERLAP.
+## DEV4 13:00 QA state
+DEV4_RUN_STATE 20260822-1300-full-product-qa is COMPLETE at QA head 5d43b944b3fce7a798f2d002d691591ff9702fcd; PR #67 remains OPEN/DRAFT/MERGEABLE. Exact-head Actions remain unobserved, so QA is INCONCLUSIVE, not GREEN. Product code unchanged.
+
+Ten proven Product defects now lock PGN/ChessBase/import readiness:
+1. symlink/reparse import indirection;
+2. unbounded PGN full-text/resource/source size;
+3. serialized ChessBase absolute-path leakage;
+4. expected_sha256 TOCTOU lost update;
+5. overwrite=False competing-creator lost update;
+6. PGN export symlink/filesystem indirection escape;
+7. companion-directory I/O failure collapsed into ordinary absence;
+8. ImportRegistry.inspect_batch RuntimeError abort instead of record-and-continue;
+9. verify_manifest_unchanged incidental hash/open I/O exception propagation;
+10. fingerprint() opening FIFO/device-like special source before regular-file validation.
+
+## Full-product assembly topology
+Accepted Stage1 0fa44233... and reusable Work 6fa705... diverge at e8cd992d...; neither whole branch can replace the other. Correct future assembly is selective and auditable: accepted Stage1 semantics + terminal DEV1 three-file presentation package + clean DEV2 GameTree/BookDocument package + exact selected DEV3 ACSDB/Library/Search/PGN/Books/Training package + repaired DEV4 PGN/ChessBase/import boundaries. Evidence PRs are never integration authority.
+
+## Product action this run
+NONE because SAFE OVERLAP remains mandatory. No persistent full5 integration branch was created/advanced. No Product cherry-pick/merge/push. No Windows strict mutation.
+
+## Readiness estimates
+Stage1: last independent overall estimate about 93%; current machine integration gates GREEN, but fresh Windows release chain + human NVDA remain mandatory.
+Full-product integrated end-user readiness: conservative ~20-25% because no persistent full5 composition exists yet.
+Subsystem integration readiness: GameTree/domain ~70-75%; ACSDB/Library/Search ~65-70%; full-product UI/Teacher foundation ~20-25%; PGN/ChessBase ~25-30% with ten blockers; Books/Training ~30-35%; Classroom/Lessons/Assignments/Remote ~10%.
 
 ## Next integration order
-1. DEV1 terminal exact UI/accessibility package and canonical handoff.
-2. Preserve canonical DEV2 Product 4dd706838... plus accepted DEV1 UI/keybinding semantics; never merge PR #83 wholesale.
-3. Preserve DEV3 exact GREEN executable Product base 3dde3a744... after canonical handoff synchronization; never merge PR #84 wholesale.
-4. Resolve/reconcile DEV4 nine PGN/ChessBase security/concurrency/observability/batch-continuation blockers.
-5. DEV5 validation-only PGN -> GameTree -> ACSDB -> search/open with malformed-input atomicity, bounded resources, no lost updates, batch continuation, path privacy/provenance, retry/recovery, signed-64-bit SQLite scalar boundaries and keyboard/focus invariants.
-6. Persistent full5 integration only after exact GREEN validation and auditable provenance.
-
-## Release invariants
-PR #54 and frozen refs untouched. Rejected ZIP not reused. No fresh Windows candidate. Fresh candidate requires complete machine release chain on exact final audited Product SHA. NVDA_VERIFIED=NO until the user personally verifies that exact candidate.
+1. DEV1 terminal exact UI/accessibility package + canonical handoff/evidence.
+2. Repair/reconcile DEV4 ten locked PGN/ChessBase/import defects.
+3. DEV5 validation-only selective composition of DEV1 + DEV2 4dd706... + DEV3 3dde3a... on preserved Stage1/full-product base semantics, followed by PGN -> GameTree -> ACSDB -> search/open malformed-input/resource/concurrency/path-privacy/retry/SQLite-range/keyboard-focus/full-regression matrix.
+4. Persistent full5 integration only after exact-SHA GREEN validation and auditable provenance.
 
 READY_FOR_AUDITOR_READBACK=YES
 READY_FOR_RELEASE=NO
+NVDA_VERIFIED=NO
