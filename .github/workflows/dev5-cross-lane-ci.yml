@@ -1,0 +1,49 @@
+name: DEV5 Manual5 Cross-Lane Regression
+
+on:
+  push:
+    branches:
+      - manual5/dev5-regression-integration-20260821
+    paths:
+      - 'tests/test_manual5_cross_lane_regression.py'
+      - '.github/workflows/dev5-cross-lane-ci.yml'
+  pull_request:
+    branches:
+      - manual5/integration-20260821
+    paths:
+      - 'tests/test_manual5_cross_lane_regression.py'
+      - '.github/workflows/dev5-cross-lane-ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  focused-cross-lane:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Prove manual5 lineage
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor 498989b4fda33e6529e29c9704fb4c724d0d3455 HEAD
+          git diff --check 498989b4fda33e6529e29c9704fb4c724d0d3455..HEAD
+      - name: Compile DEV5 and Stage1 composition paths
+        run: python -m compileall -q acs tests/test_manual5_cross_lane_regression.py run_accessible_chess.py
+      - name: DEV5 cross-lane behavioral regressions
+        run: python -m unittest tests.test_manual5_cross_lane_regression -v
+      - name: Adjacent sound and release-composition regressions
+        run: >-
+          python -m unittest
+          tests.test_sound_events
+          tests.test_sound_runtime
+          tests.test_stage1_release_composition_ui
+          tests.test_engine_play_service
+          -v
