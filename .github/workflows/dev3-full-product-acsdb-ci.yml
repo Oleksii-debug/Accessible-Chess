@@ -42,7 +42,7 @@ jobs:
       - name: Compile ACSDB and Full Product tests
         run: python -m compileall -q acs tests
 
-      - name: Focused ACSDB regression suite
+      - name: Focused DEV3 data and reading-progress regression suite
         run: >-
           python -m unittest -v
           tests.test_acsdb
@@ -50,6 +50,9 @@ jobs:
           tests.test_dev3_acsdb_wal_scalars
           tests.test_dev3_acsdb_backup_recovery
           tests.test_dev3_acsdb_query_plan
+          tests.test_bookreader
+          tests.test_dev3_bookreader_progress_contract
+          tests.test_dev3_training_snapshot_contract
 
       - name: Full unittest discovery
         run: python -m unittest discover -s tests -v
