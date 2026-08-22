@@ -1,41 +1,45 @@
 # DEV4 SESSION HANDOFF
 
-SESSION: 20260822-2229 Full Product repair / post-publication recovery
-STATUS: COMPLETE_WITH_CI_UNOBSERVED
-ROLE: DEV4 Product Developer
-DIRECTIVE: AUDIT-20260822-1900-01
+SESSION: 20260823-0002 Full Product independent QA/evidence/security
+STATUS: COMPLETE_WITH_TWO_PROVEN_PRODUCT_DEFECTS_IN_SAFE_OVERLAP
+MODE: SAFE_OVERLAP_QA_EVIDENCE
 NVDA_VERIFIED=NO
 
 ## Exact state basis
 
-- Product branch: `full5/dev4-import-security-repair-20260822`.
-- Product PR #100 remains OPEN/DRAFT/MERGEABLE.
-- Run-start head: `f44113ac3c7783aca761c0a7e9044a6cac334cb3`.
-- Strict regression commit: `d876d7661ce0ee0b141e9b9944965909967fea4c`.
-- Product repair commit: `724cfd025c12e6800cd986b39237ce849542253a`.
-- Repo metadata commits follow the Product repair; final exact branch head must be read live after synchronization.
-- Accepted Stage1 integration `0fa442330bc2bb03636ff9297512da4c29e38684` remained live-identical and untouched.
-- DEV5 PR #66 `abff45ebcc4b5af2a85ab0c456b025b5098c6e29` remained separate and untouched.
-- QA PR #67 remains separate; no strict assertion was weakened.
-- Exact Product-head Actions/status contexts are absent at this checkpoint: `INCONCLUSIVE`, not GREEN.
-- Local focused execution could not start because the execution sandbox cannot resolve `github.com`: `QA_OR_ENVIRONMENT_ONLY`.
-- Windows strict WIP=1 untouched.
+- Product under test: `full5/dev4-import-security-repair-20260822@6298899cb112336ef220caa8d0e52334ddc0c0ae`.
+- Product PR #100 was not mutated.
+- QA branch: `qa/dev4-postcommit-cleanup-evidence-20260822`.
+- QA PR #127 remains DRAFT / EVIDENCE ONLY / DO NOT MERGE WHOLE BRANCH.
+- New evidence commit: `1670bffa1202bdf49dd7e6479ade6542c94637da`.
+- Hosted evidence run/job `32598483837 / 97093008824` checked exact QA head `1670bffa...`: diff hygiene PASS, compile PASS, focused result `4 failed, 1 passed`.
+- Windows strict WIP=1 untouched. No Ctrl+A/Ctrl+C Product defect claim.
 
-## Proven and repaired this run
+## PROVEN_PRODUCT_DEFECT 1 — cross-platform ChessBase privacy spans three serialized sinks
 
-`PROVEN_PRODUCT_DEFECT` — after the expected-hash path had already atomically published its temp file, a failure during snapshot verification or a failure of conflict rollback could still enter `finally` and unlink the `.cas-*.bak` hard-link snapshot. In the rollback-failure case that snapshot can be the only remaining copy of a concurrent writer's newer bytes, so deleting it creates a deterministic recovery/data-loss defect.
+The previous adapter-only oracle was expanded without weakening it. On Ubuntu, the Windows-formatted private path `C:\Users\PrivateUser\Documents\Training Database.CBH` is still emitted with user/directory components because Product relies on host-native `Path.name` semantics.
 
-The strict tests now inject both failure modes and require the recovery snapshot to survive with the correct content. The Product fix records a preserve-snapshot state after publication whenever safe verification/rollback cannot finish, raises a domain `PgnFileError`, and avoids destructive snapshot cleanup in that state. Normal pre-publication failures and successful verified publication keep their existing cleanup behavior.
+Exact hosted failures now prove the same defect class in:
+1. `ChessBaseSourceProbe.as_report_fields()`;
+2. `ChessBaseIntegritySnapshot.as_report_fields()` / `SourceFileEvidence.as_report_fields()`;
+3. `ChessBaseBundleManifest.as_dict()`.
 
-## Classification
+This is one cross-platform sanitization defect with three affected serialized sinks. Fixing only `_report_name()` would leave integrity/manifest reporting false-green.
 
-- `PROVEN_PRODUCT_DEFECT` -> repaired: post-publication verification/rollback could delete the recovery snapshot.
-- `QA_OR_ENVIRONMENT_ONLY`: sandbox DNS prevents clean checkout/focused local execution.
-- `INCONCLUSIVE`: exact PR #100 CI until checks appear.
-- `INCONCLUSIVE`: generic external atomic inode replacement, Windows reparse/hard-link semantics, and directory crash/power-loss durability without exact evidence.
-- `HUMAN_ONLY`: exact fresh Windows/NVDA usability.
-- No Ctrl+A/Ctrl+C Product defect claim. `NVDA_VERIFIED=NO`.
+## PROVEN_PRODUCT_DEFECT 2 — no-clobber save can report failure after commit
 
-## Next action
+The same exact run again reproduced the deterministic committed-but-reported-failed condition: `os.link(tmp, destination)` succeeds, destination contains the requested PGN, redundant temp unlink fails, and `save_pgn_atomic()` reports failure. Unsafe/ambiguous retry semantics remain proven.
 
-Read final PR #100 head/CI first. Then inspect post-commit cleanup ambiguity only with deterministic evidence: CAS snapshot unlink after successful verified publication and no-clobber temp unlink after successful link publication. Stay out of DEV5 integration, strict Windows, Stage1 release and DEV2 GameTree ownership.
+The paired expected-hash CAS post-commit cleanup gate PASSED, so this remains localized to no-clobber post-link cleanup.
+
+## Other classifications
+
+- `QA_OR_ENVIRONMENT_ONLY`: prior local sandbox DNS failure; hosted Actions provide decisive evidence.
+- `INCONCLUSIVE`: richer ChessBase provenance identifier semantics; never re-expose parent directories just to satisfy legacy tests.
+- `QA_OR_ENVIRONMENT_ONLY / cross-lane`: DEV2 GameTree representation compatibility failures.
+- `INCONCLUSIVE / outside ownership`: Stage1 native-menu/test-double failure.
+- `HUMAN_ONLY`: exact fresh Windows/NVDA acceptance. `NVDA_VERIFIED=NO`.
+
+## Next exact action
+
+Remain SAFE OVERLAP until Product ownership is explicitly available. Then implement only two Product repairs: (A) one shared slash/backslash-neutral report-name sanitizer used consistently by adapter, integrity and manifest serialization, and (B) truthful committed-success semantics for no-clobber publication when redundant temp cleanup fails, with cleanup observability retained. Re-run newest strict evidence, all existing DEV4 focused gates, cross-lane PGN/ChessBase validation, full suites/diagnostic where applicable and exact-SHA CI. Do not enter overlapping ACSDB, DEV2 GameTree, DEV5 integration, Stage1 release or strict Windows ownership.
