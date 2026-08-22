@@ -22,6 +22,7 @@ internal static class Program
                 SentenceCoachSelfTest.Run();
                 SentencePackStoreSelfTest.Run();
                 TatoebaSentencePackSelfTest.Run();
+                AccessibilityAcceptanceRound4SelfTest.Run();
             }
             catch (Exception ex)
             {
@@ -171,7 +172,7 @@ internal static class Program
             MessageBox.Show(owner, ex.Message, "Spelling state recovery required", MessageBoxButtons.OK, MessageBoxIcon.Error);
             return;
         }
-        var shortcuts = new ShortcutManager(appState, spellingState.Decks);
+        var shortcuts = new ShortcutManager(appState, spellingState.Decks, ShortcutDispatchContext.All);
         using var dialog = new ShortcutSettingsForm(shortcuts);
         dialog.ShowDialog(owner);
         appStore.Save(appState);
@@ -190,9 +191,10 @@ internal static class Program
             MessageBox.Show(owner, ex.Message, "Spelling state recovery required", MessageBoxButtons.OK, MessageBoxIcon.Error);
             return;
         }
-        var shortcuts = new ShortcutManager(appState, session.State.Decks);
+        var shortcuts = new ShortcutManager(appState, session.State.Decks, ShortcutDispatchContext.Spelling);
         DictionaryPackage package = BuildActivePackage(appState);
         using var form = new SpellingForm(appState, session.State, session.Store, shortcuts, package);
+        KeyboardSelectorFocusGuard.Attach(form, "Spelling study scope", "Active spelling deck");
         form.ShowDialog(owner);
         appStore.Save(appState);
     }
@@ -213,9 +215,10 @@ internal static class Program
             MessageBox.Show(owner, ex.Message, "Training state recovery required", MessageBoxButtons.OK, MessageBoxIcon.Error);
             return;
         }
-        var shortcuts = new ShortcutManager(appState, spellingSession.State.Decks);
+        var shortcuts = new ShortcutManager(appState, spellingSession.State.Decks, ShortcutDispatchContext.Sentence);
         DictionaryPackage package = BuildActivePackage(appState);
         using var form = new SentenceCoachForm(appState, spellingSession.State, shortcuts, package, new SentencePackStore(), sentenceSession.Store, sentenceSession.State);
+        KeyboardSelectorFocusGuard.Attach(form, "Sentence pack", "Sentence training spelling deck", "Number of target words per sentence");
         form.ShowDialog(owner);
         appStore.Save(appState);
     }
