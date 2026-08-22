@@ -7,7 +7,11 @@ internal static class SentencePackLicenseValidator
     public static void ValidateForInstallation(SentencePack pack)
     {
         if (pack is null) throw new ArgumentNullException(nameof(pack));
-        pack.Validate();
+
+        // Installation is a trust boundary. The portable parser already bounds raw
+        // bytes, while this second layer bounds the validated object graph before it
+        // can drive SQLite generation or become persistent user data.
+        SentencePackStructuralLimits.Validate(pack);
 
         foreach (SentenceRecord sentence in pack.Sentences)
         {
