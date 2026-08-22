@@ -1,6 +1,6 @@
 # DEV4 SESSION HANDOFF
 
-SESSION: 20260822-2300 Full Product independent QA/evidence/security
+SESSION: 20260823-0002 Full Product independent QA/evidence/security
 STATUS: COMPLETE_WITH_TWO_PROVEN_PRODUCT_DEFECTS_IN_SAFE_OVERLAP
 MODE: SAFE_OVERLAP_QA_EVIDENCE
 NVDA_VERIFIED=NO
@@ -8,53 +8,38 @@ NVDA_VERIFIED=NO
 ## Exact state basis
 
 - Product under test: `full5/dev4-import-security-repair-20260822@6298899cb112336ef220caa8d0e52334ddc0c0ae`.
-- Product PR #100 was not mutated by this run.
-- QA evidence branch: `qa/dev4-postcommit-cleanup-evidence-20260822`.
-- QA PR #127 is DRAFT / EVIDENCE ONLY / DO NOT MERGE WHOLE BRANCH.
-- Evidence commits: `0190b9f19ba8a58cc3f809a87b06429c4699b1c8`, `e99e242ea0b05eacd1fc9c03de93bbfa16c652ee`.
-- Focused QA workflow commit: `f8450e2469e434175489ad01942fd23721abbb81`.
-- Hosted focused run/job `32595609798 / 97085913218` tested exact QA head `ac6357957c474814a00405133f452bec73940bd3` and returned 1 PASS / 2 FAIL.
-- Local clean-checkout execution independently failed before tests because the sandbox could not resolve `github.com`: `QA_OR_ENVIRONMENT_ONLY`; hosted Actions supplied the decisive evidence.
+- Product PR #100 was not mutated.
+- QA branch: `qa/dev4-postcommit-cleanup-evidence-20260822`.
+- QA PR #127 remains DRAFT / EVIDENCE ONLY / DO NOT MERGE WHOLE BRANCH.
+- New evidence commit: `1670bffa1202bdf49dd7e6479ade6542c94637da`.
+- Hosted evidence run/job `32598483837 / 97093008824` checked exact QA head `1670bffa...`: diff hygiene PASS, compile PASS, focused result `4 failed, 1 passed`.
 - Windows strict WIP=1 untouched. No Ctrl+A/Ctrl+C Product defect claim.
 
-## Independent exact-Product CI consumed
+## PROVEN_PRODUCT_DEFECT 1 — cross-platform ChessBase privacy spans three serialized sinks
 
-DEV5 PR #113 validated exact DEV4 Product `6298899...` in run/job `32595341745 / 97085248183`.
+The previous adapter-only oracle was expanded without weakening it. On Ubuntu, the Windows-formatted private path `C:\Users\PrivateUser\Documents\Training Database.CBH` is still emitted with user/directory components because Product relies on host-native `Path.name` semantics.
 
-Machine result before cross-lane full-suite RED:
-- exact provenance/diff hygiene PASS;
-- compile PASS;
-- actual `os.link` no-clobber race oracle PASS;
-- DEV4 focused tests 37/37 PASS;
-- expected-hash race unittest PASS;
-- DEV2 canonical GameTree + corrected DEV4 race overlay 11/11 PASS.
+Exact hosted failures now prove the same defect class in:
+1. `ChessBaseSourceProbe.as_report_fields()`;
+2. `ChessBaseIntegritySnapshot.as_report_fields()` / `SourceFileEvidence.as_report_fields()`;
+3. `ChessBaseBundleManifest.as_dict()`.
 
-Full unittest then ran 645 tests and ended with 4 failures + 1 error; full pytest and complete diagnostic were skipped.
-
-## PROVEN_PRODUCT_DEFECT 1 — cross-platform ChessBase report path privacy
-
-The Product privacy helper returns `Path.name`, which only understands the host platform path syntax. Exact hosted QA proved that on POSIX a Windows-formatted value `C:\Users\PrivateUser\Documents\Training Database.CBH` crosses `ChessBaseSourceProbe.as_report_fields()` with `PrivateUser` and directory components still present. This leaks workstation path information into serialized/user-facing report evidence and violates the established DEV4 privacy contract.
-
-Strict gate: `tests/test_dev4_chessbase_cross_platform_path_privacy.py` at `e99e242...`.
-
-The DEV5 full-suite Windows-path provenance failure independently corroborates the same portability boundary. Product fix was intentionally not performed in this SAFE OVERLAP QA lane.
+This is one cross-platform sanitization defect with three affected serialized sinks. Fixing only `_report_name()` would leave integrity/manifest reporting false-green.
 
 ## PROVEN_PRODUCT_DEFECT 2 — no-clobber save can report failure after commit
 
-The Product no-clobber publisher performs `os.link(tmp_path, destination)` before `tmp_path.unlink()`. Exact hosted QA injected an `OSError` only at that post-link temp cleanup. The destination already existed with the requested committed PGN, but `save_pgn_atomic()` propagated an exception. This is a deterministic committed-but-reported-failed state with ambiguous retry semantics.
+The same exact run again reproduced the deterministic committed-but-reported-failed condition: `os.link(tmp, destination)` succeeds, destination contains the requested PGN, redundant temp unlink fails, and `save_pgn_atomic()` reports failure. Unsafe/ambiguous retry semantics remain proven.
 
-Strict gate: `tests/test_dev4_pgn_postcommit_cleanup_atomicity.py` at `0190b9f...`.
-
-The paired expected-hash CAS-snapshot cleanup test PASSED in the same run, so the finding is specifically localized to no-clobber post-link temp-name cleanup; do not overgeneralize it.
+The paired expected-hash CAS post-commit cleanup gate PASSED, so this remains localized to no-clobber post-link cleanup.
 
 ## Other classifications
 
-- `QA_OR_ENVIRONMENT_ONLY / stale compatibility`: old ACSDB test expects raw storage exception text, conflicting with intentional persisted-error privacy redaction. Never restore raw error leakage only for GREEN.
-- `INCONCLUSIVE contract tension`: old ChessBase provenance test expects `incoming/...`; richer provenance must not silently override report-path privacy without a separate safe identifier contract.
-- `QA_OR_ENVIRONMENT_ONLY / cross-lane`: GameTree semicolon comment representation is DEV2-owned and semantic content remains serialized.
-- `INCONCLUSIVE / outside DEV4 ownership`: Stage1 native-menu test-double failure.
-- `HUMAN_ONLY`: fresh Windows/NVDA acceptance; `NVDA_VERIFIED=NO`.
+- `QA_OR_ENVIRONMENT_ONLY`: prior local sandbox DNS failure; hosted Actions provide decisive evidence.
+- `INCONCLUSIVE`: richer ChessBase provenance identifier semantics; never re-expose parent directories just to satisfy legacy tests.
+- `QA_OR_ENVIRONMENT_ONLY / cross-lane`: DEV2 GameTree representation compatibility failures.
+- `INCONCLUSIVE / outside ownership`: Stage1 native-menu/test-double failure.
+- `HUMAN_ONLY`: exact fresh Windows/NVDA acceptance. `NVDA_VERIFIED=NO`.
 
 ## Next exact action
 
-Route two minimal Product repairs through the authorized DEV4 Product lane when SAFE OVERLAP clears: (A) path-syntax-neutral report-safe ChessBase naming for both slash conventions, and (B) no-clobber post-link cleanup handling that cannot report publication failure after destination commit. Then re-run the two strict QA gates, existing DEV4 focused suite, cross-lane selective validation and exact-SHA CI. Continue non-overlapping path/error/privacy evidence meanwhile; do not enter DEV3 ACSDB, DEV5 integration, Stage1 release, DEV2 GameTree or strict Windows ownership.
+Remain SAFE OVERLAP until Product ownership is explicitly available. Then implement only two Product repairs: (A) one shared slash/backslash-neutral report-name sanitizer used consistently by adapter, integrity and manifest serialization, and (B) truthful committed-success semantics for no-clobber publication when redundant temp cleanup fails, with cleanup observability retained. Re-run newest strict evidence, all existing DEV4 focused gates, cross-lane PGN/ChessBase validation, full suites/diagnostic where applicable and exact-SHA CI. Do not enter overlapping ACSDB, DEV2 GameTree, DEV5 integration, Stage1 release or strict Windows ownership.
