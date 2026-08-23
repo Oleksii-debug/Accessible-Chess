@@ -106,11 +106,13 @@ jobs:
           if($LASTEXITCODE -ne 0){throw 'Focused exact-source release contracts failed'}
           git cat-file -e "$env:STOCKFISH_PRIVACY_ORACLE_SHA^{commit}"
           if($LASTEXITCODE -ne 0){throw 'Independent PR159 oracle commit unavailable'}
-          $oracleBlob=(git rev-parse "$env:STOCKFISH_PRIVACY_ORACLE_SHA`:tests/test_dev3_stockfish_runtime_path_privacy.py").Trim()
+          $oracleSpec="${env:STOCKFISH_PRIVACY_ORACLE_SHA}:tests/test_dev3_stockfish_runtime_path_privacy.py"
+          $oracleBlob=(git rev-parse $oracleSpec).Trim()
           if($oracleBlob -ne $env:STOCKFISH_PRIVACY_ORACLE_BLOB){throw "Independent PR159 oracle blob drift: $oracleBlob"}
           New-Item -ItemType Directory -Force -Path qa_oracles | Out-Null
           New-Item -ItemType File -Force -Path qa_oracles\__init__.py | Out-Null
-          git show "$env:STOCKFISH_PRIVACY_ORACLE_SHA`:tests/test_dev3_stockfish_runtime_path_privacy.py" | Set-Content -Encoding UTF8 qa_oracles\test_dev3_stockfish_runtime_path_privacy.py
+          python -c "import os,pathlib,subprocess; spec=os.environ['STOCKFISH_PRIVACY_ORACLE_SHA']+':tests/test_dev3_stockfish_runtime_path_privacy.py'; pathlib.Path(r'qa_oracles/test_dev3_stockfish_runtime_path_privacy.py').write_bytes(subprocess.check_output(['git','show',spec]))"
+          if($LASTEXITCODE -ne 0){throw 'Exact PR159 oracle byte materialization failed'}
           $materializedBlob=(git hash-object qa_oracles\test_dev3_stockfish_runtime_path_privacy.py).Trim()
           if($materializedBlob -ne $env:STOCKFISH_PRIVACY_ORACLE_BLOB){throw "Materialized PR159 oracle is not byte-identical: $materializedBlob"}
           python -m unittest -v qa_oracles.test_dev3_stockfish_runtime_path_privacy
