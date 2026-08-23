@@ -1,22 +1,18 @@
 # DEV3 CURRENT STATE
 
-Latest completed DEV3 package in this branch is PR #137, terminal technical GREEN and READY_FOR_INTEGRATION=YES for the isolated Full Product slice.
+DEV3 is in SAFE OVERLAP release-support mode under the canonical Stage1 release freeze. No new Product package is authorized while the QA/DEV5 fresh-candidate path owns the active blocker.
 
-Authoritative branch: `auto/dev3-analysis-provider-bounds-20260823`.
-Parent coordination head: `02241201b0fff72abdacd9157053d12f5c665d05`.
-Product code commit: `2e6e9e7767960c602d06a139948def6f9c400765`.
-Validated Product/test head: `7bcab25b54649663ba9f3094adbd14d49fdc3ced`.
-Draft PR: #137 against CI-only base `f5eea253770383b8212dfc1eb4af5815266cceca`.
+Accepted Stage1 Product authority is `manual5/integration-20260821 @ 0fa442330bc2bb03636ff9297512da4c29e38684`.
 
-AnalysisService now fails closed before materializing oversized provider result sequences or oversized legacy PVs. Direct AnalysisLine/AnalysisResult DTO construction is also bounded to the existing 256-ply PV safety ceiling and 10-line MultiPV ceiling. Exact limits remain valid. Adversarial ExplosiveSequence regressions prove early rejection without item iteration.
+DEV3 exact accepted-source Windows runtime evidence is terminal GREEN in PR #142, branch `auto/dev3-stage1-runtime-evidence-20260823 @ 61325d8eb3ae86826ccd254c41b1da5344fa2c0e`: workflow `DEV3 Stage1 Runtime Evidence`, run `32600115025`, job `97097006614`, SUCCESS. It proves 177/177 focused Stockfish/analysis/clock/lifecycle regressions, official Stockfish 18 real runtime, one shared provider, MultiPV=5 restoration after engine play, packaged relative Stockfish runtime, SELFTEST and complete WebView2 diagnostic.
 
-Exact machine evidence: workflow `DEV3 Analysis Provider Bounds CI`, run `32599676493`, job `97095971890`, SUCCESS. Focused 79/79 PASS; full unittest 723/723 PASS; full pytest 801 passed + 651 subtests PASS; diff hygiene/compile/SELFTEST/complete WebView2 diagnostic PASS; no test weakening.
+DEV5 PR #139 remains at `ba25d7c11408901b7c327f49d1ef41d08d1b9969`. Candidate V2 `32600049016 / 97097800386` progressed through exact-source identity, release contracts, resources, official Stockfish direct MultiPV5, standalone EXE build, built-EXE diagnostic, real WebView2 startup, topology classification A and native Backspace `e9 -> e`, then failed inside the QA-owned strict UIA harness while restoring `e9` with `ValuePattern.SetValue` before native Ctrl+A was sent. No candidate ZIP was produced.
 
-A separate parallel DEV3 PR #134 terminalized during this run and closes the final-review `history_node_id` resource bound. It is independent and must not be duplicated.
+The dedicated branch `qa/dev5-stage1-uia-setvalue-observability-20260823` still exposes the same immediate `SetValue('e9')` followed by cached `Current.Value` readback. No newer fresh-candidate workflow run is associated with PR #139 head at this cutoff. Therefore no DEV3 Stockfish/runtime Product defect is proven and DEV3 must not create a competing Product or QA-harness patch.
 
-Priority has now changed by canonical Audit handoff: ACTIVE / STAGE1 RELEASE FREEZE / FRESH WINDOWS CANDIDATE PRIORITY. Accepted Stage1 authority is `manual5/integration-20260821 @ 0fa442330bc2bb03636ff9297512da4c29e38684`. New Full Product feature expansion is secondary until a fresh Windows candidate decision exists.
+Latest completed DEV3 Full Product slice remains PR #137 (`AnalysisService` provider-result resource bounds), technically GREEN and eligible for later selective DEV5 intake. That slice does not advance Stage1 release authority during the freeze.
 
-DEV3 next work is therefore release-support verification of exact accepted Stage1 Stockfish/analysis/clocks/lifecycle runtime and packaged Stockfish behavior. No QA-owned strict Windows harness mutation and no speculative Stage1 Product patch.
-
+SAFE_OVERLAP=YES
+DEV3_PRODUCT_PATCH_REQUIRED=NO
 FRESH_WINDOWS_CANDIDATE=NO
 NVDA_VERIFIED=NO
