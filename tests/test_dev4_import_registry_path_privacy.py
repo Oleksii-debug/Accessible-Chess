@@ -33,6 +33,16 @@ class _MutatingImporter:
         return ImportReport(source=before, format_name=self.format_name)
 
 
+class _PrivatePathOSErrorImporter:
+    format_name = "QA private-path OSError"
+    suffixes = (".pgn",)
+
+    def inspect(self, path: Path) -> ImportReport:
+        fingerprint(path)
+        private_sidecar = path.parent / "decoder-cache.bin"
+        raise FileNotFoundError(2, "decoder sidecar missing", str(private_sidecar))
+
+
 class Dev4ImportRegistryPathPrivacyTests(unittest.TestCase):
     SAFE_NAME = "analysis.pgn"
 
@@ -42,8 +52,8 @@ class Dev4ImportRegistryPathPrivacyTests(unittest.TestCase):
         source.write_text('[Event "QA"]\n[Result "*"]\n\n*\n', encoding="utf-8")
         return source
 
-    def _assert_safe_error(self, message: str) -> None:
-        self.assertIn(self.SAFE_NAME, message)
+    def _assert_safe_error(self, message: str, *, safe_name: str | None = None) -> None:
+        self.assertIn(safe_name or self.SAFE_NAME, message)
         self.assertNotIn("PrivateUser", message)
         self.assertNotIn("Documents", message)
         self.assertNotIn("Users", message)
@@ -74,6 +84,24 @@ class Dev4ImportRegistryPathPrivacyTests(unittest.TestCase):
             batch = registry.inspect_batch((source,))
             self.assertEqual(len(batch.errors), 1)
             self._assert_safe_error(batch.errors[0].error)
+
+    def test_batch_missing_source_error_does_not_leak_absolute_parent_path(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "Users" / "PrivateUser" / "Documents" / self.SAFE_NAME
+            registry = ImportRegistry()
+            registry.register(_WrongProvenanceImporter())
+            batch = registry.inspect_batch((source,))
+            self.assertEqual(len(batch.errors), 1)
+            self._assert_safe_error(batch.errors[0].error)
+
+    def test_batch_importer_oserror_does_not_republish_private_parent_path(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            source = self._private_source(Path(directory))
+            registry = ImportRegistry()
+            registry.register(_PrivatePathOSErrorImporter())
+            batch = registry.inspect_batch((source,))
+            self.assertEqual(len(batch.errors), 1)
+            self._assert_safe_error(batch.errors[0].error, safe_name="decoder-cache.bin")
 
 
 if __name__ == "__main__":
