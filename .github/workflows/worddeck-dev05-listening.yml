@@ -34,8 +34,8 @@ jobs:
         run: |
           $exe = Join-Path $PWD 'artifacts/listening-publish/WordDeck.exe'
           if (-not (Test-Path $exe)) { throw 'Published WordDeck.exe missing.' }
-          & $exe --self-test
-          if ($LASTEXITCODE -ne 0) { throw "Published Listening self-test failed: $LASTEXITCODE" }
+          $process = Start-Process -FilePath $exe -ArgumentList '--self-test' -Wait -PassThru -NoNewWindow
+          if ($process.ExitCode -ne 0) { throw "Published Listening self-test failed: $($process.ExitCode)" }
       - name: Public-tree personal-state guard
         shell: pwsh
         run: |
