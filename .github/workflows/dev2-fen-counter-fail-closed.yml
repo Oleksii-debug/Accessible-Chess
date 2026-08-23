@@ -18,7 +18,6 @@ jobs:
     runs-on: ${{ matrix.os }}
     env:
       ORIGINAL_COMBINED_PRODUCT_SHA: 574d8c7344a7490de46ba38498f363395c951019
-      LIVE_PR_BASE_SHA: ${{ github.event.pull_request.base.sha || '574d8c7344a7490de46ba38498f363395c951019' }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -31,8 +30,9 @@ jobs:
           git config core.eol lf
           git reset --hard HEAD
           test "$(git merge-base "$ORIGINAL_COMBINED_PRODUCT_SHA" HEAD)" = "$ORIGINAL_COMBINED_PRODUCT_SHA"
-          git diff --check "$LIVE_PR_BASE_SHA" HEAD
-          mapfile -t changed < <(git diff --name-only "$LIVE_PR_BASE_SHA" HEAD | sort)
+          live_base="$(git rev-parse origin/release/dev5-stage1-combined-repair-20260823)"
+          git diff --check "$live_base" HEAD
+          mapfile -t changed < <(git diff --name-only "$live_base" HEAD | sort)
           expected=(
             ".github/workflows/dev2-fen-counter-fail-closed.yml"
             "acs/chesscore.py"
@@ -41,7 +41,7 @@ jobs:
           printf '%s\n' "${expected[@]}" | sort > "$RUNNER_TEMP/expected.txt"
           printf '%s\n' "${changed[@]}" > "$RUNNER_TEMP/changed.txt"
           diff -u "$RUNNER_TEMP/expected.txt" "$RUNNER_TEMP/changed.txt"
-          echo "DEV2 LIVE PR BASE + NARROW THREE-PATH REPAIR PASS"
+          echo "DEV2 LIVE REMOTE BASE + NARROW THREE-PATH REPAIR PASS: $live_base"
 
       - uses: actions/setup-python@v5
         with:
