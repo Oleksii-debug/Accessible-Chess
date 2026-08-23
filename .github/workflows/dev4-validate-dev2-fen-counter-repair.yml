@@ -1,0 +1,112 @@
+name: DEV4 Validate D02 FEN Counter Repair
+
+on:
+  pull_request:
+    branches:
+      - qa/dev4-fen-counter-repair-ci-base-5e8ca72-20260823
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  BASE_SHA: 5e8ca72f7dd552ee151ebd5b85c52148004ac307
+  D02_PRODUCT_BLOB: d39948d01ac3af68b8cd07f663f6e7e6f5fef0e3
+  D02_TEST_BLOB: a3be8c3d14adb756354af0bb0f3a5b8062d6b658
+  DEV4_ORACLE_BLOB: 499538b09f799c43608a6781fe436b0f10f62752
+
+jobs:
+  exact-fen-repair-validation:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Preserve exact LF materialization on Windows
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config core.autocrlf false
+          git config core.eol lf
+          git -c core.autocrlf=false checkout HEAD -- .
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install verification dependency
+        run: python -m pip install -q pytest
+
+      - name: Prove immutable base, byte-exact D02 overlay, and validation-only scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git merge-base "$BASE_SHA" HEAD)" = "$BASE_SHA"
+          git diff --check "$BASE_SHA"...HEAD
+          test "$(git hash-object acs/chesscore.py)" = "$D02_PRODUCT_BLOB"
+          test "$(git hash-object tests/test_d02_fen_counter_fail_closed.py)" = "$D02_TEST_BLOB"
+          test "$(git hash-object tests/test_dev4_stage1_fen_counter_error_surface.py)" = "$DEV4_ORACLE_BLOB"
+          git diff --name-only "$BASE_SHA"...HEAD | sort > "$RUNNER_TEMP/changed.txt"
+          cat > "$RUNNER_TEMP/expected.txt" <<'EOF'
+          .github/workflows/dev4-validate-dev2-fen-counter-repair.yml
+          acs/chesscore.py
+          tests/test_d02_fen_counter_fail_closed.py
+          tests/test_dev4_stage1_fen_counter_error_surface.py
+          EOF
+          diff -u "$RUNNER_TEMP/expected.txt" "$RUNNER_TEMP/changed.txt"
+          echo 'DEV4 IMMUTABLE-BASE / BYTE-EXACT D02 OVERLAY PASS'
+
+      - name: Compile exact validation tree
+        run: python -m compileall -q acs tests run_accessible_chess.py
+
+      - name: D02 Product regression plus unchanged DEV4 proving oracle
+        run: >-
+          python -m unittest -v
+          tests.test_d02_fen_counter_fail_closed
+          tests.test_dev4_stage1_fen_counter_error_surface
+
+      - name: Existing canonical FEN/history/editor atomicity
+        run: >-
+          python -m unittest -v
+          tests.test_dev2_fen_atomicity
+          tests.test_position_editor
+          tests.test_stage1_core_full_flow
+          tests.test_stage1_complete_user_flow
+          tests.test_history
+          tests.test_ui_review_adapter
+          tests.test_manual5_cross_lane_regression
+
+      - name: Combined accepted history and Stockfish repair regressions
+        run: >-
+          python -m unittest -v
+          tests.test_dev2_history_scalar_fail_closed
+          tests.test_stage1_stockfish_runtime_path_privacy
+          tests.test_stockfish_runtime
+
+      - name: Current Stage1 privacy and release contracts
+        run: >-
+          python -m unittest -v
+          tests.test_stage1_release_path_privacy
+          tests.test_release_preflight
+          tests.test_issue22_release_contract
+          tests.test_nvda_p0_contract
+
+      - name: Full unittest regression
+        run: python -m unittest discover -s tests -v
+
+      - name: Full pytest regression
+        run: python -m pytest -q tests
+
+      - name: Canonical selftest
+        run: python -m acs.selftest
+
+      - name: Complete diagnostic
+        run: python run_accessible_chess.py --diagnostic
