@@ -1,28 +1,25 @@
 # NEXT_WAVE_DIRECTIVES
 
-DIRECTIVE_ID: DEV5-1503
+DIRECTIVE_ID: DEV5-1701
 REVISION: 1
-SOURCE_RUN: 20260823-1503
-EFFECTIVE: next worker/DEV5 invocation after 2026-08-23T12:03:00Z cutoff.
+SOURCE_RUN: 20260823-1701
+EFFECTIVE: next worker/DEV5 invocation after `2026-08-23T14:01:47Z` cutoff.
 
-1. Accepted Stage1 at the 15:03 cutoff was `manual5/integration-20260821@1e9d23b034e6d347fe03c3581469a07e16037c55`, but it is not final release authority because pre-cutoff AUDIT_MASTER accepted separate history P1 repair `45956b38...` and proved a distinct oversized FEN-counter P1 routed to DEV2.
-2. DEV5 draft PR #195 / branch `release/dev5-stage1-combined-repair-20260823` is the single controlled Stockfish+history combination surface. Do not create another duplicate combined Product line.
-3. Exact PR #195 validation head `5e8ca72f7dd552ee151ebd5b85c52148004ac307` has terminal dedicated GREEN run `32638839597`: Ubuntu `97192655470`, Windows `97192655352`; repair 44/44; unchanged PR #159 3/3; stress 23 + 11; release 80/80; unittest 673/673; pytest 751 + 758; SELFTEST and diagnostic PASS.
-4. This is INTERMEDIATE_COMBINED_GREEN only. PR #195 remains DRAFT / DO NOT MERGE OR PROMOTE. No V6 may be built from it while FEN P1 is absent.
-5. DEV2 owns the oversized FEN-counter Product repair. On every continuation reread DEV2 RUN_STATE/handoff and live branch/PR before touching FEN files. If DEV2 is active at cutoff, all other workers use SAFE OVERLAP on that boundary.
-6. A valid FEN repair must normalize conversion-time oversized digit-string `ValueError` to the existing concise FEN counter domain error, preserve atomic state, existing valid counter semantics and API containment, and add deterministic Board/API regressions. Do not add an arbitrary numeric cap unless accepted requirements explicitly demand one.
-7. After terminal FEN repair, DEV5 selectively layers only Product/regression deltas onto the controlled combined Stage1 line; do not merge evidence/workflow PRs wholesale.
-8. Final combined exact-tree validation must rerun Stockfish privacy, history fail-closed, FEN boundary, unchanged independent QA oracles, focused release/accessibility, full unittest, full pytest, SELFTEST and complete WebView2 diagnostic on Linux+Windows.
-9. Independent AUDIT_MASTER acceptance is mandatory before designating/promoting the exact final combined Stage1 SHA.
-10. V5 run `32636245736` is terminal RED, source obsolete, no ZIP. It did prove native Move Edit Ctrl+A selection and Ctrl+C clipboard copy; the historical clipboard/selection blocker is no longer open.
-11. V5 submit-focus failure remains C / INCONCLUSIVE, not Product B. The retained helper used a pre-rerender UIA board target whose identity became stale/empty after board replacement. Require semantic square reacquisition on each bounded poll plus focus timeline before attributing a Product focus defect.
-12. Post-cutoff submit-focus branches must be reread before any UI focus change. Do not duplicate touching Product/QA work.
-13. Only after final Stage1 exact acceptance may DEV5 launch exactly one fresh WIP=1 Windows candidate chain locked to that SHA. No stale V5/V4 artifacts or old rejected ZIP may be reused.
-14. Candidate must be uninterrupted GREEN through exact source/frozen identity, regressions/privacy, release contracts, WAV, official Stockfish, native menu, Nuitka EXE, real WebView2, strict packaged UIA, sound/Stockfish lifecycle, release preflight, ZIP reopen/hash/manifest identity and artifact upload.
-15. `FRESH_WINDOWS_CANDIDATE=YES` is forbidden until exact machine artifact identity is verified. `NVDA_VERIFIED=NO` until Oleksii personally validates that exact candidate.
-16. Persistent Full Product exact-GREEN authority remains `dd9ebf9414103c805892856fe6a04706fa69039f` during Stage1 release freeze.
-17. PR #54, frozen refs and historical rejected ZIP remain untouched. No force-push, skip, xfail, assertion weakening or CI manipulation merely to obtain GREEN.
-18. Post-cutoff evidence from the 15:03 wave never retroactively changes its intake decision; use a fresh immutable cutoff next time.
+1. Shared Stage1 authority remains `manual5/integration-20260821@1e9d23b034e6d347fe03c3581469a07e16037c55`.
+2. Active D05 promotion surface is PR #222. Exact head `88578e05eb0ea51795570f92f76428b9e029c11d` is dual-OS GREEN on run `32641454103` but is SUPERSEDED as final audit/promotion target by newer terminal D04 PR #239.
+3. D04 #239 exact head is `53791a44176627b012f72c3ac5b7720214194975`; required cumulative `acs/release_preflight.py` blob is `9213efc03e78756ec7d45f5983c91414b614b06f`; regression blob is `4dec7df9ae945812d0cffacb168c912a7b8f56fb`.
+4. #239 red-first run `32641610135` proves the old preflight lacked fail-closed resource bounds before Stockfish source ZIP CRC/decompression. Final run `32641696408` is terminal SUCCESS on Ubuntu `97199654044` and Windows `97199654106` with focused/prior D04, full suites, SELFTEST and diagnostic GREEN.
+5. Preserve exact #239 limits before `ZipFile.testzip()`: archive <=8 MiB, entries <=4096, single uncompressed member <=16 MiB, total uncompressed <=64 MiB. Preserve all earlier #218/#228 security/canonicality checks.
+6. AUDIT-A has independently accepted #239 for selective Stage1 intake and explicitly invalidated `88578e05...` as final source-promotion target pending recomposition.
+7. D05/PR #222 owns the touching intake. Other workers must use SAFE OVERLAP while that promotion surface is active: no competing Product push to `acs/release_preflight.py`, no alternate Stage1 promotion branch, no candidate build.
+8. D05 selective intake must preserve prior accepted Stage1 Product identities: Stockfish resolver privacy, history scalar fail-closed, oversized FEN fail-closed, packaged submit-focus listener rebind, and D03 hard kill/reap lifecycle. No wholesale D04 workflow intake is required.
+9. The next recomposed exact head must run one combined Ubuntu+Windows gate with exact ancestry/blob/scope locks; #218/#228/#239 D04 regressions; D03 lifecycle; immutable PR159 privacy, PR193 FEN, PR196 focus oracles; focused release/accessibility; full unittest; full pytest; SELFTEST; complete WebView2 diagnostic.
+10. Historical audit acceptances of `74f39ed...`, `53a0d7e...`, `fb8dfc3...`, or `88578e05...` do not authorize the new SHA. Fresh exact-SHA Audit-A/B acceptance is mandatory.
+11. Only after exact acceptance may `manual5/integration-20260821` fast-forward with `force=false` to the new SHA. No force-push.
+12. Only after promotion may exactly one WIP=1 fresh Windows candidate chain begin. V5 and every old/rejected ZIP remain forbidden.
+13. Fresh candidate must prove exact source identity, release contracts, real WAV, official Stockfish lifecycle, native menu, Nuitka EXE, real WebView2, strict packaged original Move Edit Backspace/Ctrl+A/Ctrl+C plus semantic board-focus continuity, preflight, ZIP reopen/hash/manifest/artifact identity.
+14. `NVDA_VERIFIED` remains NO until the user personally verifies that exact candidate.
+15. PR #54 and frozen references remain untouched. No skip/xfail/assertion weakening or CI topology manipulation to manufacture GREEN.
 
 FRESH_WINDOWS_CANDIDATE=NO
 READY_FOR_RELEASE=NO
