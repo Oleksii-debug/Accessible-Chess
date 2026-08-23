@@ -133,11 +133,14 @@ jobs:
           if (-not $physical.CanSupportPhysicalLexicalFormCoverageClaim -or $physical.RedistributionApproved) { throw 'Physical-form evidence boundary is invalid.' }
           if ($physical.DictionaryEntryCount -ne 5446 -or $physical.UniqueLexicalFormCount -ge 5446) { throw 'Physical-form denominator did not collapse homographic stable IDs.' }
           if ($physical.AmbiguousLexicalFormCount -le 0 -or $physical.StableIdsInAmbiguousLexicalForms -le $physical.AmbiguousLexicalFormCount) { throw 'Ambiguous lexical-form accounting is missing.' }
+          if ($physical.StableTagEvidenceSha256 -ne $rawDoc.EvidenceDigestSha256) { throw 'Physical-form evidence is not digest-bound to the exact stable-tag evidence document.' }
           foreach ($depth in @($physical.OneTarget,$physical.TwoTarget,$physical.ThreeTarget)) {
             if ($depth.CoveredLexicalFormCount + $depth.UncoveredLexicalFormCount -ne $depth.LexicalFormCount) { throw 'Physical lexical coverage does not partition its universe.' }
           }
 
           if (-not $stable.CanSupportConservativeStableIdentityCoverageClaim -or $stable.RedistributionApproved) { throw 'Stable-ID evidence boundary is invalid.' }
+          if ($stable.StableTagEvidenceSha256 -ne $rawDoc.EvidenceDigestSha256) { throw 'Stable-ID evidence is not digest-bound to the exact stable-tag evidence document.' }
+          if ($stable.PhysicalFormEvidenceSha256 -ne $physicalDoc.EvidenceDigestSha256) { throw 'Stable-ID evidence is not digest-bound to the exact physical-form evidence document.' }
           foreach ($depth in @($stable.OneTarget,$stable.TwoTarget,$stable.ThreeTarget)) {
             if ($depth.ResolvedStableCoveredEntryCount + $depth.UnresolvedAmbiguousEntryCount + $depth.PhysicalFormUncoveredEntryCount -ne 5446) { throw 'Stable-ID coverage does not partition Oxford 5446.' }
             if ($depth.UnresolvedAmbiguousEntryCount -le 0) { throw 'Homographic stable IDs were not left unresolved.' }
@@ -146,6 +149,7 @@ jobs:
 
           Write-Host ("Physical forms: total={0}, ambiguous_forms={1}; 1/2/3 covered={2}/{3}/{4}" -f $physical.UniqueLexicalFormCount,$physical.AmbiguousLexicalFormCount,$physical.OneTarget.CoveredLexicalFormCount,$physical.TwoTarget.CoveredLexicalFormCount,$physical.ThreeTarget.CoveredLexicalFormCount)
           Write-Host ("Resolved stable IDs: 1/2/3={0}/{1}/{2}; unresolved homograph IDs={3}" -f $stable.OneTarget.ResolvedStableCoveredEntryCount,$stable.TwoTarget.ResolvedStableCoveredEntryCount,$stable.ThreeTarget.ResolvedStableCoveredEntryCount,$stable.OneTarget.UnresolvedAmbiguousEntryCount)
+          Write-Host ("Evidence chain: stable-tag={0}; physical-form={1}; stable-identity={2}" -f $rawDoc.EvidenceDigestSha256,$physicalDoc.EvidenceDigestSha256,$stableDoc.EvidenceDigestSha256)
 
       - name: Preserve attribution without corpus payload
         shell: pwsh
