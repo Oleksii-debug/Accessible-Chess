@@ -13,7 +13,7 @@ from acs.stockfish_runtime import (
 
 
 class Dev3StockfishRuntimePrivacyRepairValidationTests(unittest.TestCase):
-    """Independent validation for the release-critical resolver privacy repair."""
+    """Independent validation only; Product repair remains owned by DEV4/DEV5."""
 
     @staticmethod
     def _private_root(tmp: str) -> Path:
