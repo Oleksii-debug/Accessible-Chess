@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - qa/dev2-stage1-core-264-matrix-1e9d23b-20260823
+  pull_request:
+    branches:
+      - qa/dev2-stage1-core-264-base-1e9d23b-20260823
 
 permissions:
   contents: read
