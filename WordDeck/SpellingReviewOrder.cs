@@ -7,6 +7,35 @@ namespace WordDeck;
 /// </summary>
 internal static class SpellingReviewOrder
 {
+    private sealed record SessionContext(SpellingState State, string DictionaryId);
+    private static readonly AsyncLocal<SessionContext?> CurrentSession = new();
+
+    public static IDisposable BeginSession(SpellingState state, string dictionaryId)
+    {
+        ArgumentNullException.ThrowIfNull(state);
+        if (string.IsNullOrWhiteSpace(dictionaryId))
+            throw new ArgumentException("Spelling priority session requires a dictionary ID.", nameof(dictionaryId));
+
+        SessionContext? previous = CurrentSession.Value;
+        CurrentSession.Value = new SessionContext(state, dictionaryId);
+        return new SessionScope(previous);
+    }
+
+    internal static Queue<string>? TryCreateFromCurrentSession(
+        IEnumerable<string> entryIds,
+        Random random,
+        string? avoidFirstId)
+    {
+        SessionContext? session = CurrentSession.Value;
+        if (session is null)
+            return null;
+
+        session.State.StatsByDictionary.TryGetValue(
+            session.DictionaryId,
+            out Dictionary<string, SpellingEntryStats>? statsByEntry);
+        return Create(entryIds, statsByEntry, random, avoidFirstId);
+    }
+
     public static Queue<string> Create(
         IEnumerable<string> entryIds,
         IReadOnlyDictionary<string, SpellingEntryStats>? statsByEntry,
@@ -106,5 +135,20 @@ internal static class SpellingReviewOrder
         if (statsByEntry is null)
             return null;
         return statsByEntry.TryGetValue(entryId, out SpellingEntryStats? stats) ? stats : null;
+    }
+
+    private sealed class SessionScope : IDisposable
+    {
+        private readonly SessionContext? _previous;
+        private bool _disposed;
+
+        public SessionScope(SessionContext? previous) => _previous = previous;
+
+        public void Dispose()
+        {
+            if (_disposed) return;
+            _disposed = true;
+            CurrentSession.Value = _previous;
+        }
     }
 }
