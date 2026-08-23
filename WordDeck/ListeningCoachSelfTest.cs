@@ -22,6 +22,7 @@ internal static class ListeningCoachSelfTest
         {
             TestStateRestartAndIsolation(root);
             TestLastKnownGoodRecovery(root);
+            TestUnfinishedItemResume(root);
             TestSchedulingAndSeparateMastery();
             TestBlankSubmissionIsNonLearning();
             TestAnswerHiddenPresentation();
@@ -95,6 +96,34 @@ internal static class ListeningCoachSelfTest
         Require(rejected, "Corrupted Listening primary and recovery did not fail closed.");
         Require(File.ReadAllText(primary) == "{ broken primary" && File.ReadAllText(recovery) == "{ broken recovery",
             "Fail-closed Listening recovery unexpectedly rewrote corrupted evidence files.");
+    }
+
+    private static void TestUnfinishedItemResume(string root)
+    {
+        string resumeRoot = Path.Combine(root, "resume-case");
+        Directory.CreateDirectory(resumeRoot);
+        DictionaryPackage package = Package();
+        var source = new FakeSource(new[] { Word("a", "alpha", "A1"), Word("b", "bravo", "A1") });
+        var store = new ListeningStateStore(resumeRoot);
+        ListeningCoachState state = store.Load();
+        state.ActiveScopeId = StudyScopeIds.A1;
+        var firstEngine = new ListeningCoachEngine(package, state, source);
+        ListeningExercise pending = firstEngine.StartNext(false);
+        store.Save(state);
+
+        ListeningCoachState restartedState = store.Load();
+        var restartedEngine = new ListeningCoachEngine(package, restartedState, source);
+        Require(restartedEngine.TryResumeCurrent(out ListeningExercise? resumed) && resumed?.ExerciseId == pending.ExerciseId,
+            "Unfinished Listening item did not resume after restart.");
+        Require(restartedState.History.Count == 0, "Resume incorrectly recorded an unfinished item as completed/skipped.");
+
+        Require(restartedEngine.Check(resumed!.TargetText).IsCorrect, "Resumed Listening item could not be completed.");
+        Require(string.IsNullOrWhiteSpace(restartedState.CurrentExerciseId), "Completed Listening item remained marked as pending.");
+        store.Save(restartedState);
+
+        ListeningCoachState completedRestart = store.Load();
+        var completedEngine = new ListeningCoachEngine(package, completedRestart, source);
+        Require(!completedEngine.TryResumeCurrent(out _), "Completed Listening item was resurrected after restart.");
     }
 
     private static void TestSchedulingAndSeparateMastery()
