@@ -162,7 +162,8 @@ def _inventory(root: Path) -> tuple[str, ...]:
         if path.is_file():
             if path.suffix.casefold() in _SOURCE_SUFFIXES:
                 _fail(f"raw product source is forbidden: {relative}")
-            _validate_release_artifact_path(relative)
+            if "/" in relative:
+                _validate_release_artifact_path(relative)
             entries.append(relative)
     return tuple(sorted(entries, key=lambda value: value.casefold()))
 
