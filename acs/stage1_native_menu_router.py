@@ -26,24 +26,30 @@ class Stage1NativeMenuActionProxy:
     }
 
     def __init__(self, api: Any) -> None:
-        dispatch = getattr(api, "dispatch_action", None)
-        if not callable(dispatch):
-            raise TypeError("native menu API must expose dispatch_action")
+        # Keep wrapper construction compatible with narrow release-window test
+        # doubles and alternate presentation adapters.  Central routing remains
+        # fail-closed at the moment a routed menu action is actually invoked.
         self._api = api
 
     @property
     def wrapped_api(self) -> Any:
         return self._api
 
+    def _dispatch_action(self, action_id: str) -> Any:
+        dispatch = getattr(self._api, "dispatch_action", None)
+        if not callable(dispatch):
+            raise TypeError("native menu API must expose dispatch_action")
+        return dispatch(action_id)
+
     def __getattr__(self, name: str) -> Any:
         action_id = self._DIRECT_ACTIONS.get(name)
         if action_id is not None:
-            return lambda: self._api.dispatch_action(action_id)
+            return lambda: self._dispatch_action(action_id)
         return getattr(self._api, name)
 
     def select_relative_analysis_pv(self, delta: int) -> Any:
         if type(delta) is not int or delta not in {-1, 1}:
             raise ValueError("native analysis PV delta must be -1 or 1")
-        return self._api.dispatch_action(
+        return self._dispatch_action(
             "analysis.previous_pv" if delta < 0 else "analysis.next_pv"
         )
