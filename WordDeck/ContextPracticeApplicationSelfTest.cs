@@ -172,6 +172,23 @@ internal static class ContextPracticeApplicationSelfTest
         Check(single.Cards.Count == 0, "An ambiguous homograph anchor must not become a one-target stable-ID exercise without sense evidence.");
         Check(single.AmbiguousStableEntryIds.Count == 2 && single.SelectionExplanation.Contains("POS/sense", StringComparison.OrdinalIgnoreCase),
             "One-target ambiguous homograph result must remain unresolved and explain the identity boundary.");
+
+        var boundedEntries = new List<(string EntryId, string Word)>();
+        for (int i = 1; i <= 29; i++)
+            boundedEntries.Add(($"filler-{i:00}", $"fillerword{i:00}"));
+        boundedEntries.Add(("bank-noun", "bank"));
+        boundedEntries.Add(("bank-verb", "bank"));
+        var boundedLexicon = new ContextTargetLexicon("application-bounded-homograph", boundedEntries);
+        string[] orderedPool = boundedEntries.Select(entry => entry.EntryId).ToArray();
+        ContextPracticeApplicationResult bounded = ContextPracticeApplicationService.BuildCards(
+            source,
+            boundedLexicon,
+            orderedPool,
+            new ContextPracticeApplicationRequest("bank-noun", 1, ContextStudyPoolPreset.Thirty, MaxCards: 10, CandidateLimit: 20),
+            new ContextProductUseOptions(AllowSyntheticFixtures: true));
+        Check(bounded.Cards.Count == 0, "A homograph must remain fail-closed when its sibling stable ID falls just outside the active 30-word pool.");
+        Check(bounded.AmbiguousStableEntryIds.SequenceEqual(new[] { "bank-noun" }, StringComparer.OrdinalIgnoreCase),
+            "The active-pool ambiguity ledger must use full-dictionary identity and retain the in-pool homograph even when its sibling is outside the current study window.");
     }
 
     private static void TestNoNaturalPairDoesNotFabricate()
