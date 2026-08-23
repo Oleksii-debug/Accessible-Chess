@@ -246,8 +246,8 @@ jobs:
           if ($stable.StableTagEvidenceSha256 -ne $stableTag.EvidenceDigestSha256) { throw 'Stable-ID evidence is not chained to the exact stable-tag evidence.' }
           if ($stable.PhysicalFormEvidenceSha256 -ne $physicalDoc.EvidenceDigestSha256) { throw 'Stable-ID evidence is not chained to the exact physical-form evidence.' }
           foreach ($depth in @($stable.OneTarget,$stable.TwoTarget,$stable.ThreeTarget)) {
-            if ($depth.ResolvedStableCoveredEntryCount + $depth.UnresolvedAmbiguousEntryCount + $depth.PhysicalFormUncoveredEntryCount -ne 5446) { throw 'Stable-ID evidence does not partition all 5446 Oxford IDs.' }
-            if ($depth.ResolvedStableCoveredEntryCount -gt $depth.PhysicalFormCoveredEntryCount) { throw 'Resolved stable-ID coverage exceeds physical-form occurrence coverage.' }
+            if ($depth.ResolvedStableCoveredEntryCount + $depth.UnresolvedAmbiguousEntryCount + $depth.StableTagAbsentEntryCount -ne 5446) { throw 'Stable-ID evidence does not partition all 5446 Oxford IDs.' }
+            if ($depth.ResolvedStableCoveredEntryCount -gt $depth.StableTagParticipatingEntryCount) { throw 'Resolved stable-ID coverage exceeds stable-tag participation.' }
           }
           if ($stable.RedistributionApproved) { throw 'Stable-ID evidence must not approve redistribution.' }
 
