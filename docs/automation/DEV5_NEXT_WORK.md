@@ -1,18 +1,21 @@
 # DEV5_NEXT_WORK
 
-SOURCE_RUN: 20260823-1347
-MODE: SAFE_OVERLAP / INDEPENDENT_STAGE1_REVALIDATION_NEXT
+SOURCE_RUN: 20260823-1355
+MODE: SAFE_OVERLAP / TERMINAL_DEV4_REPAIR_REVALIDATION_NEXT
 
-1. Do NOT package stale `df52aeb3d99f4ae3d0089eab2882fe9b3c373dfd`; its prior promotion is revoked by independent PR #158.
-2. Current repaired Stage1 candidate is exact `80720e8125c59a213f278668d599040f2768d553` on PR #151. It is source/regression GREEN but not yet independently accepted as Stage1 authority.
-3. Exact DEV5 evidence: run `32634572205`; Linux `97182279775` SUCCESS; Windows `97182279877` SUCCESS. PR #158 unchanged oracle is included in the Linux 13/13 external privacy suite. Windows privacy 10/10, Stage1 focused release contracts 75/75, unittest 663/663, pytest 741 + 758 subtests and complete diagnostic all PASS.
-4. First next action is independent DEV4/AUDIT exact-head review of `80720e8...`, PR #151 diff and run `32634572205`. Do not self-certify that step as independent.
-5. Only after independent acceptance establish/designate the repaired Stage1 authority. Preserve `0fa442...` as prior baseline/history; do not rewrite frozen refs or merge validation PRs wholesale.
-6. Then create/designate exactly one fresh QA/release harness explicitly locked to the newly accepted repaired Product SHA. Do not reuse old PR #139 artifact state, stale V3 product lock, or rejected ZIP.
-7. Candidate validity requires one uninterrupted terminal GREEN Windows chain: exact source lock; frozen-core identity; release contracts; WAV assets; official Stockfish; native-menu structural gate; Nuitka standalone; built-EXE diagnostic; real WebView2 startup; strict UIA interaction; packaged sound/Stockfish lifecycle; release preflight; ZIP reopen/identity; candidate upload.
-8. UIA classification remains C / INCONCLUSIVE. V2 proved the unique original Move Edit and native Backspace `e9 -> e`, then stopped before Ctrl+A during SetValue readback. Do not patch Product Ctrl+A/C without a B-class Product proof.
-9. Bounded UIA observability/reacquire may be changed only under QA ownership and must preserve exact element identity, native keyboard proof and fail-closed assertions.
-10. If the fresh chain is fully GREEN, record exact Product SHA, exact harness SHA, run/job IDs, artifact ID/hash and reopened ZIP identity before setting `FRESH_WINDOWS_CANDIDATE=YES`.
-11. `READY_FOR_RELEASE=NO` and `NVDA_VERIFIED=NO` until the exact machine chain and later human NVDA gate are satisfied.
-12. Stage1 release freeze remains active; do not advance persistent Full Product `dd9ebf...` meanwhile.
-13. No force-push, test weakening, skip, xfail or duplicate touching Product branch.
+1. Do not treat `80720e8125c59a213f278668d599040f2768d553` as release-acceptable merely because PR #151 CI was GREEN. PR #159 later proved an additional release-critical Product path leak on that exact SHA.
+2. Do not rewrite the already-merged PR #151 history. The correct next repair is an appended minimal Stockfish runtime privacy delta.
+3. At the next fresh cutoff, re-read canonical DEV4 handoff/RUN_STATE and live PR #162 before any Product write. This run could not intake it because the touching repair existed and was active at the 13:55:02 cutoff.
+4. Identify the exact terminal Product commit beneath PR #162 and prove its parent is `80720e8...`; inspect the diff rather than merging the validation PR wholesale.
+5. Required repair semantics: user/report-facing `resolve_stockfish_path()` diagnostics may retain the safe executable basename but must not expose private parent directories or raw resolution exception text. Preserve typed errors, actual resolved Path return, explicit configured-path authority, packaged-relative layout, provider identity, retry/close and UCI lifecycle semantics.
+6. Required machine validation on exact terminal repair: ancestry/diff hygiene; existing Stockfish runtime regressions; byte-unchanged PR #159 3-case oracle; current `tests/test_stage1_release_path_privacy.py`; complete current privacy/release focused suite; full unittest; full pytest; SELFTEST; complete WebView2 diagnostic on Linux and Windows where applicable.
+7. Ignore RED caused solely by stale validation inventory only after exact logs prove the Product/focused oracle passed; still require a corrected terminal GREEN run before promotion.
+8. If DEV4 remains active/touching at the next cutoff, remain SAFE OVERLAP and do not compete.
+9. If DEV4 is terminal pre-cutoff and exact GREEN, selectively append only the required Product delta to current Stage1 integration; never merge evidence/CI topology wholesale.
+10. Obtain independent AUDIT_MASTER acceptance of the repaired exact Product SHA before any user candidate authority is established.
+11. PR #160/V4 is stale because it targets defective `80720e8...`; do not accept, reuse or relabel any archive produced from that Product SHA.
+12. After Audit accepts the repaired successor, create/designate exactly one fresh WIP=1 Windows candidate chain locked to that exact Product. Run source identity, release contracts, WAV, official Stockfish, native menu, Nuitka EXE, built-EXE diagnostic, real WebView2, strict UIA, packaged sound/Stockfish lifecycle, release preflight, ZIP reopen/hash/identity and artifact upload.
+13. The Move Edit ValuePattern/SetValue/Ctrl+A/Ctrl+C track remains QA-owned C / INCONCLUSIVE. Do not mix speculative Product keyboard changes into the proven privacy repair.
+14. `FRESH_WINDOWS_CANDIDATE=NO`, `READY_FOR_RELEASE=NO`, `NVDA_VERIFIED=NO` until exact evidence changes them.
+15. Persistent Full Product authority remains `dd9ebf9414103c805892856fe6a04706fa69039f` during Stage1 release freeze.
+16. No force-push, skips, xfails, test weakening or duplicate touching Product branch.
