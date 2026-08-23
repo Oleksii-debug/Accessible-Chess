@@ -37,7 +37,7 @@ internal sealed class ListeningCoachForm : Form
 
         BuildUi();
         RefreshShortcutPresentation();
-        Load += (_, _) => StartNext(autoPlay: true, recordSkip: false);
+        Load += (_, _) => StartOrResume();
         FormClosing += (_, _) => SafeSave();
         KeyDown += OnFormKeyDown;
     }
@@ -114,6 +114,21 @@ internal sealed class ListeningCoachForm : Form
         _show.Text = $"S&how answer ({show})";
         _next.Text = $"&Next ({next})";
         _keyboardHelp.Text = $"Keyboard: Enter check; {replay} replay; {show} show answer; {next} next; F1 help; Escape close.";
+    }
+
+    private void StartOrResume()
+    {
+        if (_engine.TryResumeCurrent(out ListeningExercise? exercise) && exercise is not null)
+        {
+            _answer.Clear();
+            _answer.ReadOnly = false;
+            SetStatus($"{StudyScopeIds.DisplayName(_state.ActiveScopeId)}. Resumed unfinished listening item. {ListeningCoachPresentation.BeforeCheck(exercise)}");
+            SafeSave();
+            _answer.Focus();
+            BeginInvoke(new Action(() => PlayCurrent(countReplay: false)));
+            return;
+        }
+        StartNext(autoPlay: true, recordSkip: false);
     }
 
     private void ChangeScope()
@@ -224,7 +239,7 @@ internal sealed class ListeningCoachForm : Form
             _engine = new ListeningCoachEngine(_package, _state, _source);
             int activeIndex = StudyScopeIds.Ordered.ToList().FindIndex(id => string.Equals(id, _state.ActiveScopeId, StringComparison.OrdinalIgnoreCase));
             _scope.SelectedIndex = Math.Max(0, activeIndex);
-            StartNext(autoPlay: true, recordSkip: false);
+            StartOrResume();
             SetStatus(backup is null
                 ? "Listening progress imported. There was no earlier Listening state to back up."
                 : "Listening progress imported. A recovery backup of the previous Listening state was created.");
@@ -271,7 +286,7 @@ internal sealed class ListeningCoachForm : Form
         string show = ShortcutFormatter.Format(_shortcuts.Get(ActionIds.ListeningShowAnswer));
         string next = ShortcutFormatter.Format(_shortcuts.Get(ActionIds.ListeningNext));
         MessageBox.Show(this,
-            $"Listening and Dictation uses installed offline British audio. The written answer is hidden until Enter checks it or the explicit Show answer command reveals it. Replay: {replay}. Show answer: {show}. Next: {next}. These commands can be changed in Training keyboard shortcuts. Listening progress is separate from Recall and Spelling.",
+            $"Listening and Dictation uses installed offline British audio. The written answer is hidden until Enter checks it or the explicit Show answer command reveals it. Replay: {replay}. Show answer: {show}. Next: {next}. These commands can be changed in Training keyboard shortcuts. An unfinished item resumes after restart when its audio is still available. Listening progress is separate from Recall and Spelling.",
             "Listening and Dictation help", MessageBoxButtons.OK, MessageBoxIcon.Information);
     }
 
