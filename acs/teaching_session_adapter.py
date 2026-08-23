@@ -167,6 +167,13 @@ def project_teaching_session(
     active = state.phase is TeachingSessionPhase.ACTIVE
     paused = state.phase is TeachingSessionPhase.PAUSED
     input_kind = step.policy.input_kind
+    viewer_may_respond = (
+        not teacher_view
+        and (
+            state.active_student_id is None
+            or state.active_student_id == viewer_id
+        )
+    )
 
     return TeachingSessionView(
         audience=audience,
@@ -185,12 +192,12 @@ def project_teaching_session(
         solution_text=(step.solution_text if step.policy.solution_visible else None),
         last_response=response,
         can_submit_selection=(
-            not teacher_view
+            viewer_may_respond
             and active
             and input_kind is TeachingInputKind.SELECTION
         ),
         can_submit_move=(
-            not teacher_view
+            viewer_may_respond
             and active
             and input_kind is TeachingInputKind.MOVE
         ),

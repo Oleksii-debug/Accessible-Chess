@@ -1,0 +1,96 @@
+name: D09 Teacher Classroom Interaction
+
+on:
+  pull_request:
+    branches:
+      - manual/deva-teaching-session-accessibility-20260823
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: d09-teacher-classroom-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  D09_PARENT: b66ffccf963fb8b44e4084158cb7b9bdcfb9fe97
+  DEV2_ACCEPTED_UI_EVIDENCE: 06d610e90731d8b987bd6def02e0d7e39748808e
+
+jobs:
+  teacher-classroom:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+
+      - name: Install test dependencies
+        run: python -m pip install --disable-pip-version-check pytest
+
+      - name: Exact ancestry and D09 scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git merge-base "$D09_PARENT" HEAD)" = "$D09_PARENT"
+          git diff --check "$D09_PARENT"...HEAD
+          changed="$(git diff --name-only "$D09_PARENT"...HEAD)"
+          printf '%s\n' "$changed"
+          allowed='^(.github/workflows/d09-teacher-classroom-reverse-channel.yml|acs/teaching_session_adapter.py|acs/teaching_reverse_channel.py|acs/teaching_visual_board.py|acs/teaching_classroom_adapter.py|tests/test_teaching_reverse_channel.py|tests/test_teaching_visual_board.py|tests/test_teaching_classroom_adapter.py|tests/test_teaching_classroom_floor_control.py)$'
+          unexpected="$(printf '%s\n' "$changed" | grep -Ev "$allowed" || true)"
+          test -z "$unexpected" || { echo "Unexpected D09 overlap paths:"; printf '%s\n' "$unexpected"; exit 1; }
+
+      - name: Compile D09 Product tree
+        run: python -m compileall -q acs tests
+
+      - name: Focused D09 Classroom vertical
+        run: python -m unittest tests.test_teaching_reverse_channel tests.test_teaching_visual_board tests.test_teaching_classroom_adapter tests.test_teaching_classroom_floor_control -v
+
+      - name: Upstream role-safe TeachingSession adapter
+        run: python -m unittest tests.test_teaching_session_adapter -v
+
+      - name: Canonical TeachingSession and adversarial invariants
+        run: python -m unittest tests.test_teaching_session tests.test_teaching_session_adversarial -v
+
+      - name: Canonical interaction family separation
+        run: python -m unittest tests.test_interaction_contracts tests.test_interaction_router -v
+
+      - name: Classroom privacy and corruption invariants
+        run: python -m unittest tests.test_classroom_domain tests.test_classroom_domain_corruption -v
+
+      - name: Full unittest on pure Product tree
+        run: python -m unittest discover -s tests -v
+
+      - name: Materialize accepted D01 UI compatibility only for aggregate pytest
+        shell: bash
+        run: |
+          set -euo pipefail
+          git checkout "$DEV2_ACCEPTED_UI_EVIDENCE" -- \
+            acs/keybindings.py \
+            tests/test_board_rank_file_remapping_ui.py \
+            web/index.html
+          test "$(git hash-object acs/keybindings.py)" = "b222f0d625999d8119cb3bb7cebffc961217f610"
+          test "$(git hash-object tests/test_board_rank_file_remapping_ui.py)" = "747b6fd4f73ccfb3647f854e832e9c38421f1e3c"
+          test "$(git hash-object web/index.html)" = "17803443a815843be3aa1b8c6be1c5abb7e7c888"
+          echo "ACCEPTED D01 VALIDATION OVERLAY EXACT-BLOB PASS"
+
+      - name: Accepted rank/file compatibility regression
+        run: python -m pytest -q tests/test_board_rank_file_remapping_ui.py
+
+      - name: Full pytest with accepted cross-lane compatibility
+        run: python -m pytest -q
+
+      - name: Selftest
+        run: python -m acs.selftest
+
+      - name: Complete WebView2 diagnostic
+        run: python run_accessible_chess.py --diagnostic
