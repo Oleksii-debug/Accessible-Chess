@@ -24,6 +24,7 @@ internal static class ListeningCoachSelfTest
             TestSchedulingAndSeparateMastery();
             TestAnswerHiddenPresentation();
             TestSentenceReadyContract();
+            TestShortcutRegistry();
             TestProfileRoundTrip(root);
             TestMigrationBackup(root);
         }
@@ -100,6 +101,25 @@ internal static class ListeningCoachSelfTest
         ListeningExercise selected = engine.StartNext(false);
         Require(selected.Kind == ListeningExerciseKind.Sentence, "Listening engine rejected sentence-ready source contract.");
         Require(engine.Check("  WE learn from context. ").IsCorrect, "Sentence-ready normalization failed.");
+    }
+
+    private static void TestShortcutRegistry()
+    {
+        AppState app = AppStateStore.Normalize(new AppState());
+        var all = new ShortcutManager(app, Array.Empty<DeckDefinition>(), ShortcutDispatchContext.All);
+        Require(all.Get(ActionIds.OpenListening) == (Keys.Control | Keys.Alt | Keys.L), "Listening open shortcut default is missing.");
+        Require(all.Get(ActionIds.ListeningReplay) != Keys.None && all.Get(ActionIds.ListeningShowAnswer) != Keys.None && all.Get(ActionIds.ListeningNext) != Keys.None,
+            "Listening in-mode shortcuts collide with the global shortcut registry.");
+
+        var listening = new ShortcutManager(app, null, ShortcutDispatchContext.Listening);
+        Keys replay = listening.Get(ActionIds.ListeningReplay);
+        Require(listening.FindAction(replay) == ActionIds.ListeningReplay, "Listening dispatch context did not route replay.");
+        Require(listening.FindAction(Keys.Control | Keys.P) is null, "Listening context incorrectly routed a Recall shortcut.");
+
+        Keys remapped = Keys.Control | Keys.Shift | Keys.Alt | Keys.F9;
+        Require(listening.TrySet(ActionIds.ListeningReplay, remapped, out string? error), $"Listening replay could not be remapped: {error}");
+        Require(listening.Get(ActionIds.ListeningReplay) == remapped && listening.FindAction(remapped) == ActionIds.ListeningReplay,
+            "Listening remapped shortcut was not used by dispatch.");
     }
 
     private static void TestProfileRoundTrip(string root)
