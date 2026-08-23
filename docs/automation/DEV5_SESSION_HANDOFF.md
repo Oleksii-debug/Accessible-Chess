@@ -1,36 +1,24 @@
 # DEV5_SESSION_HANDOFF
 
-RUN: 20260823-1503
-COORDINATOR_BRANCH: `auto/dev5-coordinator-1503-20260823`
-MODE: INTERMEDIATE_COMBINED_GREEN / RELEASE_HOLD_FEN_P1 / V5_FOCUS_C_INCONCLUSIVE
-SNAPSHOT: `docs/automation/SNAPSHOT_20260823_1503.md`
-CUTOFF: `2026-08-23T12:03:00Z / 15:03 Europe/Kyiv`
+RUN: 20260823-1701
+COORDINATOR_BRANCH: `auto/dev5-coordinator-1701-20260823`
+MODE: SAFE_OVERLAP / RELEASE_HOLD_D04_239 / NO_PRODUCT_PUSH
+SNAPSHOT: `docs/automation/SNAPSHOT_20260823_1701.md`
+CUTOFF: `2026-08-23T14:01:47Z / 17:01 Europe/Kyiv`
 
-At this cutoff accepted Stage1 branch was `manual5/integration-20260821@1e9d23b034e6d347fe03c3581469a07e16037c55`. Pre-cutoff AUDIT_MASTER had already superseded the V5-only release route by independently accepting DEV2 history P1 repair `45956b38ce6d1ed42d937fdda0124569b8e60b54` and proving a distinct P1 oversized FEN-counter error-surface defect routed to DEV2.
+Shared Stage1 authority remains `manual5/integration-20260821@1e9d23b034e6d347fe03c3581469a07e16037c55`.
 
-V5 run `32636245736` is terminal FAILURE and no candidate ZIP exists. It is obsolete as final candidate source, but it provided decisive positive native evidence: packaged Move Edit Ctrl+A selection passed and Ctrl+C copied exact `e9`. The first strict failure is now post-submit board focus continuity. Product source contracts expect semantic board-origin recovery, but the retained QA helper continues comparing against a pre-rerender board AutomationElement after the board grid is replaced. Its target identity became empty while final focus was Move Edit. Classification is C / INCONCLUSIVE; no Product focus defect is established yet and no speculative patch was made.
+Current D05 promotion PR #222 is still draft/open at exact `88578e05eb0ea51795570f92f76428b9e029c11d`. Its dedicated combined validation `32641454103` is terminal SUCCESS on Windows `97199059495` and Ubuntu `97199059664`, covering accepted Stage1 repairs, D04 #218/#228, D03 hard shutdown, immutable PR159/193/196 oracles, release contracts, full suites, SELFTEST and diagnostic. That evidence remains valid for the included tree but no longer authorizes final promotion.
 
-AUDIT_MASTER explicitly routed DEV5 to reuse the existing combined branch rather than create a competing implementation. DEV5 opened draft PR #195, `release/dev5-stage1-combined-repair-20260823`. Product content combines only accepted Stockfish resolver privacy and history scalar fail-closed repairs. Strict QA harness and Stage2 features are absent.
+The cutoff moved because D04 PR #239 became terminal before this wave. Red-first run `32641610135` proved unchanged #228 preflight accepted four resource-abuse classes before `ZipFile.testzip()`: >8 MiB compressed source ZIP, >4096 entries, >16 MiB single uncompressed member, >64 MiB total uncompressed. Final head `53791a44176627b012f72c3ac5b7720214194975` repairs this in `acs/release_preflight.py` blob `9213efc03e78756ec7d45f5983c91414b614b06f`; regression blob is `4dec7df9ae945812d0cffacb168c912a7b8f56fb`. Final run `32641696408` is terminal SUCCESS on Ubuntu `97199654044` and Windows `97199654106`, with focused D04/prior preflight, full unittest/pytest, SELFTEST and diagnostic GREEN.
 
-Initial PR validation exposed two pure harness defects, both fixed workflow-only: `63b3cddee5284f40276a0f5139532f0224a76363` checks out exact PR head instead of GitHub synthetic merge, and `5e8ca72f7dd552ee151ebd5b85c52148004ac307` pins the actual accepted DEV2 history blob `381be891b3701039a70492f0db688530ed96fe5b`. Product blobs were not altered by these fixes.
+AUDIT-A independently accepted #239 for selective Stage1 intake and explicitly superseded `88578e05...` as final audit/promotion target. Required action is already routed to the active D05 promotion surface: selectively intake #239 Product/test delta, preserve all prior accepted Stage1 and D03 lifecycle blobs, refresh exact validation provenance, rerun the combined dual-OS gate, and return the NEW exact SHA to Audit-A/B.
 
-Exact dedicated combined run `32638839597` is terminal SUCCESS on head `5e8ca72...`:
-- Ubuntu `97192655470` SUCCESS;
-- Windows `97192655352` SUCCESS;
-- exact ancestry/Product blobs/narrow-scope gates PASS;
-- Product repair regressions 44/44 PASS;
-- unchanged independent PR #159 oracle 3/3 PASS;
-- current privacy/history stress 23 passed + 11 subtests;
-- focused Stage1 release contracts 80/80 PASS;
-- full unittest 673/673 PASS;
-- full pytest 751 passed + 758 subtests;
-- SELFTEST and complete WebView2 diagnostic PASS.
+This wave therefore used SAFE OVERLAP MODE and made no competing Product push. No shared ref moved, no candidate was built, and no old ZIP was reused.
 
-This is `INTERMEDIATE_COMBINED_GREEN`, not final Stage1 authority. PR #195 remains DRAFT / DO NOT MERGE OR PROMOTE because the pre-cutoff FEN P1 is not present in this source. No V6 is authorized.
+Next DEV5 invocation must establish a fresh cutoff, inspect whether PR #222 advanced, and only evaluate terminal evidence that existed before that new cutoff. If D05 is still IN_PROGRESS, continue evidence/conflict review only. If a new exact combined SHA is terminal GREEN and independently accepted, promotion may proceed by force=false fast-forward and exactly one fresh Windows strict chain may begin.
 
-Post-cutoff DEV2 FEN repair/evidence and submit-focus branches are quarantined. Next DEV5 wave must reread their exact live state under a fresh cutoff, avoid touching active owners, then selectively layer only terminal accepted FEN repair onto the combined lineage and rerun complete exact-tree gates before Audit acceptance.
-
-Persistent Full Product exact-GREEN remains `dd9ebf9414103c805892856fe6a04706fa69039f` during the Stage1 release freeze.
+Old V5 remains forensic only. Human NVDA verification remains mandatory on the exact future candidate.
 
 FRESH_WINDOWS_CANDIDATE=NO
 READY_FOR_RELEASE=NO
