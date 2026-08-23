@@ -1,30 +1,26 @@
 # DEV5_SESSION_HANDOFF
 
-RUN: 20260823-1347
-COORDINATOR_BRANCH: `auto/dev5-coordinator-1348-20260823`
-MODE: SAFE_OVERLAP_COORDINATION / STAGE1_PRIVACY_REPAIR_GREEN_PENDING_INDEPENDENT_REVALIDATION
-SNAPSHOT: `docs/automation/SNAPSHOT_20260823_1347.md`
+RUN: 20260823-1355
+COORDINATOR_BRANCH: `auto/dev5-coordinator-1355-20260823`
+MODE: SAFE_OVERLAP_COORDINATION / PROVEN_STOCKFISH_RUNTIME_PATH_PRIVACY_DEFECT
+SNAPSHOT: `docs/automation/SNAPSHOT_20260823_1355.md`
+CUTOFF: `2026-08-23T13:55:02+03:00`
 
-The prior 13:01 coordinator promotion of `df52aeb3d99f4ae3d0089eab2882fe9b3c373dfd` is revoked. Independent QA PR #158 subsequently proved a private workstation/sidecar path could still cross the user-facing ImportRegistry batch boundary through arbitrary `OSError.strerror`. Historical state is preserved; no force rewrite or frozen-ref mutation occurred.
+Live evidence superseded the prior belief that `80720e8125c59a213f278668d599040f2768d553` was merely waiting for independent acceptance. PR #151 had already been merged into `manual5/integration-20260821` at this SHA, but independent QA PR #159 then proved a new Product privacy defect on exactly that tree.
 
-Prior accepted Stage1 baseline therefore remains `0fa442330bc2bb03636ff9297512da4c29e38684` until independent acceptance of a repaired successor.
+PR #159 / QA head `66d5affbe027a86717a775198ec9fbcf8aba8545` / run `32634729467` is decisive: both Ubuntu and Windows pass exact-parent/scope, compile and existing Stockfish runtime regressions 18/18, while the focused runtime-path privacy oracle fails 3/3. `acs.stockfish_runtime.resolve_stockfish_path()` exposes private parent directories for missing configured, missing packaged and empty/corrupt executables. AUDIT_MASTER classifies it as `PROVEN_PRODUCT_DEFECT / RELEASE-CRITICAL PRIVACY` and routes repair ownership to DEV-B / DEV5 release privacy ownership.
 
-DEV4 latest RUN_STATE explicitly assigned the minimal repair back to DEV5 and required independent exact-head validation afterward. DEV5 repaired the existing PR #151 line only:
-- `2fce7a799509f08f495f4289b49b03d620ba27cf`: `_batch_error_text()` no longer republishes arbitrary OSError strerror; user-facing batch filesystem diagnostics retain stable context, errno and report-safe filename fields.
-- `12b39b75173621e73eb9087586f0d6e35ed2004e`: Product regression for a path-bearing strerror while retaining safe basename observability for genuine OSError filename fields.
-- final workflow head `80720e8125c59a213f278668d599040f2768d553` pins and replays current PR #158 plus the existing privacy oracle set.
+Current-run concurrency changes the implementation action. Touching DEV4 Product PR #162 was created at 10:54:16Z and updated at 10:55:01Z, before this immutable 10:55:02Z cutoff, and edits `acs/stockfish_runtime.py`. SAFE OVERLAP is therefore mandatory. DEV5 made no competing Product patch, cherry-pick, merge, Stage1 promotion or candidate build.
 
-Exact `DEV5 Stage1 Path Privacy Repair CI` run `32634572205` is SUCCESS:
-- Linux job `97182279775`: Product privacy 10/10; unchanged external privacy 13/13 including PR #158; selected PGN privacy 2/2; drive-relative oracle PASS; unittest 663/663; pytest 741 + 758 subtests; SELFTEST and complete WebView2 diagnostic PASS.
-- Windows Server 2025 job `97182279877`: LF exact checkout/ancestry/diff hygiene PASS; privacy 10/10; Stage1 focused release contracts 75/75; unittest 663/663; pytest 741 + 758 subtests; SELFTEST and complete WebView2 diagnostic PASS.
+Post-cutoff inspection is quarantined for next wave. PR #162's narrow delta uses canonical `report_safe_name()`, preserves actual resolved Path and error causes, and includes the PR #159 oracle byte-for-byte. Observed jobs show existing Stockfish runtime 18/18 PASS and unchanged PR #159 oracle 3/3 PASS. Full validation is not accepted in this wave: observed RED attempts stop at validation topology/inventory drift, including the stale module name `tests.test_stage1_path_privacy_repair` instead of current `tests/test_stage1_release_path_privacy.py`. A DEV-C comment already documented that CI-only classification; do not duplicate it.
 
-No test weakening and no chess-state/GameTree/UI/WebView/ACSDB/Teacher/Classroom/strict packaged UIA helper changes were made.
+PR #160/V4 is stale candidate authority because it targets defective `80720e8...`. No archive from that Product SHA may be accepted for user NVDA testing.
 
-Current technical candidate is `80720e8...`, but DEV5 does NOT self-certify it as independent acceptance. Independent DEV4/AUDIT exact-head revalidation is the next gate. Only after that gate may DEV5 designate the repaired Stage1 authority and launch exactly one fresh Windows candidate chain.
+Next fresh wave must first establish whether PR #162/DEV4 is terminal before its new cutoff. Only a terminal exact repair with corrected Linux+Windows validation, unchanged PR #159 oracle, current Stage1 privacy suite, full unittest/pytest, SELFTEST and complete diagnostic may be selectively appended to current integration history. Then independent AUDIT_MASTER acceptance is required before a new WIP=1 Windows candidate chain.
 
-UIA classification remains C / INCONCLUSIVE: unique original Move Edit and native Backspace delivery were proven; prior strict run stopped during QA SetValue restore before Ctrl+A. No Product Ctrl+A/C defect is established.
+The packaged Move Edit SetValue/Ctrl+A/Ctrl+C boundary remains separately QA-owned `C — INCONCLUSIVE`; no Product keyboard/clipboard defect is established.
 
-Persistent Full Product authority remains `dd9ebf9414103c805892856fe6a04706fa69039f` and stays frozen behind Stage1 release closure.
+Persistent Full Product authority remains `dd9ebf9414103c805892856fe6a04706fa69039f`.
 
 FRESH_WINDOWS_CANDIDATE=NO
 READY_FOR_RELEASE=NO
