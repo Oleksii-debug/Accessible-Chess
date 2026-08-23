@@ -160,7 +160,48 @@ jobs:
             $p.OneTarget.CoveredEntryCount,$p.TwoTarget.CoveredEntryCount,$p.ThreeTarget.CoveredEntryCount, `
             $gap.Payload.MissingOneTargetCount,$gap.Payload.MissingNaturalPairOnlyCount,$gap.Payload.MissingNaturalTripleOnlyCount)
 
-      - name: Upload coverage evidence
+      - name: Preserve attribution and provenance in evidence-only artifact
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $sourceRoot = (Resolve-Path '.\artifacts\r3-attributed').Path
+          $evidenceRoot = (Resolve-Path '.\artifacts\context-evidence').Path
+          foreach ($name in @('SHA256SUMS.txt','TATOEBA_SENTENCEPACK_NOTICE.md','tatoeba-en-uk-attributed.tsv.manifest.json')) {
+            $file = Get-ChildItem -LiteralPath $sourceRoot -Recurse -File -Filter $name | Select-Object -First 1
+            if (-not $file) { throw "Required attribution/provenance evidence is missing: $name" }
+            Copy-Item -LiteralPath $file.FullName -Destination (Join-Path $evidenceRoot $name) -Force
+          }
+          foreach ($name in @('sentencepack-runtime-metrics.json','sentencepack-metrics.json')) {
+            $file = Get-ChildItem -LiteralPath $sourceRoot -Recurse -File -Filter $name | Select-Object -First 1
+            if ($file) { Copy-Item -LiteralPath $file.FullName -Destination (Join-Path $evidenceRoot $name) -Force }
+          }
+          $doc = Get-Content -LiteralPath (Join-Path $evidenceRoot 'context-coverage.json') -Raw | ConvertFrom-Json
+          $gap = Get-Content -LiteralPath (Join-Path $evidenceRoot 'context-coverage.gaps.json') -Raw | ConvertFrom-Json
+          @(
+            'Historical attributed corpus is measurement input only; this evidence artifact is not redistribution approval and does not contain the SQLite corpus.',
+            'source_run_id=32573223432',
+            'source_artifact_name=WordDeck-SentencePack-Tatoeba-EN-UA-CCBY-r3',
+            "sqlite_sha256=$env:CONTEXT_SQLITE_SHA",
+            "measurement_head=${{ github.sha }}",
+            "sentence_count=$($doc.Payload.SentenceCount)",
+            "one_target_covered=$($doc.Payload.OneTarget.CoveredEntryCount)",
+            "two_target_covered=$($doc.Payload.TwoTarget.CoveredEntryCount)",
+            "three_target_covered=$($doc.Payload.ThreeTarget.CoveredEntryCount)",
+            "priority1_missing_any_context=$($gap.Payload.MissingOneTargetCount)",
+            "priority2_missing_pair_only=$($gap.Payload.MissingNaturalPairOnlyCount)",
+            "priority3_missing_triple_only=$($gap.Payload.MissingNaturalTripleOnlyCount)",
+            "coverage_evidence_sha256=$($doc.EvidenceDigestSha256)",
+            "gap_plan_sha256=$($gap.PlanDigestSha256)"
+          ) | Set-Content -LiteralPath (Join-Path $evidenceRoot 'MEASUREMENT_SOURCE.txt') -Encoding utf8
+          $leak = Get-ChildItem -LiteralPath $evidenceRoot -Recurse -File | Where-Object {
+            $_.Extension -in @('.sqlite','.db','.zip') -or $_.Name -match 'sentencepack.*\.(json|json\.gz)$'
+          }
+          if ($leak) {
+            $leak | ForEach-Object { Write-Error "Corpus payload leaked into evidence-only artifact: $($_.FullName)" }
+            exit 1
+          }
+
+      - name: Upload coverage evidence only
         uses: actions/upload-artifact@v4
         with:
           name: WordDeck-dev02-context-evidence-${{ github.sha }}
