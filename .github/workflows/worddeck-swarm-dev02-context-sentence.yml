@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - worddeck-swarm-dev02-context-sentence
+      - worddeck-swarm-dev02-context-sentence-a001
   pull_request:
     branches:
       - worddeck-bootstrap
@@ -40,7 +41,7 @@ jobs:
               sha: context.sha,
               state: 'pending',
               context: 'WordDeck DEV02 Stage 11 Context Gate',
-              description: 'DEV02 exact-tip Windows + lexical coverage gate is running.',
+              description: 'DEV02 exact-tip Windows + physical/stable coverage gate is running.',
               target_url: targetUrl
             });
 
@@ -124,7 +125,7 @@ jobs:
           "CONTEXT_SQLITE=$($sqlite.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           "CONTEXT_SQLITE_SHA=$actual" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
-      - name: Measure exact lexical-form-aware 1 2 3 target coverage
+      - name: Measure exact physical-form and stable-ID 1 2 3 coverage
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
@@ -137,30 +138,102 @@ jobs:
             tatoeba-en-uk-attributed-ccby-v1
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-      - name: Validate exact corpus coverage and external-data boundary
+      - name: Validate exact corpus identity and separated coverage axes
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $doc = Get-Content -LiteralPath '.\artifacts\context-evidence\context-coverage.json' -Raw | ConvertFrom-Json
-          $p = $doc.Payload
-          if ($p.SourceId -ne 'tatoeba-en-uk-attributed-ccby-v1') { throw 'Unexpected corpus PackId.' }
-          if ($p.DatabaseSha256 -ne $env:CONTEXT_SQLITE_SHA) { throw 'Coverage evidence is not bound to exact SQLite hash.' }
-          if ($p.DictionaryEntryCount -ne 5446 -or -not $p.ExactOxford5446Verified) { throw 'Coverage evidence is not bound to exact Oxford 5446 universe.' }
-          if (-not $p.ExactDatabaseIdentityVerified -or -not $p.CanSupportRealCorpusCoverageClaim) { throw 'Exact real-corpus identity was not verified.' }
-          if ($p.RedistributionApproved) { throw 'Coverage tooling must never self-approve redistribution.' }
-          if ($p.SentenceCount -ne 208408) { throw "Unexpected exact corpus sentence count: $($p.SentenceCount)" }
-          if ($p.OneTarget.CoveredEntryCount -ne 4492) { throw "Unexpected one-target coverage: $($p.OneTarget.CoveredEntryCount)" }
-          if ($p.TwoTarget.CoveredEntryCount -ne 4469) { throw "Unexpected natural two-target coverage: $($p.TwoTarget.CoveredEntryCount)" }
-          if ($p.ThreeTarget.CoveredEntryCount -ne 4362) { throw "Unexpected natural three-target coverage: $($p.ThreeTarget.CoveredEntryCount)" }
-          $gap = Get-Content -LiteralPath '.\artifacts\context-evidence\context-coverage.gaps.json' -Raw | ConvertFrom-Json
-          if ($gap.Payload.MissingOneTargetCount -ne 954 -or $gap.Payload.MissingNaturalPairOnlyCount -ne 23 -or $gap.Payload.MissingNaturalTripleOnlyCount -ne 107) {
-            throw 'Gap accounting no longer matches exact attributed corpus evidence.'
-          }
-          Write-Host ("Exact real EN-UA coverage: one={0}/5446; two={1}/5446; three={2}/5446; missing any={3}; pair-only={4}; triple-only={5}" -f `
-            $p.OneTarget.CoveredEntryCount,$p.TwoTarget.CoveredEntryCount,$p.ThreeTarget.CoveredEntryCount, `
-            $gap.Payload.MissingOneTargetCount,$gap.Payload.MissingNaturalPairOnlyCount,$gap.Payload.MissingNaturalTripleOnlyCount)
+          $rawDoc = Get-Content -LiteralPath '.\artifacts\context-evidence\context-coverage.json' -Raw | ConvertFrom-Json
+          $raw = $rawDoc.Payload
+          $physicalDoc = Get-Content -LiteralPath '.\artifacts\context-evidence\context-coverage.physical-forms.json' -Raw | ConvertFrom-Json
+          $physical = $physicalDoc.Payload
+          $stableDoc = Get-Content -LiteralPath '.\artifacts\context-evidence\context-coverage.stable-identities.json' -Raw | ConvertFrom-Json
+          $stable = $stableDoc.Payload
+          $gapDoc = Get-Content -LiteralPath '.\artifacts\context-evidence\context-coverage.gaps.json' -Raw | ConvertFrom-Json
+          $gap = $gapDoc.Payload
 
-      - name: Upload coverage evidence
+          if ($raw.SourceId -ne 'tatoeba-en-uk-attributed-ccby-v1') { throw 'Unexpected corpus PackId.' }
+          if ($raw.DatabaseSha256 -ne $env:CONTEXT_SQLITE_SHA) { throw 'Coverage evidence is not bound to exact SQLite hash.' }
+          if ($raw.DictionaryEntryCount -ne 5446 -or -not $raw.ExactOxford5446Verified) { throw 'Coverage evidence is not bound to exact Oxford 5446 universe.' }
+          if (-not $raw.ExactDatabaseIdentityVerified -or -not $raw.CanSupportRealCorpusCoverageClaim) { throw 'Exact real-corpus identity was not verified.' }
+          if ($raw.RedistributionApproved) { throw 'Coverage tooling must never self-approve redistribution.' }
+          if ($raw.SentenceCount -ne 208408) { throw "Unexpected exact corpus sentence count: $($raw.SentenceCount)" }
+          if ($raw.OneTarget.CoveredEntryCount -ne 4492 -or $raw.TwoTarget.CoveredEntryCount -ne 4469 -or $raw.ThreeTarget.CoveredEntryCount -ne 4362) {
+            throw 'Historical stable-tag participation evidence changed unexpectedly.'
+          }
+
+          if ($physical.SourceId -ne $raw.SourceId -or $physical.DatabaseSha256 -ne $raw.DatabaseSha256) { throw 'Physical-form evidence identity drifted from raw evidence.' }
+          if ($physical.DictionaryEntryCount -ne 5446 -or -not $physical.ExactOxford5446Verified -or -not $physical.ExactDatabaseIdentityVerified) { throw 'Physical-form evidence lost exact corpus/dictionary identity.' }
+          if (-not $physical.CanSupportPhysicalLexicalFormCoverageClaim -or $physical.RedistributionApproved) { throw 'Physical-form evidence boundary is invalid.' }
+          if ($physical.UniqueLexicalFormCount -le 0 -or $physical.UniqueLexicalFormCount -ge 5446) { throw 'Unique physical lexical-form denominator is implausible or still equal to the stable-ID universe.' }
+          if ($physical.AmbiguousLexicalFormCount -le 0 -or $physical.StableIdsInAmbiguousLexicalForms -le $physical.AmbiguousLexicalFormCount) { throw 'Expected homographic lexical ambiguity was not preserved.' }
+          foreach ($depth in @($physical.OneTarget,$physical.TwoTarget,$physical.ThreeTarget)) {
+            if ($depth.LexicalFormCount -ne $physical.UniqueLexicalFormCount) { throw 'Physical-form depth denominator mismatch.' }
+            if (($depth.CoveredLexicalFormCount + $depth.UncoveredLexicalFormCount) -ne $depth.LexicalFormCount) { throw 'Physical-form coverage does not partition the lexical-form universe.' }
+          }
+          if ($physical.OneTarget.CoveredLexicalFormCount -lt $physical.TwoTarget.CoveredLexicalFormCount -or $physical.TwoTarget.CoveredLexicalFormCount -lt $physical.ThreeTarget.CoveredLexicalFormCount) { throw 'Physical-form depth coverage must be monotonic one >= two >= three.' }
+
+          if ($stable.SourceId -ne $raw.SourceId -or $stable.DatabaseSha256 -ne $raw.DatabaseSha256) { throw 'Stable-ID evidence identity drifted from raw evidence.' }
+          if ($stable.DictionaryEntryCount -ne 5446 -or -not $stable.ExactOxford5446Verified -or -not $stable.ExactDatabaseIdentityVerified) { throw 'Stable-ID evidence lost exact corpus/dictionary identity.' }
+          if (-not $stable.CanSupportConservativeStableIdentityCoverageClaim -or $stable.RedistributionApproved) { throw 'Stable-ID evidence boundary is invalid.' }
+          foreach ($depth in @($stable.OneTarget,$stable.TwoTarget,$stable.ThreeTarget)) {
+            if ($depth.ScopeEntryCount -ne 5446) { throw 'Stable-ID coverage denominator must remain the exact Oxford 5446 universe.' }
+            if ($depth.UnresolvedAmbiguousEntryCount -le 0) { throw 'Homographic stable IDs must remain unresolved without POS/sense evidence.' }
+            if (($depth.ResolvedStableCoveredEntryCount + $depth.UnresolvedAmbiguousEntryCount + $depth.PhysicalFormUncoveredEntryCount) -ne 5446) { throw 'Stable-ID coverage does not partition resolved, unresolved and physically uncovered entries.' }
+          }
+          if ($stable.OneTarget.ResolvedStableCoveredEntryCount -gt $raw.OneTarget.CoveredEntryCount -or $stable.TwoTarget.ResolvedStableCoveredEntryCount -gt $raw.TwoTarget.CoveredEntryCount -or $stable.ThreeTarget.ResolvedStableCoveredEntryCount -gt $raw.ThreeTarget.CoveredEntryCount) { throw 'Resolved stable-ID coverage cannot exceed historical stable-tag participation.' }
+          if ($stable.OneTarget.ResolvedStableCoveredEntryCount -lt $stable.TwoTarget.ResolvedStableCoveredEntryCount -or $stable.TwoTarget.ResolvedStableCoveredEntryCount -lt $stable.ThreeTarget.ResolvedStableCoveredEntryCount) { throw 'Resolved stable-ID coverage must be monotonic one >= two >= three.' }
+
+          if ($gap.MissingOneTargetCount -ne 954 -or $gap.MissingNaturalPairOnlyCount -ne 23 -or $gap.MissingNaturalTripleOnlyCount -ne 107) {
+            throw 'Historical stable-tag gap accounting changed unexpectedly.'
+          }
+          Write-Host ("Physical forms: one={0}/{1}; two={2}/{1}; three={3}/{1}; ambiguous forms={4}" -f $physical.OneTarget.CoveredLexicalFormCount,$physical.UniqueLexicalFormCount,$physical.TwoTarget.CoveredLexicalFormCount,$physical.ThreeTarget.CoveredLexicalFormCount,$physical.AmbiguousLexicalFormCount)
+          Write-Host ("Resolved stable IDs: one={0}/5446; two={1}/5446; three={2}/5446; unresolved homograph IDs={3}" -f $stable.OneTarget.ResolvedStableCoveredEntryCount,$stable.TwoTarget.ResolvedStableCoveredEntryCount,$stable.ThreeTarget.ResolvedStableCoveredEntryCount,$stable.OneTarget.UnresolvedAmbiguousEntryCount)
+
+      - name: Preserve attribution and provenance in evidence-only artifact
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $sourceRoot = (Resolve-Path '.\artifacts\r3-attributed').Path
+          $evidenceRoot = (Resolve-Path '.\artifacts\context-evidence').Path
+          foreach ($name in @('SHA256SUMS.txt','TATOEBA_SENTENCEPACK_NOTICE.md','tatoeba-en-uk-attributed.tsv.manifest.json')) {
+            $file = Get-ChildItem -LiteralPath $sourceRoot -Recurse -File -Filter $name | Select-Object -First 1
+            if (-not $file) { throw "Required attribution/provenance evidence is missing: $name" }
+            Copy-Item -LiteralPath $file.FullName -Destination (Join-Path $evidenceRoot $name) -Force
+          }
+          $raw = (Get-Content -LiteralPath (Join-Path $evidenceRoot 'context-coverage.json') -Raw | ConvertFrom-Json).Payload
+          $physicalDoc = Get-Content -LiteralPath (Join-Path $evidenceRoot 'context-coverage.physical-forms.json') -Raw | ConvertFrom-Json
+          $physical = $physicalDoc.Payload
+          $stableDoc = Get-Content -LiteralPath (Join-Path $evidenceRoot 'context-coverage.stable-identities.json') -Raw | ConvertFrom-Json
+          $stable = $stableDoc.Payload
+          @(
+            'Historical attributed corpus is read-only measurement input. This evidence artifact is not redistribution approval and does not contain the SQLite corpus.',
+            'source_run_id=32573223432',
+            'source_artifact_name=WordDeck-SentencePack-Tatoeba-EN-UA-CCBY-r3',
+            "sqlite_sha256=$env:CONTEXT_SQLITE_SHA",
+            "measurement_head=${{ github.sha }}",
+            "sentence_count=$($raw.SentenceCount)",
+            "unique_physical_forms=$($physical.UniqueLexicalFormCount)",
+            "physical_one_target_covered=$($physical.OneTarget.CoveredLexicalFormCount)",
+            "physical_two_target_covered=$($physical.TwoTarget.CoveredLexicalFormCount)",
+            "physical_three_target_covered=$($physical.ThreeTarget.CoveredLexicalFormCount)",
+            "resolved_stable_one_target_covered=$($stable.OneTarget.ResolvedStableCoveredEntryCount)",
+            "resolved_stable_two_target_covered=$($stable.TwoTarget.ResolvedStableCoveredEntryCount)",
+            "resolved_stable_three_target_covered=$($stable.ThreeTarget.ResolvedStableCoveredEntryCount)",
+            "unresolved_homograph_stable_ids=$($stable.OneTarget.UnresolvedAmbiguousEntryCount)",
+            "raw_stable_tag_one_target_covered=$($raw.OneTarget.CoveredEntryCount)",
+            "physical_evidence_sha256=$($physicalDoc.EvidenceDigestSha256)",
+            "stable_identity_evidence_sha256=$($stableDoc.EvidenceDigestSha256)"
+          ) | Set-Content -LiteralPath (Join-Path $evidenceRoot 'MEASUREMENT_SOURCE.txt') -Encoding utf8
+          $leak = Get-ChildItem -LiteralPath $evidenceRoot -Recurse -File | Where-Object {
+            $_.Extension -in @('.sqlite','.db','.zip') -or
+            $_.Name -match '^sentencepack(?:-runtime)?\.(?:json|json\.gz)$'
+          }
+          if ($leak) {
+            $leak | ForEach-Object { Write-Error "Corpus payload leaked into evidence-only artifact: $($_.FullName)" }
+            exit 1
+          }
+
+      - name: Upload coverage evidence only
         uses: actions/upload-artifact@v4
         with:
           name: WordDeck-dev02-context-evidence-${{ github.sha }}
