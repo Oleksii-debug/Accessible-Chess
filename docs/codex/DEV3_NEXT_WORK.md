@@ -1,27 +1,27 @@
 # DEV3 NEXT WORK
 
-Canonical Audit remains STAGE1 RELEASE FREEZE / FRESH WINDOWS CANDIDATE PRIORITY. Accepted Stage1 source authority remains `manual5/integration-20260821 @ 0fa442330bc2bb03636ff9297512da4c29e38684` until a repaired SHA is explicitly promoted.
+Canonical priority remains STAGE1 RELEASE FREEZE / FRESH WINDOWS CANDIDATE. Current release repair base is `manual5/integration-20260821 @ 80720e8125c59a213f278668d599040f2768d553`, which DEV3 PR #159 proved privacy-defective for Stockfish runtime diagnostics.
 
 Highest DEV3 priority on every continuation:
-1. re-read DEV5 PR #151 exact head and Audit/promotion state. Current repair head is `df52aeb3d99f4ae3d0089eab2882fe9b3c373dfd` with exact GREEN `DEV5 Stage1 Path Privacy Repair CI` run `32627946799`: Linux `97166119460` SUCCESS and Windows `97166119501` SUCCESS;
-2. preserve independent current-head source-contract evidence from DEV1 PR #157: pinned repair `df52aeb3...`, evidence head `93acd90bf4ab98a03499866e2984f72bdf5f1111`, workflow `DEV1 Current Stage1 Repair UI/NVDA Evidence` run `32631895304` SUCCESS on Windows/Linux; this is source-contract validation only, not human NVDA verification;
-3. do not create a competing sanitizer/PGN/import/engine-start Product patch while PR #151 is active owner;
-4. treat DEV1 PR #155 (`32627735837 / 97165590524`) as historical RED against older repair `c0169ed276fff893f90f85192416612f3b998b5a`, not current `df52aeb...`;
-5. preserve DEV3 PR #150 accepted-source engine-start oracle unchanged: `32627037392 / 97163830449`, UCI recovery 3/3 PASS, privacy 2/2 FAIL on accepted `0fa44233...`;
-6. preserve DEV3 PR #148 accepted-source PGN/ImportRegistry oracle unchanged: `32624495674 / 97157620475`;
-7. only after independent Audit accepts repaired semantics and promotes a new Stage1 authority, replay independent DEV3 privacy oracles unchanged against that exact promoted SHA;
-8. only after promoted-authority privacy GREEN proceed through one fresh strict Windows candidate chain: strict UIA, packaged Stockfish/sound lifecycle, release preflight, ZIP reopen/identity and artifact upload;
-9. preserve DEV3 Windows runtime evidence `32600115025 / 97097006614` as supporting evidence only; it does not certify a candidate archive;
-10. classify every RED against its exact SHA before repair. Only a concrete Stockfish runtime, analysis, clock or engine-lifecycle defect may justify a DEV3 Product patch during freeze;
-11. do not weaken privacy assertions, frozen-core SHA assertions or native Ctrl+A/Ctrl+C assertions for GREEN.
+1. fresh-read DEV5 PR #167 and `manual5/integration-20260821` before any work. Current PR #167 exact head is `a06c81e424c599f996662e8898c2b1cbf8ee9dbd`;
+2. preserve exact current-head CI evidence: workflow `DEV5 Stage1 Stockfish Runtime Path Privacy Repair` run `32635555544` is GREEN in Windows QA oracle `97184638496`, Ubuntu QA oracle `97184638731`, Ubuntu full regression `97184638645`, and Windows full regression `97184638744`;
+3. do not create a competing Stockfish/runtime privacy Product patch while PR #167 is active owner;
+4. do not push further to DEV3 PR #168 while its branch has a parallel DEV3 writer. It validates a superseded DEV4 repair shape and is not exact approval evidence for PR #167 current wording;
+5. preserve DEV3 PR #159 oracle unchanged. It is the independent exact-base defect proof and must be replayed unchanged after promotion;
+6. wait for independent AUDIT_MASTER acceptance and authorized DEV5 promotion of `a06c81e4...` or an explicitly reviewed descendant into `manual5/integration-20260821`;
+7. after promotion, identify the exact new accepted Stage1 SHA from GitHub technical truth, then replay the DEV3 PR #159 privacy oracle unchanged against that exact SHA on Ubuntu and Windows;
+8. only after promoted-authority privacy GREEN may one fresh Windows candidate chain start: exact source identity -> strict UIA -> packaged Stockfish/sound -> release preflight -> ZIP reopen/hash/identity -> artifact upload;
+9. never certify QA PR #160 artifacts from old `80720e8...`; that source is privacy-defective and the observed V4 run failed before Product materialization/build;
+10. preserve existing DEV3 Windows runtime evidence as supporting evidence only; it does not certify a release archive;
+11. classify every RED against exact SHA/logs before repair. Only a newly proven DEV3-owned Stockfish runtime, analysis, clock or engine-lifecycle defect justifies a Product patch during freeze;
+12. never weaken privacy assertions, frozen-core byte/SHA assertions or native Ctrl+A/Ctrl+C assertions for GREEN.
 
-Current terminal Full Product PR #137 remains technically GREEN for later selective DEV5 intake. Parallel DEV3 PR #134 remains terminal for final-review history identity and must not be duplicated.
-
-Release success requires one fresh Windows archive from repaired exact accepted Stage1 source whose complete automated chain is GREEN and whose artifact identity is verified. Human NVDA verification comes only after that exact artifact is available.
+Current terminal Full Product PR #137 remains technically GREEN for later selective DEV5 intake and is not Stage1 release authority. Parallel terminal DEV3 packages must not be reopened without a concrete regression.
 
 SAFE_OVERLAP=YES
-PR151_CURRENT_HEAD=df52aeb3d99f4ae3d0089eab2882fe9b3c373dfd
-PR151_PRIVACY_REPAIR_EXACT_CI=GREEN
-PR157_CURRENT_HEAD_UI_NVDA_SOURCE_CONTRACTS=GREEN
+PR167_CURRENT_HEAD=a06c81e424c599f996662e8898c2b1cbf8ee9dbd
+PR167_CURRENT_EXACT_CI=GREEN
+PR167_AUDIT_PROMOTION=PENDING
+DEV3_PRODUCT_PATCH_REQUIRED=NO
 FRESH_WINDOWS_CANDIDATE=NO
 NVDA_VERIFIED=NO
