@@ -4,7 +4,7 @@ from __future__ import annotations
 
 The historical :mod:`acs.gametree` parser intentionally has a recovery mode so
 inspectors can report damaged sources without throwing useful evidence away.
-That behavior is valuable for read-only inspection, but it is not a safe edit / 
+That behavior is valuable for read-only inspection, but it is not a safe edit /
 write contract: duplicate tags, unterminated comments, unmatched RAV markers or
 missing termination markers can require recovery and therefore cannot be called
 lossless.
