@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="..\MorphologyCore.cs" Link="MorphologyCore.cs" />
+    <Compile Include="..\MorphologySelfTest.cs" Link="MorphologySelfTest.cs" />
+    <Compile Include="HarnessModels.cs" />
+    <Compile Include="Program.cs" />
+  </ItemGroup>
+</Project>
