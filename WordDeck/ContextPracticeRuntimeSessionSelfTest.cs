@@ -19,7 +19,8 @@ internal static class ContextPracticeRuntimeSessionSelfTest
         TestInstalledPortableMetadataBoundary();
         TestRuntimeUsesLearnerVocabularyAndThirtyWordPool();
         TestRuntimeThreeTargetSelectionAndGapTruth();
-        Console.WriteLine("Context Practice runtime-session self-test PASS: installed metadata, learner-vocabulary ranking, 30-word pool, natural three-target selection and truthful gaps verified.");
+        TestRuntimeExcludesUnresolvedHomographTargets();
+        Console.WriteLine("Context Practice runtime-session self-test PASS: installed metadata, learner-vocabulary ranking, study pools, natural target selection, truthful gaps and unresolved-homograph exclusion verified.");
     }
 
     private static void TestInstalledPortableMetadataBoundary()
@@ -91,6 +92,7 @@ internal static class ContextPracticeRuntimeSessionSelfTest
 
         Check(result.StudyPool.EntryIds.Count == 30 && result.StudyPool.FilledRequestedWindow,
             "Runtime did not enforce the exact 30-word active study pool.");
+        Check(result.UnresolvedStableEntryIds.Count == 0, "A unique-form test dictionary unexpectedly produced unresolved stable IDs.");
         Check(result.VocabularySnapshot.Vocabulary.IsKnown("e004"),
             "Runtime did not consume the learner's real Spelling evidence through ContextVocabularySnapshotBuilder.");
         Check(result.Card is not null, "Runtime failed to select an available natural two-target sentence.");
@@ -99,7 +101,7 @@ internal static class ContextPracticeRuntimeSessionSelfTest
         Check(result.Card.Difficulty.UnknownHelperEntries == 0,
             "Chosen learner-aware sentence should not count the strongly-known helper as unknown.");
         Check(result.Coverage.Coverage.RequiredTargetCount == 2 && result.Coverage.Coverage.CoveredEntryCount >= 2,
-            "Runtime did not expose natural two-target coverage for its exact selected pool.");
+            "Runtime did not expose natural two-target coverage for its exact resolved pool.");
     }
 
     private static void TestRuntimeThreeTargetSelectionAndGapTruth()
@@ -140,6 +142,54 @@ internal static class ContextPracticeRuntimeSessionSelfTest
             "A one-word-only corpus gap must not turn into a fabricated two-target exercise.");
         Check(gap.Explanation.Contains("No sentence was fabricated", StringComparison.Ordinal),
             "Runtime gap result must state the no-fabrication boundary explicitly.");
+    }
+
+    private static void TestRuntimeExcludesUnresolvedHomographTargets()
+    {
+        var dictionary = new DictionaryPackage
+        {
+            Id = "runtime-homograph-dictionary",
+            Name = "Runtime homograph test dictionary",
+            SourceLanguage = "en",
+            TargetLanguage = "uk",
+            Entries = new[]
+            {
+                new DictionaryEntry("e001", "B1", "bank", "банк"),
+                new DictionaryEntry("e002", "B1", "bank", "нахиляти"),
+                new DictionaryEntry("e003", "A2", "daily", "щодня"),
+                new DictionaryEntry("e004", "A2", "practice", "практикувати")
+            }
+        };
+        SentencePack pack = BuildPack(
+            "runtime-homograph-fixture",
+            MakeSentence("safe-pair", "practice daily", "практикуйся щодня", new[] { "e003", "e004" }));
+        var source = new SentenceCorpusContextSource(
+            pack,
+            new ContextSourceDescriptor(pack.PackId, ContextCorpusKind.SyntheticFixture, pack.Provenance, pack.License));
+        var runtime = new ContextPracticeRuntimeSession(
+            dictionary,
+            new AppState(),
+            new SpellingState(),
+            source,
+            new ContextProductUseOptions(AllowSyntheticFixtures: true));
+
+        ContextRuntimeResult result = runtime.SelectNext(new ContextRuntimeRequest(
+            new[] { "e001", "e002", "e003", "e004" },
+            ContextStudyPoolPreset.Full,
+            TargetCount: 2,
+            CandidateLimit: 24,
+            MaxCardsPerAnchor: 6));
+
+        Check(result.UnresolvedStableEntryIds.SequenceEqual(new[] { "e001", "e002" }, StringComparer.OrdinalIgnoreCase),
+            "Runtime did not report both same-written-form stable IDs as unresolved.");
+        Check(result.StudyPool.EntryIds.SequenceEqual(new[] { "e003", "e004" }, StringComparer.OrdinalIgnoreCase),
+            "Runtime allowed unresolved homographic stable IDs into the target study pool.");
+        Check(result.Coverage.Coverage.ScopeEntryCount == 2 && result.Coverage.Coverage.CoveredEntryCount == 2,
+            "Runtime natural coverage must be measured only over the resolved one-form-per-stable-ID pool.");
+        Check(result.Card is not null && result.Card.SentenceId == "safe-pair",
+            "Runtime failed to continue with a valid natural pair after excluding unresolved homographs.");
+        Check(result.Explanation.Contains("unresolved homographic", StringComparison.OrdinalIgnoreCase),
+            "Runtime explanation did not surface that unresolved homographs were excluded from target selection.");
     }
 
     private static DictionaryPackage BuildDictionary(int count)
