@@ -1,0 +1,56 @@
+name: D07 Library Import Transaction Ownership
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches:
+      - d07/library-import-transaction-owner-ci-base-20260823
+
+permissions:
+  contents: read
+
+concurrency:
+  group: d07-library-import-owner-${{ github.event.pull_request.head.sha || github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  import-transaction-owner:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install verification dependencies
+        run: python -m pip install -q pytest
+      - name: Exact ancestry and diff hygiene
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git merge-base 66ecc8e21b59153384b158913ab3b317ffb32785 HEAD)" = "66ecc8e21b59153384b158913ab3b317ffb32785"
+          git diff --check 66ecc8e21b59153384b158913ab3b317ffb32785 HEAD
+          git diff --name-only 66ecc8e21b59153384b158913ab3b317ffb32785 HEAD
+      - name: Compile
+        run: python -m compileall -q acs tests run_accessible_chess.py
+      - name: Focused D07 transaction ownership oracle
+        run: >-
+          python -m unittest -v
+          tests.test_d07_library_import_transaction_ownership
+          tests.test_d07_library_import_service
+          tests.test_d07_acsdb_migration_atomicity
+          tests.test_d07_library_search_cancellation
+          tests.test_d07_search_semantic_equivalence
+      - name: Full unittest discovery
+        run: python -m unittest discover -s tests -v
+      - name: Full pytest regression
+        run: python -m pytest -q
+      - name: Complete diagnostic
+        run: python run_accessible_chess.py --diagnostic
