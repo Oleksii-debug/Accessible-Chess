@@ -5,11 +5,16 @@ on:
     paths:
       - 'web/stage1_release_bootstrap.js'
       - 'tests/test_d01_submit_focus_route_contract.py'
+      - '.github/d01-submit-focus-evidence-trigger.txt'
       - '.github/workflows/d01-submit-focus-route.yml'
   workflow_dispatch:
 
 permissions:
   contents: read
+
+env:
+  DEV5_ORACLE_SHA: 965f8ed95eb2ae4f2e628b77855c0a6dbd0d4321
+  DEV5_ORACLE_BLOB: 2fec761ded7e3af193b6f309f03876141be8ab41
 
 jobs:
   verify:
@@ -44,6 +49,17 @@ jobs:
           tests.test_dev1_release_ui_regressions
           tests.test_webview_keymap_bridge_contract
           tests.test_stage1_native_menu_action_routing
+      - name: Replay independent DEV5 retained-listener oracle byte-identically
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse "$DEV5_ORACLE_SHA:tests/test_dev5_stage1_submit_listener_focus_route.py")" = "$DEV5_ORACLE_BLOB"
+          rm -rf qa_oracles
+          mkdir -p qa_oracles
+          : > qa_oracles/__init__.py
+          git show "$DEV5_ORACLE_SHA:tests/test_dev5_stage1_submit_listener_focus_route.py" > qa_oracles/test_dev5_stage1_submit_listener_focus_route.py
+          test "$(git hash-object qa_oracles/test_dev5_stage1_submit_listener_focus_route.py)" = "$DEV5_ORACLE_BLOB"
+          python -m unittest -v qa_oracles.test_dev5_stage1_submit_listener_focus_route
       - name: Full unittest regression
         run: python -m unittest discover -s tests -p "test_*.py"
       - name: Full pytest regression
