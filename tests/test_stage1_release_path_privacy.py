@@ -75,6 +75,8 @@ class Stage1ReleasePathPrivacyTests(unittest.TestCase):
 
     def test_report_safe_name_is_cross_platform_and_preserves_safe_relative_provenance(self) -> None:
         self.assertEqual(report_safe_name(r"C:\Users\PrivateUser\Documents\analysis.pgn"), "analysis.pgn")
+        self.assertEqual(report_safe_name(r"C:Users\PrivateUser\Documents\analysis.pgn"), "analysis.pgn")
+        self.assertEqual(report_safe_name(r"D:WorkstationOwner\Chess\study.pgn"), "study.pgn")
         self.assertEqual(report_safe_name("/home/private/Documents/analysis.pgn"), "analysis.pgn")
         self.assertEqual(report_safe_name(r"\\server\share\PrivateUser\analysis.pgn"), "analysis.pgn")
         self.assertEqual(report_safe_name(r"incoming\analysis.pgn"), "incoming/analysis.pgn")
