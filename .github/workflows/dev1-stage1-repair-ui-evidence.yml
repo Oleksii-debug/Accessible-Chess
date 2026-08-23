@@ -1,3 +1,4 @@
+# DEV1 validation trigger: exact privacy-repair UI/NVDA readback only; no Product mutation.
 name: DEV1 Stage1 Privacy Repair UI/NVDA Evidence
 
 on:
