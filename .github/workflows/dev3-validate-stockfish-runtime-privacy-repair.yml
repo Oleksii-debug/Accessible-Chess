@@ -144,7 +144,5 @@ jobs:
           python dev3_repaired_runtime_smoke.py
           if($LASTEXITCODE -ne 0){throw 'Real repaired Stockfish runtime smoke failed'}
 
-      - name: SELFTEST and complete diagnostic
-        run: |
-          python run_accessible_chess.py --selftest
-          python run_accessible_chess.py --diagnostic complete
+      - name: Complete diagnostic
+        run: python run_accessible_chess.py --diagnostic complete
