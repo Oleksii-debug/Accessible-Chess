@@ -7,6 +7,7 @@ on:
   pull_request:
     branches:
       - integration/accessible-chess-next
+      - autopulse/d06-pgn-roundtrip-base-20260823
   workflow_dispatch:
 
 permissions:
