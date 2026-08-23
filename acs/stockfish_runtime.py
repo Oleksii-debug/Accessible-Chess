@@ -88,28 +88,31 @@ def resolve_stockfish_path(config: StockfishRuntimeConfig) -> Path:
         )
         source = "packaged"
 
-    safe_name = report_safe_name(candidate)
     try:
         candidate = candidate.resolve(strict=False)
     except (OSError, RuntimeError, ValueError) as exc:
         raise StockfishInvalidExecutableError(
-            f"Cannot resolve {source} Stockfish path: {safe_name}"
+            f"Cannot resolve {source} Stockfish path"
         ) from exc
 
-    safe_name = report_safe_name(candidate)
+    safe_candidate = report_safe_name(candidate)
     if not candidate.exists():
-        raise StockfishNotFoundError(f"Stockfish executable not found: {safe_name}")
+        raise StockfishNotFoundError(
+            f"Stockfish executable not found: {safe_candidate}"
+        )
     if not candidate.is_file():
-        raise StockfishInvalidExecutableError(f"Stockfish path is not a file: {safe_name}")
+        raise StockfishInvalidExecutableError(
+            f"Stockfish path is not a file: {safe_candidate}"
+        )
     try:
         size = candidate.stat().st_size
     except OSError as exc:
         raise StockfishInvalidExecutableError(
-            f"Cannot inspect Stockfish executable: {safe_name}"
+            f"Cannot inspect Stockfish executable: {safe_candidate}"
         ) from exc
     if size <= 0:
         raise StockfishInvalidExecutableError(
-            f"Stockfish executable is empty or corrupt: {safe_name}"
+            f"Stockfish executable is empty or corrupt: {safe_candidate}"
         )
     return candidate
 
