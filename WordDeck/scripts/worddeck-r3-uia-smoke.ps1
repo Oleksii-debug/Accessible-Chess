@@ -30,6 +30,55 @@ function Wait-Gone([string]$selector, [int]$timeoutMs = 5000) {
     Invoke-WinApp @('ui','wait-for',$selector,'-a',[string]$script:appPid,'--gone','--timeout',[string]$timeoutMs) | Out-Null
 }
 
+function Strip-Ansi([string]$text) {
+    return [regex]::Replace($text, '\x1B\[[0-?]*[ -/]*[@-~]', '')
+}
+
+function Get-WindowHandleByTitle([string]$title, [int]$timeoutMs = 7000) {
+    $deadline = [DateTime]::UtcNow.AddMilliseconds($timeoutMs)
+    $lastListing = ''
+    do {
+        $lines = @(Invoke-WinApp @('ui','list-windows','-a',[string]$script:appPid))
+        $plainLines = @($lines | ForEach-Object { Strip-Ansi ([string]$_) })
+        $lastListing = ($plainLines -join ' | ')
+        foreach ($line in $plainLines) {
+            $match = [regex]::Match([string]$line, 'HWND\s+(\d+):\s+"([^"]*)"')
+            if ($match.Success -and $match.Groups[2].Value -eq $title) {
+                return [string]$match.Groups[1].Value
+            }
+        }
+        Start-Sleep -Milliseconds 150
+    } while ([DateTime]::UtcNow -lt $deadline)
+    Fail "top-level window '$title' did not appear. Last list-windows output: $lastListing"
+}
+
+function Wait-WindowGoneByTitle([string]$title, [int]$timeoutMs = 7000) {
+    $deadline = [DateTime]::UtcNow.AddMilliseconds($timeoutMs)
+    do {
+        $lines = @(Invoke-WinApp @('ui','list-windows','-a',[string]$script:appPid))
+        $found = $false
+        foreach ($line in $lines) {
+            $plain = Strip-Ansi ([string]$line)
+            $match = [regex]::Match($plain, 'HWND\s+(\d+):\s+"([^"]*)"')
+            if ($match.Success -and $match.Groups[2].Value -eq $title) {
+                $found = $true
+                break
+            }
+        }
+        if (-not $found) { return }
+        Start-Sleep -Milliseconds 150
+    } while ([DateTime]::UtcNow -lt $deadline)
+    Fail "top-level window '$title' remained visible after ${timeoutMs}ms"
+}
+
+function Send-KeysInWindow([string]$keys, [string]$hwnd) {
+    $modalKey = $keys -ieq 'enter' -or $keys -ieq 'esc'
+    $transport = if ($keys.Contains('+') -or $modalKey) { 'send-input' } else { 'post-message' }
+    $arguments = @('ui','send-keys',$keys,'-w',$hwnd,'--via',$transport)
+    Invoke-WinApp $arguments | Out-Null
+    Start-Sleep -Milliseconds 250
+}
+
 function Get-Value([string]$selector) {
     $result = Invoke-WinApp @('ui','get-value',$selector,'-a',[string]$script:appPid,'--json') -Json
     return [string]$result.text
@@ -199,18 +248,18 @@ try {
     Open-And-CancelDialog 'ctrl+alt+e' 'Export complete WordDeck personal progress profile' 'complete profile export dialog'
     Open-And-CancelDialog 'ctrl+shift+i' 'Import complete WordDeck personal progress profile' 'complete profile import dialog'
 
-    # Reset is intentionally unbound. The File menu declares the standard
-    # mnemonic "&Reset Recall learning data...". Targeted Alt+F first foregrounds
-    # WordDeck, then R is delivered to the active native menu loop. No mouse,
-    # coordinates, popup focus inference, or fixed arrow count is involved.
+    # Reset is intentionally unbound. Open it through the real File-menu mnemonic,
+    # then treat the confirmation as its own top-level native window. This mirrors
+    # the independently hardened DEV3 acceptance harness and avoids the invalid
+    # assumption that a modal MessageBox remains discoverable as a child of the
+    # main WordDeck UIA tree.
     Focus 'Current English word'
     $resetWord = Get-Value 'Current English word'
     Send-Keys 'alt+f' 'Current English word'
     Send-MenuKey 'r'
-    Wait-For 'Reset WordDeck learning data' 7000
-    # Use the already-proven untargeted modal Escape path.
-    Send-Keys 'esc'
-    Wait-Gone 'Reset WordDeck learning data' 7000
+    $resetHwnd = Get-WindowHandleByTitle 'Reset WordDeck learning data' 7000
+    Send-KeysInWindow 'esc' $resetHwnd
+    Wait-WindowGoneByTitle 'Reset WordDeck learning data' 7000
     Wait-For 'Current English word' 5000
     if ((Get-Value 'Current English word') -ne $resetWord) { Fail 'Cancelling reset changed the current Recall card.' }
 
