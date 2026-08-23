@@ -19,7 +19,8 @@ internal sealed record ContextResolvedIdentityDepthEvidence(
 internal sealed record ContextStableIdentityCoverageEvidencePayload(
     string SchemaId,
     string MeasurementAlgorithm,
-    string PhysicalCoverageEvidenceSha256,
+    string StableTagEvidenceSha256,
+    string PhysicalFormEvidenceSha256,
     string DatabaseSha256,
     string DictionaryId,
     int DictionaryEntryCount,
@@ -53,51 +54,71 @@ internal static class ContextStableIdentityCoverageEvidenceBuilder
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = false };
 
     public static ContextStableIdentityCoverageEvidenceDocument Build(
-        ContextCorpusCoverageEvidenceDocument physicalEvidence,
+        ContextCorpusCoverageEvidenceDocument stableTagEvidence,
+        ContextPhysicalLexicalCoverageEvidenceDocument physicalFormEvidence,
         DictionaryPackage dictionary)
     {
-        ArgumentNullException.ThrowIfNull(physicalEvidence);
+        ArgumentNullException.ThrowIfNull(stableTagEvidence);
+        ArgumentNullException.ThrowIfNull(physicalFormEvidence);
         ArgumentNullException.ThrowIfNull(dictionary);
-        if (!ContextCorpusCoverageEvidenceBuilder.VerifyEvidenceDigest(physicalEvidence))
+        if (!ContextCorpusCoverageEvidenceBuilder.VerifyEvidenceDigest(stableTagEvidence))
+            throw new InvalidDataException("Stable-tag context evidence digest is invalid.");
+        if (!ContextPhysicalLexicalCoverageEvidenceBuilder.VerifyDigest(physicalFormEvidence))
             throw new InvalidDataException("Physical-form context evidence digest is invalid.");
-        ContextCorpusCoverageEvidencePayload physical = physicalEvidence.Payload;
-        if (dictionary.Entries.Count != physical.DictionaryEntryCount)
-            throw new InvalidDataException("Stable-identity evidence dictionary size differs from physical-form evidence.");
+
+        ContextCorpusCoverageEvidencePayload raw = stableTagEvidence.Payload;
+        ContextPhysicalLexicalCoverageEvidencePayload physical = physicalFormEvidence.Payload;
+        if (!string.Equals(physical.StableTagEvidenceSha256, stableTagEvidence.EvidenceDigestSha256, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidDataException("Physical-form evidence is not bound to the supplied stable-tag evidence digest.");
+        if (dictionary.Entries.Count != raw.DictionaryEntryCount || dictionary.Entries.Count != physical.DictionaryEntryCount)
+            throw new InvalidDataException("Stable-identity evidence dictionary size differs from its source evidence.");
+
         string fingerprint = ContextCorpusCoverageEvidenceBuilder.ComputeDictionaryLexicalFingerprint(dictionary);
-        if (!string.Equals(fingerprint, physical.DictionaryLexicalFingerprintSha256, StringComparison.OrdinalIgnoreCase))
-            throw new InvalidDataException("Stable-identity evidence dictionary fingerprint differs from physical-form evidence.");
+        if (!string.Equals(fingerprint, raw.DictionaryLexicalFingerprintSha256, StringComparison.OrdinalIgnoreCase) ||
+            !string.Equals(fingerprint, physical.DictionaryLexicalFingerprintSha256, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidDataException("Stable-identity evidence dictionary fingerprint differs from its source evidence.");
+        if (!string.Equals(raw.DatabaseSha256, physical.DatabaseSha256, StringComparison.OrdinalIgnoreCase) ||
+            !string.Equals(raw.DictionaryId, physical.DictionaryId, StringComparison.Ordinal) ||
+            !string.Equals(raw.SourceId, physical.SourceId, StringComparison.Ordinal) ||
+            raw.SourceKind != physical.SourceKind ||
+            raw.SentenceCount != physical.SentenceCount)
+            throw new InvalidDataException("Stable-tag and physical-form evidence identities do not match.");
 
         var lexicon = new ContextTargetLexicon(dictionary);
         string[] universe = dictionary.Entries.Select(entry => ContextTargetIds.NormalizeSingle(entry.Id)).ToArray();
-        ContextResolvedIdentityDepthEvidence one = Resolve(physical.OneTarget, lexicon, universe);
-        ContextResolvedIdentityDepthEvidence two = Resolve(physical.TwoTarget, lexicon, universe);
-        ContextResolvedIdentityDepthEvidence three = Resolve(physical.ThreeTarget, lexicon, universe);
+        ContextResolvedIdentityDepthEvidence one = Resolve(raw.OneTarget, lexicon, universe);
+        ContextResolvedIdentityDepthEvidence two = Resolve(raw.TwoTarget, lexicon, universe);
+        ContextResolvedIdentityDepthEvidence three = Resolve(raw.ThreeTarget, lexicon, universe);
 
-        bool exact = physical.SourceKind == ContextCorpusKind.RealCorpus &&
+        bool exact = raw.SourceKind == ContextCorpusKind.RealCorpus &&
+                     raw.ExactDatabaseIdentityVerified &&
+                     raw.ExactOxford5446Verified &&
                      physical.ExactDatabaseIdentityVerified &&
                      physical.ExactOxford5446Verified &&
-                     physical.DictionaryEntryCount == ContextCorpusCoverageEvidenceBuilder.ExactOxfordEntryCount;
+                     physical.CanSupportPhysicalLexicalFormCoverageClaim &&
+                     raw.DictionaryEntryCount == ContextCorpusCoverageEvidenceBuilder.ExactOxfordEntryCount;
         var payload = new ContextStableIdentityCoverageEvidencePayload(
             SchemaId,
             MeasurementAlgorithm,
-            physicalEvidence.EvidenceDigestSha256,
-            physical.DatabaseSha256,
-            physical.DictionaryId,
-            physical.DictionaryEntryCount,
-            physical.DictionaryLexicalFingerprintSha256,
-            physical.SourceId,
-            physical.SourceKind,
-            physical.Provenance,
-            physical.License,
-            physical.SentenceCount,
-            physical.ExactDatabaseIdentityVerified,
-            physical.ExactOxford5446Verified,
+            stableTagEvidence.EvidenceDigestSha256,
+            physicalFormEvidence.EvidenceDigestSha256,
+            raw.DatabaseSha256,
+            raw.DictionaryId,
+            raw.DictionaryEntryCount,
+            raw.DictionaryLexicalFingerprintSha256,
+            raw.SourceId,
+            raw.SourceKind,
+            raw.Provenance,
+            raw.License,
+            raw.SentenceCount,
+            raw.ExactDatabaseIdentityVerified && physical.ExactDatabaseIdentityVerified,
+            raw.ExactOxford5446Verified && physical.ExactOxford5446Verified,
             exact,
             RedistributionApproved: false,
             one,
             two,
             three,
-            "The paired physical-form evidence counts exact written-form occurrence/co-occurrence. This document gives conservative stable-ID coverage: any dictionary ID whose written form is shared by multiple stable entries remains UNRESOLVED for every depth unless a future POS/sense-aware source explicitly disambiguates that occurrence. Unresolved IDs do not own canonical learner progress and are not relabeled as missing corpus sentences. Redistribution remains a separate release decision.");
+            "This conservative stable-ID evidence is digest-bound to both the historical stable-tag participation evidence and the unique physical written-form evidence. Physically covered dictionary IDs whose written form is shared by multiple stable entries remain UNRESOLVED unless explicit POS/sense evidence disambiguates the occurrence. If that physical form is absent from the corpus, its stable IDs remain physical coverage gaps instead of being mislabeled as sense ambiguity. Neither unresolved nor uncovered IDs can own canonical learner progress. Redistribution remains a separate release decision.");
         string digest = ComputeDigest(payload);
         return new ContextStableIdentityCoverageEvidenceDocument(payload, digest);
     }
@@ -155,6 +176,7 @@ internal static class ContextStableIdentityCoverageEvidenceSelfTest
             ContextStableIdentityCoverageEvidenceBuilder.SchemaId,
             ContextStableIdentityCoverageEvidenceBuilder.MeasurementAlgorithm,
             new string('a', 64),
+            new string('d', 64),
             new string('b', 64),
             "fixture",
             1,
