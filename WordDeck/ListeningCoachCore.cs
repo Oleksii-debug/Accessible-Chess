@@ -211,7 +211,11 @@ internal sealed class ListeningCoachEngine
         if (_roundCompleted)
             return new ListeningCheckResult(false, true, "This listening item is already complete. Use Next for another item.");
 
-        bool correct = string.Equals(NormalizeAnswer(answer), NormalizeAnswer(Current.TargetText), StringComparison.Ordinal);
+        string normalizedAnswer = NormalizeAnswer(answer);
+        if (normalizedAnswer.Length == 0)
+            return new ListeningCheckResult(false, false, "Type what you heard before checking. Empty Enter does not change Listening progress.");
+
+        bool correct = string.Equals(normalizedAnswer, NormalizeAnswer(Current.TargetText), StringComparison.Ordinal);
         if (!correct)
         {
             _roundWrongAttempts++;
