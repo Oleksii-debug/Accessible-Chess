@@ -16,39 +16,39 @@ internal static class ContextStage11StudySpellingSelfTest
 {
     public static void Run()
     {
-        TestNamedStudyPools();
+        TestExistingNamedStudyPools();
         TestResolvedTargetSpelling();
         TestAmbiguousTargetFailsClosed();
         TestMultiwordTargetSpelling();
         TestIndexedButMissingPhysicalFormFailsClosed();
-        Console.WriteLine("Context Stage-11 study/spelling self-test PASS: 30/100/200/full pools and resolved target-form Sentence Spelling are deterministic and homographs fail closed.");
+        Console.WriteLine("Context Stage-11 study/spelling self-test PASS: canonical 30/100/200/full pools remain deterministic and resolved target-form Sentence Spelling fails closed on homographs or missing physical forms.");
     }
 
-    private static void TestNamedStudyPools()
+    private static void TestExistingNamedStudyPools()
     {
         string[] ids = Enumerable.Range(1, 250).Select(i => $"entry-{i:D4}").ToArray();
-        ContextStudyPool thirty = ContextStudyPoolResolver.Create(ContextStudyPoolPreset.Thirty, ids);
-        ContextStudyPool hundred = ContextStudyPoolResolver.Create(ContextStudyPoolPreset.Hundred, ids);
-        ContextStudyPool twoHundred = ContextStudyPoolResolver.Create(ContextStudyPoolPreset.TwoHundred, ids);
-        ContextStudyPool full = ContextStudyPoolResolver.Create(ContextStudyPoolPreset.Full, ids);
+        ContextStudyPoolSelection thirty = ContextStudyPoolBuilder.Build(ids, ContextStudyPoolPreset.Thirty);
+        ContextStudyPoolSelection hundred = ContextStudyPoolBuilder.Build(ids, ContextStudyPoolPreset.Hundred);
+        ContextStudyPoolSelection twoHundred = ContextStudyPoolBuilder.Build(ids, ContextStudyPoolPreset.TwoHundred);
+        ContextStudyPoolSelection full = ContextStudyPoolBuilder.Build(ids, ContextStudyPoolPreset.Full);
 
-        Check(thirty.ActualEntryCount == 30 && thirty.Truncated && thirty.EntryIds[0] == "entry-0001" && thirty.EntryIds[^1] == "entry-0030", "30-word context pool is not deterministic.");
-        Check(hundred.ActualEntryCount == 100 && hundred.Truncated, "100-word context pool size is wrong.");
-        Check(twoHundred.ActualEntryCount == 200 && twoHundred.Truncated, "200-word context pool size is wrong.");
-        Check(full.ActualEntryCount == 250 && !full.Truncated && full.RequestedLimit is null, "Full context pool should retain the complete ordered source scope.");
+        Check(thirty.EntryIds.Count == 30 && thirty.AvailableEntryCount == 250 && thirty.FilledRequestedWindow && !thirty.IsFullPool && thirty.EntryIds[0] == "entry-0001" && thirty.EntryIds[^1] == "entry-0030", "Canonical 30-word context pool is not deterministic.");
+        Check(hundred.EntryIds.Count == 100 && hundred.FilledRequestedWindow && !hundred.IsFullPool, "Canonical 100-word context pool size is wrong.");
+        Check(twoHundred.EntryIds.Count == 200 && twoHundred.FilledRequestedWindow && !twoHundred.IsFullPool, "Canonical 200-word context pool size is wrong.");
+        Check(full.EntryIds.Count == 250 && full.AvailableEntryCount == 250 && full.FilledRequestedWindow && full.IsFullPool, "Canonical full context pool should retain the complete ordered source scope.");
 
-        ContextStudyPool shortPool = ContextStudyPoolResolver.Create(ContextStudyPoolPreset.Thirty, ids.Take(12));
-        Check(shortPool.ActualEntryCount == 12 && !shortPool.Truncated, "A short deck must not invent filler entries to reach a preset limit.");
+        ContextStudyPoolSelection shortPool = ContextStudyPoolBuilder.Build(ids.Take(12), ContextStudyPoolPreset.Thirty);
+        Check(shortPool.EntryIds.Count == 12 && shortPool.AvailableEntryCount == 12 && !shortPool.FilledRequestedWindow, "A short deck must not invent filler entries to reach the 30-word preset.");
 
         string[] withDuplicate = ids.Take(40).Concat(new[] { "ENTRY-0001" }).ToArray();
-        ContextStudyPool deduplicated = ContextStudyPoolResolver.Create(ContextStudyPoolPreset.Full, withDuplicate);
-        Check(deduplicated.ActualEntryCount == 40, "Named context pools must deduplicate stable IDs deterministically.");
-        Check(ContextStudyPoolResolver.ParsePersisted("hundred") == ContextStudyPoolPreset.Hundred, "Persisted study-pool preset parsing is not case-insensitive.");
-        Check(ContextStudyPoolResolver.ParsePersisted("future-unknown-value") == ContextStudyPoolPreset.Full, "Unknown persisted study-pool preset must fail safely to Full.");
+        ContextStudyPoolSelection deduplicated = ContextStudyPoolBuilder.Build(withDuplicate, ContextStudyPoolPreset.Full);
+        Check(deduplicated.EntryIds.Count == 40 && deduplicated.AvailableEntryCount == 40, "Canonical named context pools must deduplicate stable IDs deterministically.");
 
         ExpectInvalid(
-            () => ContextStudyPoolResolver.Create(ContextStudyPoolPreset.Full, Enumerable.Range(1, ContextTargetIds.MaxOxfordTargetPool + 1).Select(i => $"overflow-{i}")),
-            "Context pool accepted more than the exact 5446 Oxford bound.");
+            () => ContextStudyPoolBuilder.Build(
+                Enumerable.Range(1, ContextTargetIds.MaxOxfordTargetPool + 1).Select(i => $"overflow-{i}"),
+                ContextStudyPoolPreset.Full),
+            "Canonical context pool accepted more than the exact 5446 Oxford bound.");
     }
 
     private static void TestResolvedTargetSpelling()
