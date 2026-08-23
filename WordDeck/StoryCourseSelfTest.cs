@@ -41,23 +41,34 @@ internal static class StoryCourseSelfTest
     {
         ResolvedStoryCatalog catalog = StoryCourseCatalog.Resolve(DictionaryLoader.LoadEmbeddedOxford());
         StoryCourseState state = StoryCourseStateStore.Normalize(new StoryCourseState());
-        ResolvedStoryChapter first = StoryCourseScheduler.SelectNext(
-            catalog,
-            state,
-            new StorySchedulingContext(
-                new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase),
-                new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase)));
-        Require(first.Definition.Cefr.Equals("A1", StringComparison.OrdinalIgnoreCase), "Fresh deterministic course should begin at the lowest incomplete CEFR unit.");
+        var neutral = new StorySchedulingContext(
+            new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase),
+            new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase));
+
+        ResolvedStoryChapter first = NarrativeCourseScheduler.SelectNext(catalog, state, neutral);
+        Require(first.Definition.Cefr.Equals("A1", StringComparison.OrdinalIgnoreCase),
+            "Fresh deterministic course should begin at the lowest incomplete CEFR unit.");
 
         StoryCourseStateStore.RecordOpen(state, catalog, first, DateTimeOffset.UtcNow);
         StoryCourseStateStore.RecordCompletion(state, first, DateTimeOffset.UtcNow);
-        ResolvedStoryChapter next = StoryCourseScheduler.SelectNext(
-            catalog,
-            state,
-            new StorySchedulingContext(
-                new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase),
-                new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase)));
-        Require(!next.Definition.Id.Equals(first.Definition.Id, StringComparison.OrdinalIgnoreCase), "Completed chapter should move behind an incomplete chapter without weakness evidence.");
+        ResolvedStoryChapter second = NarrativeCourseScheduler.SelectNext(catalog, state, neutral);
+        Require(second.Definition.Cefr.Equals("A2", StringComparison.OrdinalIgnoreCase),
+            "After completing the A1 wave, the course should advance to A2 before recycling later CEFR material.");
+
+        StoryCourseStateStore.RecordCompletion(state, second, DateTimeOffset.UtcNow);
+        ResolvedStoryChapter third = NarrativeCourseScheduler.SelectNext(catalog, state, neutral);
+        Require(third.Definition.Cefr.Equals("B1", StringComparison.OrdinalIgnoreCase),
+            "Structured course progression should continue A1 -> A2 -> B1.");
+
+        // Weakness may rank eligible material, but it must never make a fresh
+        // learner skip an earlier CEFR wave.
+        ResolvedStoryChapter c1 = catalog.ChaptersById.Values.Single(chapter => chapter.Definition.Cefr.Equals("C1", StringComparison.OrdinalIgnoreCase));
+        var forcedLaterWeakness = new StorySchedulingContext(
+            c1.StableTargetEntryIds.ToDictionary(id => id, _ => 1.0, StringComparer.OrdinalIgnoreCase),
+            c1.Definition.GrammarSkillIds.ToDictionary(id => id, _ => 1.0, StringComparer.OrdinalIgnoreCase));
+        StoryCourseState fresh = StoryCourseStateStore.Normalize(new StoryCourseState());
+        Require(NarrativeCourseScheduler.SelectNext(catalog, fresh, forcedLaterWeakness).Definition.Cefr.Equals("A1", StringComparison.OrdinalIgnoreCase),
+            "Weak C1 evidence must not bypass the A1 course gate for a fresh learner.");
 
         IReadOnlyList<StoryPracticeRoute> routes = StoryCoursePracticeRouter.BuildPostStoryRoutes(catalog, first);
         Require(routes.Count == 4, "Story completion must produce Recall, Spelling, Sentence and Grammar routing contracts.");
