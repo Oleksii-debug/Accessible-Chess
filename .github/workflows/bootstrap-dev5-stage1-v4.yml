@@ -35,7 +35,7 @@ jobs:
           if source.count(old_sha) < 1:
               raise SystemExit('V3 source lock not found')
           out = source.replace(old_sha, new_sha)
-          out = out.replace('Accessible-Chess-0.4-0fa4423-NVDA-test-candidate.zip', 'Accessible-Chess-0.4-80720e8-NVDA-test-candidate.zip')
+          out = out.replace('0fa4423', '80720e8')
           out = out.replace('dev5-stage1-fresh-windows-candidate-v3.yml', 'dev5-stage1-fresh-windows-candidate-v4.yml')
           out = out.replace('fresh-candidate-v3', 'fresh-candidate-v4')
           out = out.replace('V3', 'V4').replace('v3', 'v4')
@@ -47,11 +47,12 @@ jobs:
               "classification='A'",
               'evidence_complete=$true',
               new_sha,
+              'Accessible-Chess-0.4-80720e8-NVDA-test-candidate.zip',
           ]
           for token in required:
               if token not in out:
                   raise SystemExit(f'locked V4 token missing: {token}')
-          if old_sha in out or '0fa4423-NVDA-test-candidate' in out:
+          if old_sha in out or '0fa4423' in out:
               raise SystemExit('stale Product/candidate identity remains')
           Path('.github/workflows/dev5-stage1-fresh-windows-candidate-v4.yml').write_text(out, encoding='utf-8', newline='\n')
           print('V4 STRICT WORKFLOW MATERIALIZED FROM RETAINED V3')
