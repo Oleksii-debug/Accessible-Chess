@@ -4,9 +4,11 @@ on:
   pull_request:
     paths:
       - 'acs/education_records.py'
+      - 'acs/education_records_store.py'
       - 'acs/classroom_domain.py'
       - 'acs/remote_session.py'
       - 'tests/test_education_records.py'
+      - 'tests/test_education_records_store.py'
       - 'tests/test_classroom_domain.py'
       - 'tests/test_classroom_domain_corruption.py'
       - 'tests/test_remote_session.py'
@@ -33,10 +35,20 @@ jobs:
           python -m pip install pytest
       - name: Diff hygiene
         run: git diff --check HEAD^1 HEAD
-      - name: Compile D10 domain
-        run: python -m compileall -q acs/education_records.py acs/classroom_domain.py acs/remote_session.py tests/test_education_records.py
-      - name: Focused D10 education records
-        run: python -m unittest tests.test_education_records -v
+      - name: Compile D10 domain and persistence
+        run: >-
+          python -m compileall -q
+          acs/education_records.py
+          acs/education_records_store.py
+          acs/classroom_domain.py
+          acs/remote_session.py
+          tests/test_education_records.py
+          tests/test_education_records_store.py
+      - name: Focused D10 education records and store
+        run: >-
+          python -m unittest -v
+          tests.test_education_records
+          tests.test_education_records_store
       - name: Existing classroom domain regressions
         run: python -m unittest tests.test_classroom_domain tests.test_classroom_domain_corruption -v
       - name: Existing remote session regressions
@@ -74,7 +86,7 @@ jobs:
           test "$head_status" -eq 1
           grep -q '2 failed' /tmp/d10-head-known.txt
 
-          # Prove the exact PR base has the same two failures, rather than declaring them unrelated.
+          # Prove the exact PR base has the same failures rather than declaring them unrelated.
           git worktree add --detach /tmp/d10-base HEAD^1
           set +e
           (cd /tmp/d10-base && python -m pytest -q "$head_one" "$head_two") > /tmp/d10-base-known.txt 2>&1
