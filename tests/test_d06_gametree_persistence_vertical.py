@@ -86,14 +86,12 @@ class D06GameTreePersistenceVerticalTests(unittest.TestCase):
         self.assertEqual(validate_cursor(restored, mapped_selected), mapped_selected)
         self.assertEqual(validate_cursor(restored, mapped_old_mainline), mapped_old_mainline)
 
-        # The nested RAV under the promoted Sicilian line remains nested after
-        # structural promotion, serialization and reparsing.
+        # The original nested d6?! RAV is now attached directly to promoted
+        # root-line Nf3.  It must survive structural promotion + write/reparse.
         nested_lines = [
             variation
             for move in restored.line.moves
             for variation in move.variations
-            for child_move in variation.moves
-            for variation in child_move.variations
         ]
         self.assertTrue(
             any(
