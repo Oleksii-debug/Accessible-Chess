@@ -82,6 +82,34 @@ def _same_source(left: SourceFingerprint, right: SourceFingerprint) -> bool:
     )
 
 
+def _batch_error_text(exc: Exception, source: Path) -> str:
+    """Render one batch failure without exposing workstation filesystem paths.
+
+    Registry-owned errors are already constructed from safe report values and
+    retain their useful diagnostics. Filesystem exceptions require special
+    handling because ``str(OSError)`` republishes ``filename``/``filename2``.
+    Importer ``ValueError`` text is not trusted as user-safe, so batch reports a
+    stable source-scoped message while the strict ``inspect`` call continues to
+    expose the original exception to callers that need internal diagnostics.
+    """
+
+    if isinstance(exc, ImportRegistryError):
+        return str(exc)
+    if isinstance(exc, OSError):
+        detail = str(getattr(exc, "strerror", "") or "Filesystem error").strip()
+        names: list[str] = []
+        for candidate in (getattr(exc, "filename", None), getattr(exc, "filename2", None)):
+            if candidate is None:
+                continue
+            safe = report_safe_name(candidate)
+            if safe and safe not in names:
+                names.append(safe)
+        if not names:
+            names.append(report_safe_name(source))
+        return f"{detail}: {' -> '.join(names)}"
+    return f"Importer rejected source: {report_safe_name(source)}"
+
+
 class ImportRegistry:
     def __init__(self) -> None:
         self._by_suffix: dict[str, ReadOnlyImporter] = {}
@@ -158,7 +186,7 @@ class ImportRegistry:
             try:
                 report = self.inspect(source)
             except (ImportRegistryError, OSError, ValueError) as exc:
-                items.append(BatchInspectionItem(path=source, error=str(exc)))
+                items.append(BatchInspectionItem(path=source, error=_batch_error_text(exc, source)))
             else:
                 items.append(BatchInspectionItem(path=source, report=report))
         return BatchInspection(items=tuple(items))
