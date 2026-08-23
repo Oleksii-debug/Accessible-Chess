@@ -83,8 +83,8 @@ _UK_LABELS = {
 }
 
 for _number in range(1, 9):
-    _UK_LABELS[f"board.rank_{_number}"] = f"Перейти на {_number} горизонталь"
-    _UK_LABELS[f"board.file_{_number}"] = f"Перейти на вертикаль {'abcdefgh'[_number - 1]}"
+    _UK_LABELS[f"board.rank_{_number}"] = f"Горизонталь {_number}"
+    _UK_LABELS[f"board.file_{_number}"] = f"Вертикаль {'abcdefgh'[_number - 1]}"
 
 
 def build_web_keymap(registry: ActionRegistry | None = None) -> dict[str, Any]:
