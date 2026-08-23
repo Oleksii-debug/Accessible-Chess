@@ -1,0 +1,86 @@
+name: D01 Training Fixture Compatibility
+
+on:
+  pull_request:
+    paths:
+      - 'tests/test_dev1_full_product_ui_packages.py'
+      - '.github/workflows/d01-training-fixture-compat.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  BASE_SHA: dd9ebf9414103c805892856fe6a04706fa69039f
+  D08_SHA: 57f53ad3418ef85f60d34cd953027f78b3df9f40
+
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Preserve LF checkout on Windows
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          git config core.autocrlf false
+          git config core.eol lf
+          git reset --hard HEAD
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install pytest
+        run: python -m pip install -q pytest
+
+      - name: Prove narrow D01 fixture scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git merge-base "$BASE_SHA" HEAD)" = "$BASE_SHA"
+          git diff --check "$BASE_SHA" HEAD
+          mapfile -t changed < <(git diff --name-only "$BASE_SHA" HEAD | sort)
+          expected=(
+            ".github/workflows/d01-training-fixture-compat.yml"
+            "tests/test_dev1_full_product_ui_packages.py"
+          )
+          printf '%s\n' "${expected[@]}" | sort > "$RUNNER_TEMP/expected.txt"
+          printf '%s\n' "${changed[@]}" > "$RUNNER_TEMP/changed.txt"
+          diff -u "$RUNNER_TEMP/expected.txt" "$RUNNER_TEMP/changed.txt"
+
+      - name: Compile
+        run: python -m compileall -q acs tests run_accessible_chess.py
+
+      - name: D01 full-product presenter regressions
+        run: python -m unittest -v tests.test_dev1_full_product_ui_packages
+
+      - name: Full baseline unittest
+        run: python -m unittest discover -s tests -p "test_*.py"
+
+      - name: Full baseline pytest
+        run: python -m pytest -q
+
+      - name: Prove compatibility with exact clean D08 training Product
+        shell: bash
+        run: |
+          set -euo pipefail
+          git cat-file -e "$D08_SHA^{commit}"
+          git show "$D08_SHA:acs/training.py" > acs/training.py
+          git show "$D08_SHA:tests/test_training.py" > tests/test_training.py
+          git show "$D08_SHA:tests/test_d08_training_canonical_resume.py" > tests/test_d08_training_canonical_resume.py
+          python -m unittest -v \
+            tests.test_dev1_full_product_ui_packages.TrainingPresenterTests \
+            tests.test_training \
+            tests.test_d08_training_canonical_resume
+
+      - name: Diagnostic
+        run: python run_accessible_chess.py --diagnostic
