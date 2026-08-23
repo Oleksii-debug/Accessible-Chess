@@ -19,7 +19,8 @@ internal static class Dev01RecallSpellingHardeningSelfTest
     public static void Run()
     {
         TestNormalStartupUsesProtectedSpellingMigrationPath();
-        Console.WriteLine("WordDeck DEV01 Recall/Spelling hardening passed: normal startup preserves pre-migration Spelling state and fail-closed recovery.");
+        TestSpellingEvidenceBoundary();
+        Console.WriteLine("WordDeck DEV01 Recall/Spelling hardening passed: normal startup preserves pre-migration Spelling state, fail-closed recovery remains intact, and Spelling exposes read-only platform-neutral learning evidence.");
     }
 
     private static void TestNormalStartupUsesProtectedSpellingMigrationPath()
@@ -64,6 +65,51 @@ internal static class Dev01RecallSpellingHardeningSelfTest
         {
             try { if (Directory.Exists(root)) Directory.Delete(root, true); } catch { }
         }
+    }
+
+    private static void TestSpellingEvidenceBoundary()
+    {
+        const string dictionaryId = "evidence-dictionary";
+        var state = new SpellingState
+        {
+            StatsByDictionary = new Dictionary<string, Dictionary<string, SpellingEntryStats>>(StringComparer.OrdinalIgnoreCase)
+            {
+                [dictionaryId] = new Dictionary<string, SpellingEntryStats>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["word-b"] = new SpellingEntryStats
+                    {
+                        CompletedReviews = 4,
+                        FirstTrySuccesses = 3,
+                        WrongAttempts = 2,
+                        HintUses = 1,
+                        CurrentStreak = 2,
+                        LastReviewedUtc = DateTimeOffset.Parse("2026-08-23T10:00:00Z")
+                    },
+                    ["word-a"] = new SpellingEntryStats
+                    {
+                        CompletedReviews = 2,
+                        FirstTrySuccesses = 2,
+                        WrongAttempts = 0,
+                        HintUses = 0,
+                        CurrentStreak = 2
+                    }
+                }
+            }
+        };
+
+        var source = new SpellingLearningEvidenceSource(state);
+        IReadOnlyList<LearningEvidenceRecord> evidence = source.Snapshot(dictionaryId);
+        Require(evidence.Count == 2, "Spelling evidence snapshot omitted persisted word statistics.");
+        Require(evidence[0].EntryId == "word-a" && evidence[1].EntryId == "word-b",
+            "Spelling evidence snapshot is not deterministic by stable entry ID.");
+        Require(evidence.All(item => item.DictionaryId == dictionaryId && item.ModeId == SpellingLearningEvidenceSource.ModeId),
+            "Spelling evidence lost dictionary or mode identity.");
+        Require(Math.Abs(evidence[1].FirstTryRate - 0.75) < 0.000001,
+            "Spelling evidence computed an incorrect first-try rate.");
+        Require(state.StatsByDictionary[dictionaryId]["word-b"].CompletedReviews == 4,
+            "Read-only Spelling evidence projection mutated source statistics.");
+        Require(source.Snapshot("missing-dictionary").Count == 0,
+            "Missing dictionary evidence did not fail closed to an empty snapshot.");
     }
 
     private static void Require(bool condition, string message)
