@@ -1,21 +1,26 @@
 # DEV5_NEXT_WORK
 
-SOURCE_RUN: 20260823-1356
-MODE: SAFE_OVERLAP / TERMINAL_REPAIR_REVALIDATION_NEXT
+SOURCE_RUN: 20260823-1416
+MODE: AUDIT_ACCEPTANCE_THEN_FRESH_WINDOWS_CHAIN
 
-1. Do not certify `80720e8125c59a213f278668d599040f2768d553`; PR #159 proves a release-critical Stockfish runtime path-privacy defect on that exact SHA.
-2. Preserve already-merged PR #151 history. The repair must be an appended minimal Product delta, not a force-rewrite.
-3. At the next fresh cutoff, re-read all touching DEV4/DEV5 repair branches and their exact runs before any Product write.
-4. Identify one terminal repair Product commit rooted at `80720e8...`; inspect exact changed files and ancestry. Never merge validation/QA topology wholesale.
-5. Required repair semantics: `resolve_stockfish_path()` diagnostics may expose only safe executable-name/report provenance, never private parent directories or raw untrusted resolution exception text. Preserve typed errors, actual resolved Path, configured-path authority, packaged-relative layout, provider identity, retry/close and UCI lifecycle semantics.
-6. Required validation on exact terminal repair: ancestry/diff hygiene; existing Stockfish runtime regressions; byte-unchanged PR #159 3-case oracle; current `tests/test_stage1_release_path_privacy.py`; complete focused Stage1 privacy/release suite; full unittest; full pytest; SELFTEST; complete diagnostic; Linux/Windows as applicable.
-7. CI failures attributable to validation topology may be classified as QA-only only when logs prove Product/focused oracles passed, but promotion still requires a corrected terminal GREEN run.
-8. If any worker remains active/touching at the next cutoff, remain SAFE OVERLAP and do not compete.
-9. If terminal pre-cutoff evidence is fully GREEN, selectively append only the required Product delta to current Stage1 integration history and obtain independent AUDIT_MASTER acceptance of the exact resulting SHA.
-10. PR #160/V4 and any archive locked to defective `80720e8...` are stale and forbidden as candidate authority.
-11. Only after accepted repair authority exists, create/designate exactly one fresh WIP=1 Windows candidate chain locked to that SHA: source/frozen identity, release contracts, WAV, official Stockfish, native menu, Nuitka, built EXE diagnostic, real WebView2, strict packaged UIA, packaged sound/Stockfish lifecycle, release preflight, ZIP reopen/hash/identity, artifact upload.
-12. Move Edit ValuePattern/SetValue/Ctrl+A/Ctrl+C remains QA-owned `C — INCONCLUSIVE`; do not mix speculative keyboard/clipboard Product changes into the privacy repair.
-13. `FRESH_WINDOWS_CANDIDATE=NO`, `READY_FOR_RELEASE=NO`, `NVDA_VERIFIED=NO` until exact evidence changes them.
-14. Persistent Full Product authority remains `dd9ebf9414103c805892856fe6a04706fa69039f` during Stage1 release freeze.
-15. Old rejected ZIP, PR #54 and frozen refs remain untouched.
-16. No force-push, skips, xfails, test weakening or duplicate touching Product implementation.
+1. Do not create another Stockfish runtime privacy implementation. Canonical Product repair is `1e9d23b034e6d347fe03c3581469a07e16037c55`; DEV5 PR #167 is byte-identical integration staging, not a competing solution.
+2. Preserve `manual5/integration-20260821@80720e8125c59a213f278668d599040f2768d553` as current historical integration head but keep it RELEASE_HOLD because PR #159 proves its resolver privacy defect.
+3. Independent repair evidence is terminal: DEV4 PR #165 head `e9ac9dc15b223f16914ab670358574192349995f`, run `32635517279` SUCCESS Ubuntu+Windows; DEV5 dedicated PR #167 run `32635555544` SUCCESS in four Ubuntu/Windows jobs.
+4. Treat inherited old PR #151 workflow run `32635555545` as stale hard-coded scope/topology failure only; do not weaken or broaden that historical guard merely to force GREEN.
+5. Consume cross-lane release evidence instead of duplicating it: DEV1 #164 / `32635368438` GREEN for 81/81 candidate-facing UI/accessibility/NVDA contracts; DEV2 #166 / `32635341589` GREEN for 264 canonical core/history/FEN/atomicity cases on exact `1e9d23b...`.
+6. DEV3 #168 is validation-only. If later terminal evidence adds genuinely new coverage, record it; never promote its QA topology or use it to create another Product lineage.
+7. Require independent AUDIT_MASTER readback of exact DEV4 Product `1e9d23b...`, PR #165 terminal evidence, DEV5 staging byte identity and dedicated run `32635555544` before Stage1 promotion.
+8. After Audit acceptance, append/select only the minimal Product delta into Stage1 authority. No whole validation PR merge, no force rewrite of PR #151 history, no frozen-ref mutation.
+9. Do not repair/reuse PR #160/V4: it targets defective `80720e8...`. A new Windows chain must be fresh and locked to the accepted repaired Stage1 SHA.
+10. Exactly one WIP=1 fresh Windows candidate chain after promotion: exact source/frozen identity → release contracts → WAV → official Stockfish → native menu → Nuitka standalone → built-EXE diagnostic → real WebView2 startup → strict packaged UIA → packaged sound/Stockfish lifecycle → release preflight → ZIP reopen/hash/identity → artifact upload.
+11. Keep packaged Move Edit ValuePattern/SetValue/Ctrl+A/Ctrl+C classification honest: current evidence is `C — INCONCLUSIVE / QA synchronization-and-observability`. Do not patch Product selection/clipboard without explicit B-class evidence/ownership transfer.
+12. Keep active DEV2 P1 work isolated: RUN `20260823-1404` owns `acs/history.py`; do not touch that path.
+13. Keep DEV-A PR #170 isolated in its Full Product lane. Do not pull TeachingSession adapter work into Stage1 release; its current RED does not authorize DEV5 Teacher edits.
+14. Persistent Full Product authority stays `dd9ebf9414103c805892856fe6a04706fa69039f` until Stage1 release freeze closes and a later selective combined exact-GREEN composition is performed.
+15. Duplicate/obsolete evidence: DEV1 #169 stays closed; DEV-B old repair state is historical; DEV-C remains coordination-only unless a newer explicit ownership handoff says otherwise.
+16. Old rejected ZIP, PR #54 and frozen refs remain untouched.
+17. No force-push, skips, xfails, assertion weakening, duplicate Product implementation or CI rerun solely to obtain green.
+
+FRESH_WINDOWS_CANDIDATE=NO
+READY_FOR_RELEASE=NO
+NVDA_VERIFIED=NO
