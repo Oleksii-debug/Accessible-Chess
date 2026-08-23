@@ -1,0 +1,111 @@
+name: DEV5 Stage1 Stockfish Runtime Path Privacy Repair
+
+on:
+  pull_request:
+    branches:
+      - manual5/integration-20260821
+    paths:
+      - 'acs/stockfish_runtime.py'
+      - 'tests/test_stage1_stockfish_runtime_path_privacy.py'
+      - '.github/workflows/dev5-stage1-stockfish-runtime-path-privacy-repair.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  BASE_SHA: 80720e8125c59a213f278668d599040f2768d553
+  QA_SHA: 66d5affbe027a86717a775198ec9fbcf8aba8545
+  QA_ORACLE_BLOB: f674de79b19a852f29837edab138c20b28f24162
+
+jobs:
+  exact-qa-oracle:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Prove exact repair ancestry and narrow Product scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git merge-base HEAD "$BASE_SHA")" = "$BASE_SHA"
+          git diff --check "$BASE_SHA"...HEAD
+          git diff --name-only "$BASE_SHA"...HEAD | sort
+      - name: Compile Product and Product regression
+        run: python -m compileall -q acs tests run_accessible_chess.py
+      - name: Existing and Product-owned Stockfish runtime regressions
+        run: python -m unittest -v tests.test_stockfish_runtime tests.test_stage1_stockfish_runtime_path_privacy
+      - name: Replay PR159 oracle byte-identically
+        shell: bash
+        run: |
+          set -euo pipefail
+          git cat-file -e "$QA_SHA^{commit}"
+          test "$(git rev-parse "$QA_SHA:tests/test_dev3_stockfish_runtime_path_privacy.py")" = "$QA_ORACLE_BLOB"
+          git show "$QA_SHA:tests/test_dev3_stockfish_runtime_path_privacy.py" > tests/test_dev3_stockfish_runtime_path_privacy.py
+          test "$(git hash-object tests/test_dev3_stockfish_runtime_path_privacy.py)" = "$QA_ORACLE_BLOB"
+          python -m unittest -v tests.test_dev3_stockfish_runtime_path_privacy
+
+  full-regression:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install verification dependencies
+        run: python -m pip install -q pytest
+      - name: Exact source and diff hygiene
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git merge-base HEAD "$BASE_SHA")" = "$BASE_SHA"
+          git diff --check "$BASE_SHA"...HEAD
+          changed="$(git diff --name-only "$BASE_SHA"...HEAD)"
+          printf '%s\n' "$changed"
+          if printf '%s\n' "$changed" | grep -E '(^|/)(acsdb|chessbase|bookdocument|bookreader|book_index|training|teacher|classroom|remote_lesson)([^/]*)(/|\.|$)' ; then
+            echo 'Stage2 contamination detected' >&2
+            exit 1
+          fi
+          if printf '%s\n' "$changed" | grep -E '(^|/)tools/qa/|windows-stage1-strict' ; then
+            echo 'QA-owned strict harness contamination detected' >&2
+            exit 1
+          fi
+      - name: Compile exact repair head
+        run: python -m compileall -q acs tests run_accessible_chess.py
+      - name: Current privacy and Stockfish regression surface
+        run: >-
+          python -m pytest -q
+          tests/test_stage1_release_path_privacy.py
+          tests/test_stage1_stockfish_runtime_path_privacy.py
+          tests/test_stockfish_runtime.py
+          tests/test_dev4_engine_error_path_privacy.py
+      - name: Focused Stage1 release contracts
+        run: >-
+          python -m unittest -v
+          tests.test_release_preflight
+          tests.test_issue22_release_contract
+          tests.test_nvda_p0_contract
+          tests.test_stage1_packaged_focus_origin_contract
+          tests.test_stage1_webview2_accessibility_boundary
+          tests.test_webview_safe_server
+          tests.test_legacy_release_workflow_safety
+      - name: Full repository unittest discovery
+        run: python -m unittest discover -s tests -v
+      - name: Full repository pytest
+        run: python -m pytest -q
+      - name: Complete diagnostic
+        run: python run_accessible_chess.py --diagnostic
