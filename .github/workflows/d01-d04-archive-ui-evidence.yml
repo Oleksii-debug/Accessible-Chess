@@ -15,6 +15,8 @@ env:
   PRODUCT_SHA: 0dae9b62fd4f152a5f362674e11039ad34b481c3
   D01_FOCUS_BLOB: bced41192feb068a71ed0789be5629164a37e6c9
   D04_PREFLIGHT_BLOB: f8fc86f2f9814ca97821ef8199ba4a2dc7ab81dd
+  DEV5_FOCUS_ORACLE_SHA: 965f8ed95eb2ae4f2e628b77855c0a6dbd0d4321
+  DEV5_FOCUS_ORACLE_BLOB: 2fec761ded7e3af193b6f309f03876141be8ab41
 
 jobs:
   verify:
@@ -64,7 +66,6 @@ jobs:
       - name: Candidate-facing D01 UI/NVDA/focus contracts
         run: >-
           python -m unittest -v
-          tests.test_d01_submit_focus_route_contract
           tests.test_stage1_packaged_focus_origin_contract
           tests.test_issue22_release_contract
           tests.test_stage1_release_composition_ui
@@ -73,6 +74,18 @@ jobs:
           tests.test_webview_keymap_bridge_contract
           tests.test_stage1_native_menu_action_routing
           tests.test_board_rank_file_remapping_ui
+
+      - name: Replay immutable DEV5 submit-focus oracle
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse "$DEV5_FOCUS_ORACLE_SHA:tests/test_dev5_stage1_submit_listener_focus_route.py")" = "$DEV5_FOCUS_ORACLE_BLOB"
+          rm -rf qa_oracles
+          mkdir -p qa_oracles
+          : > qa_oracles/__init__.py
+          git show "$DEV5_FOCUS_ORACLE_SHA:tests/test_dev5_stage1_submit_listener_focus_route.py" > qa_oracles/test_dev5_stage1_submit_listener_focus_route.py
+          test "$(git hash-object qa_oracles/test_dev5_stage1_submit_listener_focus_route.py)" = "$DEV5_FOCUS_ORACLE_BLOB"
+          python -m unittest -v qa_oracles.test_dev5_stage1_submit_listener_focus_route
 
       - name: D04 archive canonicality regressions
         run: >-
