@@ -12,6 +12,7 @@ on:
       - 'tests/test_classroom_domain.py'
       - 'tests/test_classroom_domain_corruption.py'
       - 'tests/test_remote_session.py'
+      - 'docs/ADR-D10-education-records-authority.md'
       - '.github/workflows/d10-education-records-ci.yml'
 
 permissions:
