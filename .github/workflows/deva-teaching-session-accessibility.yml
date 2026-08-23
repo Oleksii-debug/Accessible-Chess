@@ -84,4 +84,4 @@ jobs:
       - name: Selftest
         run: python -m acs.selftest
       - name: Complete WebView2 diagnostic
-        run: python tools/complete_user_flow_diagnostic.py
+        run: python run_accessible_chess.py --diagnostic
