@@ -1,0 +1,54 @@
+name: DEV5 Stage1 Submit Listener Focus Route
+
+on:
+  pull_request:
+    paths:
+      - 'web/stage1_release_bootstrap.js'
+      - 'web/index.html'
+      - 'tests/test_stage1_packaged_focus_origin_contract.py'
+      - 'tests/test_dev5_stage1_submit_listener_focus_route.py'
+      - '.github/workflows/dev5-stage1-submit-listener-focus-route.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  focused-oracle:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Prove exact QA branch parent and scope
+        shell: pwsh
+        run: |
+          git cat-file -e '574d8c7344a7490de46ba38498f363395c951019^{commit}'
+          if($LASTEXITCODE -ne 0){throw 'Expected combined repair parent unavailable'}
+          $mergeBase=(git merge-base HEAD 574d8c7344a7490de46ba38498f363395c951019).Trim()
+          if($mergeBase -ne '574d8c7344a7490de46ba38498f363395c951019'){throw "Unexpected merge base: $mergeBase"}
+          $changed=@(git diff --name-only 574d8c7344a7490de46ba38498f363395c951019...HEAD)
+          $allowed=@(
+            '.github/workflows/dev5-stage1-submit-listener-focus-route.yml',
+            'tests/test_dev5_stage1_submit_listener_focus_route.py',
+            'web/stage1_release_bootstrap.js'
+          )
+          foreach($path in $changed){if($path -notin $allowed){throw "Unexpected changed path: $path"}}
+          'EXACT PARENT + BOUNDED DEV5 FOCUS-ROUTE SCOPE PASS'
+      - name: Existing Stage1 focus contracts
+        shell: pwsh
+        run: |
+          python -m unittest -v tests.test_stage1_packaged_focus_origin_contract
+          if($LASTEXITCODE -ne 0){throw 'Existing Stage1 focus contracts failed'}
+      - name: Focused retained-listener oracle
+        shell: pwsh
+        run: |
+          python -m unittest -v tests.test_dev5_stage1_submit_listener_focus_route
+          if($LASTEXITCODE -ne 0){throw 'Focused submit-listener focus-route oracle failed'}
