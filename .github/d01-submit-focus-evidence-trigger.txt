@@ -1,0 +1,3 @@
+D01 exact Product evidence trigger after Windows LF checkout hardening.
+Product parent: autopulse/d01-submit-focus-route-20260823@cf28971d5bf3c33c3409e069a817fc884f8244fe
+No Product mutation in this evidence commit.
