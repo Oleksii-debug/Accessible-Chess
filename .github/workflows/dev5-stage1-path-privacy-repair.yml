@@ -93,7 +93,7 @@ jobs:
           python -m pytest -q \
             qa_oracles/test_pgn_external.py::Dev4PgnErrorPathPrivacyTests::test_existing_destination_error_does_not_expose_absolute_parent_path \
             qa_oracles/test_pgn_external.py::Dev4PgnErrorPathPrivacyTests::test_expected_hash_mismatch_does_not_expose_absolute_parent_path
-          python qa_oracles/drive_relative_oracle.py
+          python -m qa_oracles.drive_relative_oracle
       - name: Full unittest
         run: python -m unittest discover -v tests
       - name: Full pytest
