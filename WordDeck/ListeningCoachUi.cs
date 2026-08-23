@@ -46,10 +46,18 @@ internal sealed class ListeningCoachForm : Form
     {
         var menu = new MenuStrip();
         var progress = new ToolStripMenuItem("&Progress") { AccessibleName = "Listening progress" };
+        var statistics = new ToolStripMenuItem("&Statistics...")
+        {
+            AccessibleName = "Listening statistics",
+            AccessibleDescription = "Show Listening accuracy, mastery, attempts, replays, answer reveals and skips for the current study scope."
+        };
+        statistics.Click += (_, _) => ShowStatistics();
         var export = new ToolStripMenuItem("&Export Listening progress...") { AccessibleName = "Export Listening progress" };
         export.Click += (_, _) => ExportProgress();
         var import = new ToolStripMenuItem("&Import Listening progress...") { AccessibleName = "Import Listening progress" };
         import.Click += (_, _) => ImportProgress();
+        progress.DropDownItems.Add(statistics);
+        progress.DropDownItems.Add(new ToolStripSeparator());
         progress.DropDownItems.Add(export);
         progress.DropDownItems.Add(import);
         menu.Items.Add(progress);
@@ -204,6 +212,30 @@ internal sealed class ListeningCoachForm : Form
         catch (Exception ex) { SetStatus(ex.Message); }
     }
 
+    private void ShowStatistics()
+    {
+        try
+        {
+            ListeningStatistics stats = _engine.Statistics();
+            string scope = StudyScopeIds.DisplayName(_state.ActiveScopeId);
+            string message =
+                $"Study scope: {scope}\n" +
+                $"Available audio items: {stats.AvailableItems}\n" +
+                $"Items reviewed: {stats.ReviewedItems}\n" +
+                $"Completed reviews: {stats.CompletedReviews}\n" +
+                $"Correct reviews: {stats.CorrectReviews}\n" +
+                $"Accuracy: {stats.Accuracy:P1}\n" +
+                $"Average mastery: {stats.AverageMastery:P1}\n" +
+                $"Wrong attempts: {stats.WrongAttempts}\n" +
+                $"Audio replays: {stats.ReplayCount}\n" +
+                $"Answers shown: {stats.ShowAnswerUses}\n" +
+                $"Skipped items: {stats.SkipCount}\n" +
+                $"History entries in this scope: {stats.HistoryEntries}";
+            MessageBox.Show(this, message, "Listening statistics", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        }
+        catch (Exception ex) { SetStatus($"Listening statistics could not be calculated: {ex.Message}"); }
+    }
+
     private void ExportProgress()
     {
         using var dialog = new SaveFileDialog
@@ -286,7 +318,7 @@ internal sealed class ListeningCoachForm : Form
         string show = ShortcutFormatter.Format(_shortcuts.Get(ActionIds.ListeningShowAnswer));
         string next = ShortcutFormatter.Format(_shortcuts.Get(ActionIds.ListeningNext));
         MessageBox.Show(this,
-            $"Listening and Dictation uses installed offline British audio. The written answer is hidden until Enter checks it or the explicit Show answer command reveals it. Replay: {replay}. Show answer: {show}. Next: {next}. These commands can be changed in Training keyboard shortcuts. An unfinished item resumes after restart when its audio is still available. Listening progress is separate from Recall and Spelling.",
+            $"Listening and Dictation uses installed offline British audio. The written answer is hidden until Enter checks it or the explicit Show answer command reveals it. Replay: {replay}. Show answer: {show}. Next: {next}. These commands can be changed in Training keyboard shortcuts. The Progress menu contains current-scope statistics and profile import/export. An unfinished item resumes after restart when its audio is still available. Listening progress is separate from Recall and Spelling.",
             "Listening and Dictation help", MessageBoxButtons.OK, MessageBoxIcon.Information);
     }
 
