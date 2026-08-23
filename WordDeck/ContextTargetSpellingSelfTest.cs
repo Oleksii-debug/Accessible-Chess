@@ -20,9 +20,10 @@ internal static class ContextTargetSpellingSelfTest
         TestTwoTargetCardCreatesTwoExercises();
         TestThreeTargetCardCreatesThreeExercises();
         TestMultiwordOrderAndHyphenation();
+        TestRepeatedTargetOccurrenceFailsClosed();
         TestMorphologyFailsClosed();
         TestAmbiguousStableIdentityFailsClosed();
-        Console.WriteLine("Context target-spelling self-test PASS: target-only answers, 1/2/3 stable IDs, exact hyphenation, multiword order, homograph identity and morphology fail-closed verified.");
+        Console.WriteLine("Context target-spelling self-test PASS: target-only answers, 1/2/3 stable IDs, exact hyphenation, repeated-target rejection, multiword order, homograph identity and morphology fail-closed verified.");
     }
 
     private static void TestSingleTargetExactPhysicalForm()
@@ -118,6 +119,27 @@ internal static class ContextTargetSpellingSelfTest
         Check(rejected, "Sentence Spelling trusted a token-only index even though the exact hyphenated dictionary form was absent from the sentence.");
     }
 
+    private static void TestRepeatedTargetOccurrenceFailsClosed()
+    {
+        DictionaryPackage dictionary = FixtureDictionary();
+        var lexicon = new ContextTargetLexicon(dictionary);
+        ContextPracticeCard card = Card(
+            "s-very-very",
+            "Це дуже, дуже корисно",
+            "This is very very useful",
+            new[] { "ox-very" },
+            new[] { "very" });
+
+        bool rejected = false;
+        try { _ = ContextTargetSpellingService.Build(card, "ox-very", lexicon, dictionary); }
+        catch (InvalidDataException ex)
+        {
+            rejected = ex.Message.Contains("more than once", StringComparison.OrdinalIgnoreCase) &&
+                       ex.Message.Contains("exactly one missing target occurrence", StringComparison.OrdinalIgnoreCase);
+        }
+        Check(rejected, "Repeated physical target occurrences created an ambiguous multi-blank exercise with one-answer semantics.");
+    }
+
     private static void TestMorphologyFailsClosed()
     {
         DictionaryPackage dictionary = FixtureDictionary();
@@ -169,6 +191,7 @@ internal static class ContextTargetSpellingSelfTest
             new("ox-learn", "A1", "learn", "вивчати"),
             new("ox-words", "A1", "words", "слова"),
             new("ox-full-time", "B2", "full-time", "повний робочий день"),
+            new("ox-very", "A1", "very", "дуже"),
             new("ox-run", "A1", "run", "бігати")
         };
         if (includeAmbiguousImprove)

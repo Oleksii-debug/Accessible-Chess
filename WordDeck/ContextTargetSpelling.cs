@@ -219,10 +219,16 @@ internal static class ContextTargetSpellingService
 
         string physicalForm = ContextPhysicalTargetForm.CanonicalDisplay(target.Source);
         Regex occurrenceRegex = ContextPhysicalTargetForm.BuildOccurrenceRegex(physicalForm);
-        if (!occurrenceRegex.IsMatch(card.EnglishAnswer))
+        MatchCollection occurrences = occurrenceRegex.Matches(card.EnglishAnswer);
+        if (occurrences.Count == 0)
         {
             throw new InvalidDataException(
                 $"Sentence {card.SentenceId} indexes target {focusId}, but exact physical dictionary form '{physicalForm}' is not present in the canonical English sentence. Target-form spelling fails closed rather than guessing morphology, spacing or hyphenation.");
+        }
+        if (occurrences.Count > 1)
+        {
+            throw new InvalidDataException(
+                $"Sentence {card.SentenceId} contains the exact physical dictionary form '{physicalForm}' more than once. Target-form spelling fails closed because one typed answer must correspond to exactly one missing target occurrence.");
         }
 
         var prompt = new ContextTargetSpellingPrompt(
@@ -230,7 +236,7 @@ internal static class ContextTargetSpellingService
             focusId,
             target.Target,
             card.UkrainianPrompt,
-            occurrenceRegex.Replace(card.EnglishAnswer, "[blank]"),
+            occurrenceRegex.Replace(card.EnglishAnswer, "[blank]", 1),
             card.SourceId,
             card.SourceKind,
             card.Provenance,
