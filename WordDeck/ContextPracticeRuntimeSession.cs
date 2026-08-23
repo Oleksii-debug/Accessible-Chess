@@ -14,6 +14,7 @@ internal sealed record ContextRuntimeResult(
     ContextStudyPoolSelection StudyPool,
     ContextVocabularySnapshot VocabularySnapshot,
     ContextCoverageEvidence Coverage,
+    IReadOnlyList<string> UnresolvedStableEntryIds,
     ContextPracticeCard? Card,
     string? AnchorEntryId,
     string Explanation);
@@ -103,7 +104,16 @@ internal sealed class ContextPracticeRuntimeSession
         if (validScope.Length != requestedScope.Length)
             throw new InvalidDataException("Context Practice study scope contains stable IDs outside the active dictionary.");
 
-        string[] ordered = OrderStudyTargets(validScope, request.SentenceStats);
+        IReadOnlyList<string> unresolved = ContextStableIdentityResolution.UnresolvedStableIds(_lexicon, validScope);
+        IReadOnlyList<string> resolvedScope = ContextStableIdentityResolution.ResolvedStudyPool(_lexicon, validScope);
+        if (resolvedScope.Count == 0)
+        {
+            throw new InvalidDataException(
+                "Context Practice study scope contains only unresolved homographic stable IDs. " +
+                "Surface-form corpus evidence cannot choose their POS/sense identity; explicit disambiguating evidence is required before these IDs can become learner-progress targets.");
+        }
+
+        string[] ordered = OrderStudyTargets(resolvedScope, request.SentenceStats);
         ContextStudyPoolSelection pool = ContextStudyPoolBuilder.Build(ordered, request.PoolPreset);
         ContextCoverageEvidence coverage = ContextPracticeProductFacade.AnalyzeNaturalCoverage(
             _source,
@@ -111,6 +121,9 @@ internal sealed class ContextPracticeRuntimeSession
             pool.EntryIds,
             request.TargetCount,
             _productOptions);
+        string ambiguityNote = unresolved.Count == 0
+            ? string.Empty
+            : $" {unresolved.Count} unresolved homographic stable ID(s) were excluded from target selection until POS/sense evidence can disambiguate them.";
 
         if (coverage.Coverage.CoveredEntryCount == 0)
         {
@@ -118,9 +131,10 @@ internal sealed class ContextPracticeRuntimeSession
                 pool,
                 _vocabulary,
                 coverage,
+                unresolved,
                 null,
                 null,
-                $"The selected {PoolLabel(pool)} pool has no natural {request.TargetCount}-target coverage in source '{_source.Descriptor.SourceId}'. No sentence was fabricated.");
+                $"The selected {PoolLabel(pool)} pool has no natural {request.TargetCount}-target coverage in source '{_source.Descriptor.SourceId}'. No sentence was fabricated.{ambiguityNote}");
         }
 
         var covered = new HashSet<string>(coverage.Coverage.CoveredEntryIds, StringComparer.OrdinalIgnoreCase);
@@ -150,18 +164,20 @@ internal sealed class ContextPracticeRuntimeSession
                 pool,
                 _vocabulary,
                 coverage,
+                unresolved,
                 card,
                 anchor,
-                $"Natural {request.TargetCount}-target sentence selected from the {PoolLabel(pool)} pool. Difficulty used the learner's real Recall/Spelling vocabulary evidence before CEFR. Source, license and provenance remain attached to the card.");
+                $"Natural {request.TargetCount}-target sentence selected from the {PoolLabel(pool)} pool. Difficulty used the learner's real Recall/Spelling vocabulary evidence before CEFR. Source, license and provenance remain attached to the card.{ambiguityNote}");
         }
 
         return new ContextRuntimeResult(
             pool,
             _vocabulary,
             coverage,
+            unresolved,
             null,
             null,
-            $"Coverage exists in the {PoolLabel(pool)} pool, but no bounded candidate survived the current ranking/search limits. No sentence was fabricated; increase the bounded search only through an explicit product decision.");
+            $"Coverage exists in the {PoolLabel(pool)} pool, but no bounded candidate survived the current ranking/search limits. No sentence was fabricated; increase the bounded search only through an explicit product decision.{ambiguityNote}");
     }
 
     private string[] OrderStudyTargets(
