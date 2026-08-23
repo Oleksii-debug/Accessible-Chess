@@ -78,13 +78,13 @@ internal static class TrainingEntryPoints
     {
         var exportProfile = new ToolStripMenuItem("Export complete personal &profile...")
         {
-            AccessibleName = "Export complete Recall Spelling and Sentence personal profile"
+            AccessibleName = "Export complete Recall Spelling Sentence and Listening personal profile"
         };
         exportProfile.Click += (_, _) => main.ExportUnifiedPersonalProfileInteractive();
 
         var importProfile = new ToolStripMenuItem("Import complete personal pro&file...")
         {
-            AccessibleName = "Import complete Recall Spelling and Sentence personal profile"
+            AccessibleName = "Import complete Recall Spelling Sentence and Listening personal profile"
         };
         importProfile.Click += (_, _) => main.ImportUnifiedPersonalProfileInteractive();
 
