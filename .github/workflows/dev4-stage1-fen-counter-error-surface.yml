@@ -1,0 +1,69 @@
+name: DEV4 Stage1 FEN Counter Error Surface Evidence
+
+on:
+  pull_request:
+    branches:
+      - release/dev5-stage1-combined-repair-20260823
+    paths:
+      - 'tests/test_dev4_stage1_fen_counter_error_surface.py'
+      - '.github/workflows/dev4-stage1-fen-counter-error-surface.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  BASE_SHA: 574d8c7344a7490de46ba38498f363395c951019
+
+jobs:
+  exact-fen-counter-oracle:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Preserve repository LF bytes on Windows
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config core.autocrlf false
+          git config core.eol lf
+          git -c core.autocrlf=false checkout HEAD -- .
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Prove exact combined parent and QA-only scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          git cat-file -e "$BASE_SHA^{commit}"
+          test "$(git merge-base HEAD "$BASE_SHA")" = "$BASE_SHA"
+          git diff --check "$BASE_SHA"...HEAD
+          changed="$(git diff --name-only "$BASE_SHA"...HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/dev4-stage1-fen-counter-error-surface.yml' \
+            'tests/test_dev4_stage1_fen_counter_error_surface.py' | sort)"
+          printf '%s\n' "$changed"
+          test "$changed" = "$expected"
+
+      - name: Compile affected Product and oracle
+        run: python -m compileall -q acs/chesscore.py acs/webapp.py tests/test_dev4_stage1_fen_counter_error_surface.py
+
+      - name: Existing FEN and atomicity regressions
+        run: >-
+          python -m unittest -v
+          tests.test_dev2_fen_atomicity
+          tests.test_position_editor
+          tests.test_stage1_core_full_flow
+          tests.test_stage1_complete_user_flow
+
+      - name: Focused oversized-counter user-error oracle
+        run: python -m unittest -v tests.test_dev4_stage1_fen_counter_error_surface
