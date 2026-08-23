@@ -1,3 +1,4 @@
+# DEV1 QA-only trigger: prove or disprove drive-relative private path leakage on exact repair SHA.
 name: DEV1 Stage1 Drive-Relative Path Privacy Evidence
 
 on:
