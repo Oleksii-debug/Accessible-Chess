@@ -330,9 +330,9 @@ internal sealed class StoryCourseForm : Form
         var context = new StorySchedulingContext(
             new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase),
             new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase));
-        ResolvedStoryChapter next = StoryCourseScheduler.SelectNext(_catalog, _state, context);
+        ResolvedStoryChapter next = NarrativeCourseScheduler.SelectNext(_catalog, _state, context);
         SelectChapter(next.Definition.Id);
-        _status.Text = "Opened the deterministic next Story chapter. The scheduler prioritizes incomplete chapters now and accepts lexical/grammar weakness evidence when the shared learner router supplies it.";
+        _status.Text = "Opened the deterministic next Story chapter. The scheduler follows CEFR course progression and accepts lexical/grammar weakness evidence for mastery-based recycling when the shared learner router supplies it.";
     }
 
     private void MoveChapter(int delta)
