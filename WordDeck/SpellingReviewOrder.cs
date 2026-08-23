@@ -1,3 +1,5 @@
+using System.Threading;
+
 namespace WordDeck;
 
 /// <summary>
@@ -97,7 +99,7 @@ internal static class SpellingReviewOrder
         int hints = Math.Max(0, stats.HintUses);
         int shown = Math.Max(0, stats.ShowAnswerUses);
         int streak = Math.Max(0, stats.CurrentStreak);
-        IReadOnlyList<bool> recent = stats.RecentOutcomes ?? Array.Empty<bool>();
+        IReadOnlyList<bool> recent = stats.RecentOutcomes;
         int recentErrors = recent.Count(outcome => !outcome);
 
         if (completed == 0 && wrong == 0 && hints == 0 && shown == 0)
