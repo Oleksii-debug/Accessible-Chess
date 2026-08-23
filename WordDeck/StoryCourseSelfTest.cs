@@ -32,9 +32,15 @@ internal static class StoryCourseSelfTest
         foreach (ResolvedStoryChapter chapter in chapters)
         {
             chapter.Definition.Validate();
-            Require(chapter.Definition.Tasks.Count > 0, $"Chapter {chapter.Definition.Id} has no usable Narrative Course task.");
+            IReadOnlyList<CourseTaskDefinition> tasks = NarrativeCourseTaskBank.GetTasks(chapter);
+            Require(tasks.Count >= 6, $"Chapter {chapter.Definition.Id} does not expose the full production task family set.");
             Require(chapter.Definition.GrammarSkillIds.Count > 0, $"Chapter {chapter.Definition.Id} has no Grammar integration reference.");
         }
+
+        IReadOnlySet<CourseTaskKind> covered = NarrativeCourseTaskBank.CoveredKinds(catalog);
+        CourseTaskKind[] requiredKinds = Enum.GetValues<CourseTaskKind>();
+        Require(requiredKinds.All(covered.Contains),
+            "Narrative Course must implement comprehension, active production, questions, negatives, paraphrase and mixed review as real deterministic task contracts.");
     }
 
     private static void ValidateSchedulerAndRouting()
@@ -60,8 +66,6 @@ internal static class StoryCourseSelfTest
         Require(third.Definition.Cefr.Equals("B1", StringComparison.OrdinalIgnoreCase),
             "Structured course progression should continue A1 -> A2 -> B1.");
 
-        // Weakness may rank eligible material, but it must never make a fresh
-        // learner skip an earlier CEFR wave.
         ResolvedStoryChapter c1 = catalog.ChaptersById.Values.Single(chapter => chapter.Definition.Cefr.Equals("C1", StringComparison.OrdinalIgnoreCase));
         var forcedLaterWeakness = new StorySchedulingContext(
             c1.StableTargetEntryIds.ToDictionary(id => id, _ => 1.0, StringComparer.OrdinalIgnoreCase),
@@ -81,10 +85,20 @@ internal static class StoryCourseSelfTest
 
     private static void ValidateTaskEvaluation()
     {
-        CourseTaskDefinition task = StoryCourseCatalog.BuiltInUnits[0].Chapters[0].Tasks[0];
-        Require(StoryTaskEvaluator.IsAccepted(task, "school"), "Bounded Story comprehension answer should be accepted.");
-        Require(StoryTaskEvaluator.IsAccepted(task, "School."), "Story task checking should normalize harmless casing/punctuation.");
-        Require(!StoryTaskEvaluator.IsAccepted(task, "home"), "Wrong Story comprehension answer must not be accepted.");
+        ResolvedStoryCatalog catalog = StoryCourseCatalog.Resolve(DictionaryLoader.LoadEmbeddedOxford());
+        ResolvedStoryChapter chapter = catalog.GetChapter("a1-morning-01");
+        IReadOnlyList<CourseTaskDefinition> tasks = NarrativeCourseTaskBank.GetTasks(chapter);
+        CourseTaskDefinition comprehension = tasks.Single(task => task.Kind == CourseTaskKind.ContextComprehension);
+        Require(StoryTaskEvaluator.IsAccepted(comprehension, "school"), "Bounded Story comprehension answer should be accepted.");
+        Require(StoryTaskEvaluator.IsAccepted(comprehension, "School."), "Story task checking should normalize harmless casing/punctuation.");
+        Require(!StoryTaskEvaluator.IsAccepted(comprehension, "home"), "Wrong Story comprehension answer must not be accepted.");
+
+        CourseTaskDefinition question = tasks.Single(task => task.Kind == CourseTaskKind.Question);
+        Require(StoryTaskEvaluator.IsAccepted(question, "Does her family like music?"),
+            "Deterministic question-production task should accept its bounded answer after punctuation normalization.");
+        CourseTaskDefinition negative = tasks.Single(task => task.Kind == CourseTaskKind.Negative);
+        Require(StoryTaskEvaluator.IsAccepted(negative, "Her family does not like music."),
+            "Deterministic negative-production task should be executable, not schema-only.");
     }
 
     private static void ValidateRestartBackupAndFailClosedState()
@@ -113,20 +127,29 @@ internal static class StoryCourseSelfTest
             string recovery = store.CreateRecoveryBackup(restarted, "self-test");
             Require(File.Exists(recovery), "Story state recovery backup was not created.");
 
-            // A later interrupted/corrupt primary file must recover from the last
-            // parseable backup rather than resetting progress to zero.
             File.WriteAllText(Path.Combine(root, "story-course-state.json"), "{ broken json");
             StoryCourseState recovered = store.Load();
             Require(recovered.ChapterProgress.ContainsKey(chapter.Definition.Id), "Story state did not recover from backup after primary corruption.");
 
             Directory.CreateDirectory(newerRoot);
+            var newerStore = new StoryCourseStateStore(newerRoot);
+            StoryCourseState oldState = StoryCourseStateStore.Normalize(new StoryCourseState());
+            oldState.ChapterProgress["old-backup"] = new StoryChapterProgress { Opens = 1, Completions = 1 };
+            newerStore.Save(oldState);
+            oldState.ChapterProgress["second-save"] = new StoryChapterProgress { Opens = 1 };
+            newerStore.Save(oldState); // creates a valid older backup
             File.WriteAllText(
                 Path.Combine(newerRoot, "story-course-state.json"),
                 JsonSerializer.Serialize(new StoryCourseState { SchemaVersion = StoryCourseStateStore.CurrentSchemaVersion + 100 }));
             bool rejected = false;
-            try { _ = new StoryCourseStateStore(newerRoot).Load(); }
-            catch (InvalidDataException) { rejected = true; }
-            Require(rejected, "Newer Story/Course schema must fail closed instead of silently downgrading/resetting progress.");
+            try { _ = newerStore.Load(); }
+            catch (InvalidDataException ex)
+            {
+                rejected = ex.Message.Contains("newer", StringComparison.OrdinalIgnoreCase) ||
+                           ex.Message.Contains("schema", StringComparison.OrdinalIgnoreCase);
+            }
+            Require(rejected,
+                "A newer primary Story/Course schema must fail closed even when an older parseable backup exists; downgrade must not silently resurrect stale progress.");
         }
         finally
         {
