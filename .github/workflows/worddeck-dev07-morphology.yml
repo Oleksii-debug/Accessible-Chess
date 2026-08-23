@@ -8,7 +8,7 @@ on:
       - 'WordDeck/MorphologyCore.cs'
       - 'WordDeck/MorphologySelfTest.cs'
       - 'WordDeck/MORPHOLOGY_DATA_CONTRACT.md'
-      - 'WordDeck/MorphologyHarness/**'
+      - 'WordDeckMorphologyHarness/**'
       - 'WordDeck/WordDeck.csproj'
       - '.github/workflows/worddeck-dev07-morphology.yml'
   pull_request:
@@ -18,7 +18,7 @@ on:
       - 'WordDeck/MorphologyCore.cs'
       - 'WordDeck/MorphologySelfTest.cs'
       - 'WordDeck/MORPHOLOGY_DATA_CONTRACT.md'
-      - 'WordDeck/MorphologyHarness/**'
+      - 'WordDeckMorphologyHarness/**'
       - 'WordDeck/WordDeck.csproj'
       - '.github/workflows/worddeck-dev07-morphology.yml'
 
@@ -46,4 +46,4 @@ jobs:
         run: dotnet build .\WordDeck\WordDeck.csproj -c Release --nologo
 
       - name: Run deterministic Stage 18 morphology tests
-        run: dotnet run --project .\WordDeck\MorphologyHarness\MorphologyHarness.csproj -c Release --nologo
+        run: dotnet run --project .\WordDeckMorphologyHarness\WordDeckMorphologyHarness.csproj -c Release --nologo
