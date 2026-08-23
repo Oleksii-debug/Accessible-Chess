@@ -37,7 +37,7 @@ internal static class ContextCorpusCoverageEvidenceCommandBootstrap
             ContextPhysicalLexicalCoverageEvidenceDocument physicalFormEvidence =
                 ContextPhysicalLexicalCoverageEvidenceBuilder.Build(stableTagEvidence, dictionary);
             ContextStableIdentityCoverageEvidenceDocument stableIdentityEvidence =
-                ContextStableIdentityCoverageEvidenceBuilder.Build(stableTagEvidence, dictionary);
+                ContextStableIdentityCoverageEvidenceBuilder.Build(stableTagEvidence, physicalFormEvidence, dictionary);
             ContextCorpusGapRemediationDocument legacyRemediation =
                 ContextCorpusGapRemediationBuilder.Build(stableTagEvidence, dictionary);
 
@@ -81,6 +81,9 @@ internal static class ContextCorpusCoverageEvidenceCommandBootstrap
                 $"two={raw.TwoTarget.CoveredEntryCount}/{raw.TwoTarget.ScopeEntryCount}; " +
                 $"three={raw.ThreeTarget.CoveredEntryCount}/{raw.ThreeTarget.ScopeEntryCount}; " +
                 $"database_sha256={raw.DatabaseSha256}; evidence_sha256={stableTagEvidence.EvidenceDigestSha256}");
+            Console.WriteLine(
+                $"Context evidence chain PASS: stable-tag={stable.StableTagEvidenceSha256}; " +
+                $"physical-form={stable.PhysicalFormEvidenceSha256}; stable-identity={stableIdentityEvidence.EvidenceDigestSha256}");
             Console.WriteLine(
                 $"Context historical stable-tag gap plan (compatibility only): missing_one={legacyGaps.MissingOneTargetCount}; " +
                 $"missing_pair_only={legacyGaps.MissingNaturalPairOnlyCount}; " +
