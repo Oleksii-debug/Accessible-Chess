@@ -35,6 +35,7 @@ internal static class Program
         AccessibilityAnnouncer.Install();
         var main = new MainForm();
         TrainingEntryPoints.Install(main);
+        BookReadingEntryPoints.Install(main);
         Application.Run(main);
         return 0;
     }
