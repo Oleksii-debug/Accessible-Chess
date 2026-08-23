@@ -1,22 +1,22 @@
 # DEV5_CURRENT_STATE
 
-UPDATED_FROM_RUN: 20260823-1355
+UPDATED_FROM_RUN: 20260823-1356
 MODE: SAFE_OVERLAP_COORDINATION / STOCKFISH_RUNTIME_PATH_PRIVACY_REPAIR_ACTIVE
-SNAPSHOT_CUTOFF: 2026-08-23T13:55:02+03:00
+SNAPSHOT_CUTOFF: 2026-08-23T10:55:53Z
 
-Live integration currently contains merged PR #151 at `80720e8125c59a213f278668d599040f2768d553`. Do not rewrite that history, but do not treat this SHA as release-acceptable: independent QA PR #159 has proven a new release-critical Stockfish runtime path-privacy defect on this exact Product.
+Current integration is `manual5/integration-20260821@80720e8125c59a213f278668d599040f2768d553`. Preserve its history but do not treat this SHA as release-acceptable: independent QA PR #159 has proven an additional release-critical Stockfish runtime path-privacy defect on this exact Product.
 
-PR #159 exact Product parent `80720e8...`, QA head `66d5affbe027a86717a775198ec9fbcf8aba8545`, run `32634729467`: Ubuntu and Windows both passed ancestry/scope, compile and existing `tests.test_stockfish_runtime` 18/18, then failed all three focused privacy cases. Missing configured, missing packaged and empty/corrupt Stockfish diagnostics expose private parent directories. AUDIT_MASTER classifies this as `PROVEN_PRODUCT_DEFECT / RELEASE-CRITICAL PRIVACY`.
+PR #159 exact Product parent `80720e8...`, QA head `66d5affbe027a86717a775198ec9fbcf8aba8545`, run `32634729467`: Ubuntu and Windows both pass ancestry/scope, compile and existing `tests.test_stockfish_runtime` 18/18, then fail all three focused privacy cases. Missing configured, missing packaged and empty/corrupt resolver diagnostics expose private parent directories. AUDIT_MASTER pre-cutoff classification is `PROVEN_PRODUCT_DEFECT / RELEASE-CRITICAL PRIVACY`.
 
-At this run's cutoff a touching DEV4 repair already existed: PR #162 was created at 10:54:16Z and updated at 10:55:01Z, one second before cutoff, on the same `acs/stockfish_runtime.py` hot file. Therefore DEV5 is in SAFE OVERLAP and did not create a competing Product implementation.
+Touching DEV4 PR #162 already existed before this run cutoff and edits the same `acs/stockfish_runtime.py` hot file. No eligible terminal corrected validation appeared between the previous 10:55:02Z snapshot and this 10:55:53Z cutoff. Therefore DEV5 remains SAFE OVERLAP and has not created a competing Product implementation.
 
-Post-cutoff technical inspection indicates the DEV4 repair direction is narrow and aligned with the canonical `acs.report_paths.report_safe_name()` contract. It preserves actual resolved-path behavior and exception chaining while redacting report-facing path text. The copied PR #159 oracle is unchanged. Observed attempts pass old Stockfish runtime 18/18 and PR #159 privacy 3/3, but full validation remains non-authoritative for this wave because CI topology still has/has had an obsolete Stage1 privacy-test target. All successor attempts are post-cutoff quarantine.
+PR #160/V4 is stale as candidate authority because it is locked to defective `80720e8...`; its failed bootstrap does not establish a fresh candidate artifact.
 
-PR #160/V4, locked to `80720e8...`, is stale as user-candidate authority after PR #159. No candidate artifact based on defective `80720e8...` can be accepted.
+Post-cutoff successor DEV4/DEV5 touching work is quarantined for the next cutoff. It is observed only to prevent duplicate Product pushes.
 
-The packaged Move Edit SetValue/Ctrl+A/Ctrl+C investigation remains a separate QA-owned `C — INCONCLUSIVE` boundary. No Product selection/clipboard defect is inferred and it must not be mixed into the privacy repair.
+The packaged Move Edit SetValue/Ctrl+A/Ctrl+C track remains separately QA-owned `C — INCONCLUSIVE`; no Product selection/clipboard defect is established.
 
-Persistent Full Product exact-GREEN authority remains `dd9ebf9414103c805892856fe6a04706fa69039f` and stays frozen while Stage1 release closure is active.
+Persistent Full Product exact-GREEN authority remains `dd9ebf9414103c805892856fe6a04706fa69039f` during Stage1 release freeze.
 
 Fresh Windows candidate ZIP: NONE.
 Release status: `READY_FOR_RELEASE=NO`, `FRESH_WINDOWS_CANDIDATE=NO`, `NVDA_VERIFIED=NO`.
