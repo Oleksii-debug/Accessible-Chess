@@ -166,8 +166,8 @@ jobs:
           $stableDoc = Get-Content -LiteralPath '.\artifacts\context-evidence\context-coverage.stable-identities.json' -Raw | ConvertFrom-Json
           $stable = $stableDoc.Payload
           foreach ($depth in @($stable.OneTarget,$stable.TwoTarget,$stable.ThreeTarget)) {
-            if ($depth.ResolvedStableCoveredEntryCount + $depth.UnresolvedAmbiguousEntryCount + $depth.PhysicalFormUncoveredEntryCount -ne 5446) { throw 'Stable-ID coverage does not partition the exact Oxford universe.' }
-            if ($depth.ResolvedStableCoveredEntryCount -gt $depth.PhysicalFormCoveredEntryCount) { throw 'Resolved stable-ID coverage cannot exceed physical-form-tag coverage.' }
+            if ($depth.ResolvedStableCoveredEntryCount + $depth.UnresolvedAmbiguousEntryCount + $depth.UnambiguousStableTagUncoveredEntryCount -ne 5446) { throw 'Stable-ID coverage does not partition the exact Oxford universe.' }
+            if ($depth.ResolvedStableCoveredEntryCount -gt $depth.StableTagCoveredEntryCount) { throw 'Resolved stable-ID coverage cannot exceed historical stable-tag participation.' }
           }
           if ($stable.OneTarget.UnresolvedAmbiguousEntryCount -le 0) { throw 'Homographic stable IDs must remain explicitly unresolved without POS/sense evidence.' }
           if ($stable.RedistributionApproved) { throw 'Stable-ID evidence must not approve redistribution.' }
