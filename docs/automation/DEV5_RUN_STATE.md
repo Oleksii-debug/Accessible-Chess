@@ -1,46 +1,40 @@
 # DEV5_RUN_STATE
 
-RUN_ID: 20260823-1347
-STARTED_LOCAL: 2026-08-23 13:41 Europe/Uzhgorod
+RUN_ID: 20260823-1355
+STARTED_LOCAL: 2026-08-23 13:55 Europe/Uzhgorod
 STATUS: COMPLETE
-MODE: SAFE_OVERLAP_COORDINATION / STALE_PROMOTION_REVOKED / STAGE1_PRIVACY_REPAIR_GREEN_PENDING_INDEPENDENT_REVALIDATION
-COORDINATOR_BRANCH: auto/dev5-coordinator-1348-20260823
-SNAPSHOT_CUTOFF: 2026-08-23T13:47:22+03:00
-SNAPSHOT_FILE: docs/automation/SNAPSHOT_20260823_1347.md
+MODE: SAFE_OVERLAP_COORDINATION / PROVEN_STOCKFISH_RUNTIME_PATH_PRIVACY_DEFECT / DEV4_TOUCHING_REPAIR_ACTIVE_AT_CUTOFF
+COORDINATOR_BRANCH: auto/dev5-coordinator-1355-20260823
+SNAPSHOT_CUTOFF: 2026-08-23T13:55:02+03:00
+SNAPSHOT_FILE: docs/automation/SNAPSHOT_20260823_1355.md
 
-PRIOR_ACCEPTED_STAGE1_BASELINE_SHA: 0fa442330bc2bb03636ff9297512da4c29e38684
-REVOKED_PREMATURE_PROMOTION_SHA: df52aeb3d99f4ae3d0089eab2882fe9b3c373dfd
-CURRENT_STAGE1_REPAIR_CANDIDATE_SHA: 80720e8125c59a213f278668d599040f2768d553
+CURRENT_INTEGRATION_SHA: 80720e8125c59a213f278668d599040f2768d553
 PERSISTENT_FULL_PRODUCT_GREEN_SHA: dd9ebf9414103c805892856fe6a04706fa69039f
-PR151_EXACT_CI_RUN: 32634572205
-PR151_LINUX_JOB: 97182279775
-PR151_WINDOWS_JOB: 97182279877
-PR151_EXACT_CI_RESULT: SUCCESS
-INDEPENDENT_EXACT_HEAD_REVALIDATION: PENDING
-NVDA_VERIFIED: NO
+PR159_QA_HEAD: 66d5affbe027a86717a775198ec9fbcf8aba8545
+PR159_RUN: 32634729467
+PR159_RESULT: FAILURE / PROVEN_PRODUCT_DEFECT
+TOUCHING_DEV4_PR: 162
+TOUCHING_DEV4_HEAD_AT_CUTOFF: d34bc6f5354620ebf327fb88f3165c085c435361
 FRESH_WINDOWS_CANDIDATE: NO
 READY_FOR_RELEASE: NO
+NVDA_VERIFIED: NO
 
-## Current ruling
-Live GitHub superseded the prior 13:01 coordinator promotion. Independent QA PR #158 / `cf97ea4df62fee3330478c3fc40ee17bebdad4ec` / run-job `32632703773 / 97177751978` proved that `df52aeb3...` still leaked a private path embedded only inside arbitrary `OSError.strerror`. Therefore the prior promotion is revoked. No history is rewritten and no frozen ref is mutated.
+## Cutoff ruling
+Live GitHub/Drive supersede the prior `80720e8... technically GREEN pending revalidation` wording. Before this run's immutable cutoff, QA-only PR #159 had already machine-proven an additional release-critical privacy defect on exact Product parent `80720e8...`: `resolve_stockfish_path()` exposed complete private parent directories in missing configured, missing packaged and empty/corrupt executable diagnostics. Existing Stockfish runtime regressions were 18/18 PASS; the focused privacy oracle failed 3/3 on both Ubuntu and Windows. AUDIT_MASTER classified this as `PROVEN_PRODUCT_DEFECT / RELEASE-CRITICAL PRIVACY` and routed the Product repair to DEV-B / DEV5 release privacy ownership.
 
-DEV4 RUN_STATE `20260823-1300-stage1-oserror-strerror-privacy-proof` explicitly returned the minimal Stage1 repair to DEV5 ownership and required exact revalidation afterward. DEV5 repaired the existing PR #151 branch rather than opening a competing Product line.
+However a touching DEV4 Product repair PR #162 was created at 10:54:16Z and updated at 10:55:01Z, both before cutoff 10:55:02Z, and edits the same `acs/stockfish_runtime.py` hot file. Therefore SAFE OVERLAP is mandatory. DEV5 did not create a competing Product patch, cherry-pick, merge or Stage1 promotion.
 
-Product repair commit `2fce7a799509f08f495f4289b49b03d620ba27cf` changes only `acs/import_registry.py::_batch_error_text`: user-facing batch filesystem errors no longer republish arbitrary `OSError.strerror`; they retain stable `Filesystem error` context, numeric errno when available, and report-safe `filename`/`filename2` observability. Strict `inspect()` behavior and internal exception/cause semantics remain intact.
+PR #151 had already been merged into `manual5/integration-20260821` at `80720e8...` before this cutoff. Historical integration is not rewritten. PR #160/V4 is not candidate authority because it is locked to the now-proven-defective `80720e8...` Product.
 
-Product regression commit `12b39b75173621e73eb9087586f0d6e35ed2004e` adds the path-bearing-strerror reproduction while preserving the existing requirement that a genuine OSError filename sidecar may expose only its safe basename.
+## Post-cutoff quarantine
+Technical readback after cutoff is informative only. PR #162's narrow delta imports canonical `report_safe_name()`, removes raw resolution exception text from the user-facing boundary while preserving exception chaining, renders resolved executable diagnostics with a report-safe name and returns the actual resolved Path unchanged. Its copied PR #159 oracle is byte-for-byte unchanged.
 
-Exact current PR #151 head is `80720e8125c59a213f278668d599040f2768d553`. `DEV5 Stage1 Path Privacy Repair CI` run `32634572205` is terminal SUCCESS:
-- Linux `97182279775`: exact ancestry/diff hygiene PASS; compile PASS; Product privacy 10/10; unchanged current external privacy oracles 13/13 including PR #158; selected PGN privacy 2/2; drive-relative oracle PASS; unittest 663/663; pytest 741 + 758 subtests; SELFTEST + complete WebView2 diagnostic PASS.
-- Windows Server 2025 `97182279877`: LF-exact checkout/ancestry/diff hygiene PASS; Product privacy 10/10; focused Stage1 release contracts 75/75; unittest 663/663; pytest 741 + 758 subtests; SELFTEST + complete WebView2 diagnostic PASS.
+Observed post-cutoff jobs prove existing Stockfish runtime regressions 18/18 PASS and unchanged PR #159 oracle 3/3 PASS. Full validation is not yet eligible for intake in this run; observed RED attempts stop at CI topology/inventory drift, including an obsolete target `tests.test_stage1_path_privacy_repair` instead of current `tests/test_stage1_release_path_privacy.py`. Successor attempts are post-cutoff and quarantined.
 
-No skips, xfails, assertion weakening, GameTree/chess-state/UI/WebView/Teacher/Classroom/ACSDB or strict packaged UIA helper mutation was used.
+## Next action
+At next fresh cutoff, first verify DEV4 terminal handoff/RUN_STATE, exact PR #162 Product commit/head and current exact Linux+Windows CI. Intake requires terminal pre-cutoff evidence with narrow diff/ancestry, existing Stockfish runtime, unchanged PR #159 oracle, current Stage1 path-privacy suite, full unittest, full pytest, SELFTEST and complete diagnostic all GREEN. If terminal and no touching overlap remains, append the minimal repair onto current integration history, request/consume independent AUDIT_MASTER acceptance, and only then launch exactly one fresh Windows candidate chain locked to the accepted repaired Product SHA.
 
-`80720e8...` is therefore the current technically GREEN repaired Stage1 candidate, but it is NOT yet promoted as accepted Stage1 authority. The latest DEV4 ownership directive requires independent exact-head revalidation, and independent AUDIT_MASTER acceptance remains mandatory before a release-lineage promotion.
-
-UIA classification remains C / INCONCLUSIVE at the QA synchronization-observability boundary: V2 proved the unique original Move Edit and native Backspace `e9 -> e`, then stopped before Ctrl+A on immediate SetValue readback. No Ctrl+A/C Product defect is proven.
-
-NEXT_ACTION: independent DEV4/Audit must inspect exact `80720e8...`, PR #151 diff and run `32634572205`. If accepted, DEV5 may establish the new repaired Stage1 authority and start exactly one fresh Windows candidate chain locked to that exact Product. No candidate may be built from stale `df52aeb...` or old unpatched `0fa442...`.
+The separate Move Edit ValuePattern/SetValue/Ctrl+A/Ctrl+C boundary remains QA-owned C / INCONCLUSIVE; no Product clipboard/selection repair is authorized from that evidence.
 
 READY_FOR_AUDITOR_READBACK=YES
 READY_FOR_RELEASE=NO
