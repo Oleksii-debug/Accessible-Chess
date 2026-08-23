@@ -1,5 +1,3 @@
-using System.Runtime.CompilerServices;
-
 namespace WordDeck;
 
 internal static class AdaptiveGrammarEvidenceAdapter
@@ -96,17 +94,5 @@ internal static class AdaptiveGrammarEvidenceSelfTest
     private static void Require(bool condition, string message)
     {
         if (!condition) throw new InvalidOperationException("AdaptiveGrammarEvidenceSelfTest: " + message);
-    }
-}
-
-internal static class AdaptiveGrammarCanonicalSelfTestBootstrap
-{
-    [ModuleInitializer]
-    internal static void Initialize()
-    {
-        if (!Environment.GetCommandLineArgs().Any(arg => arg.Equals("--self-test", StringComparison.OrdinalIgnoreCase)))
-            return;
-        AdaptiveGrammarEvidenceSelfTest.Run();
-        Console.WriteLine("WordDeck adaptive grammar evidence self-test PASS.");
     }
 }
