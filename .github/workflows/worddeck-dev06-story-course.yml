@@ -1,0 +1,47 @@
+name: WordDeck DEV06 Story Course
+
+on:
+  push:
+    branches:
+      - worddeck-swarm-dev06-story-course
+    paths:
+      - 'WordDeck/**'
+      - '.github/workflows/worddeck-dev06-story-course.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: worddeck-dev06-story-course-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  story-course:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore
+        run: dotnet restore .\WordDeck\WordDeck.csproj
+
+      - name: Build
+        run: dotnet build .\WordDeck\WordDeck.csproj -c Release --no-restore
+
+      - name: Run full WordDeck self-test including Story Course
+        run: dotnet run --project .\WordDeck\WordDeck.csproj -c Release --no-build -- --self-test
+
+      - name: Publish self-contained Windows executable
+        run: dotnet publish .\WordDeck\WordDeck.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:DebugType=None -p:DebugSymbols=false -o .\artifacts\WordDeck-dev06-win-x64
+
+      - name: Validate published executable
+        shell: pwsh
+        run: |
+          $process = Start-Process .\artifacts\WordDeck-dev06-win-x64\WordDeck.exe -ArgumentList '--self-test' -Wait -PassThru
+          if ($process.ExitCode -ne 0) { throw "Published WordDeck DEV06 self-test failed with exit code $($process.ExitCode)." }
