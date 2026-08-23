@@ -731,9 +731,15 @@ internal sealed class SpellingForm : Form
         if (currents.TryGetValue(_activeScopeId, out string? id) && _entries.TryGetValue(id, out DictionaryEntry? entry) &&
             StudyScopeIds.Includes(_activeScopeId, entry) && !UserProgressService.IsHidden(_appState, id) &&
             string.Equals(_deckMap.GetValueOrDefault(id, _decks.FirstDeck.Id), _activeDeckId, StringComparison.OrdinalIgnoreCase))
+        {
             Show(entry);
+            FillShuffleBag(ActiveEntries());
+            RemoveFromShuffleBag(id);
+        }
         else
+        {
             Next();
+        }
     }
 
     private void Next()
@@ -780,6 +786,16 @@ internal sealed class SpellingForm : Form
         _shuffleBag.Clear();
         foreach (string id in ShuffleBag.Create(entries.Select(entry => entry.Id), _random, _current?.Id))
             _shuffleBag.Enqueue(id);
+    }
+
+    private void RemoveFromShuffleBag(string entryId)
+    {
+        if (_shuffleBag.Count == 0) return;
+        string[] remaining = _shuffleBag
+            .Where(id => !string.Equals(id, entryId, StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+        _shuffleBag.Clear();
+        foreach (string id in remaining) _shuffleBag.Enqueue(id);
     }
 
     private void Show(DictionaryEntry entry)
