@@ -16,6 +16,7 @@ from acs.classroom_domain import (
 from acs.interaction_contracts import EngineVisibilityPolicy
 from acs.teaching_classroom_adapter import (
     CLASSROOM_ACTIONS,
+    TEACHER_CLASSROOM_ACTIONS,
     TeachingClassroomAdapterError,
     apply_classroom_action,
     classroom_view_to_payload,
@@ -73,15 +74,19 @@ class TeachingClassroomAdapterTests(unittest.TestCase):
 
     def test_action_namespace_is_explicit_disjoint_composition(self) -> None:
         self.assertFalse(set(TEACHING_SESSION_ACTIONS) & set(TEACHER_VISUAL_BOARD_ACTIONS))
+        self.assertFalse(set(TEACHER_CLASSROOM_ACTIONS) & set(TEACHING_SESSION_ACTIONS))
+        self.assertFalse(set(TEACHER_CLASSROOM_ACTIONS) & set(TEACHER_VISUAL_BOARD_ACTIONS))
         for reverse_action in (STUDENT_HOVER_ACTION_ID, STUDENT_CLICK_ACTION_ID):
             with self.subTest(action=reverse_action):
                 self.assertNotIn(reverse_action, TEACHING_SESSION_ACTIONS)
                 self.assertNotIn(reverse_action, TEACHER_VISUAL_BOARD_ACTIONS)
+                self.assertNotIn(reverse_action, TEACHER_CLASSROOM_ACTIONS)
         self.assertEqual(
             CLASSROOM_ACTIONS,
             frozenset(
                 set(TEACHING_SESSION_ACTIONS)
                 | set(TEACHER_VISUAL_BOARD_ACTIONS)
+                | set(TEACHER_CLASSROOM_ACTIONS)
                 | {STUDENT_HOVER_ACTION_ID, STUDENT_CLICK_ACTION_ID}
             ),
         )
