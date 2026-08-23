@@ -32,7 +32,9 @@ class Move:
         _require_square_index(self.frm)
         _require_square_index(self.to)
         if self.promotion is not None and (
-            type(self.promotion) is not str or self.promotion not in 'QRBN'
+            type(self.promotion) is not str
+            or len(self.promotion) != 1
+            or self.promotion not in 'QRBN'
         ):
             raise ValueError('Перетворення має бути Q, R, B, N або None')
         if type(self.en_passant) is not bool:
