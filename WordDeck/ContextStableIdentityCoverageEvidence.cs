@@ -134,6 +134,31 @@ internal static class ContextStableIdentityCoverageEvidenceBuilder
     public static bool VerifyDigest(ContextStableIdentityCoverageEvidenceDocument document) =>
         document is not null && string.Equals(document.EvidenceDigestSha256, ComputeDigest(document.Payload), StringComparison.OrdinalIgnoreCase);
 
+    public static ContextStableIdentityCoverageEvidenceDocument ReadAndVerifyFile(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+            throw new ArgumentException("Stable-identity evidence path is required.", nameof(path));
+        string fullPath = Path.GetFullPath(path);
+        if (!File.Exists(fullPath))
+            throw new FileNotFoundException("Stable-identity context evidence file was not found.", fullPath);
+
+        ContextStableIdentityCoverageEvidenceDocument document;
+        try
+        {
+            document = JsonSerializer.Deserialize<ContextStableIdentityCoverageEvidenceDocument>(
+                File.ReadAllText(fullPath, Encoding.UTF8), JsonOptions)
+                ?? throw new InvalidDataException("Stable-identity context evidence JSON is empty.");
+        }
+        catch (JsonException ex)
+        {
+            throw new InvalidDataException("Stable-identity context evidence JSON is malformed.", ex);
+        }
+
+        if (!VerifyDigest(document))
+            throw new InvalidDataException("Persisted stable-identity context evidence digest does not match its canonical payload.");
+        return document;
+    }
+
     private static ContextResolvedIdentityDepthEvidence Resolve(
         ContextCoverageDepthEvidence depth,
         ContextTargetLexicon lexicon,
@@ -161,7 +186,7 @@ internal static class ContextStableIdentityCoverageEvidenceBuilder
             stable.UncoveredEntryIds.OrderBy(id => id, StringComparer.Ordinal).ToArray());
     }
 
-    private static string ComputeDigest(ContextStableIdentityCoverageEvidencePayload payload)
+    internal static string ComputeDigest(ContextStableIdentityCoverageEvidencePayload payload)
     {
         string json = JsonSerializer.Serialize(payload, JsonOptions);
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(json))).ToLowerInvariant();
@@ -194,6 +219,7 @@ internal static class ContextStableIdentityCoverageEvidenceSelfTest
             new ContextResolvedIdentityDepthEvidence(2, 1, 0, 0, 0, 1, 0, Array.Empty<string>(), Array.Empty<string>(), new[] { "id" }),
             new ContextResolvedIdentityDepthEvidence(3, 1, 0, 0, 0, 1, 0, Array.Empty<string>(), Array.Empty<string>(), new[] { "id" }),
             "test-only boundary");
+
         bool rejected = false;
         try
         {
@@ -204,6 +230,38 @@ internal static class ContextStableIdentityCoverageEvidenceSelfTest
             rejected = true;
         }
         if (!rejected) throw new InvalidOperationException("Stable-identity evidence serializer accepted a forged digest.");
-        Console.WriteLine("Context stable-identity evidence self-test PASS: stable-tag/stable-ID semantic split, physical-form evidence chain and digest fail-closed contract verified.");
+
+        string validDigest = ContextStableIdentityCoverageEvidenceBuilder.ComputeDigest(payload);
+        var validDocument = new ContextStableIdentityCoverageEvidenceDocument(payload, validDigest);
+        string tempDirectory = Path.Combine(Path.GetTempPath(), "worddeck-stable-evidence-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        string evidencePath = Path.Combine(tempDirectory, "stable-identities.json");
+        try
+        {
+            File.WriteAllText(evidencePath, validDocument.ToCanonicalJson(), new UTF8Encoding(false));
+            ContextStableIdentityCoverageEvidenceDocument persisted =
+                ContextStableIdentityCoverageEvidenceBuilder.ReadAndVerifyFile(evidencePath);
+            if (!string.Equals(persisted.EvidenceDigestSha256, validDigest, StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException("Stable-identity evidence file verifier changed the persisted digest.");
+
+            var forgedDocument = validDocument with { EvidenceDigestSha256 = new string('0', 64) };
+            File.WriteAllText(evidencePath, JsonSerializer.Serialize(forgedDocument), new UTF8Encoding(false));
+            rejected = false;
+            try
+            {
+                _ = ContextStableIdentityCoverageEvidenceBuilder.ReadAndVerifyFile(evidencePath);
+            }
+            catch (InvalidDataException)
+            {
+                rejected = true;
+            }
+            if (!rejected) throw new InvalidOperationException("Stable-identity evidence file verifier accepted a forged persisted digest.");
+        }
+        finally
+        {
+            try { Directory.Delete(tempDirectory, recursive: true); } catch { }
+        }
+
+        Console.WriteLine("Context stable-identity evidence self-test PASS: stable-tag/stable-ID semantic split, physical-form evidence chain, and persisted digest fail-closed contract verified.");
     }
 }
