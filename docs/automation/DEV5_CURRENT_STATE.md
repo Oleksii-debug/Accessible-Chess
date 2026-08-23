@@ -1,25 +1,22 @@
 # DEV5_CURRENT_STATE
 
-UPDATED_FROM_RUN: 20260823-1347
-MODE: SAFE_OVERLAP_COORDINATION / STAGE1_PRIVACY_REPAIR_GREEN_PENDING_INDEPENDENT_REVALIDATION
-SNAPSHOT_CUTOFF: 2026-08-23T13:47:22+03:00
+UPDATED_FROM_RUN: 20260823-1355
+MODE: SAFE_OVERLAP_COORDINATION / STOCKFISH_RUNTIME_PATH_PRIVACY_REPAIR_ACTIVE
+SNAPSHOT_CUTOFF: 2026-08-23T13:55:02+03:00
 
-Accepted Stage1 baseline remains `0fa442330bc2bb03636ff9297512da4c29e38684` until independent acceptance of a repaired successor.
-The prior coordinator promotion of `df52aeb3d99f4ae3d0089eab2882fe9b3c373dfd` is revoked because later independent PR #158 proved an `OSError.strerror` private-path leak on that exact repair.
-Current technically GREEN repaired Stage1 candidate is `80720e8125c59a213f278668d599040f2768d553` on PR #151.
-Persistent Full Product exact-GREEN authority remains `dd9ebf9414103c805892856fe6a04706fa69039f`; Stage1 release freeze still blocks persistent Full Product advancement.
+Live integration currently contains merged PR #151 at `80720e8125c59a213f278668d599040f2768d553`. Do not rewrite that history, but do not treat this SHA as release-acceptable: independent QA PR #159 has proven a new release-critical Stockfish runtime path-privacy defect on this exact Product.
 
-PR #158 / run-job `32632703773 / 97177751978` proved the stale `df52aeb...` false-green boundary: sanitizing OSError filename fields was insufficient because arbitrary `strerror` could embed a private sidecar/workstation path.
+PR #159 exact Product parent `80720e8...`, QA head `66d5affbe027a86717a775198ec9fbcf8aba8545`, run `32634729467`: Ubuntu and Windows both passed ancestry/scope, compile and existing `tests.test_stockfish_runtime` 18/18, then failed all three focused privacy cases. Missing configured, missing packaged and empty/corrupt Stockfish diagnostics expose private parent directories. AUDIT_MASTER classifies this as `PROVEN_PRODUCT_DEFECT / RELEASE-CRITICAL PRIVACY`.
 
-DEV5 repaired only the user-facing ImportRegistry batch rendering boundary. `_batch_error_text()` now treats OSError strerror as untrusted, retains stable filesystem context + errno + report-safe filename fields, preserves strict internal exception behavior, and does not touch chess/application state.
+At this run's cutoff a touching DEV4 repair already existed: PR #162 was created at 10:54:16Z and updated at 10:55:01Z, one second before cutoff, on the same `acs/stockfish_runtime.py` hot file. Therefore DEV5 is in SAFE OVERLAP and did not create a competing Product implementation.
 
-Exact PR #151 current head `80720e8...` has terminal GREEN run `32634572205`:
-- Linux job `97182279775`: Product privacy 10/10; unchanged external current privacy oracles 13/13 including PR #158; selected PGN privacy 2/2; drive-relative oracle PASS; unittest 663/663; pytest 741 + 758 subtests; diagnostic PASS.
-- Windows job `97182279877`: LF-exact ancestry/diff hygiene PASS; privacy 10/10; Stage1 focused release contracts 75/75; unittest 663/663; pytest 741 + 758 subtests; diagnostic PASS.
+Post-cutoff technical inspection indicates the DEV4 repair direction is narrow and aligned with the canonical `acs.report_paths.report_safe_name()` contract. It preserves actual resolved-path behavior and exception chaining while redacting report-facing path text. The copied PR #159 oracle is unchanged. Observed attempts pass old Stockfish runtime 18/18 and PR #159 privacy 3/3, but full validation remains non-authoritative for this wave because CI topology still has/has had an obsolete Stage1 privacy-test target. All successor attempts are post-cutoff quarantine.
 
-This exact technical GREEN is not self-declared independent acceptance. DEV4's latest RUN_STATE explicitly requires independent exact-head revalidation after repair; AUDIT_MASTER release-lineage acceptance is still required. Therefore `80720e8...` is a repair candidate, not yet accepted Stage1 authority.
+PR #160/V4, locked to `80720e8...`, is stale as user-candidate authority after PR #159. No candidate artifact based on defective `80720e8...` can be accepted.
 
-UIA state remains separate and C / INCONCLUSIVE. Existing V2 evidence proves original Move Edit and native Backspace delivery but failed during QA SetValue restore before Ctrl+A. No Ctrl+A or Ctrl+C Product defect has been established.
+The packaged Move Edit SetValue/Ctrl+A/Ctrl+C investigation remains a separate QA-owned `C — INCONCLUSIVE` boundary. No Product selection/clipboard defect is inferred and it must not be mixed into the privacy repair.
+
+Persistent Full Product exact-GREEN authority remains `dd9ebf9414103c805892856fe6a04706fa69039f` and stays frozen while Stage1 release closure is active.
 
 Fresh Windows candidate ZIP: NONE.
 Release status: `READY_FOR_RELEASE=NO`, `FRESH_WINDOWS_CANDIDATE=NO`, `NVDA_VERIFIED=NO`.
