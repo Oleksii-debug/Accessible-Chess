@@ -307,7 +307,11 @@ try {
     Send-Keys 'alt+f'
     Send-Keys 'r'
     $resetHwnd = Get-WindowHandleByTitle 'Reset WordDeck learning data' 7000
-    Send-KeysInWindow 'esc' $resetHwnd
+    # This is a Yes/No confirmation, not a Cancel-capable dialog. The product
+    # intentionally makes No the default button, so prove safe cancellation by
+    # focusing the accessible No action and activating it with the keyboard.
+    Wait-ForInWindow 'No' $resetHwnd 7000
+    Send-KeysToWindow 'enter' 'No' $resetHwnd
     Wait-WindowGoneByTitle 'Reset WordDeck learning data' 7000
     Settle-MainFocus 'reset return'
     if ((Get-Value 'Current English word') -ne $resetWord) { Fail 'Cancelling reset changed the current Recall card.' }
