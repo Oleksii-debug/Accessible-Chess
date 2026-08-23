@@ -308,7 +308,7 @@ internal sealed class BookReadingProductService
     {
         if (string.IsNullOrWhiteSpace(value)) return;
         string canonical = value.Replace('\\', '/');
-        if (canonical.StartsWith('/', StringComparison.Ordinal) || canonical.Contains(':', StringComparison.Ordinal))
+        if (canonical.StartsWith('/', StringComparison.Ordinal) || canonical.Contains(':'))
             throw new InvalidDataException("EPUB contains an absolute/drive-qualified archive path.");
         foreach (string segment in canonical.Split('/', StringSplitOptions.RemoveEmptyEntries))
             if (segment is "..") throw new InvalidDataException("EPUB contains an unsafe traversal path.");
