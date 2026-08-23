@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - qa/dev2-core-264-on-f68794b-20260823
+  pull_request:
+    branches:
+      - qa/dev2-core-base-f68794b-20260823
 
 permissions:
   contents: read
