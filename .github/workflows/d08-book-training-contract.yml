@@ -1,0 +1,121 @@
+name: D08 Book Training Contract CI
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - autopulse/d08-book-training-contract-20260823
+  pull_request:
+    branches:
+      - autopulse/d08-training-canonical-resume-20260823
+
+permissions:
+  contents: read
+
+jobs:
+  d08-book-training-contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    env:
+      EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      D08_PARENT_SHA: 57f53ad3418ef85f60d34cd953027f78b3df9f40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ env.EXPECTED_SHA }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install verification dependency
+        run: python -m pip install -q pytest
+      - name: Prove exact stacked source and D08 ownership
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+          git cat-file -e "$D08_PARENT_SHA^{commit}"
+          test "$(git merge-base "$D08_PARENT_SHA" HEAD)" = "$D08_PARENT_SHA"
+          git diff --check "$D08_PARENT_SHA" HEAD
+          changed="$(git diff --name-only "$D08_PARENT_SHA" HEAD)"
+          printf '%s\n' "$changed"
+          allowed='^(.github/workflows/d08-book-training-contract.yml|acs/book_training.py|tests/test_d08_book_training_contract.py)$'
+          unexpected="$(printf '%s\n' "$changed" | grep -Ev "$allowed" || true)"
+          if [ -n "$unexpected" ]; then
+            echo 'Unexpected path outside stacked D08 Book/Training contract:' >&2
+            printf '%s\n' "$unexpected" >&2
+            exit 1
+          fi
+      - name: Compile Product and tests
+        run: python -m compileall -q acs tests run_accessible_chess.py
+      - name: Focused Book Training regressions
+        run: >-
+          python -m unittest -v
+          tests.test_d08_book_training_contract
+          tests.test_bookdocument
+          tests.test_book_index
+          tests.test_bookreader
+          tests.test_training
+          tests.test_d08_training_canonical_resume
+      - name: Full unittest with exact inherited failure-set guard
+        run: |
+          python - <<'PY'
+          import sys
+          import unittest
+
+          expected = {
+              'test_dev1_full_product_ui_packages.TrainingPresenterTests.test_hint_reject_accept_and_completion_delegate_to_canonical_session',
+              'test_dev1_full_product_ui_packages.TrainingPresenterTests.test_snapshot_restore_preserves_progress_without_ui_side_state',
+              'test_dev3_student_progress.StudentProgressTests.test_summary_aggregates_attempt_quality_hints_and_review_counts',
+              'test_dev3_student_progress.StudentProgressTests.test_training_review_binds_student_session_definition_and_counters',
+          }
+          suite = unittest.defaultTestLoader.discover('tests')
+          result = unittest.TextTestRunner(stream=sys.stdout, verbosity=1).run(suite)
+          actual = {case.id() for case, _ in result.failures + result.errors}
+          print('D08 inherited unittest failure set:', sorted(actual))
+          if actual != expected:
+              raise SystemExit(
+                  'Full unittest failure set changed. '
+                  f'expected={sorted(expected)!r} actual={sorted(actual)!r}'
+              )
+          print(f'BASELINE-EQUIVALENT full unittest: {result.testsRun} executed; zero new failures')
+          PY
+      - name: Full pytest failure-set equivalence versus exact D08 parent
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/d08-parent
+          git worktree add --detach /tmp/d08-parent "$D08_PARENT_SHA"
+          set +e
+          python -m pytest -q --junitxml=/tmp/d08-head.xml
+          head_rc=$?
+          (cd /tmp/d08-parent && python -m pytest -q --junitxml=/tmp/d08-parent.xml)
+          parent_rc=$?
+          set -e
+          python - <<'PY'
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+
+          def failures(path):
+              root = ET.parse(path).getroot()
+              out = set()
+              for case in root.iter('testcase'):
+                  if case.find('failure') is not None or case.find('error') is not None:
+                      out.add(f"{case.get('classname')}::{case.get('name')}")
+              return out
+
+          head = failures(Path('/tmp/d08-head.xml'))
+          parent = failures(Path('/tmp/d08-parent.xml'))
+          print('parent pytest failures:', sorted(parent))
+          print('head pytest failures:', sorted(head))
+          if head != parent:
+              raise SystemExit(
+                  'Full pytest failure set changed: '
+                  f'parent={sorted(parent)!r} head={sorted(head)!r}'
+              )
+          print(f'BASELINE-EQUIVALENT full pytest: inherited failures={len(parent)}; zero new failures')
+          PY
+          echo "head pytest rc=$head_rc; parent pytest rc=$parent_rc (failure sets compared exactly)"
+          git worktree remove /tmp/d08-parent --force
+      - name: Complete product diagnostic
+        run: python run_accessible_chess.py --diagnostic
