@@ -1,0 +1,70 @@
+name: DEV3 Validate Stage1 Privacy Repair Engine
+
+on:
+  pull_request:
+    branches:
+      - release/dev5-stage1-path-privacy-repair-20260823
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  REPAIR_SHA: 909d8e2729e00ba5fce0f25a1520010844f9341b
+  DEV3_ORACLE_SHA: 76ffc710de9daf3788d5734133a176fcb1f46b35
+
+jobs:
+  engine-privacy-validation:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - name: Checkout validation head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Prove validation-only delta over exact repair
+        shell: bash
+        run: |
+          set -euo pipefail
+          git cat-file -e "$REPAIR_SHA^{commit}"
+          test "$(git merge-base HEAD "$REPAIR_SHA")" = "$REPAIR_SHA"
+          python - <<'PY'
+          import os, subprocess
+          repair = os.environ['REPAIR_SHA']
+          expected = {'.github/workflows/dev3-validate-stage1-privacy-repair-engine.yml'}
+          actual = set(subprocess.check_output(
+              ['git', 'diff', '--name-only', f'{repair}...HEAD'], text=True
+          ).splitlines())
+          assert actual == expected, (actual, expected)
+          print('EXACT REPAIR + VALIDATION-ONLY DIFF PASS')
+          PY
+          git diff --check "$REPAIR_SHA...HEAD"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Materialize unchanged DEV3 accepted-source oracle
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin qa/dev3-stage1-engine-start-privacy-evidence-20260823
+          mkdir -p qa_oracles
+          git show "$DEV3_ORACLE_SHA:tests/test_dev3_stage1_engine_start_path_privacy.py" > qa_oracles/test_engine_start_privacy.py
+          test -s qa_oracles/test_engine_start_privacy.py
+
+      - name: Compile engine and oracle
+        run: python -m compileall -q acs/engine.py tests/test_dev3_uci_failure_recovery.py qa_oracles
+
+      - name: Existing UCI recovery remains green
+        run: python -m unittest -v tests.test_dev3_uci_failure_recovery
+
+      - name: Replay unchanged DEV3 OSError and ValueError privacy oracle
+        run: python qa_oracles/test_engine_start_privacy.py
