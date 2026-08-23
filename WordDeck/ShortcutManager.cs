@@ -10,13 +10,14 @@ internal sealed class ShortcutManager
     private static IReadOnlyList<ShortcutDefinition> ScopeDefinitions { get; } = BuildScopeDefinitions();
     private static IReadOnlyList<ShortcutDefinition> SpellingDefinitions { get; } = BuildSpellingDefinitions();
     private static IReadOnlyList<ShortcutDefinition> SentenceDefinitions { get; } = BuildSentenceDefinitions();
+    private static IReadOnlyList<ShortcutDefinition> ListeningDefinitions { get; } = BuildListeningDefinitions();
 
     public IReadOnlyList<ShortcutDefinition> Definitions { get; private set; }
     public IReadOnlyList<ShortcutDefinition> CurrentDefinitions => Definitions;
 
     // Recall starts independently so protected/unreadable optional Spelling state
-    // cannot block the main trainer. Once TrainingEntryPoints supplies an
-    // authoritative Spelling topology, F1/settings expand to the training actions.
+    // cannot block the main trainer. Listening definitions are state-light and
+    // remain available even if optional Spelling/Sentence state needs recovery.
     public ShortcutManager(AppState state)
         : this(state, null, ShortcutDispatchContext.Recall) { }
 
@@ -177,8 +178,8 @@ internal sealed class ShortcutManager
         new(ActionIds.HideCurrentWord, "Hide current word from Recall study", Keys.Control | Keys.Delete),
         new(ActionIds.RestoreHiddenWords, "Restore a hidden Recall word", Keys.Control | Keys.Alt | Keys.U),
         new(ActionIds.RestoreAllHiddenWords, "Restore all hidden Recall words", Keys.None),
-        new(ActionIds.ExportProfile, "Export complete Recall Spelling and Sentence personal profile", Keys.Control | Keys.Alt | Keys.E),
-        new(ActionIds.ImportProfile, "Import complete Recall Spelling and Sentence personal profile", Keys.Control | Keys.Shift | Keys.I),
+        new(ActionIds.ExportProfile, "Export complete Recall Spelling Sentence and Listening personal profile", Keys.Control | Keys.Alt | Keys.E),
+        new(ActionIds.ImportProfile, "Import complete Recall Spelling Sentence and Listening personal profile", Keys.Control | Keys.Shift | Keys.I),
         new(ActionIds.ResetLearningData, "Reset Recall learning data after backup", Keys.None),
         new(ActionIds.ShortcutSettings, "Open shortcut settings", Keys.Control | Keys.K),
         new(ActionIds.Help, "Open help", Keys.F1),
@@ -214,10 +215,19 @@ internal sealed class ShortcutManager
         new(ActionIds.SentenceImportPack, "Sentence Spelling: import SentencePack", Keys.Control | Keys.Alt | Keys.I),
     };
 
+    private static IReadOnlyList<ShortcutDefinition> BuildListeningDefinitions() => new List<ShortcutDefinition>
+    {
+        new(ActionIds.OpenListening, "Open Listening and Dictation trainer", Keys.Control | Keys.Alt | Keys.L),
+        new(ActionIds.ListeningReplay, "Listening: replay current audio", Keys.Control | Keys.Shift | Keys.Alt | Keys.P),
+        new(ActionIds.ListeningShowAnswer, "Listening: show required English answer", Keys.Control | Keys.Shift | Keys.Alt | Keys.H),
+        new(ActionIds.ListeningNext, "Listening: next audio item", Keys.Control | Keys.Shift | Keys.Alt | Keys.N),
+    };
+
     private IReadOnlyList<ShortcutDefinition> BuildDefinitions()
     {
         var defs = new List<ShortcutDefinition>(RecallDefinitions);
         defs.AddRange(ScopeDefinitions);
+        defs.AddRange(ListeningDefinitions);
         foreach (DeckDefinition deck in _state.Decks.OrderBy(deck => deck.Order))
         {
             int coreNumber = DeckIds.CoreDecks.ToList().FindIndex(id => string.Equals(id, deck.Id, StringComparison.OrdinalIgnoreCase)) + 1;
