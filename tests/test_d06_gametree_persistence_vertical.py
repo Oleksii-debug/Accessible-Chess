@@ -66,7 +66,10 @@ class D06GameTreePersistenceVerticalTests(unittest.TestCase):
         # Copy-on-write: persistence editing never mutates the caller's source.
         self.assertEqual(self.game, original)
         self.assertNotEqual(identity_for_game(edited), identity_for_game(self.game))
-        self.assertEqual([move.san for move in edited.line.moves], ["e4", "c5", "Nf3"])
+        self.assertEqual(
+            [move.san for move in edited.line.moves],
+            ["e4", "c5", "Nf3", "Nc6"],
+        )
 
         promoted_first = edited.line.moves[1]
         self.assertEqual(promoted_first.nags, ["!?"])
