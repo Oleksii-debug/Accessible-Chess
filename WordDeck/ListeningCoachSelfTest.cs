@@ -21,6 +21,7 @@ internal static class ListeningCoachSelfTest
         try
         {
             TestStateRestartAndIsolation(root);
+            TestLastKnownGoodRecovery(root);
             TestSchedulingAndSeparateMastery();
             TestBlankSubmissionIsNonLearning();
             TestAnswerHiddenPresentation();
@@ -57,6 +58,43 @@ internal static class ListeningCoachSelfTest
         Require(restarted.StatsByDictionary["test"]["word:a"].CompletedReviews == 2, "Listening stats did not survive restart.");
         Require(recallBefore.SequenceEqual(File.ReadAllBytes(recall)), "Listening state changed Recall state.");
         Require(spellingBefore.SequenceEqual(File.ReadAllBytes(spelling)), "Listening state changed Spelling state.");
+    }
+
+    private static void TestLastKnownGoodRecovery(string root)
+    {
+        string recoveryRoot = Path.Combine(root, "recovery-case");
+        Directory.CreateDirectory(recoveryRoot);
+        var store = new ListeningStateStore(recoveryRoot);
+
+        ListeningCoachState first = store.Load();
+        first.ActiveScopeId = StudyScopeIds.A1;
+        first.StatsByDictionary["test"] = new Dictionary<string, ListeningItemStats>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["word:a"] = new() { CompletedReviews = 1, CorrectReviews = 1 }
+        };
+        store.Save(first);
+
+        ListeningCoachState second = store.Load();
+        second.ActiveScopeId = StudyScopeIds.C1;
+        second.StatsByDictionary["test"]["word:a"].CompletedReviews = 2;
+        second.StatsByDictionary["test"]["word:a"].CorrectReviews = 1;
+        store.Save(second);
+
+        string primary = Path.Combine(recoveryRoot, "listening-state.json");
+        string recovery = Path.Combine(recoveryRoot, "listening-state.backup.json");
+        Require(File.Exists(recovery), "Second Listening save did not preserve a last-known-good recovery copy.");
+
+        File.WriteAllText(primary, "{ broken primary");
+        ListeningCoachState recovered = store.Load();
+        Require(recovered.ActiveScopeId == StudyScopeIds.A1 && recovered.StatsByDictionary["test"]["word:a"].CompletedReviews == 1,
+            "Corrupted Listening primary did not recover the previous verified state.");
+
+        File.WriteAllText(recovery, "{ broken recovery");
+        bool rejected = false;
+        try { _ = store.Load(); } catch (InvalidDataException) { rejected = true; }
+        Require(rejected, "Corrupted Listening primary and recovery did not fail closed.");
+        Require(File.ReadAllText(primary) == "{ broken primary" && File.ReadAllText(recovery) == "{ broken recovery",
+            "Fail-closed Listening recovery unexpectedly rewrote corrupted evidence files.");
     }
 
     private static void TestSchedulingAndSeparateMastery()
