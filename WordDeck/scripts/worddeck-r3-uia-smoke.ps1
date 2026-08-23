@@ -77,13 +77,13 @@ function Send-Keys([string]$keys, [string]$target = '') {
     # Application accelerators need real modifier state. Supplying --target first
     # focuses the exact WordDeck surface before SendInput, which avoids a hosted
     # runner delivering Ctrl/Alt shortcuts to the shell after a modal closes.
-    # The File-menu mnemonic "r" also needs SendInput once the native menu loop is
-    # active; PostMessage to the main HWND does not feed that menu loop. Alt+F4
-    # remains HWND-targeted because OS-wide injection is intentionally rejected
-    # for system-reserved combinations.
+    # Alt+F4 remains HWND-targeted because OS-wide injection is intentionally
+    # rejected for system-reserved combinations. Plain menu navigation keys use
+    # HWND-targeted delivery so the native WinForms menu loop receives them
+    # deterministically on hosted runners.
     $transport = if ($keys -ieq 'alt+f4') {
         'post-message'
-    } elseif ($keys.Contains('+') -or $keys -ieq 'r') {
+    } elseif ($keys.Contains('+')) {
         'send-input'
     } else {
         'post-message'
@@ -206,10 +206,15 @@ try {
     Open-And-CancelDialog 'ctrl+shift+i' 'Import complete WordDeck personal progress profile' 'complete profile import dialog'
 
     # Reset is intentionally unbound, so exercise the real File-menu keyboard path.
+    # The reset item is the fifth selectable entry after File opens: Add, Save,
+    # Export profile, Import profile, Reset. Navigating by arrows + Enter proves the
+    # native menu path without depending on a hosted runner preserving mnemonic
+    # character input while the WinForms menu loop owns focus.
     Focus 'Current English word'
     $resetWord = Get-Value 'Current English word'
     Send-Keys 'alt+f' 'Current English word'
-    Send-Keys 'r'
+    for ($i = 0; $i -lt 4; $i++) { Send-Keys 'down' }
+    Send-Keys 'enter'
     Wait-For 'Reset WordDeck learning data' 7000
     Send-Keys 'esc'
     Wait-Gone 'Reset WordDeck learning data' 7000
