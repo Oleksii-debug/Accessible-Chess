@@ -1,20 +1,19 @@
 # NEXT_WAVE_DIRECTIVES
 
-DIRECTIVE_ID: DEV5-0030
+DIRECTIVE_ID: DEV5-0301
 REVISION: 1
-SOURCE_RUN: 20260822-2358
-EFFECTIVE: next fresh worker/DEV5 invocation; AUDIT_MASTER `AUDIT-20260822-1900-01` remains authoritative where newer or explicitly scoped.
+SOURCE_RUN: 20260823-0301
+EFFECTIVE: next fresh worker/DEV5 invocation after the 2026-08-23 03:01 Europe/Kyiv cutoff.
 
-1. Establish a fresh immutable cutoff before Product mutation; never retroactively intake work terminalized after that cutoff.
-2. Preserve Stage1 `manual5/integration-20260821 @ 0fa442330bc2bb03636ff9297512da4c29e38684` and persistent exact-GREEN DEV5 `full5/dev5-compose-1700-20260822 @ dd9ebf9414103c805892856fe6a04706fa69039f`, CI `32577600761 / 97042099941` SUCCESS.
-3. DEV1 RUN `20260822-2249` remains coordination-IN_PROGRESS at this cutoff. Source `edc979e783942403049997874eb966592d3a67d8` is machine-green but is not intake authority until terminal same-run handoff/readback exists.
-4. DEV2 RUN `20260822-2240` remains coordination-IN_PROGRESS. Later Product/validation commits exist; do not partially intake. Require the final terminal canonical head + exact CI.
-5. DEV3 terminal Product/test ceiling advances to `d3773b5d23946a9fe1ff15a25c6d8010e3bd9500`, exact CI `32597620359 / 97090954799` SUCCESS. It is a descendant of prior `9c8a342e...` and contains bounded FEN/request hardening only in DEV3-owned engine/analysis surfaces plus regressions. READY_FOR_INTEGRATION=YES.
-6. DEV4 Product `6298899cb112336ef220caa8d0e52334ddc0c0ae` is BLOCKED. QA PR #127 run `32595609798 / 97085913218` proves cross-platform Windows-path privacy leakage through host-dependent `Path.name` handling and committed-but-reported-failed no-clobber publication after successful `os.link` followed by temp unlink error.
-7. DEV4 must repair both proven defects minimally. Path reporting must handle POSIX and Windows syntax independent of runner OS, preserve only safe relative provenance, and redact absolute workstation paths. No-clobber publication must have deterministic post-commit cleanup/retry semantics: after successful link publication, cleanup failure must not be surfaced as an ambiguous failed save.
-8. Do not weaken strict QA gates or restore raw ACSDB exception leakage, obsolete GameTree brace-normalization expectations, or old Stage1 seams for GREEN.
-9. Never whole-merge DEV4 PR #100/#127/#113. Preserve DEV2 `acs/gametree.py` and canonical domain. Reconcile DEV4 `acs/acsdb.py` hunk-level against current DEV3/current-green behavior.
-10. While DEV1/DEV2 or another touching lane is active, SAFE OVERLAP only: exact CI/evidence review, conflict mapping, backlog ordering, disposable validation preparation and directive maintenance; no competing Product push.
-11. After touching lanes are terminal and DEV4 repairs exact-green, create disposable selective composition from `dd9ebf...`: latest canonical DEV2 -> terminal DEV3 Product/test delta -> DEV4-owned import/PGN/ChessBase security delta -> latest terminal DEV1 presentation delta.
-12. Run full PGN -> canonical GameTree -> ACSDB -> Unicode Search/Open plus malformed/resource/encoding/termination/concurrency/recovery/post-commit/path/privacy/provenance/Classroom/engine-bound/PresentationState/remote/Teacher/keyboard/focus/clipboard, full unittest, full pytest, SELFTEST, complete WebView2 diagnostic and exact-head CI.
-13. Persistent full5 advances only after exact-SHA GREEN. Never weaken tests, skip or xfail for GREEN. PR #54/frozen refs stay protected. Old rejected ZIP forbidden. Fresh Windows candidate requires the complete machine release chain. `NVDA_VERIFIED=NO` until the user personally verifies that exact candidate.
+1. Freeze coordination intake at the invocation cutoff. For DEV1-DEV4, use only terminal evidence that existed before that cutoff; never race or partially intake current-wave touching work.
+2. Preserve accepted Stage1 `0fa442330bc2bb03636ff9297512da4c29e38684` and persistent exact-GREEN authority `dd9ebf9414103c805892856fe6a04706fa69039f` unless a later selective composition is exact-head GREEN.
+3. DEV4 old `6298899... BLOCKED` classification is superseded. Canonical repair authority is `3e15dc2e844cb825e482317fd024795130147011` with exact-GREEN validation evidence already recorded by DEV5. Do not regress next-wave ordering to the stale blocker.
+4. DEV1 pre-cutoff branch `auto/dev1-stage1-candidate-ui-evidence-20260823-0027` is workflow-only versus its CI-base branch. It checks exact accepted Stage1 UI/NVDA source contracts on Linux/Windows and fail-closes if QA strict workflows do not target exact `0fa442...`. Read terminal CI before using it as positive evidence; do not treat the branch as Product intake authority.
+5. DEV5 touching QA remains `qa/dev5-stage1-uia-setvalue-observability-20260823`, one workflow-only commit above `ba25d7c11408901b7c327f49d1ef41d08d1b9969`. While it is active or terminal evidence has not been read, SAFE OVERLAP only: evidence review, conflict analysis, backlog ordering, disposable validation prep, and directive maintenance. No competing Product push.
+6. Prior fresh Windows V2 machine evidence proved exact-source progression through packaged EXE/WebView2/UIA, a unique original Move Edit, and native Backspace `e9 -> e`; it failed before Ctrl+A because immediate `ValuePattern.SetValue('e9')` readback was not observed. Until bounded observability evidence says otherwise, classify this as QA synchronization/observability, not a Ctrl+A Product defect.
+7. If the bounded SetValue probe converges, apply only the minimal strict QA synchronization/readback/reacquire repair required for stable observation. Do not weaken assertions, skip, xfail, reduce coverage, or modify Product merely to make the harness green.
+8. If bounded convergence fails, isolate the exact packaged WebView/UIA state transition and produce a reproducing machine proof before Product mutation.
+9. After the QA blocker is resolved, rerun one complete fresh Windows release chain from exact accepted Stage1. A fresh candidate is valid only if the same machine chain proves exact source lock, release contracts, WAV assets, official Stockfish, native menu structural gate, Nuitka standalone build, built-EXE diagnostic, real WebView2 startup, strict UIA interaction, packaged sound/Stockfish lifecycle, release preflight, ZIP reopen/identity and upload-candidate production.
+10. PR #54 and frozen refs remain protected. Never merge or retarget them for convenience. Old rejected release ZIP is permanently ineligible for reuse.
+11. `FRESH_WINDOWS_CANDIDATE=NO`, `READY_FOR_RELEASE=NO`, `NVDA_VERIFIED=NO` until the complete machine chain is GREEN. `NVDA_VERIFIED` changes only after the user personally verifies that exact newly produced candidate artifact.
+12. Preserve canonical core, GameTree/domain semantics, Windows-only product direction, native keyboard/menu behavior, focus origin, clipboard invariants, WebView2 boundary, accessibility names/roles/states, and all existing security/privacy fail-closed behavior. Do not weaken tests.
