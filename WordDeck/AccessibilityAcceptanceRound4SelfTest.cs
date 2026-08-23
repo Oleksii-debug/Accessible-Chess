@@ -17,10 +17,12 @@ internal static class AccessibilityAcceptanceRound4SelfTest
     public static void Run()
     {
         TestShortcutContextIsolation();
+        TestTrainingRegistrySynchronization();
+        TestPersistedDynamicSpellingBindingSafety();
         TestUnsafeAndNativeKeysFailClosed();
         TestRecallArrowSurfaceContract();
         TestSelectorNavigationContract();
-        Console.WriteLine("WordDeck R4 accessibility acceptance passed: shortcut context isolation, unsafe/native keys, Recall arrow surface and selector navigation contracts verified.");
+        Console.WriteLine("WordDeck R4 accessibility acceptance passed: shortcut context isolation, authoritative training-topology F1/settings synchronization, protected unknown Spelling binding preservation without live-key poisoning, live cross-mode conflict rejection, unsafe/native keys, Recall arrow surface and selector navigation contracts verified.");
     }
 
     private static void TestShortcutContextIsolation()
@@ -41,6 +43,79 @@ internal static class AccessibilityAcceptanceRound4SelfTest
         var recallManager = new ShortcutManager(app, spelling.Decks, ShortcutDispatchContext.Recall);
         AssertEqual(ActionIds.RevealTranslation, recallManager.FindAction(Keys.Control | Keys.T), "Recall shortcut must dispatch in Recall context.");
         AssertNull(recallManager.FindAction(Keys.Control | Keys.Shift | Keys.H), "Spelling shortcut must not be swallowed in Recall context.");
+        AssertNull(recallManager.FindAction(Keys.Control | Keys.Shift | Keys.S), "Spelling entry-point accelerator must fall through to the WinForms menu in Recall context.");
+        AssertNull(recallManager.FindAction(Keys.Control | Keys.Shift | Keys.E), "Sentence entry-point accelerator must fall through to the WinForms menu in Recall context.");
+    }
+
+    private static void TestTrainingRegistrySynchronization()
+    {
+        AppState app = AppStateStore.Normalize(new AppState());
+        SpellingState spelling = SpellingStateStore.Normalize(new SpellingState());
+
+        // Recall starts independently when optional Spelling topology is not yet
+        // authoritative. F1/settings are expanded only after live topology loads.
+        var mainRegistry = new ShortcutManager(app);
+        AssertEqual(ActionIds.ShortcutSettings, mainRegistry.FindAction(Keys.Control | Keys.K), "Ctrl+K must work before training definitions are synchronized.");
+        AssertEqual(ActionIds.Help, mainRegistry.FindAction(Keys.F1), "F1 must work before training definitions are synchronized.");
+        AssertFalse(mainRegistry.Definitions.Any(def => def.Id == ActionIds.OpenSpelling),
+            "Recall-only registry exposed Spelling commands before authoritative Spelling topology was loaded.");
+        AssertFalse(mainRegistry.Definitions.Any(def => def.Id == ActionIds.OpenSentenceCoach),
+            "Recall-only registry exposed Sentence commands before authoritative Spelling topology was loaded.");
+
+        mainRegistry.RefreshDeckDefinitions(spelling.Decks);
+        AssertTrue(mainRegistry.Definitions.Any(def => def.Id == ActionIds.OpenSpelling), "Synchronized Main/F1 registry omitted Open Spelling.");
+        AssertTrue(mainRegistry.Definitions.Any(def => def.Id == ActionIds.OpenSentenceCoach), "Synchronized Main/F1 registry omitted Open Sentence Spelling.");
+        string spellingCore1 = ActionIds.SpellingSwitchDeck(SpellingDeckIds.Core(1));
+        AssertTrue(mainRegistry.Definitions.Any(def => def.Id == spellingCore1), "Synchronized Main/F1 registry omitted live Spelling deck actions.");
+        AssertEqual(ActionIds.ShortcutSettings, mainRegistry.FindAction(Keys.Control | Keys.K), "Ctrl+K became unavailable after training definitions were synchronized.");
+        AssertEqual(ActionIds.Help, mainRegistry.FindAction(Keys.F1), "F1 became unavailable after training definitions were synchronized.");
+        AssertNull(mainRegistry.FindAction(Keys.Control | Keys.Shift | Keys.S), "Recall dispatcher swallowed the synchronized Open Spelling accelerator.");
+        AssertNull(mainRegistry.FindAction(Keys.Control | Keys.Shift | Keys.E), "Recall dispatcher swallowed the synchronized Open Sentence accelerator.");
+
+        AssertFalse(mainRegistry.TrySet(ActionIds.SpellingShowAnswer, Keys.Control | Keys.K, out string? ctrlKConflict) || string.IsNullOrWhiteSpace(ctrlKConflict),
+            "Training shortcut settings allowed a live Spelling action to steal Ctrl+K from shortcut settings.");
+        AssertFalse(mainRegistry.TrySet(ActionIds.SentenceShowAnswer, Keys.F1, out string? f1Conflict) || string.IsNullOrWhiteSpace(f1Conflict),
+            "Training shortcut settings allowed a live Sentence action to steal F1 from help.");
+    }
+
+    private static void TestPersistedDynamicSpellingBindingSafety()
+    {
+        AppState app = AppStateStore.Normalize(new AppState());
+        SpellingState spelling = SpellingStateStore.Normalize(new SpellingState());
+        var recallOnly = new ShortcutManager(app);
+
+        // A dynamic Spelling binding may be present in the shared profile while
+        // Spelling state is temporarily unreadable/protected. Recall must neither
+        // delete that unknown user binding nor let it poison a live Recall command.
+        string protectedUnknown = ActionIds.SpellingSwitchDeck("protected-unknown-r4c-deck");
+        app.Shortcuts[protectedUnknown] = (Keys.Control | Keys.K).ToString();
+        recallOnly.RefreshDeckDefinitions();
+        AssertTrue(app.Shortcuts.ContainsKey(protectedUnknown),
+            "Recall-only shortcut refresh deleted a protected dynamic Spelling binding without Spelling deck context.");
+        AssertEqual(ActionIds.ShortcutSettings, recallOnly.FindAction(Keys.Control | Keys.K),
+            "An unresolved non-live Spelling binding disabled the live Ctrl+K shortcut-settings command.");
+
+        // Once explicit Spelling topology is available, a binding for a deck that
+        // does not exist is provably orphaned and can be removed safely.
+        recallOnly.RefreshDeckDefinitions(spelling.Decks);
+        AssertFalse(app.Shortcuts.ContainsKey(protectedUnknown),
+            "Explicit Spelling-topology refresh failed to remove a proven orphaned dynamic Spelling binding.");
+        AssertEqual(ActionIds.ShortcutSettings, recallOnly.FindAction(Keys.Control | Keys.K),
+            "Ctrl+K changed after safe orphan cleanup.");
+
+        // A binding for a real Spelling deck is live, must dispatch in the full
+        // registry, and must participate in cross-mode conflict validation.
+        string spellingDeckId = spelling.Decks.First().Id;
+        string liveDynamicAction = ActionIds.SpellingSwitchDeck(spellingDeckId);
+        Keys liveDynamicKey = Keys.Control | Keys.Shift | Keys.F8;
+        app.Shortcuts[liveDynamicAction] = liveDynamicKey.ToString();
+        var full = new ShortcutManager(app, spelling.Decks, ShortcutDispatchContext.All);
+        AssertTrue(full.Definitions.Any(def => def.Id == liveDynamicAction),
+            "Full shortcut registry omitted a valid dynamic Spelling deck action.");
+        AssertEqual(liveDynamicAction, full.FindAction(liveDynamicKey),
+            "Valid dynamic Spelling binding did not survive into the full registry.");
+        AssertFalse(full.TrySet(ActionIds.SaveProgress, liveDynamicKey, out string? liveConflict) || string.IsNullOrWhiteSpace(liveConflict),
+            "A live dynamic Spelling binding did not block a duplicate Recall assignment.");
     }
 
     private static void TestUnsafeAndNativeKeysFailClosed()
