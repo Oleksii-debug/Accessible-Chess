@@ -21,7 +21,7 @@ internal static class Dev01RecallSpellingHardeningSelfTest
         TestNormalStartupUsesProtectedSpellingMigrationPath();
         TestFullCorpusShuffleCoverage();
         TestSpellingEvidenceBoundary();
-        Console.WriteLine("WordDeck DEV01 Recall/Spelling hardening passed: protected Spelling migration/recovery, full-corpus fair shuffle coverage, and read-only platform-neutral learning evidence verified.");
+        Console.WriteLine("WordDeck DEV01 Recall/Spelling hardening passed: protected Spelling migration/recovery, full-corpus fair shuffle coverage including restart/resume, and read-only platform-neutral learning evidence verified.");
     }
 
     private static void TestNormalStartupUsesProtectedSpellingMigrationPath()
@@ -98,6 +98,18 @@ internal static class Dev01RecallSpellingHardeningSelfTest
             if (ids.Length > 1)
                 Require(!string.Equals(refill.Peek(), last, StringComparison.OrdinalIgnoreCase),
                     $"Spelling shuffle scope {scopeId} immediately repeated the previous card at a same-deck refill boundary.");
+
+            string restoredCurrent = cycle[0];
+            string[] remainingAfterRestore = ShuffleBag.Create(ids, new Random(seed++), restoredCurrent)
+                .Where(id => !string.Equals(id, restoredCurrent, StringComparison.OrdinalIgnoreCase))
+                .ToArray();
+            string[] expectedAfterRestore = ids
+                .Where(id => !string.Equals(id, restoredCurrent, StringComparison.OrdinalIgnoreCase))
+                .ToArray();
+            Require(remainingAfterRestore.Length == expectedAfterRestore.Length,
+                $"Spelling restart/resume shuffle for {scopeId} did not remove exactly the restored current card.");
+            Require(new HashSet<string>(remainingAfterRestore, StringComparer.OrdinalIgnoreCase).SetEquals(expectedAfterRestore),
+                $"Spelling restart/resume shuffle for {scopeId} lost or repeated another card while excluding the restored current card.");
         }
     }
 
