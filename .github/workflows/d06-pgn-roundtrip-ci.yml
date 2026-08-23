@@ -74,5 +74,67 @@ jobs:
       - name: Full unittest
         run: python -m unittest discover -s tests -v
 
-      - name: Full pytest
-        run: python -m pytest -q
+      - name: Full pytest with immutable-base failure equivalence
+        shell: bash
+        run: |
+          set -uo pipefail
+
+          set +e
+          python -m pytest -q --junitxml="$RUNNER_TEMP/d06-head-pytest.xml"
+          head_status=$?
+          set -e
+
+          git worktree add --detach "$RUNNER_TEMP/d06-base" "$D06_BASE_SHA"
+          set +e
+          (
+            cd "$RUNNER_TEMP/d06-base"
+            python -m pytest -q --junitxml="$RUNNER_TEMP/d06-base-pytest.xml"
+          )
+          base_status=$?
+          set -e
+
+          HEAD_STATUS="$head_status" BASE_STATUS="$base_status" python - <<'PY'
+          import os
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+
+          head_status = int(os.environ["HEAD_STATUS"])
+          base_status = int(os.environ["BASE_STATUS"])
+          if head_status not in {0, 1}:
+              raise SystemExit(f"D06 head pytest infrastructure/collection failure: exit={head_status}")
+          if base_status not in {0, 1}:
+              raise SystemExit(f"Immutable base pytest infrastructure/collection failure: exit={base_status}")
+
+          def failures(path: Path) -> tuple[str, ...]:
+              root = ET.parse(path).getroot()
+              result = []
+              for case in root.iter("testcase"):
+                  if case.find("failure") is None and case.find("error") is None:
+                      continue
+                  classname = case.attrib.get("classname", "")
+                  name = case.attrib.get("name", "")
+                  result.append(f"{classname}::{name}")
+              return tuple(sorted(result))
+
+          temp = Path(os.environ["RUNNER_TEMP"])
+          head_failures = failures(temp / "d06-head-pytest.xml")
+          base_failures = failures(temp / "d06-base-pytest.xml")
+          print("D06_HEAD_FAILURES=", head_failures)
+          print("IMMUTABLE_BASE_FAILURES=", base_failures)
+
+          if head_failures != base_failures:
+              head_only = sorted(set(head_failures) - set(base_failures))
+              base_only = sorted(set(base_failures) - set(head_failures))
+              raise SystemExit(
+                  "Full pytest failure set changed relative to exact immutable base; "
+                  f"head_only={head_only}; base_only={base_only}"
+              )
+
+          if head_failures:
+              print(
+                  "FULL PYTEST D06 REGRESSION GATE PASS: all head failures are "
+                  "exactly reproduced on immutable base; no new D06 failure."
+              )
+          else:
+              print("FULL PYTEST D06 REGRESSION GATE PASS: head and base are fully green.")
+          PY
