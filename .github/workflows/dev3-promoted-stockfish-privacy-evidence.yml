@@ -11,6 +11,11 @@ on:
 permissions:
   contents: read
 
+env:
+  PROMOTED_STAGE1_SHA: 1e9d23b034e6d347fe03c3581469a07e16037c55
+  DEV3_ORACLE_SHA: 66d5affbe027a86717a775198ec9fbcf8aba8545
+  DEV3_ORACLE_BLOB: f674de79b19a852f29837edab138c20b28f24162
+
 jobs:
   promoted-privacy-oracle:
     strategy:
@@ -38,14 +43,15 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Prove QA-only scope from promoted base
+      - name: Prove exact promoted authority and QA-only scope
         shell: bash
         run: |
           set -euo pipefail
           BASE_SHA='${{ github.event.pull_request.base.sha }}'
-          test "$(git merge-base HEAD "$BASE_SHA")" = "$BASE_SHA"
-          git diff --check "$BASE_SHA"...HEAD
-          mapfile -t changed < <(git diff --name-only "$BASE_SHA"...HEAD | sort)
+          test "$BASE_SHA" = "$PROMOTED_STAGE1_SHA"
+          test "$(git merge-base HEAD "$PROMOTED_STAGE1_SHA")" = "$PROMOTED_STAGE1_SHA"
+          git diff --check "$PROMOTED_STAGE1_SHA"...HEAD
+          mapfile -t changed < <(git diff --name-only "$PROMOTED_STAGE1_SHA"...HEAD | sort)
           expected=(
             ".github/workflows/dev3-promoted-stockfish-privacy-evidence.yml"
             "tests/test_dev3_promoted_stockfish_runtime_path_privacy.py"
@@ -53,17 +59,32 @@ jobs:
           printf '%s\n' "${changed[@]}" > /tmp/changed.txt
           printf '%s\n' "${expected[@]}" | sort > /tmp/expected.txt
           diff -u /tmp/expected.txt /tmp/changed.txt
-          echo "PROMOTED_BASE=$BASE_SHA"
+          test "$(git rev-parse "$DEV3_ORACLE_SHA:tests/test_dev3_stockfish_runtime_path_privacy.py")" = "$DEV3_ORACLE_BLOB"
+          echo "PROMOTED_BASE=$PROMOTED_STAGE1_SHA"
           echo "QA_HEAD=$(git rev-parse HEAD)"
+          echo "IMMUTABLE_DEV3_ORACLE_BLOB=$DEV3_ORACLE_BLOB"
 
-      - name: Compile Product and oracle
+      - name: Compile Product and QA tests
         run: python -m compileall -q acs tests run_accessible_chess.py
 
       - name: Existing Stockfish runtime regressions
-        run: python -m unittest -v tests.test_stockfish_runtime tests.test_stage1_stockfish_runtime_path_privacy
+        run: python -m unittest -v tests.test_stockfish_runtime tests.test_dev3_uci_failure_recovery
 
-      - name: DEV3 promoted privacy oracle
-        run: python -m unittest -v tests.test_dev3_promoted_stockfish_runtime_path_privacy
+      - name: Materialize immutable DEV3 PR159 oracle
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf qa_oracles
+          mkdir -p qa_oracles
+          : > qa_oracles/__init__.py
+          git show "$DEV3_ORACLE_SHA:tests/test_dev3_stockfish_runtime_path_privacy.py" > qa_oracles/test_dev3_stockfish_runtime_path_privacy.py
+          test -s qa_oracles/test_dev3_stockfish_runtime_path_privacy.py
+
+      - name: DEV3 promoted privacy oracles
+        run: >-
+          python -m unittest -v
+          qa_oracles.test_dev3_stockfish_runtime_path_privacy
+          tests.test_dev3_promoted_stockfish_runtime_path_privacy
 
       - name: Focused Stage1 release contracts
         run: >-
