@@ -79,10 +79,22 @@ function Get-Value([string]$selector) {
     return [string]$result.text
 }
 
+function Get-ValueInWindow([string]$selector, [string]$hwnd) {
+    $result = Invoke-WinApp @('ui','get-value',$selector,'-w',$hwnd,'--json') -Json
+    return [string]$result.text
+}
+
 function Focus([string]$selector) { Invoke-WinApp @('ui','focus',$selector,'-a',[string]$script:appPid) | Out-Null }
+function Focus-InWindow([string]$selector, [string]$hwnd) { Invoke-WinApp @('ui','focus',$selector,'-w',$hwnd) | Out-Null }
 
 function Get-FocusedName {
     $result = Invoke-WinApp @('ui','get-focused','-a',[string]$script:appPid,'--json') -Json
+    if (-not $result.hasFocus -or $null -eq $result.element) { return '' }
+    return [string]$result.element.name
+}
+
+function Get-FocusedNameInWindow([string]$hwnd) {
+    $result = Invoke-WinApp @('ui','get-focused','-w',$hwnd,'--json') -Json
     if (-not $result.hasFocus -or $null -eq $result.element) { return '' }
     return [string]$result.element.name
 }
@@ -92,6 +104,17 @@ function Assert-Focus([string]$expected, [string]$context) {
     $actual = ''
     do {
         $actual = Get-FocusedName
+        if ($actual -eq $expected) { return }
+        Start-Sleep -Milliseconds 150
+    } while ([DateTime]::UtcNow -lt $deadline)
+    Fail "$context expected focus '$expected', actual '$actual'."
+}
+
+function Assert-FocusInWindow([string]$expected, [string]$context, [string]$hwnd) {
+    $deadline = [DateTime]::UtcNow.AddSeconds(7)
+    $actual = ''
+    do {
+        $actual = Get-FocusedNameInWindow $hwnd
         if ($actual -eq $expected) { return }
         Start-Sleep -Milliseconds 150
     } while ([DateTime]::UtcNow -lt $deadline)
@@ -177,6 +200,16 @@ function Exercise-Combo([string]$selector, [int]$cycles) {
     }
 }
 
+function Exercise-ComboInWindow([string]$selector, [int]$cycles, [string]$hwnd) {
+    Wait-ForInWindow $selector $hwnd 7000
+    Focus-InWindow $selector $hwnd
+    Assert-FocusInWindow $selector "$selector initial" $hwnd
+    for ($i = 0; $i -lt $cycles; $i++) {
+        if (($i % 2) -eq 0) { Send-KeysToWindow 'down' $selector $hwnd 120 } else { Send-KeysToWindow 'up' $selector $hwnd 120 }
+        Assert-FocusInWindow $selector "$selector stability $i" $hwnd
+    }
+}
+
 function Exercise-NativeTextKeys([string]$selector, [scriptblock]$invariant, [string]$context) {
     Wait-For $selector
     Focus $selector
@@ -184,6 +217,17 @@ function Exercise-NativeTextKeys([string]$selector, [scriptblock]$invariant, [st
     foreach ($key in @('up','down','left','right','home','end','pgup','pgdn')) {
         Send-KeysTo $key $selector 150
         Assert-Focus $selector "$context key $key"
+        if (-not (& $invariant)) { Fail "$context key $key violated its invariant." }
+    }
+}
+
+function Exercise-NativeTextKeysInWindow([string]$selector, [scriptblock]$invariant, [string]$context, [string]$hwnd) {
+    Wait-ForInWindow $selector $hwnd 7000
+    Focus-InWindow $selector $hwnd
+    Assert-FocusInWindow $selector "$context initial" $hwnd
+    foreach ($key in @('up','down','left','right','home','end','pgup','pgdn')) {
+        Send-KeysToWindow $key $selector $hwnd 150
+        Assert-FocusInWindow $selector "$context key $key" $hwnd
         if (-not (& $invariant)) { Fail "$context key $key violated its invariant." }
     }
 }
@@ -317,32 +361,33 @@ try {
     if ((Get-Value 'Current English word') -ne $resetWord) { Fail 'Cancelling reset changed the current Recall card.' }
 
     Settle-MainFocus 'Spelling pre-open'
-    # After several modal windows, PID-only chord routing can select a stale
-    # top-level window. Atomically focus the live Recall surface before the
-    # configurable mode-opening chord so this proves the real keyboard path.
+    # Trainer forms are second top-level WinForms windows. PID-scoped WinApp
+    # selectors can remain attached to the Recall form, so prove the opening chord
+    # on the main surface, then scope every trainer control lookup/action to the
+    # exact trainer HWND discovered from its real window title.
     Send-KeysTo 'ctrl+shift+s' 'Current English word'
-    Wait-For 'WordDeck Spelling trainer' 10000
-    foreach ($required in @('Type English spelling answer','Ukrainian spelling prompt','Spelling study scope','Active spelling deck')) { Wait-For $required }
-    Exercise-Combo 'Spelling study scope' 40
-    Exercise-Combo 'Active spelling deck' 40
-    $spellingPrompt = Get-Value 'Ukrainian spelling prompt'
-    Exercise-NativeTextKeys 'Type English spelling answer' { (Get-Value 'Ukrainian spelling prompt') -eq $spellingPrompt } 'Spelling answer native navigation'
-    Send-KeysTo 'alt+f4' 'WordDeck Spelling trainer'
-    Wait-Gone 'WordDeck Spelling trainer' 10000
+    $spellingHwnd = Get-WindowHandleByTitle 'WordDeck Spelling' 10000
+    foreach ($required in @('Type English spelling answer','Ukrainian spelling prompt','Spelling study scope','Active spelling deck')) { Wait-ForInWindow $required $spellingHwnd 7000 }
+    Exercise-ComboInWindow 'Spelling study scope' 40 $spellingHwnd
+    Exercise-ComboInWindow 'Active spelling deck' 40 $spellingHwnd
+    $spellingPrompt = Get-ValueInWindow 'Ukrainian spelling prompt' $spellingHwnd
+    Exercise-NativeTextKeysInWindow 'Type English spelling answer' { (Get-ValueInWindow 'Ukrainian spelling prompt' $spellingHwnd) -eq $spellingPrompt } 'Spelling answer native navigation' $spellingHwnd
+    Send-KeysToWindow 'alt+f4' 'Type English spelling answer' $spellingHwnd
+    Wait-WindowGoneByTitle 'WordDeck Spelling' 10000
     Settle-MainFocus 'Spelling return'
 
     Send-KeysTo 'ctrl+shift+e' 'Current English word'
-    Wait-For 'WordDeck Sentence Spelling trainer' 10000
-    foreach ($required in @('Sentence training spelling deck','Number of target words per sentence','Type the English sentence words')) { Wait-For $required }
-    Exercise-Combo 'Sentence training spelling deck' 30
-    Exercise-Combo 'Number of target words per sentence' 20
-    Exercise-NativeTextKeys 'Type the English sentence words' { $true } 'Sentence answer native navigation'
-    Send-KeysTo 'alt+f4' 'WordDeck Sentence Spelling trainer'
-    Wait-Gone 'WordDeck Sentence Spelling trainer' 10000
+    $sentenceHwnd = Get-WindowHandleByTitle 'WordDeck Sentence Spelling' 10000
+    foreach ($required in @('Sentence training spelling deck','Number of target words per sentence','Type the English sentence words')) { Wait-ForInWindow $required $sentenceHwnd 7000 }
+    Exercise-ComboInWindow 'Sentence training spelling deck' 30 $sentenceHwnd
+    Exercise-ComboInWindow 'Number of target words per sentence' 20 $sentenceHwnd
+    Exercise-NativeTextKeysInWindow 'Type the English sentence words' { $true } 'Sentence answer native navigation' $sentenceHwnd
+    Send-KeysToWindow 'alt+f4' 'Type the English sentence words' $sentenceHwnd
+    Wait-WindowGoneByTitle 'WordDeck Sentence Spelling' 10000
 
     for ($round = 0; $round -lt 3; $round++) { Settle-MainFocus "final focus recovery $round" }
 
-    Write-Host 'WordDeck Worker3 R4c ACTUAL WinApp UIA PASS: exact published EXE, Natalia translation/native arrows, Recall next/true-previous, repeated selector focus, menu arrows, Ctrl+K before/after F1, Tab/Enter/Escape shortcut-settings flow with exact modal HWND, truthful F1, full-profile/reset dialogs, Spelling/Sentence native inputs and Alt+F4 close verified.'
+    Write-Host 'WordDeck Worker3 R4c ACTUAL WinApp UIA PASS: exact published EXE, Natalia translation/native arrows, Recall next/true-previous, repeated selector focus, menu arrows, Ctrl+K before/after F1, Tab/Enter/Escape shortcut-settings flow with exact modal HWND, truthful F1, full-profile/reset dialogs, exact-HWND Spelling/Sentence native inputs and Alt+F4 close verified.'
 }
 finally {
     if ($null -ne $appPid -and $appPid -gt 0) {
