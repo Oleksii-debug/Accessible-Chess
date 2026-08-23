@@ -7,14 +7,14 @@ namespace WordDeck;
 internal sealed record ContextResolvedIdentityDepthEvidence(
     int RequiredTargetCount,
     int ScopeEntryCount,
-    int PhysicalFormCoveredEntryCount,
+    int StableTagParticipatingEntryCount,
     int ResolvedStableCoveredEntryCount,
     int UnresolvedAmbiguousEntryCount,
-    int PhysicalFormUncoveredEntryCount,
+    int StableTagAbsentEntryCount,
     double ResolvedStableCoveragePercent,
     IReadOnlyList<string> ResolvedStableCoveredEntryIds,
     IReadOnlyList<string> UnresolvedAmbiguousEntryIds,
-    IReadOnlyList<string> PhysicalFormUncoveredEntryIds);
+    IReadOnlyList<string> StableTagAbsentEntryIds);
 
 internal sealed record ContextStableIdentityCoverageEvidencePayload(
     string SchemaId,
@@ -49,7 +49,7 @@ internal sealed record ContextStableIdentityCoverageEvidenceDocument(
 internal static class ContextStableIdentityCoverageEvidenceBuilder
 {
     public const string SchemaId = "worddeck-context-stable-identity-coverage-v1";
-    public const string MeasurementAlgorithm = "worddeck-context-physical-form-plus-conservative-stable-id-v1";
+    public const string MeasurementAlgorithm = "worddeck-context-stable-tag-plus-conservative-stable-id-v1";
 
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = false };
 
@@ -118,7 +118,7 @@ internal static class ContextStableIdentityCoverageEvidenceBuilder
             one,
             two,
             three,
-            "This conservative stable-ID evidence is digest-bound to both the historical stable-tag participation evidence and the unique physical written-form evidence. Physically covered dictionary IDs whose written form is shared by multiple stable entries remain UNRESOLVED unless explicit POS/sense evidence disambiguates the occurrence. If that physical form is absent from the corpus, its stable IDs remain physical coverage gaps instead of being mislabeled as sense ambiguity. Neither unresolved nor uncovered IDs can own canonical learner progress. Redistribution remains a separate release decision.");
+            "This conservative stable-ID evidence is digest-bound to both the historical stable-tag participation evidence and the separate unique physical written-form evidence. Its per-stable-ID partition is deliberately derived from stable-tag participation plus the homograph fail-closed rule: participating non-homographic IDs may count as resolved; participating same-written-form multi-ID entries remain UNRESOLVED unless explicit POS/sense evidence disambiguates them; non-participating IDs remain corpus gaps. The unique physical-form denominator is authoritative only in the separate physical-form evidence document. Neither unresolved nor absent IDs can own canonical learner progress. Redistribution remains a separate release decision.");
         string digest = ComputeDigest(payload);
         return new ContextStableIdentityCoverageEvidenceDocument(payload, digest);
     }
@@ -139,7 +139,7 @@ internal static class ContextStableIdentityCoverageEvidenceBuilder
         ContextTargetLexicon lexicon,
         IReadOnlyCollection<string> universe)
     {
-        var physicalReport = new ContextNaturalCoverageReport(
+        var stableTagReport = new ContextNaturalCoverageReport(
             depth.RequiredTargetCount,
             depth.ScopeEntryCount,
             depth.CoveredEntryCount,
@@ -147,7 +147,7 @@ internal static class ContextStableIdentityCoverageEvidenceBuilder
             depth.CoveredEntryIds,
             depth.UncoveredEntryIds,
             depth.AmbiguousStableEntryIds);
-        ContextStableIdentityCoverageReport stable = ContextStableIdentityResolution.ResolveCoverage(physicalReport, lexicon, universe);
+        ContextStableIdentityCoverageReport stable = ContextStableIdentityResolution.ResolveCoverage(stableTagReport, lexicon, universe);
         return new ContextResolvedIdentityDepthEvidence(
             depth.RequiredTargetCount,
             depth.ScopeEntryCount,
@@ -204,6 +204,6 @@ internal static class ContextStableIdentityCoverageEvidenceSelfTest
             rejected = true;
         }
         if (!rejected) throw new InvalidOperationException("Stable-identity evidence serializer accepted a forged digest.");
-        Console.WriteLine("Context stable-identity evidence self-test PASS: physical/stable semantic split and digest fail-closed contract verified.");
+        Console.WriteLine("Context stable-identity evidence self-test PASS: stable-tag/stable-ID semantic split, physical-form evidence chain and digest fail-closed contract verified.");
     }
 }
