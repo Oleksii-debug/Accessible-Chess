@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - autopulse/d03-uci-request-isolation-20260823
+  pull_request:
+    branches:
+      - auto/dev3-analysis-provider-bounds-20260823
   workflow_dispatch:
 
 permissions:
