@@ -21,6 +21,7 @@ from typing import Iterable
 
 from .gametree import (
     Comment,
+    GameTreeSerializationError,
     MAX_TREE_NODES,
     MAX_VARIATION_DEPTH,
     MoveNode,
@@ -388,6 +389,11 @@ def _measure_line(
             "PGN model comment collections must be lists",
             code=PgnRoundTripErrorCode.INVALID_MODEL,
         )
+    if line.trailing_comments and line.result is None:
+        raise PgnRoundTripError(
+            "PGN trailing comments require an explicit line result for lossless serialization",
+            code=PgnRoundTripErrorCode.INVALID_MODEL,
+        )
     for comment in line.leading_comments:
         _measure_comment(comment, budget)
     for node in line.moves:
@@ -514,7 +520,13 @@ def serialize_pgn_text(games: Iterable[PgnGame]) -> str:
             code=PgnRoundTripErrorCode.INVALID_MODEL,
         ) from exc
     _measure_games(snapshot)
-    text = serialize_games(snapshot)
+    try:
+        text = serialize_games(snapshot)
+    except GameTreeSerializationError as exc:
+        raise PgnRoundTripError(
+            "PGN model is not strictly serializable",
+            code=PgnRoundTripErrorCode.INVALID_MODEL,
+        ) from exc
     if len(text) > MAX_PGN_TEXT_CHARS:
         _raise_limit(
             "PGN serialization exceeds the character safety limit",
