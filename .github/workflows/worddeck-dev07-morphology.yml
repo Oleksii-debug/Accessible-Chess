@@ -6,7 +6,9 @@ on:
       - worddeck-swarm-dev07-morphology
     paths:
       - 'WordDeck/MorphologyCore.cs'
+      - 'WordDeck/MorphologyPracticeService.cs'
       - 'WordDeck/MorphologySelfTest.cs'
+      - 'WordDeck/MorphologyPracticeSelfTest.cs'
       - 'WordDeck/MORPHOLOGY_DATA_CONTRACT.md'
       - 'WordDeckMorphologyHarness/**'
       - 'WordDeck/WordDeck.csproj'
@@ -16,7 +18,9 @@ on:
       - worddeck-bootstrap
     paths:
       - 'WordDeck/MorphologyCore.cs'
+      - 'WordDeck/MorphologyPracticeService.cs'
       - 'WordDeck/MorphologySelfTest.cs'
+      - 'WordDeck/MorphologyPracticeSelfTest.cs'
       - 'WordDeck/MORPHOLOGY_DATA_CONTRACT.md'
       - 'WordDeckMorphologyHarness/**'
       - 'WordDeck/WordDeck.csproj'
