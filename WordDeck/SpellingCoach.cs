@@ -551,6 +551,7 @@ internal sealed class SpellingForm : Form
     private readonly PronunciationAudio _audio = new();
     private readonly ISpellingScheduler _scheduler = new ConservativeSpellingScheduler();
     private readonly Random _random = new();
+    private readonly Queue<string> _shuffleBag = new();
     private readonly ComboBox _scopeCombo = new() { DropDownStyle = ComboBoxStyle.DropDownList, AccessibleName = "Spelling study scope", Width = 220 };
     private readonly ComboBox _deckCombo = new() { DropDownStyle = ComboBoxStyle.DropDownList, DisplayMember = nameof(DeckDefinition.Name), AccessibleName = "Active spelling deck", Width = 260 };
     private readonly Label _counts = new() { AutoSize = true, AccessibleName = "Spelling scope and deck counts" };
@@ -740,18 +741,45 @@ internal sealed class SpellingForm : Form
         IReadOnlyList<DictionaryEntry> entries = ActiveEntries();
         if (entries.Count == 0)
         {
+            _shuffleBag.Clear();
             _current = null;
             CurrentEntryScopes().Remove(_activeScopeId);
+            if (string.Equals(_activeScopeId, StudyScopeIds.All, StringComparison.OrdinalIgnoreCase))
+                _state.CurrentEntryIdByDictionary.Remove(_package.Id);
             _prompt.Text = "No words in this spelling deck and scope";
             _answer.Clear();
             Save();
             Announce($"{StudyScopeIds.DisplayName(_activeScopeId)}: this spelling deck is empty.");
             return;
         }
-        DictionaryEntry next = entries[_random.Next(entries.Count)];
-        if (_current is not null && entries.Count > 1)
-            while (next.Id == _current.Id) next = entries[_random.Next(entries.Count)];
-        Show(next);
+
+        var activeById = entries.ToDictionary(entry => entry.Id, StringComparer.OrdinalIgnoreCase);
+        if (_shuffleBag.Count == 0)
+            FillShuffleBag(entries);
+
+        while (_shuffleBag.Count > 0)
+        {
+            string id = _shuffleBag.Dequeue();
+            if (activeById.TryGetValue(id, out DictionaryEntry? next))
+            {
+                Show(next);
+                return;
+            }
+        }
+
+        // The deck may have changed while the current card was being reviewed.
+        // Rebuild once from the exact current active set rather than falling back
+        // to random-with-replacement selection.
+        FillShuffleBag(entries);
+        if (_shuffleBag.Count > 0)
+            Show(activeById[_shuffleBag.Dequeue()]);
+    }
+
+    private void FillShuffleBag(IReadOnlyList<DictionaryEntry> entries)
+    {
+        _shuffleBag.Clear();
+        foreach (string id in ShuffleBag.Create(entries.Select(entry => entry.Id), _random, _current?.Id))
+            _shuffleBag.Enqueue(id);
     }
 
     private void Show(DictionaryEntry entry)
@@ -923,6 +951,7 @@ internal sealed class SpellingForm : Form
         _activeScopeId = StudyScopeIds.Ordered.First(id => string.Equals(id, scopeId, StringComparison.OrdinalIgnoreCase));
         _state.ActiveScopeIdByDictionary[_package.Id] = _activeScopeId;
         _deckMap = _decks.EnsureAssignments(_package.Id, _activeScopeId, EligibleEntries().Select(e => e.Id));
+        _shuffleBag.Clear();
         _current = null;
         Save();
         RefreshScopeUi();
@@ -936,6 +965,7 @@ internal sealed class SpellingForm : Form
         if (_decks.Find(id) is null) return;
         _activeDeckId = id;
         _state.ActiveDeckId = id;
+        _shuffleBag.Clear();
         _current = null;
         Save();
         RefreshDeckUi();
@@ -952,6 +982,7 @@ internal sealed class SpellingForm : Form
             DeckDefinition deck = _decks.Create(name);
             _activeDeckId = deck.Id;
             _state.ActiveDeckId = deck.Id;
+            _shuffleBag.Clear();
             Save();
             RefreshDeckUi();
             Next();
@@ -997,6 +1028,7 @@ internal sealed class SpellingForm : Form
             _activeDeckId = _state.ActiveDeckId ?? _decks.FirstDeck.Id;
             _state.LastCoachMove = null;
             _deckMap = _decks.EnsureAssignments(_package.Id, _activeScopeId, EligibleEntries().Select(e => e.Id));
+            _shuffleBag.Clear();
             Save();
             RefreshDeckUi();
             Next();
