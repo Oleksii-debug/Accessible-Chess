@@ -1,0 +1,49 @@
+name: DEV3 Stage1 Drive-Relative Path Privacy Evidence
+
+on:
+  pull_request:
+    branches:
+      - release/dev5-stage1-path-privacy-repair-20260823
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  REPAIR_SHA: c0169ed276fff893f90f85192416612f3b998b5a
+
+jobs:
+  evidence:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact evidence head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Prove exact repair base and evidence-only diff
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git merge-base HEAD "$REPAIR_SHA")" = "$REPAIR_SHA"
+          test "$(git rev-parse "$REPAIR_SHA:acs/report_paths.py")" = "$(git rev-parse 'HEAD:acs/report_paths.py')"
+          python - <<'PY'
+          import os, subprocess
+          base=os.environ['REPAIR_SHA']
+          expected={
+            '.github/workflows/dev3-stage1-drive-relative-path-privacy-evidence.yml',
+            'tests/test_dev3_stage1_drive_relative_path_privacy.py',
+          }
+          actual=set(subprocess.check_output(['git','diff','--name-only',f'{base}...HEAD'],text=True).splitlines())
+          assert actual == expected, (actual, expected)
+          print('EXACT REPAIR + EVIDENCE-ONLY DIFF PASS')
+          PY
+          git diff --check "$REPAIR_SHA...HEAD"
+      - name: Compile sanitizer and oracle
+        run: python -m compileall -q acs/report_paths.py tests/test_dev3_stage1_drive_relative_path_privacy.py
+      - name: Drive-relative privacy oracle
+        run: python -m unittest -v tests.test_dev3_stage1_drive_relative_path_privacy
