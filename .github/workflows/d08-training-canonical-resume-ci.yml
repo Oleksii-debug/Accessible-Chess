@@ -40,7 +40,7 @@ jobs:
           git diff --check "$base" HEAD
           changed="$(git diff --name-only "$base" HEAD)"
           printf '%s\n' "$changed"
-          allowed='^(.github/workflows/d08-training-canonical-resume-ci.yml|acs/training.py|tests/test_training.py|tests/test_d08_training_canonical_resume.py|tests/test_dev1_full_product_ui_packages.py)$'
+          allowed='^(.github/workflows/d08-training-canonical-resume-ci.yml|acs/training.py|tests/test_training.py|tests/test_d08_training_canonical_resume.py|tests/test_dev1_full_product_ui_packages.py|tests/test_dev3_student_progress.py)$'
           unexpected="$(printf '%s\n' "$changed" | grep -Ev "$allowed" || true)"
           if [ -n "$unexpected" ]; then
             echo 'Unexpected path outside D08 canonical training package:' >&2
@@ -53,6 +53,8 @@ jobs:
             acs/full_product_actions.py \
             acs/full_product_ui_shell.py \
             acs/training_progress_store.py \
+            acs/student_progress.py \
+            acs/student_progress_store.py \
             acs/teacher_presentation.py \
             acs/classroom_presentation.py \
             acs/acsdb.py; do
@@ -70,6 +72,7 @@ jobs:
           tests.test_d08_training_canonical_resume
           tests.test_dev1_full_product_ui_packages
           tests.test_dev3_engine_assisted_workflows
+          tests.test_dev3_student_progress
       - name: Full repository unittest discovery
         run: python -m unittest discover -s tests -v
       - name: Full repository pytest without weakening
