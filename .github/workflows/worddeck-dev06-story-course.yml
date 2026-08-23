@@ -7,6 +7,12 @@ on:
     paths:
       - 'WordDeck/**'
       - '.github/workflows/worddeck-dev06-story-course.yml'
+  pull_request:
+    branches:
+      - worddeck-bootstrap
+    paths:
+      - 'WordDeck/**'
+      - '.github/workflows/worddeck-dev06-story-course.yml'
   workflow_dispatch:
 
 permissions:
