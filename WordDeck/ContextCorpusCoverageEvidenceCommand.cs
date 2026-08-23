@@ -53,6 +53,7 @@ internal static class ContextCorpusCoverageEvidenceCommandBootstrap
             string gapTsvPath = outputStem + ".gaps.tsv";
             File.WriteAllText(physicalFormsJsonPath, physicalFormEvidence.ToCanonicalJson(), utf8NoBom);
             File.WriteAllText(stableJsonPath, stableIdentityEvidence.ToCanonicalJson(), utf8NoBom);
+            stableIdentityEvidence = ContextStableIdentityCoverageEvidenceBuilder.ReadAndVerifyFile(stableJsonPath);
             File.WriteAllText(gapJsonPath, legacyRemediation.ToCanonicalJson(), utf8NoBom);
             File.WriteAllText(gapTsvPath, ContextCorpusGapRemediationBuilder.ToTsv(legacyRemediation), utf8NoBom);
 
