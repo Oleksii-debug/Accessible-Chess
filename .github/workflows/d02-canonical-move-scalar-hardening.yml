@@ -21,9 +21,12 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Verify exact ancestry and narrow scope
+      - name: Normalize checkout and verify exact ancestry and narrow scope
         shell: bash
         run: |
+          git config core.autocrlf false
+          git config core.eol lf
+          git reset --hard HEAD
           test "$(git merge-base "$EXACT_BASE_SHA" HEAD)" = "$EXACT_BASE_SHA"
           git diff --check "$EXACT_BASE_SHA" HEAD
           python - <<'PY'
