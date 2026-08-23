@@ -25,6 +25,7 @@ internal static class TrainingEntryPoints
         {
             AddUnavailableTrainingItems(tools, ex.Message);
             AddUnifiedProfileItems(tools, main, insertIndex: 2);
+            AddStoryCourseItem(tools, main, insertIndex: 0);
             return;
         }
 
@@ -48,6 +49,8 @@ internal static class TrainingEntryPoints
         };
         openSentence.Click += (_, _) => OpenSentenceCoach(main);
 
+        var openStory = CreateStoryCourseItem(main);
+
         var settings = new ToolStripMenuItem("Training &keyboard shortcuts...")
         {
             AccessibleName = "Spelling and Sentence Spelling keyboard shortcuts"
@@ -56,21 +59,35 @@ internal static class TrainingEntryPoints
 
         tools.DropDownItems.Insert(0, openSpelling);
         tools.DropDownItems.Insert(1, openSentence);
-        tools.DropDownItems.Insert(2, settings);
-        AddUnifiedProfileItems(tools, main, insertIndex: 3);
+        tools.DropDownItems.Insert(2, openStory);
+        tools.DropDownItems.Insert(3, settings);
+        AddUnifiedProfileItems(tools, main, insertIndex: 4);
     }
+
+    private static ToolStripMenuItem CreateStoryCourseItem(MainForm main)
+    {
+        var openStory = new ToolStripMenuItem("Open St&ory / Narrative Course...")
+        {
+            AccessibleName = "Open Story and Narrative Course"
+        };
+        openStory.Click += (_, _) => OpenStoryCourse(main);
+        return openStory;
+    }
+
+    private static void AddStoryCourseItem(ToolStripMenuItem tools, MainForm main, int insertIndex) =>
+        tools.DropDownItems.Insert(insertIndex, CreateStoryCourseItem(main));
 
     private static void AddUnifiedProfileItems(ToolStripMenuItem tools, MainForm main, int insertIndex)
     {
         var exportProfile = new ToolStripMenuItem("Export complete personal &profile...")
         {
-            AccessibleName = "Export complete Recall Spelling and Sentence personal profile"
+            AccessibleName = "Export complete Recall Spelling Sentence and Story personal profile"
         };
         exportProfile.Click += (_, _) => main.ExportUnifiedPersonalProfileInteractive();
 
         var importProfile = new ToolStripMenuItem("Import complete personal pro&file...")
         {
-            AccessibleName = "Import complete Recall Spelling and Sentence personal profile"
+            AccessibleName = "Import complete Recall Spelling Sentence and Story personal profile"
         };
         importProfile.Click += (_, _) => main.ImportUnifiedPersonalProfileInteractive();
 
@@ -148,6 +165,23 @@ internal static class TrainingEntryPoints
         catch (Exception ex)
         {
             ShowProtectedProgressError(owner, "Sentence Spelling", ex);
+        }
+    }
+
+    private static void OpenStoryCourse(MainForm owner)
+    {
+        try
+        {
+            DictionaryPackage package = owner.ActivePackageForTraining;
+            var store = new StoryCourseStateStore();
+            StoryCourseState state = store.Load();
+            using var form = new StoryCourseForm(package, store, state);
+            KeyboardSelectorFocusGuard.Attach(form, "Narrative Course unit", "Story chapter", "Narrative Course task");
+            form.ShowDialog(owner);
+        }
+        catch (Exception ex)
+        {
+            ShowProtectedProgressError(owner, "Story and Narrative Course", ex);
         }
     }
 
