@@ -152,14 +152,23 @@ internal static class ContextPracticeApplicationSelfTest
             ("bank-verb", "bank")
         });
 
-        ContextPracticeApplicationResult result = ContextPracticeApplicationService.BuildCards(
-            source,
-            lexicon,
-            new[] { "bank-noun", "bank-verb" },
-            new ContextPracticeApplicationRequest("bank-noun", 2, ContextStudyPoolPreset.Full, MaxCards: 10, CandidateLimit: 20),
-            new ContextProductUseOptions(AllowSyntheticFixtures: true));
-        Check(result.Cards.Count == 0, "Two Oxford stable IDs for the same written lexical form must never become a fake two-word exercise.");
-        Check(result.AmbiguousStableEntryIds.Count == 2, "Physical lexical-form ambiguity must remain explicit in the application result.");
+        bool blocked = false;
+        try
+        {
+            _ = ContextPracticeApplicationService.BuildCards(
+                source,
+                lexicon,
+                new[] { "bank-noun", "bank-verb" },
+                new ContextPracticeApplicationRequest("bank-noun", 2, ContextStudyPoolPreset.Full, MaxCards: 10, CandidateLimit: 20),
+                new ContextProductUseOptions(AllowSyntheticFixtures: true));
+        }
+        catch (InvalidDataException ex)
+        {
+            blocked = ex.Message.Contains("unresolved", StringComparison.OrdinalIgnoreCase) &&
+                      ex.Message.Contains("bank-noun", StringComparison.OrdinalIgnoreCase);
+        }
+        Check(blocked,
+            "Two Oxford stable IDs for the same written form must fail closed until explicit POS/sense evidence resolves the stable identity.");
     }
 
     private static void TestNoNaturalPairDoesNotFabricate()
