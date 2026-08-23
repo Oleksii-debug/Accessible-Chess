@@ -168,12 +168,35 @@ class UCIEngine:
 
     @staticmethod
     def _terminate_process(proc: object) -> None:
+        """Best-effort terminate, then hard-kill and reap a stubborn child."""
         try:
             poll = getattr(proc, "poll", None)
             if callable(poll) and poll() is None:
                 terminate = getattr(proc, "terminate", None)
                 if callable(terminate):
                     terminate()
+        except Exception:
+            pass
+        try:
+            wait = getattr(proc, "wait", None)
+            if callable(wait):
+                wait(timeout=2)
+                return
+        except Exception:
+            pass
+
+        try:
+            poll = getattr(proc, "poll", None)
+            still_running = not callable(poll) or poll() is None
+        except Exception:
+            still_running = True
+        if not still_running:
+            return
+
+        try:
+            kill = getattr(proc, "kill", None)
+            if callable(kill):
+                kill()
         except Exception:
             pass
         try:
@@ -389,10 +412,7 @@ class UCIEngine:
                 try:
                     proc.wait(timeout=2)
                 except Exception:
-                    try:
-                        proc.terminate()
-                    except Exception:
-                        pass
+                    self._terminate_process(proc)
             self.proc = None
             reader = self.reader
             self.reader = None
