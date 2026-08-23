@@ -257,12 +257,13 @@ internal sealed class StoryCourseForm : Form
 
     private void PopulateTasks()
     {
+        IReadOnlyList<CourseTaskDefinition> tasks = NarrativeCourseTaskBank.GetTasks(_current);
         _changingSelection = true;
         try
         {
             _taskCombo.Items.Clear();
-            foreach (CourseTaskDefinition task in _current.Definition.Tasks) _taskCombo.Items.Add(new TaskChoice(task));
-            int savedIndex = _current.Definition.Tasks.ToList().FindIndex(task => task.Id.Equals(_state.ActiveTaskId, StringComparison.OrdinalIgnoreCase));
+            foreach (CourseTaskDefinition task in tasks) _taskCombo.Items.Add(new TaskChoice(task));
+            int savedIndex = tasks.ToList().FindIndex(task => task.Id.Equals(_state.ActiveTaskId, StringComparison.OrdinalIgnoreCase));
             _taskCombo.SelectedIndex = savedIndex >= 0 ? savedIndex : 0;
         }
         finally { _changingSelection = false; }
