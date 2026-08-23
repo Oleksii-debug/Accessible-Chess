@@ -1,12 +1,26 @@
 from __future__ import annotations
 
+"""Append-only education activity records outside canonical ClassroomSnapshot state.
+
+Authority boundaries are deliberate:
+- ``ClassroomSnapshot`` owns students/classes/groups/courses/lessons/assignments,
+  current Homework/Result/Progress state, consent, and deletion.
+- this module owns immutable assignment-attempt history and durable remote-session
+  checkpoint metadata that are awkward to model as current-state Classroom records.
+- training/game review metrics remain the responsibility of the existing
+  StudentProgressLedger when that proven package is composed.
+
+No chess position, move legality, engine score/PV, live pointer, highlight, hover,
+or click state is reimplemented here.
+"""
+
 from dataclasses import dataclass, fields, replace
 import hashlib
 import json
 import re
 from typing import Any, Mapping
 
-from .classroom_domain import ClassroomSnapshot
+from .classroom_domain import ClassroomSnapshot, Progress
 
 
 EDUCATION_RECORDS_VERSION = 1
@@ -20,11 +34,18 @@ _DIGEST_RE = re.compile(r"^[0-9a-f]{64}$")
 
 
 class EducationRecordsError(ValueError):
-    """Raised when durable education data is stale, ambiguous, corrupt, or unauthorized."""
+    """Raised when education activity is stale, corrupt, or unauthorized."""
 
 
 @dataclass(frozen=True)
 class SubmissionRecord:
+    """One immutable assignment response attempt.
+
+    ``ClassroomSnapshot.Homework`` remains the current assignment state; this record
+    is append-only history so retries and prior attempts are never overwritten.
+    ``response_ref`` is an opaque identifier, not filesystem content.
+    """
+
     submission_id: str
     assignment_id: str
     student_id: str
@@ -39,35 +60,19 @@ class SubmissionRecord:
         _id(self.response_ref, "submission response ref")
         _timestamp(self.submitted_at, "submission submitted_at")
         if type(self.attempt) is not int or not 1 <= self.attempt <= 10_000:
-            raise EducationRecordsError("submission attempt must be an integer from 1 to 10000")
-
-
-@dataclass(frozen=True)
-class ProgressEvent:
-    event_id: str
-    student_id: str
-    course_id: str
-    lesson_id: str
-    completed_at: str
-    score_basis_points: int | None = None
-
-    def __post_init__(self) -> None:
-        _id(self.event_id, "progress event id")
-        _id(self.student_id, "progress student id")
-        _id(self.course_id, "progress course id")
-        _id(self.lesson_id, "progress lesson id")
-        _timestamp(self.completed_at, "progress completed_at")
-        if self.score_basis_points is not None and (
-            type(self.score_basis_points) is not int
-            or not 0 <= self.score_basis_points <= 10_000
-        ):
             raise EducationRecordsError(
-                "progress score basis points must be an integer from 0 to 10000"
+                "submission attempt must be an integer from 1 to 10000"
             )
 
 
 @dataclass(frozen=True)
 class RemoteSessionRecord:
+    """Durable checkpoint reference for D09-owned live Classroom interaction.
+
+    Only identity, participants, sequence, and content digest cross this boundary.
+    The live session event log/position/pointer/annotations remain owned elsewhere.
+    """
+
     record_id: str
     session_id: str
     student_ids: tuple[str, ...]
@@ -122,23 +127,27 @@ class StudentSessionView:
 
 @dataclass(frozen=True)
 class StudentRecordsView:
+    """Privacy-filtered student projection.
+
+    Progress is projected from the canonical ClassroomSnapshot rather than copied
+    into EducationLedger.  Session participant membership is intentionally hidden.
+    """
+
     student_id: str
     submissions: tuple[SubmissionRecord, ...]
-    progress_events: tuple[ProgressEvent, ...]
+    progress: tuple[Progress, ...]
     sessions: tuple[StudentSessionView, ...]
 
     def __post_init__(self) -> None:
         _id(self.student_id, "student view id")
         _typed_tuple(self.submissions, SubmissionRecord, "student view submissions")
-        _typed_tuple(
-            self.progress_events, ProgressEvent, "student view progress events"
-        )
+        _typed_tuple(self.progress, Progress, "student view progress")
         _typed_tuple(self.sessions, StudentSessionView, "student view sessions")
         if any(item.student_id != self.student_id for item in self.submissions):
             raise EducationRecordsError(
                 "student view contains another student's submission"
             )
-        if any(item.student_id != self.student_id for item in self.progress_events):
+        if any(item.student_id != self.student_id for item in self.progress):
             raise EducationRecordsError(
                 "student view contains another student's progress"
             )
@@ -149,7 +158,6 @@ class EducationLedger:
     classroom_digest: str
     revision: int = 0
     submissions: tuple[SubmissionRecord, ...] = ()
-    progress_events: tuple[ProgressEvent, ...] = ()
     remote_sessions: tuple[RemoteSessionRecord, ...] = ()
     operation_receipts: tuple[OperationReceipt, ...] = ()
     version: int = EDUCATION_RECORDS_VERSION
@@ -159,21 +167,17 @@ class EducationLedger:
         _digest_text(self.classroom_digest, "classroom digest")
         _revision(self.revision, "education ledger revision")
         _typed_tuple(self.submissions, SubmissionRecord, "submissions")
-        _typed_tuple(self.progress_events, ProgressEvent, "progress events")
         _typed_tuple(self.remote_sessions, RemoteSessionRecord, "remote sessions")
         if (
             type(self.operation_receipts) is not tuple
             or len(self.operation_receipts) > MAX_OPERATION_RECEIPTS
         ):
             raise EducationRecordsError("operation receipts must be a bounded tuple")
-        if any(
-            type(item) is not OperationReceipt for item in self.operation_receipts
-        ):
+        if any(type(item) is not OperationReceipt for item in self.operation_receipts):
             raise EducationRecordsError(
                 "operation receipts contain invalid record type"
             )
         _unique(self.submissions, "submission_id", "submission")
-        _unique(self.progress_events, "event_id", "progress event")
         _unique(self.remote_sessions, "record_id", "remote session record")
         _unique(self.remote_sessions, "session_id", "remote session")
         _unique(self.operation_receipts, "operation_id", "operation receipt")
@@ -193,9 +197,6 @@ class EducationLedger:
             "classroom_digest": self.classroom_digest,
             "revision": self.revision,
             "submissions": [_encode_record(item) for item in self.submissions],
-            "progress_events": [
-                _encode_record(item) for item in self.progress_events
-            ],
             "remote_sessions": [
                 _encode_record(item) for item in self.remote_sessions
             ],
@@ -225,7 +226,6 @@ class EducationLedger:
             "classroom_digest",
             "revision",
             "submissions",
-            "progress_events",
             "remote_sessions",
             "operation_receipts",
             "digest",
@@ -246,9 +246,6 @@ class EducationLedger:
             revision=data["revision"],
             submissions=_decode_records(
                 data["submissions"], SubmissionRecord, "submissions"
-            ),
-            progress_events=_decode_records(
-                data["progress_events"], ProgressEvent, "progress events"
             ),
             remote_sessions=_decode_records(
                 data["remote_sessions"], RemoteSessionRecord, "remote sessions"
@@ -291,22 +288,24 @@ class EducationLedger:
         classroom: ClassroomSnapshot,
         actor_student_id: str,
     ) -> StudentRecordsView:
-        """Return only the active actor student's durable private records.
+        """Return only current canonical state plus this actor's private history.
 
-        There is deliberately no arbitrary subject parameter. The current
-        ClassroomSnapshot is mandatory so a deleted student cannot use a stale
-        ledger view before privacy reconciliation.
+        There is deliberately no arbitrary subject parameter.  The current
+        ClassroomSnapshot is mandatory, so a deleted student cannot use a stale
+        EducationLedger before privacy reconciliation.
         """
 
         _anchor(self, classroom)
         actor_student_id = _id(actor_student_id, "student view actor id")
         _require_active_student(classroom, actor_student_id)
         submissions = tuple(
-            item for item in self.submissions
+            item
+            for item in self.submissions
             if item.student_id == actor_student_id
         )
         progress = tuple(
-            item for item in self.progress_events
+            item
+            for item in classroom.progress
             if item.student_id == actor_student_id
         )
         sessions = tuple(
@@ -320,7 +319,10 @@ class EducationLedger:
             if actor_student_id in item.student_ids
         )
         return StudentRecordsView(
-            actor_student_id, submissions, progress, sessions
+            actor_student_id,
+            submissions,
+            progress,
+            sessions,
         )
 
 
@@ -362,46 +364,6 @@ def submit_assignment(
     )
 
 
-def record_progress(
-    ledger: EducationLedger,
-    classroom: ClassroomSnapshot,
-    *,
-    event_id: str,
-    operation_id: str,
-    student_id: str,
-    course_id: str,
-    lesson_id: str,
-    completed_at: str,
-    score_basis_points: int | None = None,
-    expected_revision: int,
-) -> EducationLedger:
-    ledger, classroom = _anchor(ledger, classroom)
-    event = ProgressEvent(
-        event_id,
-        student_id,
-        course_id,
-        lesson_id,
-        completed_at,
-        score_basis_points,
-    )
-    _require_course_student_lesson(
-        classroom, student_id, course_id, lesson_id
-    )
-    payload = _record_payload(event)
-    if _idempotency(ledger, operation_id, "record_progress", payload):
-        return ledger
-    _check_revision(ledger, expected_revision)
-    if any(item.event_id == event.event_id for item in ledger.progress_events):
-        raise EducationRecordsError("duplicate progress event id")
-    return _commit(
-        ledger,
-        operation_id,
-        "record_progress",
-        payload,
-        progress_events=ledger.progress_events + (event,),
-    )
-
-
 def checkpoint_remote_session(
     ledger: EducationLedger,
     classroom: ClassroomSnapshot,
@@ -434,14 +396,18 @@ def checkpoint_remote_session(
     )
     payload = _record_payload(candidate)
     if _idempotency(
-        ledger, operation_id, "checkpoint_remote_session", payload
+        ledger,
+        operation_id,
+        "checkpoint_remote_session",
+        payload,
     ):
         return ledger
     _check_revision(ledger, expected_revision)
 
     existing = next(
         (
-            item for item in ledger.remote_sessions
+            item
+            for item in ledger.remote_sessions
             if item.session_id == candidate.session_id
         ),
         None,
@@ -505,13 +471,15 @@ def reconcile_classroom(
     operation_id: str,
     expected_revision: int,
 ) -> EducationLedger:
-    """Re-anchor records to a new classroom snapshot and honor student deletion.
+    """Re-anchor history to a new classroom snapshot and honor deletion.
 
-    Historical assignment/course references are retained for active students.
-    Deleted or unavailable students are removed from private submissions/progress
-    and from remote-session participant lists. Privacy-driven participant-list
-    changes increment the session CAS revision so a reconnect must refresh before
-    writing another checkpoint.
+    Historical assignment IDs are retained for active students even if a course or
+    assignment later changes.  Deleted/unavailable students are removed from
+    private submissions and remote participant lists.  Canonical Classroom
+    Homework/Result/Progress deletion is already performed by classroom_domain.
+
+    Privacy-driven participant-list changes increment the per-session CAS revision,
+    forcing reconnecting session writers to refresh before another checkpoint.
     """
 
     _ledger(ledger)
@@ -529,7 +497,8 @@ def reconcile_classroom(
 
     def reconcile_session(item: RemoteSessionRecord) -> RemoteSessionRecord:
         filtered = tuple(
-            student_id for student_id in item.student_ids
+            student_id
+            for student_id in item.student_ids
             if student_id in active
         )
         if filtered == item.student_ids:
@@ -547,12 +516,7 @@ def reconcile_classroom(
         payload,
         classroom_digest=classroom.digest,
         submissions=tuple(
-            item for item in ledger.submissions
-            if item.student_id in active
-        ),
-        progress_events=tuple(
-            item for item in ledger.progress_events
-            if item.student_id in active
+            item for item in ledger.submissions if item.student_id in active
         ),
         remote_sessions=tuple(
             reconcile_session(item) for item in ledger.remote_sessions
@@ -627,7 +591,8 @@ def _require_active_student(
     student_id = _id(student_id, "student id")
     student = next(
         (
-            item for item in classroom.students
+            item
+            for item in classroom.students
             if item.student_id == student_id
         ),
         None,
@@ -646,7 +611,8 @@ def _require_assignment_student(
     assignment_id = _id(assignment_id, "assignment id")
     assignment = next(
         (
-            item for item in classroom.assignments
+            item
+            for item in classroom.assignments
             if item.assignment_id == assignment_id
         ),
         None,
@@ -655,7 +621,8 @@ def _require_assignment_student(
         raise EducationRecordsError("unknown assignment")
     cohort = next(
         (
-            item for item in classroom.cohorts
+            item
+            for item in classroom.cohorts
             if item.cohort_id == assignment.cohort_id
         ),
         None,
@@ -664,34 +631,6 @@ def _require_assignment_student(
         raise EducationRecordsError(
             "student is not assigned to this assignment"
         )
-
-
-def _require_course_student_lesson(
-    classroom: ClassroomSnapshot,
-    student_id: str,
-    course_id: str,
-    lesson_id: str,
-) -> None:
-    _require_active_student(classroom, student_id)
-    course_id = _id(course_id, "course id")
-    lesson_id = _id(lesson_id, "lesson id")
-    lesson = next(
-        (
-            item for item in classroom.lessons
-            if item.lesson_id == lesson_id
-        ),
-        None,
-    )
-    if lesson is None or lesson.course_id != course_id:
-        raise EducationRecordsError(
-            "progress lesson does not belong to course"
-        )
-    enrolled = any(
-        item.course_id == course_id and student_id in item.student_ids
-        for item in classroom.cohorts
-    )
-    if not enrolled:
-        raise EducationRecordsError("student is not enrolled in course")
 
 
 def _ledger(value: object) -> EducationLedger:
