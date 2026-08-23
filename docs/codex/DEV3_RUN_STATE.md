@@ -1,45 +1,46 @@
 # DEV3 RUN STATE
 
-RUN_ID: 20260823-0020-analysis-provider-bounds
-STATUS: COMPLETE / TERMINAL / TECHNICAL_GREEN
-READY_FOR_INTEGRATION: YES
+RUN_ID: 20260823-0801-release-support-safe-overlap
+STATUS: SAFE_OVERLAP / RELEASE_SUPPORT / NO_PRODUCT_MUTATION
+READY_FOR_INTEGRATION: YES_FOR_PR137_ISOLATED_SLICE
 OVERALL_FULL_PRODUCT_DEV3: PARTIAL
 
-BRANCH: auto/dev3-analysis-provider-bounds-20260823
+COORDINATION_BRANCH: auto/dev3-analysis-provider-bounds-20260823
 DRAFT_PR: #137
-PARENT_COORDINATION_HEAD: 02241201b0fff72abdacd9157053d12f5c665d05
-PRODUCT_CODE_COMMIT: 2e6e9e7767960c602d06a139948def6f9c400765
-VALIDATED_PRODUCT_TEST_HEAD: 7bcab25b54649663ba9f3094adbd14d49fdc3ced
-PRE_TERMINAL_REPORTING_HEAD: 022cc8168a209ffe7bdfa16779cdd0aed382ca00
-CI_BASE_HEAD: f5eea253770383b8212dfc1eb4af5815266cceca
+TERMINAL_PRODUCT_CODE_COMMIT: 2e6e9e7767960c602d06a139948def6f9c400765
+TERMINAL_VALIDATED_PRODUCT_TEST_HEAD: 7bcab25b54649663ba9f3094adbd14d49fdc3ced
 
-PACKAGE: presentation-neutral AnalysisService provider-result resource bounds.
-- provider outer Sequence is size-checked against requested MultiPV before tuple materialization;
-- legacy PV Sequence is size-checked before tuple materialization;
-- AnalysisLine caps PVs at the established 256-ply safety ceiling;
-- AnalysisResult caps result lines at the established 10-line MultiPV ceiling;
-- exact limits remain valid;
-- adversarial ExplosiveSequence regressions prove rejection without item iteration.
+CURRENT AUDIT MODE: STAGE1 RELEASE FREEZE / FRESH WINDOWS CANDIDATE PRIORITY.
+ACCEPTED_STAGE1_AUTHORITY: manual5/integration-20260821 @ 0fa442330bc2bb03636ff9297512da4c29e38684
 
-EXACT MACHINE EVIDENCE:
-Workflow: DEV3 Analysis Provider Bounds CI
-Run: 32599676493
-Job: 97095971890
+DEV3 EXACT WINDOWS RUNTIME EVIDENCE:
+Evidence PR: #142
+Branch/head: auto/dev3-stage1-runtime-evidence-20260823 @ 61325d8eb3ae86826ccd254c41b1da5344fa2c0e
+Workflow: DEV3 Stage1 Runtime Evidence
+Run/job: 32600115025 / 97097006614
 Conclusion: SUCCESS
-Focused analysis/provider/cross-service regressions: 79/79 PASS
-Full unittest: 723/723 PASS
-Full pytest: 801 passed + 651 subtests PASS
-Diff hygiene: PASS
-Compile: PASS
+Focused Stockfish/analysis/clocks/lifecycle: 177/177 PASS
+Official Stockfish 18 real runtime: PASS
+Single shared stateful provider identity: PASS
+MultiPV=5 restored after engine play: PASS
+Packaged relative engines/stockfish/stockfish.exe runtime: PASS
 SELFTEST: PASS
 ACCESSIBLE CHESS 0.4 WEBVIEW2 COMPLETE USER FLOW DIAGNOSTIC: PASS
-TEST_WEAKENING: NONE
 
-CONCURRENCY CUT-OFF: a parallel DEV3 package PR #134 terminalized during this run and independently closed the final-review history-node-id bound. It does not overlap this AnalysisService package. Do not duplicate it.
+CURRENT RELEASE BLOCKER OWNERSHIP:
+DEV5 PR #139 remains at qa/dev5-stage1-fresh-candidate-0fa442-20260823 @ ba25d7c11408901b7c327f49d1ef41d08d1b9969.
+Latest candidate V2 run/job: 32600049016 / 97097800386, FAILURE inside QA-owned strict packaged UIA harness after topology classification A and native Backspace e9->e proof. Failure occurred while restoring e9 through ValuePattern.SetValue before native Ctrl+A proof. Later packaged Stockfish/sound lifecycle, release preflight, ZIP assembly and artifact upload were skipped.
+No newer candidate rerun is associated with PR #139 head at this cutoff.
 
-AUDIT RELEASE-FREEZE CUT-OFF: latest canonical Audit handoff is ACTIVE / STAGE1 RELEASE FREEZE / FRESH WINDOWS CANDIDATE PRIORITY. This run was already active and is now terminal. Do not start another Full Product expansion wave before a fresh Stage1 candidate decision. Accepted Stage1 authority is manual5/integration-20260821 @ 0fa442330bc2bb03636ff9297512da4c29e38684.
+QA ownership branch qa/dev5-stage1-uia-setvalue-observability-20260823 exists. Its tools/qa/stage1_packaged_e2e_crossprocess.ps1 still contains the same immediate SetValue('e9') + cached Current.Value readback boundary; no materialized repair is visible at this cutoff.
 
-NEXT: DEV3 release-support verification only on exact accepted Stage1 source: Stockfish runtime, analysis, clocks, lifecycle and packaged Stockfish behavior. Evidence-only unless a concrete candidate-facing release blocker is proven and ownership explicitly permits repair. Do not modify QA-owned strict Windows harness.
+CLASSIFICATION:
+- DEV3 Stockfish/runtime Product defect: NOT PROVEN.
+- strict UIA restore observability blocker: QA/DEV5-owned, IN_PROGRESS/UNRESOLVED.
+- SAFE_OVERLAP: YES; no competing Product or QA-harness push.
+- TEST_WEAKENING: NONE.
+
+NEXT: re-read PR #139 and QA observability branch. If a corrected QA harness rerun exists, inspect exact run/jobs/artifacts through packaged Stockfish/sound, preflight and ZIP identity. Open DEV3 Product repair only if that evidence proves a concrete DEV3-owned runtime/analysis/clock/lifecycle defect.
 
 FRESH_WINDOWS_CANDIDATE: NO
 NVDA_VERIFIED: NO
