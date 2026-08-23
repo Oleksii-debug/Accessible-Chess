@@ -1,26 +1,24 @@
 # DEV5_NEXT_WORK
 
-SOURCE_RUN: 20260823-1421
-MODE: V5_WIP1_OBSERVE_THEN_CLASSIFY
+SOURCE_RUN: 20260823-1503
+MODE: WAIT_FOR_TERMINAL_FEN_REPAIR / THEN_FINAL_STAGE1_COMPOSE_AND_REVALIDATE
 
-1. Accepted Stage1 authority is `manual5/integration-20260821@1e9d23b034e6d347fe03c3581469a07e16037c55`. Live compare must remain identical before any release conclusion.
-2. AUDIT_MASTER accepted exact repair/staging head `a06c81e424c599f996662e8898c2b1cbf8ee9dbd` in PR #167 comment `5385692188`; controlled promotion has already materialized as the one-commit/one-Product-file Stage1 fast-forward to `1e9d23b...`.
-3. Promotion gate PR #172 / run `32635759733` is exact GREEN Ubuntu+Windows. Do not create another promotion gate unless new Product mutation occurs.
-4. PR #175 / head `17697b8181781c3a35f12ba522c25852d268eefc` / run `32636245736` is the sole fresh Windows candidate WIP=1. Do not launch, rerun, cancel, edit or duplicate the chain merely to obtain green.
-5. First action on every continuation while V5 is active: read the latest attempt/job steps for run `32636245736`. Do not rely on stale PR text.
-6. If V5 is terminal GREEN, independently verify every release-critical step: exact source + frozen identity; regressions/privacy; retained QA topology; bounded SetValue helper identity/semantics; WAV; official Stockfish; native menu; Nuitka standalone; built EXE diagnostic; real WebView2; strict UIA classification; packaged sound/Stockfish lifecycle and orphan cleanup; release preflight; ZIP reopen/hash/manifest identity; artifact upload. Fetch artifact metadata and verify exact accepted Product SHA before setting `FRESH_WINDOWS_CANDIDATE=YES`.
-7. Only if the complete chain and artifact identity are GREEN, and the only remaining gate is Oleksii's personal NVDA check, user-facing response must begin exactly `Тепер тестуєте ви через NVDA.` Until then never use that phrase.
-8. If V5 is RED, classify the FIRST real failing gate as Product / QA-harness / environment / inconclusive before any code change. Preserve Ctrl+A/Ctrl+C native acceptance; do not infer a later clipboard defect from a precondition failure.
-9. Do not fix/reuse PR #160/V4. Its source `80720e8...` is obsolete/defective and its artifact line is forbidden.
-10. Do not create more Stockfish privacy implementations or duplicate evidence. DEV3 #168 is closed superseded; DEV1 #169 is closed duplicate. PR #176 is unique real Stockfish 18 evidence and already GREEN.
-11. DEV1 #173 is supporting evidence only; no Product change is authorized. DEV2 #174 targets an older intermediate repair head and is not current Stage1 authority.
-12. DEV2 PR #171 is a separate narrow P1 `acs/history.py` fail-closed repair with terminal GREEN CI; keep it out of the active Stage1 candidate source until V5 release decision, then consider selective post-candidate intake.
-13. DEV-A PR #170 remains Full Product Teacher/Classroom lane work; do not mix it into Stage1 candidate source or duplicate it in DEV5.
-14. Persistent Full Product authority remains `dd9ebf9414103c805892856fe6a04706fa69039f` through the release freeze.
-15. Old rejected ZIP, PR #54 and frozen refs remain untouched.
-16. No force-push, skip, xfail, assertion weakening, duplicate Product implementation or CI manipulation merely to chase GREEN.
+1. Immutable prior cutoff is `2026-08-23T12:03:00Z`. On the next invocation, reread live Drive/GitHub and establish a new cutoff before using any post-cutoff evidence.
+2. Draft PR #195 exact head `5e8ca72f7dd552ee151ebd5b85c52148004ac307` is INTERMEDIATE_COMBINED_GREEN only. Dedicated run `32638839597`, Ubuntu `97192655470` and Windows `97192655352`, is terminal SUCCESS through exact scope/blobs, repair 44/44, PR #159 3/3, stress 23 + 11, release 80/80, unittest 673/673, pytest 751 + 758, SELFTEST and diagnostic.
+3. Do not merge/promote PR #195 and do not start V6 from it. Pre-cutoff AUDIT_MASTER proved a separate oversized FEN-counter P1 that is absent from this exact source and belongs to DEV2.
+4. First next action: read live DEV2 RUN_STATE/handoff and exact FEN repair branch/PR/CI. If DEV2 is touching `acs/chesscore.py` or related FEN boundary at the new cutoff, remain SAFE OVERLAP and do not create a competing Product repair.
+5. If DEV2 FEN repair is terminal before the new cutoff, inspect exact diff and require fail-closed concise domain error for conversion-time oversized digit strings, Board/API regressions, mutation atomicity, existing FEN semantics, and exact-head GREEN CI. Do not impose an arbitrary numeric cap unless independently required by the accepted contract.
+6. Selectively intake only the terminal accepted FEN Product delta and required regressions onto the current combined Stage1 lineage. Do not merge validation/evidence PR topology wholesale.
+7. After FEN intake, rerun one exact combined Linux+Windows gate covering Stockfish privacy, history scalar fail-closed, FEN oversized-counter boundary, unchanged independent oracles, focused release/accessibility, full unittest, full pytest, SELFTEST and complete diagnostic.
+8. Require independent AUDIT_MASTER acceptance of the exact final combined Stage1 SHA before promotion/designation.
+9. V5 run `32636245736` is obsolete as candidate source and must not be repaired/relabelled into a candidate. It did prove native Ctrl+A selection and Ctrl+C clipboard copy in packaged Move Edit.
+10. V5 post-submit board-focus failure remains C / INCONCLUSIVE. Before any Product focus patch, require QA to reacquire the semantic board square token after rerender on every bounded poll and record the focus timeline; stale pre-rerender AutomationElement identity is insufficient Product-B evidence.
+11. Re-read post-cutoff submit-focus branches before touching UI focus files. If another worker is active at the new cutoff, use SAFE OVERLAP.
+12. Only after exact final Stage1 acceptance may DEV5 start exactly one fresh WIP=1 Windows candidate chain. It must lock to the final accepted SHA and complete source identity, release contracts, WAV, official Stockfish, native menu, Nuitka EXE, WebView2, strict UIA, packaged sound/Stockfish lifecycle, preflight, ZIP reopen/hash/manifest identity and artifact upload.
+13. Only after a complete machine-GREEN artifact may `FRESH_WINDOWS_CANDIDATE=YES`; human NVDA remains a later user gate.
+14. Persistent Full Product remains `dd9ebf9414103c805892856fe6a04706fa69039f` during release freeze.
+15. Old rejected ZIP, PR #54 and frozen refs remain untouched. No force-push, skip, xfail, test weakening or duplicate implementation.
 
-At cutoff: V5 run `32636245736` is IN_PROGRESS; no candidate ZIP exists yet.
 FRESH_WINDOWS_CANDIDATE=NO
 READY_FOR_RELEASE=NO
 NVDA_VERIFIED=NO
