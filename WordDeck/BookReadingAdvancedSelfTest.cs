@@ -127,7 +127,7 @@ internal static class BookReadingAdvancedSelfTest
         {
             ["META-INF/container.xml"] = "<?xml version=\"1.0\"?><!DOCTYPE container [<!ENTITY x \"bad\">]><container xmlns=\"urn:oasis:names:tc:opendocument:xmlns:container\">&x;</container>"
         });
-        ExpectFailure<XmlExceptionOrInvalidData>(() => BookReadingProductService.ValidateEpubSafety(malicious), "EPUB XML DTD was accepted.");
+        ExpectXmlFailure(() => BookReadingProductService.ValidateEpubSafety(malicious), "EPUB XML DTD was accepted.");
     }
 
     private static void TestDirectPdfBoundary(string root, BookReadingProductService service, DictionaryPackage dictionary, BookDeckVocabularySnapshot snapshot)
@@ -194,12 +194,7 @@ internal static class BookReadingAdvancedSelfTest
         throw new InvalidOperationException("BookReading advanced self-test failed: " + message);
     }
 
-    // XmlReader may surface a raw XmlException while Zip/XML wrapping can surface
-    // InvalidDataException. Use a tiny marker exception type through the helper
-    // overload below to accept either without hiding unrelated failures.
-    private sealed class XmlExceptionOrInvalidData : Exception { }
-
-    private static void ExpectFailure<XmlExceptionOrInvalidData>(Action action, string message)
+    private static void ExpectXmlFailure(Action action, string message)
     {
         try { action(); }
         catch (System.Xml.XmlException) { return; }
