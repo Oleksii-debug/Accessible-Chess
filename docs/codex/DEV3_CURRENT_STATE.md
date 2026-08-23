@@ -1,18 +1,19 @@
 # DEV3 CURRENT STATE
 
-DEV3 is in SAFE OVERLAP release-support mode under the canonical Stage1 release freeze. No new Product package is authorized while the QA/DEV5 fresh-candidate path owns the active blocker.
+DEV3 is in SAFE OVERLAP release-support mode under the Stage1 release freeze. Accepted Stage1 Product authority remains `manual5/integration-20260821 @ 0fa442330bc2bb03636ff9297512da4c29e38684`.
 
-Accepted Stage1 Product authority is `manual5/integration-20260821 @ 0fa442330bc2bb03636ff9297512da4c29e38684`.
+DEV3 exact Windows runtime evidence remains terminal GREEN in PR #142 (`32600115025 / 97097006614`) for Stockfish/runtime/analysis/clock/lifecycle on the accepted source. No DEV3-owned runtime Product defect is proven.
 
-DEV3 exact accepted-source Windows runtime evidence is terminal GREEN in PR #142, branch `auto/dev3-stage1-runtime-evidence-20260823 @ 61325d8eb3ae86826ccd254c41b1da5344fa2c0e`: workflow `DEV3 Stage1 Runtime Evidence`, run `32600115025`, job `97097006614`, SUCCESS. It proves 177/177 focused Stockfish/analysis/clock/lifecycle regressions, official Stockfish 18 real runtime, one shared provider, MultiPV=5 restoration after engine play, packaged relative Stockfish runtime, SELFTEST and complete WebView2 diagnostic.
+New evidence-only PR #148 proves a separate release privacy defect exists on the exact accepted Stage1 source. Branch/head `qa/dev3-stage1-path-privacy-evidence-20260823 @ ee6a5da7a9f7eda8e8ecd9ce227ef5cbbf0718f5`; workflow/run/job `DEV3 Stage1 Path Privacy Evidence / 32624495674 / 97157620475` failed 2/2 focused privacy assertions after exact-parent lock, diff hygiene and compile PASS. `save_pgn_atomic(..., overwrite=False)` exposes private absolute parent directories in its existing-destination error, and `ImportRegistry.inspect()` exposes them in provenance errors; `inspect_batch()` inherits the registry leak through `str(exc)`.
 
-DEV5 PR #139 remains at `ba25d7c11408901b7c327f49d1ef41d08d1b9969`. Candidate V2 `32600049016 / 97097800386` progressed through exact-source identity, release contracts, resources, official Stockfish direct MultiPV5, standalone EXE build, built-EXE diagnostic, real WebView2 startup, topology classification A and native Backspace `e9 -> e`, then failed inside the QA-owned strict UIA harness while restoring `e9` with `ValuePattern.SetValue` before native Ctrl+A was sent. No candidate ZIP was produced.
+This is `PROVEN_STAGE1_RELEASE_PRIVACY_DEFECT=YES`, but ownership belongs to DEV4/DEV5 path-sanitization/integration work. DEV3 did not create a competing Product repair. PR #139 was notified with exact run/job and observed messages.
 
-The dedicated branch `qa/dev5-stage1-uia-setvalue-observability-20260823` still exposes the same immediate `SetValue('e9')` followed by cached `Current.Value` readback. No newer fresh-candidate workflow run is associated with PR #139 head at this cutoff. Therefore no DEV3 Stockfish/runtime Product defect is proven and DEV3 must not create a competing Product or QA-harness patch.
+PR #139 still reports head `ba25d7c11408901b7c327f49d1ef41d08d1b9969`; prior candidate V2 remains RED at the QA-owned SetValue restore observability boundary before native Ctrl+A, with no candidate ZIP from that run.
 
-Latest completed DEV3 Full Product slice remains PR #137 (`AnalysisService` provider-result resource bounds), technically GREEN and eligible for later selective DEV5 intake. That slice does not advance Stage1 release authority during the freeze.
+Latest completed DEV3 Full Product slice remains PR #137 (`AnalysisService` provider-result resource bounds), technically GREEN for later selective intake but not Stage1 release authority.
 
 SAFE_OVERLAP=YES
+PROVEN_STAGE1_RELEASE_PRIVACY_DEFECT=YES
 DEV3_PRODUCT_PATCH_REQUIRED=NO
 FRESH_WINDOWS_CANDIDATE=NO
 NVDA_VERIFIED=NO
