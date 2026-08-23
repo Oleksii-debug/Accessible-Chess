@@ -14,7 +14,16 @@ internal sealed record ContextResolvedIdentityDepthEvidence(
     double ResolvedStableCoveragePercent,
     IReadOnlyList<string> ResolvedStableCoveredEntryIds,
     IReadOnlyList<string> UnresolvedAmbiguousEntryIds,
-    IReadOnlyList<string> StableTagAbsentEntryIds);
+    IReadOnlyList<string> StableTagAbsentEntryIds)
+{
+    // These two properties project physical written-form occurrence back onto the
+    // 5,446 stable-ID universe. They deliberately do NOT replace the separate
+    // unique-written-form denominator in ContextPhysicalLexicalCoverageEvidence.
+    // A participating homograph can therefore contribute multiple stable IDs here,
+    // while remaining unresolved for POS/sense mastery below.
+    public int PhysicalFormCoveredEntryCount => StableTagParticipatingEntryCount;
+    public int PhysicalFormUncoveredEntryCount => StableTagAbsentEntryCount;
+}
 
 internal sealed record ContextStableIdentityCoverageEvidencePayload(
     string SchemaId,
