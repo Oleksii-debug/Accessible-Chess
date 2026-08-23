@@ -1,0 +1,61 @@
+name: DEV4 Release JSON Duplicate-Key Canonicality Evidence
+
+on:
+  pull_request:
+    paths:
+      - 'tests/test_dev4_release_json_duplicate_keys.py'
+      - '.github/workflows/dev4-release-json-duplicate-key-canonicality.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  exact-release-json-oracle:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    env:
+      BASE_SHA: 53791a44176627b012f72c3ac5b7720214194975
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Preserve repository LF bytes on Windows
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config core.autocrlf false
+          git config core.eol lf
+          git -c core.autocrlf=false checkout HEAD -- .
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Prove exact D04 parent and QA-only scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          git cat-file -e "$BASE_SHA^{commit}"
+          test "$(git merge-base HEAD "$BASE_SHA")" = "$BASE_SHA"
+          git diff --check "$BASE_SHA"...HEAD
+          changed="$(git diff --name-only "$BASE_SHA"...HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/dev4-release-json-duplicate-key-canonicality.yml' \
+            'tests/test_dev4_release_json_duplicate_keys.py' | sort)"
+          printf '%s\n' "$changed"
+          test "$changed" = "$expected"
+
+      - name: Compile release preflight and oracle
+        run: python -m compileall -q acs/release_preflight.py tests/test_release_preflight.py tests/test_dev4_release_json_duplicate_keys.py
+
+      - name: Existing release-preflight regressions
+        run: python -m unittest -v tests.test_release_preflight tests.test_d04_release_preflight_hygiene tests.test_d04_release_archive_canonicality tests.test_d04_stockfish_source_zip_bounds
+
+      - name: Focused duplicate-key canonicality oracle
+        run: python -m unittest -v tests.test_dev4_release_json_duplicate_keys
