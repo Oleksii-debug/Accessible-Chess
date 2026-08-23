@@ -1,0 +1,98 @@
+name: DEV1 Stage1 Stockfish Runtime Repair Evidence
+
+on:
+  pull_request:
+    branches:
+      - auto/dev1-stage1-stockfish-runtime-repair-ci-base-20260823-1358
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  BASE_STAGE1_SHA: 80720e8125c59a213f278668d599040f2768d553
+  PRODUCT_REPAIR_SHA: 1e9d23b034e6d347fe03c3581469a07e16037c55
+
+jobs:
+  exact-evidence:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 35
+    steps:
+      - name: Checkout exact source head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+
+      - name: Preserve LF semantics on Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          git config core.autocrlf false
+          git config core.eol lf
+          git reset --hard HEAD
+
+      - name: Prove narrow inherited repair and evidence-only delta
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git merge-base "$BASE_STAGE1_SHA" HEAD)" = "$BASE_STAGE1_SHA"
+          git merge-base --is-ancestor "$PRODUCT_REPAIR_SHA" HEAD
+          git diff --check "$BASE_STAGE1_SHA"...HEAD
+          git diff --exit-code "$PRODUCT_REPAIR_SHA" HEAD -- acs/stockfish_runtime.py
+          git diff --name-only "$BASE_STAGE1_SHA"...HEAD | sort > changed.txt
+          printf '%s\n' \
+            '.github/dev1-stockfish-runtime-repair-evidence-trigger.txt' \
+            '.github/workflows/dev1-stage1-stockfish-runtime-repair-evidence.yml' \
+            '.github/workflows/dev4-stage1-stockfish-runtime-privacy-repair.yml' \
+            'acs/stockfish_runtime.py' \
+            'tests/test_dev3_stockfish_runtime_path_privacy.py' | sort > expected.txt
+          diff -u expected.txt changed.txt
+          echo 'DEV1 EVIDENCE SCOPE PASS'
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install pytest
+        run: python -m pip install -q pytest
+
+      - name: Compile
+        run: python -m compileall -q acs tests run_accessible_chess.py
+
+      - name: Existing Stockfish runtime regressions
+        run: python -m unittest -v tests.test_stockfish_runtime
+
+      - name: Unchanged PR159 Stockfish runtime privacy oracle
+        run: python -m unittest -v tests.test_dev3_stockfish_runtime_path_privacy
+
+      - name: Current Stage1 path privacy regressions
+        run: python -m unittest -v tests.test_stage1_release_path_privacy
+
+      - name: DEV1 Stage1 UI and accessibility contracts
+        run: >-
+          python -m unittest -v
+          tests.test_issue22_release_contract
+          tests.test_nvda_p0_contract
+          tests.test_stage1_webview2_accessibility_boundary
+          tests.test_webview_safe_server
+          tests.test_stage1_packaged_focus_origin_contract
+          tests.test_stage1_release_composition_ui
+          tests.test_ui_native_menu_recovery
+
+      - name: Full unittest discovery
+        run: python -m unittest discover -s tests -v
+
+      - name: Full pytest
+        run: python -m pytest -q
+
+      - name: Selftest and complete diagnostic
+        shell: bash
+        run: |
+          python run_accessible_chess.py --selftest
+          python run_accessible_chess.py --diagnostic
+          echo 'DEV1 STAGE1 STOCKFISH RUNTIME REPAIR EVIDENCE PASS'
