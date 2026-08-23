@@ -99,6 +99,8 @@ internal sealed class ListeningCoachState
 {
     public int SchemaVersion { get; set; } = ListeningStateStore.CurrentSchemaVersion;
     public string ActiveScopeId { get; set; } = StudyScopeIds.All;
+    // Only an unfinished item is persisted here. Completion clears this field so
+    // a reviewed item cannot be resurrected as pending after restart/import.
     public string? CurrentExerciseId { get; set; }
     public long SelectionCounter { get; set; }
     public Dictionary<string, Dictionary<string, ListeningItemStats>> StatsByDictionary { get; set; } = new(StringComparer.OrdinalIgnoreCase);
@@ -144,6 +146,28 @@ internal sealed class ListeningCoachEngine
     }
 
     public IReadOnlyList<ListeningExercise> Available() => _source.GetAvailable(_state.ActiveScopeId);
+
+    public bool TryResumeCurrent(out ListeningExercise? exercise)
+    {
+        exercise = null;
+        if (string.IsNullOrWhiteSpace(_state.CurrentExerciseId)) return false;
+
+        exercise = Available().FirstOrDefault(item =>
+            string.Equals(item.ExerciseId, _state.CurrentExerciseId, StringComparison.OrdinalIgnoreCase));
+        if (exercise is null)
+        {
+            // The audio/scope may have changed since the previous run. Do not
+            // fabricate a pending item that can no longer be practiced.
+            _state.CurrentExerciseId = null;
+            return false;
+        }
+
+        Current = exercise;
+        _roundWrongAttempts = 0;
+        _roundReplays = 0;
+        _roundCompleted = false;
+        return true;
+    }
 
     public ListeningExercise StartNext(bool recordSkipForUnfinished = true)
     {
@@ -311,6 +335,7 @@ internal sealed class ListeningCoachEngine
         if (_state.History.Count > MaxHistory)
             _state.History.RemoveRange(0, _state.History.Count - MaxHistory);
         _roundCompleted = true;
+        _state.CurrentExerciseId = null;
     }
 
     internal static string NormalizeAnswer(string? value)
