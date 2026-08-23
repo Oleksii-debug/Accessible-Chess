@@ -1,0 +1,60 @@
+name: DEV3 Stage1 Engine Start Path Privacy Evidence
+
+on:
+  pull_request:
+    branches:
+      - manual5/integration-20260821
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  ACCEPTED_STAGE1_SHA: 0fa442330bc2bb03636ff9297512da4c29e38684
+
+jobs:
+  evidence:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact evidence head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Prove accepted Stage1 Product is byte-identical and evidence-only
+        shell: bash
+        run: |
+          set -euo pipefail
+          git cat-file -e "$ACCEPTED_STAGE1_SHA^{commit}"
+          test "$(git merge-base HEAD "$ACCEPTED_STAGE1_SHA")" = "$ACCEPTED_STAGE1_SHA"
+          test "$(git rev-parse "$ACCEPTED_STAGE1_SHA:acs/engine.py")" = "$(git rev-parse 'HEAD:acs/engine.py')"
+          python - <<'PY'
+          import subprocess
+          expected = {
+              '.github/workflows/dev3-stage1-engine-start-path-privacy.yml',
+              'tests/test_dev3_stage1_engine_start_path_privacy.py',
+          }
+          actual = set(subprocess.check_output(
+              ['git', 'diff', '--name-only', '0fa442330bc2bb03636ff9297512da4c29e38684...HEAD'],
+              text=True,
+          ).splitlines())
+          assert actual == expected, (actual, expected)
+          print('EXACT ACCEPTED STAGE1 PRODUCT + EVIDENCE-ONLY DIFF PASS')
+          PY
+          git diff --check "$ACCEPTED_STAGE1_SHA...HEAD"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Compile Product and evidence
+        run: python -m compileall -q acs tests run_accessible_chess.py
+
+      - name: Existing UCI failure recovery remains green
+        run: python -m unittest -v tests.test_dev3_uci_failure_recovery
+
+      - name: Accepted Stage1 engine startup path privacy oracle
+        run: python -m unittest -v tests.test_dev3_stage1_engine_start_path_privacy
