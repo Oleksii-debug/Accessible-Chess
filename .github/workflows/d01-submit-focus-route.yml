@@ -3,8 +3,7 @@ name: D01 Packaged Submit Focus Repair
 on:
   pull_request:
     paths:
-      - 'web/stage1_submit_focus_route.js'
-      - 'acs/stage1_release_ui.py'
+      - 'web/stage1_release_bootstrap.js'
       - 'tests/test_d01_submit_focus_route_contract.py'
       - '.github/workflows/d01-submit-focus-route.yml'
   workflow_dispatch:
@@ -33,7 +32,6 @@ jobs:
       - name: Parse release JavaScript
         run: |
           node --check web/stage1_release_bootstrap.js
-          node --check web/stage1_submit_focus_route.js
           node --check web/stage1_board_actions.js
       - name: Focus and release contracts
         run: >-
