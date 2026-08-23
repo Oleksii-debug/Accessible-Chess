@@ -79,13 +79,35 @@ class AcsDatabase:
             migration = getattr(self, f"_migrate_to_v{target}", None)
             if migration is None:
                 raise RuntimeError(f"Missing ACSDB migration from {current} to {target}")
-            with self.conn:
+            try:
                 migration()
+                if not self.conn.in_transaction:
+                    raise RuntimeError(
+                        f"ACSDB migration to schema {target} did not open a transaction"
+                    )
                 self.conn.execute(f"PRAGMA user_version = {target}")
+                self.conn.commit()
+            except Exception:
+                if self.conn.in_transaction:
+                    self.conn.rollback()
+                raise
             current = target
 
+    def _migration_script(self, script: str) -> None:
+        """Execute one schema migration inside an explicit SQLite transaction.
+
+        ``sqlite3.Connection`` context managers do not start a transaction for
+        DDL, and ``executescript`` commits a pending transaction before running
+        its script. Starting ``BEGIN IMMEDIATE`` inside the script keeps every
+        schema statement, data backfill and the later ``user_version`` update in
+        one fail-closed transaction that the caller can roll back.
+        """
+        if self.conn.in_transaction:
+            raise RuntimeError("ACSDB migration cannot start inside another transaction")
+        self.conn.executescript("BEGIN IMMEDIATE;\n" + script)
+
     def _migrate_to_v1(self) -> None:
-        self.conn.executescript(
+        self._migration_script(
             """
             CREATE TABLE IF NOT EXISTS sources (
                 id INTEGER PRIMARY KEY,
@@ -134,7 +156,7 @@ class AcsDatabase:
         )
 
     def _migrate_to_v2(self) -> None:
-        self.conn.executescript(
+        self._migration_script(
             """
             CREATE TABLE IF NOT EXISTS import_attempts (
                 id INTEGER PRIMARY KEY,
@@ -156,9 +178,11 @@ class AcsDatabase:
         )
 
     def _migrate_to_v3(self) -> None:
-        self.conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_positions_key_game_ply "
-            "ON positions(position_key, game_id, ply)"
+        self._migration_script(
+            """
+            CREATE INDEX IF NOT EXISTS idx_positions_key_game_ply
+            ON positions(position_key, game_id, ply);
+            """
         )
 
     @staticmethod
