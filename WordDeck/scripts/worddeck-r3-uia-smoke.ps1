@@ -199,16 +199,15 @@ try {
     Open-And-CancelDialog 'ctrl+alt+e' 'Export complete WordDeck personal progress profile' 'complete profile export dialog'
     Open-And-CancelDialog 'ctrl+shift+i' 'Import complete WordDeck personal progress profile' 'complete profile import dialog'
 
-    # Reset is intentionally unbound. Open File from the keyboard, then address
-    # the reset command through its explicit accessible name. WinApp's app-scoped
-    # get-focused cannot see ToolStrip drop-down focus, so no focus-count or popup
-    # focus inference is used. Activation remains keyboard-only: targeted Enter.
+    # Reset is intentionally unbound. The File menu declares the standard
+    # mnemonic "&Reset Recall learning data...". Exercise exactly that Windows
+    # keyboard contract: Alt+F opens File, then R is delivered through SendInput
+    # to the active native menu loop. No mouse, coordinates, popup focus inference,
+    # or fixed arrow count is involved.
     Focus 'Current English word'
     $resetWord = Get-Value 'Current English word'
     Send-MenuKey 'alt+f'
-    Wait-For 'Reset Recall learning data with automatic backup' 7000
-    Focus 'Reset Recall learning data with automatic backup'
-    Send-Keys 'enter' 'Reset Recall learning data with automatic backup'
+    Send-MenuKey 'r'
     Wait-For 'Reset WordDeck learning data' 7000
     Send-Keys 'esc' 'Reset WordDeck learning data'
     Wait-Gone 'Reset WordDeck learning data' 7000
