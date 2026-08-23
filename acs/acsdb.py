@@ -18,6 +18,12 @@ import tempfile
 from typing import Iterable
 
 from .gametree import PgnGame, parse_games, serialize_game
+from .search_policy import (
+    SEARCH_FOLD_SQL_FUNCTION,
+    install_search_fold,
+    literal_like_pattern,
+    normalize_search_term,
+)
 
 IMPORT_STATUSES = {"full", "partial", "damaged", "warning"}
 IMPORT_ATTEMPT_STATUSES = {"pending", "full", "warning", "damaged", "failed"}
@@ -543,28 +549,38 @@ class AcsDatabase:
                      result: str | None = None, source_id: int | None = None,
                      source_name: str | None = None, after_id: int | None = None,
                      limit: int = 100) -> list[dict]:
-        """Search games in deterministic id order with optional keyset paging.
+        """Search games with the same Unicode/literal policy as GameSearchService.
 
         ``after_id`` is intentionally part of the query rather than an OFFSET.
         Once a caller has consumed a page, later inserts cannot cause already
         returned rows to shift into a subsequent page. Search rows include
         source provenance so library surfaces do not need a second lookup.
         """
+        player = normalize_search_term(player, name="player")
+        event = normalize_search_term(event, name="event")
+        eco = normalize_search_term(eco, name="eco")
+        opening = normalize_search_term(opening, name="opening")
+        source_name = normalize_search_term(source_name, name="source_name")
+        install_search_fold(self.conn)
+
         clauses: list[str] = []
         params: list[object] = []
         if player:
-            clauses.append("(g.white LIKE ? COLLATE NOCASE OR g.black LIKE ? COLLATE NOCASE)")
-            needle = f"%{player}%"
+            clauses.append(
+                f"({SEARCH_FOLD_SQL_FUNCTION}(g.white) LIKE ? ESCAPE '\\' OR "
+                f"{SEARCH_FOLD_SQL_FUNCTION}(g.black) LIKE ? ESCAPE '\\')"
+            )
+            needle = literal_like_pattern(player)
             params.extend([needle, needle])
         if event:
-            clauses.append("g.event LIKE ? COLLATE NOCASE")
-            params.append(f"%{event}%")
+            clauses.append(f"{SEARCH_FOLD_SQL_FUNCTION}(g.event) LIKE ? ESCAPE '\\'")
+            params.append(literal_like_pattern(event))
         if eco:
-            clauses.append("g.eco LIKE ? COLLATE NOCASE")
-            params.append(f"{eco}%")
+            clauses.append(f"{SEARCH_FOLD_SQL_FUNCTION}(g.eco) LIKE ? ESCAPE '\\'")
+            params.append(literal_like_pattern(eco, prefix=True))
         if opening:
-            clauses.append("g.opening LIKE ? COLLATE NOCASE")
-            params.append(f"%{opening}%")
+            clauses.append(f"{SEARCH_FOLD_SQL_FUNCTION}(g.opening) LIKE ? ESCAPE '\\'")
+            params.append(literal_like_pattern(opening))
         if result:
             clauses.append("g.result=?")
             params.append(result)
@@ -572,8 +588,8 @@ class AcsDatabase:
             clauses.append("g.source_id=?")
             params.append(source_id)
         if source_name:
-            clauses.append("s.source_name LIKE ? COLLATE NOCASE")
-            params.append(f"%{source_name}%")
+            clauses.append(f"{SEARCH_FOLD_SQL_FUNCTION}(s.source_name) LIKE ? ESCAPE '\\'")
+            params.append(literal_like_pattern(source_name))
         cursor = self._positive_cursor(after_id, name="after_id")
         if cursor is not None:
             clauses.append("g.id>?")
