@@ -8,6 +8,8 @@ import time
 from typing import Callable
 
 from .engine_ports import (
+    ENGINE_FEN_MAX_LENGTH,
+    ENGINE_MOVE_MAX_MOVETIME_MS,
     EngineContractError,
     EngineContractErrorCode,
     RawAnalysisLine,
@@ -194,17 +196,23 @@ class UCIEngine:
 
     @staticmethod
     def _normalize_fen(fen: str) -> str:
-        if (
-            not isinstance(fen, str)
-            or not fen.strip()
-            or "\n" in fen
-            or "\r" in fen
-        ):
+        if not isinstance(fen, str):
             raise EngineContractError(
                 "engine FEN must be non-empty single-line text",
                 code=EngineContractErrorCode.INVALID_REQUEST,
             )
-        return fen.strip()
+        normalized = fen.strip()
+        if (
+            not normalized
+            or "\n" in normalized
+            or "\r" in normalized
+            or len(normalized) > ENGINE_FEN_MAX_LENGTH
+        ):
+            raise EngineContractError(
+                "engine FEN must be bounded non-empty single-line text",
+                code=EngineContractErrorCode.INVALID_REQUEST,
+            )
+        return normalized
 
     @staticmethod
     def _bounded_integer(
@@ -217,17 +225,8 @@ class UCIEngine:
             raise EngineContractError(
                 f"{name} must be an integer",
                 code=EngineContractErrorCode.INVALID_REQUEST,
-        )
-        return max(minimum, min(maximum, value))
-
-    @staticmethod
-    def _minimum_integer(name: str, value: int, minimum: int) -> int:
-        if not isinstance(value, int) or isinstance(value, bool):
-            raise EngineContractError(
-                f"{name} must be an integer",
-                code=EngineContractErrorCode.INVALID_REQUEST,
             )
-        return max(minimum, value)
+        return max(minimum, min(maximum, value))
 
     @staticmethod
     def _bestmove_token(parts: list[str]) -> str | None:
@@ -276,46 +275,52 @@ class UCIEngine:
         depth = self._bounded_integer("depth", depth, 1, 40)
         with self._lock:
             self.start()
-            self._drain()
-            self._configure_request_options(multipv=multipv, skill_level=20)
-            self.send("position fen " + fen)
-            self.send(f"go depth {depth}")
-            best: dict[int, RawAnalysisLine] = {}
-            end = time.monotonic() + 60
-            while time.monotonic() < end:
-                try:
-                    line = self.q.get(timeout=0.3)
-                except queue.Empty:
-                    continue
-                tokens = line.split()
-                if tokens and tokens[0] == "bestmove":
-                    self._bestmove_token(tokens)
-                    return tuple(best[k] for k in sorted(best)[:multipv])
-                if not (line.startswith("info ") and " pv " in line):
-                    continue
-                mp_match = re.search(r" multipv (\d+)", line)
-                depth_match = re.search(r" depth (\d+)", line)
-                score_match = re.search(r" score (cp|mate) (-?\d+)", line)
-                if not (mp_match and depth_match and score_match):
-                    continue
-                try:
-                    mp = int(mp_match.group(1))
-                    item_depth = int(depth_match.group(1))
-                    score_value = int(score_match.group(2))
-                except ValueError:
-                    continue
-                if not 1 <= mp <= multipv:
-                    continue
-                score_kind = score_match.group(1)
-                pv = tuple(line.split(" pv ", 1)[1].split())
-                if not pv or any(_UCI_MOVE_RE.fullmatch(move) is None for move in pv):
-                    continue
-                best[mp] = RawAnalysisLine(item_depth, score_kind, score_value, pv)
+            proc = self.proc
             try:
-                self.send("stop")
+                self._drain()
+                self._configure_request_options(multipv=multipv, skill_level=20)
+                self.send("position fen " + fen)
+                self.send(f"go depth {depth}")
+                best: dict[int, RawAnalysisLine] = {}
+                end = time.monotonic() + 60
+                while time.monotonic() < end:
+                    try:
+                        line = self.q.get(timeout=0.3)
+                    except queue.Empty:
+                        continue
+                    tokens = line.split()
+                    if tokens and tokens[0] == "bestmove":
+                        self._bestmove_token(tokens)
+                        return tuple(best[k] for k in sorted(best)[:multipv])
+                    if not (line.startswith("info ") and " pv " in line):
+                        continue
+                    mp_match = re.search(r" multipv (\d+)", line)
+                    depth_match = re.search(r" depth (\d+)", line)
+                    score_match = re.search(r" score (cp|mate) (-?\d+)", line)
+                    if not (mp_match and depth_match and score_match):
+                        continue
+                    try:
+                        mp = int(mp_match.group(1))
+                        item_depth = int(depth_match.group(1))
+                        score_value = int(score_match.group(2))
+                    except ValueError:
+                        continue
+                    if not 1 <= mp <= multipv:
+                        continue
+                    score_kind = score_match.group(1)
+                    pv = tuple(line.split(" pv ", 1)[1].split())
+                    if not pv or any(_UCI_MOVE_RE.fullmatch(move) is None for move in pv):
+                        continue
+                    best[mp] = RawAnalysisLine(item_depth, score_kind, score_value, pv)
+                try:
+                    self.send("stop")
+                except Exception:
+                    pass
+                raise RuntimeError("Stockfish analysis timed out")
             except Exception:
-                pass
-            raise RuntimeError("Stockfish analysis timed out")
+                if proc is not None and self.proc is proc:
+                    self._discard_process(proc)
+                raise
 
     def best_move(
         self,
@@ -325,32 +330,39 @@ class UCIEngine:
     ) -> str | None:
         fen = self._normalize_fen(fen)
         skill = self._bounded_integer("skill_level", skill_level, 0, 20)
-        movetime_ms = self._minimum_integer(
+        movetime_ms = self._bounded_integer(
             "movetime_ms",
             movetime_ms,
             50,
+            ENGINE_MOVE_MAX_MOVETIME_MS,
         )
         with self._lock:
             self.start()
-            self._drain()
-            self._configure_request_options(multipv=1, skill_level=skill)
-            self.send("position fen " + fen)
-            self.send(f"go movetime {movetime_ms}")
-            end = time.monotonic() + max(5, movetime_ms / 1000 + 5)
-            while time.monotonic() < end:
-                try:
-                    line = self.q.get(timeout=0.2)
-                except queue.Empty:
-                    continue
-                parts = line.split()
-                if not parts or parts[0] != "bestmove":
-                    continue
-                return self._bestmove_token(parts)
+            proc = self.proc
             try:
-                self.send("stop")
+                self._drain()
+                self._configure_request_options(multipv=1, skill_level=skill)
+                self.send("position fen " + fen)
+                self.send(f"go movetime {movetime_ms}")
+                end = time.monotonic() + max(5, movetime_ms / 1000 + 5)
+                while time.monotonic() < end:
+                    try:
+                        line = self.q.get(timeout=0.2)
+                    except queue.Empty:
+                        continue
+                    parts = line.split()
+                    if not parts or parts[0] != "bestmove":
+                        continue
+                    return self._bestmove_token(parts)
+                try:
+                    self.send("stop")
+                except Exception:
+                    pass
+                raise RuntimeError("Stockfish did not return bestmove")
             except Exception:
-                pass
-            raise RuntimeError("Stockfish did not return bestmove")
+                if proc is not None and self.proc is proc:
+                    self._discard_process(proc)
+                raise
 
     def close(self) -> None:
         with self._lock:
