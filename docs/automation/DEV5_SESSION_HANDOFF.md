@@ -1,25 +1,26 @@
 # DEV5_SESSION_HANDOFF
 
-RUN: 20260823-1701
-COORDINATOR_BRANCH: `auto/dev5-coordinator-1701-20260823`
-MODE: SAFE_OVERLAP / RELEASE_HOLD_D04_239 / NO_PRODUCT_PUSH
-SNAPSHOT: `docs/automation/SNAPSHOT_20260823_1701.md`
-CUTOFF: `2026-08-23T14:01:47Z / 17:01 Europe/Kyiv`
+RUN: 20260823-2000
+COORDINATOR_BRANCH: `auto/dev5-coordinator-2000-20260823`
+MODE: SAFE_OVERLAP / RELEASE_HOLD_D04_JSON_CANONICALITY / NO_PRODUCT_PUSH
+SNAPSHOT: `docs/automation/SNAPSHOT_20260823_2000.md`
+CUTOFF: `2026-08-23T16:59:32Z / 19:59 Europe/Kyiv`
 
-Shared Stage1 authority remains `manual5/integration-20260821@1e9d23b034e6d347fe03c3581469a07e16037c55`.
+Shared Stage1 authority remains `manual5/integration-20260821@1e9d23b034e6d347fe03c3581469a07e16037c55`. D05 PR #222 remains the touching promotion surface at exact `88578e05eb0ea51795570f92f76428b9e029c11d`; that SHA remains superseded and is not a release target.
 
-Current D05 promotion PR #222 is still draft/open at exact `88578e05eb0ea51795570f92f76428b9e029c11d`. Its dedicated combined validation `32641454103` is terminal SUCCESS on Windows `97199059495` and Ubuntu `97199059664`, covering accepted Stage1 repairs, D04 #218/#228, D03 hard shutdown, immutable PR159/193/196 oracles, release contracts, full suites, SELFTEST and diagnostic. That evidence remains valid for the included tree but no longer authorizes final promotion.
+D04 #239 exact `53791a44176627b012f72c3ac5b7720214194975` remains terminal GREEN for source-ZIP resource limits and compatible with the current D05 tree by QA-only #241. But D04 QA-only #249 has now become admissible terminal evidence and proves an additional P1 directly on exact #239.
 
-The cutoff moved because D04 PR #239 became terminal before this wave. Red-first run `32641610135` proved unchanged #228 preflight accepted four resource-abuse classes before `ZipFile.testzip()`: >8 MiB compressed source ZIP, >4096 entries, >16 MiB single uncompressed member, >64 MiB total uncompressed. Final head `53791a44176627b012f72c3ac5b7720214194975` repairs this in `acs/release_preflight.py` blob `9213efc03e78756ec7d45f5983c91414b614b06f`; regression blob is `4dec7df9ae945812d0cffacb168c912a7b8f56fb`. Final run `32641696408` is terminal SUCCESS on Ubuntu `97199654044` and Windows `97199654106`, with focused D04/prior preflight, full unittest/pytest, SELFTEST and diagnostic GREEN.
+PR #249 exact QA head `811ba1c8bb15aeb1241087822f45136e6ee537e8`, run `32647323503`: Ubuntu `97213449826` and Windows `97213449888` both pass exact ancestry/scope, compile and the old D04/preflight regression block, then fail exactly 2/2 new assertions because duplicate JSON object keys are accepted. The proven conflicting release-manifest keys are `nvda_verified` and `nvda_menu_usability`. Root cause is `_read_json_object()` using ordinary `json.loads()` with last-key-wins behavior.
 
-AUDIT-A independently accepted #239 for selective Stage1 intake and explicitly superseded `88578e05...` as final audit/promotion target. Required action is already routed to the active D05 promotion surface: selectively intake #239 Product/test delta, preserve all prior accepted Stage1 and D03 lifecycle blobs, refresh exact validation provenance, rerun the combined dual-OS gate, and return the NEW exact SHA to Audit-A/B.
+Classification: `PROVEN_PRODUCT_DEFECT / P1 / RELEASE_EVIDENCE_JSON_CANONICALITY`. D04 owns repair. Required owner semantics: reject duplicate keys at every object nesting level before semantic validation; preserve malformed/unreadable JSON error containment and current valid release semantics; replay #249 unchanged. No terminal owner repair for this exact defect was found before this cutoff.
 
-This wave therefore used SAFE OVERLAP MODE and made no competing Product push. No shared ref moved, no candidate was built, and no old ZIP was reused.
+Consequently the previous route `#239 intake -> D05 combined gate` is paused. Correct route is: terminal D04 owner repair of #249 -> unchanged #249 + cumulative #218/#228/#239 dual-OS/full-suite proof -> independent acceptance of that cumulative D04 head -> D05 selective intake into PR #222 -> new exact combined dual-OS gate with all immutable Stage1 oracles -> fresh Audit-A/B -> force=false authority fast-forward -> exactly one fresh Windows strict chain.
 
-Next DEV5 invocation must establish a fresh cutoff, inspect whether PR #222 advanced, and only evaluate terminal evidence that existed before that new cutoff. If D05 is still IN_PROGRESS, continue evidence/conflict review only. If a new exact combined SHA is terminal GREEN and independently accepted, promotion may proceed by force=false fast-forward and exactly one fresh Windows strict chain may begin.
+This wave stayed in SAFE OVERLAP and made no Product push, authority movement, candidate build, force-push, frozen-ref movement, PR54 merge, or test weakening. Old V5 and every old/rejected ZIP remain forbidden.
 
-Old V5 remains forensic only. Human NVDA verification remains mandatory on the exact future candidate.
+Next DEV5 invocation must establish a fresh cutoff. Evidence or repairs published after this cutoff may be observed but must not be used to coordinate DEV1-DEV4 until the next cutoff.
 
+AUTHORITY_PROMOTED=NO
 FRESH_WINDOWS_CANDIDATE=NO
 READY_FOR_RELEASE=NO
 NVDA_VERIFIED=NO
