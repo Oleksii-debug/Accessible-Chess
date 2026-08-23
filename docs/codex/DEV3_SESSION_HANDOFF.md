@@ -9,21 +9,21 @@ DEV3 exact Windows runtime evidence remains GREEN in PR #142: `32600115025 / 970
 DEV3 accepted-source privacy evidence remains unchanged and truthful: PR #150 (`32627037392 / 97163830449`) proves engine-start private executable-path leakage on accepted Stage1; PR #148 (`32624495674 / 97157620475`) proves accepted PGN/ImportRegistry path leakage.
 
 ACTIVE REPAIR OWNER DEV5 PR #151 current exact head is `df52aeb3d99f4ae3d0089eab2882fe9b3c373dfd`.
-Workflow `DEV5 Stage1 Path Privacy Repair CI`, run `32627946799`:
-- Linux job `97166119460` SUCCESS through ancestry/diff, compile, Product privacy regressions, current independent QA privacy replay, full unittest, full pytest and complete diagnostic.
-- Windows job `97166119501` SUCCESS through LF-exact materialization, Windows path privacy regressions, focused Stage1 release contracts, full unittest, full pytest and complete diagnostic.
+Workflow `DEV5 Stage1 Path Privacy Repair CI`, run `32627946799`: Linux job `97166119460` SUCCESS and Windows job `97166119501` SUCCESS through privacy regressions, independent QA replay, full unittest, full pytest and complete diagnostic; Windows also passes focused Stage1 release contracts.
 
-DRIVE-RELATIVE RECONCILIATION:
-DEV1 PR #155 exact run/job `32627735837 / 97165590524` is a valid RED against older repair `c0169ed276fff893f90f85192416612f3b998b5a`: `report_safe_name(r"C:Users\\PrivateUser\\Documents\\analysis.pgn")` returned the normalized full drive-relative path instead of basename-only `analysis.pgn`. DEV3 PR #156 was opened for the same question but immediately closed as superseded by #155 to preserve WIP=1.
-The current PR #151 head `df52aeb...` has already repaired this exact class: `report_safe_name()` treats any alphabetic `X:` prefix as drive-qualified and returns only basename. `tests/test_stage1_release_path_privacy.py` explicitly asserts both `C:Users\\...` and `D:WorkstationOwner\\...` cases, and exact current Linux+Windows CI is GREEN. Do not misapply #155 RED to current head.
+NEW INDEPENDENT CURRENT-HEAD VALIDATION:
+DEV1 evidence-only PR #157 pins exact repair `df52aeb3...` and accepted parent `0fa44233...`. Evidence head `93acd90bf4ab98a03499866e2984f72bdf5f1111`. Workflow `DEV1 Current Stage1 Repair UI/NVDA Evidence` run `32631895304` completed SUCCESS. It independently verifies the repair does not mutate DEV1 UI/WebView/keymap/stage1_release_ui Product paths and existing candidate-facing accessibility/release source contracts remain GREEN on Windows/Linux. This must not be relabeled as human NVDA verification.
 
-PR #151 is technically GREEN but is not yet accepted Stage1 authority and does not itself certify a fresh candidate archive.
+DEV1 PR #155 remains historical RED against older repair `c0169ed276fff893f90f85192416612f3b998b5a`; current df52aeb... directly repairs that drive-relative path class and current exact CI is GREEN.
 
-NEXT DEV3 ACTION: fresh ownership read, then determine whether Audit promoted `df52aeb...` or an equivalent reviewed descendant into the authorized Stage1 integration line. If a new accepted authority exists, replay DEV3 privacy oracles unchanged against that exact SHA. Only after promoted-authority privacy GREEN follow one fresh Windows candidate through strict UIA, packaged Stockfish/sound, release preflight, ZIP identity and artifact upload. Open DEV3 Product code only for a newly proven runtime/analysis/clock/lifecycle defect.
+PR #151 is technically GREEN with independent source-contract validation, but it is not yet accepted Stage1 authority and does not itself certify a fresh candidate archive.
+
+NEXT DEV3 ACTION: fresh ownership read, then determine whether Audit promoted `df52aeb...` or an equivalent reviewed descendant into authorized Stage1 integration. If a new accepted authority exists, replay DEV3 privacy oracles unchanged against that exact SHA. Only after promoted-authority privacy GREEN follow one fresh Windows candidate through strict UIA, packaged Stockfish/sound, release preflight, ZIP identity and artifact upload. Open DEV3 Product code only for a newly proven runtime/analysis/clock/lifecycle defect.
 
 SAFE_OVERLAP=YES
 PR151_CURRENT_HEAD=df52aeb3d99f4ae3d0089eab2882fe9b3c373dfd
 PR151_PRIVACY_REPAIR_EXACT_CI=GREEN
+PR157_CURRENT_HEAD_UI_NVDA_SOURCE_CONTRACTS=GREEN
 DEV3_PRODUCT_PATCH_REQUIRED=NO
 FRESH_WINDOWS_CANDIDATE=NO
 NVDA_VERIFIED=NO
