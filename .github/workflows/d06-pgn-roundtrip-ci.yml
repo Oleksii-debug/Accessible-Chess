@@ -46,7 +46,7 @@ jobs:
           git diff --check "$D06_BASE_SHA" HEAD
           changed="$(git diff --name-only "$D06_BASE_SHA" HEAD)"
           printf '%s\n' "$changed"
-          unexpected="$(printf '%s\n' "$changed" | grep -Ev '^(acs/pgn_roundtrip.py|tests/test_d06_pgn_roundtrip.py|\.github/workflows/d06-pgn-roundtrip-ci.yml)$' || true)"
+          unexpected="$(printf '%s\n' "$changed" | grep -Ev '^(acs/pgn_roundtrip.py|tests/test_d06_pgn_roundtrip.py|tests/test_d06_gametree_persistence_vertical.py|\.github/workflows/d06-pgn-roundtrip-ci.yml)$' || true)"
           if [ -n "$unexpected" ]; then
             echo "Unexpected cross-lane D06 delta:" >&2
             printf '%s\n' "$unexpected" >&2
@@ -57,7 +57,11 @@ jobs:
         run: python -m compileall -q acs tests
 
       - name: D06 strict PGN codec and adversarial round-trip corpus
-        run: python -m unittest tests.test_d06_pgn_roundtrip -v
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m unittest tests.test_d06_pgn_roundtrip -v
+          python -m unittest tests.test_d06_gametree_persistence_vertical -v
 
       - name: Existing structural PGN and GameTree regression surface
         shell: bash
