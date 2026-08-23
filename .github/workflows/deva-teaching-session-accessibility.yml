@@ -1,0 +1,87 @@
+name: DEV-A TeachingSession Accessibility Bridge
+
+on:
+  push:
+    branches:
+      - manual/deva-teaching-session-accessibility-20260823
+  pull_request:
+    branches:
+      - auto/dev2-full-product-core-20260822
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deva-teaching-session-accessibility-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DEV2_PRODUCT_BASE: b4dcca10136bf014e7fd326e96cd0bcdfe285af1
+  DEV2_ACCEPTED_UI_EVIDENCE: 06d610e90731d8b987bd6def02e0d7e39748808e
+
+jobs:
+  role-safe-teaching-bridge:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          # 3.11.15 is not published for the current Windows 2025 image.
+          # 3.12 is already used by the current cross-platform DEV2 release-support gate.
+          python-version: '3.12'
+      - name: Install test dependencies
+        run: python -m pip install --disable-pip-version-check pytest
+      - name: Exact ancestry and non-overlap Product scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git merge-base "$DEV2_PRODUCT_BASE" HEAD)" = "$DEV2_PRODUCT_BASE"
+          git diff --check "$DEV2_PRODUCT_BASE"...HEAD
+          changed="$(git diff --name-only "$DEV2_PRODUCT_BASE"...HEAD)"
+          printf '%s\n' "$changed"
+          allowed='^(.github/workflows/deva-teaching-session-accessibility.yml|acs/teaching_session_adapter.py|tests/test_teaching_session_adapter.py|docs/DEV_A_FINISH_RISK_MATRIX_20260823.md)$'
+          unexpected="$(printf '%s\n' "$changed" | grep -Ev "$allowed" || true)"
+          test -z "$unexpected" || { echo "Unexpected overlap paths:"; printf '%s\n' "$unexpected"; exit 1; }
+      - name: Compile pure Product tree
+        run: python -m compileall -q acs tests
+      - name: Focused role-safe TeachingSession adapter
+        run: python -m unittest tests.test_teaching_session_adapter -v
+      - name: Canonical TeachingSession regressions
+        run: python -m unittest tests.test_teaching_session tests.test_teaching_session_adversarial -v
+      - name: Canonical Classroom privacy/integrity regressions
+        run: python -m unittest tests.test_classroom_domain tests.test_classroom_domain_corruption -v
+      - name: Canonical interaction contracts
+        run: python -m unittest tests.test_interaction_contracts tests.test_interaction_router -v
+      - name: Full unittest on pure Product tree
+        run: python -m unittest discover -s tests -v
+      - name: Materialize previously accepted DEV1 compatibility only for aggregate pytest
+        shell: bash
+        run: |
+          set -euo pipefail
+          # DEV2 PR #140 used these exact three accepted DEV1 blobs to prove
+          # aggregate compatibility. They are validation material only: they are
+          # never committed to this DEV-A Product branch and transfer no ownership.
+          git checkout "$DEV2_ACCEPTED_UI_EVIDENCE" -- \
+            acs/keybindings.py \
+            tests/test_board_rank_file_remapping_ui.py \
+            web/index.html
+          test "$(git hash-object acs/keybindings.py)" = "b222f0d625999d8119cb3bb7cebffc961217f610"
+          test "$(git hash-object tests/test_board_rank_file_remapping_ui.py)" = "747b6fd4f73ccfb3647f854e832e9c38421f1e3c"
+          test "$(git hash-object web/index.html)" = "17803443a815843be3aa1b8c6be1c5abb7e7c888"
+          echo "ACCEPTED DEV1 VALIDATION OVERLAY EXACT-BLOB PASS"
+      - name: Accepted rank/file compatibility regression
+        run: python -m pytest -q tests/test_board_rank_file_remapping_ui.py
+      - name: Full pytest with accepted cross-lane compatibility
+        run: python -m pytest -q
+      - name: Selftest
+        run: python -m acs.selftest
+      - name: Complete WebView2 diagnostic
+        run: python run_accessible_chess.py --diagnostic
