@@ -1,12 +1,12 @@
 # DEV5_RUN_STATE
 
-RUN_ID: 20260823-0957
-STARTED_LOCAL: 2026-08-23 09:57:43 Europe/Kyiv
+RUN_ID: 20260823-1102
+STARTED_LOCAL: 2026-08-23 11:02:13 Europe/Kyiv
 STATUS: COMPLETE
-MODE: SAFE_OVERLAP_COORDINATION / RELEASE_QA_EVIDENCE_RECONCILIATION
-COORDINATOR_BRANCH: auto/dev5-coordinator-0957-20260823
-SNAPSHOT_CUTOFF: 2026-08-23T09:57:43+03:00
-SNAPSHOT_FILE: docs/automation/SNAPSHOT_20260823_0957.md
+MODE: SAFE_OVERLAP_COORDINATION / RELEASE_PRIVACY_REPAIR_EVIDENCE
+COORDINATOR_BRANCH: auto/dev5-coordinator-1102-20260823
+SNAPSHOT_CUTOFF: 2026-08-23T11:02:13+03:00
+SNAPSHOT_FILE: docs/automation/SNAPSHOT_20260823_1102.md
 
 STAGE1_INTEGRATION_SHA: 0fa442330bc2bb03636ff9297512da4c29e38684
 PERSISTENT_GREEN_VALIDATION_SHA: dd9ebf9414103c805892856fe6a04706fa69039f
@@ -16,23 +16,23 @@ FRESH_WINDOWS_CANDIDATE: NO
 READY_FOR_RELEASE: NO
 
 ## Current ruling
-DEV5 remains in SAFE OVERLAP MODE. Touching QA remains `qa/dev5-stage1-uia-setvalue-observability-20260823` at `066d1e254c5a2776704bf1f48c580499a24b7045`; V3 remains `qa/dev5-stage1-fresh-candidate-v3-0fa442-20260823` at `f13f20ca76c8b488447d1996a635df77216397fa`. Fresh combined-status readback is empty for both exact SHAs and no positive terminal connected run is available. No Product mutation is justified from prior V2.
+SAFE OVERLAP remains mandatory. A prior DEV5 wave already owns the touching release-critical Product surface in draft PR #151, branch `release/dev5-stage1-path-privacy-repair-20260823`, based exactly on accepted Stage1 `0fa442330bc2bb03636ff9297512da4c29e38684`. This run therefore made no competing Product push and did not mutate V3/UIA strict harnesses.
 
-Prior V2 classification remains QA observability/synchronization: native Backspace `e9 -> e` was proven on the original Move Edit, and failure occurred before Ctrl+A on immediate SetValue readback.
+At this run cutoff, PR #151 already existed and its in-flight repair covered only release privacy boundaries: portable report-path sanitization, Stage1 PGN diagnostic rendering, ImportRegistry mutation/provenance rendering, and generic Stockfish startup failure text while preserving exception chaining. Accepted Stage1 remains `0fa442...` until an exact repair head is terminal machine-GREEN and separately promoted.
 
-New pre-cutoff correction: DEV4 `3e15dc2e...` is no longer fully clean security authority. QA PR #146 proves five PGN path-bearing diagnostic privacy leaks (`32614265122 / 97132248157`, focused 5/5 FAIL) and QA PR #147 proves three ImportRegistry error-path leaks (`32619282734 / 97144841859`, focused 3/3 FAIL). Both runs passed exact checkout/diff hygiene/compile before failing unchanged privacy oracles. Treat `3e15dc2e...` as prior lineage anchor only until a later exact-head repair closes both defect classes.
+For DEV1-DEV4 coordination, only terminal evidence that existed before this cutoff is admissible. Post-cutoff DEV3/DEV4 work is not consumed as next-wave authority.
 
-DEV5 shared-boundary `7c07147a21fd6c61cd2e072f8c1e457c17de639c` remains terminal GREEN for its tested scope but does not cover these newly proven sinks; do not promote it as complete DEV4 replacement authority.
+Live same-lane DEV5 readback after the cutoff is recorded only as WIP evidence, not as pre-cutoff DEV1-DEV4 coordination truth: repair head `f99146f728ace6f76606beeea6caafbb6ac940e9` obtained Linux full-regression/privacy GREEN and Windows privacy 6/6 GREEN, then the Windows release-contract job failed solely on checkout-time CRLF materialization of frozen core bytes. A later workflow-only commit `909d8e2729e00ba5fce0f25a1520010844f9341b` adds `git reset --hard HEAD` after LF config to rematerialize exact Git bytes without weakening the frozen-blob assertion. Terminal result for `909d8e...` was not yet available in this run.
 
-DEV1 PR #138 source-contract evidence is terminal: run `32599722288`, Linux `97096080884` SUCCESS, Windows `97096080984` SUCCESS; old retained strict-route lock `97096080966` fails closed by design against obsolete `656e8ec...` routing.
+The prior UIA classification is unchanged: V2 proved the original Move Edit and native Backspace `e9 -> e`, then failed before Ctrl+A on immediate SetValue readback. No Ctrl+A Product defect is proven. Touching QA `066d1e254c5a2776704bf1f48c580499a24b7045` and prepared V3 `f13f20ca76c8b488447d1996a635df77216397fa` remain untouched.
 
-DEV3 PR #137 current coordination head is `ea9763e3ec8bca65390fdc8cbf57bdb1da48d0c4`; final rerun `32619384933 / 97145095261` is SUCCESS. DEV2 #140 and all Full Product slices remain outside Stage1 freeze.
+Pre-cutoff DEV4 privacy truth remains: `3e15dc2e...` is a prior lineage anchor only after PR #146 proved five PGN diagnostic path leaks and PR #147 proved three ImportRegistry diagnostic/batch path leaks. Earlier DEV5 shared-boundary `7c07147a21fd6c61cd2e072f8c1e457c17de639c` stays GREEN only for its tested scope.
 
-`AGENTS.md` and `docs/codex/*` remain absent on live default branch; coordination uses live GitHub evidence and versioned `docs/automation/*`.
+`AGENTS.md` and `docs/codex/*` remain absent on live default branch. Coordination uses live GitHub evidence plus versioned `docs/automation/*`.
 
 No test weakening/skips/xfail. PR #54/frozen refs untouched. Rejected ZIP not reused.
 
-NEXT_ACTION: terminal bounded SetValue/V3 Windows evidence first; GREEN => complete full fresh Windows release chain on exact `0fa442...`; RED => isolate packaged WebView/UIA transition before Product mutation. After Stage1 freeze and ownership check, prioritize minimal DEV4 PGN + ImportRegistry privacy repair with unchanged oracles and broad regression/security validation.
+NEXT_ACTION: read terminal CI for exact PR #151 head. If `909d8e...` is fully GREEN on Linux and Windows, independently verify its exact diff/oracles, then prepare promotion/release-chain ordering without silently retargeting PR #139. Only after accepted repair promotion should a complete fresh Windows candidate chain run. If `909d8e...` is RED, classify the exact failing gate before any Product mutation.
 
 READY_FOR_AUDITOR_READBACK=YES
 READY_FOR_RELEASE=NO
