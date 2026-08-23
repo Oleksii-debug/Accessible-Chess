@@ -19,7 +19,7 @@ internal sealed record ContextResolvedIdentityDepthEvidence(
 internal sealed record ContextStableIdentityCoverageEvidencePayload(
     string SchemaId,
     string MeasurementAlgorithm,
-    string PhysicalCoverageEvidenceSha256,
+    string StableTagEvidenceSha256,
     string DatabaseSha256,
     string DictionaryId,
     int DictionaryEntryCount,
@@ -53,51 +53,51 @@ internal static class ContextStableIdentityCoverageEvidenceBuilder
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = false };
 
     public static ContextStableIdentityCoverageEvidenceDocument Build(
-        ContextCorpusCoverageEvidenceDocument physicalEvidence,
+        ContextCorpusCoverageEvidenceDocument stableTagEvidence,
         DictionaryPackage dictionary)
     {
-        ArgumentNullException.ThrowIfNull(physicalEvidence);
+        ArgumentNullException.ThrowIfNull(stableTagEvidence);
         ArgumentNullException.ThrowIfNull(dictionary);
-        if (!ContextCorpusCoverageEvidenceBuilder.VerifyEvidenceDigest(physicalEvidence))
-            throw new InvalidDataException("Physical-form context evidence digest is invalid.");
-        ContextCorpusCoverageEvidencePayload physical = physicalEvidence.Payload;
-        if (dictionary.Entries.Count != physical.DictionaryEntryCount)
-            throw new InvalidDataException("Stable-identity evidence dictionary size differs from physical-form evidence.");
+        if (!ContextCorpusCoverageEvidenceBuilder.VerifyEvidenceDigest(stableTagEvidence))
+            throw new InvalidDataException("Stable-tag context evidence digest is invalid.");
+        ContextCorpusCoverageEvidencePayload raw = stableTagEvidence.Payload;
+        if (dictionary.Entries.Count != raw.DictionaryEntryCount)
+            throw new InvalidDataException("Stable-identity evidence dictionary size differs from stable-tag evidence.");
         string fingerprint = ContextCorpusCoverageEvidenceBuilder.ComputeDictionaryLexicalFingerprint(dictionary);
-        if (!string.Equals(fingerprint, physical.DictionaryLexicalFingerprintSha256, StringComparison.OrdinalIgnoreCase))
-            throw new InvalidDataException("Stable-identity evidence dictionary fingerprint differs from physical-form evidence.");
+        if (!string.Equals(fingerprint, raw.DictionaryLexicalFingerprintSha256, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidDataException("Stable-identity evidence dictionary fingerprint differs from stable-tag evidence.");
 
         var lexicon = new ContextTargetLexicon(dictionary);
         string[] universe = dictionary.Entries.Select(entry => ContextTargetIds.NormalizeSingle(entry.Id)).ToArray();
-        ContextResolvedIdentityDepthEvidence one = Resolve(physical.OneTarget, lexicon, universe);
-        ContextResolvedIdentityDepthEvidence two = Resolve(physical.TwoTarget, lexicon, universe);
-        ContextResolvedIdentityDepthEvidence three = Resolve(physical.ThreeTarget, lexicon, universe);
+        ContextResolvedIdentityDepthEvidence one = Resolve(raw.OneTarget, lexicon, universe);
+        ContextResolvedIdentityDepthEvidence two = Resolve(raw.TwoTarget, lexicon, universe);
+        ContextResolvedIdentityDepthEvidence three = Resolve(raw.ThreeTarget, lexicon, universe);
 
-        bool exact = physical.SourceKind == ContextCorpusKind.RealCorpus &&
-                     physical.ExactDatabaseIdentityVerified &&
-                     physical.ExactOxford5446Verified &&
-                     physical.DictionaryEntryCount == ContextCorpusCoverageEvidenceBuilder.ExactOxfordEntryCount;
+        bool exact = raw.SourceKind == ContextCorpusKind.RealCorpus &&
+                     raw.ExactDatabaseIdentityVerified &&
+                     raw.ExactOxford5446Verified &&
+                     raw.DictionaryEntryCount == ContextCorpusCoverageEvidenceBuilder.ExactOxfordEntryCount;
         var payload = new ContextStableIdentityCoverageEvidencePayload(
             SchemaId,
             MeasurementAlgorithm,
-            physicalEvidence.EvidenceDigestSha256,
-            physical.DatabaseSha256,
-            physical.DictionaryId,
-            physical.DictionaryEntryCount,
-            physical.DictionaryLexicalFingerprintSha256,
-            physical.SourceId,
-            physical.SourceKind,
-            physical.Provenance,
-            physical.License,
-            physical.SentenceCount,
-            physical.ExactDatabaseIdentityVerified,
-            physical.ExactOxford5446Verified,
+            stableTagEvidence.EvidenceDigestSha256,
+            raw.DatabaseSha256,
+            raw.DictionaryId,
+            raw.DictionaryEntryCount,
+            raw.DictionaryLexicalFingerprintSha256,
+            raw.SourceId,
+            raw.SourceKind,
+            raw.Provenance,
+            raw.License,
+            raw.SentenceCount,
+            raw.ExactDatabaseIdentityVerified,
+            raw.ExactOxford5446Verified,
             exact,
             RedistributionApproved: false,
             one,
             two,
             three,
-            "The paired physical-form evidence counts exact written-form occurrence/co-occurrence. This document gives conservative stable-ID coverage: any dictionary ID whose written form is shared by multiple stable entries remains UNRESOLVED for every depth unless a future POS/sense-aware source explicitly disambiguates that occurrence. Unresolved IDs do not own canonical learner progress and are not relabeled as missing corpus sentences. Redistribution remains a separate release decision.");
+            "The source stable-tag participation evidence records surface-form occurrence/co-occurrence using historical stable-ID tags. This document applies a conservative stable-ID filter: any dictionary ID whose written form is shared by multiple stable entries remains UNRESOLVED for every depth unless a future POS/sense-aware source explicitly disambiguates that occurrence. Unresolved IDs do not own canonical learner progress and are not relabeled as missing corpus sentences. True unique physical-form coverage is reported in the separate physical-forms evidence document. Redistribution remains a separate release decision.");
         string digest = ComputeDigest(payload);
         return new ContextStableIdentityCoverageEvidenceDocument(payload, digest);
     }
@@ -118,7 +118,7 @@ internal static class ContextStableIdentityCoverageEvidenceBuilder
         ContextTargetLexicon lexicon,
         IReadOnlyCollection<string> universe)
     {
-        var physicalReport = new ContextNaturalCoverageReport(
+        var rawReport = new ContextNaturalCoverageReport(
             depth.RequiredTargetCount,
             depth.ScopeEntryCount,
             depth.CoveredEntryCount,
@@ -126,7 +126,7 @@ internal static class ContextStableIdentityCoverageEvidenceBuilder
             depth.CoveredEntryIds,
             depth.UncoveredEntryIds,
             depth.AmbiguousStableEntryIds);
-        ContextStableIdentityCoverageReport stable = ContextStableIdentityResolution.ResolveCoverage(physicalReport, lexicon, universe);
+        ContextStableIdentityCoverageReport stable = ContextStableIdentityResolution.ResolveCoverage(rawReport, lexicon, universe);
         return new ContextResolvedIdentityDepthEvidence(
             depth.RequiredTargetCount,
             depth.ScopeEntryCount,
@@ -153,7 +153,7 @@ internal static class ContextStableIdentityCoverageEvidenceSelfTest
     {
         // Core partition behavior is exercised by ContextStableIdentityResolutionSelfTest.
         // This smoke protects the canonical JSON digest contract without constructing a
-        // fake 5446-entry physical evidence document.
+        // fake 5446-entry stable-tag evidence document.
         var payload = new ContextStableIdentityCoverageEvidencePayload(
             ContextStableIdentityCoverageEvidenceBuilder.SchemaId,
             ContextStableIdentityCoverageEvidenceBuilder.MeasurementAlgorithm,
@@ -175,7 +175,6 @@ internal static class ContextStableIdentityCoverageEvidenceSelfTest
             new ContextResolvedIdentityDepthEvidence(2, 1, 0, 0, 0, 1, 0, Array.Empty<string>(), Array.Empty<string>(), new[] { "id" }),
             new ContextResolvedIdentityDepthEvidence(3, 1, 0, 0, 0, 1, 0, Array.Empty<string>(), Array.Empty<string>(), new[] { "id" }),
             "test-only boundary");
-        // Build a document with a deliberately wrong digest and assert serializer rejects it.
         bool rejected = false;
         try
         {
@@ -186,6 +185,6 @@ internal static class ContextStableIdentityCoverageEvidenceSelfTest
             rejected = true;
         }
         if (!rejected) throw new InvalidOperationException("Stable-identity evidence serializer accepted a forged digest.");
-        Console.WriteLine("Context stable-identity evidence self-test PASS: physical/stable semantic split and digest fail-closed contract verified.");
+        Console.WriteLine("Context stable-identity evidence self-test PASS: stable-tag source binding, physical/stable semantic split and digest fail-closed contract verified.");
     }
 }
