@@ -1,24 +1,24 @@
 # DEV5_CURRENT_STATE
 
-UPDATED_FROM_RUN: 20260823-1102
-MODE: SAFE_OVERLAP_COORDINATION / RELEASE_PRIVACY_REPAIR_EVIDENCE
-SNAPSHOT_CUTOFF: 2026-08-23T11:02:13+03:00
+UPDATED_FROM_RUN: 20260823-1158
+MODE: SAFE_OVERLAP_COORDINATION / RELEASE_PRIVACY_REPAIR_VALIDATION
+SNAPSHOT_CUTOFF: 2026-08-23T11:58:14+03:00
 
 Accepted Stage1 remains `0fa442330bc2bb03636ff9297512da4c29e38684`.
 Persistent exact-GREEN authority remains `dd9ebf9414103c805892856fe6a04706fa69039f`.
-DEV4 `3e15dc2e844cb825e482317fd024795130147011` remains prior repair lineage only, not fully clean security authority.
+DEV4 `3e15dc2e844cb825e482317fd024795130147011` remains prior repair lineage only.
 
-A previous DEV5 wave already owns a release-critical touching repair in draft PR #151, `release/dev5-stage1-path-privacy-repair-20260823`, based exactly on accepted Stage1. Scope is intentionally narrow: report-path sanitizer, Stage1 PGN user-facing diagnostics, ImportRegistry mutation/provenance diagnostics and Stockfish startup exception rendering. Therefore this coordinator run performs no competing Product mutation.
+Existing DEV5 touching owner is PR #151, branch `release/dev5-stage1-path-privacy-repair-20260823`. Current exact repair head `c0169ed276fff893f90f85192416612f3b998b5a` has terminal `DEV5 Stage1 Path Privacy Repair CI` SUCCESS in run `32627628145`. The current repair includes the strengthened ImportRegistry batch/OSError privacy boundary and replay of current independent oracles, so obsolete `909d8e...` must not be used for promotion.
 
-For DEV1-DEV4, coordination intake is frozen at the run cutoff; only terminal evidence that existed before 2026-08-23 11:02:13 Europe/Kyiv is admissible. Later lane activity is not consumed into next-wave authority.
+One release-privacy question remains unresolved at this cutoff: DEV1 QA-only PR #155 at `c23c88ac21a6a9c82fad0de4aeadb695f82c5951` tests Windows drive-relative private paths against exact repair `c0169ed...`. No terminal verdict is available in current readback. DEV3 PR #156 is superseded by #155 and must not create duplicate evidence work.
 
-Live DEV5-own WIP readback after cutoff: PR #151 head `f99146f728ace6f76606beeea6caafbb6ac940e9` was Linux full-regression/privacy GREEN and Windows privacy 6/6 GREEN; Windows later failed only frozen-core byte identity because checkout materialized CRLF before LF config. Workflow-only follow-up `909d8e2729e00ba5fce0f25a1520010844f9341b` rematerializes exact committed bytes with `git reset --hard HEAD` after LF config. This does not weaken the frozen-blob contract. Terminal `909d8e...` CI is still required before promotion.
+Therefore PR #151 is exact-CI GREEN but NOT YET promoted Stage1 authority. Promotion waits for the independent drive-relative verdict plus exact diff/oracle review.
 
-UIA release evidence remains unresolved and separate. V2 proved original Move Edit + native Backspace `e9 -> e`; failure happened before Ctrl+A on immediate SetValue readback. No Ctrl+A Product defect is proven. `qa/dev5-stage1-uia-setvalue-observability-20260823 @ 066d1e254c5a2776704bf1f48c580499a24b7045` and V3 `f13f20ca76c8b488447d1996a635df77216397fa` remain untouched.
+UIA release evidence remains separate and unresolved. V2 proved original Move Edit + native Backspace `e9 -> e`; the stop occurred before Ctrl+A on SetValue readback. No Ctrl+A Product defect is proven. `066d1e254...` and V3 `f13f20ca...` remain untouched.
 
-Pre-cutoff DEV4 privacy evidence remains authoritative: PR #146 proves five PGN path-bearing diagnostic leaks; PR #147 proves three ImportRegistry diagnostic/batch path leaks. DEV5 shared-boundary `7c07147a21fd6c61cd2e072f8c1e457c17de639c` remains GREEN only for older tested scope.
+For DEV1-DEV4 coordination, intake is frozen at 2026-08-23 11:58:14 Europe/Kyiv; only terminal evidence that existed before that cutoff may enter directives.
 
-`AGENTS.md` and `docs/codex/*` are absent on live default branch. Use live GitHub SHA/diff/CI plus versioned `docs/automation/*`.
+`AGENTS.md` and `docs/codex/*` remain absent on live default branch. Use live GitHub technical truth and versioned `docs/automation/*`.
 
 Release status: `FRESH_WINDOWS_CANDIDATE=NO`, `READY_FOR_RELEASE=NO`, `NVDA_VERIFIED=NO`.
 PR #54/frozen refs untouched. Rejected ZIP forbidden.
