@@ -1,43 +1,39 @@
 # DEV5_RUN_STATE
 
-RUN_ID: 20260823-1158
-STARTED_LOCAL: 2026-08-23 11:58:14 Europe/Kyiv
+RUN_ID: 20260823-1301
+STARTED_LOCAL: 2026-08-23 13:01:42 Europe/Kyiv
 STATUS: COMPLETE
-MODE: SAFE_OVERLAP_COORDINATION / RELEASE_PRIVACY_REPAIR_VALIDATION
-COORDINATOR_BRANCH: auto/dev5-coordinator-1158-20260823
-SNAPSHOT_CUTOFF: 2026-08-23T11:58:14+03:00
-SNAPSHOT_FILE: docs/automation/SNAPSHOT_20260823_1158.md
+MODE: SAFE_OVERLAP_COORDINATION / REPAIRED_STAGE1_PROMOTION
+COORDINATOR_BRANCH: auto/dev5-coordinator-1301-20260823
+SNAPSHOT_CUTOFF: 2026-08-23T13:01:42+03:00
+SNAPSHOT_FILE: docs/automation/SNAPSHOT_20260823_1301.md
 
-STAGE1_INTEGRATION_SHA: 0fa442330bc2bb03636ff9297512da4c29e38684
+PRIOR_STAGE1_BASELINE_SHA: 0fa442330bc2bb03636ff9297512da4c29e38684
+PROMOTED_REPAIRED_STAGE1_SHA: df52aeb3d99f4ae3d0089eab2882fe9b3c373dfd
 PERSISTENT_GREEN_VALIDATION_SHA: dd9ebf9414103c805892856fe6a04706fa69039f
 DEV4_PRIOR_REPAIR_LINEAGE_SHA: 3e15dc2e844cb825e482317fd024795130147011
-PR151_CURRENT_REPAIR_SHA: c0169ed276fff893f90f85192416612f3b998b5a
-PR151_EXACT_CI_RUN: 32627628145
+PR151_EXACT_CI_RUN: 32627946799
 PR151_EXACT_CI_RESULT: SUCCESS
 NVDA_VERIFIED: NO
 FRESH_WINDOWS_CANDIDATE: NO
 READY_FOR_RELEASE: NO
 
 ## Current ruling
-SAFE OVERLAP remains mandatory. Existing DEV5 release-critical touching work is PR #151 on `release/dev5-stage1-path-privacy-repair-20260823`; this coordinator run made no competing Product push and did not mutate strict UIA/V3.
+SAFE OVERLAP remains mandatory. This coordinator run made no competing Product or QA touching push.
 
-Exact PR #151 head `c0169ed276fff893f90f85192416612f3b998b5a` now has terminal machine GREEN: `DEV5 Stage1 Path Privacy Repair CI` run `32627628145` completed SUCCESS. This supersedes the obsolete false-GREEN `909d8e...` promotion story because `c0169ed...` includes current ImportRegistry five-case coverage plus the PR #152 repair-gap oracle and preserves Linux/Windows full-regression/release checks.
+Pre-cutoff DEV1 PR #155 exact head `c23c88ac21a6a9c82fad0de4aeadb695f82c5951` is terminal RED in run `32627735837`: the exact `c0169ed...` repair leaked Windows drive-relative private path provenance (`C:Users\\PrivateUser\\Documents\\analysis.pgn` -> `C:Users/PrivateUser/Documents/analysis.pgn`).
 
-Promotion is intentionally NOT performed yet. Pre-cutoff DEV1 QA-only PR #155 (`auto/dev1-stage1-drive-relative-privacy-evidence-20260823-1114 @ c23c88ac21a6a9c82fad0de4aeadb695f82c5951`) independently targets a valid Windows drive-relative path privacy edge such as `C:Users\\PrivateUser\\Documents\\analysis.pgn` against exact repair `c0169ed...`. The PR existed before this run cutoff and no terminal verdict is available in current readback. Treat it as an unresolved release-privacy gate, not as proof of defect or cleanliness.
+Existing DEV5 PR #151 repaired only that proven boundary. Commit `3b067dc5e049ca7656254e16ba08495a8907a6de` treats drive-qualified `X:` paths, including drive-relative forms, as private; `dcc49e45663cdbc58478f4ea3bfc957915b459cf` locks product regressions; subsequent workflow-only commits replay exact PR #155 evidence. Current exact head is `df52aeb3d99f4ae3d0089eab2882fe9b3c373dfd`.
 
-DEV3 PR #156 duplicated the same evidence question but self-closed as superseded by PR #155; no duplicate QA should be consumed.
+Exact run `32627946799` is terminal SUCCESS. Linux job `97166119460` and Windows job `97166119501` both succeeded with compile, privacy/release contracts, full unittest, full pytest and diagnostic. Independent current privacy oracles are replayed unchanged; Windows includes the PR #155 drive-relative oracle.
 
-Accepted Stage1 remains exact `0fa442330bc2bb03636ff9297512da4c29e38684` until the drive-relative gate is terminal and an explicit promotion decision is recorded. Persistent exact-GREEN remains `dd9ebf...`.
+Independent compare review `0fa442...` -> `df52aeb...` is ahead 15/behind 0. Product delta is confined to `acs/engine.py`, `acs/import_registry.py`, `acs/pgn_service.py`, `acs/report_paths.py`; remaining delta is release workflow/tests. No chess-state/GameTree/WebView/UI/strict-UIA helper mutation.
 
-UIA classification is unchanged: V2 proved the unique original Move Edit and native Backspace `e9 -> e`, then failed before Ctrl+A on immediate SetValue readback. No Ctrl+A Product defect is proven. QA observability `066d1e254...` and V3 `f13f20ca...` remain untouched.
+PROMOTION DECISION: `df52aeb3d99f4ae3d0089eab2882fe9b3c373dfd` is explicitly promoted as repaired Stage1 Product authority for the next fresh Windows candidate chain. This does not merge PR #151, PR #54 or frozen refs. `0fa442...` remains the prior baseline/comparison anchor.
 
-For DEV1-DEV4 coordination, only terminal evidence existing before 2026-08-23 11:58:14 Europe/Kyiv is admissible. Do not race post-cutoff lane work.
+UIA classification is unchanged: V2 proved original Move Edit + native Backspace `e9 -> e`, then failed before Ctrl+A on immediate SetValue readback. No Ctrl+A Product defect is proven. Historical QA `066d1e254...` and V3 `f13f20ca...` must not be silently retargeted.
 
-`AGENTS.md` and `docs/codex/*` remain absent on live default branch; use live GitHub evidence plus versioned `docs/automation/*`.
-
-PR #54/frozen refs untouched. Rejected ZIP not reused. No test weakening/skips/xfail.
-
-NEXT_ACTION: obtain terminal verdict for PR #155 exact head. If GREEN, independently verify PR #151 diff/oracles and make an explicit repaired-Stage1 promotion decision; then execute a completely fresh Windows candidate chain from that promoted exact Product plus one designated exact QA harness SHA. If RED, classify/fix only the proven drive-relative sanitizer gap, rerun current privacy/full Windows+Linux gates, and repeat independent evidence before promotion.
+NEXT_ACTION: one non-overlapping DEV5 release owner must create/designate a fresh QA harness locked to exact promoted Product `df52aeb...` and run the complete Windows machine candidate chain. Do not reuse old PR #139 artifact state or rejected ZIP. Only an uninterrupted GREEN chain through ZIP reopen/identity and upload may set `FRESH_WINDOWS_CANDIDATE=YES`; personal user NVDA verification is still required afterward.
 
 READY_FOR_AUDITOR_READBACK=YES
 READY_FOR_RELEASE=NO
