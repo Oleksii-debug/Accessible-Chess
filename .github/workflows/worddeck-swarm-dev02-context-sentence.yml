@@ -1,0 +1,188 @@
+name: WordDeck DEV02 Stage 11 Context Gate
+
+on:
+  push:
+    branches:
+      - worddeck-swarm-dev02-context-sentence
+  pull_request:
+    branches:
+      - worddeck-bootstrap
+    paths:
+      - 'WordDeck/**'
+      - '.github/workflows/worddeck-swarm-dev02-context-sentence.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+  statuses: write
+
+concurrency:
+  group: worddeck-dev02-context-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  context-gate:
+    runs-on: windows-2025
+    timeout-minutes: 60
+    steps:
+      - name: Publish pending exact-tip status
+        if: github.event_name != 'pull_request'
+        continue-on-error: true
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const targetUrl = `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`;
+            await github.rest.repos.createCommitStatus({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              sha: context.sha,
+              state: 'pending',
+              context: 'WordDeck DEV02 Stage 11 Context Gate',
+              description: 'DEV02 exact-tip Windows + lexical coverage gate is running.',
+              target_url: targetUrl
+            });
+
+      - name: Checkout exact revision
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Validate SentencePack release validator
+        shell: pwsh
+        run: python .\WordDeck\tools\validate_sentencepack_release_bundle.py --self-test
+
+      - name: Restore
+        run: dotnet restore .\WordDeck\WordDeck.csproj
+
+      - name: Build Release warnings as errors
+        run: dotnet build .\WordDeck\WordDeck.csproj -c Release --no-restore -warnaserror
+
+      - name: Run complete source-build self-test suite
+        run: dotnet run --project .\WordDeck\WordDeck.csproj -c Release --no-build -- --self-test
+
+      - name: Publish self-contained Windows x64
+        run: dotnet publish .\WordDeck\WordDeck.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:DebugType=None -p:DebugSymbols=false -o .\artifacts\WordDeck-dev02-context
+
+      - name: Run published EXE self-test
+        shell: pwsh
+        run: |
+          & .\artifacts\WordDeck-dev02-context\WordDeck.exe --self-test
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Verify no personal state in publish tree
+        shell: pwsh
+        run: |
+          $bad = Get-ChildItem -LiteralPath '.\artifacts\WordDeck-dev02-context' -Recurse -File | Where-Object {
+            $_.Name -match '^(state|spelling-state|sentence-state|sentence-coach-state)(\.backup)?\.json$' -or
+            $_.Name -match '^WordDeck-profile.*\.json$' -or
+            $_.FullName -match '[\\/]Backups[\\/]'
+          }
+          if ($bad) {
+            $bad | ForEach-Object { Write-Error "Personal state leaked into publish tree: $($_.FullName)" }
+            exit 1
+          }
+
+      - name: Cyrillic and spaces path smoke
+        shell: pwsh
+        run: |
+          $target = Join-Path $env:RUNNER_TEMP 'WordDeck контекст DEV02\Published App'
+          New-Item -ItemType Directory -Force -Path $target | Out-Null
+          Copy-Item -Path '.\artifacts\WordDeck-dev02-context\*' -Destination $target -Recurse -Force
+          & (Join-Path $target 'WordDeck.exe') --self-test
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Download historical attributed EN-UA corpus evidence read-only
+        uses: actions/download-artifact@v4
+        with:
+          name: WordDeck-SentencePack-Tatoeba-EN-UA-CCBY-r3
+          path: artifacts/r3-attributed
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: ${{ github.repository }}
+          run-id: 32573223432
+
+      - name: Verify exact historical SQLite identity
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $sqlite = Get-ChildItem -LiteralPath '.\artifacts\r3-attributed' -Recurse -File -Filter 'WordDeck-SentencePack-Tatoeba-EN-UA-CCBY-v1.sqlite' | Select-Object -First 1
+          if (-not $sqlite) { throw 'Attributed EN-UA SQLite corpus artifact was not found.' }
+          $sums = Get-ChildItem -LiteralPath '.\artifacts\r3-attributed' -Recurse -File -Filter 'SHA256SUMS.txt' | Select-Object -First 1
+          if (-not $sums) { throw 'Attributed corpus SHA256SUMS.txt was not found.' }
+          $line = Get-Content -LiteralPath $sums.FullName | Where-Object { $_ -match ([regex]::Escape($sqlite.Name) + '$') } | Select-Object -First 1
+          if (-not $line) { throw 'SHA256SUMS.txt does not bind the attributed SQLite file.' }
+          $expected = (($line -split '\s+', 2)[0]).Trim().ToLowerInvariant()
+          $actual = (Get-FileHash -LiteralPath $sqlite.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($expected -ne $actual) { throw "Attributed SQLite hash mismatch: expected $expected actual $actual" }
+          "CONTEXT_SQLITE=$($sqlite.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "CONTEXT_SQLITE_SHA=$actual" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Measure exact lexical-form-aware 1 2 3 target coverage
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force -Path '.\artifacts\context-evidence' | Out-Null
+          dotnet run --project .\WordDeck\WordDeck.csproj -c Release --no-build -- `
+            --measure-context-coverage `
+            "$env:CONTEXT_SQLITE" `
+            .\artifacts\context-evidence\context-coverage.json `
+            "$env:CONTEXT_SQLITE_SHA" `
+            tatoeba-en-uk-attributed-ccby-v1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Validate exact corpus coverage and external-data boundary
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $doc = Get-Content -LiteralPath '.\artifacts\context-evidence\context-coverage.json' -Raw | ConvertFrom-Json
+          $p = $doc.Payload
+          if ($p.SourceId -ne 'tatoeba-en-uk-attributed-ccby-v1') { throw 'Unexpected corpus PackId.' }
+          if ($p.DatabaseSha256 -ne $env:CONTEXT_SQLITE_SHA) { throw 'Coverage evidence is not bound to exact SQLite hash.' }
+          if ($p.DictionaryEntryCount -ne 5446 -or -not $p.ExactOxford5446Verified) { throw 'Coverage evidence is not bound to exact Oxford 5446 universe.' }
+          if (-not $p.ExactDatabaseIdentityVerified -or -not $p.CanSupportRealCorpusCoverageClaim) { throw 'Exact real-corpus identity was not verified.' }
+          if ($p.RedistributionApproved) { throw 'Coverage tooling must never self-approve redistribution.' }
+          if ($p.SentenceCount -ne 208408) { throw "Unexpected exact corpus sentence count: $($p.SentenceCount)" }
+          if ($p.OneTarget.CoveredEntryCount -ne 4492) { throw "Unexpected one-target coverage: $($p.OneTarget.CoveredEntryCount)" }
+          if ($p.TwoTarget.CoveredEntryCount -ne 4469) { throw "Unexpected natural two-target coverage: $($p.TwoTarget.CoveredEntryCount)" }
+          if ($p.ThreeTarget.CoveredEntryCount -ne 4362) { throw "Unexpected natural three-target coverage: $($p.ThreeTarget.CoveredEntryCount)" }
+          $gap = Get-Content -LiteralPath '.\artifacts\context-evidence\context-coverage.gaps.json' -Raw | ConvertFrom-Json
+          if ($gap.Payload.MissingOneTargetCount -ne 954 -or $gap.Payload.MissingNaturalPairOnlyCount -ne 23 -or $gap.Payload.MissingNaturalTripleOnlyCount -ne 107) {
+            throw 'Gap accounting no longer matches exact attributed corpus evidence.'
+          }
+          Write-Host ("Exact real EN-UA coverage: one={0}/5446; two={1}/5446; three={2}/5446; missing any={3}; pair-only={4}; triple-only={5}" -f `
+            $p.OneTarget.CoveredEntryCount,$p.TwoTarget.CoveredEntryCount,$p.ThreeTarget.CoveredEntryCount, `
+            $gap.Payload.MissingOneTargetCount,$gap.Payload.MissingNaturalPairOnlyCount,$gap.Payload.MissingNaturalTripleOnlyCount)
+
+      - name: Upload coverage evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: WordDeck-dev02-context-evidence-${{ github.sha }}
+          path: artifacts/context-evidence
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Publish final exact-tip status
+        if: always() && github.event_name != 'pull_request'
+        continue-on-error: true
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const succeeded = '${{ job.status }}' === 'success';
+            const targetUrl = `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`;
+            await github.rest.repos.createCommitStatus({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              sha: context.sha,
+              state: succeeded ? 'success' : 'failure',
+              context: 'WordDeck DEV02 Stage 11 Context Gate',
+              description: succeeded ? 'DEV02 Stage-11 exact-tip gate passed.' : 'DEV02 Stage-11 exact-tip gate failed.',
+              target_url: targetUrl
+            });
