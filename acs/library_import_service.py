@@ -13,12 +13,15 @@ from collections.abc import Callable, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 import re
+import sqlite3
+import time
 
 from .acsdb import AcsDatabase
 from .gametree import PgnGame
 
 _SQLITE_INTEGER_MAX = (1 << 63) - 1
 _SHA256_RE = re.compile(r"^[0-9a-fA-F]{64}$")
+_BUSY_RETRY_SLICE_MS = 50
 
 
 class LibraryImportCancelledError(RuntimeError):
@@ -37,7 +40,7 @@ class LibraryImportStorageError(RuntimeError):
 class LibraryImportProgress:
     """Exact staging progress for one atomic Library import.
 
-    ``processed_games`` counts games staged in the current transaction.  A final
+    ``processed_games`` counts games staged in the current transaction. A final
     value equal to ``total_games`` means all rows were staged, not that the
     transaction is already durable; successful method return is the commit signal.
     This distinction prevents a UI from treating SQLite implementation details as
@@ -69,7 +72,7 @@ class LibraryImportResult:
     """Bounded aggregate result for a committed import.
 
     Large imports intentionally do not return an unbounded list of every game id.
-    Stable keyset/query APIs can enumerate rows later.  The first/last ids provide
+    Stable keyset/query APIs can enumerate rows later. The first/last ids provide
     compact linkage for diagnostics and tests without scaling result memory with
     database size.
     """
@@ -92,7 +95,7 @@ class _CallbackConnectionBlocker:
     Import callbacks are synchronous observers, not nested database transactions.
     Temporarily publishing this proxy through ``AcsDatabase.conn`` prevents a
     callback from committing, rolling back, closing, or querying the same SQLite
-    connection while the importer owns an atomic transaction.  The real connection
+    connection while the importer owns an atomic transaction. The real connection
     object is restored in ``finally`` before import execution resumes.
 
     Code that retained a raw SQLite connection before entering the service is
@@ -211,6 +214,30 @@ def _validate_games(games: object) -> tuple[Sequence[PgnGame], int]:
     return games, total
 
 
+def _is_sqlite_busy(exc: sqlite3.OperationalError) -> bool:
+    """Classify only SQLite BUSY/LOCKED conditions as retryable contention."""
+
+    code = getattr(exc, "sqlite_errorcode", None)
+    if type(code) is int:
+        primary = code & 0xFF
+        return primary in {
+            getattr(sqlite3, "SQLITE_BUSY", 5),
+            getattr(sqlite3, "SQLITE_LOCKED", 6),
+        }
+    # Older Python/SQLite combinations may not expose sqlite_errorcode. Keep the
+    # fallback deliberately narrow; the original exception never crosses the
+    # public Library-import boundary in either case.
+    message = str(exc).strip().lower()
+    return message in {"database is locked", "database table is locked"}
+
+
+def _busy_timeout_ms(connection: sqlite3.Connection) -> int:
+    row = connection.execute("PRAGMA busy_timeout").fetchone()
+    if row is None:
+        return 0
+    return max(0, int(row[0]))
+
+
 class LibraryImportService:
     """Atomic ACSDB storage service for already-parsed canonical games."""
 
@@ -218,6 +245,55 @@ class LibraryImportService:
         if not isinstance(database, AcsDatabase):
             raise TypeError("database must be an AcsDatabase")
         self._db = database
+
+    def _create_attempt_with_cancellable_busy_wait(
+        self,
+        source_name: str,
+        source_format: str,
+        source_sha256: str,
+        cancel_check: CancelCheck | None,
+    ) -> int:
+        """Create the durable audit row without hiding cancellation inside BUSY.
+
+        ACSDB's normal connection timeout is intentionally preserved as the total
+        contention budget. During this one pre-transaction write we temporarily
+        split that budget into short SQLite BUSY waits, polling cooperative
+        cancellation between slices. The caller's exact ``busy_timeout`` is always
+        restored. Non-BUSY SQLite errors are never retried.
+        """
+
+        connection = self._db.conn
+        original_timeout_ms = _busy_timeout_ms(connection)
+        deadline = time.monotonic() + (original_timeout_ms / 1000.0)
+        slice_ms = min(_BUSY_RETRY_SLICE_MS, original_timeout_ms)
+        connection.execute(f"PRAGMA busy_timeout = {slice_ms}")
+        try:
+            while True:
+                try:
+                    return self._db._create_import_attempt(
+                        source_name,
+                        source_format,
+                        source_sha256,
+                    )
+                except sqlite3.OperationalError as exc:
+                    if not _is_sqlite_busy(exc):
+                        raise
+                    # The normal preflight poll already happened before entering
+                    # this helper. Poll only after an actual BUSY result so a
+                    # caller can cancel a lock wait rather than an operation that
+                    # has not yet tried to acquire the writer lock.
+                    _poll_cancel(cancel_check, database=self._db)
+                    if original_timeout_ms == 0 or time.monotonic() >= deadline:
+                        raise
+                    remaining_ms = max(
+                        1,
+                        int((deadline - time.monotonic()) * 1000),
+                    )
+                    connection.execute(
+                        f"PRAGMA busy_timeout = {min(_BUSY_RETRY_SLICE_MS, remaining_ms)}"
+                    )
+        finally:
+            connection.execute(f"PRAGMA busy_timeout = {original_timeout_ms}")
 
     def import_games(
         self,
@@ -232,10 +308,13 @@ class LibraryImportService:
         """Atomically publish one parsed source into ACSDB.
 
         Input validation and an immediate cancellation check happen before the
-        durable import-attempt row is created. Once an attempt exists, any later
-        cancellation, callback failure, uniqueness failure, or SQLite/storage
-        error rolls back the source and every game row. The attempt itself is
-        retained as a sanitized ``failed`` audit record with no linked source.
+        durable import-attempt row is created. If that first write is contended,
+        SQLite's existing busy-timeout budget is split into bounded slices so
+        cancellation can be re-polled and raw lock diagnostics cannot cross the
+        service boundary. Once an attempt exists, any later cancellation, callback
+        failure, uniqueness failure, or SQLite/storage error rolls back the source
+        and every game row. The attempt itself is retained as a sanitized ``failed``
+        audit record with no linked source.
 
         Cancellation/progress callbacks are observers. While either callback is
         executing, the live ``AcsDatabase.conn`` handle is replaced by a fail-closed
@@ -253,13 +332,15 @@ class LibraryImportService:
         _validate_callback(progress_callback, name="progress_callback")
         _poll_cancel(cancel_check, database=self._db)
 
-        attempt_id = self._db._create_import_attempt(
-            source_name,
-            source_format,
-            source_sha256,
-        )
-
+        attempt_id: int | None = None
         try:
+            attempt_id = self._create_attempt_with_cancellable_busy_wait(
+                source_name,
+                source_format,
+                source_sha256,
+                cancel_check,
+            )
+
             _emit_progress(
                 progress_callback,
                 LibraryImportProgress(attempt_id, 0, total_games),
@@ -322,13 +403,16 @@ class LibraryImportService:
                 last_game_id=last_game_id,
             )
         except LibraryImportCancelledError:
-            self._record_failed_attempt(attempt_id, "Library import cancelled")
+            if attempt_id is not None:
+                self._record_failed_attempt(attempt_id, "Library import cancelled")
             raise
         except LibraryImportControlError as exc:
-            self._record_failed_attempt(attempt_id, str(exc))
+            if attempt_id is not None:
+                self._record_failed_attempt(attempt_id, str(exc))
             raise
         except Exception as exc:
-            self._record_failed_attempt(attempt_id, "Library import failed")
+            if attempt_id is not None:
+                self._record_failed_attempt(attempt_id, "Library import failed")
             raise LibraryImportStorageError("Library import failed") from exc
 
     def _record_failed_attempt(self, attempt_id: int, message: str) -> None:
