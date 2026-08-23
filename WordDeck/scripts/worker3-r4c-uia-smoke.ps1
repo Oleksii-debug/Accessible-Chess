@@ -209,7 +209,10 @@ function Exercise-ShortcutSettings([string]$context) {
 
     Wait-For 'Keyboard shortcut settings' 5000
     Assert-ShortcutListFocus "$context return from capture"
-    Send-KeysTo 'alt+f4' 'Keyboard shortcut settings'
+    # Alt+F4 is a real system close chord. Target the currently focused ListView
+    # inside the settings window rather than trying to resolve the top-level Form
+    # itself as a child UIA target.
+    Send-KeysTo 'alt+f4' 'Shortcut actions'
     Wait-Gone 'Keyboard shortcut settings' 7000
     Settle-MainFocus "$context after close"
 }
