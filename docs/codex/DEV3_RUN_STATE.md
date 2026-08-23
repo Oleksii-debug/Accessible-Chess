@@ -1,7 +1,7 @@
 # DEV3 RUN STATE
 
-RUN_ID: 20260823-0801-release-support-safe-overlap
-STATUS: SAFE_OVERLAP / RELEASE_SUPPORT / NO_PRODUCT_MUTATION
+RUN_ID: 20260823-1000-stage1-path-privacy-evidence
+STATUS: SAFE_OVERLAP / RELEASE_SUPPORT / PROVEN_STAGE1_RELEASE_PRIVACY_DEFECT
 READY_FOR_INTEGRATION: YES_FOR_PR137_ISOLATED_SLICE
 OVERALL_FULL_PRODUCT_DEV3: PARTIAL
 
@@ -13,34 +13,28 @@ TERMINAL_VALIDATED_PRODUCT_TEST_HEAD: 7bcab25b54649663ba9f3094adbd14d49fdc3ced
 CURRENT AUDIT MODE: STAGE1 RELEASE FREEZE / FRESH WINDOWS CANDIDATE PRIORITY.
 ACCEPTED_STAGE1_AUTHORITY: manual5/integration-20260821 @ 0fa442330bc2bb03636ff9297512da4c29e38684
 
-DEV3 EXACT WINDOWS RUNTIME EVIDENCE:
-Evidence PR: #142
-Branch/head: auto/dev3-stage1-runtime-evidence-20260823 @ 61325d8eb3ae86826ccd254c41b1da5344fa2c0e
-Workflow: DEV3 Stage1 Runtime Evidence
-Run/job: 32600115025 / 97097006614
-Conclusion: SUCCESS
-Focused Stockfish/analysis/clocks/lifecycle: 177/177 PASS
-Official Stockfish 18 real runtime: PASS
-Single shared stateful provider identity: PASS
-MultiPV=5 restored after engine play: PASS
-Packaged relative engines/stockfish/stockfish.exe runtime: PASS
-SELFTEST: PASS
-ACCESSIBLE CHESS 0.4 WEBVIEW2 COMPLETE USER FLOW DIAGNOSTIC: PASS
+DEV3 exact accepted-source Windows runtime evidence remains GREEN in PR #142: run/job 32600115025 / 97097006614, 177/177 focused Stockfish/analysis/clock/lifecycle PASS, official Stockfish 18 real runtime PASS, one shared provider PASS, MultiPV=5 restoration PASS, packaged relative Stockfish path PASS, SELFTEST and complete diagnostic PASS.
 
-CURRENT RELEASE BLOCKER OWNERSHIP:
-DEV5 PR #139 remains at qa/dev5-stage1-fresh-candidate-0fa442-20260823 @ ba25d7c11408901b7c327f49d1ef41d08d1b9969.
-Latest candidate V2 run/job: 32600049016 / 97097800386, FAILURE inside QA-owned strict packaged UIA harness after topology classification A and native Backspace e9->e proof. Failure occurred while restoring e9 through ValuePattern.SetValue before native Ctrl+A proof. Later packaged Stockfish/sound lifecycle, release preflight, ZIP assembly and artifact upload were skipped.
-No newer candidate rerun is associated with PR #139 head at this cutoff.
+NEW SAFE-OVERLAP RELEASE EVIDENCE:
+Evidence-only PR: #148
+Branch/head: qa/dev3-stage1-path-privacy-evidence-20260823 @ ee6a5da7a9f7eda8e8ecd9ce227ef5cbbf0718f5
+Workflow/run/job: DEV3 Stage1 Path Privacy Evidence / 32624495674 / 97157620475
+Result: FAILURE exactly at focused privacy oracle after exact accepted-parent lock, diff hygiene and compile PASS.
+Focused oracle: 2 tests / 2 failures.
+Observed accepted-Stage1 leaks:
+- PGN existing-destination diagnostic exposes `/tmp/.../Users/PrivateUser/Documents/analysis.pgn`;
+- ImportRegistry provenance diagnostic exposes `/tmp/.../Users/PrivateUser/Documents/analysis.pgn`; inspect_batch inherits through str(exc).
+Classification: PROVEN_STAGE1_RELEASE_PRIVACY_DEFECT=YES. This is DEV4/DEV5 repair/integration ownership, not a DEV3 engine/runtime Product defect. No Product repair was created by DEV3.
 
-QA ownership branch qa/dev5-stage1-uia-setvalue-observability-20260823 exists. Its tools/qa/stage1_packaged_e2e_crossprocess.ps1 still contains the same immediate SetValue('e9') + cached Current.Value readback boundary; no materialized repair is visible at this cutoff.
+DEV5 PR #139 still reports head ba25d7c11408901b7c327f49d1ef41d08d1b9969. Prior candidate V2 run/job 32600049016 / 97097800386 failed in QA-owned SetValue observability before native Ctrl+A; no candidate ZIP from that run. DEV3 posted the new accepted-Stage1 privacy evidence to PR #139 as comment 5384745760.
 
 CLASSIFICATION:
 - DEV3 Stockfish/runtime Product defect: NOT PROVEN.
-- strict UIA restore observability blocker: QA/DEV5-owned, IN_PROGRESS/UNRESOLVED.
-- SAFE_OVERLAP: YES; no competing Product or QA-harness push.
+- accepted Stage1 path privacy defect: PROVEN / RELEASE-BLOCKING until repaired and revalidated.
+- SAFE_OVERLAP: YES; no competing Product, DEV4, DEV5 or QA-harness repair.
 - TEST_WEAKENING: NONE.
 
-NEXT: re-read PR #139 and QA observability branch. If a corrected QA harness rerun exists, inspect exact run/jobs/artifacts through packaged Stockfish/sound, preflight and ZIP identity. Open DEV3 Product repair only if that evidence proves a concrete DEV3-owned runtime/analysis/clock/lifecycle defect.
+NEXT: follow DEV4/DEV5 accepted repair promotion into Stage1, rerun PR #148 oracle unchanged, then inspect a fresh Windows candidate chain including strict UIA, packaged Stockfish/sound, release preflight, ZIP identity and artifact upload. Only a concrete DEV3-owned runtime/analysis/clock/lifecycle defect may justify a DEV3 Product patch during freeze.
 
 FRESH_WINDOWS_CANDIDATE: NO
 NVDA_VERIFIED: NO
