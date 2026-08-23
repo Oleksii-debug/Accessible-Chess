@@ -3,6 +3,7 @@ namespace WordDeck;
 internal sealed class ListeningCoachForm : Form
 {
     private readonly DictionaryPackage _package;
+    private readonly ShortcutManager _shortcuts;
     private readonly ListeningStateStore _store;
     private readonly WordAudioListeningExerciseSource _source;
     private ListeningCoachState _state;
@@ -10,14 +11,16 @@ internal sealed class ListeningCoachForm : Form
     private readonly ComboBox _scope = new() { DropDownStyle = ComboBoxStyle.DropDownList };
     private readonly TextBox _answer = new();
     private readonly Label _status = new() { AutoSize = true, MaximumSize = new Size(760, 0) };
-    private readonly Button _replay = new() { Text = "&Replay audio (Ctrl+P)", AutoSize = true };
+    private readonly Button _replay = new() { AutoSize = true };
     private readonly Button _check = new() { Text = "&Check (Enter)", AutoSize = true };
-    private readonly Button _show = new() { Text = "S&how answer (Ctrl+H)", AutoSize = true };
-    private readonly Button _next = new() { Text = "&Next (Ctrl+N)", AutoSize = true };
+    private readonly Button _show = new() { AutoSize = true };
+    private readonly Button _next = new() { AutoSize = true };
+    private readonly Label _keyboardHelp = new() { AutoSize = true, AccessibleName = "Listening keyboard help" };
 
-    public ListeningCoachForm(DictionaryPackage package, string? personalStateRoot = null)
+    public ListeningCoachForm(DictionaryPackage package, ShortcutManager shortcuts, string? personalStateRoot = null)
     {
         _package = package ?? throw new ArgumentNullException(nameof(package));
+        _shortcuts = shortcuts ?? throw new ArgumentNullException(nameof(shortcuts));
         _store = personalStateRoot is null ? new ListeningStateStore() : new ListeningStateStore(personalStateRoot);
         _state = _store.Load();
         _source = new WordAudioListeningExerciseSource(package);
@@ -33,6 +36,7 @@ internal sealed class ListeningCoachForm : Form
         KeyPreview = true;
 
         BuildUi();
+        RefreshShortcutPresentation();
         Load += (_, _) => StartNext(autoPlay: true, recordSkip: false);
         FormClosing += (_, _) => SafeSave();
         KeyDown += OnFormKeyDown;
@@ -96,14 +100,20 @@ internal sealed class ListeningCoachForm : Form
         var buttons = new FlowLayoutPanel { AutoSize = true, WrapContents = true, Dock = DockStyle.Top };
         buttons.Controls.AddRange(new Control[] { _replay, _check, _show, _next });
         table.Controls.Add(buttons);
-        table.Controls.Add(new Label
-        {
-            Text = "Keyboard: Enter check; Ctrl+P replay; Ctrl+H show answer; Ctrl+N next; F1 help; Escape close.",
-            AutoSize = true,
-            AccessibleName = "Listening keyboard help"
-        });
+        table.Controls.Add(_keyboardHelp);
         Controls.Add(table);
         table.BringToFront();
+    }
+
+    private void RefreshShortcutPresentation()
+    {
+        string replay = ShortcutFormatter.Format(_shortcuts.Get(ActionIds.ListeningReplay));
+        string show = ShortcutFormatter.Format(_shortcuts.Get(ActionIds.ListeningShowAnswer));
+        string next = ShortcutFormatter.Format(_shortcuts.Get(ActionIds.ListeningNext));
+        _replay.Text = $"&Replay audio ({replay})";
+        _show.Text = $"S&how answer ({show})";
+        _next.Text = $"&Next ({next})";
+        _keyboardHelp.Text = $"Keyboard: Enter check; {replay} replay; {show} show answer; {next} next; F1 help; Escape close.";
     }
 
     private void ChangeScope()
@@ -155,18 +165,25 @@ internal sealed class ListeningCoachForm : Form
     {
         ListeningCheckResult result = _engine.Check(_answer.Text);
         SafeSave();
-        SetStatus(result.Message);
-        if (!result.Completed) _answer.Focus();
-        else _next.Focus();
+        if (!result.Completed)
+        {
+            SetStatus($"{result.Message} Replay: {ShortcutFormatter.Format(_shortcuts.Get(ActionIds.ListeningReplay))}; show answer: {ShortcutFormatter.Format(_shortcuts.Get(ActionIds.ListeningShowAnswer))}.");
+            _answer.Focus();
+        }
+        else
+        {
+            SetStatus($"{result.Message} Next: {ShortcutFormatter.Format(_shortcuts.Get(ActionIds.ListeningNext))}.");
+            _next.Focus();
+        }
     }
 
     private void ShowAnswer()
     {
         try
         {
-            string answer = _engine.ShowAnswer();
+            _ = _engine.ShowAnswer();
             SafeSave();
-            SetStatus($"{ListeningCoachPresentation.AfterShow(_engine.Current!)}. This review is recorded as needing more listening practice. Press Ctrl+N for the next item.");
+            SetStatus($"{ListeningCoachPresentation.AfterShow(_engine.Current!)}. This review is recorded as needing more listening practice. Next: {ShortcutFormatter.Format(_shortcuts.Get(ActionIds.ListeningNext))}.");
             _next.Focus();
         }
         catch (Exception ex) { SetStatus(ex.Message); }
@@ -223,17 +240,39 @@ internal sealed class ListeningCoachForm : Form
             e.Handled = true;
             return;
         }
-        if (e.KeyCode == Keys.F1)
+        if (e.KeyCode == Keys.F1 && e.Modifiers == Keys.None)
         {
-            MessageBox.Show(this,
-                "Listening and Dictation uses installed offline British audio. The written answer is hidden until Enter checks it or Ctrl+H explicitly shows it. Ctrl+P replays audio. Ctrl+N moves to the next item. Listening progress is separate from Recall and Spelling.",
-                "Listening and Dictation help", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            ShowHelp();
             e.Handled = true;
             return;
         }
-        if (e.Control && e.KeyCode == Keys.P) { Replay(); e.SuppressKeyPress = true; }
-        else if (e.Control && e.KeyCode == Keys.H) { ShowAnswer(); e.SuppressKeyPress = true; }
-        else if (e.Control && e.KeyCode == Keys.N) { StartNext(autoPlay: true, recordSkip: true); e.SuppressKeyPress = true; }
+
+        string? action = _shortcuts.FindAction(e.KeyData);
+        switch (action)
+        {
+            case ActionIds.ListeningReplay:
+                Replay();
+                e.SuppressKeyPress = true;
+                break;
+            case ActionIds.ListeningShowAnswer:
+                ShowAnswer();
+                e.SuppressKeyPress = true;
+                break;
+            case ActionIds.ListeningNext:
+                StartNext(autoPlay: true, recordSkip: true);
+                e.SuppressKeyPress = true;
+                break;
+        }
+    }
+
+    private void ShowHelp()
+    {
+        string replay = ShortcutFormatter.Format(_shortcuts.Get(ActionIds.ListeningReplay));
+        string show = ShortcutFormatter.Format(_shortcuts.Get(ActionIds.ListeningShowAnswer));
+        string next = ShortcutFormatter.Format(_shortcuts.Get(ActionIds.ListeningNext));
+        MessageBox.Show(this,
+            $"Listening and Dictation uses installed offline British audio. The written answer is hidden until Enter checks it or the explicit Show answer command reveals it. Replay: {replay}. Show answer: {show}. Next: {next}. These commands can be changed in Training keyboard shortcuts. Listening progress is separate from Recall and Spelling.",
+            "Listening and Dictation help", MessageBoxButtons.OK, MessageBoxIcon.Information);
     }
 
     private void SafeSave()
