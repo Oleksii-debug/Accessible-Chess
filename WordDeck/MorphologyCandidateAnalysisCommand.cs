@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using System.Text;
 
 namespace WordDeck;
@@ -9,6 +10,8 @@ namespace WordDeck;
 /// </summary>
 internal static class MorphologyCandidateAnalysisCommand
 {
+    private const long MaxCandidateBytes = 64L * 1024 * 1024;
+
     public static int Run(string[] args)
     {
         if (args.Length != 4)
@@ -26,14 +29,25 @@ internal static class MorphologyCandidateAnalysisCommand
             if (!File.Exists(inputPath))
                 throw new FileNotFoundException("Morphology candidate TSV was not found.", inputPath);
 
+            var fileInfo = new FileInfo(inputPath);
+            if (fileInfo.Length > MaxCandidateBytes)
+                throw new InvalidDataException($"Morphology candidate exceeds the {MaxCandidateBytes / (1024 * 1024)} MiB offline-analysis limit.");
+
+            byte[] exactBytes = File.ReadAllBytes(inputPath);
+            string candidateSha256 = Convert.ToHexString(SHA256.HashData(exactBytes)).ToLowerInvariant();
+            string candidateText;
+            using (var stream = new MemoryStream(exactBytes, writable: false))
+            using (var reader = new StreamReader(stream, new UTF8Encoding(false, true), detectEncodingFromByteOrderMarks: true))
+                candidateText = reader.ReadToEnd();
+
             DictionaryPackage dictionary = DictionaryLoader.LoadEmbeddedOxford();
-            MorphologyImportResult imported = MorphologyOverlayTsv.Parse(File.ReadAllText(inputPath, Encoding.UTF8));
+            MorphologyImportResult imported = MorphologyOverlayTsv.Parse(candidateText);
             EnsureParent(summaryPath);
             EnsureParent(gapsPath);
 
             if (imported.Package is null)
             {
-                File.WriteAllText(summaryPath, WriteImportFailureSummary(dictionary, imported.Issues), new UTF8Encoding(false));
+                File.WriteAllText(summaryPath, WriteImportFailureSummary(dictionary, imported.Issues, candidateSha256, exactBytes.LongLength), new UTF8Encoding(false));
                 File.WriteAllText(gapsPath, WriteAllDictionaryGaps(dictionary), new UTF8Encoding(false));
                 Console.Error.WriteLine($"Morphology candidate analysis FAILED before package construction; issues={imported.Issues.Count}. Evidence was written to '{summaryPath}' and '{gapsPath}'.");
                 return 1;
@@ -47,10 +61,10 @@ internal static class MorphologyCandidateAnalysisCommand
                 releaseEvidence: null,
                 importIssues: imported.Issues);
 
-            File.WriteAllText(summaryPath, WriteSummary(diagnostics, imported.Issues, build.Issues), new UTF8Encoding(false));
+            File.WriteAllText(summaryPath, WriteSummary(diagnostics, imported.Package, candidateSha256, exactBytes.LongLength, imported.Issues, build.Issues), new UTF8Encoding(false));
             File.WriteAllText(gapsPath, MorphologyDiagnostics.WriteGapTsv(diagnostics), new UTF8Encoding(false));
 
-            Console.WriteLine($"Morphology candidate analyzed: dictionary={diagnostics.DictionaryEntries}; acceptedRelations={diagnostics.AcceptedRelations}; coveredStableIds={diagnostics.CoveredStableIds}; gaps={diagnostics.GapStableIds}; quarantinedIssues={diagnostics.QuarantinedIssues}.");
+            Console.WriteLine($"Morphology candidate analyzed: dictionary={diagnostics.DictionaryEntries}; acceptedRelations={diagnostics.AcceptedRelations}; coveredStableIds={diagnostics.CoveredStableIds}; gaps={diagnostics.GapStableIds}; quarantinedIssues={diagnostics.QuarantinedIssues}; sha256={candidateSha256}.");
             Console.WriteLine("Dataset class is ExternalCandidate. This command does not grant redistribution or production approval.");
             return diagnostics.QuarantinedIssues == 0 ? 0 : 1;
         }
@@ -63,12 +77,24 @@ internal static class MorphologyCandidateAnalysisCommand
 
     internal static string WriteSummary(
         MorphologyCandidateDiagnostics diagnostics,
+        MorphologyOverlayPackage package,
+        string candidateSha256,
+        long candidateBytes,
         IReadOnlyList<MorphologyValidationIssue> importIssues,
         IReadOnlyList<MorphologyValidationIssue> buildIssues)
     {
         var builder = new StringBuilder();
         builder.AppendLine("metric\tvalue");
         Metric("packageId", diagnostics.PackageId);
+        Metric("candidateSha256", candidateSha256);
+        Metric("candidateBytes", candidateBytes);
+        Metric("sourceId", package.Source.SourceId);
+        Metric("sourceName", package.Source.SourceName);
+        Metric("sourceLicense", package.Source.License);
+        Metric("sourceAttribution", package.Source.Attribution);
+        Metric("sourceUri", package.Source.SourceUri ?? string.Empty);
+        Metric("sourceVersion", package.Source.Version ?? string.Empty);
+        Metric("dictionaryId", package.PackageId.Length > 0 ? "embedded-current" : "embedded-current");
         Metric("dictionaryEntries", diagnostics.DictionaryEntries);
         Metric("acceptedRelations", diagnostics.AcceptedRelations);
         Metric("quarantinedIssues", diagnostics.QuarantinedIssues);
@@ -109,11 +135,17 @@ internal static class MorphologyCandidateAnalysisCommand
                 .Append(Escape(issue.Message)).AppendLine();
     }
 
-    private static string WriteImportFailureSummary(DictionaryPackage dictionary, IReadOnlyList<MorphologyValidationIssue> issues)
+    private static string WriteImportFailureSummary(
+        DictionaryPackage dictionary,
+        IReadOnlyList<MorphologyValidationIssue> issues,
+        string candidateSha256,
+        long candidateBytes)
     {
         var builder = new StringBuilder();
         builder.AppendLine("metric\tvalue");
         builder.Append("packageId\t").AppendLine();
+        builder.Append("candidateSha256\t").Append(candidateSha256).AppendLine();
+        builder.Append("candidateBytes\t").Append(candidateBytes).AppendLine();
         builder.Append("dictionaryEntries\t").Append(dictionary.Entries.Count).AppendLine();
         builder.Append("acceptedRelations\t0").AppendLine();
         builder.Append("quarantinedIssues\t").Append(issues.Count).AppendLine();
