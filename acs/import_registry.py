@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Iterable
 
 from .import_contract import ImportReport, ReadOnlyImporter, SourceFingerprint, fingerprint
+from .report_paths import report_safe_name
 
 
 class ImportRegistryError(ValueError):
@@ -126,14 +127,15 @@ class ImportRegistry:
         before = fingerprint(source)
         report = importer.inspect(source)
         after = fingerprint(source)
+        safe_source = report_safe_name(source)
 
         if not _same_source(before, after):
             raise SourceMutationError(
-                f"Read-only importer modified source bytes during inspection: {source}"
+                f"Read-only importer modified source bytes during inspection: {safe_source}"
             )
         if not _same_source(before, report.source):
             raise SourceProvenanceError(
-                f"Importer report provenance does not match inspected source: {source}"
+                f"Importer report provenance does not match inspected source: {safe_source}"
             )
         return report
 
