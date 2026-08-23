@@ -99,29 +99,6 @@ function Send-MenuKey([string]$keys) {
     Start-Sleep -Milliseconds 300
 }
 
-function Navigate-FileMenuToReset {
-    # Do not assume whether Alt+F opens with no item selected or with the first
-    # item selected. Inspect actual UIA focus and advance by keyboard until the
-    # explicit accessible Reset command is reached. The loop is bounded and
-    # fail-closed so a reordered/renamed menu cannot silently activate another
-    # destructive command.
-    $seen = New-Object System.Collections.Generic.List[string]
-    for ($i = 0; $i -lt 10; $i++) {
-        $name = Get-FocusedName
-        $seen.Add($name)
-        if ($name -eq 'Reset Recall learning data with automatic backup' -or $name -like 'Reset Recall learning data*') {
-            return
-        }
-        Send-MenuKey 'down'
-    }
-    $final = Get-FocusedName
-    $seen.Add($final)
-    if ($final -eq 'Reset Recall learning data with automatic backup' -or $final -like 'Reset Recall learning data*') {
-        return
-    }
-    Fail "File-menu keyboard navigation did not reach the accessible Reset command. Focus sequence: $($seen -join ' -> ')"
-}
-
 function Exercise-Combo([string]$selector, [int]$cycles) {
     Wait-For $selector
     Focus $selector
@@ -148,8 +125,7 @@ function Open-And-CancelDialog([string]$shortcut, [string]$dialogName, [string]$
     $wordBefore = Get-Value 'Current English word'
     Send-Keys $shortcut 'Current English word'
     Wait-For $dialogName 12000
-    # Keep the already-proven dialog cancel transport for standard Windows file
-    # dialogs; targeting the dialog itself changes WinApp's resolution behavior.
+    # Standard Windows file dialogs were already proven with untargeted Escape.
     Send-Keys 'esc'
     Wait-Gone $dialogName 10000
     Wait-For 'Current English word' 5000
@@ -223,13 +199,16 @@ try {
     Open-And-CancelDialog 'ctrl+alt+e' 'Export complete WordDeck personal progress profile' 'complete profile export dialog'
     Open-And-CancelDialog 'ctrl+shift+i' 'Import complete WordDeck personal progress profile' 'complete profile import dialog'
 
-    # Reset is intentionally unbound. Open File from the keyboard, then navigate
-    # by the actual accessible focus rather than by a brittle fixed item count.
+    # Reset is intentionally unbound. Open File from the keyboard, then address
+    # the reset command through its explicit accessible name. WinApp's app-scoped
+    # get-focused cannot see ToolStrip drop-down focus, so no focus-count or popup
+    # focus inference is used. Activation remains keyboard-only: targeted Enter.
     Focus 'Current English word'
     $resetWord = Get-Value 'Current English word'
     Send-MenuKey 'alt+f'
-    Navigate-FileMenuToReset
-    Send-MenuKey 'enter'
+    Wait-For 'Reset Recall learning data with automatic backup' 7000
+    Focus 'Reset Recall learning data with automatic backup'
+    Send-Keys 'enter' 'Reset Recall learning data with automatic backup'
     Wait-For 'Reset WordDeck learning data' 7000
     Send-Keys 'esc' 'Reset WordDeck learning data'
     Wait-Gone 'Reset WordDeck learning data' 7000
