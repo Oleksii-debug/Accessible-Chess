@@ -6,8 +6,10 @@ internal sealed class ListeningStateStore
 {
     public const int CurrentSchemaVersion = 1;
     private const string FileName = "listening-state.json";
+    private const string RecoveryFileName = "listening-state.backup.json";
     private readonly string _root;
     private readonly string _path;
+    private readonly string _recoveryPath;
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         WriteIndented = true,
@@ -22,6 +24,7 @@ internal sealed class ListeningStateStore
         if (string.IsNullOrWhiteSpace(root)) throw new ArgumentException("Listening state root is required.", nameof(root));
         _root = Path.GetFullPath(root);
         _path = Path.Combine(_root, FileName);
+        _recoveryPath = Path.Combine(_root, RecoveryFileName);
         Directory.CreateDirectory(_root);
     }
 
@@ -29,24 +32,40 @@ internal sealed class ListeningStateStore
 
     public ListeningCoachState Load()
     {
-        if (!File.Exists(_path)) return Normalize(new ListeningCoachState());
-        ListeningCoachState state;
-        try
+        Exception? primaryError = null;
+        ListeningCoachState? primary = TryDeserialize(_path, out primaryError);
+        if (primary is not null)
         {
-            state = JsonSerializer.Deserialize<ListeningCoachState>(File.ReadAllText(_path), JsonOptions)
-                ?? throw new InvalidDataException("Listening progress file contains no state.");
-        }
-        catch (InvalidDataException) { throw; }
-        catch (Exception ex)
-        {
-            throw new InvalidDataException("Listening progress could not be read. The existing file was left untouched.", ex);
+            if (primary.SchemaVersion > CurrentSchemaVersion)
+                throw new InvalidDataException($"Listening progress uses newer schema {primary.SchemaVersion}; this build supports {CurrentSchemaVersion}. The file was left untouched.");
+            try { return PrepareLoaded(primary, _path); }
+            catch (InvalidDataException ex) { primaryError = ex; }
         }
 
-        if (state.SchemaVersion > CurrentSchemaVersion)
-            throw new InvalidDataException($"Listening progress uses newer schema {state.SchemaVersion}; this build supports {CurrentSchemaVersion}. The file was left untouched.");
-        if (state.SchemaVersion < CurrentSchemaVersion)
+        Exception? recoveryError = null;
+        ListeningCoachState? recovery = TryDeserialize(_recoveryPath, out recoveryError);
+        if (recovery is not null)
         {
-            _ = CreateBackup("pre-migration");
+            if (recovery.SchemaVersion > CurrentSchemaVersion)
+                throw new InvalidDataException($"Listening recovery uses newer schema {recovery.SchemaVersion}; this build supports {CurrentSchemaVersion}. Existing files were left untouched.");
+            try { return PrepareLoaded(recovery, _recoveryPath); }
+            catch (InvalidDataException ex) { recoveryError = ex; }
+        }
+
+        if (File.Exists(_path) || File.Exists(_recoveryPath))
+            throw new InvalidDataException(
+                "Listening progress is unreadable and no verified recovery copy can be loaded. Existing files were left untouched.",
+                recoveryError ?? primaryError);
+
+        return Normalize(new ListeningCoachState());
+    }
+
+    private ListeningCoachState PrepareLoaded(ListeningCoachState state, string sourcePath)
+    {
+        bool migrationNeeded = state.SchemaVersion < CurrentSchemaVersion;
+        if (migrationNeeded)
+        {
+            _ = CreateTimestampedFileBackup(sourcePath, "pre-migration");
             state.SchemaVersion = CurrentSchemaVersion;
             state = Normalize(state);
             Save(state);
@@ -62,20 +81,64 @@ internal sealed class ListeningStateStore
         string temp = _path + ".tmp";
         File.WriteAllText(temp, JsonSerializer.Serialize(state, JsonOptions));
         _ = ParseAndValidate(temp);
+
+        // Preserve only a verified current primary. Corrupted bytes must never
+        // replace the last-known-good recovery copy.
+        ListeningCoachState? current = TryDeserialize(_path, out _);
+        if (current is not null && current.SchemaVersion <= CurrentSchemaVersion)
+        {
+            try
+            {
+                _ = Normalize(Clone(current));
+                File.Copy(_path, _recoveryPath, true);
+            }
+            catch (InvalidDataException) { }
+        }
+
         File.Move(temp, _path, true);
     }
 
     public string? CreateBackup(string reason)
     {
-        if (!File.Exists(_path)) return null;
+        string? source = IsVerifiedStateFile(_path) ? _path : IsVerifiedStateFile(_recoveryPath) ? _recoveryPath : null;
+        if (source is null) return null;
+        return CreateTimestampedFileBackup(source, reason);
+    }
+
+    private string CreateTimestampedFileBackup(string sourcePath, string reason)
+    {
         string folder = Path.Combine(_root, "Backups");
         Directory.CreateDirectory(folder);
         string safe = string.Concat((reason ?? "backup").Select(ch => char.IsLetterOrDigit(ch) || ch is '-' or '_' ? ch : '-'));
         string destination = Path.Combine(folder, $"listening-state-{DateTime.UtcNow:yyyyMMdd-HHmmssfff}-{safe}.json");
-        File.Copy(_path, destination, false);
+        File.Copy(sourcePath, destination, false);
         foreach (FileInfo stale in new DirectoryInfo(folder).GetFiles("listening-state-*.json").OrderByDescending(x => x.LastWriteTimeUtc).Skip(20))
             try { stale.Delete(); } catch { }
         return destination;
+    }
+
+    private static bool IsVerifiedStateFile(string path)
+    {
+        ListeningCoachState? state = TryDeserialize(path, out _);
+        if (state is null || state.SchemaVersion > CurrentSchemaVersion) return false;
+        try { _ = Normalize(Clone(state)); return true; }
+        catch (InvalidDataException) { return false; }
+    }
+
+    private static ListeningCoachState? TryDeserialize(string path, out Exception? error)
+    {
+        error = null;
+        if (!File.Exists(path)) return null;
+        try
+        {
+            return JsonSerializer.Deserialize<ListeningCoachState>(File.ReadAllText(path), JsonOptions)
+                ?? throw new InvalidDataException("Listening progress file contains no state.");
+        }
+        catch (Exception ex)
+        {
+            error = ex;
+            return null;
+        }
     }
 
     internal static ListeningCoachState Normalize(ListeningCoachState state)
@@ -133,6 +196,10 @@ internal sealed class ListeningStateStore
         catch (InvalidDataException) { throw; }
         catch (Exception ex) { throw new InvalidDataException("Listening state validation failed.", ex); }
     }
+
+    private static ListeningCoachState Clone(ListeningCoachState state) =>
+        JsonSerializer.Deserialize<ListeningCoachState>(JsonSerializer.Serialize(state, JsonOptions), JsonOptions)
+        ?? throw new InvalidDataException("Could not clone Listening state.");
 }
 
 internal sealed class ListeningProfileEnvelope
