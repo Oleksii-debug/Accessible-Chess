@@ -1,0 +1,37 @@
+name: DEV3 Stage1 Path Privacy Evidence
+
+on:
+  pull_request:
+    branches:
+      - manual5/integration-20260821
+
+permissions:
+  contents: read
+
+jobs:
+  stage1-path-privacy:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Exact accepted Stage1 parent lock
+        shell: bash
+        run: |
+          git merge-base --is-ancestor 0fa442330bc2bb03636ff9297512da4c29e38684 HEAD
+          test "$(git rev-parse HEAD^1)" = "0fa442330bc2bb03636ff9297512da4c29e38684"
+
+      - name: Diff hygiene
+        run: git diff --check 0fa442330bc2bb03636ff9297512da4c29e38684 HEAD
+
+      - name: Compile evidence and affected modules
+        run: python -m compileall -q acs tests/test_dev3_stage1_path_privacy_evidence.py
+
+      - name: Focused Stage1 path privacy oracle
+        run: python -m unittest -v tests.test_dev3_stage1_path_privacy_evidence
