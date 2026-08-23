@@ -83,6 +83,8 @@ internal static class ContextPracticeProductFacadeSelfTest
                 syntheticEvidence.EvidenceBoundary.Contains("test-only", StringComparison.OrdinalIgnoreCase),
             "Synthetic coverage evidence was not clearly labeled non-production.");
 
+        TestGlobalAmbiguityAccounting(pack, testOptions);
+
         var realClassified = new SentenceCorpusContextSource(
             pack,
             new ContextSourceDescriptor(
@@ -110,7 +112,48 @@ internal static class ContextPracticeProductFacadeSelfTest
         Require(localDescriptor.PrivacyLocalOnly,
             "Privacy-local source contract regressed while adding product-facing context policy.");
 
-        Console.WriteLine("Context Practice product facade self-test PASS: synthetic fixtures fail closed by default, test-only opt-in is explicit, and coverage evidence remains provenance/release bounded.");
+        Console.WriteLine("Context Practice product facade self-test PASS: synthetic fixtures fail closed by default, partial-scope homograph ambiguity stays dictionary-global, test-only opt-in is explicit, and coverage evidence remains provenance/release bounded.");
+    }
+
+    private static void TestGlobalAmbiguityAccounting(SentencePack pack, ContextProductUseOptions testOptions)
+    {
+        var globalLexicon = new ContextTargetLexicon(
+            "context-global-ambiguity-fixture",
+            new[]
+            {
+                ("target-a", "alpha"),
+                ("target-a-alt", "alpha"),
+                ("target-b", "beta"),
+                ("target-c", "gamma")
+            });
+        var synthetic = new SentenceCorpusContextSource(
+            pack,
+            new ContextSourceDescriptor(
+                pack.PackId,
+                ContextCorpusKind.SyntheticFixture,
+                pack.Provenance,
+                pack.License));
+
+        ContextCoverageEvidence oneIdScope = ContextPracticeProductFacade.AnalyzeNaturalCoverage(
+            synthetic,
+            globalLexicon,
+            new[] { "target-a" },
+            requiredTargetCount: 1,
+            options: testOptions,
+            fallbackCandidateLimit: 8);
+        Require(oneIdScope.Coverage.AmbiguousStableEntryIds.SequenceEqual(new[] { "target-a" }),
+            "A homographic stable ID became falsely unambiguous merely because its sibling ID was outside the active scope.");
+
+        IReadOnlyList<NaturalContextTargetSet> lowLevelPlan = ContextNaturalTargetPlanner.Discover(
+            synthetic,
+            globalLexicon,
+            new[] { "target-a", "target-b" },
+            "target-a",
+            desiredTargetCount: 2,
+            maxCandidateSentences: 8,
+            maxSets: 4);
+        Require(lowLevelPlan.Count == 1 && lowLevelPlan[0].AmbiguousStableEntryIds.SequenceEqual(new[] { "target-a" }),
+            "Natural target-set ambiguity metadata ignored a same-written-form sibling outside the active study pool.");
     }
 
     private static void ExpectSyntheticRejected(Action action)
