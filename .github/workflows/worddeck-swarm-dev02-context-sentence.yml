@@ -165,11 +165,13 @@ jobs:
 
           $stableDoc = Get-Content -LiteralPath '.\artifacts\context-evidence\context-coverage.stable-identities.json' -Raw | ConvertFrom-Json
           $stable = $stableDoc.Payload
+          if ($stable.StableTagEvidenceSha256 -ne $doc.EvidenceDigestSha256) { throw 'Stable-ID evidence is not bound to the exact stable-tag evidence document.' }
+          if ($stable.PhysicalFormEvidenceSha256 -ne $physicalDoc.EvidenceDigestSha256) { throw 'Stable-ID evidence is not bound to the exact physical-form evidence document.' }
           foreach ($depth in @($stable.OneTarget,$stable.TwoTarget,$stable.ThreeTarget)) {
-            if ($depth.ResolvedStableCoveredEntryCount + $depth.UnresolvedAmbiguousEntryCount + $depth.UnambiguousStableTagUncoveredEntryCount -ne 5446) { throw 'Stable-ID coverage does not partition the exact Oxford universe.' }
-            if ($depth.ResolvedStableCoveredEntryCount -gt $depth.StableTagCoveredEntryCount) { throw 'Resolved stable-ID coverage cannot exceed historical stable-tag participation.' }
+            if ($depth.ResolvedStableCoveredEntryCount + $depth.UnresolvedAmbiguousEntryCount + $depth.PhysicalFormUncoveredEntryCount -ne 5446) { throw 'Stable-ID coverage does not partition the exact Oxford universe.' }
+            if ($depth.ResolvedStableCoveredEntryCount -gt $depth.PhysicalFormCoveredEntryCount) { throw 'Resolved stable-ID coverage cannot exceed physical-form occurrence coverage.' }
           }
-          if ($stable.OneTarget.UnresolvedAmbiguousEntryCount -le 0) { throw 'Homographic stable IDs must remain explicitly unresolved without POS/sense evidence.' }
+          if ($stable.OneTarget.UnresolvedAmbiguousEntryCount -le 0) { throw 'Physically covered homographic stable IDs must remain explicitly unresolved without POS/sense evidence.' }
           if ($stable.RedistributionApproved) { throw 'Stable-ID evidence must not approve redistribution.' }
 
           $gap = Get-Content -LiteralPath '.\artifacts\context-evidence\context-coverage.gaps.json' -Raw | ConvertFrom-Json
