@@ -5,6 +5,7 @@ internal static class MorphologyContextPolicySelfTest
     public static void Run()
     {
         ValidateAmbiguousTargetsFailClosed();
+        ValidateExplicitIdentityProofHandoff();
         ValidateStudyPoolAndLevelFiltering();
     }
 
@@ -31,6 +32,25 @@ internal static class MorphologyContextPolicySelfTest
             threw = ex.Message.Contains("ambiguity", StringComparison.OrdinalIgnoreCase);
         }
         Assert(threw, "Ambiguous homograph anchor must fail closed before corpus target selection.");
+    }
+
+    private static void ValidateExplicitIdentityProofHandoff()
+    {
+        DictionaryPackage dictionary = FixtureDictionary();
+        MorphologyOverlay overlay = BuildOverlay(dictionary,
+            new MorphologyRelation("r-act-record", "family-cross", "ox:act:v", "ox:record:v", MorphologyRelationKind.Derivation, null, "fixture:proof"));
+        var planner = new MorphologyContextTargetPlanner(overlay, dictionary);
+        var resolved = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "ox:record:v" };
+
+        MorphologyContextTargetPlan related = planner.Plan("ox:act:v", resolvedAmbiguousEntryIds: resolved);
+        Assert(related.SafeRelatedTargets.Any(target => target.EntryId == "ox:record:v"), "Explicit upstream POS/sense proof did not release the exact resolved stable ID.");
+        Assert(!related.ExcludedAmbiguousStableIds.Contains("ox:record:v", StringComparer.OrdinalIgnoreCase), "Resolved stable ID remained in the ambiguity exclusion ledger.");
+
+        MorphologyContextTargetPlan anchor = planner.Plan("ox:record:v", resolvedAmbiguousEntryIds: resolved);
+        Assert(anchor.AnchorEntryId == "ox:record:v", "Resolved ambiguous anchor lost its exact stable ID.");
+        Assert(planner.IsAmbiguous("ox:record:v"), "Proof handoff must not erase the fact that the written form is ambiguous.");
+        Assert(!planner.IsUnresolvedAmbiguity("ox:record:v", resolved), "Explicit proof set should resolve only the named stable ID for downstream use.");
+        Assert(planner.IsUnresolvedAmbiguity("ox:record:n", resolved), "Proof for one homograph stable ID must not silently resolve its sibling.");
     }
 
     private static void ValidateStudyPoolAndLevelFiltering()

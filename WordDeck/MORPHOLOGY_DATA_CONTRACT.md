@@ -58,11 +58,15 @@ Machine release evidence is intentionally separate from the relation package. A 
 
 ## Sentence / Context integration
 
-`MorphologyContextTargetPlanner` is a fail-closed physical-form boundary before related stable IDs reach downstream corpus selection. An ambiguous homograph cannot be used as a Context anchor, and ambiguous related targets are excluded even when the morphology relation itself is exact and valid.
+`MorphologyContextTargetPlanner` is a fail-closed physical-form boundary before related stable IDs reach downstream corpus selection. By default, an ambiguous homograph cannot be used as a Context anchor and ambiguous related targets are excluded even when the morphology relation itself is exact and valid.
+
+A downstream identity owner may supply an explicit `resolvedAmbiguousEntryIds` set only after separate POS/sense evidence proves those exact stable IDs. Morphology never generates or infers that proof. Resolution is per stable ID: proving `record` verb does not resolve a sibling `record` noun. The physical form remains recorded as ambiguous even when one exact ID has been cleared for downstream use.
 
 `MorphologyContextBridge` calls the canonical Stage-11 product facade after this guard. One-target anchor selection and natural two/three-target discovery therefore reuse the existing Sentence/Context ranking, study-pool and learner-vocabulary logic rather than duplicating it inside Stage 18.
 
 ## Grammar / Reading reuse seams
+
+`MorphologyGrammarBridge` requires an explicit Grammar skill reference and resolves it through the canonical `GrammarSkillReferenceResolver`. Morphology never infers a Grammar skill from a suffix, prefix, POS guess or written form. It contributes only exact source-backed lexical targets after the same ambiguity guard.
 
 `MorphologyOverlay` and `MorphologyPracticeService` expose stable-ID projections for Grammar and Reading. These contain related canonical IDs, lexical forms, CEFR levels, family IDs and explicit relation kinds. Downstream modes can request related targets without duplicating morphology inference or modifying canonical progress. The same physical-form ambiguity guard can be applied before any downstream mode interprets a written token as one lexical identity.
 
