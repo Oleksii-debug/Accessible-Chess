@@ -166,7 +166,7 @@ try {
 
     Focus 'Current English word'
     $menuWord = Get-Value 'Current English word'
-    Send-MenuKey 'alt+f'
+    Send-Keys 'alt+f' 'Current English word'
     Send-MenuKey 'down'
     if ((Get-Value 'Current English word') -ne $menuWord) { Fail 'Down in the File menu changed the Recall card.' }
     Send-MenuKey 'esc'
@@ -200,16 +200,16 @@ try {
     Open-And-CancelDialog 'ctrl+shift+i' 'Import complete WordDeck personal progress profile' 'complete profile import dialog'
 
     # Reset is intentionally unbound. The File menu declares the standard
-    # mnemonic "&Reset Recall learning data...". Exercise exactly that Windows
-    # keyboard contract: Alt+F opens File, then R is delivered through SendInput
-    # to the active native menu loop. No mouse, coordinates, popup focus inference,
-    # or fixed arrow count is involved.
+    # mnemonic "&Reset Recall learning data...". Targeted Alt+F first foregrounds
+    # WordDeck, then R is delivered to the active native menu loop. No mouse,
+    # coordinates, popup focus inference, or fixed arrow count is involved.
     Focus 'Current English word'
     $resetWord = Get-Value 'Current English word'
-    Send-MenuKey 'alt+f'
+    Send-Keys 'alt+f' 'Current English word'
     Send-MenuKey 'r'
     Wait-For 'Reset WordDeck learning data' 7000
-    Send-Keys 'esc' 'Reset WordDeck learning data'
+    # Use the already-proven untargeted modal Escape path.
+    Send-Keys 'esc'
     Wait-Gone 'Reset WordDeck learning data' 7000
     Wait-For 'Current English word' 5000
     if ((Get-Value 'Current English word') -ne $resetWord) { Fail 'Cancelling reset changed the current Recall card.' }
