@@ -10,6 +10,11 @@ permissions:
 
 env:
   ACCEPTED_STAGE1_SHA: 0fa442330bc2bb03636ff9297512da4c29e38684
+  QA_STAGE1_PRIVACY_SHA: ee6a5da7a9f7eda8e8ecd9ce227ef5cbbf0718f5
+  QA_IMPORT_CURRENT_SHA: 14049f57a2244c25ddc1abb07e0ee7c78891e47c
+  QA_ENGINE_SHA: c676097b60a3d059b99fce54d9c7881bfc3b8d3a
+  QA_PGN_SHA: 6f738942b7d9e0262987aa0b56bfdbc8db39a1f9
+  QA_REPAIR_GAP_SHA: dbaae1775593a88f684eb81b924a595b54367e0d
 
 jobs:
   privacy-oracles-and-full-regression:
@@ -33,13 +38,13 @@ jobs:
           test "$(git merge-base "$ACCEPTED_STAGE1_SHA" HEAD)" = "$ACCEPTED_STAGE1_SHA"
           git diff --check "$ACCEPTED_STAGE1_SHA" HEAD
           python - <<'PY'
-          import subprocess
+          import subprocess, os
           allowed={
             'acs/engine.py','acs/import_registry.py','acs/pgn_service.py','acs/report_paths.py',
             'tests/test_stage1_release_path_privacy.py',
             '.github/workflows/dev5-stage1-path-privacy-repair.yml',
           }
-          changed=set(subprocess.check_output(['git','diff','--name-only',__import__('os').environ['ACCEPTED_STAGE1_SHA'],'HEAD'],text=True).splitlines())
+          changed=set(subprocess.check_output(['git','diff','--name-only',os.environ['ACCEPTED_STAGE1_SHA'],'HEAD'],text=True).splitlines())
           extra=changed-allowed
           assert not extra, sorted(extra)
           print('REPAIR DIFF HYGIENE PASS', sorted(changed))
@@ -48,17 +53,29 @@ jobs:
         run: python -m compileall -q acs tests run_accessible_chess.py
       - name: Product-owned Stage1 privacy regressions
         run: python -m pytest -q tests/test_stage1_release_path_privacy.py
-      - name: Replay independent QA privacy oracles unchanged
+      - name: Replay current independent QA privacy oracles unchanged
         shell: bash
         run: |
           set -euo pipefail
-          git fetch origin qa/dev3-stage1-path-privacy-evidence-20260823 qa/dev4-import-registry-path-privacy-20260823 qa/dev4-engine-start-path-privacy-20260823 qa/dev4-pgn-error-path-privacy-20260823
+          git fetch origin \
+            refs/pull/147/head:refs/remotes/origin/qa-pr147-current \
+            refs/pull/152/head:refs/remotes/origin/qa-pr152-current \
+            qa/dev3-stage1-path-privacy-evidence-20260823 \
+            qa/dev4-engine-start-path-privacy-20260823 \
+            qa/dev4-pgn-error-path-privacy-20260823
+          test "$(git rev-parse refs/remotes/origin/qa-pr147-current)" = "$QA_IMPORT_CURRENT_SHA"
+          test "$(git rev-parse refs/remotes/origin/qa-pr152-current)" = "$QA_REPAIR_GAP_SHA"
           mkdir -p qa_oracles
-          git show ee6a5da7a9f7eda8e8ecd9ce227ef5cbbf0718f5:tests/test_dev3_stage1_path_privacy_evidence.py > qa_oracles/test_stage1_external.py
-          git show 57b57df809784fc912ca56bb91ccdd8caa02836a:tests/test_dev4_import_registry_path_privacy.py > qa_oracles/test_import_external.py
-          git show c676097b60a3d059b99fce54d9c7881bfc3b8d3a:tests/test_dev4_engine_start_path_privacy.py > qa_oracles/test_engine_external.py
-          git show 6f738942b7d9e0262987aa0b56bfdbc8db39a1f9:tests/test_dev4_pgn_error_path_privacy.py > qa_oracles/test_pgn_external.py
-          python -m pytest -q qa_oracles/test_stage1_external.py qa_oracles/test_import_external.py qa_oracles/test_engine_external.py
+          git show "$QA_STAGE1_PRIVACY_SHA":tests/test_dev3_stage1_path_privacy_evidence.py > qa_oracles/test_stage1_external.py
+          git show "$QA_IMPORT_CURRENT_SHA":tests/test_dev4_import_registry_path_privacy.py > qa_oracles/test_import_current_external.py
+          git show "$QA_ENGINE_SHA":tests/test_dev4_engine_start_path_privacy.py > qa_oracles/test_engine_external.py
+          git show "$QA_PGN_SHA":tests/test_dev4_pgn_error_path_privacy.py > qa_oracles/test_pgn_external.py
+          git show "$QA_REPAIR_GAP_SHA":tests/test_dev4_stage1_privacy_repair_gap.py > qa_oracles/test_repair_gap_external.py
+          python -m pytest -q \
+            qa_oracles/test_stage1_external.py \
+            qa_oracles/test_import_current_external.py \
+            qa_oracles/test_engine_external.py \
+            qa_oracles/test_repair_gap_external.py
           python -m pytest -q \
             qa_oracles/test_pgn_external.py::Dev4PgnErrorPathPrivacyTests::test_existing_destination_error_does_not_expose_absolute_parent_path \
             qa_oracles/test_pgn_external.py::Dev4PgnErrorPathPrivacyTests::test_expected_hash_mismatch_does_not_expose_absolute_parent_path
@@ -83,10 +100,6 @@ jobs:
         run: |
           git config core.autocrlf false
           git config core.eol lf
-          # actions/checkout may already have materialized tracked text with
-          # Windows CRLF before the repository-local policy above is applied.
-          # Re-materialize the exact committed bytes so byte-identity release
-          # contracts observe Git content rather than checkout translation.
           git reset --hard HEAD
           if((git merge-base $env:ACCEPTED_STAGE1_SHA HEAD).Trim() -ne $env:ACCEPTED_STAGE1_SHA){throw 'Stage1 ancestry mismatch'}
           git diff --check $env:ACCEPTED_STAGE1_SHA HEAD
