@@ -1,52 +1,49 @@
 # DEV3 RUN STATE
 
-RUN_ID: 20260823-promoted-privacy-green-v5-focus-classification
-STATUS: SAFE_OVERLAP / RELEASE_SUPPORT / PROMOTED_PRIVACY_GREEN / V5_UI_FOCUS_BLOCKED
-READY_FOR_INTEGRATION: NO_NEW_PRODUCT_CHANGE
+RUN_ID: 20260823-1216-submit-focus-owner-safe-overlap
+STATUS: SAFE_OVERLAP / RELEASE_SUPPORT / UI_REPAIR_OWNED / NO_DEV3_PRODUCT_MUTATION
+READY_FOR_INTEGRATION: NO_NEW_DEV3_PRODUCT_CHANGE
 OVERALL_FULL_PRODUCT_DEV3: PARTIAL
 
 COORDINATION_BRANCH: auto/dev3-analysis-provider-bounds-20260823
 TERMINAL_FULL_PRODUCT_SLICE: PR #137 / code commit 2e6e9e7767960c602d06a139948def6f9c400765 / validated head 7bcab25b54649663ba9f3094adbd14d49fdc3ced
-PREVIOUS_EXACT_COORDINATION_CI: DEV3 Analysis Provider Bounds CI 32636305020 / 97186499314 SUCCESS; focused 79/79, full unittest 723/723, pytest 801 + 651 subtests, SELFTEST and complete diagnostic PASS.
+LAST_EXACT_COORDINATION_HEAD: d9afdf70e7812392fe8cbd98ea2d2a20e5d4abb6
+LAST_EXACT_COORDINATION_CI: DEV3 Analysis Provider Bounds CI 32638710253 / 97192329830 SUCCESS; focused 79/79, full unittest 723/723, pytest 801 + 651 subtests, SELFTEST and complete diagnostic PASS.
 
-PROMOTED_STAGE1_AUTHORITY:
+ACCEPTED STAGE1 AUTHORITY:
 - manual5/integration-20260821 @ 1e9d23b034e6d347fe03c3581469a07e16037c55
-- old privacy-defective authority: 80720e8125c59a213f278668d599040f2768d553
-- promoted Product delta: exactly acs/stockfish_runtime.py
+- DEV3 promoted privacy replay PR #192 exact run 32638464690 is GREEN on Windows 97191677872 and Ubuntu 97191677953.
+- DEV3 real Stockfish 18 supporting PR #176 remains GREEN; neither PR is a release archive or NVDA verification.
 
-DEV3 PROMOTED PRIVACY QA:
-- PR #192 / branch qa/dev3-promoted-stockfish-privacy-evidence-20260823
-- exact QA head: 6160132618363f75b071510fd09c9c98af6517fa
-- exact base: 1e9d23b034e6d347fe03c3581469a07e16037c55
-- initial run 32638349278 was QA invocation RED only: existing Stockfish runtime 18/18 passed, then a nonexistent test module name caused ModuleNotFoundError before the privacy oracle ran.
-- invocation fixed without Product changes or assertion weakening.
-- exact run 32638464690: Windows job 97191677872 SUCCESS; Ubuntu job 97191677953 SUCCESS.
-- logged gates: Stockfish runtime + UCI recovery 21/21 PASS; immutable PR #159 oracle 3 plus promoted replay 3 = 6/6 PASS; focused release/accessibility 65/65 PASS; exact promoted SHA, two-file QA-only scope, diff hygiene, compile and immutable oracle blob identity PASS.
-- classification: promoted Stockfish runtime privacy repair is independently GREEN.
+CURRENT CONTROLLED RELEASE SURFACE:
+- DEV5 PR #195 uses release/dev5-stage1-combined-repair-20260823; current live head 5e8ca72f7dd552ee151ebd5b85c52148004ac307, base remains accepted 1e9d23b...
+- this combined surface already carries accepted Stockfish privacy + history fail-closed work but is explicitly RELEASE_HOLD / not final authority.
+- DEV2 PR #199 is an additional P1 oversized-FEN-counter fail-closed repair. Its current CI is not terminal Product approval; release remains held until DEV2/Audit/DEV5 finish selective intake and exact combined validation.
 
-DEV5 FRESH WINDOWS CANDIDATE V5:
-- PR #175 / exact accepted source 1e9d23b034e6d347fe03c3581469a07e16037c55
-- run 32636245736 / job 97186343167 is RED after substantial packaged evidence.
-- before failure: full source regressions/diagnostic GREEN; immutable PR #159 privacy oracle 3/3 GREEN; original Move Edit topology classification A; native Backspace e9->e GREEN; native Ctrl+A selection/delete GREEN; native Ctrl+A/Ctrl+C clipboard e9 GREEN; board exposes 64 squares and a3 receives semantic focus.
-- exact failure: after UIA Invoke of move-submit, board focus does not restore/converge to a3; final focus is original move-input Edit runtime id 42.131498.4.5.1.3, name Хід.
-- source correlation on accepted Product: index.html registers click listener with the original submitMove function object; later bootstrap only reassigns window.submitMove to a focus-policy wrapper. Existing registered listener therefore may keep calling the old callback, whose success path focuses move-input, exactly matching packaged runtime evidence.
-- classification: PROVEN STAGE1 UI/FOCUS PRODUCT DEFECT, DEV1-owned. Not DEV3 Stockfish/runtime/analysis/clock/lifecycle, not current Ctrl+A/Ctrl+C defect, and not QA timing. DEV3 comment on PR #175: 5385923256.
-- no candidate ZIP was assembled/uploaded from V5; downstream packaged Stockfish/sound lifecycle, preflight and ZIP identity were skipped after the focus gate.
+V5 PACKAGED ROOT CAUSE:
+- V5 PR #175 / run 32636245736 / job 97186343167 proved original Move Edit classification A, native Backspace, Ctrl+A selection/delete, Ctrl+A/Ctrl+C clipboard, 64 squares and board-origin a3 focus before failing after UIA Invoke of move-submit.
+- accepted source binds addEventListener('click', submitMove) before bootstrap replaces window.submitMove, so the installed listener retains the stale function object and bypasses the focus wrapper.
+- classification remains PROVEN STAGE1 UI/FOCUS PRODUCT DEFECT, not DEV3 engine/runtime/analysis/clock/lifecycle.
+
+ACTIVE UI OWNER:
+- AUTOPULSE D01 PR #197 is now the active Product repair owner; current exact head 53fff92a18c22a1a555583203461f7b0214041ff, based on combined parent 574d8c7344a7490de46ba38498f363395c951019.
+- current implementation adds a third packaged JS resource `web/stage1_submit_focus_route.js` plus loader changes.
+- D01 run 32638711537: focused focus/release contracts 61/61 PASS, but full unittest fails on both Ubuntu job 97192322458 and Windows job 97192322603.
+- Ubuntu full discovery: 674 tests, exactly 3 failures. Existing resource-error and saturation contracts observe the new submit-focus resource before the locked board-bridge error and observe 3 evaluate_js calls instead of the existing 2. Pytest/SELFTEST/diagnostic are skipped after full unittest RED.
+- independent DEV5 QA PR #196 requires the actual preinstalled listener to be removed and rebound to wrappedSubmit inside installMoveFocusPolicy. Current sidecar does not satisfy that stronger topology oracle.
+- DEV3 posted review comment 5385949040: do not weaken existing contracts; prefer direct removeEventListener/addEventListener rebind inside the existing bootstrap so packaged resource surface/order remains unchanged.
 
 OVERLAP DISCIPLINE:
-- DEV3 does not patch DEV1 UI focus code or DEV5 candidate harness.
-- no open DEV1 repair PR matching board focus continuity / move-submit focus / submitMove existed at the classification checkpoint.
-- PR #176 remains supporting real Stockfish 18 repaired-runtime evidence; PR #159 remains historical defect proof.
+- do not push to PR #197, PR #196, PR #199, PR #195 or DEV5 candidate branches.
+- do not create a second UI repair.
+- next DEV3 action is independent validation only after the active owner publishes a new exact repair head.
+- only a newly proven DEV3-owned Stockfish/runtime/analysis/clock/lifecycle defect justifies DEV3 Product mutation during Stage1 freeze.
 
-CLASSIFICATION:
 SAFE_OVERLAP: YES
-PROMOTION_MATERIALIZED: YES
-PROMOTED_STAGE1_SHA: 1e9d23b034e6d347fe03c3581469a07e16037c55
-PROMOTED_PRIVACY_CI: GREEN
 DEV3_PRODUCT_PATCH_REQUIRED: NO
-V5_NATIVE_SELECTION_COPY: GREEN
-V5_BOARD_FOCUS_PRODUCT_DEFECT: PROVEN_DEV1_OWNED
+PROMOTED_PRIVACY_CI: GREEN
+SUBMIT_FOCUS_OWNER: PR197
+PR197_CURRENT_HEAD: 53fff92a18c22a1a555583203461f7b0214041ff
+PR197_CURRENT_FULL_CI: RED
 FRESH_WINDOWS_CANDIDATE: NO
 NVDA_VERIFIED: NO
-
-NEXT: fresh-read PR #175 and search for a DEV1-owned focus repair before any action. Do not duplicate UI repair. After a reviewed minimal Product repair makes actual move-submit/UIA Invoke route through the current focus-policy submission path and preserves Enter/canonical move/original Edit/native clipboard semantics, DEV5/Audit must promote the exact reviewed source before rerunning one fail-closed Windows candidate chain. DEV3 only reopens Product code for a newly proven DEV3-owned runtime/analysis/clock/lifecycle defect.
