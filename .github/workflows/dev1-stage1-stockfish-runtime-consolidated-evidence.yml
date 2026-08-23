@@ -1,0 +1,175 @@
+# DEV1 evidence only. No Product mutation, no Windows candidate, no strict QA harness edit.
+name: DEV1 Consolidated Stage1 Runtime Repair Evidence
+
+on:
+  push:
+    branches:
+      - auto/dev1-stage1-stockfish-runtime-consolidated-evidence-20260823-1406
+    paths:
+      - '.github/workflows/dev1-stage1-stockfish-runtime-consolidated-evidence.yml'
+  pull_request:
+    branches:
+      - auto/dev1-stage1-stockfish-runtime-consolidated-ci-base-20260823-1406
+    paths:
+      - '.github/workflows/dev1-stage1-stockfish-runtime-consolidated-evidence.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dev1-stage1-runtime-repair-consolidated-${{ github.event_name }}
+  cancel-in-progress: false
+
+env:
+  STAGE1_PARENT_SHA: 80720e8125c59a213f278668d599040f2768d553
+  PRODUCT_REPAIR_SHA: 1e9d23b034e6d347fe03c3581469a07e16037c55
+  PR159_ORACLE_BLOB_SHA: f674de79b19a852f29837edab138c20b28f24162
+
+jobs:
+  evidence-linux:
+    name: Consolidated runtime-repair DEV1 evidence — Linux
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ env.PRODUCT_REPAIR_SHA }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Prove exact Product repair ancestry and DEV1-neutral scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$PRODUCT_REPAIR_SHA"
+          test "$(git merge-base "$STAGE1_PARENT_SHA" "$PRODUCT_REPAIR_SHA")" = "$STAGE1_PARENT_SHA"
+          git diff --check "$STAGE1_PARENT_SHA" "$PRODUCT_REPAIR_SHA"
+          changed="$(git diff --name-only "$STAGE1_PARENT_SHA" "$PRODUCT_REPAIR_SHA")"
+          test "$changed" = "acs/stockfish_runtime.py"
+          if printf '%s\n' "$changed" | grep -E '(^web/|^acs/webapp|^acs/stage1_release_ui|^acs/keybindings|^tools/qa/)'; then
+            echo 'DEV1 UI or QA harness contamination detected' >&2
+            exit 1
+          fi
+          echo 'EXACT ONE-FILE STOCKFISH RUNTIME REPAIR / DEV1-NEUTRAL SCOPE PASS'
+      - name: Materialize and authenticate unchanged PR159 privacy oracle
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin refs/pull/159/head:refs/remotes/origin/pr159
+          test "$(git rev-parse refs/remotes/origin/pr159:tests/test_dev3_stockfish_runtime_path_privacy.py)" = "$PR159_ORACLE_BLOB_SHA"
+          git show refs/remotes/origin/pr159:tests/test_dev3_stockfish_runtime_path_privacy.py > "$RUNNER_TEMP/test_dev3_stockfish_runtime_path_privacy.py"
+      - name: Install verification dependency
+        run: python -m pip install -q pytest
+      - name: Parse browser bridge and compile
+        run: |
+          node --check web/stage1_board_actions.js
+          python -m compileall -q acs tests run_accessible_chess.py
+      - name: Candidate-facing DEV1 UI accessibility contracts
+        run: >-
+          python -m unittest -v
+          tests.test_accessible_webui
+          tests.test_nvda_p0_contract
+          tests.test_issue22_release_contract
+          tests.test_stage1_complete_user_flow
+          tests.test_stage1_release_composition_ui
+          tests.test_stage1_packaged_focus_origin_contract
+          tests.test_stage1_webview2_accessibility_boundary
+          tests.test_dev1_release_ui_regressions
+          tests.test_webview_keymap_bridge_contract
+          tests.test_stage1_native_menu_action_routing
+      - name: Stockfish runtime plus exact independent privacy oracle
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m unittest -v tests.test_stockfish_runtime
+          python -m pytest -q "$RUNNER_TEMP/test_dev3_stockfish_runtime_path_privacy.py"
+      - name: Current Stage1 privacy regressions
+        run: python -m pytest -q tests/test_stage1_release_path_privacy.py
+      - name: Full repository unittest discovery
+        run: python -m unittest discover -s tests -v
+      - name: Full repository pytest without weakening
+        run: python -m pytest -q
+      - name: Canonical standalone SELFTEST
+        run: python -m acs.selftest
+      - name: Complete candidate-facing diagnostic
+        run: python run_accessible_chess.py --diagnostic
+
+  evidence-windows:
+    name: Consolidated runtime-repair DEV1 evidence — Windows
+    runs-on: windows-2025
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ env.PRODUCT_REPAIR_SHA }}
+      - name: Preserve exact LF source and prove repair scope
+        shell: pwsh
+        run: |
+          git config core.autocrlf false
+          git config core.eol lf
+          git reset --hard $env:PRODUCT_REPAIR_SHA
+          if((git rev-parse HEAD).Trim() -ne $env:PRODUCT_REPAIR_SHA){throw 'Product repair source mismatch'}
+          if((git merge-base $env:STAGE1_PARENT_SHA $env:PRODUCT_REPAIR_SHA).Trim() -ne $env:STAGE1_PARENT_SHA){throw 'Product repair ancestry mismatch'}
+          git diff --check $env:STAGE1_PARENT_SHA $env:PRODUCT_REPAIR_SHA
+          if($LASTEXITCODE -ne 0){throw 'Product repair diff hygiene failed'}
+          $changed = @(git diff --name-only $env:STAGE1_PARENT_SHA $env:PRODUCT_REPAIR_SHA)
+          if($changed.Count -ne 1 -or $changed[0] -ne 'acs/stockfish_runtime.py'){throw "Unexpected Product repair scope: $($changed -join ', ')"}
+      - name: Materialize and authenticate unchanged PR159 privacy oracle
+        shell: pwsh
+        run: |
+          git fetch --no-tags --depth=1 origin refs/pull/159/head:refs/remotes/origin/pr159
+          if((git rev-parse refs/remotes/origin/pr159:tests/test_dev3_stockfish_runtime_path_privacy.py).Trim() -ne $env:PR159_ORACLE_BLOB_SHA){throw 'PR159 oracle blob mismatch'}
+          $oracle = git show refs/remotes/origin/pr159:tests/test_dev3_stockfish_runtime_path_privacy.py
+          Set-Content -Path "$env:RUNNER_TEMP\test_dev3_stockfish_runtime_path_privacy.py" -Value $oracle -Encoding utf8
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install verification dependency
+        run: python -m pip install -q pytest
+      - name: Parse browser bridge and compile
+        shell: pwsh
+        run: |
+          node --check web/stage1_board_actions.js
+          if($LASTEXITCODE -ne 0){throw 'browser JS parse failed'}
+          python -m compileall -q acs tests run_accessible_chess.py
+          if($LASTEXITCODE -ne 0){throw 'compileall failed'}
+      - name: Candidate-facing DEV1 UI accessibility contracts
+        shell: pwsh
+        run: |
+          python -m unittest -v tests.test_accessible_webui tests.test_nvda_p0_contract tests.test_issue22_release_contract tests.test_stage1_complete_user_flow tests.test_stage1_release_composition_ui tests.test_stage1_packaged_focus_origin_contract tests.test_stage1_webview2_accessibility_boundary tests.test_dev1_release_ui_regressions tests.test_webview_keymap_bridge_contract tests.test_stage1_native_menu_action_routing
+          if($LASTEXITCODE -ne 0){throw 'candidate-facing UI/NVDA contracts failed'}
+      - name: Stockfish runtime plus exact independent privacy oracle
+        shell: pwsh
+        run: |
+          python -m unittest -v tests.test_stockfish_runtime
+          if($LASTEXITCODE -ne 0){throw 'Stockfish runtime regressions failed'}
+          python -m pytest -q "$env:RUNNER_TEMP\test_dev3_stockfish_runtime_path_privacy.py"
+          if($LASTEXITCODE -ne 0){throw 'PR159 privacy oracle failed'}
+      - name: Current Stage1 privacy regressions
+        shell: pwsh
+        run: |
+          python -m pytest -q tests/test_stage1_release_path_privacy.py
+          if($LASTEXITCODE -ne 0){throw 'Stage1 privacy regressions failed'}
+      - name: Full repository unittest discovery
+        shell: pwsh
+        run: |
+          python -m unittest discover -s tests -v
+          if($LASTEXITCODE -ne 0){throw 'full unittest failed'}
+      - name: Full repository pytest without weakening
+        shell: pwsh
+        run: |
+          python -m pytest -q
+          if($LASTEXITCODE -ne 0){throw 'full pytest failed'}
+      - name: Canonical standalone SELFTEST
+        shell: pwsh
+        run: |
+          python -m acs.selftest
+          if($LASTEXITCODE -ne 0){throw 'SELFTEST failed'}
+      - name: Complete candidate-facing diagnostic
+        shell: pwsh
+        run: |
+          python run_accessible_chess.py --diagnostic
+          if($LASTEXITCODE -ne 0){throw 'candidate-facing diagnostic failed'}
