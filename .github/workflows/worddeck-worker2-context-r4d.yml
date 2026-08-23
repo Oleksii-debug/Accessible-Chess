@@ -8,6 +8,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
   statuses: write
 
 concurrency:
@@ -17,7 +18,7 @@ concurrency:
 jobs:
   context-r4d-gate:
     runs-on: windows-2025
-    timeout-minutes: 45
+    timeout-minutes: 60
     steps:
       - name: Publish pending exact-tip status
         continue-on-error: true
@@ -32,7 +33,7 @@ jobs:
               sha: context.sha,
               state: 'pending',
               context: 'WordDeck Worker 02 R4d Context Gate',
-              description: 'Stage-11 safe-preparation exact-tip Windows gate is running.',
+              description: 'Stage-11 exact-tip Windows + real-corpus measurement gate is running.',
               target_url: targetUrl
             });
 
@@ -95,6 +96,96 @@ jobs:
           & (Join-Path $target 'WordDeck.exe') --self-test
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+      - name: Download historical attributed R3 SentencePack evidence read-only
+        uses: actions/download-artifact@v4
+        with:
+          name: WordDeck-SentencePack-Tatoeba-EN-UA-CCBY-r3
+          path: artifacts/r3-attributed
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: ${{ github.repository }}
+          run-id: 32573223432
+
+      - name: Verify historical SQLite against its R3 SHA256SUMS
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $sqlite = Get-ChildItem -LiteralPath '.\artifacts\r3-attributed' -Recurse -File -Filter 'WordDeck-SentencePack-Tatoeba-EN-UA-CCBY-v1.sqlite' | Select-Object -First 1
+          if (-not $sqlite) { throw 'Historical attributed SQLite was not found in the exact R3 artifact.' }
+          $sums = Get-ChildItem -LiteralPath '.\artifacts\r3-attributed' -Recurse -File -Filter 'SHA256SUMS.txt' | Select-Object -First 1
+          if (-not $sums) { throw 'Historical R3 SHA256SUMS.txt was not found.' }
+          $line = Get-Content -LiteralPath $sums.FullName | Where-Object { $_ -match ([regex]::Escape($sqlite.Name) + '$') } | Select-Object -First 1
+          if (-not $line) { throw "Historical R3 SHA256SUMS does not name $($sqlite.Name)." }
+          $expected = (($line -split '\s+', 2)[0]).Trim().ToLowerInvariant()
+          $actual = (Get-FileHash -LiteralPath $sqlite.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($expected -ne $actual) { throw "Historical attributed SQLite hash mismatch: expected $expected, actual $actual." }
+          "R3_ATTRIBUTED_SQLITE=$($sqlite.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "R3_ATTRIBUTED_SQLITE_SHA=$actual" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          Write-Host "Verified exact historical attributed SQLite sha256=$actual bytes=$($sqlite.Length)."
+
+      - name: Remeasure exact real corpus with lexical-form-aware 1 2 3 target algorithm
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force -Path '.\artifacts\context-r4d-real-evidence' | Out-Null
+          dotnet run --project .\WordDeck\WordDeck.csproj -c Release --no-build -- `
+            --measure-context-coverage `
+            "$env:R3_ATTRIBUTED_SQLITE" `
+            .\artifacts\context-r4d-real-evidence\context-coverage-r4d.json `
+            "$env:R3_ATTRIBUTED_SQLITE_SHA" `
+            tatoeba-en-uk-attributed-ccby-v1
+          if ($LASTEXITCODE -ne 0) { throw "Lexical-form-aware real-corpus measurement failed with exit code $LASTEXITCODE." }
+
+      - name: Validate and bind real-corpus evidence boundary
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $evidencePath = Resolve-Path '.\artifacts\context-r4d-real-evidence\context-coverage-r4d.json'
+          $document = Get-Content -LiteralPath $evidencePath -Raw | ConvertFrom-Json
+          $p = $document.Payload
+          if ($p.SchemaId -ne 'worddeck-context-coverage-evidence-v1') { throw 'Unexpected context evidence schema.' }
+          if ($p.MeasurementAlgorithm -ne 'worddeck-context-natural-lexical-v1') { throw 'Unexpected context measurement algorithm.' }
+          if ($p.DatabaseSha256 -ne $env:R3_ATTRIBUTED_SQLITE_SHA) { throw 'Evidence JSON is not bound to the verified historical SQLite hash.' }
+          if ($p.SourceId -ne 'tatoeba-en-uk-attributed-ccby-v1') { throw 'Evidence JSON PackId mismatch.' }
+          if ($p.DictionaryEntryCount -ne 5446 -or -not $p.ExactOxford5446Verified) { throw 'Evidence JSON is not bound to the exact Oxford 5446 universe.' }
+          if (-not $p.ExactDatabaseIdentityVerified -or -not $p.CanSupportRealCorpusCoverageClaim) { throw 'Exact real-corpus identity was not verified.' }
+          if ($p.RedistributionApproved) { throw 'Coverage measurement must never self-approve redistribution.' }
+          if ($p.OneTarget.ScopeEntryCount -ne 5446 -or $p.TwoTarget.ScopeEntryCount -ne 5446 -or $p.ThreeTarget.ScopeEntryCount -ne 5446) { throw 'Coverage bands do not all partition the full 5446 universe.' }
+          if (($p.OneTarget.CoveredEntryCount + $p.OneTarget.UncoveredEntryCount) -ne 5446) { throw 'One-target partition is incomplete.' }
+          if (($p.TwoTarget.CoveredEntryCount + $p.TwoTarget.UncoveredEntryCount) -ne 5446) { throw 'Two-target partition is incomplete.' }
+          if (($p.ThreeTarget.CoveredEntryCount + $p.ThreeTarget.UncoveredEntryCount) -ne 5446) { throw 'Three-target partition is incomplete.' }
+          $sourceRoot = Resolve-Path '.\artifacts\r3-attributed'
+          foreach ($name in @('tatoeba-en-uk-attributed.tsv.manifest.json','SHA256SUMS.txt','TATOEBA_SENTENCEPACK_NOTICE.md','sentencepack-runtime-metrics.json','sentencepack-metrics.json')) {
+            $file = Get-ChildItem -LiteralPath $sourceRoot -Recurse -File -Filter $name | Select-Object -First 1
+            if ($file) { Copy-Item -LiteralPath $file.FullName -Destination (Join-Path '.\artifacts\context-r4d-real-evidence' $name) -Force }
+          }
+          @(
+            'Historical measurement input only; not a production redistribution approval.',
+            'source_run_id=32573223432',
+            'source_head=c3beac1156a7cd4060071aa00a1bff5c1ea0cbaa',
+            'source_artifact_id=9475904984',
+            'source_artifact_name=WordDeck-SentencePack-Tatoeba-EN-UA-CCBY-r3',
+            'source_artifact_zip_sha256=882592fb005ae4a1a0bf8431d0ed9cf6995c4218e5827bb25f4d9a3f3806fe44',
+            "sqlite_sha256=$env:R3_ATTRIBUTED_SQLITE_SHA",
+            "measurement_head=${{ github.sha }}",
+            "one_target_covered=$($p.OneTarget.CoveredEntryCount)",
+            "two_target_covered=$($p.TwoTarget.CoveredEntryCount)",
+            "three_target_covered=$($p.ThreeTarget.CoveredEntryCount)",
+            "evidence_sha256=$($document.EvidenceDigestSha256)"
+          ) | Set-Content -LiteralPath '.\artifacts\context-r4d-real-evidence\MEASUREMENT_SOURCE.txt' -Encoding utf8
+          Write-Host ("REAL lexical coverage: one={0}/{1} ({2:N2}%); two={3}/{4} ({5:N2}%); three={6}/{7} ({8:N2}%); sentences={9}; evidence_sha256={10}" -f `
+            $p.OneTarget.CoveredEntryCount,$p.OneTarget.ScopeEntryCount,$p.OneTarget.CoveragePercent, `
+            $p.TwoTarget.CoveredEntryCount,$p.TwoTarget.ScopeEntryCount,$p.TwoTarget.CoveragePercent, `
+            $p.ThreeTarget.CoveredEntryCount,$p.ThreeTarget.ScopeEntryCount,$p.ThreeTarget.CoveragePercent, `
+            $p.SentenceCount,$document.EvidenceDigestSha256)
+
+      - name: Upload real-corpus lexical coverage evidence only
+        uses: actions/upload-artifact@v4
+        with:
+          name: WordDeck-context-real-coverage-r4d-${{ github.sha }}
+          path: artifacts/context-r4d-real-evidence
+          if-no-files-found: error
+          retention-days: 14
+
       - name: Upload exact-tip publish artifact
         if: ${{ success() }}
         uses: actions/upload-artifact@v4
@@ -120,7 +211,7 @@ jobs:
               state: succeeded ? 'success' : 'failure',
               context: 'WordDeck Worker 02 R4d Context Gate',
               description: succeeded
-                ? 'Stage-11 safe-preparation exact-tip Windows gate passed.'
-                : 'Stage-11 safe-preparation exact-tip Windows gate failed.',
+                ? 'Stage-11 exact-tip Windows + real-corpus lexical measurement gate passed.'
+                : 'Stage-11 exact-tip Windows + real-corpus lexical measurement gate failed.',
               target_url: targetUrl
             });
