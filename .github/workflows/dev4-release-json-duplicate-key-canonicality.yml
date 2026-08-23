@@ -10,6 +10,7 @@ on:
 permissions:
   contents: read
 
+# QA-only evidence gate: Product parent is byte-stable and must not be modified here.
 jobs:
   exact-release-json-oracle:
     strategy:
