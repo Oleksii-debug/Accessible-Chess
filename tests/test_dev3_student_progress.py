@@ -17,17 +17,16 @@ from acs.training import ExerciseDefinition, ExerciseSession, ExerciseStep
 
 
 FEN = "8/8/8/8/8/8/4K3/7k w - - 0 1"
-TRAINING_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
 
 
 def make_training_session() -> ExerciseSession:
     return ExerciseSession(
         ExerciseDefinition(
             exercise_id="exercise-1",
-            start_fen=TRAINING_FEN,
+            start_fen=FEN,
             steps=(
                 ExerciseStep(frozenset({"e4"}), hint="Control the centre."),
-                ExerciseStep(frozenset({"e5"})),
+                ExerciseStep(frozenset({"Nf3"})),
             ),
         )
     )
@@ -198,7 +197,7 @@ class StudentProgressTests(unittest.TestCase):
         )
         second = make_training_session()
         second.submit("e4")
-        second.submit("e5")
+        second.submit("Nf3")
         ledger.append_training_review(
             record_id="training-2",
             student_id="student-a",

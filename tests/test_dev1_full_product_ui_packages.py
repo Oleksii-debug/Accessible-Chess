@@ -323,7 +323,7 @@ class TrainingPresenterTests(unittest.TestCase):
     def setUp(self):
         self.definition = ExerciseDefinition(
             exercise_id="ex-1",
-            start_fen="rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+            start_fen="8/8/8/8/8/8/4P3/4K2k w - - 0 1",
             steps=(
                 ExerciseStep(frozenset({"e4"}), hint="Move the pawn two squares.", explanation="Good."),
                 ExerciseStep(frozenset({"e5"}), hint="Advance again."),
