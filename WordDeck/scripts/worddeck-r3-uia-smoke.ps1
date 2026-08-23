@@ -183,9 +183,25 @@ function Open-And-CancelDialog([string]$shortcut, [string]$dialogName, [string]$
 
 try {
     $project = (Resolve-Path -LiteralPath $ProjectPath).Path
-    $launch = Invoke-WinApp @('run',$project,'-c','Release','--arch','x64','--detach','--json') -Json
-    $appPid = [int]$launch.ProcessId
-    if ($appPid -le 0) { Fail 'winapp run did not return a valid process ID.' }
+
+    # In the integrated candidate workflow the release tree already exists and
+    # has passed its packaged self-test. Prefer that exact published EXE so actual
+    # UIA exercises the same bits that are uploaded and zipped. Standalone uses of
+    # this script still fall back to WinApp's project launcher when no candidate
+    # release artifact exists.
+    $candidateExe = Join-Path (Get-Location).Path 'artifacts\release\WordDeck.exe'
+    if (Test-Path -LiteralPath $candidateExe -PathType Leaf) {
+        $candidateExe = (Resolve-Path -LiteralPath $candidateExe).Path
+        $process = Start-Process -FilePath $candidateExe -WorkingDirectory (Split-Path -Parent $candidateExe) -PassThru
+        $appPid = [int]$process.Id
+        Write-Host "WordDeck R4 UIA target: exact published candidate EXE $candidateExe"
+    }
+    else {
+        $launch = Invoke-WinApp @('run',$project,'-c','Release','--arch','x64','--detach','--json') -Json
+        $appPid = [int]$launch.ProcessId
+        Write-Host "WordDeck R4 UIA target: project launch fallback $project"
+    }
+    if ($appPid -le 0) { Fail 'WordDeck launch did not return a valid process ID.' }
 
     Wait-For 'Current English word' 30000
     foreach ($required in @('Ukrainian translation','Dictionary','Recall study scope','Active Recall deck')) { Wait-For $required }
