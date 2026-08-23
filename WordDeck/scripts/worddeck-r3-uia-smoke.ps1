@@ -56,9 +56,6 @@ function Assert-Focus([string]$expected, [string]$context) {
 }
 
 function Assert-ShortcutListFocus([string]$context) {
-    # Windows UIA commonly reports the focused ListBoxItem rather than the parent
-    # ListBox name. Both are correct accessible behavior. Require a real live
-    # shortcut action item, then prove Down stays within the action list.
     $before = Get-FocusedName
     if ($before -notmatch '^(Recall|Spelling|Sentence):') {
         Fail "$context expected focus inside Shortcut actions, actual '$before'."
@@ -74,13 +71,6 @@ function Assert-ShortcutListFocus([string]$context) {
 }
 
 function Send-Keys([string]$keys, [string]$target = '') {
-    # Application accelerators need real modifier state. Supplying --target first
-    # focuses the exact WordDeck surface before SendInput, which avoids a hosted
-    # runner delivering Ctrl/Alt shortcuts to the shell after a modal closes.
-    # Alt+F4 remains HWND-targeted because OS-wide injection is intentionally
-    # rejected for system-reserved combinations. Plain menu navigation keys use
-    # HWND-targeted delivery so the native WinForms menu loop receives them
-    # deterministically on hosted runners.
     $transport = if ($keys -ieq 'alt+f4') {
         'post-message'
     } elseif ($keys.Contains('+')) {
@@ -96,6 +86,15 @@ function Send-Keys([string]$keys, [string]$target = '') {
     $arguments += @('--via',$transport)
     Invoke-WinApp $arguments | Out-Null
     Start-Sleep -Milliseconds 250
+}
+
+function Send-MenuKey([string]$keys) {
+    # Once a native WinForms menu loop is active, keyboard navigation belongs to
+    # that foreground menu, not to the main form HWND. Use real SendInput without
+    # a target so Alt/arrow/Enter state reaches the active menu exactly as a user
+    # keyboard sequence would.
+    Invoke-WinApp @('ui','send-keys',$keys,'-a',[string]$script:appPid,'--via','send-input') | Out-Null
+    Start-Sleep -Milliseconds 300
 }
 
 function Exercise-Combo([string]$selector, [int]$cycles) {
@@ -164,10 +163,10 @@ try {
 
     Focus 'Current English word'
     $menuWord = Get-Value 'Current English word'
-    Send-Keys 'alt+f' 'Current English word'
-    Send-Keys 'down'
+    Send-MenuKey 'alt+f'
+    Send-MenuKey 'down'
     if ((Get-Value 'Current English word') -ne $menuWord) { Fail 'Down in the File menu changed the Recall card.' }
-    Send-Keys 'esc'
+    Send-MenuKey 'esc'
     Assert-Focus 'Current English word' 'return from File menu'
 
     Focus 'Current English word'
@@ -186,11 +185,6 @@ try {
     Send-Keys 'alt+f4'
     Wait-Gone 'WordDeck help' 7000
 
-    # Verify the actual Ctrl+K accelerator, not only the Tools menu route. The
-    # explicit target is important after closing the modal F1 window on a hosted
-    # interactive runner. WinApp resolves selectors through the UI Automation
-    # accessible name; the dialog's visible caption is "Keyboard shortcuts" but
-    # its stable accessible name is "Keyboard shortcut settings".
     Focus 'Current English word'
     Send-Keys 'ctrl+k' 'Current English word'
     Wait-For 'Keyboard shortcut settings' 15000
@@ -199,22 +193,17 @@ try {
     Send-Keys 'alt+f4'
     Wait-Gone 'Keyboard shortcut settings' 7000
 
-    # Standard profile shortcuts must route through the full-v1 profile service,
-    # not the historical Recall-only profile path. Opening and cancelling must
-    # also leave the current Recall card untouched.
     Open-And-CancelDialog 'ctrl+alt+e' 'Export complete WordDeck personal progress profile' 'complete profile export dialog'
     Open-And-CancelDialog 'ctrl+shift+i' 'Import complete WordDeck personal progress profile' 'complete profile import dialog'
 
-    # Reset is intentionally unbound, so exercise the real File-menu keyboard path.
-    # The reset item is the fifth selectable entry after File opens: Add, Save,
-    # Export profile, Import profile, Reset. Navigating by arrows + Enter proves the
-    # native menu path without depending on a hosted runner preserving mnemonic
-    # character input while the WinForms menu loop owns focus.
+    # Reset is intentionally unbound. Exercise the real File-menu keyboard path.
+    # File opens with the first selectable item active; four Down presses reach
+    # Reset (Add, Save, Export, Import, Reset), then Enter invokes it.
     Focus 'Current English word'
     $resetWord = Get-Value 'Current English word'
-    Send-Keys 'alt+f' 'Current English word'
-    for ($i = 0; $i -lt 4; $i++) { Send-Keys 'down' }
-    Send-Keys 'enter'
+    Send-MenuKey 'alt+f'
+    for ($i = 0; $i -lt 4; $i++) { Send-MenuKey 'down' }
+    Send-MenuKey 'enter'
     Wait-For 'Reset WordDeck learning data' 7000
     Send-Keys 'esc'
     Wait-Gone 'Reset WordDeck learning data' 7000
