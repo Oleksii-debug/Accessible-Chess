@@ -1,25 +1,26 @@
 # DEV5_CURRENT_STATE
 
-UPDATED_FROM_RUN: 20260823-1301
-MODE: SAFE_OVERLAP_COORDINATION / REPAIRED_STAGE1_PROMOTION
-SNAPSHOT_CUTOFF: 2026-08-23T13:01:42+03:00
+UPDATED_FROM_RUN: 20260823-1347
+MODE: SAFE_OVERLAP_COORDINATION / STAGE1_PRIVACY_REPAIR_GREEN_PENDING_INDEPENDENT_REVALIDATION
+SNAPSHOT_CUTOFF: 2026-08-23T13:47:22+03:00
 
-Prior Stage1 baseline: `0fa442330bc2bb03636ff9297512da4c29e38684`.
-Promoted repaired Stage1 Product authority: `df52aeb3d99f4ae3d0089eab2882fe9b3c373dfd`.
-Persistent historical exact-GREEN validation anchor: `dd9ebf9414103c805892856fe6a04706fa69039f`.
-DEV4 `3e15dc2e844cb825e482317fd024795130147011` remains prior repair lineage only.
+Accepted Stage1 baseline remains `0fa442330bc2bb03636ff9297512da4c29e38684` until independent acceptance of a repaired successor.
+The prior coordinator promotion of `df52aeb3d99f4ae3d0089eab2882fe9b3c373dfd` is revoked because later independent PR #158 proved an `OSError.strerror` private-path leak on that exact repair.
+Current technically GREEN repaired Stage1 candidate is `80720e8125c59a213f278668d599040f2768d553` on PR #151.
+Persistent Full Product exact-GREEN authority remains `dd9ebf9414103c805892856fe6a04706fa69039f`; Stage1 release freeze still blocks persistent Full Product advancement.
 
-Why promotion changed: DEV1 QA-only PR #155 had a terminal pre-cutoff RED proving that `c0169ed...` leaked valid Windows drive-relative private paths. Existing DEV5 PR #151 then repaired only that sanitizer boundary, added product regressions, replayed the exact PR #155 oracle, and reached current exact head `df52aeb...`.
+PR #158 / run-job `32632703773 / 97177751978` proved the stale `df52aeb...` false-green boundary: sanitizing OSError filename fields was insufficient because arbitrary `strerror` could embed a private sidecar/workstation path.
 
-Exact `DEV5 Stage1 Path Privacy Repair CI` run `32627946799` is terminal SUCCESS. Linux `97166119460` and Windows `97166119501` both pass compile, focused privacy/release gates, full unittest, full pytest and diagnostic; independent current privacy oracles are replayed unchanged.
+DEV5 repaired only the user-facing ImportRegistry batch rendering boundary. `_batch_error_text()` now treats OSError strerror as untrusted, retains stable filesystem context + errno + report-safe filename fields, preserves strict internal exception behavior, and does not touch chess/application state.
 
-Independent compare review from `0fa442...` shows `df52aeb...` ahead 15/behind 0. Product changes are limited to path-privacy surfaces (`engine.py`, `import_registry.py`, `pgn_service.py`, new `report_paths.py`) plus release workflow/tests. No chess state, GameTree, WebView/UI or strict UIA helper changes.
+Exact PR #151 current head `80720e8...` has terminal GREEN run `32634572205`:
+- Linux job `97182279775`: Product privacy 10/10; unchanged external current privacy oracles 13/13 including PR #158; selected PGN privacy 2/2; drive-relative oracle PASS; unittest 663/663; pytest 741 + 758 subtests; diagnostic PASS.
+- Windows job `97182279877`: LF-exact ancestry/diff hygiene PASS; privacy 10/10; Stage1 focused release contracts 75/75; unittest 663/663; pytest 741 + 758 subtests; diagnostic PASS.
 
-Therefore `df52aeb...` is explicitly promoted for the next fresh Windows packaging/candidate attempt. This is not a merge and does not alter PR #54/frozen refs.
+This exact technical GREEN is not self-declared independent acceptance. DEV4's latest RUN_STATE explicitly requires independent exact-head revalidation after repair; AUDIT_MASTER release-lineage acceptance is still required. Therefore `80720e8...` is a repair candidate, not yet accepted Stage1 authority.
 
-UIA release evidence is still unresolved separately. V2 proves unique original Move Edit and native Backspace `e9 -> e`, then stops before Ctrl+A on immediate SetValue readback. No Ctrl+A Product defect is proven. Existing `066d1e254...` and V3 `f13f20ca...` are historical QA evidence and may not be silently retargeted to the promoted Product.
+UIA state remains separate and C / INCONCLUSIVE. Existing V2 evidence proves original Move Edit and native Backspace delivery but failed during QA SetValue restore before Ctrl+A. No Ctrl+A or Ctrl+C Product defect has been established.
 
-Next required technical action is a new/designated exact QA harness locked to `df52aeb...`, followed by the complete uninterrupted Windows machine release chain through ZIP reopen/identity and candidate upload.
-
-Release status: `FRESH_WINDOWS_CANDIDATE=NO`, `READY_FOR_RELEASE=NO`, `NVDA_VERIFIED=NO`.
-Rejected ZIP forbidden.
+Fresh Windows candidate ZIP: NONE.
+Release status: `READY_FOR_RELEASE=NO`, `FRESH_WINDOWS_CANDIDATE=NO`, `NVDA_VERIFIED=NO`.
+Rejected ZIP remains forbidden.
