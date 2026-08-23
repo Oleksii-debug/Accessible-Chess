@@ -119,8 +119,8 @@ class EducationRecordsTests(unittest.TestCase):
             expected_session_revision=0,
             expected_revision=ledger.revision,
         )
-        s1_view = ledger.student_view("s1")
-        s2_view = ledger.student_view("s2")
+        s1_view = ledger.student_view(classroom, "s1")
+        s2_view = ledger.student_view(classroom, "s2")
         self.assertEqual(
             tuple(item.response_ref for item in s1_view.submissions),
             ("private.response.s1",),
@@ -382,6 +382,21 @@ class EducationRecordsTests(unittest.TestCase):
                 expected_session_revision=1,
                 expected_revision=2,
             )
+        with self.assertRaises(er.EducationRecordsError):
+            er.checkpoint_remote_session(
+                ledger,
+                classroom,
+                record_id="remote1",
+                operation_id="op4",
+                session_id="session1",
+                student_ids=("s1",),
+                started_at=STAMP,
+                closed_at="2026-08-23T13:30:00Z",
+                last_remote_sequence=3,
+                snapshot_digest="c" * 64,
+                expected_session_revision=1,
+                expected_revision=2,
+            )
         self.assertEqual(ledger.to_json(), before)
 
     def test_reconcile_after_deletion_purges_private_state_and_advances_session_cas(self):
@@ -436,6 +451,11 @@ class EducationRecordsTests(unittest.TestCase):
         self.assertEqual(reconciled.classroom_digest, deleted.digest)
         self.assertEqual(
             er.EducationLedger.from_json(reconciled.to_json()), reconciled
+        )
+        with self.assertRaises(er.EducationRecordsError):
+            reconciled.student_view(deleted, "s1")
+        self.assertEqual(
+            reconciled.student_view(deleted, "s2").student_id, "s2"
         )
 
         retry = er.reconcile_classroom(
