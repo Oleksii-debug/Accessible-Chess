@@ -321,24 +321,24 @@ try {
     # top-level window. Atomically focus the live Recall surface before the
     # configurable mode-opening chord so this proves the real keyboard path.
     Send-KeysTo 'ctrl+shift+s' 'Current English word'
-    Wait-For 'WordDeck Spelling' 10000
+    Wait-For 'WordDeck Spelling trainer' 10000
     foreach ($required in @('Type English spelling answer','Ukrainian spelling prompt','Spelling study scope','Active spelling deck')) { Wait-For $required }
     Exercise-Combo 'Spelling study scope' 40
     Exercise-Combo 'Active spelling deck' 40
     $spellingPrompt = Get-Value 'Ukrainian spelling prompt'
     Exercise-NativeTextKeys 'Type English spelling answer' { (Get-Value 'Ukrainian spelling prompt') -eq $spellingPrompt } 'Spelling answer native navigation'
-    Send-KeysTo 'alt+f4' 'WordDeck Spelling'
-    Wait-Gone 'WordDeck Spelling' 10000
+    Send-KeysTo 'alt+f4' 'WordDeck Spelling trainer'
+    Wait-Gone 'WordDeck Spelling trainer' 10000
     Settle-MainFocus 'Spelling return'
 
     Send-KeysTo 'ctrl+shift+e' 'Current English word'
-    Wait-For 'WordDeck Sentence Spelling' 10000
+    Wait-For 'WordDeck Sentence Spelling trainer' 10000
     foreach ($required in @('Sentence training spelling deck','Number of target words per sentence','Type the English sentence words')) { Wait-For $required }
     Exercise-Combo 'Sentence training spelling deck' 30
     Exercise-Combo 'Number of target words per sentence' 20
     Exercise-NativeTextKeys 'Type the English sentence words' { $true } 'Sentence answer native navigation'
-    Send-KeysTo 'alt+f4' 'WordDeck Sentence Spelling'
-    Wait-Gone 'WordDeck Sentence Spelling' 10000
+    Send-KeysTo 'alt+f4' 'WordDeck Sentence Spelling trainer'
+    Wait-Gone 'WordDeck Sentence Spelling trainer' 10000
 
     for ($round = 0; $round -lt 3; $round++) { Settle-MainFocus "final focus recovery $round" }
 
