@@ -59,12 +59,33 @@ internal sealed class StoryCourseStateStore
         Exception? primaryFailure = null;
         if (File.Exists(_path))
         {
-            try { return Normalize(Parse(_path)); }
-            catch (Exception ex) { primaryFailure = ex; }
+            try
+            {
+                StoryCourseState primary = Parse(_path);
+                RejectNewerSchema(primary, "primary");
+                return Normalize(primary);
+            }
+            catch (StoryCourseNewerSchemaException ex)
+            {
+                throw new InvalidDataException(ex.Message, ex);
+            }
+            catch (Exception ex)
+            {
+                primaryFailure = ex;
+            }
         }
         if (File.Exists(_backupPath))
         {
-            try { return Normalize(Parse(_backupPath)); }
+            try
+            {
+                StoryCourseState backup = Parse(_backupPath);
+                RejectNewerSchema(backup, "backup");
+                return Normalize(backup);
+            }
+            catch (StoryCourseNewerSchemaException ex)
+            {
+                throw new InvalidDataException(ex.Message, ex);
+            }
             catch (Exception backupFailure)
             {
                 throw new InvalidDataException(
@@ -206,6 +227,13 @@ internal sealed class StoryCourseStateStore
         catch (Exception ex) { throw new InvalidDataException($"Story/Course progress file '{Path.GetFileName(path)}' is not readable.", ex); }
     }
 
+    private static void RejectNewerSchema(StoryCourseState state, string source)
+    {
+        if (state.SchemaVersion > CurrentSchemaVersion)
+            throw new StoryCourseNewerSchemaException(
+                $"The {source} Story/Narrative Course state uses schema {state.SchemaVersion}, which is newer than this WordDeck build. WordDeck will not replace it with an older backup or reset progress.");
+    }
+
     private static StoryChapterProgress GetProgress(StoryCourseState state, string chapterId)
     {
         state.ChapterProgress ??= new(StringComparer.OrdinalIgnoreCase);
@@ -271,5 +299,10 @@ internal sealed class StoryCourseStateStore
         destination.ChapterProgress = source.ChapterProgress;
         destination.TargetEvidenceByEntryId = source.TargetEvidenceByEntryId;
         destination.PendingPracticeRoutes = source.PendingPracticeRoutes;
+    }
+
+    private sealed class StoryCourseNewerSchemaException : Exception
+    {
+        public StoryCourseNewerSchemaException(string message) : base(message) { }
     }
 }
