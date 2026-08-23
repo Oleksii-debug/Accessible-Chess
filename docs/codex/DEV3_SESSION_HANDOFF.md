@@ -1,29 +1,35 @@
 # DEV3 SESSION HANDOFF
 
-DEV3 continuation remains SAFE OVERLAP / release-support. No Product or QA-harness mutation was made because DEV5 owns the release privacy repair and candidate promotion chain.
+DEV3 continuation is SAFE OVERLAP / release-support. No Product repair was created because DEV5 PR #167 owns the release-critical Stockfish runtime diagnostic privacy repair. No strict QA/UIA harness mutation was made.
 
-Accepted Stage1 Product authority is still `manual5/integration-20260821 @ 0fa442330bc2bb03636ff9297512da4c29e38684`.
+CURRENT RELEASE BASE / DEFECT:
+`manual5/integration-20260821 @ 80720e8125c59a213f278668d599040f2768d553` is the accepted-then-RELEASE_HOLD Stage1 base under repair. DEV3 QA PR #159 / run `32634729467` independently proved the `StockfishRuntime.resolve_stockfish_path()` privacy defect on this exact source on Ubuntu and Windows; existing Stockfish runtime regressions remained 18/18 PASS before the 3-case privacy oracle failed.
 
-DEV3 exact Windows runtime evidence remains GREEN in PR #142: `32600115025 / 97097006614`, with 177/177 focused Stockfish/analysis/clocks/lifecycle PASS, official Stockfish 18 real runtime, one shared provider, MultiPV=5 restoration, packaged relative Stockfish path, SELFTEST and complete WebView2 diagnostic PASS.
+CURRENT PRODUCT OWNER / EXACT GREEN:
+DEV5 PR #167 current exact head is `a06c81e424c599f996662e8898c2b1cbf8ee9dbd`, base SHA `80720e8125c59a213f278668d599040f2768d553`.
+Workflow `DEV5 Stage1 Stockfish Runtime Path Privacy Repair`, run `32635555544`, is fully GREEN:
+- Windows exact QA oracle `97184638496` SUCCESS;
+- Ubuntu exact QA oracle `97184638731` SUCCESS;
+- Ubuntu full regression `97184638645` SUCCESS;
+- Windows full regression `97184638744` SUCCESS.
+Both full-regression jobs pass exact source/diff, compile, current Stage1 privacy + Stockfish surface, focused Stage1 release contracts, full unittest, full pytest and complete diagnostic. Windows preserves LF source bytes for frozen-byte identity tests. No current Product assertion failure remains in that exact run.
 
-DEV3 accepted-source privacy evidence remains unchanged and truthful: PR #150 (`32627037392 / 97163830449`) proves engine-start private executable-path leakage on accepted Stage1; PR #148 (`32624495674 / 97157620475`) proves accepted PGN/ImportRegistry path leakage.
+DEV3 OVERLAP DISCIPLINE:
+DEV3 PR #168 was built against superseded DEV4 repair variant `d34bc6f5354620ebf327fb88f3165c085c435361`, not current PR #167 wording. Its branch now has a parallel DEV3 writer, so no further pushes were made. A PR comment explicitly marks it as supporting historical validation only, not current release approval.
 
-ACTIVE REPAIR OWNER DEV5 PR #151 current exact head is `df52aeb3d99f4ae3d0089eab2882fe9b3c373dfd`.
-Workflow `DEV5 Stage1 Path Privacy Repair CI`, run `32627946799`: Linux job `97166119460` SUCCESS and Windows job `97166119501` SUCCESS through privacy regressions, independent QA replay, full unittest, full pytest and complete diagnostic; Windows also passes focused Stage1 release contracts.
+DEV5 HANDOFF:
+PR #167 received DEV3 comment `5385683222` recording exact current-head GREEN and superseding the earlier f68794b evidence-environment REDs. No second Product implementation is warranted from DEV3.
 
-NEW INDEPENDENT CURRENT-HEAD VALIDATION:
-DEV1 evidence-only PR #157 pins exact repair `df52aeb3...` and accepted parent `0fa44233...`. Evidence head `93acd90bf4ab98a03499866e2984f72bdf5f1111`. Workflow `DEV1 Current Stage1 Repair UI/NVDA Evidence` run `32631895304` completed SUCCESS. It independently verifies the repair does not mutate DEV1 UI/WebView/keymap/stage1_release_ui Product paths and existing candidate-facing accessibility/release source contracts remain GREEN on Windows/Linux. This must not be relabeled as human NVDA verification.
+RELEASE STATUS:
+PR #167 is technically GREEN but awaits independent AUDIT_MASTER acceptance and authorized DEV5 promotion. QA PR #160 is tied to privacy-defective `80720e8...` and its observed V4 chain failed before Product materialization/build; no candidate artifact from it is acceptable. No fresh Windows archive is certified.
 
-DEV1 PR #155 remains historical RED against older repair `c0169ed276fff893f90f85192416612f3b998b5a`; current df52aeb... directly repairs that drive-relative path class and current exact CI is GREEN.
-
-PR #151 is technically GREEN with independent source-contract validation, but it is not yet accepted Stage1 authority and does not itself certify a fresh candidate archive.
-
-NEXT DEV3 ACTION: fresh ownership read, then determine whether Audit promoted `df52aeb...` or an equivalent reviewed descendant into authorized Stage1 integration. If a new accepted authority exists, replay DEV3 privacy oracles unchanged against that exact SHA. Only after promoted-authority privacy GREEN follow one fresh Windows candidate through strict UIA, packaged Stockfish/sound, release preflight, ZIP identity and artifact upload. Open DEV3 Product code only for a newly proven runtime/analysis/clock/lifecycle defect.
+NEXT DEV3 ACTION:
+Fresh-read PR #167 plus `manual5/integration-20260821`. If Audit promotes `a06c81e4...` or an explicitly reviewed descendant, record the exact new accepted Stage1 SHA and replay DEV3 PR #159 oracle unchanged on Ubuntu and Windows. Only after promoted-authority privacy GREEN may exactly one fresh Windows candidate proceed through strict UIA, packaged Stockfish/sound, release preflight, ZIP identity and artifact upload. Open Product code only for a newly proven DEV3-owned runtime/analysis/clock/lifecycle defect.
 
 SAFE_OVERLAP=YES
-PR151_CURRENT_HEAD=df52aeb3d99f4ae3d0089eab2882fe9b3c373dfd
-PR151_PRIVACY_REPAIR_EXACT_CI=GREEN
-PR157_CURRENT_HEAD_UI_NVDA_SOURCE_CONTRACTS=GREEN
+PR167_CURRENT_EXACT_CI=GREEN
+PR167_AUDIT_PROMOTION=PENDING
 DEV3_PRODUCT_PATCH_REQUIRED=NO
+OVERALL_FULL_PRODUCT_DEV3=PARTIAL
 FRESH_WINDOWS_CANDIDATE=NO
 NVDA_VERIFIED=NO
