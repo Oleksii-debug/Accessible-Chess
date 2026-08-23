@@ -23,6 +23,7 @@ from acs.teaching_reverse_channel import (
     TeachingReverseChannelError,
     StudentPointerKind,
     accessible_student_pointer_summary,
+    apply_student_click_action,
     apply_student_hover_action,
     pointer_history_to_payload,
     project_teacher_pointer_history,
@@ -171,6 +172,108 @@ class TeachingReverseChannelTests(unittest.TestCase):
         self.assertEqual(tuple(item.square for item in events), ("g1", "e4"))
         self.assertEqual(selected.position_fen, before.position_fen)
         self.assertEqual(selected.last_response.value, "e4")
+
+    def test_click_is_selection_answer_with_canonical_piece_and_distinct_summary(self) -> None:
+        plan = self.plan(TeachingActivity.STUDENT_RESPONDS)
+        before = start_session(plan)
+        clicked = apply_student_click_action(
+            plan,
+            before,
+            self.classroom(),
+            {"square": "g1"},
+            expected_revision=0,
+            actor_student_id="student-1",
+        )
+
+        self.assertEqual(clicked.position_fen, Board.START)
+        self.assertEqual(clicked.revision, 1)
+        self.assertEqual(clicked.last_response.value, "g1")
+        self.assertEqual(clicked.active_student_id, "student-1")
+        event = clicked.presentation.student_pointer_history[-1]
+        self.assertIs(type(event), StudentSelectionEvent)
+        self.assertEqual((event.square, event.piece, event.student_id, event.sequence), ("g1", "N", "student-1", 1))
+
+        item = project_teacher_pointer_history(plan, clicked, self.classroom())[0]
+        self.assertIs(item.kind, StudentPointerKind.SELECTION)
+        self.assertEqual(
+            accessible_student_pointer_summary(item, language="uk"),
+            "Учень Anna вибрав: g1, білий кінь.",
+        )
+        self.assertEqual(
+            accessible_student_pointer_summary(item, language="en"),
+            "Student Anna selected: g1, white knight.",
+        )
+
+    def test_hover_then_click_are_ordered_but_semantically_distinct(self) -> None:
+        plan = self.plan(TeachingActivity.STUDENT_RESPONDS)
+        state = start_session(plan)
+        state = apply_student_hover_action(
+            plan,
+            state,
+            self.classroom(),
+            {"square": "g1"},
+            expected_revision=0,
+            actor_student_id="student-1",
+        )
+        state = apply_student_click_action(
+            plan,
+            state,
+            self.classroom(),
+            {"square": "g1"},
+            expected_revision=1,
+            actor_student_id="student-1",
+        )
+        items = project_teacher_pointer_history(plan, state, self.classroom())
+
+        self.assertEqual(tuple(item.kind for item in items), (StudentPointerKind.HOVER, StudentPointerKind.SELECTION))
+        self.assertEqual(tuple(item.sequence for item in items), (1, 2))
+        self.assertEqual(tuple(item.piece_symbol for item in items), ("N", "N"))
+        self.assertEqual(state.position_fen, Board.START)
+
+    def test_click_never_guesses_selection_or_move_outside_selection_policy(self) -> None:
+        for activity in (TeachingActivity.TEACHER_EXPLAINS, TeachingActivity.MAKE_MOVE):
+            with self.subTest(activity=activity):
+                plan = self.plan(activity)
+                before = start_session(plan)
+                with self.assertRaises(TeachingReverseChannelError):
+                    apply_student_click_action(
+                        plan,
+                        before,
+                        self.classroom(),
+                        {"square": "e4"},
+                        expected_revision=0,
+                        actor_student_id="student-1",
+                    )
+                self.assertEqual(before.position_fen, Board.START)
+                self.assertIsNone(before.last_response)
+                self.assertEqual(before.revision, 0)
+                self.assertEqual(before.presentation.student_pointer_history, ())
+
+    def test_click_payload_identity_piece_and_stale_revision_fail_atomically(self) -> None:
+        plan = self.plan(TeachingActivity.STUDENT_RESPONDS)
+        before = start_session(plan)
+        attempts = (
+            ({"square": "g1", "student_id": "student-2"}, 0, "student-1"),
+            ({"square": "g1", "piece": "Q"}, 0, "student-1"),
+            ({"square": "G1"}, 0, "student-1"),
+            ({"square": "g1"}, 0, "outsider"),
+            ({"square": "g1"}, 1, "student-1"),
+        )
+        for payload, revision, actor in attempts:
+            with self.subTest(payload=payload, revision=revision, actor=actor):
+                with self.assertRaises(TeachingReverseChannelError):
+                    apply_student_click_action(
+                        plan,
+                        before,
+                        self.classroom(),
+                        payload,
+                        expected_revision=revision,
+                        actor_student_id=actor,
+                    )
+        self.assertEqual(before.position_fen, Board.START)
+        self.assertIsNone(before.last_response)
+        self.assertEqual(before.revision, 0)
+        self.assertEqual(before.presentation.student_pointer_history, ())
 
     def test_hover_uses_session_revision_cas_and_stale_attempt_is_atomic(self) -> None:
         plan = self.plan(TeachingActivity.TEACHER_EXPLAINS)
