@@ -149,9 +149,9 @@ function Send-KeysToWindow([string]$keys, [string]$target, [string]$hwnd, [int]$
 }
 
 function Send-KeysInWindow([string]$keys, [string]$hwnd, [int]$delayMs = 300) {
-    # Native Save/Open dialogs are top-level windows rather than stable child UIA
-    # elements of the WordDeck main form. Once their HWND is known, send the real
-    # modal key directly to that window without relying on PID-scoped child lookup.
+    # Native Save/Open dialogs and MessageBox confirmations are top-level windows
+    # rather than stable child UIA elements of the WordDeck main form. Once their
+    # HWND is known, send the real modal key directly to that window.
     $modalKey = $keys -ieq 'enter' -or $keys -ieq 'esc'
     $transport = if ($keys.Contains('+') -or $modalKey) { 'send-input' } else { 'post-message' }
     $arguments = @('ui','send-keys',$keys,'-w',$hwnd,'--via',$transport)
@@ -306,9 +306,9 @@ try {
     $resetWord = Get-Value 'Current English word'
     Send-Keys 'alt+f'
     Send-Keys 'r'
-    Wait-For 'Reset WordDeck learning data' 7000
-    Send-KeysTo 'esc' 'Reset WordDeck learning data'
-    Wait-Gone 'Reset WordDeck learning data' 7000
+    $resetHwnd = Get-WindowHandleByTitle 'Reset WordDeck learning data' 7000
+    Send-KeysInWindow 'esc' $resetHwnd
+    Wait-WindowGoneByTitle 'Reset WordDeck learning data' 7000
     Settle-MainFocus 'reset return'
     if ((Get-Value 'Current English word') -ne $resetWord) { Fail 'Cancelling reset changed the current Recall card.' }
 
