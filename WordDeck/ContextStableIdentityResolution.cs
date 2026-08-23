@@ -19,7 +19,9 @@ internal sealed record ContextStableIdentityCoverageReport(
 /// A corpus occurrence of a written form such as "run" is physical-form evidence,
 /// but it is not evidence for one particular Oxford stable ID when the dictionary
 /// contains multiple entries with that same written form. Without explicit POS/sense
-/// evidence, those IDs stay unresolved and cannot own canonical progress.
+/// evidence, physically covered homographic IDs stay unresolved and cannot own
+/// canonical progress. If the physical form is absent altogether, the ID remains a
+/// physical coverage gap rather than being mislabeled as a sense-resolution problem.
 /// </summary>
 internal static class ContextStableIdentityResolution
 {
@@ -79,11 +81,11 @@ internal static class ContextStableIdentityResolution
             throw new InvalidDataException("Physical-form coverage does not exactly partition the requested stable-ID universe.");
 
         var unresolved = new HashSet<string>(
-            scope.Where(lexicon.IsAmbiguousStableIdentity),
+            scope.Where(id => physicalCovered.Contains(id) && lexicon.IsAmbiguousStableIdentity(id)),
             StringComparer.OrdinalIgnoreCase);
         string[] resolvedCovered = scope.Where(id => physicalCovered.Contains(id) && !unresolved.Contains(id)).ToArray();
         string[] unresolvedOrdered = scope.Where(unresolved.Contains).ToArray();
-        string[] uncovered = scope.Where(id => physicalUncovered.Contains(id) && !unresolved.Contains(id)).ToArray();
+        string[] uncovered = scope.Where(physicalUncovered.Contains).ToArray();
 
         if (resolvedCovered.Length + unresolvedOrdered.Length + uncovered.Length != scope.Length)
             throw new InvalidOperationException("Stable-identity coverage did not partition the complete requested universe.");
@@ -139,11 +141,28 @@ internal static class ContextStableIdentityResolutionSelfTest
         Check(stable.ResolvedCoveredEntryIds.SequenceEqual(new[] { "daily-adv" }, StringComparer.OrdinalIgnoreCase),
             "Only unambiguous physically covered entry should count as resolved stable-ID coverage.");
         Check(stable.UnresolvedAmbiguousEntryIds.SequenceEqual(new[] { "run-n", "run-v" }, StringComparer.OrdinalIgnoreCase),
-            "Both homographic stable IDs must remain unresolved.");
+            "Both physically covered homographic stable IDs must remain unresolved.");
         Check(stable.UncoveredEntryIds.SequenceEqual(new[] { "practice-v" }, StringComparer.OrdinalIgnoreCase),
             "Unambiguous physical gap must remain uncovered rather than ambiguous.");
 
-        Console.WriteLine("Context stable-identity self-test PASS: homographs remain unresolved and cannot own stable-ID practice or coverage without POS/sense evidence.");
+        var physicalGap = new ContextNaturalCoverageReport(
+            1,
+            4,
+            1,
+            3,
+            new[] { "daily-adv" },
+            new[] { "run-n", "run-v", "practice-v" },
+            new[] { "run-n", "run-v" });
+        ContextStableIdentityCoverageReport stableGap = ContextStableIdentityResolution.ResolveCoverage(
+            physicalGap,
+            lexicon,
+            new[] { "run-n", "run-v", "daily-adv", "practice-v" });
+        Check(stableGap.UnresolvedAmbiguousEntryIds.Count == 0,
+            "A homographic stable ID with no physical corpus occurrence must be a coverage gap, not a false sense-resolution finding.");
+        Check(stableGap.UncoveredEntryIds.SequenceEqual(new[] { "run-n", "run-v", "practice-v" }, StringComparer.OrdinalIgnoreCase),
+            "Physically absent homographic IDs must remain in the physical uncovered partition.");
+
+        Console.WriteLine("Context stable-identity self-test PASS: covered homographs remain unresolved, physically absent homographs remain coverage gaps, and neither can own stable-ID progress without evidence.");
     }
 
     private static void Check(bool condition, string message)
