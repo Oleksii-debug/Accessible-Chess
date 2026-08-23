@@ -3,8 +3,10 @@
 
 Development/CI utility only. Technical consistency is deliberately separate from
 redistribution approval: a structurally valid corpus is not automatically cleared
-for public release. The validator reports the release-evidence state explicitly and
-can be switched to a strict approval gate with --require-redistribution-approved.
+for public release. Internal WordDeck coverage evidence may prove corpus identity and
+may explicitly record that redistribution is NOT approved, but it cannot grant that
+approval itself. A future public-release gate must consume a separately designed and
+independently controlled external approval artifact.
 
 Uses Python standard library only. It requires the disk-backed SQLite companion so
 a candidate cannot silently regress from the measured low-memory runtime path to
@@ -14,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 import gzip
+import hashlib
 import json
 import sqlite3
 import tempfile
@@ -43,7 +46,19 @@ def _read_json_object(path: Path, description: str) -> dict[str, Any]:
     return value
 
 
-def _redistribution_state(release_evidence_path: Path | None) -> tuple[bool, str, str | None]:
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _redistribution_state(
+    release_evidence_path: Path | None,
+    expected_database_sha256: str,
+    expected_pack_id: str,
+) -> tuple[bool, str, str | None]:
     if release_evidence_path is None:
         return False, "NOT_APPROVED", None
     if not release_evidence_path.is_file() or release_evidence_path.stat().st_size <= 0:
@@ -53,15 +68,34 @@ def _redistribution_state(release_evidence_path: Path | None) -> tuple[bool, str
     payload = document.get("Payload")
     if not isinstance(payload, dict):
         raise RuntimeError("SentencePack stable-identity release evidence is missing Payload.")
-    approved = payload.get("RedistributionApproved")
-    if type(approved) is not bool:
-        raise RuntimeError("SentencePack release evidence RedistributionApproved must be an exact JSON boolean.")
 
     digest = document.get("EvidenceDigestSha256")
     if not isinstance(digest, str) or len(digest) != 64 or any(ch not in "0123456789abcdefABCDEF" for ch in digest):
         raise RuntimeError("SentencePack stable-identity release evidence is missing a canonical SHA-256 evidence digest.")
 
-    return approved, "APPROVED" if approved else "NOT_APPROVED", digest.lower()
+    database_sha256 = payload.get("DatabaseSha256")
+    if not isinstance(database_sha256, str) or database_sha256.lower() != expected_database_sha256.lower():
+        raise RuntimeError("SentencePack stable-identity evidence is not bound to the exact SQLite candidate.")
+    source_id = payload.get("SourceId")
+    if not isinstance(source_id, str) or source_id != expected_pack_id:
+        raise RuntimeError("SentencePack stable-identity evidence PackId does not match the exact SQLite candidate.")
+    if payload.get("ExactDatabaseIdentityVerified") is not True:
+        raise RuntimeError("SentencePack stable-identity evidence did not verify exact database identity.")
+    if payload.get("ExactOxford5446Verified") is not True:
+        raise RuntimeError("SentencePack stable-identity evidence is not bound to the exact Oxford 5446 universe.")
+    if payload.get("CanSupportConservativeStableIdentityCoverageClaim") is not True:
+        raise RuntimeError("SentencePack stable-identity evidence is not eligible for conservative stable-ID coverage claims.")
+
+    approved = payload.get("RedistributionApproved")
+    if type(approved) is not bool:
+        raise RuntimeError("SentencePack release evidence RedistributionApproved must be an exact JSON boolean.")
+    if approved:
+        raise RuntimeError(
+            "Internal stable-identity coverage evidence attempted to grant redistribution approval. "
+            "WordDeck coverage tooling is not an external licensing authority; public redistribution requires a separately controlled approval artifact."
+        )
+
+    return False, "NOT_APPROVED", digest.lower()
 
 
 def _discover_release_evidence(coverage_path: Path, explicit_path: Path | None) -> Path | None:
@@ -82,6 +116,8 @@ def validate(
     for path in (sqlite_path, gzip_path, manifest_path, coverage_path):
         if not path.is_file() or path.stat().st_size <= 0:
             raise RuntimeError(f"Required SentencePack candidate file is missing or empty: {path}")
+
+    database_sha256 = _sha256_file(sqlite_path)
 
     # sqlite3.Connection's context manager commits/rolls back but does not close the
     # connection. Use closing() so Windows does not keep pack.sqlite locked after QA.
@@ -111,14 +147,15 @@ def validate(
         raise RuntimeError("Coverage target count differs from SQLite target_entries")
 
     evidence_path = _discover_release_evidence(coverage_path, release_evidence_path)
-    redistribution_approved, distribution_status, evidence_digest = _redistribution_state(evidence_path)
-    if require_redistribution_approved and not redistribution_approved:
-        if evidence_path is None:
-            raise RuntimeError(
-                "Public SentencePack release was requested, but no explicit stable-identity redistribution evidence was supplied."
-            )
+    redistribution_approved, distribution_status, evidence_digest = _redistribution_state(
+        evidence_path,
+        database_sha256,
+        metadata["pack_id"],
+    )
+    if require_redistribution_approved:
         raise RuntimeError(
-            "Public SentencePack release was requested, but RedistributionApproved is false. Technical bundle consistency does not authorize redistribution."
+            "Public SentencePack redistribution cannot be approved by this technical validator. "
+            "A separately controlled external approval artifact and gate are required before public release."
         )
 
     return {
@@ -127,6 +164,7 @@ def validate(
         "license": metadata["license"],
         "sentences": sentence_count,
         "indexed_targets": target_count,
+        "sqlite_sha256": database_sha256,
         "sqlite_bytes": sqlite_path.stat().st_size,
         "gzip_bytes": gzip_path.stat().st_size,
         "release_evidence_present": evidence_path is not None,
@@ -134,7 +172,8 @@ def validate(
         "redistribution_approved": redistribution_approved,
         "distribution_status": distribution_status,
         "release_boundary": (
-            "Technical consistency is not redistribution approval. Public release requires explicit evidence with RedistributionApproved=true."
+            "Technical consistency and internal corpus evidence are not redistribution approval. "
+            "Public release requires a separately controlled external approval artifact."
         ),
     }
 
@@ -174,9 +213,18 @@ def self_test() -> None:
             raise RuntimeError("Technical candidate without release evidence must be explicitly NOT_APPROVED.")
 
         evidence = root / STABLE_IDENTITY_EVIDENCE_NAME
+        exact_db_hash = _sha256_file(db_path)
+        base_payload = {
+            "DatabaseSha256": exact_db_hash,
+            "SourceId": "synthetic",
+            "ExactDatabaseIdentityVerified": True,
+            "ExactOxford5446Verified": True,
+            "CanSupportConservativeStableIdentityCoverageClaim": True,
+            "RedistributionApproved": False,
+        }
         evidence.write_text(
             json.dumps({
-                "Payload": {"RedistributionApproved": False},
+                "Payload": base_payload,
                 "EvidenceDigestSha256": "a" * 64,
             }),
             encoding="utf-8",
@@ -184,30 +232,57 @@ def self_test() -> None:
         result_with_evidence = validate(db_path, gzip_path, manifest, coverage)
         if result_with_evidence["release_evidence_present"] is not True or result_with_evidence["redistribution_approved"] is not False:
             raise RuntimeError("Validator did not preserve explicit false redistribution evidence.")
+        if result_with_evidence["sqlite_sha256"] != exact_db_hash:
+            raise RuntimeError("Validator did not report the exact SQLite identity used for evidence binding.")
 
         try:
             validate(db_path, gzip_path, manifest, coverage, require_redistribution_approved=True)
         except RuntimeError as exc:
-            if "RedistributionApproved is false" not in str(exc):
+            if "separately controlled external approval artifact" not in str(exc):
                 raise
         else:
-            raise RuntimeError("Strict public-release validation accepted RedistributionApproved=false.")
+            raise RuntimeError("Technical candidate validator incorrectly self-approved public redistribution.")
 
+        forged_approval = dict(base_payload)
+        forged_approval["RedistributionApproved"] = True
         evidence.write_text(
             json.dumps({
-                "Payload": {"RedistributionApproved": True},
+                "Payload": forged_approval,
                 "EvidenceDigestSha256": "b" * 64,
             }),
             encoding="utf-8",
         )
-        approved = validate(db_path, gzip_path, manifest, coverage, require_redistribution_approved=True)
-        if approved["distribution_status"] != "APPROVED":
-            raise RuntimeError("Strict synthetic approval fixture did not reach APPROVED state.")
+        try:
+            validate(db_path, gzip_path, manifest, coverage)
+        except RuntimeError as exc:
+            if "not an external licensing authority" not in str(exc):
+                raise
+        else:
+            raise RuntimeError("Validator accepted self-granted redistribution approval from internal coverage evidence.")
 
+        wrong_database = dict(base_payload)
+        wrong_database["DatabaseSha256"] = "0" * 64
         evidence.write_text(
             json.dumps({
-                "Payload": {"RedistributionApproved": "false"},
+                "Payload": wrong_database,
                 "EvidenceDigestSha256": "c" * 64,
+            }),
+            encoding="utf-8",
+        )
+        try:
+            validate(db_path, gzip_path, manifest, coverage)
+        except RuntimeError as exc:
+            if "exact SQLite candidate" not in str(exc):
+                raise
+        else:
+            raise RuntimeError("Validator accepted release evidence bound to a different SQLite candidate.")
+
+        malformed_boolean = dict(base_payload)
+        malformed_boolean["RedistributionApproved"] = "false"
+        evidence.write_text(
+            json.dumps({
+                "Payload": malformed_boolean,
+                "EvidenceDigestSha256": "d" * 64,
             }),
             encoding="utf-8",
         )
@@ -228,7 +303,7 @@ def self_test() -> None:
         else:
             raise RuntimeError("Validator accepted a candidate bundle without SQLite")
 
-    print("SentencePack candidate-bundle validator self-test passed: technical consistency and redistribution approval are fail-closed separate states.")
+    print("SentencePack candidate-bundle validator self-test passed: exact-candidate consistency is bound, internal evidence cannot self-grant redistribution, and external approval remains fail-closed separate.")
 
 
 def main() -> int:
