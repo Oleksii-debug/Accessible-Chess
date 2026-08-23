@@ -59,10 +59,14 @@ class Board:
         castling='' if parts[2]=='-' else parts[2]
         if any(ch not in 'KQkq' for ch in castling) or len(set(castling))!=len(castling): raise ValueError('FEN: неправильні права рокіровки')
         ep=None if parts[3]=='-' else parse_sq(parts[3])
+        counter_error='FEN: лічильники мають бути невід’ємними десятковими числами'
         if any(not text.isascii() or not text.isdecimal() for text in parts[4:6]):
-            raise ValueError('FEN: лічильники мають бути невід’ємними десятковими числами')
-        halfmove=int(parts[4]) if len(parts)>4 else 0
-        fullmove=int(parts[5]) if len(parts)>5 else 1
+            raise ValueError(counter_error)
+        try:
+            halfmove=int(parts[4]) if len(parts)>4 else 0
+            fullmove=int(parts[5]) if len(parts)>5 else 1
+        except ValueError as exc:
+            raise ValueError(counter_error) from exc
         if halfmove<0: raise ValueError('FEN: halfmove не може бути від’ємним')
         if fullmove<1: raise ValueError('FEN: fullmove має бути не менше 1')
         for s,p in enumerate(bd):
