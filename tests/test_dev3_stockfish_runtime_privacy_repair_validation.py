@@ -45,6 +45,20 @@ class Dev3StockfishRuntimePrivacyRepairValidationTests(unittest.TestCase):
                 self.assertIs(raised.exception.__cause__, failure)
                 self.assert_private_parent_redacted(str(raised.exception))
 
+    def test_packaged_resolution_failure_uses_typed_context_without_private_root(self) -> None:
+        private_root = Path("C:/Users/PrivateUser/Documents/AccessibleChess")
+        failure = OSError(f"cannot resolve {private_root / 'engines/stockfish/stockfish.exe'}")
+        with patch.object(Path, "resolve", side_effect=failure):
+            with self.assertRaises(StockfishInvalidExecutableError) as raised:
+                resolve_stockfish_path(StockfishRuntimeConfig(application_dir=private_root))
+
+        self.assertEqual(
+            str(raised.exception),
+            "Cannot resolve packaged Stockfish path",
+        )
+        self.assertIs(raised.exception.__cause__, failure)
+        self.assert_private_parent_redacted(str(raised.exception))
+
     def test_directory_rejection_keeps_safe_basename_without_private_parent(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             candidate = self._private_root(tmp) / "Engines" / "stockfish.exe"
