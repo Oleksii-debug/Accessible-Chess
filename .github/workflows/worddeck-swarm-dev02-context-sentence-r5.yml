@@ -1,4 +1,4 @@
-name: WordDeck DEV02 Stage 11 Study Spelling Gate
+name: WordDeck DEV02 Stage 11 Target Spelling Gate
 
 on:
   push:
@@ -8,7 +8,6 @@ on:
     branches:
       - worddeck-bootstrap
     paths:
-      - 'WordDeck/ContextStudyPools.cs'
       - 'WordDeck/ContextSentenceTargetSpelling.cs'
       - 'WordDeck/ContextStage11StudySpellingSelfTest.cs'
       - '.github/workflows/worddeck-swarm-dev02-context-sentence-r5.yml'
@@ -18,11 +17,11 @@ permissions:
   contents: read
 
 concurrency:
-  group: worddeck-dev02-study-spelling-${{ github.ref }}
+  group: worddeck-dev02-target-spelling-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  study-spelling-gate:
+  target-spelling-gate:
     runs-on: windows-2025
     timeout-minutes: 30
     steps:
@@ -47,18 +46,18 @@ jobs:
         run: dotnet run --project .\WordDeck\WordDeck.csproj -c Release --no-build -- --self-test
 
       - name: Publish self-contained Windows x64
-        run: dotnet publish .\WordDeck\WordDeck.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:DebugType=None -p:DebugSymbols=false -o .\artifacts\WordDeck-dev02-study-spelling
+        run: dotnet publish .\WordDeck\WordDeck.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:DebugType=None -p:DebugSymbols=false -o .\artifacts\WordDeck-dev02-target-spelling
 
       - name: Run published EXE self-test
         shell: pwsh
         run: |
-          & .\artifacts\WordDeck-dev02-study-spelling\WordDeck.exe --self-test
+          & .\artifacts\WordDeck-dev02-target-spelling\WordDeck.exe --self-test
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Verify no personal state in publish tree
         shell: pwsh
         run: |
-          $bad = Get-ChildItem -LiteralPath '.\artifacts\WordDeck-dev02-study-spelling' -Recurse -File | Where-Object {
+          $bad = Get-ChildItem -LiteralPath '.\artifacts\WordDeck-dev02-target-spelling' -Recurse -File | Where-Object {
             $_.Name -match '^(state|spelling-state|sentence-state|sentence-coach-state)(\.backup)?\.json$' -or
             $_.Name -match '^WordDeck-profile.*\.json$' -or
             $_.FullName -match '[\\/]Backups[\\/]'
@@ -73,6 +72,6 @@ jobs:
         run: |
           $target = Join-Path $env:RUNNER_TEMP 'WordDeck речення DEV02\Published App'
           New-Item -ItemType Directory -Force -Path $target | Out-Null
-          Copy-Item -Path '.\artifacts\WordDeck-dev02-study-spelling\*' -Destination $target -Recurse -Force
+          Copy-Item -Path '.\artifacts\WordDeck-dev02-target-spelling\*' -Destination $target -Recurse -Force
           & (Join-Path $target 'WordDeck.exe') --self-test
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
