@@ -20,9 +20,9 @@ internal static class ContextPracticeApplicationSelfTest
         TestSyntheticBoundaryAndNaturalCards();
         TestRecentSentenceDeprioritization();
         TestSentenceSpellingEvaluation();
-        TestSameWrittenFormFailsClosedWithoutSenseEvidence();
+        TestSameWrittenFormReturnsUnresolvedWithoutSenseEvidence();
         TestNoNaturalPairDoesNotFabricate();
-        Console.WriteLine("Context Practice application self-test PASS: 30/100/200/full pools, natural cards, recent-history ranking, Sentence Spelling, fail-closed homograph safety and no-fabrication behavior verified.");
+        Console.WriteLine("Context Practice application self-test PASS: 30/100/200/full pools, natural cards, recent-history ranking, Sentence Spelling, graceful fail-closed homograph safety and no-fabrication behavior verified.");
     }
 
     private static void TestStudyPoolPresets()
@@ -140,7 +140,7 @@ internal static class ContextPracticeApplicationSelfTest
         Check(!duplicate.Accepted && duplicate.Extra.Contains("well", StringComparer.Ordinal), "Sentence Spelling failed to reject an extra duplicated form.");
     }
 
-    private static void TestSameWrittenFormFailsClosedWithoutSenseEvidence()
+    private static void TestSameWrittenFormReturnsUnresolvedWithoutSenseEvidence()
     {
         SentencePack pack = BuildPack(
             "application-homograph",
@@ -152,37 +152,26 @@ internal static class ContextPracticeApplicationSelfTest
             ("bank-verb", "bank")
         });
 
-        bool pairBlocked = false;
-        try
-        {
-            _ = ContextPracticeApplicationService.BuildCards(
-                source,
-                lexicon,
-                new[] { "bank-noun", "bank-verb" },
-                new ContextPracticeApplicationRequest("bank-noun", 2, ContextStudyPoolPreset.Full, MaxCards: 10, CandidateLimit: 20),
-                new ContextProductUseOptions(AllowSyntheticFixtures: true));
-        }
-        catch (InvalidDataException ex)
-        {
-            pairBlocked = ex.Message.Contains("POS/sense", StringComparison.OrdinalIgnoreCase);
-        }
-        Check(pairBlocked, "An ambiguous homograph anchor must fail closed instead of becoming a fake two-target exercise.");
+        ContextPracticeApplicationResult pair = ContextPracticeApplicationService.BuildCards(
+            source,
+            lexicon,
+            new[] { "bank-noun", "bank-verb" },
+            new ContextPracticeApplicationRequest("bank-noun", 2, ContextStudyPoolPreset.Full, MaxCards: 10, CandidateLimit: 20),
+            new ContextProductUseOptions(AllowSyntheticFixtures: true));
+        Check(pair.Cards.Count == 0, "An ambiguous homograph anchor must not become a fake two-target exercise.");
+        Check(pair.AmbiguousStableEntryIds.Count == 2, "Both homographic stable IDs must remain explicit in the application result.");
+        Check(pair.SelectionExplanation.Contains("POS/sense", StringComparison.OrdinalIgnoreCase),
+            "Ambiguous homograph result must explain that explicit POS/sense evidence is required.");
 
-        bool singleBlocked = false;
-        try
-        {
-            _ = ContextPracticeApplicationService.BuildCards(
-                source,
-                lexicon,
-                new[] { "bank-noun", "bank-verb" },
-                new ContextPracticeApplicationRequest("bank-noun", 1, ContextStudyPoolPreset.Full, MaxCards: 10, CandidateLimit: 20),
-                new ContextProductUseOptions(AllowSyntheticFixtures: true));
-        }
-        catch (InvalidDataException ex)
-        {
-            singleBlocked = ex.Message.Contains("POS/sense", StringComparison.OrdinalIgnoreCase);
-        }
-        Check(singleBlocked, "An ambiguous homograph anchor must also fail closed for one-target stable-ID practice without explicit sense evidence.");
+        ContextPracticeApplicationResult single = ContextPracticeApplicationService.BuildCards(
+            source,
+            lexicon,
+            new[] { "bank-noun", "bank-verb" },
+            new ContextPracticeApplicationRequest("bank-noun", 1, ContextStudyPoolPreset.Full, MaxCards: 10, CandidateLimit: 20),
+            new ContextProductUseOptions(AllowSyntheticFixtures: true));
+        Check(single.Cards.Count == 0, "An ambiguous homograph anchor must not become a one-target stable-ID exercise without sense evidence.");
+        Check(single.AmbiguousStableEntryIds.Count == 2 && single.SelectionExplanation.Contains("POS/sense", StringComparison.OrdinalIgnoreCase),
+            "One-target ambiguous homograph result must remain unresolved and explain the identity boundary.");
     }
 
     private static void TestNoNaturalPairDoesNotFabricate()
