@@ -5,8 +5,11 @@ never turns hover/selection into a move, and never trusts browser-supplied
 student identity or piece information.  The current piece (when any) is read
 from the canonical chess Board at the current TeachingSession FEN.
 
-D01/Windows rendering may bind ``apply_student_hover_action`` to mouse hover;
-that UI adapter must still supply authenticated student identity out-of-band.
+D01/Windows rendering may bind ``apply_student_hover_action`` to mouse hover and
+``apply_student_click_action`` to an explicit answer-selection click.  Both UI
+adapters must still supply authenticated student identity out-of-band.  A click
+never becomes a chess move here; the distinct ``student.move`` path remains the
+only move-capable classroom action and is admitted only by canonical MOVE policy.
 """
 from __future__ import annotations
 
@@ -24,15 +27,18 @@ from .interaction_contracts import (
 from .squares import normalize_square, parse_square
 from .teaching_session import (
     LessonSession,
+    TeachingInputKind,
     TeachingSessionError,
     TeachingSessionPhase,
     TeachingSessionState,
     current_step,
+    submit_selection,
     validate_lesson_session_scope,
 )
 
 
 STUDENT_HOVER_ACTION_ID = "student.hover"
+STUDENT_CLICK_ACTION_ID = "student.click"
 DEFAULT_POINTER_HISTORY_LIMIT = 20
 MAX_POINTER_HISTORY_VIEW = 64
 
@@ -87,13 +93,7 @@ def apply_student_hover_action(
     ``student_id`` and ``piece`` are rejected if supplied by the browser.
     """
 
-    if payload is None or not isinstance(payload, Mapping):
-        raise TeachingReverseChannelError("student hover payload must be an object")
-    if any(type(key) is not str for key in payload) or set(payload) != {"square"}:
-        raise TeachingReverseChannelError("student hover payload shape is invalid")
-    square = payload["square"]
-    if type(square) is not str or square != square.strip() or len(square) != 2:
-        raise TeachingReverseChannelError("student hover square is invalid")
+    square = _square_from_payload(payload, "student hover")
     return record_student_hover(
         plan,
         state,
@@ -102,6 +102,81 @@ def apply_student_hover_action(
         square=square,
         expected_revision=expected_revision,
     )
+
+
+def apply_student_click_action(
+    plan: LessonSession,
+    state: TeachingSessionState,
+    classroom: ClassroomSnapshot,
+    payload: Mapping[str, object] | None,
+    *,
+    expected_revision: int,
+    actor_student_id: str | None,
+) -> TeachingSessionState:
+    """Map a sighted-student click to an explicit selection answer only.
+
+    ``student.click`` is a physical input gesture, not a new chess command.  It
+    is accepted only while the canonical current step has SELECTION input
+    policy.  Locked/NONE and MOVE steps fail closed, so a one-square click can
+    never be guessed into a chess move.  The canonical ``submit_selection``
+    transaction remains the source of answer/session semantics.
+    """
+
+    square = _square_from_payload(payload, "student click")
+    _validate_common(plan, state, classroom)
+    student_id = _authorized_student(plan, classroom, actor_student_id)
+    square = _canonical_square(square)
+    step = current_step(plan, state)
+    if step.policy.input_kind is not TeachingInputKind.SELECTION:
+        raise TeachingReverseChannelError("student click is not an answer in the current teaching mode")
+
+    # Capture only presentation metadata from the canonical position.  Legality
+    # and Position mutation remain outside this reverse-channel adapter.
+    try:
+        board = Board(state.position_fen)
+        piece = board.board[parse_square(square)]
+    except (TypeError, ValueError) as exc:
+        raise TeachingReverseChannelError("teaching position is unavailable") from exc
+
+    before_fen = state.position_fen
+    try:
+        updated = submit_selection(
+            plan,
+            state,
+            student_id,
+            square,
+            expected_revision,
+        )
+        history = updated.presentation.student_pointer_history
+        if not history:
+            raise TeachingReverseChannelError("student click selection history is unavailable")
+        event = history[-1]
+        if (
+            type(event) is not StudentSelectionEvent
+            or event.student_id != student_id
+            or event.square != square
+            or event.sequence != updated.revision
+        ):
+            raise TeachingReverseChannelError("student click selection history is inconsistent")
+        enriched = StudentSelectionEvent(
+            square=event.square,
+            piece=piece,
+            student_id=event.student_id,
+            sequence=event.sequence,
+        )
+        presentation = replace(
+            updated.presentation,
+            student_pointer_history=history[:-1] + (enriched,),
+        )
+        updated = replace(updated, presentation=presentation)
+    except TeachingReverseChannelError:
+        raise
+    except (ContractValidationError, TeachingSessionError, TypeError, ValueError) as exc:
+        raise TeachingReverseChannelError("student click could not be applied") from exc
+
+    if updated.position_fen != before_fen:
+        raise TeachingReverseChannelError("student click violated selection-only semantics")
+    return updated
 
 
 def record_student_hover(
@@ -258,6 +333,20 @@ def accessible_student_pointer_summary(
     verb = "points to" if item.kind is StudentPointerKind.HOVER else "selected"
     suffix = f", {piece}" if piece else ""
     return f"Student {item.student_label} {verb}: {item.square}{suffix}."
+
+
+def _square_from_payload(
+    payload: Mapping[str, object] | None,
+    label: str,
+) -> str:
+    if payload is None or not isinstance(payload, Mapping):
+        raise TeachingReverseChannelError(f"{label} payload must be an object")
+    if any(type(key) is not str for key in payload) or set(payload) != {"square"}:
+        raise TeachingReverseChannelError(f"{label} payload shape is invalid")
+    square = payload["square"]
+    if type(square) is not str or square != square.strip() or len(square) != 2:
+        raise TeachingReverseChannelError(f"{label} square is invalid")
+    return square
 
 
 def _validate_common(
