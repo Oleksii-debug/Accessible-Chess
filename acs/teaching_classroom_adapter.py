@@ -12,9 +12,11 @@ from typing import Mapping
 
 from .classroom_domain import ClassroomSnapshot
 from .teaching_reverse_channel import (
+    STUDENT_CLICK_ACTION_ID,
     STUDENT_HOVER_ACTION_ID,
     StudentPointerView,
     TeachingReverseChannelError,
+    apply_student_click_action,
     apply_student_hover_action,
     pointer_history_to_payload,
     project_teacher_pointer_history,
@@ -43,7 +45,7 @@ from .teaching_visual_board import (
 
 CLASSROOM_ACTIONS = frozenset(
     set(TEACHING_SESSION_ACTIONS)
-    | {STUDENT_HOVER_ACTION_ID}
+    | {STUDENT_HOVER_ACTION_ID, STUDENT_CLICK_ACTION_ID}
     | set(TEACHER_VISUAL_BOARD_ACTIONS)
 )
 
@@ -95,6 +97,15 @@ def apply_classroom_action(
     try:
         if action_id == STUDENT_HOVER_ACTION_ID:
             return apply_student_hover_action(
+                plan,
+                state,
+                classroom,
+                payload,
+                expected_revision=expected_revision,
+                actor_student_id=actor_student_id,
+            )
+        if action_id == STUDENT_CLICK_ACTION_ID:
+            return apply_student_click_action(
                 plan,
                 state,
                 classroom,
