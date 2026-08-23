@@ -10,7 +10,7 @@ DIGEST_A = "a" * 64
 DIGEST_B = "b" * 64
 
 
-def sample_classroom():
+def sample_classroom(*, with_progress=False):
     s1 = cd.Student("s1", "Knight-17")
     s2 = cd.Student("s2", "Bishop-9")
     klass = cd.ClassroomClass("class1", "Endgame class", ("group1",))
@@ -21,6 +21,9 @@ def sample_classroom():
     assignment = cd.Assignment(
         "a1", "lesson1", "cohort1", "Lucena practice", STAMP
     )
+    progress = (
+        cd.Progress("progress1", "s1", "course1", ("lesson1",), 3),
+    ) if with_progress else ()
     return cd.ClassroomSnapshot(
         students=(s1, s2),
         classes=(klass,),
@@ -29,6 +32,7 @@ def sample_classroom():
         cohorts=(cohort,),
         lessons=(lesson,),
         assignments=(assignment,),
+        progress=progress,
     )
 
 
@@ -64,23 +68,11 @@ class EducationRecordsTests(unittest.TestCase):
         ledger = submit(
             ledger, classroom, "s1", "sub1", "op1", "response.s1.1"
         )
-        ledger = er.record_progress(
-            ledger,
-            classroom,
-            event_id="progress1",
-            operation_id="op2",
-            student_id="s1",
-            course_id="course1",
-            lesson_id="lesson1",
-            completed_at=STAMP,
-            score_basis_points=8750,
-            expected_revision=ledger.revision,
-        )
         ledger = er.checkpoint_remote_session(
             ledger,
             classroom,
             record_id="remote1",
-            operation_id="op3",
+            operation_id="op2",
             session_id="session1",
             student_ids=("s1", "s2"),
             started_at=STAMP,
@@ -133,6 +125,18 @@ class EducationRecordsTests(unittest.TestCase):
         self.assertNotIn("private.response.s1", repr(s2_view))
         self.assertEqual(s1_view.sessions[0].session_id, "session1")
         self.assertFalse(hasattr(s1_view.sessions[0], "student_ids"))
+
+    def test_student_view_projects_progress_from_canonical_classroom_only(self):
+        classroom = sample_classroom(with_progress=True)
+        ledger = er.EducationLedger.empty(classroom)
+        s1_view = ledger.student_view(classroom, "s1")
+        s2_view = ledger.student_view(classroom, "s2")
+        self.assertEqual(s1_view.progress, classroom.progress)
+        self.assertEqual(s2_view.progress, ())
+        self.assertFalse(hasattr(ledger, "progress_events"))
+        record = ledger.to_record()
+        self.assertNotIn("progress", record)
+        self.assertNotIn("progress_events", record)
 
     def test_assignment_submission_requires_current_cohort_membership(self):
         classroom = sample_classroom()
@@ -207,35 +211,6 @@ class EducationRecordsTests(unittest.TestCase):
                 "different.response",
                 expected_revision=0,
             )
-
-    def test_progress_requires_enrollment_and_lesson_course_match(self):
-        classroom = sample_classroom()
-        ledger = er.EducationLedger.empty(classroom)
-        with self.assertRaises(er.EducationRecordsError):
-            er.record_progress(
-                ledger,
-                classroom,
-                event_id="p1",
-                operation_id="op1",
-                student_id="s1",
-                course_id="other-course",
-                lesson_id="lesson1",
-                completed_at=STAMP,
-                expected_revision=0,
-            )
-        self.assertEqual(ledger.progress_events, ())
-        updated = er.record_progress(
-            ledger,
-            classroom,
-            event_id="p1",
-            operation_id="op1",
-            student_id="s1",
-            course_id="course1",
-            lesson_id="lesson1",
-            completed_at=STAMP,
-            expected_revision=0,
-        )
-        self.assertEqual(updated.progress_events[0].student_id, "s1")
 
     def test_remote_checkpoint_retry_is_idempotent_before_global_cas(self):
         classroom = sample_classroom()
@@ -400,7 +375,7 @@ class EducationRecordsTests(unittest.TestCase):
         self.assertEqual(ledger.to_json(), before)
 
     def test_reconcile_after_deletion_purges_private_state_and_advances_session_cas(self):
-        classroom = sample_classroom()
+        classroom = sample_classroom(with_progress=True)
         ledger = er.EducationLedger.empty(classroom)
         ledger = submit(
             ledger, classroom, "s1", "sub1", "op1", "private.s1"
@@ -408,22 +383,11 @@ class EducationRecordsTests(unittest.TestCase):
         ledger = submit(
             ledger, classroom, "s2", "sub2", "op2", "private.s2"
         )
-        ledger = er.record_progress(
-            ledger,
-            classroom,
-            event_id="p1",
-            operation_id="op3",
-            student_id="s1",
-            course_id="course1",
-            lesson_id="lesson1",
-            completed_at=STAMP,
-            expected_revision=ledger.revision,
-        )
         ledger = er.checkpoint_remote_session(
             ledger,
             classroom,
             record_id="remote1",
-            operation_id="op4",
+            operation_id="op3",
             session_id="session1",
             student_ids=("s1", "s2"),
             started_at=STAMP,
@@ -434,17 +398,17 @@ class EducationRecordsTests(unittest.TestCase):
             expected_revision=ledger.revision,
         )
         deleted = cd.delete_student(classroom, "s1", 0)
+        self.assertEqual(deleted.progress, ())
         original_revision = ledger.revision
         reconciled = er.reconcile_classroom(
             ledger,
             deleted,
-            operation_id="op5",
+            operation_id="op4",
             expected_revision=original_revision,
         )
         self.assertEqual(
             tuple(item.student_id for item in reconciled.submissions), ("s2",)
         )
-        self.assertEqual(reconciled.progress_events, ())
         session = reconciled.remote_sessions[0]
         self.assertEqual(session.student_ids, ("s2",))
         self.assertEqual(session.revision, 1)
@@ -461,7 +425,7 @@ class EducationRecordsTests(unittest.TestCase):
         retry = er.reconcile_classroom(
             reconciled,
             deleted,
-            operation_id="op5",
+            operation_id="op4",
             expected_revision=original_revision,
         )
         self.assertIs(retry, reconciled)
@@ -470,7 +434,7 @@ class EducationRecordsTests(unittest.TestCase):
             reconciled,
             deleted,
             record_id="remote1",
-            operation_id="op6",
+            operation_id="op5",
             session_id="session1",
             student_ids=("s2",),
             started_at=STAMP,
