@@ -2,15 +2,15 @@ name: D07 ACSDB Migration Atomicity
 
 on:
   workflow_dispatch:
-  push:
+  pull_request:
     branches:
-      - 'd07/**'
+      - d07/acsdb-migration-ci-base-20260823
 
 permissions:
   contents: read
 
 concurrency:
-  group: d07-acsdb-migration-${{ github.ref }}
+  group: d07-acsdb-migration-${{ github.event.pull_request.head.sha || github.sha }}
   cancel-in-progress: true
 
 jobs:
@@ -24,6 +24,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
 
       - uses: actions/setup-python@v5
