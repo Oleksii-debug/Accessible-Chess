@@ -46,9 +46,10 @@ internal static class NarrativeCourseScheduler
             ? 0
             : chapter.StableTargetEntryIds.Average(id =>
                 Math.Clamp(context.LexicalWeaknessByEntryId.GetValueOrDefault(id, 0.5), 0, 1));
-        double grammar = chapter.Definition.GrammarSkillIds.Count == 0
+        IReadOnlyList<string> grammarSkills = NarrativeGrammarContract.SkillIdsFor(chapter);
+        double grammar = grammarSkills.Count == 0
             ? 0
-            : chapter.Definition.GrammarSkillIds.Average(id =>
+            : grammarSkills.Average(id =>
                 Math.Clamp(context.GrammarWeaknessBySkillId.GetValueOrDefault(id, 0.5), 0, 1));
         return lexical * 0.7 + grammar * 0.3;
     }
