@@ -16,6 +16,18 @@ internal static class TrainingEntryPoints
             .FirstOrDefault(item => (item.Text ?? string.Empty).Replace("&", string.Empty).Equals("Tools", StringComparison.OrdinalIgnoreCase));
         if (tools is null) return;
 
+        // Listening owns independent progress and must remain launchable even if
+        // optional Spelling/Sentence state needs recovery.
+        var openListening = new ToolStripMenuItem("Open &Listening and Dictation trainer...")
+        {
+            AccessibleName = "Open Listening and Dictation trainer",
+            AccessibleDescription = "Offline British word dictation. The written answer stays hidden until checking.",
+            ShortcutKeys = Keys.Control | Keys.Alt | Keys.L,
+            ShowShortcutKeys = true
+        };
+        openListening.Click += (_, _) => OpenListening(main);
+        tools.DropDownItems.Insert(0, openListening);
+
         SpellingStateSession spelling;
         try
         {
@@ -50,14 +62,16 @@ internal static class TrainingEntryPoints
 
         var settings = new ToolStripMenuItem("Training &keyboard shortcuts...")
         {
-            AccessibleName = "Spelling and Sentence Spelling keyboard shortcuts"
+            AccessibleName = "Spelling and Sentence Spelling keyboard shortcuts",
+            AccessibleDescription = "Configure existing Recall, Spelling and Sentence shortcuts. Listening currently uses Ctrl+Alt+L to open and documented in-mode commands."
         };
         settings.Click += (_, _) => OpenTrainingShortcutSettings(main, openSpelling, openSentence);
 
         tools.DropDownItems.Insert(0, openSpelling);
         tools.DropDownItems.Insert(1, openSentence);
-        tools.DropDownItems.Insert(2, settings);
-        AddUnifiedProfileItems(tools, main, insertIndex: 3);
+        // Listening item that was inserted first is shifted to index 2.
+        tools.DropDownItems.Insert(3, settings);
+        AddUnifiedProfileItems(tools, main, insertIndex: 4);
     }
 
     private static void AddUnifiedProfileItems(ToolStripMenuItem tools, MainForm main, int insertIndex)
@@ -151,11 +165,25 @@ internal static class TrainingEntryPoints
         }
     }
 
+    private static void OpenListening(MainForm owner)
+    {
+        try
+        {
+            DictionaryPackage package = owner.ActivePackageForTraining;
+            using var form = new ListeningCoachForm(package);
+            form.ShowDialog(owner);
+        }
+        catch (Exception ex)
+        {
+            ShowProtectedProgressError(owner, "Listening and Dictation", ex);
+        }
+    }
+
     private static void AddUnavailableTrainingItems(ToolStripMenuItem tools, string reason)
     {
         var unavailable = new ToolStripMenuItem("Training progress needs recovery")
         {
-            AccessibleName = "Training progress needs recovery",
+            AccessibleName = "Spelling or Sentence training progress needs recovery",
             AccessibleDescription = reason,
             Enabled = false
         };
