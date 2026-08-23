@@ -98,12 +98,10 @@ internal sealed class ContextTargetLexicon
     public IReadOnlyList<string> AmbiguousStableIds(IEnumerable<string> entryIds)
     {
         IReadOnlyList<ContextLexicalTarget> targets = DescribePool(entryIds);
-        var ambiguousKeys = targets
-            .GroupBy(target => target.LexicalKey, StringComparer.OrdinalIgnoreCase)
-            .Where(group => group.Select(target => target.EntryId).Distinct(StringComparer.OrdinalIgnoreCase).Count() > 1)
-            .Select(group => group.Key)
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
-        return targets.Where(target => ambiguousKeys.Contains(target.LexicalKey)).Select(target => target.EntryId).ToArray();
+        return targets
+            .Where(target => IsAmbiguousStableIdentity(target.EntryId))
+            .Select(target => target.EntryId)
+            .ToArray();
     }
 
     private static string NormalizeLexicalKey(string source)
@@ -193,9 +191,7 @@ internal static class ContextNaturalTargetPlanner
             if (!seenSets.Add(canonicalSetKey))
                 continue;
 
-            string[] ambiguous = byLexicalKey
-                .Where(pair => pair.Value.Length > 1)
-                .SelectMany(pair => pair.Value.Select(target => target.EntryId))
+            string[] ambiguous = lexicon.AmbiguousStableIds(selected)
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .OrderBy(id => id, StringComparer.Ordinal)
                 .ToArray();
