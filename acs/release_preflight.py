@@ -41,6 +41,7 @@ _WINDOWS_RESERVED_BASENAMES = {
     *(f"com{index}" for index in range(1, 10)),
     *(f"lpt{index}" for index in range(1, 10)),
 }
+_WINDOWS_FORBIDDEN_FILENAME_CHARS = frozenset('<>"|?*')
 _ALLOWED_TOP_LEVEL_FILES = {
     "RELEASE_MANIFEST.json", "SHA256SUMS.txt", "native-menu-self-diagnostic.json",
     "packaged-uia-strict-summary.json",
@@ -94,7 +95,12 @@ def _relative_posix(root: Path, path: Path) -> str:
 
 
 def _validate_windows_portable_component(part: str, *, label: str) -> None:
-    if part.endswith((" ", ".")) or ":" in part:
+    if (
+        part.endswith((" ", "."))
+        or ":" in part
+        or any(character in _WINDOWS_FORBIDDEN_FILENAME_CHARS for character in part)
+        or any(ord(character) < 32 for character in part)
+    ):
         _fail(f"{label} must be Windows-portable")
     basename = part.split(".", 1)[0].casefold()
     if basename in _WINDOWS_RESERVED_BASENAMES:
@@ -252,6 +258,17 @@ def _validate_third_party(root: Path) -> None:
             if not infos or archive.testzip() is not None:
                 _fail("Stockfish source archive is empty or corrupt")
             names = [_zip_member_token(info) for info in infos]
+            seen_names: set[str] = set()
+            casefold_names: dict[str, str] = {}
+            for name in names:
+                if name in seen_names:
+                    _fail("duplicate Stockfish source ZIP entry")
+                seen_names.add(name)
+                folded = name.casefold()
+                previous = casefold_names.get(folded)
+                if previous is not None and previous != name:
+                    _fail("case-insensitive Stockfish source ZIP collision")
+                casefold_names[folded] = name
             if any(
                 name != _STOCKFISH_SOURCE_ROOT
                 and not name.startswith(_STOCKFISH_SOURCE_ROOT + "/")
