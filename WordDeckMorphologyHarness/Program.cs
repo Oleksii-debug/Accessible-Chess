@@ -7,6 +7,7 @@ internal static class Program
         try
         {
             MorphologySelfTest.Run();
+            MorphologyPracticeSelfTest.Run();
             Console.WriteLine("WordDeck morphology self-test PASS.");
             return 0;
         }
