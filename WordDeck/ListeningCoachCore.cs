@@ -209,18 +209,18 @@ internal sealed class ListeningCoachEngine
         if (Current is null)
             return new ListeningCheckResult(false, false, "No listening item is active.");
         if (_roundCompleted)
-            return new ListeningCheckResult(false, true, "This listening item is already complete. Press Ctrl+N for the next item.");
+            return new ListeningCheckResult(false, true, "This listening item is already complete. Use Next for another item.");
 
         bool correct = string.Equals(NormalizeAnswer(answer), NormalizeAnswer(Current.TargetText), StringComparison.Ordinal);
         if (!correct)
         {
             _roundWrongAttempts++;
             GetStats(Current).WrongAttempts++;
-            return new ListeningCheckResult(false, false, "Not correct yet. Edit the answer and try again, replay with Ctrl+P, or show the answer with Ctrl+H.");
+            return new ListeningCheckResult(false, false, "Not correct yet. Edit the answer and try again, replay the audio, or show the answer.");
         }
 
         CompleteCurrent(correct: true, showedAnswer: false, skipped: false);
-        return new ListeningCheckResult(true, true, "Correct. Press Ctrl+N for the next listening item.");
+        return new ListeningCheckResult(true, true, "Correct.");
     }
 
     public string ShowAnswer()
