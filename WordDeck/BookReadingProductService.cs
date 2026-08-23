@@ -119,7 +119,8 @@ internal sealed class BookReadingProductService
     public IReadOnlyList<BookCatalogItem> ListBooks() => _corpusIndex.ListBooks();
 
     public BookDocument LoadDocument(string bookId) =>
-        _corpusIndex.LoadDocument(bookId) ?? throw new FileNotFoundException("The selected private book is no longer present in the WordDeck reading database.");
+        BookReadingDocumentLoader.Load(_databasePath, bookId)
+        ?? throw new FileNotFoundException("The selected private book is no longer present in the WordDeck reading database.");
 
     public BookCoverageSummary GetCoverage(string bookId, BookDeckVocabularySnapshot vocabulary) =>
         _corpusIndex.GetCoverageSummary(bookId, vocabulary.KnownEntryIds, vocabulary.LearningEntryIds);
@@ -128,7 +129,7 @@ internal sealed class BookReadingProductService
         _corpusIndex.LoadSentenceOccurrences(sentenceId, vocabulary.KnownEntryIds, vocabulary.LearningEntryIds);
 
     public IReadOnlyList<BookSentenceExport> FindBookSentences(IReadOnlyCollection<string> targetStableEntryIds, int maxResults = 200) =>
-        _corpusIndex.FindSentencesByStableIds(targetStableEntryIds, maxResults);
+        BookReadingContextQuery.FindByTargets(_databasePath, targetStableEntryIds, maxResults);
 
     public IReadOnlyList<BookParagraphLocation> GetParagraphs(string bookId, string chapterId) =>
         _corpusIndex.LoadParagraphs(bookId, chapterId);
@@ -210,24 +211,35 @@ internal sealed class BookReadingProductService
         var request = new BookImportRequest(sourceId, displayName.Trim(), format, bytes, provenance, quality, true);
         BookDocument document = BookReadingImporter.Import(request, lexicon);
 
-        // Retain exact original bytes outside the public ZIP before indexing.
         string privateSource = SavePrivateSource(document, bytes, format);
-        _stateStore.SaveDocument(document);
-        _corpusIndex.Rebuild(document, lexicon);
-        BookCoverageSummary coverage = _corpusIndex.GetCoverageSummary(document.BookId, vocabulary.KnownEntryIds, vocabulary.LearningEntryIds);
-        int paragraphs = document.Chapters.Sum(chapter => _corpusIndex.LoadParagraphs(document.BookId, chapter.ChapterId).Count);
-        string extraction = format == BookSourceFormat.PdfDerivedText
-            ? quality == BookExtractionQuality.PdfDerivedReviewed
-                ? "PDF-derived text: extraction was explicitly marked reviewed; WordDeck did not parse the PDF itself."
-                : "PDF-derived text: extraction quality is unverified; WordDeck did not parse the PDF itself."
-            : $"{format} imported locally with {quality} extraction.";
-        return new BookImportProductResult(
-            document,
-            privateSource,
-            coverage,
-            paragraphs,
-            "Private local book: source bytes and reading database stay under the Windows user profile and are never packaged into the public WordDeck ZIP by this service.",
-            extraction);
+        bool existedBeforeImport = _corpusIndex.ListBooks().Any(item => item.BookId.Equals(document.BookId, StringComparison.OrdinalIgnoreCase));
+        try
+        {
+            _stateStore.SaveDocument(document);
+            _corpusIndex.Rebuild(document, lexicon);
+            BookCoverageSummary coverage = _corpusIndex.GetCoverageSummary(document.BookId, vocabulary.KnownEntryIds, vocabulary.LearningEntryIds);
+            int paragraphs = document.Chapters.Sum(chapter => _corpusIndex.LoadParagraphs(document.BookId, chapter.ChapterId).Count);
+            string extraction = format == BookSourceFormat.PdfDerivedText
+                ? quality == BookExtractionQuality.PdfDerivedReviewed
+                    ? "PDF-derived text: extraction was explicitly marked reviewed; WordDeck did not parse the PDF itself."
+                    : "PDF-derived text: extraction quality is unverified; WordDeck did not parse the PDF itself."
+                : $"{format} imported locally with {quality} extraction.";
+            return new BookImportProductResult(
+                document,
+                privateSource,
+                coverage,
+                paragraphs,
+                "Private local book: source bytes and reading database stay under the Windows user profile and are never packaged into the public WordDeck ZIP by this service.",
+                extraction);
+        }
+        catch
+        {
+            if (!existedBeforeImport)
+            {
+                try { if (File.Exists(privateSource)) File.Delete(privateSource); } catch { }
+            }
+            throw;
+        }
     }
 
     private string SavePrivateSource(BookDocument document, byte[] bytes, BookSourceFormat format)
