@@ -98,7 +98,7 @@ internal static class ContextPracticeProductFacade
             ContextCorpusKind.LocalUserText =>
                 "Privacy-local stable-tag participation measurement. It is useful for local indexing/gap analysis only; unique physical-form and resolved stable-ID coverage require their separate evidence axes.",
             _ =>
-                "Real-corpus stable-tag participation measurement keyed by dictionary IDs. Same-written-form Oxford IDs can share one physical occurrence, so these numbers are neither unique physical-form coverage nor resolved stable-ID/POS/sense coverage. Coverage numbers do not by themselves approve redistribution, licensing, provenance or a shipped SentencePack."
+                "Real-corpus stable-tag participation measurement keyed by dictionary IDs. Same-written-form Oxford IDs can share one physical occurrence, so these numbers are neither unique physical-form coverage nor resolved stable-ID/POS-sense coverage. Coverage numbers do not by themselves approve redistribution, licensing, provenance or a shipped SentencePack."
         };
 
         return new ContextCoverageEvidence(descriptor, coverage, real, local, boundary);
@@ -126,11 +126,11 @@ internal static class ContextPracticeProductFacade
         string boundary = participation.Source.Kind switch
         {
             ContextCorpusKind.SyntheticFixture =>
-                "Synthetic/test-only conservative stable-ID measurement. Physically participating homographic stable IDs remain unresolved; physically absent IDs remain coverage gaps. Synthetic data cannot support production coverage.",
+                "Synthetic/test-only conservative stable-ID measurement derived from stable-tag participation. Participating homographic stable IDs remain unresolved; stable-tag-absent IDs remain corpus gaps. Unique physical-form coverage is a separate axis, and synthetic data cannot support production coverage.",
             ContextCorpusKind.LocalUserText =>
-                "Privacy-local conservative stable-ID measurement. Physically participating homographic stable IDs remain unresolved without explicit POS/sense evidence; absent forms remain local coverage gaps.",
+                "Privacy-local conservative stable-ID measurement derived from stable-tag participation. Participating homographic stable IDs remain unresolved without explicit POS/sense evidence; stable-tag-absent IDs remain local corpus gaps. Unique physical-form coverage remains separate.",
             _ =>
-                "Conservative real-corpus stable-ID measurement derived from stable-tag participation under the homograph fail-closed rule. Participating non-homographic dictionary IDs can count as resolved; participating same-written-form multi-ID entries remain unresolved unless a future POS/sense-aware source explicitly disambiguates them, while non-participating entries remain corpus gaps. True unique physical-form coverage remains a separate evidence document."
+                "Conservative real-corpus stable-ID measurement derived from stable-tag participation under the homograph fail-closed rule. Participating non-homographic dictionary IDs can count as resolved; participating same-written-form multi-ID entries remain unresolved unless a future POS/sense-aware source explicitly disambiguates them, while stable-tag-absent entries remain corpus gaps. True unique physical-form coverage remains a separate evidence document."
         };
         return new ContextStableIdentityCoverageEvidence(
             participation.Source,
