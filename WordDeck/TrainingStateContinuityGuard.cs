@@ -14,18 +14,15 @@ internal static class TrainingStateContinuityGuard
     internal static SpellingStateSession LoadSpelling(string root)
     {
         Directory.CreateDirectory(root);
-        string primary = Path.Combine(root, "spelling-state.json");
-        string backup = Path.Combine(root, "spelling-state.backup.json");
         var store = new SpellingStateStore(root);
 
-        if (!File.Exists(primary) && !File.Exists(backup))
-            return new(store, store.Load());
-
-        if (TryReadSpelling(primary, out SpellingState? state) || TryReadSpelling(backup, out state))
-            return new(store, state!);
-
-        throw new InvalidDataException(
-            "Spelling learning state and its recovery backup are both unreadable. WordDeck stopped before creating fresh state so existing progress is not silently replaced.");
+        // SpellingStateStore.Load is the canonical continuity path. Besides
+        // failing closed when both primary and backup are unreadable, it also
+        // performs schema checks and creates the required timestamped
+        // pre-migration backup before normalizing older state. Bypassing it with
+        // a direct JSON deserialize would silently skip those migration safety
+        // guarantees during normal application startup.
+        return new(store, store.Load());
     }
 
     internal static SentenceStateSession LoadSentence(string root)
@@ -43,20 +40,6 @@ internal static class TrainingStateContinuityGuard
 
         throw new InvalidDataException(
             "Sentence Spelling state and its recovery backup are both unreadable. WordDeck stopped before creating fresh state so existing progress is not silently replaced.");
-    }
-
-    private static bool TryReadSpelling(string path, out SpellingState? state)
-    {
-        state = null;
-        if (!File.Exists(path)) return false;
-        try
-        {
-            SpellingState? parsed = JsonSerializer.Deserialize<SpellingState>(File.ReadAllText(path));
-            if (parsed is null) return false;
-            state = SpellingStateStore.Normalize(parsed);
-            return true;
-        }
-        catch { return false; }
     }
 
     private static bool TryReadSentence(string path, out SentenceCoachState? state)
