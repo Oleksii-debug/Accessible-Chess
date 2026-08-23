@@ -317,7 +317,10 @@ try {
     if ((Get-Value 'Current English word') -ne $resetWord) { Fail 'Cancelling reset changed the current Recall card.' }
 
     Settle-MainFocus 'Spelling pre-open'
-    Send-Keys 'ctrl+shift+s'
+    # After several modal windows, PID-only chord routing can select a stale
+    # top-level window. Atomically focus the live Recall surface before the
+    # configurable mode-opening chord so this proves the real keyboard path.
+    Send-KeysTo 'ctrl+shift+s' 'Current English word'
     Wait-For 'WordDeck Spelling' 10000
     foreach ($required in @('Type English spelling answer','Ukrainian spelling prompt','Spelling study scope','Active spelling deck')) { Wait-For $required }
     Exercise-Combo 'Spelling study scope' 40
@@ -328,7 +331,7 @@ try {
     Wait-Gone 'WordDeck Spelling' 10000
     Settle-MainFocus 'Spelling return'
 
-    Send-Keys 'ctrl+shift+e'
+    Send-KeysTo 'ctrl+shift+e' 'Current English word'
     Wait-For 'WordDeck Sentence Spelling' 10000
     foreach ($required in @('Sentence training spelling deck','Number of target words per sentence','Type the English sentence words')) { Wait-For $required }
     Exercise-Combo 'Sentence training spelling deck' 30
