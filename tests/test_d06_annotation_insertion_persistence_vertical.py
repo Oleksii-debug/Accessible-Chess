@@ -21,7 +21,12 @@ from acs.gametree_insertion import (
     variation_insert_target,
 )
 from acs.gametree_navigation import GameTreeCursor, VariationStep, resolve_line, validate_cursor
-from acs.pgn_roundtrip import parse_pgn_text, serialize_pgn_text
+from acs.pgn_roundtrip import (
+    PgnRoundTripError,
+    PgnRoundTripErrorCode,
+    parse_pgn_text,
+    serialize_pgn_text,
+)
 
 
 EDIT_CORPUS = '''[Event "D06 annotation insertion persistence"]
@@ -79,33 +84,59 @@ class D06AnnotationInsertionPersistenceVerticalTests(unittest.TestCase):
         restored_move = resolve_line(reparsed[0], nested_path).moves[0]
         self.assertEqual(restored_move, edited_move)
 
-    def test_nested_line_annotation_edit_survives_strict_write_reparse(self):
+    def test_nested_line_leading_annotation_survives_strict_write_reparse(self):
         original = deepcopy(self.game)
         sicilian_path = (VariationStep(1, 0),)
         result = edit_line_annotations(
             self.game,
             line_annotation_target(self.game, sicilian_path),
-            LineAnnotationPatch(
-                leading_comments=(Comment("new line lead"),),
-                trailing_comments=(Comment("new line tail"),),
-            ),
+            LineAnnotationPatch(leading_comments=(Comment("new line lead"),)),
         )
 
         self.assertEqual(self.game, original)
         edited_line = resolve_line(result.game, sicilian_path)
         self.assertEqual([comment.text for comment in edited_line.leading_comments], ["new line lead"])
-        self.assertEqual([comment.text for comment in edited_line.trailing_comments], ["new line tail"])
 
         _, reparsed = self.assert_strict_roundtrip_equal((result.game,))
         restored_line = resolve_line(reparsed[0], sicilian_path)
         self.assertEqual(restored_line, edited_line)
+
+    def test_ambiguous_nested_trailing_comment_fails_closed_before_write(self):
+        sicilian_path = (VariationStep(1, 0),)
+        edited = edit_line_annotations(
+            self.game,
+            line_annotation_target(self.game, sicilian_path),
+            LineAnnotationPatch(trailing_comments=(Comment("ambiguous tail"),)),
+        ).game
+        before = deepcopy(edited)
+
+        with self.assertRaises(PgnRoundTripError) as caught:
+            serialize_pgn_text((edited,))
+        self.assertEqual(caught.exception.code, PgnRoundTripErrorCode.INVALID_MODEL)
+        self.assertEqual(edited, before)
+
+    def test_explicit_nested_result_makes_trailing_comment_roundtrip_representable(self):
+        proposed = VariationLine(
+            moves=[MoveNode("d5"), MoveNode("exd5")],
+            result="*",
+            trailing_comments=[Comment("explicit tail")],
+        )
+        insertion = add_variation(
+            self.game,
+            variation_insert_target(self.game, (), 1),
+            proposed,
+        )
+
+        _, reparsed = self.assert_strict_roundtrip_equal((insertion.game,))
+        restored = resolve_line(reparsed[0], insertion.inserted_path)
+        self.assertEqual(restored.result, "*")
+        self.assertEqual([comment.text for comment in restored.trailing_comments], ["explicit tail"])
 
     def test_annotated_nested_insertion_persists_and_remaps_existing_cursors(self):
         original = deepcopy(self.game)
         proposed = VariationLine(
             moves=[MoveNode("d5"), MoveNode("exd5")],
             leading_comments=[Comment("inserted line")],
-            trailing_comments=[Comment("insert tail")],
         )
         proposed.moves[0].nags = ["!?"]
         proposed.moves[0].comments_after = [Comment("Benoni idea")]
@@ -209,7 +240,7 @@ class D06AnnotationInsertionPersistenceVerticalTests(unittest.TestCase):
         edited_first = add_variation(
             annotated_first,
             variation_insert_target(annotated_first, (), 1),
-            VariationLine(moves=[MoveNode("d5")], trailing_comments=[Comment("new branch")]),
+            VariationLine(moves=[MoveNode("d5", comments_after=[Comment("new branch")])]),
         ).game
 
         serialized, reparsed = self.assert_strict_roundtrip_equal((edited_first, self.games[1]))
@@ -218,6 +249,16 @@ class D06AnnotationInsertionPersistenceVerticalTests(unittest.TestCase):
         self.assertEqual(reparsed[1], untouched_before)
         self.assertEqual(reparsed[0].source_index, 0)
         self.assertEqual(reparsed[1].source_index, 1)
+
+    def test_underlying_serializer_errors_are_contained_in_d06_error_domain(self):
+        damaged = deepcopy(self.game)
+        damaged.line.moves[0].nags = ["not-a-nag"]
+        before = deepcopy(damaged)
+
+        with self.assertRaises(PgnRoundTripError) as caught:
+            serialize_pgn_text((damaged,))
+        self.assertEqual(caught.exception.code, PgnRoundTripErrorCode.INVALID_MODEL)
+        self.assertEqual(damaged, before)
 
 
 if __name__ == "__main__":
