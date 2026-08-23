@@ -1,0 +1,67 @@
+name: D03 UCI Request Isolation CI
+
+on:
+  push:
+    branches:
+      - autopulse/d03-uci-request-isolation-20260823
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: d03-uci-request-isolation-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-24.04
+          - windows-2025
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install verification dependencies
+        run: python -m pip install -q pytest
+
+      - name: Diff hygiene
+        run: git diff --check 1c7d75cbb9208c88bc25d58c763f0f70463fb0fb HEAD
+
+      - name: Compile Product and tests
+        run: python -m compileall -q acs tests run_accessible_chess.py
+
+      - name: Focused D03 engine lifecycle regressions
+        run: >-
+          python -m unittest -v
+          tests.test_d03_uci_request_isolation
+          tests.test_stockfish_runtime
+          tests.test_core_release_contracts
+          tests.test_analysis_service
+          tests.test_continuous_analysis
+          tests.test_engine_play_service
+          tests.test_engine_play_service_concurrency
+          tests.test_engine_game_session
+          tests.test_engine_game_timeout_ownership
+          tests.test_clock_service
+          tests.test_game_lifecycle
+          tests.test_release_stockfish_composition
+
+      - name: Full unittest regression
+        run: python -m unittest discover -s tests -v
+
+      - name: Full pytest regression
+        run: python -m pytest -q
+
+      - name: Accessible Chess complete diagnostic
+        run: python run_accessible_chess.py --diagnostic complete
