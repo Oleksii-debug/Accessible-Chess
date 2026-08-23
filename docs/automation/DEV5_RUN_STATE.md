@@ -1,12 +1,12 @@
 # DEV5_RUN_STATE
 
-RUN_ID: 20260823-0402
-STARTED_LOCAL: 2026-08-23 04:02:13 Europe/Kyiv
+RUN_ID: 20260823-0501
+STARTED_LOCAL: 2026-08-23 05:01:40 Europe/Kyiv
 STATUS: COMPLETE
 MODE: SAFE_OVERLAP_COORDINATION / RELEASE_QA_EVIDENCE_RECONCILIATION
-COORDINATOR_BRANCH: auto/dev5-coordinator-0402-20260823
-SNAPSHOT_CUTOFF: 2026-08-23T04:02:13+03:00
-SNAPSHOT_FILE: docs/automation/SNAPSHOT_20260823_0402.md
+COORDINATOR_BRANCH: auto/dev5-coordinator-0501-20260823
+SNAPSHOT_CUTOFF: 2026-08-23T05:01:40+03:00
+SNAPSHOT_FILE: docs/automation/SNAPSHOT_20260823_0501.md
 
 STAGE1_INTEGRATION_SHA: 0fa442330bc2bb03636ff9297512da4c29e38684
 PERSISTENT_GREEN_VALIDATION_SHA: dd9ebf9414103c805892856fe6a04706fa69039f
@@ -16,13 +16,15 @@ FRESH_WINDOWS_CANDIDATE: NO
 READY_FOR_RELEASE: NO
 
 ## Current ruling
-DEV5 remains in SAFE OVERLAP MODE. Touching QA remains occupied by `qa/dev5-stage1-uia-setvalue-observability-20260823` at `066d1e254c5a2776704bf1f48c580499a24b7045`; this commit is workflow-only over `ba25d7c11408901b7c327f49d1ef41d08d1b9969` and does not change Product source.
+DEV5 remains in SAFE OVERLAP MODE. Touching QA remains occupied by `qa/dev5-stage1-uia-setvalue-observability-20260823` at `066d1e254c5a2776704bf1f48c580499a24b7045`; Product source is unchanged.
 
-A separate clean V3 candidate harness now exists on `qa/dev5-stage1-fresh-candidate-v3-0fa442-20260823` at `f13f20ca76c8b488447d1996a635df77216397fa`. It adds exactly `.github/workflows/dev5-stage1-fresh-windows-candidate-v3.yml` over its base and remains QA-only. The workflow locks Product to exact accepted Stage1 `0fa442...`, verifies frozen core blobs, runs full source regressions/diagnostics, retains the strict helper identity, and introduces bounded SetValue convergence via temporary fail-closed QA helper logic rather than Product mutation.
+Prepared V3 full-chain QA harness remains `qa/dev5-stage1-fresh-candidate-v3-0fa442-20260823` at `f13f20ca76c8b488447d1996a635df77216397fa`. Commit inspection confirms the branch delta is only `.github/workflows/dev5-stage1-fresh-windows-candidate-v3.yml`. The workflow uses exact accepted Stage1 `0fa442...` and a temporary fail-closed bounded SetValue convergence helper that reacquires and revalidates the original runtime-id.
 
-No terminal Actions result for the observability workflow or V3 candidate was available through current connected Actions readback. Therefore neither branch is positive release evidence yet. The prior V2 failure remains classified as QA observability/synchronization pending terminal machine proof; it must not be relabelled as Ctrl+A Product failure.
+Live repository metadata at run start reported latest push `2026-08-23T01:05:21Z`, corresponding to prior coordinator commit `93ca8f13c16a480fd3cf8d4ee17fa3f5dd899207`; no newer repository push was observed before this cutoff.
 
-Pre-cutoff DEV1 evidence branch `auto/dev1-stage1-candidate-ui-evidence-20260823-0027` remains workflow-only evidence, not Product intake authority until terminal CI is read.
+No terminal Actions result for observability or V3 was obtainable through connected readback. Therefore neither branch is release authority and no Product mutation is justified.
+
+Prior V2 classification remains QA observability/synchronization: native Backspace `e9 -> e` was proven on the original Move Edit, and failure occurred before Ctrl+A on immediate SetValue readback.
 
 No test weakening/skips/xfail. PR #54/frozen refs untouched. Rejected ZIP not reused.
 
