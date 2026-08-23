@@ -31,6 +31,16 @@ _FORBIDDEN_COMPONENTS = {
     "build_snapshot_exact", "build_snapshot_parts", "dist", "package",
     "source", "tests",
 }
+_FORBIDDEN_BUILD_DEBUG_NAMES = {
+    "nuitka-compilation-report.xml",
+    "nuitka-crash-report.xml",
+}
+_FORBIDDEN_BUILD_DEBUG_SUFFIXES = {".pdb", ".dmp", ".log"}
+_WINDOWS_RESERVED_BASENAMES = {
+    "con", "prn", "aux", "nul",
+    *(f"com{index}" for index in range(1, 10)),
+    *(f"lpt{index}" for index in range(1, 10)),
+}
 _ALLOWED_TOP_LEVEL_FILES = {
     "RELEASE_MANIFEST.json", "SHA256SUMS.txt", "native-menu-self-diagnostic.json",
     "packaged-uia-strict-summary.json",
@@ -83,6 +93,14 @@ def _relative_posix(root: Path, path: Path) -> str:
     return PurePosixPath(*relative.parts).as_posix()
 
 
+def _validate_windows_portable_component(part: str, *, label: str) -> None:
+    if part.endswith((" ", ".")) or ":" in part:
+        _fail(f"{label} must be Windows-portable")
+    basename = part.split(".", 1)[0].casefold()
+    if basename in _WINDOWS_RESERVED_BASENAMES:
+        _fail(f"{label} must be Windows-portable")
+
+
 def _validate_relative_token(value: str, *, label: str) -> str:
     if not isinstance(value, str) or not value or "\x00" in value:
         _fail(f"{label} must be non-empty text")
@@ -92,10 +110,20 @@ def _validate_relative_token(value: str, *, label: str) -> str:
         _fail(f"{label} must be relative")
     if any(part in {"", ".", ".."} for part in token.parts):
         _fail(f"{label} contains unsafe path components")
+    for part in token.parts:
+        _validate_windows_portable_component(part, label=label)
     canonical = token.as_posix()
     if canonical != normalized:
         _fail(f"{label} is not canonical")
     return canonical
+
+
+def _validate_release_artifact_path(relative: str) -> None:
+    path = PurePosixPath(relative)
+    name = path.name.casefold()
+    suffix = path.suffix.casefold()
+    if name in _FORBIDDEN_BUILD_DEBUG_NAMES or suffix in _FORBIDDEN_BUILD_DEBUG_SUFFIXES:
+        _fail("build/debug/privacy artifact is forbidden in release tree")
 
 
 def _sha256(path: Path) -> str:
@@ -118,16 +146,24 @@ def _read_json_object(path: Path, *, label: str) -> dict[str, object]:
 
 def _inventory(root: Path) -> tuple[str, ...]:
     entries: list[str] = []
+    casefold_paths: dict[str, str] = {}
     for path in root.rglob("*"):
-        relative = _relative_posix(root, path)
+        relative = _validate_relative_token(_relative_posix(root, path), label="release path")
         parts = PurePosixPath(relative).parts
         if path.is_symlink():
             _fail(f"symbolic link is forbidden in release tree: {relative}")
         if any(part.casefold() in _FORBIDDEN_COMPONENTS for part in parts):
             _fail(f"stale/build/source component is forbidden: {relative}")
+        folded = relative.casefold()
+        previous = casefold_paths.get(folded)
+        if previous is not None and previous != relative:
+            _fail("case-insensitive path collision is forbidden in release tree")
+        casefold_paths[folded] = relative
         if path.is_file():
             if path.suffix.casefold() in _SOURCE_SUFFIXES:
                 _fail(f"raw product source is forbidden: {relative}")
+            if "/" in relative:
+                _validate_release_artifact_path(relative)
             entries.append(relative)
     return tuple(sorted(entries, key=lambda value: value.casefold()))
 
@@ -330,6 +366,7 @@ def _read_checksums(root: Path) -> dict[str, str]:
     except (OSError, UnicodeError) as exc:
         _fail(f"SHA256SUMS is unreadable: {type(exc).__name__}")
     result: dict[str, str] = {}
+    casefold_paths: dict[str, str] = {}
     for line in lines:
         match = re.fullmatch(r"([0-9A-Fa-f]{64})  (.+)", line)
         if match is None:
@@ -340,6 +377,11 @@ def _read_checksums(root: Path) -> dict[str, str]:
             _fail("SHA256SUMS must not checksum itself")
         if relative in result:
             _fail(f"SHA256SUMS contains duplicate path: {relative}")
+        folded = relative.casefold()
+        previous = casefold_paths.get(folded)
+        if previous is not None and previous != relative:
+            _fail("case-insensitive path collision is forbidden in SHA256SUMS")
+        casefold_paths[folded] = relative
         if not _SHA256_RE.fullmatch(digest):
             _fail("SHA256SUMS contains invalid digest")
         result[relative] = digest
