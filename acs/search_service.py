@@ -17,6 +17,9 @@ from .search_policy import (
     SEARCH_FOLD_SQL_FUNCTION,
     install_search_fold,
     literal_like_pattern,
+    normalize_search_limit,
+    normalize_search_result,
+    normalize_search_source_id,
     normalize_search_term,
 )
 
@@ -90,13 +93,8 @@ class GameSearchQuery:
     limit: int = 50
 
     def normalized(self) -> "GameSearchQuery":
-        limit = _exact_int(self.limit, name="limit")
-        if not 1 <= limit <= 200:
-            raise ValueError("Search limit must be between 1 and 200")
-
-        source_id: int | None = None
-        if self.source_id is not None:
-            source_id = _sqlite_integer(self.source_id, name="source_id", minimum=1)
+        limit = normalize_search_limit(self.limit)
+        source_id = normalize_search_source_id(self.source_id)
 
         after_game_id: int | None = None
         if self.after_game_id is not None:
@@ -106,15 +104,14 @@ class GameSearchQuery:
                 minimum=0,
             )
 
-        if self.result is not None and self.result not in {"1-0", "0-1", "1/2-1/2", "*"}:
-            raise ValueError(f"Unsupported chess result: {self.result}")
+        result = normalize_search_result(self.result)
 
         return GameSearchQuery(
             player=normalize_search_term(self.player, name="player"),
             event=normalize_search_term(self.event, name="event"),
             eco=normalize_search_term(self.eco, name="eco"),
             opening=normalize_search_term(self.opening, name="opening"),
-            result=self.result,
+            result=result,  # type: ignore[arg-type]
             source_id=source_id,
             source_name=normalize_search_term(self.source_name, name="source_name"),
             after_game_id=after_game_id,
