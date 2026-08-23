@@ -73,7 +73,6 @@ internal static class Dev01RecallSpellingHardeningSelfTest
         DictionaryPackage package = DictionaryLoader.LoadEmbeddedOxford();
         Require(package.Entries.Count == 5446, $"Expected 5446 canonical entries, got {package.Entries.Count}.");
 
-        string? previousLast = null;
         int seed = 20260823;
         foreach (string scopeId in StudyScopeIds.Ordered)
         {
@@ -83,7 +82,7 @@ internal static class Dev01RecallSpellingHardeningSelfTest
                 .ToArray();
             Require(ids.Length > 0, $"Spelling shuffle scope {scopeId} is unexpectedly empty.");
 
-            Queue<string> queue = ShuffleBag.Create(ids, new Random(seed++), previousLast);
+            Queue<string> queue = ShuffleBag.Create(ids, new Random(seed++));
             string[] cycle = queue.ToArray();
             Require(cycle.Length == ids.Length,
                 $"Spelling shuffle scope {scopeId} changed the active-card count.");
@@ -91,10 +90,14 @@ internal static class Dev01RecallSpellingHardeningSelfTest
                 $"Spelling shuffle scope {scopeId} repeated a card before covering the active set.");
             Require(new HashSet<string>(cycle, StringComparer.OrdinalIgnoreCase).SetEquals(ids),
                 $"Spelling shuffle scope {scopeId} omitted or invented stable entry IDs.");
-            if (!string.IsNullOrWhiteSpace(previousLast) && ids.Length > 1 && ids.Contains(previousLast, StringComparer.OrdinalIgnoreCase))
-                Require(!string.Equals(cycle[0], previousLast, StringComparison.OrdinalIgnoreCase),
-                    $"Spelling shuffle scope {scopeId} immediately repeated the previous card at a refill boundary.");
-            previousLast = cycle[^1];
+
+            string last = cycle[^1];
+            Queue<string> refill = ShuffleBag.Create(ids, new Random(seed++), last);
+            Require(refill.Count == ids.Length,
+                $"Spelling shuffle refill for {scopeId} changed the active-card count.");
+            if (ids.Length > 1)
+                Require(!string.Equals(refill.Peek(), last, StringComparison.OrdinalIgnoreCase),
+                    $"Spelling shuffle scope {scopeId} immediately repeated the previous card at a same-deck refill boundary.");
         }
     }
 
