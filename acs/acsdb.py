@@ -22,7 +22,6 @@ from .search_policy import (
     SEARCH_FOLD_SQL_FUNCTION,
     install_search_fold,
     literal_like_pattern,
-    normalize_search_limit,
     normalize_search_result,
     normalize_search_source_id,
     normalize_search_term,
@@ -552,14 +551,15 @@ class AcsDatabase:
                      result: str | None = None, source_id: int | None = None,
                      source_name: str | None = None, after_id: int | None = None,
                      limit: int = 100) -> list[dict]:
-        """Search games with the same Unicode/literal/scalar policy as GameSearchService.
+        """Search games with shared Unicode/literal/source/result semantics.
 
-        ``after_id`` is intentionally part of the query rather than an OFFSET.
-        Once a caller has consumed a page, later inserts cannot cause already
-        returned rows to shift into a subsequent page. Search rows include
-        source provenance so library surfaces do not need a second lookup.
+        Direct ACSDB search intentionally retains its existing bounded bulk cap
+        of 1000 rows, while GameSearchService applies a smaller 200-row
+        application-page contract. ``after_id`` is a keyset cursor rather than
+        an OFFSET, so later inserts cannot shift already-consumed rows into a
+        subsequent page. Search rows include source provenance so library
+        surfaces do not need a second lookup.
         """
-        search_limit = normalize_search_limit(limit)
         source_id = normalize_search_source_id(source_id)
         result = normalize_search_result(result)  # type: ignore[assignment]
         player = normalize_search_term(player, name="player")
@@ -608,7 +608,7 @@ class AcsDatabase:
         if clauses:
             sql += " WHERE " + " AND ".join(clauses)
         sql += " ORDER BY g.id LIMIT ?"
-        params.append(search_limit)
+        params.append(self._bounded_limit(limit))
         return [dict(row) for row in self.conn.execute(sql, params).fetchall()]
 
     def record_position(self, game_id: int, ply: int, fen: str) -> None:

@@ -81,23 +81,25 @@ class D07SearchScalarEquivalenceTests(unittest.TestCase):
                     "Unsupported chess result:",
                 )
 
-    def test_search_limit_contract_is_identical_without_generic_limit_churn(self) -> None:
+    def test_search_limit_contracts_remain_layer_specific_and_bounded(self) -> None:
+        with self.assertRaisesRegex(TypeError, "limit must be an integer"):
+            self.db.search_games(limit=True)
+        with self.assertRaisesRegex(TypeError, "limit must be an integer"):
+            self.service.search(GameSearchQuery(limit=True))
+
+        self.assertEqual(self._direct_ids(limit=0), [1])
+        self.assertEqual(self._direct_ids(limit=201), [1, 2, 3, 4])
+        self.assertEqual(self._direct_ids(limit=100000), [1, 2, 3, 4])
+
         for value in (0, -1, 201, 1000):
             with self.subTest(value=value):
-                self._assert_same_error(
-                    {"limit": value},
-                    {"limit": value},
+                with self.assertRaisesRegex(
                     ValueError,
                     "Search limit must be between 1 and 200",
-                )
-        self._assert_same_error(
-            {"limit": True},
-            {"limit": True},
-            TypeError,
-            "limit must be an integer",
-        )
+                ):
+                    self.service.search(GameSearchQuery(limit=value))
 
-    def test_valid_source_result_and_limit_filters_match(self) -> None:
+    def test_valid_source_result_and_explicit_page_limits_match(self) -> None:
         cases = [
             ({"source_id": self.source_one, "limit": 200}, [1, 2]),
             ({"source_id": self.source_two, "result": "*", "limit": 2}, [4]),
