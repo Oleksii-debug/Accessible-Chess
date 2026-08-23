@@ -52,9 +52,13 @@ internal static class GrammarCoachSelfTest
         var vocabularyExercise = new GrammarExercise(
             "grammar.test.vocabulary-weakness", "present.simple.core", GrammarExerciseKind.UkrainianToEnglish,
             "Я використовую слово target.", new[] { "I use the target word." }, new[] { "ox:weak" });
+        var plannerMastery = new Dictionary<string, GrammarSkillMastery>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["verb.be.present"] = new GrammarSkillMastery("verb.be.present", 10, 9, 0.8, DateTimeOffset.UtcNow)
+        };
         var plan = GrammarPracticePlanner.Plan(
             new[] { vocabularyExercise, GrammarExerciseBank.ForSkill("verb.be.present")[0] },
-            new Dictionary<string, GrammarSkillMastery>(StringComparer.OrdinalIgnoreCase),
+            plannerMastery,
             new HashSet<string>(new[] { "ox:weak" }, StringComparer.OrdinalIgnoreCase), 10);
         Require(plan.Count == 2 && plan[0].Exercise.ExerciseId == vocabularyExercise.ExerciseId, "Weak-vocabulary overlap did not influence deterministic grammar planning.");
 
