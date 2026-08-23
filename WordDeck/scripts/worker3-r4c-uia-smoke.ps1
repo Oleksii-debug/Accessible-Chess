@@ -208,7 +208,7 @@ function Exercise-ShortcutSettings([string]$context) {
     Wait-WindowGoneByTitle 'Press new shortcut' 7000
 
     Wait-For 'Keyboard shortcut settings' 5000
-    Assert-Focus 'Change selected shortcut' "$context return from capture"
+    Assert-ShortcutListFocus "$context return from capture"
     Send-KeysTo 'alt+f4' 'Keyboard shortcut settings'
     Wait-Gone 'Keyboard shortcut settings' 7000
     Settle-MainFocus "$context after close"
