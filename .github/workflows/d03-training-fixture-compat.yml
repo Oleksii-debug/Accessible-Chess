@@ -5,6 +5,9 @@ on:
   push:
     branches:
       - autopulse/d03-training-fixture-compat-20260823
+  pull_request:
+    branches:
+      - full5/dev5-compose-1700-20260822
 
 permissions:
   contents: read
