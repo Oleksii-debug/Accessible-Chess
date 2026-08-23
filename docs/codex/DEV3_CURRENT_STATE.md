@@ -1,29 +1,23 @@
 # DEV3 CURRENT STATE
 
-DEV3 remains in SAFE OVERLAP release-support mode under the Stage1 release freeze. The accepted-then-RELEASE_HOLD Stage1 base used by the current release repair is `manual5/integration-20260821 @ 80720e8125c59a213f278668d599040f2768d553`.
+DEV3 remains in SAFE OVERLAP release-support mode under Stage1 release freeze. The release-hold base is still `manual5/integration-20260821 @ 80720e8125c59a213f278668d599040f2768d553` at the latest live PR-base read.
 
-DEV3 QA PR #159 independently proved a release-critical `StockfishRuntime.resolve_stockfish_path()` diagnostic privacy gap on exact `80720e8...`: run `32634729467` failed the 3-case privacy oracle on Ubuntu and Windows while the pre-existing Stockfish runtime regressions remained 18/18 PASS. This proves path disclosure, not a Stockfish/runtime correctness defect.
+DEV3 QA PR #159 independently proved the `StockfishRuntime.resolve_stockfish_path()` diagnostic path-privacy defect on exact `80720e8...`: run `32634729467` failed the 3-case privacy oracle on Ubuntu and Windows while the pre-existing Stockfish runtime regressions remained 18/18 PASS. This is path disclosure, not a runtime-correctness failure.
 
-DEV5 PR #167 is now the active Product owner. Current exact head is `a06c81e424c599f996662e8898c2b1cbf8ee9dbd`, with base SHA `80720e8125c59a213f278668d599040f2768d553`. Exact workflow `DEV5 Stage1 Stockfish Runtime Path Privacy Repair`, run `32635555544`, is fully GREEN:
-- Windows exact QA oracle `97184638496` SUCCESS;
-- Ubuntu exact QA oracle `97184638731` SUCCESS;
-- Ubuntu full regression `97184638645` SUCCESS;
-- Windows full regression `97184638744` SUCCESS.
-Both full-regression jobs pass exact source/diff hygiene, compile, current Stage1 privacy + Stockfish surface, focused Stage1 release contracts, full unittest, full pytest and complete diagnostic. The Windows job preserves LF source bytes before frozen-byte identity tests.
+DEV5 PR #167 owns the Product repair at exact head `a06c81e424c599f996662e8898c2b1cbf8ee9dbd`. Exact workflow `DEV5 Stage1 Stockfish Runtime Path Privacy Repair`, run `32635555544`, is fully GREEN on Ubuntu and Windows across exact QA-oracle and full-regression jobs. Independent AUDIT_MASTER has accepted exact `a06c81e4...` and authorized controlled DEV5 promotion. Promotion has not yet materialized because PR #167 still reports base SHA `80720e8...`; DEV3 does not move that integration ref.
 
-Earlier PR #167 REDs from head `f68794b...` are superseded: one was a stale inherited allowlist rejecting the newly added Stockfish repair files; the other was Windows CRLF materialization at frozen-byte tests. Current exact `a06c81e4...` resolves those evidence-environment issues without weakening Product assertions.
+DEV3 added unique real-engine evidence without Product mutation in validation-only PR #176. Exact head `1cdedc4cb66778885aafbc1bd3a4600d6c14d306`; workflow `DEV3 Real Stockfish Privacy Repair Evidence`, run `32636091171`, Windows job `97185965336`, SUCCESS. Focused engine/runtime/privacy regressions are 184/184 PASS, unchanged PR #159 privacy oracle 3/3 PASS, official Stockfish 18 executed against the repaired runtime, shared provider identity and MultiPV=5 restoration passed, legal engine play passed, packaged relative Stockfish path passed, full unittest 670/670 PASS, pytest 748 passed + 758 subtests, canonical selftest and complete WebView2 diagnostic PASS. Observed Stockfish executable SHA-256: `9bde420202717ce083412027fbfb8c5c935b537591d712be8a8a8bae92f6e8d6`; this is an observed hash only.
 
-DEV3 validation PR #168 is not current-head approval evidence. It was rooted on superseded DEV4 repair variant `d34bc6f5354620ebf327fb88f3165c085c435361`, and the branch now has a parallel DEV3 writer. DEV3 therefore stopped all further pushes there and left only a classification comment. Current PR #167 exact CI is the stronger release evidence.
-
-QA release PR #160 is tied to privacy-defective `80720e8...`; its observed V4 run failed before Product materialization/build, and no candidate artifact from that chain can be accepted. No fresh Windows archive is certified.
+PR #176 is supporting Windows runtime evidence, not a release ZIP and not NVDA verification. DEV3 PR #168 is closed/superseded historical validation. QA release PR #160 remains tied to privacy-defective `80720e8...` and cannot yield an acceptable human candidate.
 
 The terminal DEV3 Full Product slice remains PR #137 (`AnalysisService` provider-result resource bounds), technically GREEN for later selective intake and separate from Stage1 release authority.
 
 SAFE_OVERLAP=YES
 PROVEN_STAGE1_STOCKFISH_RUNTIME_PATH_PRIVACY_DEFECT=YES
 PR167_CURRENT_HEAD=a06c81e424c599f996662e8898c2b1cbf8ee9dbd
-PR167_CURRENT_EXACT_CI=GREEN
-PR167_AUDIT_PROMOTION=PENDING
+PR167_AUDIT_ACCEPTED=YES
+PR167_PROMOTION_MATERIALIZED=NO_AT_LAST_READ
+REAL_STOCKFISH18_REPAIR_EVIDENCE=GREEN
 DEV3_PRODUCT_PATCH_REQUIRED=NO
 FRESH_WINDOWS_CANDIDATE=NO
 NVDA_VERIFIED=NO
