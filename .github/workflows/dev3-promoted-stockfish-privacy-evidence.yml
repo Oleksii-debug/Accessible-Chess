@@ -1,0 +1,76 @@
+name: DEV3 Promoted Stockfish Privacy Evidence
+
+on:
+  pull_request:
+    branches:
+      - manual5/integration-20260821
+    paths:
+      - 'tests/test_dev3_promoted_stockfish_runtime_path_privacy.py'
+      - '.github/workflows/dev3-promoted-stockfish-privacy-evidence.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  promoted-privacy-oracle:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout exact QA head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+
+      - name: Preserve repository LF bytes on Windows
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config core.autocrlf false
+          git config core.eol lf
+          git -c core.autocrlf=false checkout HEAD -- .
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Prove QA-only scope from promoted base
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE_SHA='${{ github.event.pull_request.base.sha }}'
+          test "$(git merge-base HEAD "$BASE_SHA")" = "$BASE_SHA"
+          git diff --check "$BASE_SHA"...HEAD
+          mapfile -t changed < <(git diff --name-only "$BASE_SHA"...HEAD | sort)
+          expected=(
+            ".github/workflows/dev3-promoted-stockfish-privacy-evidence.yml"
+            "tests/test_dev3_promoted_stockfish_runtime_path_privacy.py"
+          )
+          printf '%s\n' "${changed[@]}" > /tmp/changed.txt
+          printf '%s\n' "${expected[@]}" | sort > /tmp/expected.txt
+          diff -u /tmp/expected.txt /tmp/changed.txt
+          echo "PROMOTED_BASE=$BASE_SHA"
+          echo "QA_HEAD=$(git rev-parse HEAD)"
+
+      - name: Compile Product and oracle
+        run: python -m compileall -q acs tests run_accessible_chess.py
+
+      - name: Existing Stockfish runtime regressions
+        run: python -m unittest -v tests.test_stockfish_runtime tests.test_stage1_stockfish_runtime_path_privacy
+
+      - name: DEV3 promoted privacy oracle
+        run: python -m unittest -v tests.test_dev3_promoted_stockfish_runtime_path_privacy
+
+      - name: Focused Stage1 release contracts
+        run: >-
+          python -m unittest -v
+          tests.test_release_preflight
+          tests.test_issue22_release_contract
+          tests.test_nvda_p0_contract
+          tests.test_stage1_packaged_focus_origin_contract
+          tests.test_stage1_webview2_accessibility_boundary
+          tests.test_webview_safe_server
