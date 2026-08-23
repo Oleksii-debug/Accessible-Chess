@@ -1,0 +1,39 @@
+name: DEV4 Stage1 OSError Strerror Privacy Evidence
+
+on:
+  pull_request:
+    branches:
+      - release/dev5-stage1-path-privacy-repair-20260823
+
+permissions:
+  contents: read
+
+jobs:
+  privacy-evidence:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact PR source head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Exact head and diff hygiene
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "QA_HEAD=$(git rev-parse HEAD)"
+          test "$(git merge-base HEAD origin/release/dev5-stage1-path-privacy-repair-20260823)" = "df52aeb3d99f4ae3d0089eab2882fe9b3c373dfd"
+          git diff --check origin/release/dev5-stage1-path-privacy-repair-20260823...HEAD
+
+      - name: Compile focused boundary
+        run: python -m compileall -q acs/import_registry.py acs/report_paths.py tests/test_dev4_import_registry_oserror_strerror_privacy.py
+
+      - name: Focused OSError strerror privacy oracle
+        run: python -m unittest -v tests.test_dev4_import_registry_oserror_strerror_privacy
