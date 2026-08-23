@@ -86,17 +86,18 @@ def _batch_error_text(exc: Exception, source: Path) -> str:
     """Render one batch failure without exposing workstation filesystem paths.
 
     Registry-owned errors are already constructed from safe report values and
-    retain their useful diagnostics. Filesystem exceptions require special
-    handling because ``str(OSError)`` republishes ``filename``/``filename2``.
-    Importer ``ValueError`` text is not trusted as user-safe, so batch reports a
-    stable source-scoped message while the strict ``inspect`` call continues to
-    expose the original exception to callers that need internal diagnostics.
+    retain their useful diagnostics. Filesystem exception text is untrusted:
+    both ``filename`` fields and ``strerror`` may embed workstation or importer
+    sidecar paths. Batch output therefore retains only stable filesystem context,
+    errno when available, and report-safe filenames. Importer ``ValueError``
+    text is likewise not trusted as user-safe, so batch reports a stable
+    source-scoped message while the strict ``inspect`` call continues to expose
+    the original exception to callers that need internal diagnostics.
     """
 
     if isinstance(exc, ImportRegistryError):
         return str(exc)
     if isinstance(exc, OSError):
-        detail = str(getattr(exc, "strerror", "") or "Filesystem error").strip()
         names: list[str] = []
         for candidate in (getattr(exc, "filename", None), getattr(exc, "filename2", None)):
             if candidate is None:
@@ -106,7 +107,12 @@ def _batch_error_text(exc: Exception, source: Path) -> str:
                 names.append(safe)
         if not names:
             names.append(report_safe_name(source))
-        return f"{detail}: {' -> '.join(names)}"
+
+        errno = getattr(exc, "errno", None)
+        context = "Filesystem error"
+        if isinstance(errno, int) and not isinstance(errno, bool):
+            context += f" (errno {errno})"
+        return f"{context}: {' -> '.join(names)}"
     return f"Importer rejected source: {report_safe_name(source)}"
 
 
