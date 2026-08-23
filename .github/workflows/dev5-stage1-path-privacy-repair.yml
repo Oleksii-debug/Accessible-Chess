@@ -83,6 +83,11 @@ jobs:
         run: |
           git config core.autocrlf false
           git config core.eol lf
+          # actions/checkout may already have materialized tracked text with
+          # Windows CRLF before the repository-local policy above is applied.
+          # Re-materialize the exact committed bytes so byte-identity release
+          # contracts observe Git content rather than checkout translation.
+          git reset --hard HEAD
           if((git merge-base $env:ACCEPTED_STAGE1_SHA HEAD).Trim() -ne $env:ACCEPTED_STAGE1_SHA){throw 'Stage1 ancestry mismatch'}
           git diff --check $env:ACCEPTED_STAGE1_SHA HEAD
           if($LASTEXITCODE -ne 0){throw 'Diff hygiene failed'}
