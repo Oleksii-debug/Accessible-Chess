@@ -56,6 +56,10 @@ _REQUIRED_WEB_RESOURCES = (
 _EXPECTED_RELEASE_LABEL = "NVDA TEST CANDIDATE — WAITING FOR USER TEST"
 _EXPECTED_STOCKFISH_VERSION = "18"
 _STOCKFISH_SOURCE_ROOT = "Stockfish-sf_18"
+_MAX_STOCKFISH_SOURCE_ZIP_BYTES = 8 * 1024 * 1024
+_MAX_STOCKFISH_SOURCE_ENTRIES = 4096
+_MAX_STOCKFISH_SOURCE_MEMBER_BYTES = 16 * 1024 * 1024
+_MAX_STOCKFISH_SOURCE_TOTAL_BYTES = 64 * 1024 * 1024
 _HUMAN_ONLY_UNPROVEN = "HUMAN-ONLY UNPROVEN"
 
 
@@ -252,10 +256,23 @@ def _validate_third_party(root: Path) -> None:
     source = _require_file(root, "THIRD_PARTY_NOTICES/Stockfish-18-source.zip")
     notice = _require_file(root, "THIRD_PARTY_NOTICES/NOTICE.txt")
     readme = _require_file(root, "THIRD_PARTY_NOTICES/README.txt")
+    if source.stat().st_size > _MAX_STOCKFISH_SOURCE_ZIP_BYTES:
+        _fail("Stockfish source archive is too large")
     try:
         with zipfile.ZipFile(source) as archive:
             infos = archive.infolist()
-            if not infos or archive.testzip() is not None:
+            if not infos:
+                _fail("Stockfish source archive is empty or corrupt")
+            if len(infos) > _MAX_STOCKFISH_SOURCE_ENTRIES:
+                _fail("Stockfish source archive has too many entries")
+            total_uncompressed = 0
+            for info in infos:
+                if info.file_size > _MAX_STOCKFISH_SOURCE_MEMBER_BYTES:
+                    _fail("Stockfish source archive member is too large")
+                total_uncompressed += info.file_size
+                if total_uncompressed > _MAX_STOCKFISH_SOURCE_TOTAL_BYTES:
+                    _fail("Stockfish source archive uncompressed payload is too large")
+            if archive.testzip() is not None:
                 _fail("Stockfish source archive is empty or corrupt")
             names = [_zip_member_token(info) for info in infos]
             seen_names: set[str] = set()
