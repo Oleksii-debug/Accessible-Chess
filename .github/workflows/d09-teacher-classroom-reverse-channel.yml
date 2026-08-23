@@ -45,7 +45,7 @@ jobs:
           git diff --check "$D09_PARENT"...HEAD
           changed="$(git diff --name-only "$D09_PARENT"...HEAD)"
           printf '%s\n' "$changed"
-          allowed='^(.github/workflows/d09-teacher-classroom-reverse-channel.yml|acs/teaching_reverse_channel.py|acs/teaching_visual_board.py|acs/teaching_classroom_adapter.py|tests/test_teaching_reverse_channel.py|tests/test_teaching_visual_board.py|tests/test_teaching_classroom_adapter.py)$'
+          allowed='^(.github/workflows/d09-teacher-classroom-reverse-channel.yml|acs/teaching_session_adapter.py|acs/teaching_reverse_channel.py|acs/teaching_visual_board.py|acs/teaching_classroom_adapter.py|tests/test_teaching_reverse_channel.py|tests/test_teaching_visual_board.py|tests/test_teaching_classroom_adapter.py|tests/test_teaching_classroom_floor_control.py)$'
           unexpected="$(printf '%s\n' "$changed" | grep -Ev "$allowed" || true)"
           test -z "$unexpected" || { echo "Unexpected D09 overlap paths:"; printf '%s\n' "$unexpected"; exit 1; }
 
@@ -53,7 +53,7 @@ jobs:
         run: python -m compileall -q acs tests
 
       - name: Focused D09 Classroom vertical
-        run: python -m unittest tests.test_teaching_reverse_channel tests.test_teaching_visual_board tests.test_teaching_classroom_adapter -v
+        run: python -m unittest tests.test_teaching_reverse_channel tests.test_teaching_visual_board tests.test_teaching_classroom_adapter tests.test_teaching_classroom_floor_control -v
 
       - name: Upstream role-safe TeachingSession adapter
         run: python -m unittest tests.test_teaching_session_adapter -v
