@@ -1,0 +1,56 @@
+name: DEV3 Stage1 Stockfish Runtime Path Privacy Evidence
+
+on:
+  pull_request:
+    paths:
+      - 'tests/test_dev3_stockfish_runtime_path_privacy.py'
+      - '.github/workflows/dev3-stage1-stockfish-runtime-path-privacy-evidence.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  runtime-path-privacy-evidence:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout exact QA head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Prove exact Product parent and QA-only scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE_SHA=80720e8125c59a213f278668d599040f2768d553
+          test "$(git merge-base HEAD "$BASE_SHA")" = "$BASE_SHA"
+          git diff --check "$BASE_SHA"...HEAD
+          mapfile -t changed < <(git diff --name-only "$BASE_SHA"...HEAD | sort)
+          expected=(
+            ".github/workflows/dev3-stage1-stockfish-runtime-path-privacy-evidence.yml"
+            "tests/test_dev3_stockfish_runtime_path_privacy.py"
+          )
+          printf '%s\n' "${changed[@]}" > /tmp/changed.txt
+          printf '%s\n' "${expected[@]}" | sort > /tmp/expected.txt
+          diff -u /tmp/expected.txt /tmp/changed.txt
+          echo "PRODUCT_PARENT=$BASE_SHA"
+          echo "QA_HEAD=$(git rev-parse HEAD)"
+
+      - name: Compile Product and oracle
+        run: python -m compileall -q acs tests run_accessible_chess.py
+
+      - name: Existing Stockfish runtime regressions
+        run: python -m unittest -v tests.test_stockfish_runtime
+
+      - name: Focused production runtime path privacy oracle
+        run: python -m unittest -v tests.test_dev3_stockfish_runtime_path_privacy
