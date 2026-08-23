@@ -1,54 +1,52 @@
 # DEV4 RUN STATE
 
-RUN_ID: 20260822-2229-full-product-repair
-STATUS: COMPLETE_WITH_CI_UNOBSERVED
-MODE: DEV4_PRODUCT_REPAIR
-ROLE: DEV4 Product Developer — import/PGN/ChessBase/security ownership
-DIRECTIVE: AUDIT-20260822-1900-01 + DEV5 0022 read as non-competing coordination context
+RUN_ID: 20260823-0800-import-registry-privacy-proof
+STATUS: COMPLETE / SAFE_OVERLAP / PRODUCT_HOLD / QA_ONLY
+MODE: DEV4_INDEPENDENT_QA_EVIDENCE
+ROLE: DEV4 independent QA/evidence/security
+NVDA_VERIFIED=NO
+READY_FOR_RELEASE=NO
+READY_FOR_DEV5_INTAKE=NO
 
-## Live state
+## Canonical Product
 
-- Product branch: `full5/dev4-import-security-repair-20260822`.
-- Product PR #100 remains OPEN/DRAFT/MERGEABLE against `manual5/dev4-platform-security-packaging-20260821`.
-- Run-start Product head: `f44113ac3c7783aca761c0a7e9044a6cac334cb3`.
-- New strict regression commit: `d876d7661ce0ee0b141e9b9944965909967fea4c` — gates post-publication rollback/verification failures.
-- New Product repair commit: `724cfd025c12e6800cd986b39237ce849542253a` — preserves CAS recovery snapshots when post-publication verification or rollback cannot complete safely.
-- Accepted Stage1 integration remains `manual5/integration-20260821@0fa442330bc2bb03636ff9297512da4c29e38684`; live compare remained IDENTICAL and it was not mutated.
-- DEV5 reconciliation PR #66 remains separate at `abff45ebcc4b5af2a85ab0c456b025b5098c6e29`; not mutated.
-- QA PR #67 remains separate; strict historical assertions were not weakened.
-- Exact Product-head Actions/status contexts remain absent: `INCONCLUSIVE`, not GREEN.
-- Local clean-checkout/focused execution is blocked because this execution sandbox cannot resolve `github.com`: `QA_OR_ENVIRONMENT_ONLY`, not Product evidence.
-- Windows strict WIP=1 untouched. `NVDA_VERIFIED=NO`.
+- `full5/dev4-import-security-repair-20260822 @ 3e15dc2e844cb825e482317fd024795130147011` remains live-identical.
+- No Product code was modified in this run.
+- Existing QA PR #146 remains RED for five PGN save/concurrency diagnostic path leaks.
 
-## New PROVEN_PRODUCT_DEFECT — post-publication recovery evidence could be destroyed on rollback/verification failure
+## New exact QA evidence
 
-The repaired expected-hash publication path intentionally keeps a hard-link snapshot of the pre-publication inode so a writer racing in-place at the final replacement boundary can be restored. Before this run, once `os.replace(tmp, destination)` had published our file, two failure paths were unsafe:
+- QA branch: `qa/dev4-import-registry-path-privacy-20260823`.
+- QA PR #147: OPEN / DRAFT / VALIDATION ONLY / DO NOT MERGE.
+- Exact QA head: `0d21050bcf67fa9108de52646780ce6d29c1bd86`.
+- Hosted workflow: `DEV4 Import Registry Path Privacy Evidence`.
+- Run/job: `32619282734 / 97144841859` — FAILURE.
+- Exact checkout PASS; `git diff --check` PASS; compile PASS; focused privacy oracle `3 failed in 0.07s`.
 
-1. if the post-publication snapshot digest check failed with an I/O/validation error, the `finally` block still unlinked the recovery snapshot;
-2. if a concurrent writer was detected but `os.replace(snapshot, destination)` rollback itself failed, the same `finally` block unlinked the snapshot after the failed rollback.
+## PROVEN_PRODUCT_DEFECT — ImportRegistry diagnostic/report path privacy
 
-In the rollback case this can destroy the only recoverable copy of the concurrent writer's newer bytes while leaving our stale publication at the destination. This is a deterministic data-loss/recovery defect in DEV4-owned Product code.
+Exact hosted failures prove absolute private workstation paths cross the application-facing import preflight boundary:
 
-Strict regressions in `tests/test_dev4_pgn_export_failure_recovery.py` now require:
-- failed rollback preserves exactly one `.cas-*.bak` containing the concurrent writer bytes;
-- post-publication verification failure preserves exactly one `.cas-*.bak` containing the original pre-publication bytes;
-- `.tmp` debris is still removed.
+1. `SourceProvenanceError` exposes `/tmp/.../Users/PrivateUser/Documents/analysis.pgn`.
+2. `SourceMutationError` exposes `/tmp/.../Users/PrivateUser/Documents/analysis.pgn`.
+3. `inspect_batch()` republishes the provenance exception text through `BatchInspectionItem.error`, retaining the same private parent directories.
 
-Product repair in `acs/pgn_service.py` sets an explicit preserve-snapshot state after publication when verification cannot be trusted or rollback fails, maps those failures to `PgnFileError`, and skips destructive CAS cleanup in those states. Normal pre-publication failures and successful verified publication still clean snapshots as before.
+The established shared contract in `acs/report_paths.py::report_safe_name()` requires absolute POSIX/Windows/UNC workstation paths to reduce to safe basename/provenance. `analysis.pgn` may remain; private parents must not.
+
+This is independent of PR #146's five PGN save/concurrency diagnostic leaks. Current Product HOLD therefore contains two separate privacy defect classes.
 
 ## Classification
 
-- `PROVEN_PRODUCT_DEFECT`: post-publication verification/rollback failure could delete recoverable CAS evidence after publication.
-- `REPAIRED_IN_PRODUCT`: `724cfd025c12e6800cd986b39237ce849542253a`.
-- `STRICT_REGRESSION_EVIDENCE`: `d876d7661ce0ee0b141e9b9944965909967fea4c`.
-- `QA_OR_ENVIRONMENT_ONLY`: local checkout/test execution blocked by sandbox DNS failure.
-- `INCONCLUSIVE`: exact PR #100 CI until commit-associated checks appear.
-- `INCONCLUSIVE`: generic non-cooperative external atomic inode replacement in the narrow CAS window.
-- `INCONCLUSIVE`: Windows-specific reparse/hard-link behavior until exact Windows execution.
-- `INCONCLUSIVE`: directory crash/power-loss durability without stronger contract/evidence.
+- `PROVEN_PRODUCT_DEFECT`: ImportRegistry mutation/provenance diagnostics and batch error payload leak absolute private paths.
+- `PROVEN_PRODUCT_DEFECT`: five PGN save/concurrency path-bearing diagnostics remain RED in PR #146.
+- `QA_OR_ENVIRONMENT_ONLY`: none newly observed in this run.
+- `INCONCLUSIVE`: Windows-specific filesystem semantics not exercised here.
 - `HUMAN_ONLY`: exact fresh Windows/NVDA usability.
-- No Ctrl+A/Ctrl+C Product defect claim. `NVDA_VERIFIED=NO`.
+
+## Boundaries
+
+No Product mutation. No ACSDB schema mutation. No GameTree mutation. No Stage1/frozen-ref mutation. No DEV5 integration mutation. Windows strict WIP=1 untouched. No Ctrl+A/Ctrl+C Product claim. No test weakening or force-push.
 
 ## Next action
 
-Read PR #100 final metadata head/CI after handoff synchronization. Next safe DEV4 slice is post-commit cleanup ambiguity (CAS snapshot unlink and no-clobber temp unlink failures) only if a deterministic contract violation is proven, plus exact CI failure consumption if checks appear. Preserve all prior repairs and stay out of DEV5 integration, strict Windows QA, Stage1 release and DEV2 GameTree ownership.
+After authorized Product repair, rerun unchanged PR #147 three-case oracle and PR #146 five-case oracle plus import-registry/import-contract/ChessBase/PGN path/resource/concurrency/recovery/post-commit regressions and exact-head full relevant CI. Minimal repair should sanitize only user-facing diagnostic/report rendering while preserving internal verification paths, exception classes, source mutation/provenance detection, batch continuation, and publication semantics.
