@@ -112,9 +112,11 @@ function Assert-ShortcutListFocus([string]$context) {
 }
 
 function Send-Keys([string]$keys, [int]$delayMs = 300) {
-    # Main-window accelerator chords need real modifier state. Plain navigation
-    # remains HWND-targeted for deterministic classic WinForms behavior.
-    $transport = if ($keys.Contains('+')) { 'send-input' } else { 'post-message' }
+    # Main-window accelerator chords and native menu mnemonics need real modifier/
+    # keyboard state. Plain navigation remains HWND-targeted for deterministic
+    # classic WinForms behavior.
+    $nativeMenuMnemonic = $keys -ieq 'r'
+    $transport = if ($keys.Contains('+') -or $nativeMenuMnemonic) { 'send-input' } else { 'post-message' }
     $arguments = @('ui','send-keys',$keys,'-a',[string]$script:appPid,'--via',$transport)
     if ($keys -ieq 'alt+f4') { $arguments += '--allow-system-keys' }
     Invoke-WinApp $arguments | Out-Null
@@ -141,6 +143,18 @@ function Send-KeysToWindow([string]$keys, [string]$target, [string]$hwnd, [int]$
     $modalKey = $keys -ieq 'enter' -or $keys -ieq 'esc'
     $transport = if ($keys.Contains('+') -or $modalKey) { 'send-input' } else { 'post-message' }
     $arguments = @('ui','send-keys',$keys,'-w',$hwnd,'--target',$target,'--via',$transport)
+    if ($keys -ieq 'alt+f4') { $arguments += '--allow-system-keys' }
+    Invoke-WinApp $arguments | Out-Null
+    Start-Sleep -Milliseconds $delayMs
+}
+
+function Send-KeysInWindow([string]$keys, [string]$hwnd, [int]$delayMs = 300) {
+    # Native Save/Open dialogs are top-level windows rather than stable child UIA
+    # elements of the WordDeck main form. Once their HWND is known, send the real
+    # modal key directly to that window without relying on PID-scoped child lookup.
+    $modalKey = $keys -ieq 'enter' -or $keys -ieq 'esc'
+    $transport = if ($keys.Contains('+') -or $modalKey) { 'send-input' } else { 'post-message' }
+    $arguments = @('ui','send-keys',$keys,'-w',$hwnd,'--via',$transport)
     if ($keys -ieq 'alt+f4') { $arguments += '--allow-system-keys' }
     Invoke-WinApp $arguments | Out-Null
     Start-Sleep -Milliseconds $delayMs
@@ -178,9 +192,13 @@ function Open-And-CancelDialog([string]$shortcut, [string]$dialogName, [string]$
     Settle-MainFocus "$context pre-open"
     $wordBefore = Get-Value 'Current English word'
     Send-Keys $shortcut
-    Wait-For $dialogName 10000
-    Send-KeysTo 'esc' $dialogName
-    Wait-Gone $dialogName 10000
+
+    # SaveFileDialog/OpenFileDialog are native top-level windows. Discover the real
+    # dialog HWND by its application-supplied title and cancel it with a real Esc.
+    $dialogHwnd = Get-WindowHandleByTitle $dialogName 10000
+    Send-KeysInWindow 'esc' $dialogHwnd
+    Wait-WindowGoneByTitle $dialogName 10000
+
     Settle-MainFocus "$context return"
     if ((Get-Value 'Current English word') -ne $wordBefore) { Fail "$context changed the current Recall card while cancelled." }
 }
