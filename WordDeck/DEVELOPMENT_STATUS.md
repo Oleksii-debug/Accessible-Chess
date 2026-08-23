@@ -1,75 +1,101 @@
 # WordDeck development checkpoint
 
-Last updated: 2026-08-19
-Branch: `worddeck-bootstrap` only. Never develop WordDeck on `main`.
+Last updated: 2026-08-23
+Canonical branch: `worddeck-bootstrap` only. Never develop WordDeck on `main`.
 
-## Emergency Oxford 5000 milestone
+## Current product truth
 
-### Oxford lexical data
-- Current branch runtime target is **4,290 dictionary rows = 3,308 unchanged Oxford 3000 baseline rows + 982 verified/activated Oxford 5000 additions**. Existing Oxford 3000 IDs/progress remain unchanged; durable dictionary ID remains `oxford-3000-en-uk` for lossless migration.
-- Authoritative membership-preserving reconciliation is now established: **2,138 Oxford 5000-exclusive lexical rows total**. At the current runtime checkpoint **982 are activated and 1,156 are exactly unaccounted/not yet integrated**. Do not report this tail as UNKNOWN and do not infer completion from the activated count.
-- Newly activated source-backed slice: **29 C1 lexical rows from `operational` adjective through `passing` noun** in `QA/oxford5000_source_after_offspring_verified_c1_0001_0029.tsv`.
-- Previous activated slices include `myth` noun → `offender` noun (29 B2/C1 rows), `methodology` noun → `mutual` adjective (29 rows), and `namely` adverb → `offspring` noun (28 C1 rows).
-- `ReviewedOxford5000Bootstrap.ExpectedCanonicalRows` is **982** and activation remains fail-closed: only `status=verified`, nonblank Ukrainian translation, valid B2/C1 and exact stable ID are admitted.
-- `tools/fetch_oxford5000_official_html.py`, `tools/validate_oxford5000_official_inventory.py` and `tools/validate_oxford5000_runtime_ledger.py` provide the reproducible authoritative inventory/reconciliation path. Windows CI runs full `--official-html` reconciliation and emits the exact unaccounted ledger.
-- `tools/validate_oxford5000_automation_handoff.py` is the canonical deterministic Data Factory → Content QA → Work integration validator. It validates current exact-unaccounted membership, stable IDs, run linkage, full QA coverage and PASS-only integration.
-- `tools/validate_oxford5000_handoff_provenance.py` adds strict TSV shape validation plus SHA-256/byte-size evidence for the authoritative unaccounted ledger, Data Factory batch and Content QA batch without performing harvesting or linguistic judgement.
+WordDeck is no longer in the old Oxford-5000 acquisition phase. The canonical lexical/audio foundation is complete and must not be reopened without a demonstrated defect.
 
-### Stage 1 automation ownership
-- Broad Oxford candidate harvesting belongs to `WORDDECK AUTO-DATA-FACTORY`, which writes append-only outputs only to Drive `05_AUTO_DATA_FACTORY`.
-- First-line linguistic/source/translation QA belongs to `WORDDECK AUTO-CONTENT-QA`, which writes append-only outputs only to Drive `06_AUTO_CONTENT_QA`.
-- Work is the sole canonical GitHub integrator. Work must consume only QA-qualified broad batches and must not fabricate automation output or duplicate broad harvesting/first-line linguistic QA when those folders are empty.
-- Work may perform targeted repairs/reconciliation and deterministic integration, provenance, corpus-accounting and CI hardening.
-- At the latest Work inspection on 2026-08-19, both automation output folders were still empty, so no new broad lexical batch was eligible for integration.
+- Oxford 3000 baseline: **3308** stable entries.
+- Oxford 5000 additions: **2138/2138** integrated; remaining **0**.
+- Total Recall corpus: **5446**.
+- Study scopes: **All=5446; A1=900; A2=872; B1=809; B2=1461; C1=1404**.
+- User-supplied translation package: **1156/1156 integrated**.
+- British offline Oxford-5000-additions audio: **2138/2138**.
+- Personal learning state remains outside public release under `%LOCALAPPDATA%\WordDeck`.
+- Accepted first-usable **V0.1 remains preserved**.
 
-### Oxford 3000 baseline integrity
-- `SelfTest.TestEmbeddedOxford()` compares every one of the first 3,308 baseline rows before/after Oxford 5000 append and requires exact ID/level/source/target preservation.
-- `tools/validate_oxford3000_baseline_files.py` independently checks the eight pinned source fragments, reconstruction, metadata-aware parsing, 3,308 exact rows, unique/nonblank IDs/data and CEFR counts **A1=900, A2=872, B1=809, B2=727**.
-- Windows CI emits baseline-integrity evidence including reconstructed TSV SHA-256.
+Do not return to the obsolete `982 activated / 1156 remaining` checkpoint. Do not restart mass translation or full audio generation unless a new reproducible defect proves it necessary.
 
-### Recall Study Scope / Workspace
-- Durable scope IDs: `all`, `a1`, `a2`, `b1`, `b2`, `c1`; labels: `All Oxford 5000`, `A1`, `A2`, `B1`, `B2`, `C1`.
-- Independent scope assignments, active deck, current card and remaining shuffle progress are implemented. Legacy Recall state migrates into `All`; level scopes initialize eligible entries to core deck 1.
-- Native keyboard/NVDA Study Scope ComboBox is implemented. Existing `Ctrl+1..5` / `Alt+1..5` operate inside the current scope. Stable scope actions are rebindable and default unassigned.
-- Newly activated rows enter `All` and their CEFR scope deterministically without changing existing All-scope assignments or other scope state.
-- Scope regression tests cover isolation, migration, persistence, per-scope current card/shuffle state and stable scope shortcut actions.
+## Foundation / release state
 
-### British offline audio
-- Oxford 3000 technical generation: **3,308/3,308**.
-- Targeted Oxford 3000 QA queue remains 36 numbered/sense-marker candidates: 19 deterministic `ready`, 17 heteronym/sense-sensitive `review`; unresolved review rows are not guessed.
-- A prior Oxford 5000 generation batch was built against an earlier smaller addition set; its completion/integrity is not promoted to current release accounting without independent validation.
-- Current runtime lexical target is **982 Oxford 5000 additions**. British audio for all 982 additions is not yet fully generated and independently validated, so full Oxford 5000 audio coverage is explicitly **not** claimed.
-- Runtime remains offline and independent of Kokoro/Python/API/network.
+The Foundation release line includes Recall, Spelling, deterministic/statistical local Adaptive behavior, Sentence/Sentence Spelling foundations, complete Oxford lexical/audio data, profile continuity, migrations/backups, reversible hide/restore, study history, keyboard/NVDA contracts and Windows release hardening.
 
-### Hotkey / F1 truth audit
-- Shared `ShortcutFormatter` remains the canonical display path for human-readable forms such as `Ctrl+Shift+B` and `Ctrl+Alt+F8` in F1/settings/capture UI.
-- Recall registry contract remains 11 Recall commands + 6 scope actions + 10 five-core-deck switch/move actions = **27** actions before user-created Recall decks; each user deck adds two stable actions.
-- Scope actions start unassigned. `Ctrl+S` explicit save and `Ctrl+Shift+A` bulk add are regression-asserted.
-- Spelling delete remains **Ctrl+Shift+Delete**, not Ctrl+Alt+Delete.
+The last completed V0.2 Foundation candidate before the current integration cycle passed the authoritative Windows build/self-test, self-contained published-EXE checks, clean-public-package checks and integrated Windows UI Automation. Manual physical Windows 11 + NVDA acceptance remains a separate human gate and is not claimed by automation.
 
-### Emergency blockers / open gates
-- **No user-input blocker.**
-- Exact authoritative Stage 1 accounting is **2,138 total / 982 activated / 1,156 remaining**.
-- A successful Windows authoritative/executable gate already exists for the 982-runtime checkpoint from the prior Work cycle; any later tooling-only checkpoint must also remain green before handoff evidence is called current.
-- Broad corpus throughput is presently limited by the absence of a QA-qualified Data Factory → Content QA Drive batch; Work must not bypass that ownership contract by fabricating broad linguistic output.
-- British audio for all activated Oxford 5000 additions is not yet fully verified; do not claim full Oxford 5000 audio coverage.
-- Targeted Oxford 3000 pronunciation replacements remain incomplete for 17 sense-sensitive review rows; do not guess them.
+The current integration cycle has additionally incorporated green Recall/Spelling hardening:
 
-### Exact next action
-1. Check `05_AUTO_DATA_FACTORY` and `06_AUTO_CONTENT_QA` first.
-2. When a complete QA-qualified broad batch exists, validate it against the exact current unaccounted ledger using both automation handoff and strict provenance gates, then integrate only PASS rows; preserve REJECT/BLOCKED rows fail-closed.
-3. Re-run authoritative corpus reconciliation and prove that the exact remaining count decreases from 1,156 by exactly the newly integrated authoritative rows.
-4. Run the Windows authoritative gate through published `WordDeck.exe --self-test` and retain run/artifact evidence for the auditor.
-5. If the automation folders remain empty, continue only deterministic integration/provenance/CI hardening or targeted repair; do not substitute Work-side broad harvesting or first-line linguistic QA.
+- normal Spelling startup now uses the protected migration/recovery path instead of bypassing schema migration safety;
+- pre-migration backups and fail-closed unreadable-state behavior are preserved;
+- long Spelling sessions use fair shuffle-bag sequencing so active cards are covered before repeats;
+- restart/resume avoids immediately re-serving the restored card while preserving the rest of the active set;
+- a read-only stable-ID learning-evidence boundary is available for later cross-mode adaptive integration.
 
-## Parallel lanes (non-blocking)
-- British audio may progress for already verified unambiguous English entries, but must not replace the Stage 1 corpus objective.
-- Sentence/SQLite and Oxford 3000 semantic QA remain lower priority and must not delay Stage 1.
-- Core Recall/Spelling/Sentence persisted state remains preserved. No Grammar/Story/speech-recognition/My Corrector work started.
+Exact canonical Windows/release gates must be green again after each canonical integration before the resulting head is treated as a release candidate.
 
-## Safety / release discipline
-- `main` remains untouched.
-- Existing Oxford 3000 stable IDs/progress remain regression-protected as the unchanged first 3,308 rows.
-- No secrets, runtime network requirement, Python runtime or Kokoro runtime were added. Official-source network access is build/CI-only.
-- Only rows satisfying authoritative membership, source/POS/CEFR, Content-QA qualification, translation QA and stable-ID gates may be runtime-activated; pending/unresolved rows remain fail-closed.
-- No beta is sent automatically.
+## Full-product roadmap
+
+Foundation completion is not whole-project completion. The approved long-range WordDeck learning system continues through:
+
+1. Stage 11 — real Context Practice / Sentence corpus completion;
+2. Stage 12 — private local Book/Text ingestion;
+3. Stage 13 — Grammar Coach;
+4. Stage 14 — Dictation / Listening;
+5. Stage 15 — Story Engine;
+6. Stage 16 — Narrative Course;
+7. Stage 17 — Real Reading;
+8. Stage 18 — Word Families / morphology;
+9. Stage 19 — cross-mode Adaptive Mastery Router.
+
+Current planning baseline remains approximately **99% Foundation developer-side machine readiness before the latest integration** versus approximately **46% full-product readiness**. These percentages must never be conflated.
+
+## Stage 11 context status
+
+Canonical already contains the proven Stage-11 context foundation:
+
+- stable-ID-aware 1/2/3-target planning;
+- learner-known-vocabulary difficulty ranking;
+- 30/100/200/full study-pool planning;
+- bounded read-only SQLite lookup;
+- exact 5446-entry coverage/gap accounting and deterministic remediation seams;
+- privacy-safe interfaces for future Sentence/Grammar/Story/Reading/Book consumers.
+
+A historical attributed EN-UA corpus is currently **measurement/evidence input only**. It is not approved as a redistributable production SentencePack and must not be bundled or relabelled as one without explicit source/license/provenance/attribution approval.
+
+A current independent audit also requires a stricter distinction between physical written-form coverage and exact lexical-item/sense coverage. Homographic rows sharing the same spelling must remain unresolved unless POS/sense evidence disambiguates them; ambiguous surface matches must not inflate stable-ID mastery or coverage claims.
+
+## Active swarm integration rules
+
+The autonomous swarm consists of isolated specialist worker branches, one canonical INTEGRATOR and two independent rolling AUDITORS.
+
+- Only the INTEGRATOR writes `worddeck-bootstrap`.
+- Workers never write canonical or `main` and never self-merge.
+- Auditors remain source-read-only and do not implement fixes.
+- Integrate only green, non-conflicting work after reviewing exact diffs, CI and current audit findings.
+- Do not blind-merge stale worker branches.
+- Worker-only CI/configuration should not be carried into canonical unless it is intentionally promoted to a canonical gate.
+
+## Current integration blockers / cautions
+
+- **Production SentencePack:** redistribution/release approval and exact stable-ID/sense ambiguity handling remain open.
+- **Grammar ↔ Story/Course:** worker lanes currently need one shared grammar-skill ID registry/validation contract before those parts can be integrated together.
+- **Book/Reading:** the current worker candidate is not integrable while its exact Windows build is red; lexical ambiguity/source-preservation audit requirements also remain hard gates.
+- **Morphology:** architecture is promising and fail-closed, but no real production morphology dataset may ship without approved source/license/provenance/attribution and exact green integration evidence.
+- **Physical NVDA:** never claim a manual NVDA PASS until the user actually tests the exact build on a physical Windows 11/NVDA setup.
+
+## Safety / user-data invariants
+
+- Public releases contain no personal state/profile, secrets, credentials, private logs, browser/session data or personal hard-coded paths.
+- Risky state/profile migrations or imports require backup/rollback and fail-closed handling.
+- Update/reinstall must not erase progress.
+- “Delete word” means reversible hide/restore, not physical removal from the canonical 5446 dictionary/audio set.
+- UTF-8 and Windows paths with spaces/Cyrillic remain supported.
+- Offline core learning remains functional without connected services.
+
+## Exact next integration action
+
+1. Wait for/re-read exact canonical Windows and V0.2 candidate results triggered by this current product-code checkpoint; repair any regression before further canonical integration.
+2. Continue reviewing active worker PRs from highest product priority to lower priority: Stage 11, then Stage 12/13, while respecting audit findings and exact CI.
+3. Integrate only the next green, non-conflicting slice; keep red/draft/unproven worker work isolated.
+4. Keep rolling audits current and require an independent exact-candidate PASS for formal Foundation/stage advancement.
