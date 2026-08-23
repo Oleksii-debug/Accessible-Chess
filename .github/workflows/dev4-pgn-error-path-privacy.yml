@@ -1,0 +1,35 @@
+name: DEV4 PGN Error Path Privacy Evidence
+
+on:
+  pull_request:
+    branches:
+      - full5/dev4-import-security-repair-20260822
+
+permissions:
+  contents: read
+
+jobs:
+  pgn-error-path-privacy:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact PR source head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install verification dependencies
+        run: python -m pip install -q pytest
+      - name: Exact head and diff hygiene
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "QA_HEAD=$(git rev-parse HEAD)"
+          git diff --check origin/full5/dev4-import-security-repair-20260822...HEAD
+      - name: Compile Product and evidence
+        run: python -m compileall -q acs tests run_accessible_chess.py
+      - name: Focused PGN diagnostic privacy gate
+        run: python -m pytest -q tests/test_dev4_pgn_error_path_privacy.py
