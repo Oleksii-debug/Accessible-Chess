@@ -1,0 +1,75 @@
+name: Bootstrap DEV5 Stage1 V4 Candidate
+
+on:
+  pull_request:
+    branches:
+      - qa/windows-current-integration-candidate-20260815
+    paths:
+      - '.github/workflows/bootstrap-dev5-stage1-v4.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  materialize-v4:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact QA head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref || github.ref_name }}
+          fetch-depth: 0
+
+      - name: Generate V4 from retained V3 workflow without semantic weakening
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin qa/dev5-stage1-fresh-candidate-v3-0fa442-20260823
+          git show origin/qa/dev5-stage1-fresh-candidate-v3-0fa442-20260823:.github/workflows/dev5-stage1-fresh-windows-candidate-v3.yml > /tmp/v3.yml
+          python - <<'PY'
+          from pathlib import Path
+          source = Path('/tmp/v3.yml').read_text(encoding='utf-8')
+          old_sha = '0fa442330bc2bb03636ff9297512da4c29e38684'
+          new_sha = '80720e8125c59a213f278668d599040f2768d553'
+          if source.count(old_sha) < 1:
+              raise SystemExit('V3 source lock not found')
+          out = source.replace(old_sha, new_sha)
+          out = out.replace('Accessible-Chess-0.4-0fa4423-NVDA-test-candidate.zip', 'Accessible-Chess-0.4-80720e8-NVDA-test-candidate.zip')
+          out = out.replace('dev5-stage1-fresh-windows-candidate-v3.yml', 'dev5-stage1-fresh-windows-candidate-v4.yml')
+          out = out.replace('fresh-candidate-v3', 'fresh-candidate-v4')
+          out = out.replace('V3', 'V4').replace('v3', 'v4')
+          required = [
+              'NATIVE_KEY_DELIVERY_INCONCLUSIVE: expected plain Backspace to change e9 -> e',
+              'NATIVE_CTRL_A_SELECTION_DEFECT_AFTER_PROVEN_KEY_DELIVERY: expected selected e9 to delete to empty',
+              'NATIVE_CTRL_C_COPY_DEFECT_AFTER_PROVEN_SELECTION: clipboard=',
+              'Expected 64 semantic squares',
+              "classification='A'",
+              'evidence_complete=$true',
+              new_sha,
+          ]
+          for token in required:
+              if token not in out:
+                  raise SystemExit(f'locked V4 token missing: {token}')
+          if old_sha in out or '0fa4423-NVDA-test-candidate' in out:
+              raise SystemExit('stale Product/candidate identity remains')
+          Path('.github/workflows/dev5-stage1-fresh-windows-candidate-v4.yml').write_text(out, encoding='utf-8', newline='\n')
+          print('V4 STRICT WORKFLOW MATERIALIZED FROM RETAINED V3')
+          PY
+          git diff --no-index -- /tmp/v3.yml .github/workflows/dev5-stage1-fresh-windows-candidate-v4.yml || true
+
+      - name: Replace bootstrap with the one-file V4 QA workflow
+        shell: bash
+        env:
+          HEAD_BRANCH: ${{ github.head_ref || github.ref_name }}
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git rm .github/workflows/bootstrap-dev5-stage1-v4.yml
+          git add .github/workflows/dev5-stage1-fresh-windows-candidate-v4.yml
+          changed="$(git diff --cached --name-only)"
+          printf '%s\n' "$changed"
+          test "$(printf '%s\n' "$changed" | wc -l)" -eq 2
+          git commit -m 'qa: materialize repaired Stage1 V4 candidate workflow'
+          git push origin "HEAD:$HEAD_BRANCH"
