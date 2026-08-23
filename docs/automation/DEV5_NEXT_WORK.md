@@ -1,23 +1,21 @@
 # DEV5_NEXT_WORK
 
-SOURCE_RUN: 20260823-1503
-MODE: WAIT_FOR_TERMINAL_FEN_REPAIR / THEN_FINAL_STAGE1_COMPOSE_AND_REVALIDATE
+SOURCE_RUN: 20260823-1701
+MODE: WAIT_FOR_D05_239_SELECTIVE_INTAKE / THEN_REAUDIT / THEN_ONE_FRESH_WINDOWS_CHAIN
 
-1. Immutable prior cutoff is `2026-08-23T12:03:00Z`. On the next invocation, reread live Drive/GitHub and establish a new cutoff before using any post-cutoff evidence.
-2. Draft PR #195 exact head `5e8ca72f7dd552ee151ebd5b85c52148004ac307` is INTERMEDIATE_COMBINED_GREEN only. Dedicated run `32638839597`, Ubuntu `97192655470` and Windows `97192655352`, is terminal SUCCESS through exact scope/blobs, repair 44/44, PR #159 3/3, stress 23 + 11, release 80/80, unittest 673/673, pytest 751 + 758, SELFTEST and diagnostic.
-3. Do not merge/promote PR #195 and do not start V6 from it. Pre-cutoff AUDIT_MASTER proved a separate oversized FEN-counter P1 that is absent from this exact source and belongs to DEV2.
-4. First next action: read live DEV2 RUN_STATE/handoff and exact FEN repair branch/PR/CI. If DEV2 is touching `acs/chesscore.py` or related FEN boundary at the new cutoff, remain SAFE OVERLAP and do not create a competing Product repair.
-5. If DEV2 FEN repair is terminal before the new cutoff, inspect exact diff and require fail-closed concise domain error for conversion-time oversized digit strings, Board/API regressions, mutation atomicity, existing FEN semantics, and exact-head GREEN CI. Do not impose an arbitrary numeric cap unless independently required by the accepted contract.
-6. Selectively intake only the terminal accepted FEN Product delta and required regressions onto the current combined Stage1 lineage. Do not merge validation/evidence PR topology wholesale.
-7. After FEN intake, rerun one exact combined Linux+Windows gate covering Stockfish privacy, history scalar fail-closed, FEN oversized-counter boundary, unchanged independent oracles, focused release/accessibility, full unittest, full pytest, SELFTEST and complete diagnostic.
-8. Require independent AUDIT_MASTER acceptance of the exact final combined Stage1 SHA before promotion/designation.
-9. V5 run `32636245736` is obsolete as candidate source and must not be repaired/relabelled into a candidate. It did prove native Ctrl+A selection and Ctrl+C clipboard copy in packaged Move Edit.
-10. V5 post-submit board-focus failure remains C / INCONCLUSIVE. Before any Product focus patch, require QA to reacquire the semantic board square token after rerender on every bounded poll and record the focus timeline; stale pre-rerender AutomationElement identity is insufficient Product-B evidence.
-11. Re-read post-cutoff submit-focus branches before touching UI focus files. If another worker is active at the new cutoff, use SAFE OVERLAP.
-12. Only after exact final Stage1 acceptance may DEV5 start exactly one fresh WIP=1 Windows candidate chain. It must lock to the final accepted SHA and complete source identity, release contracts, WAV, official Stockfish, native menu, Nuitka EXE, WebView2, strict UIA, packaged sound/Stockfish lifecycle, preflight, ZIP reopen/hash/manifest identity and artifact upload.
-13. Only after a complete machine-GREEN artifact may `FRESH_WINDOWS_CANDIDATE=YES`; human NVDA remains a later user gate.
-14. Persistent Full Product remains `dd9ebf9414103c805892856fe6a04706fa69039f` during release freeze.
-15. Old rejected ZIP, PR #54 and frozen refs remain untouched. No force-push, skip, xfail, test weakening or duplicate implementation.
+1. Immutable coordination cutoff is `2026-08-23T14:01:47Z`. On the next invocation establish a new cutoff before using newer worker evidence.
+2. Do not promote or create a candidate from D05 PR #222 head `88578e05eb0ea51795570f92f76428b9e029c11d`; it is superseded despite dual-OS GREEN run `32641454103`.
+3. D04 PR #239 exact `53791a44176627b012f72c3ac5b7720214194975` is terminal and Audit-A accepted for selective Stage1 intake. Required cumulative preflight blob is `9213efc03e78756ec7d45f5983c91414b614b06f`; required regression blob is `4dec7df9ae945812d0cffacb168c912a7b8f56fb`.
+4. Preserve #239 fail-closed bounds before `ZipFile.testzip()`: archive <=8 MiB, entries <=4096, one uncompressed member <=16 MiB, total uncompressed <=64 MiB. Preserve all earlier #218/#228 traversal/symlink/root/GPL/Win32/duplicate/casefold checks.
+5. Existing D05 promotion surface owns the intake. If it is still being changed at the next cutoff, remain SAFE OVERLAP and do not create a competing Product branch.
+6. After D05 publishes a newer exact head, inspect the selective diff. It must preserve accepted Stockfish resolver privacy, history fail-closed, FEN fail-closed, packaged submit-focus listener rebind, D03 hard kill/reap lifecycle, and D04 #218/#228 behavior while adding only #239 Product/test delta plus deliberate validation-lock updates.
+7. Require one exact combined Ubuntu+Windows validation on the NEW recomposed SHA. Gate must include #218/#228/#239 D04 regressions; D03 hard-shutdown lifecycle; immutable PR159 privacy, PR193 FEN, PR196 focus oracles; release/accessibility contracts; full unittest; full pytest; SELFTEST; complete diagnostic; exact ancestry/blob/scope locks.
+8. Require fresh exact-SHA AUDIT-A/B acceptance of that NEW SHA. Historical acceptance of `74f39ed...`, `53a0d7e...`, `fb8dfc3...`, or `88578e05...` does not authorize promotion.
+9. Only after exact acceptance may shared `manual5/integration-20260821` fast-forward with `force=false` to that exact SHA.
+10. Only then start exactly one WIP=1 fresh Windows candidate chain. Never reuse V5 or any rejected ZIP.
+11. Fresh machine chain must prove source identity, release contracts, real WAV, official Stockfish lifecycle, native menu, Nuitka EXE, WebView2, strict packaged UIA including original Move Edit Backspace/Ctrl+A/Ctrl+C and post-submit semantic board focus, release preflight, ZIP reopen/hash/manifest/artifact identity.
+12. `NVDA_VERIFIED` remains NO until the user personally tests that exact machine-GREEN candidate.
+13. Do not merge PR #54 or frozen references for convenience; no force-push, skip, xfail, assertion weakening, or duplicate Product implementation.
 
 FRESH_WINDOWS_CANDIDATE=NO
 READY_FOR_RELEASE=NO
