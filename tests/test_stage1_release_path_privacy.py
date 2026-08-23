@@ -44,7 +44,7 @@ class Stage1ReleasePathPrivacyTests(unittest.TestCase):
 
     def _private_source(self, root: Path) -> Path:
         source = root / "Users" / "PrivateUser" / "Documents" / self.SAFE_NAME
-        source.parent.mkdir(parents=True)
+        source.parent.mkdir(parents=True, exist_ok=True)
         source.write_text('[Event "QA"]\n[Result "*"]\n\n*\n', encoding="utf-8")
         return source
 
