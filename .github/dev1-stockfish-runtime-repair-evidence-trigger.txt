@@ -1,0 +1,2 @@
+DEV1 evidence-only trigger for Stockfish runtime path-privacy repair validation.
+No Product mutation.
