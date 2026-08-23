@@ -19,9 +19,10 @@ internal static class Dev01SpellingPrioritySelfTest
     {
         TestWeakBeforeNewBeforeMastered();
         TestCycleCoverageAndBoundaryRepeatProtection();
+        TestScopedSessionWiresRealShuffleBag();
         TestCanonicalScopeCoverageWithWeakWordPriority();
         TestPlanningIsReadOnly();
-        Console.WriteLine("WordDeck DEV01 Spelling priority passed: repeated-error words are prioritized without starving the finite full-coverage cycle, refill repeats are prevented, all canonical scopes remain complete, and persisted statistics stay read-only.");
+        Console.WriteLine("WordDeck DEV01 Spelling priority passed: repeated-error words are prioritized in the real Spelling shuffle path without starving the finite full-coverage cycle, refill repeats are prevented, all canonical scopes remain complete, and persisted statistics stay read-only.");
     }
 
     private static void TestWeakBeforeNewBeforeMastered()
@@ -84,6 +85,44 @@ internal static class Dev01SpellingPrioritySelfTest
             "Priority planner omitted or invented a stable Spelling entry ID.");
         Require(!string.Equals(order[0], avoid, StringComparison.OrdinalIgnoreCase),
             "Priority planner immediately repeated the just-shown word at a refill boundary.");
+    }
+
+    private static void TestScopedSessionWiresRealShuffleBag()
+    {
+        const string dictionaryId = "priority-test-dictionary";
+        var state = SpellingStateStore.Normalize(new SpellingState());
+        state.StatsByDictionary[dictionaryId] = new Dictionary<string, SpellingEntryStats>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["weak"] = new SpellingEntryStats
+            {
+                CompletedReviews = 5,
+                FirstTrySuccesses = 1,
+                WrongAttempts = 5,
+                CurrentStreak = 0,
+                RecentOutcomes = new List<bool> { false, false, false, true }
+            },
+            ["mastered"] = new SpellingEntryStats
+            {
+                CompletedReviews = 8,
+                FirstTrySuccesses = 8,
+                CurrentStreak = 8,
+                RecentOutcomes = Enumerable.Repeat(true, 8).ToList()
+            }
+        };
+
+        using (SpellingReviewOrder.BeginSession(state, dictionaryId))
+        {
+            string[] order = ShuffleBag.Create(new[] { "mastered", "new", "weak" }, new Random(3)).ToArray();
+            Require(Array.IndexOf(order, "weak") < Array.IndexOf(order, "new"),
+                "The real ShuffleBag path did not consume active Spelling weakness evidence.");
+            Require(Array.IndexOf(order, "new") < Array.IndexOf(order, "mastered"),
+                "The real ShuffleBag path did not de-prioritize mastered Spelling evidence.");
+        }
+
+        // Outside the explicit Spelling trainer session there must be no hidden
+        // persistent priority context that can leak into Recall or other modes.
+        Require(SpellingReviewOrder.TryCreateFromCurrentSession(new[] { "weak", "new" }, new Random(3), null) is null,
+            "Spelling priority session leaked after disposal.");
     }
 
     private static void TestCanonicalScopeCoverageWithWeakWordPriority()
