@@ -10,6 +10,7 @@ with cooperative cancellation and exact count-based progress.
 """
 
 from collections.abc import Callable, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass
 import re
 
@@ -85,16 +86,65 @@ CancelCheck = Callable[[], bool]
 ProgressCallback = Callable[[LibraryImportProgress], None]
 
 
+class _CallbackConnectionBlocker:
+    """Fail closed if an observer re-enters the live ACSDB connection.
+
+    Import callbacks are synchronous observers, not nested database transactions.
+    Temporarily publishing this proxy through ``AcsDatabase.conn`` prevents a
+    callback from committing, rolling back, closing, or querying the same SQLite
+    connection while the importer owns an atomic transaction.  The real connection
+    object is restored in ``finally`` before import execution resumes.
+
+    Code that retained a raw SQLite connection before entering the service is
+    outside the application callback contract; application callers should use the
+    ``AcsDatabase`` boundary rather than retaining infrastructure handles.
+    """
+
+    _MESSAGE = "ACSDB connection is unavailable inside Library import callbacks"
+
+    def __enter__(self):
+        raise RuntimeError(self._MESSAGE)
+
+    def __exit__(self, exc_type, exc, tb) -> bool:
+        return False
+
+    def __getattr__(self, name: str):
+        raise RuntimeError(self._MESSAGE)
+
+
+@contextmanager
+def _isolated_callback_database(database: AcsDatabase | None):
+    if database is None:
+        yield
+        return
+    real_connection = database.conn
+    blocker = _CallbackConnectionBlocker()
+    database.conn = blocker  # type: ignore[assignment]
+    try:
+        yield
+    finally:
+        # Always restore the exact live connection even if hostile callback code
+        # attempted to replace the public infrastructure attribute itself.
+        database.conn = real_connection
+
+
 def _validate_callback(value: object, *, name: str) -> None:
     if value is not None and not callable(value):
         raise TypeError(f"{name} must be callable")
 
 
-def _poll_cancel(cancel_check: CancelCheck | None) -> None:
+def _poll_cancel(
+    cancel_check: CancelCheck | None,
+    *,
+    database: AcsDatabase | None = None,
+) -> None:
     if cancel_check is None:
         return
     try:
-        cancelled = cancel_check()
+        with _isolated_callback_database(database):
+            cancelled = cancel_check()
+    except LibraryImportCancelledError:
+        raise
     except Exception as exc:
         raise LibraryImportControlError("Library import cancellation check failed") from exc
     if type(cancelled) is not bool:
@@ -106,11 +156,14 @@ def _poll_cancel(cancel_check: CancelCheck | None) -> None:
 def _emit_progress(
     progress_callback: ProgressCallback | None,
     progress: LibraryImportProgress,
+    *,
+    database: AcsDatabase | None = None,
 ) -> None:
     if progress_callback is None:
         return
     try:
-        progress_callback(progress)
+        with _isolated_callback_database(database):
+            progress_callback(progress)
     except Exception as exc:
         raise LibraryImportControlError("Library import progress callback failed") from exc
 
@@ -179,10 +232,15 @@ class LibraryImportService:
         """Atomically publish one parsed source into ACSDB.
 
         Input validation and an immediate cancellation check happen before the
-        durable import-attempt row is created.  Once an attempt exists, any later
+        durable import-attempt row is created. Once an attempt exists, any later
         cancellation, callback failure, uniqueness failure, or SQLite/storage
-        error rolls back the source and every game row.  The attempt itself is
+        error rolls back the source and every game row. The attempt itself is
         retained as a sanitized ``failed`` audit record with no linked source.
+
+        Cancellation/progress callbacks are observers. While either callback is
+        executing, the live ``AcsDatabase.conn`` handle is replaced by a fail-closed
+        proxy so callback re-entry cannot commit or roll back the importer's SQLite
+        transaction. The exact connection is restored before execution resumes.
         """
 
         source_name, source_format, source_sha256 = _source_metadata(
@@ -193,7 +251,7 @@ class LibraryImportService:
         parsed_games, total_games = _validate_games(games)
         _validate_callback(cancel_check, name="cancel_check")
         _validate_callback(progress_callback, name="progress_callback")
-        _poll_cancel(cancel_check)
+        _poll_cancel(cancel_check, database=self._db)
 
         attempt_id = self._db._create_import_attempt(
             source_name,
@@ -205,8 +263,9 @@ class LibraryImportService:
             _emit_progress(
                 progress_callback,
                 LibraryImportProgress(attempt_id, 0, total_games),
+                database=self._db,
             )
-            _poll_cancel(cancel_check)
+            _poll_cancel(cancel_check, database=self._db)
 
             warning_count = 0
             first_game_id: int | None = None
@@ -219,7 +278,7 @@ class LibraryImportService:
                     source_sha256,
                 )
                 for processed_games, game in enumerate(parsed_games, start=1):
-                    _poll_cancel(cancel_check)
+                    _poll_cancel(cancel_check, database=self._db)
                     status = "warning" if game.warnings else "full"
                     game_id = self._db._insert_game(
                         game,
@@ -238,12 +297,13 @@ class LibraryImportService:
                             processed_games,
                             total_games,
                         ),
+                        database=self._db,
                     )
 
                 # A cancellation arriving after the final insert must still roll
                 # the complete transaction back rather than publish a partial or
                 # unwanted source at the commit boundary.
-                _poll_cancel(cancel_check)
+                _poll_cancel(cancel_check, database=self._db)
                 self._db._finish_import_attempt(
                     attempt_id,
                     status="warning" if warning_count else "full",
