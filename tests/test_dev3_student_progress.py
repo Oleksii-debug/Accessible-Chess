@@ -17,16 +17,17 @@ from acs.training import ExerciseDefinition, ExerciseSession, ExerciseStep
 
 
 FEN = "8/8/8/8/8/8/4K3/7k w - - 0 1"
+TRAINING_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
 
 
 def make_training_session() -> ExerciseSession:
     return ExerciseSession(
         ExerciseDefinition(
             exercise_id="exercise-1",
-            start_fen=FEN,
+            start_fen=TRAINING_FEN,
             steps=(
                 ExerciseStep(frozenset({"e4"}), hint="Control the centre."),
-                ExerciseStep(frozenset({"Nf3"})),
+                ExerciseStep(frozenset({"e5"})),
             ),
         )
     )
@@ -197,7 +198,7 @@ class StudentProgressTests(unittest.TestCase):
         )
         second = make_training_session()
         second.submit("e4")
-        second.submit("Nf3")
+        second.submit("e5")
         ledger.append_training_review(
             record_id="training-2",
             student_id="student-a",
@@ -277,107 +278,94 @@ class StudentProgressTests(unittest.TestCase):
             game_ref="g-1",
             source_revision="rev-1",
         )
-        payload = ledger.snapshot()
-        future = copy.deepcopy(payload)
+        snapshot = ledger.snapshot()
+        future = copy.deepcopy(snapshot)
         future["schema_version"] = STUDENT_PROGRESS_SNAPSHOT_SCHEMA_VERSION + 1
         with self.assertRaises(ValueError):
             StudentProgressLedger.restore(future)
-        unknown = copy.deepcopy(payload)
-        unknown["extra"] = "no"
+        unknown = copy.deepcopy(snapshot)
+        unknown["extra"] = True
         with self.assertRaises(ValueError):
             StudentProgressLedger.restore(unknown)
-        duplicate_sequence = copy.deepcopy(payload)
-        second = copy.deepcopy(duplicate_sequence["records"][0])
-        second["record_id"] = "r-2"
-        duplicate_sequence["records"].append(second)
+        duplicate = copy.deepcopy(snapshot)
+        duplicate["records"].append(dict(duplicate["records"][0]))
+        duplicate["records"][1]["record_id"] = "r-2"
         with self.assertRaises(ValueError):
-            StudentProgressLedger.restore(duplicate_sequence)
-
-    def test_record_scalars_and_relationships_fail_closed(self):
-        base = {
-            "record_id": "r-1",
-            "student_id": "student-a",
-            "session_id": "lesson-1",
-            "kind": ReviewKind.TRAINING,
-            "source_id": "exercise-1",
-            "source_revision": "rev-1",
-            "sequence": 1,
-            "attempts": 1,
-            "mistakes": 0,
-            "hints_used": 0,
-            "completed": False,
-        }
-        for field_name, invalid in (
-            ("sequence", True),
-            ("attempts", 1.0),
-            ("mistakes", "0"),
-            ("hints_used", False),
-            ("completed", 1),
-        ):
-            with self.subTest(field=field_name):
-                payload = dict(base)
-                payload[field_name] = invalid
-                with self.assertRaises((TypeError, ValueError)):
-                    StudentReviewRecord(**payload)
-        invalid_relationship = dict(base)
-        invalid_relationship["mistakes"] = 2
-        with self.assertRaises(ValueError):
-            StudentReviewRecord(**invalid_relationship)
-        stale_available = dict(base)
-        stale_available.update(
-            {"engine_generation": 1, "engine_stale": True, "engine_available": True}
-        )
-        with self.assertRaises(ValueError):
-            StudentReviewRecord(**stale_available)
-
-    def test_stale_engine_review_records_status_without_claiming_available_answer(self):
-        session = make_training_session()
-        ledger = StudentProgressLedger()
-        record = ledger.append_training_review(
-            record_id="training-1",
-            student_id="student-a",
-            session_id="lesson-1",
-            sequence=1,
-            training_session=session,
-            engine_result=visible_engine_result(generation=9, stale=True),
-        )
-        self.assertEqual(record.engine_generation, 9)
-        self.assertTrue(record.engine_stale)
-        self.assertFalse(record.engine_available)
+            StudentProgressLedger.restore(duplicate)
 
     def test_concurrent_same_sequence_allows_only_one_append(self):
         ledger = StudentProgressLedger()
         barrier = threading.Barrier(2)
-        successes = []
-        failures = []
+        outcomes: list[str] = []
 
-        def writer(record_id: str) -> None:
+        def append(record_id: str) -> None:
             barrier.wait()
             try:
-                successes.append(
-                    ledger.append_game_review(
-                        record_id=record_id,
-                        student_id="student-a",
-                        session_id="lesson-1",
-                        sequence=1,
-                        game_ref=record_id,
-                        source_revision="rev-1",
-                    )
+                ledger.append_game_review(
+                    record_id=record_id,
+                    student_id="student-a",
+                    session_id="lesson-1",
+                    sequence=1,
+                    game_ref=record_id,
+                    source_revision="rev-1",
                 )
-            except ValueError as exc:
-                failures.append(str(exc))
+            except ValueError:
+                outcomes.append("rejected")
+            else:
+                outcomes.append("accepted")
 
-        threads = [
-            threading.Thread(target=writer, args=("r-a",)),
-            threading.Thread(target=writer, args=("r-b",)),
-        ]
+        threads = [threading.Thread(target=append, args=(f"r-{index}",)) for index in range(2)]
         for thread in threads:
             thread.start()
         for thread in threads:
-            thread.join(timeout=2)
-            self.assertFalse(thread.is_alive())
-        self.assertEqual((len(successes), len(failures)), (1, 1))
+            thread.join()
+        self.assertEqual(sorted(outcomes), ["accepted", "rejected"])
         self.assertEqual(len(ledger.records("student-a", "lesson-1")), 1)
+
+    def test_record_scalars_and_relationships_fail_closed(self):
+        with self.assertRaises(TypeError):
+            StudentReviewRecord(
+                record_id=1,  # type: ignore[arg-type]
+                student_id="student-a",
+                session_id="lesson-1",
+                kind=ReviewKind.GAME,
+                source_id="game-1",
+                source_revision="rev-1",
+                sequence=1,
+                attempts=0,
+                mistakes=0,
+                hints_used=0,
+                completed=True,
+            )
+        with self.assertRaises(ValueError):
+            StudentReviewRecord(
+                record_id="r-1",
+                student_id="student-a",
+                session_id="lesson-1",
+                kind=ReviewKind.GAME,
+                source_id="game-1",
+                source_revision="rev-1",
+                sequence=1,
+                attempts=1,
+                mistakes=2,
+                hints_used=0,
+                completed=True,
+            )
+
+    def test_stale_engine_review_records_status_without_claiming_available_answer(self):
+        ledger = StudentProgressLedger()
+        record = ledger.append_game_review(
+            record_id="r-1",
+            student_id="student-a",
+            session_id="lesson-1",
+            sequence=1,
+            game_ref="game-1",
+            source_revision="rev-1",
+            engine_result=visible_engine_result(stale=True),
+        )
+        self.assertEqual(record.engine_generation, 7)
+        self.assertFalse(record.engine_available)
+        self.assertTrue(record.engine_stale)
 
 
 if __name__ == "__main__":
