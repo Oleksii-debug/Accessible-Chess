@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="..\WordDeck\MorphologyCore.cs" Link="MorphologyCore.cs" />
+    <Compile Include="..\WordDeck\MorphologyPracticeService.cs" Link="MorphologyPracticeService.cs" />
+    <Compile Include="..\WordDeck\MorphologySelfTest.cs" Link="MorphologySelfTest.cs" />
+    <Compile Include="..\WordDeck\MorphologyPracticeSelfTest.cs" Link="MorphologyPracticeSelfTest.cs" />
+    <Compile Include="HarnessModels.cs" />
+    <Compile Include="Program.cs" />
+  </ItemGroup>
+</Project>
