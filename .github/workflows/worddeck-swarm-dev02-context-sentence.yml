@@ -171,10 +171,6 @@ jobs:
             if (-not $file) { throw "Required attribution/provenance evidence is missing: $name" }
             Copy-Item -LiteralPath $file.FullName -Destination (Join-Path $evidenceRoot $name) -Force
           }
-          foreach ($name in @('sentencepack-runtime-metrics.json','sentencepack-metrics.json')) {
-            $file = Get-ChildItem -LiteralPath $sourceRoot -Recurse -File -Filter $name | Select-Object -First 1
-            if ($file) { Copy-Item -LiteralPath $file.FullName -Destination (Join-Path $evidenceRoot $name) -Force }
-          }
           $doc = Get-Content -LiteralPath (Join-Path $evidenceRoot 'context-coverage.json') -Raw | ConvertFrom-Json
           $gap = Get-Content -LiteralPath (Join-Path $evidenceRoot 'context-coverage.gaps.json') -Raw | ConvertFrom-Json
           @(
@@ -194,7 +190,7 @@ jobs:
             "gap_plan_sha256=$($gap.PlanDigestSha256)"
           ) | Set-Content -LiteralPath (Join-Path $evidenceRoot 'MEASUREMENT_SOURCE.txt') -Encoding utf8
           $leak = Get-ChildItem -LiteralPath $evidenceRoot -Recurse -File | Where-Object {
-            $_.Extension -in @('.sqlite','.db','.zip') -or $_.Name -match 'sentencepack.*\.(json|json\.gz)$'
+            $_.Extension -in @('.sqlite','.db','.zip') -or $_.Name -match '^sentencepack(?:-runtime)?\.(?:json|json\.gz)$'
           }
           if ($leak) {
             $leak | ForEach-Object { Write-Error "Corpus payload leaked into evidence-only artifact: $($_.FullName)" }
