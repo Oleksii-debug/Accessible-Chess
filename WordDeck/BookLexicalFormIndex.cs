@@ -164,7 +164,8 @@ internal sealed partial class BookLexicalFormIndex : IBookLexiconMapper
         IReadOnlySet<string>? known,
         IReadOnlySet<string>? learning)
     {
-        Match[] tokens = TokenRegex().Matches(text ?? string.Empty).Cast<Match>().ToArray();
+        text ??= string.Empty;
+        Match[] tokens = TokenRegex().Matches(text).Cast<Match>().ToArray();
         var result = new List<BookPhysicalOccurrence>();
         int tokenIndex = 0;
         while (tokenIndex < tokens.Length)
@@ -179,7 +180,7 @@ internal sealed partial class BookLexicalFormIndex : IBookLexiconMapper
                 Match last = tokens[tokenIndex + count - 1];
                 int end = checked(last.Index + last.Length);
                 string form = NormalizeForm(text[first.Index..end]);
-                if (!_entryIdsByForm.TryGetValue(form, out string[]? ids))
+                if (!_entryIdsByForm.TryGetValue(form, out string[]? ids) || ids is null || ids.Length == 0)
                     continue;
                 selectedTokenCount = count;
                 selectedForm = form;
