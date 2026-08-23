@@ -92,11 +92,14 @@ def apply_teacher_visual_board_action(
         board = Board(state.position_fen)
         source_index = parse_square(source)
         piece = board.board[source_index]
-        legal_targets = tuple(
-            square_name(move.to)
-            for move in board.legal_moves()
-            if move.frm == source_index
+        target_indexes = sorted(
+            {
+                move.to
+                for move in board.legal_moves()
+                if move.frm == source_index
+            }
         )
+        legal_targets = tuple(square_name(index) for index in target_indexes)
     except (TypeError, ValueError) as exc:
         raise TeachingVisualBoardError("teaching position is unavailable") from exc
     if piece is None:
@@ -124,7 +127,7 @@ def apply_teacher_visual_board_action(
 
 
 def legal_move_highlight_squares(state: TeachingSessionState) -> tuple[str, ...]:
-    """Return the current renderer-neutral legal-move overlay in stable order."""
+    """Return the current renderer-neutral legal-move overlay in stable board order."""
 
     if type(state) is not TeachingSessionState:
         raise TeachingVisualBoardError("teaching state is unavailable")
