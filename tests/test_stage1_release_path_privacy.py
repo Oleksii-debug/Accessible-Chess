@@ -49,6 +49,16 @@ class _PrivatePathOSErrorImporter:
         raise FileNotFoundError(2, "decoder sidecar missing", str(private_sidecar))
 
 
+class _PrivateStrerrorOSErrorImporter:
+    format_name = "PGN"
+    suffixes = (".pgn",)
+
+    def inspect(self, path: Path) -> ImportReport:
+        fingerprint(path)
+        private_sidecar = r"C:\Users\PrivateUser\Documents\decoder-cache.bin"
+        raise OSError(5, f"decoder failed while reading {private_sidecar}", str(path))
+
+
 class _PrivatePathValueErrorImporter:
     format_name = "PGN"
     suffixes = (".pgn",)
@@ -153,6 +163,21 @@ class Stage1ReleasePathPrivacyTests(unittest.TestCase):
             batch = registry.inspect_batch((source,))
             self.assertEqual(len(batch.errors), 1)
             self._assert_safe(batch.errors[0].error, "decoder-cache.bin")
+
+    def test_import_registry_batch_oserror_does_not_republish_untrusted_strerror(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            source = self._private_source(Path(directory))
+            registry = ImportRegistry()
+            registry.register(_PrivateStrerrorOSErrorImporter())
+            batch = registry.inspect_batch((source,))
+            self.assertEqual(len(batch.errors), 1)
+            error = batch.errors[0].error
+            self._assert_safe(error)
+            self.assertIn("Filesystem error", error)
+            self.assertIn("errno 5", error)
+            self.assertNotIn("decoder-cache.bin", error)
+            self.assertNotIn("decoder failed", error)
+            self.assertNotIn(r"C:\Users", error)
 
     def test_import_registry_batch_valueerror_does_not_republish_importer_text(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
