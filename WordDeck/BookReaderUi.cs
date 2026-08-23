@@ -235,7 +235,7 @@ internal sealed class BookReaderForm : Form
             _learningDeck.Items.Add(new DeckOption(deck.Id, deck.Name));
         }
         if (decks.Length == 0) return;
-        string active = _state.ActiveDeckId;
+        string active = _state.ActiveDeckId ?? string.Empty;
         int learningIndex = Array.FindIndex(decks, deck => deck.Id.Equals(active, StringComparison.OrdinalIgnoreCase));
         if (learningIndex < 0) learningIndex = 0;
         int knownIndex = decks.Length - 1;
