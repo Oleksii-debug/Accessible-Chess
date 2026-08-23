@@ -1,0 +1,120 @@
+name: D03 Stockfish Hard Shutdown CI
+
+on:
+  pull_request:
+    branches:
+      - release/d05-stage1-final-compose-staging-20260823
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: d03-stockfish-hard-shutdown-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-24.04
+          - windows-2025
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Preserve exact Git bytes and diff hygiene
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config core.autocrlf false
+          git config core.eol lf
+          git reset --hard HEAD
+          BASE='origin/release/d05-stage1-final-compose-staging-20260823'
+          git diff --check "$BASE" HEAD
+          unexpected="$(git diff --name-only "$BASE" HEAD | grep -Ev '^(acs/engine.py|tests/test_d03_stockfish_hard_shutdown.py|\.github/workflows/d03-stockfish-hard-shutdown.yml)$' || true)"
+          test -z "$unexpected" || { printf 'Unexpected D03 scope:\n%s\n' "$unexpected"; exit 1; }
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install verification dependency
+        run: python -m pip install -q pytest
+
+      - name: Compile Product and focused tests
+        run: python -m compileall -q acs tests run_accessible_chess.py
+
+      - name: Focused Stockfish lifecycle regressions
+        run: >-
+          python -m unittest -v
+          tests.test_d03_stockfish_hard_shutdown
+          tests.test_dev3_uci_failure_recovery
+          tests.test_stockfish_runtime
+          tests.test_analysis_service
+          tests.test_continuous_analysis
+          tests.test_engine_play_service
+          tests.test_engine_play_service_concurrency
+          tests.test_engine_game_session
+          tests.test_engine_game_timeout_ownership
+          tests.test_clock_service
+          tests.test_game_lifecycle
+          tests.test_release_stockfish_composition
+          tests.test_core_release_contracts
+
+      - name: Acquire official Stockfish 18 Windows binary
+        if: matrix.os == 'windows-2025'
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri 'https://github.com/official-stockfish/Stockfish/releases/download/sf_18/stockfish-windows-x86-64.zip' -OutFile stockfish18.zip
+          Expand-Archive stockfish18.zip stockfish18 -Force
+          $engine=Get-ChildItem stockfish18 -Recurse -Filter '*.exe' | Where-Object {$_.Name -match 'stockfish.*x86-64'} | Select-Object -First 1
+          if(-not $engine){throw 'Official Stockfish 18 executable missing'}
+          New-Item -ItemType Directory -Force -Path real-engine | Out-Null
+          Copy-Item $engine.FullName 'real-engine\stockfish.exe' -Force
+          $hash=(Get-FileHash 'real-engine\stockfish.exe' -Algorithm SHA256).Hash.ToLowerInvariant()
+          "D03 OFFICIAL STOCKFISH 18 WINDOWS SHA256: $hash"
+
+      - name: Real Stockfish 18 request and shutdown smoke
+        if: matrix.os == 'windows-2025'
+        shell: pwsh
+        run: |
+          @'
+          import pathlib
+          import re
+          from acs.engine import UCIEngine
+
+          exe = (pathlib.Path.cwd() / 'real-engine' / 'stockfish.exe').resolve()
+          fen = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1'
+          move_re = re.compile(r'^[a-h][1-8][a-h][1-8][qrbn]?$')
+          engine = UCIEngine(str(exe))
+          engine.start()
+          proc = engine.proc
+          assert proc is not None and proc.poll() is None
+          lines = engine.analyze(fen, multipv=5, depth=8)
+          assert len(lines) == 5, lines
+          move = engine.best_move(fen, skill_level=10, movetime_ms=100)
+          assert move is not None and move_re.fullmatch(move), move
+          engine.close()
+          assert engine.proc is None
+          assert proc.poll() is not None, 'Stockfish process survived adapter close'
+          print('D03 OFFICIAL STOCKFISH 18 HARD SHUTDOWN SMOKE PASS')
+          '@ | Set-Content -Encoding UTF8 d03_real_stockfish_shutdown.py
+          python d03_real_stockfish_shutdown.py
+          if($LASTEXITCODE -ne 0){throw 'real Stockfish shutdown smoke failed'}
+
+      - name: Full unittest regression
+        run: python -m unittest discover -s tests -v
+
+      - name: Full pytest regression
+        run: python -m pytest -q
+
+      - name: Core SELFTEST and complete diagnostic
+        run: |
+          python -m acs.selftest
+          python run_accessible_chess.py --diagnostic complete
