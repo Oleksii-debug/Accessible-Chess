@@ -16,6 +16,7 @@ env:
   QA_PGN_SHA: 6f738942b7d9e0262987aa0b56bfdbc8db39a1f9
   QA_REPAIR_GAP_SHA: dbaae1775593a88f684eb81b924a595b54367e0d
   QA_DRIVE_RELATIVE_SHA: c23c88ac21a6a9c82fad0de4aeadb695f82c5951
+  QA_OSERROR_STRERROR_SHA: cf97ea4df62fee3330478c3fc40ee17bebdad4ec
 
 jobs:
   privacy-oracles-and-full-regression:
@@ -62,18 +63,21 @@ jobs:
             refs/pull/147/head:refs/remotes/origin/qa-pr147-current \
             refs/pull/152/head:refs/remotes/origin/qa-pr152-current \
             refs/pull/155/head:refs/remotes/origin/qa-pr155-current \
+            refs/pull/158/head:refs/remotes/origin/qa-pr158-current \
             qa/dev3-stage1-path-privacy-evidence-20260823 \
             qa/dev4-engine-start-path-privacy-20260823 \
             qa/dev4-pgn-error-path-privacy-20260823
           test "$(git rev-parse refs/remotes/origin/qa-pr147-current)" = "$QA_IMPORT_CURRENT_SHA"
           test "$(git rev-parse refs/remotes/origin/qa-pr152-current)" = "$QA_REPAIR_GAP_SHA"
           test "$(git rev-parse refs/remotes/origin/qa-pr155-current)" = "$QA_DRIVE_RELATIVE_SHA"
+          test "$(git rev-parse refs/remotes/origin/qa-pr158-current)" = "$QA_OSERROR_STRERROR_SHA"
           mkdir -p qa_oracles
           git show "$QA_STAGE1_PRIVACY_SHA":tests/test_dev3_stage1_path_privacy_evidence.py > qa_oracles/test_stage1_external.py
           git show "$QA_IMPORT_CURRENT_SHA":tests/test_dev4_import_registry_path_privacy.py > qa_oracles/test_import_current_external.py
           git show "$QA_ENGINE_SHA":tests/test_dev4_engine_start_path_privacy.py > qa_oracles/test_engine_external.py
           git show "$QA_PGN_SHA":tests/test_dev4_pgn_error_path_privacy.py > qa_oracles/test_pgn_external.py
           git show "$QA_REPAIR_GAP_SHA":tests/test_dev4_stage1_privacy_repair_gap.py > qa_oracles/test_repair_gap_external.py
+          git show "$QA_OSERROR_STRERROR_SHA":tests/test_dev4_import_registry_oserror_strerror_privacy.py > qa_oracles/test_oserror_strerror_external.py
           git show "$QA_DRIVE_RELATIVE_SHA":.github/workflows/dev1-stage1-drive-relative-path-privacy-evidence.yml > qa_oracles/drive_relative_evidence_workflow.yml
           python - <<'PY'
           from pathlib import Path
@@ -89,7 +93,8 @@ jobs:
             qa_oracles/test_stage1_external.py \
             qa_oracles/test_import_current_external.py \
             qa_oracles/test_engine_external.py \
-            qa_oracles/test_repair_gap_external.py
+            qa_oracles/test_repair_gap_external.py \
+            qa_oracles/test_oserror_strerror_external.py
           python -m pytest -q \
             qa_oracles/test_pgn_external.py::Dev4PgnErrorPathPrivacyTests::test_existing_destination_error_does_not_expose_absolute_parent_path \
             qa_oracles/test_pgn_external.py::Dev4PgnErrorPathPrivacyTests::test_expected_hash_mismatch_does_not_expose_absolute_parent_path
