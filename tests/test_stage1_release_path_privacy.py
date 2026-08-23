@@ -39,6 +39,25 @@ class _MutatingImporter:
         return ImportReport(source=before, format_name=self.format_name)
 
 
+class _PrivatePathOSErrorImporter:
+    format_name = "PGN"
+    suffixes = (".pgn",)
+
+    def inspect(self, path: Path) -> ImportReport:
+        fingerprint(path)
+        private_sidecar = path.parent / "decoder-cache.bin"
+        raise FileNotFoundError(2, "decoder sidecar missing", str(private_sidecar))
+
+
+class _PrivatePathValueErrorImporter:
+    format_name = "PGN"
+    suffixes = (".pgn",)
+
+    def inspect(self, path: Path) -> ImportReport:
+        fingerprint(path)
+        raise ValueError(f"invalid decoder metadata at {path.parent / 'decoder-cache.bin'}")
+
+
 class Stage1ReleasePathPrivacyTests(unittest.TestCase):
     SAFE_NAME = "analysis.pgn"
 
@@ -114,6 +133,34 @@ class Stage1ReleasePathPrivacyTests(unittest.TestCase):
             with self.assertRaises(SourceMutationError) as raised:
                 mutating.inspect(source)
             self._assert_safe(str(raised.exception))
+
+    def test_import_registry_batch_missing_source_redacts_filesystem_path(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "Users" / "PrivateUser" / "Documents" / self.SAFE_NAME
+            registry = ImportRegistry()
+            registry.register(_WrongProvenanceImporter())
+            batch = registry.inspect_batch((source,))
+            self.assertEqual(len(batch.errors), 1)
+            self._assert_safe(batch.errors[0].error)
+
+    def test_import_registry_batch_importer_oserror_redacts_sidecar_path(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            source = self._private_source(Path(directory))
+            registry = ImportRegistry()
+            registry.register(_PrivatePathOSErrorImporter())
+            batch = registry.inspect_batch((source,))
+            self.assertEqual(len(batch.errors), 1)
+            self._assert_safe(batch.errors[0].error, "decoder-cache.bin")
+
+    def test_import_registry_batch_valueerror_does_not_republish_importer_text(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            source = self._private_source(Path(directory))
+            registry = ImportRegistry()
+            registry.register(_PrivatePathValueErrorImporter())
+            batch = registry.inspect_batch((source,))
+            self.assertEqual(len(batch.errors), 1)
+            self._assert_safe(batch.errors[0].error)
+            self.assertNotIn("decoder-cache.bin", batch.errors[0].error)
 
     def test_engine_start_failure_redacts_private_executable_path_and_preserves_cause(self) -> None:
         private_path = r"C:\Users\PrivateUser\Documents\Engines\stockfish.exe"
