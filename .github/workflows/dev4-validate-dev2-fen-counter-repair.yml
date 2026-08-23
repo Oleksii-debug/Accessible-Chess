@@ -1,4 +1,4 @@
-name: DEV4 Validate DEV2 FEN Counter Repair
+name: DEV4 Validate D02 FEN Counter Repair
 
 on:
   pull_request:
@@ -11,8 +11,8 @@ permissions:
 
 env:
   BASE_SHA: 5e8ca72f7dd552ee151ebd5b85c52148004ac307
-  DEV2_PRODUCT_BLOB: 7001518255575f55d4634c3578c035c526f7d8a4
-  DEV2_TEST_BLOB: bd60ede2ea94c812dfc34909be7114ce93915435
+  D02_PRODUCT_BLOB: d39948d01ac3af68b8cd07f663f6e7e6f5fef0e3
+  D02_TEST_BLOB: a3be8c3d14adb756354af0bb0f3a5b8062d6b658
   DEV4_ORACLE_BLOB: 499538b09f799c43608a6781fe436b0f10f62752
 
 jobs:
@@ -45,32 +45,32 @@ jobs:
       - name: Install verification dependency
         run: python -m pip install -q pytest
 
-      - name: Prove immutable base, byte-exact DEV2 overlay, and validation-only scope
+      - name: Prove immutable base, byte-exact D02 overlay, and validation-only scope
         shell: bash
         run: |
           set -euo pipefail
           test "$(git merge-base "$BASE_SHA" HEAD)" = "$BASE_SHA"
           git diff --check "$BASE_SHA"...HEAD
-          test "$(git hash-object acs/chesscore.py)" = "$DEV2_PRODUCT_BLOB"
-          test "$(git hash-object tests/test_dev2_fen_counter_fail_closed.py)" = "$DEV2_TEST_BLOB"
+          test "$(git hash-object acs/chesscore.py)" = "$D02_PRODUCT_BLOB"
+          test "$(git hash-object tests/test_d02_fen_counter_fail_closed.py)" = "$D02_TEST_BLOB"
           test "$(git hash-object tests/test_dev4_stage1_fen_counter_error_surface.py)" = "$DEV4_ORACLE_BLOB"
           git diff --name-only "$BASE_SHA"...HEAD | sort > "$RUNNER_TEMP/changed.txt"
           cat > "$RUNNER_TEMP/expected.txt" <<'EOF'
           .github/workflows/dev4-validate-dev2-fen-counter-repair.yml
           acs/chesscore.py
-          tests/test_dev2_fen_counter_fail_closed.py
+          tests/test_d02_fen_counter_fail_closed.py
           tests/test_dev4_stage1_fen_counter_error_surface.py
           EOF
           diff -u "$RUNNER_TEMP/expected.txt" "$RUNNER_TEMP/changed.txt"
-          echo 'DEV4 IMMUTABLE-BASE / BYTE-EXACT DEV2 OVERLAY PASS'
+          echo 'DEV4 IMMUTABLE-BASE / BYTE-EXACT D02 OVERLAY PASS'
 
       - name: Compile exact validation tree
         run: python -m compileall -q acs tests run_accessible_chess.py
 
-      - name: DEV2 Product regression plus unchanged DEV4 proving oracle
+      - name: D02 Product regression plus unchanged DEV4 proving oracle
         run: >-
           python -m unittest -v
-          tests.test_dev2_fen_counter_fail_closed
+          tests.test_d02_fen_counter_fail_closed
           tests.test_dev4_stage1_fen_counter_error_surface
 
       - name: Existing canonical FEN/history/editor atomicity
@@ -79,15 +79,22 @@ jobs:
           tests.test_dev2_fen_atomicity
           tests.test_position_editor
           tests.test_stage1_core_full_flow
+          tests.test_stage1_complete_user_flow
           tests.test_history
           tests.test_ui_review_adapter
           tests.test_manual5_cross_lane_regression
+
+      - name: Combined accepted history and Stockfish repair regressions
+        run: >-
+          python -m unittest -v
+          tests.test_dev2_history_scalar_fail_closed
+          tests.test_stage1_stockfish_runtime_path_privacy
+          tests.test_stockfish_runtime
 
       - name: Current Stage1 privacy and release contracts
         run: >-
           python -m unittest -v
           tests.test_stage1_release_path_privacy
-          tests.test_stage1_stockfish_runtime_path_privacy
           tests.test_release_preflight
           tests.test_issue22_release_contract
           tests.test_nvda_p0_contract
