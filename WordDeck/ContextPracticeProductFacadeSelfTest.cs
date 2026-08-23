@@ -97,8 +97,40 @@ internal static class ContextPracticeProductFacadeSelfTest
             requiredTargetCount: 3,
             fallbackCandidateLimit: 8);
         Require(realEvidence.IsRealCorpusMeasurement &&
-                realEvidence.EvidenceBoundary.Contains("do not by themselves approve redistribution", StringComparison.OrdinalIgnoreCase),
-            "Real-corpus coverage boundary over-claimed release or licensing approval.");
+                realEvidence.EvidenceBoundary.Contains("POS/sense-resolved stable-ID evidence", StringComparison.OrdinalIgnoreCase),
+            "Real-corpus coverage boundary did not distinguish written-form evidence from stable-ID/POS/sense evidence.");
+
+        IReadOnlyList<RankedContextSentence> realSelected = ContextPracticeProductFacade.Select(
+            realClassified,
+            new ContextPracticeRequest(new[] { "target-a" }, TargetLexicon: lexicon));
+        Require(realSelected.Count == 1,
+            "Unambiguous real-corpus stable target should remain selectable.");
+
+        var ambiguousLexicon = new ContextTargetLexicon(
+            "context-product-ambiguity-fixture",
+            new[]
+            {
+                ("run-n", "run"),
+                ("run-v", "run"),
+                ("daily", "daily")
+            });
+        SentencePack ambiguousPack = BuildAmbiguousPack();
+        var ambiguousReal = new SentenceCorpusContextSource(
+            ambiguousPack,
+            new ContextSourceDescriptor(
+                ambiguousPack.PackId,
+                ContextCorpusKind.RealCorpus,
+                "real-corpus-ambiguity-self-test-only",
+                ambiguousPack.License));
+        ExpectAmbiguousStableTargetRejected(() => ContextPracticeProductFacade.Select(
+            ambiguousReal,
+            new ContextPracticeRequest(new[] { "run-v" }, TargetLexicon: ambiguousLexicon)));
+        ExpectAmbiguousStableTargetRejected(() => ContextPracticeProductFacade.DiscoverNaturalTargets(
+            ambiguousReal,
+            ambiguousLexicon,
+            new[] { "run-n", "run-v", "daily" },
+            "run-v",
+            desiredTargetCount: 1));
 
         var localDescriptor = new ContextSourceDescriptor(
             "local-context-source",
@@ -110,7 +142,7 @@ internal static class ContextPracticeProductFacadeSelfTest
         Require(localDescriptor.PrivacyLocalOnly,
             "Privacy-local source contract regressed while adding product-facing context policy.");
 
-        Console.WriteLine("Context Practice product facade self-test PASS: synthetic fixtures fail closed by default, test-only opt-in is explicit, and coverage evidence remains provenance/release bounded.");
+        Console.WriteLine("Context Practice product facade self-test PASS: synthetic fixtures fail closed by default, ambiguous real stable IDs fail closed without POS/sense evidence, and coverage evidence remains provenance/release bounded.");
     }
 
     private static void ExpectSyntheticRejected(Action action)
@@ -122,6 +154,17 @@ internal static class ContextPracticeProductFacadeSelfTest
             rejected = true;
         }
         Require(rejected, "Product-facing context API accepted a synthetic fixture without explicit test-only opt-in.");
+    }
+
+    private static void ExpectAmbiguousStableTargetRejected(Action action)
+    {
+        bool rejected = false;
+        try { action(); }
+        catch (InvalidDataException ex) when (ex.Message.Contains("POS/sense", StringComparison.OrdinalIgnoreCase))
+        {
+            rejected = true;
+        }
+        Require(rejected, "Product-facing context API accepted an ambiguous stable ID from surface-form evidence.");
     }
 
     private static SentencePack BuildPack()
@@ -149,6 +192,38 @@ internal static class ContextPracticeProductFacadeSelfTest
         {
             PackId = "context-product-facade-fixture",
             Provenance = "Synthetic product-facade self-test; never production release data",
+            License = "CC0-1.0",
+            Sentences = new List<SentenceRecord> { sentence }
+        };
+        pack.Validate();
+        return pack;
+    }
+
+    private static SentencePack BuildAmbiguousPack()
+    {
+        var sentence = new SentenceRecord
+        {
+            Id = "product-facade-ambiguous-sentence",
+            English = "Run daily.",
+            Ukrainian = "Біжи щодня.",
+            Source = "WordDeck ambiguity self-test only",
+            License = "CC0-1.0",
+            Tokens = SentenceTokenizer.Tokenize("Run daily.").ToList(),
+            Lemmas = SentenceTokenizer.Tokenize("Run daily.").ToList(),
+            TargetEntryIds = new List<string> { "run-n", "run-v", "daily" },
+            EntryLevels = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["run-n"] = "A1",
+                ["run-v"] = "A1",
+                ["daily"] = "A1"
+            },
+            DifficultyLevel = "A1",
+            OffListTokenCount = 0
+        };
+        var pack = new SentencePack
+        {
+            PackId = "context-product-ambiguity-fixture",
+            Provenance = "Synthetic ambiguity self-test object classified as real only to exercise product fail-closed policy",
             License = "CC0-1.0",
             Sentences = new List<SentenceRecord> { sentence }
         };
