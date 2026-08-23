@@ -15,9 +15,9 @@ internal sealed class ShortcutManager
     public IReadOnlyList<ShortcutDefinition> Definitions { get; private set; }
     public IReadOnlyList<ShortcutDefinition> CurrentDefinitions => Definitions;
 
-    // Recall starts independently so protected/unreadable optional Spelling state
-    // cannot block the main trainer. Listening definitions are state-light and
-    // remain available even if optional Spelling/Sentence state needs recovery.
+    // Recall starts independently so protected/unreadable optional training state
+    // cannot block the main trainer. A dedicated Listening context still exposes
+    // Listening shortcuts even when optional Spelling/Sentence state needs recovery.
     public ShortcutManager(AppState state)
         : this(state, null, ShortcutDispatchContext.Recall) { }
 
@@ -227,7 +227,8 @@ internal sealed class ShortcutManager
     {
         var defs = new List<ShortcutDefinition>(RecallDefinitions);
         defs.AddRange(ScopeDefinitions);
-        defs.AddRange(ListeningDefinitions);
+        if (_hasSpellingDeckContext || _dispatchContext == ShortcutDispatchContext.Listening)
+            defs.AddRange(ListeningDefinitions);
         foreach (DeckDefinition deck in _state.Decks.OrderBy(deck => deck.Order))
         {
             int coreNumber = DeckIds.CoreDecks.ToList().FindIndex(id => string.Equals(id, deck.Id, StringComparison.OrdinalIgnoreCase)) + 1;
