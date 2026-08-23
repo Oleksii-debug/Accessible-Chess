@@ -11,7 +11,7 @@ internal sealed record ContextCoverageEvidence(
 
 internal sealed record ContextStableIdentityCoverageEvidence(
     ContextSourceDescriptor Source,
-    ContextNaturalCoverageReport PhysicalFormCoverage,
+    ContextNaturalCoverageReport StableTagParticipation,
     ContextStableIdentityCoverageReport StableIdentityCoverage,
     bool IsRealCorpusMeasurement,
     bool IsPrivacyLocalMeasurement,
@@ -66,9 +66,10 @@ internal static class ContextPracticeProductFacade
     }
 
     /// <summary>
-    /// Physical-written-form coverage. The returned stable IDs are indexing handles
-    /// for physical forms; ambiguous homograph IDs are reported separately and MUST
-    /// NOT be interpreted as resolved POS/sense coverage.
+    /// Historical stable-tag participation keyed by dictionary entry IDs. This is useful
+    /// for reproducible sentence-index/gap accounting, but it is NOT unique physical-form
+    /// coverage and it is NOT resolved POS/sense coverage. True unique physical written-form
+    /// coverage is emitted separately by ContextPhysicalLexicalCoverageEvidenceBuilder.
     /// </summary>
     public static ContextCoverageEvidence AnalyzeNaturalCoverage(
         IContextSentenceSource source,
@@ -93,11 +94,11 @@ internal static class ContextPracticeProductFacade
         string boundary = descriptor.Kind switch
         {
             ContextCorpusKind.SyntheticFixture =>
-                "Synthetic/test-only physical-form context measurement. It cannot support a production corpus coverage or redistribution claim.",
+                "Synthetic/test-only stable-tag participation measurement. It cannot support production physical-form, POS/sense, corpus coverage or redistribution claims.",
             ContextCorpusKind.LocalUserText =>
-                "Privacy-local physical-form user-text measurement. It is useful for local practice only and is not public corpus evidence.",
+                "Privacy-local stable-tag participation measurement. It is useful for local indexing/gap analysis only; unique physical-form and resolved stable-ID coverage require their separate evidence axes.",
             _ =>
-                "Real-corpus physical-written-form measurement. Ambiguous homograph stable IDs remain unresolved; these numbers are not stable-ID/POS/sense coverage. Coverage numbers do not by themselves approve redistribution, licensing, provenance or a shipped SentencePack."
+                "Real-corpus stable-tag participation measurement keyed by dictionary IDs. Same-written-form Oxford IDs can share one physical occurrence, so these numbers are neither unique physical-form coverage nor resolved stable-ID/POS/sense coverage. Coverage numbers do not by themselves approve redistribution, licensing, provenance or a shipped SentencePack."
         };
 
         return new ContextCoverageEvidence(descriptor, coverage, real, local, boundary);
@@ -111,7 +112,7 @@ internal static class ContextPracticeProductFacade
         ContextProductUseOptions? options = null,
         int fallbackCandidateLimit = 512)
     {
-        ContextCoverageEvidence physical = AnalyzeNaturalCoverage(
+        ContextCoverageEvidence participation = AnalyzeNaturalCoverage(
             source,
             lexicon,
             scopeEntryIds,
@@ -119,24 +120,24 @@ internal static class ContextPracticeProductFacade
             options,
             fallbackCandidateLimit);
         ContextStableIdentityCoverageReport stable = ContextStableIdentityResolution.ResolveCoverage(
-            physical.Coverage,
+            participation.Coverage,
             lexicon,
             scopeEntryIds);
-        string boundary = physical.Source.Kind switch
+        string boundary = participation.Source.Kind switch
         {
             ContextCorpusKind.SyntheticFixture =>
-                "Synthetic/test-only resolved stable-ID measurement. Homographic stable IDs are conservatively unresolved and synthetic data cannot support production coverage.",
+                "Synthetic/test-only conservative stable-ID measurement. Homographic stable IDs are unresolved and synthetic data cannot support production coverage.",
             ContextCorpusKind.LocalUserText =>
-                "Privacy-local resolved stable-ID measurement. Homographic stable IDs remain unresolved without explicit POS/sense evidence.",
+                "Privacy-local conservative stable-ID measurement. Homographic stable IDs remain unresolved without explicit POS/sense evidence.",
             _ =>
-                "Conservative real-corpus stable-ID measurement. Only physically covered, non-homographic dictionary IDs count as resolved; every same-written-form multi-ID entry stays unresolved unless a future POS/sense-aware source explicitly disambiguates it."
+                "Conservative real-corpus stable-ID measurement derived from stable-tag participation under the homograph fail-closed rule. Only participating, non-homographic dictionary IDs count as resolved; every same-written-form multi-ID entry stays unresolved unless a future POS/sense-aware source explicitly disambiguates it. True unique physical-form coverage remains a separate evidence document."
         };
         return new ContextStableIdentityCoverageEvidence(
-            physical.Source,
-            physical.Coverage,
+            participation.Source,
+            participation.Coverage,
             stable,
-            physical.IsRealCorpusMeasurement,
-            physical.IsPrivacyLocalMeasurement,
+            participation.IsRealCorpusMeasurement,
+            participation.IsPrivacyLocalMeasurement,
             boundary);
     }
 
