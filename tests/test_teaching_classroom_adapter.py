@@ -31,7 +31,7 @@ from acs.teaching_session import (
     start_session,
 )
 from acs.teaching_session_adapter import TEACHING_SESSION_ACTIONS, TeachingAudience
-from acs.teaching_reverse_channel import STUDENT_HOVER_ACTION_ID
+from acs.teaching_reverse_channel import STUDENT_CLICK_ACTION_ID, STUDENT_HOVER_ACTION_ID
 from acs.teaching_visual_board import TEACHER_VISUAL_BOARD_ACTIONS
 
 
@@ -73,11 +73,17 @@ class TeachingClassroomAdapterTests(unittest.TestCase):
 
     def test_action_namespace_is_explicit_disjoint_composition(self) -> None:
         self.assertFalse(set(TEACHING_SESSION_ACTIONS) & set(TEACHER_VISUAL_BOARD_ACTIONS))
-        self.assertNotIn(STUDENT_HOVER_ACTION_ID, TEACHING_SESSION_ACTIONS)
-        self.assertNotIn(STUDENT_HOVER_ACTION_ID, TEACHER_VISUAL_BOARD_ACTIONS)
+        for reverse_action in (STUDENT_HOVER_ACTION_ID, STUDENT_CLICK_ACTION_ID):
+            with self.subTest(action=reverse_action):
+                self.assertNotIn(reverse_action, TEACHING_SESSION_ACTIONS)
+                self.assertNotIn(reverse_action, TEACHER_VISUAL_BOARD_ACTIONS)
         self.assertEqual(
             CLASSROOM_ACTIONS,
-            frozenset(set(TEACHING_SESSION_ACTIONS) | set(TEACHER_VISUAL_BOARD_ACTIONS) | {STUDENT_HOVER_ACTION_ID}),
+            frozenset(
+                set(TEACHING_SESSION_ACTIONS)
+                | set(TEACHER_VISUAL_BOARD_ACTIONS)
+                | {STUDENT_HOVER_ACTION_ID, STUDENT_CLICK_ACTION_ID}
+            ),
         )
 
     def test_mixed_hover_pointer_highlight_and_arrow_never_change_position(self) -> None:
@@ -107,7 +113,7 @@ class TeachingClassroomAdapterTests(unittest.TestCase):
         self.assertFalse(state.presentation.coordinate_labels_visible)
         self.assertEqual(tuple(item.square for item in state.presentation.student_pointer_history), ("g1",))
 
-    def test_hover_selection_and_move_are_three_separate_effects(self) -> None:
+    def test_hover_click_selection_and_move_keep_explicit_effect_boundaries(self) -> None:
         selection_plan = self.plan(TeachingActivity.STUDENT_RESPONDS)
         selection_state = start_session(selection_plan)
         hovered = apply_classroom_action(
@@ -119,17 +125,29 @@ class TeachingClassroomAdapterTests(unittest.TestCase):
             expected_revision=0,
             actor_student_id="student-1",
         )
-        selected = apply_classroom_action(
+        clicked = apply_classroom_action(
             selection_plan,
             hovered,
             self.classroom(),
+            "student.click",
+            {"square": "g1"},
+            expected_revision=1,
+            actor_student_id="student-1",
+        )
+        selected = apply_classroom_action(
+            selection_plan,
+            clicked,
+            self.classroom(),
             "student.select",
             {"square": "e4"},
-            expected_revision=1,
+            expected_revision=2,
             actor_student_id="student-1",
         )
         self.assertEqual(hovered.position_fen, Board.START)
         self.assertIsNone(hovered.last_response)
+        self.assertEqual(clicked.position_fen, Board.START)
+        self.assertEqual(clicked.last_response.value, "g1")
+        self.assertEqual(clicked.presentation.student_pointer_history[-1].piece, "N")
         self.assertEqual(selected.position_fen, Board.START)
         self.assertEqual(selected.last_response.value, "e4")
 
@@ -144,6 +162,16 @@ class TeachingClassroomAdapterTests(unittest.TestCase):
             expected_revision=0,
             actor_student_id="student-1",
         )
+        with self.assertRaises(TeachingClassroomAdapterError):
+            apply_classroom_action(
+                move_plan,
+                hovered_move,
+                self.classroom(),
+                "student.click",
+                {"square": "e4"},
+                expected_revision=1,
+                actor_student_id="student-1",
+            )
         moved = apply_classroom_action(
             move_plan,
             hovered_move,
@@ -157,6 +185,24 @@ class TeachingClassroomAdapterTests(unittest.TestCase):
         self.assertNotEqual(moved.position_fen, Board.START)
         self.assertEqual(moved.last_response.value, "e4")
 
+    def test_click_on_locked_teacher_explains_mode_is_not_silent_answer(self) -> None:
+        plan = self.plan(TeachingActivity.TEACHER_EXPLAINS)
+        state = start_session(plan)
+        with self.assertRaises(TeachingClassroomAdapterError):
+            apply_classroom_action(
+                plan,
+                state,
+                self.classroom(),
+                "student.click",
+                {"square": "g1"},
+                expected_revision=0,
+                actor_student_id="student-1",
+            )
+        self.assertEqual(state.position_fen, Board.START)
+        self.assertEqual(state.revision, 0)
+        self.assertIsNone(state.last_response)
+        self.assertEqual(state.presentation.student_pointer_history, ())
+
     def test_role_spoofing_fails_at_unified_boundary(self) -> None:
         plan = self.plan()
         state = start_session(plan)
@@ -167,6 +213,18 @@ class TeachingClassroomAdapterTests(unittest.TestCase):
                 self.classroom(),
                 "student.hover",
                 {"square": "e4", "student_id": "student-2"},
+                expected_revision=0,
+                actor_student_id="student-1",
+            )
+        selection_plan = self.plan(TeachingActivity.STUDENT_RESPONDS)
+        selection_state = start_session(selection_plan)
+        with self.assertRaises(TeachingClassroomAdapterError):
+            apply_classroom_action(
+                selection_plan,
+                selection_state,
+                self.classroom(),
+                "student.click",
+                {"square": "g1", "student_id": "student-2"},
                 expected_revision=0,
                 actor_student_id="student-1",
             )
@@ -191,6 +249,8 @@ class TeachingClassroomAdapterTests(unittest.TestCase):
             )
         self.assertEqual(state.position_fen, Board.START)
         self.assertEqual(state.revision, 0)
+        self.assertEqual(selection_state.position_fen, Board.START)
+        self.assertEqual(selection_state.revision, 0)
 
     def test_teacher_view_gets_reverse_history_student_view_does_not(self) -> None:
         plan = self.plan()
@@ -240,6 +300,42 @@ class TeachingClassroomAdapterTests(unittest.TestCase):
         self.assertEqual(len(teacher.student_pointer_history), 1)
         self.assertEqual(teacher.student_pointer_history[0].student_label, "Anna")
         self.assertEqual(student.student_pointer_history, ())
+
+    def test_click_feedback_is_teacher_only_and_contains_no_raw_identity(self) -> None:
+        plan = self.plan(TeachingActivity.STUDENT_RESPONDS)
+        state = start_session(plan)
+        state = apply_classroom_action(
+            plan,
+            state,
+            self.classroom(),
+            "student.click",
+            {"square": "g1"},
+            expected_revision=0,
+            actor_student_id="student-1",
+        )
+        teacher = project_classroom_view(
+            plan,
+            state,
+            self.classroom(),
+            audience=TeachingAudience.TEACHER,
+        )
+        student = project_classroom_view(
+            plan,
+            state,
+            self.classroom(),
+            audience=TeachingAudience.STUDENT,
+            viewer_student_id="student-1",
+        )
+        teacher_payload = classroom_view_to_payload(teacher)
+        student_payload = classroom_view_to_payload(student)
+
+        self.assertEqual(teacher_payload["student_pointer_history"][-1]["kind"], "selection")
+        self.assertEqual(teacher_payload["student_pointer_history"][-1]["student_label"], "Anna")
+        self.assertEqual(teacher_payload["student_pointer_history"][-1]["square"], "g1")
+        self.assertEqual(teacher_payload["student_pointer_history"][-1]["piece_symbol"], "N")
+        self.assertEqual(student_payload["student_pointer_history"], [])
+        self.assertNotIn("student-1", repr(teacher_payload))
+        self.assertNotIn("student-1", repr(student_payload))
 
     def test_student_payload_has_visual_lesson_but_no_reverse_history_or_internal_identity(self) -> None:
         plan = self.plan(engine_visibility=EngineVisibilityPolicy.VISIBLE_TO_TEACHER)
@@ -312,7 +408,7 @@ class TeachingClassroomAdapterTests(unittest.TestCase):
     def test_unknown_action_fails_closed_without_family_guessing(self) -> None:
         plan = self.plan()
         state = start_session(plan)
-        for action in ("e4", "student.click", "teacher.move", "pointer.e4", ""):
+        for action in ("e4", "student.drag", "teacher.move", "pointer.e4", ""):
             with self.subTest(action=action):
                 with self.assertRaises(TeachingClassroomAdapterError):
                     apply_classroom_action(
