@@ -1,0 +1,85 @@
+name: D09 Teacher Classroom Reverse Channel
+
+on:
+  push:
+    branches:
+      - d09/teacher-classroom-reverse-channel-20260823
+  pull_request:
+    branches:
+      - manual/deva-teaching-session-accessibility-20260823
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: d09-teacher-classroom-reverse-channel-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  D09_PARENT: b66ffccf963fb8b44e4084158cb7b9bdcfb9fe97
+
+jobs:
+  reverse-channel:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+
+      - name: Install test dependencies
+        run: python -m pip install --disable-pip-version-check pytest
+
+      - name: Exact ancestry and D09 scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git merge-base "$D09_PARENT" HEAD)" = "$D09_PARENT"
+          git diff --check "$D09_PARENT"...HEAD
+          changed="$(git diff --name-only "$D09_PARENT"...HEAD)"
+          printf '%s\n' "$changed"
+          allowed='^(.github/workflows/d09-teacher-classroom-reverse-channel.yml|acs/teaching_reverse_channel.py|tests/test_teaching_reverse_channel.py)$'
+          unexpected="$(printf '%s\n' "$changed" | grep -Ev "$allowed" || true)"
+          test -z "$unexpected" || { echo "Unexpected D09 overlap paths:"; printf '%s\n' "$unexpected"; exit 1; }
+
+      - name: Compile D09 Product tree
+        run: python -m compileall -q acs tests
+
+      - name: Focused student hover reverse channel
+        run: python -m unittest tests.test_teaching_reverse_channel -v
+
+      - name: Upstream role-safe TeachingSession adapter
+        run: python -m unittest tests.test_teaching_session_adapter -v
+
+      - name: Canonical TeachingSession and adversarial invariants
+        run: python -m unittest tests.test_teaching_session tests.test_teaching_session_adversarial -v
+
+      - name: Canonical interaction family separation
+        run: python -m unittest tests.test_interaction_contracts tests.test_interaction_router -v
+
+      - name: Classroom privacy and corruption invariants
+        run: python -m unittest tests.test_classroom_domain tests.test_classroom_domain_corruption -v
+
+      - name: Full unittest regression
+        run: python -m unittest discover -s tests -v
+
+      - name: Full pytest regression
+        if: always()
+        run: python -m pytest -q
+
+      - name: Selftest
+        if: always()
+        run: python run_accessible_chess.py --selftest
+
+      - name: Complete WebView2 diagnostic
+        if: always()
+        shell: bash
+        run: ACCESSIBLE_CHESS_STAGE1_DIAGNOSTIC=1 python run_accessible_chess.py
