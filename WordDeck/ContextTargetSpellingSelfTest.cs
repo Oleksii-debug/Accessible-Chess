@@ -19,10 +19,10 @@ internal static class ContextTargetSpellingSelfTest
         TestSingleTargetExactPhysicalForm();
         TestTwoTargetCardCreatesTwoExercises();
         TestThreeTargetCardCreatesThreeExercises();
-        TestMultiwordOrder();
+        TestMultiwordOrderAndHyphenation();
         TestMorphologyFailsClosed();
         TestAmbiguousStableIdentityFailsClosed();
-        Console.WriteLine("Context target-spelling self-test PASS: target-only answers, 1/2/3 stable IDs, multiword order, homograph identity and morphology fail-closed verified.");
+        Console.WriteLine("Context target-spelling self-test PASS: target-only answers, 1/2/3 stable IDs, exact hyphenation, multiword order, homograph identity and morphology fail-closed verified.");
     }
 
     private static void TestSingleTargetExactPhysicalForm()
@@ -40,7 +40,7 @@ internal static class ContextTargetSpellingSelfTest
         Check(exercise.Prompt.FocusTargetEntryId == "ox-improve", "Target spelling lost the exact stable Oxford ID.");
         Check(exercise.Prompt.TargetMeaningUkrainian == "покращувати", "Target spelling lost the Ukrainian target meaning.");
         Check(exercise.Prompt.EnglishCloze.Contains("[blank]", StringComparison.Ordinal) && !exercise.Prompt.EnglishCloze.Contains("improve", StringComparison.OrdinalIgnoreCase), "Target spelling cloze leaks its answer.");
-        Check(exercise.Check("IMPROVE!").Accepted, "Correct target form with harmless case/punctuation normalization was rejected.");
+        Check(exercise.Check("IMPROVE!").Accepted, "Correct target form with harmless case/surrounding-punctuation normalization was rejected.");
         Check(!exercise.Check("improves").Accepted, "Wrong inflected target form was accepted.");
         Check(!exercise.Check(card.EnglishAnswer).Accepted, "Target spelling accidentally accepted the whole English sentence.");
         Check(exercise.RevealExpectedForm() == "improve", "Show-answer target form is wrong.");
@@ -81,7 +81,7 @@ internal static class ContextTargetSpellingSelfTest
         Check(all.All(item => item.Prompt.EnglishCloze.Contains("[blank]", StringComparison.Ordinal)), "One of the three target forms was not physically present in the sentence.");
     }
 
-    private static void TestMultiwordOrder()
+    private static void TestMultiwordOrderAndHyphenation()
     {
         DictionaryPackage dictionary = FixtureDictionary();
         var lexicon = new ContextTargetLexicon(dictionary);
@@ -93,10 +93,29 @@ internal static class ContextTargetSpellingSelfTest
             new[] { "full time" });
 
         ContextTargetSpellingExercise exercise = ContextTargetSpellingService.Build(card, "ox-full-time", lexicon, dictionary);
-        Check(exercise.Check("full time").Accepted, "Canonical multiword physical target form was rejected.");
-        ContextTargetSpellingResult wrongOrder = exercise.Check("time full");
+        Check(exercise.Check("full-time").Accepted, "Exact hyphenated target form was rejected.");
+        Check(exercise.Check("full‑time").Accepted, "Unicode-equivalent hyphenated target form was rejected.");
+        ContextTargetSpellingResult missingHyphen = exercise.Check("full time");
+        Check(!missingHyphen.Accepted && !missingHyphen.SameWordsWrongOrder, "Missing target hyphen was incorrectly accepted or mislabeled as word-order error.");
+        ContextTargetSpellingResult wrongOrder = exercise.Check("time-full");
         Check(!wrongOrder.Accepted && wrongOrder.SameWordsWrongOrder, "Multiword target spelling did not enforce phrase order.");
-        Check(exercise.Prompt.EnglishCloze == "she works [blank] today", "Multiword target cloze did not replace the exact contiguous lexical form.");
+        Check(exercise.RevealExpectedForm() == "full-time", "Show answer lost exact dictionary hyphenation.");
+        Check(exercise.Prompt.EnglishCloze == "She works [blank] today", "Target cloze did not preserve the canonical sentence around the exact physical form.");
+
+        ContextPracticeCard falseIndexedCard = Card(
+            "s-full-time-spaced",
+            "Вона сьогодні працює повний робочий день",
+            "She works full time today",
+            new[] { "ox-full-time" },
+            new[] { "full time" });
+        bool rejected = false;
+        try { _ = ContextTargetSpellingService.Build(falseIndexedCard, "ox-full-time", lexicon, dictionary); }
+        catch (InvalidDataException ex)
+        {
+            rejected = ex.Message.Contains("hyphenation", StringComparison.OrdinalIgnoreCase) ||
+                       ex.Message.Contains("exact physical dictionary form", StringComparison.OrdinalIgnoreCase);
+        }
+        Check(rejected, "Sentence Spelling trusted a token-only index even though the exact hyphenated dictionary form was absent from the sentence.");
     }
 
     private static void TestMorphologyFailsClosed()

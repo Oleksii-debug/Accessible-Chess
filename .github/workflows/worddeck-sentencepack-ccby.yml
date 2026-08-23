@@ -283,7 +283,7 @@ jobs:
           if ($runtime.ManagedBytesDelta -lt 0) { throw 'Runtime managed-memory measurement is invalid.' }
           $runtime | Format-List
 
-      - name: Validate actual distributable bundle consistency
+      - name: Validate technical candidate bundle consistency
         shell: pwsh
         run: |
           python .\WordDeck\tools\validate_sentencepack_release_bundle.py `
@@ -293,13 +293,11 @@ jobs:
             --coverage .\sentencepack-ccby\coverage-report.json `
             | Tee-Object -FilePath .\sentencepack-ccby\release-bundle-validation.json
 
-      - name: Upload attributed SentencePack exact-head artifact
+      - name: Upload non-corpus exact-head audit evidence
         uses: actions/upload-artifact@v4
         with:
-          name: WordDeck-Tatoeba-EN-UA-Attributed-SentencePack
+          name: WordDeck-Tatoeba-EN-UA-Attributed-Evidence
           path: |
-            sentencepack-ccby/tatoeba-en-uk-ccby-sentencepack.sqlite
-            sentencepack-ccby/tatoeba-en-uk-ccby-sentencepack.json.gz
             sentencepack-ccby/tatoeba-en-uk-ccby.tsv.manifest.json
             sentencepack-ccby/coverage-report.json
             sentencepack-ccby/context-coverage-evidence.json

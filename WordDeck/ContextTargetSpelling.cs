@@ -1,3 +1,6 @@
+using System.Text;
+using System.Text.RegularExpressions;
+
 namespace WordDeck;
 
 internal sealed record ContextTargetSpellingPrompt(
@@ -19,31 +22,142 @@ internal sealed record ContextTargetSpellingResult(
     bool SameWordsWrongOrder,
     string Feedback);
 
+internal static class ContextPhysicalTargetForm
+{
+    private const string WordBoundaryClass = "A-Za-z'’‘`\\-‐‑‒–—";
+
+    public static string CanonicalDisplay(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            throw new InvalidDataException("Context target-spelling physical form is blank.");
+        SentenceTokenizer.ValidateUnicode(value, "Context target-spelling physical form");
+        return value.Trim();
+    }
+
+    public static string NormalizeForComparison(string value, bool trimHarmlessOuterPunctuation)
+    {
+        SentenceTokenizer.ValidateUnicode(value ?? string.Empty, "Context target-spelling answer");
+        string normalized = NormalizeOrthography((value ?? string.Empty).Normalize(NormalizationForm.FormKC));
+        normalized = CollapseWhitespace(normalized).Trim();
+        if (trimHarmlessOuterPunctuation)
+            normalized = TrimOuterPunctuation(normalized);
+        return normalized.ToLowerInvariant();
+    }
+
+    public static Regex BuildOccurrenceRegex(string physicalForm)
+    {
+        string canonical = CanonicalDisplay(physicalForm).Normalize(NormalizationForm.FormKC);
+        var pattern = new StringBuilder();
+        pattern.Append("(?<![").Append(WordBoundaryClass).Append("])");
+
+        bool previousWasWhitespace = false;
+        foreach (char raw in canonical)
+        {
+            char ch = NormalizeOrthographyChar(raw);
+            if (char.IsWhiteSpace(ch))
+            {
+                if (!previousWasWhitespace)
+                    pattern.Append(@"\s+");
+                previousWasWhitespace = true;
+                continue;
+            }
+
+            previousWasWhitespace = false;
+            if (ch == '\'')
+                pattern.Append("['’‘`]");
+            else if (ch == '-')
+                pattern.Append("[-‐‑‒–—]");
+            else
+                pattern.Append(Regex.Escape(ch.ToString()));
+        }
+
+        pattern.Append("(?![").Append(WordBoundaryClass).Append("])");
+        return new Regex(pattern.ToString(), RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
+    }
+
+    private static string NormalizeOrthography(string value)
+    {
+        var builder = new StringBuilder(value.Length);
+        foreach (char ch in value)
+            builder.Append(NormalizeOrthographyChar(ch));
+        return builder.ToString();
+    }
+
+    private static char NormalizeOrthographyChar(char ch) => ch switch
+    {
+        '’' or '‘' or '`' => '\'',
+        '‐' or '‑' or '‒' or '–' or '—' => '-',
+        _ => ch
+    };
+
+    private static string CollapseWhitespace(string value)
+    {
+        var builder = new StringBuilder(value.Length);
+        bool pendingSpace = false;
+        foreach (char ch in value)
+        {
+            if (char.IsWhiteSpace(ch))
+            {
+                pendingSpace = builder.Length > 0;
+                continue;
+            }
+
+            if (pendingSpace)
+            {
+                builder.Append(' ');
+                pendingSpace = false;
+            }
+            builder.Append(ch);
+        }
+        return builder.ToString();
+    }
+
+    private static string TrimOuterPunctuation(string value)
+    {
+        int start = 0;
+        int end = value.Length;
+        while (start < end && !IsTargetCore(value[start]))
+            start++;
+        while (end > start && !IsTargetCore(value[end - 1]))
+            end--;
+        return value[start..end].Trim();
+    }
+
+    private static bool IsTargetCore(char ch) => char.IsLetterOrDigit(ch) || ch is '\'' or '-';
+}
+
 internal sealed class ContextTargetSpellingExercise
 {
+    private readonly string _expectedPhysicalForm;
+    private readonly string _expectedNormalizedForm;
     private readonly string[] _expectedTokens;
 
     public ContextTargetSpellingPrompt Prompt { get; }
 
     internal ContextTargetSpellingExercise(
         ContextTargetSpellingPrompt prompt,
-        IEnumerable<string> expectedTokens)
+        string expectedPhysicalForm)
     {
         Prompt = prompt ?? throw new ArgumentNullException(nameof(prompt));
-        _expectedTokens = expectedTokens
-            .Select(SentenceTokenizer.NormalizeToken)
-            .Where(token => token.Length > 0)
-            .ToArray();
-        if (_expectedTokens.Length == 0)
+        _expectedPhysicalForm = ContextPhysicalTargetForm.CanonicalDisplay(expectedPhysicalForm);
+        _expectedNormalizedForm = ContextPhysicalTargetForm.NormalizeForComparison(
+            _expectedPhysicalForm,
+            trimHarmlessOuterPunctuation: false);
+        _expectedTokens = SentenceTokenizer.Tokenize(_expectedPhysicalForm).ToArray();
+        if (_expectedNormalizedForm.Length == 0 || _expectedTokens.Length == 0)
             throw new InvalidDataException("Context target-spelling exercise has no expected physical target form.");
     }
 
     public ContextTargetSpellingResult Check(string typedTargetForm)
     {
-        string[] typed;
+        string normalizedTyped;
+        string[] typedTokens;
         try
         {
-            typed = SentenceTokenizer.Tokenize(typedTargetForm ?? string.Empty).ToArray();
+            normalizedTyped = ContextPhysicalTargetForm.NormalizeForComparison(
+                typedTargetForm ?? string.Empty,
+                trimHarmlessOuterPunctuation: true);
+            typedTokens = SentenceTokenizer.Tokenize(typedTargetForm ?? string.Empty).ToArray();
         }
         catch (InvalidDataException)
         {
@@ -54,12 +168,13 @@ internal sealed class ContextTargetSpellingExercise
                 "The typed target form contains malformed Unicode and was not accepted.");
         }
 
-        if (_expectedTokens.SequenceEqual(typed, StringComparer.Ordinal))
+        if (string.Equals(_expectedNormalizedForm, normalizedTyped, StringComparison.Ordinal))
             return new ContextTargetSpellingResult(true, false, false, "Correct target form.");
 
-        bool sameWordsWrongOrder = _expectedTokens.Length == typed.Length &&
+        bool sameWordsWrongOrder = _expectedTokens.Length == typedTokens.Length &&
+            !_expectedTokens.SequenceEqual(typedTokens, StringComparer.Ordinal) &&
             _expectedTokens.OrderBy(token => token, StringComparer.Ordinal)
-                .SequenceEqual(typed.OrderBy(token => token, StringComparer.Ordinal), StringComparer.Ordinal);
+                .SequenceEqual(typedTokens.OrderBy(token => token, StringComparer.Ordinal), StringComparer.Ordinal);
 
         return new ContextTargetSpellingResult(
             false,
@@ -67,10 +182,10 @@ internal sealed class ContextTargetSpellingExercise
             sameWordsWrongOrder,
             sameWordsWrongOrder
                 ? "The target words are present, but the target phrase word order is wrong."
-                : "The target form is not correct. Try again or use Show answer.");
+                : "The target form is not exact. Check spelling, spaces, hyphens and apostrophes, or use Show answer.");
     }
 
-    public string RevealExpectedForm() => string.Join(" ", _expectedTokens);
+    public string RevealExpectedForm() => _expectedPhysicalForm;
 }
 
 internal static class ContextTargetSpellingService
@@ -102,17 +217,12 @@ internal static class ContextTargetSpellingService
                 $"Sentence target-spelling stable ID {focusId} is unresolved because physical form '{lexicalKey}' maps to multiple dictionary entries [{candidates}]. Explicit POS/sense evidence is required before this exercise can own canonical progress.");
         }
 
-        string resolvedLexicalKey = lexicon.LexicalKeyFor(focusId);
-        string[] physicalTokens = SentenceTokenizer.Tokenize(resolvedLexicalKey).ToArray();
-        if (physicalTokens.Length == 0)
-            throw new InvalidDataException($"Sentence target-spelling stable ID {focusId} has no usable physical English form.");
-
-        IReadOnlyList<string> sentenceTokens = SentenceTokenizer.Tokenize(card.EnglishAnswer);
-        List<int> starts = FindNonOverlappingOccurrences(sentenceTokens, physicalTokens);
-        if (starts.Count == 0)
+        string physicalForm = ContextPhysicalTargetForm.CanonicalDisplay(target.Source);
+        Regex occurrenceRegex = ContextPhysicalTargetForm.BuildOccurrenceRegex(physicalForm);
+        if (!occurrenceRegex.IsMatch(card.EnglishAnswer))
         {
             throw new InvalidDataException(
-                $"Sentence {card.SentenceId} indexes target {focusId}, but exact physical lexical form '{resolvedLexicalKey}' is not present in the canonical sentence token stream. Target-form spelling fails closed rather than guessing morphology.");
+                $"Sentence {card.SentenceId} indexes target {focusId}, but exact physical dictionary form '{physicalForm}' is not present in the canonical English sentence. Target-form spelling fails closed rather than guessing morphology, spacing or hyphenation.");
         }
 
         var prompt = new ContextTargetSpellingPrompt(
@@ -120,14 +230,14 @@ internal static class ContextTargetSpellingService
             focusId,
             target.Target,
             card.UkrainianPrompt,
-            BuildCloze(sentenceTokens, starts, physicalTokens.Length),
+            occurrenceRegex.Replace(card.EnglishAnswer, "[blank]"),
             card.SourceId,
             card.SourceKind,
             card.Provenance,
             card.License,
             card.LocalTextLocation,
             "Type only the missing target word or phrase. Do not type the whole English sentence.");
-        return new ContextTargetSpellingExercise(prompt, physicalTokens);
+        return new ContextTargetSpellingExercise(prompt, physicalForm);
     }
 
     public static IReadOnlyList<ContextTargetSpellingExercise> BuildAllTargets(
@@ -137,57 +247,4 @@ internal static class ContextTargetSpellingService
         ContextTargetIds.NormalizeRequired(card.TargetEntryIds)
             .Select(id => Build(card, id, lexicon, dictionary))
             .ToArray();
-
-    private static List<int> FindNonOverlappingOccurrences(
-        IReadOnlyList<string> sentenceTokens,
-        IReadOnlyList<string> targetTokens)
-    {
-        var result = new List<int>();
-        for (int i = 0; i <= sentenceTokens.Count - targetTokens.Count;)
-        {
-            bool match = true;
-            for (int j = 0; j < targetTokens.Count; j++)
-            {
-                if (!string.Equals(sentenceTokens[i + j], targetTokens[j], StringComparison.Ordinal))
-                {
-                    match = false;
-                    break;
-                }
-            }
-
-            if (match)
-            {
-                result.Add(i);
-                i += targetTokens.Count;
-            }
-            else
-            {
-                i++;
-            }
-        }
-        return result;
-    }
-
-    private static string BuildCloze(
-        IReadOnlyList<string> sentenceTokens,
-        IReadOnlyCollection<int> occurrenceStarts,
-        int targetTokenCount)
-    {
-        var starts = new HashSet<int>(occurrenceStarts);
-        var output = new List<string>();
-        for (int i = 0; i < sentenceTokens.Count;)
-        {
-            if (starts.Contains(i))
-            {
-                output.Add("[blank]");
-                i += targetTokenCount;
-            }
-            else
-            {
-                output.Add(sentenceTokens[i]);
-                i++;
-            }
-        }
-        return string.Join(" ", output);
-    }
 }
