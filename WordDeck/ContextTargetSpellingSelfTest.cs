@@ -17,6 +17,7 @@ internal static class ContextTargetSpellingSelfTest
     public static void Run()
     {
         TestSingleTargetExactPhysicalForm();
+        TestTwoTargetCardCreatesTwoExercises();
         TestThreeTargetCardCreatesThreeExercises();
         TestMultiwordOrder();
         TestMorphologyFailsClosed();
@@ -44,6 +45,23 @@ internal static class ContextTargetSpellingSelfTest
         Check(!exercise.Check(card.EnglishAnswer).Accepted, "Target spelling accidentally accepted the whole English sentence.");
         Check(exercise.RevealExpectedForm() == "improve", "Show-answer target form is wrong.");
         Check(exercise.Prompt.SourceKind == ContextCorpusKind.SyntheticFixture && exercise.Prompt.Provenance.Contains("self-test", StringComparison.OrdinalIgnoreCase), "Test fixture provenance boundary was lost.");
+    }
+
+    private static void TestTwoTargetCardCreatesTwoExercises()
+    {
+        DictionaryPackage dictionary = FixtureDictionary();
+        var lexicon = new ContextTargetLexicon(dictionary);
+        ContextPracticeCard card = Card(
+            "s-two",
+            "Студенти покращують навички",
+            "Students improve skills",
+            new[] { "ox-improve", "ox-skills" },
+            new[] { "improve", "skills" });
+
+        IReadOnlyList<ContextTargetSpellingExercise> all = ContextPracticeApplicationService.BuildTargetSpellingForAllTargets(card, lexicon, dictionary);
+        Check(all.Count == 2, "A natural two-target context card did not expose two target-form spelling exercises through the application service.");
+        Check(all.Select(item => item.Prompt.FocusTargetEntryId).SequenceEqual(new[] { "ox-improve", "ox-skills" }), "Two-target spelling changed stable target order/identity.");
+        Check(all[0].Check("improve").Accepted && all[1].Check("skills").Accepted, "One of the two exact target forms was rejected.");
     }
 
     private static void TestThreeTargetCardCreatesThreeExercises()
