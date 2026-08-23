@@ -1,0 +1,133 @@
+name: DEV1 Stage1 Privacy Repair UI/NVDA Evidence
+
+on:
+  push:
+    branches:
+      - auto/dev1-stage1-repair-ui-ci-base-20260823-1107
+      - auto/dev1-stage1-repair-ui-evidence-20260823-1107
+    paths:
+      - '.github/workflows/dev1-stage1-repair-ui-evidence.yml'
+  pull_request:
+    branches:
+      - auto/dev1-stage1-repair-ui-ci-base-20260823-1107
+    paths:
+      - '.github/workflows/dev1-stage1-repair-ui-evidence.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dev1-stage1-repair-ui-evidence-${{ github.event_name }}
+  cancel-in-progress: false
+
+env:
+  BASE_ACCEPTED_STAGE1_SHA: 0fa442330bc2bb03636ff9297512da4c29e38684
+  REPAIR_SHA: 909d8e2729e00ba5fce0f25a1520010844f9341b
+
+jobs:
+  repair-ui-linux:
+    name: Stage1 repair UI/NVDA contracts — Linux
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ env.REPAIR_SHA }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Prove exact repair source and DEV1-neutral scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$REPAIR_SHA"
+          test "$(git merge-base "$BASE_ACCEPTED_STAGE1_SHA" "$REPAIR_SHA")" = "$BASE_ACCEPTED_STAGE1_SHA"
+          git diff --check "$BASE_ACCEPTED_STAGE1_SHA" "$REPAIR_SHA"
+          python - <<'PY'
+          import os, subprocess
+          allowed={
+            '.github/workflows/dev5-stage1-path-privacy-repair.yml',
+            'acs/engine.py','acs/import_registry.py','acs/pgn_service.py','acs/report_paths.py',
+            'tests/test_stage1_release_path_privacy.py',
+          }
+          changed=set(subprocess.check_output(
+              ['git','diff','--name-only',os.environ['BASE_ACCEPTED_STAGE1_SHA'],os.environ['REPAIR_SHA']],
+              text=True,
+          ).splitlines())
+          assert changed == allowed, (sorted(changed), sorted(allowed))
+          forbidden=[p for p in changed if p.startswith('web/') or p.startswith('acs/webapp') or p.startswith('acs/stage1_release_ui') or p.startswith('acs/keybindings')]
+          assert not forbidden, forbidden
+          print('EXACT REPAIR SOURCE + DEV1-NEUTRAL SCOPE PASS')
+          PY
+      - name: Install verification dependency
+        run: python -m pip install -q pytest
+      - name: Parse browser bridge and compile
+        run: |
+          node --check web/stage1_board_actions.js
+          python -m compileall -q acs tests run_accessible_chess.py
+      - name: Candidate-facing DEV1 UI accessibility contracts
+        run: >-
+          python -m unittest -v
+          tests.test_accessible_webui
+          tests.test_nvda_p0_contract
+          tests.test_issue22_release_contract
+          tests.test_stage1_complete_user_flow
+          tests.test_stage1_release_composition_ui
+          tests.test_stage1_packaged_focus_origin_contract
+          tests.test_stage1_webview2_accessibility_boundary
+          tests.test_dev1_release_ui_regressions
+          tests.test_webview_keymap_bridge_contract
+          tests.test_stage1_native_menu_action_routing
+      - name: Privacy repair regression surface
+        run: python -m pytest -q tests/test_stage1_release_path_privacy.py
+      - name: Candidate-facing diagnostic
+        run: python run_accessible_chess.py --diagnostic
+
+  repair-ui-windows:
+    name: Stage1 repair UI/NVDA contracts — Windows
+    runs-on: windows-2025
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ env.REPAIR_SHA }}
+      - name: Preserve exact LF source semantics
+        shell: pwsh
+        run: |
+          git config core.autocrlf false
+          git config core.eol lf
+          git reset --hard $env:REPAIR_SHA
+          $actual=(git rev-parse HEAD).Trim()
+          if($actual -ne $env:REPAIR_SHA){throw "Repair source mismatch: $actual"}
+          $base=(git merge-base $env:BASE_ACCEPTED_STAGE1_SHA $env:REPAIR_SHA).Trim()
+          if($base -ne $env:BASE_ACCEPTED_STAGE1_SHA){throw "Repair ancestry mismatch: $base"}
+          git diff --check $env:BASE_ACCEPTED_STAGE1_SHA $env:REPAIR_SHA
+          if($LASTEXITCODE -ne 0){throw 'repair diff hygiene failed'}
+          'EXACT LF REPAIR SOURCE PASS'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install verification dependency
+        run: python -m pip install -q pytest
+      - name: Parse browser bridge and compile
+        shell: pwsh
+        run: |
+          node --check web/stage1_board_actions.js
+          if($LASTEXITCODE -ne 0){throw 'browser JS parse failed'}
+          python -m compileall -q acs tests run_accessible_chess.py
+          if($LASTEXITCODE -ne 0){throw 'compileall failed'}
+      - name: Candidate-facing DEV1 UI accessibility contracts
+        shell: pwsh
+        run: |
+          python -m unittest -v tests.test_accessible_webui tests.test_nvda_p0_contract tests.test_issue22_release_contract tests.test_stage1_complete_user_flow tests.test_stage1_release_composition_ui tests.test_stage1_packaged_focus_origin_contract tests.test_stage1_webview2_accessibility_boundary tests.test_dev1_release_ui_regressions tests.test_webview_keymap_bridge_contract tests.test_stage1_native_menu_action_routing
+          if($LASTEXITCODE -ne 0){throw 'candidate-facing UI/NVDA repair contracts failed'}
+      - name: Privacy repair regression surface
+        run: python -m pytest -q tests/test_stage1_release_path_privacy.py
+      - name: Candidate-facing diagnostic
+        shell: pwsh
+        run: |
+          python run_accessible_chess.py --diagnostic
+          if($LASTEXITCODE -ne 0){throw 'candidate-facing diagnostic failed'}
