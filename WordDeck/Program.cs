@@ -5,6 +5,8 @@ internal static class Program
     [STAThread]
     private static int Main(string[] args)
     {
+        if (args.Length > 0 && args[0].Equals("--verify-context-stable-identity-evidence", StringComparison.OrdinalIgnoreCase))
+            return ContextStableIdentityEvidenceFileVerifier.Run(args);
         if (args.Length > 0 && args[0].Equals("--build-tatoeba-sentence-pack", StringComparison.OrdinalIgnoreCase))
             return BuildTatoebaSentencePack(args);
         if (args.Length > 0 && args[0].Equals("--measure-sentence-pack", StringComparison.OrdinalIgnoreCase))
