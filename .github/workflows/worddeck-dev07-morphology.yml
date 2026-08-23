@@ -1,0 +1,53 @@
+name: WordDeck DEV07 morphology gate
+
+on:
+  push:
+    branches:
+      - worddeck-swarm-dev07-morphology
+    paths:
+      - 'WordDeck/MorphologyCore.cs'
+      - 'WordDeck/MorphologyPracticeService.cs'
+      - 'WordDeck/MorphologySelfTest.cs'
+      - 'WordDeck/MorphologyPracticeSelfTest.cs'
+      - 'WordDeck/MORPHOLOGY_DATA_CONTRACT.md'
+      - 'WordDeckMorphologyHarness/**'
+      - 'WordDeck/WordDeck.csproj'
+      - '.github/workflows/worddeck-dev07-morphology.yml'
+  pull_request:
+    branches:
+      - worddeck-bootstrap
+    paths:
+      - 'WordDeck/MorphologyCore.cs'
+      - 'WordDeck/MorphologyPracticeService.cs'
+      - 'WordDeck/MorphologySelfTest.cs'
+      - 'WordDeck/MorphologyPracticeSelfTest.cs'
+      - 'WordDeck/MORPHOLOGY_DATA_CONTRACT.md'
+      - 'WordDeckMorphologyHarness/**'
+      - 'WordDeck/WordDeck.csproj'
+      - '.github/workflows/worddeck-dev07-morphology.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: worddeck-dev07-morphology-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  morphology:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact commit
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Build production WordDeck
+        run: dotnet build .\WordDeck\WordDeck.csproj -c Release --nologo
+
+      - name: Run deterministic Stage 18 morphology tests
+        run: dotnet run --project .\WordDeckMorphologyHarness\WordDeckMorphologyHarness.csproj -c Release --nologo
