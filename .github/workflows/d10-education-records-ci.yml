@@ -1,0 +1,57 @@
+name: D10 Education Records CI
+
+on:
+  push:
+    branches:
+      - 'dev/d10-*'
+    paths:
+      - 'acs/education_records.py'
+      - 'acs/classroom_domain.py'
+      - 'acs/remote_session.py'
+      - 'tests/test_education_records.py'
+      - 'tests/test_classroom_domain.py'
+      - 'tests/test_classroom_domain_corruption.py'
+      - 'tests/test_remote_session.py'
+      - '.github/workflows/d10-education-records-ci.yml'
+  pull_request:
+    paths:
+      - 'acs/education_records.py'
+      - 'acs/classroom_domain.py'
+      - 'acs/remote_session.py'
+      - 'tests/test_education_records.py'
+      - 'tests/test_classroom_domain.py'
+      - 'tests/test_classroom_domain_corruption.py'
+      - 'tests/test_remote_session.py'
+      - '.github/workflows/d10-education-records-ci.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  d10-education-records:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements/work-ci.txt ]; then python -m pip install -r requirements/work-ci.txt; fi
+          python -m pip install pytest
+      - name: Diff hygiene
+        run: git diff --check HEAD^ HEAD
+      - name: Compile D10 domain
+        run: python -m compileall -q acs/education_records.py acs/classroom_domain.py acs/remote_session.py tests/test_education_records.py
+      - name: Focused D10 education records
+        run: python -m unittest tests.test_education_records -v
+      - name: Existing classroom domain regressions
+        run: python -m unittest tests.test_classroom_domain tests.test_classroom_domain_corruption -v
+      - name: Existing remote session regressions
+        run: python -m unittest tests.test_remote_session -v
+      - name: Full unittest regression
+        run: python -m unittest discover -s tests -p 'test_*.py'
+      - name: Full pytest regression
+        run: python -m pytest -q
