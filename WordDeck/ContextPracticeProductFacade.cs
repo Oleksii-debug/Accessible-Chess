@@ -19,9 +19,23 @@ internal static class ContextPracticeProductFacade
         ArgumentNullException.ThrowIfNull(request);
         ContextProductUseOptions effective = options ?? new ContextProductUseOptions();
         ValidateSourceForProductUse(source, effective);
-        return ContextPracticeService.Select(
-            source,
-            request with { AllowSyntheticFixtures = effective.AllowSyntheticFixtures });
+        ContextPracticeRequest effectiveRequest = request with { AllowSyntheticFixtures = effective.AllowSyntheticFixtures };
+
+        // Real/local surface-form corpora cannot prove one Oxford POS/sense merely because
+        // the written form occurred. Product-facing stable-ID practice therefore fails
+        // closed for homographs until the source carries explicit disambiguating evidence.
+        // Synthetic fixtures may opt out so ambiguity mechanics can still be tested.
+        if (source.Descriptor.Kind != ContextCorpusKind.SyntheticFixture)
+        {
+            if (effectiveRequest.TargetLexicon is null)
+                throw new InvalidDataException(
+                    "Product-facing context selection requires the Oxford lexical catalog so stable-ID/POS/sense ambiguity can be checked fail-closed.");
+            ContextStableIdentityResolution.EnsureResolvedTargets(
+                effectiveRequest.TargetLexicon,
+                effectiveRequest.RequiredTargetEntryIds);
+        }
+
+        return ContextPracticeService.Select(source, effectiveRequest);
     }
 
     public static IReadOnlyList<NaturalContextTargetSet> DiscoverNaturalTargets(
@@ -36,10 +50,18 @@ internal static class ContextPracticeProductFacade
     {
         ContextProductUseOptions effective = options ?? new ContextProductUseOptions();
         ValidateSourceForProductUse(source, effective);
+
+        IReadOnlyCollection<string> safePool = studyPoolEntryIds;
+        if (source.Descriptor.Kind != ContextCorpusKind.SyntheticFixture)
+        {
+            ContextStableIdentityResolution.EnsureResolvedTargets(lexicon, new[] { anchorEntryId });
+            safePool = ContextStableIdentityResolution.ResolvedStudyPool(lexicon, studyPoolEntryIds);
+        }
+
         return ContextNaturalTargetPlanner.Discover(
             source,
             lexicon,
-            studyPoolEntryIds,
+            safePool,
             anchorEntryId,
             desiredTargetCount,
             maxCandidateSentences,
@@ -73,7 +95,7 @@ internal static class ContextPracticeProductFacade
             ContextCorpusKind.LocalUserText =>
                 "Privacy-local user-text measurement. It is useful for local practice only and is not public corpus evidence.",
             _ =>
-                "Real-corpus measurement. Coverage numbers do not by themselves approve redistribution, licensing, provenance or a shipped SentencePack."
+                "Real-corpus surface-form measurement. Written-form occurrence/co-occurrence is not by itself POS/sense-resolved stable-ID evidence. Coverage numbers do not approve redistribution, licensing, provenance or a shipped SentencePack."
         };
 
         return new ContextCoverageEvidence(descriptor, coverage, real, local, boundary);
