@@ -1,0 +1,136 @@
+name: D02 Final Combined Canonical Core 264 Matrix — 74f39ed
+
+on:
+  push:
+    branches:
+      - qa/d02-final-combined-core-264-74f39ed-20260823
+
+permissions:
+  contents: read
+
+env:
+  EXACT_FINAL_COMBINED_SHA: 74f39ed61c46ec2f5dc989275f1a095bd12d7f30
+  MATRIX_SOURCE_COMMIT: ca49b3310fcd599acff3338a3f2bd5b464ec6356
+  FEN_REPAIR_SOURCE_COMMIT: d44f8927eb9061c4d67936b71233aaed9fa41f3e
+
+jobs:
+  canonical-core-linux:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - name: Checkout evidence head
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Exact final combined ancestry and evidence-only diff
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git merge-base "$EXACT_FINAL_COMBINED_SHA" HEAD)" = "$EXACT_FINAL_COMBINED_SHA"
+          git diff --check "$EXACT_FINAL_COMBINED_SHA" HEAD
+          changed="$(git diff --name-only "$EXACT_FINAL_COMBINED_SHA" HEAD)"
+          test "$changed" = ".github/workflows/d02-final-combined-core-264-74f39ed.yml"
+      - name: Materialize immutable D02 evidence tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          git show "$MATRIX_SOURCE_COMMIT:tests/test_d02_combined_stage1_candidate_264_matrix.py" > tests/test_d02_final_combined_candidate_264_matrix.py
+          sed -i 's/class D02CombinedStage1Candidate264Matrix/class D02FinalCombinedCandidate264Matrix/g; s/D02CombinedStage1Candidate264Matrix/D02FinalCombinedCandidate264Matrix/g' tests/test_d02_final_combined_candidate_264_matrix.py
+          git show "$FEN_REPAIR_SOURCE_COMMIT:tests/test_dev2_fen_counter_fail_closed.py" > tests/test_d02_final_combined_fen_counter_fail_closed.py
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install test dependency
+        run: python -m pip install -q pytest
+      - name: Compile canonical source and evidence
+        run: python -m compileall -q acs tests run_accessible_chess.py
+      - name: D02 final combined 264-case matrix
+        run: python -m unittest -v tests.test_d02_final_combined_candidate_264_matrix
+      - name: D02 FEN counter fail-closed repair
+        run: python -m unittest -v tests.test_d02_final_combined_fen_counter_fail_closed
+      - name: History fail-closed regression
+        run: python -m unittest -v tests.test_dev2_history_scalar_fail_closed
+      - name: Existing D02 canonical focused regressions
+        run: >-
+          python -m unittest -v
+          tests.test_dev2_fen_atomicity
+          tests.test_dev2_board_query_invariants
+          tests.test_history
+          tests.test_ui_review_adapter
+          tests.test_position_editor
+          tests.test_squares
+          tests.test_stage1_saturation_history_stress
+          tests.test_stage1_core_full_flow
+          tests.test_core_release_contracts
+          tests.test_manual5_cross_lane_regression
+      - name: Full unittest
+        run: python -m unittest discover -v tests
+      - name: Full pytest
+        run: python -m pytest -q tests
+      - name: Canonical selftest
+        run: python -m acs.selftest
+      - name: Complete diagnostic
+        run: python run_accessible_chess.py --diagnostic
+
+  canonical-core-windows:
+    runs-on: windows-2025
+    timeout-minutes: 45
+    steps:
+      - name: Checkout evidence head with LF semantics
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Preserve LF and verify exact final combined ancestry
+        shell: pwsh
+        run: |
+          git config core.autocrlf false
+          git config core.eol lf
+          git reset --hard HEAD
+          if((git merge-base $env:EXACT_FINAL_COMBINED_SHA HEAD).Trim() -ne $env:EXACT_FINAL_COMBINED_SHA){throw 'Exact final combined ancestry mismatch'}
+          git diff --check $env:EXACT_FINAL_COMBINED_SHA HEAD
+          if($LASTEXITCODE -ne 0){throw 'Diff hygiene failed'}
+          $changed=@(git diff --name-only $env:EXACT_FINAL_COMBINED_SHA HEAD)
+          if($changed.Count -ne 1 -or $changed[0] -ne '.github/workflows/d02-final-combined-core-264-74f39ed.yml'){throw "Evidence-only diff mismatch: $($changed -join ', ')"}
+      - name: Materialize immutable D02 evidence tests
+        shell: pwsh
+        run: |
+          git show "$env:MATRIX_SOURCE_COMMIT`:tests/test_d02_combined_stage1_candidate_264_matrix.py" | Set-Content -Encoding utf8 tests/test_d02_final_combined_candidate_264_matrix.py
+          $p='tests/test_d02_final_combined_candidate_264_matrix.py'
+          $c=Get-Content -Raw $p
+          $c=$c.Replace('D02CombinedStage1Candidate264Matrix','D02FinalCombinedCandidate264Matrix')
+          [IO.File]::WriteAllText($p,$c,[Text.UTF8Encoding]::new($false))
+          git show "$env:FEN_REPAIR_SOURCE_COMMIT`:tests/test_dev2_fen_counter_fail_closed.py" | Set-Content -Encoding utf8 tests/test_d02_final_combined_fen_counter_fail_closed.py
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install test dependency
+        run: python -m pip install -q pytest
+      - name: Compile canonical source and evidence
+        run: python -m compileall -q acs tests run_accessible_chess.py
+      - name: D02 final combined 264-case matrix
+        run: python -m unittest -v tests.test_d02_final_combined_candidate_264_matrix
+      - name: D02 FEN counter fail-closed repair
+        run: python -m unittest -v tests.test_d02_final_combined_fen_counter_fail_closed
+      - name: History fail-closed regression
+        run: python -m unittest -v tests.test_dev2_history_scalar_fail_closed
+      - name: Existing D02 canonical focused regressions
+        run: >-
+          python -m unittest -v
+          tests.test_dev2_fen_atomicity
+          tests.test_dev2_board_query_invariants
+          tests.test_history
+          tests.test_ui_review_adapter
+          tests.test_position_editor
+          tests.test_squares
+          tests.test_stage1_saturation_history_stress
+          tests.test_stage1_core_full_flow
+          tests.test_core_release_contracts
+          tests.test_manual5_cross_lane_regression
+      - name: Full unittest
+        run: python -m unittest discover -v tests
+      - name: Full pytest
+        run: python -m pytest -q tests
+      - name: Canonical selftest
+        run: python -m acs.selftest
+      - name: Complete diagnostic
+        run: python run_accessible_chess.py --diagnostic
