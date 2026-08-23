@@ -206,6 +206,19 @@ internal static class ContextPracticeApplicationService
         return SentenceAnswerEvaluator.Evaluate(card.EnglishAnswer, typedEnglish ?? string.Empty);
     }
 
+    public static ContextTargetSpellingExercise BuildTargetSpelling(
+        ContextPracticeCard card,
+        string focusTargetEntryId,
+        ContextTargetLexicon lexicon,
+        DictionaryPackage dictionary) =>
+        ContextTargetSpellingService.Build(card, focusTargetEntryId, lexicon, dictionary);
+
+    public static IReadOnlyList<ContextTargetSpellingExercise> BuildTargetSpellingForAllTargets(
+        ContextPracticeCard card,
+        ContextTargetLexicon lexicon,
+        DictionaryPackage dictionary) =>
+        ContextTargetSpellingService.BuildAllTargets(card, lexicon, dictionary);
+
     public static ContextCoverageEvidence MeasurePoolCoverage(
         IContextSentenceSource source,
         ContextTargetLexicon lexicon,
