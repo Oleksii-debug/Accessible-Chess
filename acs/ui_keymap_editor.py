@@ -116,20 +116,35 @@ class KeymapEditorModel:
             registry_context = str(item["registryContext"])
             if context is not None and registry_context != context.value:
                 continue
+            action_id = str(item["id"])
             label = str(item["labelEn"] if self.lang == "en" else item["labelUk"])
-            shortcut = self._is_shortcut_action(str(item["id"]))
+            shortcut = self._is_shortcut_action(action_id)
             current = item["binding"] if shortcut else item["alias"]
             default = item["defaultBinding"] if shortcut else item["defaultAlias"]
             current_text = "" if current is None else str(current)
             default_text = "" if default is None else str(default)
-            haystack = " ".join((label, registry_context, current_text, default_text, str(item["id"]))).casefold()
+
+            # Rank/file jump labels intentionally keep their established spoken
+            # wording so the packaged fallback and live registry stay identical.
+            # For search only, omit the generic Ukrainian verb "Перейти" from
+            # those 16 rows; otherwise a query for the explicit history command
+            # "Перейти до ходу" becomes noisy for keyboard/NVDA users.
+            search_label = label
+            if (
+                self.lang == "uk"
+                and action_id.startswith(("board.rank_", "board.file_"))
+                and search_label.casefold().startswith("перейти ")
+            ):
+                search_label = search_label.split(" ", 1)[1]
+
+            haystack = " ".join((search_label, registry_context, current_text, default_text, action_id)).casefold()
             if term and term not in haystack:
                 continue
             context_labels = _CONTEXT_LABELS_EN if self.lang == "en" else _CONTEXT_LABELS_UK
-            preview = self.preview(str(item["id"]), current_text)
+            preview = self.preview(action_id, current_text)
             rows.append(
                 EditorRow(
-                    action_id=str(item["id"]),
+                    action_id=action_id,
                     label=label,
                     context=registry_context,
                     context_label=context_labels.get(registry_context, registry_context),
