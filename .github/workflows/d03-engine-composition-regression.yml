@@ -1,0 +1,58 @@
+name: D03 Engine Composition Regression
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - qa/d03-engine-composition-regression-20260823
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    env:
+      D03_FULL_PRODUCT_PARENT: 61e381b2aa8755590082a6e15a61edc5a6774879
+      D03_STAGE1_HARD_SHUTDOWN_SOURCE: d3f3e8e49fa9e9932e9c66d7c85f67cbfc7e7347
+      D03_STAGE1_TEST_BLOB: b2b69ce8671317890129f17d18489064716046dd
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Preserve exact Git bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config core.autocrlf false
+          git config core.eol lf
+          git reset --hard HEAD
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Prove QA-only ancestry and scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git merge-base "$D03_FULL_PRODUCT_PARENT" HEAD)" = "$D03_FULL_PRODUCT_PARENT"
+          git diff --check "$D03_FULL_PRODUCT_PARENT" HEAD
+          changed="$(git diff --name-only "$D03_FULL_PRODUCT_PARENT" HEAD)"
+          printf '%s\n' "$changed"
+          unexpected="$(printf '%s\n' "$changed" | grep -Ev '^(tests/test_d03_stockfish_hard_shutdown.py|\.github/workflows/d03-engine-composition-regression.yml)$' || true)"
+          test -z "$unexpected" || { printf 'Unexpected QA scope:\n%s\n' "$unexpected" >&2; exit 1; }
+          test "$(git rev-parse "$D03_STAGE1_HARD_SHUTDOWN_SOURCE:tests/test_d03_stockfish_hard_shutdown.py")" = "$D03_STAGE1_TEST_BLOB"
+          test "$(git hash-object tests/test_d03_stockfish_hard_shutdown.py)" = "$D03_STAGE1_TEST_BLOB"
+      - name: Compile engine and focused tests
+        run: python -m compileall -q acs tests
+      - name: Prove Full Product output-bounds family remains green
+        run: >-
+          python -m unittest -v
+          tests.test_d03_uci_output_bounds
+          tests.test_dev3_uci_failure_recovery
+      - name: Replay immutable Stage1 hard-shutdown family
+        run: python -m unittest -v tests.test_d03_stockfish_hard_shutdown
