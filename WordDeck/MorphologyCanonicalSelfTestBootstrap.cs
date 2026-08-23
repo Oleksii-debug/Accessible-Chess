@@ -15,6 +15,7 @@ internal static class MorphologyCanonicalSelfTestBootstrap
         MorphologyDiagnosticsSelfTest.Run();
         MorphologyContextPolicySelfTest.Run();
         MorphologyGrammarBridgeSelfTest.Run();
+        MorphologyReadingBridgeSelfTest.Run();
         Console.WriteLine("WordDeck morphology canonical self-test PASS.");
     }
 }
