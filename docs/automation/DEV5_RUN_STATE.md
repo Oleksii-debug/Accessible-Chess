@@ -1,48 +1,49 @@
 # DEV5_RUN_STATE
 
-RUN_ID: 20260823-1416
-STARTED_LOCAL: 2026-08-23 14:16:04 Europe/Uzhgorod
+RUN_ID: 20260823-1421
+STARTED_LOCAL: 2026-08-23 14:21:29 Europe/Uzhgorod
 STATUS: COMPLETE
-MODE: ALL_LANES_RECONCILED / STAGE1_STOCKFISH_PRIVACY_REPAIR_TERMINAL_GREEN / AUDIT_PROMOTION_PENDING
-COORDINATOR_BRANCH: auto/dev5-coordinator-1416-20260823
-SNAPSHOT_CUTOFF: 2026-08-23T11:16:04Z
-SNAPSHOT_FILE: docs/automation/SNAPSHOT_20260823_1416.md
+MODE: AUDIT_ACCEPTED_STAGE1_REPAIR / FRESH_WINDOWS_V5_WIP1_ACTIVE / ALL_LANES_RECONCILED
+COORDINATOR_BRANCH: auto/dev5-coordinator-1421-20260823
+SNAPSHOT_CUTOFF: 2026-08-23T11:21:29Z
+SNAPSHOT_FILE: docs/automation/SNAPSHOT_20260823_1421.md
 
-CURRENT_INTEGRATION_SHA: 80720e8125c59a213f278668d599040f2768d553
-CURRENT_INTEGRATION_RELEASE_STATUS: HOLD / PR159_PROVEN_DEFECT
-CANONICAL_REPAIR_PRODUCT_SHA: 1e9d23b034e6d347fe03c3581469a07e16037c55
-DEV4_VALIDATION_PR: 165
-DEV4_VALIDATION_HEAD: e9ac9dc15b223f16914ab670358574192349995f
-DEV4_VALIDATION_RUN: 32635517279
-DEV4_VALIDATION_RESULT: SUCCESS
-DEV5_STAGING_PR: 167
-DEV5_STAGING_HEAD: a06c81e424c599f996662e8898c2b1cbf8ee9dbd
-DEV5_DEDICATED_RUN: 32635555544
-DEV5_DEDICATED_RESULT: SUCCESS
+ACCEPTED_STAGE1_SHA: 1e9d23b034e6d347fe03c3581469a07e16037c55
+PRIOR_STAGE1_SHA: 80720e8125c59a213f278668d599040f2768d553
+AUDIT_ACCEPTANCE_PR: 167
+AUDIT_ACCEPTANCE_COMMENT: 5385692188
+PROMOTION_GATE_PR: 172
+PROMOTION_GATE_RUN: 32635759733
+FRESH_WINDOWS_PR: 175
+FRESH_WINDOWS_HEAD: 17697b8181781c3a35f12ba522c25852d268eefc
+FRESH_WINDOWS_RUN: 32636245736
+FRESH_WINDOWS_JOB: 97186343167
+FRESH_WINDOWS_RUN_STATUS_AT_CUTOFF: IN_PROGRESS
 PERSISTENT_FULL_PRODUCT_GREEN_SHA: dd9ebf9414103c805892856fe6a04706fa69039f
 FRESH_WINDOWS_CANDIDATE: NO
 READY_FOR_RELEASE: NO
 NVDA_VERIFIED: NO
 
 ## Current ruling
-The previous SAFE OVERLAP period has terminalized. Independent PR #159 still proves the release-critical Stockfish resolver path-privacy defect on current integration `80720e8...`, but the minimal repair now has coherent terminal evidence.
+Independent AUDIT_MASTER acceptance is recorded on PR #167 for exact repair/staging head `a06c81e424c599f996662e8898c2b1cbf8ee9dbd`, accepting dedicated run `32635555544` and authorizing controlled DEV5 promotion.
 
-Canonical Product repair is DEV4 commit `1e9d23b034e6d347fe03c3581469a07e16037c55`, rooted directly at `80720e8...` and limited to `acs/stockfish_runtime.py`. Corrected DEV4 validation PR #165 / head `e9ac9dc...` / run `32635517279` is SUCCESS on Ubuntu and Windows. Windows evidence includes existing runtime 18/18, unchanged PR #159 privacy oracle 3/3, current Stage1 privacy 10/10, unittest 666/666, pytest 744 + 758 subtests, SELFTEST and complete diagnostic PASS.
+Live branch identity is now definitive: `manual5/integration-20260821` is IDENTICAL to `1e9d23b034e6d347fe03c3581469a07e16037c55`; relative to `80720e8...` it is ahead exactly one commit and changes exactly one Product file, `acs/stockfish_runtime.py`. Accepted Stage1 Product authority is therefore `1e9d23b...`.
 
-DEV5 PR #167 / head `a06c81e...` is integration staging of the same repair, not a second semantic implementation. `acs/stockfish_runtime.py` is byte-identical between DEV4 Product `1e9d23b...` and DEV5 staging. Dedicated DEV5 run `32635555544` is SUCCESS in four Ubuntu/Windows exact-oracle/full-regression jobs.
+DEV5 promotion gate PR #172 / head `60866d1f82c72e416ef854600585fc9ee9e430a5` / run `32635759733` is terminal SUCCESS on Ubuntu and Windows through exact Git/source scope, unchanged DEV3 privacy oracles, current Stockfish privacy + Stage1 release regressions, full unittest, full pytest, canonical SELFTEST and complete diagnostic.
 
-Inherited old PR #151 workflow run `32635555545` is RED only at its hard-coded allowed-path inventory after the expected Stockfish runtime workflow/Product/regression files appeared. Its Windows regression job succeeds. This is stale workflow topology/source-lock drift, not a Product regression; the historical guard must not be weakened merely for GREEN.
+Cross-lane duplication is actively reduced:
+- DEV3 PR #168 is closed as superseded evidence.
+- DEV1 duplicate PR #169 remains closed. PR #173 is evidence-only and does not justify another Product implementation.
+- DEV2 PR #174 targets an older intermediate repair head and is not current Stage1 authority; do not use it for promotion.
+- DEV3 PR #176 is unique, non-duplicate real-engine evidence and is terminal GREEN: run `32636091171` / Windows job `97185965336`, focused 184/184, PR #159 oracle 3/3, official Stockfish 18 real shared-provider/MultiPV5/packaged-path smoke, unittest 670/670, pytest 748 + 758 subtests, SELFTEST and diagnostic PASS.
+- DEV2 PR #171 is a separate narrow P1 `acs/history.py` fail-closed repair, run `32635667033` SUCCESS on Linux+Windows; hold it out of Stage1 until the active release candidate decision.
+- DEV-A PR #170 remains isolated Full Product Teacher/Classroom work; do not pull it into Stage1.
 
-Cross-lane support is also terminal: DEV1 PR #164 run `32635368438` is GREEN for 81/81 candidate-facing UI/accessibility/NVDA contracts on both OS; DEV2 PR #166 run `32635341589` is GREEN for 264 canonical square/state/history/FEN/atomicity cases on exact repair Product `1e9d23b...`. DEV3 PR #168 remains validation-only and must not become a competing Product lineage.
+Exactly one fresh release WIP exists: DEV5 QA-only PR #175 / head `17697b8181781c3a35f12ba522c25852d268eefc`, workflow run `32636245736`, job `97186343167`. At cutoff it is IN_PROGRESS at exact Windows source compile/full regressions/diagnostics/privacy oracle after setup, retained-harness identity and exact accepted-source materialization passed.
 
-No new Product implementation is needed in DEV5. No third Stockfish privacy repair is authorized.
+No second candidate chain, rerun, V4 repair, or QA-harness mutation is authorized while V5 is active. PR #160/V4 remains obsolete because it targets prior defective `80720e8...`.
 
-Other active ownership is deliberately excluded: DEV2 RUN `20260823-1404` owns `acs/history.py`; DEV-A PR #170 owns `acs/teaching_session_adapter.py` and is held in its own Full Product lane. DEV-A focused domain/adapter tests are GREEN; its current RED is cross-lane stale DEV1 WebView expectations plus a Windows setup-python environment stop, not evidence authorizing DEV5 Teacher edits.
-
-PR #160/V4 remains obsolete because it targets defective `80720e8...`; do not repair its generated helper merely to build an invalid-source archive. Historical packaged UIA SetValue/Ctrl+A/Ctrl+C classification remains `C — INCONCLUSIVE` with no proven Product selection/clipboard defect.
-
-## Next action
-Require independent AUDIT_MASTER exact-head acceptance of DEV4 Product `1e9d23b...` / PR #165 evidence and DEV5 staging identity before promotion. Once accepted, selectively append/promote only the minimal Product delta into Stage1 authority, then create exactly one fresh WIP=1 Windows candidate chain locked to the resulting exact SHA. Do not reuse V4/PR #160 or any old/rejected ZIP.
+The next release decision must come from V5 exact terminal evidence. If V5 reaches complete GREEN through strict UIA, packaged sound/Stockfish lifecycle, preflight, ZIP reopen/hash/identity and artifact upload, verify artifact identity before changing candidate status. If it fails, classify the exact first failing gate before any Product or QA change.
 
 READY_FOR_AUDITOR_READBACK=YES
 READY_FOR_RELEASE=NO
