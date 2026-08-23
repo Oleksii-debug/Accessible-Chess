@@ -1,0 +1,157 @@
+name: DEV3 Validate Stockfish Runtime Privacy Repair
+
+on:
+  pull_request:
+    branches:
+      - qa/dev3-validate-stockfish-runtime-privacy-ci-base-20260823
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dev3-validate-stockfish-runtime-privacy-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PRODUCT_SHA: d34bc6f5354620ebf327fb88f3165c085c435361
+
+jobs:
+  exact-engine-runtime-validation:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Preserve repository LF bytes on Windows
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config core.autocrlf false
+          git config core.eol lf
+          git -c core.autocrlf=false checkout HEAD -- .
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install verification dependency
+        run: python -m pip install -q pytest
+
+      - name: Prove exact repair ancestry and validation-only scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git merge-base HEAD "$PRODUCT_SHA")" = "$PRODUCT_SHA"
+          git diff --check "$PRODUCT_SHA"...HEAD
+          git diff --name-only "$PRODUCT_SHA"...HEAD | sort > changed.txt
+          printf '%s\n' \
+            '.github/workflows/dev3-validate-stockfish-runtime-privacy-repair.yml' \
+            'tests/test_dev3_stockfish_runtime_privacy_repair_validation.py' | sort > expected.txt
+          diff -u expected.txt changed.txt
+
+      - name: Compile Product and tests
+        run: python -m compileall -q acs tests run_accessible_chess.py
+
+      - name: Focused DEV3 engine runtime and privacy regressions
+        run: >-
+          python -m unittest -v
+          tests.test_stockfish_runtime
+          tests.test_dev3_uci_failure_recovery
+          tests.test_dev3_stockfish_runtime_path_privacy
+          tests.test_dev3_stockfish_runtime_privacy_repair_validation
+          tests.test_analysis_service
+          tests.test_continuous_analysis
+          tests.test_engine_play_service
+          tests.test_engine_play_service_concurrency
+          tests.test_engine_game_session
+          tests.test_engine_game_timeout_ownership
+          tests.test_clock_service
+          tests.test_game_lifecycle
+          tests.test_release_stockfish_composition
+          tests.test_core_release_contracts
+
+      - name: Full unittest regression
+        run: python -m unittest discover -s tests -v
+
+      - name: Full pytest regression
+        run: python -m pytest -q
+
+      - name: Acquire official Stockfish 18 on Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri 'https://github.com/official-stockfish/Stockfish/releases/download/sf_18/stockfish-windows-x86-64.zip' -OutFile stockfish18.zip
+          Expand-Archive stockfish18.zip stockfish18 -Force
+          $engine=Get-ChildItem stockfish18 -Recurse -Filter '*.exe' | Where-Object {$_.Name -match 'stockfish.*x86-64'} | Select-Object -First 1
+          if(-not $engine){throw 'Official Stockfish 18 executable missing'}
+          New-Item -ItemType Directory -Force -Path real-engine | Out-Null
+          Copy-Item $engine.FullName 'real-engine\stockfish.exe' -Force
+          $hash=(Get-FileHash 'real-engine\stockfish.exe' -Algorithm SHA256).Hash.ToLowerInvariant()
+          "DEV3 OFFICIAL STOCKFISH 18 WINDOWS SHA256: $hash"
+
+      - name: Real repaired runtime shared-provider and packaged-path smoke
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          @'
+          import pathlib
+          import re
+          import shutil
+          from acs.analysis_service import AnalysisService
+          from acs.engine_play_service import EnginePlayService
+          from acs.engine_ports import EngineMoveRequest
+          from acs.stockfish_runtime import StockfishRuntime, StockfishRuntimeConfig
+
+          root = pathlib.Path.cwd()
+          exe = (root / 'real-engine' / 'stockfish.exe').resolve()
+          fen = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1'
+          move_re = re.compile(r'^[a-h][1-8][a-h][1-8][qrbn]?$')
+
+          runtime = StockfishRuntime(StockfishRuntimeConfig(configured_path=exe))
+          analysis = AnalysisService(runtime.provider, owns_engine=False)
+          play = EnginePlayService(runtime.provider, owns_engine=False)
+          try:
+              provider_a = runtime.provider()
+              first = analysis.analyze(fen, multipv=5, depth=8)
+              assert first.error is None and not first.stale, first
+              assert len(first.lines) == 5, first
+              played = play.choose_move(EngineMoveRequest(fen, level=5, movetime_ms=100))
+              assert played.move is not None and move_re.fullmatch(played.move), played
+              provider_b = runtime.provider()
+              assert provider_a is provider_b, 'runtime created duplicate provider'
+              second = analysis.analyze(fen, multipv=5, depth=8)
+              assert second.error is None and not second.stale, second
+              assert len(second.lines) == 5, second
+              assert runtime.provider() is provider_a
+          finally:
+              play.close()
+              analysis.close()
+              runtime.close()
+
+          packaged = root / 'packaged-root'
+          packaged_exe = packaged / 'engines' / 'stockfish' / 'stockfish.exe'
+          packaged_exe.parent.mkdir(parents=True, exist_ok=True)
+          shutil.copy2(exe, packaged_exe)
+          packaged_runtime = StockfishRuntime(StockfishRuntimeConfig(application_dir=packaged))
+          packaged_play = EnginePlayService(packaged_runtime.provider, owns_engine=False)
+          try:
+              result = packaged_play.choose_move(EngineMoveRequest(fen, level=5, movetime_ms=100))
+              assert result.move is not None and move_re.fullmatch(result.move), result
+          finally:
+              packaged_play.close()
+              packaged_runtime.close()
+
+          print('DEV3 REPAIRED STOCKFISH RUNTIME + SHARED PROVIDER + MULTIPV RESTORE + PACKAGED PATH PASS')
+          '@ | Set-Content -Encoding UTF8 dev3_repaired_runtime_smoke.py
+          python dev3_repaired_runtime_smoke.py
+          if($LASTEXITCODE -ne 0){throw 'Real repaired Stockfish runtime smoke failed'}
+
+      - name: Complete diagnostic
+        run: python run_accessible_chess.py --diagnostic complete
