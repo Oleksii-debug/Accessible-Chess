@@ -34,6 +34,8 @@ internal static class ContextCorpusCoverageEvidenceCommandBootstrap
                     ContextCorpusKind.RealCorpus,
                     expectedSha256,
                     expectedPackId));
+            ContextStableIdentityCoverageEvidenceDocument stableEvidence =
+                ContextStableIdentityCoverageEvidenceBuilder.Build(evidence, dictionary);
             ContextCorpusGapRemediationDocument remediation = ContextCorpusGapRemediationBuilder.Build(evidence, dictionary);
 
             Directory.CreateDirectory(Path.GetDirectoryName(outputPath) ?? ".");
@@ -42,21 +44,31 @@ internal static class ContextCorpusCoverageEvidenceCommandBootstrap
             string outputStem = Path.Combine(
                 Path.GetDirectoryName(outputPath) ?? ".",
                 Path.GetFileNameWithoutExtension(outputPath));
+            string stableJsonPath = outputStem + ".stable-identities.json";
             string gapJsonPath = outputStem + ".gaps.json";
             string gapTsvPath = outputStem + ".gaps.tsv";
+            File.WriteAllText(stableJsonPath, stableEvidence.ToCanonicalJson(), utf8NoBom);
             File.WriteAllText(gapJsonPath, remediation.ToCanonicalJson(), utf8NoBom);
             File.WriteAllText(gapTsvPath, ContextCorpusGapRemediationBuilder.ToTsv(remediation), utf8NoBom);
 
             ContextCorpusCoverageEvidencePayload payload = evidence.Payload;
+            ContextStableIdentityCoverageEvidencePayload stable = stableEvidence.Payload;
             ContextCorpusGapRemediationPayload gaps = remediation.Payload;
             Console.WriteLine(
-                $"Context real-corpus coverage evidence PASS: pack={payload.SourceId}; sentences={payload.SentenceCount}; " +
+                $"Context real-corpus PHYSICAL-FORM coverage evidence PASS: pack={payload.SourceId}; sentences={payload.SentenceCount}; " +
                 $"one={payload.OneTarget.CoveredEntryCount}/{payload.OneTarget.ScopeEntryCount}; " +
                 $"two={payload.TwoTarget.CoveredEntryCount}/{payload.TwoTarget.ScopeEntryCount}; " +
                 $"three={payload.ThreeTarget.CoveredEntryCount}/{payload.ThreeTarget.ScopeEntryCount}; " +
                 $"database_sha256={payload.DatabaseSha256}; evidence_sha256={evidence.EvidenceDigestSha256}");
             Console.WriteLine(
-                $"Context corpus remediation plan PASS: missing_one={gaps.MissingOneTargetCount}; " +
+                $"Context conservative STABLE-ID coverage evidence PASS: " +
+                $"one={stable.OneTarget.ResolvedStableCoveredEntryCount}/{stable.OneTarget.ScopeEntryCount}; " +
+                $"two={stable.TwoTarget.ResolvedStableCoveredEntryCount}/{stable.TwoTarget.ScopeEntryCount}; " +
+                $"three={stable.ThreeTarget.ResolvedStableCoveredEntryCount}/{stable.ThreeTarget.ScopeEntryCount}; " +
+                $"unresolved_homograph_ids={stable.OneTarget.UnresolvedAmbiguousEntryCount}; " +
+                $"stable_evidence_sha256={stableEvidence.EvidenceDigestSha256}");
+            Console.WriteLine(
+                $"Context corpus physical-form remediation plan PASS: missing_one={gaps.MissingOneTargetCount}; " +
                 $"missing_pair_only={gaps.MissingNaturalPairOnlyCount}; " +
                 $"missing_triple_only={gaps.MissingNaturalTripleOnlyCount}; " +
                 $"triple_covered={gaps.NaturalTripleCoveredCount}; plan_sha256={remediation.PlanDigestSha256}");
