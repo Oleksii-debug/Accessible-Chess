@@ -54,7 +54,6 @@ class AcsDatabase:
             self.conn.row_factory = sqlite3.Row
             self.conn.execute("PRAGMA foreign_keys = ON")
             self.conn.execute("PRAGMA busy_timeout = 5000")
-            install_search_fold(self.conn)
             self._migrate_schema()
             if self.path != ":memory:":
                 self.conn.execute("PRAGMA journal_mode = WAL")
@@ -562,6 +561,7 @@ class AcsDatabase:
         eco = normalize_search_term(eco, name="eco")
         opening = normalize_search_term(opening, name="opening")
         source_name = normalize_search_term(source_name, name="source_name")
+        install_search_fold(self.conn)
 
         clauses: list[str] = []
         params: list[object] = []
