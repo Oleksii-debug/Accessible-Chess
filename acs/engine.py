@@ -82,7 +82,7 @@ class UCIEngine:
                     creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
                 )
             except (OSError, ValueError) as exc:
-                raise RuntimeError(f"Unable to start Stockfish: {exc}") from exc
+                raise RuntimeError("Unable to start Stockfish") from exc
             if not self._compatible_process(proc):
                 self._terminate_process(proc)
                 raise EngineContractError(
