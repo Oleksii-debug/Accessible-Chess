@@ -108,6 +108,7 @@ internal static class TrainingEntryPoints
             var shortcuts = new ShortcutManager(appState, spelling.State.Decks, ShortcutDispatchContext.Spelling);
             DictionaryPackage package = owner.ActivePackageForTraining;
 
+            using IDisposable reviewPriority = SpellingReviewOrder.BeginSession(spelling.State, package.Id);
             using var form = new SpellingForm(appState, spelling.State, spelling.Store, shortcuts, package);
             using var blankSubmitGuard = BlankLearningSubmissionGuard.Attach(form, "Type English spelling answer");
             KeyboardSelectorFocusGuard.Attach(form, "Spelling study scope", "Active spelling deck");

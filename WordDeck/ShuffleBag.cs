@@ -4,6 +4,10 @@ internal static class ShuffleBag
 {
     public static Queue<string> Create(IEnumerable<string> entryIds, Random random, string? avoidFirstId = null)
     {
+        Queue<string>? prioritized = SpellingReviewOrder.TryCreateFromCurrentSession(entryIds, random, avoidFirstId);
+        if (prioritized is not null)
+            return prioritized;
+
         List<string> ids = entryIds.ToList();
         for (int i = ids.Count - 1; i > 0; i--)
         {
