@@ -13,7 +13,7 @@ permissions:
 
 concurrency:
   group: worddeck-worker2-context-r4d-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   context-r4d-gate:
@@ -153,6 +153,17 @@ jobs:
           if (($p.OneTarget.CoveredEntryCount + $p.OneTarget.UncoveredEntryCount) -ne 5446) { throw 'One-target partition is incomplete.' }
           if (($p.TwoTarget.CoveredEntryCount + $p.TwoTarget.UncoveredEntryCount) -ne 5446) { throw 'Two-target partition is incomplete.' }
           if (($p.ThreeTarget.CoveredEntryCount + $p.ThreeTarget.UncoveredEntryCount) -ne 5446) { throw 'Three-target partition is incomplete.' }
+          $gapPath = [System.IO.Path]::Combine([System.IO.Path]::GetDirectoryName($evidencePath), ([System.IO.Path]::GetFileNameWithoutExtension($evidencePath) + '.gaps.json'))
+          if (-not (Test-Path -LiteralPath $gapPath)) { throw 'Prioritized context gap remediation JSON was not produced.' }
+          $gapDocument = Get-Content -LiteralPath $gapPath -Raw | ConvertFrom-Json
+          $g = $gapDocument.Payload
+          if ($g.SchemaId -ne 'worddeck-context-gap-remediation-v1') { throw 'Unexpected context gap remediation schema.' }
+          if ($g.EvidenceDigestSha256 -ne $document.EvidenceDigestSha256) { throw 'Gap remediation plan is not bound to the exact coverage evidence digest.' }
+          if ($g.DatabaseSha256 -ne $env:R3_ATTRIBUTED_SQLITE_SHA) { throw 'Gap remediation plan is not bound to the verified SQLite hash.' }
+          if (($g.MissingOneTargetCount + $g.MissingNaturalPairOnlyCount + $g.MissingNaturalTripleOnlyCount + $g.NaturalTripleCoveredCount) -ne 5446) { throw 'Gap remediation tiers do not partition all 5,446 stable IDs.' }
+          if ($g.MissingOneTargetCount -ne $p.OneTarget.UncoveredEntryCount) { throw 'Priority-1 gap count does not match one-target uncovered count.' }
+          if (($g.MissingOneTargetCount + $g.MissingNaturalPairOnlyCount) -ne $p.TwoTarget.UncoveredEntryCount) { throw 'Priority-1/2 gaps do not match two-target uncovered count.' }
+          if (($g.MissingOneTargetCount + $g.MissingNaturalPairOnlyCount + $g.MissingNaturalTripleOnlyCount) -ne $p.ThreeTarget.UncoveredEntryCount) { throw 'Priority-1/2/3 gaps do not match three-target uncovered count.' }
           $sourceRoot = Resolve-Path '.\artifacts\r3-attributed'
           foreach ($name in @('tatoeba-en-uk-attributed.tsv.manifest.json','SHA256SUMS.txt','TATOEBA_SENTENCEPACK_NOTICE.md','sentencepack-runtime-metrics.json','sentencepack-metrics.json')) {
             $file = Get-ChildItem -LiteralPath $sourceRoot -Recurse -File -Filter $name | Select-Object -First 1
@@ -170,13 +181,23 @@ jobs:
             "one_target_covered=$($p.OneTarget.CoveredEntryCount)",
             "two_target_covered=$($p.TwoTarget.CoveredEntryCount)",
             "three_target_covered=$($p.ThreeTarget.CoveredEntryCount)",
-            "evidence_sha256=$($document.EvidenceDigestSha256)"
+            "priority1_missing_any_context=$($g.MissingOneTargetCount)",
+            "priority2_missing_pair_only=$($g.MissingNaturalPairOnlyCount)",
+            "priority3_missing_triple_only=$($g.MissingNaturalTripleOnlyCount)",
+            "evidence_sha256=$($document.EvidenceDigestSha256)",
+            "remediation_sha256=$($gapDocument.PlanDigestSha256)"
           ) | Set-Content -LiteralPath '.\artifacts\context-r4d-real-evidence\MEASUREMENT_SOURCE.txt' -Encoding utf8
           Write-Host ("REAL lexical coverage: one={0}/{1} ({2:N2}%); two={3}/{4} ({5:N2}%); three={6}/{7} ({8:N2}%); sentences={9}; evidence_sha256={10}" -f `
             $p.OneTarget.CoveredEntryCount,$p.OneTarget.ScopeEntryCount,$p.OneTarget.CoveragePercent, `
             $p.TwoTarget.CoveredEntryCount,$p.TwoTarget.ScopeEntryCount,$p.TwoTarget.CoveragePercent, `
             $p.ThreeTarget.CoveredEntryCount,$p.ThreeTarget.ScopeEntryCount,$p.ThreeTarget.CoveragePercent, `
             $p.SentenceCount,$document.EvidenceDigestSha256)
+          Write-Host ("REAL remediation tiers: priority1={0}; priority2={1}; priority3={2}; triple-covered={3}; remediation_sha256={4}" -f `
+            $g.MissingOneTargetCount,$g.MissingNaturalPairOnlyCount,$g.MissingNaturalTripleOnlyCount,$g.NaturalTripleCoveredCount,$gapDocument.PlanDigestSha256)
+          foreach ($level in $g.LevelSummaries) {
+            Write-Host ("REAL gap level {0}: priority1={1}; priority2={2}; priority3={3}; total={4}" -f `
+              $level.Level,$level.MissingOneTarget,$level.MissingNaturalPair,$level.MissingNaturalTriple,$level.TotalPriorityGaps)
+          }
 
       - name: Upload real-corpus lexical coverage evidence only
         uses: actions/upload-artifact@v4
