@@ -16,6 +16,8 @@ from .engine_ports import (
 
 ProcessFactory = Callable[..., subprocess.Popen]
 _UCI_MOVE_RE = re.compile(r"^[a-h][1-8][a-h][1-8][qrbn]?$")
+_UCI_OUTPUT_MAX_LINE_CHARS = 16_384
+_UCI_OUTPUT_MAX_PENDING_LINES = 256
 
 
 class UCIEngine:
@@ -48,10 +50,14 @@ class UCIEngine:
             )
         self.path = path.strip()
         self.proc = None
-        self.q: queue.Queue[str] = queue.Queue()
+        self.q: queue.Queue[str] = queue.Queue(
+            maxsize=_UCI_OUTPUT_MAX_PENDING_LINES
+        )
         self.reader = None
         self._process_factory = process_factory
         self._lock = threading.RLock()
+        self._reader_state_lock = threading.Lock()
+        self._reader_fault: tuple[object, str] | None = None
         self._closed = False
 
     def start(self) -> None:
@@ -92,12 +98,22 @@ class UCIEngine:
 
             stdout = proc.stdout
             self.proc = proc
+            with self._reader_state_lock:
+                self._reader_fault = None
 
             def read() -> None:
                 try:
                     for line in stdout:
-                        if isinstance(line, str):
-                            self.q.put(line.strip())
+                        if not isinstance(line, str):
+                            continue
+                        if len(line) > _UCI_OUTPUT_MAX_LINE_CHARS:
+                            self._record_reader_fault(proc, "line")
+                            return
+                        try:
+                            self.q.put_nowait(line.strip())
+                        except queue.Full:
+                            self._record_reader_fault(proc, "queue")
+                            return
                 except Exception:
                     return
 
@@ -137,15 +153,36 @@ class UCIEngine:
             self.proc.stdin.flush()
 
     def _wait(self, token: str, timeout: float) -> str:
+        proc = self.proc
         end = time.monotonic() + timeout
         while time.monotonic() < end:
+            self._raise_if_reader_fault(proc)
             try:
                 line = self.q.get(timeout=0.2)
             except queue.Empty:
+                self._raise_if_reader_fault(proc)
                 continue
+            self._raise_if_reader_fault(proc)
             if line.strip() == token:
                 return line
+        self._raise_if_reader_fault(proc)
         raise RuntimeError("Stockfish did not respond: " + token)
+
+    def _record_reader_fault(self, proc: object, reason: str) -> None:
+        with self._reader_state_lock:
+            if self.proc is proc:
+                self._reader_fault = (proc, reason)
+
+    def _raise_if_reader_fault(self, proc: object | None) -> None:
+        if proc is None:
+            return
+        with self._reader_state_lock:
+            fault = self._reader_fault
+        if fault is not None and fault[0] is proc:
+            raise EngineContractError(
+                "Engine response exceeded safe limits",
+                code=EngineContractErrorCode.INVALID_RESULT,
+            )
 
     @staticmethod
     def _compatible_process(proc: object) -> bool:
@@ -188,6 +225,9 @@ class UCIEngine:
         reader = self.reader
         self.proc = None
         self.reader = None
+        with self._reader_state_lock:
+            if self._reader_fault is not None and self._reader_fault[0] is proc:
+                self._reader_fault = None
         self._drain()
         if reader is not None and reader is not threading.current_thread():
             reader.join(timeout=0.2)
@@ -265,7 +305,7 @@ class UCIEngine:
         return move
 
     def _drain(self) -> None:
-        while True:
+        for _ in range(_UCI_OUTPUT_MAX_PENDING_LINES):
             try:
                 self.q.get_nowait()
             except queue.Empty:
@@ -297,17 +337,21 @@ class UCIEngine:
             proc = self.proc
             try:
                 self._drain()
+                self._raise_if_reader_fault(proc)
                 self._configure_request_options(multipv=multipv, skill_level=20)
                 self.send("position fen " + fen)
                 self.send(f"go depth {depth}")
                 best: dict[int, RawAnalysisLine] = {}
                 end = time.monotonic() + 60
                 while time.monotonic() < end:
+                    self._raise_if_reader_fault(proc)
                     try:
                         line = self.q.get(timeout=0.3)
                     except queue.Empty:
+                        self._raise_if_reader_fault(proc)
                         self._raise_if_process_exited(proc, "analysis")
                         continue
+                    self._raise_if_reader_fault(proc)
                     tokens = line.split()
                     if tokens and tokens[0] == "bestmove":
                         self._bestmove_token(tokens)
@@ -332,6 +376,7 @@ class UCIEngine:
                     if not pv or any(_UCI_MOVE_RE.fullmatch(move) is None for move in pv):
                         continue
                     best[mp] = RawAnalysisLine(item_depth, score_kind, score_value, pv)
+                self._raise_if_reader_fault(proc)
                 raise RuntimeError("Stockfish analysis timed out")
             except Exception:
                 self._discard_failed_transaction(proc)
@@ -355,20 +400,25 @@ class UCIEngine:
             proc = self.proc
             try:
                 self._drain()
+                self._raise_if_reader_fault(proc)
                 self._configure_request_options(multipv=1, skill_level=skill)
                 self.send("position fen " + fen)
                 self.send(f"go movetime {movetime_ms}")
                 end = time.monotonic() + max(5, movetime_ms / 1000 + 5)
                 while time.monotonic() < end:
+                    self._raise_if_reader_fault(proc)
                     try:
                         line = self.q.get(timeout=0.2)
                     except queue.Empty:
+                        self._raise_if_reader_fault(proc)
                         self._raise_if_process_exited(proc, "bestmove search")
                         continue
+                    self._raise_if_reader_fault(proc)
                     parts = line.split()
                     if not parts or parts[0] != "bestmove":
                         continue
                     return self._bestmove_token(parts)
+                self._raise_if_reader_fault(proc)
                 raise RuntimeError("Stockfish did not return bestmove")
             except Exception:
                 self._discard_failed_transaction(proc)
@@ -396,6 +446,8 @@ class UCIEngine:
             self.proc = None
             reader = self.reader
             self.reader = None
+            with self._reader_state_lock:
+                self._reader_fault = None
             self._closed = True
         if reader is not None and reader is not threading.current_thread():
             reader.join(timeout=0.2)

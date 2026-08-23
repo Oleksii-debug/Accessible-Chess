@@ -1,0 +1,102 @@
+name: D03 UCI Output Bounds CI
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - autopulse/d03-uci-output-bounds-20260823
+  pull_request:
+    branches:
+      - full5/dev5-compose-1700-20260822
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 35
+    env:
+      D03_BASE: dd9ebf9414103c805892856fe6a04706fa69039f
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Preserve exact Git bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config core.autocrlf false
+          git config core.eol lf
+          git reset --hard HEAD
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install verification dependency
+        run: python -m pip install -q pytest
+      - name: Prove exact D03 scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git merge-base "$D03_BASE" HEAD)" = "$D03_BASE"
+          git diff --check "$D03_BASE" HEAD
+          changed="$(git diff --name-only "$D03_BASE" HEAD)"
+          printf '%s\n' "$changed"
+          unexpected="$(printf '%s\n' "$changed" | grep -Ev '^(acs/engine.py|tests/test_d03_uci_output_bounds.py|\.github/workflows/d03-uci-output-bounds.yml)$' || true)"
+          test -z "$unexpected" || { printf 'Unexpected D03 output-bounds scope:\n%s\n' "$unexpected" >&2; exit 1; }
+      - name: Compile Product and tests
+        run: python -m compileall -q acs tests run_accessible_chess.py
+      - name: Focused UCI output and lifecycle regressions
+        run: >-
+          python -m unittest -v
+          tests.test_d03_uci_output_bounds
+          tests.test_dev3_uci_failure_recovery
+          tests.test_stockfish_runtime
+          tests.test_analysis_service
+          tests.test_engine_play_service
+          tests.test_engine_play_service_concurrency
+      - name: Acquire official Stockfish 18 Windows binary
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri 'https://github.com/official-stockfish/Stockfish/releases/download/sf_18/stockfish-windows-x86-64.zip' -OutFile stockfish18.zip
+          Expand-Archive stockfish18.zip stockfish18 -Force
+          $engine=Get-ChildItem stockfish18 -Recurse -Filter '*.exe' | Where-Object {$_.Name -match 'stockfish.*x86-64'} | Select-Object -First 1
+          if(-not $engine){throw 'Official Stockfish 18 executable missing'}
+          New-Item -ItemType Directory -Force -Path real-engine | Out-Null
+          Copy-Item $engine.FullName 'real-engine\stockfish.exe' -Force
+          $hash=(Get-FileHash 'real-engine\stockfish.exe' -Algorithm SHA256).Hash.ToLowerInvariant()
+          "D03 OFFICIAL STOCKFISH 18 WINDOWS SHA256: $hash"
+      - name: Real Stockfish 18 output-path smoke
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          @'
+          import pathlib
+          import re
+          from acs.engine import UCIEngine
+          exe = (pathlib.Path.cwd() / 'real-engine' / 'stockfish.exe').resolve()
+          fen = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1'
+          move_re = re.compile(r'^[a-h][1-8][a-h][1-8][qrbn]?$')
+          engine = UCIEngine(str(exe))
+          lines = engine.analyze(fen, multipv=5, depth=8)
+          assert len(lines) == 5, lines
+          move = engine.best_move(fen, skill_level=10, movetime_ms=100)
+          assert move is not None and move_re.fullmatch(move), move
+          engine.close()
+          print('D03 OFFICIAL STOCKFISH 18 OUTPUT BOUNDS SMOKE PASS')
+          '@ | Set-Content -Encoding UTF8 d03_real_output_smoke.py
+          python d03_real_output_smoke.py
+          if($LASTEXITCODE -ne 0){throw 'real Stockfish output-bounds smoke failed'}
+      - name: Full unittest regression
+        run: python -m unittest discover -s tests -v
+      - name: Full pytest regression
+        run: python -m pytest -q
+      - name: SELFTEST and complete diagnostic
+        run: |
+          python -m acs.selftest
+          python run_accessible_chess.py --diagnostic
