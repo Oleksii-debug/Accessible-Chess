@@ -82,13 +82,9 @@ _UK_LABELS = {
     "move.empty": "Команда порожньої позиції",
 }
 
-# Keep rank/file rows concise and directly distinguishable from the explicit
-# history command "Перейти до ходу".  The keymap editor searches localized
-# labels, so repeating the generic verb "Перейти" on all 16 board-jump rows
-# makes a basic history search noisy for keyboard/NVDA users.
 for _number in range(1, 9):
-    _UK_LABELS[f"board.rank_{_number}"] = f"Горизонталь {_number}"
-    _UK_LABELS[f"board.file_{_number}"] = f"Вертикаль {'abcdefgh'[_number - 1]}"
+    _UK_LABELS[f"board.rank_{_number}"] = f"Перейти на {_number} горизонталь"
+    _UK_LABELS[f"board.file_{_number}"] = f"Перейти на вертикаль {'abcdefgh'[_number - 1]}"
 
 
 def build_web_keymap(registry: ActionRegistry | None = None) -> dict[str, Any]:
