@@ -109,6 +109,19 @@ internal sealed class ListeningCoachState
 
 internal sealed record ListeningCheckResult(bool IsCorrect, bool Completed, string Message);
 
+internal sealed record ListeningStatistics(
+    int AvailableItems,
+    int ReviewedItems,
+    int CompletedReviews,
+    int CorrectReviews,
+    int WrongAttempts,
+    int ReplayCount,
+    int ShowAnswerUses,
+    int SkipCount,
+    int HistoryEntries,
+    double Accuracy,
+    double AverageMastery);
+
 internal static class ListeningCoachPresentation
 {
     public static string BeforeCheck(ListeningExercise exercise) => exercise.Kind switch
@@ -260,6 +273,39 @@ internal sealed class ListeningCoachEngine
             CompleteCurrent(correct: false, showedAnswer: true, skipped: false);
         }
         return Current.TargetText;
+    }
+
+    public ListeningStatistics Statistics()
+    {
+        IReadOnlyList<ListeningExercise> available = Available();
+        var ids = new HashSet<string>(available.Select(item => item.ExerciseId), StringComparer.OrdinalIgnoreCase);
+        var selected = new List<ListeningItemStats>();
+        if (_state.StatsByDictionary.TryGetValue(_package.Id, out Dictionary<string, ListeningItemStats>? perDictionary))
+        {
+            foreach (string id in ids)
+                if (perDictionary.TryGetValue(id, out ListeningItemStats? stats)) selected.Add(stats);
+        }
+
+        int completed = selected.Sum(stats => stats.CompletedReviews);
+        int correct = selected.Sum(stats => stats.CorrectReviews);
+        List<ListeningItemStats> reviewed = selected.Where(stats => stats.CompletedReviews > 0).ToList();
+        double accuracy = completed == 0 ? 0d : (double)correct / completed;
+        double mastery = reviewed.Count == 0 ? 0d : reviewed.Average(stats => stats.Mastery);
+        int history = _state.History.Count(item =>
+            string.Equals(item.DictionaryId, _package.Id, StringComparison.OrdinalIgnoreCase) && ids.Contains(item.ExerciseId));
+
+        return new ListeningStatistics(
+            AvailableItems: available.Count,
+            ReviewedItems: reviewed.Count,
+            CompletedReviews: completed,
+            CorrectReviews: correct,
+            WrongAttempts: selected.Sum(stats => stats.WrongAttempts),
+            ReplayCount: selected.Sum(stats => stats.ReplayCount),
+            ShowAnswerUses: selected.Sum(stats => stats.ShowAnswerUses),
+            SkipCount: selected.Sum(stats => stats.SkipCount),
+            HistoryEntries: history,
+            Accuracy: accuracy,
+            AverageMastery: mastery);
     }
 
     public double Mastery(string exerciseId)
