@@ -208,6 +208,11 @@ def _preflight_text(text: object) -> str:
                 _claim_token(token_count)
                 index += 1
                 continue
+            if character == "[" and token_length == 0:
+                raise PgnRoundTripError(
+                    "PGN tag marker appears inside movetext",
+                    code=PgnRoundTripErrorCode.MALFORMED_HEADER,
+                )
 
             token_length += 1
             if token_length > MAX_PGN_TOKEN_CHARS:
