@@ -1,34 +1,23 @@
 # DEV5_CURRENT_STATE
 
-UPDATED_FROM_RUN: 20260823-1421
-MODE: ACCEPTED_STAGE1_1E9D23B / FRESH_WINDOWS_V5_ACTIVE
-SNAPSHOT_CUTOFF: 2026-08-23T11:21:29Z
+UPDATED_FROM_RUN: 20260823-1503
+MODE: INTERMEDIATE_COMBINED_GREEN / RELEASE_HOLD_FEN_P1 / V5_FOCUS_C_INCONCLUSIVE
+SNAPSHOT_CUTOFF: 2026-08-23T12:03:00Z
 
-Accepted Stage1 Product authority is now `manual5/integration-20260821@1e9d23b034e6d347fe03c3581469a07e16037c55`.
+Accepted Stage1 at cutoff is `manual5/integration-20260821@1e9d23b034e6d347fe03c3581469a07e16037c55`, but it is no longer sufficient as final release source because pre-cutoff AUDIT_MASTER accepted the separate DEV2 history P1 and proved an additional DEV2-owned oversized FEN-counter P1.
 
-This authority is grounded in three independent facts:
-1. PR #167 contains AUDIT_MASTER acceptance comment `5385692188` for exact head `a06c81e424c599f996662e8898c2b1cbf8ee9dbd` and dedicated run `32635555544`, authorizing controlled promotion of the minimal Stockfish resolver privacy repair.
-2. Live compare proves `manual5/integration-20260821` is identical to Product commit `1e9d23b...`; from prior `80720e8...` it is ahead exactly one commit and changes only `acs/stockfish_runtime.py`.
-3. DEV5 promotion gate PR #172 / run `32635759733` is SUCCESS on Ubuntu+Windows through exact scope/Git bytes, unchanged privacy oracles, current Stockfish privacy + Stage1 release gates, full unittest/pytest, SELFTEST and complete diagnostic.
+Accepted history repair authority is `45956b38ce6d1ed42d937fdda0124569b8e60b54`, with prior exact Linux+Windows validation already accepted by Audit. Final Stage1 must combine this with the accepted Stockfish privacy repair and a terminal accepted FEN repair.
 
-Historical supporting evidence remains valid: DEV4 PR #165 and DEV5 PR #167 dedicated Linux/Windows repair validation are GREEN. The inherited old PR #151 RED is stale scope-inventory drift only and must not be used to manufacture another repair implementation.
+DEV5 controlled combination is now draft PR #195, branch `release/dev5-stage1-combined-repair-20260823`, exact validation head `5e8ca72f7dd552ee151ebd5b85c52148004ac307`. No duplicate Product implementation was created. The only DEV5 additions after the existing combined Product tree are validation-workflow corrections.
 
-Cross-lane state:
-- DEV1 candidate-facing UI/NVDA evidence is already GREEN; no DEV1 Product change is required. PR #169 is closed duplicate. PR #173 is supporting evidence only.
-- DEV2 canonical-core evidence is already GREEN on `1e9d23b...`. PR #174 is tied to an older intermediate head and is non-authoritative for current Stage1.
-- DEV3 PR #168 is closed superseded. New PR #176 is uniquely useful real Stockfish 18 Windows evidence: run `32636091171` SUCCESS, 184/184 focused engine/runtime/privacy, PR #159 oracle 3/3, real shared provider, MultiPV5 restoration, legal engine move, packaged relative engine path, unittest 670/670, pytest 748 + 758 subtests, SELFTEST and diagnostic PASS.
-- DEV2 PR #171 is a separate P1 `acs/history.py` fail-closed repair, exact run `32635667033` SUCCESS both OS. Hold for post-Stage1-candidate selective intake; do not mix into accepted candidate source while V5 is active.
-- DEV-A PR #170 remains separate Full Product Teacher/Classroom work. It is not Stage1 release input.
+Dedicated run `32638839597` is exact GREEN on Ubuntu `97192655470` and Windows `97192655352`: Product repair regressions 44/44; unchanged PR #159 3/3; privacy/history stress 23 + 11 subtests; focused Stage1 release 80/80; unittest 673/673; pytest 751 + 758 subtests; SELFTEST and complete WebView2 diagnostic PASS. This is intermediate combined evidence, not promotion authorization.
 
-Exactly one active fresh candidate chain exists: PR #175 / QA head `17697b8181781c3a35f12ba522c25852d268eefc` / run `32636245736` / job `97186343167`. It is QA-only, explicitly locked to accepted `1e9d23b...`, and is fresh rather than a V4 retarget.
+Fresh Windows V5 run `32636245736` is terminal FAILURE and its source is obsolete for final release. It proved native Move Edit Ctrl+A and Ctrl+C work in the packaged application. The first remaining strict failure is post-submit focus continuity. Because the helper compares against a pre-rerender UIA board element whose identity becomes stale/empty after board replacement, while final focus was observed on Move Edit, current classification is C / INCONCLUSIVE. No Product focus repair is accepted from this evidence alone.
 
-At the current cutoff the V5 job is IN_PROGRESS. Completed: retained QA harness checkout and identity; clean V5 QA-only scope; LF-preserving exact accepted Stage1 detached worktree; Python setup. Active step: exact Windows source compile/full regressions/diagnostics/privacy oracle. Later gates remain pending: retained topology/classifier; bounded SetValue helper; WAV; official Stockfish 18; Nuitka; native menu; standalone EXE; real WebView2; strict UIA; packaged sound/Stockfish lifecycle; release preflight; ZIP reopen/hash/identity; artifact upload.
+Post-cutoff DEV2 FEN repair/evidence work and submit-focus branches exist but are quarantined for the next cutoff. Do not duplicate or intake them retroactively.
 
-Do not launch/cancel/rerun/modify another candidate chain while V5 is active. PR #160/V4 is invalid/obsolete because it targets old defective `80720e8...`.
+Persistent Full Product exact-GREEN authority remains `dd9ebf9414103c805892856fe6a04706fa69039f` and stays frozen during Stage1 release closure.
 
-Persistent Full Product exact-GREEN authority remains `dd9ebf9414103c805892856fe6a04706fa69039f`; Stage1 release freeze remains active until V5 terminal release decision and any required human NVDA gate.
-
-Fresh candidate artifact: NONE at this cutoff.
 FRESH_WINDOWS_CANDIDATE=NO
 READY_FOR_RELEASE=NO
 NVDA_VERIFIED=NO
