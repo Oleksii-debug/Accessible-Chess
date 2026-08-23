@@ -19,8 +19,9 @@ internal static class Dev01RecallSpellingHardeningSelfTest
     public static void Run()
     {
         TestNormalStartupUsesProtectedSpellingMigrationPath();
+        TestFullCorpusShuffleCoverage();
         TestSpellingEvidenceBoundary();
-        Console.WriteLine("WordDeck DEV01 Recall/Spelling hardening passed: normal startup preserves pre-migration Spelling state, fail-closed recovery remains intact, and Spelling exposes read-only platform-neutral learning evidence.");
+        Console.WriteLine("WordDeck DEV01 Recall/Spelling hardening passed: protected Spelling migration/recovery, full-corpus fair shuffle coverage, and read-only platform-neutral learning evidence verified.");
     }
 
     private static void TestNormalStartupUsesProtectedSpellingMigrationPath()
@@ -64,6 +65,36 @@ internal static class Dev01RecallSpellingHardeningSelfTest
         finally
         {
             try { if (Directory.Exists(root)) Directory.Delete(root, true); } catch { }
+        }
+    }
+
+    private static void TestFullCorpusShuffleCoverage()
+    {
+        DictionaryPackage package = DictionaryLoader.LoadEmbeddedOxford();
+        Require(package.Entries.Count == 5446, $"Expected 5446 canonical entries, got {package.Entries.Count}.");
+
+        string? previousLast = null;
+        int seed = 20260823;
+        foreach (string scopeId in StudyScopeIds.Ordered)
+        {
+            string[] ids = package.Entries
+                .Where(entry => StudyScopeIds.Includes(scopeId, entry))
+                .Select(entry => entry.Id)
+                .ToArray();
+            Require(ids.Length > 0, $"Spelling shuffle scope {scopeId} is unexpectedly empty.");
+
+            Queue<string> queue = ShuffleBag.Create(ids, new Random(seed++), previousLast);
+            string[] cycle = queue.ToArray();
+            Require(cycle.Length == ids.Length,
+                $"Spelling shuffle scope {scopeId} changed the active-card count.");
+            Require(cycle.Distinct(StringComparer.OrdinalIgnoreCase).Count() == ids.Length,
+                $"Spelling shuffle scope {scopeId} repeated a card before covering the active set.");
+            Require(new HashSet<string>(cycle, StringComparer.OrdinalIgnoreCase).SetEquals(ids),
+                $"Spelling shuffle scope {scopeId} omitted or invented stable entry IDs.");
+            if (!string.IsNullOrWhiteSpace(previousLast) && ids.Length > 1 && ids.Contains(previousLast, StringComparer.OrdinalIgnoreCase))
+                Require(!string.Equals(cycle[0], previousLast, StringComparison.OrdinalIgnoreCase),
+                    $"Spelling shuffle scope {scopeId} immediately repeated the previous card at a refill boundary.");
+            previousLast = cycle[^1];
         }
     }
 
