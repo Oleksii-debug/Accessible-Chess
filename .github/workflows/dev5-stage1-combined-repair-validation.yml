@@ -14,6 +14,7 @@ on:
       - 'tests/test_dev2_history_scalar_fail_closed.py'
       - 'tests/test_stage1_stockfish_runtime_path_privacy.py'
       - 'tests/test_d04_release_preflight_hygiene.py'
+      - 'tests/test_d04_release_archive_canonicality.py'
       - 'tests/test_d03_stockfish_hard_shutdown.py'
       - '.github/workflows/dev5-stage1-combined-repair-validation.yml'
   workflow_dispatch:
@@ -27,9 +28,11 @@ env:
   DEV2_HISTORY_BLOB: 381be891b3701039a70492f0db688530ed96fe5b
   DEV2_FEN_BLOB: 7001518255575f55d4634c3578c035c526f7d8a4
   D01_FOCUS_BLOB: bced41192feb068a71ed0789be5629164a37e6c9
-  D04_SHA: 579938cf422445b5c46a08c00cae284e3ae08b9b
-  D04_PREFLIGHT_BLOB: e7abe5cc006a48d7a9e554543e50ae40b12ad481
-  D04_TEST_BLOB: fbec914612befc1e0e2d92b4ba242d06612ff385
+  D04_HYGIENE_SHA: 579938cf422445b5c46a08c00cae284e3ae08b9b
+  D04_HYGIENE_TEST_BLOB: fbec914612befc1e0e2d92b4ba242d06612ff385
+  D04_ARCHIVE_SHA: 0dae9b62fd4f152a5f362674e11039ad34b481c3
+  D04_PREFLIGHT_BLOB: f8fc86f2f9814ca97821ef8199ba4a2dc7ab81dd
+  D04_ARCHIVE_TEST_BLOB: 18c154a264bb3aefcb80067f643abd4cae8ce18e
   D03_SHA: d3f3e8e49fa9e9932e9c66d7c85f67cbfc7e7347
   D03_ENGINE_BLOB: 59b46bb914c5aae094cde1ce92b232fdbce17f19
   D03_TEST_BLOB: b2b69ce8671317890129f17d18489064716046dd
@@ -77,11 +80,15 @@ jobs:
           test "$(git hash-object acs/chesscore.py)" = "$DEV2_FEN_BLOB"
           test "$(git hash-object web/stage1_release_bootstrap.js)" = "$D01_FOCUS_BLOB"
 
-          git cat-file -e "$D04_SHA^{commit}"
-          test "$(git rev-parse "$D04_SHA:acs/release_preflight.py")" = "$D04_PREFLIGHT_BLOB"
-          test "$(git rev-parse "$D04_SHA:tests/test_d04_release_preflight_hygiene.py")" = "$D04_TEST_BLOB"
+          git cat-file -e "$D04_HYGIENE_SHA^{commit}"
+          git cat-file -e "$D04_ARCHIVE_SHA^{commit}"
+          test "$(git merge-base "$D04_HYGIENE_SHA" "$D04_ARCHIVE_SHA")" = "$D04_HYGIENE_SHA"
+          test "$(git rev-parse "$D04_HYGIENE_SHA:tests/test_d04_release_preflight_hygiene.py")" = "$D04_HYGIENE_TEST_BLOB"
+          test "$(git rev-parse "$D04_ARCHIVE_SHA:acs/release_preflight.py")" = "$D04_PREFLIGHT_BLOB"
+          test "$(git rev-parse "$D04_ARCHIVE_SHA:tests/test_d04_release_archive_canonicality.py")" = "$D04_ARCHIVE_TEST_BLOB"
           test "$(git hash-object acs/release_preflight.py)" = "$D04_PREFLIGHT_BLOB"
-          test "$(git hash-object tests/test_d04_release_preflight_hygiene.py)" = "$D04_TEST_BLOB"
+          test "$(git hash-object tests/test_d04_release_preflight_hygiene.py)" = "$D04_HYGIENE_TEST_BLOB"
+          test "$(git hash-object tests/test_d04_release_archive_canonicality.py)" = "$D04_ARCHIVE_TEST_BLOB"
 
           git cat-file -e "$D03_SHA^{commit}"
           test "$(git rev-parse "$D03_SHA:acs/engine.py")" = "$D03_ENGINE_BLOB"
@@ -108,6 +115,7 @@ jobs:
           tests.test_dev2_history_scalar_fail_closed
           tests.test_stage1_stockfish_runtime_path_privacy
           tests.test_d04_release_preflight_hygiene
+          tests.test_d04_release_archive_canonicality
           tests.test_d03_stockfish_hard_shutdown
           tests.test_release_preflight
           tests.test_stockfish_runtime
@@ -149,7 +157,7 @@ jobs:
           git show "$FOCUS_QA_SHA:tests/test_dev5_stage1_submit_listener_focus_route.py" > qa_oracles/test_dev5_stage1_submit_listener_focus_route.py
           test "$(git hash-object qa_oracles/test_dev5_stage1_submit_listener_focus_route.py)" = "$FOCUS_QA_BLOB"
           python -m unittest -v qa_oracles.test_dev5_stage1_submit_listener_focus_route
-      - name: Current Stage1 privacy history FEN focus preflight and lifecycle stress
+      - name: Current Stage1 privacy history FEN focus preflight archive and lifecycle stress
         run: >-
           python -m pytest -q
           tests/test_stage1_release_path_privacy.py
@@ -157,6 +165,7 @@ jobs:
           tests/test_dev2_history_scalar_fail_closed.py
           tests/test_dev2_fen_atomicity.py
           tests/test_d04_release_preflight_hygiene.py
+          tests/test_d04_release_archive_canonicality.py
           tests/test_d03_stockfish_hard_shutdown.py
           tests/test_stage1_saturation_history_stress.py
           tests/test_stage1_core_full_flow.py
