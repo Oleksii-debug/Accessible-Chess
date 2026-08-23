@@ -7,14 +7,14 @@ namespace WordDeck;
 internal sealed record ContextResolvedIdentityDepthEvidence(
     int RequiredTargetCount,
     int ScopeEntryCount,
-    int PhysicalFormCoveredEntryCount,
+    int StableTagCoveredEntryCount,
     int ResolvedStableCoveredEntryCount,
     int UnresolvedAmbiguousEntryCount,
-    int PhysicalFormUncoveredEntryCount,
+    int UnambiguousStableTagUncoveredEntryCount,
     double ResolvedStableCoveragePercent,
     IReadOnlyList<string> ResolvedStableCoveredEntryIds,
     IReadOnlyList<string> UnresolvedAmbiguousEntryIds,
-    IReadOnlyList<string> PhysicalFormUncoveredEntryIds);
+    IReadOnlyList<string> UnambiguousStableTagUncoveredEntryIds);
 
 internal sealed record ContextStableIdentityCoverageEvidencePayload(
     string SchemaId,
@@ -98,7 +98,7 @@ internal static class ContextStableIdentityCoverageEvidenceBuilder
             one,
             two,
             three,
-            "Historical stable-tag participation is used only as occurrence evidence. This document gives conservative stable-ID/POS/sense coverage: any dictionary ID whose written form is shared by multiple stable entries remains UNRESOLVED for every depth unless a future POS/sense-aware source explicitly disambiguates that occurrence. Unresolved IDs do not own canonical learner progress and are not relabeled as missing corpus sentences. Redistribution remains a separate release decision.");
+            "Historical stable-tag participation is used only as occurrence evidence. This document gives conservative stable-ID/POS/sense coverage: any dictionary ID whose written form is shared by multiple stable entries remains UNRESOLVED for every depth unless a future POS/sense-aware source explicitly disambiguates that occurrence. Unresolved IDs do not own canonical learner progress and are not relabeled as missing corpus sentences. True unique physical-form coverage is reported only by the separate physical-forms evidence document. Redistribution remains a separate release decision.");
         string digest = ComputeDigest(payload);
         return new ContextStableIdentityCoverageEvidenceDocument(payload, digest);
     }
@@ -119,7 +119,7 @@ internal static class ContextStableIdentityCoverageEvidenceBuilder
         ContextTargetLexicon lexicon,
         IReadOnlyCollection<string> universe)
     {
-        var physicalReport = new ContextNaturalCoverageReport(
+        var stableTagReport = new ContextNaturalCoverageReport(
             depth.RequiredTargetCount,
             depth.ScopeEntryCount,
             depth.CoveredEntryCount,
@@ -127,7 +127,7 @@ internal static class ContextStableIdentityCoverageEvidenceBuilder
             depth.CoveredEntryIds,
             depth.UncoveredEntryIds,
             depth.AmbiguousStableEntryIds);
-        ContextStableIdentityCoverageReport stable = ContextStableIdentityResolution.ResolveCoverage(physicalReport, lexicon, universe);
+        ContextStableIdentityCoverageReport stable = ContextStableIdentityResolution.ResolveCoverage(stableTagReport, lexicon, universe);
         return new ContextResolvedIdentityDepthEvidence(
             depth.RequiredTargetCount,
             depth.ScopeEntryCount,
