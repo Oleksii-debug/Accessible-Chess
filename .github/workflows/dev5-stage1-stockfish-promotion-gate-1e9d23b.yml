@@ -1,19 +1,17 @@
 name: DEV5 Stage1 Stockfish Privacy Promotion Gate — 1e9d23b
 
 on:
-  push:
-    branches:
-      - qa/dev5-stage1-stockfish-promotion-gate-1e9d23b-20260823
   pull_request:
     branches:
       - qa/dev5-stage1-stockfish-promotion-gate-base-1e9d23b-20260823
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
   group: dev5-stage1-stockfish-promotion-gate-1e9d23b
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 env:
   PRODUCT_SHA: 1e9d23b034e6d347fe03c3581469a07e16037c55
