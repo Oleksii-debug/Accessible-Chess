@@ -1,19 +1,18 @@
 # DEV5_NEXT_WORK
 
-SOURCE_RUN: 20260823-1301
-MODE: SAFE_OVERLAP / FRESH_WINDOWS_CANDIDATE_NEXT
+SOURCE_RUN: 20260823-1347
+MODE: SAFE_OVERLAP / INDEPENDENT_STAGE1_REVALIDATION_NEXT
 
-1. Use exact promoted repaired Stage1 Product `df52aeb3d99f4ae3d0089eab2882fe9b3c373dfd` for the next candidate attempt. `0fa442330bc2bb03636ff9297512da4c29e38684` is now the prior baseline/comparison anchor, not the SHA to package.
-2. Promotion basis is terminal exact run `32627946799`: Linux `97166119460` SUCCESS and Windows `97166119501` SUCCESS, including unchanged independent privacy oracles and the DEV1 PR #155 Windows drive-relative oracle.
-3. Do not merge PR #151 merely to package. Keep PR #54/frozen refs untouched.
-4. Do not silently retarget historical V3 or old PR #139 artifact state. Create/designate one fresh QA harness whose source lock explicitly names `df52aeb...` and records its own exact harness SHA.
-5. The candidate chain must be uninterrupted GREEN through exact source lock, frozen-core identity, release contracts, WAV assets, official Stockfish, native-menu structural gate, Nuitka standalone, built-EXE diagnostic, real WebView2 startup, strict UIA interaction, packaged sound/Stockfish lifecycle, release preflight, ZIP reopen/identity and candidate upload.
-6. Keep the strict UIA classification honest: V2 proved original Move Edit and native Backspace `e9 -> e` but stopped before Ctrl+A at SetValue readback. No Ctrl+A Product defect is proven. Use bounded observability/reacquire without weakening element-identity assertions.
-7. If a new fresh chain fails at SetValue synchronization, classify the exact transition before any Product mutation. Do not infer Ctrl+A failure from a pre-Ctrl+A stop.
-8. If the fresh chain is fully GREEN, record exact Product SHA + exact QA harness SHA + run/job IDs + artifact ID/hash/ZIP reopen identity, and only then set `FRESH_WINDOWS_CANDIDATE=YES`.
-9. `READY_FOR_RELEASE` remains NO until all release gates for that exact artifact are satisfied. `NVDA_VERIFIED` remains NO until the user personally verifies that exact candidate with NVDA.
-10. Rejected/old ZIP must not be reused.
-11. DEV2/DEV3 Full Product slices remain later selective backlog and must not contaminate Stage1 release freeze.
-12. DEV4 `3e15dc2e...` is prior lineage only; do not revive obsolete privacy conclusions.
-13. For DEV1-DEV4 next-wave coordination, consume only terminal evidence that existed before 2026-08-23 13:01:42 Europe/Kyiv. Do not race post-cutoff work.
-14. No force-push shared history, skips, xfails or weakened assertions.
+1. Do NOT package stale `df52aeb3d99f4ae3d0089eab2882fe9b3c373dfd`; its prior promotion is revoked by independent PR #158.
+2. Current repaired Stage1 candidate is exact `80720e8125c59a213f278668d599040f2768d553` on PR #151. It is source/regression GREEN but not yet independently accepted as Stage1 authority.
+3. Exact DEV5 evidence: run `32634572205`; Linux `97182279775` SUCCESS; Windows `97182279877` SUCCESS. PR #158 unchanged oracle is included in the Linux 13/13 external privacy suite. Windows privacy 10/10, Stage1 focused release contracts 75/75, unittest 663/663, pytest 741 + 758 subtests and complete diagnostic all PASS.
+4. First next action is independent DEV4/AUDIT exact-head review of `80720e8...`, PR #151 diff and run `32634572205`. Do not self-certify that step as independent.
+5. Only after independent acceptance establish/designate the repaired Stage1 authority. Preserve `0fa442...` as prior baseline/history; do not rewrite frozen refs or merge validation PRs wholesale.
+6. Then create/designate exactly one fresh QA/release harness explicitly locked to the newly accepted repaired Product SHA. Do not reuse old PR #139 artifact state, stale V3 product lock, or rejected ZIP.
+7. Candidate validity requires one uninterrupted terminal GREEN Windows chain: exact source lock; frozen-core identity; release contracts; WAV assets; official Stockfish; native-menu structural gate; Nuitka standalone; built-EXE diagnostic; real WebView2 startup; strict UIA interaction; packaged sound/Stockfish lifecycle; release preflight; ZIP reopen/identity; candidate upload.
+8. UIA classification remains C / INCONCLUSIVE. V2 proved the unique original Move Edit and native Backspace `e9 -> e`, then stopped before Ctrl+A during SetValue readback. Do not patch Product Ctrl+A/C without a B-class Product proof.
+9. Bounded UIA observability/reacquire may be changed only under QA ownership and must preserve exact element identity, native keyboard proof and fail-closed assertions.
+10. If the fresh chain is fully GREEN, record exact Product SHA, exact harness SHA, run/job IDs, artifact ID/hash and reopened ZIP identity before setting `FRESH_WINDOWS_CANDIDATE=YES`.
+11. `READY_FOR_RELEASE=NO` and `NVDA_VERIFIED=NO` until the exact machine chain and later human NVDA gate are satisfied.
+12. Stage1 release freeze remains active; do not advance persistent Full Product `dd9ebf...` meanwhile.
+13. No force-push, test weakening, skip, xfail or duplicate touching Product branch.
