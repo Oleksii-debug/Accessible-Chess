@@ -148,7 +148,9 @@ function Open-And-CancelDialog([string]$shortcut, [string]$dialogName, [string]$
     $wordBefore = Get-Value 'Current English word'
     Send-Keys $shortcut 'Current English word'
     Wait-For $dialogName 12000
-    Send-Keys 'esc' $dialogName
+    # Keep the already-proven dialog cancel transport for standard Windows file
+    # dialogs; targeting the dialog itself changes WinApp's resolution behavior.
+    Send-Keys 'esc'
     Wait-Gone $dialogName 10000
     Wait-For 'Current English word' 5000
     if ((Get-Value 'Current English word') -ne $wordBefore) { Fail "$context changed the current Recall card while being cancelled." }
