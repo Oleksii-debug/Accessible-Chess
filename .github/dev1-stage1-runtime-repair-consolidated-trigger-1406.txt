@@ -1,0 +1,2 @@
+DEV1 evidence trigger only for RUN_ID 20260823-1406.
+No Product mutation. Exact Product checkout remains 1e9d23b034e6d347fe03c3581469a07e16037c55.
