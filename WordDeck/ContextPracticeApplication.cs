@@ -110,7 +110,12 @@ internal static class ContextPracticeApplicationService
         if (!pool.EntryIds.Contains(anchor, StringComparer.OrdinalIgnoreCase))
             throw new InvalidDataException("Context practice anchor must belong to the selected 30/100/200/full study pool.");
 
-        string[] ambiguousStableIds = lexicon.AmbiguousStableIds(pool.EntryIds)
+        // Ambiguity is a property of the full dictionary identity, not of which sibling
+        // IDs happen to fall inside the current 30/100/200 study window. A homograph
+        // must therefore stay visible in the ledger even when only one of its stable
+        // IDs is present in this particular pool.
+        string[] ambiguousStableIds = pool.EntryIds
+            .Where(lexicon.IsAmbiguousStableIdentity)
             .OrderBy(id => id, StringComparer.Ordinal)
             .ToArray();
         if (lexicon.IsAmbiguousStableIdentity(anchor))
