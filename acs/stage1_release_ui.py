@@ -78,10 +78,12 @@ def run_release_window(api: Stage1ReleaseAccessibleChessAPI, runtime: Any | None
 
     html = _asset_root() / "web" / "index.html"
     bootstrap = _asset_root() / "web" / "stage1_release_bootstrap.js"
+    submit_focus_route = _asset_root() / "web" / "stage1_submit_focus_route.js"
     board_bridge = _asset_root() / "web" / "stage1_board_actions.js"
     for path, label in (
         (html, "Accessible HTML UI"),
         (bootstrap, "Stage 1 WebView bootstrap"),
+        (submit_focus_route, "Stage 1 submit focus route"),
         (board_bridge, "Stage 1 board action bridge"),
     ):
         if not path.exists():
@@ -91,6 +93,7 @@ def run_release_window(api: Stage1ReleaseAccessibleChessAPI, runtime: Any | None
             # a build machine/user profile path through the user-facing error.
             raise RuntimeError(f"{label} not found in packaged resources.")
     bootstrap_source = bootstrap.read_text(encoding="utf-8")
+    submit_focus_route_source = submit_focus_route.read_text(encoding="utf-8")
     board_bridge_source = board_bridge.read_text(encoding="utf-8")
 
     window = webview.create_window(
@@ -110,6 +113,7 @@ def run_release_window(api: Stage1ReleaseAccessibleChessAPI, runtime: Any | None
 
     def install_release_web_contract(*_args: Any) -> None:
         window.evaluate_js(bootstrap_source)
+        window.evaluate_js(submit_focus_route_source)
         window.evaluate_js(board_bridge_source)
 
     window.events.before_show += install_menu_on_native_host
