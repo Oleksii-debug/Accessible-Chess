@@ -1,0 +1,106 @@
+name: DEV2 Core 264 — f68794b
+
+on:
+  push:
+    branches:
+      - qa/dev2-core-264-on-f68794b-20260823
+  pull_request:
+    branches:
+      - qa/dev2-core-base-f68794b-20260823
+
+permissions:
+  contents: read
+
+env:
+  EXACT_PRODUCT_SHA: f68794b8de6b10c10b30b6abb2c2dd26b2129c64
+
+jobs:
+  core-linux:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -q pytest
+      - name: Prove exact Product ancestry and evidence-only delta
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git merge-base "$EXACT_PRODUCT_SHA" HEAD)" = "$EXACT_PRODUCT_SHA"
+          git diff --check "$EXACT_PRODUCT_SHA" HEAD
+          changed="$(git diff --name-only "$EXACT_PRODUCT_SHA" HEAD)"
+          test "$changed" = $'.github/workflows/dev2-core-264-f68794b.yml\ntests/test_dev2_stage1_candidate_264_matrix.py'
+      - run: python -m compileall -q acs tests run_accessible_chess.py
+      - name: DEV2 264 matrix
+        run: python -m unittest -v tests.test_dev2_stage1_candidate_264_matrix
+      - name: Existing DEV2 and Stage1 focused regressions
+        run: >-
+          python -m unittest -v
+          tests.test_dev2_fen_atomicity
+          tests.test_dev2_board_query_invariants
+          tests.test_history
+          tests.test_position_editor
+          tests.test_squares
+          tests.test_stage1_saturation_history_stress
+          tests.test_stage1_core_full_flow
+          tests.test_core_release_contracts
+          tests.test_manual5_cross_lane_regression
+      - name: Full unittest
+        run: python -m unittest discover -s tests -v
+      - name: Full pytest
+        run: python -m pytest -q tests
+      - name: SELFTEST
+        run: python -m acs.selftest
+      - name: Complete diagnostic
+        run: python run_accessible_chess.py --diagnostic
+
+  core-windows:
+    runs-on: windows-2025
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Re-materialize LF exactly and prove Product ancestry
+        shell: pwsh
+        run: |
+          git config core.autocrlf false
+          git config core.eol lf
+          git reset --hard HEAD
+          if((git merge-base $env:EXACT_PRODUCT_SHA HEAD).Trim() -ne $env:EXACT_PRODUCT_SHA){throw 'Product ancestry mismatch'}
+          git diff --check $env:EXACT_PRODUCT_SHA HEAD
+          if($LASTEXITCODE -ne 0){throw 'Diff hygiene failed'}
+          $changed=@(git diff --name-only $env:EXACT_PRODUCT_SHA HEAD)
+          $allowed=@('.github/workflows/dev2-core-264-f68794b.yml','tests/test_dev2_stage1_candidate_264_matrix.py')
+          if($changed.Count -ne 2 -or @($changed | Where-Object {$_ -notin $allowed}).Count -ne 0){throw "Evidence-only diff mismatch: $($changed -join ', ')"}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -q pytest
+      - run: python -m compileall -q acs tests run_accessible_chess.py
+      - name: DEV2 264 matrix
+        run: python -m unittest -v tests.test_dev2_stage1_candidate_264_matrix
+      - name: Existing DEV2 and Stage1 focused regressions
+        run: >-
+          python -m unittest -v
+          tests.test_dev2_fen_atomicity
+          tests.test_dev2_board_query_invariants
+          tests.test_history
+          tests.test_position_editor
+          tests.test_squares
+          tests.test_stage1_saturation_history_stress
+          tests.test_stage1_core_full_flow
+          tests.test_core_release_contracts
+          tests.test_manual5_cross_lane_regression
+      - name: Full unittest
+        run: python -m unittest discover -s tests -v
+      - name: Full pytest
+        run: python -m pytest -q tests
+      - name: SELFTEST
+        run: python -m acs.selftest
+      - name: Complete diagnostic
+        run: python run_accessible_chess.py --diagnostic
