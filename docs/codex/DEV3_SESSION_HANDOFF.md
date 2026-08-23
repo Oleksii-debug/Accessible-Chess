@@ -1,24 +1,25 @@
 # DEV3 SESSION HANDOFF
 
-DEV3 continuation remains SAFE OVERLAP / release-support. No Product or QA-harness mutation was made because the active Stage1 privacy repair is owned by DEV5 and the Windows candidate/release chain remains downstream.
+DEV3 continuation remains SAFE OVERLAP / release-support. No Product or QA-harness mutation was made because DEV5 owns the release privacy repair and candidate promotion chain.
 
-Accepted Stage1 Product authority: `manual5/integration-20260821 @ 0fa442330bc2bb03636ff9297512da4c29e38684`.
+Accepted Stage1 Product authority is still `manual5/integration-20260821 @ 0fa442330bc2bb03636ff9297512da4c29e38684`.
 
-DEV3 exact Windows runtime evidence remains GREEN in PR #142: `DEV3 Stage1 Runtime Evidence / 32600115025 / 97097006614`, with 177/177 focused Stockfish/analysis/clocks/lifecycle PASS, official Stockfish 18 real runtime, one shared provider, MultiPV=5 restoration, packaged relative Stockfish path, SELFTEST and complete WebView2 diagnostic PASS.
+DEV3 exact Windows runtime evidence remains GREEN in PR #142: `32600115025 / 97097006614`, with 177/177 focused Stockfish/analysis/clocks/lifecycle PASS, official Stockfish 18 real runtime, one shared provider, MultiPV=5 restoration, packaged relative Stockfish path, SELFTEST and complete WebView2 diagnostic PASS.
 
-NEW EXACT DEV3 EVIDENCE: PR #150 (`qa/dev3-stage1-engine-start-privacy-evidence-20260823 @ 94fc9a8a1f708da66319d9ea63718376d339bc10`) ran `DEV3 Stage1 Engine Start Path Privacy Evidence / 32627037392 / 97163830449`. Exact accepted-source lock, evidence-only diff and compile PASS; existing UCI recovery 3/3 PASS; privacy oracle 2/2 FAIL. Accepted Stage1 republishes private Stockfish executable paths in both OSError/FileNotFoundError and ValueError startup failures. This establishes `PROVEN_STAGE1_ENGINE_START_PRIVACY_DEFECT=YES` without establishing a broader Stockfish runtime defect.
+DEV3 evidence-only PR #150 (`94fc9a8a1f708da66319d9ea63718376d339bc10`) proves accepted Stage1 engine-start privacy leakage: `DEV3 Stage1 Engine Start Path Privacy Evidence / 32627037392 / 97163830449`; exact source/diff/compile PASS, UCI recovery 3/3 PASS, privacy oracle 2/2 FAIL for private executable-path disclosure through OSError/FileNotFoundError and ValueError. Earlier PR #148 proves accepted Stage1 PGN/ImportRegistry path leakage (`32624495674 / 97157620475`).
 
-Earlier PR #148 remains exact evidence that accepted Stage1 also leaks private parent paths from PGN existing-destination and ImportRegistry provenance diagnostics (`32624495674 / 97157620475`). Current accepted source is therefore release-blocked on multiple path-privacy surfaces until a repaired SHA is explicitly promoted.
+ACTIVE REPAIR OWNER DEV5 PR #151 is now exact technical GREEN at head `909d8e2729e00ba5fce0f25a1520010844f9341b`.
+Workflow `DEV5 Stage1 Path Privacy Repair CI`, run `32627213644`:
+- Linux job `97164249233` SUCCESS: ancestry/diff hygiene, compile, Product privacy regressions, unchanged independent QA privacy oracles, full unittest, full pytest, complete diagnostic PASS.
+- Windows job `97164249154` SUCCESS: LF-exact materialization, Windows privacy regressions, focused Stage1 release contracts, full unittest, full pytest, complete diagnostic PASS.
+Prior fixture and CRLF false-reds were repaired without weakening privacy or frozen-core assertions.
 
-ACTIVE REPAIR OWNER: DEV5 PR #151, current head `f99146f728ace6f76606beeea6caafbb6ac940e9`.
-- Initial run `32627055689` was inconclusive because the Product-owned privacy fixture attempted the same mkdir twice with `exist_ok=False`; DEV3 classified it in comment `5384960853`.
-- Corrected rerun `32627159257`: Linux job `97164119089` SUCCESS through Product privacy tests, independent QA privacy oracles unchanged, full unittest, full pytest and complete diagnostic. Windows job `97164119275` has privacy regressions 6/6 PASS, then 74/75 focused Stage1 release tests PASS. The only failure is frozen-core working-tree blob identity for `stage1_release_ui_core.py`: observed `d926aa21cbf966b193f1249d2fb811beb9c49403` vs frozen LF blob `b8586a26b9ab20c3d3ec0b0a3dbbbd53e38e94e6`. PR #151 does not modify that core file; workflow configures LF only after checkout, so checkout-time CRLF materialization is the current CI blocker. DEV3 recorded exact CI-only remediation direction in comment `5384964048` without weakening assertions.
+This makes PR #151 technically ready for independent Audit review/promotion, but it is not itself accepted Stage1 authority and does not produce/certify a fresh candidate archive.
 
-NEXT DEV3 ACTION: fresh ownership read, then inspect the next PR #151 exact-head rerun after LF rematerialization. If Linux + Windows complete validation is GREEN and Audit promotes a repaired Stage1 SHA, replay DEV3 privacy oracles unchanged against that exact authority. Only then follow the fresh Windows candidate through strict UIA, packaged Stockfish/sound, release preflight, ZIP identity and artifact upload. Open DEV3 Product code only for a newly proven runtime/analysis/clock/lifecycle defect.
+NEXT DEV3 ACTION: fresh ownership read, then determine whether Audit promoted `909d8e27...` or an equivalent reviewed SHA into the authorized Stage1 integration line. If a new accepted authority exists, replay DEV3 privacy oracles unchanged against that exact SHA. Only after promoted-authority privacy GREEN follow one fresh Windows candidate through strict UIA, packaged Stockfish/sound, release preflight, ZIP identity and artifact upload. Open DEV3 Product code only for a newly proven runtime/analysis/clock/lifecycle defect.
 
 SAFE_OVERLAP=YES
-PROVEN_STAGE1_RELEASE_PRIVACY_DEFECT=YES
-PROVEN_STAGE1_ENGINE_START_PRIVACY_DEFECT=YES
+PR151_PRIVACY_REPAIR_EXACT_CI=GREEN
 DEV3_PRODUCT_PATCH_REQUIRED=NO
 FRESH_WINDOWS_CANDIDATE=NO
 NVDA_VERIFIED=NO
