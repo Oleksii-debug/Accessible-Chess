@@ -20,9 +20,10 @@ internal static class ContextTargetSpellingSelfTest
         TestTwoTargetCardCreatesTwoExercises();
         TestThreeTargetCardCreatesThreeExercises();
         TestMultiwordOrderAndHyphenation();
+        TestRepeatedTargetOccurrenceFailsClosed();
         TestMorphologyFailsClosed();
         TestAmbiguousStableIdentityFailsClosed();
-        Console.WriteLine("Context target-spelling self-test PASS: target-only answers, 1/2/3 stable IDs, exact hyphenation, multiword order, homograph identity and morphology fail-closed verified.");
+        Console.WriteLine("Context target-spelling self-test PASS: target-only answers, 1/2/3 stable IDs, exact hyphenation, one-blank/one-answer repeated-target safety, multiword order, homograph identity and morphology fail-closed verified.");
     }
 
     private static void TestSingleTargetExactPhysicalForm()
@@ -116,6 +117,27 @@ internal static class ContextTargetSpellingSelfTest
                        ex.Message.Contains("exact physical dictionary form", StringComparison.OrdinalIgnoreCase);
         }
         Check(rejected, "Sentence Spelling trusted a token-only index even though the exact hyphenated dictionary form was absent from the sentence.");
+    }
+
+    private static void TestRepeatedTargetOccurrenceFailsClosed()
+    {
+        DictionaryPackage dictionary = FixtureDictionary();
+        var lexicon = new ContextTargetLexicon(dictionary);
+        ContextPracticeCard card = Card(
+            "s-repeat-improve",
+            "Вони покращують і ще раз покращують навички",
+            "They improve and improve skills",
+            new[] { "ox-improve" },
+            new[] { "improve" });
+
+        bool rejected = false;
+        try { _ = ContextTargetSpellingService.Build(card, "ox-improve", lexicon, dictionary); }
+        catch (InvalidDataException ex)
+        {
+            rejected = ex.Message.Contains("one-blank/one-answer", StringComparison.OrdinalIgnoreCase) &&
+                       ex.Message.Contains("2 times", StringComparison.OrdinalIgnoreCase);
+        }
+        Check(rejected, "Repeated exact target occurrences created an ambiguous multi-blank Sentence Spelling exercise.");
     }
 
     private static void TestMorphologyFailsClosed()
