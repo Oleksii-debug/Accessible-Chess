@@ -17,6 +17,7 @@ from __future__ import annotations
 import argparse
 import gzip
 import hashlib
+import hmac
 import json
 import sqlite3
 import tempfile
@@ -54,6 +55,58 @@ def _sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _canonical_payload_bytes(path: Path) -> bytes:
+    """Return the exact canonical Payload JSON bytes used by the C# evidence digest.
+
+    ContextStableIdentityCoverageEvidenceBuilder serializes the document and its
+    Payload with the same non-indented System.Text.Json options. Therefore the raw
+    nested Payload token in the canonical document is byte-for-byte the material
+    hashed by the builder. Requiring that canonical shape lets this validator verify
+    the digest without reimplementing System.Text.Json serialization semantics.
+    """
+    try:
+        text = path.read_text(encoding="utf-8-sig")
+    except (OSError, UnicodeError) as exc:
+        raise RuntimeError(f"Stable-identity evidence cannot be read for digest verification: {path}") from exc
+
+    prefix = '{"Payload":'
+    if not text.startswith(prefix):
+        raise RuntimeError("Stable-identity evidence is not in the canonical compact document shape.")
+    start = len(prefix)
+    if start >= len(text) or text[start] != "{":
+        raise RuntimeError("Stable-identity evidence canonical Payload is not a JSON object.")
+
+    depth = 0
+    in_string = False
+    escaped = False
+    for index in range(start, len(text)):
+        ch = text[index]
+        if in_string:
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == '"':
+                in_string = False
+            continue
+
+        if ch == '"':
+            in_string = True
+        elif ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                suffix = text[index + 1 :]
+                if not suffix.startswith(',"EvidenceDigestSha256":') or not suffix.endswith("}"):
+                    raise RuntimeError("Stable-identity evidence is not in the canonical compact document shape.")
+                return text[start : index + 1].encode("utf-8")
+            if depth < 0:
+                break
+
+    raise RuntimeError("Stable-identity evidence canonical Payload object is unterminated.")
+
+
 def _redistribution_state(
     release_evidence_path: Path | None,
     expected_database_sha256: str,
@@ -72,6 +125,9 @@ def _redistribution_state(
     digest = document.get("EvidenceDigestSha256")
     if not isinstance(digest, str) or len(digest) != 64 or any(ch not in "0123456789abcdefABCDEF" for ch in digest):
         raise RuntimeError("SentencePack stable-identity release evidence is missing a canonical SHA-256 evidence digest.")
+    actual_digest = hashlib.sha256(_canonical_payload_bytes(release_evidence_path)).hexdigest()
+    if not hmac.compare_digest(actual_digest.lower(), digest.lower()):
+        raise RuntimeError("SentencePack stable-identity evidence digest does not match its canonical Payload.")
 
     database_sha256 = payload.get("DatabaseSha256")
     if not isinstance(database_sha256, str) or database_sha256.lower() != expected_database_sha256.lower():
@@ -222,19 +278,36 @@ def self_test() -> None:
             "CanSupportConservativeStableIdentityCoverageClaim": True,
             "RedistributionApproved": False,
         }
-        evidence.write_text(
-            json.dumps({
-                "Payload": base_payload,
-                "EvidenceDigestSha256": "a" * 64,
-            }),
-            encoding="utf-8",
-        )
+
+        def write_evidence(payload: dict[str, object], digest_override: str | None = None) -> str:
+            payload_json = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+            canonical_digest = hashlib.sha256(payload_json.encode("utf-8")).hexdigest()
+            digest_value = digest_override or canonical_digest
+            evidence.write_text(
+                f'{{"Payload":{payload_json},"EvidenceDigestSha256":"{digest_value}"}}',
+                encoding="utf-8",
+            )
+            return canonical_digest
+
+        base_digest = write_evidence(base_payload)
         result_with_evidence = validate(db_path, gzip_path, manifest, coverage)
         if result_with_evidence["release_evidence_present"] is not True or result_with_evidence["redistribution_approved"] is not False:
             raise RuntimeError("Validator did not preserve explicit false redistribution evidence.")
         if result_with_evidence["sqlite_sha256"] != exact_db_hash:
             raise RuntimeError("Validator did not report the exact SQLite identity used for evidence binding.")
 
+        tampered_payload = dict(base_payload)
+        tampered_payload["SourceId"] = "tampered-after-digest"
+        write_evidence(tampered_payload, digest_override=base_digest)
+        try:
+            validate(db_path, gzip_path, manifest, coverage)
+        except RuntimeError as exc:
+            if "digest does not match its canonical Payload" not in str(exc):
+                raise
+        else:
+            raise RuntimeError("Validator accepted a tampered stable-identity Payload with a stale evidence digest.")
+
+        write_evidence(base_payload)
         try:
             validate(db_path, gzip_path, manifest, coverage, require_redistribution_approved=True)
         except RuntimeError as exc:
@@ -245,13 +318,7 @@ def self_test() -> None:
 
         forged_approval = dict(base_payload)
         forged_approval["RedistributionApproved"] = True
-        evidence.write_text(
-            json.dumps({
-                "Payload": forged_approval,
-                "EvidenceDigestSha256": "b" * 64,
-            }),
-            encoding="utf-8",
-        )
+        write_evidence(forged_approval)
         try:
             validate(db_path, gzip_path, manifest, coverage)
         except RuntimeError as exc:
@@ -262,13 +329,7 @@ def self_test() -> None:
 
         wrong_database = dict(base_payload)
         wrong_database["DatabaseSha256"] = "0" * 64
-        evidence.write_text(
-            json.dumps({
-                "Payload": wrong_database,
-                "EvidenceDigestSha256": "c" * 64,
-            }),
-            encoding="utf-8",
-        )
+        write_evidence(wrong_database)
         try:
             validate(db_path, gzip_path, manifest, coverage)
         except RuntimeError as exc:
@@ -279,13 +340,7 @@ def self_test() -> None:
 
         malformed_boolean = dict(base_payload)
         malformed_boolean["RedistributionApproved"] = "false"
-        evidence.write_text(
-            json.dumps({
-                "Payload": malformed_boolean,
-                "EvidenceDigestSha256": "d" * 64,
-            }),
-            encoding="utf-8",
-        )
+        write_evidence(malformed_boolean)
         try:
             validate(db_path, gzip_path, manifest, coverage)
         except RuntimeError as exc:
@@ -303,7 +358,7 @@ def self_test() -> None:
         else:
             raise RuntimeError("Validator accepted a candidate bundle without SQLite")
 
-    print("SentencePack candidate-bundle validator self-test passed: exact-candidate consistency is bound, internal evidence cannot self-grant redistribution, and external approval remains fail-closed separate.")
+    print("SentencePack candidate-bundle validator self-test passed: exact-candidate consistency and canonical evidence digest are bound, internal evidence cannot self-grant redistribution, and external approval remains fail-closed separate.")
 
 
 def main() -> int:
