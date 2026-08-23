@@ -40,7 +40,7 @@ jobs:
         shell: pwsh
         run: |
           $forbidden = Get-ChildItem artifacts/listening-publish -Recurse -File | Where-Object {
-            $_.Name -match '^(state|spelling-state|sentence-coach-state|listening-state)\.json$' -or
+            $_.Name -match '^(state|spelling-state|sentence-coach-state|listening-state)(\.backup)?\.json$' -or
             $_.Name -match '^WordDeck-.*profile.*\.json$'
           }
-          if ($forbidden) { $forbidden.FullName; throw 'Published tree contains personal learning state.' }
+          if ($forbidden) { $forbidden.FullName; throw 'Published tree contains personal learning state or recovery state.' }
