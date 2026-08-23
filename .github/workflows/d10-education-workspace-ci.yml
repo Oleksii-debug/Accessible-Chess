@@ -1,0 +1,98 @@
+name: D10 Atomic Education Workspace CI
+
+on:
+  pull_request:
+    paths:
+      - 'acs/education_workspace.py'
+      - 'acs/education_workspace_store.py'
+      - 'tests/test_education_workspace.py'
+      - 'docs/ADR-D10-education-records-authority.md'
+      - '.github/workflows/d10-education-workspace-ci.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  d10-atomic-workspace:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 2
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.12'
+      - name: Install test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements/work-ci.txt ]; then python -m pip install -r requirements/work-ci.txt; fi
+          python -m pip install pytest
+      - name: Exact D10 stacked scope and diff hygiene
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check HEAD^1 HEAD
+          while IFS= read -r path; do
+            case "$path" in
+              acs/education_workspace.py|acs/education_workspace_store.py|tests/test_education_workspace.py|docs/ADR-D10-education-records-authority.md|.github/workflows/d10-education-workspace-ci.yml) ;;
+              *) echo "Unexpected path outside D10 atomic workspace package: $path"; exit 1 ;;
+            esac
+          done < <(git diff --name-only HEAD^1 HEAD)
+      - name: Compile D10 workspace package
+        run: >-
+          python -m compileall -q
+          acs/education_workspace.py
+          acs/education_workspace_store.py
+          tests/test_education_workspace.py
+      - name: Focused atomic workspace domain and persistence
+        run: python -m unittest tests.test_education_workspace -v
+      - name: Parent D10 education records regressions
+        run: >-
+          python -m unittest -v
+          tests.test_education_records
+          tests.test_education_records_store
+      - name: Canonical Classroom and Remote regressions
+        run: >-
+          python -m unittest -v
+          tests.test_classroom_domain
+          tests.test_classroom_domain_corruption
+          tests.test_remote_session
+      - name: Full unittest regression
+        run: python -m unittest discover -s tests -p 'test_*.py'
+      - name: Full pytest regression, unweakened evidence
+        id: full_pytest
+        continue-on-error: true
+        run: python -m pytest -q
+      - name: Fail-closed inherited UI baseline proof
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ steps.full_pytest.outcome }}" = "success" ]; then
+            echo "Full pytest is green; no inherited baseline proof required."
+            exit 0
+          fi
+
+          git diff --quiet HEAD^1 HEAD -- web/index.html tests/test_board_rank_file_remapping_ui.py
+          python -m pytest -q -k "not test_board_dispatch_uses_action_ids_instead_of_hardcoded_digit_shortcuts and not test_help_is_generated_from_live_rank_and_file_bindings"
+
+          one='tests/test_board_rank_file_remapping_ui.py::test_board_dispatch_uses_action_ids_instead_of_hardcoded_digit_shortcuts'
+          two='tests/test_board_rank_file_remapping_ui.py::test_help_is_generated_from_live_rank_and_file_bindings'
+          set +e
+          python -m pytest -q "$one" "$two" > /tmp/d10-ws-head-known.txt 2>&1
+          head_status=$?
+          set -e
+          cat /tmp/d10-ws-head-known.txt
+          test "$head_status" -eq 1
+          grep -q '2 failed' /tmp/d10-ws-head-known.txt
+
+          git worktree add --detach /tmp/d10-ws-base HEAD^1
+          set +e
+          (cd /tmp/d10-ws-base && python -m pytest -q "$one" "$two") > /tmp/d10-ws-base-known.txt 2>&1
+          base_status=$?
+          set -e
+          cat /tmp/d10-ws-base-known.txt
+          test "$base_status" -eq 1
+          grep -q '2 failed' /tmp/d10-ws-base-known.txt
+          echo "D10 WORKSPACE BASELINE PROOF PASS: only the exact unchanged inherited UI pair remains red."
