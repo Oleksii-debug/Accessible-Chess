@@ -17,7 +17,7 @@ internal enum ContextConsumerKind
 internal enum ContextDataBoundary
 {
     LocalOnly,
-    ShareableCorpus
+    ExternalCorpusRedistributionUnverified
 }
 
 internal sealed record ContextIntegrationRequest(
@@ -51,10 +51,19 @@ internal sealed record ContextIntegrationItem(
     string Provenance,
     string License,
     ContextDataBoundary DataBoundary,
+    bool RedistributionApproved,
+    string DistributionBoundary,
     ContextIntegrationLocation? LocalLocation);
 
 internal static class ContextPracticeIntegrationGateway
 {
+    private const string ExternalDistributionBoundary =
+        "External real-corpus context is usable for local learning/search only. RealCorpus does not imply redistribution approval. " +
+        "Web/network publication remains blocked until an exact approved corpus artifact, license, provenance and attribution bundle is verified by a separate release gate.";
+
+    private const string LocalDistributionBoundary =
+        "Private local user book/text content remains on-device by default and must not be silently uploaded or exposed to a network-facing consumer.";
+
     public static IReadOnlyList<ContextIntegrationItem> Query(
         IContextSentenceSource source,
         ContextIntegrationRequest request)
@@ -127,6 +136,12 @@ internal static class ContextPracticeIntegrationGateway
             location = new ContextIntegrationLocation(local.BookId, local.ChapterId, local.StartOffset, local.EndOffset);
         }
 
+        bool privateLocal = source.Kind == ContextCorpusKind.LocalUserText || source.PrivacyLocalOnly;
+        ContextDataBoundary dataBoundary = privateLocal
+            ? ContextDataBoundary.LocalOnly
+            : ContextDataBoundary.ExternalCorpusRedistributionUnverified;
+        string distributionBoundary = privateLocal ? LocalDistributionBoundary : ExternalDistributionBoundary;
+
         return new ContextIntegrationItem(
             sentence.Id,
             sentence.English,
@@ -139,7 +154,9 @@ internal static class ContextPracticeIntegrationGateway
             source.Kind,
             source.Provenance,
             source.License,
-            source.PrivacyLocalOnly ? ContextDataBoundary.LocalOnly : ContextDataBoundary.ShareableCorpus,
+            dataBoundary,
+            RedistributionApproved: false,
+            distributionBoundary,
             location);
     }
 
@@ -147,10 +164,14 @@ internal static class ContextPracticeIntegrationGateway
     {
         descriptor.Validate();
         bool privateLocal = descriptor.Kind == ContextCorpusKind.LocalUserText || descriptor.PrivacyLocalOnly;
-        bool externalSurface = request.Consumer is ContextConsumerKind.WebFrontend;
+        bool webSurface = request.Consumer == ContextConsumerKind.WebFrontend;
 
-        if (privateLocal && externalSurface)
-            throw new InvalidDataException("Private local book/text context cannot be exposed through a web/network-facing context consumer. A future explicit user-controlled export boundary is required.");
+        if (webSurface)
+        {
+            throw new InvalidDataException(privateLocal
+                ? "Private local book/text context cannot be exposed through a web/network-facing context consumer. A future explicit user-controlled export boundary is required."
+                : "Real corpus context cannot be exposed through the web/network-facing consumer yet. RealCorpus is not redistribution approval; an exact approved corpus/license/provenance/attribution release gate is required first.");
+        }
 
         if (request.AllowPrivateLocalContextIdentity && !privateLocal)
             throw new InvalidDataException("Private local context identity may only be requested from a privacy-local source.");
@@ -189,34 +210,70 @@ internal static class ContextPracticeIntegrationGatewaySelfTest
 {
     public static void Run()
     {
-        TestGrammarAndSentenceConsumers();
+        TestGrammarStoryAndSentenceConsumers();
+        TestExternalCorpusNeverMeansRedistributionApproval();
         TestPrivateBookBoundary();
-        Console.WriteLine("Context integration gateway self-test PASS: Sentence/Grammar/Story/Reading/Book/web ports and private-local boundaries verified.");
+        Console.WriteLine("Context integration gateway self-test PASS: Sentence/Grammar/Story/Reading/Book seams, redistribution boundary and private-local network block verified.");
     }
 
-    private static void TestGrammarAndSentenceConsumers()
+    private static void TestGrammarStoryAndSentenceConsumers()
     {
-        SentencePack pack = BuildPack("integration-real", "CC-BY-2.0", "integration-fixture-provenance");
-        var source = new SentenceCorpusContextSource(pack, new ContextSourceDescriptor(pack.PackId, ContextCorpusKind.RealCorpus, pack.Provenance, pack.License));
+        SentencePack pack = BuildPack("integration-fixture", "TEST-LICENSE", "integration-test-provenance");
+        var source = new SentenceCorpusContextSource(pack, new ContextSourceDescriptor(
+            pack.PackId,
+            ContextCorpusKind.SyntheticFixture,
+            pack.Provenance,
+            pack.License));
         var request = new ContextIntegrationRequest(
             ContextConsumerKind.Grammar,
             new[] { "target-a" },
             new[] { "target-a", "helper-b" },
             new ContextLearnerVocabulary(new[] { "helper-b" }),
-            RequiredGrammarSkillIds: new[] { "present-simple" });
+            RequiredGrammarSkillIds: new[] { "present-simple" },
+            AllowSyntheticFixturesForTests: true);
         IReadOnlyList<ContextIntegrationItem> result = ContextPracticeIntegrationGateway.Query(source, request);
-        Check(result.Count == 1, "Grammar consumer must receive matching real context.");
+        Check(result.Count == 1, "Grammar consumer must receive matching test context.");
         Check(result[0].GrammarSkillIds.SequenceEqual(new[] { "present-simple" }), "Grammar metadata was not preserved.");
-        Check(result[0].DataBoundary == ContextDataBoundary.ShareableCorpus && result[0].LocalLocation is null, "Real-corpus integration boundary is wrong.");
+        Check(!result[0].RedistributionApproved, "Synthetic fixture must never acquire redistribution approval.");
 
-        IReadOnlyList<NaturalContextTargetSet> pairs = ContextPracticeIntegrationGateway.DiscoverNaturalTargets(
+        var fixtureOptions = new ContextProductUseOptions(AllowSyntheticFixtures: true);
+        IReadOnlyList<NaturalContextTargetSet> pairs = ContextPracticeProductFacade.DiscoverNaturalTargets(
             source,
             new ContextTargetLexicon("integration", new[] { ("target-a", "practice"), ("helper-b", "daily") }),
             new[] { "target-a", "helper-b" },
             "target-a",
             2,
-            ContextConsumerKind.Story);
-        Check(pairs.Count == 1 && pairs[0].TargetEntryIds.Count == 2, "Story consumer natural pair planning failed.");
+            fixtureOptions);
+        Check(pairs.Count == 1 && pairs[0].TargetEntryIds.Count == 2, "Story consumer natural pair planning fixture failed.");
+    }
+
+    private static void TestExternalCorpusNeverMeansRedistributionApproval()
+    {
+        SentencePack pack = BuildPack("external-evidence-fixture", "CC-BY-2.0", "test-only-external-evidence");
+        var source = new SentenceCorpusContextSource(pack, new ContextSourceDescriptor(
+            pack.PackId,
+            ContextCorpusKind.RealCorpus,
+            pack.Provenance,
+            pack.License));
+
+        ContextIntegrationItem localItem = ContextPracticeIntegrationGateway.Query(source, new ContextIntegrationRequest(
+            ContextConsumerKind.SentenceCoach,
+            new[] { "target-a" })).Single();
+        Check(localItem.DataBoundary == ContextDataBoundary.ExternalCorpusRedistributionUnverified,
+            "RealCorpus must not be labelled shareable without a separate approval gate.");
+        Check(!localItem.RedistributionApproved && localItem.DistributionBoundary.Contains("does not imply redistribution approval", StringComparison.Ordinal),
+            "External corpus integration must carry an explicit unverified redistribution boundary.");
+
+        bool webBlocked = false;
+        try
+        {
+            _ = ContextPracticeIntegrationGateway.Query(source, new ContextIntegrationRequest(ContextConsumerKind.WebFrontend, new[] { "target-a" }));
+        }
+        catch (InvalidDataException)
+        {
+            webBlocked = true;
+        }
+        Check(webBlocked, "Network-facing corpus exposure must fail closed until exact redistribution approval exists.");
     }
 
     private static void TestPrivateBookBoundary()
@@ -231,7 +288,7 @@ internal static class ContextPracticeIntegrationGatewaySelfTest
             new[] { "target-a" },
             AllowPrivateLocalContextIdentity: true));
         Check(local.Single().LocalLocation?.ChapterId == "chapter-2", "Local reading must preserve return-to-context identity when explicitly requested.");
-        Check(local[0].DataBoundary == ContextDataBoundary.LocalOnly, "User-book context must stay marked local-only.");
+        Check(local[0].DataBoundary == ContextDataBoundary.LocalOnly && !local[0].RedistributionApproved, "User-book context must stay local-only and non-redistributable by default.");
 
         bool blocked = false;
         try
