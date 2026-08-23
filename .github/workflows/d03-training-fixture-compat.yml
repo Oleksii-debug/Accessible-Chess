@@ -1,0 +1,63 @@
+name: D03 Training Fixture Compatibility CI
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - autopulse/d03-training-fixture-compat-20260823
+  pull_request:
+    branches:
+      - full5/dev5-compose-1700-20260822
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      D03_BASE: dd9ebf9414103c805892856fe6a04706fa69039f
+      D08_HEAD: 57f53ad3418ef85f60d34cd953027f78b3df9f40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install verification dependency
+        run: python -m pip install -q pytest
+      - name: Prove D03 test-only scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git merge-base "$D03_BASE" HEAD)" = "$D03_BASE"
+          git diff --check "$D03_BASE" HEAD
+          changed="$(git diff --name-only "$D03_BASE" HEAD)"
+          printf '%s\n' "$changed"
+          unexpected="$(printf '%s\n' "$changed" | grep -Ev '^(tests/test_dev3_student_progress.py|\.github/workflows/d03-training-fixture-compat.yml)$' || true)"
+          test -z "$unexpected" || { printf 'Unexpected D03 compatibility scope:\n%s\n' "$unexpected" >&2; exit 1; }
+      - name: Compile and focused D03 regression on base
+        run: |
+          python -m compileall -q acs tests run_accessible_chess.py
+          python -m unittest -v tests.test_dev3_student_progress
+      - name: Full base regression
+        run: |
+          python -m unittest discover -s tests -v
+          python -m pytest -q
+          python run_accessible_chess.py --diagnostic
+      - name: Prove D08 canonical-training compatibility
+        shell: bash
+        run: |
+          set -euo pipefail
+          git show HEAD:tests/test_dev3_student_progress.py > "$RUNNER_TEMP/test_dev3_student_progress.py"
+          git checkout --detach "$D08_HEAD"
+          cp "$RUNNER_TEMP/test_dev3_student_progress.py" tests/test_dev3_student_progress.py
+          git diff --check
+          python -m compileall -q acs tests run_accessible_chess.py
+          python -m unittest -v \
+            tests.test_dev3_student_progress \
+            tests.test_training \
+            tests.test_d08_training_canonical_resume \
+            tests.test_dev3_engine_assisted_workflows
