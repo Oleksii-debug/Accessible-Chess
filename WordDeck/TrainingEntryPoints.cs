@@ -125,7 +125,7 @@ internal static class TrainingEntryPoints
     private static void OpenSentenceCoach(MainForm owner)
     {
         try
-n        {
+        {
             AppState appState = owner.SharedAppStateForTraining;
             SpellingStateSession spelling = TrainingStateContinuityGuard.LoadSpelling();
             SentenceStateSession sentence = TrainingStateContinuityGuard.LoadSentence();
