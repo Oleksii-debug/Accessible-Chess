@@ -1,0 +1,57 @@
+name: DEV4 Stage1 Stockfish Runtime Privacy Repair
+
+on:
+  push:
+    branches:
+      - manual5/dev4-stage1-stockfish-runtime-privacy-20260823
+  pull_request:
+    branches:
+      - release/dev5-stage1-path-privacy-repair-20260823
+
+permissions:
+  contents: read
+
+jobs:
+  exact-privacy-regression:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Prove parent and narrow Product scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE=80720e8125c59a213f278668d599040f2768d553
+          test "$(git merge-base HEAD "$BASE")" = "$BASE"
+          git diff --check "$BASE"...HEAD
+          git diff --name-only "$BASE"...HEAD | sort > changed.txt
+          printf '%s\n' \
+            '.github/workflows/dev4-stage1-stockfish-runtime-privacy-repair.yml' \
+            'acs/stockfish_runtime.py' \
+            'tests/test_dev3_stockfish_runtime_path_privacy.py' | sort > expected.txt
+          diff -u expected.txt changed.txt
+      - name: Compile
+        run: python -m compileall -q acs tests run_accessible_chess.py
+      - name: Existing Stockfish runtime regressions
+        run: python -m unittest -v tests.test_stockfish_runtime
+      - name: Unchanged DEV3 privacy oracle
+        run: python -m unittest -v tests.test_dev3_stockfish_runtime_path_privacy
+      - name: Current Stage1 privacy regressions
+        run: python -m unittest -v tests.test_stage1_path_privacy_repair
+      - name: Full unittest regression
+        run: python -m unittest discover -s tests -p "test*.py"
+      - name: Full pytest regression
+        run: python -m pytest -q
+      - name: Selftest and diagnostic
+        shell: bash
+        run: |
+          python run_accessible_chess.py --selftest
+          python run_accessible_chess.py --diagnostic
