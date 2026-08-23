@@ -1,0 +1,95 @@
+name: WordDeck DEV04 Grammar Gate
+
+on:
+  push:
+    branches:
+      - worddeck-swarm-dev04-grammar
+  pull_request:
+    branches:
+      - worddeck-bootstrap
+    paths:
+      - 'WordDeck/**'
+      - '.github/workflows/worddeck-swarm-dev04-grammar.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  statuses: write
+
+concurrency:
+  group: worddeck-dev04-grammar-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  grammar:
+    runs-on: windows-2025
+    timeout-minutes: 45
+    steps:
+      - name: Mark exact tip pending
+        if: github.event_name != 'pull_request'
+        continue-on-error: true
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const targetUrl = `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`;
+            await github.rest.repos.createCommitStatus({ owner: context.repo.owner, repo: context.repo.repo, sha: context.sha, state: 'pending', context: 'WordDeck DEV04 Grammar Gate', description: 'DEV04 exact-tip Windows gate is running.', target_url: targetUrl });
+
+      - name: Checkout exact revision
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Restore and build warnings as errors
+        shell: pwsh
+        run: |
+          dotnet restore .\WordDeck\WordDeck.csproj
+          dotnet build .\WordDeck\WordDeck.csproj -c Release --no-restore -warnaserror
+
+      - name: Run complete source self-test suite
+        run: dotnet run --project .\WordDeck\WordDeck.csproj -c Release --no-build -- --self-test
+
+      - name: Publish self-contained Windows x64
+        run: dotnet publish .\WordDeck\WordDeck.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:DebugType=None -p:DebugSymbols=false -o .\artifacts\WordDeck-dev04-grammar
+
+      - name: Run published EXE self-test
+        shell: pwsh
+        run: |
+          & .\artifacts\WordDeck-dev04-grammar\WordDeck.exe --self-test
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Cyrillic and spaces path smoke
+        shell: pwsh
+        run: |
+          $target = Join-Path $env:RUNNER_TEMP 'WordDeck граматика DEV04\Published App'
+          New-Item -ItemType Directory -Force -Path $target | Out-Null
+          Copy-Item -Path '.\artifacts\WordDeck-dev04-grammar\*' -Destination $target -Recurse -Force
+          & (Join-Path $target 'WordDeck.exe') --self-test
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Reject personal grammar/profile data in publish tree
+        shell: pwsh
+        run: |
+          $bad = Get-ChildItem -LiteralPath '.\artifacts\WordDeck-dev04-grammar' -Recurse -File | Where-Object {
+            $_.Name -match '^(grammar|state|spelling-state|sentence-state|sentence-coach-state).*\.(sqlite|json)$' -or
+            $_.Name -match '^WordDeck-profile.*\.json$' -or
+            $_.FullName -match '[\\/]Backups[\\/]'
+          }
+          if ($bad) { $bad | ForEach-Object { Write-Error "Personal grammar/profile data leaked into publish tree: $($_.FullName)" }; exit 1 }
+
+      - name: Mark exact tip result
+        if: always() && github.event_name != 'pull_request'
+        continue-on-error: true
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const ok = '${{ job.status }}' === 'success';
+            const targetUrl = `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`;
+            await github.rest.repos.createCommitStatus({ owner: context.repo.owner, repo: context.repo.repo, sha: context.sha, state: ok ? 'success' : 'failure', context: 'WordDeck DEV04 Grammar Gate', description: ok ? 'DEV04 grammar exact-tip gate passed.' : 'DEV04 grammar exact-tip gate failed.', target_url: targetUrl });
