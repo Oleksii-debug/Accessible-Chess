@@ -1,0 +1,131 @@
+name: DEV5 Stage1 Stockfish Privacy Promotion Gate — 1e9d23b
+
+on:
+  pull_request:
+    branches:
+      - qa/dev5-stage1-stockfish-promotion-gate-base-1e9d23b-20260823
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dev5-stage1-stockfish-promotion-gate-1e9d23b
+  cancel-in-progress: true
+
+env:
+  PRODUCT_SHA: 1e9d23b034e6d347fe03c3581469a07e16037c55
+  PARENT_SHA: 80720e8125c59a213f278668d599040f2768d553
+  DEV3_ORACLE_SHA: 66d5affbe027a86717a775198ec9fbcf8aba8545
+  DEV3_VALIDATION_SHA: 935867d060ca7d52914dd9b8cfc353bcb37945f0
+
+jobs:
+  exact-product-promotion-gate:
+    name: exact-product-promotion-gate (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-24.04
+          - windows-2025
+
+    steps:
+      - name: Checkout validation head
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Restore exact Git bytes and prove immutable Product scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config core.autocrlf false
+          git config core.eol lf
+          git reset --hard HEAD
+
+          test "$(git merge-base "$PRODUCT_SHA" HEAD)" = "$PRODUCT_SHA"
+          git diff --check "$PRODUCT_SHA" HEAD
+
+          expected_workflow='.github/workflows/dev5-stage1-stockfish-promotion-gate-1e9d23b.yml'
+          changed="$(git diff --name-only "$PRODUCT_SHA" HEAD)"
+          test "$changed" = "$expected_workflow"
+
+          parent_changed="$(git diff --name-only "$PARENT_SHA" "$PRODUCT_SHA")"
+          test "$parent_changed" = 'acs/stockfish_runtime.py'
+          git diff --check "$PARENT_SHA" "$PRODUCT_SHA"
+
+          product_blob="$(git rev-parse "$PRODUCT_SHA:acs/stockfish_runtime.py")"
+          head_blob="$(git rev-parse 'HEAD:acs/stockfish_runtime.py')"
+          test "$head_blob" = "$product_blob"
+
+          git cat-file -e "$DEV3_ORACLE_SHA^{commit}"
+          git cat-file -e "$DEV3_VALIDATION_SHA^{commit}"
+          echo "EXACT PRODUCT + ONE-FILE VALIDATION SCOPE PASS: $PRODUCT_SHA"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install validation dependency
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install -q pytest
+
+      - name: Compile exact Product and current test tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m compileall -q acs tests run_accessible_chess.py
+
+      - name: Replay independent DEV3 Stockfish privacy oracles unchanged
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf qa_oracles
+          mkdir -p qa_oracles
+          : > qa_oracles/__init__.py
+          git show "$DEV3_ORACLE_SHA:tests/test_dev3_stockfish_runtime_path_privacy.py" > qa_oracles/test_dev3_stockfish_runtime_path_privacy.py
+          git show "$DEV3_VALIDATION_SHA:tests/test_dev3_stockfish_runtime_privacy_repair_validation.py" > qa_oracles/test_dev3_stockfish_runtime_privacy_repair_validation.py
+          python -m unittest -v \
+            qa_oracles.test_dev3_stockfish_runtime_path_privacy \
+            qa_oracles.test_dev3_stockfish_runtime_privacy_repair_validation
+
+      - name: Current Stockfish privacy and Stage1 release regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m unittest -v \
+            tests.test_stockfish_runtime \
+            tests.test_dev3_uci_failure_recovery \
+            tests.test_stage1_release_path_privacy \
+            tests.test_stage1_resource_error_privacy \
+            tests.test_release_stockfish_composition \
+            tests.test_core_release_contracts \
+            tests.test_issue22_release_contract \
+            tests.test_nvda_p0_contract \
+            tests.test_stage1_packaged_focus_origin_contract \
+            tests.test_stage1_webview2_accessibility_boundary \
+            tests.test_stage1_saturation_refactor_contract
+
+      - name: Full unittest
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m unittest discover -s tests -v
+
+      - name: Full pytest
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pytest -q tests
+
+      - name: Core SELFTEST and complete diagnostic
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m acs.selftest
+          python run_accessible_chess.py --diagnostic
+          echo "DEV5 EXACT PRODUCT PROMOTION GATE PASS: $PRODUCT_SHA on $RUNNER_OS"
