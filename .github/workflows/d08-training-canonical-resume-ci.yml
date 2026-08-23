@@ -1,0 +1,78 @@
+name: D08 Training Canonical Resume CI
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - autopulse/d08-training-canonical-resume-20260823
+  pull_request:
+    branches:
+      - full5/dev5-compose-1700-20260822
+
+permissions:
+  contents: read
+
+jobs:
+  d08-training-canonical-resume:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ env.EXPECTED_SHA }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install verification dependency
+        run: python -m pip install -q pytest
+      - name: Prove exact source and isolated D08 scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          base='dd9ebf9414103c805892856fe6a04706fa69039f'
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+          git cat-file -e "$base^{commit}"
+          git merge-base --is-ancestor "$base" HEAD
+          test "$(git merge-base "$base" HEAD)" = "$base"
+          git diff --check "$base" HEAD
+          changed="$(git diff --name-only "$base" HEAD)"
+          printf '%s\n' "$changed"
+          allowed='^(.github/workflows/d08-training-canonical-resume-ci.yml|acs/training.py|tests/test_training.py|tests/test_d08_training_canonical_resume.py|tests/test_dev1_full_product_ui_packages.py)$'
+          unexpected="$(printf '%s\n' "$changed" | grep -Ev "$allowed" || true)"
+          if [ -n "$unexpected" ]; then
+            echo 'Unexpected path outside D08 canonical training package:' >&2
+            printf '%s\n' "$unexpected" >&2
+            exit 1
+          fi
+          for protected in \
+            acs/chesscore.py \
+            acs/full_product_presenters.py \
+            acs/full_product_actions.py \
+            acs/full_product_ui_shell.py \
+            acs/training_progress_store.py \
+            acs/teacher_presentation.py \
+            acs/classroom_presentation.py \
+            acs/acsdb.py; do
+            if printf '%s\n' "$changed" | grep -Fx "$protected"; then
+              echo "Cross-lane protected path changed by D08: $protected" >&2
+              exit 1
+            fi
+          done
+      - name: Compile Product and tests
+        run: python -m compileall -q acs tests run_accessible_chess.py
+      - name: D08 canonical training focused regressions
+        run: >-
+          python -m unittest -v
+          tests.test_training
+          tests.test_d08_training_canonical_resume
+          tests.test_dev1_full_product_ui_packages
+          tests.test_dev3_engine_assisted_workflows
+      - name: Full repository unittest discovery
+        run: python -m unittest discover -s tests -v
+      - name: Full repository pytest without weakening
+        run: python -m pytest -q
+      - name: Complete product diagnostic
+        run: python run_accessible_chess.py --diagnostic
