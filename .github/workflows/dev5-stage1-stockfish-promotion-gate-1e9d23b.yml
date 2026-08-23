@@ -20,7 +20,6 @@ env:
   PARENT_SHA: 80720e8125c59a213f278668d599040f2768d553
   DEV3_ORACLE_SHA: 66d5affbe027a86717a775198ec9fbcf8aba8545
   DEV3_VALIDATION_SHA: 935867d060ca7d52914dd9b8cfc353bcb37945f0
-  PYWEBVIEW_VERSION: '6.2.1'
 
 jobs:
   exact-product-promotion-gate:
@@ -71,11 +70,11 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Install validation dependencies
+      - name: Install validation dependency
         shell: bash
         run: |
           set -euo pipefail
-          python -m pip install -q pytest "pywebview==$PYWEBVIEW_VERSION"
+          python -m pip install -q pytest
 
       - name: Compile exact Product and current test tree
         shell: bash
@@ -125,10 +124,10 @@ jobs:
           set -euo pipefail
           python -m pytest -q tests
 
-      - name: SELFTEST and complete diagnostic
+      - name: Core SELFTEST and complete diagnostic
         shell: bash
         run: |
           set -euo pipefail
-          python run_accessible_chess.py --selftest
+          python -m acs.selftest
           python run_accessible_chess.py --diagnostic
           echo "DEV5 EXACT PRODUCT PROMOTION GATE PASS: $PRODUCT_SHA on $RUNNER_OS"
