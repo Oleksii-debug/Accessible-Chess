@@ -1,27 +1,25 @@
 # DEV5_SESSION_HANDOFF
 
-RUN: 20260823-1158
-COORDINATOR_BRANCH: `auto/dev5-coordinator-1158-20260823`
-MODE: SAFE_OVERLAP_COORDINATION / RELEASE_PRIVACY_REPAIR_VALIDATION
-SNAPSHOT: `docs/automation/SNAPSHOT_20260823_1158.md`
+RUN: 20260823-1301
+COORDINATOR_BRANCH: `auto/dev5-coordinator-1301-20260823`
+MODE: SAFE_OVERLAP_COORDINATION / REPAIRED_STAGE1_PROMOTION
+SNAPSHOT: `docs/automation/SNAPSHOT_20260823_1301.md`
 
-Accepted Stage1 remains `0fa442330bc2bb03636ff9297512da4c29e38684`; persistent exact-GREEN remains `dd9ebf9414103c805892856fe6a04706fa69039f`.
+Prior Stage1 baseline is `0fa442330bc2bb03636ff9297512da4c29e38684`. Repaired Stage1 Product authority is now explicitly promoted to `df52aeb3d99f4ae3d0089eab2882fe9b3c373dfd`. Persistent historical exact-GREEN validation anchor remains `dd9ebf9414103c805892856fe6a04706fa69039f`.
 
-Existing DEV5 touching owner is PR #151. Current exact repair head `c0169ed276fff893f90f85192416612f3b998b5a` now has terminal SUCCESS in `DEV5 Stage1 Path Privacy Repair CI` run `32627628145`. This current head includes the strengthened current ImportRegistry batch/OSError privacy coverage and supersedes obsolete `909d8e...` as the only repair head worth considering.
+Reason: DEV1 QA-only PR #155 exact head `c23c88ac21a6a9c82fad0de4aeadb695f82c5951` had terminal RED before cutoff and proved a real Windows drive-relative privacy leak on `c0169ed...`. Existing DEV5 PR #151 repaired exactly that sanitizer boundary, locked product regressions and replayed the same independent oracle.
 
-Do not promote yet. DEV1 QA-only PR #155, exact head `c23c88ac21a6a9c82fad0de4aeadb695f82c5951`, existed before the run cutoff and tests whether `report_safe_name()` leaks valid Windows drive-relative paths like `C:Users\\PrivateUser\\Documents\\analysis.pgn` on exact `c0169ed...`. Its terminal verdict is not available in current readback. DEV3 PR #156 is explicitly superseded by #155.
+Current PR #151 exact head `df52aeb...` has terminal `DEV5 Stage1 Path Privacy Repair CI` SUCCESS in run `32627946799`. Linux job `97166119460` and Windows job `97166119501` are SUCCESS. Independent compare review from `0fa442...` shows only path-privacy Product surfaces plus release workflow/tests; no chess-state/GameTree/WebView/UI/strict-UIA mutation.
 
-Correct next decision tree:
-- PR #155 GREEN => independent exact-diff/oracle review of `c0169ed...`, then explicit repaired-Stage1 promotion decision;
-- PR #155 RED => minimal drive-relative sanitizer repair only, preserve existing safe-relative provenance and all assertions, rerun complete current privacy/full Windows+Linux gates plus unchanged independent oracle before promotion.
+Promotion is a release-lineage decision only. PR #151 was not merged; PR #54/frozen refs remain untouched.
 
-UIA state is unchanged and separate: V2 proved unique original Move Edit and native Backspace `e9 -> e`; it stopped before Ctrl+A on immediate SetValue readback. No Ctrl+A Product defect is proven. `066d1e254...` and V3 `f13f20ca...` remain untouched.
+Next owner must create/designate a fresh exact QA harness locked to `df52aeb...`; do not silently retarget historical V3 or reuse PR #139/rejected artifact state. Then run the complete Windows candidate chain through source/frozen identity, release contracts, WAV/Stockfish, native menu, Nuitka, built EXE diagnostic, real WebView2, strict UIA, packaged sound/Stockfish lifecycle, preflight, ZIP reopen/identity and upload.
 
-After explicit promotion only, execute a completely fresh Windows candidate chain. Do not reuse old PR #139 artifact state or rejected ZIP. Candidate must pass source/frozen identity, release contracts, resources, official Stockfish, native menu, Nuitka, built EXE diagnostic, real WebView2 startup, strict UIA, packaged sound/Stockfish lifecycle, preflight, ZIP reopen/identity and upload in one terminal GREEN chain.
+UIA state remains separate: V2 proved unique original Move Edit and native Backspace `e9 -> e`; it stopped before Ctrl+A on SetValue readback. No Ctrl+A Product defect is proven. Bounded observability/reacquire must preserve strict element identity and may not weaken assertions.
 
-For DEV1-DEV4 coordination, only terminal evidence existing before 2026-08-23 11:58:14 Europe/Kyiv may be consumed. Post-cutoff activity is not next-wave authority.
+For DEV1-DEV4 coordination, only terminal evidence existing before 2026-08-23 13:01:42 Europe/Kyiv may be consumed.
 
-`AGENTS.md` and `docs/codex/*` remain absent on live default branch. PR #54/frozen refs untouched. No weakened tests.
+`AGENTS.md` and `docs/codex/*` remain absent on live default branch; versioned `docs/automation/*` plus live GitHub evidence are current coordination truth.
 
 FRESH_WINDOWS_CANDIDATE=NO
 READY_FOR_RELEASE=NO
