@@ -12,6 +12,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: worddeck-dev05-listening-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   listening-gate:
     runs-on: windows-2025
