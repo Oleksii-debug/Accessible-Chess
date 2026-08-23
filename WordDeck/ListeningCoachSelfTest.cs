@@ -22,6 +22,7 @@ internal static class ListeningCoachSelfTest
         {
             TestStateRestartAndIsolation(root);
             TestSchedulingAndSeparateMastery();
+            TestBlankSubmissionIsNonLearning();
             TestAnswerHiddenPresentation();
             TestSentenceReadyContract();
             TestShortcutRegistry();
@@ -82,6 +83,22 @@ internal static class ListeningCoachSelfTest
         Require(state.StatsByDictionary[package.Id]["word:b"].CompletedReviews == 4, "Listening completion was not recorded independently.");
     }
 
+    private static void TestBlankSubmissionIsNonLearning()
+    {
+        DictionaryPackage package = Package();
+        var state = new ListeningCoachState { ActiveScopeId = StudyScopeIds.A1 };
+        var engine = new ListeningCoachEngine(package, state, new FakeSource(new[] { Word("a", "alpha", "A1") }));
+        _ = engine.StartNext(false);
+
+        ListeningCheckResult blank = engine.Check("   \t\r\n");
+        Require(!blank.IsCorrect && !blank.Completed, "Blank Listening submit must remain retryable.");
+        Require(!state.StatsByDictionary.TryGetValue(package.Id, out Dictionary<string, ListeningItemStats>? stats) ||
+                !stats.TryGetValue("word:a", out ListeningItemStats? item) ||
+                (item.WrongAttempts == 0 && item.CompletedReviews == 0),
+            "Blank Listening submit mutated learning statistics.");
+        Require(state.History.Count == 0, "Blank Listening submit created study history.");
+    }
+
     private static void TestAnswerHiddenPresentation()
     {
         ListeningExercise exercise = Word("secret", "never-display-before-check", "B1");
@@ -110,6 +127,10 @@ internal static class ListeningCoachSelfTest
         Require(all.Get(ActionIds.OpenListening) == (Keys.Control | Keys.Alt | Keys.L), "Listening open shortcut default is missing.");
         Require(all.Get(ActionIds.ListeningReplay) != Keys.None && all.Get(ActionIds.ListeningShowAnswer) != Keys.None && all.Get(ActionIds.ListeningNext) != Keys.None,
             "Listening in-mode shortcuts collide with the global shortcut registry.");
+
+        var recallOnly = new ShortcutManager(app);
+        Require(!recallOnly.Definitions.Any(def => def.Id.StartsWith("listening_", StringComparison.OrdinalIgnoreCase)),
+            "Listening shortcuts leaked into the Recall-only fallback registry.");
 
         var listening = new ShortcutManager(app, null, ShortcutDispatchContext.Listening);
         Keys replay = listening.Get(ActionIds.ListeningReplay);
