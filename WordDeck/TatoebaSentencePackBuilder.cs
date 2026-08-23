@@ -127,7 +127,11 @@ internal static partial class TatoebaSentencePackBuilder
     private const int MinTokens = 2;
     private const int MaxTokens = 24;
 
-    private sealed record ExactSequenceTarget(IReadOnlyList<string> Tokens, IReadOnlyList<DictionaryEntry> Entries);
+    private sealed record ExactSequenceTarget(
+        string PhysicalForm,
+        IReadOnlyList<string> Tokens,
+        IReadOnlyList<DictionaryEntry> Entries,
+        Regex OccurrenceRegex);
 
     [GeneratedRegex("^[A-Za-z'’\\s\\-‐‑‒–—]+$", RegexOptions.CultureInvariant)]
     private static partial Regex SafeSequenceSourceRegex();
@@ -186,7 +190,7 @@ internal static partial class TatoebaSentencePackBuilder
                 AddEntries(entries, targetIds, entryLevels);
             }
 
-            AddExactSequenceMatches(tokens, bySequenceFirstToken, targetIds, entryLevels);
+            AddExactSequenceMatches(pair.English, tokens, bySequenceFirstToken, targetIds, entryLevels);
 
             if (targetIds.Count == 0)
             {
@@ -264,6 +268,7 @@ internal static partial class TatoebaSentencePackBuilder
     private static Dictionary<string, List<ExactSequenceTarget>> BuildExactSequenceIndex(IEnumerable<DictionaryEntry> entries)
     {
         var grouped = new Dictionary<string, List<DictionaryEntry>>(StringComparer.Ordinal);
+        var sourceByKey = new Dictionary<string, string>(StringComparer.Ordinal);
         var tokensByKey = new Dictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal);
 
         foreach (DictionaryEntry entry in entries)
@@ -276,11 +281,12 @@ internal static partial class TatoebaSentencePackBuilder
             if (tokens.Count < 2)
                 continue;
 
-            string key = string.Join('\u001f', tokens);
+            string key = ContextPhysicalTargetForm.NormalizeForComparison(source, trimHarmlessOuterPunctuation: false);
             if (!grouped.TryGetValue(key, out List<DictionaryEntry>? list))
             {
                 list = new List<DictionaryEntry>();
                 grouped[key] = list;
+                sourceByKey[key] = source;
                 tokensByKey[key] = tokens;
             }
             list.Add(entry);
@@ -289,18 +295,24 @@ internal static partial class TatoebaSentencePackBuilder
         var result = new Dictionary<string, List<ExactSequenceTarget>>(StringComparer.OrdinalIgnoreCase);
         foreach ((string key, List<DictionaryEntry> entriesForSequence) in grouped)
         {
+            string physicalForm = sourceByKey[key];
             IReadOnlyList<string> tokens = tokensByKey[key];
             if (!result.TryGetValue(tokens[0], out List<ExactSequenceTarget>? bucket))
             {
                 bucket = new List<ExactSequenceTarget>();
                 result[tokens[0]] = bucket;
             }
-            bucket.Add(new ExactSequenceTarget(tokens, entriesForSequence));
+            bucket.Add(new ExactSequenceTarget(
+                physicalForm,
+                tokens,
+                entriesForSequence,
+                ContextPhysicalTargetForm.BuildOccurrenceRegex(physicalForm)));
         }
         return result;
     }
 
     private static void AddExactSequenceMatches(
+        string sentenceEnglish,
         IReadOnlyList<string> sentenceTokens,
         IReadOnlyDictionary<string, List<ExactSequenceTarget>> byFirstToken,
         HashSet<string> targetIds,
@@ -314,6 +326,8 @@ internal static partial class TatoebaSentencePackBuilder
             foreach (ExactSequenceTarget candidate in candidates)
             {
                 if (!MatchesAt(sentenceTokens, start, candidate.Tokens))
+                    continue;
+                if (!candidate.OccurrenceRegex.IsMatch(sentenceEnglish))
                     continue;
                 AddEntries(candidate.Entries, targetIds, entryLevels);
             }

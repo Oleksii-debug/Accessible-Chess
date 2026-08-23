@@ -2,21 +2,64 @@ name: WordDeck attributed SentencePack build
 
 on:
   push:
-    branches: [worddeck-bootstrap]
+    branches:
+      - worddeck-bootstrap
+      - worddeck-swarm-dev02-context-sentence-r3
     paths:
       - '.github/workflows/worddeck-sentencepack-ccby.yml'
       - 'WordDeck/tools/build_tatoeba_ccby_pairs.py'
-      - 'WordDeck/tools/resolve_sentence_coverage_gaps.py'
-      - 'WordDeck/tools/analyze_sentence_gap_occurrence.py'
-      - 'WordDeck/tools/summarize_sentence_gap_qa.py'
-      - 'WordDeck/QA/sentence_coverage_gaps_20260817.txt'
+      - 'WordDeck/tools/validate_sentencepack_release_bundle.py'
       - 'WordDeck/TatoebaImportProvenance.cs'
       - 'WordDeck/TatoebaSentencePackBuilder.cs'
       - 'WordDeck/SentencePackDiagnostics.cs'
       - 'WordDeck/SentencePackIo.cs'
       - 'WordDeck/SentencePackSqlitePrototype.cs'
       - 'WordDeck/SentencePackSqliteCorpus.cs'
+      - 'WordDeck/SentencePackSqliteRuntimeQuery.cs'
+      - 'WordDeck/SentencePackLicenseValidator.cs'
+      - 'WordDeck/ContextCorpusCoverageEvidence.cs'
+      - 'WordDeck/ContextCorpusCoverageEvidenceCommand.cs'
+      - 'WordDeck/ContextCorpusGapRemediation.cs'
+      - 'WordDeck/ContextPhysicalLexicalCoverageEvidence.cs'
+      - 'WordDeck/ContextStableIdentityCoverageEvidence.cs'
+      - 'WordDeck/ContextStableIdentityResolution.cs'
+      - 'WordDeck/ContextPracticeCore.cs'
+      - 'WordDeck/ContextPracticeProductFacade.cs'
+      - 'WordDeck/ContextSentenceSqliteSource.cs'
+      - 'WordDeck/ContextTargetPlanning.cs'
       - 'WordDeck/DictionaryLoader.cs'
+      - 'WordDeck/ReviewedOxford5000Bootstrap.cs'
+      - 'WordDeck/Data/**'
+      - 'WordDeck/WordDeck.csproj'
+      - 'WordDeck/Program.cs'
+  pull_request:
+    branches:
+      - worddeck-bootstrap
+    paths:
+      - '.github/workflows/worddeck-sentencepack-ccby.yml'
+      - 'WordDeck/tools/build_tatoeba_ccby_pairs.py'
+      - 'WordDeck/tools/validate_sentencepack_release_bundle.py'
+      - 'WordDeck/TatoebaImportProvenance.cs'
+      - 'WordDeck/TatoebaSentencePackBuilder.cs'
+      - 'WordDeck/SentencePackDiagnostics.cs'
+      - 'WordDeck/SentencePackIo.cs'
+      - 'WordDeck/SentencePackSqlitePrototype.cs'
+      - 'WordDeck/SentencePackSqliteCorpus.cs'
+      - 'WordDeck/SentencePackSqliteRuntimeQuery.cs'
+      - 'WordDeck/SentencePackLicenseValidator.cs'
+      - 'WordDeck/ContextCorpusCoverageEvidence.cs'
+      - 'WordDeck/ContextCorpusCoverageEvidenceCommand.cs'
+      - 'WordDeck/ContextCorpusGapRemediation.cs'
+      - 'WordDeck/ContextPhysicalLexicalCoverageEvidence.cs'
+      - 'WordDeck/ContextStableIdentityCoverageEvidence.cs'
+      - 'WordDeck/ContextStableIdentityResolution.cs'
+      - 'WordDeck/ContextPracticeCore.cs'
+      - 'WordDeck/ContextPracticeProductFacade.cs'
+      - 'WordDeck/ContextSentenceSqliteSource.cs'
+      - 'WordDeck/ContextTargetPlanning.cs'
+      - 'WordDeck/DictionaryLoader.cs'
+      - 'WordDeck/ReviewedOxford5000Bootstrap.cs'
+      - 'WordDeck/Data/**'
       - 'WordDeck/WordDeck.csproj'
       - 'WordDeck/Program.cs'
   workflow_dispatch:
@@ -27,10 +70,13 @@ permissions:
 jobs:
   build-attributed-pack:
     runs-on: windows-latest
-    timeout-minutes: 35
+    timeout-minutes: 60
     steps:
-      - name: Checkout worddeck branch
+      - name: Checkout exact revision
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
 
       - name: Setup .NET 8
         uses: actions/setup-dotnet@v4
@@ -42,19 +88,17 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Validate attributed pair builder and gap QA tools
+      - name: Validate attributed pair and release-bundle tools
         shell: pwsh
         run: |
           python .\WordDeck\tools\build_tatoeba_ccby_pairs.py --self-test
-          python .\WordDeck\tools\resolve_sentence_coverage_gaps.py --self-test
-          python .\WordDeck\tools\analyze_sentence_gap_occurrence.py --self-test
-          python .\WordDeck\tools\summarize_sentence_gap_qa.py --self-test
+          python .\WordDeck\tools\validate_sentencepack_release_bundle.py --self-test
 
       - name: Restore build and regression test
         shell: pwsh
         run: |
           dotnet restore .\WordDeck\WordDeck.csproj
-          dotnet build .\WordDeck\WordDeck.csproj -c Release --no-restore
+          dotnet build .\WordDeck\WordDeck.csproj -c Release --no-restore -warnaserror
           dotnet run --project .\WordDeck\WordDeck.csproj -c Release --no-build -- --self-test
 
       - name: Download detailed exports and build attributed EN-UA pairs
@@ -66,37 +110,6 @@ jobs:
             --output .\sentencepack-ccby\tatoeba-en-uk-ccby.tsv `
             --manifest .\sentencepack-ccby\tatoeba-en-uk-ccby.tsv.manifest.json
 
-      - name: Measure exact corpus occurrence for unresolved Oxford gaps
-        shell: pwsh
-        run: |
-          python .\WordDeck\tools\resolve_sentence_coverage_gaps.py `
-            --output .\sentencepack-ccby\resolved-sentence-coverage-gaps.tsv
-          python .\WordDeck\tools\analyze_sentence_gap_occurrence.py `
-            --resolved .\sentencepack-ccby\resolved-sentence-coverage-gaps.tsv `
-            --pairs .\sentencepack-ccby\tatoeba-en-uk-ccby.tsv `
-            --output .\sentencepack-ccby\sentence-gap-exact-occurrence.tsv
-          python .\WordDeck\tools\summarize_sentence_gap_qa.py `
-            --input .\sentencepack-ccby\sentence-gap-exact-occurrence.tsv `
-            --output .\sentencepack-ccby\sentence-gap-summary.json
-
-          $rows = @(Import-Csv .\sentencepack-ccby\sentence-gap-exact-occurrence.tsv -Delimiter "`t")
-          if ($rows.Count -ne 188) { throw "Expected 188 gap rows, got $($rows.Count)" }
-          $single = @($rows | Where-Object { $_.structural_class -eq 'single_surface_indexable' })
-          if ($single.Count -ne 114) { throw "Expected 114 single-surface gaps, got $($single.Count)" }
-          $unmeasuredSingle = @($single | Where-Object { $_.exact_sentence_match_count -eq '' })
-          if ($unmeasuredSingle.Count -ne 0) { throw "$($unmeasuredSingle.Count) single-surface gaps were not measured" }
-          $presentSingle = @($single | Where-Object { [int]$_.exact_sentence_match_count -gt 0 }).Count
-          $absentSingle = @($single | Where-Object { [int]$_.exact_sentence_match_count -eq 0 }).Count
-
-          $summary = Get-Content .\sentencepack-ccby\sentence-gap-summary.json -Raw | ConvertFrom-Json
-          if ($summary.input_gap_rows -ne 188) { throw "Gap summary total mismatch: $($summary.input_gap_rows)" }
-          if ($summary.ordinary_single_surface.total -ne 114) { throw "Gap summary single-surface total mismatch: $($summary.ordinary_single_surface.total)" }
-          if ($summary.ordinary_single_surface.exact_present -ne $presentSingle) { throw 'Gap summary exact-present count differs from TSV.' }
-          if ($summary.ordinary_single_surface.exact_absent -ne $absentSingle) { throw 'Gap summary exact-absent count differs from TSV.' }
-          if (($summary.ordinary_single_surface.exact_present + $summary.ordinary_single_surface.exact_absent) -ne 114) { throw 'Gap summary did not partition all ordinary single-surface gaps.' }
-          Write-Host "Single-surface exact occurrence: present=$presentSingle absent=$absentSingle total=$($single.Count)"
-          $summary | Format-List
-
       - name: Build attributed WordDeck SentencePack
         shell: pwsh
         run: |
@@ -107,31 +120,44 @@ jobs:
             .\sentencepack-ccby\tatoeba-en-uk-ccby-sentencepack.json `
             "tatoeba-en-uk-ccby-$stamp" 2>&1 | Tee-Object -FilePath .\sentencepack-ccby\builder.log
 
-      - name: Validate attribution and write coverage report
+      - name: Validate attribution and write current 5446-aware inventory report
         shell: pwsh
         run: |
           $packPath = '.\sentencepack-ccby\tatoeba-en-uk-ccby-sentencepack.json'
           $pack = Get-Content $packPath -Raw | ConvertFrom-Json
           if ($pack.License -ne 'CC BY 2.0 FR') { throw "Unexpected license: $($pack.License)" }
           if ($pack.Sentences.Count -lt 1) { throw 'Attributed pack contains no accepted sentences.' }
-          $missingAttribution = @($pack.Sentences | Where-Object { $_.Source -notmatch 'English sentence #[0-9]+ by .+; Ukrainian sentence #[0-9]+ by .+' }).Count
-          if ($missingAttribution -ne 0) { throw "$missingAttribution accepted sentences are missing per-side author attribution." }
+
+          $missingAttribution = @($pack.Sentences | Where-Object {
+            $_.Source -notmatch '^Tatoeba; English sentence #[0-9]+ by .+; Ukrainian sentence #[0-9]+ by .+\.$'
+          }).Count
+          if ($missingAttribution -ne 0) { throw "$missingAttribution accepted sentences are missing exact per-side author attribution." }
+
+          $missingUpstreamIds = @($pack.Sentences | Where-Object {
+            [string]::IsNullOrWhiteSpace([string]$_.SourceSentenceId) -or
+            [string]::IsNullOrWhiteSpace([string]$_.TranslationSentenceId)
+          }).Count
+          if ($missingUpstreamIds -ne 0) { throw "$missingUpstreamIds accepted sentences are missing upstream sentence IDs." }
 
           $targetRefs = @($pack.Sentences | ForEach-Object { $_.TargetEntryIds } | Where-Object { $_ } | Sort-Object -Unique)
           $twoTargetReady = @($pack.Sentences | Where-Object { @($_.TargetEntryIds | Sort-Object -Unique).Count -ge 2 }).Count
           $threeTargetReady = @($pack.Sentences | Where-Object { @($_.TargetEntryIds | Sort-Object -Unique).Count -ge 3 }).Count
           $qualityFlagged = @($pack.Sentences | Where-Object { @($_.QualityFlags).Count -gt 0 }).Count
+
           $report = [ordered]@{
             generated_utc = (Get-Date).ToUniversalTime().ToString('o')
             pack_id = $pack.PackId
             license = $pack.License
             sentences = $pack.Sentences.Count
             unique_indexed_oxford_entry_ids = $targetRefs.Count
-            sentences_with_at_least_2_target_ids = $twoTargetReady
-            sentences_with_at_least_3_target_ids = $threeTargetReady
+            sentences_with_at_least_2_indexed_stable_ids = $twoTargetReady
+            sentences_with_at_least_3_indexed_stable_ids = $threeTargetReady
             quality_flagged_sentences = $qualityFlagged
             sentences_missing_per_side_author_attribution = $missingAttribution
-            note = 'Coverage is against the current embedded 3308-entry Oxford package. Every accepted record keeps both Tatoeba usernames and upstream sentence IDs.'
+            sentences_missing_upstream_ids = $missingUpstreamIds
+            oxford_dictionary_entry_count = 5446
+            inventory_boundary = 'TargetEntryIds are builder inventory only. Same-written-form Oxford rows require separate lexical-form/stable-ID ambiguity evidence before they may support target-specific learning claims.'
+            attribution_boundary = 'Every accepted record keeps both Tatoeba usernames and upstream English/Ukrainian sentence IDs.'
           }
           $report | ConvertTo-Json | Set-Content .\sentencepack-ccby\coverage-report.json -Encoding utf8
           $report | Format-List
@@ -163,9 +189,10 @@ jobs:
           $sizeReport | ConvertTo-Json | Set-Content .\sentencepack-ccby\compression-report.json -Encoding utf8
           $sizeReport | Format-List
 
-      - name: Build SQLite prototype and measure eager baseline
+      - name: Build SQLite runtime corpus and measure eager baseline
         shell: pwsh
         run: |
+          $coverage = Get-Content .\sentencepack-ccby\coverage-report.json -Raw | ConvertFrom-Json
           dotnet run --project .\WordDeck\WordDeck.csproj -c Release --no-build -- `
             --measure-sentence-pack `
             .\sentencepack-ccby\tatoeba-en-uk-ccby-sentencepack.json.gz `
@@ -174,11 +201,55 @@ jobs:
             .\sentencepack-ccby\tatoeba-en-uk-ccby-sentencepack.sqlite `
             oxford-a1-0711
           $diagnostics = Get-Content .\sentencepack-ccby\load-diagnostics.json -Raw | ConvertFrom-Json
-          if ($diagnostics.Sentences -ne 207578) { throw "Unexpected measured sentence count: $($diagnostics.Sentences)" }
+          if ($diagnostics.Sentences -ne $coverage.sentences) { throw "Measured sentence count $($diagnostics.Sentences) differs from current build inventory $($coverage.sentences)." }
           if ($diagnostics.ElapsedMilliseconds -le 0) { throw 'SentencePack load measurement did not produce a positive duration.' }
-          if ($null -eq $diagnostics.SqlitePrototype) { throw 'SQLite prototype diagnostics are missing.' }
-          if ($diagnostics.SqlitePrototype.DatabaseBytes -le 0) { throw 'SQLite prototype database was not created.' }
+          if ($null -eq $diagnostics.SqlitePrototype) { throw 'SQLite runtime corpus diagnostics are missing.' }
+          if ($diagnostics.SqlitePrototype.DatabaseBytes -le 0) { throw 'SQLite runtime corpus was not created.' }
           if ($diagnostics.SqlitePrototype.ResultCount -lt 1) { throw 'Representative SQLite target query returned no sentences.' }
+
+      - name: Validate full 5446 exact-artifact split context evidence
+        shell: pwsh
+        run: |
+          $dbPath = Resolve-Path '.\sentencepack-ccby\tatoeba-en-uk-ccby-sentencepack.sqlite'
+          $dbHash = (Get-FileHash -LiteralPath $dbPath -Algorithm SHA256).Hash.ToLowerInvariant()
+          $pack = Get-Content .\sentencepack-ccby\tatoeba-en-uk-ccby-sentencepack.json -Raw | ConvertFrom-Json
+          if ([string]::IsNullOrWhiteSpace([string]$pack.PackId)) { throw 'Current SentencePack has no PackId.' }
+
+          dotnet run --project .\WordDeck\WordDeck.csproj -c Release --no-build -- `
+            --measure-context-coverage `
+            $dbPath `
+            .\sentencepack-ccby\context-coverage-evidence.json `
+            $dbHash `
+            $pack.PackId
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+          $stableTag = Get-Content .\sentencepack-ccby\context-coverage-evidence.json -Raw | ConvertFrom-Json
+          if ($stableTag.Payload.DictionaryEntryCount -ne 5446 -or -not $stableTag.Payload.ExactOxford5446Verified) { throw 'Stable-tag evidence is not bound to the exact Oxford 5446 universe.' }
+          if (-not $stableTag.Payload.ExactDatabaseIdentityVerified -or -not $stableTag.Payload.CanSupportRealCorpusCoverageClaim) { throw 'Stable-tag evidence is not bound to the exact generated real corpus.' }
+          if ($stableTag.Payload.RedistributionApproved) { throw 'Coverage measurement must not self-approve redistribution.' }
+          foreach ($depthName in @('OneTarget','TwoTarget','ThreeTarget')) {
+            $depth = $stableTag.Payload.$depthName
+            if ($depth.ScopeEntryCount -ne 5446 -or ($depth.CoveredEntryCount + $depth.UncoveredEntryCount) -ne 5446) { throw "$depthName stable-tag evidence does not partition all 5446 stable IDs." }
+          }
+
+          $physicalDoc = Get-Content .\sentencepack-ccby\context-coverage-evidence.physical-forms.json -Raw | ConvertFrom-Json
+          $physical = $physicalDoc.Payload
+          if ($physical.DictionaryEntryCount -ne 5446 -or $physical.UniqueLexicalFormCount -ge 5446) { throw 'Physical-form evidence did not collapse the homographic Oxford denominator.' }
+          if ($physical.StableTagEvidenceSha256 -ne $stableTag.EvidenceDigestSha256) { throw 'Physical-form evidence is not chained to the exact stable-tag evidence.' }
+          foreach ($depth in @($physical.OneTarget,$physical.TwoTarget,$physical.ThreeTarget)) {
+            if ($depth.CoveredLexicalFormCount + $depth.UncoveredLexicalFormCount -ne $physical.UniqueLexicalFormCount) { throw 'Physical-form evidence does not partition its unique lexical-form universe.' }
+          }
+          if ($physical.RedistributionApproved) { throw 'Physical-form evidence must not approve redistribution.' }
+
+          $stableDoc = Get-Content .\sentencepack-ccby\context-coverage-evidence.stable-identities.json -Raw | ConvertFrom-Json
+          $stable = $stableDoc.Payload
+          if ($stable.StableTagEvidenceSha256 -ne $stableTag.EvidenceDigestSha256) { throw 'Stable-ID evidence is not chained to the exact stable-tag evidence.' }
+          if ($stable.PhysicalFormEvidenceSha256 -ne $physicalDoc.EvidenceDigestSha256) { throw 'Stable-ID evidence is not chained to the exact physical-form evidence.' }
+          foreach ($depth in @($stable.OneTarget,$stable.TwoTarget,$stable.ThreeTarget)) {
+            if ($depth.ResolvedStableCoveredEntryCount + $depth.UnresolvedAmbiguousEntryCount + $depth.StableTagAbsentEntryCount -ne 5446) { throw 'Stable-ID evidence does not partition all 5446 Oxford IDs.' }
+            if ($depth.ResolvedStableCoveredEntryCount -gt $depth.StableTagParticipatingEntryCount) { throw 'Resolved stable-ID coverage exceeds stable-tag participation.' }
+          }
+          if ($stable.RedistributionApproved) { throw 'Stable-ID evidence must not approve redistribution.' }
 
       - name: Measure SQLite query in a fresh process
         shell: pwsh
@@ -195,37 +266,50 @@ jobs:
           if ($query.ResultCount -lt 1) { throw 'Representative fresh-process SQLite query returned no sentences.' }
           $query | Format-List
 
-      - name: Measure actual Sentence Coach coverage and query path
+      - name: Measure actual Sentence Coach full-dictionary runtime path
         shell: pwsh
         run: |
+          $coverage = Get-Content .\sentencepack-ccby\coverage-report.json -Raw | ConvertFrom-Json
           dotnet run --project .\WordDeck\WordDeck.csproj -c Release --no-build -- `
             --measure-sentence-pack `
             .\sentencepack-ccby\tatoeba-en-uk-ccby-sentencepack.sqlite `
             .\sentencepack-ccby\sentence-coach-runtime-diagnostics.json `
             --runtime
           $runtime = Get-Content .\sentencepack-ccby\sentence-coach-runtime-diagnostics.json -Raw | ConvertFrom-Json
-          if ($runtime.SentenceCount -ne 207578) { throw "Unexpected runtime sentence count: $($runtime.SentenceCount)" }
-          if ($runtime.ScopeEntryCount -ne 3308) { throw "Unexpected Oxford scope size: $($runtime.ScopeEntryCount)" }
-          if ($runtime.OneTargetCoveredEntries -lt 3120) { throw "One-target coverage regressed below verified baseline 3120: $($runtime.OneTargetCoveredEntries)" }
-          if ($runtime.TwoTargetCoveredEntries -lt 3114) { throw "Two-target coverage regressed below verified baseline 3114: $($runtime.TwoTargetCoveredEntries)" }
+          if ($runtime.SentenceCount -ne $coverage.sentences) { throw "Runtime sentence count $($runtime.SentenceCount) differs from current build inventory $($coverage.sentences)." }
+          if ($runtime.ScopeEntryCount -ne 5446) { throw "Unexpected Oxford scope size: $($runtime.ScopeEntryCount); expected 5446." }
+          if ($runtime.OneTargetCoveredEntries -lt 1) { throw 'Runtime one-target coverage is empty.' }
+          if ($runtime.TwoTargetCoveredEntries -lt 1) { throw 'Runtime two-target coverage is empty.' }
           if ($runtime.ManagedBytesDelta -lt 0) { throw 'Runtime managed-memory measurement is invalid.' }
           $runtime | Format-List
 
-      - name: Upload attributed SentencePack artifact
+      - name: Validate technical candidate bundle consistency
+        shell: pwsh
+        run: |
+          python .\WordDeck\tools\validate_sentencepack_release_bundle.py `
+            --sqlite .\sentencepack-ccby\tatoeba-en-uk-ccby-sentencepack.sqlite `
+            --gzip .\sentencepack-ccby\tatoeba-en-uk-ccby-sentencepack.json.gz `
+            --manifest .\sentencepack-ccby\tatoeba-en-uk-ccby.tsv.manifest.json `
+            --coverage .\sentencepack-ccby\coverage-report.json `
+            | Tee-Object -FilePath .\sentencepack-ccby\release-bundle-validation.json
+
+      - name: Upload non-corpus exact-head audit evidence
         uses: actions/upload-artifact@v4
         with:
-          name: WordDeck-Tatoeba-EN-UA-Attributed-SentencePack
+          name: WordDeck-Tatoeba-EN-UA-Attributed-Evidence
           path: |
-            sentencepack-ccby/tatoeba-en-uk-ccby-sentencepack.json.gz
             sentencepack-ccby/tatoeba-en-uk-ccby.tsv.manifest.json
             sentencepack-ccby/coverage-report.json
-            sentencepack-ccby/resolved-sentence-coverage-gaps.tsv
-            sentencepack-ccby/sentence-gap-exact-occurrence.tsv
-            sentencepack-ccby/sentence-gap-summary.json
+            sentencepack-ccby/context-coverage-evidence.json
+            sentencepack-ccby/context-coverage-evidence.gaps.json
+            sentencepack-ccby/context-coverage-evidence.gaps.tsv
+            sentencepack-ccby/context-coverage-evidence.physical-forms.json
+            sentencepack-ccby/context-coverage-evidence.stable-identities.json
             sentencepack-ccby/compression-report.json
             sentencepack-ccby/load-diagnostics.json
             sentencepack-ccby/sqlite-query-diagnostics.json
             sentencepack-ccby/sentence-coach-runtime-diagnostics.json
+            sentencepack-ccby/release-bundle-validation.json
             sentencepack-ccby/builder.log
           if-no-files-found: error
           retention-days: 30
