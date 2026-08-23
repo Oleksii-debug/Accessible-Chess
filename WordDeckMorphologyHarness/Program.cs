@@ -8,6 +8,8 @@ internal static class Program
         {
             MorphologySelfTest.Run();
             MorphologyPracticeSelfTest.Run();
+            MorphologyDiagnosticsSelfTest.Run();
+            MorphologyContextPolicySelfTest.Run();
             Console.WriteLine("WordDeck morphology self-test PASS.");
             return 0;
         }

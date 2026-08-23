@@ -9,8 +9,12 @@
   <ItemGroup>
     <Compile Include="..\WordDeck\MorphologyCore.cs" Link="MorphologyCore.cs" />
     <Compile Include="..\WordDeck\MorphologyPracticeService.cs" Link="MorphologyPracticeService.cs" />
+    <Compile Include="..\WordDeck\MorphologyDiagnostics.cs" Link="MorphologyDiagnostics.cs" />
+    <Compile Include="..\WordDeck\MorphologyContextPolicy.cs" Link="MorphologyContextPolicy.cs" />
     <Compile Include="..\WordDeck\MorphologySelfTest.cs" Link="MorphologySelfTest.cs" />
     <Compile Include="..\WordDeck\MorphologyPracticeSelfTest.cs" Link="MorphologyPracticeSelfTest.cs" />
+    <Compile Include="..\WordDeck\MorphologyDiagnosticsSelfTest.cs" Link="MorphologyDiagnosticsSelfTest.cs" />
+    <Compile Include="..\WordDeck\MorphologyContextPolicySelfTest.cs" Link="MorphologyContextPolicySelfTest.cs" />
     <Compile Include="HarnessModels.cs" />
     <Compile Include="Program.cs" />
   </ItemGroup>
