@@ -7,14 +7,14 @@ namespace WordDeck;
 internal sealed record ContextResolvedIdentityDepthEvidence(
     int RequiredTargetCount,
     int ScopeEntryCount,
-    int PhysicalFormCoveredEntryCount,
+    int StableTagCoveredEntryCount,
     int ResolvedStableCoveredEntryCount,
     int UnresolvedAmbiguousEntryCount,
-    int PhysicalFormUncoveredEntryCount,
+    int UnambiguousStableTagUncoveredEntryCount,
     double ResolvedStableCoveragePercent,
     IReadOnlyList<string> ResolvedStableCoveredEntryIds,
     IReadOnlyList<string> UnresolvedAmbiguousEntryIds,
-    IReadOnlyList<string> PhysicalFormUncoveredEntryIds);
+    IReadOnlyList<string> UnambiguousStableTagUncoveredEntryIds);
 
 internal sealed record ContextStableIdentityCoverageEvidencePayload(
     string SchemaId,
@@ -48,7 +48,7 @@ internal sealed record ContextStableIdentityCoverageEvidenceDocument(
 internal static class ContextStableIdentityCoverageEvidenceBuilder
 {
     public const string SchemaId = "worddeck-context-stable-identity-coverage-v1";
-    public const string MeasurementAlgorithm = "worddeck-context-physical-form-plus-conservative-stable-id-v1";
+    public const string MeasurementAlgorithm = "worddeck-context-stable-tag-plus-conservative-stable-id-v1";
 
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = false };
 
