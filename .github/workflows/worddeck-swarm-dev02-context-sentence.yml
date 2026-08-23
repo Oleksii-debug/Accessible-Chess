@@ -171,7 +171,7 @@ jobs:
             if ($depth.ResolvedStableCoveredEntryCount + $depth.UnresolvedAmbiguousEntryCount + $depth.StableTagAbsentEntryCount -ne 5446) { throw 'Stable-ID coverage does not partition the exact Oxford universe.' }
             if ($depth.ResolvedStableCoveredEntryCount -gt $depth.StableTagParticipatingEntryCount) { throw 'Resolved stable-ID coverage cannot exceed stable-tag participation.' }
           }
-          if ($stable.OneTarget.UnresolvedAmbiguousEntryCount -le 0) { throw 'Physically covered homographic stable IDs must remain explicitly unresolved without POS/sense evidence.' }
+          if ($stable.OneTarget.UnresolvedAmbiguousEntryCount -le 0) { throw 'Stable-tag-participating homographic stable IDs must remain explicitly unresolved without POS/sense evidence.' }
           if ($stable.RedistributionApproved) { throw 'Stable-ID evidence must not approve redistribution.' }
 
           $gap = Get-Content -LiteralPath '.\artifacts\context-evidence\context-coverage.gaps.json' -Raw | ConvertFrom-Json
