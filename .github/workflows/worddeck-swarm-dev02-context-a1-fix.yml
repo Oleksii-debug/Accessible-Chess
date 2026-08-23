@@ -1,0 +1,163 @@
+name: WordDeck DEV02 Stable Identity Gate
+
+on:
+  push:
+    branches:
+      - worddeck-swarm-dev02-context-sentence-a1-fix
+  pull_request:
+    branches:
+      - worddeck-bootstrap
+    paths:
+      - 'WordDeck/**'
+      - '.github/workflows/worddeck-swarm-dev02-context-a1-fix.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+  statuses: write
+
+concurrency:
+  group: worddeck-dev02-stable-identity-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  stable-identity-gate:
+    runs-on: windows-2025
+    timeout-minutes: 60
+    steps:
+      - name: Checkout exact revision
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Validate SentencePack release validator
+        shell: pwsh
+        run: python .\WordDeck\tools\validate_sentencepack_release_bundle.py --self-test
+
+      - name: Restore
+        run: dotnet restore .\WordDeck\WordDeck.csproj
+
+      - name: Build Release warnings as errors
+        run: dotnet build .\WordDeck\WordDeck.csproj -c Release --no-restore -warnaserror
+
+      - name: Run complete source-build self-test suite
+        run: dotnet run --project .\WordDeck\WordDeck.csproj -c Release --no-build -- --self-test
+
+      - name: Publish self-contained Windows x64
+        run: dotnet publish .\WordDeck\WordDeck.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:DebugType=None -p:DebugSymbols=false -o .\artifacts\WordDeck-dev02-stable-identity
+
+      - name: Run published EXE self-test
+        shell: pwsh
+        run: |
+          & .\artifacts\WordDeck-dev02-stable-identity\WordDeck.exe --self-test
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Verify no personal state in publish tree
+        shell: pwsh
+        run: |
+          $bad = Get-ChildItem -LiteralPath '.\artifacts\WordDeck-dev02-stable-identity' -Recurse -File | Where-Object {
+            $_.Name -match '^(state|spelling-state|sentence-state|sentence-coach-state)(\.backup)?\.json$' -or
+            $_.Name -match '^WordDeck-profile.*\.json$' -or
+            $_.FullName -match '[\\/]Backups[\\/]'
+          }
+          if ($bad) {
+            $bad | ForEach-Object { Write-Error "Personal state leaked into publish tree: $($_.FullName)" }
+            exit 1
+          }
+
+      - name: Cyrillic and spaces path smoke
+        shell: pwsh
+        run: |
+          $target = Join-Path $env:RUNNER_TEMP 'WordDeck stable identity українська\Published App'
+          New-Item -ItemType Directory -Force -Path $target | Out-Null
+          Copy-Item -Path '.\artifacts\WordDeck-dev02-stable-identity\*' -Destination $target -Recurse -Force
+          & (Join-Path $target 'WordDeck.exe') --self-test
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Download historical attributed EN-UA corpus evidence read-only
+        uses: actions/download-artifact@v4
+        with:
+          name: WordDeck-SentencePack-Tatoeba-EN-UA-CCBY-r3
+          path: artifacts/r3-attributed
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: ${{ github.repository }}
+          run-id: 32573223432
+
+      - name: Verify exact historical SQLite identity
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $sqlite = Get-ChildItem -LiteralPath '.\artifacts\r3-attributed' -Recurse -File -Filter 'WordDeck-SentencePack-Tatoeba-EN-UA-CCBY-v1.sqlite' | Select-Object -First 1
+          if (-not $sqlite) { throw 'Attributed EN-UA SQLite corpus artifact was not found.' }
+          $sums = Get-ChildItem -LiteralPath '.\artifacts\r3-attributed' -Recurse -File -Filter 'SHA256SUMS.txt' | Select-Object -First 1
+          if (-not $sums) { throw 'Attributed corpus SHA256SUMS.txt was not found.' }
+          $line = Get-Content -LiteralPath $sums.FullName | Where-Object { $_ -match ([regex]::Escape($sqlite.Name) + '$') } | Select-Object -First 1
+          if (-not $line) { throw 'SHA256SUMS.txt does not bind the attributed SQLite file.' }
+          $expected = (($line -split '\s+', 2)[0]).Trim().ToLowerInvariant()
+          $actual = (Get-FileHash -LiteralPath $sqlite.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($expected -ne $actual) { throw "Attributed SQLite hash mismatch: expected $expected actual $actual" }
+          "CONTEXT_SQLITE=$($sqlite.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "CONTEXT_SQLITE_SHA=$actual" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Measure exact physical and stable identity coverage axes
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force -Path '.\artifacts\context-evidence' | Out-Null
+          dotnet run --project .\WordDeck\WordDeck.csproj -c Release --no-build -- `
+            --measure-context-coverage `
+            "$env:CONTEXT_SQLITE" `
+            .\artifacts\context-evidence\context-coverage.json `
+            "$env:CONTEXT_SQLITE_SHA" `
+            tatoeba-en-uk-attributed-ccby-v1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Validate exact corpus identity and semantic separation
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $raw = (Get-Content -LiteralPath '.\artifacts\context-evidence\context-coverage.json' -Raw | ConvertFrom-Json).Payload
+          $physical = (Get-Content -LiteralPath '.\artifacts\context-evidence\context-coverage.physical.json' -Raw | ConvertFrom-Json).Payload
+          $stable = (Get-Content -LiteralPath '.\artifacts\context-evidence\context-coverage.stable-identity.json' -Raw | ConvertFrom-Json).Payload
+          $gap = (Get-Content -LiteralPath '.\artifacts\context-evidence\context-coverage.gaps.json' -Raw | ConvertFrom-Json).Payload
+
+          if ($raw.SourceId -ne 'tatoeba-en-uk-attributed-ccby-v1') { throw 'Unexpected corpus PackId.' }
+          if ($raw.DatabaseSha256 -ne $env:CONTEXT_SQLITE_SHA) { throw 'Coverage evidence is not bound to exact SQLite hash.' }
+          if ($raw.DictionaryEntryCount -ne 5446 -or -not $raw.ExactOxford5446Verified -or -not $raw.ExactDatabaseIdentityVerified) { throw 'Coverage evidence is not bound to exact Oxford 5446 universe and exact database.' }
+          if ($raw.RedistributionApproved -or $physical.RedistributionApproved -or $stable.RedistributionApproved) { throw 'Coverage tooling must never self-approve redistribution.' }
+          if ($raw.SentenceCount -ne 208408) { throw "Unexpected exact corpus sentence count: $($raw.SentenceCount)" }
+          if ($raw.OneTarget.CoveredEntryCount -ne 4492 -or $raw.TwoTarget.CoveredEntryCount -ne 4469 -or $raw.ThreeTarget.CoveredEntryCount -ne 4362) { throw 'Historical stable-tag participation changed unexpectedly.' }
+          if ($gap.MissingOneTargetCount -ne 954 -or $gap.MissingNaturalPairOnlyCount -ne 23 -or $gap.MissingNaturalTripleOnlyCount -ne 107) { throw 'Historical physical gap accounting changed unexpectedly.' }
+
+          if ($physical.DictionaryEntryCount -ne 5446 -or $physical.UniqueLexicalFormCount -le 0 -or $physical.UniqueLexicalFormCount -ge 5446) { throw 'Physical lexical-form denominator is not a true unique-form universe.' }
+          if ($physical.AmbiguousLexicalFormCount -le 0 -or $physical.StableIdsInAmbiguousLexicalForms -le $physical.AmbiguousLexicalFormCount) { throw 'Expected homographic ambiguity was not represented in physical-form evidence.' }
+          if ($physical.OneTarget.CoveredLexicalFormCount -gt $physical.OneTarget.LexicalFormCount -or $physical.TwoTarget.CoveredLexicalFormCount -gt $physical.TwoTarget.LexicalFormCount -or $physical.ThreeTarget.CoveredLexicalFormCount -gt $physical.ThreeTarget.LexicalFormCount) { throw 'Physical lexical coverage exceeds denominator.' }
+          if ($physical.OneTarget.CoveredLexicalFormCount -lt $physical.TwoTarget.CoveredLexicalFormCount -or $physical.TwoTarget.CoveredLexicalFormCount -lt $physical.ThreeTarget.CoveredLexicalFormCount) { throw 'Physical lexical coverage depth is not monotonic.' }
+
+          foreach ($depthName in @('OneTarget','TwoTarget','ThreeTarget')) {
+            $d = $stable.$depthName
+            if ($d.ScopeEntryCount -ne 5446) { throw "Stable identity $depthName scope is not 5446." }
+            if (($d.ResolvedStableCoveredEntryCount + $d.UnresolvedAmbiguousEntryCount + $d.PhysicalFormUncoveredEntryCount) -ne 5446) { throw "Stable identity $depthName does not partition the Oxford universe." }
+            if ($d.UnresolvedAmbiguousEntryCount -le 0) { throw "Stable identity $depthName failed to preserve ambiguous entries as unresolved." }
+            if ($d.ResolvedStableCoveredEntryCount -gt $d.PhysicalFormCoveredEntryCount) { throw "Stable identity $depthName resolved coverage exceeds physical-form participation." }
+          }
+          if ($stable.OneTarget.UnresolvedAmbiguousEntryCount -ne $stable.TwoTarget.UnresolvedAmbiguousEntryCount -or $stable.OneTarget.UnresolvedAmbiguousEntryCount -ne $stable.ThreeTarget.UnresolvedAmbiguousEntryCount) { throw 'Ambiguous stable-ID catalog changed between depths.' }
+          if ($stable.OneTarget.ResolvedStableCoveredEntryCount -ge $raw.OneTarget.CoveredEntryCount) { throw 'Conservative stable-ID one-target coverage did not remove ambiguous surface-only identities.' }
+
+          Write-Host ("Stable identity gate PASS: forms={0}; ambiguous_forms={1}; unresolved_ids={2}; stable_one_resolved={3}; physical_one={4}" -f `
+            $physical.UniqueLexicalFormCount,$physical.AmbiguousLexicalFormCount,$stable.OneTarget.UnresolvedAmbiguousEntryCount,$stable.OneTarget.ResolvedStableCoveredEntryCount,$physical.OneTarget.CoveredLexicalFormCount)
+
+      - name: Upload evidence only
+        uses: actions/upload-artifact@v4
+        with:
+          name: WordDeck-dev02-stable-identity-evidence-${{ github.sha }}
+          path: artifacts/context-evidence
+          if-no-files-found: error
+          retention-days: 14
