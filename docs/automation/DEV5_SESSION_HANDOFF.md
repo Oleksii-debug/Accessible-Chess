@@ -1,28 +1,30 @@
 # DEV5_SESSION_HANDOFF
 
-RUN: 20260823-1416
-COORDINATOR_BRANCH: `auto/dev5-coordinator-1416-20260823`
-MODE: ALL_LANES_RECONCILED / STAGE1_REPAIR_MACHINE_GREEN / AUDIT_PROMOTION_PENDING
-SNAPSHOT: `docs/automation/SNAPSHOT_20260823_1416.md`
-CUTOFF: `2026-08-23T11:16:04Z`
+RUN: 20260823-1421
+COORDINATOR_BRANCH: `auto/dev5-coordinator-1421-20260823`
+MODE: AUDIT_ACCEPTED_STAGE1_REPAIR / FRESH_WINDOWS_V5_WIP1_ACTIVE / ALL_LANES_RECONCILED
+SNAPSHOT: `docs/automation/SNAPSHOT_20260823_1421.md`
+CUTOFF: `2026-08-23T11:21:29Z`
 
-Current integration is `manual5/integration-20260821@80720e8125c59a213f278668d599040f2768d553`. It remains RELEASE_HOLD because independent DEV3 QA PR #159 / head `66d5affbe027a86717a775198ec9fbcf8aba8545` / run `32634729467` proves three Stockfish resolver path-privacy failures on both Ubuntu and Windows while existing runtime 18/18 passes.
+Accepted Stage1 Product authority is now exactly `manual5/integration-20260821@1e9d23b034e6d347fe03c3581469a07e16037c55`. Live compare against this SHA is IDENTICAL. Relative to prior `80720e8125c59a213f278668d599040f2768d553`, the integration branch is ahead exactly one commit and changes exactly one Product path: `acs/stockfish_runtime.py`.
 
-The touching repair wave is now terminal and consolidated. Canonical minimal Product repair is DEV4 commit `1e9d23b034e6d347fe03c3581469a07e16037c55`, rooted directly at `80720e8...` and limited to `acs/stockfish_runtime.py`. Corrected independent DEV4 validation PR #165 / head `e9ac9dc15b223f16914ab670358574192349995f` / run `32635517279` is terminal SUCCESS on Ubuntu and Windows. Windows proves existing runtime 18/18, unchanged PR #159 oracle 3/3, current Stage1 privacy 10/10, unittest 666/666, pytest 744 + 758 subtests, SELFTEST and complete diagnostic PASS.
+Independent AUDIT_MASTER acceptance is recorded on PR #167 comment `5385692188` for exact staging head `a06c81e424c599f996662e8898c2b1cbf8ee9dbd`, accepting dedicated run `32635555544` and authorizing controlled promotion. DEV5 promotion gate PR #172 / head `60866d1f82c72e416ef854600585fc9ee9e430a5` / run `32635759733` is terminal SUCCESS on Ubuntu and Windows through exact Product/Git scope, unchanged DEV3 privacy oracles, current Stockfish privacy + Stage1 release regressions, full unittest, full pytest, canonical SELFTEST and complete diagnostic.
 
-DEV5 PR #167 / head `a06c81e424c599f996662e8898c2b1cbf8ee9dbd` is integration staging of the exact same Product repair. Direct file readback confirms `acs/stockfish_runtime.py` is byte-identical to DEV4 Product `1e9d23b...`; therefore this is one implementation with separate validation/integration roles, not two competing solutions. DEV5 dedicated run `32635555544` is terminal SUCCESS in four Ubuntu/Windows exact-oracle/full-regression jobs.
+Anti-duplication decisions are now explicit. DEV3 #168 is closed superseded; DEV1 #169 is closed duplicate. DEV1 #173 is evidence-only. DEV2 #174 targets an older intermediate repair head and is not current Stage1 authority. DEV4 repair validation is complete. No additional Stockfish resolver/privacy Product implementation or promotion gate is authorized absent a new exact-source defect.
 
-The inherited old PR #151 workflow run `32635555545` is RED solely because its frozen allowed-path inventory predates the expected Stockfish runtime workflow/Product/regression files. It fails before Product testing in the affected Ubuntu job; its Windows regression job succeeds. This is stale workflow topology/source-lock drift and must not be converted into a Product blocker or “fixed” by weakening the historical guard.
+DEV3 #176 is not duplicate noise: it contributes unique real Windows engine-runtime evidence on the Audit-accepted repair. Run `32636091171` / job `97185965336` is SUCCESS with 184/184 focused engine/runtime/privacy, unchanged PR #159 privacy oracle 3/3, official Stockfish 18 real `StockfishRuntime -> AnalysisService -> EnginePlayService` shared provider, MultiPV=5 restore, legal engine move, packaged relative engine path, unittest 670/670, pytest 748 + 758 subtests, SELFTEST and complete diagnostic PASS.
 
-Cross-lane release evidence is already sufficient to avoid repeat work: DEV1 PR #164 / run `32635368438` GREEN for 81/81 UI/accessibility/NVDA candidate-facing contracts on both OS; DEV2 PR #166 / run `32635341589` GREEN for 264 canonical square/state/history/FEN/position/atomicity cases on exact repair Product `1e9d23b...`. DEV3 PR #168 remains validation-only and cannot create a second Product lineage. DEV1 duplicate PR #169 is closed and must stay historical.
+DEV2 PR #171 is a separate narrow P1 fail-closed `acs/history.py` repair with exact Linux+Windows run `32635667033` SUCCESS. It is READY_FOR_INTEGRATION for its own lane but is deliberately held out of accepted Stage1 source while the fresh candidate chain is active. DEV-A PR #170 remains separate Full Product Teacher/Classroom work and is not Stage1 candidate input.
 
-Active non-overlapping ownership remains protected. DEV2 RUN `20260823-1404` owns `acs/history.py` P1 fail-closed repair; do not touch that file. DEV-A PR #170 owns `acs/teaching_session_adapter.py`; its focused domain/adapter gates are GREEN but full run is currently held by stale DEV1 WebView expectations plus Windows setup-python environment failure. It is not Stage1 input during release freeze and DEV5 must not duplicate Teacher/Classroom work. DEV-B is historical/stale for this P0. DEV-C is coordination/read-only here.
+Exactly one fresh Windows release WIP exists: DEV5 QA-only PR #175 / head `17697b8181781c3a35f12ba522c25852d268eefc`, workflow `DEV5 Fresh Stage1 Windows Candidate V5`, run `32636245736`, job `97186343167`.
 
-PR #160/V4 is obsolete because it targets defective `80720e8...`; do not repair its generated helper or reuse any artifact from that lineage. The packaged Move Edit SetValue/Ctrl+A/Ctrl+C track remains QA-owned `C — INCONCLUSIVE`; no Product keyboard/clipboard defect is proven.
+At cutoff V5 is IN_PROGRESS. Already GREEN: setup; retained QA harness checkout; clean V5 QA-only scope + retained helper identity; LF-preserving exact accepted Stage1 detached worktree; Python setup. Current active step is exact Windows source compile/full regressions/diagnostics/privacy oracle. Pending are retained QA topology/classifier; bounded temporary SetValue/reacquire helper; real WAV; official Stockfish 18; pinned pywebview/Nuitka; native menu; standalone EXE; built EXE diagnostic + real WebView2; strict packaged UIA; packaged sound/Stockfish lifecycle; release preflight; ZIP reopen/hash/identity; candidate artifact upload.
 
-Persistent Full Product exact-GREEN authority remains `dd9ebf9414103c805892856fe6a04706fa69039f` during Stage1 release freeze.
+V5 is fresh and locked to accepted `1e9d23b...`; it does not reuse V4. PR #160/V4 and every old `80720e8...` candidate artifact remain invalid/obsolete.
 
-NEXT: independent AUDIT_MASTER must accept exact Product `1e9d23b...`, PR #165 terminal evidence and DEV5 staging identity. Only then may DEV5 append/promote the minimal repair into Stage1 authority and start exactly one fresh WIP=1 Windows release chain locked to the resulting exact SHA.
+While V5 is active, DEV5 must not launch/cancel/rerun/retarget a second chain or patch QA/Product merely to obtain green. On continuation, read latest run attempt/job first. If terminal GREEN, verify every machine gate plus exact ZIP/artifact identity before changing candidate status. If terminal RED, classify the first real failing gate before any repair.
+
+Persistent Full Product exact-GREEN authority remains `dd9ebf9414103c805892856fe6a04706fa69039f` during the Stage1 release freeze.
 
 FRESH_WINDOWS_CANDIDATE=NO
 READY_FOR_RELEASE=NO
