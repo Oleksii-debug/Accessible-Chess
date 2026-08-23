@@ -1,0 +1,157 @@
+name: DEV3 Real Stockfish Privacy Repair Evidence
+
+on:
+  pull_request:
+    branches:
+      - qa/dev3-real-stockfish-privacy-repair-ci-base-20260823
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dev3-real-stockfish-privacy-repair-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PRODUCT_SHA: a06c81e424c599f996662e8898c2b1cbf8ee9dbd
+  DEV3_PRIVACY_ORACLE_SHA: 66d5affbe027a86717a775198ec9fbcf8aba8545
+
+jobs:
+  windows-real-stockfish:
+    runs-on: windows-2025
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Preserve exact Git bytes and prove validation-only scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config core.autocrlf false
+          git config core.eol lf
+          git reset --hard HEAD
+          test "$(git merge-base "$PRODUCT_SHA" HEAD)" = "$PRODUCT_SHA"
+          git diff --check "$PRODUCT_SHA" HEAD
+          printf '%s\n' \
+            '.github/workflows/dev3-real-stockfish-privacy-repair.yml' \
+            'tests/test_dev3_real_stockfish_privacy_repair_validation.py' | sort > expected.txt
+          git diff --name-only "$PRODUCT_SHA" HEAD | sort > changed.txt
+          diff -u expected.txt changed.txt
+          test "$(git rev-parse "$PRODUCT_SHA:acs/stockfish_runtime.py")" = "$(git rev-parse 'HEAD:acs/stockfish_runtime.py')"
+          echo "DEV3 EXACT AUDIT-ACCEPTED PRODUCT LOCK PASS: $PRODUCT_SHA"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install verification dependency
+        shell: pwsh
+        run: python -m pip install -q pytest
+
+      - name: Materialize unchanged DEV3 privacy oracle
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p qa_oracles
+          : > qa_oracles/__init__.py
+          git show "$DEV3_PRIVACY_ORACLE_SHA:tests/test_dev3_stockfish_runtime_path_privacy.py" > qa_oracles/test_dev3_stockfish_runtime_path_privacy.py
+          test -s qa_oracles/test_dev3_stockfish_runtime_path_privacy.py
+
+      - name: Compile and focused engine/runtime/privacy regressions
+        shell: pwsh
+        run: |
+          python -m compileall -q acs tests qa_oracles run_accessible_chess.py
+          if($LASTEXITCODE -ne 0){throw 'compile failed'}
+          python -m unittest -v tests.test_dev3_real_stockfish_privacy_repair_validation tests.test_stage1_stockfish_runtime_path_privacy qa_oracles.test_dev3_stockfish_runtime_path_privacy tests.test_stockfish_runtime tests.test_dev3_uci_failure_recovery tests.test_analysis_service tests.test_continuous_analysis tests.test_engine_play_service tests.test_engine_play_service_concurrency tests.test_engine_game_session tests.test_engine_game_timeout_ownership tests.test_clock_service tests.test_game_lifecycle tests.test_release_stockfish_composition tests.test_core_release_contracts
+          if($LASTEXITCODE -ne 0){throw 'focused DEV3 runtime/privacy regressions failed'}
+
+      - name: Acquire official Stockfish 18 Windows binary
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri 'https://github.com/official-stockfish/Stockfish/releases/download/sf_18/stockfish-windows-x86-64.zip' -OutFile stockfish18.zip
+          Expand-Archive stockfish18.zip stockfish18 -Force
+          $engine=Get-ChildItem stockfish18 -Recurse -Filter '*.exe' | Where-Object {$_.Name -match 'stockfish.*x86-64'} | Select-Object -First 1
+          if(-not $engine){throw 'Official Stockfish 18 executable missing'}
+          New-Item -ItemType Directory -Force -Path real-engine | Out-Null
+          Copy-Item $engine.FullName 'real-engine\stockfish.exe' -Force
+          $hash=(Get-FileHash 'real-engine\stockfish.exe' -Algorithm SHA256).Hash.ToLowerInvariant()
+          "DEV3 OFFICIAL STOCKFISH 18 WINDOWS SHA256: $hash"
+
+      - name: Real production runtime shared-provider MultiPV and packaged-path smoke
+        shell: pwsh
+        run: |
+          @'
+          import pathlib
+          import re
+          import shutil
+          from acs.analysis_service import AnalysisService
+          from acs.engine_play_service import EnginePlayService
+          from acs.engine_ports import EngineMoveRequest
+          from acs.stockfish_runtime import StockfishRuntime, StockfishRuntimeConfig
+
+          root = pathlib.Path.cwd()
+          exe = (root / 'real-engine' / 'stockfish.exe').resolve()
+          fen = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1'
+          move_re = re.compile(r'^[a-h][1-8][a-h][1-8][qrbn]?$')
+
+          runtime = StockfishRuntime(StockfishRuntimeConfig(configured_path=exe))
+          analysis = AnalysisService(runtime.provider, owns_engine=False)
+          play = EnginePlayService(runtime.provider, owns_engine=False)
+          try:
+              provider_a = runtime.provider()
+              first = analysis.analyze(fen, multipv=5, depth=8)
+              assert first.error is None and not first.stale, first
+              assert len(first.lines) == 5, first
+              played = play.choose_move(EngineMoveRequest(fen, level=5, movetime_ms=100))
+              assert played.move is not None and move_re.fullmatch(played.move), played
+              provider_b = runtime.provider()
+              assert provider_a is provider_b, 'runtime created duplicate provider'
+              second = analysis.analyze(fen, multipv=5, depth=8)
+              assert second.error is None and not second.stale, second
+              assert len(second.lines) == 5, second
+              assert runtime.provider() is provider_a
+          finally:
+              play.close()
+              analysis.close()
+              runtime.close()
+
+          packaged = root / 'packaged-root'
+          packaged_exe = packaged / 'engines' / 'stockfish' / 'stockfish.exe'
+          packaged_exe.parent.mkdir(parents=True, exist_ok=True)
+          shutil.copy2(exe, packaged_exe)
+          packaged_runtime = StockfishRuntime(StockfishRuntimeConfig(application_dir=packaged))
+          packaged_play = EnginePlayService(packaged_runtime.provider, owns_engine=False)
+          try:
+              result = packaged_play.choose_move(EngineMoveRequest(fen, level=5, movetime_ms=100))
+              assert result.move is not None and move_re.fullmatch(result.move), result
+          finally:
+              packaged_play.close()
+              packaged_runtime.close()
+
+          print('DEV3 AUDIT-ACCEPTED PRIVACY REPAIR REAL STOCKFISH 18 RUNTIME PASS')
+          '@ | Set-Content -Encoding UTF8 dev3_real_stockfish_repair.py
+          python dev3_real_stockfish_repair.py
+          if($LASTEXITCODE -ne 0){throw 'real Stockfish runtime smoke failed'}
+
+      - name: Full unittest regression
+        shell: pwsh
+        run: |
+          python -m unittest discover -s tests -v
+          if($LASTEXITCODE -ne 0){throw 'full unittest failed'}
+
+      - name: Full pytest regression
+        shell: pwsh
+        run: |
+          python -m pytest -q tests
+          if($LASTEXITCODE -ne 0){throw 'full pytest failed'}
+
+      - name: Core SELFTEST and complete diagnostic
+        shell: pwsh
+        run: |
+          python -m acs.selftest
+          if($LASTEXITCODE -ne 0){throw 'core selftest failed'}
+          python run_accessible_chess.py --diagnostic
+          if($LASTEXITCODE -ne 0){throw 'complete diagnostic failed'}
+          'DEV3 REAL STOCKFISH PRIVACY REPAIR EVIDENCE PASS'
