@@ -126,11 +126,11 @@ internal static class ContextPracticeProductFacade
         string boundary = participation.Source.Kind switch
         {
             ContextCorpusKind.SyntheticFixture =>
-                "Synthetic/test-only conservative stable-ID measurement. Homographic stable IDs are unresolved and synthetic data cannot support production coverage.",
+                "Synthetic/test-only conservative stable-ID measurement. Physically participating homographic stable IDs remain unresolved; physically absent IDs remain coverage gaps. Synthetic data cannot support production coverage.",
             ContextCorpusKind.LocalUserText =>
-                "Privacy-local conservative stable-ID measurement. Homographic stable IDs remain unresolved without explicit POS/sense evidence.",
+                "Privacy-local conservative stable-ID measurement. Physically participating homographic stable IDs remain unresolved without explicit POS/sense evidence; absent forms remain local coverage gaps.",
             _ =>
-                "Conservative real-corpus stable-ID measurement derived from stable-tag participation under the homograph fail-closed rule. Only participating, non-homographic dictionary IDs count as resolved; every same-written-form multi-ID entry stays unresolved unless a future POS/sense-aware source explicitly disambiguates it. True unique physical-form coverage remains a separate evidence document."
+                "Conservative real-corpus stable-ID measurement derived from stable-tag participation under the homograph fail-closed rule. Participating non-homographic dictionary IDs can count as resolved; participating same-written-form multi-ID entries remain unresolved unless a future POS/sense-aware source explicitly disambiguates them, while non-participating entries remain corpus gaps. True unique physical-form coverage remains a separate evidence document."
         };
         return new ContextStableIdentityCoverageEvidence(
             participation.Source,
