@@ -249,16 +249,15 @@ try {
     Open-And-CancelDialog 'ctrl+shift+i' 'Import complete WordDeck personal progress profile' 'complete profile import dialog'
 
     # Reset is intentionally unbound. Open it through the real File-menu mnemonic,
-    # then treat the confirmation as its own top-level native window. This mirrors
-    # the independently hardened DEV3 acceptance harness and avoids the invalid
-    # assumption that a modal MessageBox remains discoverable as a child of the
-    # main WordDeck UIA tree.
+    # then treat the confirmation as its own top-level native window. The dialog
+    # is Yes/No with Button2 (No) as the safe default, so Enter is the exact
+    # keyboard cancellation contract; Escape is not guaranteed to close Yes/No.
     Focus 'Current English word'
     $resetWord = Get-Value 'Current English word'
     Send-Keys 'alt+f' 'Current English word'
     Send-MenuKey 'r'
     $resetHwnd = Get-WindowHandleByTitle 'Reset WordDeck learning data' 7000
-    Send-KeysInWindow 'esc' $resetHwnd
+    Send-KeysInWindow 'enter' $resetHwnd
     Wait-WindowGoneByTitle 'Reset WordDeck learning data' 7000
     Wait-For 'Current English word' 5000
     if ((Get-Value 'Current English word') -ne $resetWord) { Fail 'Cancelling reset changed the current Recall card.' }
