@@ -33,13 +33,18 @@ function Wait-ForInWindow([string]$selector, [string]$hwnd, [int]$timeoutMs = 70
     Invoke-WinApp @('ui','wait-for',$selector,'-w',$hwnd,'--timeout',[string]$timeoutMs) | Out-Null
 }
 
+function Strip-Ansi([string]$text) {
+    return [regex]::Replace($text, '\x1B\[[0-?]*[ -/]*[@-~]', '')
+}
+
 function Get-WindowHandleByTitle([string]$title, [int]$timeoutMs = 7000) {
     $deadline = [DateTime]::UtcNow.AddMilliseconds($timeoutMs)
     $lastListing = ''
     do {
         $lines = @(Invoke-WinApp @('ui','list-windows','-a',[string]$script:appPid))
-        $lastListing = ($lines -join ' | ')
-        foreach ($line in $lines) {
+        $plainLines = @($lines | ForEach-Object { Strip-Ansi ([string]$_) })
+        $lastListing = ($plainLines -join ' | ')
+        foreach ($line in $plainLines) {
             $match = [regex]::Match([string]$line, 'HWND\s+(\d+):\s+"([^"]*)"')
             if ($match.Success -and $match.Groups[2].Value -eq $title) {
                 return [string]$match.Groups[1].Value
@@ -56,7 +61,8 @@ function Wait-WindowGoneByTitle([string]$title, [int]$timeoutMs = 7000) {
         $lines = @(Invoke-WinApp @('ui','list-windows','-a',[string]$script:appPid))
         $found = $false
         foreach ($line in $lines) {
-            $match = [regex]::Match([string]$line, 'HWND\s+(\d+):\s+"([^"]*)"')
+            $plain = Strip-Ansi ([string]$line)
+            $match = [regex]::Match($plain, 'HWND\s+(\d+):\s+"([^"]*)"')
             if ($match.Success -and $match.Groups[2].Value -eq $title) {
                 $found = $true
                 break
