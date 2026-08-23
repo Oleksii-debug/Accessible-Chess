@@ -25,6 +25,10 @@ jobs:
         os: [ubuntu-24.04, windows-2025]
     runs-on: ${{ matrix.os }}
     steps:
+      - name: Preserve repository LF blobs on Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: git config --global core.autocrlf false
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
