@@ -14,6 +14,7 @@ from typing import Callable
 
 from .engine import UCIEngine
 from .engine_ports import ChessEnginePort
+from .report_paths import report_safe_name
 
 
 PACKAGED_STOCKFISH_RELATIVE_PATH = Path("engines") / "stockfish" / "stockfish.exe"
@@ -87,21 +88,29 @@ def resolve_stockfish_path(config: StockfishRuntimeConfig) -> Path:
         )
         source = "packaged"
 
+    safe_name = report_safe_name(candidate)
     try:
         candidate = candidate.resolve(strict=False)
     except (OSError, RuntimeError, ValueError) as exc:
-        raise StockfishInvalidExecutableError(f"Cannot resolve {source} Stockfish path: {exc}") from exc
+        raise StockfishInvalidExecutableError(
+            f"Cannot resolve {source} Stockfish path: {safe_name}"
+        ) from exc
 
+    safe_name = report_safe_name(candidate)
     if not candidate.exists():
-        raise StockfishNotFoundError(f"Stockfish executable not found: {candidate}")
+        raise StockfishNotFoundError(f"Stockfish executable not found: {safe_name}")
     if not candidate.is_file():
-        raise StockfishInvalidExecutableError(f"Stockfish path is not a file: {candidate}")
+        raise StockfishInvalidExecutableError(f"Stockfish path is not a file: {safe_name}")
     try:
         size = candidate.stat().st_size
     except OSError as exc:
-        raise StockfishInvalidExecutableError(f"Cannot inspect Stockfish executable: {candidate}") from exc
+        raise StockfishInvalidExecutableError(
+            f"Cannot inspect Stockfish executable: {safe_name}"
+        ) from exc
     if size <= 0:
-        raise StockfishInvalidExecutableError(f"Stockfish executable is empty or corrupt: {candidate}")
+        raise StockfishInvalidExecutableError(
+            f"Stockfish executable is empty or corrupt: {safe_name}"
+        )
     return candidate
 
 
