@@ -1,38 +1,71 @@
 # DEV5_RUN_STATE
 
-RUN_ID: 20260823-0957
-STARTED_LOCAL: 2026-08-23 09:57:43 Europe/Kyiv
-STATUS: COMPLETE
-MODE: SAFE_OVERLAP_COORDINATION / RELEASE_QA_EVIDENCE_RECONCILIATION
-COORDINATOR_BRANCH: auto/dev5-coordinator-0957-20260823
-SNAPSHOT_CUTOFF: 2026-08-23T09:57:43+03:00
-SNAPSHOT_FILE: docs/automation/SNAPSHOT_20260823_0957.md
+RUN_ID: 20260823-1053
+STARTED_LOCAL: 2026-08-23 10:53:41 Europe/Kyiv
+STATUS: COMPLETE / TERMINAL
+MODE: STAGE1_RELEASE_FREEZE / RELEASE_CRITICAL_PRIVACY_REPAIR / AUDIT_HANDOFF_PENDING
+COORDINATOR_BRANCH: auto/dev5-coordinator-1105-20260823
+SNAPSHOT_CUTOFF: 2026-08-23T10:53:41+03:00
+SNAPSHOT_FILE: docs/automation/SNAPSHOT_20260823_1053.md
+ACTIVE_AUDIT_DIRECTIVE: STAGE1 RELEASE FREEZE / FRESH WINDOWS CANDIDATE PRIORITY
+NEXT_DEV5_DIRECTIVE: DEV5-1105 revision 1
 
-STAGE1_INTEGRATION_SHA: 0fa442330bc2bb03636ff9297512da4c29e38684
+ACCEPTED_STAGE1_SHA: 0fa442330bc2bb03636ff9297512da4c29e38684
+STAGE1_PRIVACY_REPAIR_CANDIDATE_SHA: 909d8e2729e00ba5fce0f25a1520010844f9341b
 PERSISTENT_GREEN_VALIDATION_SHA: dd9ebf9414103c805892856fe6a04706fa69039f
-DEV4_PRIOR_REPAIR_LINEAGE_SHA: 3e15dc2e844cb825e482317fd024795130147011
 NVDA_VERIFIED: NO
 FRESH_WINDOWS_CANDIDATE: NO
 READY_FOR_RELEASE: NO
 
-## Current ruling
-DEV5 remains in SAFE OVERLAP MODE. Touching QA remains `qa/dev5-stage1-uia-setvalue-observability-20260823` at `066d1e254c5a2776704bf1f48c580499a24b7045`; V3 remains `qa/dev5-stage1-fresh-candidate-v3-0fa442-20260823` at `f13f20ca76c8b488447d1996a635df77216397fa`. Fresh combined-status readback is empty for both exact SHAs and no positive terminal connected run is available. No Product mutation is justified from prior V2.
+## Live ruling
+At this run's fresh cutoff, current Audit still requires Stage1 release closure before new Full Product expansion. The accepted Stage1 authority remains `manual5/integration-20260821@0fa442330bc2bb03636ff9297512da4c29e38684`.
 
-Prior V2 classification remains QA observability/synchronization: native Backspace `e9 -> e` was proven on the original Move Edit, and failure occurred before Ctrl+A on immediate SetValue readback.
+Independent QA changed the release risk classification. PR #148 proves private workstation-path leakage on exact accepted Stage1 `0fa442...` in PGN existing-destination diagnostics and ImportRegistry provenance mismatch/batch surfaces. Related independent QA #146/#147/#149 proves the same defect class across PGN save/concurrency diagnostics, ImportRegistry mutation/provenance/batch diagnostics, and Stockfish startup errors. Therefore accepted Stage1 `0fa442...` is machine-green for its older source/release tests but is NOT privacy-clean enough to build the final fresh candidate without a repair decision.
 
-New pre-cutoff correction: DEV4 `3e15dc2e...` is no longer fully clean security authority. QA PR #146 proves five PGN path-bearing diagnostic privacy leaks (`32614265122 / 97132248157`, focused 5/5 FAIL) and QA PR #147 proves three ImportRegistry error-path leaks (`32619282734 / 97144841859`, focused 3/3 FAIL). Both runs passed exact checkout/diff hygiene/compile before failing unchanged privacy oracles. Treat `3e15dc2e...` as prior lineage anchor only until a later exact-head repair closes both defect classes.
+DEV4 current run is terminal QA-only/Product-hold and DEV-B/DEV-C do not own a competing Product repair for these exact accepted-Stage1 surfaces. DEV5 therefore used its General-Fixer role for one minimal release-critical repair from exact `0fa442...`.
 
-DEV5 shared-boundary `7c07147a21fd6c61cd2e072f8c1e457c17de639c` remains terminal GREEN for its tested scope but does not cover these newly proven sinks; do not promote it as complete DEV4 replacement authority.
+## Repair candidate
+Draft PR #151, branch `release/dev5-stage1-path-privacy-repair-20260823`, exact head `909d8e2729e00ba5fce0f25a1520010844f9341b`.
 
-DEV1 PR #138 source-contract evidence is terminal: run `32599722288`, Linux `97096080884` SUCCESS, Windows `97096080984` SUCCESS; old retained strict-route lock `97096080966` fails closed by design against obsolete `656e8ec...` routing.
+Changed Product surfaces are deliberately limited to:
+- `acs/report_paths.py`: portable report-only sanitizer; absolute POSIX/Windows/UNC paths redact to basename; safe relative provenance remains normalized and usable;
+- `acs/pgn_service.py`: sanitize read-change, existing-destination and expected-hash diagnostics only;
+- `acs/import_registry.py`: sanitize source mutation/provenance diagnostics, including inherited batch error text;
+- `acs/engine.py`: generic Stockfish startup failure text while preserving exception cause and internal configured path.
 
-DEV3 PR #137 current coordination head is `ea9763e3ec8bca65390fdc8cbf57bdb1da48d0c4`; final rerun `32619384933 / 97145095261` is SUCCESS. DEV2 #140 and all Full Product slices remain outside Stage1 freeze.
+Added Product regression `tests/test_stage1_release_path_privacy.py` and one validation workflow. No chess state/GameTree/UI/ACSDB/Teacher/Classroom or QA-owned strict Windows helper mutation.
 
-`AGENTS.md` and `docs/codex/*` remain absent on live default branch; coordination uses live GitHub evidence and versioned `docs/automation/*`.
+## Exact machine evidence
+PR #151 exact repair head `909d8e27...` has terminal GREEN workflow `DEV5 Stage1 Path Privacy Repair CI`, run `32627213644`.
 
-No test weakening/skips/xfail. PR #54/frozen refs untouched. Rejected ZIP not reused.
+Linux job `97164249233` SUCCESS:
+- exact ancestry/diff hygiene + compile PASS;
+- Product privacy regressions 6/6 PASS;
+- unchanged independent QA privacy oracles replayed PASS: PR #148 + #147 + #149 = 4 cases, plus two Stage1-compatible outer PGN cases from #146 = 2 cases;
+- full unittest 659/659 PASS;
+- full pytest 737 PASS + 758 subtests;
+- SELFTEST PASS;
+- complete WebView2 diagnostic PASS.
 
-NEXT_ACTION: terminal bounded SetValue/V3 Windows evidence first; GREEN => complete full fresh Windows release chain on exact `0fa442...`; RED => isolate packaged WebView/UIA transition before Product mutation. After Stage1 freeze and ownership check, prioritize minimal DEV4 PGN + ImportRegistry privacy repair with unchanged oracles and broad regression/security validation.
+Windows job `97164249154` SUCCESS:
+- LF-exact committed-byte materialization PASS;
+- privacy regressions 6/6 PASS;
+- focused Stage1 release contracts 75/75 PASS;
+- full unittest 659/659 PASS;
+- full pytest 737 PASS + 758 subtests;
+- SELFTEST PASS;
+- complete WebView2 diagnostic PASS.
+
+Two earlier CI false-reds were validation-only and were closed without weakening any privacy assertion or Product invariant: one reusable fixture directory was made idempotent, and Windows checkout bytes were re-materialized under LF policy before frozen blob identity tests.
+
+## Acceptance boundary
+PR #151 is `MACHINE_GREEN_REPAIR_CANDIDATE`, not accepted Stage1 authority. The current Audit handoff does not yet mention `909d8e27...` or PR #151. DEV5 did not self-promote or merge it into `manual5/integration-20260821`.
+
+Strict packaged UIA remains separately `C — INCONCLUSIVE / synchronization-observability`: prior machine evidence proves one original real Move Edit, classification A topology and native Backspace `e9 -> e`, then fails before Ctrl+A at immediate ValuePattern SetValue readback. No Ctrl+A/C Product defect is proven and QA-owned helper remains unchanged.
+
+No fresh candidate ZIP was produced. Old rejected ZIP was not reused. PR #54/frozen refs were untouched. Full Product persistent authority remains frozen at `dd9ebf...`.
+
+NEXT_ACTION: independent Audit readback of PR #151 exact head/diff/run. If Audit accepts/promotes the repair through the authorized Stage1 integration path, immediately start exactly one fresh strict Windows candidate chain from that newly accepted exact SHA. If Audit rejects it, fix only the concrete returned defect and rerun unchanged acceptance gates.
 
 READY_FOR_AUDITOR_READBACK=YES
 READY_FOR_RELEASE=NO
