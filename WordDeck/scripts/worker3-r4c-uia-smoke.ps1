@@ -77,10 +77,11 @@ function Send-Keys([string]$keys, [int]$delayMs = 300) {
 }
 
 function Send-KeysTo([string]$keys, [string]$target, [int]$delayMs = 300) {
-    # Once a process owns several top-level/modal windows, --target atomically
-    # focuses the intended element before the key is delivered. This avoids a
-    # hosted-runner race where -a PID alone can resolve the main window instead.
-    $transport = if ($keys.Contains('+')) { 'send-input' } else { 'post-message' }
+    # --target atomically focuses the intended element before delivery. Modifier
+    # chords plus modal Enter/Escape use real SendInput after that exact focus;
+    # arrows/Tab stay on deterministic PostMessage for classic WinForms controls.
+    $modalKey = $keys -ieq 'enter' -or $keys -ieq 'esc'
+    $transport = if ($keys.Contains('+') -or $modalKey) { 'send-input' } else { 'post-message' }
     $arguments = @('ui','send-keys',$keys,'-a',[string]$script:appPid,'--target',$target,'--via',$transport)
     if ($keys -ieq 'alt+f4') { $arguments += '--allow-system-keys' }
     Invoke-WinApp $arguments | Out-Null
