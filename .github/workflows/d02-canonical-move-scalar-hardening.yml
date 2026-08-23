@@ -1,0 +1,68 @@
+name: D02 Canonical Move Scalar Hardening
+
+on:
+  pull_request:
+    paths:
+      - 'acs/chesscore.py'
+      - 'tests/test_d02_canonical_move_scalar_fail_closed.py'
+      - '.github/workflows/d02-canonical-move-scalar-hardening.yml'
+  workflow_dispatch:
+
+jobs:
+  canonical-move-boundary:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    env:
+      EXACT_BASE_SHA: dd9ebf9414103c805892856fe6a04706fa69039f
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Verify exact ancestry and narrow scope
+        shell: bash
+        run: |
+          test "$(git merge-base "$EXACT_BASE_SHA" HEAD)" = "$EXACT_BASE_SHA"
+          git diff --check "$EXACT_BASE_SHA" HEAD
+          python - <<'PY'
+          import os, subprocess
+          base = os.environ['EXACT_BASE_SHA']
+          changed = set(subprocess.check_output(['git', 'diff', '--name-only', base, 'HEAD'], text=True).splitlines())
+          allowed = {
+              'acs/chesscore.py',
+              'tests/test_d02_canonical_move_scalar_fail_closed.py',
+              '.github/workflows/d02-canonical-move-scalar-hardening.yml',
+          }
+          if changed != allowed:
+              raise SystemExit(f'narrow D02 diff mismatch: {sorted(changed)}')
+          print('D02 exact-base narrow-diff PASS')
+          PY
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install test dependency
+        run: python -m pip install -q pytest
+      - name: Compile
+        run: python -m compileall -q acs tests run_accessible_chess.py
+      - name: D02 adversarial canonical Move boundary
+        run: python -m unittest -v tests.test_d02_canonical_move_scalar_fail_closed
+      - name: Focused canonical Position History atomicity regressions
+        run: >-
+          python -m unittest -v
+          tests.test_dev2_fen_atomicity
+          tests.test_position_editor
+          tests.test_squares
+          tests.test_history
+          tests.test_core_release_contracts
+          tests.test_stage1_core_full_flow
+          tests.test_stage1_saturation_history_stress
+      - name: Full unittest regression
+        run: python -m unittest discover -v tests
+      - name: Full pytest regression
+        run: python -m pytest -q tests
+      - name: Selftest
+        run: python -m acs.selftest
+      - name: Complete diagnostic
+        run: python run_accessible_chess.py --diagnostic
