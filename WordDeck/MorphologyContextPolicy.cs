@@ -18,6 +18,8 @@ internal sealed record MorphologyContextTargetPlan(
 /// Stable-ID and physical-form guard used before morphology relations are offered
 /// to Sentence/Context, Grammar or Reading. Exact source-backed morphology edges do
 /// not authorize a downstream corpus to guess POS/sense identity from equal spelling.
+/// An ambiguous ID may pass only when the caller supplies an explicit upstream
+/// resolution set; this class never derives that proof from the written form.
 /// </summary>
 internal sealed class MorphologyContextTargetPlanner
 {
@@ -43,13 +45,14 @@ internal sealed class MorphologyContextTargetPlanner
         string anchorEntryId,
         IReadOnlySet<string>? allowedEntryIds = null,
         IReadOnlySet<string>? allowedLevels = null,
-        int maxRelatedTargets = 32)
+        int maxRelatedTargets = 32,
+        IReadOnlySet<string>? resolvedAmbiguousEntryIds = null)
     {
         if (maxRelatedTargets is < 1 or > 256) throw new ArgumentOutOfRangeException(nameof(maxRelatedTargets));
         string anchor = RequireKnownEntry(anchorEntryId);
         if (allowedEntryIds is not null && !allowedEntryIds.Contains(anchor))
             throw new InvalidDataException("Morphology context anchor must belong to the supplied study pool.");
-        if (IsAmbiguous(anchor))
+        if (IsUnresolvedAmbiguity(anchor, resolvedAmbiguousEntryIds))
             throw new InvalidDataException($"Morphology context anchor '{anchor}' has an unresolved equal-written-form stable-ID ambiguity. Context practice must fail closed until POS/sense identity is proven.");
 
         IReadOnlyList<MorphologyIntegrationTarget> candidates = _practice.SelectContextTargets(
@@ -65,7 +68,7 @@ internal sealed class MorphologyContextTargetPlanner
         {
             if (!_entries.TryGetValue(candidate.EntryId, out DictionaryEntry? entry)) continue;
             string surface = NormalizeSurface(entry.Source);
-            if (IsAmbiguous(candidate.EntryId) || surface.Equals(anchorSurface, StringComparison.OrdinalIgnoreCase))
+            if (IsUnresolvedAmbiguity(candidate.EntryId, resolvedAmbiguousEntryIds) || surface.Equals(anchorSurface, StringComparison.OrdinalIgnoreCase))
             {
                 excluded.Add(candidate.EntryId);
                 continue;
@@ -94,6 +97,16 @@ internal sealed class MorphologyContextTargetPlanner
         string key = NormalizeSurface(_entries[id].Source);
         return _idsBySurface.TryGetValue(key, out string[]? ids) && ids.Length > 1;
     }
+
+    public bool IsUnresolvedAmbiguity(string entryId, IReadOnlySet<string>? resolvedAmbiguousEntryIds = null)
+    {
+        string id = RequireKnownEntry(entryId);
+        return IsAmbiguous(id) && !ContainsResolved(resolvedAmbiguousEntryIds, id);
+    }
+
+    private static bool ContainsResolved(IReadOnlySet<string>? resolvedAmbiguousEntryIds, string entryId) =>
+        resolvedAmbiguousEntryIds is not null &&
+        resolvedAmbiguousEntryIds.Any(resolved => string.Equals(resolved?.Trim(), entryId, StringComparison.OrdinalIgnoreCase));
 
     private string RequireKnownEntry(string entryId)
     {

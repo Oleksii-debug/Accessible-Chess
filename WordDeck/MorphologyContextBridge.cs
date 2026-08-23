@@ -25,10 +25,15 @@ internal sealed class MorphologyContextBridge
         ContextLearnerVocabulary? vocabulary = null,
         ContextProductUseOptions? options = null,
         int maxResults = 20,
-        int candidateLimit = 256)
+        int candidateLimit = 256,
+        IReadOnlySet<string>? resolvedAmbiguousEntryIds = null)
     {
         HashSet<string> allowed = NormalizePool(studyPoolEntryIds);
-        MorphologyContextTargetPlan plan = _planner.Plan(anchorEntryId, allowed);
+        MorphologyContextTargetPlan plan = _planner.Plan(
+            anchorEntryId,
+            allowed,
+            maxRelatedTargets: 32,
+            resolvedAmbiguousEntryIds: resolvedAmbiguousEntryIds);
         return ContextPracticeProductFacade.Select(
             source,
             new ContextPracticeRequest(
@@ -49,13 +54,18 @@ internal sealed class MorphologyContextBridge
         int desiredTargetCount,
         ContextProductUseOptions? options = null,
         int maxCandidateSentences = 256,
-        int maxSets = 20)
+        int maxSets = 20,
+        IReadOnlySet<string>? resolvedAmbiguousEntryIds = null)
     {
         if (desiredTargetCount is < 2 or > 3)
             throw new ArgumentOutOfRangeException(nameof(desiredTargetCount), "Morphology-related natural target discovery supports two or three physical target forms; use SelectAnchorSentences for one target.");
 
         HashSet<string> allowed = NormalizePool(studyPoolEntryIds);
-        MorphologyContextTargetPlan plan = _planner.Plan(anchorEntryId, allowed);
+        MorphologyContextTargetPlan plan = _planner.Plan(
+            anchorEntryId,
+            allowed,
+            maxRelatedTargets: 32,
+            resolvedAmbiguousEntryIds: resolvedAmbiguousEntryIds);
         if (plan.PhysicalTargetPoolEntryIds.Count < desiredTargetCount)
             return Array.Empty<NaturalContextTargetSet>();
 
@@ -78,13 +88,18 @@ internal sealed class MorphologyContextBridge
         ContextLearnerVocabulary? vocabulary = null,
         ContextProductUseOptions? options = null,
         int maxResults = 20,
-        int candidateLimit = 256)
+        int candidateLimit = 256,
+        IReadOnlySet<string>? resolvedAmbiguousEntryIds = null)
     {
         if (requiredTargetEntryIds is null || requiredTargetEntryIds.Count is < 1 or > 3)
             throw new ArgumentOutOfRangeException(nameof(requiredTargetEntryIds));
 
         HashSet<string> allowed = NormalizePool(studyPoolEntryIds);
-        MorphologyContextTargetPlan plan = _planner.Plan(anchorEntryId, allowed);
+        MorphologyContextTargetPlan plan = _planner.Plan(
+            anchorEntryId,
+            allowed,
+            maxRelatedTargets: 32,
+            resolvedAmbiguousEntryIds: resolvedAmbiguousEntryIds);
         var morphologyPool = new HashSet<string>(plan.PhysicalTargetPoolEntryIds, StringComparer.OrdinalIgnoreCase);
         string[] required = requiredTargetEntryIds
             .Select(id => string.IsNullOrWhiteSpace(id) ? string.Empty : id.Trim())
@@ -97,9 +112,6 @@ internal sealed class MorphologyContextBridge
             throw new InvalidDataException("Morphology Context target set must include the morphology anchor stable ID.");
         if (required.Any(id => !morphologyPool.Contains(id)))
             throw new InvalidDataException("Morphology Context target set contains an entry that is not an ambiguity-safe source-backed family target.");
-        foreach (string id in required)
-            if (_planner.IsAmbiguous(id))
-                throw new InvalidDataException($"Morphology Context target '{id}' has unresolved equal-written-form stable-ID ambiguity.");
         _lexicon.EnsureDistinctLexicalTargets(required);
 
         return ContextPracticeProductFacade.Select(
