@@ -71,9 +71,13 @@ function Assert-ShortcutListFocus([string]$context) {
 }
 
 function Send-Keys([string]$keys, [string]$target = '') {
+    # Modifier chords require real modifier state. Targeted Enter/Escape also use
+    # SendInput so modal dialogs and text controls receive an actual keyboard event
+    # after WinApp atomically focuses the intended accessible element.
+    $modalKey = $keys -ieq 'enter' -or $keys -ieq 'esc'
     $transport = if ($keys -ieq 'alt+f4') {
         'post-message'
-    } elseif ($keys.Contains('+')) {
+    } elseif ($keys.Contains('+') -or ($modalKey -and -not [string]::IsNullOrWhiteSpace($target))) {
         'send-input'
     } else {
         'post-message'
@@ -90,11 +94,32 @@ function Send-Keys([string]$keys, [string]$target = '') {
 
 function Send-MenuKey([string]$keys) {
     # Once a native WinForms menu loop is active, keyboard navigation belongs to
-    # that foreground menu, not to the main form HWND. Use real SendInput without
-    # a target so Alt/arrow/Enter state reaches the active menu exactly as a user
-    # keyboard sequence would.
+    # that foreground menu, not to the main form HWND.
     Invoke-WinApp @('ui','send-keys',$keys,'-a',[string]$script:appPid,'--via','send-input') | Out-Null
     Start-Sleep -Milliseconds 300
+}
+
+function Navigate-FileMenuToReset {
+    # Do not assume whether Alt+F opens with no item selected or with the first
+    # item selected. Inspect actual UIA focus and advance by keyboard until the
+    # explicit accessible Reset command is reached. The loop is bounded and
+    # fail-closed so a reordered/renamed menu cannot silently activate another
+    # destructive command.
+    $seen = New-Object System.Collections.Generic.List[string]
+    for ($i = 0; $i -lt 10; $i++) {
+        $name = Get-FocusedName
+        $seen.Add($name)
+        if ($name -eq 'Reset Recall learning data with automatic backup' -or $name -like 'Reset Recall learning data*') {
+            return
+        }
+        Send-MenuKey 'down'
+    }
+    $final = Get-FocusedName
+    $seen.Add($final)
+    if ($final -eq 'Reset Recall learning data with automatic backup' -or $final -like 'Reset Recall learning data*') {
+        return
+    }
+    Fail "File-menu keyboard navigation did not reach the accessible Reset command. Focus sequence: $($seen -join ' -> ')"
 }
 
 function Exercise-Combo([string]$selector, [int]$cycles) {
@@ -123,7 +148,7 @@ function Open-And-CancelDialog([string]$shortcut, [string]$dialogName, [string]$
     $wordBefore = Get-Value 'Current English word'
     Send-Keys $shortcut 'Current English word'
     Wait-For $dialogName 12000
-    Send-Keys 'esc'
+    Send-Keys 'esc' $dialogName
     Wait-Gone $dialogName 10000
     Wait-For 'Current English word' 5000
     if ((Get-Value 'Current English word') -ne $wordBefore) { Fail "$context changed the current Recall card while being cancelled." }
@@ -196,16 +221,15 @@ try {
     Open-And-CancelDialog 'ctrl+alt+e' 'Export complete WordDeck personal progress profile' 'complete profile export dialog'
     Open-And-CancelDialog 'ctrl+shift+i' 'Import complete WordDeck personal progress profile' 'complete profile import dialog'
 
-    # Reset is intentionally unbound. Exercise the real File-menu keyboard path.
-    # File opens with the first selectable item active; four Down presses reach
-    # Reset (Add, Save, Export, Import, Reset), then Enter invokes it.
+    # Reset is intentionally unbound. Open File from the keyboard, then navigate
+    # by the actual accessible focus rather than by a brittle fixed item count.
     Focus 'Current English word'
     $resetWord = Get-Value 'Current English word'
     Send-MenuKey 'alt+f'
-    for ($i = 0; $i -lt 4; $i++) { Send-MenuKey 'down' }
+    Navigate-FileMenuToReset
     Send-MenuKey 'enter'
     Wait-For 'Reset WordDeck learning data' 7000
-    Send-Keys 'esc'
+    Send-Keys 'esc' 'Reset WordDeck learning data'
     Wait-Gone 'Reset WordDeck learning data' 7000
     Wait-For 'Current English word' 5000
     if ((Get-Value 'Current English word') -ne $resetWord) { Fail 'Cancelling reset changed the current Recall card.' }
