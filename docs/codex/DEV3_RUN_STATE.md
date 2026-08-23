@@ -1,6 +1,6 @@
 # DEV3 RUN STATE
 
-RUN_ID: 20260823-1202-stage1-privacy-current-head-reconciliation
+RUN_ID: 20260823-1257-stage1-current-repair-independent-validation
 STATUS: SAFE_OVERLAP / RELEASE_SUPPORT / CURRENT_REPAIR_GREEN_PENDING_PROMOTION
 READY_FOR_INTEGRATION: YES_FOR_PR137_ISOLATED_SLICE
 OVERALL_FULL_PRODUCT_DEV3: PARTIAL
@@ -18,25 +18,27 @@ DEV3 exact accepted-source Windows runtime evidence remains GREEN in PR #142: ru
 Accepted-source privacy defects remain proven by DEV3 PR #148 and PR #150. PR #150 exact accepted-source run/job 32627037392 / 97163830449: UCI recovery 3/3 PASS and engine-start privacy oracle 2/2 FAIL on accepted 0fa44233....
 
 CURRENT DEV5 REPAIR TECHNICAL TRUTH:
-PR #151 current exact head is df52aeb3d99f4ae3d0089eab2882fe9b3c373dfd, not the stale 909d8e27... or c0169ed2... heads mentioned in older reports.
-Workflow: DEV5 Stage1 Path Privacy Repair CI
-Run: 32627946799
-Linux job 97166119460: SUCCESS through exact ancestry/diff, compile, Product-owned privacy regressions, current independent QA privacy-oracle replay, full unittest, full pytest and complete diagnostic.
-Windows job 97166119501: SUCCESS through LF-exact source handling, Windows path privacy regressions, focused Stage1 release contracts, full unittest, full pytest and complete diagnostic.
+PR #151 exact head: df52aeb3d99f4ae3d0089eab2882fe9b3c373dfd.
+Workflow DEV5 Stage1 Path Privacy Repair CI run 32627946799: SUCCESS.
+Linux job 97166119460 SUCCESS; Windows job 97166119501 SUCCESS through privacy regressions, independent QA replay, full unittest, full pytest and complete diagnostic; Windows also passes focused Stage1 release contracts.
+
+INDEPENDENT CURRENT-HEAD UI/NVDA SOURCE-CONTRACT VALIDATION:
+DEV1 evidence-only PR #157 pins exact repair df52aeb3d99f4ae3d0089eab2882fe9b3c373dfd and exact accepted parent 0fa442330bc2bb03636ff9297512da4c29e38684. Evidence head 93acd90bf4ab98a03499866e2984f72bdf5f1111. Workflow DEV1 Current Stage1 Repair UI/NVDA Evidence run 32631895304: SUCCESS. This independently verifies the repair diff does not alter DEV1 UI/WebView/keymap/stage1_release_ui Product paths and existing candidate-facing accessibility/release source contracts remain GREEN on Windows/Linux. This is source-contract evidence only and is not human NVDA verification.
 
 DRIVE-RELATIVE EDGE RECONCILIATION:
-DEV1 PR #155 run/job 32627735837 / 97165590524 truthfully FAILED on older repair SHA c0169ed276fff893f90f85192416612f3b998b5a because report_safe_name(r"C:Users\\PrivateUser\\Documents\\analysis.pgn") returned the full normalized drive-relative path instead of analysis.pgn. DEV3 briefly created PR #156 for the same question but closed it immediately as superseded by PR #155 to preserve WIP=1.
-Current PR #151 head df52aeb... contains the direct repair: any alphabetic drive-qualified prefix path[1] == ':' is basename-redacted, including drive-relative forms. Current Product-owned test_stage1_release_path_privacy explicitly asserts both C:Users\\... and D:WorkstationOwner\\... basename-only behavior, and the exact current Linux+Windows CI above is GREEN. Therefore PR #155 RED is historical evidence against c0169ed..., not a blocker proven on df52aeb....
+DEV1 PR #155 run/job 32627735837 / 97165590524 truthfully FAILED on older repair SHA c0169ed276fff893f90f85192416612f3b998b5a. Current df52aeb... contains the direct drive-qualified basename repair and exact current Product CI plus PR #157 validation are GREEN. PR #155 remains historical RED only.
 
 CLASSIFICATION:
 - accepted Stage1 0fa44233... privacy defects: PROVEN;
-- DEV5 PR #151 current repair df52aeb...: EXACT LINUX+WINDOWS GREEN including drive-relative regression coverage;
+- DEV5 PR #151 current repair df52aeb...: EXACT LINUX+WINDOWS GREEN;
+- independent current-head UI/NVDA source-contract evidence PR #157: GREEN;
 - accepted Stage1 authority has NOT yet changed;
+- fresh candidate ZIP: NONE CERTIFIED;
 - DEV3 Stockfish/runtime Product defect: NOT PROVEN;
 - SAFE_OVERLAP: YES; no competing Product patch;
 - TEST_WEAKENING: NONE.
 
-NEXT: observe independent Audit/integration promotion. If df52aeb... or an equivalent reviewed descendant becomes the accepted Stage1 authority, replay independent DEV3 privacy oracles against that exact promoted SHA, then follow one fresh Windows candidate through strict UIA, packaged Stockfish/sound, release preflight, ZIP identity and artifact upload. Only a concrete DEV3-owned runtime/analysis/clock/lifecycle defect may justify a DEV3 Product patch during freeze.
+NEXT: observe independent Audit/integration promotion. If df52aeb... or an equivalent reviewed descendant becomes accepted Stage1 authority, replay independent DEV3 privacy oracles unchanged against that exact promoted SHA, then follow one fresh Windows candidate through strict UIA, packaged Stockfish/sound, release preflight, ZIP identity and artifact upload. Only a concrete DEV3-owned runtime/analysis/clock/lifecycle defect may justify a DEV3 Product patch during freeze.
 
 FRESH_WINDOWS_CANDIDATE: NO
 NVDA_VERIFIED: NO
