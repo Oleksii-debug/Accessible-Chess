@@ -7,10 +7,11 @@ adapter with D09 reverse-channel and visual-presentation services.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Mapping
 
 from .classroom_domain import ClassroomSnapshot
+from .interaction_contracts import ContractValidationError
 from .teaching_reverse_channel import (
     STUDENT_CLICK_ACTION_ID,
     STUDENT_HOVER_ACTION_ID,
@@ -24,7 +25,9 @@ from .teaching_reverse_channel import (
 from .teaching_session import (
     LessonSession,
     TeachingSessionError,
+    TeachingSessionPhase,
     TeachingSessionState,
+    current_step,
     validate_lesson_session_scope,
 )
 from .teaching_session_adapter import (
@@ -43,10 +46,27 @@ from .teaching_visual_board import (
 )
 
 
+TEACHER_SET_ACTIVE_STUDENT_ACTION_ID = "teacher.set_active_student"
+TEACHER_CLEAR_ACTIVE_STUDENT_ACTION_ID = "teacher.clear_active_student"
+TEACHER_CLASSROOM_ACTIONS = frozenset(
+    {
+        TEACHER_SET_ACTIVE_STUDENT_ACTION_ID,
+        TEACHER_CLEAR_ACTIVE_STUDENT_ACTION_ID,
+    }
+)
+_STUDENT_RESPONSE_ACTIONS = frozenset(
+    {
+        STUDENT_CLICK_ACTION_ID,
+        "student.select",
+        "student.move",
+    }
+)
+
 CLASSROOM_ACTIONS = frozenset(
     set(TEACHING_SESSION_ACTIONS)
     | {STUDENT_HOVER_ACTION_ID, STUDENT_CLICK_ACTION_ID}
     | set(TEACHER_VISUAL_BOARD_ACTIONS)
+    | set(TEACHER_CLASSROOM_ACTIONS)
 )
 
 
@@ -95,6 +115,19 @@ def apply_classroom_action(
     if type(action_id) is not str or action_id not in CLASSROOM_ACTIONS:
         raise TeachingClassroomAdapterError("unsupported classroom action")
     try:
+        if action_id in TEACHER_CLASSROOM_ACTIONS:
+            if actor_student_id is not None:
+                raise TeachingClassroomAdapterError("teacher floor action must not carry student identity")
+            return _apply_teacher_floor_action(
+                plan,
+                state,
+                classroom,
+                action_id,
+                payload,
+                expected_revision=expected_revision,
+            )
+        if action_id in _STUDENT_RESPONSE_ACTIONS:
+            _require_active_responder(plan, state, classroom, actor_student_id)
         if action_id == STUDENT_HOVER_ACTION_ID:
             return apply_student_hover_action(
                 plan,
@@ -130,11 +163,14 @@ def apply_classroom_action(
             expected_revision=expected_revision,
             actor_student_id=actor_student_id,
         )
+    except TeachingClassroomAdapterError:
+        raise
     except (
         TeachingAdapterError,
         TeachingReverseChannelError,
         TeachingVisualBoardError,
         TeachingSessionError,
+        ContractValidationError,
         TypeError,
         ValueError,
     ) as exc:
@@ -221,6 +257,92 @@ def classroom_view_to_payload(view: TeachingClassroomView) -> dict[str, object]:
         ],
         "student_pointer_history": pointer_history_to_payload(view.student_pointer_history),
     }
+
+
+def _apply_teacher_floor_action(
+    plan: LessonSession,
+    state: TeachingSessionState,
+    classroom: ClassroomSnapshot,
+    action_id: str,
+    payload: Mapping[str, object] | None,
+    *,
+    expected_revision: int,
+) -> TeachingSessionState:
+    if state.phase is not TeachingSessionPhase.ACTIVE:
+        raise TeachingClassroomAdapterError("active responder can change only in an active teaching session")
+    if type(expected_revision) is not int or expected_revision < 0 or state.revision != expected_revision:
+        raise TeachingClassroomAdapterError("stale teaching session revision")
+    current_step(plan, state)
+
+    if payload is None:
+        data: Mapping[str, object] = {}
+    elif isinstance(payload, Mapping) and all(type(key) is str for key in payload):
+        data = payload
+    else:
+        raise TeachingClassroomAdapterError("teacher floor payload must be an object")
+
+    if action_id == TEACHER_SET_ACTIVE_STUDENT_ACTION_ID:
+        if set(data) != {"student_id"}:
+            raise TeachingClassroomAdapterError("teacher floor payload shape is invalid")
+        student_id = data["student_id"]
+        if type(student_id) is not str or not student_id or student_id != student_id.strip():
+            raise TeachingClassroomAdapterError("active student is invalid")
+        if student_id not in plan.student_ids:
+            raise TeachingClassroomAdapterError("active student is not assigned to this lesson")
+        if not any(
+            item.student_id == student_id and not item.deleted
+            for item in classroom.students
+        ):
+            raise TeachingClassroomAdapterError("active student is unavailable")
+        new_active_student_id: str | None = student_id
+    else:
+        if set(data):
+            raise TeachingClassroomAdapterError("teacher floor payload shape is invalid")
+        new_active_student_id = None
+
+    try:
+        presentation = replace(
+            state.presentation,
+            active_student_id=new_active_student_id,
+        )
+        updated = replace(
+            state,
+            presentation=presentation,
+            active_student_id=new_active_student_id,
+            last_response=None,
+            revision=state.revision + 1,
+        )
+    except (ContractValidationError, TeachingSessionError, TypeError, ValueError) as exc:
+        raise TeachingClassroomAdapterError("active responder could not be changed") from exc
+
+    if updated.position_fen != state.position_fen:
+        raise TeachingClassroomAdapterError("active responder change mutated chess position")
+    return updated
+
+
+def _require_active_responder(
+    plan: LessonSession,
+    state: TeachingSessionState,
+    classroom: ClassroomSnapshot,
+    actor_student_id: str | None,
+) -> None:
+    if type(actor_student_id) is not str or actor_student_id not in plan.student_ids:
+        raise TeachingClassroomAdapterError("student is not authorized for this lesson")
+    if not any(
+        item.student_id == actor_student_id and not item.deleted
+        for item in classroom.students
+    ):
+        raise TeachingClassroomAdapterError("student is not authorized for this lesson")
+    active_student_id = state.active_student_id
+    if active_student_id is None:
+        return
+    if not any(
+        item.student_id == active_student_id and not item.deleted
+        for item in classroom.students
+    ) or active_student_id not in plan.student_ids:
+        raise TeachingClassroomAdapterError("active student is unavailable")
+    if actor_student_id != active_student_id:
+        raise TeachingClassroomAdapterError("student does not hold the active response floor")
 
 
 def _validate_scope(
