@@ -1,0 +1,50 @@
+name: WordDeck DEV05 Listening Gate
+
+on:
+  push:
+    branches:
+      - worddeck-swarm-dev05-listening
+  pull_request:
+    branches:
+      - worddeck-bootstrap
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: worddeck-dev05-listening-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  listening-gate:
+    runs-on: windows-2025
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Restore
+        run: dotnet restore WordDeck/WordDeck.csproj
+      - name: Build warnings as errors
+        run: dotnet build WordDeck/WordDeck.csproj -c Release --no-restore -warnaserror
+      - name: Full self-test including Listening isolation and restart
+        run: dotnet run --project WordDeck/WordDeck.csproj -c Release --no-build -- --self-test
+      - name: Publish Windows self-contained candidate
+        run: dotnet publish WordDeck/WordDeck.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o artifacts/listening-publish
+      - name: Published executable self-test
+        shell: pwsh
+        run: |
+          $exe = Join-Path $PWD 'artifacts/listening-publish/WordDeck.exe'
+          if (-not (Test-Path $exe)) { throw 'Published WordDeck.exe missing.' }
+          $process = Start-Process -FilePath $exe -ArgumentList '--self-test' -Wait -PassThru -NoNewWindow
+          if ($process.ExitCode -ne 0) { throw "Published Listening self-test failed: $($process.ExitCode)" }
+      - name: Public-tree personal-state guard
+        shell: pwsh
+        run: |
+          $forbidden = Get-ChildItem artifacts/listening-publish -Recurse -File | Where-Object {
+            $_.Name -match '^(state|spelling-state|sentence-coach-state|listening-state)(\.backup)?\.json$' -or
+            $_.Name -match '^WordDeck-.*profile.*\.json$'
+          }
+          if ($forbidden) { $forbidden.FullName; throw 'Published tree contains personal learning state or recovery state.' }

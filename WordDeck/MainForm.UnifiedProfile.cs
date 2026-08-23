@@ -9,7 +9,7 @@ internal sealed partial class MainForm
         {
             Title = "Export complete WordDeck personal progress profile",
             Filter = "WordDeck personal profile (*.json)|*.json",
-            FileName = "WordDeck-profile-v3.json",
+            FileName = "WordDeck-profile-v4.json",
             AddExtension = true,
             DefaultExt = "json"
         };
@@ -17,7 +17,7 @@ internal sealed partial class MainForm
         try
         {
             new UnifiedProfileService(_store).Export(_state, dialog.FileName);
-            AnnounceStatus($"Complete personal profile exported to {dialog.FileName}. Recall, Spelling and Sentence learning state are included; canonical dictionary, audio and SentencePack content are not copied into the profile.");
+            AnnounceStatus($"Complete personal profile exported to {dialog.FileName}. Recall, Spelling, Sentence and Listening learning state are included; canonical dictionary, audio and SentencePack content are not copied into the profile.");
         }
         catch (Exception ex)
         {
@@ -55,11 +55,13 @@ internal sealed partial class MainForm
             string quarantine = result.QuarantinedIds.Count == 0
                 ? "No unknown stable IDs were found."
                 : $"{result.QuarantinedIds.Count} unknown IDs were preserved in quarantine for future migration.";
-            string modes = result.SentenceImported
-                ? "Recall, Spelling and Sentence state were restored."
-                : result.SpellingImported
-                    ? "This older profile restored Recall and Spelling state; current Sentence state was intentionally preserved."
-                    : "This V0.1 profile restored Recall state; current Spelling and Sentence state were intentionally preserved.";
+            string modes = result.ListeningImported
+                ? "Recall, Spelling, Sentence and Listening state were restored."
+                : result.SentenceImported
+                    ? "This older profile restored Recall, Spelling and Sentence state; current Listening state was intentionally preserved."
+                    : result.SpellingImported
+                        ? "This older profile restored Recall and Spelling state; current Sentence and Listening state were intentionally preserved."
+                        : "This V0.1 profile restored Recall state; current Spelling, Sentence and Listening state were intentionally preserved.";
             AnnounceStatus($"Personal profile imported successfully. {modes} Recovery backups were created before replacement. {quarantine}");
         }
         catch (Exception ex)

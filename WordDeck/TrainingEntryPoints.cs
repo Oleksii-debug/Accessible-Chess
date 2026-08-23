@@ -16,6 +16,21 @@ internal static class TrainingEntryPoints
             .FirstOrDefault(item => (item.Text ?? string.Empty).Replace("&", string.Empty).Equals("Tools", StringComparison.OrdinalIgnoreCase));
         if (tools is null) return;
 
+        AppState appState = main.SharedAppStateForTraining;
+        var listeningShortcuts = new ShortcutManager(appState, null, ShortcutDispatchContext.Listening);
+
+        // Listening owns independent progress and must remain launchable even if
+        // optional Spelling/Sentence state needs recovery.
+        var openListening = new ToolStripMenuItem("Open &Listening and Dictation trainer...")
+        {
+            AccessibleName = "Open Listening and Dictation trainer",
+            AccessibleDescription = "Offline British word dictation. The written answer stays hidden until checking.",
+            ShortcutKeys = listeningShortcuts.Get(ActionIds.OpenListening),
+            ShowShortcutKeys = true
+        };
+        openListening.Click += (_, _) => OpenListening(main);
+        tools.DropDownItems.Insert(0, openListening);
+
         SpellingStateSession spelling;
         try
         {
@@ -28,7 +43,6 @@ internal static class TrainingEntryPoints
             return;
         }
 
-        AppState appState = main.SharedAppStateForTraining;
         var shortcutManager = new ShortcutManager(appState, spelling.State.Decks, ShortcutDispatchContext.All);
         main.RefreshTrainingShortcutDefinitions(spelling.State.Decks);
 
@@ -50,27 +64,29 @@ internal static class TrainingEntryPoints
 
         var settings = new ToolStripMenuItem("Training &keyboard shortcuts...")
         {
-            AccessibleName = "Spelling and Sentence Spelling keyboard shortcuts"
+            AccessibleName = "Recall Spelling Sentence and Listening keyboard shortcuts",
+            AccessibleDescription = "Configure the keyboard commands used by Recall, Spelling, Sentence and Listening training."
         };
-        settings.Click += (_, _) => OpenTrainingShortcutSettings(main, openSpelling, openSentence);
+        settings.Click += (_, _) => OpenTrainingShortcutSettings(main, openSpelling, openSentence, openListening);
 
         tools.DropDownItems.Insert(0, openSpelling);
         tools.DropDownItems.Insert(1, openSentence);
-        tools.DropDownItems.Insert(2, settings);
-        AddUnifiedProfileItems(tools, main, insertIndex: 3);
+        // Listening item that was inserted first is shifted to index 2.
+        tools.DropDownItems.Insert(3, settings);
+        AddUnifiedProfileItems(tools, main, insertIndex: 4);
     }
 
     private static void AddUnifiedProfileItems(ToolStripMenuItem tools, MainForm main, int insertIndex)
     {
         var exportProfile = new ToolStripMenuItem("Export complete personal &profile...")
         {
-            AccessibleName = "Export complete Recall Spelling and Sentence personal profile"
+            AccessibleName = "Export complete Recall Spelling Sentence and Listening personal profile"
         };
         exportProfile.Click += (_, _) => main.ExportUnifiedPersonalProfileInteractive();
 
         var importProfile = new ToolStripMenuItem("Import complete personal pro&file...")
         {
-            AccessibleName = "Import complete Recall Spelling and Sentence personal profile"
+            AccessibleName = "Import complete Recall Spelling Sentence and Listening personal profile"
         };
         importProfile.Click += (_, _) => main.ImportUnifiedPersonalProfileInteractive();
 
@@ -79,7 +95,11 @@ internal static class TrainingEntryPoints
         tools.DropDownItems.Insert(insertIndex + 2, new ToolStripSeparator());
     }
 
-    private static void OpenTrainingShortcutSettings(MainForm owner, ToolStripMenuItem spellingItem, ToolStripMenuItem sentenceItem)
+    private static void OpenTrainingShortcutSettings(
+        MainForm owner,
+        ToolStripMenuItem spellingItem,
+        ToolStripMenuItem sentenceItem,
+        ToolStripMenuItem listeningItem)
     {
         try
         {
@@ -92,6 +112,7 @@ internal static class TrainingEntryPoints
             owner.RefreshTrainingShortcutDefinitions(spelling.State.Decks);
             spellingItem.ShortcutKeys = shortcuts.Get(ActionIds.OpenSpelling);
             sentenceItem.ShortcutKeys = shortcuts.Get(ActionIds.OpenSentenceCoach);
+            listeningItem.ShortcutKeys = shortcuts.Get(ActionIds.OpenListening);
         }
         catch (Exception ex)
         {
@@ -151,11 +172,28 @@ internal static class TrainingEntryPoints
         }
     }
 
+    private static void OpenListening(MainForm owner)
+    {
+        try
+        {
+            AppState appState = owner.SharedAppStateForTraining;
+            DictionaryPackage package = owner.ActivePackageForTraining;
+            var shortcuts = new ShortcutManager(appState, null, ShortcutDispatchContext.Listening);
+            using var form = new ListeningCoachForm(package, shortcuts);
+            form.ShowDialog(owner);
+            owner.SaveSharedStateAfterTraining();
+        }
+        catch (Exception ex)
+        {
+            ShowProtectedProgressError(owner, "Listening and Dictation", ex);
+        }
+    }
+
     private static void AddUnavailableTrainingItems(ToolStripMenuItem tools, string reason)
     {
         var unavailable = new ToolStripMenuItem("Training progress needs recovery")
         {
-            AccessibleName = "Training progress needs recovery",
+            AccessibleName = "Spelling or Sentence training progress needs recovery",
             AccessibleDescription = reason,
             Enabled = false
         };
