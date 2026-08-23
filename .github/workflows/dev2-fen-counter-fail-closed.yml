@@ -17,7 +17,7 @@ jobs:
         os: [ubuntu-24.04, windows-2025]
     runs-on: ${{ matrix.os }}
     env:
-      EXACT_COMBINED_BASE_SHA: 574d8c7344a7490de46ba38498f363395c951019
+      EXACT_COMBINED_BASE_SHA: 63b3cddee5284f40276a0f5139532f0224a76363
     steps:
       - uses: actions/checkout@v4
         with:
