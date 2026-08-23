@@ -1,39 +1,46 @@
 # DEV5_RUN_STATE
 
-RUN_ID: 20260823-1301
-STARTED_LOCAL: 2026-08-23 13:01:42 Europe/Kyiv
+RUN_ID: 20260823-1347
+STARTED_LOCAL: 2026-08-23 13:41 Europe/Uzhgorod
 STATUS: COMPLETE
-MODE: SAFE_OVERLAP_COORDINATION / REPAIRED_STAGE1_PROMOTION
-COORDINATOR_BRANCH: auto/dev5-coordinator-1301-20260823
-SNAPSHOT_CUTOFF: 2026-08-23T13:01:42+03:00
-SNAPSHOT_FILE: docs/automation/SNAPSHOT_20260823_1301.md
+MODE: SAFE_OVERLAP_COORDINATION / STALE_PROMOTION_REVOKED / STAGE1_PRIVACY_REPAIR_GREEN_PENDING_INDEPENDENT_REVALIDATION
+COORDINATOR_BRANCH: auto/dev5-coordinator-1348-20260823
+SNAPSHOT_CUTOFF: 2026-08-23T13:47:22+03:00
+SNAPSHOT_FILE: docs/automation/SNAPSHOT_20260823_1347.md
 
-PRIOR_STAGE1_BASELINE_SHA: 0fa442330bc2bb03636ff9297512da4c29e38684
-PROMOTED_REPAIRED_STAGE1_SHA: df52aeb3d99f4ae3d0089eab2882fe9b3c373dfd
-PERSISTENT_GREEN_VALIDATION_SHA: dd9ebf9414103c805892856fe6a04706fa69039f
-DEV4_PRIOR_REPAIR_LINEAGE_SHA: 3e15dc2e844cb825e482317fd024795130147011
-PR151_EXACT_CI_RUN: 32627946799
+PRIOR_ACCEPTED_STAGE1_BASELINE_SHA: 0fa442330bc2bb03636ff9297512da4c29e38684
+REVOKED_PREMATURE_PROMOTION_SHA: df52aeb3d99f4ae3d0089eab2882fe9b3c373dfd
+CURRENT_STAGE1_REPAIR_CANDIDATE_SHA: 80720e8125c59a213f278668d599040f2768d553
+PERSISTENT_FULL_PRODUCT_GREEN_SHA: dd9ebf9414103c805892856fe6a04706fa69039f
+PR151_EXACT_CI_RUN: 32634572205
+PR151_LINUX_JOB: 97182279775
+PR151_WINDOWS_JOB: 97182279877
 PR151_EXACT_CI_RESULT: SUCCESS
+INDEPENDENT_EXACT_HEAD_REVALIDATION: PENDING
 NVDA_VERIFIED: NO
 FRESH_WINDOWS_CANDIDATE: NO
 READY_FOR_RELEASE: NO
 
 ## Current ruling
-SAFE OVERLAP remains mandatory. This coordinator run made no competing Product or QA touching push.
+Live GitHub superseded the prior 13:01 coordinator promotion. Independent QA PR #158 / `cf97ea4df62fee3330478c3fc40ee17bebdad4ec` / run-job `32632703773 / 97177751978` proved that `df52aeb3...` still leaked a private path embedded only inside arbitrary `OSError.strerror`. Therefore the prior promotion is revoked. No history is rewritten and no frozen ref is mutated.
 
-Pre-cutoff DEV1 PR #155 exact head `c23c88ac21a6a9c82fad0de4aeadb695f82c5951` is terminal RED in run `32627735837`: the exact `c0169ed...` repair leaked Windows drive-relative private path provenance (`C:Users\\PrivateUser\\Documents\\analysis.pgn` -> `C:Users/PrivateUser/Documents/analysis.pgn`).
+DEV4 RUN_STATE `20260823-1300-stage1-oserror-strerror-privacy-proof` explicitly returned the minimal Stage1 repair to DEV5 ownership and required exact revalidation afterward. DEV5 repaired the existing PR #151 branch rather than opening a competing Product line.
 
-Existing DEV5 PR #151 repaired only that proven boundary. Commit `3b067dc5e049ca7656254e16ba08495a8907a6de` treats drive-qualified `X:` paths, including drive-relative forms, as private; `dcc49e45663cdbc58478f4ea3bfc957915b459cf` locks product regressions; subsequent workflow-only commits replay exact PR #155 evidence. Current exact head is `df52aeb3d99f4ae3d0089eab2882fe9b3c373dfd`.
+Product repair commit `2fce7a799509f08f495f4289b49b03d620ba27cf` changes only `acs/import_registry.py::_batch_error_text`: user-facing batch filesystem errors no longer republish arbitrary `OSError.strerror`; they retain stable `Filesystem error` context, numeric errno when available, and report-safe `filename`/`filename2` observability. Strict `inspect()` behavior and internal exception/cause semantics remain intact.
 
-Exact run `32627946799` is terminal SUCCESS. Linux job `97166119460` and Windows job `97166119501` both succeeded with compile, privacy/release contracts, full unittest, full pytest and diagnostic. Independent current privacy oracles are replayed unchanged; Windows includes the PR #155 drive-relative oracle.
+Product regression commit `12b39b75173621e73eb9087586f0d6e35ed2004e` adds the path-bearing-strerror reproduction while preserving the existing requirement that a genuine OSError filename sidecar may expose only its safe basename.
 
-Independent compare review `0fa442...` -> `df52aeb...` is ahead 15/behind 0. Product delta is confined to `acs/engine.py`, `acs/import_registry.py`, `acs/pgn_service.py`, `acs/report_paths.py`; remaining delta is release workflow/tests. No chess-state/GameTree/WebView/UI/strict-UIA helper mutation.
+Exact current PR #151 head is `80720e8125c59a213f278668d599040f2768d553`. `DEV5 Stage1 Path Privacy Repair CI` run `32634572205` is terminal SUCCESS:
+- Linux `97182279775`: exact ancestry/diff hygiene PASS; compile PASS; Product privacy 10/10; unchanged current external privacy oracles 13/13 including PR #158; selected PGN privacy 2/2; drive-relative oracle PASS; unittest 663/663; pytest 741 + 758 subtests; SELFTEST + complete WebView2 diagnostic PASS.
+- Windows Server 2025 `97182279877`: LF-exact checkout/ancestry/diff hygiene PASS; Product privacy 10/10; focused Stage1 release contracts 75/75; unittest 663/663; pytest 741 + 758 subtests; SELFTEST + complete WebView2 diagnostic PASS.
 
-PROMOTION DECISION: `df52aeb3d99f4ae3d0089eab2882fe9b3c373dfd` is explicitly promoted as repaired Stage1 Product authority for the next fresh Windows candidate chain. This does not merge PR #151, PR #54 or frozen refs. `0fa442...` remains the prior baseline/comparison anchor.
+No skips, xfails, assertion weakening, GameTree/chess-state/UI/WebView/Teacher/Classroom/ACSDB or strict packaged UIA helper mutation was used.
 
-UIA classification is unchanged: V2 proved original Move Edit + native Backspace `e9 -> e`, then failed before Ctrl+A on immediate SetValue readback. No Ctrl+A Product defect is proven. Historical QA `066d1e254...` and V3 `f13f20ca...` must not be silently retargeted.
+`80720e8...` is therefore the current technically GREEN repaired Stage1 candidate, but it is NOT yet promoted as accepted Stage1 authority. The latest DEV4 ownership directive requires independent exact-head revalidation, and independent AUDIT_MASTER acceptance remains mandatory before a release-lineage promotion.
 
-NEXT_ACTION: one non-overlapping DEV5 release owner must create/designate a fresh QA harness locked to exact promoted Product `df52aeb...` and run the complete Windows machine candidate chain. Do not reuse old PR #139 artifact state or rejected ZIP. Only an uninterrupted GREEN chain through ZIP reopen/identity and upload may set `FRESH_WINDOWS_CANDIDATE=YES`; personal user NVDA verification is still required afterward.
+UIA classification remains C / INCONCLUSIVE at the QA synchronization-observability boundary: V2 proved the unique original Move Edit and native Backspace `e9 -> e`, then stopped before Ctrl+A on immediate SetValue readback. No Ctrl+A/C Product defect is proven.
+
+NEXT_ACTION: independent DEV4/Audit must inspect exact `80720e8...`, PR #151 diff and run `32634572205`. If accepted, DEV5 may establish the new repaired Stage1 authority and start exactly one fresh Windows candidate chain locked to that exact Product. No candidate may be built from stale `df52aeb...` or old unpatched `0fa442...`.
 
 READY_FOR_AUDITOR_READBACK=YES
 READY_FOR_RELEASE=NO
