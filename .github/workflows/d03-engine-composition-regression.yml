@@ -5,6 +5,12 @@ on:
   push:
     branches:
       - qa/d03-engine-composition-regression-20260823
+  pull_request:
+    branches:
+      - autopulse/d03-uci-output-bounds-20260823
+    paths:
+      - tests/test_d03_stockfish_hard_shutdown.py
+      - .github/workflows/d03-engine-composition-regression.yml
 
 permissions:
   contents: read
