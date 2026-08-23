@@ -286,14 +286,21 @@ class EducationLedger:
             ) from exc
         return cls.from_record(raw)
 
-    def student_view(self, actor_student_id: str) -> StudentRecordsView:
-        """Return only the actor student's durable private records.
+    def student_view(
+        self,
+        classroom: ClassroomSnapshot,
+        actor_student_id: str,
+    ) -> StudentRecordsView:
+        """Return only the active actor student's durable private records.
 
-        There is deliberately no arbitrary subject parameter. A student-facing
-        adapter cannot request another student's response/progress through this API.
+        There is deliberately no arbitrary subject parameter. The current
+        ClassroomSnapshot is mandatory so a deleted student cannot use a stale
+        ledger view before privacy reconciliation.
         """
 
+        _anchor(self, classroom)
         actor_student_id = _id(actor_student_id, "student view actor id")
+        _require_active_student(classroom, actor_student_id)
         submissions = tuple(
             item for item in self.submissions
             if item.student_id == actor_student_id
@@ -462,6 +469,10 @@ def checkpoint_remote_session(
             raise EducationRecordsError(
                 "remote session stable identity fields cannot change"
             )
+        if existing.closed_at is not None:
+            raise EducationRecordsError(
+                "closed remote session cannot accept new checkpoints"
+            )
         if candidate.last_remote_sequence < existing.last_remote_sequence:
             raise EducationRecordsError(
                 "remote session sequence cannot move backwards"
@@ -472,13 +483,6 @@ def checkpoint_remote_session(
         ):
             raise EducationRecordsError(
                 "remote session sequence conflicts with a different snapshot digest"
-            )
-        if (
-            existing.closed_at is not None
-            and candidate.closed_at != existing.closed_at
-        ):
-            raise EducationRecordsError(
-                "closed remote session cannot be reopened or reclosed differently"
             )
         replacement = replace(candidate, revision=existing.revision + 1)
         updated = tuple(
