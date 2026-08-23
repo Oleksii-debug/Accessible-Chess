@@ -1,24 +1,25 @@
 # DEV5_CURRENT_STATE
 
-UPDATED_FROM_RUN: 20260823-1158
-MODE: SAFE_OVERLAP_COORDINATION / RELEASE_PRIVACY_REPAIR_VALIDATION
-SNAPSHOT_CUTOFF: 2026-08-23T11:58:14+03:00
+UPDATED_FROM_RUN: 20260823-1301
+MODE: SAFE_OVERLAP_COORDINATION / REPAIRED_STAGE1_PROMOTION
+SNAPSHOT_CUTOFF: 2026-08-23T13:01:42+03:00
 
-Accepted Stage1 remains `0fa442330bc2bb03636ff9297512da4c29e38684`.
-Persistent exact-GREEN authority remains `dd9ebf9414103c805892856fe6a04706fa69039f`.
+Prior Stage1 baseline: `0fa442330bc2bb03636ff9297512da4c29e38684`.
+Promoted repaired Stage1 Product authority: `df52aeb3d99f4ae3d0089eab2882fe9b3c373dfd`.
+Persistent historical exact-GREEN validation anchor: `dd9ebf9414103c805892856fe6a04706fa69039f`.
 DEV4 `3e15dc2e844cb825e482317fd024795130147011` remains prior repair lineage only.
 
-Existing DEV5 touching owner is PR #151, branch `release/dev5-stage1-path-privacy-repair-20260823`. Current exact repair head `c0169ed276fff893f90f85192416612f3b998b5a` has terminal `DEV5 Stage1 Path Privacy Repair CI` SUCCESS in run `32627628145`. The current repair includes the strengthened ImportRegistry batch/OSError privacy boundary and replay of current independent oracles, so obsolete `909d8e...` must not be used for promotion.
+Why promotion changed: DEV1 QA-only PR #155 had a terminal pre-cutoff RED proving that `c0169ed...` leaked valid Windows drive-relative private paths. Existing DEV5 PR #151 then repaired only that sanitizer boundary, added product regressions, replayed the exact PR #155 oracle, and reached current exact head `df52aeb...`.
 
-One release-privacy question remains unresolved at this cutoff: DEV1 QA-only PR #155 at `c23c88ac21a6a9c82fad0de4aeadb695f82c5951` tests Windows drive-relative private paths against exact repair `c0169ed...`. No terminal verdict is available in current readback. DEV3 PR #156 is superseded by #155 and must not create duplicate evidence work.
+Exact `DEV5 Stage1 Path Privacy Repair CI` run `32627946799` is terminal SUCCESS. Linux `97166119460` and Windows `97166119501` both pass compile, focused privacy/release gates, full unittest, full pytest and diagnostic; independent current privacy oracles are replayed unchanged.
 
-Therefore PR #151 is exact-CI GREEN but NOT YET promoted Stage1 authority. Promotion waits for the independent drive-relative verdict plus exact diff/oracle review.
+Independent compare review from `0fa442...` shows `df52aeb...` ahead 15/behind 0. Product changes are limited to path-privacy surfaces (`engine.py`, `import_registry.py`, `pgn_service.py`, new `report_paths.py`) plus release workflow/tests. No chess state, GameTree, WebView/UI or strict UIA helper changes.
 
-UIA release evidence remains separate and unresolved. V2 proved original Move Edit + native Backspace `e9 -> e`; the stop occurred before Ctrl+A on SetValue readback. No Ctrl+A Product defect is proven. `066d1e254...` and V3 `f13f20ca...` remain untouched.
+Therefore `df52aeb...` is explicitly promoted for the next fresh Windows packaging/candidate attempt. This is not a merge and does not alter PR #54/frozen refs.
 
-For DEV1-DEV4 coordination, intake is frozen at 2026-08-23 11:58:14 Europe/Kyiv; only terminal evidence that existed before that cutoff may enter directives.
+UIA release evidence is still unresolved separately. V2 proves unique original Move Edit and native Backspace `e9 -> e`, then stops before Ctrl+A on immediate SetValue readback. No Ctrl+A Product defect is proven. Existing `066d1e254...` and V3 `f13f20ca...` are historical QA evidence and may not be silently retargeted to the promoted Product.
 
-`AGENTS.md` and `docs/codex/*` remain absent on live default branch. Use live GitHub technical truth and versioned `docs/automation/*`.
+Next required technical action is a new/designated exact QA harness locked to `df52aeb...`, followed by the complete uninterrupted Windows machine release chain through ZIP reopen/identity and candidate upload.
 
 Release status: `FRESH_WINDOWS_CANDIDATE=NO`, `READY_FOR_RELEASE=NO`, `NVDA_VERIFIED=NO`.
-PR #54/frozen refs untouched. Rejected ZIP forbidden.
+Rejected ZIP forbidden.
