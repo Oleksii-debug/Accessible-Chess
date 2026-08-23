@@ -1,26 +1,26 @@
 # NEXT_WAVE_DIRECTIVES
 
-DIRECTIVE_ID: DEV5-1416
+DIRECTIVE_ID: DEV5-1421
 REVISION: 1
-SOURCE_RUN: 20260823-1416
-EFFECTIVE: next worker/DEV5 invocation after 2026-08-23T11:16:04Z cutoff.
+SOURCE_RUN: 20260823-1421
+EFFECTIVE: next worker/DEV5 invocation after 2026-08-23T11:21:29Z cutoff.
 
-1. Stage1 release freeze remains in force. Current integration `80720e8125c59a213f278668d599040f2768d553` is RELEASE_HOLD because independent PR #159 proves the Stockfish resolver privacy defect.
-2. One canonical repair only: DEV4 Product commit `1e9d23b034e6d347fe03c3581469a07e16037c55`, rooted directly at `80720e8...`, is the Product repair source. DEV5 PR #167 is byte-identical integration staging. Do not create a third implementation.
-3. DEV4 corrected validation PR #165 / head `e9ac9dc15b223f16914ab670358574192349995f` / run `32635517279` is terminal SUCCESS on Ubuntu+Windows. DEV5 dedicated staging run `32635555544` is terminal SUCCESS in four Ubuntu/Windows exact-oracle/full-regression jobs.
-4. Inherited old PR #151 workflow run `32635555545` is RED only because its hard-coded allowed-path inventory predates the expected Stockfish runtime workflow/Product/regression files. Its Windows regression job succeeds. Preserve this as stale topology evidence; do not weaken the historical scope guard.
-5. DEV1: PR #164 / run `32635368438` already proves 81/81 candidate-facing UI/accessibility/NVDA contracts on both OS. No duplicate Product or evidence package is needed. PR #169 stays closed as duplicate.
-6. DEV2: PR #166 / run `32635341589` already proves 264 canonical square/state/history/FEN/position/atomicity cases on exact repair Product `1e9d23b...`. Separate RUN `20260823-1404` owns `acs/history.py`; no other developer may touch that file while active.
-7. DEV3: PR #168 is validation-only. Consume only genuinely new terminal evidence; do not create or promote another Stockfish Product lineage.
-8. DEV4: independent Stage1 resolver privacy repair validation is complete at PR #165. Do not create more parallel repair PRs unless a new independent defect is proven against exact `1e9d23b...`/accepted successor.
-9. DEV5: sole next P0 action is integration promotion after independent AUDIT_MASTER readback. Until that readback, keep PR #167 as staging; do not create another Product branch and do not build a user candidate.
-10. DEV-A: PR #170 TeachingSession adapter remains Full Product lane work, not Stage1 input. Focused adapter/domain tests are GREEN; current RED comes from stale cross-lane DEV1 WebView expectations on Ubuntu plus Windows setup-python failure. DEV-A owns any continuation; DEV5 does not patch Teacher code during release freeze.
-11. DEV-B: current canonical handoff is historical/stale for this P0 and owns no touching Stage1 Product path.
-12. DEV-C: coordination/read-only for the current P0 unless a later explicit handoff grants Product ownership.
-13. PR #160/V4 is obsolete because it targets defective `80720e8...`. Do not fix its generated helper merely to produce an invalid-source archive. No V4 artifact may become user candidate authority.
-14. Historical packaged Move Edit SetValue/Ctrl+A/Ctrl+C remains QA-owned `C — INCONCLUSIVE`. No Product keyboard/clipboard mutation without explicit B-class evidence/ownership transfer.
-15. After Audit accepts the repair, DEV5 selectively appends only the minimal Product delta into Stage1 authority. Never merge validation/QA topology wholesale; never rewrite frozen/history refs.
-16. Then create exactly one fresh WIP=1 Windows release chain locked to the accepted repaired SHA: source/frozen identity → release contracts → WAV → official Stockfish → native menu → Nuitka → built EXE diagnostic → real WebView2 → strict packaged UIA → packaged sound/Stockfish lifecycle → release preflight → ZIP reopen/hash/identity → artifact upload.
-17. Persistent Full Product exact-GREEN authority remains `dd9ebf9414103c805892856fe6a04706fa69039f` until Stage1 release freeze closes and a later selective combined GREEN composition is proven.
-18. No force-push, skip, xfail, assertion weakening, duplicate implementation or rerun merely to chase GREEN.
-19. `FRESH_WINDOWS_CANDIDATE=NO`, `READY_FOR_RELEASE=NO`, `NVDA_VERIFIED=NO` until exact evidence changes them.
+1. Accepted Stage1 Product authority is now exactly `manual5/integration-20260821@1e9d23b034e6d347fe03c3581469a07e16037c55`. Prior `80720e8...` is historical comparison only and must not be packaged.
+2. AUDIT_MASTER acceptance is recorded on PR #167 comment `5385692188`; DEV5 controlled promotion is complete. Promotion gate PR #172 / run `32635759733` is terminal GREEN on Ubuntu and Windows.
+3. No developer may create another Stockfish resolver privacy implementation or another Stage1 promotion line unless a new exact accepted-source defect is independently proven.
+4. Exactly one candidate WIP is authorized: DEV5 PR #175 / head `17697b8181781c3a35f12ba522c25852d268eefc` / run `32636245736`. At cutoff it is IN_PROGRESS. Do not launch, cancel, rerun, retarget or duplicate it merely to chase GREEN.
+5. While V5 is active, all lanes must remain SAFE OVERLAP with respect to Stage1 Product, release harness, packaging and candidate artifact.
+6. DEV1: UI/NVDA source evidence is already sufficient. PR #169 stays closed duplicate. PR #173 is supporting evidence only; no new Product/UI package for the same Stage1 repair.
+7. DEV2: canonical-core evidence on `1e9d23b...` already exists. PR #174 targets an older intermediate head and is non-authoritative for current Stage1. Separate PR #171 (`acs/history.py`) is terminal GREEN P1 work but must remain out of the active candidate source until V5 decision.
+8. DEV3: PR #168 stays closed superseded. PR #176 is unique and useful real Stockfish 18 Windows evidence, terminal GREEN; do not repeat that smoke unless Product/runtime source changes.
+9. DEV4: repair validation is complete; no more parallel resolver/privacy repair PRs without a new independent defect on accepted `1e9d23b...`.
+10. DEV5: while V5 runs, coordination/readback only on touching release surfaces. First action on continuation is always live run/job readback for `32636245736`.
+11. DEV-A: PR #170 remains separate Full Product Teacher/Classroom lane work and is not Stage1 candidate input. Do not merge or duplicate it during the release freeze.
+12. DEV-B remains historical/stale for the current P0 unless a newer explicit handoff assigns touching ownership. DEV-C remains coordination/read-only for this P0.
+13. PR #160/V4 and all artifacts from old `80720e8...` are invalid/obsolete. Do not repair, relabel or surface them.
+14. Historical packaged Move Edit SetValue/Ctrl+A/Ctrl+C classification is superseded only by V5 exact strict evidence. Preserve native keyboard/clipboard acceptance and element identity; never convert a precondition/observability failure into an inferred Product Ctrl+A/Ctrl+C defect.
+15. If V5 terminal GREEN: verify exact accepted source/frozen identity, all machine gates, candidate ZIP reopen/hash/manifest identity and artifact metadata. Only after exact artifact verification may `FRESH_WINDOWS_CANDIDATE=YES`.
+16. If V5 terminal RED: classify exact first failing gate before any repair; no test weakening, no speculative Product change, no automatic second candidate chain.
+17. Persistent Full Product exact-GREEN authority remains `dd9ebf9414103c805892856fe6a04706fa69039f` until Stage1 release freeze/human candidate decision completes.
+18. Old rejected ZIP, PR #54 and frozen refs remain untouched. No force-push, skip, xfail, assertion weakening or duplicate implementation.
+19. `FRESH_WINDOWS_CANDIDATE=NO`, `READY_FOR_RELEASE=NO`, `NVDA_VERIFIED=NO` at this cutoff.
