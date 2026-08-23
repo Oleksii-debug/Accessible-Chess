@@ -29,6 +29,28 @@ on:
       - 'WordDeck/Data/**'
       - 'WordDeck/WordDeck.csproj'
       - 'WordDeck/Program.cs'
+  pull_request:
+    branches:
+      - worddeck-bootstrap
+    paths:
+      - '.github/workflows/worddeck-sentencepack-ccby.yml'
+      - 'WordDeck/tools/build_tatoeba_ccby_pairs.py'
+      - 'WordDeck/tools/validate_sentencepack_release_bundle.py'
+      - 'WordDeck/TatoebaImportProvenance.cs'
+      - 'WordDeck/TatoebaSentencePackBuilder.cs'
+      - 'WordDeck/SentencePackDiagnostics.cs'
+      - 'WordDeck/SentencePackSqlitePrototype.cs'
+      - 'WordDeck/SentencePackSqliteCorpus.cs'
+      - 'WordDeck/SentencePackLicenseValidator.cs'
+      - 'WordDeck/ContextCorpusCoverageEvidence.cs'
+      - 'WordDeck/ContextCorpusCoverageEvidenceCommand.cs'
+      - 'WordDeck/ContextCorpusGapRemediation.cs'
+      - 'WordDeck/ContextPracticeProductFacade.cs'
+      - 'WordDeck/ContextSentenceTargetSpelling.cs'
+      - 'WordDeck/DictionaryLoader.cs'
+      - 'WordDeck/ReviewedOxford5000Bootstrap.cs'
+      - 'WordDeck/Data/**'
+      - 'WordDeck/WordDeck.csproj'
   workflow_dispatch:
 
 permissions:
