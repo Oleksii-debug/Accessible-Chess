@@ -185,7 +185,7 @@ internal static class ContextCorpusGapRemediationBuilder
         if (!VerifyDigest(document))
             throw new InvalidDataException("Cannot export a context gap remediation plan with an invalid digest.");
         var builder = new StringBuilder();
-        builder.AppendLine("priority_tier\tentry_id\tlevel\tsource\tlexical_key\tambiguous_stable_identity");
+        builder.Append("priority_tier\tentry_id\tlevel\tsource\tlexical_key\tambiguous_stable_identity\n");
         foreach (ContextCoverageGapItem item in document.Payload.PriorityItems)
         {
             builder.Append((int)item.Tier).Append('\t')
