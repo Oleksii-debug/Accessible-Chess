@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - qa/d02-final-combined-core-264-74f39ed-20260823
+  pull_request:
+    branches:
+      - release/dev5-stage1-combined-repair-20260823
 
 permissions:
   contents: read
