@@ -29,6 +29,45 @@ function Wait-Gone([string]$selector, [int]$timeoutMs = 7000) {
     Invoke-WinApp @('ui','wait-for',$selector,'-a',[string]$script:appPid,'--gone','--timeout',[string]$timeoutMs) | Out-Null
 }
 
+function Wait-ForInWindow([string]$selector, [string]$hwnd, [int]$timeoutMs = 7000) {
+    Invoke-WinApp @('ui','wait-for',$selector,'-w',$hwnd,'--timeout',[string]$timeoutMs) | Out-Null
+}
+
+function Get-WindowHandleByTitle([string]$title, [int]$timeoutMs = 7000) {
+    $deadline = [DateTime]::UtcNow.AddMilliseconds($timeoutMs)
+    $lastListing = ''
+    do {
+        $lines = @(Invoke-WinApp @('ui','list-windows','-a',[string]$script:appPid))
+        $lastListing = ($lines -join ' | ')
+        foreach ($line in $lines) {
+            $match = [regex]::Match([string]$line, 'HWND\s+(\d+):\s+"([^"]*)"')
+            if ($match.Success -and $match.Groups[2].Value -eq $title) {
+                return [string]$match.Groups[1].Value
+            }
+        }
+        Start-Sleep -Milliseconds 150
+    } while ([DateTime]::UtcNow -lt $deadline)
+    Fail "top-level window '$title' did not appear. Last list-windows output: $lastListing"
+}
+
+function Wait-WindowGoneByTitle([string]$title, [int]$timeoutMs = 7000) {
+    $deadline = [DateTime]::UtcNow.AddMilliseconds($timeoutMs)
+    do {
+        $lines = @(Invoke-WinApp @('ui','list-windows','-a',[string]$script:appPid))
+        $found = $false
+        foreach ($line in $lines) {
+            $match = [regex]::Match([string]$line, 'HWND\s+(\d+):\s+"([^"]*)"')
+            if ($match.Success -and $match.Groups[2].Value -eq $title) {
+                $found = $true
+                break
+            }
+        }
+        if (-not $found) { return }
+        Start-Sleep -Milliseconds 150
+    } while ([DateTime]::UtcNow -lt $deadline)
+    Fail "top-level window '$title' remained visible after ${timeoutMs}ms"
+}
+
 function Get-Value([string]$selector) {
     $result = Invoke-WinApp @('ui','get-value',$selector,'-a',[string]$script:appPid,'--json') -Json
     return [string]$result.text
@@ -88,6 +127,19 @@ function Send-KeysTo([string]$keys, [string]$target, [int]$delayMs = 300) {
     Start-Sleep -Milliseconds $delayMs
 }
 
+function Send-KeysToWindow([string]$keys, [string]$target, [string]$hwnd, [int]$delayMs = 300) {
+    # A process with multiple top-level WinForms windows is ambiguous under -a PID.
+    # Use the exact modal HWND discovered through list-windows, then target the
+    # accessible child inside that window. This follows WinApp's documented stable
+    # multi-window targeting model and still sends real keyboard input.
+    $modalKey = $keys -ieq 'enter' -or $keys -ieq 'esc'
+    $transport = if ($keys.Contains('+') -or $modalKey) { 'send-input' } else { 'post-message' }
+    $arguments = @('ui','send-keys',$keys,'-w',$hwnd,'--target',$target,'--via',$transport)
+    if ($keys -ieq 'alt+f4') { $arguments += '--allow-system-keys' }
+    Invoke-WinApp $arguments | Out-Null
+    Start-Sleep -Milliseconds $delayMs
+}
+
 function Settle-MainFocus([string]$context) {
     Wait-For 'Current English word' 7000
     Focus 'Current English word'
@@ -135,15 +187,20 @@ function Exercise-ShortcutSettings([string]$context) {
     Focus 'Shortcut actions'
     Assert-ShortcutListFocus "$context list focus"
 
-    # Prove the actual keyboard traversal path rather than directly focusing the
-    # button through UIA: ListView -> Tab -> Change button -> Enter -> capture.
+    # Prove the actual keyboard traversal path rather than invoking the button
+    # through UIA: ListView -> Tab -> Change button -> Enter -> capture dialog.
     Send-KeysTo 'tab' 'Shortcut actions'
     Assert-Focus 'Change selected shortcut' "$context Tab to change button"
     Send-KeysTo 'enter' 'Change selected shortcut'
-    Wait-For 'Shortcut capture' 7000
-    Wait-For 'Captured shortcut' 7000
-    Send-KeysTo 'esc' 'Captured shortcut'
-    Wait-Gone 'Shortcut capture' 7000
+
+    # ShortcutCaptureForm is a second top-level WinForms modal in the same process.
+    # PID-scoped element lookup can stay attached to the settings window, so first
+    # discover the modal by its real top-level title and then use its exact HWND.
+    $captureHwnd = Get-WindowHandleByTitle 'Press new shortcut' 7000
+    Wait-ForInWindow 'Captured shortcut' $captureHwnd 7000
+    Send-KeysToWindow 'esc' 'Captured shortcut' $captureHwnd
+    Wait-WindowGoneByTitle 'Press new shortcut' 7000
+
     Wait-For 'Keyboard shortcut settings' 5000
     Assert-Focus 'Change selected shortcut' "$context return from capture"
     Send-KeysTo 'alt+f4' 'Keyboard shortcut settings'
@@ -251,7 +308,7 @@ try {
 
     for ($round = 0; $round -lt 3; $round++) { Settle-MainFocus "final focus recovery $round" }
 
-    Write-Host 'WordDeck Worker3 R4c ACTUAL WinApp UIA PASS: exact published EXE, Natalia translation/native arrows, Recall next/true-previous, repeated selector focus, menu arrows, Ctrl+K before/after F1, Tab/Enter/Escape shortcut-settings flow, truthful F1, full-profile/reset dialogs, Spelling/Sentence native inputs and Alt+F4 close verified.'
+    Write-Host 'WordDeck Worker3 R4c ACTUAL WinApp UIA PASS: exact published EXE, Natalia translation/native arrows, Recall next/true-previous, repeated selector focus, menu arrows, Ctrl+K before/after F1, Tab/Enter/Escape shortcut-settings flow with exact modal HWND, truthful F1, full-profile/reset dialogs, Spelling/Sentence native inputs and Alt+F4 close verified.'
 }
 finally {
     if ($null -ne $appPid -and $appPid -gt 0) {
