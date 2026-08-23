@@ -110,6 +110,18 @@ internal static class ContextPracticeApplicationService
         if (!pool.EntryIds.Contains(anchor, StringComparer.OrdinalIgnoreCase))
             throw new InvalidDataException("Context practice anchor must belong to the selected 30/100/200/full study pool.");
 
+        string[] ambiguousStableIds = lexicon.AmbiguousStableIds(pool.EntryIds)
+            .OrderBy(id => id, StringComparer.Ordinal)
+            .ToArray();
+        if (lexicon.IsAmbiguousStableIdentity(anchor))
+        {
+            return new ContextPracticeApplicationResult(
+                pool,
+                Array.Empty<ContextPracticeCard>(),
+                ambiguousStableIds,
+                "No canonical Context Practice card was selected because the anchor written form maps to multiple stable dictionary entries. Surface-form corpus evidence cannot choose its POS/sense identity, so the target remains unresolved until explicit disambiguating evidence is available.");
+        }
+
         IReadOnlyList<NaturalContextTargetSet> targetSets;
         if (request.DesiredTargetCount == 1)
         {
@@ -190,9 +202,6 @@ internal static class ContextPracticeApplicationService
             .Take(request.MaxCards)
             .ToArray();
 
-        string[] ambiguousStableIds = lexicon.AmbiguousStableIds(pool.EntryIds)
-            .OrderBy(id => id, StringComparer.Ordinal)
-            .ToArray();
         string explanation = targetSets.Count == 0
             ? $"No natural {request.DesiredTargetCount}-target sentence set was found for the anchor in the selected study pool. No sentence was fabricated."
             : $"Selected from {targetSets.Count} natural target set(s) in the {PoolName(pool)} pool; learner-known vocabulary drives difficulty before CEFR, and recently used sentences are deprioritized.";
