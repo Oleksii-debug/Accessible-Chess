@@ -67,4 +67,4 @@ jobs:
         run: python -m unittest -v tests.test_dev3_uci_failure_recovery
 
       - name: Replay unchanged DEV3 OSError and ValueError privacy oracle
-        run: python qa_oracles/test_engine_start_privacy.py
+        run: python -m unittest -v qa_oracles.test_engine_start_privacy
