@@ -75,9 +75,11 @@ jobs:
           git show "$D04_SHA:tests/test_d04_stockfish_source_zip_bounds.py" > tests/test_d04_stockfish_source_zip_bounds.py
           test "$(git hash-object acs/release_preflight.py)" = "$D04_PREFLIGHT_BLOB"
           test "$(git hash-object tests/test_d04_stockfish_source_zip_bounds.py)" = "$D04_TEST_BLOB"
-          overlay="$(git diff --name-only)"
+          tracked="$(git diff --name-only)"
+          untracked="$(git ls-files --others --exclude-standard)"
+          overlay="$(printf '%s\n%s\n' "$tracked" "$untracked" | sed '/^$/d' | sort)"
           expected="$(printf '%s\n' acs/release_preflight.py tests/test_d04_stockfish_source_zip_bounds.py | sort)"
-          test "$(printf '%s\n' "$overlay" | sort)" = "$expected"
+          test "$overlay" = "$expected"
           git diff --check
       - name: Compile and parse release JavaScript
         run: |
