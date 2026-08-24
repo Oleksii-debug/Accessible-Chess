@@ -46,10 +46,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD^1)" = "$D09_BASE"
+          git merge-base --is-ancestor "$D09_BASE" HEAD
+          test "$(git rev-list --count "$D09_BASE"..HEAD)" = "2"
           git diff --check "$D09_BASE" HEAD
           changed="$(git diff --name-only "$D09_BASE" HEAD | sort)"
-          expected="$(printf '%s\n' +            '.github/workflows/d09-aggregate-portable-oracle.yml' +            'tests/test_pgn_concurrent_save.py' | sort)"
+          expected="$(printf '%s\n' '.github/workflows/d09-aggregate-portable-oracle.yml' 'tests/test_pgn_concurrent_save.py' | sort)"
           test "$changed" = "$expected"
           git diff --quiet "$D09_BASE" HEAD -- acs
           test "$(git rev-parse HEAD:acs/teaching_session_adapter.py)" = "$SESSION_ADAPTER_BLOB"
@@ -92,7 +93,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          git checkout "$DEV2_ACCEPTED_UI_EVIDENCE" -- +            acs/keybindings.py +            tests/test_board_rank_file_remapping_ui.py +            web/index.html
+          git checkout "$DEV2_ACCEPTED_UI_EVIDENCE" -- acs/keybindings.py tests/test_board_rank_file_remapping_ui.py web/index.html
           test "$(git hash-object acs/keybindings.py)" = "b222f0d625999d8119cb3bb7cebffc961217f610"
           test "$(git hash-object tests/test_board_rank_file_remapping_ui.py)" = "747b6fd4f73ccfb3647f854e832e9c38421f1e3c"
           test "$(git hash-object web/index.html)" = "17803443a815843be3aa1b8c6be1c5abb7e7c888"
