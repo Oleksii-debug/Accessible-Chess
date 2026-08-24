@@ -67,6 +67,10 @@ class ReleasePreflightError(RuntimeError):
     """Raised when a package violates a release composition invariant."""
 
 
+class _DuplicateJsonObjectKey(ValueError):
+    """Internal signal for ambiguous JSON object names at any depth."""
+
+
 @dataclass(frozen=True)
 class ReleasePreflightReport:
     integration_sha: str
@@ -144,9 +148,25 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _json_object_without_duplicates(
+    pairs: list[tuple[str, object]],
+) -> dict[str, object]:
+    result: dict[str, object] = {}
+    for key, value in pairs:
+        if key in result:
+            raise _DuplicateJsonObjectKey
+        result[key] = value
+    return result
+
+
 def _read_json_object(path: Path, *, label: str) -> dict[str, object]:
     try:
-        data = json.loads(path.read_text(encoding="utf-8-sig"))
+        data = json.loads(
+            path.read_text(encoding="utf-8-sig"),
+            object_pairs_hook=_json_object_without_duplicates,
+        )
+    except _DuplicateJsonObjectKey:
+        _fail(f"{label} contains duplicate object keys")
     except (OSError, UnicodeError, json.JSONDecodeError) as exc:
         _fail(f"{label} is unreadable or invalid JSON: {type(exc).__name__}")
     if not isinstance(data, dict):
@@ -212,13 +232,13 @@ def _validate_web_resources(product_root: Path) -> None:
 
 
 def _validate_sound_pack(product_root: Path) -> None:
+    manifest_path = product_root / "assets" / "sounds" / "manifest.json"
+    data = _read_json_object(manifest_path, label="sound manifest")
     resolver = PackagedSoundAssetResolver(product_root)
     try:
         manifest = resolver.load_manifest()
     except Exception as exc:
         _fail(f"sound package is invalid: {type(exc).__name__}")
-    manifest_path = product_root / "assets" / "sounds" / "manifest.json"
-    data = _read_json_object(manifest_path, label="sound manifest")
     mapping = data.get("files")
     if not isinstance(mapping, dict):
         _fail("sound manifest files must be an object")
