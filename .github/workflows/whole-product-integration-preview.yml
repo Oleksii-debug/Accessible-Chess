@@ -27,6 +27,7 @@ jobs:
       DEV4_COMPOSITION: d4c9e993a49491e8fd19c6e543d6128500eda432
       INITIAL_WORKFLOW_COMMIT: 1a8343982c4e6e0cdfc7f4a63aa5ddf00a2bf58d
       CAPABILITY_EVIDENCE_COMMIT: 4ec8467a74ff25b1c20ad6f68cb18fe4e1a3647d
+      FINGERPRINT_STABILITY_COMMIT: ff2099f1a660cf1b5750c1736c9c4d45059794d1
     steps:
       - uses: actions/checkout@v4
         with:
@@ -52,11 +53,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD~4)" = "$OWNER_COMPOSITION"
-          test "$(git rev-parse HEAD~3)" = "$DEV4_COMPOSITION"
-          test "$(git rev-parse HEAD~2)" = "$INITIAL_WORKFLOW_COMMIT"
-          test "$(git rev-parse HEAD~1)" = "$CAPABILITY_EVIDENCE_COMMIT"
-          test "$(git rev-list --count "$WHOLE_PRODUCT_BASE"..HEAD)" = "5"
+          test "$(git rev-parse HEAD~5)" = "$OWNER_COMPOSITION"
+          test "$(git rev-parse HEAD~4)" = "$DEV4_COMPOSITION"
+          test "$(git rev-parse HEAD~3)" = "$INITIAL_WORKFLOW_COMMIT"
+          test "$(git rev-parse HEAD~2)" = "$CAPABILITY_EVIDENCE_COMMIT"
+          test "$(git rev-parse HEAD~1)" = "$FINGERPRINT_STABILITY_COMMIT"
+          test "$(git rev-list --count "$WHOLE_PRODUCT_BASE"..HEAD)" = "6"
           git merge-base --is-ancestor "$WHOLE_PRODUCT_BASE" HEAD
           git diff --check "$WHOLE_PRODUCT_BASE" HEAD
 
@@ -95,7 +97,7 @@ jobs:
           acs/chessbase_adapter.py=70ff93930fe2c29454fded6adbb189275eec85a1
           acs/chessbase_integrity.py=f21f0c3c77b16f9a4a192a61a7f1b5a831b62011
           acs/chessbase_manifest.py=bc88665482d096eaedc9713f3860fb11d7eba57f
-          acs/import_contract.py=1ffc7e06a773693618986a3a59744da27c93199c
+          acs/import_contract.py=8606cc665e80d418f35f28f6d7e6263c8a2b62f6
           acs/import_registry.py=bf75efb2859d7608b02313f8f0026798bfa84591
           acs/pgn_service.py=74288a77de23c14ea2b785f1a6b1705cedee115c
           acs/report_paths.py=c0f1655ce47f815f3d6e8fedb53f08c59d88007a

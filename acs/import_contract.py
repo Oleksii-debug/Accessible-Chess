@@ -172,8 +172,24 @@ def fingerprint(path: str | Path, chunk_size: int = 1024 * 1024) -> SourceFinger
     if not stable_fd or not stable_path:
         raise ValueError("Import source changed while fingerprinting")
 
+    # Windows can expose an 8.3 alias (for example ``RUNNER~1``) through the
+    # lexical path used by the no-follow checks. Resolve the public provenance
+    # spelling only after hashing, then revalidate both spellings and bind them
+    # to the exact inode that was read. This expands aliases without weakening
+    # the symlink/reparse-point boundary.
+    public_path = absolute.resolve(strict=True)
+    _, absolute_publication_stat = _validate_source_path(absolute)
+    public_absolute, public_stat = _validate_source_path(public_path)
+    expected_identity = (fd_after.st_dev, fd_after.st_ino)
+    if (
+        (absolute_publication_stat.st_dev, absolute_publication_stat.st_ino)
+        != expected_identity
+        or (public_stat.st_dev, public_stat.st_ino) != expected_identity
+    ):
+        raise ValueError("Import source changed before provenance publication")
+
     return SourceFingerprint(
-        path=str(absolute),
+        path=str(public_absolute),
         size=fd_after.st_size,
         sha256=verified_sha256,
         suffix=submitted.suffix.lower(),
