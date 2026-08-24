@@ -7,6 +7,7 @@ on:
       - 'tests/test_education_records.py'
       - 'tests/test_education_workspace.py'
       - 'tests/test_d10_remote_checkpoint_provenance.py'
+      - 'tests/test_pgn_concurrent_save.py'
       - '.github/workflows/d10-remote-checkpoint-provenance.yml'
 
 permissions:
@@ -38,13 +39,14 @@ jobs:
           D10_BASE: 6ab731b2cd7a4295395c2ab1fafe7523b369465f
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD^1)" = "$D10_BASE"
+          git merge-base --is-ancestor "$D10_BASE" HEAD
+          test "$(git rev-list --count "$D10_BASE"..HEAD)" = "2"
           git diff --check "$D10_BASE" HEAD
           changed="$(git diff --name-only "$D10_BASE" HEAD)"
           printf '%s\n' "$changed"
-          unexpected="$(printf '%s\n' "$changed" | grep -Ev '^(acs/education_records.py|tests/test_education_records.py|tests/test_education_workspace.py|tests/test_d10_remote_checkpoint_provenance.py|\.github/workflows/d10-remote-checkpoint-provenance.yml)$' || true)"
+          unexpected="$(printf '%s\n' "$changed" | grep -Ev '^(acs/education_records.py|tests/test_education_records.py|tests/test_education_workspace.py|tests/test_d10_remote_checkpoint_provenance.py|tests/test_pgn_concurrent_save.py|\.github/workflows/d10-remote-checkpoint-provenance.yml)$' || true)"
           test -z "$unexpected" || { printf 'Unexpected W2-EDU-01 scope:\n%s\n' "$unexpected" >&2; exit 1; }
-          test "$(printf '%s\n' "$changed" | sed '/^$/d' | wc -l | tr -d ' ')" = "5"
+          test "$(printf '%s\n' "$changed" | sed '/^$/d' | wc -l | tr -d ' ')" = "6"
       - name: Compile D10 provenance package
         run: >-
           python -m compileall -q
@@ -52,6 +54,7 @@ jobs:
           tests/test_education_records.py
           tests/test_education_workspace.py
           tests/test_d10_remote_checkpoint_provenance.py
+          tests/test_pgn_concurrent_save.py
       - name: Canonical remote provenance and persistence regressions
         run: >-
           python -m unittest -v
