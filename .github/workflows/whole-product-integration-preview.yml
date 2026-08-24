@@ -25,6 +25,7 @@ jobs:
       WHOLE_PRODUCT_BASE: 5db9e6a2eb546d2235dbe4e726557283abb34ae4
       OWNER_COMPOSITION: 56e6f9aa193d4ea154c23680a8a8e0140d0290b4
       DEV4_COMPOSITION: d4c9e993a49491e8fd19c6e543d6128500eda432
+      INITIAL_WORKFLOW_COMMIT: 1a8343982c4e6e0cdfc7f4a63aa5ddf00a2bf58d
     steps:
       - uses: actions/checkout@v4
         with:
@@ -50,9 +51,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD~2)" = "$OWNER_COMPOSITION"
-          test "$(git rev-parse HEAD~1)" = "$DEV4_COMPOSITION"
-          test "$(git rev-list --count "$WHOLE_PRODUCT_BASE"..HEAD)" = "3"
+          test "$(git rev-parse HEAD~3)" = "$OWNER_COMPOSITION"
+          test "$(git rev-parse HEAD~2)" = "$DEV4_COMPOSITION"
+          test "$(git rev-parse HEAD~1)" = "$INITIAL_WORKFLOW_COMMIT"
+          test "$(git rev-list --count "$WHOLE_PRODUCT_BASE"..HEAD)" = "4"
           git merge-base --is-ancestor "$WHOLE_PRODUCT_BASE" HEAD
           git diff --check "$WHOLE_PRODUCT_BASE" HEAD
 
@@ -97,7 +99,7 @@ jobs:
           acs/report_paths.py=c0f1655ce47f815f3d6e8fedb53f08c59d88007a
           tests/test_pgn_concurrent_save.py=9ec467b975f244c5870f8c023ce188bcf39a0760
           tests/test_whole_product_user_journey.py=761c934d72137a5fe430f0a7ffe0c59a64a2f19f
-          docs/automation/DEV4_CHESSBASE_CAPABILITY_MATRIX.md=544363a99dc7f91935d365e022848e1fa0f9a9f0
+          docs/automation/DEV4_CHESSBASE_CAPABILITY_MATRIX.md=0bff15b94d8351654f6bf23cf4d604e05d814494
           LOCKS
 
       - name: Prove honest ChessBase capability boundary
