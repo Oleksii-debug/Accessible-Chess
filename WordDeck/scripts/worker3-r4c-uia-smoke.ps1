@@ -1,0 +1,396 @@
+param(
+    [Parameter(Mandatory = $true)]
+    [string]$ExePath
+)
+
+$ErrorActionPreference = 'Stop'
+$PSNativeCommandUseErrorActionPreference = $true
+$appPid = $null
+$appProcess = $null
+
+function Fail([string]$message) { throw "UIA R4c FAIL: $message" }
+
+function Invoke-WinApp([string[]]$arguments, [switch]$Json) {
+    $output = & winapp @arguments
+    $exitCode = $LASTEXITCODE
+    if ($exitCode -ne 0) { Fail "winapp $($arguments -join ' ') exited with code $exitCode. Output: $($output -join ' ')" }
+    if ($Json) {
+        try { return ($output | Out-String | ConvertFrom-Json) }
+        catch { Fail "winapp returned invalid JSON for: $($arguments -join ' ')" }
+    }
+    return $output
+}
+
+function Wait-For([string]$selector, [int]$timeoutMs = 10000) {
+    Invoke-WinApp @('ui','wait-for',$selector,'-a',[string]$script:appPid,'--timeout',[string]$timeoutMs) | Out-Null
+}
+
+function Wait-Gone([string]$selector, [int]$timeoutMs = 7000) {
+    Invoke-WinApp @('ui','wait-for',$selector,'-a',[string]$script:appPid,'--gone','--timeout',[string]$timeoutMs) | Out-Null
+}
+
+function Wait-ForInWindow([string]$selector, [string]$hwnd, [int]$timeoutMs = 7000) {
+    Invoke-WinApp @('ui','wait-for',$selector,'-w',$hwnd,'--timeout',[string]$timeoutMs) | Out-Null
+}
+
+function Strip-Ansi([string]$text) {
+    return [regex]::Replace($text, '\x1B\[[0-?]*[ -/]*[@-~]', '')
+}
+
+function Get-WindowHandleByTitle([string]$title, [int]$timeoutMs = 7000) {
+    $deadline = [DateTime]::UtcNow.AddMilliseconds($timeoutMs)
+    $lastListing = ''
+    do {
+        $lines = @(Invoke-WinApp @('ui','list-windows','-a',[string]$script:appPid))
+        $plainLines = @($lines | ForEach-Object { Strip-Ansi ([string]$_) })
+        $lastListing = ($plainLines -join ' | ')
+        foreach ($line in $plainLines) {
+            $match = [regex]::Match([string]$line, 'HWND\s+(\d+):\s+"([^"]*)"')
+            if ($match.Success -and $match.Groups[2].Value -eq $title) {
+                return [string]$match.Groups[1].Value
+            }
+        }
+        Start-Sleep -Milliseconds 150
+    } while ([DateTime]::UtcNow -lt $deadline)
+    Fail "top-level window '$title' did not appear. Last list-windows output: $lastListing"
+}
+
+function Wait-WindowGoneByTitle([string]$title, [int]$timeoutMs = 7000) {
+    $deadline = [DateTime]::UtcNow.AddMilliseconds($timeoutMs)
+    do {
+        $lines = @(Invoke-WinApp @('ui','list-windows','-a',[string]$script:appPid))
+        $found = $false
+        foreach ($line in $lines) {
+            $plain = Strip-Ansi ([string]$line)
+            $match = [regex]::Match($plain, 'HWND\s+(\d+):\s+"([^"]*)"')
+            if ($match.Success -and $match.Groups[2].Value -eq $title) {
+                $found = $true
+                break
+            }
+        }
+        if (-not $found) { return }
+        Start-Sleep -Milliseconds 150
+    } while ([DateTime]::UtcNow -lt $deadline)
+    Fail "top-level window '$title' remained visible after ${timeoutMs}ms"
+}
+
+function Get-Value([string]$selector) {
+    $result = Invoke-WinApp @('ui','get-value',$selector,'-a',[string]$script:appPid,'--json') -Json
+    return [string]$result.text
+}
+
+function Get-ValueInWindow([string]$selector, [string]$hwnd) {
+    $result = Invoke-WinApp @('ui','get-value',$selector,'-w',$hwnd,'--json') -Json
+    return [string]$result.text
+}
+
+function Focus([string]$selector) { Invoke-WinApp @('ui','focus',$selector,'-a',[string]$script:appPid) | Out-Null }
+function Focus-InWindow([string]$selector, [string]$hwnd) { Invoke-WinApp @('ui','focus',$selector,'-w',$hwnd) | Out-Null }
+
+function Get-FocusedName {
+    $result = Invoke-WinApp @('ui','get-focused','-a',[string]$script:appPid,'--json') -Json
+    if (-not $result.hasFocus -or $null -eq $result.element) { return '' }
+    return [string]$result.element.name
+}
+
+function Get-FocusedNameInWindow([string]$hwnd) {
+    $result = Invoke-WinApp @('ui','get-focused','-w',$hwnd,'--json') -Json
+    if (-not $result.hasFocus -or $null -eq $result.element) { return '' }
+    return [string]$result.element.name
+}
+
+function Assert-Focus([string]$expected, [string]$context) {
+    $deadline = [DateTime]::UtcNow.AddSeconds(7)
+    $actual = ''
+    do {
+        $actual = Get-FocusedName
+        if ($actual -eq $expected) { return }
+        Start-Sleep -Milliseconds 150
+    } while ([DateTime]::UtcNow -lt $deadline)
+    Fail "$context expected focus '$expected', actual '$actual'."
+}
+
+function Assert-FocusInWindow([string]$expected, [string]$context, [string]$hwnd) {
+    $deadline = [DateTime]::UtcNow.AddSeconds(7)
+    $actual = ''
+    do {
+        $actual = Get-FocusedNameInWindow $hwnd
+        if ($actual -eq $expected) { return }
+        Start-Sleep -Milliseconds 150
+    } while ([DateTime]::UtcNow -lt $deadline)
+    Fail "$context expected focus '$expected', actual '$actual'."
+}
+
+function Assert-ShortcutListFocus([string]$context) {
+    # WinForms ListView exposes AccessibleName on the container, while keyboard
+    # focus is normally reported on the selected child row.
+    $deadline = [DateTime]::UtcNow.AddSeconds(7)
+    $actual = ''
+    do {
+        $actual = Get-FocusedName
+        if ($actual -eq 'Shortcut actions' -or $actual -eq 'Recall: next word') { return }
+        Start-Sleep -Milliseconds 150
+    } while ([DateTime]::UtcNow -lt $deadline)
+    Fail "$context expected focus on the Shortcut actions ListView/selected first action, actual '$actual'."
+}
+
+function Send-Keys([string]$keys, [int]$delayMs = 300) {
+    # Main-window accelerator chords and native menu mnemonics need real modifier/
+    # keyboard state. Plain navigation remains HWND-targeted for deterministic
+    # classic WinForms behavior.
+    $nativeMenuMnemonic = $keys -ieq 'r'
+    $transport = if ($keys.Contains('+') -or $nativeMenuMnemonic) { 'send-input' } else { 'post-message' }
+    $arguments = @('ui','send-keys',$keys,'-a',[string]$script:appPid,'--via',$transport)
+    if ($keys -ieq 'alt+f4') { $arguments += '--allow-system-keys' }
+    Invoke-WinApp $arguments | Out-Null
+    Start-Sleep -Milliseconds $delayMs
+}
+
+function Send-KeysTo([string]$keys, [string]$target, [int]$delayMs = 300) {
+    # --target atomically focuses the intended element before delivery. Modifier
+    # chords plus modal Enter/Escape use real SendInput after that exact focus;
+    # arrows/Tab stay on deterministic PostMessage for classic WinForms controls.
+    $modalKey = $keys -ieq 'enter' -or $keys -ieq 'esc'
+    $transport = if ($keys.Contains('+') -or $modalKey) { 'send-input' } else { 'post-message' }
+    $arguments = @('ui','send-keys',$keys,'-a',[string]$script:appPid,'--target',$target,'--via',$transport)
+    if ($keys -ieq 'alt+f4') { $arguments += '--allow-system-keys' }
+    Invoke-WinApp $arguments | Out-Null
+    Start-Sleep -Milliseconds $delayMs
+}
+
+function Send-KeysToWindow([string]$keys, [string]$target, [string]$hwnd, [int]$delayMs = 300) {
+    # A process with multiple top-level WinForms windows is ambiguous under -a PID.
+    # Use the exact modal HWND discovered through list-windows, then target the
+    # accessible child inside that window. This follows WinApp's documented stable
+    # multi-window targeting model and still sends real keyboard input.
+    $modalKey = $keys -ieq 'enter' -or $keys -ieq 'esc'
+    $transport = if ($keys.Contains('+') -or $modalKey) { 'send-input' } else { 'post-message' }
+    $arguments = @('ui','send-keys',$keys,'-w',$hwnd,'--target',$target,'--via',$transport)
+    if ($keys -ieq 'alt+f4') { $arguments += '--allow-system-keys' }
+    Invoke-WinApp $arguments | Out-Null
+    Start-Sleep -Milliseconds $delayMs
+}
+
+function Send-KeysInWindow([string]$keys, [string]$hwnd, [int]$delayMs = 300) {
+    # Native Save/Open dialogs and MessageBox confirmations are top-level windows
+    # rather than stable child UIA elements of the WordDeck main form. Once their
+    # HWND is known, send the real modal key directly to that window.
+    $modalKey = $keys -ieq 'enter' -or $keys -ieq 'esc'
+    $transport = if ($keys.Contains('+') -or $modalKey) { 'send-input' } else { 'post-message' }
+    $arguments = @('ui','send-keys',$keys,'-w',$hwnd,'--via',$transport)
+    if ($keys -ieq 'alt+f4') { $arguments += '--allow-system-keys' }
+    Invoke-WinApp $arguments | Out-Null
+    Start-Sleep -Milliseconds $delayMs
+}
+
+function Settle-MainFocus([string]$context) {
+    Wait-For 'Current English word' 7000
+    Focus 'Current English word'
+    Assert-Focus 'Current English word' $context
+    Start-Sleep -Milliseconds 250
+}
+
+function Exercise-Combo([string]$selector, [int]$cycles) {
+    Wait-For $selector
+    Focus $selector
+    Assert-Focus $selector "$selector initial"
+    for ($i = 0; $i -lt $cycles; $i++) {
+        if (($i % 2) -eq 0) { Send-KeysTo 'down' $selector 120 } else { Send-KeysTo 'up' $selector 120 }
+        Assert-Focus $selector "$selector stability $i"
+    }
+}
+
+function Exercise-ComboInWindow([string]$selector, [int]$cycles, [string]$hwnd) {
+    Wait-ForInWindow $selector $hwnd 7000
+    Focus-InWindow $selector $hwnd
+    Assert-FocusInWindow $selector "$selector initial" $hwnd
+    for ($i = 0; $i -lt $cycles; $i++) {
+        if (($i % 2) -eq 0) { Send-KeysToWindow 'down' $selector $hwnd 120 } else { Send-KeysToWindow 'up' $selector $hwnd 120 }
+        Assert-FocusInWindow $selector "$selector stability $i" $hwnd
+    }
+}
+
+function Exercise-NativeTextKeys([string]$selector, [scriptblock]$invariant, [string]$context) {
+    Wait-For $selector
+    Focus $selector
+    Assert-Focus $selector "$context initial"
+    foreach ($key in @('up','down','left','right','home','end','pgup','pgdn')) {
+        Send-KeysTo $key $selector 150
+        Assert-Focus $selector "$context key $key"
+        if (-not (& $invariant)) { Fail "$context key $key violated its invariant." }
+    }
+}
+
+function Exercise-NativeTextKeysInWindow([string]$selector, [scriptblock]$invariant, [string]$context, [string]$hwnd) {
+    Wait-ForInWindow $selector $hwnd 7000
+    Focus-InWindow $selector $hwnd
+    Assert-FocusInWindow $selector "$context initial" $hwnd
+    foreach ($key in @('up','down','left','right','home','end','pgup','pgdn')) {
+        Send-KeysToWindow $key $selector $hwnd 150
+        Assert-FocusInWindow $selector "$context key $key" $hwnd
+        if (-not (& $invariant)) { Fail "$context key $key violated its invariant." }
+    }
+}
+
+function Open-And-CancelDialog([string]$shortcut, [string]$dialogName, [string]$context) {
+    Settle-MainFocus "$context pre-open"
+    $wordBefore = Get-Value 'Current English word'
+    Send-Keys $shortcut
+
+    # SaveFileDialog/OpenFileDialog are native top-level windows. Discover the real
+    # dialog HWND by its application-supplied title and cancel it with a real Esc.
+    $dialogHwnd = Get-WindowHandleByTitle $dialogName 10000
+    Send-KeysInWindow 'esc' $dialogHwnd
+    Wait-WindowGoneByTitle $dialogName 10000
+
+    Settle-MainFocus "$context return"
+    if ((Get-Value 'Current English word') -ne $wordBefore) { Fail "$context changed the current Recall card while cancelled." }
+}
+
+function Exercise-ShortcutSettings([string]$context) {
+    Settle-MainFocus "$context pre-Ctrl+K"
+    Send-Keys 'ctrl+k'
+    Wait-For 'Keyboard shortcut settings' 10000
+    Wait-For 'Shortcut actions' 7000
+    Focus 'Shortcut actions'
+    Assert-ShortcutListFocus "$context list focus"
+
+    # Prove the actual keyboard traversal path rather than invoking the button
+    # through UIA: ListView -> Tab -> Change button -> Enter -> capture dialog.
+    Send-KeysTo 'tab' 'Shortcut actions'
+    Assert-Focus 'Change selected shortcut' "$context Tab to change button"
+    Send-KeysTo 'enter' 'Change selected shortcut'
+
+    # ShortcutCaptureForm is a second top-level WinForms modal in the same process.
+    # PID-scoped element lookup can stay attached to the settings window, so first
+    # discover the modal by its real top-level title and then use its exact HWND.
+    $captureHwnd = Get-WindowHandleByTitle 'Press new shortcut' 7000
+    Wait-ForInWindow 'Captured shortcut' $captureHwnd 7000
+    Send-KeysToWindow 'esc' 'Captured shortcut' $captureHwnd
+    Wait-WindowGoneByTitle 'Press new shortcut' 7000
+
+    Wait-For 'Keyboard shortcut settings' 5000
+    Assert-ShortcutListFocus "$context return from capture"
+    # Alt+F4 is a real system close chord. Target the currently focused ListView
+    # inside the settings window rather than trying to resolve the top-level Form
+    # itself as a child UIA target.
+    Send-KeysTo 'alt+f4' 'Shortcut actions'
+    Wait-Gone 'Keyboard shortcut settings' 7000
+    Settle-MainFocus "$context after close"
+}
+
+try {
+    $exe = (Resolve-Path -LiteralPath $ExePath).Path
+    if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) { Fail "exact published EXE not found: $exe" }
+    if ([IO.Path]::GetExtension($exe) -ine '.exe') { Fail "acceptance target is not an EXE: $exe" }
+
+    # Final acceptance attaches to the already-published artifact. It must not
+    # rebuild/relaunch a project and accidentally test different bits.
+    $appProcess = Start-Process -FilePath $exe -WorkingDirectory (Split-Path -Parent $exe) -PassThru
+    $appPid = [int]$appProcess.Id
+    if ($appPid -le 0) { Fail 'Start-Process did not return a valid WordDeck process ID.' }
+
+    Wait-For 'Current English word' 30000
+    foreach ($required in @('Ukrainian translation','Dictionary','Recall study scope','Active Recall deck')) { Wait-For $required }
+    Settle-MainFocus 'startup Recall word'
+    $firstWord = Get-Value 'Current English word'
+    if ([string]::IsNullOrWhiteSpace($firstWord) -or $firstWord -eq 'No words') { Fail 'no Recall word became available.' }
+
+    Send-Keys 'ctrl+t'
+    Assert-Focus 'Ukrainian translation' 'translation reveal'
+    if ((Get-Value 'Current English word') -ne $firstWord) { Fail 'Ctrl+T advanced the Recall card.' }
+    Exercise-NativeTextKeys 'Ukrainian translation' { (Get-Value 'Current English word') -eq $firstWord } 'translation native navigation'
+
+    Settle-MainFocus 'Recall navigation surface'
+    Send-KeysTo 'down' 'Current English word'
+    Assert-Focus 'Current English word' 'Recall Down'
+    $secondWord = Get-Value 'Current English word'
+    if ($secondWord -eq $firstWord) { Fail 'Down on Current English word did not advance the card.' }
+    Send-KeysTo 'up' 'Current English word'
+    Assert-Focus 'Current English word' 'Recall true previous'
+    if ((Get-Value 'Current English word') -ne $firstWord) { Fail 'Up did not restore the previous actually shown Recall card.' }
+
+    Exercise-Combo 'Dictionary' 8
+    Exercise-Combo 'Recall study scope' 60
+    Exercise-Combo 'Active Recall deck' 40
+
+    Settle-MainFocus 'File-menu test'
+    $menuWord = Get-Value 'Current English word'
+    Send-Keys 'alt+f'
+    Send-Keys 'down'
+    if ((Get-Value 'Current English word') -ne $menuWord) { Fail 'Down in the File menu changed the Recall card.' }
+    Send-Keys 'esc'
+    Assert-Focus 'Current English word' 'return from File menu'
+
+    Exercise-ShortcutSettings 'Ctrl+K before F1'
+
+    Settle-MainFocus 'F1 pre-open'
+    Send-Keys 'f1'
+    Wait-For 'WordDeck help' 7000
+    Wait-For 'WordDeck help text' 7000
+    $help = Get-Value 'WordDeck help text'
+    foreach ($phrase in @(
+        'Fast Down Arrow/Up Arrow card navigation works only while the Current English word field is focused',
+        'Ukrainian translation TextBox',
+        'Open Spelling trainer',
+        'Open Sentence Spelling trainer',
+        'Alt+F4')) {
+        if ($help -notlike "*$phrase*") { Fail "F1 help is missing required truth: $phrase" }
+    }
+    Send-KeysTo 'alt+f4' 'WordDeck help'
+    Wait-Gone 'WordDeck help' 7000
+    Settle-MainFocus 'return from F1 help'
+
+    Exercise-ShortcutSettings 'Ctrl+K after F1'
+
+    Open-And-CancelDialog 'ctrl+alt+e' 'Export complete WordDeck personal progress profile' 'complete profile export dialog'
+    Open-And-CancelDialog 'ctrl+shift+i' 'Import complete WordDeck personal progress profile' 'complete profile import dialog'
+
+    Settle-MainFocus 'reset pre-open'
+    $resetWord = Get-Value 'Current English word'
+    Send-Keys 'alt+f'
+    Send-Keys 'r'
+    $resetHwnd = Get-WindowHandleByTitle 'Reset WordDeck learning data' 7000
+    # This is a Yes/No confirmation, not a Cancel-capable dialog. The product
+    # intentionally makes No the default button, so prove safe cancellation by
+    # focusing the accessible No action and activating it with the keyboard.
+    Wait-ForInWindow 'No' $resetHwnd 7000
+    Send-KeysToWindow 'enter' 'No' $resetHwnd
+    Wait-WindowGoneByTitle 'Reset WordDeck learning data' 7000
+    Settle-MainFocus 'reset return'
+    if ((Get-Value 'Current English word') -ne $resetWord) { Fail 'Cancelling reset changed the current Recall card.' }
+
+    Settle-MainFocus 'Spelling pre-open'
+    # Trainer forms are second top-level WinForms windows. PID-scoped WinApp
+    # selectors can remain attached to the Recall form, so prove the opening chord
+    # on the main surface, then scope every trainer control lookup/action to the
+    # exact trainer HWND discovered from its real window title.
+    Send-KeysTo 'ctrl+shift+s' 'Current English word'
+    $spellingHwnd = Get-WindowHandleByTitle 'WordDeck Spelling' 10000
+    foreach ($required in @('Type English spelling answer','Ukrainian spelling prompt','Spelling study scope','Active spelling deck')) { Wait-ForInWindow $required $spellingHwnd 7000 }
+    Exercise-ComboInWindow 'Spelling study scope' 40 $spellingHwnd
+    Exercise-ComboInWindow 'Active spelling deck' 40 $spellingHwnd
+    $spellingPrompt = Get-ValueInWindow 'Ukrainian spelling prompt' $spellingHwnd
+    Exercise-NativeTextKeysInWindow 'Type English spelling answer' { (Get-ValueInWindow 'Ukrainian spelling prompt' $spellingHwnd) -eq $spellingPrompt } 'Spelling answer native navigation' $spellingHwnd
+    Send-KeysToWindow 'alt+f4' 'Type English spelling answer' $spellingHwnd
+    Wait-WindowGoneByTitle 'WordDeck Spelling' 10000
+    Settle-MainFocus 'Spelling return'
+
+    Send-KeysTo 'ctrl+shift+e' 'Current English word'
+    $sentenceHwnd = Get-WindowHandleByTitle 'WordDeck Sentence Spelling' 10000
+    foreach ($required in @('Sentence training spelling deck','Number of target words per sentence','Type the English sentence words')) { Wait-ForInWindow $required $sentenceHwnd 7000 }
+    Exercise-ComboInWindow 'Sentence training spelling deck' 30 $sentenceHwnd
+    Exercise-ComboInWindow 'Number of target words per sentence' 20 $sentenceHwnd
+    Exercise-NativeTextKeysInWindow 'Type the English sentence words' { $true } 'Sentence answer native navigation' $sentenceHwnd
+    Send-KeysToWindow 'alt+f4' 'Type the English sentence words' $sentenceHwnd
+    Wait-WindowGoneByTitle 'WordDeck Sentence Spelling' 10000
+
+    for ($round = 0; $round -lt 3; $round++) { Settle-MainFocus "final focus recovery $round" }
+
+    Write-Host 'WordDeck Worker3 R4c ACTUAL WinApp UIA PASS: exact published EXE, Natalia translation/native arrows, Recall next/true-previous, repeated selector focus, menu arrows, Ctrl+K before/after F1, Tab/Enter/Escape shortcut-settings flow with exact modal HWND, truthful F1, full-profile/reset dialogs, exact-HWND Spelling/Sentence native inputs and Alt+F4 close verified.'
+}
+finally {
+    if ($null -ne $appPid -and $appPid -gt 0) {
+        try { Stop-Process -Id $appPid -Force -ErrorAction SilentlyContinue } catch { }
+    }
+}
