@@ -384,7 +384,12 @@ def parse_games(text: str) -> list[PgnGame]:
         if line.result and valid_header_result and line.result != valid_header_result:
             warnings.append(f"header Result {header_result} differs from movetext {line.result}")
         if not line.result:
-            line.result = valid_header_result or "*"
+            recovered_result = valid_header_result or "*"
+            warnings.append(
+                "missing movetext game termination marker; "
+                f"effective result recovered as {recovered_result}"
+            )
+            line.result = recovered_result
         tags = dict(tags)
         tags.setdefault("Result", line.result)
         games.append(PgnGame(tags=tags, line=line, source_index=index, warnings=warnings))
