@@ -1,0 +1,104 @@
+name: D07 Cumulative Stack Integration CI
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/d07-cumulative-stack-integration.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Preserve exact Git bytes
+        shell: bash
+        run: git config core.autocrlf false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install verification dependency
+        run: python -m pip install pytest
+      - name: Prove cumulative ancestry, QA-only scope, and Product blobs
+        shell: bash
+        env:
+          D07_HEAD: bb41744fc05ecad19620bfbb6f17d1edd4ca0222
+          ACSDB_BLOB: 7691e8b2bc7c13cfdfde57077fb6fe3d091d8342
+          IMPORT_BLOB: 66db6d6df17e047a221b2bff06686e5503ca1b8c
+          POLICY_BLOB: b5e7c5a569992bb271c72c851775a52b23dfe378
+          SERVICE_BLOB: 69d223b375af83e60bc099e1c7c8efe104738644
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^1)" = "$D07_HEAD"
+          git diff --check "$D07_HEAD" HEAD
+          test "$(git diff --name-only "$D07_HEAD" HEAD)" = '.github/workflows/d07-cumulative-stack-integration.yml'
+          git diff --quiet "$D07_HEAD" HEAD -- acs tests
+
+          chain=(
+            9c8a342e7dd98fee52c9776c0cb6a9b970d49296
+            e835e2317cbf637ec52d0b136fca09f1a29d32ce
+            7bc1bb476064a55259b7046f201ad35fd2318083
+            9503f98c20f5ebd496d47a8e23fa31178c450db0
+            66ecc8e21b59153384b158913ab3b317ffb32785
+            599e40cc5c02b5a5981abda7459f996cb2f02bfa
+            5281c029692e9a06536b1faadd95080b545641b7
+            bb41744fc05ecad19620bfbb6f17d1edd4ca0222
+          )
+          for ((i=0; i<${#chain[@]}-1; i++)); do
+            git merge-base --is-ancestor "${chain[$i]}" "${chain[$((i+1))]}"
+          done
+
+          test "$(git rev-parse HEAD:acs/acsdb.py)" = "$ACSDB_BLOB"
+          test "$(git rev-parse HEAD:acs/library_import_service.py)" = "$IMPORT_BLOB"
+          test "$(git rev-parse HEAD:acs/search_policy.py)" = "$POLICY_BLOB"
+          test "$(git rev-parse HEAD:acs/search_service.py)" = "$SERVICE_BLOB"
+      - name: Compile cumulative D07 Product and tests
+        run: >-
+          python -m compileall -q
+          acs/acsdb.py
+          acs/library_import_service.py
+          acs/search_policy.py
+          acs/search_service.py
+          tests/test_acsdb.py
+          tests/test_d07_acsdb_migration_atomicity.py
+          tests/test_d07_library_import_service.py
+          tests/test_d07_library_import_start_lock.py
+          tests/test_d07_library_import_transaction_ownership.py
+          tests/test_d07_library_search_cancellation.py
+          tests/test_d07_search_scalar_equivalence.py
+          tests/test_d07_search_semantic_equivalence.py
+          tests/test_search_service.py
+      - name: Cumulative D07 correctness matrix
+        run: >-
+          python -m unittest -v
+          tests.test_acsdb
+          tests.test_d07_acsdb_migration_atomicity
+          tests.test_d07_library_import_service
+          tests.test_d07_library_import_start_lock
+          tests.test_d07_library_import_transaction_ownership
+          tests.test_d07_library_search_cancellation
+          tests.test_d07_search_scalar_equivalence
+          tests.test_d07_search_semantic_equivalence
+          tests.test_dev3_acsdb_backup_recovery
+          tests.test_dev3_acsdb_position_provenance
+          tests.test_dev3_acsdb_publication_race
+          tests.test_dev3_acsdb_query_plan
+          tests.test_dev3_acsdb_wal_scalars
+          tests.test_search_service
+      - name: Full unittest regression
+        run: python -m unittest discover -s tests -p 'test_*.py'
+      - name: Full pytest regression
+        run: python -m pytest -q
+      - name: SELFTEST and complete diagnostic
+        run: |
+          python -m acs.selftest
+          python run_accessible_chess.py --diagnostic
