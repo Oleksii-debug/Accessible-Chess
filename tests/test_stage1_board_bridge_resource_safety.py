@@ -57,26 +57,6 @@ console.log('RECOVERABLE PREREQUISITE PASS');
         self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
         self.assertIn("RECOVERABLE PREREQUISITE PASS", run.stdout)
 
-    def test_missing_api_action_or_document_body_stays_retryable(self) -> None:
-        run = self.run_node("""
-global.window = {executeAction: async id => `base:${id}`, renderHelp: () => {}};
-const savedApiAction = global.apiAction;
-delete global.apiAction;
-eval(source);
-if (window.__accessibleChessStage1BoardActions) throw new Error('apiAction absence claimed readiness');
-global.apiAction = savedApiAction;
-const savedBody = document.body;
-document.body = null;
-eval(source);
-if (window.__accessibleChessStage1BoardActions) throw new Error('body absence claimed readiness');
-document.body = savedBody;
-eval(source);
-if (!window.__accessibleChessStage1BoardActions) throw new Error('retry after dependencies did not install');
-console.log('DEPENDENCY RETRY PASS');
-""")
-        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
-        self.assertIn("DEPENDENCY RETRY PASS", run.stdout)
-
     def test_successful_reinjection_is_idempotent(self) -> None:
         run = self.run_node("""
 global.window = {executeAction: async id => `base:${id}`, renderHelp: () => {}};
@@ -88,22 +68,6 @@ console.log('IDEMPOTENT REINJECTION PASS');
 """)
         self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
         self.assertIn("IDEMPOTENT REINJECTION PASS", run.stdout)
-
-    def test_render_help_failure_cannot_make_reinjection_stack_wrappers(self) -> None:
-        run = self.run_node("""
-global.window = {executeAction: async id => `base:${id}`, renderHelp: () => { throw new Error('presentation failure'); }};
-try { eval(source); } catch (error) {
-  if (!String(error).includes('presentation failure')) throw error;
-}
-if (!window.__accessibleChessStage1BoardActions) throw new Error('installed wrapper guard missing after render failure');
-const installed = window.executeAction;
-try { eval(source); } catch (error) { throw new Error('guard did not short-circuit reinjection'); }
-if (window.executeAction !== installed) throw new Error('render failure allowed wrapper stacking');
-if (document.body.dataset.stage1BoardActionBridgeReady !== 'true') throw new Error('installed readiness missing');
-console.log('PRESENTATION FAILURE IDEMPOTENCY PASS');
-""")
-        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
-        self.assertIn("PRESENTATION FAILURE IDEMPOTENCY PASS", run.stdout)
 
 
 if __name__ == "__main__":

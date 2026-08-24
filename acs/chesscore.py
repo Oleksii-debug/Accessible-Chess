@@ -12,9 +12,35 @@ def parse_sq(t):
 
 def color_of(p): return 'w' if p and p.isupper() else ('b' if p else None)
 
+def _require_side(value, *, allow_none=False):
+    if allow_none and value is None:
+        return None
+    if type(value) is not str or value not in ('w','b'):
+        raise ValueError("Сторона має бути 'w' або 'b'")
+    return value
+
+def _require_square_index(value):
+    if type(value) is not int or not 0 <= value < 64:
+        raise ValueError('Поле має бути цілим індексом від 0 до 63')
+    return value
+
 @dataclass(frozen=True)
 class Move:
     frm:int; to:int; promotion:str|None=None; en_passant:bool=False; castle:bool=False
+
+    def __post_init__(self):
+        _require_square_index(self.frm)
+        _require_square_index(self.to)
+        if self.promotion is not None and (
+            type(self.promotion) is not str
+            or len(self.promotion) != 1
+            or self.promotion not in 'QRBN'
+        ):
+            raise ValueError('Перетворення має бути Q, R, B, N або None')
+        if type(self.en_passant) is not bool:
+            raise ValueError('en_passant має бути логічним значенням')
+        if type(self.castle) is not bool:
+            raise ValueError('castle має бути логічним значенням')
 
 class Board:
     START='rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1'
@@ -61,8 +87,11 @@ class Board:
         ep=None if parts[3]=='-' else parse_sq(parts[3])
         if any(not text.isascii() or not text.isdecimal() for text in parts[4:6]):
             raise ValueError('FEN: лічильники мають бути невід’ємними десятковими числами')
-        halfmove=int(parts[4]) if len(parts)>4 else 0
-        fullmove=int(parts[5]) if len(parts)>5 else 1
+        try:
+            halfmove=int(parts[4]) if len(parts)>4 else 0
+            fullmove=int(parts[5]) if len(parts)>5 else 1
+        except ValueError:
+            raise ValueError('FEN: лічильники мають бути невід’ємними десятковими числами') from None
         if halfmove<0: raise ValueError('FEN: halfmove не може бути від’ємним')
         if fullmove<1: raise ValueError('FEN: fullmove має бути не менше 1')
         for s,p in enumerate(bd):
@@ -100,8 +129,11 @@ class Board:
             if empty: row+=str(empty)
             rows.append(row)
         return '/'.join(rows)+f" {self.turn} {self.castling or '-'} {sq_name(self.ep) if self.ep is not None else '-'} {self.halfmove} {self.fullmove}"
-    def king_square(self,c): return self.board.index('K' if c=='w' else 'k')
+    def king_square(self,c):
+        c=_require_side(c)
+        return self.board.index('K' if c=='w' else 'k')
     def attacked(self,sq,by):
+        sq=_require_square_index(sq); by=_require_side(by)
         f=sq%8; r=sq//8
         dr=-1 if by=='w' else 1
         pawn='P' if by=='w' else 'p'
@@ -130,9 +162,10 @@ class Board:
                     of+=df; orr+=dr2
         return False
     def in_check(self,c=None):
-        c=c or self.turn; return self.attacked(self.king_square(c), 'b' if c=='w' else 'w')
+        c=self.turn if c is None else _require_side(c)
+        return self.attacked(self.king_square(c), 'b' if c=='w' else 'w')
     def pseudo_moves(self,c=None):
-        c=c or self.turn
+        c=self.turn if c is None else _require_side(c)
         for s,p in enumerate(self.board):
             if not p or color_of(p)!=c: continue
             typ=p.upper(); f=s%8; r=s//8
@@ -199,6 +232,8 @@ class Board:
             if not b.in_check(c): out.append(m)
         return out
     def _apply(self,m):
+        if type(m) is not Move:
+            raise ValueError('Хід має бути canonical Move')
         p=self.board[m.frm]; captured=self.board[m.to]
         if m.en_passant:
             cs=m.to-8 if p=='P' else m.to+8; captured=self.board[cs]; self.board[cs]=None
@@ -221,6 +256,8 @@ class Board:
         if self.turn=='b': self.fullmove+=1
         self.turn='b' if self.turn=='w' else 'w'; self.last_move=m
     def san(self,m):
+        if type(m) is not Move:
+            raise ValueError('Хід має бути canonical Move')
         legal=self.legal_moves()
         if m not in legal: raise ValueError('Нелегальний хід')
         p=self.board[m.frm]; typ=p.upper()
@@ -263,6 +300,8 @@ class Board:
         if not candidates: raise ValueError('Не вдалося розпізнати або хід нелегальний: '+text)
         raise ValueError('Хід неоднозначний: '+text)
     def push(self,m):
+        if type(m) is not Move:
+            raise ValueError('Хід має бути canonical Move')
         before=self.fen(); san=self.san(m)
         self.undo_stack.append((before,san)); self.redo_stack.clear(); self._apply(m)
         return san
@@ -274,8 +313,10 @@ class Board:
         if not self.redo_stack: return None
         current=self.fen(); target,san=self.redo_stack.pop(); self.undo_stack.append((current,san)); self.set_fen(target,clear_history=False); return san
     def square_description(self,sq):
+        sq=_require_square_index(sq)
         p=self.board[sq]; return f"{sq_name(sq)[0]} {sq_name(sq)[1]}, {PIECE_UA[p] if p else 'порожньо'}"
     def pieces_description(self,color=None):
+        color=_require_side(color, allow_none=True)
         arr=[]
         for s,p in enumerate(self.board):
             if p and (color is None or color_of(p)==color): arr.append(f"{PIECE_UA[p]} {sq_name(s)[0]} {sq_name(s)[1]}")
@@ -287,6 +328,7 @@ class Board:
         when the target is empty, sliders defend their first occupied blocker,
         and castling/forward pawn pushes are never attacks.
         """
+        s=_require_square_index(s)
         p=self.board[s]
         if not p: return []
         c=color_of(p); typ=p.upper(); f=s%8; r=s//8; out=[]
@@ -317,4 +359,5 @@ class Board:
                     if 0<=nf<8 and 0<=nr<8: out.append(nr*8+nf)
         return sorted(set(out))
     def attackers_of(self,s):
+        s=_require_square_index(s)
         return [i for i,p in enumerate(self.board) if p and s in self.attacks_from(i)]

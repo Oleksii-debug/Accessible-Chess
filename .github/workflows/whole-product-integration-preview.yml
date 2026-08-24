@@ -1,0 +1,209 @@
+name: Whole Product Integration Preview CI
+
+on:
+  pull_request:
+    paths:
+      - 'acs/**'
+      - 'tests/**'
+      - 'web/**'
+      - 'docs/automation/DEV4_CHESSBASE_CAPABILITY_MATRIX.md'
+      - '.github/workflows/whole-product-integration-preview.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 50
+    env:
+      WHOLE_PRODUCT_BASE: 5db9e6a2eb546d2235dbe4e726557283abb34ae4
+      OWNER_COMPOSITION: 56e6f9aa193d4ea154c23680a8a8e0140d0290b4
+      DEV4_COMPOSITION: d4c9e993a49491e8fd19c6e543d6128500eda432
+      INITIAL_WORKFLOW_COMMIT: 1a8343982c4e6e0cdfc7f4a63aa5ddf00a2bf58d
+      CAPABILITY_EVIDENCE_COMMIT: 4ec8467a74ff25b1c20ad6f68cb18fe4e1a3647d
+      FINGERPRINT_STABILITY_COMMIT: ff2099f1a660cf1b5750c1736c9c4d45059794d1
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Preserve exact Git bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config core.autocrlf false
+          git config core.eol lf
+          git reset --hard HEAD
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install pinned verification dependency
+        run: python -m pip install -q pytest==8.4.2
+
+      - name: Prove exact isolated composition ancestry
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD~5)" = "$OWNER_COMPOSITION"
+          test "$(git rev-parse HEAD~4)" = "$DEV4_COMPOSITION"
+          test "$(git rev-parse HEAD~3)" = "$INITIAL_WORKFLOW_COMMIT"
+          test "$(git rev-parse HEAD~2)" = "$CAPABILITY_EVIDENCE_COMMIT"
+          test "$(git rev-parse HEAD~1)" = "$FINGERPRINT_STABILITY_COMMIT"
+          test "$(git rev-list --count "$WHOLE_PRODUCT_BASE"..HEAD)" = "6"
+          git merge-base --is-ancestor "$WHOLE_PRODUCT_BASE" HEAD
+          git diff --check "$WHOLE_PRODUCT_BASE" HEAD
+
+      - name: Lock critical owner and integration blobs
+        shell: bash
+        run: |
+          set -euo pipefail
+          while IFS='=' read -r path expected; do
+            actual="$(git rev-parse "HEAD:$path")"
+            test "$actual" = "$expected" || {
+              printf 'Blob mismatch: %s expected=%s actual=%s\n' "$path" "$expected" "$actual" >&2
+              exit 1
+            }
+          done <<'LOCKS'
+          acs/keybindings.py=b222f0d625999d8119cb3bb7cebffc961217f610
+          tests/test_board_rank_file_remapping_ui.py=747b6fd4f73ccfb3647f854e832e9c38421f1e3c
+          web/index.html=17803443a815843be3aa1b8c6be1c5abb7e7c888
+          acs/chesscore.py=eb9229b5ee107afe06cdf8a916f466e1474dddd4
+          acs/engine.py=01324ff735908dcc2b6515310eef9cbc8572e7ef
+          acs/gametree.py=03f5a42956f60dfb7928974084053847bdab5ae5
+          acs/game_identity.py=4cfc738084a99ee12c4397c71c846cac4426754d
+          acs/pgn_roundtrip.py=96d62bf6dd7b2f5c8a75d5f2bd1fde2ad0823d20
+          acs/acsdb.py=3d7d31b4421990815a8d2f10367f6ff84e9bcd67
+          acs/library_import_service.py=66db6d6df17e047a221b2bff06686e5503ca1b8c
+          acs/search_policy.py=b5e7c5a569992bb271c72c851775a52b23dfe378
+          acs/search_service.py=69d223b375af83e60bc099e1c7c8efe104738644
+          acs/training.py=28dcb58b11cd1e8dcd3904eee1ebc81d40d0ffcb
+          acs/book_training.py=b8eab7a982a2eef2e22ba89c4fea5dfb3e2dca5f
+          acs/teaching_classroom_adapter.py=39fd13f6bf9b9537e3a5127b9022f759eea7eb62
+          acs/teaching_reverse_channel.py=f3f66b65f9aad8358832e5cb441842403116f166
+          acs/teaching_session_adapter.py=6d921af7aefd8d5f90282d78b9f497a2ab0648ee
+          acs/teaching_visual_board.py=36764ed8b11a77f9d3252447a83accd73a9252c3
+          acs/education_records.py=6f42c311357731e0ecc812973f6cb48339fc8fc5
+          acs/education_workspace.py=873429ef6c155583c7952d376215b644f4e08023
+          acs/remote_session.py=1e99ed94ac4e9afd8f6f4043e425c50b05ac3067
+          acs/chessbase_adapter.py=70ff93930fe2c29454fded6adbb189275eec85a1
+          acs/chessbase_integrity.py=f21f0c3c77b16f9a4a192a61a7f1b5a831b62011
+          acs/chessbase_manifest.py=bc88665482d096eaedc9713f3860fb11d7eba57f
+          acs/import_contract.py=8606cc665e80d418f35f28f6d7e6263c8a2b62f6
+          acs/import_registry.py=bf75efb2859d7608b02313f8f0026798bfa84591
+          acs/pgn_service.py=74288a77de23c14ea2b785f1a6b1705cedee115c
+          acs/report_paths.py=c0f1655ce47f815f3d6e8fedb53f08c59d88007a
+          tests/test_pgn_concurrent_save.py=9ec467b975f244c5870f8c023ce188bcf39a0760
+          tests/test_whole_product_user_journey.py=761c934d72137a5fe430f0a7ffe0c59a64a2f19f
+          docs/automation/DEV4_CHESSBASE_CAPABILITY_MATRIX.md=0bff15b94d8351654f6bf23cf4d604e05d814494
+          LOCKS
+
+      - name: Prove honest ChessBase capability boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -Fq 'EXTERNAL_FIXTURE_BLOCKER=CHESSBASE_PROPRIETARY_DECODER_EVIDENCE' docs/automation/DEV4_CHESSBASE_CAPABILITY_MATRIX.md
+          ! grep -Eiq '(^|[^[:alpha:]])(CBH|CBV|CBONE)[^\n]*(full|complete)[[:space:]]+(decode|import)[[:space:]]+(pass|supported)' docs/automation/DEV4_CHESSBASE_CAPABILITY_MATRIX.md
+
+      - name: Compile whole Product and tests
+        run: python -m compileall -q acs tests run_accessible_chess.py
+
+      - name: Whole-product user journey
+        run: python -m unittest -v tests.test_whole_product_user_journey
+
+      - name: Canonical core engine PGN Library and Training matrix
+        run: >-
+          python -m unittest -v
+          tests.test_d02_canonical_move_scalar_fail_closed
+          tests.test_d03_stockfish_hard_shutdown
+          tests.test_d03_uci_output_bounds
+          tests.test_d06_annotation_insertion_persistence_vertical
+          tests.test_d06_gametree_persistence_vertical
+          tests.test_d06_pgn_roundtrip
+          tests.test_d07_acsdb_migration_atomicity
+          tests.test_d07_library_import_service
+          tests.test_d07_library_search_cancellation
+          tests.test_d08_book_training_contract
+          tests.test_d08_training_canonical_resume
+
+      - name: Education and Classroom provenance matrix
+        run: >-
+          python -m unittest -v
+          tests.test_education_classroom_integration
+          tests.test_d10_remote_checkpoint_provenance
+          tests.test_education_records
+          tests.test_education_workspace
+          tests.test_teaching_classroom_adapter
+          tests.test_teaching_classroom_floor_control
+          tests.test_teaching_reverse_channel
+          tests.test_teaching_visual_board
+
+      - name: DEV4 PGN and import security matrix
+        run: >-
+          python -m unittest -v
+          tests.test_pgn_concurrent_save
+          tests.test_dev4_pgn_export_concurrency_security
+          tests.test_dev4_pgn_export_failure_recovery
+          tests.test_dev4_pgn_export_path_security
+          tests.test_dev4_pgn_postcommit_cleanup_atomicity
+          tests.test_dev4_pgn_resource_security
+          tests.test_dev4_chessbase_cross_platform_path_privacy
+          tests.test_dev4_chessbase_integrity_atomicity
+          tests.test_dev4_chessbase_manifest_io_observability
+          tests.test_dev4_import_fingerprint_atomicity
+          tests.test_dev4_import_history_error_privacy
+          tests.test_dev4_import_special_file_security
+
+      - name: Acquire official Stockfish 18 Windows binary
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri 'https://github.com/official-stockfish/Stockfish/releases/download/sf_18/stockfish-windows-x86-64.zip' -OutFile stockfish18.zip
+          Expand-Archive stockfish18.zip stockfish18 -Force
+          $engine=Get-ChildItem stockfish18 -Recurse -Filter '*.exe' | Where-Object {$_.Name -match 'stockfish.*x86-64'} | Select-Object -First 1
+          if(-not $engine){throw 'Official Stockfish 18 executable missing'}
+          New-Item -ItemType Directory -Force -Path real-engine | Out-Null
+          Copy-Item $engine.FullName 'real-engine\stockfish.exe' -Force
+          $hash=(Get-FileHash 'real-engine\stockfish.exe' -Algorithm SHA256).Hash.ToLowerInvariant()
+          "WHOLE PRODUCT OFFICIAL STOCKFISH 18 SHA256: $hash"
+
+      - name: Real Stockfish 18 lifecycle smoke
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          @'
+          import pathlib
+          import re
+          from acs.engine import UCIEngine
+          exe = (pathlib.Path.cwd() / 'real-engine' / 'stockfish.exe').resolve()
+          fen = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1'
+          engine = UCIEngine(str(exe))
+          lines = engine.analyze(fen, multipv=3, depth=8)
+          assert len(lines) == 3, lines
+          move = engine.best_move(fen, skill_level=10, movetime_ms=100)
+          assert move is not None and re.fullmatch(r'[a-h][1-8][a-h][1-8][qrbn]?', move), move
+          engine.close()
+          assert engine.proc is None
+          print('WHOLE PRODUCT STOCKFISH 18 LIFECYCLE PASS')
+          '@ | Set-Content -Encoding UTF8 whole_product_stockfish_smoke.py
+          python whole_product_stockfish_smoke.py
+          if($LASTEXITCODE -ne 0){throw 'Whole-product Stockfish smoke failed'}
+
+      - name: Full repository unittest
+        run: python -m unittest discover -s tests -v
+
+      - name: Full repository pytest
+        run: python -m pytest -q tests
+
+      - name: SELFTEST and complete diagnostic
+        run: |
+          python -m acs.selftest
+          python run_accessible_chess.py --diagnostic
