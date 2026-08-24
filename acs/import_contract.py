@@ -123,7 +123,6 @@ def fingerprint(path: str | Path, chunk_size: int = 1024 * 1024) -> SourceFinger
 
     submitted = Path(path)
     absolute, path_before = _validate_source_path(submitted)
-    digest = hashlib.sha256()
     flags = os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0)
     fd = os.open(os.fspath(absolute), flags)
     try:
@@ -133,11 +132,24 @@ def fingerprint(path: str | Path, chunk_size: int = 1024 * 1024) -> SourceFinger
         if (fd_before.st_dev, fd_before.st_ino) != (path_before.st_dev, path_before.st_ino):
             raise ValueError("Import source changed before it could be opened safely")
 
-        while True:
-            chunk = os.read(fd, chunk_size)
-            if not chunk:
-                break
-            digest.update(chunk)
+        def digest_open_inode() -> str:
+            digest = hashlib.sha256()
+            while True:
+                chunk = os.read(fd, chunk_size)
+                if not chunk:
+                    return digest.hexdigest()
+                digest.update(chunk)
+
+        first_sha256 = digest_open_inode()
+
+        # A same-size in-place writer can race inside the first hash pass and,
+        # on filesystems with coarse timestamp updates, leave mtime_ns looking
+        # unchanged. Re-hash the exact already-open inode so provenance is
+        # published only when two complete byte snapshots agree.
+        os.lseek(fd, 0, os.SEEK_SET)
+        verified_sha256 = digest_open_inode()
+        if first_sha256 != verified_sha256:
+            raise ValueError("Import source changed while fingerprinting")
         fd_after = os.fstat(fd)
     finally:
         os.close(fd)
@@ -163,7 +175,7 @@ def fingerprint(path: str | Path, chunk_size: int = 1024 * 1024) -> SourceFinger
     return SourceFingerprint(
         path=str(absolute),
         size=fd_after.st_size,
-        sha256=digest.hexdigest(),
+        sha256=verified_sha256,
         suffix=submitted.suffix.lower(),
     )
 
