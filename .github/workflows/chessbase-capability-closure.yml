@@ -1,0 +1,104 @@
+name: ChessBase Capability Closure CI
+
+on:
+  pull_request:
+    paths:
+      - 'docs/automation/DEV4_CHESSBASE_CAPABILITY_MATRIX.md'
+      - '.github/workflows/chessbase-capability-closure.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    env:
+      DEV4_BASE: 3e15dc2e844cb825e482317fd024795130147011
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+      - name: Preserve exact Git bytes
+        shell: bash
+        run: |
+          git config core.autocrlf false
+          git config core.eol lf
+          git reset --hard HEAD
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install verification dependency
+        run: python -m pip install pytest
+      - name: Prove docs-and-CI-only scope and Product locks
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^1)" = "$DEV4_BASE"
+          git diff --check "$DEV4_BASE" HEAD
+          changed="$(git diff --name-only "$DEV4_BASE" HEAD | sort)"
+          expected="$(printf '%s\n' '.github/workflows/chessbase-capability-closure.yml' 'docs/automation/DEV4_CHESSBASE_CAPABILITY_MATRIX.md' | sort)"
+          test "$changed" = "$expected"
+          git diff --quiet "$DEV4_BASE" HEAD -- acs tests
+          test "$(git rev-parse HEAD:acs/chessbase_adapter.py)" = "70ff93930fe2c29454fded6adbb189275eec85a1"
+          test "$(git rev-parse HEAD:acs/chessbase_integrity.py)" = "f21f0c3c77b16f9a4a192a61a7f1b5a831b62011"
+          test "$(git rev-parse HEAD:acs/chessbase_manifest.py)" = "bc88665482d096eaedc9713f3860fb11d7eba57f"
+          test "$(git rev-parse HEAD:acs/import_contract.py)" = "3b3da7c83ae8cac6f134a5958028348ec7c13838"
+          test "$(git rev-parse HEAD:acs/report_paths.py)" = "c0f1655ce47f815f3d6e8fedb53f08c59d88007a"
+      - name: Prove explicit complete no-overclaim matrix
+        shell: bash
+        run: |
+          set -euo pipefail
+          matrix=docs/automation/DEV4_CHESSBASE_CAPABILITY_MATRIX.md
+          for extension in .cbh .cbg .cbp .cbt .cbv .cbf .2cbh .cbone .cba .cbc .cbs; do
+            grep -Fq "`$extension`" "$matrix"
+          done
+          grep -Fq 'EXTERNAL_FIXTURE_BLOCKER=CHESSBASE_PROPRIETARY_DECODER_EVIDENCE' "$matrix"
+          grep -Fq 'decoder_available' "$matrix"
+          grep -Fq 'safe_to_import' "$matrix"
+          ! grep -Fq 'Current QA PR #67 locks a PROVEN_PRODUCT_DEFECT' "$matrix"
+      - name: Compile unchanged ChessBase boundary
+        run: >-
+          python -m compileall -q
+          acs/chessbase_adapter.py
+          acs/chessbase_integrity.py
+          acs/chessbase_manifest.py
+          acs/import_contract.py
+          acs/report_paths.py
+      - name: ChessBase recognition, integrity, privacy, and no-overclaim matrix
+        run: >-
+          python -m unittest -v
+          tests.test_chessbase_adapter
+          tests.test_chessbase_integrity
+          tests.test_data_integration
+          tests.test_import_contract
+          tests.test_dev4_chessbase_cross_platform_path_privacy
+          tests.test_dev4_chessbase_integrity_atomicity
+          tests.test_dev4_chessbase_integrity_io_observability
+          tests.test_dev4_chessbase_manifest_io_observability
+          tests.test_dev4_chessbase_probe_observability
+          tests.test_dev4_chessbase_report_path_privacy
+          tests.test_dev4_chessbase_symlink_security
+      - name: Same focused matrix under pytest
+        run: >-
+          python -m pytest -q
+          tests/test_chessbase_adapter.py
+          tests/test_chessbase_integrity.py
+          tests/test_data_integration.py
+          tests/test_import_contract.py
+          tests/test_dev4_chessbase_cross_platform_path_privacy.py
+          tests/test_dev4_chessbase_integrity_atomicity.py
+          tests/test_dev4_chessbase_integrity_io_observability.py
+          tests/test_dev4_chessbase_manifest_io_observability.py
+          tests/test_dev4_chessbase_probe_observability.py
+          tests/test_dev4_chessbase_report_path_privacy.py
+          tests/test_dev4_chessbase_symlink_security.py
+      - name: SELFTEST and complete diagnostic
+        run: |
+          python -m acs.selftest
+          python run_accessible_chess.py --diagnostic
