@@ -1,4 +1,3 @@
-import os
 from pathlib import Path
 import tempfile
 import unittest
@@ -45,25 +44,27 @@ class PgnConcurrentSaveTests(unittest.TestCase):
             path = Path(folder) / 'game.pgn'
             path.write_text(PGN_A, encoding='utf-8')
             opened = open_pgn(path)
-            real_fsync = os.fsync
-            injected = {'done': False}
+            from acs import pgn_service
 
-            def fsync_with_race(fd):
-                # The sidecar lock is fsynced first. Inject on the later temp-file
-                # fsync so the external write occurs after transaction preflight
-                # and before the final expected-version recheck.
-                if injected['done']:
-                    return real_fsync(fd)
-                try:
-                    target = os.readlink(f'/proc/self/fd/{fd}')
-                except (OSError, AttributeError):
-                    target = ''
-                if target.endswith('.tmp'):
+            real_verify = pgn_service._verify_expected_version
+            injected = {'done': False}
+            verify_calls = {'count': 0}
+
+            def verify_with_race(destination, expected_sha256):
+                verify_calls['count'] += 1
+                # The first call is transaction preflight. Inject immediately
+                # before the second, commit-time check so this oracle has the
+                # same exact timing on Windows and POSIX without /proc or fd
+                # path introspection.
+                if verify_calls['count'] == 2:
                     injected['done'] = True
                     path.write_text(PGN_EXTERNAL, encoding='utf-8')
-                return real_fsync(fd)
+                return real_verify(destination, expected_sha256)
 
-            with mock.patch('acs.pgn_service.os.fsync', side_effect=fsync_with_race):
+            with mock.patch(
+                'acs.pgn_service._verify_expected_version',
+                side_effect=verify_with_race,
+            ):
                 with self.assertRaises(PgnConcurrentWriteError):
                     save_pgn_atomic(
                         path,
@@ -73,6 +74,7 @@ class PgnConcurrentSaveTests(unittest.TestCase):
                     )
 
             self.assertTrue(injected['done'])
+            self.assertEqual(verify_calls['count'], 2)
             self.assertEqual(path.read_text(encoding='utf-8'), PGN_EXTERNAL)
             self.assertFalse(_save_lock_path(path).exists())
             self.assertEqual(list(Path(folder).glob('game.pgn.*.tmp')), [])

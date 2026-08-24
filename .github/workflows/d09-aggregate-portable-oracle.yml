@@ -1,0 +1,107 @@
+name: D09 Aggregate Portable Oracle CI
+
+on:
+  pull_request:
+    paths:
+      - 'tests/test_pgn_concurrent_save.py'
+      - '.github/workflows/d09-aggregate-portable-oracle.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 35
+    env:
+      D09_BASE: 59fedaa139a26f848f60af345ac429163ea344b7
+      DEV2_ACCEPTED_UI_EVIDENCE: 06d610e90731d8b987bd6def02e0d7e39748808e
+      SESSION_ADAPTER_BLOB: 6d921af7aefd8d5f90282d78b9f497a2ab0648ee
+      REVERSE_CHANNEL_BLOB: f3f66b65f9aad8358832e5cb441842403116f166
+      VISUAL_BOARD_BLOB: 36764ed8b11a77f9d3252447a83accd73a9252c3
+      CLASSROOM_ADAPTER_BLOB: 39fd13f6bf9b9537e3a5127b9022f759eea7eb62
+      PGN_SERVICE_BLOB: 68f1029eddd462463ba244e193d2380f685ddb34
+      PORTABLE_ORACLE_BLOB: bcdad3d41dddbdc7530db2bf472eff0faf5c1132
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+      - name: Preserve exact Git bytes
+        shell: bash
+        run: |
+          git config core.autocrlf false
+          git config core.eol lf
+          git reset --hard HEAD
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install verification dependency
+        run: python -m pip install pytest
+      - name: Prove exact QA-only ancestry, scope, and Product locks
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor "$D09_BASE" HEAD
+          test "$(git rev-list --count "$D09_BASE"..HEAD)" = "2"
+          git diff --check "$D09_BASE" HEAD
+          changed="$(git diff --name-only "$D09_BASE" HEAD | sort)"
+          expected="$(printf '%s\n' '.github/workflows/d09-aggregate-portable-oracle.yml' 'tests/test_pgn_concurrent_save.py' | sort)"
+          test "$changed" = "$expected"
+          git diff --quiet "$D09_BASE" HEAD -- acs
+          test "$(git rev-parse HEAD:acs/teaching_session_adapter.py)" = "$SESSION_ADAPTER_BLOB"
+          test "$(git rev-parse HEAD:acs/teaching_reverse_channel.py)" = "$REVERSE_CHANNEL_BLOB"
+          test "$(git rev-parse HEAD:acs/teaching_visual_board.py)" = "$VISUAL_BOARD_BLOB"
+          test "$(git rev-parse HEAD:acs/teaching_classroom_adapter.py)" = "$CLASSROOM_ADAPTER_BLOB"
+          test "$(git rev-parse HEAD:acs/pgn_service.py)" = "$PGN_SERVICE_BLOB"
+          test "$(git rev-parse HEAD:tests/test_pgn_concurrent_save.py)" = "$PORTABLE_ORACLE_BLOB"
+      - name: Compile D09 aggregate tree
+        run: python -m compileall -q acs tests
+      - name: Portable PGN preflight-to-commit oracle
+        run: python -m unittest -v tests.test_pgn_concurrent_save
+      - name: Focused D09 Classroom vertical
+        run: >-
+          python -m unittest -v
+          tests.test_teaching_reverse_channel
+          tests.test_teaching_visual_board
+          tests.test_teaching_classroom_adapter
+          tests.test_teaching_classroom_floor_control
+      - name: Upstream role-safe TeachingSession adapter
+        run: python -m unittest -v tests.test_teaching_session_adapter
+      - name: Canonical TeachingSession and adversarial invariants
+        run: >-
+          python -m unittest -v
+          tests.test_teaching_session
+          tests.test_teaching_session_adversarial
+      - name: Canonical interaction family separation
+        run: >-
+          python -m unittest -v
+          tests.test_interaction_contracts
+          tests.test_interaction_router
+      - name: Classroom privacy and corruption invariants
+        run: >-
+          python -m unittest -v
+          tests.test_classroom_domain
+          tests.test_classroom_domain_corruption
+      - name: Full unittest on pure Product tree
+        run: python -m unittest discover -s tests -v
+      - name: Materialize accepted D01 UI compatibility for aggregate pytest
+        shell: bash
+        run: |
+          set -euo pipefail
+          git checkout "$DEV2_ACCEPTED_UI_EVIDENCE" -- acs/keybindings.py tests/test_board_rank_file_remapping_ui.py web/index.html
+          test "$(git hash-object acs/keybindings.py)" = "b222f0d625999d8119cb3bb7cebffc961217f610"
+          test "$(git hash-object tests/test_board_rank_file_remapping_ui.py)" = "747b6fd4f73ccfb3647f854e832e9c38421f1e3c"
+          test "$(git hash-object web/index.html)" = "17803443a815843be3aa1b8c6be1c5abb7e7c888"
+      - name: Accepted rank/file compatibility regression
+        run: python -m pytest -q tests/test_board_rank_file_remapping_ui.py
+      - name: Full pytest with accepted cross-lane compatibility
+        run: python -m pytest -q
+      - name: SELFTEST and complete diagnostic
+        run: |
+          python -m acs.selftest
+          python run_accessible_chess.py --diagnostic
