@@ -3,11 +3,19 @@ from unittest.mock import patch
 
 from acs import classroom_domain as cd
 from acs import education_records as er
+from acs.remote_session import RemoteEventKind, RemoteSessionEvent, RemoteSessionLog
+from acs.teaching_session import (
+    LessonSession,
+    PositionSourceKind,
+    TeachingActivity,
+    TeachingPositionSource,
+    TeachingStep,
+    default_policy,
+)
 
 
 STAMP = "2026-08-23T12:30:00Z"
 DIGEST_A = "a" * 64
-DIGEST_B = "b" * 64
 
 
 def sample_classroom(*, with_progress=False):
@@ -61,6 +69,46 @@ def submit(
     )
 
 
+def remote_checkpoint(
+    last_sequence,
+    *,
+    student_ids=("s1", "s2"),
+    session_id="session1",
+    variant=0,
+):
+    activity = TeachingActivity.TEACHER_EXPLAINS
+    lesson_session = LessonSession(
+        session_id=session_id,
+        lesson_id="lesson1",
+        source=TeachingPositionSource(PositionSourceKind.START),
+        steps=(
+            TeachingStep(
+                "step1",
+                activity,
+                "Remote checkpoint",
+                default_policy(activity),
+            ),
+        ),
+        student_ids=tuple(student_ids),
+        cohort_id="cohort1",
+    )
+    log = RemoteSessionLog(session_id)
+    for sequence in range(1, last_sequence + 1):
+        square = "b1" if variant and sequence == last_sequence else "a1"
+        log.append(
+            RemoteSessionEvent(
+                session_id=session_id,
+                sequence=sequence,
+                kind=RemoteEventKind.POINTER,
+                payload={"square": square},
+            )
+        )
+    return {
+        "lesson_session": lesson_session,
+        "remote_session_log": log,
+    }
+
+
 class EducationRecordsTests(unittest.TestCase):
     def test_round_trip_reopen_is_deterministic_and_lossless(self):
         classroom = sample_classroom()
@@ -73,12 +121,9 @@ class EducationRecordsTests(unittest.TestCase):
             classroom,
             record_id="remote1",
             operation_id="op2",
-            session_id="session1",
-            student_ids=("s1", "s2"),
+            **remote_checkpoint(7),
             started_at=STAMP,
             closed_at=None,
-            last_remote_sequence=7,
-            snapshot_digest=DIGEST_A,
             expected_session_revision=0,
             expected_revision=ledger.revision,
         )
@@ -102,12 +147,9 @@ class EducationRecordsTests(unittest.TestCase):
             classroom,
             record_id="remote1",
             operation_id="op3",
-            session_id="session1",
-            student_ids=("s1", "s2"),
+            **remote_checkpoint(1),
             started_at=STAMP,
             closed_at=None,
-            last_remote_sequence=1,
-            snapshot_digest=DIGEST_A,
             expected_session_revision=0,
             expected_revision=ledger.revision,
         )
@@ -220,12 +262,9 @@ class EducationRecordsTests(unittest.TestCase):
             classroom,
             record_id="remote1",
             operation_id="op1",
-            session_id="session1",
-            student_ids=("s1", "s2"),
+            **remote_checkpoint(10),
             started_at=STAMP,
             closed_at=None,
-            last_remote_sequence=10,
-            snapshot_digest=DIGEST_A,
             expected_session_revision=0,
             expected_revision=0,
         )
@@ -234,12 +273,9 @@ class EducationRecordsTests(unittest.TestCase):
             classroom,
             record_id="remote1",
             operation_id="op1",
-            session_id="session1",
-            student_ids=("s1", "s2"),
+            **remote_checkpoint(10),
             started_at=STAMP,
             closed_at=None,
-            last_remote_sequence=10,
-            snapshot_digest=DIGEST_A,
             expected_session_revision=0,
             expected_revision=0,
         )
@@ -253,12 +289,9 @@ class EducationRecordsTests(unittest.TestCase):
             classroom,
             record_id="remote1",
             operation_id="op1",
-            session_id="session1",
-            student_ids=("s1", "s2"),
+            **remote_checkpoint(10),
             started_at=STAMP,
             closed_at=None,
-            last_remote_sequence=10,
-            snapshot_digest=DIGEST_A,
             expected_session_revision=0,
             expected_revision=0,
         )
@@ -267,12 +300,9 @@ class EducationRecordsTests(unittest.TestCase):
             classroom,
             record_id="remote1",
             operation_id="op2",
-            session_id="session1",
-            student_ids=("s1", "s2"),
+            **remote_checkpoint(11),
             started_at=STAMP,
             closed_at=None,
-            last_remote_sequence=11,
-            snapshot_digest=DIGEST_B,
             expected_session_revision=0,
             expected_revision=1,
         )
@@ -284,12 +314,9 @@ class EducationRecordsTests(unittest.TestCase):
                 classroom,
                 record_id="remote1",
                 operation_id="op3",
-                session_id="session1",
-                student_ids=("s1", "s2"),
+                **remote_checkpoint(10),
                 started_at=STAMP,
                 closed_at=None,
-                last_remote_sequence=10,
-                snapshot_digest=DIGEST_A,
                 expected_session_revision=1,
                 expected_revision=2,
             )
@@ -299,12 +326,9 @@ class EducationRecordsTests(unittest.TestCase):
                 classroom,
                 record_id="remote1",
                 operation_id="op4",
-                session_id="session1",
-                student_ids=("s1", "s2"),
+                **remote_checkpoint(11, variant=1),
                 started_at=STAMP,
                 closed_at=None,
-                last_remote_sequence=11,
-                snapshot_digest=DIGEST_A,
                 expected_session_revision=1,
                 expected_revision=2,
             )
@@ -318,12 +342,9 @@ class EducationRecordsTests(unittest.TestCase):
             classroom,
             record_id="remote1",
             operation_id="op1",
-            session_id="session1",
-            student_ids=("s1",),
+            **remote_checkpoint(1, student_ids=("s1",)),
             started_at=STAMP,
             closed_at=None,
-            last_remote_sequence=1,
-            snapshot_digest=DIGEST_A,
             expected_session_revision=0,
             expected_revision=0,
         )
@@ -332,12 +353,9 @@ class EducationRecordsTests(unittest.TestCase):
             classroom,
             record_id="remote1",
             operation_id="op2",
-            session_id="session1",
-            student_ids=("s1",),
+            **remote_checkpoint(2, student_ids=("s1",)),
             started_at=STAMP,
             closed_at="2026-08-23T13:30:00Z",
-            last_remote_sequence=2,
-            snapshot_digest=DIGEST_B,
             expected_session_revision=0,
             expected_revision=1,
         )
@@ -348,12 +366,9 @@ class EducationRecordsTests(unittest.TestCase):
                 classroom,
                 record_id="remote1",
                 operation_id="op3",
-                session_id="session1",
-                student_ids=("s1",),
+                **remote_checkpoint(3, student_ids=("s1",)),
                 started_at=STAMP,
                 closed_at=None,
-                last_remote_sequence=3,
-                snapshot_digest="c" * 64,
                 expected_session_revision=1,
                 expected_revision=2,
             )
@@ -363,12 +378,9 @@ class EducationRecordsTests(unittest.TestCase):
                 classroom,
                 record_id="remote1",
                 operation_id="op4",
-                session_id="session1",
-                student_ids=("s1",),
+                **remote_checkpoint(3, student_ids=("s1",)),
                 started_at=STAMP,
                 closed_at="2026-08-23T13:30:00Z",
-                last_remote_sequence=3,
-                snapshot_digest="c" * 64,
                 expected_session_revision=1,
                 expected_revision=2,
             )
@@ -388,12 +400,9 @@ class EducationRecordsTests(unittest.TestCase):
             classroom,
             record_id="remote1",
             operation_id="op3",
-            session_id="session1",
-            student_ids=("s1", "s2"),
+            **remote_checkpoint(3),
             started_at=STAMP,
             closed_at=None,
-            last_remote_sequence=3,
-            snapshot_digest=DIGEST_A,
             expected_session_revision=0,
             expected_revision=ledger.revision,
         )
@@ -435,12 +444,9 @@ class EducationRecordsTests(unittest.TestCase):
             deleted,
             record_id="remote1",
             operation_id="op5",
-            session_id="session1",
-            student_ids=("s2",),
+            **remote_checkpoint(4, student_ids=("s2",)),
             started_at=STAMP,
             closed_at=None,
-            last_remote_sequence=4,
-            snapshot_digest=DIGEST_B,
             expected_session_revision=1,
             expected_revision=reconciled.revision,
         )

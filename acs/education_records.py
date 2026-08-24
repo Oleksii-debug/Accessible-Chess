@@ -21,6 +21,14 @@ import re
 from typing import Any, Mapping
 
 from .classroom_domain import ClassroomSnapshot, Progress
+from .remote_session import (
+    RemoteEventKind,
+    RemoteSessionLog,
+)
+from .teaching_session import (
+    LessonSession,
+    validate_lesson_session_scope,
+)
 
 
 EDUCATION_RECORDS_VERSION = 1
@@ -370,18 +378,25 @@ def checkpoint_remote_session(
     *,
     record_id: str,
     operation_id: str,
-    session_id: str,
-    student_ids: tuple[str, ...],
+    lesson_session: LessonSession,
+    remote_session_log: RemoteSessionLog,
     started_at: str,
     closed_at: str | None,
-    last_remote_sequence: int,
-    snapshot_digest: str,
     expected_session_revision: int,
     expected_revision: int,
 ) -> EducationLedger:
     ledger, classroom = _anchor(ledger, classroom)
     _revision(expected_session_revision, "expected remote session revision")
-    student_ids = _id_tuple(student_ids, "remote session student ids")
+    (
+        session_id,
+        student_ids,
+        last_remote_sequence,
+        snapshot_digest,
+    ) = _canonical_remote_checkpoint(
+        classroom,
+        lesson_session,
+        remote_session_log,
+    )
     for student_id in student_ids:
         _require_active_student(classroom, student_id)
     candidate = RemoteSessionRecord(
@@ -443,13 +458,13 @@ def checkpoint_remote_session(
             raise EducationRecordsError(
                 "remote session sequence cannot move backwards"
             )
-        if (
-            candidate.last_remote_sequence == existing.last_remote_sequence
-            and candidate.snapshot_digest != existing.snapshot_digest
-        ):
-            raise EducationRecordsError(
-                "remote session sequence conflicts with a different snapshot digest"
-            )
+        if candidate.last_remote_sequence == existing.last_remote_sequence:
+            if candidate.snapshot_digest != existing.snapshot_digest:
+                raise EducationRecordsError(
+                    "remote session sequence conflicts with a different snapshot digest"
+                )
+            if not (existing.closed_at is None and candidate.closed_at is not None):
+                raise EducationRecordsError("duplicate remote session checkpoint")
         replacement = replace(candidate, revision=existing.revision + 1)
         updated = tuple(
             replacement if item.session_id == existing.session_id else item
@@ -461,6 +476,66 @@ def checkpoint_remote_session(
         "checkpoint_remote_session",
         payload,
         remote_sessions=updated,
+    )
+
+
+def _canonical_remote_checkpoint(
+    classroom: ClassroomSnapshot,
+    lesson_session: object,
+    remote_session_log: object,
+) -> tuple[str, tuple[str, ...], int, str]:
+    """Freeze D09 sources into one verified D10 checkpoint identity.
+
+    Callers cannot supply session identity, participant membership, sequence, or
+    digest independently.  The teaching plan owns participant membership while
+    ``RemoteSessionLog`` owns the replayed sequence and snapshot digest.  A fresh
+    snapshot replay also detects a corrupted or forged in-memory log before any
+    ledger CAS or receipt is evaluated.
+    """
+
+    if type(lesson_session) is not LessonSession:
+        raise EducationRecordsError(
+            "remote checkpoint requires canonical LessonSession"
+        )
+    if type(remote_session_log) is not RemoteSessionLog:
+        raise EducationRecordsError(
+            "remote checkpoint requires canonical RemoteSessionLog"
+        )
+    try:
+        validate_lesson_session_scope(lesson_session, classroom)
+        snapshot_text = remote_session_log.to_json()
+        canonical_log = RemoteSessionLog.from_json(snapshot_text)
+        snapshot = canonical_log.to_snapshot()
+    except Exception as exc:
+        raise EducationRecordsError(
+            "remote session snapshot is not canonical"
+        ) from exc
+    if canonical_log.state.session_id != lesson_session.session_id:
+        raise EducationRecordsError(
+            "remote session log does not match lesson session identity"
+        )
+
+    students = lesson_session.student_ids
+    allowed_students = frozenset(students)
+    for event in canonical_log.events:
+        student_id: object | None = None
+        if event.kind is RemoteEventKind.STUDENT_ANSWER:
+            student_id = event.payload["student_id"]
+        elif event.kind is RemoteEventKind.ACTIVE_STUDENT:
+            student_id = event.payload["student_id"]
+        if student_id is not None and student_id not in allowed_students:
+            raise EducationRecordsError(
+                "remote session references a student outside the lesson session"
+            )
+
+    digest = snapshot["digest"]
+    if type(digest) is not str:
+        raise EducationRecordsError("remote session snapshot digest is invalid")
+    return (
+        lesson_session.session_id,
+        students,
+        canonical_log.state.last_sequence,
+        digest,
     )
 
 

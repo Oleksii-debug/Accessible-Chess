@@ -1,0 +1,109 @@
+name: D10 Remote Checkpoint Provenance CI
+
+on:
+  pull_request:
+    paths:
+      - 'acs/education_records.py'
+      - 'tests/test_education_records.py'
+      - 'tests/test_education_workspace.py'
+      - 'tests/test_d10_remote_checkpoint_provenance.py'
+      - '.github/workflows/d10-remote-checkpoint-provenance.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Preserve exact Git bytes
+        shell: bash
+        run: git config core.autocrlf false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install verification dependency
+        run: python -m pip install pytest
+      - name: Prove exact D10 provenance-repair ancestry and scope
+        shell: bash
+        env:
+          D10_BASE: 6ab731b2cd7a4295395c2ab1fafe7523b369465f
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^1)" = "$D10_BASE"
+          git diff --check "$D10_BASE" HEAD
+          changed="$(git diff --name-only "$D10_BASE" HEAD)"
+          printf '%s\n' "$changed"
+          unexpected="$(printf '%s\n' "$changed" | grep -Ev '^(acs/education_records.py|tests/test_education_records.py|tests/test_education_workspace.py|tests/test_d10_remote_checkpoint_provenance.py|\.github/workflows/d10-remote-checkpoint-provenance.yml)$' || true)"
+          test -z "$unexpected" || { printf 'Unexpected W2-EDU-01 scope:\n%s\n' "$unexpected" >&2; exit 1; }
+          test "$(printf '%s\n' "$changed" | sed '/^$/d' | wc -l | tr -d ' ')" = "5"
+      - name: Compile D10 provenance package
+        run: >-
+          python -m compileall -q
+          acs/education_records.py
+          tests/test_education_records.py
+          tests/test_education_workspace.py
+          tests/test_d10_remote_checkpoint_provenance.py
+      - name: Canonical remote provenance and persistence regressions
+        run: >-
+          python -m unittest -v
+          tests.test_d10_remote_checkpoint_provenance
+          tests.test_education_records
+          tests.test_education_workspace
+          tests.test_education_records_store
+          tests.test_remote_session
+          tests.test_teaching_session
+      - name: Full unittest regression
+        run: python -m unittest discover -s tests -p 'test_*.py'
+      - name: Full pytest regression
+        id: full_pytest
+        continue-on-error: true
+        run: python -m pytest -q
+      - name: Prove only the inherited exact UI pair remains red
+        if: always()
+        shell: bash
+        env:
+          D10_BASE: 6ab731b2cd7a4295395c2ab1fafe7523b369465f
+        run: |
+          set -euo pipefail
+          if [ "${{ steps.full_pytest.outcome }}" = "success" ]; then
+            echo "Full pytest is green; no inherited-baseline proof required."
+            exit 0
+          fi
+
+          git diff --quiet "$D10_BASE" HEAD -- web/index.html tests/test_board_rank_file_remapping_ui.py
+          expression="not test_board_dispatch_uses_action_ids_instead_of_hardcoded_digit_shortcuts and not test_help_is_generated_from_live_rank_and_file_bindings"
+          python -m pytest -q -k "$expression"
+
+          one='tests/test_board_rank_file_remapping_ui.py::test_board_dispatch_uses_action_ids_instead_of_hardcoded_digit_shortcuts'
+          two='tests/test_board_rank_file_remapping_ui.py::test_help_is_generated_from_live_rank_and_file_bindings'
+          set +e
+          python -m pytest -q "$one" "$two" > "$RUNNER_TEMP/d10-head-known.txt" 2>&1
+          head_status=$?
+          set -e
+          cat "$RUNNER_TEMP/d10-head-known.txt"
+          test "$head_status" -eq 1
+          grep -q '2 failed' "$RUNNER_TEMP/d10-head-known.txt"
+
+          base_dir="$RUNNER_TEMP/d10-provenance-base"
+          git worktree add --detach "$base_dir" "$D10_BASE"
+          set +e
+          (cd "$base_dir" && python -m pytest -q "$one" "$two") > "$RUNNER_TEMP/d10-base-known.txt" 2>&1
+          base_status=$?
+          set -e
+          cat "$RUNNER_TEMP/d10-base-known.txt"
+          test "$base_status" -eq 1
+          grep -q '2 failed' "$RUNNER_TEMP/d10-base-known.txt"
+          echo "D10 BASELINE PROOF PASS: only the exact unchanged inherited UI pair remains red."
+      - name: SELFTEST and complete diagnostic
+        run: |
+          python -m acs.selftest
+          python run_accessible_chess.py --diagnostic
