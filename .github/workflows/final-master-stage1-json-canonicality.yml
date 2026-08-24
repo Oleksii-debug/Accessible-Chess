@@ -16,7 +16,7 @@ permissions:
 
 concurrency:
   group: final-work-master-stage1-json-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 env:
   BASE_SHA: 53791a44176627b012f72c3ac5b7720214194975
