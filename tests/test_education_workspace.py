@@ -9,10 +9,18 @@ from acs import classroom_domain as cd
 from acs import education_records as er
 from acs import education_workspace as ew
 from acs import education_workspace_store as ews
+from acs.remote_session import RemoteEventKind, RemoteSessionEvent, RemoteSessionLog
+from acs.teaching_session import (
+    LessonSession,
+    PositionSourceKind,
+    TeachingActivity,
+    TeachingPositionSource,
+    TeachingStep,
+    default_policy,
+)
 
 
 STAMP = "2026-08-23T13:05:00Z"
-DIGEST_A = "a" * 64
 
 
 def sample_classroom() -> cd.ClassroomSnapshot:
@@ -70,6 +78,36 @@ def submit(
         attempt=attempt,
         expected_ledger_revision=expected_ledger_revision,
     )
+
+
+def remote_checkpoint(last_sequence, *, student_ids=("s1", "s2")):
+    activity = TeachingActivity.TEACHER_EXPLAINS
+    plan = LessonSession(
+        session_id="session1",
+        lesson_id="lesson1",
+        source=TeachingPositionSource(PositionSourceKind.START),
+        steps=(
+            TeachingStep(
+                "step1",
+                activity,
+                "Remote checkpoint",
+                default_policy(activity),
+            ),
+        ),
+        student_ids=tuple(student_ids),
+        cohort_id="cohort1",
+    )
+    log = RemoteSessionLog(plan.session_id)
+    for sequence in range(1, last_sequence + 1):
+        log.append(
+            RemoteSessionEvent(
+                session_id=plan.session_id,
+                sequence=sequence,
+                kind=RemoteEventKind.POINTER,
+                payload={"square": "a1"},
+            )
+        )
+    return {"lesson_session": plan, "remote_session_log": log}
 
 
 class EducationWorkspaceDomainTests(unittest.TestCase):
@@ -163,12 +201,9 @@ class EducationWorkspaceDomainTests(unittest.TestCase):
             workspace,
             record_id="remote1",
             operation_id="remote-op",
-            session_id="session1",
-            student_ids=("s1", "s2"),
+            **remote_checkpoint(4),
             started_at=STAMP,
             closed_at=None,
-            last_remote_sequence=4,
-            snapshot_digest=DIGEST_A,
             expected_session_revision=0,
             expected_revision=0,
         )
