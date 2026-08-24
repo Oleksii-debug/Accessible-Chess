@@ -1,0 +1,127 @@
+name: D03 Engine Dependency Composition CI
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - work/full-engine-dependency-composition-20260824
+  pull_request:
+    branches:
+      - full5/dev5-compose-1700-20260822
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    env:
+      OUTPUT_BOUNDS_PARENT: 61e381b2aa8755590082a6e15a61edc5a6774879
+      HARD_SHUTDOWN_SOURCE: d3f3e8e49fa9e9932e9c66d7c85f67cbfc7e7347
+      ENGINE_BLOB: 01324ff735908dcc2b6515310eef9cbc8572e7ef
+      HARD_SHUTDOWN_TEST_BLOB: b2b69ce8671317890129f17d18489064716046dd
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Preserve exact Git bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config core.autocrlf false
+          git config core.eol lf
+          git reset --hard HEAD
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install verification dependency
+        run: python -m pip install -q pytest
+
+      - name: Prove exact dependency composition
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git merge-base "$OUTPUT_BOUNDS_PARENT" HEAD)" = "$OUTPUT_BOUNDS_PARENT"
+          git diff --check "$OUTPUT_BOUNDS_PARENT"...HEAD
+
+          changed="$(git diff --name-only "$OUTPUT_BOUNDS_PARENT"...HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/d03-engine-dependency-composition.yml' \
+            'acs/engine.py' \
+            'tests/test_d03_stockfish_hard_shutdown.py' | sort)"
+          printf '%s\n' "$changed"
+          test "$changed" = "$expected"
+
+          test "$(git rev-parse HEAD:acs/engine.py)" = "$ENGINE_BLOB"
+          test "$(git rev-parse HEAD:tests/test_d03_stockfish_hard_shutdown.py)" = "$HARD_SHUTDOWN_TEST_BLOB"
+          git cat-file -e "$HARD_SHUTDOWN_SOURCE^{commit}"
+          test "$(git rev-parse "$HARD_SHUTDOWN_SOURCE:tests/test_d03_stockfish_hard_shutdown.py")" = "$HARD_SHUTDOWN_TEST_BLOB"
+
+      - name: Compile Product and tests
+        run: python -m compileall -q acs tests run_accessible_chess.py
+
+      - name: Output bounds plus immutable hard-shutdown regression
+        run: >-
+          python -m unittest -v
+          tests.test_d03_stockfish_hard_shutdown
+          tests.test_d03_uci_output_bounds
+          tests.test_dev3_uci_failure_recovery
+          tests.test_stockfish_runtime
+          tests.test_analysis_service
+          tests.test_engine_play_service
+          tests.test_engine_play_service_concurrency
+
+      - name: Acquire official Stockfish 18 Windows binary
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri 'https://github.com/official-stockfish/Stockfish/releases/download/sf_18/stockfish-windows-x86-64.zip' -OutFile stockfish18.zip
+          Expand-Archive stockfish18.zip stockfish18 -Force
+          $engine=Get-ChildItem stockfish18 -Recurse -Filter '*.exe' | Where-Object {$_.Name -match 'stockfish.*x86-64'} | Select-Object -First 1
+          if(-not $engine){throw 'Official Stockfish 18 executable missing'}
+          New-Item -ItemType Directory -Force -Path real-engine | Out-Null
+          Copy-Item $engine.FullName 'real-engine\stockfish.exe' -Force
+          $hash=(Get-FileHash 'real-engine\stockfish.exe' -Algorithm SHA256).Hash.ToLowerInvariant()
+          "D03 OFFICIAL STOCKFISH 18 WINDOWS SHA256: $hash"
+
+      - name: Real Stockfish 18 composed lifecycle smoke
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          @'
+          import pathlib
+          import re
+          from acs.engine import UCIEngine
+          exe = (pathlib.Path.cwd() / 'real-engine' / 'stockfish.exe').resolve()
+          fen = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1'
+          move_re = re.compile(r'^[a-h][1-8][a-h][1-8][qrbn]?$')
+          engine = UCIEngine(str(exe))
+          lines = engine.analyze(fen, multipv=5, depth=8)
+          assert len(lines) == 5, lines
+          move = engine.best_move(fen, skill_level=10, movetime_ms=100)
+          assert move is not None and move_re.fullmatch(move), move
+          engine.close()
+          assert engine.proc is None
+          print('D03 OFFICIAL STOCKFISH 18 COMPOSED LIFECYCLE SMOKE PASS')
+          '@ | Set-Content -Encoding UTF8 d03_real_composed_smoke.py
+          python d03_real_composed_smoke.py
+          if($LASTEXITCODE -ne 0){throw 'real Stockfish composed lifecycle smoke failed'}
+
+      - name: Full unittest regression
+        run: python -m unittest discover -s tests -v
+
+      - name: Full pytest regression
+        run: python -m pytest -q tests
+
+      - name: SELFTEST and complete diagnostic
+        run: |
+          python -m acs.selftest
+          python run_accessible_chess.py --diagnostic
