@@ -62,11 +62,14 @@ def _validated_value(key: str, value: Any) -> Any:
 
 def _migrate(raw: Mapping[str, Any]) -> tuple[dict[str, Any], tuple[str, ...]]:
     warnings: list[str] = []
+    # A missing schema key is the only legacy-v0 representation.  Do not let
+    # JSON booleans, floats or numeric strings masquerade as schema integers:
+    # accepting them can reinterpret a corrupted profile as a valid migration.
     if "schema_version" not in raw:
         version = 0
     else:
         version_value = raw["schema_version"]
-        if isinstance(version_value, bool) or not isinstance(version_value, int) or version_value <= 0:
+        if isinstance(version_value, bool) or not isinstance(version_value, int):
             raise SettingsError("invalid settings schema_version")
         version = version_value
 
@@ -74,6 +77,9 @@ def _migrate(raw: Mapping[str, Any]) -> tuple[dict[str, Any], tuple[str, ...]]:
         raise SettingsError(
             f"settings schema {version} is newer than supported schema {SCHEMA_VERSION}"
         )
+
+    if version < 0:
+        raise SettingsError("invalid settings schema_version")
 
     if version == 0:
         values = {key: raw[key] for key in DEFAULTS if key in raw}

@@ -264,7 +264,8 @@ class AcsDatabaseTests(unittest.TestCase):
         failures = self.db.list_import_attempts(status='failed')
         self.assertEqual(len(failures), 1)
         self.assertIsNone(failures[0]['source_id'])
-        self.assertIn('synthetic second-game failure', failures[0]['error_message'])
+        self.assertEqual(failures[0]['error_message'], 'IntegrityError: import failed')
+        self.assertNotIn('synthetic second-game failure', failures[0]['error_message'])
 
     def test_position_batch_is_atomic_if_one_row_is_invalid(self):
         report = self.db.import_pgn_text('[Result "*"]\n\n1. e4 *', 'positions.pgn')

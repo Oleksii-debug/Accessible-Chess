@@ -2,9 +2,9 @@ from __future__ import annotations
 
 """Read-only adapter contract for ChessBase-family source files.
 
-The adapter deliberately separates *recognition* from *decoding*.  Filename and
+The adapter deliberately separates *recognition* from *decoding*. Filename and
 component-family probing is safe and useful for provenance/import reports, but
-it must never be presented as format compatibility.  Proprietary source files
+it must never be presented as format compatibility. Proprietary source files
 are immutable inputs; any future verified decoder must write to a new neutral
 output such as GameTree/ACSDB/PGN.
 """
@@ -12,6 +12,8 @@ output such as GameTree/ACSDB/PGN.
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterable
+
+from .report_paths import report_safe_name
 
 
 _PRIMARY_EXTENSIONS = {
@@ -22,10 +24,6 @@ _PRIMARY_EXTENSIONS = {
     ".cbone": "ChessBase single-file database",
 }
 
-# Classic CBH databases are multi-file families.  These names are intentionally
-# descriptive rather than decoding claims.  In particular CBG is treated as a
-# move/variation-data component, never as a standalone database that we can
-# safely import without verified format support.
 _COMPONENT_EXTENSIONS = {
     ".cbg": "game/move and variation data component",
     ".cba": "annotations/auxiliary component",
@@ -38,9 +36,13 @@ _COMPONENT_EXTENSIONS = {
 _ALL_EXTENSIONS = {**_PRIMARY_EXTENSIONS, **_COMPONENT_EXTENSIONS}
 
 
-def _portable_path(path: Path) -> str:
-    """Serialize provenance with stable separators without resolving or rewriting it."""
-    return str(path).replace("\\", "/")
+def _report_name(path: Path) -> str:
+    """Compatibility wrapper around the shared cross-platform sanitizer."""
+    return report_safe_name(path)
+
+
+class ChessBaseProbeIOError(RuntimeError):
+    """Raised internally when companion topology cannot be observed safely."""
 
 
 @dataclass(frozen=True)
@@ -52,7 +54,7 @@ class ChessBaseComponent:
 
     def as_report_fields(self) -> dict[str, object]:
         return {
-            "path": _portable_path(self.path),
+            "path": _report_name(self.path),
             "extension": self.extension,
             "role": self.role,
             "exists": self.exists,
@@ -75,7 +77,6 @@ class ChessBaseSourceProbe:
 
     @property
     def safe_to_import(self) -> bool:
-        """True only when a verified decoder exists, not merely on suffix match."""
         return (
             self.recognized
             and self.is_primary_source
@@ -89,7 +90,7 @@ class ChessBaseSourceProbe:
 
     def as_report_fields(self) -> dict[str, object]:
         return {
-            "source_path": _portable_path(self.path),
+            "source_path": _report_name(self.path),
             "extension": self.extension,
             "family_name": self.family_name,
             "recognized": self.recognized,
@@ -105,7 +106,6 @@ class ChessBaseSourceProbe:
 
 
 def _suffix(path: Path) -> str:
-    # Path.suffix returns '.2cbh' correctly for database.2cbh.
     return path.suffix.lower()
 
 
@@ -115,14 +115,11 @@ def _case_insensitive_directory_index(directory: Path) -> dict[str, Path]:
         return {}
     try:
         return {entry.name.lower(): entry for entry in directory.iterdir() if entry.is_file()}
-    except OSError:
-        # Permission/I/O problems are represented as unavailable companions.  A
-        # future importer may surface richer filesystem errors before decoding.
-        return {}
+    except OSError as exc:
+        raise ChessBaseProbeIOError("Companion directory is unavailable due to filesystem I/O") from exc
 
 
 def _classic_cbh_components(source: Path) -> tuple[ChessBaseComponent, ...]:
-    """Discover same-stem classic CBH companion files case-insensitively."""
     directory_index = _case_insensitive_directory_index(source.parent)
     stem = source.stem
     items: list[ChessBaseComponent] = []
@@ -146,13 +143,18 @@ def probe_chessbase_source(path: str | Path) -> ChessBaseSourceProbe:
     family_name = _ALL_EXTENSIONS.get(extension, "unknown")
     recognized = extension in _ALL_EXTENSIONS
     is_primary = extension in _PRIMARY_EXTENSIONS
+    topology_error = ""
 
     if extension == ".cbv":
         source_kind = "archive_container"
         components: tuple[ChessBaseComponent, ...] = ()
     elif extension == ".cbh":
         source_kind = "component_set"
-        components = _classic_cbh_components(source)
+        try:
+            components = _classic_cbh_components(source)
+        except ChessBaseProbeIOError as exc:
+            components = ()
+            topology_error = str(exc)
     elif extension in {".2cbh", ".cbone"}:
         source_kind = "single_file_database"
         components = ()
@@ -189,15 +191,18 @@ def probe_chessbase_source(path: str | Path) -> ChessBaseSourceProbe:
                 "CBV is treated as an archive/container, distinct from the classic CBH component family."
             )
         elif extension == ".cbh":
-            found = [component.extension for component in components if component.exists]
-            if found:
-                warnings.append(
-                    "Classic CBH companion files detected: " + ", ".join(found) + "."
-                )
+            if topology_error:
+                warnings.append(topology_error + "; companion presence could not be verified.")
             else:
-                warnings.append(
-                    "No classic CBH companion files were detected beside the header; database may be incomplete or unavailable."
-                )
+                found = [component.extension for component in components if component.exists]
+                if found:
+                    warnings.append(
+                        "Classic CBH companion files detected: " + ", ".join(found) + "."
+                    )
+                else:
+                    warnings.append(
+                        "No classic CBH companion files were detected beside the header; database may be incomplete or unavailable."
+                    )
 
     return ChessBaseSourceProbe(
         path=source,
@@ -212,7 +217,6 @@ def probe_chessbase_source(path: str | Path) -> ChessBaseSourceProbe:
 
 
 def probe_many(paths: Iterable[str | Path]) -> list[ChessBaseSourceProbe]:
-    """Probe sources independently so one damaged/unknown record cannot hide others."""
     return [probe_chessbase_source(path) for path in paths]
 
 

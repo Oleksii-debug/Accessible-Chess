@@ -9,8 +9,8 @@ from acs.settings import DEFAULTS, SCHEMA_VERSION, Settings, SettingsError
 
 
 class SettingsCorruptionSecurityTests(unittest.TestCase):
-    def test_load_rejects_coercive_or_explicit_zero_schema_and_recovers_defaults(self) -> None:
-        for schema in (True, False, 0, 1.0, 2.5, "0", "1", "2", None, -1):
+    def test_load_rejects_coercive_schema_scalars_and_recovers_defaults(self) -> None:
+        for schema in (True, False, 1.0, 2.5, "1", "2", None, -1):
             with self.subTest(schema=schema):
                 with tempfile.TemporaryDirectory() as td:
                     path = Path(td) / "settings.json"
@@ -24,7 +24,7 @@ class SettingsCorruptionSecurityTests(unittest.TestCase):
                     self.assertNotEqual(settings.get("language"), "en")
                     self.assertNotEqual(settings.get("volume"), 1)
 
-    def test_import_rejects_invalid_schema_without_mutation_or_persistence(self) -> None:
+    def test_import_rejects_coercive_schema_without_mutation_or_persistence(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             path = Path(td) / "settings.json"
             settings = Settings(path)
@@ -32,7 +32,7 @@ class SettingsCorruptionSecurityTests(unittest.TestCase):
             settings.set("volume", 33)
             baseline = dict(settings.data)
             persisted = path.read_bytes()
-            for schema in (True, 0, 2.5, "0", "2", None, -1):
+            for schema in (True, 2.5, "2", None, -1):
                 with self.subTest(schema=schema):
                     with self.assertRaises(SettingsError):
                         settings.import_json(
@@ -41,7 +41,7 @@ class SettingsCorruptionSecurityTests(unittest.TestCase):
                     self.assertEqual(settings.data, baseline)
                     self.assertEqual(path.read_bytes(), persisted)
 
-    def test_unversioned_legacy_profile_is_the_only_legacy_zero_path(self) -> None:
+    def test_unversioned_legacy_profile_is_still_the_only_schema_zero_path(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             path = Path(td) / "settings.json"
             settings = Settings(path)

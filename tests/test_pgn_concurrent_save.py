@@ -1,15 +1,11 @@
+import os
 from pathlib import Path
 import tempfile
 import unittest
 from unittest import mock
 
 from acs.gametree import parse_games
-from acs.pgn_service import (
-    PgnConcurrentWriteError,
-    _save_lock_path,
-    open_pgn,
-    save_pgn_atomic,
-)
+from acs.pgn_service import PgnConcurrentWriteError, open_pgn, save_pgn_atomic
 
 
 PGN_A = '[Event "A"]\n[Result "*"]\n\n1. e4 *\n'
@@ -18,15 +14,22 @@ PGN_EXTERNAL = '[Event "EXTERNAL"]\n[Result "*"]\n\n1. c4 *\n'
 
 
 class PgnConcurrentSaveTests(unittest.TestCase):
+    """Portable oracles for the current no-clobber/CAS publication primitives."""
+
     def game(self, text=PGN_B):
         return parse_games(text)[0]
 
+    def assert_no_transaction_debris(self, folder: str, name: str) -> None:
+        root = Path(folder)
+        self.assertEqual(list(root.glob(name + ".*.tmp")), [])
+        self.assertEqual(list(root.glob(name + ".cas-*.bak")), [])
+
     def test_stale_before_transaction_is_rejected(self):
         with tempfile.TemporaryDirectory() as folder:
-            path = Path(folder) / 'game.pgn'
-            path.write_text(PGN_A, encoding='utf-8')
+            path = Path(folder) / "game.pgn"
+            path.write_text(PGN_A, encoding="utf-8")
             opened = open_pgn(path)
-            path.write_text(PGN_EXTERNAL, encoding='utf-8')
+            path.write_text(PGN_EXTERNAL, encoding="utf-8")
 
             with self.assertRaises(PgnConcurrentWriteError):
                 save_pgn_atomic(
@@ -36,35 +39,29 @@ class PgnConcurrentSaveTests(unittest.TestCase):
                     expected_sha256=opened.source.sha256,
                 )
 
-            self.assertEqual(path.read_text(encoding='utf-8'), PGN_EXTERNAL)
-            self.assertFalse(_save_lock_path(path).exists())
+            self.assertEqual(path.read_text(encoding="utf-8"), PGN_EXTERNAL)
+            self.assert_no_transaction_debris(folder, path.name)
 
-    def test_external_write_after_preflight_before_commit_is_not_lost(self):
+    def test_external_write_at_publish_boundary_is_restored(self):
+        """The writer that reaches the old inode at ``os.replace`` must win."""
+
         with tempfile.TemporaryDirectory() as folder:
-            path = Path(folder) / 'game.pgn'
-            path.write_text(PGN_A, encoding='utf-8')
+            path = Path(folder) / "game.pgn"
+            path.write_text(PGN_A, encoding="utf-8")
             opened = open_pgn(path)
-            from acs import pgn_service
+            real_replace = os.replace
+            replace_calls = 0
 
-            real_verify = pgn_service._verify_expected_version
-            injected = {'done': False}
-            verify_calls = {'count': 0}
+            def replace_with_race(src, dst):
+                nonlocal replace_calls
+                replace_calls += 1
+                if replace_calls == 1:
+                    # The CAS snapshot is a hard link to this inode. Mutating it
+                    # here models the last portable boundary before publication.
+                    path.write_text(PGN_EXTERNAL, encoding="utf-8")
+                return real_replace(src, dst)
 
-            def verify_with_race(destination, expected_sha256):
-                verify_calls['count'] += 1
-                # The first call is transaction preflight. Inject immediately
-                # before the second, commit-time check so this oracle has the
-                # same exact timing on Windows and POSIX without /proc or fd
-                # path introspection.
-                if verify_calls['count'] == 2:
-                    injected['done'] = True
-                    path.write_text(PGN_EXTERNAL, encoding='utf-8')
-                return real_verify(destination, expected_sha256)
-
-            with mock.patch(
-                'acs.pgn_service._verify_expected_version',
-                side_effect=verify_with_race,
-            ):
+            with mock.patch("acs.pgn_service.os.replace", side_effect=replace_with_race):
                 with self.assertRaises(PgnConcurrentWriteError):
                     save_pgn_atomic(
                         path,
@@ -73,35 +70,30 @@ class PgnConcurrentSaveTests(unittest.TestCase):
                         expected_sha256=opened.source.sha256,
                     )
 
-            self.assertTrue(injected['done'])
-            self.assertEqual(verify_calls['count'], 2)
-            self.assertEqual(path.read_text(encoding='utf-8'), PGN_EXTERNAL)
-            self.assertFalse(_save_lock_path(path).exists())
-            self.assertEqual(list(Path(folder).glob('game.pgn.*.tmp')), [])
+            self.assertEqual(replace_calls, 2, "publish plus conflict rollback")
+            self.assertEqual(path.read_text(encoding="utf-8"), PGN_EXTERNAL)
+            self.assert_no_transaction_debris(folder, path.name)
 
-    def test_active_sidecar_lock_fails_closed_without_touching_destination(self):
+    def test_no_overwrite_race_uses_actual_link_commit_primitive(self):
         with tempfile.TemporaryDirectory() as folder:
-            path = Path(folder) / 'game.pgn'
-            path.write_text(PGN_A, encoding='utf-8')
-            opened = open_pgn(path)
-            lock = _save_lock_path(path)
-            lock.write_text('pid=someone-else\n', encoding='ascii')
+            path = Path(folder) / "new-game.pgn"
+            real_link = os.link
 
-            with self.assertRaises(PgnConcurrentWriteError):
-                save_pgn_atomic(
-                    path,
-                    (self.game(),),
-                    overwrite=True,
-                    expected_sha256=opened.source.sha256,
-                )
+            def link_with_race(src, dst, *args, **kwargs):
+                path.write_text(PGN_EXTERNAL, encoding="utf-8")
+                return real_link(src, dst, *args, **kwargs)
 
-            self.assertEqual(path.read_text(encoding='utf-8'), PGN_A)
-            self.assertTrue(lock.exists())
+            with mock.patch("acs.pgn_service.os.link", side_effect=link_with_race):
+                with self.assertRaises(FileExistsError):
+                    save_pgn_atomic(path, (self.game(),), overwrite=False)
 
-    def test_normal_expected_sha_save_releases_lock_and_round_trips(self):
+            self.assertEqual(path.read_text(encoding="utf-8"), PGN_EXTERNAL)
+            self.assert_no_transaction_debris(folder, path.name)
+
+    def test_normal_expected_sha_save_round_trips_without_debris(self):
         with tempfile.TemporaryDirectory() as folder:
-            path = Path(folder) / 'game.pgn'
-            path.write_text(PGN_A, encoding='utf-8')
+            path = Path(folder) / "game.pgn"
+            path.write_text(PGN_A, encoding="utf-8")
             opened = open_pgn(path)
 
             saved = save_pgn_atomic(
@@ -112,9 +104,9 @@ class PgnConcurrentSaveTests(unittest.TestCase):
             )
 
             self.assertEqual(saved.sha256, open_pgn(path).source.sha256)
-            self.assertEqual(open_pgn(path).games[0].tags['Event'], 'B')
-            self.assertFalse(_save_lock_path(path).exists())
+            self.assertEqual(open_pgn(path).games[0].tags["Event"], "B")
+            self.assert_no_transaction_debris(folder, path.name)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

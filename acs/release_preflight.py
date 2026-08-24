@@ -37,11 +37,6 @@ _ALLOWED_TOP_LEVEL_FILES = {
 }
 _ALLOWED_TOP_LEVEL_DIRS = {"AccessibleChess", "THIRD_PARTY_NOTICES"}
 _REQUIRED_SOUND_EVENTS = tuple(event.value for event in SoundEvent)
-_REQUIRED_WEB_RESOURCES = (
-    "web/index.html",
-    "web/stage1_release_bootstrap.js",
-    "web/stage1_board_actions.js",
-)
 _EXPECTED_RELEASE_LABEL = "NVDA TEST CANDIDATE — WAITING FOR USER TEST"
 _EXPECTED_STOCKFISH_VERSION = "18"
 _STOCKFISH_SOURCE_ROOT = "Stockfish-sf_18"
@@ -158,11 +153,6 @@ def _require_file(root: Path, relative: str, *, nonempty: bool = True) -> Path:
     if nonempty and path.stat().st_size <= 0:
         _fail(f"required release file is empty: {relative}")
     return path
-
-
-def _validate_web_resources(product_root: Path) -> None:
-    for relative in _REQUIRED_WEB_RESOURCES:
-        _require_file(product_root, relative)
 
 
 def _validate_sound_pack(product_root: Path) -> None:
@@ -358,7 +348,6 @@ def inspect_release_package(root: str | Path) -> ReleasePreflightReport:
     _require_file(root_path, "AccessibleChess/AccessibleChess.exe")
     stockfish_rel = PurePosixPath("AccessibleChess", *PACKAGED_STOCKFISH_RELATIVE_PATH.parts).as_posix()
     _require_file(root_path, stockfish_rel)
-    _validate_web_resources(root_path / "AccessibleChess")
     _validate_sound_pack(root_path / "AccessibleChess")
     _validate_third_party(root_path)
     integration_sha, qa_commit = _validate_manifest(root_path)

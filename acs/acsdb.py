@@ -33,6 +33,12 @@ ACSDB_SCHEMA_VERSION = 3
 _SQLITE_INTEGER_MAX = (1 << 63) - 1
 
 
+def _public_import_error(exc: BaseException) -> str:
+    """Persist an import failure class without private exception details."""
+
+    return f"{type(exc).__name__}: import failed"
+
+
 @dataclass(slots=True)
 class ImportReport:
     source_id: int
@@ -501,7 +507,7 @@ class AcsDatabase:
                 self._finish_import_attempt(
                     attempt_id,
                     status="failed",
-                    error_message=f"{type(exc).__name__}: {exc}",
+                    error_message=_public_import_error(exc),
                 )
             raise
 
