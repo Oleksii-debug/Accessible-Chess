@@ -7,7 +7,10 @@ on:
   pull_request:
     paths:
       - 'acs/pgn_workspace.py'
+      - 'acs/pgn_document.py'
+      - 'acs/pgn_service.py'
       - 'tests/test_pgn_workspace.py'
+      - 'tests/test_pgn_document.py'
       - 'acs/gametree.py'
       - 'acs/gametree_navigation.py'
       - 'acs/gametree_editing.py'
@@ -37,6 +40,8 @@ jobs:
         run: >-
           python -m py_compile
           acs/pgn_workspace.py
+          acs/pgn_document.py
+          acs/pgn_service.py
           acs/pgn_roundtrip.py
           acs/gametree.py
           acs/gametree_navigation.py
@@ -44,10 +49,13 @@ jobs:
           acs/gametree_annotations.py
           acs/gametree_insertion.py
           tests/test_pgn_workspace.py
-      - name: Focused professional workspace and direct contracts
+          tests/test_pgn_document.py
+      - name: Focused professional document workspace and direct contracts
         run: >-
           python -m unittest -v
+          tests.test_pgn_document
           tests.test_pgn_workspace
+          tests.test_pgn_service
           tests.test_gametree_navigation
           tests.test_gametree_editing
           tests.test_gametree_annotations
