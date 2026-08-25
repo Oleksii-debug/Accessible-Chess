@@ -139,6 +139,12 @@ class LibraryWebViewBridge:
             if command_id == "library.open_game":
                 self._exact(data, set())
                 return self._projection.open_selected()
+            if command_id == "library.import":
+                self._exact(data, set())
+                return self._projection.import_projection.request_import()
+            if command_id == "library.cancel_import":
+                self._exact(data, set())
+                return self._projection.import_projection.request_cancel()
             if command_id == "library.language":
                 self._exact(data, {"language"})
                 language = data["language"]
