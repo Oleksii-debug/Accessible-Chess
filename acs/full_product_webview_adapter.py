@@ -50,6 +50,11 @@ class FullProductWebViewAdapter:
     def shell(self) -> AccessibleShellState:
         return self._shell
 
+    @property
+    def registry(self):
+        """Expose the router's one central action registry to native UI adapters."""
+        return self._router.registry
+
     def snapshot(self) -> dict[str, object]:
         semantic = self._shell.semantic_snapshot()
         navigation = self._shell.navigation_items()
@@ -113,7 +118,10 @@ class FullProductWebViewAdapter:
             )
         return WebViewCommand(
             "delegated",
-            {"action_id": result.action_id, "value": result.value},
+            # The trusted host owns the domain return value.  It may contain
+            # paths, database identities, engine-provider details or objects
+            # that are not a stable browser contract.
+            {"action_id": result.action_id},
         )
 
     def open_dialog(
