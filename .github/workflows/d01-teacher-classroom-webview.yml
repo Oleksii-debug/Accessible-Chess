@@ -1,0 +1,200 @@
+name: D01 Teacher Classroom WebView
+
+on:
+  pull_request:
+    paths:
+      - 'acs/classroom_webview_bridge.py'
+      - 'acs/classroom_webview_projection.py'
+      - 'acs/teacher_webview_bridge.py'
+      - 'tests/js/teacher_surface_dom_test.js'
+      - 'tests/test_dev1_classroom_web_asset.py'
+      - 'tests/test_dev1_classroom_webview_bridge.py'
+      - 'tests/test_dev1_classroom_webview_privacy.py'
+      - 'tests/test_dev1_classroom_webview_projection.py'
+      - 'tests/test_teacher_webview_bridge.py'
+      - 'web/full_product_classroom.js'
+      - 'web/full_product_teacher.js'
+      - '.github/workflows/d01-teacher-classroom-webview.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: d01-teacher-classroom-webview-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 55
+    env:
+      TEACHER_CLASSROOM_BASE: a1ab39627ede3113188137785ed17bffa41194bc
+      TEACHER_CLASSROOM_FEATURE: 9333fe8e12a312741911ab8ad99691ab44cb4cfe
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Preserve exact Git bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config core.autocrlf false
+          git config core.eol lf
+          git reset --hard HEAD
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install pinned verification dependency
+        run: python -m pip install -q pytest==8.4.2
+
+      - name: Prove exact child ancestry and D01 scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD~1)" = "$TEACHER_CLASSROOM_FEATURE"
+          test "$(git rev-list --count "$TEACHER_CLASSROOM_BASE"..HEAD)" = "2"
+          git merge-base --is-ancestor "$TEACHER_CLASSROOM_BASE" HEAD
+          git diff --check "$TEACHER_CLASSROOM_BASE" HEAD
+          changed="$(git diff --name-only "$TEACHER_CLASSROOM_BASE" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/d01-teacher-classroom-webview.yml' \
+            'acs/classroom_webview_bridge.py' \
+            'acs/classroom_webview_projection.py' \
+            'acs/teacher_webview_bridge.py' \
+            'tests/js/teacher_surface_dom_test.js' \
+            'tests/test_dev1_classroom_web_asset.py' \
+            'tests/test_dev1_classroom_webview_bridge.py' \
+            'tests/test_dev1_classroom_webview_privacy.py' \
+            'tests/test_dev1_classroom_webview_projection.py' \
+            'tests/test_teacher_webview_bridge.py' \
+            'web/full_product_classroom.js' \
+            'web/full_product_teacher.js' | sort)"
+          test "$changed" = "$expected"
+
+      - name: Lock frozen Stage1 and central Product routing
+        shell: bash
+        run: |
+          set -euo pipefail
+          while IFS='=' read -r path expected; do
+            actual="$(git rev-parse "HEAD:$path")"
+            test "$actual" = "$expected" || {
+              printf 'Blob mismatch: %s expected=%s actual=%s\n' "$path" "$expected" "$actual" >&2
+              exit 1
+            }
+          done <<'LOCKS'
+          acs/full_product_actions.py=f51d716e56ea185f0d4bcdb06927d03dcd64bf59
+          acs/full_product_ui_shell.py=f97b3b35dbca7c0527d068ad557ddf3c67c3e491
+          acs/keybindings.py=b222f0d625999d8119cb3bb7cebffc961217f610
+          acs/ui_native_menu.py=dabed76f2ad60ad0c1032b13ca353e4acc0bf2ad
+          acs/stage1_release_ui.py=16e78af6219c8c36f0c4026942ef1d02875a370a
+          acs/stage1_release_ui_core.py=b8586a26b9ab20c3d3ec0b0a3dbbbd53e38e94e6
+          web/index.html=17803443a815843be3aa1b8c6be1c5abb7e7c888
+          run_accessible_chess.py=fb8914d7e63f5c5fa7dfa1669798d571bcf8d1fb
+          LOCKS
+
+      - name: Lock D09 D10 domain authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          while IFS='=' read -r path expected; do
+            actual="$(git rev-parse "HEAD:$path")"
+            test "$actual" = "$expected" || {
+              printf 'Owner blob mismatch: %s expected=%s actual=%s\n' "$path" "$expected" "$actual" >&2
+              exit 1
+            }
+          done <<'LOCKS'
+          acs/classroom_domain.py=99f4683e3a0dc272e6e88bb5fccec8bd4a157a5c
+          acs/classroom_presentation.py=8c4978049d59c578ee315d8985108b08fa23569f
+          acs/teacher_presentation.py=a26a52f03062e48358a6bdff0e21aef5b7ff5f45
+          acs/teacher_webview_projection.py=14cdedd593ffc66cc4b8f09a09fe6fceaaf7d401
+          acs/teaching_classroom_adapter.py=39fd13f6bf9b9537e3a5127b9022f759eea7eb62
+          acs/teaching_reverse_channel.py=f3f66b65f9aad8358832e5cb441842403116f166
+          acs/teaching_session.py=a0f74111dc5e8c0edc74cfc6b85a677d8dfa3bfc
+          acs/teaching_session_adapter.py=6d921af7aefd8d5f90282d78b9f497a2ab0648ee
+          acs/teaching_visual_board.py=36764ed8b11a77f9d3252447a83accd73a9252c3
+          acs/remote_session.py=1e99ed94ac4e9afd8f6f4043e425c50b05ac3067
+          tests/test_d10_remote_checkpoint_provenance.py=b0832ca40ab77038fc1d73829ee7041cfb4d4a33
+          LOCKS
+
+      - name: Lock Teacher and Classroom WebView package blobs
+        shell: bash
+        run: |
+          set -euo pipefail
+          while IFS='=' read -r path expected; do
+            actual="$(git rev-parse "HEAD:$path")"
+            test "$actual" = "$expected" || {
+              printf 'Feature blob mismatch: %s expected=%s actual=%s\n' "$path" "$expected" "$actual" >&2
+              exit 1
+            }
+          done <<'LOCKS'
+          acs/classroom_webview_bridge.py=586dc50be99f50084afebc26d0b35ff8faeb057b
+          acs/classroom_webview_projection.py=094d9c7f052e5a646a7df2ed543e7c49f84979d6
+          acs/teacher_webview_bridge.py=cb546f6f6b8f797ea9d1374d824729bf5c1d0794
+          tests/js/teacher_surface_dom_test.js=d7ab0eb752071e21ec9651b74c1a4b3a394eb62f
+          tests/test_dev1_classroom_web_asset.py=c40bbc30fe813b8c1de1b43aae526b07fafca966
+          tests/test_dev1_classroom_webview_bridge.py=93d0aaac5f5f23aaa3a77beb3297c8ae07f897f3
+          tests/test_dev1_classroom_webview_privacy.py=650f793c667122eb00ad9a921b0edf47c63dbd7d
+          tests/test_dev1_classroom_webview_projection.py=098f29334402e4eaa1e0199c4d1c668e069c5660
+          tests/test_teacher_webview_bridge.py=e16ac0d084b6345c6295b6be421a0fff46fa0455
+          web/full_product_classroom.js=79e4e4c409102f7655e18924b1cf2fc01745714f
+          web/full_product_teacher.js=a18fd513e221ad2399326dec7d0d2a68cace13d5
+          LOCKS
+
+      - name: Compile Teacher and Classroom package
+        run: >-
+          python -m compileall -q
+          acs/classroom_webview_bridge.py
+          acs/classroom_webview_projection.py
+          acs/teacher_webview_bridge.py
+          tests/test_teacher_webview_bridge.py
+
+      - name: Parse browser assets and run executable Teacher DOM contract
+        run: |
+          node --check web/full_product_classroom.js
+          node --check web/full_product_teacher.js
+          node tests/js/teacher_surface_dom_test.js
+
+      - name: Teacher Classroom Education and remote focused tests
+        run: >-
+          python -m unittest -v
+          tests.test_dev1_classroom_web_asset
+          tests.test_dev1_classroom_webview_bridge
+          tests.test_dev1_classroom_webview_privacy
+          tests.test_dev1_classroom_webview_projection
+          tests.test_dev1_classroom_remote_ui
+          tests.test_teacher_webview_bridge
+          tests.test_dev1_teacher_webview_projection
+          tests.test_classroom_domain
+          tests.test_classroom_domain_corruption
+          tests.test_teaching_classroom_adapter
+          tests.test_teaching_classroom_floor_control
+          tests.test_teaching_reverse_channel
+          tests.test_teaching_session
+          tests.test_teaching_session_adapter
+          tests.test_teaching_session_adversarial
+          tests.test_teaching_visual_board
+          tests.test_education_classroom_integration
+          tests.test_education_records
+          tests.test_education_records_store
+          tests.test_education_workspace
+          tests.test_d10_remote_checkpoint_provenance
+
+      - name: Full repository unittest
+        run: python -m unittest discover -s tests -v
+
+      - name: Full repository pytest
+        run: python -m pytest -q tests
+
+      - name: SELFTEST and complete diagnostic
+        run: |
+          python -m acs.selftest
+          python run_accessible_chess.py --diagnostic
