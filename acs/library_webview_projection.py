@@ -356,5 +356,3 @@ class LibraryWebViewProjection:
                 "error",
                 {"message": concise_user_error(exc, language=self._language)},
             )
-
-

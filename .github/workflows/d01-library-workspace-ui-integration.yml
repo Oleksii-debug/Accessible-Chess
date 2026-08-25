@@ -57,8 +57,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD~1)" = "$LIBRARY_UI_FEATURE"
-          test "$(git rev-list --count "$WHOLE_PRODUCT_BASE"..HEAD)" = "2"
+          test "$(git rev-parse HEAD~2)" = "$LIBRARY_UI_FEATURE"
+          test "$(git rev-list --count "$WHOLE_PRODUCT_BASE"..HEAD)" = "3"
           git merge-base --is-ancestor "$WHOLE_PRODUCT_BASE" HEAD
           git diff --check "$WHOLE_PRODUCT_BASE" HEAD
           changed="$(git diff --name-only "$WHOLE_PRODUCT_BASE" HEAD | sort)"
@@ -120,13 +120,13 @@ jobs:
             }
           done <<'LOCKS'
           acs/full_product_ui_shell.py=4745468f0939bdf02a4df215eda36f3de4010280
-          acs/library_webview_bridge.py=e1caba6165ff07be0d954f1a0ce8fc4f5af127bf
-          acs/library_webview_projection.py=fd3d58d75cb04c7cd1f519d7c156af1ad806d351
+          acs/library_webview_bridge.py=9f54c642f7fa6ce7c7dda6b4a47368770aa37170
+          acs/library_webview_projection.py=f9f7b49af141b7485353fd110499ff804d01d974
           tests/test_dev1_full_product_accessible_shell.py=3f3ad76ae99b25a6b2becb83539916186b681cee
           tests/test_dev1_full_product_ui_packages.py=5a8e69981138c8962171232a5338a5ccce94141e
-          tests/test_dev1_library_webview_projection.py=27aa240209f85374a6ad7e940df185752de91244
+          tests/test_dev1_library_webview_projection.py=26f2138c232358dac837beb253a76121782cde35
           tests/test_library_workspace_ui_integration.py=22c409f83a90ca8540faa1c9c0b3225dd2f5a23b
-          web/full_product_library.js=132c4ecbff54c44d381543ce77f14b5925c76f89
+          web/full_product_library.js=2d732afc80b213693e9ae3cd80781237ff56a41f
           LOCKS
 
       - name: Compile Python and JavaScript presentation package

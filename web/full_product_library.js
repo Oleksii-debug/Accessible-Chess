@@ -194,5 +194,3 @@
 
   global.AccessibleChessLibrarySurface = Object.freeze({ render: renderLibrarySurface });
 })(window);
-
-

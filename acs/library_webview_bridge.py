@@ -148,5 +148,3 @@ class LibraryWebViewBridge:
             raise ValueError("unsupported library browser command")
         except Exception:
             return self._error()
-
-
