@@ -1,0 +1,148 @@
+name: D01 Library Import Progress UI
+
+on:
+  pull_request:
+    paths:
+      - 'acs/library_webview_bridge.py'
+      - 'acs/library_webview_projection.py'
+      - 'tests/js/library_surface_dom_test.js'
+      - 'tests/test_dev1_library_webview_projection.py'
+      - 'tests/test_library_import_ui_integration.py'
+      - 'web/full_product_library.js'
+      - '.github/workflows/d01-library-import-progress-ui.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: d01-library-import-progress-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 35
+    env:
+      LIBRARY_UI_BASE: 921ce73099fd6a3b8bdf54e1a5ffa13397f76dec
+      IMPORT_UI_FEATURE: b0216172112ce8dfc80f8eb953de427ad93a57c4
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Preserve exact Git bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config core.autocrlf false
+          git config core.eol lf
+          git reset --hard HEAD
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install pinned verification dependency
+        run: python -m pip install -q pytest==8.4.2
+
+      - name: Prove exact child ancestry and D01-only scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD~1)" = "$IMPORT_UI_FEATURE"
+          test "$(git rev-list --count "$LIBRARY_UI_BASE"..HEAD)" = "2"
+          git merge-base --is-ancestor "$LIBRARY_UI_BASE" HEAD
+          git diff --check "$LIBRARY_UI_BASE" HEAD
+          changed="$(git diff --name-only "$LIBRARY_UI_BASE" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/d01-library-import-progress-ui.yml' \
+            'acs/library_webview_bridge.py' \
+            'acs/library_webview_projection.py' \
+            'tests/js/library_surface_dom_test.js' \
+            'tests/test_dev1_library_webview_projection.py' \
+            'tests/test_library_import_ui_integration.py' \
+            'web/full_product_library.js' | sort)"
+          test "$changed" = "$expected"
+
+      - name: Lock D07 backend and D01 presentation blobs
+        shell: bash
+        run: |
+          set -euo pipefail
+          while IFS='=' read -r path expected; do
+            actual="$(git rev-parse "HEAD:$path")"
+            test "$actual" = "$expected" || {
+              printf 'Blob mismatch: %s expected=%s actual=%s\n' "$path" "$expected" "$actual" >&2
+              exit 1
+            }
+          done <<'LOCKS'
+          acs/acsdb.py=3d7d31b4421990815a8d2f10367f6ff84e9bcd67
+          acs/gametree.py=03f5a42956f60dfb7928974084053847bdab5ae5
+          acs/library_import_service.py=66db6d6df17e047a221b2bff06686e5503ca1b8c
+          acs/search_policy.py=b5e7c5a569992bb271c72c851775a52b23dfe378
+          acs/search_service.py=69d223b375af83e60bc099e1c7c8efe104738644
+          acs/library_webview_bridge.py=0e90011a761355251f96d56f204b3875c947daec
+          acs/library_webview_projection.py=149816ad0ca9a8d240e0b0c7057df15fe6cef0b5
+          tests/js/library_surface_dom_test.js=7f69c17619f73d7c001392ea43e037933d75a50b
+          tests/test_dev1_library_webview_projection.py=fc9fbc36b4b6b9a2792a2db6ef09b2f1405a4d9b
+          tests/test_library_import_ui_integration.py=7fca70f8100ee38c2f452b04e8165ad54941f773
+          web/full_product_library.js=c9a08f5cdb62f9ad82adac850c51ede607b42ed6
+          LOCKS
+          git diff --quiet "$LIBRARY_UI_BASE" HEAD -- \
+            acs/acsdb.py \
+            acs/gametree.py \
+            acs/library_import_service.py \
+            acs/search_policy.py \
+            acs/search_service.py \
+            acs/stage1_release_ui.py \
+            acs/stage1_release_ui_core.py \
+            web/index.html \
+            run_accessible_chess.py
+
+      - name: Compile Library import presentation
+        run: >-
+          python -m compileall -q
+          acs/library_webview_bridge.py
+          acs/library_webview_projection.py
+          tests/test_library_import_ui_integration.py
+
+      - name: Execute Library partial-progress DOM contract
+        run: |
+          node --check web/full_product_library.js
+          node tests/js/library_surface_dom_test.js
+
+      - name: Library UI and canonical D07 import-search matrix
+        run: >-
+          python -m unittest -v
+          tests.test_library_import_ui_integration
+          tests.test_library_workspace_ui_integration
+          tests.test_dev1_library_webview_projection
+          tests.test_dev1_full_product_accessible_shell
+          tests.test_dev1_full_product_ui_packages
+          tests.test_dev1_full_product_webview_adapter
+          tests.test_d07_library_import_service
+          tests.test_d07_library_import_start_lock
+          tests.test_d07_library_import_transaction_ownership
+          tests.test_d07_library_search_cancellation
+          tests.test_d07_search_scalar_equivalence
+          tests.test_d07_search_semantic_equivalence
+          tests.test_search_service
+
+      - name: Library-focused pytest replay
+        run: >-
+          python -m pytest -q
+          tests/test_library_import_ui_integration.py
+          tests/test_library_workspace_ui_integration.py
+          tests/test_dev1_library_webview_projection.py
+          tests/test_d07_library_import_service.py
+          tests/test_d07_library_import_start_lock.py
+          tests/test_d07_library_import_transaction_ownership.py
+          tests/test_d07_library_search_cancellation.py
+          tests/test_d07_search_scalar_equivalence.py
+          tests/test_d07_search_semantic_equivalence.py
+          tests/test_search_service.py

@@ -284,6 +284,19 @@ class LibraryWebAssetTests(unittest.TestCase):
         self.assertIn('focusRequestedOption(root, requestedFocus || "")', source)
         self.assertNotIn('[role="option"][aria-selected="true"]', source)
 
+    def test_import_progress_uses_native_controls_without_live_region_spam(self) -> None:
+        source = self.source
+        self.assertIn('node("progress")', source)
+        self.assertIn('focusTarget === "library-import-file"', source)
+        self.assertIn('focusTarget === "library-import-cancel"', source)
+        self.assertIn('result.kind === "render-import"', source)
+        self.assertIn('root.querySelector("#library-import-region")', source)
+        self.assertIn("region.contains(active)", source)
+        self.assertIn("region.replaceWith(replacement)", source)
+        self.assertIn("apply: applyLibraryEvent", source)
+        self.assertIn('status.setAttribute("aria-live", "off")', source)
+        self.assertNotIn('input.type = "file"', source)
+
 
 if __name__ == "__main__":
     unittest.main()

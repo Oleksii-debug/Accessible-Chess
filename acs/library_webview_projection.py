@@ -8,12 +8,14 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
+from enum import Enum
 from hashlib import sha256
 import re
 from typing import Any
 
 from .full_product_presenters import LibraryPresenter, LibraryView, SurfaceStatus
 from .full_product_ui_shell import UILanguage, concise_user_error
+from .library_import_service import LibraryImportProgress, LibraryImportResult
 from .search_service import GameSearchQuery
 
 CommandDispatch = Callable[[str, Mapping[str, object]], Any]
@@ -78,6 +80,35 @@ _LABELS = {
     },
 }
 
+_IMPORT_LABELS = {
+    UILanguage.UA: {
+        "heading": "Імпорт до бібліотеки",
+        "description": "Додайте PGN або інше підтримуване джерело через безпечний вибір файлу.",
+        "import": "Імпортувати файл",
+        "retry": "Повторити імпорт",
+        "cancel": "Скасувати імпорт",
+        "idle": "Імпорт не виконується.",
+        "started": "Імпорт розпочато.",
+        "running": "Оброблено партій: {processed} з {total}.",
+        "cancelling": "Скасування імпорту…",
+        "completed": "Імпортовано партій: {count}. Попереджень: {warnings}.",
+        "cancelled": "Імпорт скасовано. Часткові партії не збережено.",
+    },
+    UILanguage.EN: {
+        "heading": "Import into library",
+        "description": "Add PGN or another supported source through the secure file picker.",
+        "import": "Import file",
+        "retry": "Retry import",
+        "cancel": "Cancel import",
+        "idle": "No import is running.",
+        "started": "Import started.",
+        "running": "Processed {processed} of {total} games.",
+        "cancelling": "Cancelling import…",
+        "completed": "Imported {count} games. Warnings: {warnings}.",
+        "cancelled": "Import cancelled. No partial games were saved.",
+    },
+}
+
 
 def _scrub_visible_text(value: object, *, language: UILanguage, limit: int) -> str:
     if value is None:
@@ -99,6 +130,206 @@ def _dom_token(game_id: int) -> str:
 class LibraryWebViewEvent:
     kind: str
     payload: Mapping[str, object]
+
+
+class LibraryImportPhase(str, Enum):
+    IDLE = "idle"
+    RUNNING = "running"
+    CANCELLING = "cancelling"
+    COMPLETED = "completed"
+    CANCELLED = "cancelled"
+    ERROR = "error"
+
+
+class LibraryImportWebViewProjection:
+    """Transient accessible progress over the canonical D07 import service.
+
+    The trusted host owns file selection, format parsing and the synchronous
+    ``LibraryImportService`` call. It feeds the exact D07 progress/result DTOs
+    into this projection. The browser receives bounded counts and phase changes,
+    never file paths, database identities, parsed games or backend return values.
+    """
+
+    def __init__(
+        self,
+        dispatch: CommandDispatch,
+        *,
+        language: UILanguage = UILanguage.UA,
+    ) -> None:
+        if not callable(dispatch):
+            raise TypeError("library import dispatcher must be callable")
+        if not isinstance(language, UILanguage):
+            raise TypeError("language must be UILanguage")
+        self._dispatch = dispatch
+        self._language = language
+        self._phase = LibraryImportPhase.IDLE
+        self._processed_games = 0
+        self._total_games = 0
+        self._warning_count = 0
+        self._attempt_id: int | None = None
+        self._message = ""
+
+    @property
+    def phase(self) -> LibraryImportPhase:
+        return self._phase
+
+    def _labels(self) -> Mapping[str, str]:
+        return _IMPORT_LABELS[self._language]
+
+    def _status_message(self) -> str:
+        labels = self._labels()
+        if self._phase is LibraryImportPhase.IDLE:
+            return labels["idle"]
+        if self._phase is LibraryImportPhase.RUNNING:
+            return labels["running"].format(
+                processed=self._processed_games,
+                total=self._total_games,
+            )
+        if self._phase is LibraryImportPhase.CANCELLING:
+            return labels["cancelling"]
+        if self._phase is LibraryImportPhase.COMPLETED:
+            return labels["completed"].format(
+                count=self._processed_games,
+                warnings=self._warning_count,
+            )
+        if self._phase is LibraryImportPhase.CANCELLED:
+            return labels["cancelled"]
+        return self._message or concise_user_error("", language=self._language)
+
+    def snapshot(self) -> dict[str, object]:
+        labels = self._labels()
+        active = self._phase in {
+            LibraryImportPhase.RUNNING,
+            LibraryImportPhase.CANCELLING,
+        }
+        retry = self._phase in {
+            LibraryImportPhase.CANCELLED,
+            LibraryImportPhase.ERROR,
+        }
+        return {
+            "phase": self._phase.value,
+            "heading": labels["heading"],
+            "description": labels["description"],
+            "processed_games": self._processed_games,
+            "total_games": self._total_games,
+            "progress_label": self._status_message(),
+            "message": self._message,
+            "actions": (
+                {
+                    "action": "library.import",
+                    "dom_id": "library-import-file",
+                    "label": labels["retry"] if retry else labels["import"],
+                    "enabled": not active,
+                },
+                {
+                    "action": "library.cancel_import",
+                    "dom_id": "library-import-cancel",
+                    "label": labels["cancel"],
+                    "enabled": self._phase is LibraryImportPhase.RUNNING,
+                },
+            ),
+        }
+
+    def _render(self, *, announce: bool, focus_target: str = "") -> LibraryWebViewEvent:
+        snapshot = self.snapshot()
+        return LibraryWebViewEvent(
+            "render-import",
+            {
+                "import": snapshot,
+                "focus_target": focus_target,
+                "announcement": snapshot["progress_label"] if announce else "",
+            },
+        )
+
+    def set_language(self, language: UILanguage) -> None:
+        if not isinstance(language, UILanguage):
+            raise TypeError("language must be UILanguage")
+        self._language = language
+
+    def request_import(self) -> LibraryWebViewEvent:
+        if self._phase in {LibraryImportPhase.RUNNING, LibraryImportPhase.CANCELLING}:
+            raise RuntimeError("library import is already active")
+        self._dispatch("library.import", {})
+        return LibraryWebViewEvent("delegated", {"action": "library.import"})
+
+    def begin(self, total_games: int) -> LibraryWebViewEvent:
+        if type(total_games) is not int:
+            raise TypeError("total_games must be an integer")
+        if total_games < 1:
+            raise ValueError("total_games must be positive")
+        if self._phase in {LibraryImportPhase.RUNNING, LibraryImportPhase.CANCELLING}:
+            raise RuntimeError("library import is already active")
+        self._phase = LibraryImportPhase.RUNNING
+        self._processed_games = 0
+        self._total_games = total_games
+        self._warning_count = 0
+        self._attempt_id = None
+        self._message = ""
+        return self._render(announce=True, focus_target="library-import-cancel")
+
+    def progress(self, progress: LibraryImportProgress) -> LibraryWebViewEvent:
+        if not isinstance(progress, LibraryImportProgress):
+            raise TypeError("progress must be LibraryImportProgress")
+        if self._phase not in {
+            LibraryImportPhase.RUNNING,
+            LibraryImportPhase.CANCELLING,
+        }:
+            raise RuntimeError("library import is not active")
+        if progress.total_games != self._total_games:
+            raise ValueError("library import total changed")
+        if progress.processed_games < self._processed_games:
+            raise ValueError("library import progress moved backwards")
+        if self._attempt_id is not None and progress.attempt_id != self._attempt_id:
+            raise ValueError("library import attempt changed")
+        self._attempt_id = progress.attempt_id
+        self._processed_games = progress.processed_games
+        return self._render(announce=False)
+
+    def request_cancel(self) -> LibraryWebViewEvent:
+        if self._phase is not LibraryImportPhase.RUNNING:
+            raise RuntimeError("library import cannot be cancelled")
+        self._dispatch("library.cancel_import", {})
+        self._phase = LibraryImportPhase.CANCELLING
+        return self._render(announce=True, focus_target="library-import-cancel")
+
+    def complete(self, result: LibraryImportResult) -> LibraryWebViewEvent:
+        if not isinstance(result, LibraryImportResult):
+            raise TypeError("result must be LibraryImportResult")
+        if self._phase not in {
+            LibraryImportPhase.RUNNING,
+            LibraryImportPhase.CANCELLING,
+        }:
+            raise RuntimeError("library import is not active")
+        if result.game_count != self._total_games:
+            raise ValueError("library import result count changed")
+        if self._attempt_id is not None and result.attempt_id != self._attempt_id:
+            raise ValueError("library import result attempt changed")
+        self._phase = LibraryImportPhase.COMPLETED
+        self._processed_games = result.game_count
+        self._warning_count = result.warning_count
+        self._attempt_id = result.attempt_id
+        self._message = ""
+        return self._render(announce=True, focus_target="library-import-file")
+
+    def cancelled(self) -> LibraryWebViewEvent:
+        if self._phase not in {
+            LibraryImportPhase.RUNNING,
+            LibraryImportPhase.CANCELLING,
+        }:
+            raise RuntimeError("library import is not active")
+        self._phase = LibraryImportPhase.CANCELLED
+        self._message = ""
+        return self._render(announce=True, focus_target="library-import-file")
+
+    def fail(self, exc: object) -> LibraryWebViewEvent:
+        if self._phase not in {
+            LibraryImportPhase.RUNNING,
+            LibraryImportPhase.CANCELLING,
+        }:
+            raise RuntimeError("library import is not active")
+        self._phase = LibraryImportPhase.ERROR
+        self._message = concise_user_error(exc, language=self._language)
+        return self._render(announce=True, focus_target="library-import-file")
 
 
 class LibraryWebViewProjection:
@@ -127,6 +358,7 @@ class LibraryWebViewProjection:
         self._language = language
         self._query = GameSearchQuery().normalized()
         self._presenter.set_language(language)
+        self._import = LibraryImportWebViewProjection(dispatch, language=language)
 
     @property
     def language(self) -> UILanguage:
@@ -135,6 +367,10 @@ class LibraryWebViewProjection:
     @property
     def query(self) -> GameSearchQuery:
         return self._query
+
+    @property
+    def import_projection(self) -> LibraryImportWebViewProjection:
+        return self._import
 
     def _filters(self) -> tuple[dict[str, object], ...]:
         labels = _LABELS[self._language]
@@ -244,6 +480,7 @@ class LibraryWebViewProjection:
             "results_heading": labels["results"],
             "search_label": labels["search"],
             "transport_error_message": labels["transport_error"],
+            "import": self._import.snapshot(),
             "filters": self._filters(),
             "rows": rows,
             "selected_game_id": selected_game_id,
@@ -346,6 +583,7 @@ class LibraryWebViewProjection:
             raise TypeError("language must be UILanguage")
         self._language = language
         self._presenter.set_language(language)
+        self._import.set_language(language)
         return self._render_event(self._presenter.view(), announce=False)
 
     def safe_call(self, method: Callable[[], LibraryWebViewEvent]) -> LibraryWebViewEvent:

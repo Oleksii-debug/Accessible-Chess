@@ -14,9 +14,11 @@
 
   function focusRequestedOption(root, focusTarget) {
     if (!focusTarget) return;
-    if (focusTarget === "library-search-player") {
-      const search = root.querySelector("#library-search-player");
-      if (search && typeof search.focus === "function") search.focus({ preventScroll: true });
+    if (focusTarget === "library-search-player" ||
+        focusTarget === "library-import-file" ||
+        focusTarget === "library-import-cancel") {
+      const control = root.querySelector("#" + focusTarget);
+      if (control && typeof control.focus === "function") control.focus({ preventScroll: true });
       return;
     }
     const options = root.querySelectorAll('[role="option"]');
@@ -33,6 +35,23 @@
     const payload = result.payload && typeof result.payload === "object" ? result.payload : {};
     if (result.kind === "render" && payload.snapshot) {
       renderLibrarySurface(root, payload.snapshot, invoke, announce, payload.focus_target || "");
+    }
+    if (result.kind === "render-import" && payload.import) {
+      const current = root.__accessibleChessLibrarySnapshot;
+      if (current && typeof current === "object") {
+        const updated = Object.assign({}, current, { import: payload.import });
+        const region = root.querySelector("#library-import-region");
+        const active = document.activeElement;
+        const restore = region && active && region.contains(active) ? String(active.id || "") : "";
+        const replacement = buildImportSection(root, updated, invoke, announce);
+        if (region && replacement && typeof region.replaceWith === "function") {
+          region.replaceWith(replacement);
+          root.__accessibleChessLibrarySnapshot = updated;
+          focusRequestedOption(root, payload.focus_target || restore);
+        } else {
+          renderLibrarySurface(root, updated, invoke, announce, payload.focus_target || "");
+        }
+      }
     }
     if (payload.announcement) announce(String(payload.announcement));
     if (result.kind === "error" && payload.message) announce(String(payload.message));
@@ -107,6 +126,41 @@
     host.appendChild(form);
   }
 
+  function buildImportSection(root, snapshot, invoke, announce) {
+    const state = snapshot.import && typeof snapshot.import === "object" ? snapshot.import : null;
+    if (!state) return null;
+    const section = node("section");
+    section.id = "library-import-region";
+    section.appendChild(node("h3", state.heading || ""));
+    section.appendChild(node("p", state.description || ""));
+    if (Number(state.total_games) > 0) {
+      const progress = node("progress");
+      progress.max = Number(state.total_games);
+      progress.value = Math.min(Number(state.processed_games) || 0, progress.max);
+      progress.setAttribute("aria-label", state.progress_label || "");
+      section.appendChild(progress);
+    }
+    const status = node("p", state.progress_label || "");
+    status.setAttribute("aria-live", "off");
+    section.appendChild(status);
+    (Array.isArray(state.actions) ? state.actions : []).forEach(function (action) {
+      const button = node("button", action.label || action.action || "");
+      button.type = "button";
+      button.id = String(action.dom_id || "");
+      button.disabled = !action.enabled;
+      button.addEventListener("click", function () {
+        invokeCommand(root, invoke, announce, snapshot, String(action.action || ""), {});
+      });
+      section.appendChild(button);
+    });
+    return section;
+  }
+
+  function renderImport(root, host, snapshot, invoke, announce) {
+    const section = buildImportSection(root, snapshot, invoke, announce);
+    if (section) host.appendChild(section);
+  }
+
   function renderResults(root, host, snapshot, invoke, announce) {
     const section = node("section");
     section.appendChild(node("h3", snapshot.results_heading || ""));
@@ -179,6 +233,7 @@
     const main = node("section");
     main.appendChild(node("h2", snapshot.heading || ""));
     main.appendChild(node("p", snapshot.description || ""));
+    renderImport(root, main, snapshot, invoke, announce);
     renderFilters(root, main, snapshot, invoke, announce);
     renderResults(root, main, snapshot, invoke, announce);
     renderActions(root, main, snapshot, invoke, announce);
@@ -189,8 +244,21 @@
     }
     fragment.appendChild(main);
     root.replaceChildren(fragment);
+    root.__accessibleChessLibrarySnapshot = snapshot;
     focusRequestedOption(root, requestedFocus || "");
   }
 
-  global.AccessibleChessLibrarySurface = Object.freeze({ render: renderLibrarySurface });
+  function applyLibraryEvent(root, result, invoke, announce) {
+    if (!root || typeof root.querySelector !== "function") {
+      throw new TypeError("Library root must support queries");
+    }
+    requireFunction(invoke, "Library invoke");
+    announce = announce == null ? function () {} : requireFunction(announce, "Library announce");
+    applyEvent(root, result, invoke, announce);
+  }
+
+  global.AccessibleChessLibrarySurface = Object.freeze({
+    render: renderLibrarySurface,
+    apply: applyLibraryEvent
+  });
 })(window);
