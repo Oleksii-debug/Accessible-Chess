@@ -31,7 +31,7 @@ jobs:
     timeout-minutes: 60
     env:
       D01_BASE: 37204866a2bb4ee7b0a936842fa70e4eb8cdf16d
-      D01_FEATURE: c7c89a84fb5efc4e397a19abf47df1acc0e0c1e3
+      D01_FEATURE: 76d20f9ce3f24120935a8f122ce0c8e0b6e4fb64
       D06_HEAD: 1e3ea862bcff2ac13077f879c2ce9af01c4f983f
       D06_WORKSPACE_BLOB: 346f31f828191e76d57b372bb6c84a4a90568594
       D06_WORKSPACE_TEST_BLOB: edce8f6a591ffc09d419e9046e14725c4a07cf54
@@ -61,7 +61,7 @@ jobs:
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD~1)" = "$D01_FEATURE"
-          test "$(git rev-list --count "$D01_BASE"..HEAD)" = "3"
+          test "$(git rev-list --count "$D01_BASE"..HEAD)" = "4"
           git merge-base --is-ancestor "$D01_BASE" HEAD
           git diff --check "$D01_BASE" HEAD
           changed="$(git diff --name-only "$D01_BASE" HEAD | sort)"
@@ -121,7 +121,7 @@ jobs:
           tests/test_dev1_pgn_webview_projection.py=2b2c655c82f2427b046eb63d7925e4ceb9c303d4
           tests/test_dev1_pgn_webview_atomicity.py=dd84ea984555921eeed600a4b2f4e419cbb6fe75
           tests/test_dev1_pgn_workspace_webview_adapter.py=03b7c0be4b7728e968a4885d3c3373cf07c1b8ec
-          tests/js/pgn_surface_dom_test.js=9920807a87e3686c24dde35af2012cfe6879dc55
+          tests/js/pgn_surface_dom_test.js=ae3f7d07bea38883d0e1bffde3778664962ffc2a
           LOCKS
 
       - name: Compile and parse D01 PGN presentation

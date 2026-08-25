@@ -1,5 +1,4 @@
 "use strict";
-
 const fs = require("fs");
 const vm = require("vm");
 
@@ -19,15 +18,8 @@ class FakeElement {
     this.disabled = false;
     this.tabIndex = 0;
   }
-  appendChild(child) {
-    child.parentNode = this;
-    this.children.push(child);
-    return child;
-  }
-  replaceChildren(child) {
-    this.children = [];
-    if (child) this.appendChild(child);
-  }
+  appendChild(child) { child.parentNode = this; this.children.push(child); return child; }
+  replaceChildren(child) { this.children = []; if (child) this.appendChild(child); }
   setAttribute(name, value) { this.attributes[String(name)] = String(value); }
   getAttribute(name) { return this.attributes[String(name)] || ""; }
   addEventListener(name, listener) { this.listeners[String(name)] = listener; }
@@ -37,9 +29,7 @@ class FakeElement {
   close() { this.open = false; }
   descendants() { return this.children.flatMap((child) => [child, ...child.descendants()]); }
   querySelectorAll(selector) {
-    if (selector === '[role="treeitem"]') {
-      return this.descendants().filter((item) => item.getAttribute("role") === "treeitem");
-    }
+    if (selector === '[role="treeitem"]') return this.descendants().filter((item) => item.getAttribute("role") === "treeitem");
     return [];
   }
 }
@@ -47,37 +37,17 @@ class FakeElement {
 global.document = {
   activeElement: null,
   createElement: (tag) => new FakeElement(tag),
-  createTextNode: (text) => {
-    const item = new FakeElement("#text");
-    item.textContent = String(text);
-    return item;
-  },
+  createTextNode: (text) => { const item = new FakeElement("#text"); item.textContent = String(text); return item; },
   createDocumentFragment: () => new FakeElement("fragment")
 };
 global.window = {};
+vm.runInThisContext(fs.readFileSync("web/full_product_pgn.js", "utf8"), { filename: "full_product_pgn.js" });
 
-vm.runInThisContext(fs.readFileSync("web/full_product_pgn.js", "utf8"), {
-  filename: "full_product_pgn.js"
-});
-
-function check(condition, message) {
-  if (!condition) throw new Error(message);
-}
-
+function check(condition, message) { if (!condition) throw new Error(message); }
 function snapshot(selectedId) {
   return {
     status: "ready",
-    game: {
-      heading: "Alpha — Beta",
-      position_label: "Game 1 of 1",
-      result_label: "Result",
-      result: "*",
-      tags_heading: "PGN tags",
-      tags: [],
-      warnings_heading: "PGN warnings",
-      warnings: [],
-      tree_heading: "Game tree"
-    },
+    game: { heading: "Alpha — Beta", position_label: "Game 1 of 1", result_label: "Result", result: "*", tags_heading: "PGN tags", tags: [], warnings_heading: "PGN warnings", warnings: [], tree_heading: "Game tree" },
     tree: [
       { dom_id: "pgn-a", node_id: "g0:main/m0", kind: "move", aria_level: 1, selected: selectedId === "pgn-a", label: "1 e4", comments: [], has_parent: false },
       { dom_id: "pgn-b", node_id: "g0:main/m1", kind: "move", aria_level: 1, selected: selectedId === "pgn-b", label: "1... e5", comments: [], has_parent: false }
@@ -86,38 +56,20 @@ function snapshot(selectedId) {
       { action: "pgn.comment_edit", label: "Add or edit comment", enabled: true },
       { action: "pgn.copy_selection", label: "Copy selection", enabled: true }
     ],
-    comment_editor: {
-      enabled: true,
-      value: "",
-      title: "PGN comment",
-      label: "Comment text",
-      save_label: "Save",
-      cancel_label: "Cancel",
-      message: ""
-    },
+    comment_editor: { enabled: true, value: "", title: "PGN comment", label: "Comment text", save_label: "Save", cancel_label: "Cancel", message: "" },
     focus_target: selectedId
   };
 }
-
-async function flush() {
-  await Promise.resolve();
-  await Promise.resolve();
-}
+async function flush() { await Promise.resolve(); await Promise.resolve(); }
 
 async function run() {
   const calls = [];
   const announcements = [];
   const invoke = (command, payload) => {
     calls.push([command, payload || {}]);
-    if (command === "pgn.move") {
-      return { kind: "selection", payload: { snapshot: snapshot("pgn-b"), focus_target: "pgn-b", announcement: "" } };
-    }
-    if (command === "pgn.comment_edit") {
-      return { kind: "selection", payload: { snapshot: snapshot("pgn-a"), focus_target: "pgn-a", announcement: "" } };
-    }
-    if (command === "pgn.copy_selection") {
-      return { kind: "delegated", payload: { action: command } };
-    }
+    if (command === "pgn.move") return { kind: "selection", payload: { snapshot: snapshot("pgn-b"), focus_target: "pgn-b", announcement: "" } };
+    if (command === "pgn.comment_edit") return { kind: "selection", payload: { snapshot: snapshot("pgn-a"), focus_target: "pgn-a", announcement: "" } };
+    if (command === "pgn.copy_selection") return { kind: "delegated", payload: { action: command } };
     throw new Error("unexpected command " + command);
   };
 
@@ -144,14 +96,15 @@ async function run() {
 
   const all = root.descendants();
   const textarea = all.find((item) => item.tagName === "TEXTAREA");
-  check(textarea, "comment textarea missing");
-  check(!textarea.listeners.keydown, "comment textarea installed a keydown hijack");
+  check(textarea && !textarea.listeners.keydown, "comment textarea editing semantics changed");
   const edit = all.find((item) => item.dataset.action === "pgn.comment_edit");
   check(edit, "comment edit action missing");
   edit.listeners.click();
-  check(textarea.parentNode && textarea.parentNode.parentNode.open, "comment dialog did not open");
+  const dialog = textarea.parentNode;
+  check(dialog && dialog.tagName === "DIALOG" && dialog.open, "comment dialog did not open");
   textarea.value = "Accessible note";
-  const save = textarea.parentNode.parentNode.descendants().find((item) => item.tagName === "BUTTON" && item.textContent === "Save");
+  const save = dialog.descendants().find((item) => item.tagName === "BUTTON" && item.textContent === "Save");
+  check(save, "comment save action missing");
   save.listeners.click();
   await flush();
   const commentCall = calls.find((call) => call[0] === "pgn.comment_edit");
@@ -160,11 +113,6 @@ async function run() {
   check(!JSON.stringify(calls).includes("expected_record_digest"), "browser learned record digest");
   check(!JSON.stringify(calls).includes("line_path"), "browser learned canonical GameTree path");
   check(announcements.length === 0, "passive PGN render produced live-region spam");
-
   console.log("PGN workspace keyboard/privacy DOM contract PASS");
 }
-
-run().catch((error) => {
-  console.error(error);
-  process.exitCode = 1;
-});
+run().catch((error) => { console.error(error); process.exitCode = 1; });
