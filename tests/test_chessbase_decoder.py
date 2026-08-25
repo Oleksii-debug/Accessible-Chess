@@ -12,7 +12,6 @@ from acs.chessbase_decoder import (
     ExternalChessBaseDecoderConfig,
     decode_chessbase_external,
 )
-from acs.gametree_navigation import VariationStep, resolve_line
 
 
 BACKEND_COMMIT = "9641c5c3949d8fb210b17dd9aa54455645843696"
@@ -122,8 +121,8 @@ class ChessBaseExternalDecoderTests(unittest.TestCase):
         game = result.games[0]
         self.assertEqual([node.san for node in game.line.moves], ["e4", "e5", "Nf3"])
         self.assertEqual(len(game.line.moves[0].variations), 2)
-        first = resolve_line(game, (VariationStep(0, 0),))
-        second = resolve_line(game, (VariationStep(0, 1),))
+        first = game.line.moves[0].variations[0]
+        second = game.line.moves[0].variations[1]
         self.assertEqual([node.san for node in first.moves], ["c5"])
         self.assertEqual([node.san for node in second.moves], ["c6"])
 
@@ -140,8 +139,8 @@ class ChessBaseExternalDecoderTests(unittest.TestCase):
             move(52, 36),
         ]
         game = self.decode(payload([decoded_game(0, tokens)])).games[0]
-        outer = resolve_line(game, (VariationStep(0, 0),))
-        nested = resolve_line(game, (VariationStep(0, 0), VariationStep(0, 0)))
+        outer = game.line.moves[0].variations[0]
+        nested = outer.moves[0].variations[0]
         self.assertEqual([node.san for node in outer.moves], ["c5", "Nf3"])
         self.assertEqual([node.san for node in nested.moves], ["Nf3"])
 
