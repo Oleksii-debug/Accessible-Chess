@@ -1,0 +1,90 @@
+name: DEV4 W2-S1-08 Release JSON Casefold Evidence
+
+on:
+  pull_request:
+    branches:
+      - work/final-stage1-source-composition-20260825
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  prove-casefold-ambiguity:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Preserve repository LF bytes on Windows
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config core.autocrlf false
+          git config core.eol lf
+          git -c core.autocrlf=false checkout HEAD -- .
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Prove exact Product parent and QA-only scope
+        shell: bash
+        env:
+          PRODUCT_SHA: 6c820c225780a233a0ee3bf43fbf5ff1ceacb885
+        run: |
+          set -euo pipefail
+          test "$(git merge-base "$PRODUCT_SHA" HEAD)" = "$PRODUCT_SHA"
+          git diff --check "$PRODUCT_SHA"...HEAD
+          changed="$(git diff --name-only "$PRODUCT_SHA"...HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/dev4-w2-s1-08-release-json-casefold.yml' \
+            'tests/test_dev4_release_json_casefold_canonicality.py' | sort)"
+          printf '%s\n' "$changed"
+          test "$changed" = "$expected"
+          test "$(git rev-parse HEAD:acs/release_preflight.py)" = "485c876d6476f2b86d3155be3db355084db6094c"
+          echo 'DEV4 W2-S1-08 EXACT PARENT / QA-ONLY SCOPE PASS'
+
+      - name: Compile release preflight and oracle
+        run: python -m compileall -q acs/release_preflight.py tests/test_dev4_release_json_casefold_canonicality.py
+
+      - name: Existing release canonicality remains green
+        run: >-
+          python -m unittest -v
+          tests.test_release_preflight
+          tests.test_final_master_release_json_canonicality
+          tests.test_d04_release_preflight_hygiene
+          tests.test_d04_release_archive_canonicality
+          tests.test_d04_stockfish_source_zip_bounds
+
+      - name: Prove Windows JSON consumer is case-insensitive
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $json='{"nvda_verified":false,"NVDA_VERIFIED":true}'
+          $converted=$null
+          $conversionError=$null
+          try {
+            $converted=$json | ConvertFrom-Json -ErrorAction Stop
+          } catch {
+            $conversionError=$_.Exception.Message
+          }
+          if($null -ne $conversionError){
+            "POWERSHELL CASE-COLLISION CONSUMER REJECTS AMBIGUOUS JSON: $conversionError"
+            exit 0
+          }
+          if(-not [bool]$converted.nvda_verified){
+            throw 'PowerShell did not expose the later case-variant claim through case-insensitive property access'
+          }
+          'POWERSHELL CASE-INSENSITIVE PROPERTY RESOLUTION USES LATER CONFLICTING CLAIM'
+
+      - name: Focused fail-closed casefold oracle
+        run: python -m unittest -v tests.test_dev4_release_json_casefold_canonicality
