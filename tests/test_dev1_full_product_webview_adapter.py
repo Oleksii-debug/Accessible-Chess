@@ -52,7 +52,19 @@ class FullProductWebViewAdapterTests(unittest.TestCase):
         adapter, calls = self.make_adapter()
         command = adapter.activate_action("teacher.highlight", {"square": "f3"})
         self.assertEqual(command.kind, "delegated")
+        self.assertEqual(command.payload, {"action_id": "teacher.highlight"})
         self.assertEqual(calls, [("teacher.highlight", {"square": "f3"})])
+
+    def test_domain_backend_return_value_never_crosses_into_webview(self):
+        secret = r"C:\\Users\\Teacher\\private\\lesson.sqlite"
+        shell = AccessibleShellState(language=UILanguage.EN)
+        adapter = FullProductWebViewAdapter(
+            shell,
+            FullProductActionRouter(shell, lambda _action, _payload: {"path": secret}),
+        )
+        command = adapter.activate_action("library.import")
+        self.assertEqual(command.payload, {"action_id": "library.import"})
+        self.assertNotIn(secret, repr(command))
 
     def test_unknown_action_projects_safe_user_error(self):
         adapter, _ = self.make_adapter()
