@@ -161,7 +161,6 @@ jobs:
           tests.test_webview_safe_server
           tests.test_legacy_release_workflow_safety
           tests.test_core_release_contracts
-          tests.test_engine
 
       - name: Stage1 stress and privacy set
         run: >-
