@@ -39,7 +39,7 @@ def _bounded_token_trace(bridge: Path, source: Path) -> str:
     env = os.environ.copy()
     env["LD_LIBRARY_PATH"] = str(bridge.parent)
     completed = subprocess.run(
-        [str(bridge), str(source)],
+        [str(bridge), "--json-v1", str(source)],
         stdin=subprocess.DEVNULL,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
