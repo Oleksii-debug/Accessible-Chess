@@ -1,0 +1,63 @@
+name: D06 Professional PGN Workspace Focused
+
+on:
+  push:
+    branches:
+      - work/d06-professional-pgn-workspace-20260824
+  pull_request:
+    paths:
+      - 'acs/pgn_workspace.py'
+      - 'acs/pgn_document.py'
+      - 'acs/pgn_service.py'
+      - 'tests/test_pgn_workspace.py'
+      - 'tests/test_pgn_document.py'
+      - 'acs/gametree.py'
+      - 'acs/gametree_navigation.py'
+      - 'acs/gametree_editing.py'
+      - 'acs/gametree_annotations.py'
+      - 'acs/gametree_insertion.py'
+      - 'acs/pgn_roundtrip.py'
+      - '.github/workflows/d06-professional-pgn-workspace-focused.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  focused-d06-workspace:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Diff hygiene
+        shell: bash
+        run: git diff --check HEAD^ HEAD
+      - name: Compile touched D06 code
+        run: >-
+          python -m py_compile
+          acs/pgn_workspace.py
+          acs/pgn_document.py
+          acs/pgn_service.py
+          acs/pgn_roundtrip.py
+          acs/gametree.py
+          acs/gametree_navigation.py
+          acs/gametree_editing.py
+          acs/gametree_annotations.py
+          acs/gametree_insertion.py
+          tests/test_pgn_workspace.py
+          tests/test_pgn_document.py
+      - name: Focused professional document workspace and direct contracts
+        run: >-
+          python -m unittest -v
+          tests.test_pgn_document
+          tests.test_pgn_workspace
+          tests.test_pgn_service
+          tests.test_gametree_navigation
+          tests.test_gametree_editing
+          tests.test_gametree_annotations
+          tests.test_gametree_insertion
+          tests.test_d06_pgn_roundtrip
