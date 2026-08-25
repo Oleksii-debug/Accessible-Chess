@@ -2,7 +2,7 @@ from __future__ import annotations
 
 """D01 adapter that binds the proven PGN WebView to canonical D06 workspace state.
 
-The browser/presenter never becomes a second GameTree authority. Every tree
+The browser/presenter never becomes a second GameTree authority.  Every tree
 selection is converted back to a canonical ``GameTreeCursor`` and every edit
 intent is enriched from trusted workspace state before it reaches the host
 application command dispatcher.
@@ -82,7 +82,7 @@ def _node_cursor(node_id: str) -> GameTreeCursor:
 
 
 class PgnWorkspaceWebViewProjection(PgnWebViewProjection):
-    """Proven WebView contract synchronized to one canonical workspace."""
+    """Old proven WebView contract, synchronized to one canonical workspace."""
 
     def __init__(
         self,
@@ -98,7 +98,12 @@ class PgnWorkspaceWebViewProjection(PgnWebViewProjection):
         self._workspace = workspace
         self._host_dispatch = dispatch
         presenter = self._build_presenter(language)
-        super().__init__(presenter, self._trusted_dispatch, lambda: self._workspace.game_count, language=language)
+        super().__init__(
+            presenter,
+            self._trusted_dispatch,
+            lambda: self._workspace.game_count,
+            language=language,
+        )
 
     def _build_presenter(self, language: UILanguage) -> PgnTreePresenter:
         presenter = PgnTreePresenter(self._workspace.games(), language=language)
@@ -108,6 +113,7 @@ class PgnWorkspaceWebViewProjection(PgnWebViewProjection):
             try:
                 presenter.select(node_id)
             except LookupError:
+                # Cursor-at-boundary is valid; presenter keeps a safe nearby item.
                 pass
         return presenter
 
@@ -133,9 +139,12 @@ class PgnWorkspaceWebViewProjection(PgnWebViewProjection):
         digest = getattr(view, "current_record_digest", None)
         if type(digest) is not str or len(digest) != 64:
             raise ValueError("PGN workspace record digest is invalid")
+        line_path = tuple(
+            (step.parent_move_index, step.variation_index) for step in cursor.line_path
+        )
         trusted: dict[str, object] = {
             "game_index": self._workspace.selected_game_index,
-            "line_path": tuple((step.parent_move_index, step.variation_index) for step in cursor.line_path),
+            "line_path": line_path,
             "move_index": cursor.next_move_index - 1 if cursor.next_move_index else None,
             "expected_record_digest": digest,
             "content_revision": self._workspace.content_revision,
@@ -144,11 +153,16 @@ class PgnWorkspaceWebViewProjection(PgnWebViewProjection):
             if not cursor.line_path:
                 raise ValueError("main line is not a variation target")
             step = cursor.line_path[-1]
-            trusted.update({
-                "parent_path": tuple((item.parent_move_index, item.variation_index) for item in cursor.line_path[:-1]),
-                "parent_move_index": step.parent_move_index,
-                "variation_index": step.variation_index,
-            })
+            trusted.update(
+                {
+                    "parent_path": tuple(
+                        (item.parent_move_index, item.variation_index)
+                        for item in cursor.line_path[:-1]
+                    ),
+                    "parent_move_index": step.parent_move_index,
+                    "variation_index": step.variation_index,
+                }
+            )
         for key, value in payload.items():
             if key not in {"game_index", "node_id"}:
                 trusted[key] = value
@@ -191,7 +205,7 @@ class PgnWorkspaceWebViewProjection(PgnWebViewProjection):
         return self._render_event()
 
     def edit_comment(self, text: str) -> PgnWebViewEvent:
-        return self._mutate_and_render(lambda: super().edit_comment(text))
+        return self._mutate_and_render(lambda: PgnWebViewProjection.edit_comment(self, text))
 
     def delete_comment(self) -> PgnWebViewEvent:
         return self._mutate_and_render(super().delete_comment)
