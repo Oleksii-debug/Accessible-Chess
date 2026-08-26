@@ -1,0 +1,73 @@
+name: W2 D06 PGN Document Diagnostic
+
+on:
+  push:
+    branches:
+      - diag/d06-pgn-document-failures-20260826
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Prove exact non-Product diagnostic authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = "16b602cc060d28231e4800ff75fcd6c2193bc361"
+          test "$(git diff --name-only HEAD^ HEAD)" = ".github/workflows/w2-d06-pgn-document-diagnostic.yml"
+          test "$(git rev-parse HEAD:acs/pgn_document.py)" = "3d3521fe3d044c95ff38d5b14bf0e5f5383c6534"
+          test "$(git rev-parse HEAD:acs/pgn_workspace.py)" = "346f31f828191e76d57b372bb6c84a4a90568594"
+          test "$(git rev-parse HEAD:acs/pgn_service.py)" = "68f1029eddd462463ba244e193d2380f685ddb34"
+          test "$(git rev-parse HEAD:tests/test_pgn_document.py)" = "1819e8997496b8391817ee55d63967e583cab79e"
+          git diff --check HEAD^ HEAD
+
+      - name: Isolate error and suspected hang with bounded subprocesses
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import subprocess
+          import sys
+
+          cases = [
+              "tests.test_pgn_document.ProfessionalPgnDocumentTests.test_append_pasted_multigame_preserves_current_location",
+              "tests.test_pgn_document.ProfessionalPgnDocumentTests.test_invalid_utf8_source_requires_save_as",
+          ]
+          failed = False
+          for case in cases:
+              print(f"\n===== DIAGNOSTIC CASE: {case} =====", flush=True)
+              try:
+                  completed = subprocess.run(
+                      [sys.executable, "-m", "unittest", "-v", case],
+                      text=True,
+                      stdout=subprocess.PIPE,
+                      stderr=subprocess.STDOUT,
+                      timeout=60,
+                      check=False,
+                  )
+              except subprocess.TimeoutExpired as exc:
+                  output = exc.stdout or ""
+                  if isinstance(output, bytes):
+                      output = output.decode("utf-8", "replace")
+                  print(output, end="")
+                  print("DIAGNOSTIC_RESULT=TIMEOUT_60S", flush=True)
+                  failed = True
+                  continue
+              print(completed.stdout, end="")
+              print(f"DIAGNOSTIC_RESULT=EXIT_{completed.returncode}", flush=True)
+              if completed.returncode != 0:
+                  failed = True
+          raise SystemExit(1 if failed else 0)
+          PY
