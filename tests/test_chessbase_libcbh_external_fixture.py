@@ -97,15 +97,23 @@ def _bounded_token_trace(bridge: Path, source: Path) -> str:
         return f"bridge diagnostic parse failed: {type(exc).__name__}"
 
     trace: list[str] = []
-    for index, token in enumerate(tokens[:160]):
+    depth = 0
+    for index, token in enumerate(tokens[:512]):
         kind = token.get("kind")
         if kind == "move":
             trace.append(
-                f"{index}:m({token.get('from')},{token.get('to')},{token.get('promote')})"
+                f"{index}:m@{depth}("
+                f"{token.get('from')},{token.get('to')},{token.get('promote')})"
             )
+        elif kind == "push":
+            trace.append(f"{index}:push@{depth}")
+            depth += 1
+        elif kind == "pop":
+            depth -= 1
+            trace.append(f"{index}:pop@{depth}")
         else:
-            trace.append(f"{index}:{kind}")
-    if len(tokens) > 160:
+            trace.append(f"{index}:{kind}@{depth}")
+    if len(tokens) > 512:
         trace.append(f"... total={len(tokens)}")
     return " ".join(trace)
 
