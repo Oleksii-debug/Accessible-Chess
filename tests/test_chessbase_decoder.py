@@ -166,9 +166,16 @@ class ChessBaseExternalDecoderTests(unittest.TestCase):
             self.decode(payload([decoded_game(0, [move(12, 44)])]))
         self.assertEqual(caught.exception.code, ChessBaseDecodeCode.INVALID_MOVE)
 
-    def test_unmatched_pop_and_unterminated_push_fail_closed(self) -> None:
+    def test_terminal_root_pop_is_consumed_after_nonempty_root_line(self) -> None:
+        game = self.decode(
+            payload([decoded_game(0, [move(12, 28), {"kind": "pop"}])])
+        ).games[0]
+        self.assertEqual([node.san for node in game.line.moves], ["e4"])
+
+    def test_invalid_root_pop_and_unterminated_push_fail_closed(self) -> None:
         for tokens in (
             [{"kind": "pop"}],
+            [move(12, 28), {"kind": "pop"}, move(52, 36)],
             [move(12, 28), {"kind": "push"}, move(50, 34)],
         ):
             with self.subTest(tokens=tokens):

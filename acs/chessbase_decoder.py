@@ -466,6 +466,11 @@ def _decode_line(
             )
         if kind == "pop":
             if not nested:
+                # Pinned libcbh emits one terminal MovePop when the root decode
+                # returns. Accept only that structural terminator: it must end
+                # a non-empty root line. Empty/early root pops remain invalid.
+                if index == len(tokens) - 1 and line.moves:
+                    return line, index + 1
                 raise _decode_error(
                     "ChessBase decoder returned an unmatched variation pop",
                     ChessBaseDecodeCode.INVALID_VARIATION,
