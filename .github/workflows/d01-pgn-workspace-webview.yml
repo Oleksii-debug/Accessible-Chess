@@ -32,6 +32,7 @@ jobs:
     env:
       D01_BASE: 37204866a2bb4ee7b0a936842fa70e4eb8cdf16d
       D01_FEATURE: 76d20f9ce3f24120935a8f122ce0c8e0b6e4fb64
+      D01_PRE_REPAIR: e8ecf3d707c74955522e62cce449731f0ea87bb5
       D06_HEAD: 1e3ea862bcff2ac13077f879c2ce9af01c4f983f
       D06_WORKSPACE_BLOB: 346f31f828191e76d57b372bb6c84a4a90568594
       D06_WORKSPACE_TEST_BLOB: edce8f6a591ffc09d419e9046e14725c4a07cf54
@@ -60,10 +61,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD~1)" = "$D01_FEATURE"
-          test "$(git rev-list --count "$D01_BASE"..HEAD)" = "4"
+          test "$(git rev-parse HEAD~1)" = "$D01_PRE_REPAIR"
+          test "$(git rev-list --count "$D01_BASE"..HEAD)" = "5"
           git merge-base --is-ancestor "$D01_BASE" HEAD
+          git merge-base --is-ancestor "$D01_FEATURE" HEAD
           git diff --check "$D01_BASE" HEAD
+          repair_changed="$(git diff --name-only "$D01_PRE_REPAIR" HEAD | sort)"
+          test "$repair_changed" = '.github/workflows/d01-pgn-workspace-webview.yml'
           changed="$(git diff --name-only "$D01_BASE" HEAD | sort)"
           expected="$(printf '%s\n' \
             '.github/workflows/d01-pgn-workspace-webview.yml' \
@@ -138,12 +142,12 @@ jobs:
           tests.test_dev1_pgn_webview_atomicity
           tests.test_dev1_pgn_workspace_webview_adapter
           tests.test_gametree
-          tests.test_gametree_navigation
-          tests.test_gametree_annotations
-          tests.test_gametree_editing
-          tests.test_gametree_insertion
-          tests.test_pgn_roundtrip
-          tests.test_full_product_actions
+          tests.test_d06_gametree_persistence_vertical
+          tests.test_d06_annotation_insertion_persistence_vertical
+          tests.test_d06_pgn_roundtrip
+          tests.test_pgn_service
+          tests.test_pgn_concurrent_save
+          tests.test_whole_product_user_journey
           tests.test_keybindings
 
       - name: Prove exact compatibility with current D06 PgnWorkspace
