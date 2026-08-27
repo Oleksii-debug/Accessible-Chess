@@ -230,7 +230,13 @@ internal sealed class BookReadingStateStore
 
     private SqliteConnection Open()
     {
-        var builder = new SqliteConnectionStringBuilder { DataSource = _databasePath, Mode = SqliteOpenMode.ReadWriteCreate, Cache = SqliteCacheMode.Shared };
+        var builder = new SqliteConnectionStringBuilder
+        {
+            DataSource = _databasePath,
+            Mode = SqliteOpenMode.ReadWriteCreate,
+            Cache = SqliteCacheMode.Shared,
+            Pooling = false
+        };
         var connection = new SqliteConnection(builder.ToString());
         connection.Open();
         using SqliteCommand pragma = connection.CreateCommand();
