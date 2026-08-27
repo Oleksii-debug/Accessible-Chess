@@ -47,6 +47,8 @@ internal sealed record BookPhysicalAnalysis(
 /// Exact lexical-form mapper for private reading sources. It deliberately does
 /// not pretend to lemmatize inflected forms. One physical occurrence is counted
 /// once even when the same surface form maps to multiple stable dictionary IDs.
+/// An unresolved multi-ID homograph is fail-closed: it can never inherit Known
+/// or Learning mastery from only one candidate stable ID.
 /// </summary>
 internal sealed partial class BookLexicalFormIndex : IBookLexiconMapper
 {
@@ -209,8 +211,12 @@ internal sealed partial class BookLexicalFormIndex : IBookLexiconMapper
 
     private static BookWordState Classify(IReadOnlyList<string> ids, IReadOnlySet<string>? known, IReadOnlySet<string>? learning)
     {
-        if (known is not null && ids.Any(known.Contains)) return BookWordState.Known;
-        if (learning is not null && ids.Any(learning.Contains)) return BookWordState.Learning;
+        // A physical form matching more than one stable lexical identity is
+        // unresolved. Preserve every candidate ID via StableEntryIds/IsAmbiguous,
+        // but never guess that mastery of one sense/POS proves this occurrence.
+        if (ids.Count > 1) return BookWordState.New;
+        if (ids.Count == 1 && known is not null && known.Contains(ids[0])) return BookWordState.Known;
+        if (ids.Count == 1 && learning is not null && learning.Contains(ids[0])) return BookWordState.Learning;
         return BookWordState.New;
     }
 
