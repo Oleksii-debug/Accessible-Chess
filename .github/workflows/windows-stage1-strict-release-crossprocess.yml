@@ -56,6 +56,8 @@ jobs:
           if($LASTEXITCODE -ne 0){throw 'Exact integration SHA unavailable'}
           $resolved=(git rev-parse "$env:SOURCE_INTEGRATION_SHA^{commit}").Trim()
           if($resolved -ne $env:SOURCE_INTEGRATION_SHA){throw "SOURCE LOCK mismatch: $resolved"}
+          git config core.autocrlf false
+          git config core.eol lf
           New-Item -ItemType Directory -Force -Path work | Out-Null
           $paths=@('acs','web','tests','run_accessible_chess.py','ACCESSIBILITY_0.4_ARCHITECTURE.md','VERSION.txt','HOTKEYS_UA.txt','HOTKEYS_EN.txt')
           git archive --format=zip --output=product.zip $env:SOURCE_INTEGRATION_SHA -- $paths
@@ -63,6 +65,28 @@ jobs:
           Expand-Archive product.zip work -Force
           $expected=(git ls-tree -r --name-only $env:SOURCE_INTEGRATION_SHA -- $paths)
           foreach($rel in $expected){if(-not (Test-Path (Join-Path work $rel))){throw "Missing frozen file: $rel"}}
+          @'
+          import os
+          import subprocess
+          from pathlib import Path
+
+          sha = os.environ['SOURCE_INTEGRATION_SHA']
+          exact_paths = (
+              'acs/stage1_release_ui_core.py',
+              'acs/webapp_keymap_core.py',
+              '.github/workflows/publish-stage1-release.yml',
+              '.github/workflows/windows-stage1-build.yml',
+              '.github/workflows/windows-stage1-webview-build.yml',
+          )
+          root = Path('work')
+          for rel in exact_paths:
+              data = subprocess.check_output(['git', 'show', f'{sha}:{rel}'])
+              target = root / rel
+              target.parent.mkdir(parents=True, exist_ok=True)
+              target.write_bytes(data)
+          print('EXACT GIT-BLOB TEST FIXTURES MATERIALIZED')
+          '@ | python -
+          if($LASTEXITCODE -ne 0){throw 'Exact Git-blob test fixture materialization failed'}
           "EXACT SOURCE LOCK PASS: $resolved"
 
       - uses: actions/setup-python@v5
