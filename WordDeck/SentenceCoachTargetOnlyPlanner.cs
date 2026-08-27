@@ -38,6 +38,9 @@ internal static class SentenceCoachTargetOnlyPlanner
 
         string anchorKey = lexicon.LexicalKeyFor(anchor.Id);
         var results = new List<SentenceCoachTargetSetCandidate>();
+        // Keep distinct sentence evidence for the same lexical target set. The UI
+        // needs those variants so learner-known vocabulary and recent-use scoring
+        // can choose the best context instead of being locked to corpus row order.
         var seen = new HashSet<string>(StringComparer.Ordinal);
 
         foreach (SentenceRecord sentence in corpus.LookupByEntryId(anchor.Id))
@@ -60,6 +63,7 @@ internal static class SentenceCoachTargetOnlyPlanner
             if (desiredTargetCount == 1)
             {
                 Add(new[] { anchor.Id }, sentence.Id);
+                if (results.Count >= maxSets) break;
                 continue;
             }
 
@@ -87,8 +91,9 @@ internal static class SentenceCoachTargetOnlyPlanner
         void Add(IReadOnlyList<string> ids, string sentenceId)
         {
             lexicon.EnsureDistinctLexicalTargets(ids);
-            string key = string.Join("\u001f", ids.OrderBy(id => id, StringComparer.Ordinal));
-            if (!seen.Add(key))
+            string targetKey = string.Join("\u001f", ids.OrderBy(id => id, StringComparer.Ordinal));
+            string evidenceKey = sentenceId + "\u001e" + targetKey;
+            if (!seen.Add(evidenceKey))
                 return;
             results.Add(new SentenceCoachTargetSetCandidate(ids.ToArray(), sentenceId));
         }
