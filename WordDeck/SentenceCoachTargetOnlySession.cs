@@ -28,14 +28,18 @@ internal sealed class SentenceCoachTargetOnlySession
     private int _index;
 
     public int TargetCount => _exercises.Count;
+    public int CurrentTargetIndex => _index;
     public int CurrentTargetNumber => _index + 1;
     public bool Complete => _index >= _exercises.Count;
 
-    private SentenceCoachTargetOnlySession(IReadOnlyList<ContextTargetSpellingExercise> exercises)
+    private SentenceCoachTargetOnlySession(IReadOnlyList<ContextTargetSpellingExercise> exercises, int startTargetIndex)
     {
         if (exercises.Count is < 1 or > 3)
             throw new InvalidDataException("Sentence Spelling target-only session requires one, two, or three exact targets.");
+        if (startTargetIndex < 0 || startTargetIndex >= exercises.Count)
+            throw new InvalidDataException("Sentence Spelling target-only resume position is outside the selected target set.");
         _exercises = exercises;
+        _index = startTargetIndex;
     }
 
     public static SentenceCoachTargetOnlySession Build(
@@ -46,7 +50,8 @@ internal sealed class SentenceCoachTargetOnlySession
         string sourceId,
         ContextCorpusKind sourceKind,
         string provenance,
-        string license)
+        string license,
+        int startTargetIndex = 0)
     {
         ArgumentNullException.ThrowIfNull(sentence);
         ArgumentNullException.ThrowIfNull(targets);
@@ -84,7 +89,7 @@ internal sealed class SentenceCoachTargetOnlySession
 
         IReadOnlyList<ContextTargetSpellingExercise> exercises =
             ContextPracticeApplicationService.BuildTargetSpellingForAllTargets(card, lexicon, dictionary);
-        return new SentenceCoachTargetOnlySession(exercises);
+        return new SentenceCoachTargetOnlySession(exercises, startTargetIndex);
     }
 
     public SentenceCoachTargetOnlyPrompt CurrentPrompt()
