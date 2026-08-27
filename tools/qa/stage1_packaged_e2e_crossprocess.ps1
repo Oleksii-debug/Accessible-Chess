@@ -96,6 +96,25 @@ function AssertSemanticFocusEventually($target,[string]$label,[int]$timeoutMs=40
   }
   throw "$label semantic focus did not converge; target automation_id='$([string]$target.Current.AutomationId)' name='$([string]$target.Current.Name)'; final $(FocusDescription $last)"
 }
+function SetMoveValueEventually($report,[string]$rid,[string]$value,[string]$label,[int]$timeoutMs=4000){
+  $els=Rewalk $report
+  $move=FindRuntime $els $rid
+  AssertMoveStrict $move $rid
+  (ValuePattern $move "$label setter").SetValue($value)
+  $sw=[System.Diagnostics.Stopwatch]::StartNew(); $last=''
+  while($sw.ElapsedMilliseconds -lt $timeoutMs){
+    Start-Sleep -Milliseconds 100
+    try{
+      $els=Rewalk $report
+      $move=FindRuntime $els $rid
+      if($null -eq $move){continue}
+      AssertMoveStrict $move $rid
+      $last=[string](ValuePattern $move "$label convergence").Current.Value
+      if($last -eq $value){return $move}
+    }catch{}
+  }
+  throw "$label did not converge through the original Move Edit; expected='$value' got='$last'"
+}
 function NoRawError($els){foreach($e in @($els)){try{$n=[string]$e.Current.Name;if($n -match 'Traceback|ValueError|binding must contain a non-modifier key'){throw "Raw exception leaked: '$n'"}}catch{if($_.Exception.Message -match '^Raw exception leaked'){throw}}}}
 function HasE4History($els){foreach($e in @($els)){try{$ct=[string]$e.Current.ControlType.ProgrammaticName;if($ct -in @('ControlType.DataItem','ControlType.Custom','ControlType.Edit')){continue};if([string]$e.Current.Name -match '(?<![A-Za-z0-9])e\s*4(?![A-Za-z0-9])'){return $true}}catch{}};$false}
 
@@ -196,9 +215,8 @@ public static class AccessibleChessQaNativeKeysV3 {
   }
   Write-Output 'NATIVE KEY DELIVERY CONTROL PASS e9->e'
 
-  $vp=ValuePattern $move 'Move restore before Ctrl+A selection proof'
-  $vp.SetValue('e9')
-  if([string]$vp.Current.Value -ne 'e9'){throw 'Could not restore e9 before native Ctrl+A proof'}
+  $move=SetMoveValueEventually $report $moveRid 'e9' 'Restore e9 before native Ctrl+A proof'
+  Write-Output 'UIA FIXTURE RESTORE PASS before native Ctrl+A proof'
   $null=$ws.AppActivate($AppPid)
   $move.SetFocus()
   AssertFocusedRuntimeEventually $moveRid 'Native Ctrl+A focus convergence'
@@ -216,9 +234,8 @@ public static class AccessibleChessQaNativeKeysV3 {
   }
   Write-Output 'NATIVE CTRL+A SELECTION BEHAVIOR PASS e9->empty via Backspace'
 
-  $vp=ValuePattern $move 'Move restore before native copy proof'
-  $vp.SetValue('e9')
-  if([string]$vp.Current.Value -ne 'e9'){throw 'Could not restore e9 before native copy proof'}
+  $move=SetMoveValueEventually $report $moveRid 'e9' 'Restore e9 before native copy proof'
+  Write-Output 'UIA FIXTURE RESTORE PASS before native copy proof'
   Set-Clipboard -Value '__sentinel__'
   $null=$ws.AppActivate($AppPid)
   $move.SetFocus()
@@ -239,7 +256,7 @@ public static class AccessibleChessQaNativeKeysV3 {
   Write-Output "NATIVE CTRL+A/CTRL+C BEHAVIOR PASS clipboard='$clip'"
   Write-Output 'CLIPBOARD DECISIVE NATIVE KEY/SELECTION/COPY PASS'
 
-  $vp.SetValue('e5'); if([string]$vp.Current.Value -ne 'e5'){throw 'Could not prepare e5 before board entry'}
+  $move=SetMoveValueEventually $report $moveRid 'e5' 'Prepare e5 before board entry'
   Write-Output 'Prepared e5 before entering board'
 
   $els=Rewalk $report
