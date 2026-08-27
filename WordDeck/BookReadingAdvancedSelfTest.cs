@@ -22,9 +22,6 @@ internal static class BookReadingAdvancedSelfTest
         AppState state = AppStateStore.Normalize(new AppState { ActiveDictionaryId = dictionary.Id, ActiveDeckId = DeckIds.Core(2) });
         state.DeckIdsByDictionary[dictionary.Id] = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         {
-            // Deliberately mark only one 'record' stable ID Known. Exact-form
-            // Reading must still keep every physical 'record' occurrence
-            // unresolved instead of inheriting mastery from this one sense/POS.
             ["ox:record-n"] = DeckIds.Core(5),
             ["ox:record-v"] = DeckIds.Core(1),
             ["ox:alpha"] = DeckIds.Core(5),
@@ -47,18 +44,21 @@ internal static class BookReadingAdvancedSelfTest
             var service = new BookReadingProductService(privateRoot);
             BookImportProductResult imported = service.ImportFile(input, dictionary, snapshot);
 
+            var lexical = new BookLexicalFormIndex(dictionary);
+            BookPhysicalAnalysis physical = lexical.Analyze(imported.Document, snapshot.KnownEntryIds, snapshot.LearningEntryIds);
+            string directMap = string.Join(" | ", physical.Sentences.SelectMany(sentence => sentence.Occurrences).Select(item => $"{item.Surface}:{item.State}:[{string.Join(',', item.StableEntryIds)}]"));
+            Require(physical.PhysicalLexicalCount == 7, $"In-memory physical lexical accounting diverged from expected fixture: {directMap}");
+            Require(physical.OffList == 0, $"Exact lexical mapper left fixture words off-list before SQLite indexing: {directMap}");
+            Require(physical.AmbiguousOccurrences == 3, $"Three physical 'record' occurrences should each preserve both matching stable IDs: {directMap}");
+            Require(physical.Known == 2 && physical.Learning == 1 && physical.New == 4, $"In-memory Known/Learning/New classification is wrong: Known={physical.Known}, Learning={physical.Learning}, New={physical.New}, map={directMap}");
+
             Require(imported.Document.PrivateLocalOnly, "Product import lost the private-local boundary.");
             Require(File.ReadAllBytes(imported.PrivateSourcePath).SequenceEqual(source), "Exact original source bytes were not retained privately.");
             Require(Path.GetFullPath(imported.PrivateSourcePath).StartsWith(Path.GetFullPath(privateRoot), StringComparison.OrdinalIgnoreCase), "Private source escaped the configured profile root.");
             Require(imported.Coverage.PhysicalLexicalCount == 7, $"Expected 7 physical lexical occurrences, got {imported.Coverage.PhysicalLexicalCount}.");
-            Require(imported.Coverage.Known == 2, $"Unresolved homographs inflated Known coverage or repeated known alpha occurrences were miscounted. Known={imported.Coverage.Known}, Learning={imported.Coverage.Learning}, New={imported.Coverage.New}, OffList={imported.Coverage.OffList}.");
-            Require(imported.Coverage.Learning == 1, $"Learning beta occurrence was not classified from the selected deck. Known={imported.Coverage.Known}, Learning={imported.Coverage.Learning}, New={imported.Coverage.New}, OffList={imported.Coverage.OffList}; learning IDs=[{string.Join(',', snapshot.LearningEntryIds)}].");
-            Require(imported.Coverage.New == 4 && imported.Coverage.OffList == 0, $"New/off-list physical accounting is wrong; unresolved homographs must remain fail-closed New at summary level. Known={imported.Coverage.Known}, Learning={imported.Coverage.Learning}, New={imported.Coverage.New}, OffList={imported.Coverage.OffList}.");
-
-            var lexical = new BookLexicalFormIndex(dictionary);
-            BookPhysicalAnalysis physical = lexical.Analyze(imported.Document, snapshot.KnownEntryIds, snapshot.LearningEntryIds);
-            Require(physical.PhysicalLexicalCount == 7, "In-memory physical lexical accounting diverged from SQLite accounting.");
-            Require(physical.AmbiguousOccurrences == 3, "Three physical 'record' occurrences should each preserve both matching stable IDs.");
+            Require(imported.Coverage.Known == 2, $"Unresolved homographs inflated Known coverage or repeated known alpha occurrences were miscounted. Known={imported.Coverage.Known}, Learning={imported.Coverage.Learning}, New={imported.Coverage.New}, OffList={imported.Coverage.OffList}; direct={directMap}");
+            Require(imported.Coverage.Learning == 1, $"Learning beta occurrence was not classified from the selected deck. Known={imported.Coverage.Known}, Learning={imported.Coverage.Learning}, New={imported.Coverage.New}, OffList={imported.Coverage.OffList}; learning IDs=[{string.Join(',', snapshot.LearningEntryIds)}]; direct={directMap}");
+            Require(imported.Coverage.New == 4 && imported.Coverage.OffList == 0, $"New/off-list physical accounting is wrong; unresolved homographs must remain fail-closed New at summary level. Known={imported.Coverage.Known}, Learning={imported.Coverage.Learning}, New={imported.Coverage.New}, OffList={imported.Coverage.OffList}; direct={directMap}");
             Require(physical.Sentences.SelectMany(sentence => sentence.Occurrences).Where(item => item.Surface.Equals("record", StringComparison.OrdinalIgnoreCase)).All(item => item.StableEntryIds.Count == 2 && item.IsAmbiguous && item.State == BookWordState.New), "Physical ambiguity metadata or fail-closed unresolved classification was lost.");
 
             IReadOnlyList<BookSentenceExport> ambiguousPair = service.FindBookSentences(new[] { "ox:record-n", "ox:record-v" }, 20);
@@ -98,22 +98,10 @@ internal static class BookReadingAdvancedSelfTest
     private static void TestTransactionalRecovery(string databasePath, BookDocument original)
     {
         BookChapterRecord chapter = original.Chapters[0];
-        var malformed = new BookDocument(
-            original.BookId,
-            original.SourceId,
-            "corrupt replacement attempt",
-            original.Format,
-            original.ExtractionQuality,
-            original.Provenance,
-            original.ContentSha256,
-            original.OriginalText,
-            original.NormalizedText,
-            new[] { chapter, chapter },
-            true);
+        var malformed = new BookDocument(original.BookId, original.SourceId, "corrupt replacement attempt", original.Format, original.ExtractionQuality, original.Provenance, original.ContentSha256, original.OriginalText, original.NormalizedText, new[] { chapter, chapter }, true);
         var store = new BookReadingStateStore(databasePath);
         ExpectFailure<Microsoft.Data.Sqlite.SqliteException>(() => store.SaveDocument(malformed), "Duplicate chapter transaction did not fail as expected.");
-        BookDocument recovered = BookReadingDocumentLoader.Load(databasePath, original.BookId)
-            ?? throw new InvalidOperationException("Book-reading recovery test lost the committed document.");
+        BookDocument recovered = BookReadingDocumentLoader.Load(databasePath, original.BookId) ?? throw new InvalidOperationException("Book-reading recovery test lost the committed document.");
         Require(recovered.DisplayName == original.DisplayName, "Failed replacement transaction changed committed book metadata.");
         Require(recovered.Chapters.Count == original.Chapters.Count, "Failed replacement transaction destroyed committed chapters.");
     }
