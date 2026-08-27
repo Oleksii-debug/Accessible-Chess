@@ -145,9 +145,13 @@ jobs:
           git archive --format=zip --output=validator.zip $env:SOURCE_PRODUCT_SHA -- acs
           if($LASTEXITCODE -ne 0){throw 'Exact Product preflight export failed'}
           Expand-Archive validator.zip validator -Force
-          $env:PYTHONPATH=(Resolve-Path validator).Path
-          python -m acs.release_preflight package --json | Tee-Object -FilePath preflight-assembled.json
-          if($LASTEXITCODE -ne 0){throw 'Accepted Product release preflight rejected assembled tree'}
+          Push-Location validator
+          try {
+            python -m acs.release_preflight ..\package --json | Tee-Object -FilePath ..\preflight-assembled.json
+            if($LASTEXITCODE -ne 0){throw 'Accepted Product release preflight rejected assembled tree'}
+          } finally {
+            Pop-Location
+          }
 
       - name: Create ZIP and re-run accepted preflight on actual extracted bytes
         shell: pwsh
@@ -158,9 +162,13 @@ jobs:
           $candidateHash=(Get-FileHash $env:CANDIDATE_FILE -Algorithm SHA256).Hash.ToLowerInvariant()
           $candidateHash | Set-Content -Encoding UTF8 candidate-zip.sha256
           Expand-Archive $env:CANDIDATE_FILE inspect -Force
-          $env:PYTHONPATH=(Resolve-Path validator).Path
-          python -m acs.release_preflight inspect --json | Tee-Object -FilePath preflight-actual-zip.json
-          if($LASTEXITCODE -ne 0){throw 'Accepted Product release preflight rejected actual ZIP bytes'}
+          Push-Location validator
+          try {
+            python -m acs.release_preflight ..\inspect --json | Tee-Object -FilePath ..\preflight-actual-zip.json
+            if($LASTEXITCODE -ne 0){throw 'Accepted Product release preflight rejected actual ZIP bytes'}
+          } finally {
+            Pop-Location
+          }
           @'
           import os
           import stat
