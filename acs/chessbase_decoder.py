@@ -39,6 +39,7 @@ MAX_BACKEND_STDERR = 1 * 1024 * 1024
 MAX_DECODED_GAMES = 100_000
 MAX_DECODED_TOKENS_PER_GAME = 500_000
 MAX_DECODED_TOKENS_TOTAL = 2_000_000
+MAX_DECODED_VARIATION_DEPTH = 256
 MAX_TAGS_PER_GAME = 4096
 MAX_TAG_CHARS = 1 * 1024 * 1024
 MAX_COMMENT_CHARS = 1 * 1024 * 1024
@@ -441,15 +442,24 @@ def _move_number(board: Board) -> str:
     return f"{board.fullmove}." if board.turn == "w" else f"{board.fullmove}..."
 
 
+@dataclass(slots=True)
+class _DecodeCursor:
+    line: VariationLine
+    board: Board
+    offset: int = 0
+    owner: MoveNode | None = None
+
+
 def _decode_line(
     tokens: list[object],
     index: int,
-    board: Board,
+    cursor: _DecodeCursor,
     *,
+    root_line: VariationLine,
     nested: bool,
+    depth: int,
     budget: list[int],
-) -> tuple[VariationLine, int]:
-    line = VariationLine()
+) -> int:
     while index < len(tokens):
         raw = tokens[index]
         if type(raw) is not dict:
@@ -465,53 +475,105 @@ def _decode_line(
                 ChessBaseDecodeCode.RESOURCE_LIMIT,
             )
         if kind == "pop":
-            if not nested:
-                raise _decode_error(
-                    "ChessBase decoder returned an unmatched variation pop",
-                    ChessBaseDecodeCode.INVALID_VARIATION,
-                )
-            return line, index + 1
-        if kind == "skip":
-            index += 1
-            continue
-        if kind == "push":
-            if not line.moves:
-                raise _decode_error(
-                    "ChessBase variation has no preceding canonical move",
-                    ChessBaseDecodeCode.INVALID_VARIATION,
-                )
-            branch, index = _decode_line(
-                tokens,
-                index + 1,
-                board.clone(),
-                nested=True,
-                budget=budget,
-            )
-            if not branch.moves:
+            if cursor.owner is not None and not cursor.line.moves:
                 raise _decode_error(
                     "ChessBase decoder returned an empty variation",
                     ChessBaseDecodeCode.INVALID_VARIATION,
                 )
-            line.moves[-1].variations.append(branch)
+            if not nested:
+                # Pinned libcbh emits one terminal MovePop when the root decode
+                # returns. Accept only that structural terminator: it must end
+                # the token stream after a non-empty canonical root line.
+                if index == len(tokens) - 1 and root_line.moves:
+                    return index + 1
+                raise _decode_error(
+                    "ChessBase decoder returned an unmatched variation pop",
+                    ChessBaseDecodeCode.INVALID_VARIATION,
+                )
+            return index + 1
+        if kind == "skip":
+            index += 1
+            continue
+        if kind == "push":
+            if depth >= MAX_DECODED_VARIATION_DEPTH:
+                raise _decode_error(
+                    "ChessBase decoded game exceeds the variation depth limit",
+                    ChessBaseDecodeCode.RESOURCE_LIMIT,
+                )
+
+            # libcbh's MovePush is not a conventional "variation starts here"
+            # marker. Its official cursor contract first decodes the canonical
+            # continuation recursively. After the matching MovePop the cursor
+            # returns to this position and subsequent tokens form an
+            # alternative to the first decoded continuation move.
+            saved_line = cursor.line
+            saved_board = cursor.board.clone()
+            saved_offset = cursor.offset
+            saved_owner = cursor.owner
+            index = _decode_line(
+                tokens,
+                index + 1,
+                cursor,
+                root_line=root_line,
+                nested=True,
+                depth=depth + 1,
+                budget=budget,
+            )
+
+            cursor.line = saved_line
+            cursor.board = saved_board
+            cursor.offset = saved_offset
+            cursor.owner = saved_owner
+            if saved_offset >= len(saved_line.moves):
+                raise _decode_error(
+                    "ChessBase continuation push did not produce a canonical move",
+                    ChessBaseDecodeCode.INVALID_VARIATION,
+                )
+
+            main_move = saved_line.moves[saved_offset]
+            variation = VariationLine()
+            # A push at the start of an existing variation encodes another
+            # alternative at the same branch point. Normalize that libcbh
+            # cursor shape to sibling RAV lines in the canonical GameTree.
+            if saved_owner is not None and saved_offset == 0:
+                owner = saved_owner
+            else:
+                owner = main_move
+            owner.variations.append(variation)
+            cursor.line = variation
+            cursor.board = saved_board
+            cursor.offset = 0
+            cursor.owner = owner
             continue
         if kind != "move":
             raise _decode_error(
                 "ChessBase decoder returned an unknown move token",
                 ChessBaseDecodeCode.PROTOCOL_ERROR,
             )
-        number = _move_number(board)
-        san = _decode_move(board, raw)
+        if cursor.offset != len(cursor.line.moves):
+            raise _decode_error(
+                "ChessBase decoder attempted to overwrite canonical game data",
+                ChessBaseDecodeCode.INVALID_VARIATION,
+            )
+        number = _move_number(cursor.board)
+        san = _decode_move(cursor.board, raw)
         node = MoveNode(san=san, move_number=number)
         _apply_comments(node, raw.get("comments", []))
-        line.moves.append(node)
+        cursor.line.moves.append(node)
+        cursor.offset += 1
         index += 1
+
     if nested:
         raise _decode_error(
             "ChessBase decoder returned an unterminated variation",
             ChessBaseDecodeCode.INVALID_VARIATION,
         )
-    return line, index
-
+    if cursor.owner is not None and not cursor.line.moves:
+        raise _decode_error(
+            "ChessBase decoder returned an empty variation",
+            ChessBaseDecodeCode.INVALID_VARIATION,
+        )
+    return index
 
 def _date(year: int, month: int, day: int) -> str:
     return f"{year:04d}.{month:02d}.{day:02d}" if year else "????.??.??"
@@ -620,7 +682,17 @@ def _decode_game(raw: object, expected_index: int, total_budget: list[int]) -> t
             "ChessBase decoded database exceeds the token safety limit",
             ChessBaseDecodeCode.RESOURCE_LIMIT,
         )
-    line, consumed = _decode_line(raw_tokens, 0, board, nested=False, budget=[0])
+    line = VariationLine()
+    cursor = _DecodeCursor(line=line, board=board)
+    consumed = _decode_line(
+        raw_tokens,
+        0,
+        cursor,
+        root_line=line,
+        nested=False,
+        depth=0,
+        budget=[0],
+    )
     if consumed != len(raw_tokens):
         raise _decode_error(
             "ChessBase decoder left unconsumed move tokens",

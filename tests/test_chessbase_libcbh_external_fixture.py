@@ -35,6 +35,45 @@ def _game_signature(game: PgnGame):
     return game.result, _line_signature(game.line)
 
 
+def _first_tree_difference(
+    actual: VariationLine,
+    expected: VariationLine,
+    *,
+    path: str = "root",
+) -> str | None:
+    if len(actual.moves) != len(expected.moves):
+        return (
+            f"{path}: move count differs "
+            f"(decoded={len(actual.moves)}, reference={len(expected.moves)})"
+        )
+    for move_index, (actual_move, expected_move) in enumerate(
+        zip(actual.moves, expected.moves)
+    ):
+        move_path = f"{path}/move[{move_index}]"
+        if _san(actual_move.san) != _san(expected_move.san):
+            return (
+                f"{move_path}: SAN differs "
+                f"(decoded={actual_move.san!r}, reference={expected_move.san!r})"
+            )
+        if len(actual_move.variations) != len(expected_move.variations):
+            return (
+                f"{move_path} {actual_move.san!r}: variation count differs "
+                f"(decoded={len(actual_move.variations)}, "
+                f"reference={len(expected_move.variations)})"
+            )
+        for variation_index, (actual_variation, expected_variation) in enumerate(
+            zip(actual_move.variations, expected_move.variations)
+        ):
+            difference = _first_tree_difference(
+                actual_variation,
+                expected_variation,
+                path=f"{move_path}/variation[{variation_index}]",
+            )
+            if difference is not None:
+                return difference
+    return None
+
+
 def _bounded_token_trace(bridge: Path, source: Path) -> str:
     env = os.environ.copy()
     env["LD_LIBRARY_PATH"] = str(bridge.parent)
@@ -58,15 +97,23 @@ def _bounded_token_trace(bridge: Path, source: Path) -> str:
         return f"bridge diagnostic parse failed: {type(exc).__name__}"
 
     trace: list[str] = []
-    for index, token in enumerate(tokens[:160]):
+    depth = 0
+    for index, token in enumerate(tokens[:512]):
         kind = token.get("kind")
         if kind == "move":
             trace.append(
-                f"{index}:m({token.get('from')},{token.get('to')},{token.get('promote')})"
+                f"{index}:m@{depth}("
+                f"{token.get('from')},{token.get('to')},{token.get('promote')})"
             )
+        elif kind == "push":
+            trace.append(f"{index}:push@{depth}")
+            depth += 1
+        elif kind == "pop":
+            depth -= 1
+            trace.append(f"{index}:pop@{depth}")
         else:
-            trace.append(f"{index}:{kind}")
-    if len(tokens) > 160:
+            trace.append(f"{index}:{kind}@{depth}")
+    if len(tokens) > 512:
         trace.append(f"... total={len(tokens)}")
     return " ".join(trace)
 
@@ -110,7 +157,19 @@ class PinnedLibcbhFixtureIntegrationTests(unittest.TestCase):
 
         decoded_signatures = tuple(_game_signature(game) for game in decoded.games)
         reference_signatures = tuple(_game_signature(game) for game in reference_games)
-        self.assertEqual(decoded_signatures, reference_signatures)
+        if decoded_signatures != reference_signatures:
+            first_difference = "signature mismatch without a located tree divergence"
+            for game_index, (decoded_game, reference_game) in enumerate(
+                zip(decoded.games, reference_games)
+            ):
+                difference = _first_tree_difference(decoded_game.line, reference_game.line)
+                if difference is not None:
+                    first_difference = f"game[{game_index}] {difference}"
+                    break
+            self.fail(
+                f"{first_difference}; "
+                f"first decoded token trace: {_bounded_token_trace(bridge, source)}"
+            )
 
         decoded_variations = sum(
             len(move.variations)

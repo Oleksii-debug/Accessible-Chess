@@ -105,44 +105,47 @@ class ChessBaseExternalDecoderTests(unittest.TestCase):
         self.assertEqual(game.tags["Source"], "Pinned external oracle")
         self.assertEqual(game.line.result, "1-0")
 
-    def test_push_pop_sequence_builds_sibling_variations_from_current_position(self) -> None:
+    def test_libcbh_push_pop_builds_mainline_then_sibling_variations(self) -> None:
         tokens = [
             move(12, 28),  # 1. e4
             {"kind": "push"},
-            move(50, 34),  # 1... c5
+            move(52, 36),  # 1... e5 canonical continuation
+            move(6, 21),   # 2. Nf3 canonical continuation
             {"kind": "pop"},
             {"kind": "push"},
-            move(50, 42),  # 1... c6
+            move(50, 34),  # 1... c5 first alternative
             {"kind": "pop"},
-            move(52, 36),  # 1... e5 main line
-            move(6, 21),   # 2. Nf3
-        ]
-        result = self.decode(payload([decoded_game(0, tokens)]))
-        game = result.games[0]
-        self.assertEqual([node.san for node in game.line.moves], ["e4", "e5", "Nf3"])
-        self.assertEqual(len(game.line.moves[0].variations), 2)
-        first = game.line.moves[0].variations[0]
-        second = game.line.moves[0].variations[1]
-        self.assertEqual([node.san for node in first.moves], ["c5"])
-        self.assertEqual([node.san for node in second.moves], ["c6"])
-
-    def test_nested_variation_is_preserved_recursively(self) -> None:
-        tokens = [
-            move(12, 28),
-            {"kind": "push"},
-            move(50, 34),
-            {"kind": "push"},
-            move(6, 21),
+            move(50, 42),  # 1... c6 sibling alternative
             {"kind": "pop"},
-            move(6, 21),
-            {"kind": "pop"},
-            move(52, 36),
         ]
         game = self.decode(payload([decoded_game(0, tokens)])).games[0]
-        outer = game.line.moves[0].variations[0]
-        nested = outer.moves[0].variations[0]
+        self.assertEqual([node.san for node in game.line.moves], ["e4", "e5", "Nf3"])
+        alternatives = game.line.moves[1].variations
+        self.assertEqual(len(alternatives), 2)
+        self.assertEqual([node.san for node in alternatives[0].moves], ["c5"])
+        self.assertEqual([node.san for node in alternatives[1].moves], ["c6"])
+        self.assertFalse(alternatives[0].moves[0].variations)
+
+    def test_libcbh_push_pop_preserves_nested_variation(self) -> None:
+        tokens = [
+            move(12, 28),  # 1. e4
+            {"kind": "push"},
+            move(52, 36),  # 1... e5 canonical continuation
+            move(6, 21),   # 2. Nf3
+            {"kind": "pop"},
+            move(50, 34),  # 1... c5 alternative
+            {"kind": "push"},
+            move(6, 21),   # 2. Nf3 continuation in the alternative
+            {"kind": "pop"},
+            move(1, 18),   # 2. Nc3 nested alternative
+            {"kind": "pop"},
+        ]
+        game = self.decode(payload([decoded_game(0, tokens)])).games[0]
+        self.assertEqual([node.san for node in game.line.moves], ["e4", "e5", "Nf3"])
+        outer = game.line.moves[1].variations[0]
         self.assertEqual([node.san for node in outer.moves], ["c5", "Nf3"])
-        self.assertEqual([node.san for node in nested.moves], ["Nf3"])
+        nested = outer.moves[1].variations[0]
+        self.assertEqual([node.san for node in nested.moves], ["Nc3"])
 
     def test_text_symbol_and_graphic_annotations_survive_neutral_conversion(self) -> None:
         comments = [
@@ -166,10 +169,19 @@ class ChessBaseExternalDecoderTests(unittest.TestCase):
             self.decode(payload([decoded_game(0, [move(12, 44)])]))
         self.assertEqual(caught.exception.code, ChessBaseDecodeCode.INVALID_MOVE)
 
-    def test_unmatched_pop_and_unterminated_push_fail_closed(self) -> None:
+    def test_terminal_root_pop_is_consumed_after_nonempty_root_line(self) -> None:
+        game = self.decode(
+            payload([decoded_game(0, [move(12, 28), {"kind": "pop"}])])
+        ).games[0]
+        self.assertEqual([node.san for node in game.line.moves], ["e4"])
+
+    def test_invalid_root_pop_and_unterminated_push_fail_closed(self) -> None:
         for tokens in (
             [{"kind": "pop"}],
+            [move(12, 28), {"kind": "pop"}, move(52, 36)],
             [move(12, 28), {"kind": "push"}, move(50, 34)],
+            [move(12, 28), {"kind": "push"}, {"kind": "pop"}],
+            [move(12, 28), {"kind": "push"}, move(52, 36), {"kind": "pop"}],
         ):
             with self.subTest(tokens=tokens):
                 with self.assertRaises(ChessBaseDecodeError) as caught:
