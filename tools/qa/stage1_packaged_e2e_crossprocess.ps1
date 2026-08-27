@@ -5,20 +5,19 @@ param(
 
 $ErrorActionPreference='Stop'
 
-# QA-only wrapper. The exact previous strict helper is immutable at this commit.
-# We patch only the stale post-rerender board focus assertion in memory, then execute
-# the complete original helper unchanged otherwise. Product source is never touched.
+# QA-only wrapper. Load the immutable strict helper baseline, replace exactly one
+# stale post-rerender board-focus assertion, then execute the complete helper.
+# Product source and all other strict assertions remain unchanged.
 $baseSha='0549391267073f9d006ec8271af148fe17edcdb6'
 $path='tools/qa/stage1_packaged_e2e_crossprocess.ps1'
-$original=(& git show "$baseSha`:$path") -join "`n"
+$original=((& git show "$baseSha`:$path") -join "`n") -replace "`r`n","`n"
 if($LASTEXITCODE -ne 0 -or -not $original){throw 'Could not load immutable strict helper baseline'}
 
-$needle=@'
-  Invoke $submit 'move-submit'
-  AssertSemanticFocusEventually $target 'Board focus continuity after pure submit bridge'
-'@
+$pattern='(?m)^[ \t]*AssertSemanticFocusEventually[ \t]+\$target[ \t]+''Board focus continuity after pure submit bridge''[ \t]*$'
+$matches=[regex]::Matches($original,$pattern)
+if($matches.Count -ne 1){throw "Expected exactly one stale board-focus assertion, found $($matches.Count)"}
+
 $replacement=@'
-  Invoke $submit 'move-submit'
   $expectedBoardSquare='a3'
   $expectedBoardId='sq-a3'
   $boardFocusWatch=[System.Diagnostics.Stopwatch]::StartNew()
@@ -50,12 +49,8 @@ $replacement=@'
   Write-Output 'BOARD FOCUS CONTINUITY PASS a3/sq-a3 after rerender'
 '@
 
-$first=$original.IndexOf($needle,[System.StringComparison]::Ordinal)
-if($first -lt 0){throw 'Expected stale board-focus assertion was not found exactly once'}
-$second=$original.IndexOf($needle,$first+$needle.Length,[System.StringComparison]::Ordinal)
-if($second -ge 0){throw 'Expected stale board-focus assertion occurs more than once'}
-$patched=$original.Replace($needle,$replacement)
-if($patched -eq $original -or $patched.Contains($needle)){throw 'Board-focus QA patch did not apply fail-closed'}
+$patched=[regex]::Replace($original,$pattern,[System.Text.RegularExpressions.MatchEvaluator]{param($m) $replacement},1)
+if($patched -eq $original -or [regex]::Matches($patched,$pattern).Count -ne 0){throw 'Board-focus QA patch did not apply fail-closed'}
 
 # Dynamic execution must preserve the original helper directory for topology/classifier files.
 $rootLiteral="'"+($PSScriptRoot -replace "'","''")+"'"
