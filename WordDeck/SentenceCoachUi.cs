@@ -16,10 +16,14 @@ internal sealed class SentenceCoachState
     public string? ActivePackId { get; set; }
     public string? ActiveSpellingDeckId { get; set; }
     public int TargetCount { get; set; } = 1;
+    public ContextStudyPoolPreset PoolPreset { get; set; } = ContextStudyPoolPreset.Full;
     public string? CurrentSentenceId { get; set; }
     // Kept for backwards-compatible migration from the original one-target state.
     public string? CurrentTargetEntryId { get; set; }
     public List<string> CurrentTargetEntryIds { get; set; } = new();
+    public int CurrentTargetIndex { get; set; }
+    public bool CurrentTargetHadWrong { get; set; }
+    public bool CurrentTargetUsedHint { get; set; }
     public List<string> RecentSentenceIds { get; set; } = new();
     public Dictionary<string, Dictionary<string, SentenceTargetStats>> StatsByDictionary { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 }
@@ -58,18 +62,30 @@ internal sealed class SentenceCoachStateStore
 
     internal static SentenceCoachState Normalize(SentenceCoachState state)
     {
-        state.TargetCount = Math.Clamp(state.TargetCount, 1, 2);
+        state.TargetCount = Math.Clamp(state.TargetCount, 1, 3);
+        if (state.PoolPreset is not (ContextStudyPoolPreset.Thirty or ContextStudyPoolPreset.Hundred or ContextStudyPoolPreset.TwoHundred or ContextStudyPoolPreset.Full))
+            state.PoolPreset = ContextStudyPoolPreset.Full;
         state.CurrentTargetEntryIds ??= new();
         state.CurrentTargetEntryIds = state.CurrentTargetEntryIds
             .Where(id => !string.IsNullOrWhiteSpace(id))
             .Distinct(StringComparer.OrdinalIgnoreCase)
-            .Take(2)
+            .Take(3)
             .ToList();
 
         if (state.CurrentTargetEntryIds.Count == 0 && !string.IsNullOrWhiteSpace(state.CurrentTargetEntryId))
             state.CurrentTargetEntryIds.Add(state.CurrentTargetEntryId);
 
         state.CurrentTargetEntryId = state.CurrentTargetEntryIds.FirstOrDefault();
+        if (state.CurrentTargetEntryIds.Count == 0)
+        {
+            state.CurrentTargetIndex = 0;
+            state.CurrentTargetHadWrong = false;
+            state.CurrentTargetUsedHint = false;
+        }
+        else
+        {
+            state.CurrentTargetIndex = Math.Clamp(state.CurrentTargetIndex, 0, state.CurrentTargetEntryIds.Count - 1);
+        }
 
         state.RecentSentenceIds ??= new();
         state.RecentSentenceIds = state.RecentSentenceIds
@@ -98,52 +114,82 @@ internal sealed class SentenceCoachForm : Form
         public override string ToString() => Name;
     }
 
+    private sealed record PoolChoice(ContextStudyPoolPreset Preset, string Name)
+    {
+        public override string ToString() => Name;
+    }
+
+    private sealed record NaturalExercise(
+        SentenceRecord Sentence,
+        IReadOnlyList<DictionaryEntry> Targets,
+        int DifficultyScore);
+
     private readonly SpellingDeckService _spellingDecks;
     private readonly ShortcutManager _shortcuts;
     private readonly DictionaryPackage _package;
+    private readonly ContextTargetLexicon _lexicon;
     private readonly Dictionary<string, DictionaryEntry> _entries;
     private readonly Dictionary<string, string> _spellingDeckMap;
     private readonly SentencePackStore _packStore;
     private readonly SentenceCoachStateStore _stateStore;
     private readonly SentenceCoachState _state;
     private readonly Random _random = new();
+    private readonly Dictionary<string, HashSet<string>> _coverageCache = new(StringComparer.OrdinalIgnoreCase);
 
     private readonly ComboBox _packCombo = new()
     {
         DropDownStyle = ComboBoxStyle.DropDownList,
         Width = 320,
         AccessibleName = "Sentence pack",
-        AccessibleDescription = "Choose an installed offline SentencePack. Disk-backed SQLite is preferred automatically when available."
+        AccessibleDescription = "Choose a validated installed offline SentencePack. WordDeck never fabricates a production corpus when no pack is available."
     };
     private readonly ComboBox _deckCombo = new()
     {
         DropDownStyle = ComboBoxStyle.DropDownList,
-        Width = 260,
+        Width = 245,
         DisplayMember = nameof(DeckDefinition.Name),
         AccessibleName = "Sentence training spelling deck"
+    };
+    private readonly ComboBox _poolCombo = new()
+    {
+        DropDownStyle = ComboBoxStyle.DropDownList,
+        Width = 150,
+        AccessibleName = "Sentence study pool size",
+        AccessibleDescription = "Choose the first 30, 100, 200, or the full resolved target pool inside the selected spelling deck."
     };
     private readonly ComboBox _targetCountCombo = new()
     {
         DropDownStyle = ComboBoxStyle.DropDownList,
-        Width = 150,
-        AccessibleName = "Number of target words per sentence"
+        Width = 190,
+        AccessibleName = "Number of target words per sentence",
+        AccessibleDescription = "Choose one target, two natural targets, or three natural targets. Multi-target modes are used only when the installed corpus contains a real sentence with all targets."
     };
     private readonly TextBox _prompt = new()
     {
         ReadOnly = true,
         Multiline = true,
         Dock = DockStyle.Fill,
+        TabStop = true,
         AccessibleName = "Ukrainian sentence prompt",
-        Font = new Font(SystemFonts.DefaultFont.FontFamily, 17)
+        Font = new Font(SystemFonts.DefaultFont.FontFamily, 16)
+    };
+    private readonly TextBox _cloze = new()
+    {
+        ReadOnly = true,
+        Multiline = true,
+        Dock = DockStyle.Fill,
+        TabStop = true,
+        AccessibleName = "English sentence with current target blank"
     };
     private readonly TextBox _answer = new()
     {
         Multiline = true,
         Dock = DockStyle.Fill,
         AcceptsReturn = false,
-        AccessibleName = "Type the English sentence words"
+        AccessibleName = "Type the current English target word or phrase",
+        AccessibleDescription = "Type only the current target form, not the full English sentence, then press Enter."
     };
-    private readonly Label _target = new() { AutoSize = true, AccessibleName = "Sentence target words" };
+    private readonly Label _target = new() { AutoSize = true, AccessibleName = "Current Sentence target" };
     private readonly Label _status = new() { AutoSize = true, AccessibleName = "Sentence Coach status" };
     private readonly Label _coverage = new() { AutoSize = true, AccessibleName = "Sentence Coach scope coverage" };
     private readonly Label _modeInfo = new() { AutoSize = true, AccessibleName = "Sentence Coach mode information" };
@@ -152,8 +198,7 @@ internal sealed class SentenceCoachForm : Form
     private string _activeDeckId;
     private SentenceRecord? _currentSentence;
     private readonly List<DictionaryEntry> _currentTargets = new();
-    private bool _hadWrong;
-    private bool _usedHint;
+    private SentenceCoachTargetOnlySession? _targetSession;
 
     public SentenceCoachForm(
         AppState appState,
@@ -168,6 +213,7 @@ internal sealed class SentenceCoachForm : Form
         _spellingDecks = new SpellingDeckService(spellingState);
         _shortcuts = shortcuts;
         _package = package;
+        _lexicon = new ContextTargetLexicon(package);
         _entries = package.Entries.ToDictionary(entry => entry.Id, StringComparer.OrdinalIgnoreCase);
         _spellingDeckMap = _spellingDecks.EnsureAssignments(package.Id, package.Entries.Select(entry => entry.Id));
         _packStore = packStore;
@@ -176,23 +222,25 @@ internal sealed class SentenceCoachForm : Form
         _activeDeckId = _spellingDecks.Find(state.ActiveSpellingDeckId ?? string.Empty)?.Id ?? _spellingDecks.FirstDeck.Id;
 
         Text = "WordDeck Sentence Spelling";
-        Width = 980;
-        Height = 640;
-        MinimumSize = new Size(700, 490);
+        Width = 1040;
+        Height = 720;
+        MinimumSize = new Size(720, 540);
         StartPosition = FormStartPosition.CenterParent;
         KeyPreview = true;
         AccessibleName = "WordDeck Sentence Spelling trainer";
         MainMenuStrip = BuildMenu();
         Controls.Add(MainMenuStrip);
 
-        var root = new TableLayoutPanel { Dock = DockStyle.Fill, RowCount = 9, ColumnCount = 1, Padding = new Padding(16) };
+        var root = new TableLayoutPanel { Dock = DockStyle.Fill, RowCount = 11, ColumnCount = 1, Padding = new Padding(16) };
         root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        root.RowStyles.Add(new RowStyle(SizeType.Percent, 45));
+        root.RowStyles.Add(new RowStyle(SizeType.Percent, 28));
         root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        root.RowStyles.Add(new RowStyle(SizeType.Percent, 35));
+        root.RowStyles.Add(new RowStyle(SizeType.Percent, 28));
+        root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        root.RowStyles.Add(new RowStyle(SizeType.Percent, 24));
         root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
 
@@ -201,6 +249,8 @@ internal sealed class SentenceCoachForm : Form
         top.Controls.Add(_packCombo);
         top.Controls.Add(new Label { Text = "Spelling deck scope:", AutoSize = true, Padding = new Padding(12, 6, 4, 0) });
         top.Controls.Add(_deckCombo);
+        top.Controls.Add(new Label { Text = "Pool:", AutoSize = true, Padding = new Padding(12, 6, 4, 0) });
+        top.Controls.Add(_poolCombo);
         top.Controls.Add(new Label { Text = "Targets:", AutoSize = true, Padding = new Padding(12, 6, 4, 0) });
         top.Controls.Add(_targetCountCombo);
 
@@ -209,15 +259,17 @@ internal sealed class SentenceCoachForm : Form
         root.Controls.Add(_target, 0, 2);
         root.Controls.Add(new Label { Text = "Ukrainian sentence", AutoSize = true, Font = new Font(Font, FontStyle.Bold) }, 0, 3);
         root.Controls.Add(_prompt, 0, 4);
+        root.Controls.Add(new Label { Text = "English sentence with the current target blank", AutoSize = true, Font = new Font(Font, FontStyle.Bold) }, 0, 5);
+        root.Controls.Add(_cloze, 0, 6);
         root.Controls.Add(new Label
         {
-            Text = "Type all required English word forms and press Enter. Word order is not assessed.",
+            Text = "Type only the current English target word or phrase and press Enter.",
             AutoSize = true,
             Font = new Font(Font, FontStyle.Bold)
-        }, 0, 5);
-        root.Controls.Add(_answer, 0, 6);
-        root.Controls.Add(_status, 0, 7);
-        root.Controls.Add(_modeInfo, 0, 8);
+        }, 0, 7);
+        root.Controls.Add(_answer, 0, 8);
+        root.Controls.Add(_status, 0, 9);
+        root.Controls.Add(_modeInfo, 0, 10);
         Controls.Add(root);
         root.BringToFront();
 
@@ -234,6 +286,18 @@ internal sealed class SentenceCoachForm : Form
                 UpdateCoverage();
                 Next();
             }
+        };
+        _poolCombo.SelectedIndexChanged += (_, _) =>
+        {
+            if (_poolCombo.SelectedItem is PoolChoice choice && choice.Preset != _state.PoolPreset)
+            {
+                _state.PoolPreset = choice.Preset;
+                ClearCurrent();
+                Save();
+                UpdateCoverage();
+                Next();
+            }
+            UpdateModeInfo();
         };
         _targetCountCombo.SelectedIndexChanged += (_, _) =>
         {
@@ -257,6 +321,7 @@ internal sealed class SentenceCoachForm : Form
         };
 
         PopulateTargetCounts();
+        PopulatePoolPresets();
         PopulateDecks();
         PopulatePacks();
         UpdateModeInfo();
@@ -270,8 +335,8 @@ internal sealed class SentenceCoachForm : Form
         var file = new ToolStripMenuItem("&File");
         Add(file, "&Import SentencePack...", ImportPack);
         var training = new ToolStripMenuItem("&Training");
-        Add(training, "&Show required English sentence", ShowAnswer);
-        Add(training, "&Repeat Ukrainian sentence", RepeatPrompt);
+        Add(training, "&Show current target answer", ShowAnswer);
+        Add(training, "&Repeat current sentence prompt", RepeatPrompt);
         menu.Items.Add(file);
         menu.Items.Add(training);
         return menu;
@@ -289,9 +354,29 @@ internal sealed class SentenceCoachForm : Form
         _targetCountCombo.BeginUpdate();
         _targetCountCombo.Items.Clear();
         _targetCountCombo.Items.Add(new TargetCountChoice(1, "1 target"));
-        _targetCountCombo.Items.Add(new TargetCountChoice(2, "2 targets"));
+        _targetCountCombo.Items.Add(new TargetCountChoice(2, "2 natural targets"));
+        _targetCountCombo.Items.Add(new TargetCountChoice(3, "3 natural targets"));
         _targetCountCombo.SelectedIndex = _state.TargetCount - 1;
         _targetCountCombo.EndUpdate();
+    }
+
+    private void PopulatePoolPresets()
+    {
+        PoolChoice[] choices =
+        {
+            new(ContextStudyPoolPreset.Thirty, "30"),
+            new(ContextStudyPoolPreset.Hundred, "100"),
+            new(ContextStudyPoolPreset.TwoHundred, "200"),
+            new(ContextStudyPoolPreset.Full, "Full")
+        };
+        _poolCombo.BeginUpdate();
+        _poolCombo.Items.Clear();
+        foreach (PoolChoice choice in choices)
+            _poolCombo.Items.Add(choice);
+        _poolCombo.SelectedIndex = Array.FindIndex(choices, choice => choice.Preset == _state.PoolPreset);
+        if (_poolCombo.SelectedIndex < 0)
+            _poolCombo.SelectedIndex = choices.Length - 1;
+        _poolCombo.EndUpdate();
     }
 
     private void PopulateDecks()
@@ -335,8 +420,9 @@ internal sealed class SentenceCoachForm : Form
             _state.ActivePackId = null;
             UpdateCoverage();
             _prompt.Text = "No SentencePack installed";
+            _cloze.Clear();
             _answer.Clear();
-            Announce("No SentencePack is installed. Use File, Import SentencePack to add a validated offline .json.gz or .json pack.");
+            Announce("No SentencePack is installed. Import a validated attributed offline SentencePack before Sentence Spelling can run.");
         }
     }
 
@@ -349,6 +435,7 @@ internal sealed class SentenceCoachForm : Form
 
         _corpus = choice.Installed.Corpus;
         _state.ActivePackId = _corpus.PackId;
+        _coverageCache.Clear();
         ClearCurrent();
         Save();
         UpdateCoverage();
@@ -368,8 +455,9 @@ internal sealed class SentenceCoachForm : Form
         try
         {
             InstalledSentencePack installed = _packStore.Import(dialog.FileName);
+            _coverageCache.Clear();
             PopulatePacks(installed.PackId);
-            Announce($"Imported SentencePack {installed.PackId}, {installed.SentenceCount:N0} sentences, license {installed.License}. Disk-backed runtime index is ready.");
+            Announce($"Imported validated SentencePack {installed.PackId}, {installed.SentenceCount:N0} sentences, license {installed.License}.");
         }
         catch (Exception ex)
         {
@@ -385,54 +473,48 @@ internal sealed class SentenceCoachForm : Form
                 StringComparison.OrdinalIgnoreCase))
             .ToList();
 
-    private HashSet<string> CoveredScopeEntryIds(IReadOnlyList<DictionaryEntry> scopeEntries, bool requireSameScopePartner)
+    private IReadOnlyList<DictionaryEntry> ResolvedScopeEntries()
+    {
+        IReadOnlyList<DictionaryEntry> resolvedFullScope = SentenceCoachTargetOnlyPlanner.ResolvedScope(ScopeEntries(), _lexicon);
+        ContextStudyPoolSelection pool = ContextStudyPoolBuilder.Build(resolvedFullScope.Select(entry => entry.Id), _state.PoolPreset);
+        return pool.EntryIds.Select(id => _entries[id]).ToList();
+    }
+
+    private HashSet<string> CoveredAnchorIds(IReadOnlyList<DictionaryEntry> resolvedScope)
     {
         if (_corpus is null)
             return new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        string[] scopeIds = scopeEntries.Select(entry => entry.Id).ToArray();
-        if (_corpus is SentencePackSqliteCorpus sqlite)
-            return sqlite.GetCoveredScopeEntryIds(scopeIds, requireSameScopePartner);
+        string key = $"{_corpus.PackId}\u001f{_activeDeckId}\u001f{_state.PoolPreset}\u001f{_state.TargetCount}";
+        if (_coverageCache.TryGetValue(key, out HashSet<string>? cached))
+            return new HashSet<string>(cached, StringComparer.OrdinalIgnoreCase);
 
-        if (!requireSameScopePartner)
-            return new HashSet<string>(
-                scopeEntries.Where(entry => _corpus.LookupByEntryId(entry.Id).Count > 0).Select(entry => entry.Id),
-                StringComparer.OrdinalIgnoreCase);
-
-        var allowed = new HashSet<string>(scopeIds, StringComparer.OrdinalIgnoreCase);
-        return new HashSet<string>(
-            scopeEntries.Where(entry => HasSameScopePartner(entry.Id, allowed)).Select(entry => entry.Id),
-            StringComparer.OrdinalIgnoreCase);
+        var covered = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (DictionaryEntry entry in resolvedScope)
+        {
+            if (SentenceCoachTargetOnlyPlanner.HasNaturalTargetSet(_corpus, entry, resolvedScope, _lexicon, _state.TargetCount))
+                covered.Add(entry.Id);
+        }
+        _coverageCache[key] = new HashSet<string>(covered, StringComparer.OrdinalIgnoreCase);
+        return covered;
     }
 
     private void UpdateCoverage()
     {
         DeckDefinition deck = _spellingDecks.Find(_activeDeckId) ?? _spellingDecks.FirstDeck;
-        IReadOnlyList<DictionaryEntry> scopeEntries = ScopeEntries();
-        int scope = scopeEntries.Count;
+        IReadOnlyList<DictionaryEntry> scope = ScopeEntries();
+        IReadOnlyList<DictionaryEntry> resolvedFullScope = SentenceCoachTargetOnlyPlanner.ResolvedScope(scope, _lexicon);
+        IReadOnlyList<DictionaryEntry> resolvedPool = ResolvedScopeEntries();
+        int ambiguous = scope.Count - resolvedFullScope.Count;
+        string poolLabel = _state.PoolPreset == ContextStudyPoolPreset.Full ? "full" : ((int)_state.PoolPreset).ToString();
         if (_corpus is null)
         {
-            _coverage.Text = $"{deck.Name}: {scope} target words. No SentencePack loaded.";
+            _coverage.Text = $"{deck.Name}: pool {poolLabel} contains {resolvedPool.Count} of {resolvedFullScope.Count} resolved targets. No SentencePack loaded. {ambiguous} same-written-form ambiguous entries are fail-closed before pool selection.";
             return;
         }
 
-        HashSet<string> covered = CoveredScopeEntryIds(scopeEntries, _state.TargetCount == 2);
-        _coverage.Text = _state.TargetCount == 1
-            ? $"{deck.Name}: {scope} target words; {covered.Count} currently have at least one corpus sentence in {_corpus.PackId}."
-            : $"{deck.Name}: {scope} target words; {covered.Count} currently have at least one same-scope two-target corpus intersection in {_corpus.PackId}.";
-    }
-
-    private bool HasSameScopePartner(string entryId, HashSet<string> allowed)
-    {
-        if (_corpus is null)
-            return false;
-        foreach (SentenceRecord sentence in _corpus.LookupByEntryId(entryId))
-        {
-            if (sentence.TargetEntryIds.Any(id =>
-                    !string.Equals(id, entryId, StringComparison.OrdinalIgnoreCase) && allowed.Contains(id)))
-                return true;
-        }
-        return false;
+        HashSet<string> covered = CoveredAnchorIds(resolvedPool);
+        _coverage.Text = $"{deck.Name}: pool {poolLabel} contains {resolvedPool.Count} of {resolvedFullScope.Count} resolved targets; {covered.Count} currently have a natural {_state.TargetCount}-target corpus exercise in {_corpus.PackId}. {ambiguous} same-written-form ambiguous entries are excluded using full-dictionary identity before pool selection.";
     }
 
     private void RestoreOrNext()
@@ -446,35 +528,38 @@ internal sealed class SentenceCoachForm : Form
 
             if (targetIds.Count == _state.TargetCount)
             {
-                var restoredTargets = new List<DictionaryEntry>();
-                bool valid = true;
-                foreach (string id in targetIds)
+                try
                 {
-                    if (!_entries.TryGetValue(id, out DictionaryEntry? target) ||
-                        !string.Equals(
-                            _spellingDeckMap.GetValueOrDefault(target.Id, _spellingDecks.FirstDeck.Id),
-                            _activeDeckId,
-                            StringComparison.OrdinalIgnoreCase))
+                    IReadOnlyList<DictionaryEntry> resolvedScope = ResolvedScopeEntries();
+                    var scopeIds = new HashSet<string>(resolvedScope.Select(entry => entry.Id), StringComparer.OrdinalIgnoreCase);
+                    List<DictionaryEntry> restoredTargets = targetIds
+                        .Where(scopeIds.Contains)
+                        .Where(_entries.ContainsKey)
+                        .Select(id => _entries[id])
+                        .ToList();
+                    _lexicon.EnsureDistinctLexicalTargets(targetIds);
+                    ContextStableIdentityResolution.EnsureResolvedTargets(_lexicon, targetIds);
+
+                    SentenceRecord? sentence = restoredTargets.Count == targetIds.Count
+                        ? _corpus.LookupAllTargets(targetIds)
+                            .FirstOrDefault(item => string.Equals(item.Id, _state.CurrentSentenceId, StringComparison.OrdinalIgnoreCase))
+                        : null;
+
+                    if (sentence is not null && restoredTargets.All(target =>
+                            ContextPhysicalTargetForm.BuildOccurrenceRegex(target.Source).Matches(sentence.English).Count == 1))
                     {
-                        valid = false;
-                        break;
+                        Show(sentence, restoredTargets, _state.CurrentTargetIndex, restoring: true);
+                        return;
                     }
-                    restoredTargets.Add(target);
                 }
-
-                SentenceRecord? sentence = valid
-                    ? _corpus.LookupAllTargets(targetIds)
-                        .FirstOrDefault(item => string.Equals(item.Id, _state.CurrentSentenceId, StringComparison.OrdinalIgnoreCase))
-                    : null;
-
-                if (sentence is not null && restoredTargets.All(target =>
-                        sentence.TargetEntryIds.Contains(target.Id, StringComparer.OrdinalIgnoreCase)))
+                catch
                 {
-                    Show(sentence, restoredTargets);
-                    return;
+                    // Stale or newly ambiguous saved Sentence state fails closed and is replaced by a fresh safe exercise.
                 }
             }
         }
+        ClearCurrent();
+        Save();
         Next();
     }
 
@@ -483,41 +568,38 @@ internal sealed class SentenceCoachForm : Form
         if (_corpus is null)
             return;
 
-        IReadOnlyList<DictionaryEntry> scope = ScopeEntries();
-        var allowed = new HashSet<string>(scope.Select(entry => entry.Id), StringComparer.OrdinalIgnoreCase);
-        HashSet<string> coveredIds = CoveredScopeEntryIds(scope, _state.TargetCount == 2);
-        List<DictionaryEntry> covered = scope.Where(entry => coveredIds.Contains(entry.Id)).ToList();
+        IReadOnlyList<DictionaryEntry> resolvedScope = ResolvedScopeEntries();
+        HashSet<string> coveredIds = CoveredAnchorIds(resolvedScope);
+        List<DictionaryEntry> covered = resolvedScope.Where(entry => coveredIds.Contains(entry.Id)).ToList();
 
         if (covered.Count == 0)
         {
             ClearCurrent();
-            _prompt.Text = _state.TargetCount == 1
-                ? "No corpus sentence covers a word in this spelling deck"
-                : "No corpus sentence covers two words from this spelling deck";
+            _prompt.Text = "No safe corpus exercise is available in this pool";
+            _cloze.Clear();
             _answer.Clear();
-            Announce(_state.TargetCount == 1
-                ? "This spelling deck currently has no one-target sentence coverage in the selected SentencePack."
-                : "This spelling deck currently has no same-scope two-target sentence intersections in the selected SentencePack.");
+            Announce($"The selected pool currently has no resolved natural {_state.TargetCount}-target SentencePack exercise. WordDeck will not fabricate one or guess a homograph sense.");
             UpdateCoverage();
             return;
         }
 
-        DictionaryEntry primary = ChooseWeakTarget(covered);
-        var targets = new List<DictionaryEntry> { primary };
-
-        if (_state.TargetCount == 2)
+        DictionaryEntry anchor = ChooseWeakTarget(covered);
+        IReadOnlyList<SentenceCoachTargetSetCandidate> sets = SentenceCoachTargetOnlyPlanner.FindNaturalTargetSets(
+            _corpus,
+            anchor,
+            resolvedScope,
+            _lexicon,
+            _state.TargetCount,
+            maxSets: 100);
+        if (sets.Count == 0)
         {
-            List<DictionaryEntry> partners = GetPartnerCandidates(primary.Id, scope);
-            if (partners.Count == 0)
-            {
-                Announce($"No second same-scope target is currently available with {primary.Target}. Trying another exercise.");
-                ClearCurrent();
-                Next();
-                return;
-            }
-            targets.Add(ChooseWeakTarget(partners));
+            _coverageCache.Clear();
+            Announce("Corpus coverage changed while selecting the next exercise. Rechecking safe coverage.");
+            UpdateCoverage();
+            return;
         }
 
+        var allowed = new HashSet<string>(resolvedScope.Select(entry => entry.Id), StringComparer.OrdinalIgnoreCase);
         var known = new HashSet<string>(
             _package.Entries
                 .Where(entry => IsKnownSpellingDeck(_spellingDeckMap.GetValueOrDefault(entry.Id, _spellingDecks.FirstDeck.Id)))
@@ -526,36 +608,39 @@ internal sealed class SentenceCoachForm : Form
         var levels = _package.Entries.ToDictionary(entry => entry.Id, entry => entry.Level, StringComparer.OrdinalIgnoreCase);
         var recent = new HashSet<string>(_state.RecentSentenceIds, StringComparer.OrdinalIgnoreCase);
         var context = new SentenceSelectionContext(allowed, known, recent, levels);
-        string[] targetIds = targets.Select(target => target.Id).ToArray();
-        SentenceSelectionResult? selected = new SentenceSelector(_corpus).Select(targetIds, context);
+
+        NaturalExercise? selected = sets
+            .Select(set => BuildNaturalExercise(set, context))
+            .Where(item => item is not null)
+            .Cast<NaturalExercise>()
+            .OrderBy(item => item.DifficultyScore)
+            .ThenBy(item => item.Sentence.Id, StringComparer.Ordinal)
+            .FirstOrDefault();
         if (selected is null)
         {
-            Announce($"No suitable corpus sentence is available for the selected {targets.Count}-target exercise.");
+            Announce("No safe natural SentencePack sentence survived exact target-form validation. No exercise was generated.");
             return;
         }
-        Show(selected.Sentence, targets);
+
+        Show(selected.Sentence, selected.Targets, 0, restoring: false);
     }
 
-    private List<DictionaryEntry> GetPartnerCandidates(string primaryId, IReadOnlyList<DictionaryEntry> scope)
+    private NaturalExercise? BuildNaturalExercise(SentenceCoachTargetSetCandidate set, SentenceSelectionContext context)
     {
         if (_corpus is null)
-            return new();
-
-        var scopeById = scope.ToDictionary(entry => entry.Id, StringComparer.OrdinalIgnoreCase);
-        var partnerIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (SentenceRecord sentence in _corpus.LookupByEntryId(primaryId))
-        {
-            foreach (string id in sentence.TargetEntryIds)
-            {
-                if (!string.Equals(id, primaryId, StringComparison.OrdinalIgnoreCase) && scopeById.ContainsKey(id))
-                    partnerIds.Add(id);
-            }
-        }
-
-        return partnerIds
-            .Select(id => scopeById[id])
-            .Where(entry => _corpus.LookupAllTargets(new[] { primaryId, entry.Id }).Count > 0)
+            return null;
+        SentenceRecord? sentence = _corpus.LookupAllTargets(set.TargetEntryIds)
+            .FirstOrDefault(item => string.Equals(item.Id, set.EvidenceSentenceId, StringComparison.OrdinalIgnoreCase));
+        if (sentence is null)
+            return null;
+        List<DictionaryEntry> targets = set.TargetEntryIds
+            .Where(_entries.ContainsKey)
+            .Select(id => _entries[id])
             .ToList();
+        if (targets.Count != set.TargetEntryIds.Count)
+            return null;
+        int score = SentenceSelector.Score(sentence, set.TargetEntryIds, context);
+        return new NaturalExercise(sentence, targets, score);
     }
 
     private DictionaryEntry ChooseWeakTarget(IReadOnlyList<DictionaryEntry> covered)
@@ -587,76 +672,109 @@ internal sealed class SentenceCoachForm : Form
         return index >= 3;
     }
 
-    private void Show(SentenceRecord sentence, IReadOnlyList<DictionaryEntry> targets)
+    private void Show(SentenceRecord sentence, IReadOnlyList<DictionaryEntry> targets, int startTargetIndex, bool restoring)
     {
         _currentSentence = sentence;
         _currentTargets.Clear();
         _currentTargets.AddRange(targets);
-        _hadWrong = false;
-        _usedHint = false;
-        _prompt.Text = sentence.Ukrainian;
-        string meanings = string.Join("; ", targets.Select(target => target.Target));
-        _target.Text = targets.Count == 1
-            ? $"Target meaning from selected scope: {meanings}."
-            : $"Two target meanings from selected scope: {meanings}.";
-        _answer.Clear();
-        _answer.Focus();
+        _targetSession = SentenceCoachTargetOnlySession.Build(
+            sentence,
+            targets,
+            _lexicon,
+            _package,
+            _corpus?.PackId ?? throw new InvalidOperationException("SentencePack is not loaded."),
+            ContextCorpusKind.RealCorpus,
+            sentence.Source,
+            sentence.License,
+            startTargetIndex);
+
+        if (!restoring)
+        {
+            _state.CurrentTargetHadWrong = false;
+            _state.CurrentTargetUsedHint = false;
+        }
         _state.CurrentSentenceId = sentence.Id;
         _state.CurrentTargetEntryIds = targets.Select(target => target.Id).ToList();
         _state.CurrentTargetEntryId = _state.CurrentTargetEntryIds.FirstOrDefault();
+        _state.CurrentTargetIndex = _targetSession.CurrentTargetIndex;
         Save();
-        AccessibilityAnnouncer.Announce(_prompt, sentence.Ukrainian);
+        PresentCurrentPrompt(restoring ? "Restored the saved Sentence exercise." : "New Sentence exercise.");
+    }
+
+    private void PresentCurrentPrompt(string lead)
+    {
+        if (_targetSession is null || _targetSession.Complete)
+            return;
+        SentenceCoachTargetOnlyPrompt prompt = _targetSession.CurrentPrompt();
+        _prompt.Text = prompt.UkrainianSentence;
+        _cloze.Text = prompt.EnglishCloze;
+        _target.Text = $"Target {prompt.TargetNumber} of {prompt.TargetCount}. Ukrainian meaning: {prompt.TargetMeaningUkrainian}. Stable target: {prompt.TargetEntryId}.";
+        _answer.Clear();
+        _answer.Focus();
+        _state.CurrentTargetIndex = _targetSession.CurrentTargetIndex;
+        Save();
+        Announce($"{lead} Target {prompt.TargetNumber} of {prompt.TargetCount}. Meaning: {prompt.TargetMeaningUkrainian}. Ukrainian sentence: {prompt.UkrainianSentence}. English with the current target blank: {prompt.EnglishCloze}. Type only the current target form.");
     }
 
     private void Submit()
     {
-        if (_currentSentence is null || _currentTargets.Count == 0)
+        if (_currentSentence is null || _targetSession is null || _targetSession.Complete || string.IsNullOrWhiteSpace(_answer.Text))
             return;
 
-        SentenceAnswerResult result = SentenceAnswerEvaluator.Evaluate(_currentSentence.English, _answer.Text);
+        SentenceCoachTargetOnlyPrompt prompt = _targetSession.CurrentPrompt();
+        SentenceCoachTargetOnlyCheck result = _targetSession.Check(_answer.Text);
+        SentenceTargetStats stats = GetStats(prompt.TargetEntryId);
         if (!result.Accepted)
         {
-            _hadWrong = true;
-            foreach (DictionaryEntry target in _currentTargets)
-                GetStats(target.Id).WrongAttempts++;
+            stats.WrongAttempts++;
+            _state.CurrentTargetHadWrong = true;
             Save();
             _answer.SelectAll();
-            Announce(result.Feedback + " The sentence will not advance. Try again.");
+            Announce(result.Feedback + " The target will not advance. Try the current target again.");
             return;
         }
 
-        foreach (DictionaryEntry target in _currentTargets)
+        stats.CompletedReviews++;
+        if (!_state.CurrentTargetHadWrong && !_state.CurrentTargetUsedHint)
+            stats.FirstTrySuccesses++;
+        stats.LastReviewedUtc = DateTimeOffset.UtcNow;
+
+        if (result.SentenceComplete)
         {
-            SentenceTargetStats stats = GetStats(target.Id);
-            stats.CompletedReviews++;
-            if (!_hadWrong && !_usedHint)
-                stats.FirstTrySuccesses++;
-            stats.LastReviewedUtc = DateTimeOffset.UtcNow;
+            RememberSentence(_currentSentence.Id);
+            ClearCurrent();
+            Save();
+            Announce(result.Feedback);
+            Next();
+            return;
         }
 
-        RememberSentence(_currentSentence.Id);
+        _state.CurrentTargetIndex = _targetSession.CurrentTargetIndex;
+        _state.CurrentTargetHadWrong = false;
+        _state.CurrentTargetUsedHint = false;
         Save();
-        Announce(result.Feedback);
-        Next();
+        PresentCurrentPrompt(result.Feedback);
     }
 
     private void ShowAnswer()
     {
-        if (_currentSentence is null || _currentTargets.Count == 0)
+        if (_targetSession is null || _targetSession.Complete)
             return;
-        _usedHint = true;
-        foreach (DictionaryEntry target in _currentTargets)
-            GetStats(target.Id).ShowAnswerUses++;
+        SentenceCoachTargetOnlyPrompt prompt = _targetSession.CurrentPrompt();
+        _state.CurrentTargetUsedHint = true;
+        GetStats(prompt.TargetEntryId).ShowAnswerUses++;
         Save();
-        Announce($"Required English forms: {_currentSentence.English}. You must still type all required forms correctly before advancing. Word order is not assessed.");
+        string expected = _targetSession.RevealCurrentExpectedForm();
+        Announce($"Current target answer: {expected}. Only this target was revealed. Type it correctly to continue.");
         _answer.Focus();
     }
 
     private void RepeatPrompt()
     {
-        if (_currentSentence is null)
+        if (_targetSession is null || _targetSession.Complete)
             return;
-        AccessibilityAnnouncer.Announce(_prompt, _currentSentence.Ukrainian);
+        SentenceCoachTargetOnlyPrompt prompt = _targetSession.CurrentPrompt();
+        Announce($"Target {prompt.TargetNumber} of {prompt.TargetCount}. Meaning: {prompt.TargetMeaningUkrainian}. Ukrainian sentence: {prompt.UkrainianSentence}. English with target blank: {prompt.EnglishCloze}.");
         _answer.Focus();
     }
 
@@ -693,9 +811,13 @@ internal sealed class SentenceCoachForm : Form
     {
         _currentSentence = null;
         _currentTargets.Clear();
+        _targetSession = null;
         _state.CurrentSentenceId = null;
         _state.CurrentTargetEntryId = null;
         _state.CurrentTargetEntryIds.Clear();
+        _state.CurrentTargetIndex = 0;
+        _state.CurrentTargetHadWrong = false;
+        _state.CurrentTargetUsedHint = false;
     }
 
     private void Save()
@@ -707,9 +829,10 @@ internal sealed class SentenceCoachForm : Form
 
     private void UpdateModeInfo()
     {
+        string poolLabel = _state.PoolPreset == ContextStudyPoolPreset.Full ? "full pool" : $"{(int)_state.PoolPreset}-target pool";
         _modeInfo.Text = _state.TargetCount == 1
-            ? "One-target Sentence Spelling. The target always remains inside the selected spelling-deck scope."
-            : "Two-target Sentence Spelling. Both targets must come from the selected spelling-deck scope and the corpus sentence must contain both.";
+            ? $"Target-only Sentence Spelling, {poolLabel}: one resolved stable Oxford target. Ambiguous same-written-form identities fail closed before pool selection. Difficulty prefers learner-known context vocabulary before coarse CEFR."
+            : $"Target-only Sentence Spelling, {poolLabel}: {_state.TargetCount} distinct resolved targets must co-occur naturally in the installed SentencePack. Targets are answered one at a time; no synthetic production fallback is used.";
     }
 
     private void Announce(string text)
