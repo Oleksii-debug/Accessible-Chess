@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import json
+from hashlib import sha256
 from pathlib import Path
 import tempfile
 import unittest
 from unittest import mock
 
 from acs.acsdb import AcsDatabase
+from acs.cbv_extractor import ExternalCbvExtractorConfig
 from acs.chessbase_decoder import (
     ChessBaseDecodeError,
     ExternalChessBaseDecoderConfig,
@@ -92,6 +94,10 @@ class Version2FormatsIntegrationTests(unittest.TestCase):
         (self.private_root / "Tournament.cba").write_bytes(b"CBH annotation fixture")
         self.backend = self.root / "libcbh-json-bridge"
         self.backend.write_bytes(b"external backend placeholder")
+        self.cbv_source = self.private_root / "Archived Tournament.cbv"
+        self.cbv_source.write_bytes(b"immutable CBV archive fixture")
+        self.cbv_backend = self.root / "uncbv"
+        self.cbv_backend.write_bytes(b"external CBV extractor placeholder")
         self.database = AcsDatabase(self.root / "version2.acsdb")
         self.addCleanup(self.database.close)
         self.service = ChessBaseLibraryImportService(
@@ -99,6 +105,13 @@ class Version2FormatsIntegrationTests(unittest.TestCase):
             ExternalChessBaseDecoderConfig(
                 self.backend,
                 expected_backend_commit=BACKEND_COMMIT,
+                timeout_seconds=3,
+            ),
+            ExternalCbvExtractorConfig(
+                self.cbv_backend,
+                expected_backend_sha256=sha256(
+                    self.cbv_backend.read_bytes()
+                ).hexdigest(),
                 timeout_seconds=3,
             ),
         )
@@ -205,6 +218,40 @@ class Version2FormatsIntegrationTests(unittest.TestCase):
                 f"SELECT COUNT(*) FROM {table}"
             ).fetchone()[0]
             self.assertEqual(count, 0, table)
+
+    def test_cbv_archive_extracts_then_uses_same_canonical_library_pipeline(self) -> None:
+        def uncbv_runner(_executable, arguments, _config, *, cwd, monitor_directory=None):
+            if arguments[0] == "list":
+                return b"Archived Tournament.cbh\nArchived Tournament.cbg\n"
+            destination = Path(cwd)
+            self.assertEqual(Path(monitor_directory), destination)
+            (destination / "Archived Tournament.cbh").write_bytes(b"CBH header")
+            (destination / "Archived Tournament.cbg").write_bytes(b"CBH games")
+            return b""
+
+        with (
+            mock.patch("acs.cbv_extractor._run_uncbv", side_effect=uncbv_runner),
+            mock.patch(
+                "acs.chessbase_decoder._run_backend",
+                return_value=self._rich_payload(),
+            ),
+        ):
+            report = self.service.import_database(self.cbv_source)
+
+        self.assertEqual(report.status, ChessBaseLibraryImportStatus.IMPORTED_WITH_WARNINGS)
+        self.assertEqual(report.source_name, "Archived Tournament.cbv")
+        self.assertEqual(report.source_format, "cbv")
+        self.assertEqual(report.archive_backend_name, "uncbv")
+        self.assertEqual(
+            report.archive_backend_sha256,
+            sha256(self.cbv_backend.read_bytes()).hexdigest(),
+        )
+        self.assertEqual(report.imported_game_count, 2)
+        source = self.database.get_source(report.library_result.source_id)
+        self.assertEqual(source["source_format"], "cbv")
+        self.assertEqual(source["source_name"], "Archived Tournament.cbv")
+        self.assertEqual(source["sha256"], sha256(self.cbv_source.read_bytes()).hexdigest())
+        self.assertNotIn("private-account", repr(report))
 
     def test_source_warning_validation_is_fail_closed_before_attempt(self) -> None:
         game = parse_games('[Event "Safe"]\n[Result "*"]\n\n1. e4 *\n')[0]

@@ -13,9 +13,16 @@ from dataclasses import dataclass
 from enum import Enum
 from hashlib import sha256
 from pathlib import Path
+import tempfile
 from typing import Callable
 
 from .acsdb import AcsDatabase
+from .cbv_extractor import (
+    CbvExtractCode,
+    CbvExtractError,
+    ExternalCbvExtractorConfig,
+    extract_cbv_external,
+)
 from .chessbase_decoder import (
     ChessBaseDecodeWarning,
     ExternalChessBaseDecoderConfig,
@@ -29,6 +36,7 @@ from .library_import_service import (
     LibraryImportResult,
     LibraryImportService,
 )
+from .import_contract import verify_source_unchanged
 from .report_paths import report_safe_name
 
 
@@ -40,7 +48,7 @@ class ChessBaseLibraryImportStatus(str, Enum):
 
 @dataclass(frozen=True, slots=True)
 class ChessBaseLibraryImportReport:
-    """Bounded, path-safe result for one trusted-host CBH import."""
+    """Bounded, path-safe result for one trusted-host CBH/CBV import."""
 
     status: ChessBaseLibraryImportStatus
     source_name: str
@@ -50,6 +58,9 @@ class ChessBaseLibraryImportReport:
     decoded_game_count: int
     warnings: tuple[ChessBaseDecodeWarning, ...]
     library_result: LibraryImportResult | None
+    source_format: str = "cbh"
+    archive_backend_name: str | None = None
+    archive_backend_sha256: str | None = None
 
     @property
     def imported_game_count(self) -> int:
@@ -112,6 +123,7 @@ class ChessBaseLibraryImportService:
         self,
         database: AcsDatabase,
         decoder_config: ExternalChessBaseDecoderConfig,
+        cbv_extractor_config: ExternalCbvExtractorConfig | None = None,
     ) -> None:
         if not isinstance(database, AcsDatabase):
             raise TypeError("database must be an AcsDatabase")
@@ -119,8 +131,66 @@ class ChessBaseLibraryImportService:
             raise TypeError(
                 "decoder_config must be an ExternalChessBaseDecoderConfig"
             )
+        if cbv_extractor_config is not None and not isinstance(
+            cbv_extractor_config,
+            ExternalCbvExtractorConfig,
+        ):
+            raise TypeError(
+                "cbv_extractor_config must be an ExternalCbvExtractorConfig or None"
+            )
         self._library = LibraryImportService(database)
         self._decoder_config = decoder_config
+        self._cbv_extractor_config = cbv_extractor_config
+
+    def _decode_source(self, path: str | Path):
+        """Return decoded games plus path-safe provenance for CBH or CBV."""
+
+        source_path = Path(path)
+        suffix = source_path.suffix.lower()
+        if suffix == ".cbh":
+            decoded = decode_chessbase_external(source_path, self._decoder_config)
+            return (
+                decoded,
+                report_safe_name(decoded.source.primary_path),
+                chessbase_family_sha256(decoded.source),
+                "cbh",
+                None,
+                None,
+            )
+        if suffix != ".cbv":
+            raise CbvExtractError(
+                "ChessBase Library import currently supports .cbh and .cbv sources only",
+                code=CbvExtractCode.UNSUPPORTED_SOURCE,
+            )
+        if self._cbv_extractor_config is None:
+            raise CbvExtractError(
+                "CBV import requires a configured trusted external extractor",
+                code=CbvExtractCode.BACKEND_INVALID,
+            )
+
+        with tempfile.TemporaryDirectory(prefix="accessible-chess-cbv-") as temporary:
+            extracted = extract_cbv_external(
+                source_path,
+                Path(temporary),
+                self._cbv_extractor_config,
+            )
+            decoded = decode_chessbase_external(
+                extracted.primary_path,
+                self._decoder_config,
+            )
+            if not verify_source_unchanged(extracted.source, source_path):
+                raise CbvExtractError(
+                    "CBV source changed while its extracted database was decoded",
+                    code=CbvExtractCode.SOURCE_CHANGED,
+                )
+            return (
+                decoded,
+                report_safe_name(extracted.source.path),
+                extracted.source.sha256,
+                "cbv",
+                extracted.backend_name,
+                extracted.backend_sha256,
+            )
 
     def import_database(
         self,
@@ -138,11 +208,16 @@ class ChessBaseLibraryImportService:
         """
 
         _poll_cancel(cancel_check)
-        decoded = decode_chessbase_external(path, self._decoder_config)
+        (
+            decoded,
+            source_name,
+            source_digest,
+            source_format,
+            archive_backend_name,
+            archive_backend_sha256,
+        ) = self._decode_source(path)
         _poll_cancel(cancel_check)
 
-        source_name = report_safe_name(decoded.source.primary_path)
-        source_digest = chessbase_family_sha256(decoded.source)
         warnings = tuple(decoded.warnings)
         if not decoded.games:
             return ChessBaseLibraryImportReport(
@@ -154,12 +229,15 @@ class ChessBaseLibraryImportService:
                 decoded_game_count=0,
                 warnings=warnings,
                 library_result=None,
+                source_format=source_format,
+                archive_backend_name=archive_backend_name,
+                archive_backend_sha256=archive_backend_sha256,
             )
 
         imported = self._library.import_games(
             decoded.games,
             source_name=source_name,
-            source_format="cbh",
+            source_format=source_format,
             source_sha256=source_digest,
             source_warning_count=len(warnings),
             cancel_check=cancel_check,
@@ -179,4 +257,7 @@ class ChessBaseLibraryImportService:
             decoded_game_count=len(decoded.games),
             warnings=warnings,
             library_result=imported,
+            source_format=source_format,
+            archive_backend_name=archive_backend_name,
+            archive_backend_sha256=archive_backend_sha256,
         )

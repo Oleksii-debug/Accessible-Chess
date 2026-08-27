@@ -35,7 +35,7 @@ class ImportContractTests(unittest.TestCase):
             self.assertEqual(report.records[0].quality, ImportQuality.WARNING)
             self.assertEqual(report.counts['full'], 0)
             self.assertEqual(report.counts['damaged'], 0)
-            self.assertIn('decoder not implemented', report.records[0].message)
+            self.assertIn('decoder is not configured', report.records[0].message)
 
     def test_report_distinguishes_quality_states(self):
         with tempfile.TemporaryDirectory() as tmp:
