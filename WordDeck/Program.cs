@@ -11,6 +11,8 @@ internal static class Program
             return SentencePackDiagnostics.Run(args);
         if (args.Length > 0 && args[0].Equals("--export-oxford5000-audio-source", StringComparison.OrdinalIgnoreCase))
             return ExportOxford5000AudioSource(args);
+        if (args.Length > 0 && args[0].Equals("--validate-audio-asset-manifest", StringComparison.OrdinalIgnoreCase))
+            return AudioAssetManifestDiagnostics.Run(args);
 
         if (args.Any(arg => arg.Equals("--self-test", StringComparison.OrdinalIgnoreCase)))
         {
@@ -22,6 +24,7 @@ internal static class Program
                 SentenceCoachSelfTest.Run();
                 SentencePackStoreSelfTest.Run();
                 TatoebaSentencePackSelfTest.Run();
+                AudioAssetManifestSelfTest.Run();
             }
             catch (Exception ex)
             {
