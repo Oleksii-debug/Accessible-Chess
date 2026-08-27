@@ -12,6 +12,7 @@ from acs.chessbase_library_import import ChessBaseLibraryImportService
 
 
 LIBCBH_COMMIT = "9641c5c3949d8fb210b17dd9aa54455645843696"
+TWIC_1134_EXPECTED_GAMES = 6117
 
 
 def _external_environment_ready() -> bool:
@@ -64,6 +65,7 @@ class CbvUncbvExternalFixtureTests(unittest.TestCase):
             self.assertTrue(result.primary_path.is_file())
 
     def test_real_cbv_to_libcbh_to_canonical_acsdatabase(self) -> None:
+        self.assertEqual(self.fixture.name.lower(), "twic1134.cbv")
         with tempfile.TemporaryDirectory() as temporary:
             database = AcsDatabase(Path(temporary) / "real-cbv.acsdb")
             try:
@@ -76,8 +78,8 @@ class CbvUncbvExternalFixtureTests(unittest.TestCase):
 
                 self.assertEqual(report.source_format, "cbv")
                 self.assertEqual(report.archive_backend_name, "uncbv")
-                self.assertGreater(report.decoded_game_count, 0)
-                self.assertEqual(report.decoded_game_count, report.imported_game_count)
+                self.assertEqual(report.decoded_game_count, TWIC_1134_EXPECTED_GAMES)
+                self.assertEqual(report.imported_game_count, TWIC_1134_EXPECTED_GAMES)
                 self.assertIsNotNone(report.library_result)
                 row = database.get_source(report.library_result.source_id)
                 self.assertEqual(row["source_format"], "cbv")
