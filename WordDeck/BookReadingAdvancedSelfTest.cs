@@ -60,11 +60,11 @@ internal static class BookReadingAdvancedSelfTest
             Require(physical.Sentences.SelectMany(sentence => sentence.Occurrences).Where(item => item.Surface.Equals("record", StringComparison.OrdinalIgnoreCase)).All(item => item.StableEntryIds.Count == 2 && item.IsAmbiguous && item.State == BookWordState.New), "Physical ambiguity metadata or fail-closed unresolved classification was lost.");
 
             IReadOnlyList<BookSentenceExport> ambiguousPair = service.FindBookSentences(new[] { "ox:record-n", "ox:record-v" }, 20);
-            Require(ambiguousPair.Count == 1, "Two-target ambiguity query must require two distinct physical occurrences, not one ambiguous occurrence.");
-            Require(ambiguousPair[0].EnglishText.Equals("record record.", StringComparison.OrdinalIgnoreCase), "Two-target ambiguity query returned the wrong physical context.");
+            Require(ambiguousPair.Count == 0, "Unresolved homograph occurrences were reused as if they verified specific stable lexical senses.");
+            Require(service.FindBookSentences(new[] { "ox:record-n" }, 20).Count == 0, "Single-target sentence reuse accepted an unresolved homograph as verified stable-ID context.");
             IReadOnlyList<BookSentenceExport> alphaBeta = service.FindBookSentences(new[] { "ox:alpha", "ox:beta" }, 20);
             Require(alphaBeta.Count == 1 && alphaBeta[0].EnglishText.Equals("Alpha beta.", StringComparison.Ordinal), "Natural two-target book lookup failed.");
-            Require(service.FindBookSentences(new[] { "ox:record-n", "ox:record-v", "ox:alpha" }, 20).Count == 0, "Three-target query incorrectly combined targets across sentences.");
+            Require(service.FindBookSentences(new[] { "ox:record-n", "ox:record-v", "ox:alpha" }, 20).Count == 0, "Three-target query incorrectly combined or disambiguated unresolved targets.");
 
             BookDocument reloaded = new BookReadingProductService(privateRoot).LoadDocument(imported.Document.BookId);
             Require(reloaded.ContentSha256 == imported.Document.ContentSha256 && reloaded.Chapters.Sum(chapter => chapter.Sentences.Count) == 4, "Book document did not reconstruct correctly after service restart.");
@@ -79,6 +79,7 @@ internal static class BookReadingAdvancedSelfTest
             Require(new BookReadingStateStore(service.DatabasePath).LoadUnknowns(reloaded.BookId).Any(item => item.StableEntryId == "ox:alpha" && item.SourceSentenceId == alphaSentence.SentenceId), "Book learning capture lost its source-sentence context.");
 
             TestTransactionalRecovery(service.DatabasePath, reloaded);
+            TestCorruptEpubRejection();
             TestUnsafeEpubRejection();
             TestDtdRejection();
             TestDirectPdfBoundary(root, service, dictionary, snapshot);
@@ -89,7 +90,7 @@ internal static class BookReadingAdvancedSelfTest
             try { Directory.Delete(root, recursive: true); } catch { }
         }
 
-        Console.WriteLine("BookReading advanced self-test PASS: physical lexical ambiguity, private source retention, 1/2/3 context lookup, restart, capture, recovery, EPUB safety and large persistent corpus verified.");
+        Console.WriteLine("BookReading advanced self-test PASS: physical lexical ambiguity, fail-closed sentence reuse, private source retention, restart, capture, recovery, corrupt/unsafe EPUB handling and large persistent corpus verified.");
     }
 
     private static void TestTransactionalRecovery(string databasePath, BookDocument original)
@@ -113,6 +114,12 @@ internal static class BookReadingAdvancedSelfTest
             ?? throw new InvalidOperationException("Book-reading recovery test lost the committed document.");
         Require(recovered.DisplayName == original.DisplayName, "Failed replacement transaction changed committed book metadata.");
         Require(recovered.Chapters.Count == original.Chapters.Count, "Failed replacement transaction destroyed committed chapters.");
+    }
+
+    private static void TestCorruptEpubRejection()
+    {
+        byte[] corrupt = Encoding.UTF8.GetBytes("not a zip archive");
+        ExpectFailure<InvalidDataException>(() => BookReadingProductService.ValidateEpubSafety(corrupt), "Corrupt EPUB bytes were accepted as an archive.");
     }
 
     private static void TestUnsafeEpubRejection()
