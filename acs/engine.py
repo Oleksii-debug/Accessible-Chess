@@ -82,7 +82,7 @@ class UCIEngine:
                     creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
                 )
             except (OSError, ValueError) as exc:
-                raise RuntimeError(f"Unable to start Stockfish: {exc}") from exc
+                raise RuntimeError("Unable to start Stockfish") from exc
             if not self._compatible_process(proc):
                 self._terminate_process(proc)
                 raise EngineContractError(
@@ -168,12 +168,35 @@ class UCIEngine:
 
     @staticmethod
     def _terminate_process(proc: object) -> None:
+        """Best-effort terminate, then hard-kill and reap a stubborn child."""
         try:
             poll = getattr(proc, "poll", None)
             if callable(poll) and poll() is None:
                 terminate = getattr(proc, "terminate", None)
                 if callable(terminate):
                     terminate()
+        except Exception:
+            pass
+        try:
+            wait = getattr(proc, "wait", None)
+            if callable(wait):
+                wait(timeout=2)
+                return
+        except Exception:
+            pass
+
+        try:
+            poll = getattr(proc, "poll", None)
+            still_running = not callable(poll) or poll() is None
+        except Exception:
+            still_running = True
+        if not still_running:
+            return
+
+        try:
+            kill = getattr(proc, "kill", None)
+            if callable(kill):
+                kill()
         except Exception:
             pass
         try:
@@ -191,6 +214,24 @@ class UCIEngine:
         self._drain()
         if reader is not None and reader is not threading.current_thread():
             reader.join(timeout=0.2)
+
+    def _discard_failed_transaction(self, proc: object | None) -> None:
+        """Discard only the subprocess used by a failed UCI transaction.
+
+        The adapter itself stays open so the next request can start a fresh
+        Stockfish process. This prevents malformed/late output from a failed
+        search leaking into a retry while preserving application-level recovery.
+        """
+        if proc is not None and self.proc is proc:
+            self._discard_process(proc)
+
+    @staticmethod
+    def _raise_if_process_exited(proc: object | None, operation: str) -> None:
+        if proc is None:
+            return
+        poll = getattr(proc, "poll", None)
+        if callable(poll) and poll() is not None:
+            raise RuntimeError(f"Stockfish exited during {operation}")
 
     @staticmethod
     def _normalize_fen(fen: str) -> str:
@@ -217,7 +258,7 @@ class UCIEngine:
             raise EngineContractError(
                 f"{name} must be an integer",
                 code=EngineContractErrorCode.INVALID_REQUEST,
-        )
+            )
         return max(minimum, min(maximum, value))
 
     @staticmethod
@@ -276,46 +317,48 @@ class UCIEngine:
         depth = self._bounded_integer("depth", depth, 1, 40)
         with self._lock:
             self.start()
-            self._drain()
-            self._configure_request_options(multipv=multipv, skill_level=20)
-            self.send("position fen " + fen)
-            self.send(f"go depth {depth}")
-            best: dict[int, RawAnalysisLine] = {}
-            end = time.monotonic() + 60
-            while time.monotonic() < end:
-                try:
-                    line = self.q.get(timeout=0.3)
-                except queue.Empty:
-                    continue
-                tokens = line.split()
-                if tokens and tokens[0] == "bestmove":
-                    self._bestmove_token(tokens)
-                    return tuple(best[k] for k in sorted(best)[:multipv])
-                if not (line.startswith("info ") and " pv " in line):
-                    continue
-                mp_match = re.search(r" multipv (\d+)", line)
-                depth_match = re.search(r" depth (\d+)", line)
-                score_match = re.search(r" score (cp|mate) (-?\d+)", line)
-                if not (mp_match and depth_match and score_match):
-                    continue
-                try:
-                    mp = int(mp_match.group(1))
-                    item_depth = int(depth_match.group(1))
-                    score_value = int(score_match.group(2))
-                except ValueError:
-                    continue
-                if not 1 <= mp <= multipv:
-                    continue
-                score_kind = score_match.group(1)
-                pv = tuple(line.split(" pv ", 1)[1].split())
-                if not pv or any(_UCI_MOVE_RE.fullmatch(move) is None for move in pv):
-                    continue
-                best[mp] = RawAnalysisLine(item_depth, score_kind, score_value, pv)
+            proc = self.proc
             try:
-                self.send("stop")
+                self._drain()
+                self._configure_request_options(multipv=multipv, skill_level=20)
+                self.send("position fen " + fen)
+                self.send(f"go depth {depth}")
+                best: dict[int, RawAnalysisLine] = {}
+                end = time.monotonic() + 60
+                while time.monotonic() < end:
+                    try:
+                        line = self.q.get(timeout=0.3)
+                    except queue.Empty:
+                        self._raise_if_process_exited(proc, "analysis")
+                        continue
+                    tokens = line.split()
+                    if tokens and tokens[0] == "bestmove":
+                        self._bestmove_token(tokens)
+                        return tuple(best[k] for k in sorted(best)[:multipv])
+                    if not (line.startswith("info ") and " pv " in line):
+                        continue
+                    mp_match = re.search(r" multipv (\d+)", line)
+                    depth_match = re.search(r" depth (\d+)", line)
+                    score_match = re.search(r" score (cp|mate) (-?\d+)", line)
+                    if not (mp_match and depth_match and score_match):
+                        continue
+                    try:
+                        mp = int(mp_match.group(1))
+                        item_depth = int(depth_match.group(1))
+                        score_value = int(score_match.group(2))
+                    except ValueError:
+                        continue
+                    if not 1 <= mp <= multipv:
+                        continue
+                    score_kind = score_match.group(1)
+                    pv = tuple(line.split(" pv ", 1)[1].split())
+                    if not pv or any(_UCI_MOVE_RE.fullmatch(move) is None for move in pv):
+                        continue
+                    best[mp] = RawAnalysisLine(item_depth, score_kind, score_value, pv)
+                raise RuntimeError("Stockfish analysis timed out")
             except Exception:
-                pass
-            raise RuntimeError("Stockfish analysis timed out")
+                self._discard_failed_transaction(proc)
+                raise
 
     def best_move(
         self,
@@ -332,25 +375,27 @@ class UCIEngine:
         )
         with self._lock:
             self.start()
-            self._drain()
-            self._configure_request_options(multipv=1, skill_level=skill)
-            self.send("position fen " + fen)
-            self.send(f"go movetime {movetime_ms}")
-            end = time.monotonic() + max(5, movetime_ms / 1000 + 5)
-            while time.monotonic() < end:
-                try:
-                    line = self.q.get(timeout=0.2)
-                except queue.Empty:
-                    continue
-                parts = line.split()
-                if not parts or parts[0] != "bestmove":
-                    continue
-                return self._bestmove_token(parts)
+            proc = self.proc
             try:
-                self.send("stop")
+                self._drain()
+                self._configure_request_options(multipv=1, skill_level=skill)
+                self.send("position fen " + fen)
+                self.send(f"go movetime {movetime_ms}")
+                end = time.monotonic() + max(5, movetime_ms / 1000 + 5)
+                while time.monotonic() < end:
+                    try:
+                        line = self.q.get(timeout=0.2)
+                    except queue.Empty:
+                        self._raise_if_process_exited(proc, "bestmove search")
+                        continue
+                    parts = line.split()
+                    if not parts or parts[0] != "bestmove":
+                        continue
+                    return self._bestmove_token(parts)
+                raise RuntimeError("Stockfish did not return bestmove")
             except Exception:
-                pass
-            raise RuntimeError("Stockfish did not return bestmove")
+                self._discard_failed_transaction(proc)
+                raise
 
     def close(self) -> None:
         with self._lock:
@@ -367,10 +412,7 @@ class UCIEngine:
                 try:
                     proc.wait(timeout=2)
                 except Exception:
-                    try:
-                        proc.terminate()
-                    except Exception:
-                        pass
+                    self._terminate_process(proc)
             self.proc = None
             reader = self.reader
             self.reader = None

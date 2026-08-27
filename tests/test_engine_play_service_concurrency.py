@@ -91,8 +91,6 @@ class EnginePlayServiceConcurrencyTests(unittest.TestCase):
         self.assertTrue(engine.entered.wait(1))
         second.start()
 
-        # The second call cannot enter the stateful provider while the first is
-        # blocked. In an unlocked implementation second_entered becomes set.
         self.assertFalse(engine.second_entered.wait(0.1))
         engine.release.set()
         first.join(2)
@@ -106,33 +104,43 @@ class EnginePlayServiceConcurrencyTests(unittest.TestCase):
         self.assertEqual(engine.calls, 2)
         self.assertEqual(engine.max_inflight, 1)
 
-    def test_close_waits_for_inflight_request_then_prevents_reopen(self):
+    def test_close_during_inflight_suppresses_late_bestmove_then_closes_provider(self):
         engine = BlockingMoveEngine()
         service = EnginePlayService(lambda: engine)
         results = []
+        errors = []
 
-        worker = threading.Thread(
-            target=lambda: results.append(service.choose_move(EngineMoveRequest('fen')).move)
-        )
+        def choose():
+            try:
+                results.append(service.choose_move(EngineMoveRequest('fen')).move)
+            except Exception as exc:  # asserted below
+                errors.append(exc)
+
+        worker = threading.Thread(target=choose)
         worker.start()
         self.assertTrue(engine.entered.wait(1))
 
         closer = threading.Thread(target=service.close)
         closer.start()
+
+        # close() publishes terminal state immediately but must not close the
+        # provider while best_move is still inside it.
         self.assertFalse(engine.closed.wait(0.1))
+        with self.assertRaises(EngineContractError) as terminal:
+            service.choose_move(EngineMoveRequest('fen-late'))
+        self.assertEqual(terminal.exception.code, EngineContractErrorCode.INVALID_SESSION)
 
         engine.release.set()
         worker.join(2)
         closer.join(2)
         self.assertFalse(worker.is_alive())
         self.assertFalse(closer.is_alive())
-        self.assertEqual(results, ['e2e4'])
+        self.assertEqual(results, [])
+        self.assertEqual(len(errors), 1)
+        self.assertIsInstance(errors[0], EngineContractError)
+        self.assertEqual(errors[0].code, EngineContractErrorCode.INVALID_SESSION)
         self.assertTrue(engine.closed.is_set())
         self.assertEqual(engine.close_calls, 1)
-
-        with self.assertRaises(EngineContractError) as caught:
-            service.choose_move(EngineMoveRequest('fen-2'))
-        self.assertEqual(caught.exception.code, EngineContractErrorCode.INVALID_SESSION)
 
     def test_borrowed_provider_is_not_closed_but_service_is_still_terminal(self):
         engine = BlockingMoveEngine()

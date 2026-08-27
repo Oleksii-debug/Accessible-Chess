@@ -314,8 +314,22 @@ class EnginePlayService:
         self._engine_factory = engine_factory
         self._engine: MoveEnginePort | None = None
         self._owns_engine = owns_engine
-        self._lock = threading.RLock()
+        # Provider access stays serialized, but terminal-close publication must
+        # not wait behind a long-running best_move call. The small state lock
+        # lets close() mark the service closed immediately; the provider lock
+        # then performs orderly cleanup after any in-flight call returns.
+        self._provider_lock = threading.RLock()
+        self._state_lock = threading.Lock()
         self._closed = False
+
+    def _raise_if_closed(self) -> None:
+        with self._state_lock:
+            closed = self._closed
+        if closed:
+            raise EngineContractError(
+                "engine play service is closed",
+                code=EngineContractErrorCode.INVALID_SESSION,
+            )
 
     def choose_move(self, request: EngineMoveRequest) -> EngineMoveResult:
         if not isinstance(request, EngineMoveRequest):
@@ -327,16 +341,12 @@ class EnginePlayService:
             else max(50, request.movetime_ms)
         )
 
-        # Provider creation and the complete stateful best-move transaction are
-        # serialized. close() takes the same lock, so it cannot close a provider
-        # while an in-flight request is using it and no request can resurrect a
-        # provider after terminal close.
-        with self._lock:
-            if self._closed:
-                raise EngineContractError(
-                    "engine play service is closed",
-                    code=EngineContractErrorCode.INVALID_SESSION,
-                )
+        self._raise_if_closed()
+        with self._provider_lock:
+            # A close request may have been published while this request waited
+            # for another provider transaction. Recheck before factory/provider
+            # access so shutdown cannot resurrect or create an engine.
+            self._raise_if_closed()
             if self._engine is None:
                 engine = self._engine_factory()
                 if (
@@ -355,6 +365,9 @@ class EnginePlayService:
                 skill_level=policy.skill_level,
                 movetime_ms=movetime_ms,
             )
+            # A bestmove that arrives after shutdown began is stale by lifecycle
+            # definition. Never expose it to the session/canonical move commit.
+            self._raise_if_closed()
             return EngineMoveResult(
                 move=move,
                 level=policy.level,
@@ -362,17 +375,19 @@ class EnginePlayService:
             )
 
     def close(self) -> None:
-        # Terminal close is deliberately monotonic. Holding the same lock used
-        # by choose_move means close waits for any in-flight provider operation,
-        # then prevents all future factory/provider use. An owned provider is
-        # retained until cleanup succeeds so a transient close failure can be
-        # retried without reopening the service or recreating the provider.
-        with self._lock:
-            if self._closed and self._engine is None:
-                return
+        # Publish terminal close before waiting for a potentially in-flight
+        # provider request. That request may finish internally, but its result is
+        # suppressed by choose_move's post-provider closed check. Cleanup still
+        # serializes behind provider use, so the provider cannot be closed while
+        # best_move is executing. Failed owned cleanup remains retryable without
+        # reopening or recreating the provider.
+        with self._state_lock:
             self._closed = True
+        with self._provider_lock:
             engine = self._engine
-            if not self._owns_engine or engine is None:
+            if engine is None:
+                return
+            if not self._owns_engine:
                 self._engine = None
                 return
             try:

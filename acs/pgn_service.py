@@ -26,6 +26,7 @@ from .import_contract import (
     SourceFingerprint,
     fingerprint,
 )
+from .report_paths import report_safe_name
 
 
 class PgnFileError(RuntimeError):
@@ -94,7 +95,9 @@ def _read_text_snapshot(path: Path) -> tuple[SourceFingerprint, str]:
         text = handle.read()
     after = fingerprint(path)
     if before.size != after.size or before.sha256 != after.sha256:
-        raise PgnSourceChangedError(f"PGN changed while being read: {path}")
+        raise PgnSourceChangedError(
+            f"PGN changed while being read: {report_safe_name(path)}"
+        )
     return before, text
 
 
@@ -134,12 +137,15 @@ def save_pgn_atomic(
     """
 
     destination = Path(path)
+    safe_destination = report_safe_name(destination)
     if destination.exists() and not overwrite:
-        raise FileExistsError(f"PGN already exists: {destination}")
+        raise FileExistsError(f"PGN already exists: {safe_destination}")
 
     current_sha = _current_sha256(destination)
     if expected_sha256 is not None and current_sha != expected_sha256:
-        raise PgnConcurrentWriteError(f"PGN changed since it was opened: {destination}")
+        raise PgnConcurrentWriteError(
+            f"PGN changed since it was opened: {safe_destination}"
+        )
 
     payload = serialize_games(tuple(games))
     destination.parent.mkdir(parents=True, exist_ok=True)

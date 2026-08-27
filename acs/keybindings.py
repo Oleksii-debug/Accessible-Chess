@@ -177,6 +177,7 @@ DEFAULT_ACTIONS: tuple[ActionDefinition, ...] = (
     ActionDefinition("board.surroundings", BindingContext.BOARD, "Surroundings", "X"),
     ActionDefinition("board.attackers", BindingContext.BOARD, "Attackers", "A"),
     ActionDefinition("board.defenders", BindingContext.BOARD, "Defenders", "D"),
+    ActionDefinition("board.material", BindingContext.BOARD, "Material balance"),
     ActionDefinition("board.evaluation", BindingContext.BOARD, "Evaluation", "V"),
     ActionDefinition("board.best_move", BindingContext.BOARD, "Best move", "G"),
     ActionDefinition("board.play_best", BindingContext.BOARD, "Play best move in analysis", "Shift+G"),

@@ -7,9 +7,8 @@ PIECE_UA={'P':'білий пішак','N':'білий кінь','B':'білий 
 
 def sq_name(s): return square_name(s)
 def parse_sq(t):
-    text=str(t).strip().lower()
-    try: return parse_square(text)
-    except ValueError as exc: raise ValueError('Неправильне поле: '+text) from exc
+    try: return parse_square(t)
+    except ValueError as exc: raise ValueError('Неправильне поле: '+repr(t)) from exc
 
 def color_of(p): return 'w' if p and p.isupper() else ('b' if p else None)
 
@@ -22,7 +21,7 @@ class Board:
     def __init__(self, fen=None):
         self.board=[None]*64; self.turn='w'; self.castling='KQkq'; self.ep=None; self.halfmove=0; self.fullmove=1
         self.undo_stack=[]; self.redo_stack=[]; self.last_move=None
-        self.set_fen(fen or self.START, clear_history=True)
+        self.set_fen(self.START if fen is None else fen, clear_history=True)
     def clone(self):
         b=Board(self.fen()); b.last_move=self.last_move; return b
     def set_fen(self, fen, clear_history=True):
@@ -32,8 +31,12 @@ class Board:
         replace board, side-to-move, counters or history because callers may
         continue using the same Board instance after reporting the error.
         """
+        if type(fen) is not str:
+            raise ValueError('FEN має бути текстом')
+        if type(clear_history) is not bool:
+            raise ValueError('clear_history має бути логічним значенням')
         parts=fen.strip().split()
-        if len(parts)<4: raise ValueError('FEN має містити щонайменше 4 поля')
+        if len(parts)<4 or len(parts)>6: raise ValueError('FEN має містити від 4 до 6 полів')
         rows=parts[0].split('/')
         if len(rows)!=8: raise ValueError('FEN: потрібно 8 горизонталей')
         bd=[None]*64
@@ -56,9 +59,13 @@ class Board:
         castling='' if parts[2]=='-' else parts[2]
         if any(ch not in 'KQkq' for ch in castling) or len(set(castling))!=len(castling): raise ValueError('FEN: неправильні права рокіровки')
         ep=None if parts[3]=='-' else parse_sq(parts[3])
+        if any(not text.isascii() or not text.isdecimal() for text in parts[4:6]):
+            raise ValueError('FEN: лічильники мають бути невід’ємними десятковими числами')
         try:
-            halfmove=int(parts[4]) if len(parts)>4 else 0; fullmove=int(parts[5]) if len(parts)>5 else 1
-        except ValueError: raise ValueError('FEN: лічильники мають бути цілими числами')
+            halfmove=int(parts[4]) if len(parts)>4 else 0
+            fullmove=int(parts[5]) if len(parts)>5 else 1
+        except ValueError as exc:
+            raise ValueError('FEN: лічильники мають бути невід’ємними десятковими числами') from exc
         if halfmove<0: raise ValueError('FEN: halfmove не може бути від’ємним')
         if fullmove<1: raise ValueError('FEN: fullmove має бути не менше 1')
         for s,p in enumerate(bd):
@@ -72,6 +79,12 @@ class Board:
             er=ep//8
             if er not in (2,5): raise ValueError('FEN: неправильне поле en passant')
             if (turn=='w' and er!=5) or (turn=='b' and er!=2): raise ValueError('FEN: en passant не відповідає стороні ходу')
+            if bd[ep] is not None: raise ValueError('FEN: поле en passant має бути порожнім')
+            moved_sq=ep-8 if turn=='w' else ep+8
+            origin_sq=ep+8 if turn=='w' else ep-8
+            moved_pawn='p' if turn=='w' else 'P'
+            if bd[moved_sq]!=moved_pawn or bd[origin_sq] is not None:
+                raise ValueError('FEN: en passant не відповідає попередньому подвійому ходу пішака')
 
         # Commit only after every syntactic and structural check has passed.
         self.board=bd; self.turn=turn; self.castling=castling; self.ep=ep
@@ -232,8 +245,12 @@ class Board:
         return s
     @staticmethod
     def norm_san(s):
+        if type(s) is not str:
+            raise ValueError('Хід має бути текстом')
         return s.strip().replace('0','O').replace('–','-').replace('—','-').replace(' ','').rstrip('!?')
     def parse_move(self,text):
+        if type(text) is not str:
+            raise ValueError('Хід має бути текстом')
         t=self.norm_san(text)
         if re.fullmatch(r'[a-h][1-8][a-h][1-8][qrbnQRBN]?', t):
             frm=parse_sq(t[:2]); to=parse_sq(t[2:4]); pr=t[4].upper() if len(t)>4 else None

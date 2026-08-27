@@ -1,0 +1,143 @@
+name: DEV5 Stage1 Path Privacy Repair CI
+
+on:
+  pull_request:
+    branches:
+      - manual5/integration-20260821
+
+permissions:
+  contents: read
+
+env:
+  ACCEPTED_STAGE1_SHA: 0fa442330bc2bb03636ff9297512da4c29e38684
+  QA_STAGE1_PRIVACY_SHA: ee6a5da7a9f7eda8e8ecd9ce227ef5cbbf0718f5
+  QA_IMPORT_CURRENT_SHA: 14049f57a2244c25ddc1abb07e0ee7c78891e47c
+  QA_ENGINE_SHA: c676097b60a3d059b99fce54d9c7881bfc3b8d3a
+  QA_PGN_SHA: 6f738942b7d9e0262987aa0b56bfdbc8db39a1f9
+  QA_REPAIR_GAP_SHA: dbaae1775593a88f684eb81b924a595b54367e0d
+  QA_DRIVE_RELATIVE_SHA: c23c88ac21a6a9c82fad0de4aeadb695f82c5951
+  QA_OSERROR_STRERROR_SHA: cf97ea4df62fee3330478c3fc40ee17bebdad4ec
+
+jobs:
+  privacy-oracles-and-full-regression:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout exact repair head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install test dependency
+        run: python -m pip install -q pytest
+      - name: Exact ancestry and diff hygiene
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git merge-base "$ACCEPTED_STAGE1_SHA" HEAD)" = "$ACCEPTED_STAGE1_SHA"
+          git diff --check "$ACCEPTED_STAGE1_SHA" HEAD
+          python - <<'PY'
+          import subprocess, os
+          allowed={
+            'acs/engine.py','acs/import_registry.py','acs/pgn_service.py','acs/report_paths.py',
+            'tests/test_stage1_release_path_privacy.py',
+            '.github/workflows/dev5-stage1-path-privacy-repair.yml',
+          }
+          changed=set(subprocess.check_output(['git','diff','--name-only',os.environ['ACCEPTED_STAGE1_SHA'],'HEAD'],text=True).splitlines())
+          extra=changed-allowed
+          assert not extra, sorted(extra)
+          print('REPAIR DIFF HYGIENE PASS', sorted(changed))
+          PY
+      - name: Compile repair
+        run: python -m compileall -q acs tests run_accessible_chess.py
+      - name: Product-owned Stage1 privacy regressions
+        run: python -m pytest -q tests/test_stage1_release_path_privacy.py
+      - name: Replay current independent QA privacy oracles unchanged
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin \
+            refs/pull/147/head:refs/remotes/origin/qa-pr147-current \
+            refs/pull/152/head:refs/remotes/origin/qa-pr152-current \
+            refs/pull/155/head:refs/remotes/origin/qa-pr155-current \
+            refs/pull/158/head:refs/remotes/origin/qa-pr158-current \
+            qa/dev3-stage1-path-privacy-evidence-20260823 \
+            qa/dev4-engine-start-path-privacy-20260823 \
+            qa/dev4-pgn-error-path-privacy-20260823
+          test "$(git rev-parse refs/remotes/origin/qa-pr147-current)" = "$QA_IMPORT_CURRENT_SHA"
+          test "$(git rev-parse refs/remotes/origin/qa-pr152-current)" = "$QA_REPAIR_GAP_SHA"
+          test "$(git rev-parse refs/remotes/origin/qa-pr155-current)" = "$QA_DRIVE_RELATIVE_SHA"
+          test "$(git rev-parse refs/remotes/origin/qa-pr158-current)" = "$QA_OSERROR_STRERROR_SHA"
+          mkdir -p qa_oracles
+          git show "$QA_STAGE1_PRIVACY_SHA":tests/test_dev3_stage1_path_privacy_evidence.py > qa_oracles/test_stage1_external.py
+          git show "$QA_IMPORT_CURRENT_SHA":tests/test_dev4_import_registry_path_privacy.py > qa_oracles/test_import_current_external.py
+          git show "$QA_ENGINE_SHA":tests/test_dev4_engine_start_path_privacy.py > qa_oracles/test_engine_external.py
+          git show "$QA_PGN_SHA":tests/test_dev4_pgn_error_path_privacy.py > qa_oracles/test_pgn_external.py
+          git show "$QA_REPAIR_GAP_SHA":tests/test_dev4_stage1_privacy_repair_gap.py > qa_oracles/test_repair_gap_external.py
+          git show "$QA_OSERROR_STRERROR_SHA":tests/test_dev4_import_registry_oserror_strerror_privacy.py > qa_oracles/test_oserror_strerror_external.py
+          git show "$QA_DRIVE_RELATIVE_SHA":.github/workflows/dev1-stage1-drive-relative-path-privacy-evidence.yml > qa_oracles/drive_relative_evidence_workflow.yml
+          python - <<'PY'
+          from pathlib import Path
+          workflow=Path('qa_oracles/drive_relative_evidence_workflow.yml').read_text(encoding='utf-8')
+          lines=workflow.splitlines()
+          start=next(i for i,line in enumerate(lines) if 'from acs.report_paths import report_safe_name' in line)
+          end=next(i for i,line in enumerate(lines[start:], start) if "'@ | Set-Content" in line)
+          indent=len(lines[start])-len(lines[start].lstrip())
+          code='\n'.join(line[indent:] if len(line) >= indent else '' for line in lines[start:end])+'\n'
+          Path('qa_oracles/drive_relative_oracle.py').write_text(code, encoding='utf-8')
+          PY
+          python -m pytest -q \
+            qa_oracles/test_stage1_external.py \
+            qa_oracles/test_import_current_external.py \
+            qa_oracles/test_engine_external.py \
+            qa_oracles/test_repair_gap_external.py \
+            qa_oracles/test_oserror_strerror_external.py
+          python -m pytest -q \
+            qa_oracles/test_pgn_external.py::Dev4PgnErrorPathPrivacyTests::test_existing_destination_error_does_not_expose_absolute_parent_path \
+            qa_oracles/test_pgn_external.py::Dev4PgnErrorPathPrivacyTests::test_expected_hash_mismatch_does_not_expose_absolute_parent_path
+          python -m qa_oracles.drive_relative_oracle
+      - name: Full unittest
+        run: python -m unittest discover -v tests
+      - name: Full pytest
+        run: python -m pytest -q tests
+      - name: Complete diagnostic
+        run: python run_accessible_chess.py --diagnostic
+
+  windows-release-regression:
+    runs-on: windows-2025
+    timeout-minutes: 35
+    steps:
+      - name: Checkout exact repair head with LF semantics
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+      - name: Preserve exact LF source semantics
+        shell: pwsh
+        run: |
+          git config core.autocrlf false
+          git config core.eol lf
+          git reset --hard HEAD
+          if((git merge-base $env:ACCEPTED_STAGE1_SHA HEAD).Trim() -ne $env:ACCEPTED_STAGE1_SHA){throw 'Stage1 ancestry mismatch'}
+          git diff --check $env:ACCEPTED_STAGE1_SHA HEAD
+          if($LASTEXITCODE -ne 0){throw 'Diff hygiene failed'}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install test dependency
+        run: python -m pip install -q pytest
+      - name: Compile repair
+        run: python -m compileall -q acs tests run_accessible_chess.py
+      - name: Windows path privacy regressions
+        run: python -m pytest -q tests/test_stage1_release_path_privacy.py
+      - name: Focused Stage1 release contracts
+        run: python -m unittest -v tests.test_release_preflight tests.test_issue22_release_contract tests.test_nvda_p0_contract tests.test_stage1_packaged_focus_origin_contract tests.test_stage1_webview2_accessibility_boundary tests.test_webview_safe_server tests.test_legacy_release_workflow_safety tests.test_stage1_saturation_refactor_contract
+      - name: Full unittest
+        run: python -m unittest discover -v tests
+      - name: Full pytest
+        run: python -m pytest -q tests
+      - name: Complete diagnostic
+        run: python run_accessible_chess.py --diagnostic
