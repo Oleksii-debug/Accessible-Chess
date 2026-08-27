@@ -1,0 +1,78 @@
+name: WordDeck MASS120 Assessment Runtime Gate
+
+on:
+  push:
+    branches:
+      - worddeck-mass120-110-assessment-runtime
+    paths:
+      - 'WordDeck/**'
+      - '.github/workflows/worddeck-mass120-110-assessment-runtime.yml'
+  pull_request:
+    branches:
+      - worddeck-bootstrap
+    paths:
+      - 'WordDeck/**'
+      - '.github/workflows/worddeck-mass120-110-assessment-runtime.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: worddeck-mass120-assessment-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  assessment-runtime:
+    runs-on: windows-2025
+    timeout-minutes: 45
+    steps:
+      - name: Checkout exact revision
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Restore and build warnings as errors
+        shell: pwsh
+        run: |
+          dotnet restore .\WordDeck\WordDeck.csproj
+          dotnet build .\WordDeck\WordDeck.csproj -c Release --no-restore -warnaserror
+
+      - name: Run complete source self-test suite
+        run: dotnet run --project .\WordDeck\WordDeck.csproj -c Release --no-build -- --self-test
+
+      - name: Publish self-contained Windows x64
+        run: dotnet publish .\WordDeck\WordDeck.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:DebugType=None -p:DebugSymbols=false -o .\artifacts\WordDeck-assessment-runtime
+
+      - name: Run published EXE self-test
+        shell: pwsh
+        run: |
+          & .\artifacts\WordDeck-assessment-runtime\WordDeck.exe --self-test
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Spaces and Cyrillic path smoke
+        shell: pwsh
+        run: |
+          $target = Join-Path $env:RUNNER_TEMP 'WordDeck оцінювання\Published App'
+          New-Item -ItemType Directory -Force -Path $target | Out-Null
+          Copy-Item -Path '.\artifacts\WordDeck-assessment-runtime\*' -Destination $target -Recurse -Force
+          & (Join-Path $target 'WordDeck.exe') --self-test
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Reject personal assessment state in publish tree
+        shell: pwsh
+        run: |
+          $bad = Get-ChildItem -LiteralPath '.\artifacts\WordDeck-assessment-runtime' -Recurse -File | Where-Object {
+            $_.Name -match '^assessment-runtime.*\.json$' -or
+            $_.FullName -match '[\\/]Backups[\\/]'
+          }
+          if ($bad) {
+            $bad | ForEach-Object { Write-Error "Personal assessment state leaked into publish tree: $($_.FullName)" }
+            exit 1
+          }
