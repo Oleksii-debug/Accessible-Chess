@@ -1,0 +1,117 @@
+name: DEV2 History Scalar Fail-Closed Repair
+
+on:
+  push:
+    branches:
+      - repair/dev2-history-scalar-fail-closed-20260823
+  pull_request:
+    branches:
+      - manual5/integration-20260821
+
+permissions:
+  contents: read
+
+env:
+  EXACT_STAGE1_BASE_SHA: 80720e8125c59a213f278668d599040f2768d553
+
+jobs:
+  history-scalar-linux:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout repair head
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install test dependency
+        run: python -m pip install -q pytest
+      - name: Exact base and narrow diff hygiene
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git merge-base "$EXACT_STAGE1_BASE_SHA" HEAD)" = "$EXACT_STAGE1_BASE_SHA"
+          git diff --check "$EXACT_STAGE1_BASE_SHA" HEAD
+          python - <<'PY'
+          import os, subprocess
+          allowed={
+              'acs/history.py',
+              'tests/test_dev2_history_scalar_fail_closed.py',
+              '.github/workflows/dev2-history-scalar-fail-closed.yml',
+          }
+          changed=set(subprocess.check_output(
+              ['git','diff','--name-only',os.environ['EXACT_STAGE1_BASE_SHA'],'HEAD'], text=True
+          ).splitlines())
+          assert changed == allowed, (changed, allowed)
+          print('DEV2 NARROW PRODUCT DIFF PASS', sorted(changed))
+          PY
+      - name: Compile
+        run: python -m compileall -q acs tests run_accessible_chess.py
+      - name: Oversized history target regression
+        run: python -m unittest -v tests.test_dev2_history_scalar_fail_closed
+      - name: Existing history and adapter regressions
+        run: >-
+          python -m unittest -v
+          tests.test_history
+          tests.test_ui_review_adapter
+          tests.test_stage1_saturation_history_stress
+          tests.test_stage1_core_full_flow
+          tests.test_dev2_fen_atomicity
+          tests.test_position_editor
+          tests.test_core_release_contracts
+      - name: Full unittest
+        run: python -m unittest discover -v tests
+      - name: Full pytest
+        run: python -m pytest -q tests
+      - name: Complete diagnostic
+        run: python run_accessible_chess.py --diagnostic
+
+  history-scalar-windows:
+    runs-on: windows-2025
+    timeout-minutes: 35
+    steps:
+      - name: Checkout repair head with LF semantics
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Preserve exact LF source and verify base
+        shell: pwsh
+        run: |
+          git config core.autocrlf false
+          git config core.eol lf
+          git reset --hard HEAD
+          if((git merge-base $env:EXACT_STAGE1_BASE_SHA HEAD).Trim() -ne $env:EXACT_STAGE1_BASE_SHA){throw 'Exact Stage1 base ancestry mismatch'}
+          git diff --check $env:EXACT_STAGE1_BASE_SHA HEAD
+          if($LASTEXITCODE -ne 0){throw 'Diff hygiene failed'}
+          $changed=@(git diff --name-only $env:EXACT_STAGE1_BASE_SHA HEAD)
+          $allowed=@('.github/workflows/dev2-history-scalar-fail-closed.yml','acs/history.py','tests/test_dev2_history_scalar_fail_closed.py')
+          $extra=@($changed | Where-Object {$_ -notin $allowed})
+          if($extra.Count -ne 0 -or $changed.Count -ne 3){throw "Narrow Product diff mismatch: $($changed -join ', ')"}
+          'DEV2 WINDOWS EXACT BASE + NARROW DIFF PASS'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install test dependency
+        run: python -m pip install -q pytest
+      - name: Compile
+        run: python -m compileall -q acs tests run_accessible_chess.py
+      - name: Oversized history target regression
+        run: python -m unittest -v tests.test_dev2_history_scalar_fail_closed
+      - name: Existing history and adapter regressions
+        run: >-
+          python -m unittest -v
+          tests.test_history
+          tests.test_ui_review_adapter
+          tests.test_stage1_saturation_history_stress
+          tests.test_stage1_core_full_flow
+          tests.test_dev2_fen_atomicity
+          tests.test_position_editor
+          tests.test_core_release_contracts
+      - name: Full unittest
+        run: python -m unittest discover -v tests
+      - name: Full pytest
+        run: python -m pytest -q tests
+      - name: Complete diagnostic
+        run: python run_accessible_chess.py --diagnostic
