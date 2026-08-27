@@ -47,6 +47,7 @@ function check(condition, message) { if (!condition) throw new Error(message); }
 function snapshot(selectedId) {
   return {
     status: "ready",
+    error_message: "The action could not be completed.",
     game: { heading: "Alpha — Beta", position_label: "Game 1 of 1", result_label: "Result", result: "*", tags_heading: "PGN tags", tags: [], warnings_heading: "PGN warnings", warnings: [], tree_heading: "Game tree" },
     tree: [
       { dom_id: "pgn-a", node_id: "g0:main/m0", kind: "move", aria_level: 1, selected: selectedId === "pgn-a", label: "1 e4", comments: [], has_parent: false },
@@ -113,6 +114,51 @@ async function run() {
   check(!JSON.stringify(calls).includes("expected_record_digest"), "browser learned record digest");
   check(!JSON.stringify(calls).includes("line_path"), "browser learned canonical GameTree path");
   check(announcements.length === 0, "passive PGN render produced live-region spam");
+
+  const rejectedRoot = new FakeElement("div");
+  const rejectedAnnouncements = [];
+  window.AccessibleChessPgnSurface.render(
+    rejectedRoot,
+    snapshot("pgn-a"),
+    (command) => command === "pgn.move"
+      ? Promise.reject(new Error("C:/Users/private/SECRET.pgn"))
+      : Promise.reject(new Error("unexpected rejection")),
+    (message) => rejectedAnnouncements.push(String(message)),
+    "pgn-a"
+  );
+  const rejectedItem = rejectedRoot.querySelectorAll('[role="treeitem"]')[0];
+  rejectedItem.listeners.keydown({ key: "ArrowDown", preventDefault: function () {} });
+  await flush();
+  await flush();
+  check(document.activeElement === rejectedItem, "rejected navigation did not retain tree focus");
+  check(rejectedAnnouncements.length === 1, "rejected navigation did not announce exactly once");
+  check(rejectedAnnouncements[0] === "The action could not be completed.", "rejected navigation leaked its error");
+  check(!rejectedAnnouncements.join(" ").includes("SECRET"), "rejected navigation leaked backend data");
+
+  const dialogRoot = new FakeElement("div");
+  const dialogAnnouncements = [];
+  window.AccessibleChessPgnSurface.render(
+    dialogRoot,
+    snapshot("pgn-a"),
+    (command) => command === "pgn.comment_edit"
+      ? Promise.reject(new Error("/home/private/comment.pgn"))
+      : { kind: "delegated", payload: {} },
+    (message) => dialogAnnouncements.push(String(message)),
+    "pgn-a"
+  );
+  const dialogAll = dialogRoot.descendants();
+  const dialogEdit = dialogAll.find((item) => item.dataset.action === "pgn.comment_edit");
+  const dialogText = dialogAll.find((item) => item.tagName === "TEXTAREA");
+  dialogEdit.listeners.click();
+  const rejectedDialog = dialogText.parentNode;
+  const rejectedSave = rejectedDialog.descendants().find((item) => item.tagName === "BUTTON" && item.textContent === "Save");
+  rejectedSave.listeners.click();
+  await flush();
+  await flush();
+  check(rejectedDialog.open, "rejected comment save closed the recoverable dialog");
+  check(document.activeElement === dialogText, "rejected comment save did not retain editor focus");
+  check(dialogAnnouncements.length === 1, "rejected comment save did not announce exactly once");
+  check(dialogAnnouncements[0] === "The action could not be completed.", "rejected comment save leaked its error");
   console.log("PGN workspace keyboard/privacy DOM contract PASS");
 }
 run().catch((error) => { console.error(error); process.exitCode = 1; });

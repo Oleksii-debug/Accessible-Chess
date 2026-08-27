@@ -59,10 +59,21 @@
     if (result.kind === "error" && payload.message) announce(String(payload.message));
   }
 
+  function announceRejected(root, announce, focusBefore) {
+    announce(String(root._pgnErrorMessage || "The action could not be completed."));
+    if (focusBefore && typeof focusBefore.focus === "function") {
+      focusBefore.focus({ preventScroll: true });
+    }
+  }
+
   function invokeCommand(root, invoke, announce, command, payload) {
-    Promise.resolve(invoke(command, payload || {})).then(function (result) {
-      applyEvent(root, result, invoke, announce);
-    });
+    const focusBefore = document.activeElement;
+    Promise.resolve()
+      .then(function () { return invoke(command, payload || {}); })
+      .then(
+        function (result) { applyEvent(root, result, invoke, announce); },
+        function () { announceRejected(root, announce, focusBefore); }
+      );
   }
 
   function renderTree(root, host, snapshot, invoke, announce) {
@@ -150,10 +161,15 @@
     }
 
     save.addEventListener("click", function () {
-      Promise.resolve(invoke("pgn.comment_edit", { text: textarea.value })).then(function (result) {
-        applyEvent(root, result, invoke, announce);
-        if (!result || result.kind !== "error") closeAndRestore();
-      });
+      Promise.resolve()
+        .then(function () { return invoke("pgn.comment_edit", { text: textarea.value }); })
+        .then(
+          function (result) {
+            applyEvent(root, result, invoke, announce);
+            if (!result || result.kind !== "error") closeAndRestore();
+          },
+          function () { announceRejected(root, announce, textarea); }
+        );
     });
     cancel.addEventListener("click", closeAndRestore);
     dialog.addEventListener("cancel", function (event) {
@@ -204,6 +220,9 @@
     requireFunction(invoke, "PGN invoke");
     announce = announce == null ? function () {} : requireFunction(announce, "PGN announce");
     if (!snapshot || typeof snapshot !== "object") throw new TypeError("PGN snapshot is required");
+    root._pgnErrorMessage = typeof snapshot.error_message === "string" && snapshot.error_message
+      ? snapshot.error_message.slice(0, 240)
+      : "The action could not be completed.";
 
     const fragment = document.createDocumentFragment();
     const main = node("section");
