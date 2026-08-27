@@ -2,11 +2,11 @@ using System.Text.Json;
 using WordDeck.Core.Courses;
 using CourseModule = WordDeck.Core.Courses.Module;
 
-namespace WordDeck.Application.Courses;
+namespace WordDeck.ApplicationLayer.Courses;
 
 /// <summary>
-/// Resolves an Activity/Assessment capability into the existing WordDeck learning/application
-/// engine. Adapters may implement this for WinForms today and semantic web presentation later.
+/// Resolves declarative course capability references into the existing WordDeck learning engine.
+/// The course layer never executes or reimplements learning behavior itself.
 /// </summary>
 public interface ILearningCapabilityRegistry
 {
@@ -14,8 +14,7 @@ public interface ILearningCapabilityRegistry
 }
 
 /// <summary>
-/// Resolves stable target references against their owning existing subsystem (lexical,
-/// grammar, morphology, etc.) without duplicating those registries in the course layer.
+/// Resolves stable targets against their owning existing subsystem (lexical, grammar, etc.).
 /// </summary>
 public interface ISkillTargetRegistry
 {
@@ -23,295 +22,241 @@ public interface ISkillTargetRegistry
 }
 
 public sealed record CourseValidationIssue(string Code, string Location, string Message);
-
 public sealed record CourseValidationResult(IReadOnlyList<CourseValidationIssue> Issues)
 {
     public bool IsValid => Issues.Count == 0;
 }
 
 /// <summary>
-/// Structural validation only. It verifies references and adapter boundaries; it neither
-/// executes activities nor computes learning progress/mastery.
+/// Pure structural/reference validation. No answer evaluation, progress transition, persistence,
+/// WinForms behavior, or course-completion algorithm belongs here.
 /// </summary>
 public static class CourseContractValidator
 {
-    public static CourseValidationResult Validate(
-        Course course,
-        ILearningCapabilityRegistry capabilityRegistry,
-        ISkillTargetRegistry skillTargetRegistry)
+    public static CourseValidationResult Validate(Course course, ILearningCapabilityRegistry capabilities, ISkillTargetRegistry skills)
     {
         ArgumentNullException.ThrowIfNull(course);
-        ArgumentNullException.ThrowIfNull(capabilityRegistry);
-        ArgumentNullException.ThrowIfNull(skillTargetRegistry);
-
+        ArgumentNullException.ThrowIfNull(capabilities);
+        ArgumentNullException.ThrowIfNull(skills);
         var issues = new List<CourseValidationIssue>();
-        RequireId(course.Id, "course", "course.id", issues);
-        RequireText(course.Version, "course.version", issues);
-        RequireResourceKey(course.TitleResourceKey, "course.titleResourceKey", issues);
 
-        Level[] levels = Safe(course.Levels, "course.levels", issues);
-        SkillTarget[] skillTargets = Safe(course.SkillTargets, "course.skillTargets", issues);
-        AudioAsset[] audioAssets = Safe(course.AudioAssets, "course.audioAssets", issues);
-        Assessment[] assessments = Safe(course.Assessments, "course.assessments", issues);
+        Id(course.Id, "course.id", issues);
+        Text(course.Version, "course.version", issues);
+        Resource(course.TitleResourceKey, "course.titleResourceKey", issues);
 
-        var skillById = UniqueById(skillTargets, x => x.Id, "skillTarget", issues);
-        var audioById = UniqueById(audioAssets, x => x.Id, "audioAsset", issues);
-        var assessmentById = UniqueById(assessments, x => x.Id, "assessment", issues);
-        var levelById = UniqueById(levels, x => x.Id, "level", issues);
+        Level[] levels = Items(course.Levels, "course.levels", issues);
+        SkillTarget[] targets = Items(course.SkillTargets, "course.skillTargets", issues);
+        AudioAsset[] audio = Items(course.AudioAssets, "course.audioAssets", issues);
+        Assessment[] assessments = Items(course.Assessments, "course.assessments", issues);
 
-        foreach (SkillTarget target in skillTargets)
+        var targetById = Index(targets, x => x.Id, "skillTarget", issues);
+        var audioById = Index(audio, x => x.Id, "audioAsset", issues);
+        var assessmentById = Index(assessments, x => x.Id, "assessment", issues);
+        _ = Index(levels, x => x.Id, "level", issues);
+
+        foreach (SkillTarget target in targets)
         {
-            string location = $"skillTarget[{target.Id}]";
-            RequireId(target.Id, "skillTarget", location + ".id", issues);
-            RequireId(target.Domain, "skillTarget domain", location + ".domain", issues);
-            RequireText(target.TargetRef, location + ".targetRef", issues);
-            if (CourseContractIdentifiers.IsStableId(target.Domain) && !string.IsNullOrWhiteSpace(target.TargetRef) &&
-                !skillTargetRegistry.CanResolve(target.Domain, target.TargetRef))
-            {
-                Add(issues, "skill_target_unresolved", location + ".targetRef", "Target reference is not resolved by its owning application registry.");
-            }
+            string at = $"skillTarget[{target.Id}]";
+            Id(target.Id, at + ".id", issues);
+            Id(target.Domain, at + ".domain", issues);
+            Text(target.TargetRef, at + ".targetRef", issues);
+            if (CourseContractIdentifiers.IsStableId(target.Domain) && !string.IsNullOrWhiteSpace(target.TargetRef) && !skills.CanResolve(target.Domain, target.TargetRef))
+                Add(issues, "skill_target_unresolved", at + ".targetRef", "Target is not resolved by its owning existing subsystem registry.");
         }
 
-        foreach (AudioAsset asset in audioAssets)
+        foreach (AudioAsset asset in audio)
         {
-            string location = $"audioAsset[{asset.Id}]";
-            RequireId(asset.Id, "audioAsset", location + ".id", issues);
-            RequireResourceKey(asset.AssetKey, location + ".assetKey", issues);
-            RequireText(asset.LanguageTag, location + ".languageTag", issues);
-            if (asset.TranscriptResourceKey is not null)
-                RequireResourceKey(asset.TranscriptResourceKey, location + ".transcriptResourceKey", issues);
+            string at = $"audioAsset[{asset.Id}]";
+            Id(asset.Id, at + ".id", issues);
+            Resource(asset.AssetKey, at + ".assetKey", issues);
+            Text(asset.LanguageTag, at + ".languageTag", issues);
+            if (asset.TranscriptResourceKey is not null) Resource(asset.TranscriptResourceKey, at + ".transcriptResourceKey", issues);
         }
 
         foreach (Assessment assessment in assessments)
         {
-            string location = $"assessment[{assessment.Id}]";
-            RequireId(assessment.Id, "assessment", location + ".id", issues);
-            RequireId(assessment.EvaluatorCapabilityId, "assessment evaluator capability", location + ".evaluatorCapabilityId", issues);
-            RequireId(assessment.PolicyId, "assessment policy", location + ".policyId", issues);
-            ValidateReferenceList(assessment.SkillTargetIds, skillById, location + ".skillTargetIds", "skill target", issues);
-            if (CourseContractIdentifiers.IsStableId(assessment.EvaluatorCapabilityId) && !capabilityRegistry.CanResolve(assessment.EvaluatorCapabilityId))
-                Add(issues, "capability_unresolved", location + ".evaluatorCapabilityId", "Assessment evaluator is not resolved by the existing application capability registry.");
+            string at = $"assessment[{assessment.Id}]";
+            Id(assessment.Id, at + ".id", issues);
+            Id(assessment.EvaluatorCapabilityId, at + ".evaluatorCapabilityId", issues);
+            Id(assessment.PolicyId, at + ".policyId", issues);
+            Refs(assessment.SkillTargetIds, targetById, at + ".skillTargetIds", "skill target", issues);
+            if (CourseContractIdentifiers.IsStableId(assessment.EvaluatorCapabilityId) && !capabilities.CanResolve(assessment.EvaluatorCapabilityId))
+                Add(issues, "capability_unresolved", at + ".evaluatorCapabilityId", "Evaluator is not resolved by the existing application capability registry.");
         }
 
-        var moduleById = new Dictionary<string, CourseModule>(StringComparer.OrdinalIgnoreCase);
-        var unitById = new Dictionary<string, Unit>(StringComparer.OrdinalIgnoreCase);
-        var lessonById = new Dictionary<string, Lesson>(StringComparer.OrdinalIgnoreCase);
-        var activityById = new Dictionary<string, Activity>(StringComparer.OrdinalIgnoreCase);
-        var explanationById = new Dictionary<string, Explanation>(StringComparer.OrdinalIgnoreCase);
-        var checkpointById = new Dictionary<string, Checkpoint>(StringComparer.OrdinalIgnoreCase);
+        var modules = new Dictionary<string, CourseModule>(StringComparer.OrdinalIgnoreCase);
+        var units = new Dictionary<string, Unit>(StringComparer.OrdinalIgnoreCase);
+        var lessons = new Dictionary<string, Lesson>(StringComparer.OrdinalIgnoreCase);
+        var activities = new Dictionary<string, Activity>(StringComparer.OrdinalIgnoreCase);
+        var explanations = new Dictionary<string, Explanation>(StringComparer.OrdinalIgnoreCase);
+        var checkpoints = new Dictionary<string, Checkpoint>(StringComparer.OrdinalIgnoreCase);
 
         foreach (Level level in levels)
         {
-            string levelLocation = $"level[{level.Id}]";
-            RequireId(level.Id, "level", levelLocation + ".id", issues);
-            RequireId(level.Code, "level code", levelLocation + ".code", issues);
-            RequireResourceKey(level.TitleResourceKey, levelLocation + ".titleResourceKey", issues);
-            CourseModule[] modules = Safe(level.Modules, levelLocation + ".modules", issues);
-            Checkpoint[] levelCheckpoints = Safe(level.Checkpoints, levelLocation + ".checkpoints", issues);
-            AddUnique(modules, x => x.Id, "module", moduleById, issues);
-            AddUnique(levelCheckpoints, x => x.Id, "checkpoint", checkpointById, issues);
+            string levelAt = $"level[{level.Id}]";
+            Id(level.Id, levelAt + ".id", issues);
+            Id(level.Code, levelAt + ".code", issues);
+            Resource(level.TitleResourceKey, levelAt + ".titleResourceKey", issues);
+            CourseModule[] levelModules = Items(level.Modules, levelAt + ".modules", issues);
+            AddIndex(levelModules, x => x.Id, "module", modules, issues);
+            AddIndex(Items(level.Checkpoints, levelAt + ".checkpoints", issues), x => x.Id, "checkpoint", checkpoints, issues);
 
-            foreach (CourseModule module in modules)
+            foreach (CourseModule module in levelModules)
             {
-                string moduleLocation = $"module[{module.Id}]";
-                RequireId(module.Id, "module", moduleLocation + ".id", issues);
-                RequireResourceKey(module.TitleResourceKey, moduleLocation + ".titleResourceKey", issues);
-                Unit[] units = Safe(module.Units, moduleLocation + ".units", issues);
-                Checkpoint[] moduleCheckpoints = Safe(module.Checkpoints, moduleLocation + ".checkpoints", issues);
-                AddUnique(units, x => x.Id, "unit", unitById, issues);
-                AddUnique(moduleCheckpoints, x => x.Id, "checkpoint", checkpointById, issues);
+                string moduleAt = $"module[{module.Id}]";
+                Id(module.Id, moduleAt + ".id", issues);
+                Resource(module.TitleResourceKey, moduleAt + ".titleResourceKey", issues);
+                Unit[] moduleUnits = Items(module.Units, moduleAt + ".units", issues);
+                AddIndex(moduleUnits, x => x.Id, "unit", units, issues);
+                AddIndex(Items(module.Checkpoints, moduleAt + ".checkpoints", issues), x => x.Id, "checkpoint", checkpoints, issues);
 
-                foreach (Unit unit in units)
+                foreach (Unit unit in moduleUnits)
                 {
-                    string unitLocation = $"unit[{unit.Id}]";
-                    RequireId(unit.Id, "unit", unitLocation + ".id", issues);
-                    RequireResourceKey(unit.TitleResourceKey, unitLocation + ".titleResourceKey", issues);
-                    Lesson[] lessons = Safe(unit.Lessons, unitLocation + ".lessons", issues);
-                    Checkpoint[] unitCheckpoints = Safe(unit.Checkpoints, unitLocation + ".checkpoints", issues);
-                    AddUnique(lessons, x => x.Id, "lesson", lessonById, issues);
-                    AddUnique(unitCheckpoints, x => x.Id, "checkpoint", checkpointById, issues);
+                    string unitAt = $"unit[{unit.Id}]";
+                    Id(unit.Id, unitAt + ".id", issues);
+                    Resource(unit.TitleResourceKey, unitAt + ".titleResourceKey", issues);
+                    Lesson[] unitLessons = Items(unit.Lessons, unitAt + ".lessons", issues);
+                    AddIndex(unitLessons, x => x.Id, "lesson", lessons, issues);
+                    AddIndex(Items(unit.Checkpoints, unitAt + ".checkpoints", issues), x => x.Id, "checkpoint", checkpoints, issues);
 
-                    foreach (Lesson lesson in lessons)
+                    foreach (Lesson lesson in unitLessons)
                     {
-                        string lessonLocation = $"lesson[{lesson.Id}]";
-                        RequireId(lesson.Id, "lesson", lessonLocation + ".id", issues);
-                        RequireResourceKey(lesson.TitleResourceKey, lessonLocation + ".titleResourceKey", issues);
-                        Activity[] activities = Safe(lesson.Activities, lessonLocation + ".activities", issues);
-                        Explanation[] explanations = Safe(lesson.Explanations, lessonLocation + ".explanations", issues);
-                        Checkpoint[] lessonCheckpoints = Safe(lesson.Checkpoints, lessonLocation + ".checkpoints", issues);
-                        AddUnique(activities, x => x.Id, "activity", activityById, issues);
-                        AddUnique(explanations, x => x.Id, "explanation", explanationById, issues);
-                        AddUnique(lessonCheckpoints, x => x.Id, "checkpoint", checkpointById, issues);
-
-                        foreach (Explanation explanation in explanations)
+                        string lessonAt = $"lesson[{lesson.Id}]";
+                        Id(lesson.Id, lessonAt + ".id", issues);
+                        Resource(lesson.TitleResourceKey, lessonAt + ".titleResourceKey", issues);
+                        AddIndex(Items(lesson.Activities, lessonAt + ".activities", issues), x => x.Id, "activity", activities, issues);
+                        Explanation[] lessonExplanations = Items(lesson.Explanations, lessonAt + ".explanations", issues);
+                        AddIndex(lessonExplanations, x => x.Id, "explanation", explanations, issues);
+                        AddIndex(Items(lesson.Checkpoints, lessonAt + ".checkpoints", issues), x => x.Id, "checkpoint", checkpoints, issues);
+                        foreach (Explanation explanation in lessonExplanations)
                         {
-                            string location = $"explanation[{explanation.Id}]";
-                            RequireId(explanation.Id, "explanation", location + ".id", issues);
-                            RequireResourceKey(explanation.ContentResourceKey, location + ".contentResourceKey", issues);
+                            string at = $"explanation[{explanation.Id}]";
+                            Id(explanation.Id, at + ".id", issues);
+                            Resource(explanation.ContentResourceKey, at + ".contentResourceKey", issues);
                         }
                     }
                 }
             }
         }
 
-        // Second pass: all graph indexes now exist, so forward references are safe.
-        foreach (Activity activity in activityById.Values)
+        foreach (Activity activity in activities.Values)
         {
-            string location = $"activity[{activity.Id}]";
-            RequireId(activity.Id, "activity", location + ".id", issues);
-            RequireId(activity.CapabilityId, "activity capability", location + ".capabilityId", issues);
-            ValidateReferenceList(activity.SkillTargetIds, skillById, location + ".skillTargetIds", "skill target", issues);
-            ValidateReferenceList(activity.AudioAssetIds, audioById, location + ".audioAssetIds", "audio asset", issues);
-            ValidateReferenceList(activity.ExplanationIds, explanationById, location + ".explanationIds", "explanation", issues);
-            if (activity.AssessmentId is not null && !assessmentById.ContainsKey(activity.AssessmentId))
-                Add(issues, "reference_missing", location + ".assessmentId", $"Unknown assessment id '{activity.AssessmentId}'.");
-            if (CourseContractIdentifiers.IsStableId(activity.CapabilityId) && !capabilityRegistry.CanResolve(activity.CapabilityId))
-                Add(issues, "capability_unresolved", location + ".capabilityId", "Activity capability is not resolved by the existing application capability registry.");
+            string at = $"activity[{activity.Id}]";
+            Id(activity.Id, at + ".id", issues);
+            Id(activity.CapabilityId, at + ".capabilityId", issues);
+            Refs(activity.SkillTargetIds, targetById, at + ".skillTargetIds", "skill target", issues);
+            Refs(activity.AudioAssetIds, audioById, at + ".audioAssetIds", "audio asset", issues);
+            Refs(activity.ExplanationIds, explanations, at + ".explanationIds", "explanation", issues);
+            OptionalRef(activity.AssessmentId, assessmentById, at + ".assessmentId", "assessment", issues);
+            if (CourseContractIdentifiers.IsStableId(activity.CapabilityId) && !capabilities.CanResolve(activity.CapabilityId))
+                Add(issues, "capability_unresolved", at + ".capabilityId", "Activity is not resolved by the existing application capability registry.");
         }
 
-        foreach (Checkpoint checkpoint in checkpointById.Values)
+        foreach (Checkpoint checkpoint in checkpoints.Values)
         {
-            string location = $"checkpoint[{checkpoint.Id}]";
-            RequireId(checkpoint.Id, "checkpoint", location + ".id", issues);
-            ValidateReferenceList(checkpoint.SkillTargetIds, skillById, location + ".skillTargetIds", "skill target", issues);
-            ValidateReferenceList(checkpoint.ActivityIds, activityById, location + ".activityIds", "activity", issues);
-            if (checkpoint.AssessmentId is not null && !assessmentById.ContainsKey(checkpoint.AssessmentId))
-                Add(issues, "reference_missing", location + ".assessmentId", $"Unknown assessment id '{checkpoint.AssessmentId}'.");
+            string at = $"checkpoint[{checkpoint.Id}]";
+            Id(checkpoint.Id, at + ".id", issues);
+            Refs(checkpoint.SkillTargetIds, targetById, at + ".skillTargetIds", "skill target", issues);
+            Refs(checkpoint.ActivityIds, activities, at + ".activityIds", "activity", issues);
+            OptionalRef(checkpoint.AssessmentId, assessmentById, at + ".assessmentId", "assessment", issues);
         }
 
-        if (course.FastTrack is not null)
+        if (course.FastTrack is { } fast)
         {
-            FastTrack route = course.FastTrack;
-            string location = $"fastTrack[{route.Id}]";
-            RequireId(route.Id, "fastTrack", location + ".id", issues);
-            RequireId(route.PolicyId, "fastTrack policy", location + ".policyId", issues);
-            ValidateReferenceList(route.LessonIds, lessonById, location + ".lessonIds", "lesson", issues);
-            ValidateReferenceList(route.CheckpointIds, checkpointById, location + ".checkpointIds", "checkpoint", issues);
+            string at = $"fastTrack[{fast.Id}]";
+            Id(fast.Id, at + ".id", issues);
+            Id(fast.PolicyId, at + ".policyId", issues);
+            Refs(fast.LessonIds, lessons, at + ".lessonIds", "lesson", issues);
+            Refs(fast.CheckpointIds, checkpoints, at + ".checkpointIds", "checkpoint", issues);
         }
 
-        if (course.DeepPractice is not null)
+        if (course.DeepPractice is { } deep)
         {
-            DeepPractice route = course.DeepPractice;
-            string location = $"deepPractice[{route.Id}]";
-            RequireId(route.Id, "deepPractice", location + ".id", issues);
-            RequireId(route.PolicyId, "deepPractice policy", location + ".policyId", issues);
-            ValidateReferenceList(route.ActivityIds, activityById, location + ".activityIds", "activity", issues);
-            ValidateReferenceList(route.SkillTargetIds, skillById, location + ".skillTargetIds", "skill target", issues);
+            string at = $"deepPractice[{deep.Id}]";
+            Id(deep.Id, at + ".id", issues);
+            Id(deep.PolicyId, at + ".policyId", issues);
+            Refs(deep.ActivityIds, activities, at + ".activityIds", "activity", issues);
+            Refs(deep.SkillTargetIds, targetById, at + ".skillTargetIds", "skill target", issues);
         }
 
-        _ = levelById; // retained intentionally for duplicate-level validation and future catalog lookup.
         return new CourseValidationResult(issues);
     }
 
-    private static T[] Safe<T>(IReadOnlyList<T>? values, string location, List<CourseValidationIssue> issues)
+    private static T[] Items<T>(IReadOnlyList<T>? source, string at, List<CourseValidationIssue> issues)
     {
-        if (values is null)
-        {
-            Add(issues, "collection_null", location, "Collection must be present; use an empty array when there are no items.");
-            return Array.Empty<T>();
-        }
-        if (values.Any(item => item is null))
-        {
-            Add(issues, "collection_null_item", location, "Collection contains a null item.");
-            return values.Where(item => item is not null).ToArray()!;
-        }
-        return values.ToArray();
+        if (source is null) { Add(issues, "collection_null", at, "Use an empty array instead of null."); return Array.Empty<T>(); }
+        if (source.Any(x => x is null)) Add(issues, "collection_null_item", at, "Collection contains a null item.");
+        return source.Where(x => x is not null).ToArray()!;
     }
 
-    private static Dictionary<string, T> UniqueById<T>(IEnumerable<T> items, Func<T, string> id, string kind, List<CourseValidationIssue> issues)
+    private static Dictionary<string, T> Index<T>(IEnumerable<T> source, Func<T, string> id, string kind, List<CourseValidationIssue> issues)
     {
         var result = new Dictionary<string, T>(StringComparer.OrdinalIgnoreCase);
-        AddUnique(items, id, kind, result, issues);
+        AddIndex(source, id, kind, result, issues);
         return result;
     }
 
-    private static void AddUnique<T>(IEnumerable<T> items, Func<T, string> id, string kind, Dictionary<string, T> destination, List<CourseValidationIssue> issues)
+    private static void AddIndex<T>(IEnumerable<T> source, Func<T, string> id, string kind, Dictionary<string, T> index, List<CourseValidationIssue> issues)
     {
-        foreach (T item in items)
+        foreach (T item in source)
         {
-            string value = id(item) ?? string.Empty;
-            if (!destination.TryAdd(value, item))
-                Add(issues, "duplicate_id", $"{kind}[{value}]", $"Duplicate {kind} id '{value}'.");
+            string key = id(item) ?? string.Empty;
+            if (!index.TryAdd(key, item)) Add(issues, "duplicate_id", $"{kind}[{key}]", $"Duplicate {kind} id '{key}'.");
         }
     }
 
-    private static void ValidateReferenceList<T>(IReadOnlyList<string>? ids, IReadOnlyDictionary<string, T> target, string location, string kind, List<CourseValidationIssue> issues)
+    private static void Refs<T>(IReadOnlyList<string>? ids, IReadOnlyDictionary<string, T> index, string at, string kind, List<CourseValidationIssue> issues)
     {
-        string[] values = Safe(ids, location, issues);
+        string[] values = Items(ids, at, issues);
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (string value in values)
         {
-            if (!CourseContractIdentifiers.IsStableId(value))
-            {
-                Add(issues, "id_invalid", location, $"Reference '{value}' is not a stable lower-case identifier.");
-                continue;
-            }
-            if (!seen.Add(value))
-                Add(issues, "reference_duplicate", location, $"Duplicate {kind} reference '{value}'.");
-            if (!target.ContainsKey(value))
-                Add(issues, "reference_missing", location, $"Unknown {kind} id '{value}'.");
+            if (!CourseContractIdentifiers.IsStableId(value)) { Add(issues, "id_invalid", at, $"Reference '{value}' is not a stable lower-case identifier."); continue; }
+            if (!seen.Add(value)) Add(issues, "reference_duplicate", at, $"Duplicate {kind} reference '{value}'.");
+            if (!index.ContainsKey(value)) Add(issues, "reference_missing", at, $"Unknown {kind} id '{value}'.");
         }
     }
 
-    private static void RequireId(string? value, string label, string location, List<CourseValidationIssue> issues)
+    private static void OptionalRef<T>(string? id, IReadOnlyDictionary<string, T> index, string at, string kind, List<CourseValidationIssue> issues)
     {
-        if (!CourseContractIdentifiers.IsStableId(value))
-            Add(issues, "id_invalid", location, $"{label} must be a stable lower-case identifier.");
+        if (id is null) return;
+        if (!CourseContractIdentifiers.IsStableId(id)) Add(issues, "id_invalid", at, "Optional reference is not a stable lower-case identifier.");
+        else if (!index.ContainsKey(id)) Add(issues, "reference_missing", at, $"Unknown {kind} id '{id}'.");
     }
 
-    private static void RequireText(string? value, string location, List<CourseValidationIssue> issues)
+    private static void Id(string? value, string at, List<CourseValidationIssue> issues)
     {
-        if (string.IsNullOrWhiteSpace(value) || !string.Equals(value, value.Trim(), StringComparison.Ordinal))
-            Add(issues, "text_invalid", location, "Value is required and must not contain leading/trailing whitespace.");
+        if (!CourseContractIdentifiers.IsStableId(value)) Add(issues, "id_invalid", at, "Value must be a stable lower-case identifier.");
     }
 
-    private static void RequireResourceKey(string? value, string location, List<CourseValidationIssue> issues)
+    private static void Text(string? value, string at, List<CourseValidationIssue> issues)
     {
-        if (!CourseContractIdentifiers.IsLogicalResourceKey(value))
-            Add(issues, "resource_key_invalid", location, "Use a logical resource key, not an OS path or transport URL.");
+        if (string.IsNullOrWhiteSpace(value) || !string.Equals(value, value.Trim(), StringComparison.Ordinal)) Add(issues, "text_invalid", at, "Value is required and must be trimmed.");
     }
 
-    private static void Add(List<CourseValidationIssue> issues, string code, string location, string message) =>
-        issues.Add(new CourseValidationIssue(code, location, message));
+    private static void Resource(string? value, string at, List<CourseValidationIssue> issues)
+    {
+        if (!CourseContractIdentifiers.IsLogicalResourceKey(value)) Add(issues, "resource_key_invalid", at, "Use a logical resource key, not an OS path or transport URL.");
+    }
+
+    private static void Add(List<CourseValidationIssue> issues, string code, string at, string message) => issues.Add(new(code, at, message));
 }
 
-/// <summary>
-/// JSON is a presentation-neutral interchange boundary for future semantic web clients. The
-/// deserialized graph is always validated before use.
-/// </summary>
+/// <summary>Presentation-neutral interchange seam for future semantic web clients.</summary>
 public static class CourseContractJson
 {
-    private static readonly JsonSerializerOptions Options = new(JsonSerializerDefaults.Web)
-    {
-        WriteIndented = true,
-        PropertyNameCaseInsensitive = false
-    };
+    private static readonly JsonSerializerOptions Options = new(JsonSerializerDefaults.Web) { WriteIndented = true, PropertyNameCaseInsensitive = false };
 
-    public static string Serialize(Course course)
-    {
-        ArgumentNullException.ThrowIfNull(course);
-        return JsonSerializer.Serialize(course, Options);
-    }
+    public static string Serialize(Course course) => JsonSerializer.Serialize(course ?? throw new ArgumentNullException(nameof(course)), Options);
 
-    public static Course DeserializeAndValidate(
-        string json,
-        ILearningCapabilityRegistry capabilityRegistry,
-        ISkillTargetRegistry skillTargetRegistry)
+    public static Course DeserializeAndValidate(string json, ILearningCapabilityRegistry capabilities, ISkillTargetRegistry skills)
     {
         if (string.IsNullOrWhiteSpace(json)) throw new InvalidDataException("Course contract JSON is empty.");
-        Course? course;
-        try
-        {
-            course = JsonSerializer.Deserialize<Course>(json, Options);
-        }
-        catch (JsonException ex)
-        {
-            throw new InvalidDataException("Course contract JSON is invalid.", ex);
-        }
-        if (course is null) throw new InvalidDataException("Course contract JSON did not contain a course.");
-        CourseValidationResult result = CourseContractValidator.Validate(course, capabilityRegistry, skillTargetRegistry);
-        if (!result.IsValid)
-            throw new InvalidDataException("Course contract validation failed: " + string.Join(" | ", result.Issues.Select(x => $"{x.Code}@{x.Location}: {x.Message}")));
+        Course course;
+        try { course = JsonSerializer.Deserialize<Course>(json, Options) ?? throw new InvalidDataException("Course contract JSON did not contain a course."); }
+        catch (JsonException ex) { throw new InvalidDataException("Course contract JSON is invalid.", ex); }
+        CourseValidationResult result = CourseContractValidator.Validate(course, capabilities, skills);
+        if (!result.IsValid) throw new InvalidDataException("Course contract validation failed: " + string.Join(" | ", result.Issues.Select(x => $"{x.Code}@{x.Location}: {x.Message}")));
         return course;
     }
 }

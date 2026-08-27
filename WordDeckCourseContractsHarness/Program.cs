@@ -1,5 +1,5 @@
 using System.Reflection;
-using WordDeck.Application.Courses;
+using WordDeck.ApplicationLayer.Courses;
 using WordDeck.Core.Courses;
 using CourseModule = WordDeck.Core.Courses.Module;
 
