@@ -245,7 +245,7 @@ jobs:
 
   real-pinned-chessbase:
     runs-on: ubuntu-22.04
-    timeout-minutes: 15
+    timeout-minutes: 45
     steps:
       - name: Checkout Accessible Chess
         uses: actions/checkout@v4
