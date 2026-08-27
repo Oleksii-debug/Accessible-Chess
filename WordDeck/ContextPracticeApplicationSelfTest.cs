@@ -175,7 +175,7 @@ internal static class ContextPracticeApplicationSelfTest
 
         var boundedEntries = new List<(string EntryId, string Word)>();
         for (int i = 1; i <= 29; i++)
-            boundedEntries.Add(($"filler-{i:00}", $"fillerword{i:00}"));
+            boundedEntries.Add(($"filler-{i:00}", AlphabeticFixtureWord(i)));
         boundedEntries.Add(("bank-noun", "bank"));
         boundedEntries.Add(("bank-verb", "bank"));
         var boundedLexicon = new ContextTargetLexicon("application-bounded-homograph", boundedEntries);
@@ -199,6 +199,16 @@ internal static class ContextPracticeApplicationSelfTest
         Check(bounded.AmbiguousStableEntryIds.Count == 1 &&
               string.Equals(bounded.AmbiguousStableEntryIds[0], "bank-noun", StringComparison.OrdinalIgnoreCase),
             $"The active-pool ambiguity ledger must use full-dictionary identity and retain only the in-pool homograph when its sibling is outside the current study window. Actual ledger=[{actualLedger}].");
+    }
+
+    private static string AlphabeticFixtureWord(int ordinal)
+    {
+        if (ordinal is < 1 or > 29)
+            throw new ArgumentOutOfRangeException(nameof(ordinal));
+        string suffix = ordinal <= 26
+            ? ((char)('a' + ordinal - 1)).ToString()
+            : "a" + (char)('a' + ordinal - 27);
+        return "fillerword" + suffix;
     }
 
     private static void TestNoNaturalPairDoesNotFabricate()
