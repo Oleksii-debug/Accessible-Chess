@@ -8,6 +8,7 @@ internal static class Program
         {
             MorphologySelfTest.Run();
             MorphologyPracticeSelfTest.Run();
+            MorphologyFamilyGraphSelfTest.Run();
             MorphologyDiagnosticsSelfTest.Run();
             MorphologyContextPolicySelfTest.Run();
             MorphologyReadingBridgeSelfTest.Run();
