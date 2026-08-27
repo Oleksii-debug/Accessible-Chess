@@ -76,6 +76,7 @@ internal static class AssessmentRuntimeSelfTest
     {
         DateTimeOffset t = new(2026, 8, 27, 8, 0, 0, TimeSpan.Zero);
         var history = new List<AssessmentAttempt>();
+        history.Add(H("single", "skill.single", AssessmentMode.Assessment, AssessmentMark.Correct, t));
         for (int i = 0; i < 4; i++) history.Add(H($"low{i}", "skill.low", AssessmentMode.Assessment, AssessmentMark.Incorrect, t.AddMinutes(i)));
         for (int i = 0; i < 6; i++) history.Add(H($"practice{i}", "skill.low", AssessmentMode.Practice, AssessmentMark.Correct, t.AddMinutes(10 + i)));
         for (int i = 0; i < 5; i++) history.Add(H($"highc{i}", "skill.high", AssessmentMode.Assessment, AssessmentMark.Correct, t.AddMinutes(20 + i)));
@@ -83,6 +84,7 @@ internal static class AssessmentRuntimeSelfTest
         for (int i = 0; i < 4; i++) history.Add(H($"midc{i}", "skill.mid", AssessmentMode.Assessment, AssessmentMark.Correct, t.AddMinutes(30 + i)));
         for (int i = 0; i < 2; i++) history.Add(H($"midi{i}", "skill.mid", AssessmentMode.Assessment, AssessmentMark.Incorrect, t.AddMinutes(34 + i)));
 
+        Require(AssessmentDifficultyHeuristic.SuggestTier(history, "skill.single") == 2, "one item changed difficulty tier");
         Require(AssessmentDifficultyHeuristic.SuggestTier(history, "skill.low") == 1, "low evidence route failed");
         Require(AssessmentDifficultyHeuristic.SuggestTier(history, "skill.high") == 3, "high evidence route failed");
         Require(AssessmentDifficultyHeuristic.SuggestTier(history, "skill.mid") == 2, "middle evidence route failed");
