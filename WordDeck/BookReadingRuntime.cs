@@ -90,9 +90,10 @@ internal static class BookReadingDocumentLoader
 
 /// <summary>
 /// Natural target lookup for private book sentences. Distinct target IDs must
-/// be satisfiable by distinct physical lexical occurrences. This prevents one
-/// ambiguous surface form from pretending to be two or three simultaneous
-/// learning targets.
+/// be satisfiable by distinct physical lexical occurrences. In addition, every
+/// target occurrence must map to exactly one stable dictionary ID. Unresolved
+/// homographs are therefore preserved for reading/capture choice but are never
+/// reused as if they were verified context for a specific stable lexical sense.
 /// </summary>
 internal static class BookReadingContextQuery
 {
@@ -117,19 +118,25 @@ internal static class BookReadingContextQuery
         using SqliteCommand command = connection.CreateCommand();
         for (int i = 0; i < targets.Length; i++) command.Parameters.AddWithValue("$t" + i, targets[i]);
         command.Parameters.AddWithValue("$limit", maxResults);
+
+        const string UniqueOccurrence0 = "(SELECT COUNT(*) FROM book_occurrence_entry u0 WHERE u0.sentence_id=e0.sentence_id AND u0.occurrence_ordinal=e0.occurrence_ordinal)=1";
+        const string UniqueOccurrence1 = "(SELECT COUNT(*) FROM book_occurrence_entry u1 WHERE u1.sentence_id=e1.sentence_id AND u1.occurrence_ordinal=e1.occurrence_ordinal)=1";
+        const string UniqueOccurrence2 = "(SELECT COUNT(*) FROM book_occurrence_entry u2 WHERE u2.sentence_id=e2.sentence_id AND u2.occurrence_ordinal=e2.occurrence_ordinal)=1";
+
         string matchedSql = targets.Length switch
         {
-            1 => "SELECT DISTINCT e0.sentence_id FROM book_occurrence_entry e0 WHERE e0.stable_entry_id=$t0 ORDER BY e0.sentence_id LIMIT $limit",
-            2 => """
+            1 => $"SELECT DISTINCT e0.sentence_id FROM book_occurrence_entry e0 WHERE e0.stable_entry_id=$t0 AND {UniqueOccurrence0} ORDER BY e0.sentence_id LIMIT $limit",
+            2 => $"""
                 SELECT DISTINCT e0.sentence_id
                 FROM book_occurrence_entry e0
                 JOIN book_occurrence_entry e1
                   ON e1.sentence_id=e0.sentence_id
                  AND e1.occurrence_ordinal<>e0.occurrence_ordinal
                 WHERE e0.stable_entry_id=$t0 AND e1.stable_entry_id=$t1
+                  AND {UniqueOccurrence0} AND {UniqueOccurrence1}
                 ORDER BY e0.sentence_id LIMIT $limit
                 """,
-            3 => """
+            3 => $"""
                 SELECT DISTINCT e0.sentence_id
                 FROM book_occurrence_entry e0
                 JOIN book_occurrence_entry e1
@@ -140,6 +147,7 @@ internal static class BookReadingContextQuery
                  AND e2.occurrence_ordinal<>e0.occurrence_ordinal
                  AND e2.occurrence_ordinal<>e1.occurrence_ordinal
                 WHERE e0.stable_entry_id=$t0 AND e1.stable_entry_id=$t1 AND e2.stable_entry_id=$t2
+                  AND {UniqueOccurrence0} AND {UniqueOccurrence1} AND {UniqueOccurrence2}
                 ORDER BY e0.sentence_id LIMIT $limit
                 """,
             _ => throw new InvalidOperationException()
