@@ -22,13 +22,17 @@ internal static class BookReadingAdvancedSelfTest
         AppState state = AppStateStore.Normalize(new AppState { ActiveDictionaryId = dictionary.Id, ActiveDeckId = DeckIds.Core(2) });
         state.DeckIdsByDictionary[dictionary.Id] = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         {
-            ["ox:record-n"] = DeckIds.Core(1),
+            // Deliberately mark only one 'record' stable ID Known. Exact-form
+            // Reading must still keep every physical 'record' occurrence
+            // unresolved instead of inheriting mastery from this one sense/POS.
+            ["ox:record-n"] = DeckIds.Core(5),
             ["ox:record-v"] = DeckIds.Core(1),
             ["ox:alpha"] = DeckIds.Core(5),
             ["ox:beta"] = DeckIds.Core(2),
             ["user:take-care"] = DeckIds.Core(1)
         };
         BookDeckVocabularySnapshot snapshot = BookReadingProductService.BuildVocabularySnapshot(state, dictionary, DeckIds.Core(5), DeckIds.Core(2));
+        Require(!snapshot.KnownEntryIds.Contains("ox:record-n"), "Unresolved homograph stable ID leaked into Reading Known evidence.");
 
         string root = Path.Combine(Path.GetTempPath(), "WordDeck DEV03 читання з пробілами " + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(root);
@@ -45,15 +49,15 @@ internal static class BookReadingAdvancedSelfTest
             Require(File.ReadAllBytes(imported.PrivateSourcePath).SequenceEqual(source), "Exact original source bytes were not retained privately.");
             Require(Path.GetFullPath(imported.PrivateSourcePath).StartsWith(Path.GetFullPath(privateRoot), StringComparison.OrdinalIgnoreCase), "Private source escaped the configured profile root.");
             Require(imported.Coverage.PhysicalLexicalCount == 7, $"Expected 7 physical lexical occurrences, got {imported.Coverage.PhysicalLexicalCount}.");
-            Require(imported.Coverage.Known == 2, "Repeated known alpha occurrences were not counted physically.");
+            Require(imported.Coverage.Known == 2, "Unresolved homographs inflated Known coverage or repeated known alpha occurrences were miscounted.");
             Require(imported.Coverage.Learning == 1, "Learning beta occurrence was not classified from the selected deck.");
-            Require(imported.Coverage.New == 4 && imported.Coverage.OffList == 0, "New/off-list physical accounting is wrong.");
+            Require(imported.Coverage.New == 4 && imported.Coverage.OffList == 0, "New/off-list physical accounting is wrong; unresolved homographs must remain fail-closed New at summary level.");
 
             var lexical = new BookLexicalFormIndex(dictionary);
             BookPhysicalAnalysis physical = lexical.Analyze(imported.Document, snapshot.KnownEntryIds, snapshot.LearningEntryIds);
             Require(physical.PhysicalLexicalCount == 7, "In-memory physical lexical accounting diverged from SQLite accounting.");
             Require(physical.AmbiguousOccurrences == 3, "Three physical 'record' occurrences should each preserve both matching stable IDs.");
-            Require(physical.Sentences.SelectMany(sentence => sentence.Occurrences).Where(item => item.Surface.Equals("record", StringComparison.OrdinalIgnoreCase)).All(item => item.StableEntryIds.Count == 2), "Physical ambiguity metadata was lost.");
+            Require(physical.Sentences.SelectMany(sentence => sentence.Occurrences).Where(item => item.Surface.Equals("record", StringComparison.OrdinalIgnoreCase)).All(item => item.StableEntryIds.Count == 2 && item.IsAmbiguous && item.State == BookWordState.New), "Physical ambiguity metadata or fail-closed unresolved classification was lost.");
 
             IReadOnlyList<BookSentenceExport> ambiguousPair = service.FindBookSentences(new[] { "ox:record-n", "ox:record-v" }, 20);
             Require(ambiguousPair.Count == 1, "Two-target ambiguity query must require two distinct physical occurrences, not one ambiguous occurrence.");
