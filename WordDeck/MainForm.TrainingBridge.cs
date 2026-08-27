@@ -37,8 +37,6 @@ internal sealed partial class MainForm
                 .Equals("Help", StringComparison.OrdinalIgnoreCase));
         if (helpMenu is null) return;
 
-        // Replace the historical hard-coded help item. F1 remains rebindable, so
-        // the displayed shortcut string is refreshed whenever the menu opens.
         helpMenu.DropDownItems.Clear();
         var helpItem = new ToolStripMenuItem("&WordDeck help")
         {
@@ -70,7 +68,7 @@ internal sealed partial class MainForm
             "SPELLING\r\n" +
             "Open Spelling with its configured shortcut or Tools menu entry. Type the English spelling and press Enter. An empty or whitespace-only Enter is ignored before learning statistics are changed, including a rapid second Enter after a completed answer. Close the Spelling window with Alt+F4; normal close saves through the existing state lifecycle. Alt+F4 remains a standard Windows close command and is not assignable as a WordDeck shortcut.\r\n\r\n" +
             "SENTENCE SPELLING\r\n" +
-            "Open Sentence Spelling with its configured shortcut or Tools menu entry. It uses an installed offline SentencePack and never invents a production corpus when none is installed. Type the required English word forms and press Enter; word order is not assessed. Empty or whitespace-only Enter is a non-learning event and does not alter wrong-attempt statistics. Close the window with Alt+F4.\r\n\r\n" +
+            "Open Sentence Spelling with its configured shortcut or Tools menu entry. It uses a validated installed offline SentencePack and never invents a production corpus when none is installed. Choose a spelling-deck scope, a 30/100/200/full target pool, and one, two or three natural targets. Ambiguous same-written-form Oxford identities are excluded before pool selection unless independent sense identity exists. WordDeck shows the Ukrainian sentence and the English sentence with only the current target blank. Type only that exact target word or phrase and press Enter; multi-target sentences advance one target at a time. Show answer reveals only the current target. Empty or whitespace-only Enter is a non-learning event. Current sentence, target position and current wrong/hint flags are saved for restart continuity.\r\n\r\n" +
             "PERSONAL PROGRESS AND UPDATE SAFETY\r\n" +
             "Personal progress is stored outside the program ZIP under %LOCALAPPDATA%\\WordDeck, so replacing the program ZIP does not intentionally erase progress. File > Export personal progress profile and its configured shortcut export one complete personal profile containing Recall, Spelling and Sentence learning state; the canonical dictionary and audio are not copied into that profile. Import validates the profile, creates recovery material before replacement and applies it through the unified profile service.\r\n\r\n" +
             "Deck > Hide current word removes a word only from normal Recall study. It does not delete the canonical dictionary, audio or saved deck assignments. Hidden words can be restored individually or all at once. File > Reset Recall learning data resets Recall learning overlays only and creates recovery material first; it is not described as a global Spelling/Sentence reset.\r\n\r\n" +
