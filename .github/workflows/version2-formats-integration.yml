@@ -64,6 +64,17 @@ jobs:
           git config core.eol lf
           git reset --hard HEAD
           git checkout-index --force --all
+          while IFS='=' read -r path expected; do
+            git cat-file blob "HEAD:$path" > "$path"
+            actual="$(git hash-object --no-filters "$path")"
+            test "$actual" = "$expected" || {
+              printf 'Frozen Stage 1 workspace blob mismatch: %s expected=%s actual=%s\n' "$path" "$expected" "$actual" >&2
+              exit 1
+            }
+          done <<'FROZEN_STAGE1'
+          acs/stage1_release_ui_core.py=b8586a26b9ab20c3d3ec0b0a3dbbbd53e38e94e6
+          acs/webapp_keymap_core.py=0ba06f548d39dad7372e0339b3e121fd1717cc05
+          FROZEN_STAGE1
 
       - uses: actions/setup-python@v5
         with:
@@ -192,6 +203,22 @@ jobs:
           tests.test_dev4_pgn_export_failure_recovery
           tests.test_dev4_pgn_export_path_security
           tests.test_dev4_pgn_resource_security
+
+      - name: Re-materialize frozen Stage 1 blobs before full-suite byte contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          while IFS='=' read -r path expected; do
+            git cat-file blob "HEAD:$path" > "$path"
+            actual="$(git hash-object --no-filters "$path")"
+            test "$actual" = "$expected" || {
+              printf 'Frozen Stage 1 pre-suite blob mismatch: %s expected=%s actual=%s\n' "$path" "$expected" "$actual" >&2
+              exit 1
+            }
+          done <<'FROZEN_STAGE1'
+          acs/stage1_release_ui_core.py=b8586a26b9ab20c3d3ec0b0a3dbbbd53e38e94e6
+          acs/webapp_keymap_core.py=0ba06f548d39dad7372e0339b3e121fd1717cc05
+          FROZEN_STAGE1
 
       - name: Full repository unittest
         shell: bash
