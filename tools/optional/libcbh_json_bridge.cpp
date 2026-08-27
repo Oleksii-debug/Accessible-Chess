@@ -142,8 +142,18 @@ void write_game(std::ostream& out, std::size_t index, const GameReturnValue& gam
         << ",\"subround\":" << static_cast<unsigned int>(game.subround)
         << ",\"tags\":";
     write_tags(out, game.tags);
+
+    // libcbh appends one structural MovePop when the root decoder returns.
+    // It is backend control flow, not canonical game data. Nested pops occur
+    // before this terminal element and remain in-range, so they are preserved.
+    std::size_t move_count = game.annotatedMoves.size();
+    if (move_count > 0 &&
+        game.annotatedMoves.back().promote == static_cast<byte>(-2)) {
+        --move_count;
+    }
+
     out << ",\"moves\":[";
-    for (std::size_t i = 0; i < game.annotatedMoves.size(); ++i) {
+    for (std::size_t i = 0; i < move_count; ++i) {
         if (i) out << ',';
         write_move(out, game.annotatedMoves[i]);
     }
