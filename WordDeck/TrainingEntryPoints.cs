@@ -137,7 +137,12 @@ internal static class TrainingEntryPoints
                 sentence.Store,
                 sentence.State);
             using var blankSubmitGuard = BlankLearningSubmissionGuard.Attach(form, "Type the current English target word or phrase");
-            KeyboardSelectorFocusGuard.Attach(form, "Sentence pack", "Sentence training spelling deck", "Number of target words per sentence");
+            KeyboardSelectorFocusGuard.Attach(
+                form,
+                "Sentence pack",
+                "Sentence training spelling deck",
+                "Sentence study pool size",
+                "Number of target words per sentence");
             form.ShowDialog(owner);
             owner.SaveSharedStateAfterTraining();
             owner.RefreshTrainingShortcutDefinitions(spelling.State.Decks);
