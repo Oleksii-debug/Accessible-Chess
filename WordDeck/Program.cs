@@ -35,6 +35,7 @@ internal static class Program
         AccessibilityAnnouncer.Install();
         var main = new MainForm();
         TrainingEntryPoints.Install(main);
+        BookReadingEntryPoints.Install(main);
         Application.Run(main);
         return 0;
     }
@@ -97,7 +98,7 @@ internal static class Program
             if (!string.IsNullOrWhiteSpace(directory)) Directory.CreateDirectory(directory);
             File.WriteAllText(outputPath, SentencePackJson.Serialize(pack));
             Console.WriteLine($"SentencePack written: {outputPath}");
-            Console.WriteLine($"License metadata: {metadata.License}; verified CC0 manifest: {metadata.VerifiedCc0Manifest}; verified attributed CC-BY manifest: {metadata.VerifiedAttributedCcByManifest}.");
+            Console.WriteLine($"License metadata: {metadata.License}; verified CC0 manifest: {metadata.VerifiedCc0Manifest}; verified attributed CC-BY manifest: {metadata.VerifiedAttributedCcByManifest}. ");
             Console.WriteLine($"Input pairs: {report.InputPairs}; accepted: {report.AcceptedPairs}; rejected: {report.RejectedPairs}; indexed entry references: {report.IndexedEntryIds}; off-list tokens: {report.OffListTokens}.");
             return 0;
         }
