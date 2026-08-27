@@ -34,6 +34,7 @@ jobs:
       D01_BASE: 37204866a2bb4ee7b0a936842fa70e4eb8cdf16d
       D01_FEATURE: 76d20f9ce3f24120935a8f122ce0c8e0b6e4fb64
       P1_PARENT: fe249c24cad049f77a998ff305fbad0ace77c6ac
+      P1_REPAIR: 48b0aeabd485d9f9e26e335f232209e86debeb7a
       D06_HEAD: 1e3ea862bcff2ac13077f879c2ce9af01c4f983f
       D06_WORKSPACE_BLOB: 346f31f828191e76d57b372bb6c84a4a90568594
       D06_WORKSPACE_TEST_BLOB: edce8f6a591ffc09d419e9046e14725c4a07cf54
@@ -50,6 +51,10 @@ jobs:
           git config core.autocrlf false
           git config core.eol lf
           git reset --hard HEAD
+          # actions/checkout has already populated the Windows worktree before
+          # the repository-local config above exists.  A hard reset may retain
+          # those CRLF bytes because the index is clean, so force a byte rewrite.
+          git checkout-index --force --all
 
       - uses: actions/setup-python@v5
         with:
@@ -62,8 +67,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD~1)" = "$P1_PARENT"
-          test "$(git rev-list --count "$D01_BASE"..HEAD)" = "6"
+          test "$(git rev-parse HEAD~2)" = "$P1_PARENT"
+          test "$(git rev-parse HEAD~1)" = "$P1_REPAIR"
+          test "$(git rev-list --count "$D01_BASE"..HEAD)" = "7"
           git merge-base --is-ancestor "$D01_BASE" HEAD
           git merge-base --is-ancestor "$D01_FEATURE" HEAD
           git diff --check "$D01_BASE" HEAD
@@ -77,6 +83,7 @@ jobs:
             'tests/test_dev1_pgn_workspace_webview_adapter.py' \
             'web/full_product_pgn.js' | sort)"
           test "$repair_changed" = "$repair_expected"
+          test "$(git diff --name-only "$P1_REPAIR" HEAD)" = '.github/workflows/d01-pgn-workspace-webview.yml'
           changed="$(git diff --name-only "$D01_BASE" HEAD | sort)"
           expected="$(printf '%s\n' \
             '.github/workflows/d01-pgn-workspace-webview.yml' \
