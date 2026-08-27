@@ -124,32 +124,41 @@ internal sealed class ListeningAudioFilePlayer : IListeningAudioFilePlayer
 }
 
 /// <summary>
-/// SentencePack-to-Listening adapter. A sentence is eligible only when a local
-/// audio asset resolves for the exact PackId + stable sentence ID. Therefore a
-/// text corpus, synthetic fixture or historical measurement database cannot be
-/// silently promoted into production sentence dictation.
+/// SentencePack-to-Listening adapter. Local audio is necessary but not sufficient:
+/// an explicit production approval matching the exact PackId is also required.
+/// Therefore an installed file, text corpus, fixture or historical database cannot
+/// silently activate sentence dictation. Hidden target words remain excluded.
 /// </summary>
 internal sealed class SentencePackListeningExerciseSource : IListeningExerciseSource
 {
     private readonly SentencePack _pack;
     private readonly ISentenceAudioCatalog _catalog;
     private readonly IListeningAudioFilePlayer _player;
+    private readonly ListeningAudioPackApproval _approval;
+    private readonly IReadOnlySet<string> _hiddenEntryIds;
     private readonly Dictionary<string, SentenceRecord> _sentencesByExerciseId;
 
     public SentencePackListeningExerciseSource(
         SentencePack pack,
         ISentenceAudioCatalog? catalog = null,
-        IListeningAudioFilePlayer? player = null)
+        IListeningAudioFilePlayer? player = null,
+        ListeningAudioPackApproval? approval = null,
+        IReadOnlySet<string>? hiddenEntryIds = null)
     {
         _pack = pack ?? throw new ArgumentNullException(nameof(pack));
         _pack.Validate();
         _catalog = catalog ?? new InstalledSentenceAudioCatalog();
         _player = player ?? new ListeningAudioFilePlayer();
+        _approval = approval ?? ListeningAudioPackApproval.Unapproved(_pack.PackId);
+        _hiddenEntryIds = hiddenEntryIds ?? new AppStateStore().Load().HiddenEntryIds;
         _sentencesByExerciseId = _pack.Sentences.ToDictionary(ExerciseId, StringComparer.OrdinalIgnoreCase);
     }
 
     public IReadOnlyList<ListeningExercise> GetAvailable(string scopeId)
     {
+        if (!_approval.MatchesApprovedPack(_pack.PackId))
+            return Array.Empty<ListeningExercise>();
+
         string canonicalScope = StudyScopeIds.Ordered.Contains(scopeId, StringComparer.OrdinalIgnoreCase)
             ? StudyScopeIds.Ordered.First(id => string.Equals(id, scopeId, StringComparison.OrdinalIgnoreCase))
             : StudyScopeIds.All;
@@ -157,6 +166,7 @@ internal sealed class SentencePackListeningExerciseSource : IListeningExerciseSo
         return _pack.Sentences
             .Where(sentence => string.Equals(canonicalScope, StudyScopeIds.All, StringComparison.OrdinalIgnoreCase) ||
                                string.Equals(sentence.DifficultyLevel, canonicalScope, StringComparison.OrdinalIgnoreCase))
+            .Where(sentence => !sentence.TargetEntryIds.Any(_hiddenEntryIds.Contains))
             .Where(sentence => _catalog.TryResolve(_pack.PackId, sentence.Id, out _))
             .Select(sentence => new ListeningExercise(
                 ExerciseId(sentence),
@@ -164,16 +174,27 @@ internal sealed class SentencePackListeningExerciseSource : IListeningExerciseSo
                 sentence.English,
                 sentence.DifficultyLevel,
                 sentence.TargetEntryIds.ToArray(),
-                $"sentence:{_pack.PackId}:{sentence.Id}"))
+                $"sentence:{_pack.PackId}:{sentence.Id}",
+                BuildContract(sentence)))
             .ToArray();
     }
 
     public bool TryPlay(ListeningExercise exercise, out string? error)
     {
+        if (!_approval.MatchesApprovedPack(_pack.PackId))
+        {
+            error = "Sentence listening audio is not activated because this pack has no explicit production approval.";
+            return false;
+        }
         if (exercise.Kind != ListeningExerciseKind.Sentence ||
             !_sentencesByExerciseId.TryGetValue(exercise.ExerciseId, out SentenceRecord? sentence))
         {
             error = "This Listening item is not a sentence from the active SentencePack.";
+            return false;
+        }
+        if (sentence.TargetEntryIds.Any(_hiddenEntryIds.Contains))
+        {
+            error = "This sentence contains a hidden study target and is not available in Listening.";
             return false;
         }
         if (!_catalog.TryResolve(_pack.PackId, sentence.Id, out string? path) || path is null)
@@ -185,6 +206,28 @@ internal sealed class SentencePackListeningExerciseSource : IListeningExerciseSo
     }
 
     public void Dispose() => _player.Dispose();
+
+    private ListeningAudioContract BuildContract(SentenceRecord sentence) => new(
+        AssetId: $"sentence:{_pack.PackId}:{sentence.Id}",
+        UnitKind: ListeningAudioUnitKind.Sentence,
+        Locale: "en-GB",
+        PackId: _pack.PackId,
+        Provenance: _pack.Provenance,
+        Speakers: Array.Empty<ListeningSpeakerMetadata>(),
+        Transcript: new ListeningTranscriptContract(
+            sentence.English,
+            ListeningTranscriptAvailability.AfterReveal,
+            Array.Empty<ListeningTranscriptTurn>()),
+        ReplayPolicy: ListeningReplayPolicy.UnlimitedPractice,
+        Prompts: new[]
+        {
+            new ListeningComprehensionPrompt(
+                $"dictation:{_pack.PackId}:{sentence.Id}",
+                ListeningComprehensionKind.Dictation,
+                "Transcribe the English sentence you hear.",
+                new[] { sentence.English })
+        },
+        ApprovedForProduction: true);
 
     private string ExerciseId(SentenceRecord sentence) => $"sentence:{_pack.PackId}:{sentence.Id}";
 }
