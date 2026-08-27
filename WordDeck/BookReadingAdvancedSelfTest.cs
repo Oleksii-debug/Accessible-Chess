@@ -33,6 +33,8 @@ internal static class BookReadingAdvancedSelfTest
         };
         BookDeckVocabularySnapshot snapshot = BookReadingProductService.BuildVocabularySnapshot(state, dictionary, DeckIds.Core(5), DeckIds.Core(2));
         Require(!snapshot.KnownEntryIds.Contains("ox:record-n"), "Unresolved homograph stable ID leaked into Reading Known evidence.");
+        Require(snapshot.KnownEntryIds.Contains("ox:alpha"), "Unique alpha stable ID was unexpectedly removed from Reading Known evidence.");
+        Require(snapshot.LearningEntryIds.Contains("ox:beta"), $"Unique beta stable ID was unexpectedly removed from Reading Learning evidence. learning=[{string.Join(',', snapshot.LearningEntryIds)}]");
 
         string root = Path.Combine(Path.GetTempPath(), "WordDeck DEV03 читання з пробілами " + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(root);
@@ -49,9 +51,9 @@ internal static class BookReadingAdvancedSelfTest
             Require(File.ReadAllBytes(imported.PrivateSourcePath).SequenceEqual(source), "Exact original source bytes were not retained privately.");
             Require(Path.GetFullPath(imported.PrivateSourcePath).StartsWith(Path.GetFullPath(privateRoot), StringComparison.OrdinalIgnoreCase), "Private source escaped the configured profile root.");
             Require(imported.Coverage.PhysicalLexicalCount == 7, $"Expected 7 physical lexical occurrences, got {imported.Coverage.PhysicalLexicalCount}.");
-            Require(imported.Coverage.Known == 2, "Unresolved homographs inflated Known coverage or repeated known alpha occurrences were miscounted.");
-            Require(imported.Coverage.Learning == 1, "Learning beta occurrence was not classified from the selected deck.");
-            Require(imported.Coverage.New == 4 && imported.Coverage.OffList == 0, "New/off-list physical accounting is wrong; unresolved homographs must remain fail-closed New at summary level.");
+            Require(imported.Coverage.Known == 2, $"Unresolved homographs inflated Known coverage or repeated known alpha occurrences were miscounted. Known={imported.Coverage.Known}, Learning={imported.Coverage.Learning}, New={imported.Coverage.New}, OffList={imported.Coverage.OffList}.");
+            Require(imported.Coverage.Learning == 1, $"Learning beta occurrence was not classified from the selected deck. Known={imported.Coverage.Known}, Learning={imported.Coverage.Learning}, New={imported.Coverage.New}, OffList={imported.Coverage.OffList}; learning IDs=[{string.Join(',', snapshot.LearningEntryIds)}].");
+            Require(imported.Coverage.New == 4 && imported.Coverage.OffList == 0, $"New/off-list physical accounting is wrong; unresolved homographs must remain fail-closed New at summary level. Known={imported.Coverage.Known}, Learning={imported.Coverage.Learning}, New={imported.Coverage.New}, OffList={imported.Coverage.OffList}.");
 
             var lexical = new BookLexicalFormIndex(dictionary);
             BookPhysicalAnalysis physical = lexical.Analyze(imported.Document, snapshot.KnownEntryIds, snapshot.LearningEntryIds);
