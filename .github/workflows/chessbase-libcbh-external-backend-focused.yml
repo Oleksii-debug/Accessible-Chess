@@ -1,0 +1,106 @@
+name: ChessBase libcbh External Backend Focused
+
+on:
+  push:
+    branches:
+      - work/chessbase-libcbh-external-backend-20260824
+  pull_request:
+    paths:
+      - 'acs/chessbase_decoder.py'
+      - 'tools/optional/libcbh_json_bridge.cpp'
+      - 'tools/optional/LIBCBH_BACKEND.md'
+      - 'tests/test_chessbase_decoder.py'
+      - 'tests/test_chessbase_libcbh_external_fixture.py'
+      - '.github/workflows/chessbase-libcbh-external-backend-focused.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  focused-real-cbh:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 12
+    steps:
+      - name: Checkout Accessible Chess
+        uses: actions/checkout@v4
+        with:
+          path: product
+          fetch-depth: 0
+      - name: Checkout pinned external libcbh evidence corpus
+        uses: actions/checkout@v4
+        with:
+          repository: rolandlo/libcbh
+          ref: 9641c5c3949d8fb210b17dd9aa54455645843696
+          path: upstream/libcbh
+          fetch-depth: 1
+      - name: Verify exact narrow Product scope
+        working-directory: product
+        shell: bash
+        run: |
+          set -euo pipefail
+          base=3e15dc2e844cb825e482317fd024795130147011
+          git merge-base --is-ancestor "$base" HEAD
+          git diff --check "$base" HEAD
+          git diff --name-only "$base" HEAD | sort > /tmp/actual.txt
+          cat > /tmp/expected.txt <<'EOF'
+          .github/workflows/chessbase-libcbh-external-backend-focused.yml
+          acs/chessbase_decoder.py
+          tests/test_chessbase_decoder.py
+          tests/test_chessbase_libcbh_external_fixture.py
+          tools/optional/LIBCBH_BACKEND.md
+          tools/optional/libcbh_json_bridge.cpp
+          EOF
+          sort -o /tmp/expected.txt /tmp/expected.txt
+          diff -u /tmp/expected.txt /tmp/actual.txt
+      - name: Compile touched Python code
+        working-directory: product
+        run: >-
+          python -m py_compile
+          acs/chessbase_decoder.py
+          tests/test_chessbase_decoder.py
+          tests/test_chessbase_libcbh_external_fixture.py
+      - name: Focused synthetic protocol and existing ChessBase safety contracts
+        working-directory: product
+        run: >-
+          python -m unittest -v
+          tests.test_chessbase_decoder
+          tests.test_chessbase_adapter
+          tests.test_chessbase_integrity
+      - name: Build pinned libcbh external component
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S upstream/libcbh -B upstream/libcbh/build -DCMAKE_BUILD_TYPE=Release -DGTEST=OFF
+          cmake --build upstream/libcbh/build --config Release --parallel 2
+      - name: Build Accessible Chess JSON bridge without bundling it
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p product/build/libcbh
+          c++ -std=c++20 -O2 \
+            -DLIBCBH_SOURCE_COMMIT=\"9641c5c3949d8fb210b17dd9aa54455645843696\" \
+            -I upstream/libcbh/include \
+            product/tools/optional/libcbh_json_bridge.cpp \
+            -L upstream/libcbh/build -lcbh \
+            -Wl,-rpath,'$ORIGIN' \
+            -o product/build/libcbh/libcbh-json-bridge
+          cp -a upstream/libcbh/build/libcbh.so* product/build/libcbh/
+          test -x product/build/libcbh/libcbh-json-bridge
+      - name: Real pinned WithVariations CBH/CBG to canonical GameTree oracle
+        working-directory: product
+        env:
+          LIBCBH_BRIDGE: ${{ github.workspace }}/product/build/libcbh/libcbh-json-bridge
+          LIBCBH_FIXTURE_DIR: ${{ github.workspace }}/upstream/libcbh/gtest/WithVariations
+        run: python -m unittest -v tests.test_chessbase_libcbh_external_fixture
+      - name: Default package boundary excludes external GPL backend
+        working-directory: product
+        shell: bash
+        run: |
+          set -euo pipefail
+          test ! -e libcbh-json-bridge
+          test ! -e libcbh.so
+          if test -n "$(git status --porcelain --untracked-files=no)"; then
+            echo 'tracked worktree changed during focused gate' >&2
+            git status --porcelain --untracked-files=no
+            exit 1
+          fi
