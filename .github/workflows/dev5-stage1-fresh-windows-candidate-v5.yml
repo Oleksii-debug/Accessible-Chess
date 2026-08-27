@@ -1,0 +1,519 @@
+name: DEV5 Fresh Stage1 Windows Candidate V5
+
+on:
+  pull_request:
+    branches:
+      - qa/windows-current-integration-candidate-20260815
+    paths:
+      - '.github/workflows/dev5-stage1-fresh-windows-candidate-v5.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dev5-stage1-fresh-windows-candidate-v5
+  cancel-in-progress: false
+
+env:
+  SOURCE_INTEGRATION_SHA: 1e9d23b034e6d347fe03c3581469a07e16037c55
+  PRIOR_STAGE1_SHA: 80720e8125c59a213f278668d599040f2768d553
+  RETAINED_HELPER_BLOB: 2b68c3598d432f6fb5b399cca4257616975218b4
+  STOCKFISH_PRIVACY_ORACLE_SHA: 66d5affbe027a86717a775198ec9fbcf8aba8545
+  STOCKFISH_PRIVACY_ORACLE_BLOB: f674de79b19a852f29837edab138c20b28f24162
+  PYWEBVIEW_VERSION: '6.2.1'
+  NUITKA_UPSTREAM_FIX_COMMIT: b7ea05bf570e0b6950de6db7c4c8e579e1b77d29
+  STOCKFISH_VERSION: '18'
+  CANDIDATE_FILE: Accessible-Chess-0.4-1e9d23b-NVDA-test-candidate.zip
+
+jobs:
+  fresh-candidate-v5:
+    runs-on: windows-latest
+    timeout-minutes: 80
+    steps:
+      - name: Checkout retained QA harness
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Prove clean V5 QA-only scope and retained helper identity
+        shell: pwsh
+        run: |
+          $helperBlob=(git rev-parse "HEAD:tools/qa/stage1_packaged_e2e_crossprocess.ps1").Trim()
+          if($helperBlob -ne $env:RETAINED_HELPER_BLOB){throw "Retained helper blob drift: $helperBlob"}
+          $base='origin/qa/windows-current-integration-candidate-20260815'
+          $changed=@(git diff --name-only "$base...HEAD")
+          if($changed.Count -ne 1 -or $changed[0] -ne '.github/workflows/dev5-stage1-fresh-windows-candidate-v5.yml'){
+            throw "V5 branch is not one-file QA-only scope: $($changed -join ', ')"
+          }
+          'CLEAN V5 QA-ONLY SCOPE + RETAINED HELPER BLOB PASS'
+
+      - name: Materialize exact accepted Stage1 as LF-preserving detached worktree
+        shell: pwsh
+        run: |
+          git config core.autocrlf false
+          git config core.eol lf
+          $accepted=(git rev-parse 'origin/manual5/integration-20260821').Trim()
+          if($accepted -ne $env:SOURCE_INTEGRATION_SHA){throw "Accepted integration ref moved: $accepted"}
+          git cat-file -e "$env:SOURCE_INTEGRATION_SHA^{commit}"
+          if($LASTEXITCODE -ne 0){throw 'Accepted Stage1 SHA unavailable'}
+          $delta=@(git diff --name-only "$env:PRIOR_STAGE1_SHA" "$env:SOURCE_INTEGRATION_SHA")
+          if($delta.Count -ne 1 -or $delta[0] -ne 'acs/stockfish_runtime.py'){throw "Unexpected repaired Stage1 Product delta: $($delta -join ', ')"}
+          if(Test-Path work){Remove-Item work -Recurse -Force}
+          git worktree add --detach work $env:SOURCE_INTEGRATION_SHA
+          if($LASTEXITCODE -ne 0){throw 'Exact detached worktree creation failed'}
+          git -C work config core.autocrlf false
+          git -C work config core.eol lf
+          $resolved=(git -C work rev-parse HEAD).Trim()
+          if($resolved -ne $env:SOURCE_INTEGRATION_SHA){throw "SOURCE LOCK mismatch: $resolved"}
+          $dirty=(git -C work status --porcelain --untracked-files=no)
+          if($dirty){throw "Exact worktree unexpectedly dirty: $dirty"}
+          @'
+          import hashlib,pathlib
+          root=pathlib.Path('work')
+          checks={
+              'acs/stage1_release_ui_core.py':'b8586a26b9ab20c3d3ec0b0a3dbbbd53e38e94e6',
+              'acs/webapp_keymap_core.py':'0ba06f548d39dad7372e0339b3e121fd1717cc05',
+          }
+          for rel,expected in checks.items():
+              data=(root/rel).read_bytes()
+              actual=hashlib.sha1(f'blob {len(data)}\0'.encode('ascii')+data).hexdigest()
+              assert actual==expected,(rel,actual,expected)
+          print('FROZEN CORE BLOB IDENTITY PASS')
+          '@ | Set-Content -Encoding UTF8 verify_v5_blobs.py
+          python verify_v5_blobs.py
+          if($LASTEXITCODE -ne 0){throw 'Frozen exact-source blob identity failed'}
+          if(-not (Test-Path 'work\.github\workflows\publish-stage1-release.yml')){throw 'Exact repository workflow context missing'}
+          "EXACT ACCEPTED STAGE1 WORKTREE PASS: $resolved"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Exact Windows source compile full regressions diagnostics and privacy oracle
+        shell: pwsh
+        working-directory: work
+        run: |
+          python -m pip install -q pytest
+          if($LASTEXITCODE -ne 0){throw 'pytest install failed'}
+          python -m compileall -q acs tests run_accessible_chess.py
+          if($LASTEXITCODE -ne 0){throw 'compileall failed'}
+          python -m unittest discover -s tests -v 2>&1 | Tee-Object -FilePath exact-v5-unittest.log
+          if($LASTEXITCODE -ne 0){throw 'full unittest discovery failed'}
+          python -m pytest -q 2>&1 | Tee-Object -FilePath exact-v5-pytest.log
+          if($LASTEXITCODE -ne 0){throw 'full pytest failed'}
+          python -m unittest -v tests.test_release_preflight tests.test_issue22_release_contract tests.test_nvda_p0_contract tests.test_stage1_packaged_focus_origin_contract tests.test_stage1_webview2_accessibility_boundary tests.test_webview_safe_server tests.test_legacy_release_workflow_safety tests.test_stage1_saturation_refactor_contract
+          if($LASTEXITCODE -ne 0){throw 'Focused exact-source release contracts failed'}
+          git cat-file -e "$env:STOCKFISH_PRIVACY_ORACLE_SHA^{commit}"
+          if($LASTEXITCODE -ne 0){throw 'Independent PR159 oracle commit unavailable'}
+          $oracleSpec="${env:STOCKFISH_PRIVACY_ORACLE_SHA}:tests/test_dev3_stockfish_runtime_path_privacy.py"
+          $oracleBlob=(git rev-parse $oracleSpec).Trim()
+          if($oracleBlob -ne $env:STOCKFISH_PRIVACY_ORACLE_BLOB){throw "Independent PR159 oracle blob drift: $oracleBlob"}
+          New-Item -ItemType Directory -Force -Path qa_oracles | Out-Null
+          New-Item -ItemType File -Force -Path qa_oracles\__init__.py | Out-Null
+          python -c "import os,pathlib,subprocess; spec=os.environ['STOCKFISH_PRIVACY_ORACLE_SHA']+':tests/test_dev3_stockfish_runtime_path_privacy.py'; pathlib.Path(r'qa_oracles/test_dev3_stockfish_runtime_path_privacy.py').write_bytes(subprocess.check_output(['git','show',spec]))"
+          if($LASTEXITCODE -ne 0){throw 'Exact PR159 oracle byte materialization failed'}
+          $materializedBlob=(git hash-object qa_oracles\test_dev3_stockfish_runtime_path_privacy.py).Trim()
+          if($materializedBlob -ne $env:STOCKFISH_PRIVACY_ORACLE_BLOB){throw "Materialized PR159 oracle is not byte-identical: $materializedBlob"}
+          python -m unittest -v qa_oracles.test_dev3_stockfish_runtime_path_privacy
+          if($LASTEXITCODE -ne 0){throw 'Independent PR159 Stockfish privacy oracle failed on candidate source'}
+          python run_accessible_chess.py --diagnostic
+          if($LASTEXITCODE -ne 0){throw 'Exact-source diagnostic failed'}
+          'EXACT WINDOWS SOURCE FULL REGRESSION + PR159 PRIVACY ORACLE PASS'
+
+      - name: Validate retained QA topology and classifier
+        shell: pwsh
+        run: |
+          $tokens=$null; $errors=$null
+          [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path 'tools\qa\stage1_packaged_e2e_crossprocess.ps1'),[ref]$tokens,[ref]$errors)|Out-Null
+          if(@($errors).Count -gt 0){throw ((@($errors|ForEach-Object {$_.Message})) -join ' | ')}
+          python tools/qa/test_stage1_uia_topology_classify.py
+          if($LASTEXITCODE -ne 0){throw 'Strict UIA classifier regressions failed'}
+          'RETAINED STRICT QA HARNESS PARSE + CLASSIFIER PASS'
+
+      - name: Build fail-closed temporary UIA helper V5 without weakening assertions
+        shell: pwsh
+        run: |
+          @'
+          from __future__ import annotations
+          import difflib
+          import pathlib
+          import subprocess
+
+          source_path='tools/qa/stage1_packaged_e2e_crossprocess.ps1'
+          raw=subprocess.check_output(['git','show',f'HEAD:{source_path}'])
+          original=raw.decode('utf-8')
+          patched=original
+
+          insertion_marker='function NoRawError($els)'
+          if patched.count(insertion_marker) != 1:
+              raise SystemExit(f'insertion marker count != 1: {patched.count(insertion_marker)}')
+          helper=r'''function SetMoveValueEventually($report,[string]$rid,[string]$value,[string]$label,[int]$timeoutMs=4000){
+            $els=Rewalk $report
+            $move=FindRuntime $els $rid
+            AssertMoveStrict $move $rid
+            $pattern=ValuePattern $move ($label+' initial')
+            $pattern.SetValue($value)
+            $sw=[System.Diagnostics.Stopwatch]::StartNew(); $last=''
+            while($sw.ElapsedMilliseconds -lt $timeoutMs){
+              Start-Sleep -Milliseconds 100
+              $els=Rewalk $report
+              $move=FindRuntime $els $rid
+              if($null -eq $move){continue}
+              AssertMoveStrict $move $rid
+              $last=[string](ValuePattern $move ($label+' convergence')).Current.Value
+              if($last -eq $value){return $move}
+            }
+            throw "$label did not converge on original runtime_id='$rid': expected '$value' got '$last'"
+          }
+          '''
+          patched=patched.replace(insertion_marker,helper+'\n'+insertion_marker,1)
+
+          replacements=[
+          ("""  $vp=ValuePattern $move 'Move restore before Ctrl+A selection proof'\n  $vp.SetValue('e9')\n  if([string]$vp.Current.Value -ne 'e9'){throw 'Could not restore e9 before native Ctrl+A proof'}""",
+           """  $move=SetMoveValueEventually $report $moveRid 'e9' 'Restore e9 before native Ctrl+A proof'"""),
+          ("""  $vp=ValuePattern $move 'Move restore before native copy proof'\n  $vp.SetValue('e9')\n  if([string]$vp.Current.Value -ne 'e9'){throw 'Could not restore e9 before native copy proof'}""",
+           """  $move=SetMoveValueEventually $report $moveRid 'e9' 'Restore e9 before native copy proof'"""),
+          ("""  $vp.SetValue('e5'); if([string]$vp.Current.Value -ne 'e5'){throw 'Could not prepare e5 before board entry'}""",
+           """  $move=SetMoveValueEventually $report $moveRid 'e5' 'Prepare e5 before board entry'"""),
+          ]
+          for old,new in replacements:
+              count=patched.count(old)
+              if count != 1:
+                  raise SystemExit(f'expected exact QA snippet once, found {count}: {old[:80]!r}')
+              patched=patched.replace(old,new,1)
+
+          locked=[
+              "NATIVE_KEY_DELIVERY_INCONCLUSIVE: expected plain Backspace to change e9 -> e",
+              "NATIVE_CTRL_A_SELECTION_DEFECT_AFTER_PROVEN_KEY_DELIVERY: expected selected e9 to delete to empty",
+              "NATIVE_CTRL_C_COPY_DEFECT_AFTER_PROVEN_SELECTION: clipboard=",
+              "Expected 64 semantic squares",
+              "Black e5 did not mutate to canonical FEN",
+              "classification='A'",
+              'evidence_complete=$true',
+          ]
+          for token in locked:
+              if token not in patched:
+                  raise SystemExit(f'locked strict assertion missing after patch: {token}')
+
+          target=pathlib.Path('tools/qa/dev5_stage1_packaged_e2e_crossprocess_v5.ps1')
+          target.write_text(patched,encoding='utf-8',newline='\n')
+          diff=''.join(difflib.unified_diff(original.splitlines(True),patched.splitlines(True),fromfile='retained-helper',tofile='dev5-helper-v5'))
+          pathlib.Path('dev5-helper-v5.diff').write_text(diff,encoding='utf-8')
+          print(diff)
+          '@ | Set-Content -Encoding UTF8 patch_helper_v5.py
+          python patch_helper_v5.py
+          if($LASTEXITCODE -ne 0){throw 'Fail-closed V5 helper patch generation failed'}
+          $tokens=$null; $errors=$null
+          [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path 'tools\qa\dev5_stage1_packaged_e2e_crossprocess_v5.ps1'),[ref]$tokens,[ref]$errors)|Out-Null
+          if(@($errors).Count -gt 0){throw ((@($errors|ForEach-Object {$_.Message})) -join ' | ')}
+          'TEMPORARY V5 HELPER PARSE PASS — SAME RUNTIME ID + SAME STRICT ASSERTIONS'
+
+      - name: Build real Stage1 WAV resources
+        shell: pwsh
+        working-directory: work
+        run: |
+          New-Item -ItemType Directory -Force -Path 'release-assets\assets\sounds' | Out-Null
+          @'
+          import json,math,struct,wave
+          from pathlib import Path
+          root=Path('release-assets/assets/sounds'); root.mkdir(parents=True,exist_ok=True)
+          events=['move','capture','check','castle','promotion','illegal','start','end','tick']
+          freqs=[330,220,660,440,550,140,392,196,880]
+          for name,freq in zip(events,freqs):
+              path=root/f'{name}.wav'; rate=22050; duration=0.12 if name=='tick' else 0.18
+              frames=[]
+              for i in range(int(rate*duration)):
+                  envelope=max(0.0,1.0-i/(rate*duration)); value=int(9000*envelope*math.sin(2*math.pi*freq*i/rate)); frames.append(struct.pack('<h',value))
+              with wave.open(str(path),'wb') as out:
+                  out.setnchannels(1); out.setsampwidth(2); out.setframerate(rate); out.writeframes(b''.join(frames))
+          (root/'manifest.json').write_text(json.dumps({'schema_version':1,'files':{e:f'{e}.wav' for e in events}},ensure_ascii=False,indent=2),encoding='utf-8')
+          print('REAL WAV RESOURCES CREATED')
+          '@ | Set-Content -Encoding UTF8 make_v5_sounds.py
+          python make_v5_sounds.py
+          python -c "from acs.sound_windows import PackagedSoundAssetResolver; from pathlib import Path; import wave; r=PackagedSoundAssetResolver(Path('release-assets')); m=r.load_manifest(); assert len(m.files)==9; [wave.open(str(p),'rb').close() for p in m.files.values()]; print('REAL WAV VALIDATION PASS')"
+          if($LASTEXITCODE -ne 0){throw 'Real WAV validation failed'}
+
+      - name: Acquire official Stockfish 18 binary and corresponding source
+        shell: pwsh
+        working-directory: work
+        run: |
+          New-Item -ItemType Directory -Force -Path 'release-assets\engines\stockfish','release-assets\THIRD_PARTY\Stockfish' | Out-Null
+          Invoke-WebRequest -Uri 'https://github.com/official-stockfish/Stockfish/releases/download/sf_18/stockfish-windows-x86-64.zip' -OutFile stockfish18-bin.zip
+          Expand-Archive stockfish18-bin.zip stockfish18-bin -Force
+          $engine=Get-ChildItem stockfish18-bin -Recurse -Filter '*.exe' | Where-Object {$_.Name -match 'stockfish.*x86-64'} | Select-Object -First 1
+          if(-not $engine){throw 'Official Stockfish 18 executable missing'}
+          Copy-Item $engine.FullName 'release-assets\engines\stockfish\stockfish.exe' -Force
+          Invoke-WebRequest -Uri 'https://github.com/official-stockfish/Stockfish/archive/refs/tags/sf_18.zip' -OutFile 'release-assets\THIRD_PARTY\Stockfish\Stockfish-18-source.zip'
+          @"
+          Stockfish 18
+          License: GNU GPL v3
+          Upstream: official-stockfish/Stockfish tag sf_18
+          Complete corresponding source archive is included as Stockfish-18-source.zip.
+          "@ | Set-Content -Encoding UTF8 'release-assets\THIRD_PARTY\Stockfish\NOTICE.txt'
+          @'
+          import pathlib,re,subprocess,time
+          exe=pathlib.Path('release-assets/engines/stockfish/stockfish.exe').resolve()
+          fen='rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1'
+          p=subprocess.Popen([str(exe)],stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True,bufsize=1)
+          def send(text): p.stdin.write(text+'\n'); p.stdin.flush()
+          def until(token,seconds=30):
+              deadline=time.time()+seconds; lines=[]
+              while time.time()<deadline:
+                  line=p.stdout.readline()
+                  if line:
+                      lines.append(line.strip())
+                      if token in line:return lines
+              raise RuntimeError((token,lines[-30:]))
+          send('uci'); until('uciok'); send('isready'); until('readyok'); send('setoption name MultiPV value 5'); send('isready'); until('readyok')
+          send('position fen '+fen); send('go depth 10'); lines=until('bestmove')
+          multipv=set()
+          for line in lines:
+              parts=line.split()
+              if line.startswith('info ') and 'multipv' in parts: multipv.add(int(parts[parts.index('multipv')+1]))
+          assert len(multipv)>=5,multipv
+          best=[x for x in lines if x.startswith('bestmove')][-1].split()[1]
+          assert re.fullmatch(r'[a-h][1-8][a-h][1-8][qrbn]?',best),best
+          send('quit'); p.wait(timeout=5); print('STOCKFISH 18 MULTIPV5 DIRECT PASS',best)
+          '@ | Set-Content -Encoding UTF8 stockfish_v5_direct.py
+          python stockfish_v5_direct.py
+          if($LASTEXITCODE -ne 0){throw 'Official Stockfish 18 direct UCI gate failed'}
+
+      - name: Install pinned pywebview and patched Nuitka
+        shell: pwsh
+        working-directory: work
+        run: |
+          $nuitkaUrl="https://github.com/Nuitka/Nuitka/archive/$env:NUITKA_UPSTREAM_FIX_COMMIT.zip"
+          python -m pip install "pywebview==$env:PYWEBVIEW_VERSION" "Nuitka @ $nuitkaUrl" ordered-set zstandard
+          if($LASTEXITCODE -ne 0){throw 'Pinned Windows runtime/compiler installation failed'}
+          python -c "from pathlib import Path; import nuitka; p=Path(nuitka.__file__).parent/'plugins'/'standard'/'PywebViewPlugin.py'; assert 'webview.platforms.win32' in p.read_text(encoding='utf-8'); print('PATCHED NUITKA PYWEBVIEW PLUGIN PASS')"
+          if($LASTEXITCODE -ne 0){throw 'Pinned Nuitka pywebview patch missing'}
+
+      - name: Native Windows menu structural production gate
+        shell: pwsh
+        working-directory: work
+        run: |
+          @'
+          import json,clr
+          clr.AddReference('System.Windows.Forms')
+          from System.Windows.Forms import Application,Form
+          from acs.ui_native_menu import install_windows_native_menu,native_menu_attachment_state
+          class API:
+              lang='en'
+              def keymap_search(self,*a): return []
+              def new_game(self): return {'ok':True}
+              def clear_board(self): return {'ok':True}
+              def undo(self): return {'ok':True}
+              def redo(self): return {'ok':True}
+              def review_previous(self): return {'ok':True}
+              def review_next(self): return {'ok':True}
+              def toggle_engine(self): return {'ok':True}
+              def keymap_reset_all(self): return {'ok':True}
+          class Window:
+              def __init__(self,form): self.native=form
+              def evaluate_js(self,*a,**k): return None
+              def destroy(self): return None
+          Application.EnableVisualStyles(); Application.SetCompatibleTextRenderingDefault(False)
+          form=Form(); form.Name='AccessibleChessStructuralHost'; win=Window(form); menu=None
+          try:
+              installed=install_windows_native_menu(win,API()); host=getattr(win,'_accessible_chess_native_menu_host',None); menu=getattr(win,'_accessible_chess_native_menu',None)
+              data=dict(native_menu_attachment_state(win)); data.update(installed=bool(installed),host_name=str(getattr(host,'Name','')) if host is not None else '',menu_name=str(getattr(menu,'Name','')) if menu is not None else '',accessible_role=str(getattr(menu,'AccessibleRole','')) if menu is not None else '',commands=[str(x.Text).replace('&','') for x in list(menu.Items)] if menu is not None else [])
+              open('native-menu-self-diagnostic.json','w',encoding='utf-8').write(json.dumps(data,ensure_ascii=False,indent=2))
+              assert data['installed'] and data['host_exists'] and data['menu_exists'] and data['host_top_level'],data
+              assert data['parent_is_host'] and data['main_menu_strip_is_menu'],data
+              assert data['menu_name']=='AccessibleChessMainMenu' and data['accessible_role'].endswith('MenuBar'),data
+              assert data['commands']==['File','Game','Board','Analysis','Settings','Help'],data
+              print('NATIVE WINDOWS MENU STRUCTURAL PASS')
+          finally:
+              if menu is not None: menu.Dispose()
+              form.Dispose()
+          '@ | Set-Content -Encoding UTF8 native_menu_v5.py
+          python native_menu_v5.py
+          if($LASTEXITCODE -ne 0){throw 'Native menu structural production gate failed'}
+          'ALT/ARROWS/ENTER/ESC + NVDA MENU USABILITY: HUMAN-ONLY UNPROVEN'
+
+      - name: Build exact-source standalone AccessibleChess.exe
+        shell: pwsh
+        working-directory: work
+        run: |
+          python -m nuitka --standalone --assume-yes-for-downloads --windows-console-mode=disable --output-filename=AccessibleChess.exe --include-data-dir=web=web --include-data-dir=release-assets\assets=assets --include-data-dir=release-assets\engines=engines --report=nuitka-compilation-report.xml run_accessible_chess.py
+          if($LASTEXITCODE -ne 0){throw 'Nuitka standalone compile failed'}
+          $exe=Get-ChildItem -Recurse -Filter AccessibleChess.exe | Where-Object {$_.FullName -match '\.dist\\'} | Select-Object -First 1
+          if(-not $exe){throw 'Built AccessibleChess.exe missing'}
+          $dist=$exe.Directory
+          $stockfishTarget=Join-Path $dist.FullName 'engines\stockfish\stockfish.exe'
+          New-Item -ItemType Directory -Force -Path (Split-Path $stockfishTarget -Parent) | Out-Null
+          Copy-Item 'release-assets\engines\stockfish\stockfish.exe' $stockfishTarget -Force
+          $exe.FullName | Set-Content -Encoding UTF8 built_v5_exe_path.txt
+          $dist.FullName | Set-Content -Encoding UTF8 built_v5_dist_path.txt
+          "STANDALONE BUILD PASS: $($exe.FullName)"
+
+      - name: Built EXE diagnostic and real WebView2 startup
+        shell: pwsh
+        working-directory: work
+        run: |
+          $exe=(Get-Content built_v5_exe_path.txt -Raw).Trim()
+          $diag=Start-Process $exe -ArgumentList '--diagnostic' -PassThru -Wait
+          if($diag.ExitCode -ne 0){throw "Built EXE diagnostic failed: $($diag.ExitCode)"}
+          $app=Start-Process $exe -PassThru
+          Start-Sleep -Seconds 18
+          if($app.HasExited){throw "Packaged GUI exited during WebView2 startup: $($app.ExitCode)"}
+          $app.Id | Set-Content gui_v5_pid.txt
+          "REAL WEBVIEW2 PROCESS STARTUP PASS pid=$($app.Id)"
+
+      - name: Strict packaged cross-process UIA and interaction gate V5
+        shell: pwsh
+        working-directory: work
+        run: |
+          $appPid=[int](Get-Content gui_v5_pid.txt -Raw)
+          & ..\tools\qa\dev5_stage1_packaged_e2e_crossprocess_v5.ps1 -AppPid $appPid -ProductRoot .
+          if($LASTEXITCODE -ne 0){throw 'Strict packaged cross-process UIA/E2E V5 failed'}
+          if(-not (Test-Path packaged-uia-strict-summary.json)){throw 'Packaged UIA strict summary missing'}
+          $summary=Get-Content packaged-uia-strict-summary.json -Raw | ConvertFrom-Json
+          if([string]$summary.product_sha -ne $env:SOURCE_INTEGRATION_SHA){throw 'Strict UIA evidence product SHA mismatch'}
+          if([string]$summary.classification -ne 'A' -or -not [bool]$summary.evidence_complete){throw 'Strict UIA evidence is not complete classification A'}
+          if([string]$summary.clipboard -ne 'e9'){throw 'Strict UIA clipboard evidence mismatch'}
+          if([int]$summary.semantic_square_count -ne 64){throw 'Strict UIA semantic square count mismatch'}
+          'STRICT PACKAGED CROSS-PROCESS UIA CLASSIFICATION A + NATIVE SELECTION/COPY PASS'
+
+      - name: Packaged sound and Stockfish runtime lifecycle
+        shell: pwsh
+        working-directory: work
+        run: |
+          $dist=(Get-Content built_v5_dist_path.txt -Raw).Trim()
+          @'
+          import pathlib,sys,tempfile
+          from acs.sound_windows import PackagedSoundAssetResolver,WindowsSoundPlaybackAdapter
+          from acs.sound_runtime import SoundRuntime,GameSoundRuntime,SoundRuntimeSettings
+          from acs.sound_events import MoveSoundFacts
+          app=pathlib.Path(sys.argv[1]).resolve()
+          runtime=GameSoundRuntime(SoundRuntime(WindowsSoundPlaybackAdapter(PackagedSoundAssetResolver(app),cache_dir=pathlib.Path(tempfile.gettempdir())/'acs-v5-sound-cache'),settings=SoundRuntimeSettings(volume=100)))
+          reports=[runtime.start(),runtime.move(MoveSoundFacts()),runtime.illegal(),runtime.tick(),runtime.end()]
+          assert all(r.ok for r in reports),reports
+          print('PACKAGED WAV PLAYBACK PASS')
+          '@ | Set-Content -Encoding UTF8 packaged_sound_v5.py
+          python packaged_sound_v5.py "$dist"
+          if($LASTEXITCODE -ne 0){throw 'Packaged WAV playback failed'}
+          @'
+          import pathlib,sys
+          from acs.stockfish_runtime import StockfishRuntime,StockfishRuntimeConfig,resolve_stockfish_path,PACKAGED_STOCKFISH_RELATIVE_PATH
+          app=pathlib.Path(sys.argv[1]).resolve(); config=StockfishRuntimeConfig(application_dir=app)
+          resolved=resolve_stockfish_path(config); assert resolved==(app/PACKAGED_STOCKFISH_RELATIVE_PATH).resolve() and resolved.stat().st_size>0
+          fen='rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1'
+          runtime=StockfishRuntime(config); engine=runtime.provider(); lines=engine.analyze(fen,multipv=5,depth=8); assert len(lines)>=5; best=engine.best_move(fen,skill_level=8,movetime_ms=150); assert best; runtime.close(); print('PACKAGED STOCKFISH LIFECYCLE PASS',best)
+          '@ | Set-Content -Encoding UTF8 packaged_stockfish_v5.py
+          python packaged_stockfish_v5.py "$dist"
+          if($LASTEXITCODE -ne 0){throw 'Packaged Stockfish lifecycle failed'}
+          Start-Sleep -Seconds 1
+          if(@(Get-Process stockfish* -ErrorAction SilentlyContinue).Count -gt 0){throw 'Orphan Stockfish remains after runtime close'}
+
+      - name: Assemble exact candidate and run current release preflight
+        shell: pwsh
+        working-directory: work
+        env:
+          QA_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          $dist=(Get-Content built_v5_dist_path.txt -Raw).Trim()
+          Remove-Item package-v5 -Recurse -Force -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force -Path 'package-v5\AccessibleChess','package-v5\THIRD_PARTY_NOTICES' | Out-Null
+          Copy-Item "$dist\*" 'package-v5\AccessibleChess\' -Recurse -Force
+          Copy-Item 'release-assets\THIRD_PARTY\Stockfish\Stockfish-18-source.zip' 'package-v5\THIRD_PARTY_NOTICES\Stockfish-18-source.zip' -Force
+          Copy-Item 'release-assets\THIRD_PARTY\Stockfish\NOTICE.txt' 'package-v5\THIRD_PARTY_NOTICES\NOTICE.txt' -Force
+          @"
+          Accessible Chess third-party notices
+          Stockfish 18 — GNU GPL v3; complete corresponding source included.
+          pywebview $env:PYWEBVIEW_VERSION — BSD-3-Clause runtime dependency.
+          Nuitka commit $env:NUITKA_UPSTREAM_FIX_COMMIT — build compiler only; compilation report is deliberately NOT shipped.
+          "@ | Set-Content -Encoding UTF8 'package-v5\THIRD_PARTY_NOTICES\README.txt'
+          Copy-Item native-menu-self-diagnostic.json package-v5\ -Force
+          Copy-Item packaged-uia-strict-summary.json package-v5\ -Force
+          if(Test-Path 'package-v5\nuitka-compilation-report.xml'){throw 'Build privacy report leaked before manifest assembly'}
+          if($QA_HEAD_SHA -notmatch '^[0-9a-f]{40}$'){throw "QA head SHA is not exact 40-hex: $QA_HEAD_SHA"}
+          $manifest=[ordered]@{
+            product='Accessible Chess';
+            label='NVDA TEST CANDIDATE — WAITING FOR USER TEST';
+            integration_sha=$env:SOURCE_INTEGRATION_SHA;
+            qa_commit=$QA_HEAD_SHA;
+            python='3.12';
+            pywebview=$env:PYWEBVIEW_VERSION;
+            nuitka_upstream_fix_commit=$env:NUITKA_UPSTREAM_FIX_COMMIT;
+            stockfish='18';
+            nvda_verified=$false;
+            strict_cross_process_uia='PASS';
+            packaged_e4_e9_clipboard_board_focus='PASS';
+            packaged_sound='PASS';
+            stockfish_runtime_lifecycle='PASS';
+            native_menu_automated_self_diagnostic='PASS';
+            native_menu_alt_arrows_enter_esc='HUMAN-ONLY UNPROVEN';
+            nvda_menu_usability='HUMAN-ONLY UNPROVEN'
+          }
+          $manifest|ConvertTo-Json -Depth 6|Set-Content -Encoding UTF8 'package-v5\RELEASE_MANIFEST.json'
+          $root=(Resolve-Path package-v5).Path
+          $files=@(Get-ChildItem package-v5 -Recurse -File | Where-Object {$_.Name -ne 'SHA256SUMS.txt'} | Sort-Object FullName)
+          $files | Get-FileHash -Algorithm SHA256 | ForEach-Object {"$($_.Hash.ToLowerInvariant())  $($_.Path.Substring($root.Length+1).Replace('\','/'))"} | Set-Content -Encoding UTF8 'package-v5\SHA256SUMS.txt'
+          python -c "from pathlib import Path; from acs.release_preflight import inspect_release_package; print(inspect_release_package(Path('package-v5')).as_dict())"
+          if($LASTEXITCODE -ne 0){throw 'Current exact-source release preflight rejected assembled package'}
+          if(Test-Path 'package-v5\nuitka-compilation-report.xml'){throw 'Nuitka compilation report must never ship'}
+          $zip=Join-Path (Get-Location) $env:CANDIDATE_FILE
+          if(Test-Path $zip){Remove-Item $zip -Force}
+          Compress-Archive 'package-v5\*' $zip -Force
+          $hash=(Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant(); $hash | Set-Content -Encoding UTF8 candidate-v5.sha256
+          "FRESH EXACT CANDIDATE V5 CREATED SHA256=$hash"
+
+      - name: Reopen candidate ZIP and verify identity fail closed
+        shell: pwsh
+        working-directory: work
+        env:
+          QA_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          $zip=Join-Path (Get-Location) $env:CANDIDATE_FILE
+          $actual=(Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant(); $declared=(Get-Content candidate-v5.sha256 -Raw).Trim().ToLowerInvariant()
+          if($actual -ne $declared){throw 'Candidate ZIP SHA256 mismatch'}
+          Remove-Item inspect-v5 -Recurse -Force -ErrorAction SilentlyContinue
+          Expand-Archive $zip inspect-v5 -Force
+          python -c "from pathlib import Path; from acs.release_preflight import inspect_release_package; print(inspect_release_package(Path('inspect-v5')).as_dict())"
+          if($LASTEXITCODE -ne 0){throw 'Reopened candidate failed exact release preflight'}
+          $manifest=Get-Content inspect-v5\RELEASE_MANIFEST.json -Raw | ConvertFrom-Json
+          if([string]$manifest.integration_sha -ne $env:SOURCE_INTEGRATION_SHA){throw 'Reopened manifest integration SHA mismatch'}
+          if([string]$manifest.qa_commit -ne $QA_HEAD_SHA){throw 'Reopened manifest QA SHA mismatch'}
+          if([bool]$manifest.nvda_verified){throw 'Candidate illegally claims NVDA verification'}
+          if(Test-Path inspect-v5\nuitka-compilation-report.xml){throw 'Build privacy report leaked into reopened candidate'}
+          $inspection=[ordered]@{candidate=$env:CANDIDATE_FILE;sha256=$actual;integration_sha=$env:SOURCE_INTEGRATION_SHA;qa_commit=$QA_HEAD_SHA;nvda_verified=$false;release_preflight='PASS';compilation_report_shipped=$false;result='PASS'}
+          $inspection|ConvertTo-Json -Depth 6|Set-Content -Encoding UTF8 package-v5-inspection.json
+          "ACTUAL CANDIDATE V5 ZIP INSPECTION PASS SHA256=$actual"
+
+      - name: Upload exact fresh NVDA test candidate V5
+        uses: actions/upload-artifact@v4
+        with:
+          name: Accessible-Chess-0.4-1e9d23b-NVDA-test-candidate-V5
+          path: |
+            work/Accessible-Chess-0.4-1e9d23b-NVDA-test-candidate.zip
+            work/candidate-v5.sha256
+            work/native-menu-self-diagnostic.json
+            work/packaged-uia-strict-summary.json
+            work/package-v5-inspection.json
+            work/exact-v5-unittest.log
+            work/exact-v5-pytest.log
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Upload build-only diagnostics outside candidate
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dev5-stage1-v5-build-only-diagnostics
+          path: |
+            work/nuitka-compilation-report.xml
+            work/uia-topology-strict.json
+            work/uia-topology-strict-raw.json
+            dev5-helper-v5.diff
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Cleanup packaged processes
+        if: always()
+        shell: pwsh
+        working-directory: work
+        run: |
+          if(Test-Path gui_v5_pid.txt){$appPid=[int](Get-Content gui_v5_pid.txt -Raw); Stop-Process -Id $appPid -Force -ErrorAction SilentlyContinue}
+          Get-Process stockfish* -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
