@@ -194,7 +194,19 @@ jobs:
           tests.test_dev4_pgn_resource_security
 
       - name: Full repository unittest
-        run: python -m unittest discover -s tests -v
+        shell: bash
+        run: |
+          set -o pipefail
+          python -m unittest discover -s tests -v 2>&1 | tee full-unittest.log
+
+      - name: Upload full unittest diagnostic
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v2-full-unittest-${{ matrix.os }}
+          path: full-unittest.log
+          if-no-files-found: ignore
+          retention-days: 3
 
       - name: Full repository pytest
         run: python -m pytest -q tests
@@ -257,16 +269,31 @@ jobs:
           uncbv_sha256="$(sha256sum upstream/uncbv/target/release/uncbv | cut -d' ' -f1)"
           echo "UNCBV_BINARY_SHA256=$uncbv_sha256" >> "$GITHUB_ENV"
       - name: Real CBH and CBV to canonical GameTree and Library journeys
+        shell: bash
         working-directory: product
         env:
           LIBCBH_BRIDGE: ${{ github.workspace }}/product/build/libcbh/libcbh-json-bridge
           LIBCBH_FIXTURE_DIR: ${{ github.workspace }}/upstream/libcbh/gtest/WithVariations
           UNCBV_BINARY: ${{ github.workspace }}/upstream/uncbv/target/release/uncbv
           UNCBV_FIXTURE: ${{ github.workspace }}/upstream/uncbv/tests/twic1134.cbv
+          UNCBV_SMALL_FIXTURE: ${{ github.workspace }}/upstream/uncbv/tests/small.cbv
         run: |
-          python -m unittest -v tests.test_chessbase_libcbh_external_fixture
-          python -m unittest -v tests.test_cbv_uncbv_external_fixture
-          python -m unittest -v tests.test_version2_formats_integration
+          set -o pipefail
+          {
+            python -m unittest -v tests.test_chessbase_libcbh_external_fixture
+            python -m unittest -v tests.test_cbv_uncbv_external_fixture
+            python -m unittest -v tests.test_version2_formats_integration
+          } 2>&1 | tee real-pinned.log
+
+      - name: Upload real pinned diagnostic
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v2-real-pinned-chessbase
+          path: product/real-pinned.log
+          if-no-files-found: ignore
+          retention-days: 3
+
       - name: Default package excludes optional GPL backend
         working-directory: product
         shell: bash
