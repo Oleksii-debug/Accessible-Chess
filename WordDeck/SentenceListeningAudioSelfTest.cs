@@ -18,25 +18,75 @@ internal static class SentenceListeningAudioSelfTest
         {
             ["s1"] = Path.Combine(Path.GetTempPath(), "approved-sentence-s1.mp3")
         });
+
+        TestLocalFileAloneDoesNotActivate(pack, catalog);
+        TestExplicitApprovalAndMissingAudio(pack, catalog);
+        TestHiddenTargetFailsClosed(pack, catalog);
+
+        Console.WriteLine("WordDeck Sentence Listening audio self-test passed: explicit pack approval + exact stable sentence ID + local audio required; hidden targets and missing audio remain unavailable.");
+    }
+
+    private static void TestLocalFileAloneDoesNotActivate(SentencePack pack, FakeCatalog catalog)
+    {
         var player = new FakePlayer();
-        using var source = new SentencePackListeningExerciseSource(pack, catalog, player);
+        using var source = new SentencePackListeningExerciseSource(
+            pack,
+            catalog,
+            player,
+            approval: null,
+            hiddenEntryIds: new HashSet<string>(StringComparer.OrdinalIgnoreCase));
+
+        Require(source.GetAvailable(StudyScopeIds.All).Count == 0,
+            "Local sentence audio activated without explicit approved-pack evidence.");
+        var candidate = new ListeningExercise(
+            "sentence:test-pack:s1", ListeningExerciseKind.Sentence, "We learn.", "A1", new[] { "word-a" }, "sentence:test-pack:s1");
+        Require(!source.TryPlay(candidate, out string? error) && !string.IsNullOrWhiteSpace(error),
+            "Unapproved sentence pack was playable merely because a local file resolved.");
+        Require(player.LastPath is null, "Unapproved sentence audio reached the file player.");
+    }
+
+    private static void TestExplicitApprovalAndMissingAudio(SentencePack pack, FakeCatalog catalog)
+    {
+        var player = new FakePlayer();
+        var approval = new ListeningAudioPackApproval("test-pack", "TEST-ONLY-APPROVAL", true);
+        using var source = new SentencePackListeningExerciseSource(
+            pack,
+            catalog,
+            player,
+            approval,
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase));
 
         IReadOnlyList<ListeningExercise> a1 = source.GetAvailable(StudyScopeIds.A1);
-        Require(a1.Count == 1 && a1[0].ExerciseId == "sentence:test-pack:s1", "Exact local-audio sentence was not exposed in A1.");
+        Require(a1.Count == 1 && a1[0].ExerciseId == "sentence:test-pack:s1", "Approved exact local-audio sentence was not exposed in A1.");
         Require(a1[0].TargetText == "We learn." && a1[0].StableEntryIds.SequenceEqual(new[] { "word-a" }),
             "Sentence Listening adapter lost English text or stable Oxford target IDs.");
+        Require(a1[0].AudioContract is { ApprovedForProduction: true, UnitKind: ListeningAudioUnitKind.Sentence },
+            "Approved sentence did not carry its presentation-neutral audio contract.");
         Require(source.GetAvailable(StudyScopeIds.A2).Count == 0, "A1 sentence leaked into A2 Listening scope.");
         Require(source.GetAvailable(StudyScopeIds.All).Count == 1, "Sentence without local audio was incorrectly promoted into All Listening.");
 
         Require(source.TryPlay(a1[0], out string? error) && error is null && player.LastPath == catalog.Paths["s1"],
-            "Sentence Listening adapter did not play the exact resolved local asset.");
+            "Sentence Listening adapter did not play the exact resolved local asset after explicit approval.");
 
         var noAudioExercise = new ListeningExercise(
             "sentence:test-pack:s2", ListeningExerciseKind.Sentence, "Context helps.", "B1", new[] { "word-b" }, "sentence:test-pack:s2");
         Require(!source.TryPlay(noAudioExercise, out string? missingError) && !string.IsNullOrWhiteSpace(missingError),
             "Sentence without installed audio did not fail closed at playback.");
+    }
 
-        Console.WriteLine("WordDeck Sentence Listening audio self-test passed: valid SentencePack + exact stable sentence ID + local audio required; missing audio remains unavailable.");
+    private static void TestHiddenTargetFailsClosed(SentencePack pack, FakeCatalog catalog)
+    {
+        var player = new FakePlayer();
+        var approval = new ListeningAudioPackApproval("test-pack", "TEST-ONLY-APPROVAL", true);
+        var hidden = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "word-a" };
+        using var source = new SentencePackListeningExerciseSource(pack, catalog, player, approval, hidden);
+
+        Require(source.GetAvailable(StudyScopeIds.A1).Count == 0,
+            "Sentence containing a hidden target remained available.");
+        var hiddenExercise = new ListeningExercise(
+            "sentence:test-pack:s1", ListeningExerciseKind.Sentence, "We learn.", "A1", new[] { "word-a" }, "sentence:test-pack:s1");
+        Require(!source.TryPlay(hiddenExercise, out string? error) && !string.IsNullOrWhiteSpace(error),
+            "Sentence containing a hidden target remained directly playable.");
     }
 
     private static SentencePack BuildPack() => new()
