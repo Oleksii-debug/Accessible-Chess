@@ -12,6 +12,7 @@ internal static class MorphologyCanonicalSelfTestBootstrap
 
         MorphologySelfTest.Run();
         MorphologyPracticeSelfTest.Run();
+        MorphologyFamilyGraphSelfTest.Run();
         MorphologyDiagnosticsSelfTest.Run();
         MorphologyContextPolicySelfTest.Run();
         MorphologyGrammarBridgeSelfTest.Run();
