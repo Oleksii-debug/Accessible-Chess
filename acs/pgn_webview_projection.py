@@ -48,6 +48,7 @@ _LABELS = {
         "cancel": "Скасувати",
         "multiple_comments": "На цьому вузлі кілька коментарів. Редагування вимкнено, доки канонічний API не надасть однозначний вибір коментаря.",
         "local_path": "[локальний шлях приховано]",
+        "action_failed": "Не вдалося виконати дію.",
     },
     UILanguage.EN: {
         "game": "Game",
@@ -72,6 +73,7 @@ _LABELS = {
         "cancel": "Cancel",
         "multiple_comments": "This node has multiple comments. Editing is disabled until the canonical API exposes an unambiguous comment selection.",
         "local_path": "[local path hidden]",
+        "action_failed": "The action could not be completed.",
     },
 }
 
@@ -302,6 +304,7 @@ class PgnWebViewProjection:
         count = self._count(view)
         return {
             "document": {"lang": self._language.value, "landmark": "main"},
+            "error_message": _LABELS[self._language]["action_failed"],
             **self._safe_view(view, count),
         }
 

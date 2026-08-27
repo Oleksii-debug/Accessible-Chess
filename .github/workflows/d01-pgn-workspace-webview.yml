@@ -3,6 +3,7 @@ name: D01 PGN Workspace WebView
 on:
   pull_request:
     paths:
+      - 'acs/full_product_actions.py'
       - 'acs/pgn_webview_bridge.py'
       - 'acs/pgn_webview_projection.py'
       - 'acs/pgn_workspace_webview_adapter.py'
@@ -32,7 +33,8 @@ jobs:
     env:
       D01_BASE: 37204866a2bb4ee7b0a936842fa70e4eb8cdf16d
       D01_FEATURE: 76d20f9ce3f24120935a8f122ce0c8e0b6e4fb64
-      D01_PRE_REPAIR: e8ecf3d707c74955522e62cce449731f0ea87bb5
+      P1_PARENT: fe249c24cad049f77a998ff305fbad0ace77c6ac
+      P1_REPAIR: 48b0aeabd485d9f9e26e335f232209e86debeb7a
       D06_HEAD: 1e3ea862bcff2ac13077f879c2ce9af01c4f983f
       D06_WORKSPACE_BLOB: 346f31f828191e76d57b372bb6c84a4a90568594
       D06_WORKSPACE_TEST_BLOB: edce8f6a591ffc09d419e9046e14725c4a07cf54
@@ -49,6 +51,10 @@ jobs:
           git config core.autocrlf false
           git config core.eol lf
           git reset --hard HEAD
+          # actions/checkout has already populated the Windows worktree before
+          # the repository-local config above exists.  A hard reset may retain
+          # those CRLF bytes because the index is clean, so force a byte rewrite.
+          git checkout-index --force --all
 
       - uses: actions/setup-python@v5
         with:
@@ -61,16 +67,27 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD~1)" = "$D01_PRE_REPAIR"
-          test "$(git rev-list --count "$D01_BASE"..HEAD)" = "5"
+          test "$(git rev-parse HEAD~2)" = "$P1_PARENT"
+          test "$(git rev-parse HEAD~1)" = "$P1_REPAIR"
+          test "$(git rev-list --count "$D01_BASE"..HEAD)" = "7"
           git merge-base --is-ancestor "$D01_BASE" HEAD
           git merge-base --is-ancestor "$D01_FEATURE" HEAD
           git diff --check "$D01_BASE" HEAD
-          repair_changed="$(git diff --name-only "$D01_PRE_REPAIR" HEAD | sort)"
-          test "$repair_changed" = '.github/workflows/d01-pgn-workspace-webview.yml'
+          repair_changed="$(git diff --name-only "$P1_PARENT" HEAD | sort)"
+          repair_expected="$(printf '%s\n' \
+            '.github/workflows/d01-pgn-workspace-webview.yml' \
+            'acs/full_product_actions.py' \
+            'acs/pgn_webview_projection.py' \
+            'acs/pgn_workspace_webview_adapter.py' \
+            'tests/js/pgn_surface_dom_test.js' \
+            'tests/test_dev1_pgn_workspace_webview_adapter.py' \
+            'web/full_product_pgn.js' | sort)"
+          test "$repair_changed" = "$repair_expected"
+          test "$(git diff --name-only "$P1_REPAIR" HEAD)" = '.github/workflows/d01-pgn-workspace-webview.yml'
           changed="$(git diff --name-only "$D01_BASE" HEAD | sort)"
           expected="$(printf '%s\n' \
             '.github/workflows/d01-pgn-workspace-webview.yml' \
+            'acs/full_product_actions.py' \
             'acs/pgn_webview_bridge.py' \
             'acs/pgn_webview_projection.py' \
             'acs/pgn_workspace_webview_adapter.py' \
@@ -97,7 +114,7 @@ jobs:
             }
           done <<'LOCKS'
           acs/full_product_presenters.py=a752bb6b837d0332ad69047912dffeb537c7bd3f
-          acs/full_product_actions.py=f51d716e56ea185f0d4bcdb06927d03dcd64bf59
+          acs/full_product_actions.py=ade8f65186c3cf00c9f0ab372fc815e4a635e803
           acs/full_product_ui_shell.py=f97b3b35dbca7c0527d068ad557ddf3c67c3e491
           acs/keybindings.py=b222f0d625999d8119cb3bb7cebffc961217f610
           acs/ui_native_menu.py=dabed76f2ad60ad0c1032b13ca353e4acc0bf2ad
@@ -118,19 +135,19 @@ jobs:
               exit 1
             }
           done <<'LOCKS'
-          acs/pgn_webview_projection.py=1e6ba66eca088d65d6585bec1a7cfb31ea762937
+          acs/pgn_webview_projection.py=45049519527cda3d9c9f3c4de8e4244afc9fc614
           acs/pgn_webview_bridge.py=c8f108c8dcc01c37503833abb5c626d89093145e
-          acs/pgn_workspace_webview_adapter.py=8e3981402f4823bbea9d2b0c54aeb8b18dc892d4
-          web/full_product_pgn.js=c8da5042c8a9dca73678b54f2f480916d77bfe3c
+          acs/pgn_workspace_webview_adapter.py=4343fa698f7503cf257218868aa927b099ddf21b
+          web/full_product_pgn.js=947319b17b4dda179bb2393a6194e2d2a8960220
           tests/test_dev1_pgn_webview_projection.py=2b2c655c82f2427b046eb63d7925e4ceb9c303d4
           tests/test_dev1_pgn_webview_atomicity.py=dd84ea984555921eeed600a4b2f4e419cbb6fe75
-          tests/test_dev1_pgn_workspace_webview_adapter.py=03b7c0be4b7728e968a4885d3c3373cf07c1b8ec
-          tests/js/pgn_surface_dom_test.js=ae3f7d07bea38883d0e1bffde3778664962ffc2a
+          tests/test_dev1_pgn_workspace_webview_adapter.py=ef3be2ed1297e1b81bdecfaed233b948a08774ef
+          tests/js/pgn_surface_dom_test.js=d2539b0674e68aa5ff1f040161be4f34943b5cf6
           LOCKS
 
       - name: Compile and parse D01 PGN presentation
         run: |
-          python -m compileall -q acs/pgn_webview_projection.py acs/pgn_webview_bridge.py acs/pgn_workspace_webview_adapter.py tests/test_dev1_pgn_webview_projection.py tests/test_dev1_pgn_webview_atomicity.py tests/test_dev1_pgn_workspace_webview_adapter.py
+          python -m compileall -q acs/full_product_actions.py acs/pgn_webview_projection.py acs/pgn_webview_bridge.py acs/pgn_workspace_webview_adapter.py tests/test_dev1_pgn_webview_projection.py tests/test_dev1_pgn_webview_atomicity.py tests/test_dev1_pgn_workspace_webview_adapter.py
           node --check web/full_product_pgn.js
           node --check tests/js/pgn_surface_dom_test.js
           node tests/js/pgn_surface_dom_test.js
@@ -141,6 +158,8 @@ jobs:
           tests.test_dev1_pgn_webview_projection
           tests.test_dev1_pgn_webview_atomicity
           tests.test_dev1_pgn_workspace_webview_adapter
+          tests.test_dev1_full_product_ui_packages
+          tests.test_dev1_full_product_webview_adapter
           tests.test_gametree
           tests.test_d06_gametree_persistence_vertical
           tests.test_d06_annotation_insertion_persistence_vertical
@@ -161,7 +180,9 @@ jobs:
           git show "$D06_HEAD:tests/test_pgn_workspace.py" > tests/test_pgn_workspace.py
           python -m unittest -v tests.test_pgn_workspace
           python - <<'PY'
-          from acs.full_product_ui_shell import UILanguage
+          from acs.full_product_actions import FullProductActionRouter
+          from acs.full_product_ui_shell import AccessibleShellState, UILanguage
+          from acs.gametree_navigation import GameTreeCursor, VariationStep
           from acs.pgn_webview_bridge import PgnWebViewBridge
           from acs.pgn_workspace import PgnWorkspace
           from acs.pgn_workspace_webview_adapter import PgnWorkspaceWebViewProjection
@@ -180,36 +201,115 @@ jobs:
 
           1. d4 d5 1/2-1/2
           '''
-          workspace = PgnWorkspace.from_text(document)
-          calls = []
-          def host(action_id, payload):
-              calls.append((action_id, dict(payload)))
-              return {"path": "C:/Users/private/export.pgn", "token": "SECRET"}
+          owner = PgnWorkspace.from_text(document)
 
-          projection = PgnWorkspaceWebViewProjection(workspace, host, language=UILanguage.EN)
+          class AuditedWorkspacePort:
+              def __init__(self, exact_workspace):
+                  self.owner = exact_workspace
+                  self.inside_delegate = False
+                  self.mutations = []
+
+              def games(self):
+                  return self.owner.games()
+
+              def view(self):
+                  return self.owner.view()
+
+              def set_cursor(self, cursor):
+                  self.mutations.append(("set_cursor", self.inside_delegate))
+                  return self.owner.set_cursor(cursor)
+
+              def previous_game(self):
+                  self.mutations.append(("previous_game", self.inside_delegate))
+                  return self.owner.previous_game()
+
+              def next_game(self):
+                  self.mutations.append(("next_game", self.inside_delegate))
+                  return self.owner.next_game()
+
+          workspace = AuditedWorkspacePort(owner)
+          calls = []
+
+          def cursor_from_payload(payload):
+              path = tuple(VariationStep(*item) for item in payload["line_path"])
+              move_index = payload["move_index"]
+              return GameTreeCursor(path, 0 if move_index is None else move_index + 1)
+
+          def host(action_id, payload):
+              workspace.inside_delegate = True
+              try:
+                  calls.append((action_id, dict(payload)))
+                  if action_id in {
+                      "pgn.select_item",
+                      "pgn.previous_item",
+                      "pgn.next_item",
+                      "pgn.parent_variation",
+                  }:
+                      workspace.set_cursor(cursor_from_payload(payload))
+                  elif action_id == "pgn.previous_game":
+                      workspace.previous_game()
+                  elif action_id == "pgn.next_game":
+                      workspace.next_game()
+                  return {"path": "C:/Users/private/export.pgn", "token": "SECRET"}
+              finally:
+                  workspace.inside_delegate = False
+
+          router = FullProductActionRouter(
+              AccessibleShellState(language=UILanguage.EN),
+              host,
+          )
+
+          projection = PgnWorkspaceWebViewProjection(workspace, router, language=UILanguage.EN)
           bridge = PgnWebViewBridge(projection)
+
+          def expect(command, payload, canonical_action):
+              before = len(calls)
+              result = bridge.dispatch(command, payload)
+              assert result.kind == "selection", (command, result)
+              assert len(calls) == before + 1, (command, calls[before:])
+              assert calls[-1][0] == canonical_action, (command, calls[-1][0])
+              return result
+
           snapshot = projection.snapshot()
           assert snapshot["game"]["count"] == 2
+          assert "content_revision" not in repr(snapshot)
+          assert "content_digest" not in repr(snapshot)
+          assert "current_record_digest" not in repr(snapshot)
+
+          expect("pgn.move", {"delta": 1}, "pgn.next_item")
+          expect("pgn.move", {"delta": -1}, "pgn.previous_item")
           variation = next(item for item in snapshot["tree"] if item["kind"] == "variation")
-          selected = bridge.dispatch("pgn.select", {"node_id": variation["node_id"]})
-          assert selected.kind == "selection"
-          assert workspace.cursor.line_path
-          result = bridge.dispatch("pgn.variation_promote", {})
-          assert result.kind == "selection"
+          expect("pgn.select", {"node_id": variation["node_id"]}, "pgn.select_item")
+          assert owner.cursor.line_path
+          expect("pgn.parent", {}, "pgn.parent_variation")
+          expect("pgn.select", {"node_id": variation["node_id"]}, "pgn.select_item")
+          result = expect("pgn.variation_promote", {}, "pgn.variation_promote")
           action_id, payload = calls[-1]
-          assert action_id == "pgn.variation_promote"
-          assert payload["expected_record_digest"] == workspace.view().current_record_digest
-          assert payload["content_revision"] == workspace.content_revision
+          assert payload["expected_record_digest"] == owner.view().current_record_digest
+          assert payload["content_revision"] == owner.content_revision
           browser_result = repr(result.payload)
           assert "expected_record_digest" not in browser_result
           assert "line_path" not in browser_result
           assert "SECRET" not in browser_result
           assert "C:/Users/private" not in browser_result
-          moved = bridge.dispatch("pgn.next_game", {})
-          assert moved.kind == "selection"
-          assert workspace.selected_game_index == 1
+
+          expect("pgn.variation_delete", {}, "pgn.variation_delete")
+          comment_node = next(item for item in projection.snapshot()["tree"] if item["comments"])
+          expect("pgn.select", {"node_id": comment_node["node_id"]}, "pgn.select_item")
+          expect("pgn.comment_edit", {"text": "Accessible note"}, "pgn.comment_edit")
+          expect("pgn.comment_delete", {}, "pgn.comment_delete")
+          expect("pgn.copy_selection", {}, "pgn.copy_selection")
+          expect("pgn.export_selection", {}, "pgn.export_selection")
+
+          moved = expect("pgn.next_game", {}, "pgn.next_game")
+          assert owner.selected_game_index == 1
           assert moved.payload["snapshot"]["game"]["index"] == 1
-          print("Exact D06 PgnWorkspace -> D01 WebView compatibility PASS")
+          back = expect("pgn.previous_game", {}, "pgn.previous_game")
+          assert owner.selected_game_index == 0
+          assert back.payload["snapshot"]["game"]["index"] == 0
+          assert workspace.mutations
+          assert all(inside_delegate for _, inside_delegate in workspace.mutations)
+          print("Exact D06 PgnWorkspace -> one registered D01 WebView action path PASS")
           PY
           rm -f acs/pgn_workspace.py tests/test_pgn_workspace.py
           find acs tests -type f -name '*pgn_workspace*.pyc' -delete || true
