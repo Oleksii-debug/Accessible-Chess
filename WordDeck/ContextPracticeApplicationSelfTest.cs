@@ -180,6 +180,14 @@ internal static class ContextPracticeApplicationSelfTest
         boundedEntries.Add(("bank-verb", "bank"));
         var boundedLexicon = new ContextTargetLexicon("application-bounded-homograph", boundedEntries);
         string[] orderedPool = boundedEntries.Select(entry => entry.EntryId).ToArray();
+        ContextStudyPoolSelection boundedPool = ContextStudyPoolBuilder.Build(orderedPool, ContextStudyPoolPreset.Thirty);
+        Check(boundedPool.EntryIds.Count == 30 &&
+              string.Equals(boundedPool.EntryIds[^1], "bank-noun", StringComparison.OrdinalIgnoreCase) &&
+              !boundedPool.EntryIds.Contains("bank-verb", StringComparer.OrdinalIgnoreCase),
+            "30-word regression fixture no longer places only bank-noun at the pool edge.");
+        Check(boundedLexicon.IsAmbiguousStableIdentity("bank-noun") && boundedLexicon.IsAmbiguousStableIdentity("bank-verb"),
+            "Full-dictionary regression lexicon did not retain both bank stable IDs as one ambiguous written form.");
+
         ContextPracticeApplicationResult bounded = ContextPracticeApplicationService.BuildCards(
             source,
             boundedLexicon,
@@ -187,8 +195,10 @@ internal static class ContextPracticeApplicationSelfTest
             new ContextPracticeApplicationRequest("bank-noun", 1, ContextStudyPoolPreset.Thirty, MaxCards: 10, CandidateLimit: 20),
             new ContextProductUseOptions(AllowSyntheticFixtures: true));
         Check(bounded.Cards.Count == 0, "A homograph must remain fail-closed when its sibling stable ID falls just outside the active 30-word pool.");
-        Check(bounded.AmbiguousStableEntryIds.SequenceEqual(new[] { "bank-noun" }, StringComparer.OrdinalIgnoreCase),
-            "The active-pool ambiguity ledger must use full-dictionary identity and retain the in-pool homograph even when its sibling is outside the current study window.");
+        string actualLedger = string.Join(",", bounded.AmbiguousStableEntryIds);
+        Check(bounded.AmbiguousStableEntryIds.Count == 1 &&
+              string.Equals(bounded.AmbiguousStableEntryIds[0], "bank-noun", StringComparison.OrdinalIgnoreCase),
+            $"The active-pool ambiguity ledger must use full-dictionary identity and retain only the in-pool homograph when its sibling is outside the current study window. Actual ledger=[{actualLedger}].");
     }
 
     private static void TestNoNaturalPairDoesNotFabricate()
