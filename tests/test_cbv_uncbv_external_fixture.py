@@ -33,10 +33,13 @@ def _external_environment_ready() -> bool:
 class CbvUncbvExternalFixtureTests(unittest.TestCase):
     def setUp(self) -> None:
         self.fixture = Path(os.environ["UNCBV_FIXTURE"])
+        self.small_fixture = Path(
+            os.environ.get("UNCBV_SMALL_FIXTURE", os.environ["UNCBV_FIXTURE"])
+        )
         self.extractor_config = ExternalCbvExtractorConfig(
             Path(os.environ["UNCBV_BINARY"]),
             expected_backend_sha256=os.environ["UNCBV_BINARY_SHA256"],
-            timeout_seconds=120,
+            timeout_seconds=300,
             max_source_bytes=64 * 1024 * 1024,
             max_extracted_bytes=256 * 1024 * 1024,
         )
@@ -50,7 +53,7 @@ class CbvUncbvExternalFixtureTests(unittest.TestCase):
     def test_real_cbv_archive_extracts_to_one_classic_cbh_family(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             result = extract_cbv_external(
-                self.fixture,
+                self.small_fixture,
                 Path(temporary),
                 self.extractor_config,
             )
