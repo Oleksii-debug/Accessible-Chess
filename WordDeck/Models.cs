@@ -118,6 +118,11 @@ internal static class ActionIds
     public const string SentenceRepeatPrompt = "sentence_repeat_prompt";
     public const string SentenceImportPack = "sentence_import_pack";
 
+    public const string OpenListening = "listening_open";
+    public const string ListeningReplay = "listening_replay";
+    public const string ListeningShowAnswer = "listening_show_answer";
+    public const string ListeningNext = "listening_next";
+
     public static string SwitchDeck(string deckId) => $"switch_deck_{deckId}";
     public static string MoveToDeck(string deckId) => $"move_to_deck_{deckId}";
     public static string SwitchStudyScope(string scopeId) => $"recall_scope_{scopeId}";
