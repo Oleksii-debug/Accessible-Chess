@@ -4,8 +4,11 @@ namespace WordDeck;
 
 internal enum ListeningExerciseKind
 {
+    // Numeric identities are persisted in Listening history; do not renumber.
     Word = 1,
-    Sentence = 2
+    Sentence = 2,
+    Phrase = 3,
+    Passage = 4
 }
 
 internal sealed record ListeningExercise(
@@ -14,7 +17,8 @@ internal sealed record ListeningExercise(
     string TargetText,
     string Level,
     IReadOnlyList<string> StableEntryIds,
-    string AudioKey);
+    string AudioKey,
+    ListeningAudioContract? AudioContract = null);
 
 internal interface IListeningExerciseSource : IDisposable
 {
@@ -24,32 +28,48 @@ internal interface IListeningExerciseSource : IDisposable
 
 /// <summary>
 /// Current production source: accepted offline word pronunciation keyed by the
-/// canonical dictionary and stable Oxford entry IDs. Sentence/phrase sources can
-/// implement the same contract without changing learning-state semantics.
+/// canonical dictionary and stable Oxford entry IDs. Hidden user entries are
+/// excluded from selection and playback. Phrase/sentence sources use separate
+/// explicit approval boundaries.
 /// </summary>
 internal sealed class WordAudioListeningExerciseSource : IListeningExerciseSource
 {
     private readonly DictionaryPackage _package;
     private readonly Dictionary<string, DictionaryEntry> _entries;
+    private readonly IReadOnlySet<string> _hiddenEntryIds;
     private readonly PronunciationAudio _audio = new();
 
-    public WordAudioListeningExerciseSource(DictionaryPackage package)
+    public WordAudioListeningExerciseSource(DictionaryPackage package, IReadOnlySet<string>? hiddenEntryIds = null)
     {
         _package = package ?? throw new ArgumentNullException(nameof(package));
         _entries = package.Entries.ToDictionary(entry => entry.Id, StringComparer.OrdinalIgnoreCase);
+        // The default source reads the same personal AppState used by Recall so
+        // reversible hidden-word choices apply consistently to Listening too.
+        _hiddenEntryIds = hiddenEntryIds ?? new AppStateStore().Load().HiddenEntryIds;
     }
 
     public IReadOnlyList<ListeningExercise> GetAvailable(string scopeId) =>
-        _package.Entries
-            .Where(entry => StudyScopeIds.Includes(scopeId, entry))
-            .Where(entry => PronunciationAudio.CandidatePaths(_package.Id, entry.Id).Any(File.Exists))
+        EligibleEntries(_package.Entries, scopeId, _hiddenEntryIds,
+                entry => PronunciationAudio.CandidatePaths(_package.Id, entry.Id).Any(File.Exists))
             .Select(entry => new ListeningExercise(
                 ExerciseId: $"word:{entry.Id}",
                 Kind: ListeningExerciseKind.Word,
                 TargetText: entry.Source,
                 Level: entry.Level,
                 StableEntryIds: new[] { entry.Id },
-                AudioKey: entry.Id))
+                AudioKey: entry.Id,
+                AudioContract: WordContract(entry)))
+            .ToList();
+
+    internal static IReadOnlyList<DictionaryEntry> EligibleEntries(
+        IEnumerable<DictionaryEntry> entries,
+        string scopeId,
+        IReadOnlySet<string> hiddenEntryIds,
+        Func<DictionaryEntry, bool> hasAudio) =>
+        entries
+            .Where(entry => StudyScopeIds.Includes(scopeId, entry))
+            .Where(entry => !hiddenEntryIds.Contains(entry.Id))
+            .Where(hasAudio)
             .ToList();
 
     public bool TryPlay(ListeningExercise exercise, out string? error)
@@ -60,10 +80,42 @@ internal sealed class WordAudioListeningExerciseSource : IListeningExerciseSourc
             error = "This listening item is not backed by an installed word-audio entry.";
             return false;
         }
+        if (_hiddenEntryIds.Contains(entry.Id))
+        {
+            error = "This word is hidden from study and is not available in Listening.";
+            return false;
+        }
+        if (!PronunciationAudio.CandidatePaths(_package.Id, entry.Id).Any(File.Exists))
+        {
+            error = "The installed offline audio for this listening word is missing.";
+            return false;
+        }
         return _audio.TryPlay(_package, entry, out error);
     }
 
     public void Dispose() => _audio.Dispose();
+
+    private static ListeningAudioContract WordContract(DictionaryEntry entry) => new(
+        AssetId: entry.Id,
+        UnitKind: ListeningAudioUnitKind.Word,
+        Locale: "en-GB",
+        PackId: null,
+        Provenance: "accepted-installed-word-audio",
+        Speakers: Array.Empty<ListeningSpeakerMetadata>(),
+        Transcript: new ListeningTranscriptContract(
+            entry.Source,
+            ListeningTranscriptAvailability.AfterReveal,
+            Array.Empty<ListeningTranscriptTurn>()),
+        ReplayPolicy: ListeningReplayPolicy.UnlimitedPractice,
+        Prompts: new[]
+        {
+            new ListeningComprehensionPrompt(
+                $"dictation:{entry.Id}",
+                ListeningComprehensionKind.Dictation,
+                "Transcribe the English word you hear.",
+                new[] { entry.Source })
+        },
+        ApprovedForProduction: true);
 }
 
 internal sealed class ListeningItemStats
@@ -127,7 +179,9 @@ internal static class ListeningCoachPresentation
     public static string BeforeCheck(ListeningExercise exercise) => exercise.Kind switch
     {
         ListeningExerciseKind.Word => "Audio played. Type the English word, then press Enter to check.",
+        ListeningExerciseKind.Phrase => "Audio played. Type the English phrase, then press Enter to check.",
         ListeningExerciseKind.Sentence => "Audio played. Type the English sentence, then press Enter to check.",
+        ListeningExerciseKind.Passage => "Audio played. Answer the listening task, then press Enter to check.",
         _ => "Audio played. Type what you heard, then press Enter to check."
     };
 
@@ -147,6 +201,7 @@ internal sealed class ListeningCoachEngine
     private int _roundWrongAttempts;
     private int _roundReplays;
     private bool _roundCompleted;
+    private bool _roundRevealed;
 
     public ListeningExercise? Current { get; private set; }
     public ListeningCoachState State => _state;
@@ -169,16 +224,14 @@ internal sealed class ListeningCoachEngine
             string.Equals(item.ExerciseId, _state.CurrentExerciseId, StringComparison.OrdinalIgnoreCase));
         if (exercise is null)
         {
-            // The audio/scope may have changed since the previous run. Do not
-            // fabricate a pending item that can no longer be practiced.
+            // The audio/scope/visibility may have changed since the previous run.
+            // Do not fabricate a pending item that can no longer be practiced.
             _state.CurrentExerciseId = null;
             return false;
         }
 
         Current = exercise;
-        _roundWrongAttempts = 0;
-        _roundReplays = 0;
-        _roundCompleted = false;
+        ResetRound();
         return true;
     }
 
@@ -210,9 +263,7 @@ internal sealed class ListeningCoachEngine
 
         Current = selected;
         _state.CurrentExerciseId = selected.ExerciseId;
-        _roundWrongAttempts = 0;
-        _roundReplays = 0;
-        _roundCompleted = false;
+        ResetRound();
         return selected;
     }
 
@@ -220,9 +271,7 @@ internal sealed class ListeningCoachEngine
     {
         Current = null;
         _state.CurrentExerciseId = null;
-        _roundWrongAttempts = 0;
-        _roundReplays = 0;
-        _roundCompleted = false;
+        ResetRound();
     }
 
     public bool TryPlayCurrent(bool countAsReplay, out string? error)
@@ -232,6 +281,17 @@ internal sealed class ListeningCoachEngine
             error = "No listening item is active.";
             return false;
         }
+
+        if (countAsReplay)
+        {
+            ListeningReplayPolicy policy = Current.AudioContract?.ReplayPolicy ?? ListeningReplayPolicy.UnlimitedPractice;
+            if (!policy.Allows(_roundReplays, _roundCompleted, _roundRevealed))
+            {
+                error = "Replay is not allowed by the policy for this listening task.";
+                return false;
+            }
+        }
+
         bool played = _source.TryPlay(Current, out error);
         if (played && countAsReplay)
         {
@@ -269,6 +329,7 @@ internal sealed class ListeningCoachEngine
         if (Current is null) throw new InvalidOperationException("No listening item is active.");
         if (!_roundCompleted)
         {
+            _roundRevealed = true;
             GetStats(Current).ShowAnswerUses++;
             CompleteCurrent(correct: false, showedAnswer: true, skipped: false);
         }
@@ -382,6 +443,14 @@ internal sealed class ListeningCoachEngine
             _state.History.RemoveRange(0, _state.History.Count - MaxHistory);
         _roundCompleted = true;
         _state.CurrentExerciseId = null;
+    }
+
+    private void ResetRound()
+    {
+        _roundWrongAttempts = 0;
+        _roundReplays = 0;
+        _roundCompleted = false;
+        _roundRevealed = false;
     }
 
     internal static string NormalizeAnswer(string? value)
