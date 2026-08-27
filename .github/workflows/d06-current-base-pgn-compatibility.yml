@@ -1,0 +1,145 @@
+name: D06 Current-Base PGN Compatibility
+
+on:
+  push:
+    branches:
+      - work/d06-current-base-compatibility-repair-20260827
+  pull_request:
+    paths:
+      - 'acs/gametree.py'
+      - 'acs/pgn_document.py'
+      - 'acs/pgn_service.py'
+      - 'acs/pgn_workspace.py'
+      - 'tests/test_pgn_document.py'
+      - 'tests/test_pgn_workspace.py'
+      - '.github/workflows/d06-current-base-pgn-compatibility.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: d06-current-base-pgn-compatibility-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CURRENT_BASE: d6f9c86c52c57befe7932db72fdd134e2d1c9ef7
+  D06_SOURCE: 1e3ea862bcff2ac13077f879c2ce9af01c4f983f
+
+jobs:
+  compatibility:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Preserve exact Git bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config core.autocrlf false
+          git config core.eol lf
+          git reset --hard HEAD
+          git checkout-index --force --all
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install pinned verification dependency
+        run: python -m pip install -q pytest==8.4.2
+
+      - name: Prove exact current-base and isolated compatibility scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = "$CURRENT_BASE"
+          git cat-file -e "$D06_SOURCE^{commit}"
+          git diff --check "$CURRENT_BASE" HEAD
+          changed="$(git diff --name-only "$CURRENT_BASE" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/d06-current-base-pgn-compatibility.yml' \
+            'acs/gametree.py' \
+            'acs/pgn_document.py' \
+            'acs/pgn_service.py' \
+            'acs/pgn_workspace.py' \
+            'tests/test_pgn_document.py' \
+            'tests/test_pgn_workspace.py' | sort)"
+          test "$changed" = "$expected"
+          test "$(git rev-parse HEAD:acs/pgn_workspace.py)" = "346f31f828191e76d57b372bb6c84a4a90568594"
+          test "$(git rev-parse HEAD:tests/test_pgn_workspace.py)" = "edce8f6a591ffc09d419e9046e14725c4a07cf54"
+          if printf '%s\n' "$changed" | grep -E '(^|/)tools/qa/|windows-stage1|release_preflight|stage1_release'; then
+            echo 'Stage1 or strict-release contamination detected' >&2
+            exit 1
+          fi
+
+      - name: Compile repaired PGN and GameTree boundaries
+        run: >-
+          python -m py_compile
+          acs/gametree.py
+          acs/pgn_document.py
+          acs/pgn_service.py
+          acs/pgn_workspace.py
+          tests/test_pgn_document.py
+          tests/test_pgn_workspace.py
+
+      - name: Prove both former failures terminate and pass
+        shell: bash
+        run: |
+          python - <<'PY'
+          import subprocess
+          import sys
+
+          cases = (
+              "tests.test_pgn_document.ProfessionalPgnDocumentTests.test_append_pasted_multigame_preserves_current_location",
+              "tests.test_pgn_document.ProfessionalPgnDocumentTests.test_invalid_utf8_source_requires_save_as",
+          )
+          for case in cases:
+              completed = subprocess.run(
+                  [sys.executable, "-m", "unittest", "-v", case],
+                  text=True,
+                  stdout=subprocess.PIPE,
+                  stderr=subprocess.STDOUT,
+                  timeout=10,
+                  check=False,
+              )
+              print(completed.stdout, end="")
+              if completed.returncode:
+                  raise SystemExit(completed.returncode)
+          print("D06 CURRENT-BASE APPEND IDENTITY + RECOVERY TERMINATION PASS")
+          PY
+
+      - name: Focused PGN GameTree encoding and publication regressions
+        run: >-
+          python -m unittest -v
+          tests.test_gametree
+          tests.test_d06_pgn_roundtrip
+          tests.test_d06_gametree_persistence_vertical
+          tests.test_d06_annotation_insertion_persistence_vertical
+          tests.test_pgn_document
+          tests.test_pgn_workspace
+          tests.test_pgn_concurrent_save
+          tests.test_pgn_service
+          tests.test_dev4_pgn_encoding_quality
+          tests.test_dev4_pgn_resource_security
+          tests.test_dev4_pgn_export_path_security
+          tests.test_dev4_pgn_export_concurrency_security
+          tests.test_dev4_pgn_export_failure_recovery
+          tests.test_dev4_pgn_postcommit_cleanup_atomicity
+
+      - name: Full repository unittest
+        run: python -m unittest discover -s tests
+
+      - name: Full repository pytest
+        run: python -m pytest -q tests
+
+      - name: SELFTEST and complete diagnostic
+        run: |
+          python -m acs.selftest
+          python run_accessible_chess.py --diagnostic

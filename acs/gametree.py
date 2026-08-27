@@ -159,6 +159,14 @@ def tokenize_movetext(text: str) -> list[_Token]:
             out.append(_Token("LPAREN", c)); i += 1; continue
         if c == ")":
             out.append(_Token("RPAREN", c)); i += 1; continue
+        if c == "}":
+            # A recovered source can contain a stray closing brace, for
+            # example after a nested/damaged comment.  The generic token scan
+            # treats braces as delimiters, so leaving this case to it would
+            # produce an empty token without advancing ``i`` and loop forever.
+            out.append(_Token("WARNING", "unmatched closing brace"))
+            i += 1
+            continue
         if c == "$":
             j = i + 1
             while j < n and text[j].isdigit():
@@ -183,6 +191,8 @@ def tokenize_movetext(text: str) -> list[_Token]:
             kind = "SAN"
         if value:
             out.append(_Token(kind, value))
+        # Every non-terminal tokenizer path must advance.  The explicit
+        # delimiter branches above make ``j == i`` unreachable here.
         i = j
     return out
 
