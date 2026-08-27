@@ -145,7 +145,7 @@ def _bounded_source_size(path: Path) -> int | None:
     return size
 
 
-def _read_text_snapshot(path: Path) -> tuple[SourceFingerprint, str]:
+def _read_text_snapshot(path: Path) -> tuple[SourceFingerprint, str, bool]:
     _bounded_source_size(path)
     before = fingerprint(path)
     if before.size > MAX_PGN_SOURCE_BYTES:
@@ -153,26 +153,44 @@ def _read_text_snapshot(path: Path) -> tuple[SourceFingerprint, str]:
             f"PGN source exceeds the {MAX_PGN_SOURCE_BYTES}-byte safety limit"
         )
     try:
-        with path.open("r", encoding="utf-8-sig", errors="replace", newline=None) as handle:
-            text = handle.read(MAX_PGN_SOURCE_BYTES + 1)
+        with path.open("rb") as handle:
+            payload = handle.read(MAX_PGN_SOURCE_BYTES + 1)
     except OSError as exc:
         raise PgnFileError("PGN source could not be read safely") from exc
-    if len(text.encode("utf-8", errors="replace")) > MAX_PGN_SOURCE_BYTES:
-        raise PgnResourceLimitError("PGN decoded text exceeds the safety limit")
+    # Some focused tests provide a bounded text-handle double.  Real file
+    # reads are bytes; accepting exact text here keeps that test seam without
+    # weakening production decoding or performing a second race-prone read.
+    if isinstance(payload, str):
+        text = payload
+        decode_replaced = False
+        if len(text.encode("utf-8", errors="replace")) > MAX_PGN_SOURCE_BYTES:
+            raise PgnResourceLimitError("PGN decoded text exceeds the safety limit")
+    else:
+        if not isinstance(payload, bytes):
+            raise PgnFileError("PGN source returned an unsupported payload")
+        if len(payload) > MAX_PGN_SOURCE_BYTES:
+            raise PgnResourceLimitError("PGN source exceeds the safety limit")
+        try:
+            text = payload.decode("utf-8-sig", errors="strict")
+            decode_replaced = False
+        except UnicodeDecodeError:
+            text = payload.decode("utf-8-sig", errors="replace")
+            decode_replaced = True
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
     after = fingerprint(path)
     if before.size != after.size or before.sha256 != after.sha256:
         raise PgnSourceChangedError("PGN changed while being read")
-    return before, text
+    return before, text, decode_replaced
 
 
 def open_pgn(path: str | Path) -> PgnOpenResult:
     """Open a PGN without mutating it and preserve recursive GameTree content."""
 
     source_path = Path(path)
-    source, text = _read_text_snapshot(source_path)
+    source, text, decode_replaced = _read_text_snapshot(source_path)
     games = tuple(parse_games(text))
     warnings: list[str] = []
-    if "\ufffd" in text:
+    if decode_replaced:
         warnings.append(
             "Invalid UTF-8 bytes were replaced while reading; save to a new file before editing the source."
         )
