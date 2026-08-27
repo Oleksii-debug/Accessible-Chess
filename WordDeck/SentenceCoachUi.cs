@@ -16,6 +16,7 @@ internal sealed class SentenceCoachState
     public string? ActivePackId { get; set; }
     public string? ActiveSpellingDeckId { get; set; }
     public int TargetCount { get; set; } = 1;
+    public ContextStudyPoolPreset PoolPreset { get; set; } = ContextStudyPoolPreset.Full;
     public string? CurrentSentenceId { get; set; }
     // Kept for backwards-compatible migration from the original one-target state.
     public string? CurrentTargetEntryId { get; set; }
@@ -62,6 +63,8 @@ internal sealed class SentenceCoachStateStore
     internal static SentenceCoachState Normalize(SentenceCoachState state)
     {
         state.TargetCount = Math.Clamp(state.TargetCount, 1, 3);
+        if (state.PoolPreset is not (ContextStudyPoolPreset.Thirty or ContextStudyPoolPreset.Hundred or ContextStudyPoolPreset.TwoHundred or ContextStudyPoolPreset.Full))
+            state.PoolPreset = ContextStudyPoolPreset.Full;
         state.CurrentTargetEntryIds ??= new();
         state.CurrentTargetEntryIds = state.CurrentTargetEntryIds
             .Where(id => !string.IsNullOrWhiteSpace(id))
@@ -111,6 +114,11 @@ internal sealed class SentenceCoachForm : Form
         public override string ToString() => Name;
     }
 
+    private sealed record PoolChoice(ContextStudyPoolPreset Preset, string Name)
+    {
+        public override string ToString() => Name;
+    }
+
     private sealed record NaturalExercise(
         SentenceRecord Sentence,
         IReadOnlyList<DictionaryEntry> Targets,
@@ -138,9 +146,16 @@ internal sealed class SentenceCoachForm : Form
     private readonly ComboBox _deckCombo = new()
     {
         DropDownStyle = ComboBoxStyle.DropDownList,
-        Width = 260,
+        Width = 245,
         DisplayMember = nameof(DeckDefinition.Name),
         AccessibleName = "Sentence training spelling deck"
+    };
+    private readonly ComboBox _poolCombo = new()
+    {
+        DropDownStyle = ComboBoxStyle.DropDownList,
+        Width = 150,
+        AccessibleName = "Sentence study pool size",
+        AccessibleDescription = "Choose the first 30, 100, 200, or the full resolved target pool inside the selected spelling deck."
     };
     private readonly ComboBox _targetCountCombo = new()
     {
@@ -207,7 +222,7 @@ internal sealed class SentenceCoachForm : Form
         _activeDeckId = _spellingDecks.Find(state.ActiveSpellingDeckId ?? string.Empty)?.Id ?? _spellingDecks.FirstDeck.Id;
 
         Text = "WordDeck Sentence Spelling";
-        Width = 1000;
+        Width = 1040;
         Height = 720;
         MinimumSize = new Size(720, 540);
         StartPosition = FormStartPosition.CenterParent;
@@ -234,6 +249,8 @@ internal sealed class SentenceCoachForm : Form
         top.Controls.Add(_packCombo);
         top.Controls.Add(new Label { Text = "Spelling deck scope:", AutoSize = true, Padding = new Padding(12, 6, 4, 0) });
         top.Controls.Add(_deckCombo);
+        top.Controls.Add(new Label { Text = "Pool:", AutoSize = true, Padding = new Padding(12, 6, 4, 0) });
+        top.Controls.Add(_poolCombo);
         top.Controls.Add(new Label { Text = "Targets:", AutoSize = true, Padding = new Padding(12, 6, 4, 0) });
         top.Controls.Add(_targetCountCombo);
 
@@ -270,6 +287,18 @@ internal sealed class SentenceCoachForm : Form
                 Next();
             }
         };
+        _poolCombo.SelectedIndexChanged += (_, _) =>
+        {
+            if (_poolCombo.SelectedItem is PoolChoice choice && choice.Preset != _state.PoolPreset)
+            {
+                _state.PoolPreset = choice.Preset;
+                ClearCurrent();
+                Save();
+                UpdateCoverage();
+                Next();
+            }
+            UpdateModeInfo();
+        };
         _targetCountCombo.SelectedIndexChanged += (_, _) =>
         {
             if (_targetCountCombo.SelectedItem is TargetCountChoice choice && choice.Count != _state.TargetCount)
@@ -292,6 +321,7 @@ internal sealed class SentenceCoachForm : Form
         };
 
         PopulateTargetCounts();
+        PopulatePoolPresets();
         PopulateDecks();
         PopulatePacks();
         UpdateModeInfo();
@@ -328,6 +358,25 @@ internal sealed class SentenceCoachForm : Form
         _targetCountCombo.Items.Add(new TargetCountChoice(3, "3 natural targets"));
         _targetCountCombo.SelectedIndex = _state.TargetCount - 1;
         _targetCountCombo.EndUpdate();
+    }
+
+    private void PopulatePoolPresets()
+    {
+        PoolChoice[] choices =
+        {
+            new(ContextStudyPoolPreset.Thirty, "30"),
+            new(ContextStudyPoolPreset.Hundred, "100"),
+            new(ContextStudyPoolPreset.TwoHundred, "200"),
+            new(ContextStudyPoolPreset.Full, "Full")
+        };
+        _poolCombo.BeginUpdate();
+        _poolCombo.Items.Clear();
+        foreach (PoolChoice choice in choices)
+            _poolCombo.Items.Add(choice);
+        _poolCombo.SelectedIndex = Array.FindIndex(choices, choice => choice.Preset == _state.PoolPreset);
+        if (_poolCombo.SelectedIndex < 0)
+            _poolCombo.SelectedIndex = choices.Length - 1;
+        _poolCombo.EndUpdate();
     }
 
     private void PopulateDecks()
@@ -424,15 +473,19 @@ internal sealed class SentenceCoachForm : Form
                 StringComparison.OrdinalIgnoreCase))
             .ToList();
 
-    private IReadOnlyList<DictionaryEntry> ResolvedScopeEntries() =>
-        SentenceCoachTargetOnlyPlanner.ResolvedScope(ScopeEntries(), _lexicon);
+    private IReadOnlyList<DictionaryEntry> ResolvedScopeEntries()
+    {
+        IReadOnlyList<DictionaryEntry> resolvedFullScope = SentenceCoachTargetOnlyPlanner.ResolvedScope(ScopeEntries(), _lexicon);
+        ContextStudyPoolSelection pool = ContextStudyPoolBuilder.Build(resolvedFullScope.Select(entry => entry.Id), _state.PoolPreset);
+        return pool.EntryIds.Select(id => _entries[id]).ToList();
+    }
 
     private HashSet<string> CoveredAnchorIds(IReadOnlyList<DictionaryEntry> resolvedScope)
     {
         if (_corpus is null)
             return new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        string key = $"{_corpus.PackId}\u001f{_activeDeckId}\u001f{_state.TargetCount}";
+        string key = $"{_corpus.PackId}\u001f{_activeDeckId}\u001f{_state.PoolPreset}\u001f{_state.TargetCount}";
         if (_coverageCache.TryGetValue(key, out HashSet<string>? cached))
             return new HashSet<string>(cached, StringComparer.OrdinalIgnoreCase);
 
@@ -450,16 +503,18 @@ internal sealed class SentenceCoachForm : Form
     {
         DeckDefinition deck = _spellingDecks.Find(_activeDeckId) ?? _spellingDecks.FirstDeck;
         IReadOnlyList<DictionaryEntry> scope = ScopeEntries();
-        IReadOnlyList<DictionaryEntry> resolved = SentenceCoachTargetOnlyPlanner.ResolvedScope(scope, _lexicon);
-        int ambiguous = scope.Count - resolved.Count;
+        IReadOnlyList<DictionaryEntry> resolvedFullScope = SentenceCoachTargetOnlyPlanner.ResolvedScope(scope, _lexicon);
+        IReadOnlyList<DictionaryEntry> resolvedPool = ResolvedScopeEntries();
+        int ambiguous = scope.Count - resolvedFullScope.Count;
+        string poolLabel = _state.PoolPreset == ContextStudyPoolPreset.Full ? "full" : ((int)_state.PoolPreset).ToString();
         if (_corpus is null)
         {
-            _coverage.Text = $"{deck.Name}: {scope.Count} target entries. No SentencePack loaded. {ambiguous} ambiguous same-written-form entries are fail-closed.";
+            _coverage.Text = $"{deck.Name}: pool {poolLabel} contains {resolvedPool.Count} of {resolvedFullScope.Count} resolved targets. No SentencePack loaded. {ambiguous} same-written-form ambiguous entries are fail-closed before pool selection.";
             return;
         }
 
-        HashSet<string> covered = CoveredAnchorIds(resolved);
-        _coverage.Text = $"{deck.Name}: {resolved.Count} resolved target entries; {covered.Count} currently have a natural {_state.TargetCount}-target corpus exercise in {_corpus.PackId}. {ambiguous} ambiguous same-written-form entries are excluded until sense identity is independently resolved.";
+        HashSet<string> covered = CoveredAnchorIds(resolvedPool);
+        _coverage.Text = $"{deck.Name}: pool {poolLabel} contains {resolvedPool.Count} of {resolvedFullScope.Count} resolved targets; {covered.Count} currently have a natural {_state.TargetCount}-target corpus exercise in {_corpus.PackId}. {ambiguous} same-written-form ambiguous entries are excluded using full-dictionary identity before pool selection.";
     }
 
     private void RestoreOrNext()
@@ -520,10 +575,10 @@ internal sealed class SentenceCoachForm : Form
         if (covered.Count == 0)
         {
             ClearCurrent();
-            _prompt.Text = "No safe corpus exercise is available in this spelling deck";
+            _prompt.Text = "No safe corpus exercise is available in this pool";
             _cloze.Clear();
             _answer.Clear();
-            Announce($"This spelling deck currently has no resolved natural {_state.TargetCount}-target SentencePack exercise. WordDeck will not fabricate one or guess a homograph sense.");
+            Announce($"The selected pool currently has no resolved natural {_state.TargetCount}-target SentencePack exercise. WordDeck will not fabricate one or guess a homograph sense.");
             UpdateCoverage();
             return;
         }
@@ -774,9 +829,10 @@ internal sealed class SentenceCoachForm : Form
 
     private void UpdateModeInfo()
     {
+        string poolLabel = _state.PoolPreset == ContextStudyPoolPreset.Full ? "full pool" : $"{(int)_state.PoolPreset}-target pool";
         _modeInfo.Text = _state.TargetCount == 1
-            ? "Target-only Sentence Spelling: one resolved stable Oxford target. Ambiguous same-written-form identities fail closed. Difficulty prefers learner-known context vocabulary before coarse CEFR."
-            : $"Target-only Sentence Spelling: {_state.TargetCount} distinct resolved targets must co-occur naturally in the installed SentencePack. Targets are answered one at a time; no synthetic production fallback is used.";
+            ? $"Target-only Sentence Spelling, {poolLabel}: one resolved stable Oxford target. Ambiguous same-written-form identities fail closed before pool selection. Difficulty prefers learner-known context vocabulary before coarse CEFR."
+            : $"Target-only Sentence Spelling, {poolLabel}: {_state.TargetCount} distinct resolved targets must co-occur naturally in the installed SentencePack. Targets are answered one at a time; no synthetic production fallback is used.";
     }
 
     private void Announce(string text)
