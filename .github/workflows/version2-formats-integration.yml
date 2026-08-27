@@ -38,7 +38,7 @@ concurrency:
 env:
   V2_BASE: 6567f3d35ffefaa85ae7e8b87d9fcc0d188e7cac
   LIBRARY_SOURCE: 60dc2afc846b49e91c50f1682464833a1004789f
-  CHESSBASE_SOURCE: 71d2dd0c94aab91e624ac76ffbd0f4d0877f18e7
+  CHESSBASE_SOURCE: 5e2c390e0cd66cca166b80fec88c7402784ade47
   LIBCBH_COMMIT: 9641c5c3949d8fb210b17dd9aa54455645843696
   UNCBV_COMMIT: 3c18e8a7c6a30c21f945a1ab5462521c306dca57
 
@@ -137,7 +137,7 @@ jobs:
           tests/test_chessbase_decoder.py=6a872279f99d7587dd0a49dfbc7bd2381f61bb20
           tests/test_chessbase_libcbh_external_fixture.py=d915c6517a3577b4f395f8885cc998b257029db6
           tools/optional/LIBCBH_BACKEND.md=8dd90cd1f24bd42c8cbefb23be0dfcc979ca6560
-          tools/optional/libcbh_json_bridge.cpp=0d2a7fe2841abc129c8ee6293212abdef8bb0de6
+          tools/optional/libcbh_json_bridge.cpp=ab4ffb128eada2fd225386b20f01016e0f87325b
           acs/library_webview_bridge.py=0e90011a761355251f96d56f204b3875c947daec
           acs/library_webview_projection.py=149816ad0ca9a8d240e0b0c7057df15fe6cef0b5
           tests/test_dev1_library_webview_projection.py=fc9fbc36b4b6b9a2792a2db6ef09b2f1405a4d9b
