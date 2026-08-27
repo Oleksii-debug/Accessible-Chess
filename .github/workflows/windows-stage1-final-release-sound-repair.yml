@@ -1,0 +1,320 @@
+name: Windows Stage 1 Final Release - Sound Repair
+
+on:
+  push:
+    branches:
+      - qa/windows-current-integration-candidate-20260815
+    paths:
+      - '.github/workflows/windows-stage1-final-release-sound-repair.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: accessible-chess-stage1-webview-current
+  cancel-in-progress: false
+
+env:
+  SOURCE_INTEGRATION_SHA: 040f089e336433c83d64a761656c17065a67f843
+  PYWEBVIEW_VERSION: '6.2.1'
+  NUITKA_UPSTREAM_FIX_COMMIT: b7ea05bf570e0b6950de6db7c4c8e579e1b77d29
+  STOCKFISH_VERSION: '18'
+  CANDIDATE_FILE: Accessible-Chess-0.4-040f089-NVDA-test-candidate.zip
+
+jobs:
+  final-release:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout QA snapshot
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Export exact repaired Product
+        shell: pwsh
+        run: |
+          git cat-file -e "$env:SOURCE_INTEGRATION_SHA^{commit}"
+          if($LASTEXITCODE -ne 0){throw 'Exact Product SHA unavailable'}
+          $resolved=(git rev-parse "$env:SOURCE_INTEGRATION_SHA^{commit}").Trim()
+          if($resolved -ne $env:SOURCE_INTEGRATION_SHA){throw "Product source-lock mismatch: $resolved"}
+          git config core.autocrlf false
+          git config core.eol lf
+          New-Item -ItemType Directory -Force -Path work | Out-Null
+          $paths=@('acs','web','run_accessible_chess.py','ACCESSIBILITY_0.4_ARCHITECTURE.md','VERSION.txt','HOTKEYS_UA.txt','HOTKEYS_EN.txt')
+          git archive --format=zip --output=product.zip $env:SOURCE_INTEGRATION_SHA -- $paths
+          if($LASTEXITCODE -ne 0){throw 'Exact Product export failed'}
+          Expand-Archive product.zip work -Force
+          if(-not (Test-Path work\acs\sound_windows.py)){throw 'Product sound adapter missing'}
+          if(Select-String -Path work\acs\sound_windows.py -Pattern 'SND_SYNC' -SimpleMatch -Quiet){throw 'Obsolete SND_SYNC remains in exact Product'}
+          'EXACT SOUND-REPAIRED PRODUCT LOCK PASS'
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Build and validate real WAV pack
+        shell: pwsh
+        working-directory: work
+        run: |
+          New-Item -ItemType Directory -Force -Path 'release-assets\assets\sounds' | Out-Null
+          @'
+          import json, math, struct, wave
+          from pathlib import Path
+          root=Path('release-assets/assets/sounds')
+          events=['move','capture','check','castle','promotion','illegal','start','end','tick']
+          freqs=[330,220,660,440,550,140,392,196,880]
+          for name,f in zip(events,freqs):
+              p=root/f'{name}.wav'; sr=22050; dur=0.12 if name=='tick' else 0.18
+              frames=[]
+              for i in range(int(sr*dur)):
+                  env=max(0.0,1.0-i/(sr*dur)); v=int(9000*env*math.sin(2*math.pi*f*i/sr)); frames.append(struct.pack('<h',v))
+              with wave.open(str(p),'wb') as w:
+                  w.setnchannels(1); w.setsampwidth(2); w.setframerate(sr); w.writeframes(b''.join(frames))
+          (root/'manifest.json').write_text(json.dumps({'schema_version':1,'files':{e:f'{e}.wav' for e in events}},ensure_ascii=False,indent=2),encoding='utf-8')
+          '@ | Set-Content -Encoding UTF8 make_sounds.py
+          python make_sounds.py
+          python -c "from acs.sound_windows import PackagedSoundAssetResolver; from pathlib import Path; import wave; r=PackagedSoundAssetResolver(Path('release-assets')); m=r.load_manifest(); [wave.open(str(p),'rb').close() for p in m.files.values()]; assert len(m.files)==9; print('REAL WAV PACK PASS')"
+          if($LASTEXITCODE -ne 0){throw 'WAV pack validation failed'}
+
+      - name: Acquire official Stockfish 18
+        shell: pwsh
+        working-directory: work
+        run: |
+          New-Item -ItemType Directory -Force -Path 'release-assets\engines\stockfish','release-assets\THIRD_PARTY\Stockfish' | Out-Null
+          Invoke-WebRequest -Uri 'https://github.com/official-stockfish/Stockfish/releases/download/sf_18/stockfish-windows-x86-64.zip' -OutFile stockfish18.zip
+          Expand-Archive stockfish18.zip stockfish18 -Force
+          $engine=Get-ChildItem stockfish18 -Recurse -Filter '*.exe' | Where-Object {$_.Name -match 'stockfish.*x86-64'} | Select-Object -First 1
+          if(-not $engine){throw 'Official Stockfish 18 executable missing'}
+          Copy-Item $engine.FullName 'release-assets\engines\stockfish\stockfish.exe' -Force
+          Invoke-WebRequest -Uri 'https://github.com/official-stockfish/Stockfish/archive/refs/tags/sf_18.zip' -OutFile 'release-assets\THIRD_PARTY\Stockfish\Stockfish-18-source.zip'
+          @"
+          Stockfish 18 — GNU GPL v3. Upstream: official-stockfish/Stockfish tag sf_18.
+          Complete corresponding source archive is included.
+          "@ | Set-Content -Encoding UTF8 'release-assets\THIRD_PARTY\Stockfish\NOTICE.txt'
+          if(-not (Test-Path 'release-assets\engines\stockfish\stockfish.exe')){throw 'Packaged Stockfish staging failed'}
+          'OFFICIAL STOCKFISH 18 STAGING PASS'
+
+      - name: Install pinned Windows runtime and patched Nuitka
+        shell: pwsh
+        working-directory: work
+        run: |
+          $nuitkaUrl="https://github.com/Nuitka/Nuitka/archive/$env:NUITKA_UPSTREAM_FIX_COMMIT.zip"
+          python -m pip install "pywebview==$env:PYWEBVIEW_VERSION" "Nuitka @ $nuitkaUrl" ordered-set zstandard
+          if($LASTEXITCODE -ne 0){throw 'Pinned runtime/compiler install failed'}
+          python -c "from pathlib import Path; import nuitka; p=Path(nuitka.__file__).parent/'plugins'/'standard'/'PywebViewPlugin.py'; assert 'webview.platforms.win32' in p.read_text(encoding='utf-8'); print('PATCHED PINNED NUITKA PASS')"
+
+      - name: Build standalone AccessibleChess.exe
+        shell: pwsh
+        working-directory: work
+        run: |
+          python -m nuitka --standalone --assume-yes-for-downloads --windows-console-mode=disable --output-filename=AccessibleChess.exe --include-data-dir=web=web --include-data-dir=release-assets\assets=assets --report=nuitka-compilation-report.xml run_accessible_chess.py
+          if($LASTEXITCODE -ne 0){throw 'Nuitka standalone compile failed'}
+          $exe=Get-ChildItem -Recurse -Filter AccessibleChess.exe | Where-Object {$_.FullName -match 'dist'} | Select-Object -First 1
+          if(-not $exe){throw 'AccessibleChess.exe missing'}
+          $dist=$exe.Directory
+          New-Item -ItemType Directory -Force -Path (Join-Path $dist.FullName 'engines\stockfish') | Out-Null
+          Copy-Item 'release-assets\engines\stockfish\stockfish.exe' (Join-Path $dist.FullName 'engines\stockfish\stockfish.exe') -Force
+          $exe.FullName | Set-Content -Encoding UTF8 built_exe_path.txt
+          "STANDALONE EXE PASS: $($exe.FullName)"
+
+      - name: Built EXE diagnostic and WebView2 startup
+        shell: pwsh
+        working-directory: work
+        run: |
+          $exe=(Get-Content built_exe_path.txt -Raw).Trim()
+          $d=Start-Process $exe -ArgumentList '--diagnostic' -PassThru -Wait
+          if($d.ExitCode -ne 0){throw "Built EXE diagnostic failed: $($d.ExitCode)"}
+          $p=Start-Process $exe -PassThru
+          Start-Sleep -Seconds 18
+          if($p.HasExited){throw "GUI exited during WebView2 startup: $($p.ExitCode)"}
+          $p.Id | Set-Content gui_pid.txt
+          'BUILT EXE DIAGNOSTIC + WEBVIEW2 STARTUP PASS'
+
+      - name: Strict packaged cross-process UIA E2E
+        shell: pwsh
+        working-directory: work
+        run: |
+          $appPid=[int](Get-Content gui_pid.txt -Raw)
+          & ..\tools\qa\stage1_packaged_e2e_crossprocess.ps1 -AppPid $appPid -ProductRoot .
+          if($LASTEXITCODE -ne 0){throw 'Packaged cross-process UIA/E2E gate failed'}
+          if(-not (Test-Path packaged-uia-strict-summary.json)){throw 'Packaged UIA strict summary missing'}
+
+      - name: Audio-capability-aware packaged sound proof
+        shell: pwsh
+        working-directory: work
+        run: |
+          $dist=Get-ChildItem -Directory -Filter '*.dist' | Select-Object -First 1
+          if(-not $dist){throw 'Distribution directory missing'}
+          @'
+          import ctypes
+          import json
+          import pathlib
+          import sys
+          import tempfile
+          import winsound
+
+          from acs.sound_events import MoveSoundFacts
+          from acs.sound_runtime import GameSoundRuntime, SoundRuntime, SoundRuntimeSettings
+          from acs.sound_windows import PackagedSoundAssetResolver, WindowsSoundPlaybackAdapter
+
+          app=pathlib.Path(sys.argv[1]).resolve()
+          resolver=PackagedSoundAssetResolver(app)
+          manifest=resolver.load_manifest()
+          assert len(manifest.files)==9
+          calls=[]
+          original=winsound.PlaySound
+          def recorder(path, flags):
+              p=pathlib.Path(path)
+              assert p.is_file() and p.suffix.lower()=='.wav'
+              assert flags & winsound.SND_FILENAME
+              assert flags & winsound.SND_NODEFAULT
+              assert not (flags & winsound.SND_ASYNC)
+              calls.append({'path':p.name,'flags':int(flags)})
+          winsound.PlaySound=recorder
+          try:
+              rt=GameSoundRuntime(SoundRuntime(WindowsSoundPlaybackAdapter(resolver,cache_dir=pathlib.Path(tempfile.gettempdir())/'acs-sound-final'),settings=SoundRuntimeSettings(volume=100)))
+              reports=[rt.start(),rt.move(MoveSoundFacts()),rt.illegal(),rt.tick(),rt.end()]
+              assert all(r.ok for r in reports),reports
+          finally:
+              winsound.PlaySound=original
+          assert len(calls)==5,calls
+          devices=int(ctypes.WinDLL('winmm').waveOutGetNumDevs())
+          actual='RUNNER_NO_AUDIO_DEVICE'
+          if devices>0:
+              original(str(manifest.files[next(iter(manifest.files))]), winsound.SND_FILENAME | winsound.SND_NODEFAULT)
+              actual='PASS'
+          proof={'result':'PASS','wav_assets':9,'adapter_calls':calls,'waveout_devices':devices,'actual_device_playback':actual,'audibility':'HUMAN_ONLY_UNPROVEN'}
+          pathlib.Path('packaged-sound-proof.json').write_text(json.dumps(proof,indent=2),encoding='utf-8')
+          print('PACKAGED SOUND API/WAV/FLAGS PASS; waveOut devices=',devices,'actual=',actual)
+          '@ | Set-Content -Encoding UTF8 packaged_sound_probe.py
+          python packaged_sound_probe.py "$($dist.FullName)"
+          if($LASTEXITCODE -ne 0){throw 'Packaged sound adapter proof failed'}
+
+      - name: Packaged Stockfish request-isolation lifecycle
+        shell: pwsh
+        working-directory: work
+        run: |
+          $dist=Get-ChildItem -Directory -Filter '*.dist' | Select-Object -First 1
+          $before=@(Get-Process stockfish* -ErrorAction SilentlyContinue).Count
+          @'
+          import pathlib,sys
+          from acs.stockfish_runtime import StockfishRuntime,StockfishRuntimeConfig,resolve_stockfish_path,PACKAGED_STOCKFISH_RELATIVE_PATH
+          app=pathlib.Path(sys.argv[1]).resolve(); cfg=StockfishRuntimeConfig(application_dir=app)
+          p=resolve_stockfish_path(cfg); assert p==(app/PACKAGED_STOCKFISH_RELATIVE_PATH).resolve() and p.stat().st_size>0
+          fen='rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1'
+          rt=StockfishRuntime(cfg); e=rt.provider(); assert rt.provider() is e
+          a=e.analyze(fen,multipv=5,depth=8); assert len(a)>=5,len(a)
+          bm=e.best_move(fen,skill_level=8,movetime_ms=150); assert bm,bm
+          a2=e.analyze(fen,multipv=5,depth=7); assert len(a2)>=5,len(a2)
+          rt.close()
+          closed=False
+          try: rt.provider()
+          except Exception: closed=True
+          assert closed,'closed runtime reopened'
+          print('PACKAGED STOCKFISH LIFECYCLE PASS',bm)
+          '@ | Set-Content -Encoding UTF8 packaged_stockfish_smoke.py
+          python packaged_stockfish_smoke.py "$($dist.FullName)"
+          if($LASTEXITCODE -ne 0){throw 'Packaged Stockfish lifecycle failed'}
+          Start-Sleep -Seconds 1
+          $after=@(Get-Process stockfish* -ErrorAction SilentlyContinue).Count
+          if($after -gt $before){throw 'Orphan Stockfish remains after close'}
+          'NO ORPHAN STOCKFISH PASS'
+
+      - name: Create manifest checksums and fresh ZIP
+        shell: pwsh
+        working-directory: work
+        run: |
+          $dist=Get-ChildItem -Directory -Filter '*.dist' | Select-Object -First 1
+          $raw=Get-ChildItem $dist.FullName -Recurse -File -Filter '*.py' | Where-Object {$_.FullName -match '\\acs\\' -or $_.Name -eq 'run_accessible_chess.py'}
+          if($raw){throw "Raw product source leaked: $($raw.FullName -join ', ')"}
+          Remove-Item package -Recurse -Force -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force -Path 'package\AccessibleChess','package\THIRD_PARTY_NOTICES' | Out-Null
+          Copy-Item "$($dist.FullName)\*" 'package\AccessibleChess\' -Recurse -Force
+          Copy-Item 'release-assets\THIRD_PARTY\Stockfish\*' 'package\THIRD_PARTY_NOTICES\' -Recurse -Force
+          Copy-Item packaged-uia-strict-summary.json package\ -Force
+          Copy-Item packaged-sound-proof.json package\ -Force
+          @"
+          Accessible Chess third-party notices
+          pywebview $env:PYWEBVIEW_VERSION — BSD-3-Clause runtime dependency.
+          Nuitka commit $env:NUITKA_UPSTREAM_FIX_COMMIT — build compiler.
+          Stockfish $env:STOCKFISH_VERSION — GPLv3; complete corresponding source included.
+          "@ | Set-Content -Encoding UTF8 'package\THIRD_PARTY_NOTICES\README.txt'
+          $sound=Get-Content packaged-sound-proof.json -Raw | ConvertFrom-Json
+          $manifest=[ordered]@{product='Accessible Chess';label='NVDA TEST CANDIDATE — WAITING FOR USER TEST';integration_sha=$env:SOURCE_INTEGRATION_SHA;qa_commit=(git -C .. rev-parse HEAD).Trim();python='3.12';pywebview=$env:PYWEBVIEW_VERSION;nuitka_upstream_fix_commit=$env:NUITKA_UPSTREAM_FIX_COMMIT;stockfish='18';nvda_verified=$false;strict_cross_process_uia='PASS';packaged_e4_e9_clipboard_board_focus='PASS';packaged_sound_adapter='PASS';runner_audio_device_playback=[string]$sound.actual_device_playback;sound_audibility='HUMAN-ONLY UNPROVEN';stockfish_runtime_lifecycle='PASS';native_menu_alt_arrows_enter_esc='HUMAN-ONLY UNPROVEN';nvda_menu_usability='HUMAN-ONLY UNPROVEN'}
+          $manifest|ConvertTo-Json -Depth 6|Set-Content -Encoding UTF8 'package\RELEASE_MANIFEST.json'
+          $root=(Resolve-Path package).Path
+          $entries=@(Get-ChildItem package -Recurse -File | Where-Object {$_.Name -ne 'SHA256SUMS.txt'})
+          $entries | Get-FileHash -Algorithm SHA256 | ForEach-Object {"$($_.Hash.ToLowerInvariant())  $($_.Path.Substring($root.Length+1))"} | Set-Content -Encoding UTF8 'package\SHA256SUMS.txt'
+          $zip=Join-Path (Get-Location) $env:CANDIDATE_FILE
+          if(Test-Path $zip){Remove-Item $zip -Force}
+          Compress-Archive 'package\*' $zip -Force
+          $hash=(Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant()
+          $hash | Set-Content -Encoding UTF8 candidate-zip.sha256
+          "FRESH CANDIDATE CREATED: $env:CANDIDATE_FILE SHA256=$hash"
+
+      - name: Inspect actual candidate ZIP fail closed
+        shell: pwsh
+        working-directory: work
+        run: |
+          $zip=Join-Path (Get-Location) $env:CANDIDATE_FILE
+          if(-not (Test-Path $zip)){throw 'Fresh candidate ZIP missing'}
+          $actual=(Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant()
+          $declared=(Get-Content candidate-zip.sha256 -Raw).Trim().ToLowerInvariant()
+          if($actual -ne $declared){throw 'Candidate ZIP hash mismatch'}
+          Remove-Item inspect -Recurse -Force -ErrorAction SilentlyContinue
+          Expand-Archive $zip inspect -Force
+          $required=@('AccessibleChess\AccessibleChess.exe','AccessibleChess\engines\stockfish\stockfish.exe','AccessibleChess\assets\sounds\manifest.json','THIRD_PARTY_NOTICES\Stockfish-18-source.zip','THIRD_PARTY_NOTICES\NOTICE.txt','THIRD_PARTY_NOTICES\README.txt','RELEASE_MANIFEST.json','SHA256SUMS.txt','packaged-uia-strict-summary.json','packaged-sound-proof.json')
+          foreach($rel in $required){if(-not (Test-Path (Join-Path inspect $rel))){throw "Candidate missing required path: $rel"}}
+          foreach($s in @('move','capture','check','castle','promotion','illegal','start','end','tick')){if(-not (Test-Path (Join-Path inspect "AccessibleChess\assets\sounds\$s.wav"))){throw "Candidate missing WAV: $s.wav"}}
+          $m=Get-Content inspect\RELEASE_MANIFEST.json -Raw | ConvertFrom-Json
+          if([string]$m.integration_sha -ne $env:SOURCE_INTEGRATION_SHA){throw 'Manifest Product SHA mismatch'}
+          if([bool]$m.nvda_verified){throw 'Manifest illegally claims NVDA verification'}
+          foreach($line in Get-Content inspect\SHA256SUMS.txt){
+            if($line -notmatch '^([0-9a-fA-F]{64})  (.+)$'){throw "Malformed checksum line: $line"}
+            $expected=$matches[1].ToLowerInvariant(); $rel=$matches[2]; $path=Join-Path inspect $rel
+            if(-not (Test-Path $path)){throw "Checksum target missing: $rel"}
+            if((Get-FileHash $path -Algorithm SHA256).Hash.ToLowerInvariant() -ne $expected){throw "Checksum mismatch: $rel"}
+          }
+          $sourceLeak=Get-ChildItem inspect\AccessibleChess -Recurse -File -Filter '*.py' | Where-Object {$_.FullName -match '\\acs\\' -or $_.Name -eq 'run_accessible_chess.py'}
+          if($sourceLeak){throw 'Candidate contains raw Product source'}
+          if(Test-Path inspect\AccessibleChess\AccessibleChess\AccessibleChess.exe){throw 'Double package nesting detected'}
+          $inspection=[ordered]@{candidate=$env:CANDIDATE_FILE;sha256=$actual;integration_sha=$env:SOURCE_INTEGRATION_SHA;nvda_verified=$false;exe=$true;stockfish18=$true;all_wav=$true;strict_uia=$true;sound_adapter=$true;checksums_verified=$true;raw_product_source_leak=$false;double_nesting=$false;result='PASS'}
+          $inspection|ConvertTo-Json -Depth 5|Set-Content -Encoding UTF8 package-inspection.json
+          "ACTUAL ZIP INSPECTION PASS SHA256=$actual"
+
+      - name: Upload fresh NVDA test candidate
+        uses: actions/upload-artifact@v4
+        with:
+          name: Accessible-Chess-0.4-040f089-NVDA-test-candidate
+          path: |
+            work/Accessible-Chess-0.4-040f089-NVDA-test-candidate.zip
+            work/candidate-zip.sha256
+            work/packaged-uia-strict-summary.json
+            work/packaged-sound-proof.json
+            work/package-inspection.json
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Retain final release evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stage1-final-release-sound-repair-evidence
+          path: |
+            work/packaged-uia-strict-summary.json
+            work/packaged-sound-proof.json
+            work/package-inspection.json
+            work/candidate-zip.sha256
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Cleanup packaged processes
+        if: always()
+        shell: pwsh
+        working-directory: work
+        run: |
+          if(Test-Path gui_pid.txt){$appPid=[int](Get-Content gui_pid.txt -Raw); Stop-Process -Id $appPid -Force -ErrorAction SilentlyContinue}
+          Get-Process stockfish* -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
