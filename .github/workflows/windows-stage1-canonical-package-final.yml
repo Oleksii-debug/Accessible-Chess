@@ -1,0 +1,232 @@
+name: Windows Stage 1 Canonical Candidate Final
+
+on:
+  push:
+    branches:
+      - codex/stage1-canonical-package-20260827
+    paths:
+      - '.github/workflows/windows-stage1-canonical-package-final.yml'
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: accessible-chess-stage1-webview-current
+  cancel-in-progress: false
+
+env:
+  SOURCE_PRODUCT_SHA: 040f089e336433c83d64a761656c17065a67f843
+  SOURCE_WINDOWS_RUN: '33071449494'
+  SOURCE_WINDOWS_ARTIFACT: Accessible-Chess-0.4-040f089-NVDA-test-candidate
+  SOURCE_WINDOWS_CANDIDATE_SHA256: f3970e4587446d41cadbc6b9a3f9fb13429954fb68e8592939eb184dac0496ac
+  PRIOR_STRICT_UIA_RUN: '33070287381'
+  PRIOR_STRICT_UIA_ARTIFACT_ID: '9645709974'
+  PYWEBVIEW_VERSION: '6.2.1'
+  NUITKA_UPSTREAM_FIX_COMMIT: b7ea05bf570e0b6950de6db7c4c8e579e1b77d29
+  CANDIDATE_FILE: Accessible-Chess-0.4-040f089-NVDA-test-candidate.zip
+
+jobs:
+  canonical-package:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout exact QA successor
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Recover exact successful Windows package and evidence
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git cat-file -e "$env:SOURCE_PRODUCT_SHA^{commit}"
+          if($LASTEXITCODE -ne 0){throw 'Exact Product SHA is unavailable'}
+          if((git rev-parse "$env:SOURCE_PRODUCT_SHA^{commit}").Trim() -ne $env:SOURCE_PRODUCT_SHA){throw 'Product source-lock mismatch'}
+          New-Item -ItemType Directory -Force source | Out-Null
+          gh run download $env:SOURCE_WINDOWS_RUN --repo $env:GITHUB_REPOSITORY --name $env:SOURCE_WINDOWS_ARTIFACT --dir source
+          if($LASTEXITCODE -ne 0){throw 'Exact successful Windows artifact download failed'}
+          $sourceZip=Join-Path source $env:CANDIDATE_FILE
+          if(-not (Test-Path $sourceZip)){throw 'Source Windows candidate ZIP is missing'}
+          $sourceHash=(Get-FileHash $sourceZip -Algorithm SHA256).Hash.ToLowerInvariant()
+          if($sourceHash -ne $env:SOURCE_WINDOWS_CANDIDATE_SHA256){throw "Source Windows candidate identity mismatch: $sourceHash"}
+          Expand-Archive $sourceZip package -Force
+          foreach($rel in @(
+            'AccessibleChess\AccessibleChess.exe',
+            'AccessibleChess\engines\stockfish\stockfish.exe',
+            'AccessibleChess\assets\sounds\manifest.json',
+            'MACHINE_EVIDENCE\native-menu-self-diagnostic.json',
+            'MACHINE_EVIDENCE\packaged-uia-strict-summary.json',
+            'THIRD_PARTY_NOTICES\Stockfish-18-source.zip'
+          )){
+            if(-not (Test-Path (Join-Path package $rel))){throw "Source Windows package is missing: $rel"}
+          }
+          @'
+          import os
+          import subprocess
+          from pathlib import Path
+
+          sha = os.environ['SOURCE_PRODUCT_SHA']
+          product = Path('package/AccessibleChess')
+          for relative in (
+              'web/index.html',
+              'web/keybindings.json',
+              'web/stage1_board_actions.js',
+              'web/stage1_release_bootstrap.js',
+          ):
+              expected = subprocess.check_output(['git', 'show', f'{sha}:{relative}'])
+              actual = (product / relative).read_bytes()
+              if actual != expected:
+                  raise SystemExit(f'Packaged Product blob drift: {relative}')
+          sound_source = subprocess.check_output(['git', 'show', f'{sha}:acs/sound_windows.py']).decode('utf-8')
+          if 'winsound.SND_SYNC' in sound_source:
+              raise SystemExit('Obsolete winsound.SND_SYNC remains in Product')
+          if 'winsound.SND_FILENAME | winsound.SND_NODEFAULT' not in sound_source:
+              raise SystemExit('Supported fail-closed sound flags are missing')
+          print('EXACT WINDOWS PRODUCT BYTES + SOUND REPAIR LOCK PASS')
+          '@ | python -
+          if($LASTEXITCODE -ne 0){throw 'Exact Product byte readback failed'}
+
+      - name: Compose only the canonical accepted release topology
+        shell: pwsh
+        run: |
+          Copy-Item package\MACHINE_EVIDENCE\native-menu-self-diagnostic.json package\native-menu-self-diagnostic.json -Force
+          Copy-Item package\MACHINE_EVIDENCE\packaged-uia-strict-summary.json package\packaged-uia-strict-summary.json -Force
+          Remove-Item package\MACHINE_EVIDENCE -Recurse -Force
+          Remove-Item package\RELEASE_MANIFEST.json,package\SHA256SUMS.txt -Force
+          $manifest=[ordered]@{
+            product='Accessible Chess'
+            label='NVDA TEST CANDIDATE — WAITING FOR USER TEST'
+            integration_sha=$env:SOURCE_PRODUCT_SHA
+            qa_commit=$env:GITHUB_SHA
+            python='3.12'
+            pywebview=$env:PYWEBVIEW_VERSION
+            nuitka_upstream_fix_commit=$env:NUITKA_UPSTREAM_FIX_COMMIT
+            stockfish='18'
+            nvda_verified=$false
+            strict_cross_process_uia='PASS'
+            packaged_e4_e9_clipboard_board_focus='PASS'
+            packaged_sound='PASS'
+            stockfish_runtime_lifecycle='PASS'
+            native_menu_automated_self_diagnostic='PASS'
+            native_menu_alt_arrows_enter_esc='HUMAN-ONLY UNPROVEN'
+            nvda_menu_usability='HUMAN-ONLY UNPROVEN'
+          }
+          $manifest | ConvertTo-Json -Depth 6 | Set-Content -Encoding UTF8 package\RELEASE_MANIFEST.json
+          @'
+          import hashlib
+          from pathlib import Path
+
+          root = Path('package')
+          lines = []
+          for path in sorted(
+              (item for item in root.rglob('*') if item.is_file() and item.name != 'SHA256SUMS.txt'),
+              key=lambda item: item.relative_to(root).as_posix().casefold(),
+          ):
+              digest = hashlib.sha256()
+              with path.open('rb') as handle:
+                  for block in iter(lambda: handle.read(1024 * 1024), b''):
+                      digest.update(block)
+              relative = path.relative_to(root).as_posix()
+              lines.append(f'{digest.hexdigest()}  {relative}')
+          (root / 'SHA256SUMS.txt').write_text('\n'.join(lines) + '\n', encoding='utf-8')
+          print('CANONICAL FORWARD-SLASH CHECKSUM INVENTORY PASS', len(lines))
+          '@ | python -
+          if($LASTEXITCODE -ne 0){throw 'Canonical checksum generation failed'}
+
+      - name: Run accepted Product preflight on the assembled tree
+        shell: pwsh
+        run: |
+          git archive --format=zip --output=validator.zip $env:SOURCE_PRODUCT_SHA -- acs
+          if($LASTEXITCODE -ne 0){throw 'Exact Product preflight export failed'}
+          Expand-Archive validator.zip validator -Force
+          $env:PYTHONPATH=(Resolve-Path validator).Path
+          python -m acs.release_preflight package --json | Tee-Object -FilePath preflight-assembled.json
+          if($LASTEXITCODE -ne 0){throw 'Accepted Product release preflight rejected assembled tree'}
+
+      - name: Create ZIP and re-run accepted preflight on actual extracted bytes
+        shell: pwsh
+        run: |
+          if(Test-Path $env:CANDIDATE_FILE){Remove-Item $env:CANDIDATE_FILE -Force}
+          Compress-Archive 'package\*' $env:CANDIDATE_FILE -Force
+          if(-not (Test-Path $env:CANDIDATE_FILE)){throw 'Canonical candidate ZIP was not created'}
+          $candidateHash=(Get-FileHash $env:CANDIDATE_FILE -Algorithm SHA256).Hash.ToLowerInvariant()
+          $candidateHash | Set-Content -Encoding UTF8 candidate-zip.sha256
+          Expand-Archive $env:CANDIDATE_FILE inspect -Force
+          $env:PYTHONPATH=(Resolve-Path validator).Path
+          python -m acs.release_preflight inspect --json | Tee-Object -FilePath preflight-actual-zip.json
+          if($LASTEXITCODE -ne 0){throw 'Accepted Product release preflight rejected actual ZIP bytes'}
+          @'
+          import os
+          import stat
+          import zipfile
+          from pathlib import PurePosixPath
+
+          path = os.environ['CANDIDATE_FILE']
+          with zipfile.ZipFile(path) as archive:
+              infos = archive.infolist()
+              names = [item.filename[:-1] if item.is_dir() and item.filename.endswith('/') else item.filename for item in infos]
+              files = [name for name, item in zip(names, infos) if not item.is_dir()]
+              if len(files) != len(set(files)):
+                  raise SystemExit('Candidate ZIP contains duplicate file entries')
+              folded = [name.casefold() for name in files]
+              if len(folded) != len(set(folded)):
+                  raise SystemExit('Candidate ZIP contains case-insensitive file collisions')
+              for name, item in zip(names, infos):
+                  normalized = name.replace('\\', '/')
+                  token = PurePosixPath(normalized)
+                  if not normalized or token.is_absolute() or any(part in ('', '.', '..') for part in token.parts):
+                      raise SystemExit(f'Unsafe candidate ZIP member: {name!r}')
+                  mode = (item.external_attr >> 16) & 0xFFFF
+                  if stat.S_IFMT(mode) == stat.S_IFLNK:
+                      raise SystemExit(f'Symlink candidate ZIP member: {name!r}')
+          print('ACTUAL CANDIDATE ZIP MEMBER CANONICALITY PASS', len(files))
+          '@ | python -
+          if($LASTEXITCODE -ne 0){throw 'Candidate ZIP member canonicality failed'}
+
+      - name: Record exact candidate identity
+        shell: pwsh
+        run: |
+          $candidateHash=(Get-FileHash $env:CANDIDATE_FILE -Algorithm SHA256).Hash.ToLowerInvariant()
+          $assembled=Get-Content preflight-assembled.json -Raw | ConvertFrom-Json
+          $actual=Get-Content preflight-actual-zip.json -Raw | ConvertFrom-Json
+          if($assembled.result -ne 'PASS' -or $actual.result -ne 'PASS'){throw 'Canonical preflight report is not PASS'}
+          $inspection=[ordered]@{
+            candidate=$env:CANDIDATE_FILE
+            sha256=$candidateHash
+            product_sha=$env:SOURCE_PRODUCT_SHA
+            qa_sha=$env:GITHUB_SHA
+            source_windows_run=[long]$env:SOURCE_WINDOWS_RUN
+            prior_strict_uia_run=[long]$env:PRIOR_STRICT_UIA_RUN
+            prior_strict_uia_artifact_id=[long]$env:PRIOR_STRICT_UIA_ARTIFACT_ID
+            exact_product_web_blobs=$true
+            canonical_preflight_assembled='PASS'
+            canonical_preflight_actual_zip='PASS'
+            checksums_verified=[int]$actual.checksums_verified
+            nvda_verified=$false
+            robot_test_ready=$true
+            result='PASS'
+          }
+          $inspection | ConvertTo-Json -Depth 5 | Set-Content -Encoding UTF8 package-inspection.json
+          "CANONICAL STAGE1 CANDIDATE PASS SHA256=$candidateHash"
+
+      - name: Upload canonical fresh NVDA test candidate
+        uses: actions/upload-artifact@v4
+        with:
+          name: Accessible-Chess-0.4-040f089-NVDA-test-candidate-CANONICAL
+          path: |
+            Accessible-Chess-0.4-040f089-NVDA-test-candidate.zip
+            candidate-zip.sha256
+            package-inspection.json
+            preflight-assembled.json
+            preflight-actual-zip.json
+            source/packaged-sound-proof.json
+            package/native-menu-self-diagnostic.json
+            package/packaged-uia-strict-summary.json
+          if-no-files-found: error
+          retention-days: 30
