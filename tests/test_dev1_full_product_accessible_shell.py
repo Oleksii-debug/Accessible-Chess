@@ -84,7 +84,10 @@ class AccessibleShellTests(unittest.TestCase):
     def test_route_focus_restores_without_mouse_dependency(self):
         shell = AccessibleShellState()
         self.assertEqual("move-input", shell.restore_focus_target())
-        self.assertEqual("library-search", shell.open_route("library", current_focus_id="board-square-e4"))
+        self.assertEqual(
+            "library-search-player",
+            shell.open_route("library", current_focus_id="board-square-e4"),
+        )
         shell.record_focus("library-result-17")
         self.assertEqual("board-square-e4", shell.open_route("board"))
         self.assertEqual("library-result-17", shell.open_route("library"))
