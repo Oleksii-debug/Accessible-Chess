@@ -126,7 +126,7 @@ internal static class BookReadingImporter
 {
     private static readonly Regex HtmlTagRegex = new("<[^>]+>", RegexOptions.Compiled | RegexOptions.CultureInvariant);
     private static readonly Regex ScriptStyleRegex = new("<(script|style)\\b[^>]*>.*?</\\1>", RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.Singleline | RegexOptions.CultureInvariant);
-    private static readonly Regex SentenceRegex = new(@"[^.!?\\r\\n]+(?:[.!?]+|(?=\\r?$|\\n))", RegexOptions.Compiled | RegexOptions.Multiline | RegexOptions.CultureInvariant);
+    private static readonly Regex SentenceRegex = new(@"[^.!?\r\n]+(?:[.!?]+|(?=\r?$|\n))", RegexOptions.Compiled | RegexOptions.Multiline | RegexOptions.CultureInvariant);
 
     public static BookDocument Import(BookImportRequest request, IBookLexiconMapper? mapper = null)
     {
@@ -225,7 +225,7 @@ internal static class BookReadingImporter
     internal static string NormalizeText(string value)
     {
         string normalized = value.Normalize(NormalizationForm.FormC).Replace("\r\n", "\n").Replace('\r', '\n');
-        var lines = normalized.Split('\n').Select(line => Regex.Replace(line, @"[\\t ]+", " ").TrimEnd()).ToArray();
+        var lines = normalized.Split('\n').Select(line => Regex.Replace(line, @"[\t ]+", " ").TrimEnd()).ToArray();
         normalized = string.Join("\n", lines);
         normalized = Regex.Replace(normalized, "\\n{3,}", "\n\n");
         return normalized.Trim();
@@ -234,7 +234,7 @@ internal static class BookReadingImporter
     internal static string HtmlToText(string html)
     {
         string withoutScripts = ScriptStyleRegex.Replace(html, " ");
-        string structural = Regex.Replace(withoutScripts, @"</?(?:p|div|section|article|h[1-6]|li|br|tr)\\b[^>]*>", "\n", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+        string structural = Regex.Replace(withoutScripts, @"</?(?:p|div|section|article|h[1-6]|li|br|tr)\b[^>]*>", "\n", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
         string noTags = HtmlTagRegex.Replace(structural, " ");
         return NormalizeText(WebUtility.HtmlDecode(noTags));
     }
