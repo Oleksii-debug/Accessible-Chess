@@ -1,0 +1,39 @@
+name: WordDeck MASS120-111 audio infrastructure
+
+on:
+  push:
+    branches:
+      - worddeck-worker-mass120-111-audio-infrastructure
+    paths:
+      - 'WordDeck/**'
+      - '.github/workflows/worddeck-mass120-111-audio-infrastructure.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: worddeck-mass120-111-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  audio-manifest-gate:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout exact worker tip
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore
+        run: dotnet restore .\WordDeck\WordDeck.csproj
+
+      - name: Build warnings as errors
+        run: dotnet build .\WordDeck\WordDeck.csproj -c Release --no-restore -warnaserror
+
+      - name: Run WordDeck self-tests including audio manifest
+        run: dotnet run --project .\WordDeck\WordDeck.csproj -c Release --no-build -- --self-test
