@@ -74,7 +74,9 @@ internal sealed record ListeningTranscriptTurn(
             throw new InvalidDataException("Listening transcript turn references an unknown speaker.");
         if (string.IsNullOrWhiteSpace(Text))
             throw new InvalidDataException("Listening transcript turn text is required.");
-        if (Start is < TimeSpan.Zero || End is < TimeSpan.Zero || (Start is not null && End is not null && End < Start))
+        if ((Start is not null && Start.Value < TimeSpan.Zero) ||
+            (End is not null && End.Value < TimeSpan.Zero) ||
+            (Start is not null && End is not null && End.Value < Start.Value))
             throw new InvalidDataException("Listening transcript turn timing is invalid.");
     }
 }
