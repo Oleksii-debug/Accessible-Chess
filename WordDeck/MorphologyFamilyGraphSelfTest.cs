@@ -21,7 +21,6 @@ internal static class MorphologyFamilyGraphSelfTest
         IReadOnlyList<string> actFamily = graph.GetFamilyMembers("ox:act:v", "family-act");
         Assert(actFamily.SequenceEqual(new[] { "ox:act:v", "ox:action:n" }, StringComparer.OrdinalIgnoreCase),
             "Family-scoped traversal must stay inside family-act.");
-
         IReadOnlyList<string> safeAggregate = graph.GetAnchorFamiliesWithoutCrossFamilyLeakage("ox:act:v");
         Assert(!safeAggregate.Contains("ox:recording:n", StringComparer.OrdinalIgnoreCase),
             "A second family attached only to a downstream member must not become a transitive bridge into the anchor family.");
@@ -37,12 +36,12 @@ internal static class MorphologyFamilyGraphSelfTest
         var graph = new MorphologyFamilyGraph(overlay, dictionary);
 
         MorphologyRelationSemantics prefix = graph.Describe("r-happy-unhappy");
-        Assert(prefix.Description.Contains("happy», → «unhappy", StringComparison.Ordinal),
+        Assert(prefix.Description.Contains("happy» → «unhappy", StringComparison.Ordinal),
             "Prefix semantics must preserve declared FromEntryId -> ToEntryId direction.");
         Assert(prefix.Description.Contains("un-", StringComparison.Ordinal), "Prefix morpheme was lost.");
 
         MorphologyRelationSemantics suffix = graph.Describe("r-active-activity");
-        Assert(suffix.Description.Contains("active», → «activity", StringComparison.Ordinal),
+        Assert(suffix.Description.Contains("active» → «activity", StringComparison.Ordinal),
             "Suffix semantics must preserve declared FromEntryId -> ToEntryId direction.");
         Assert(suffix.Description.Contains("-ity", StringComparison.Ordinal), "Suffix morpheme was lost.");
 
@@ -55,7 +54,6 @@ internal static class MorphologyFamilyGraphSelfTest
     {
         DictionaryPackage dictionary = FixtureDictionary();
         var formatter = new MorphologyLexicalIdentityFormatter(dictionary);
-
         Assert(formatter.IsAmbiguous("ox:record:v") && formatter.IsAmbiguous("ox:record:n"),
             "Equal-written-form record entries must remain marked ambiguous.");
         Assert(formatter.Format("ox:record:v") == "record — записувати",
@@ -76,7 +74,6 @@ internal static class MorphologyFamilyGraphSelfTest
         MorphologyPracticeItem? record = practice.Create("ox:record:v", MorphologyPracticeKind.RelatedFormProduction);
         Assert(record is not null && record.Prompt.Contains("record — записувати", StringComparison.Ordinal),
             "Morphology practice must disambiguate a homograph source without exposing/merging its sibling ID.");
-
         MorphologyPracticeItem? reverse = practice.Create("ox:unhappy:adj", MorphologyPracticeKind.RelatedFormProduction);
         Assert(reverse is not null && reverse.ExpectedAnswer == "happy", "Reverse prefix practice target should preserve the exact opposite endpoint.");
         Assert(reverse!.Prompt.Contains("вихідну", StringComparison.OrdinalIgnoreCase),
