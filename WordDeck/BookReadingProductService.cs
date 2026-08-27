@@ -190,6 +190,23 @@ internal sealed class BookReadingProductService
                 else if (deckId.Equals(learningDeckId, StringComparison.OrdinalIgnoreCase)) learning.Add(entryId);
             }
         }
+
+        // Exact written-form matching cannot determine POS/sense for homographs.
+        // Therefore a stable ID that shares its exact lexical form with another
+        // dictionary ID is withheld from Known/Learning evidence for Reading.
+        // The candidate IDs are still preserved on each physical occurrence and
+        // the user can explicitly choose one when capturing a word to Learning.
+        HashSet<string> ambiguousEntryIds = dictionary.Entries
+            .Where(entry => entry is not null && !string.IsNullOrWhiteSpace(entry.Id) && !string.IsNullOrWhiteSpace(entry.Source))
+            .Select(entry => new { Entry = entry, Form = BookLexicalFormIndex.NormalizeForm(entry.Source) })
+            .Where(item => item.Form.Length > 0)
+            .GroupBy(item => item.Form, StringComparer.OrdinalIgnoreCase)
+            .Where(group => group.Select(item => item.Entry.Id).Distinct(StringComparer.OrdinalIgnoreCase).Skip(1).Any())
+            .SelectMany(group => group.Select(item => item.Entry.Id.Trim().ToLowerInvariant()))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        known.ExceptWith(ambiguousEntryIds);
+        learning.ExceptWith(ambiguousEntryIds);
+
         return new BookDeckVocabularySnapshot(known, learning, knownDeckId, learningDeckId);
     }
 
@@ -308,7 +325,7 @@ internal sealed class BookReadingProductService
     {
         if (string.IsNullOrWhiteSpace(value)) return;
         string canonical = value.Replace('\\', '/');
-        if (canonical.StartsWith('/', StringComparison.Ordinal) || canonical.Contains(':'))
+        if (canonical.StartsWith("/", StringComparison.Ordinal) || canonical.Contains(':'))
             throw new InvalidDataException("EPUB contains an absolute/drive-qualified archive path.");
         foreach (string segment in canonical.Split('/', StringSplitOptions.RemoveEmptyEntries))
             if (segment is "..") throw new InvalidDataException("EPUB contains an unsafe traversal path.");
