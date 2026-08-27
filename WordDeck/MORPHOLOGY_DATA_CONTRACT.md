@@ -6,6 +6,8 @@ This branch does **not** bundle a production Word Families/morphology corpus. No
 
 The implementation therefore provides production ingestion, validation, diagnostics, query, Context integration and practice tooling while keeping the external-data boundary explicit. Synthetic examples exist only in deterministic tests and must never be packaged or described as production lexical-family data.
 
+`MorphologyDatasetClass` keeps machine evidence explicitly separated into `TestFixture`, `ExternalCandidate`, and `ApprovedProduction`. Test fixtures can exercise the complete runtime path but can never make a production/release claim. External candidates remain non-approved unless exact source hash, redistribution approval and approval reference are supplied. `ApprovedProduction` is structurally invalid without explicit redistribution approval and still does not replace independent source/license review.
+
 ## Required source metadata
 
 Every accepted overlay package must provide:
@@ -24,6 +26,16 @@ If package-level provenance/license/attribution is missing, the whole overlay fa
 Morphology is an overlay over canonical lexical IDs. It never merges dictionary entries and never owns Recall, Spelling, Sentence, Grammar, Listening or Reading progress.
 
 Relations are imported by exact stable IDs, not by surface-word matching. Physical lexical forms may be ambiguous (`record` noun vs `record` verb, etc.). Equal spelling is never sufficient evidence that two canonical entries are the same item or belong to the same family.
+
+Human-facing morphology practice follows the same rule. When one written form maps to multiple canonical IDs, the prompt label is disambiguated with the canonical translation already attached to that exact stable ID. This is presentation only: it does not infer POS/sense, merge IDs, or create a morphology relation.
+
+## Relation direction and family boundaries
+
+`FromEntryId -> ToEntryId` is the declared source-backed derivational direction for `Derivation`, `Prefix`, and `Suffix` relations. Downstream UI/practice may traverse the graph in either direction, but it must not reverse the linguistic claim: reverse practice asks for the source-side related form rather than pretending the reverse endpoint was created by the affix.
+
+`Root` evidence is shared/non-directional. A root relation means both exact lexical IDs have the explicitly supplied common root; it must not be rendered as an add/remove-prefix or add/remove-suffix operation. `Compound` is likewise treated as an explicit lexical relation unless a future approved schema provides more detailed directional semantics.
+
+A lexical stable ID may participate in more than one family. Family traversal therefore has a family-scoped API. The safe aggregate view traverses each family attached directly to the anchor independently and does not hop from a downstream member into a second family that was never attached to the anchor. This prevents unrelated family graphs from becoming accidental transitive evidence.
 
 ## TSV format
 
@@ -46,7 +58,7 @@ The exact header is:
 relationId\tfamilyId\tfromEntryId\ttoEntryId\tkind\tmorpheme\tevidenceRef
 ```
 
-Supported explicit relation kinds are `Derivation`, `Prefix`, `Suffix`, `Root`, and `Compound`. Prefix, suffix and root relations require an explicit morpheme/root value. Unknown relation kinds are not guessed.
+Supported explicit relation kinds are `Derivation`, `Prefix`, `Suffix`, `Root`, and `Compound`. Prefix, suffix and root relations require an explicit morpheme/root value. Unknown relation kinds are not guessed. The current schema does not attempt automatic stemming, affix discovery, POS inference, sense inference, or family generation from spelling.
 
 ## Coverage and gap accounting
 
@@ -68,7 +80,7 @@ A downstream identity owner may supply an explicit `resolvedAmbiguousEntryIds` s
 
 `MorphologyGrammarBridge` requires an explicit Grammar skill reference and resolves it through the canonical `GrammarSkillReferenceResolver`. Morphology never infers a Grammar skill from a suffix, prefix, POS guess or written form. It contributes only exact source-backed lexical targets after the same ambiguity guard.
 
-`MorphologyOverlay` and `MorphologyPracticeService` expose stable-ID projections for Grammar and Reading. These contain related canonical IDs, lexical forms, CEFR levels, family IDs and explicit relation kinds. Downstream modes can request related targets without duplicating morphology inference or modifying canonical progress. The same physical-form ambiguity guard can be applied before any downstream mode interprets a written token as one lexical identity.
+`MorphologyOverlay`, `MorphologyFamilyGraph` and `MorphologyPracticeService` expose stable-ID projections for Grammar, Reading and future course layers. These contain related canonical IDs, lexical forms, CEFR levels, family IDs and explicit relation kinds. Downstream modes can request related targets without duplicating morphology inference or modifying canonical progress. The same physical-form ambiguity guard can be applied before any downstream mode interprets a written token as one lexical identity.
 
 The practice service is deterministic and stateless: it produces explanation/exercise contracts and checks supplied answers, but does not mutate personal profile state. A future cross-mode adaptive lane can persist morphology evidence through the shared learner model without changing lexical identity.
 
@@ -81,7 +93,9 @@ A future production relation pack is releasable only after an independent check 
 3. required attribution is included in release notices;
 4. every referenced Oxford/user stable ID resolves exactly;
 5. no source-form heuristic silently merges ambiguous entries;
-6. invalid/uncertain records are quarantined rather than inferred, and the final release candidate has zero unresolved quarantines;
-7. stable-ID coverage/gap accounting is published for the exact candidate;
-8. scale/lookup tests remain bounded at the 5,446-entry Oxford baseline and beyond;
-9. exact Windows production build, published-app regression tests and Stage-18 deterministic tests are green.
+6. prefix/suffix direction is supported by the source evidence and is not inferred from spelling;
+7. invalid/uncertain records are quarantined rather than inferred, and the final release candidate has zero unresolved quarantines;
+8. stable-ID coverage/gap accounting is published for the exact candidate;
+9. family-scoped traversal tests prove that downstream-family edges cannot contaminate an anchor family;
+10. scale/lookup tests remain bounded at the 5,446-entry Oxford baseline and beyond;
+11. exact Windows production build, published-app regression tests and Stage-18 deterministic tests are green.
