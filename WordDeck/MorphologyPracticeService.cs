@@ -48,11 +48,16 @@ internal sealed record MorphologyPracticeItem(
 /// morphology relations and canonical dictionary IDs. It never writes learner
 /// progress; the adaptive/mastery owner can record outcomes through its own
 /// profile contract after integration.
+///
+/// Homograph prompts use a canonical translation label so equal written forms do not
+/// become an implicit stable-ID merge. Prefix/Suffix wording preserves the declared
+/// FromEntryId -> ToEntryId source direction instead of silently reversing the affix claim.
 /// </summary>
 internal sealed class MorphologyPracticeService
 {
     private readonly MorphologyOverlay _overlay;
     private readonly IReadOnlyDictionary<string, DictionaryEntry> _entries;
+    private readonly MorphologyLexicalIdentityFormatter _identity;
 
     public MorphologyPracticeService(MorphologyOverlay overlay, DictionaryPackage dictionary)
     {
@@ -60,6 +65,7 @@ internal sealed class MorphologyPracticeService
         ArgumentNullException.ThrowIfNull(dictionary);
         _overlay = overlay;
         _entries = dictionary.Entries.ToDictionary(entry => entry.Id, StringComparer.OrdinalIgnoreCase);
+        _identity = new MorphologyLexicalIdentityFormatter(dictionary);
     }
 
     public IReadOnlyList<MorphologyRelationExplanation> ExplainEntry(string entryId, int maxItems = 24)
@@ -82,7 +88,7 @@ internal sealed class MorphologyPracticeService
                 target.Source,
                 relation.Kind,
                 relation.Morpheme,
-                BuildExplanation(source.Source, target.Source, relation),
+                BuildExplanation(relation),
                 relation.EvidenceRef));
             if (explanations.Count >= maxItems) break;
         }
@@ -110,7 +116,7 @@ internal sealed class MorphologyPracticeService
             MorphologyPracticeKind.RelatedFormProduction => new MorphologyPracticeItem(
                 $"morph:related:{relation.Id}:{source.Id}",
                 kind,
-                BuildRelatedFormPrompt(source.Source, relation),
+                BuildRelatedFormPrompt(source, target, relation),
                 target.Source,
                 source.Id,
                 target.Id,
@@ -122,7 +128,7 @@ internal sealed class MorphologyPracticeService
             MorphologyPracticeKind.MorphemeProduction => new MorphologyPracticeItem(
                 $"morph:morpheme:{relation.Id}:{source.Id}",
                 kind,
-                BuildMorphemePrompt(source.Source, target.Source, relation.Kind),
+                BuildMorphemePrompt(relation),
                 relation.Morpheme!,
                 source.Id,
                 target.Id,
@@ -182,40 +188,63 @@ internal sealed class MorphologyPracticeService
         return false;
     }
 
-    private static string BuildExplanation(string source, string target, MorphologyRelation relation)
+    private string BuildExplanation(MorphologyRelation relation)
     {
+        if (!_entries.TryGetValue(relation.FromEntryId, out DictionaryEntry? from) ||
+            !_entries.TryGetValue(relation.ToEntryId, out DictionaryEntry? to))
+            throw new InvalidDataException("Morphology explanation requires both exact canonical stable IDs.");
+        string fromLabel = _identity.Format(from.Id);
+        string toLabel = _identity.Format(to.Id);
         string evidence = $" Джерельне посилання: {relation.EvidenceRef}.";
         return relation.Kind switch
         {
-            MorphologyRelationKind.Derivation => $"«{source}» і «{target}» мають підтверджений словотвірний зв’язок.{evidence}",
-            MorphologyRelationKind.Prefix => $"«{source}» і «{target}» пов’язані префіксом «{relation.Morpheme}».{evidence}",
-            MorphologyRelationKind.Suffix => $"«{source}» і «{target}» пов’язані суфіксом «{relation.Morpheme}».{evidence}",
-            MorphologyRelationKind.Root => $"«{source}» і «{target}» мають підтверджений спільний корінь «{relation.Morpheme}».{evidence}",
-            MorphologyRelationKind.Compound => $"«{source}» і «{target}» мають підтверджений зв’язок як складені лексичні форми.{evidence}",
+            MorphologyRelationKind.Derivation => $"Підтверджений словотвірний напрям: «{fromLabel}» → «{toLabel}».{evidence}",
+            MorphologyRelationKind.Prefix => $"Підтверджений префіксальний напрям: «{fromLabel}» → «{toLabel}»; префікс «{relation.Morpheme}».{evidence}",
+            MorphologyRelationKind.Suffix => $"Підтверджений суфіксальний напрям: «{fromLabel}» → «{toLabel}»; суфікс «{relation.Morpheme}».{evidence}",
+            MorphologyRelationKind.Root => $"«{fromLabel}» ↔ «{toLabel}» мають підтверджений спільний корінь «{relation.Morpheme}».{evidence}",
+            MorphologyRelationKind.Compound => $"«{fromLabel}» ↔ «{toLabel}» мають підтверджений зв’язок як складені лексичні форми.{evidence}",
             _ => throw new ArgumentOutOfRangeException(nameof(relation.Kind))
         };
     }
 
-    private static string BuildRelatedFormPrompt(string source, MorphologyRelation relation) => relation.Kind switch
+    private string BuildRelatedFormPrompt(DictionaryEntry source, DictionaryEntry target, MorphologyRelation relation)
     {
-        MorphologyRelationKind.Derivation => $"Введіть підтверджену словотвірно пов’язану англійську форму для «{source}».",
-        MorphologyRelationKind.Prefix => $"Введіть пов’язану англійську форму для «{source}», що утворена з підтвердженим префіксом «{relation.Morpheme}».",
-        MorphologyRelationKind.Suffix => $"Введіть пов’язану англійську форму для «{source}», що утворена з підтвердженим суфіксом «{relation.Morpheme}».",
-        MorphologyRelationKind.Root => $"Введіть англійське слово з підтвердженим спільним коренем «{relation.Morpheme}» для «{source}».",
-        MorphologyRelationKind.Compound => $"Введіть підтверджену пов’язану складену англійську форму для «{source}».",
-        _ => throw new ArgumentOutOfRangeException(nameof(relation.Kind))
-    };
+        string sourceLabel = _identity.Format(source.Id);
+        bool forward = source.Id.Equals(relation.FromEntryId, StringComparison.OrdinalIgnoreCase);
+        return relation.Kind switch
+        {
+            MorphologyRelationKind.Derivation =>
+                $"Введіть підтверджену словотвірно пов’язану англійську форму для «{sourceLabel}».",
+            MorphologyRelationKind.Prefix when forward =>
+                $"Введіть форму, до якої джерело веде від «{sourceLabel}» через підтверджений префіксальний зв’язок «{relation.Morpheme}».",
+            MorphologyRelationKind.Prefix =>
+                $"Введіть вихідну пов’язану форму, від якої джерело веде до «{sourceLabel}» через підтверджений префіксальний зв’язок «{relation.Morpheme}».",
+            MorphologyRelationKind.Suffix when forward =>
+                $"Введіть форму, до якої джерело веде від «{sourceLabel}» через підтверджений суфіксальний зв’язок «{relation.Morpheme}».",
+            MorphologyRelationKind.Suffix =>
+                $"Введіть вихідну пов’язану форму, від якої джерело веде до «{sourceLabel}» через підтверджений суфіксальний зв’язок «{relation.Morpheme}».",
+            MorphologyRelationKind.Root =>
+                $"Введіть англійське слово з підтвердженим спільним коренем «{relation.Morpheme}» для «{sourceLabel}».",
+            MorphologyRelationKind.Compound =>
+                $"Введіть підтверджену пов’язану складену англійську форму для «{sourceLabel}».",
+            _ => throw new ArgumentOutOfRangeException(nameof(relation.Kind))
+        };
+    }
 
-    private static string BuildMorphemePrompt(string source, string target, MorphologyRelationKind kind)
+    private string BuildMorphemePrompt(MorphologyRelation relation)
     {
-        string label = kind switch
+        if (!_entries.TryGetValue(relation.FromEntryId, out DictionaryEntry? from) ||
+            !_entries.TryGetValue(relation.ToEntryId, out DictionaryEntry? to))
+            throw new InvalidDataException("Morpheme prompt requires both exact canonical stable IDs.");
+        string label = relation.Kind switch
         {
             MorphologyRelationKind.Prefix => "префікс",
             MorphologyRelationKind.Suffix => "суфікс",
             MorphologyRelationKind.Root => "корінь",
             _ => "морфему"
         };
-        return $"Введіть підтверджений {label}, який позначено у зв’язку між «{source}» та «{target}».";
+        string connector = relation.Kind == MorphologyRelationKind.Root ? "↔" : "→";
+        return $"Введіть підтверджений {label}, позначений у зв’язку «{_identity.Format(from.Id)}» {connector} «{_identity.Format(to.Id)}».";
     }
 
     private static int PositiveModulo(int value, int divisor)
