@@ -96,8 +96,14 @@ jobs:
           LIBCBH_ANNOTATION_DIR: ${{ github.workspace }}/upstream/libcbh/gtest/Annotation
           LIBCBH_NONSTANDARD_DIR: ${{ github.workspace }}/upstream/libcbh/gtest/NonStandard
         run: |
+          set +e
           set -o pipefail
           python -m unittest -v tests.test_v2_real_cbh_semantic_corpus 2>&1 | tee real-cbh-semantic.log
+          oracle_status=${PIPESTATUS[0]}
+          set -e
+          printf '%s\n' "$oracle_status" > real-cbh-semantic.status
+          printf 'REAL_CBH_ORACLE_EXIT=%s\n' "$oracle_status"
+          exit 0
 
       - name: Focused existing ChessBase Library and canonical regressions
         working-directory: product
@@ -128,6 +134,21 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: v2-real-cbh-semantic-evidence
-          path: product/real-cbh-semantic.log
+          path: |
+            product/real-cbh-semantic.log
+            product/real-cbh-semantic.status
           if-no-files-found: ignore
           retention-days: 7
+
+      - name: Enforce real-corpus verdict after regressions
+        if: always()
+        working-directory: product
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f real-cbh-semantic.status
+          status="$(cat real-cbh-semantic.status)"
+          test "$status" = "0" || {
+            printf 'Real CBH semantic corpus remains RED (oracle exit=%s).\n' "$status" >&2
+            exit "$status"
+          }
