@@ -6,18 +6,20 @@ This service starts after a format owner has already produced canonical ``PgnGam
 objects.  It deliberately does not parse files or PGN text and therefore does not
 own D04 import-security policy or D06 PGN semantics.  Its responsibility is the
 ACSDB publication boundary: one source and all of its games commit atomically,
-with cooperative cancellation and exact count-based progress.
+with cooperative cancellation, exact count-based progress and provenance-safe
+repeated-source idempotency.
 """
 
 from collections.abc import Callable, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
+import json
 import re
 import sqlite3
 import time
 
 from .acsdb import AcsDatabase
-from .gametree import PgnGame
+from .gametree import PgnGame, serialize_game
 
 _SQLITE_INTEGER_MAX = (1 << 63) - 1
 _SHA256_RE = re.compile(r"^[0-9a-fA-F]{64}$")
@@ -36,6 +38,10 @@ class LibraryImportStorageError(RuntimeError):
     """Raised when ACSDB cannot atomically publish the parsed game batch."""
 
 
+class LibraryImportConflictError(LibraryImportStorageError):
+    """Raised when immutable source identity conflicts with stored canonical data."""
+
+
 @dataclass(frozen=True, slots=True)
 class LibraryImportProgress:
     """Exact staging progress for one atomic Library import.
@@ -45,6 +51,8 @@ class LibraryImportProgress:
     transaction is already durable; successful method return is the commit signal.
     This distinction prevents a UI from treating SQLite implementation details as
     a fabricated percentage while still providing an honest count denominator.
+    A reused source emits only the truthful zero-staged event and returns with
+    ``LibraryImportResult.reused`` set instead of fabricating staging progress.
     """
 
     attempt_id: int
@@ -69,12 +77,13 @@ class LibraryImportProgress:
 
 @dataclass(frozen=True, slots=True)
 class LibraryImportResult:
-    """Bounded aggregate result for a committed import.
+    """Bounded aggregate result for a committed or idempotently reused import.
 
     Large imports intentionally do not return an unbounded list of every game id.
     Stable keyset/query APIs can enumerate rows later. The first/last ids provide
     compact linkage for diagnostics and tests without scaling result memory with
-    database size.
+    database size. ``reused`` is true only when the immutable source identity and
+    every canonical stored game matched exactly and no source/game rows were added.
     """
 
     attempt_id: int
@@ -83,6 +92,7 @@ class LibraryImportResult:
     warning_count: int
     first_game_id: int
     last_game_id: int
+    reused: bool = False
 
 
 CancelCheck = Callable[[], bool]
@@ -255,6 +265,10 @@ def _busy_timeout_ms(connection: sqlite3.Connection) -> int:
     return max(0, int(row[0]))
 
 
+def _game_warning_count(games: Sequence[PgnGame]) -> int:
+    return sum(1 for game in games if game.warnings)
+
+
 class LibraryImportService:
     """Atomic ACSDB storage service for already-parsed canonical games."""
 
@@ -295,22 +309,126 @@ class LibraryImportService:
                 except sqlite3.OperationalError as exc:
                     if not _is_sqlite_busy(exc):
                         raise
-                    # The normal preflight poll already happened before entering
-                    # this helper. Poll only after an actual BUSY result so a
-                    # caller can cancel a lock wait rather than an operation that
-                    # has not yet tried to acquire the writer lock.
                     _poll_cancel(cancel_check, database=self._db)
                     if original_timeout_ms == 0 or time.monotonic() >= deadline:
                         raise
-                    remaining_ms = max(
-                        1,
-                        int((deadline - time.monotonic()) * 1000),
-                    )
+                    remaining_ms = max(1, int((deadline - time.monotonic()) * 1000))
                     connection.execute(
                         f"PRAGMA busy_timeout = {min(_BUSY_RETRY_SLICE_MS, remaining_ms)}"
                     )
         finally:
             connection.execute(f"PRAGMA busy_timeout = {original_timeout_ms}")
+
+    def _begin_immediate_with_cancellable_busy_wait(
+        self,
+        cancel_check: CancelCheck | None,
+    ) -> None:
+        """Acquire the publication writer lock while preserving cancellation.
+
+        The repeated-source decision and either reuse or publication must happen
+        under the same SQLite writer transaction. Otherwise two application
+        writers can both observe absence and publish duplicate sources. The
+        existing busy-timeout remains the total contention budget but is split into
+        small waits so cancellation is still observable while waiting for the lock.
+        """
+
+        connection = self._db.conn
+        if connection.in_transaction:
+            raise RuntimeError("Library import publication cannot start inside a transaction")
+        original_timeout_ms = _busy_timeout_ms(connection)
+        deadline = time.monotonic() + (original_timeout_ms / 1000.0)
+        slice_ms = min(_BUSY_RETRY_SLICE_MS, original_timeout_ms)
+        connection.execute(f"PRAGMA busy_timeout = {slice_ms}")
+        try:
+            while True:
+                try:
+                    connection.execute("BEGIN IMMEDIATE")
+                    return
+                except sqlite3.OperationalError as exc:
+                    if not _is_sqlite_busy(exc):
+                        raise
+                    _poll_cancel(cancel_check, database=self._db)
+                    if original_timeout_ms == 0 or time.monotonic() >= deadline:
+                        raise
+                    remaining_ms = max(1, int((deadline - time.monotonic()) * 1000))
+                    connection.execute(
+                        f"PRAGMA busy_timeout = {min(_BUSY_RETRY_SLICE_MS, remaining_ms)}"
+                    )
+        finally:
+            connection.execute(f"PRAGMA busy_timeout = {original_timeout_ms}")
+
+    def _matching_source_id(self, source_format: str, source_sha256: str) -> int | None:
+        """Return one immutable source candidate or fail on legacy ambiguity.
+
+        The digest is scoped by normalized source format. Source name is provenance,
+        not content identity. Existing duplicate source rows are never silently
+        merged or deleted: more than one candidate is ambiguous and fails closed.
+        ``NOCASE`` also recognizes legacy hexadecimal/source-format casing without
+        mutating those historical rows.
+        """
+
+        rows = self._db.conn.execute(
+            """SELECT id FROM sources
+               WHERE source_format = ? COLLATE NOCASE
+                 AND sha256 = ? COLLATE NOCASE
+               ORDER BY id
+               LIMIT 2""",
+            (source_format, source_sha256),
+        ).fetchall()
+        if not rows:
+            return None
+        if len(rows) != 1:
+            raise LibraryImportConflictError("Library source identity is ambiguous")
+        return int(rows[0]["id"])
+
+    def _verify_reusable_source(
+        self,
+        source_id: int,
+        games: Sequence[PgnGame],
+    ) -> tuple[int, int]:
+        """Prove stored canonical content equals the current decoded batch.
+
+        Comparison streams stored rows in source-index order and uses the existing
+        canonical GameTree serializer. No second PGN parser/serializer or unbounded
+        database-side identity list is introduced. Any canonical drift for the same
+        immutable source identity fails closed rather than silently reusing or
+        overwriting old Library truth.
+        """
+
+        cursor = self._db.conn.execute(
+            """SELECT id, source_index, import_status, warnings_json, pgn_text
+               FROM games WHERE source_id=? ORDER BY source_index, id""",
+            (source_id,),
+        )
+        first_game_id: int | None = None
+        last_game_id: int | None = None
+        for game in games:
+            row = cursor.fetchone()
+            if row is None:
+                raise LibraryImportConflictError(
+                    "Library source canonical content differs from existing import"
+                )
+            expected_status = "warning" if game.warnings else "full"
+            expected_warnings = json.dumps(game.warnings, ensure_ascii=False)
+            expected_pgn = serialize_game(game)
+            if (
+                int(row["source_index"]) != game.source_index
+                or str(row["import_status"]) != expected_status
+                or str(row["warnings_json"]) != expected_warnings
+                or str(row["pgn_text"]) != expected_pgn
+            ):
+                raise LibraryImportConflictError(
+                    "Library source canonical content differs from existing import"
+                )
+            game_id = int(row["id"])
+            if first_game_id is None:
+                first_game_id = game_id
+            last_game_id = game_id
+        if cursor.fetchone() is not None or first_game_id is None or last_game_id is None:
+            raise LibraryImportConflictError(
+                "Library source canonical content differs from existing import"
+            )
+        return first_game_id, last_game_id
 
     def import_games(
         self,
@@ -323,21 +441,26 @@ class LibraryImportService:
         cancel_check: CancelCheck | None = None,
         progress_callback: ProgressCallback | None = None,
     ) -> LibraryImportResult:
-        """Atomically publish one parsed source into ACSDB.
+        """Atomically publish or idempotently reuse one parsed source in ACSDB.
 
         Input validation and an immediate cancellation check happen before the
-        durable import-attempt row is created. If that first write is contended,
-        SQLite's existing busy-timeout budget is split into bounded slices so
-        cancellation can be re-polled and raw lock diagnostics cannot cross the
-        service boundary. Once an attempt exists, any later cancellation, callback
-        failure, uniqueness failure, or SQLite/storage error rolls back the source
-        and every game row. The attempt itself is retained as a sanitized ``failed``
-        audit record with no linked source.
+        durable import-attempt row is created. Every call remains an audit event.
+        After that attempt is durable, one cancellable ``BEGIN IMMEDIATE`` owns the
+        repeated-source decision and the complete reuse/publication transaction.
+        This prevents concurrent writers from both publishing the same immutable
+        source.
 
-        Cancellation/progress callbacks are observers. While either callback is
-        executing, the live ``AcsDatabase.conn`` handle is replaced by a fail-closed
-        proxy so callback re-entry cannot commit or roll back the importer's SQLite
-        transaction. The exact connection is restored before execution resumes.
+        Identity is normalized ``(source_format, source_sha256)``. ``source_name``
+        remains per-attempt provenance, so the same bytes discovered under another
+        filename can reuse existing canonical rows while retaining the new audit
+        event. A single existing identity is reusable only after every stored game
+        matches source index, import status, warnings and canonical serialized PGN.
+        Multiple legacy candidates or semantic drift fail closed; no historical row
+        is merged, deleted or overwritten automatically.
+
+        Reuse emits only the truthful zero-staged progress event. Successful return
+        with ``result.reused`` is the terminal signal; no fake 100% staging event is
+        fabricated. Failed/cancelled attempts remain unlinked and retryable.
         """
 
         source_name, source_format, source_sha256 = _source_metadata(
@@ -349,6 +472,10 @@ class LibraryImportService:
         parsed_games, total_games = _validate_games(games)
         _validate_callback(cancel_check, name="cancel_check")
         _validate_callback(progress_callback, name="progress_callback")
+        game_warning_count = _game_warning_count(parsed_games)
+        if source_warning_count > _SQLITE_INTEGER_MAX - game_warning_count:
+            raise ValueError("combined warning count exceeds SQLite integer range")
+        warning_count = source_warning_count + game_warning_count
         _poll_cancel(cancel_check, database=self._db)
 
         attempt_id: int | None = None
@@ -367,16 +494,45 @@ class LibraryImportService:
             )
             _poll_cancel(cancel_check, database=self._db)
 
-            warning_count = source_warning_count
-            first_game_id: int | None = None
-            last_game_id: int | None = None
+            try:
+                self._begin_immediate_with_cancellable_busy_wait(cancel_check)
+                _poll_cancel(cancel_check, database=self._db)
 
-            with self._db.conn:
+                existing_source_id = self._matching_source_id(
+                    source_format,
+                    source_sha256,
+                )
+                if existing_source_id is not None:
+                    first_game_id, last_game_id = self._verify_reusable_source(
+                        existing_source_id,
+                        parsed_games,
+                    )
+                    _poll_cancel(cancel_check, database=self._db)
+                    self._db._finish_import_attempt(
+                        attempt_id,
+                        status="warning" if warning_count else "full",
+                        source_id=existing_source_id,
+                        game_count=total_games,
+                        warning_count=warning_count,
+                    )
+                    self._db.conn.commit()
+                    return LibraryImportResult(
+                        attempt_id=attempt_id,
+                        source_id=existing_source_id,
+                        game_count=total_games,
+                        warning_count=warning_count,
+                        first_game_id=first_game_id,
+                        last_game_id=last_game_id,
+                        reused=True,
+                    )
+
                 source_id = self._db._insert_source(
                     source_name,
                     source_format,
                     source_sha256,
                 )
+                first_game_id: int | None = None
+                last_game_id: int | None = None
                 for processed_games, game in enumerate(parsed_games, start=1):
                     _poll_cancel(cancel_check, database=self._db)
                     status = "warning" if game.warnings else "full"
@@ -385,8 +541,6 @@ class LibraryImportService:
                         source_id,
                         import_status=status,
                     )
-                    if status == "warning":
-                        warning_count += 1
                     if first_game_id is None:
                         first_game_id = game_id
                     last_game_id = game_id
@@ -400,9 +554,6 @@ class LibraryImportService:
                         database=self._db,
                     )
 
-                # A cancellation arriving after the final insert must still roll
-                # the complete transaction back rather than publish a partial or
-                # unwanted source at the commit boundary.
                 _poll_cancel(cancel_check, database=self._db)
                 self._db._finish_import_attempt(
                     attempt_id,
@@ -411,6 +562,11 @@ class LibraryImportService:
                     game_count=total_games,
                     warning_count=warning_count,
                 )
+                self._db.conn.commit()
+            except Exception:
+                if self._db.conn.in_transaction:
+                    self._db.conn.rollback()
+                raise
 
             assert first_game_id is not None and last_game_id is not None
             return LibraryImportResult(
@@ -420,6 +576,7 @@ class LibraryImportService:
                 warning_count=warning_count,
                 first_game_id=first_game_id,
                 last_game_id=last_game_id,
+                reused=False,
             )
         except LibraryImportCancelledError:
             if attempt_id is not None:
@@ -428,6 +585,13 @@ class LibraryImportService:
         except LibraryImportControlError as exc:
             if attempt_id is not None:
                 self._record_failed_attempt(attempt_id, str(exc))
+            raise
+        except LibraryImportConflictError:
+            if attempt_id is not None:
+                self._record_failed_attempt(
+                    attempt_id,
+                    "Library source conflicts with existing canonical import",
+                )
             raise
         except Exception as exc:
             if attempt_id is not None:
