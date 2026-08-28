@@ -1,0 +1,222 @@
+name: Accessible Chess V2 Real CBH Chess960 Boundary
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/v2-real-cbh-chess960-boundary.yml'
+      - 'tests/test_v2_real_cbh_chess960_boundary.py'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: accessible-chess-v2-real-cbh-chess960-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  V2_AUTHORITY_SHA: 575ec0088982d2f90adb47c040a5714d68186b0e
+  LIBCBH_COMMIT: 9641c5c3949d8fb210b17dd9aa54455645843696
+
+jobs:
+  real-chess960-boundary:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout exact QA head
+        uses: actions/checkout@v4
+        with:
+          path: product
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Prove exact authority ancestry and evidence-only scope
+        working-directory: product
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor "$V2_AUTHORITY_SHA" HEAD
+          test "$(git merge-base "$V2_AUTHORITY_SHA" HEAD)" = "$V2_AUTHORITY_SHA"
+          git diff --check "$V2_AUTHORITY_SHA" HEAD
+          changed="$(git diff --name-only "$V2_AUTHORITY_SHA" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/v2-real-cbh-chess960-boundary.yml' \
+            'tests/test_v2_real_cbh_chess960_boundary.py' | sort)"
+          test "$changed" = "$expected" || {
+            printf 'Unexpected QA scope:\n%s\n' "$changed" >&2
+            exit 1
+          }
+          git diff --quiet "$V2_AUTHORITY_SHA" HEAD -- acs web tools docs/automation
+          printf 'PRODUCT_AUTHORITY=%s\nQA_HEAD=%s\n' "$V2_AUTHORITY_SHA" "$(git rev-parse HEAD)"
+
+      - name: Checkout pinned legal libcbh corpus and backend
+        uses: actions/checkout@v4
+        with:
+          repository: rolandlo/libcbh
+          ref: 9641c5c3949d8fb210b17dd9aa54455645843696
+          path: upstream/libcbh
+          fetch-depth: 1
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install pinned broad-regression dependency
+        run: python -m pip install -q pytest==8.4.2
+
+      - name: Build pinned libcbh and existing Accessible Chess bridge
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S upstream/libcbh -B upstream/libcbh/build -DCMAKE_BUILD_TYPE=Release -DGTEST=OFF
+          cmake --build upstream/libcbh/build --config Release --parallel 2
+          mkdir -p product/build/libcbh
+          c++ -std=c++20 -O2 \
+            -DLIBCBH_SOURCE_COMMIT=\"$LIBCBH_COMMIT\" \
+            -I upstream/libcbh/include \
+            product/tools/optional/libcbh_json_bridge.cpp \
+            -L upstream/libcbh/build -lcbh \
+            -Wl,-rpath,'$ORIGIN' \
+            -o product/build/libcbh/libcbh-json-bridge
+          cp -a upstream/libcbh/build/libcbh.so* product/build/libcbh/
+          test -x product/build/libcbh/libcbh-json-bridge
+          sha256sum \
+            upstream/libcbh/gtest/Chess960Biel/Chess960Biel.cbh \
+            upstream/libcbh/gtest/Chess960Biel/Chess960.pgn
+
+      - name: Compile QA and Product import surfaces
+        working-directory: product
+        run: python -m compileall -q acs tests/test_v2_real_cbh_chess960_boundary.py
+
+      - name: Run real Chess960 no-overclaim oracle
+        working-directory: product
+        shell: bash
+        env:
+          LIBCBH_BRIDGE: ${{ github.workspace }}/product/build/libcbh/libcbh-json-bridge
+          LIBCBH_CHESS960_BIEL_DIR: ${{ github.workspace }}/upstream/libcbh/gtest/Chess960Biel
+        run: |
+          set +e
+          set -o pipefail
+          python -m unittest -v tests.test_v2_real_cbh_chess960_boundary 2>&1 | tee real-cbh-chess960-boundary.log
+          oracle_status=${PIPESTATUS[0]}
+          set -e
+          printf '%s\n' "$oracle_status" > real-cbh-chess960-boundary.status
+          printf 'REAL_CBH_CHESS960_ORACLE_EXIT=%s\n' "$oracle_status"
+          exit 0
+
+      - name: Focused existing ChessBase and integration regressions
+        working-directory: product
+        run: >-
+          python -m unittest -v
+          tests.test_chessbase_decoder
+          tests.test_chessbase_integrity
+          tests.test_version2_formats_integration
+          tests.test_library_import_ui_integration
+
+      - name: Full repository unittest
+        working-directory: product
+        run: python -m unittest discover -s tests -v
+
+      - name: Full repository pytest
+        working-directory: product
+        run: python -m pytest -q tests
+
+      - name: SELFTEST and diagnostic
+        working-directory: product
+        run: |
+          python -m acs.selftest
+          python run_accessible_chess.py --diagnostic
+
+      - name: Upload evidence log only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v2-real-cbh-chess960-boundary-evidence
+          path: |
+            product/real-cbh-chess960-boundary.log
+            product/real-cbh-chess960-boundary.status
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Default source tree remains free of optional backend binaries
+        working-directory: product
+        shell: bash
+        run: |
+          set -euo pipefail
+          test ! -e libcbh-json-bridge
+          test ! -e libcbh.so
+          test -z "$(git status --porcelain --untracked-files=no)"
+
+      - name: Enforce real-corpus verdict after regressions
+        if: always()
+        working-directory: product
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f real-cbh-chess960-boundary.status
+          status="$(cat real-cbh-chess960-boundary.status)"
+          test "$status" = "0" || {
+            printf 'Real CBH Chess960 boundary remains RED (oracle exit=%s).\n' "$status" >&2
+            exit "$status"
+          }
+
+  windows-regression:
+    runs-on: windows-2025
+    timeout-minutes: 30
+    steps:
+      - name: Checkout exact QA head
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Normalize worktree to canonical Git bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config core.autocrlf false
+          git config core.eol lf
+          git reset --hard HEAD
+
+      - name: Prove exact authority ancestry and evidence-only scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor "$V2_AUTHORITY_SHA" HEAD
+          test "$(git merge-base "$V2_AUTHORITY_SHA" HEAD)" = "$V2_AUTHORITY_SHA"
+          git diff --check "$V2_AUTHORITY_SHA" HEAD
+          changed="$(git diff --name-only "$V2_AUTHORITY_SHA" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/v2-real-cbh-chess960-boundary.yml' \
+            'tests/test_v2_real_cbh_chess960_boundary.py' | sort)"
+          test "$changed" = "$expected"
+          git diff --quiet "$V2_AUTHORITY_SHA" HEAD -- acs web tools docs/automation
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install pinned broad-regression dependency
+        run: python -m pip install -q pytest==8.4.2
+
+      - name: Compile
+        run: python -m compileall -q acs tests run_accessible_chess.py
+
+      - name: Focused existing ChessBase and integration regressions
+        run: >-
+          python -m unittest -v
+          tests.test_chessbase_decoder
+          tests.test_chessbase_integrity
+          tests.test_version2_formats_integration
+          tests.test_library_import_ui_integration
+
+      - name: Full repository unittest
+        run: python -m unittest discover -s tests -v
+
+      - name: Full repository pytest
+        run: python -m pytest -q tests
+
+      - name: SELFTEST and diagnostic
+        run: |
+          python -m acs.selftest
+          python run_accessible_chess.py --diagnostic
