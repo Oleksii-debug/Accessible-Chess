@@ -31,7 +31,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  V2_UI_BASE: 4b23c5c5a47835e66f886df8b6705cdb535f6531
+  V2_UI_BASE: 575ec0088982d2f90adb47c040a5714d68186b0e
 
 jobs:
   file-workflow-accessibility:
@@ -138,6 +138,7 @@ jobs:
           tests.test_v2_windows_import_ui_pump
           tests.test_v2_windows_native_dialog_ownership
           tests.test_v2_windows_pgn_export
+          tests.test_d06_file_ingress_nag_normalization
           tests.test_pgn_document
           tests.test_dev1_pgn_workspace_webview_adapter
           tests.test_dev1_full_product_accessible_shell
