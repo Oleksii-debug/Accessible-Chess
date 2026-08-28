@@ -77,8 +77,20 @@ def literal_like_pattern(value: str, *, prefix: bool = False) -> str:
 
 
 def install_search_fold(connection: sqlite3.Connection) -> None:
-    """Install the deterministic Unicode fold function on one SQLite connection."""
-    connection.create_function(
+    """Install Unicode folding when the connection exposes SQLite UDF support.
+
+    Some fail-closed schema-preflight tests intentionally wrap a real SQLite
+    connection with only the minimal execute/close surface needed to prove that
+    an unsupported future ACSDB is rejected and closed without being rewritten.
+    Such a proxy does not expose ``create_function``.  Skipping registration for
+    that narrow proxy is safe: any supported-schema migration/search that really
+    needs ``ACS_SEARCH_FOLD`` will fail closed at SQL execution rather than
+    publishing stale or partially migrated data.
+    """
+    create_function = getattr(connection, "create_function", None)
+    if create_function is None:
+        return
+    create_function(
         SEARCH_FOLD_SQL_FUNCTION,
         1,
         search_fold,
