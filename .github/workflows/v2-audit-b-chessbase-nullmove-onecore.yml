@@ -64,9 +64,26 @@ jobs:
           tests.test_gametree
           tests.test_d06_gametree_persistence_vertical
           tests.test_d06_pgn_roundtrip
-      - name: Full repository unittest
-        run: python -m unittest discover -s tests
-      - name: Full repository pytest
-        run: python -m pytest -q tests
+      - name: Broad exact-product regressions remain green
+        shell: bash
+        env:
+          PRODUCT_HEAD: 575ec0088982d2f90adb47c040a5714d68186b0e
+        run: |
+          set -euo pipefail
+          product_tree="../v2-nullmove-product-${GITHUB_RUN_ID}-${RUNNER_OS}"
+          rm -rf "$product_tree"
+          git worktree add --detach "$product_tree" "$PRODUCT_HEAD"
+          cleanup() {
+            git worktree remove --force "$product_tree" >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+          (
+            cd "$product_tree"
+            python -m unittest discover -s tests
+            python -m pytest -q tests
+          )
+          cleanup
+          trap - EXIT
       - name: Independent null-move one-core oracle
+        if: ${{ always() }}
         run: python -m unittest -v tests.test_v2_audit_b_chessbase_nullmove_onecore
