@@ -68,7 +68,7 @@ jobs:
       - name: Compile and self-test corpus oracle
         run: |
           python -m py_compile scripts/pgn_real_corpus_oracle.py
-          python scripts/pgn_real_corpus_oracle.py --selftest
+          python -m scripts.pgn_real_corpus_oracle --selftest
 
       - name: Focused canonical PGN and GameTree regressions
         run: >-
@@ -93,7 +93,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python scripts/pgn_real_corpus_oracle.py --games-per-corpus 2000 --batch-size 250 | tee pgn-real-corpus-report.txt
+          python -m scripts.pgn_real_corpus_oracle --games-per-corpus 2000 --batch-size 250 | tee pgn-real-corpus-report.txt
           grep -F '"verified_games_total": 4000' pgn-real-corpus-report.txt
           grep -F 'PGN REAL CORPUS ROUND-TRIP PASS' pgn-real-corpus-report.txt
 
