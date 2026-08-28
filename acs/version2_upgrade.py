@@ -710,10 +710,21 @@ class Version2UpgradeCoordinator:
         entries = manifest["entries"]
         assert isinstance(entries, list)
         originals: set[str] = set()
+        restore_names = {
+            self.layout.settings_name.casefold(),
+            self.layout.library_name.casefold(),
+        }
+        restored = 0
         for item in entries:
             assert isinstance(item, dict)
             relative = str(item["path"])
-            originals.add(relative.casefold())
+            folded = relative.casefold()
+            originals.add(folded)
+            # Automatic rollback may only rewrite paths the upgrader itself can
+            # mutate. Other backup entries are preservation evidence; restoring
+            # them here could destroy a newer concurrent user change.
+            if folded not in restore_names:
+                continue
             source = backup / "data" / Path(*PurePosixPath(relative).parts)
             destination = self.layout.root / Path(*PurePosixPath(relative).parts)
             chain = _dir_chain(
@@ -728,6 +739,7 @@ class Version2UpgradeCoordinator:
                 raise Version2UpgradeRecoveryError(
                     "upgrade backup changed during recovery"
                 )
+            restored += 1
         for known in (self.layout.settings_name, self.layout.library_name):
             if known.casefold() not in originals:
                 path = self.layout.root / known
@@ -748,7 +760,7 @@ class Version2UpgradeCoordinator:
                     )
                 sidecar.unlink()
         _fsync_dir(self.layout.root)
-        return len(entries)
+        return restored
 
     def _recover_locked(self) -> bool:
         if (
