@@ -138,12 +138,12 @@ jobs:
         run: |
           set -euo pipefail
           python - <<'PY'
-          from System.Windows.Forms import Control
           from acs.version2_windows_file_workflows import Version2WindowsFileDialogs
           from acs.version2_windows_import_ui_pump import Version2WinFormsUiPoster
           from acs.version2_windows_pgn_export import Version2WindowsPgnExportDialogs
 
           DialogResult, OpenFileDialog, SaveFileDialog = Version2WindowsFileDialogs._load_forms()
+          from System.Windows.Forms import Control
           export_result, _, ExportSaveFileDialog = Version2WindowsPgnExportDialogs._load_forms()
           opened = OpenFileDialog()
           saved = SaveFileDialog()
