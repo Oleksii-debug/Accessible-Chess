@@ -5,8 +5,13 @@ from pathlib import Path
 import unittest
 
 from acs.pgn_document import PgnDocumentSession
-from acs.pgn_roundtrip import parse_pgn_text
-from acs.pgn_service import open_pgn
+from acs.pgn_roundtrip import (
+    MAX_PGN_LEXICAL_TOKENS,
+    PgnRoundTripError,
+    PgnRoundTripErrorCode,
+    parse_pgn_text,
+)
+from acs.pgn_service import _parse_file_games, open_pgn
 
 
 # Minimal strict equivalent of the real Lichess PGN-05 record #201 surface.
@@ -46,6 +51,17 @@ class D06FileIngressNagNormalizationTests(unittest.TestCase):
             self.assertEqual(session.view().game_count, 1)
             self.assertFalse(session.view().global_warnings)
             self.assertTrue(session.view().source_overwrite_safe)
+
+    def test_file_ingress_never_falls_back_past_canonical_lexical_limit(self) -> None:
+        # This remains well below the 64 MiB file ceiling but exceeds the D06
+        # lexical-work ceiling. Structural damaged-source recovery must never
+        # be allowed to bypass a canonical resource rejection.
+        text = '[Result "*"]\n\n' + ("e4 " * (MAX_PGN_LEXICAL_TOKENS + 4)) + "*\n"
+
+        with self.assertRaises(PgnRoundTripError) as caught:
+            _parse_file_games(text)
+
+        self.assertIs(caught.exception.code, PgnRoundTripErrorCode.TOKEN_COUNT_LIMIT)
 
 
 if __name__ == "__main__":
