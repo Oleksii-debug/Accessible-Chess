@@ -1,0 +1,80 @@
+name: Accessible Chess V2 Data Release Upgrade
+
+on:
+  push:
+    branches:
+      - work/v2-data-release-upgrade-20260828
+  pull_request:
+    paths:
+      - 'acs/version2_upgrade.py'
+      - 'tests/test_version2_upgrade.py'
+      - '.github/workflows/v2-data-release-upgrade.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: accessible-chess-v2-data-release-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  V2_UPSTREAM: b18ac89bb7f1ef3d4106517fe3521179ab4522a1
+
+jobs:
+  focused-upgrade:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Ownership and scope isolation
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor "$V2_UPSTREAM" HEAD
+          git diff --check "$V2_UPSTREAM" HEAD
+          changed="$(git diff --name-only "$V2_UPSTREAM" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/v2-data-release-upgrade.yml' \
+            'acs/version2_upgrade.py' \
+            'tests/test_version2_upgrade.py' | sort)"
+          test "$changed" = "$expected"
+          git diff --quiet "$V2_UPSTREAM" HEAD -- \
+            acs/acsdb.py acs/settings.py acs/release_preflight.py \
+            acs/stage1_release_ui.py acs/stage1_release_ui_core.py tools/qa
+      - name: Compile upgrade package
+        run: python -m compileall -q acs tests run_accessible_chess.py
+      - name: Version 2 upgrade and owned migration regressions
+        run: >-
+          python -m unittest -v
+          tests.test_version2_upgrade
+          tests.test_settings
+          tests.test_d07_acsdb_migration_atomicity
+          tests.test_windows_data_release_regressions
+
+  full-regression:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install pinned verification dependency
+        run: python -m pip install -q pytest==8.4.2
+      - name: Full unittest
+        run: python -m unittest discover -s tests -t . -v
+      - name: Full pytest
+        run: python -m pytest -q
