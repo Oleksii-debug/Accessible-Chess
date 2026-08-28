@@ -36,13 +36,31 @@ jobs:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
-      - name: Preserve committed Git bytes for cross-platform blob identity gates
+      - name: Preserve exact Git bytes for cross-platform blob identity gates
         shell: bash
         run: |
           set -euo pipefail
           git config core.autocrlf false
           git config core.eol lf
+          git reset --hard HEAD
           git checkout-index --force --all
+
+      - name: Restore frozen Stage1 blobs byte-exact on Windows
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          while IFS='=' read -r path expected; do
+            git cat-file blob "HEAD:$path" > "$path"
+            actual="$(git hash-object --no-filters "$path")"
+            test "$actual" = "$expected" || {
+              printf 'Frozen Stage 1 workspace blob mismatch: %s expected=%s actual=%s\n' "$path" "$expected" "$actual" >&2
+              exit 1
+            }
+          done <<'FROZEN_STAGE1'
+          acs/stage1_release_ui_core.py=b8586a26b9ab20c3d3ec0b0a3dbbbd53e38e94e6
+          acs/webapp_keymap_core.py=0ba06f548d39dad7372e0339b3e121fd1717cc05
+          FROZEN_STAGE1
 
       - uses: actions/setup-python@v5
         with:
