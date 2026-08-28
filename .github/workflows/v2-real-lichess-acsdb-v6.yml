@@ -1,0 +1,124 @@
+name: Accessible Chess V2 Real Lichess ACSDB V6
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/v2-real-lichess-acsdb-v6.yml'
+      - 'tests/v2_real_lichess_acsdb_v6_probe.py'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: accessible-chess-v2-real-lichess-acsdb-v6-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  V6_OWNER_SHA: c1bd4f0c7610365458689a786ebb56d1c7d073df
+
+jobs:
+  real-lichess-v6:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - name: Checkout exact QA head
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Normalize worktree to canonical Git bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config core.autocrlf false
+          git config core.eol lf
+          git reset --hard HEAD
+
+      - name: Prove exact v6 owner ancestry and evidence-only scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          git cat-file -e "$V6_OWNER_SHA^{commit}"
+          test "$(git merge-base HEAD "$V6_OWNER_SHA")" = "$V6_OWNER_SHA"
+          git diff --check "$V6_OWNER_SHA" HEAD
+          changed="$(git diff --name-only "$V6_OWNER_SHA" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/v2-real-lichess-acsdb-v6.yml' \
+            'tests/v2_real_lichess_acsdb_v6_probe.py' | sort)"
+          test "$changed" = "$expected" || {
+            printf 'Unexpected v6 real-corpus QA scope:\n%s\n' "$changed" >&2
+            exit 1
+          }
+          git diff --quiet "$V6_OWNER_SHA" HEAD -- acs web tools run_accessible_chess.py
+          echo "V6 real-corpus evidence-only scope PASS"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install pinned QA dependencies
+        run: python -m pip install -q pytest==8.4.2 zstandard==0.23.0
+
+      - name: Compile
+        run: python -m compileall -q acs tests/v2_real_lichess_acsdb_v6_probe.py
+
+      - name: Run legal real 10k plus Unicode Lichess v6 journey
+        id: corpus
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -o pipefail
+          python -m tests.v2_real_lichess_acsdb_v6_probe 2>&1 | tee real-lichess-acsdb-v6.log
+
+      - name: Focused v6 and inherited Library regressions
+        if: always()
+        run: >-
+          python -m unittest -v
+          tests.test_v2_library_integrity_repair
+          tests.test_v2_library_date_filter_v5
+          tests.test_v2_library_acsdb_search_v4
+          tests.test_v2_library_search_service_v4
+          tests.test_acsdb
+          tests.test_d07_acsdb_migration_atomicity
+          tests.test_d07_library_import_service
+          tests.test_d07_library_import_start_lock
+          tests.test_d07_library_import_transaction_ownership
+          tests.test_d07_library_search_cancellation
+          tests.test_d07_search_semantic_equivalence
+          tests.test_d07_search_scalar_equivalence
+
+      - name: Full repository unittest
+        if: always()
+        run: python -m unittest discover -s tests -v
+
+      - name: Full repository pytest
+        if: always()
+        run: python -m pytest -q tests
+
+      - name: SELFTEST and complete diagnostic
+        if: always()
+        run: |
+          python -m acs.selftest
+          python run_accessible_chess.py --diagnostic
+
+      - name: Upload evidence only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v2-real-lichess-acsdb-v6-${{ matrix.os }}
+          path: |
+            real-lichess-acsdb-v6-summary.json
+            real-lichess-acsdb-v6.log
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Enforce real-corpus verdict after regressions
+        if: always()
+        shell: bash
+        run: |
+          test "${{ steps.corpus.outcome }}" = "success"
