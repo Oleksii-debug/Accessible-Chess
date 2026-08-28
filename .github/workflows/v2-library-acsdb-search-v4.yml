@@ -61,6 +61,7 @@ jobs:
           expected="$(printf '%s\n' \
             '.github/workflows/v2-library-acsdb-search-v4.yml' \
             'acs/acsdb.py' \
+            'acs/search_policy.py' \
             'acs/search_service.py' \
             'tests/test_d07_library_import_service.py' \
             'tests/test_v2_library_acsdb_search_v4.py' \
@@ -86,6 +87,7 @@ jobs:
           tests.test_d07_library_search_cancellation
           tests.test_d07_search_semantic_equivalence
           tests.test_d07_search_scalar_equivalence
+          tests.test_windows_data_release_regressions
       - name: Full repository unittest
         run: python -m unittest discover -s tests -v
       - name: Full repository pytest
