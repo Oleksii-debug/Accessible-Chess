@@ -5,6 +5,7 @@ on:
     paths:
       - 'acs/version2_upgrade.py'
       - 'tests/test_version2_upgrade.py'
+      - 'tests/test_version2_upgrade_stale_writer.py'
       - 'acs/version2_package_preflight.py'
       - 'tests/test_version2_package_preflight.py'
       - '.github/workflows/v2-data-release-upgrade.yml'
@@ -47,7 +48,8 @@ jobs:
             'acs/version2_package_preflight.py' \
             'acs/version2_upgrade.py' \
             'tests/test_version2_package_preflight.py' \
-            'tests/test_version2_upgrade.py' | sort)"
+            'tests/test_version2_upgrade.py' \
+            'tests/test_version2_upgrade_stale_writer.py' | sort)"
           test "$changed" = "$expected"
           git diff --quiet "$V2_UPSTREAM" HEAD -- \
             acs/acsdb.py acs/settings.py acs/release_preflight.py \
@@ -58,6 +60,7 @@ jobs:
         run: >-
           python -m unittest -v
           tests.test_version2_upgrade
+          tests.test_version2_upgrade_stale_writer
           tests.test_version2_package_preflight
           tests.test_settings
           tests.test_d07_acsdb_migration_atomicity
