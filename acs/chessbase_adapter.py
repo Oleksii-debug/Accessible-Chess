@@ -24,7 +24,7 @@ _PRIMARY_EXTENSIONS = {
     ".cbone": "ChessBase single-file database",
 }
 
-_COMPONENT_EXTENSIONS = {
+_CLASSIC_COMPONENT_EXTENSIONS = {
     ".cbg": "game/move and variation data component",
     ".cba": "annotations/auxiliary component",
     ".cbp": "players index/component",
@@ -33,6 +33,14 @@ _COMPONENT_EXTENSIONS = {
     ".cbs": "source/index auxiliary component",
 }
 
+_LEGACY_CBF_COMPONENT_EXTENSIONS = {
+    ".cbi": "legacy ChessBase index companion",
+}
+
+_COMPONENT_EXTENSIONS = {
+    **_CLASSIC_COMPONENT_EXTENSIONS,
+    **_LEGACY_CBF_COMPONENT_EXTENSIONS,
+}
 _ALL_EXTENSIONS = {**_PRIMARY_EXTENSIONS, **_COMPONENT_EXTENSIONS}
 
 
@@ -109,32 +117,90 @@ def _suffix(path: Path) -> str:
     return path.suffix.lower()
 
 
-def _case_insensitive_directory_index(directory: Path) -> dict[str, Path]:
-    """Return lowercase filename -> real path without mutating or opening files."""
+def _case_insensitive_directory_index(
+    directory: Path,
+    *,
+    watched_names: Iterable[str] = (),
+) -> dict[str, Path]:
+    """Return case-folded filename -> real path and reject relevant collisions.
+
+    An unrelated case-collision in a shared import directory must not poison a
+    different database family. Only collisions for names that the caller is
+    actually resolving are ambiguous and fail closed.
+    """
     if not directory.exists() or not directory.is_dir():
         return {}
+    watched = {name.casefold() for name in watched_names}
     try:
-        return {entry.name.lower(): entry for entry in directory.iterdir() if entry.is_file()}
+        result: dict[str, Path] = {}
+        for entry in directory.iterdir():
+            if not entry.is_file():
+                continue
+            folded = entry.name.casefold()
+            previous = result.get(folded)
+            if (
+                folded in watched
+                and previous is not None
+                and previous.name != entry.name
+            ):
+                raise ChessBaseProbeIOError(
+                    "Companion directory contains case-colliding filenames"
+                )
+            if previous is None:
+                result[folded] = entry
+        return result
+    except ChessBaseProbeIOError:
+        raise
     except OSError as exc:
-        raise ChessBaseProbeIOError("Companion directory is unavailable due to filesystem I/O") from exc
+        raise ChessBaseProbeIOError(
+            "Companion directory is unavailable due to filesystem I/O"
+        ) from exc
 
 
 def _classic_cbh_components(source: Path) -> tuple[ChessBaseComponent, ...]:
-    directory_index = _case_insensitive_directory_index(source.parent)
     stem = source.stem
+    expected_names = [
+        f"{stem}{extension}" for extension in _CLASSIC_COMPONENT_EXTENSIONS
+    ]
+    directory_index = _case_insensitive_directory_index(
+        source.parent,
+        watched_names=expected_names,
+    )
     items: list[ChessBaseComponent] = []
-    for extension, role in _COMPONENT_EXTENSIONS.items():
+    for extension, role in _CLASSIC_COMPONENT_EXTENSIONS.items():
         expected_name = f"{stem}{extension}"
-        real_path = directory_index.get(expected_name.lower(), source.with_suffix(extension))
+        real_path = directory_index.get(
+            expected_name.casefold(), source.with_suffix(extension)
+        )
         items.append(
             ChessBaseComponent(
                 path=real_path,
                 extension=extension,
                 role=role,
-                exists=expected_name.lower() in directory_index,
+                exists=expected_name.casefold() in directory_index,
             )
         )
     return tuple(items)
+
+
+def _legacy_cbf_components(source: Path) -> tuple[ChessBaseComponent, ...]:
+    """Observe the mandatory same-stem CBI index without claiming decode support."""
+    expected_name = f"{source.stem}.cbi"
+    directory_index = _case_insensitive_directory_index(
+        source.parent,
+        watched_names=(expected_name,),
+    )
+    real_path = directory_index.get(
+        expected_name.casefold(), source.with_suffix(".cbi")
+    )
+    return (
+        ChessBaseComponent(
+            path=real_path,
+            extension=".cbi",
+            role=_LEGACY_CBF_COMPONENT_EXTENSIONS[".cbi"],
+            exists=expected_name.casefold() in directory_index,
+        ),
+    )
 
 
 def probe_chessbase_source(path: str | Path) -> ChessBaseSourceProbe:
@@ -159,8 +225,12 @@ def probe_chessbase_source(path: str | Path) -> ChessBaseSourceProbe:
         source_kind = "single_file_database"
         components = ()
     elif extension == ".cbf":
-        source_kind = "legacy_database"
-        components = ()
+        source_kind = "legacy_two_file_database"
+        try:
+            components = _legacy_cbf_components(source)
+        except ChessBaseProbeIOError as exc:
+            components = ()
+            topology_error = str(exc)
     elif extension in _COMPONENT_EXTENSIONS:
         source_kind = "component"
         components = ()
@@ -170,18 +240,22 @@ def probe_chessbase_source(path: str | Path) -> ChessBaseSourceProbe:
 
     warnings: list[str] = []
     if not recognized:
-        warnings.append("Unrecognized ChessBase-family extension; no import attempted.")
+        warnings.append(
+            "Unrecognized ChessBase-family extension; no import attempted."
+        )
     elif not is_primary:
         warnings.append(
             "Recognized ChessBase component file only; select the database primary source "
-            "(for example .cbh) rather than importing this component independently."
+            "(for example .cbh or .cbf) rather than importing this component independently."
         )
         warnings.append(
-            "No verified decoder is enabled; component recognition is provenance metadata only."
+            "Component recognition is provenance/topology metadata only; it does not "
+            "create standalone decoder support."
         )
     else:
         warnings.append(
-            "Format family recognized by filename/component layout only; no verified decoder is enabled."
+            "Format family recognized by filename/component layout only; runtime decoder "
+            "availability must be established separately."
         )
         warnings.append(
             "Source must remain read-only; import must target ACSDB/PGN or another new output."
@@ -192,17 +266,40 @@ def probe_chessbase_source(path: str | Path) -> ChessBaseSourceProbe:
             )
         elif extension == ".cbh":
             if topology_error:
-                warnings.append(topology_error + "; companion presence could not be verified.")
+                warnings.append(
+                    topology_error + "; companion presence could not be verified."
+                )
             else:
-                found = [component.extension for component in components if component.exists]
+                found = [
+                    component.extension
+                    for component in components
+                    if component.exists
+                ]
                 if found:
                     warnings.append(
-                        "Classic CBH companion files detected: " + ", ".join(found) + "."
+                        "Classic CBH companion files detected: "
+                        + ", ".join(found)
+                        + "."
                     )
                 else:
                     warnings.append(
-                        "No classic CBH companion files were detected beside the header; database may be incomplete or unavailable."
+                        "No classic CBH companion files were detected beside the header; "
+                        "database may be incomplete or unavailable."
                     )
+        elif extension == ".cbf":
+            if topology_error:
+                warnings.append(
+                    topology_error + "; the mandatory CBF/CBI pair could not be verified."
+                )
+            elif components and components[0].exists:
+                warnings.append(
+                    "Legacy CBF/CBI pair detected; this proves source topology only, "
+                    "not semantic decoder support."
+                )
+            else:
+                warnings.append(
+                    "Legacy CBF source is incomplete without a same-stem .cbi index companion."
+                )
 
     return ChessBaseSourceProbe(
         path=source,
