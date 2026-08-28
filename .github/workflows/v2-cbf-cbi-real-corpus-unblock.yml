@@ -1,0 +1,154 @@
+name: V2 CBF CBI Real Corpus Unblock
+
+on:
+  push:
+    branches:
+      - work/v2-cbf-cbi-real-corpus-unblock-20260828
+  pull_request:
+    branches:
+      - work/v2-cbf-cbi-evidence-20260828
+    paths:
+      - tests/test_v2_cbf_cbi_real_corpus_unblock.py
+      - docs/automation/V2_CBF_CBI_REAL_CORPUS_UNBLOCK.json
+      - docs/automation/V2_CBF_CBI_REAL_CORPUS_UNBLOCK.md
+      - .github/workflows/v2-cbf-cbi-real-corpus-unblock.yml
+
+permissions:
+  contents: read
+
+env:
+  V2_CBF_REAL_BASE: 0454f9e19854da9c2261bba4b5d64e688fa3b909
+  SCIDB_COMMIT: 7c1c9d89f2fabab0c1252cdd14c515fb9bfc1415
+  SCID_COMMIT: 5837653efa3975c64cff232006d9f981b36ac56b
+
+jobs:
+  qualification-contract:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install pinned verification dependency
+        run: python -m pip install -q pytest==8.4.2
+      - name: Exact ancestry scope and compile checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor "$V2_CBF_REAL_BASE" HEAD
+          git diff --check "$V2_CBF_REAL_BASE" HEAD
+          unexpected="$(git diff --name-only "$V2_CBF_REAL_BASE" HEAD | grep -Ev '^(tests/test_v2_cbf_cbi_real_corpus_unblock\.py|docs/automation/V2_CBF_CBI_REAL_CORPUS_UNBLOCK\.json|docs/automation/V2_CBF_CBI_REAL_CORPUS_UNBLOCK\.md|\.github/workflows/v2-cbf-cbi-real-corpus-unblock\.yml)$' || true)"
+          if [[ -n "$unexpected" ]]; then
+            printf 'Unexpected files outside CBF/CBI real-corpus qualification scope:\n%s\n' "$unexpected"
+            exit 1
+          fi
+          python -m compileall -q acs tests run_accessible_chess.py
+      - name: CBF CBI no-overclaim qualification contract
+        run: python -m unittest -v tests.test_v2_cbf_cbi_real_corpus_unblock
+      - name: Pytest parity
+        run: python -m pytest -q tests/test_v2_cbf_cbi_real_corpus_unblock.py tests/test_v2_chessbase_capability_manifest.py tests/test_chessbase_adapter.py tests/test_chessbase_integrity.py
+
+  scidb-cbh2si4-build-probe:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout Accessible Chess evidence
+        uses: actions/checkout@v4
+        with:
+          path: product
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Checkout exact Scidb source
+        uses: actions/checkout@v4
+        with:
+          repository: foolnotion/scidb
+          ref: 7c1c9d89f2fabab0c1252cdd14c515fb9bfc1415
+          path: upstream/scidb
+          fetch-depth: 1
+      - name: Checkout exact Scid PGN exporter source
+        uses: actions/checkout@v4
+        with:
+          repository: lpt/scid
+          ref: 5837653efa3975c64cff232006d9f981b36ac56b
+          path: upstream/scid
+          fetch-depth: 1
+      - name: Verify exact source identities and read-only contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C upstream/scidb rev-parse HEAD)" = "$SCIDB_COMMIT"
+          test "$(git -C upstream/scid rev-parse HEAD)" = "$SCID_COMMIT"
+          test "$(git -C upstream/scidb hash-object src/cbh2si4.cpp)" = "1830d059b987e3b9d4b97803d92f33936a69ace1"
+          test "$(git -C upstream/scidb hash-object src/db/cbf/cbf_codec.cpp)" = "c9608dc93e704070c5ec7f8294d09e6c52374b53"
+          test "$(git -C upstream/scid hash-object scripts/scidpgn.tcl)" = "84273490e8ee6b47bc78ca26a274ab559845e7b5"
+          grep -F 'strcmp(cbhPath.c_str() + cbhPath.size() - 4, ".cbf")' upstream/scidb/src/cbh2si4.cpp
+          grep -F 'permission::ReadOnly' upstream/scidb/src/cbh2si4.cpp
+          grep -F 'format::Scid4' upstream/scidb/src/cbh2si4.cpp
+          grep -F 'sc_base open -fast -readonly' upstream/scid/scripts/scidpgn.tcl
+          grep -F 'sc_game pgn -tags 1 -comments 1 -var 1' upstream/scid/scripts/scidpgn.tcl
+          grep -q 'GNU GENERAL PUBLIC LICENSE' upstream/scidb/COPYING
+          grep -q 'GNU GENERAL PUBLIC LICENSE' upstream/scid/COPYING
+      - name: Install Scidb command-line build dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential \
+            tcl8.6 tcl8.6-dev tk8.6 tk8.6-dev \
+            libfreetype6-dev libsm-dev libice-dev libx11-dev libxcursor-dev \
+            libfontconfig1-dev libgdbm-dev libexpat1-dev zlib1g-dev libminizip-dev
+      - name: Configure and build exact cbh2si4 CLI
+        working-directory: upstream/scidb
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./configure \
+            --prefix="$PWD/_qualified" \
+            --exec-prefix="$PWD/_qualified" \
+            --disable-freedesktop 2>&1 | tee "$GITHUB_WORKSPACE/scidb-configure.log"
+          make -C src recursive -j2 2>&1 | tee "$GITHUB_WORKSPACE/scidb-recursive-build.log"
+          make -C src cbh2si4 -j2 2>&1 | tee "$GITHUB_WORKSPACE/scidb-cbh2si4-build.log"
+          test -x src/cbh2si4
+          src/cbh2si4 --help 2>&1 | tee "$GITHUB_WORKSPACE/cbh2si4-help.log"
+          grep -F 'ChessBase database' "$GITHUB_WORKSPACE/cbh2si4-help.log"
+      - name: Upload backend qualification logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v2-cbf-cbi-backend-build-probe
+          path: |
+            scidb-configure.log
+            scidb-recursive-build.log
+            scidb-cbh2si4-build.log
+            cbh2si4-help.log
+          if-no-files-found: ignore
+          retention-days: 3
+
+  full-regression:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install test dependencies
+        run: python -m pip install -q pytest==8.4.2
+      - name: Exact ancestry and diff hygiene
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor "$V2_CBF_REAL_BASE" HEAD
+          git diff --check "$V2_CBF_REAL_BASE" HEAD
+      - name: Full unittest
+        run: python -m unittest discover -s tests -p 'test*.py'
+      - name: Full pytest
+        run: python -m pytest -q
