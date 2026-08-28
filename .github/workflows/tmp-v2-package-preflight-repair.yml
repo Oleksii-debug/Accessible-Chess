@@ -1,0 +1,105 @@
+name: Temporary V2 Package Preflight Repair
+
+on:
+  push:
+    branches:
+      - tmp/v2-data-release-package-repair-20260828
+
+permissions:
+  contents: write
+
+jobs:
+  materialize:
+    if: github.event.head_commit.message != 'tmp: materialize V2 package preflight repair'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: tmp/v2-data-release-package-repair-20260828
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Apply exact repair
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          source_path = Path('acs/version2_package_preflight.py')
+          text = source_path.read_text(encoding='utf-8')
+
+          old = '''    for field, expected in required.items():\n        if data.get(field) != expected:\n            _fail(f"release manifest contract mismatch: {field}")\n'''
+          new = '''    for field, expected in required.items():\n        actual = data.get(field)\n        if type(actual) is not type(expected) or actual != expected:\n            _fail(f"release manifest contract mismatch: {field}")\n'''
+          if text.count(old) != 1:
+              raise SystemExit('manifest scalar contract anchor mismatch')
+          text = text.replace(old, new)
+
+          old = '''def _scan_text_hygiene(root: Path, inventory: tuple[str, ...], limits: PackageLimits) -> None:\n    for relative in inventory:\n        path = root.joinpath(*PurePosixPath(relative).parts)\n        try:\n            if path.stat().st_size > limits.max_text_scan_bytes:\n                continue\n            payload = path.read_bytes()\n        except OSError as exc:\n            _fail(f"package hygiene scan failed: {type(exc).__name__}")\n        if b"\\x00" in payload:\n            continue\n        try:\n            text = payload.decode("utf-8-sig")\n        except UnicodeDecodeError:\n            continue\n        if any(pattern.search(text) for pattern in _PRIVATE_PATH_PATTERNS):\n            _fail(f"private local path leaked into package text: {relative}")\n        if any(pattern.search(text) for pattern in _SECRET_PATTERNS):\n            _fail(f"secret-like credential leaked into package text: {relative}")\n'''
+          new = '''def _scan_text_hygiene(root: Path, inventory: tuple[str, ...], limits: PackageLimits) -> None:\n    # Scan every package byte stream. max_text_scan_bytes is a bounded chunk\n    # size, not an exemption threshold; package total bytes are bounded earlier.\n    chunk_size = min(limits.max_text_scan_bytes, 1024 * 1024)\n    overlap_bytes = 8192\n    for relative in inventory:\n        path = root.joinpath(*PurePosixPath(relative).parts)\n        tail = b""\n        try:\n            with path.open("rb") as handle:\n                while True:\n                    block = handle.read(chunk_size)\n                    if not block:\n                        break\n                    window = tail + block\n                    # Credential/private-path signatures are ASCII. Ignore\n                    # undecodable binary bytes rather than bypassing the file.\n                    candidate = window.decode("utf-8", errors="ignore")\n                    if any(pattern.search(candidate) for pattern in _PRIVATE_PATH_PATTERNS):\n                        _fail(f"private local path leaked into package text: {relative}")\n                    if any(pattern.search(candidate) for pattern in _SECRET_PATTERNS):\n                        _fail(f"secret-like credential leaked into package text: {relative}")\n                    tail = window[-overlap_bytes:]\n        except Version2PackagePreflightError:\n            raise\n        except OSError as exc:\n            _fail(f"package hygiene scan failed: {type(exc).__name__}")\n'''
+          if text.count(old) != 1:
+              raise SystemExit('hygiene anchor mismatch')
+          text = text.replace(old, new)
+
+          anchor = '''def validate_version2_package_tree(\n    root: str | Path,\n    *,\n    limits: PackageLimits = PackageLimits(),\n) -> Version2PackagePreflightReport:\n'''
+          replacement = '''def _normalize_expected_integration_sha(value: str) -> str:\n    if not isinstance(value, str) or not _SHA40_RE.fullmatch(value.casefold()):\n        _fail("expected integration authority must be a 40-hex commit")\n    return value.casefold()\n\n\ndef validate_version2_package_tree(\n    root: str | Path,\n    *,\n    expected_integration_sha: str,\n    limits: PackageLimits = PackageLimits(),\n) -> Version2PackagePreflightReport:\n'''
+          if text.count(anchor) != 1:
+              raise SystemExit('tree signature anchor mismatch')
+          text = text.replace(anchor, replacement)
+
+          old = '''    root = Path(root)\n    inventory, total = _inventory(root, limits)\n    _validate_topology(root, inventory)\n    integration_sha, _ = _manifest(root)\n    checksums = _checksums(root, inventory)\n'''
+          new = '''    expected_sha = _normalize_expected_integration_sha(expected_integration_sha)\n    root = Path(root)\n    inventory, total = _inventory(root, limits)\n    _validate_topology(root, inventory)\n    integration_sha, _ = _manifest(root)\n    if integration_sha != expected_sha:\n        _fail("release manifest integration_sha does not match expected integration authority")\n    checksums = _checksums(root, inventory)\n'''
+          if text.count(old) != 1:
+              raise SystemExit('tree body anchor mismatch')
+          text = text.replace(old, new)
+
+          old = '''def validate_version2_package_zip(\n    zip_path: str | Path,\n    *,\n    limits: PackageLimits = PackageLimits(),\n) -> Version2PackagePreflightReport:\n'''
+          new = '''def validate_version2_package_zip(\n    zip_path: str | Path,\n    *,\n    expected_integration_sha: str,\n    limits: PackageLimits = PackageLimits(),\n) -> Version2PackagePreflightReport:\n'''
+          if text.count(old) != 1:
+              raise SystemExit('zip signature anchor mismatch')
+          text = text.replace(old, new)
+
+          old = '''                report = validate_version2_package_tree(root, limits=limits)\n'''
+          new = '''                report = validate_version2_package_tree(\n                    root,\n                    expected_integration_sha=expected_integration_sha,\n                    limits=limits,\n                )\n'''
+          if text.count(old) != 1:
+              raise SystemExit('zip readback anchor mismatch')
+          text = text.replace(old, new)
+          source_path.write_text(text, encoding='utf-8')
+
+          test_path = Path('tests/test_version2_package_preflight.py')
+          tests = test_path.read_text(encoding='utf-8')
+          anchor = '_SHA = "a" * 40\n\n\n'
+          helpers = '''_SHA = "a" * 40\n\n\ndef _validate_tree(root, **kwargs):\n    return validate_version2_package_tree(\n        root, expected_integration_sha=_SHA, **kwargs\n    )\n\n\ndef _validate_zip(archive, **kwargs):\n    return validate_version2_package_zip(\n        archive, expected_integration_sha=_SHA, **kwargs\n    )\n\n\n'''
+          if tests.count(anchor) != 1:
+              raise SystemExit('test helper anchor mismatch')
+          tests = tests.replace(anchor, helpers)
+          tree_calls = tests.count('validate_version2_package_tree(')
+          zip_calls = tests.count('validate_version2_package_zip(')
+          # Two calls are the helper bodies just inserted; rewrite all remaining\n          # legacy owner-test invocations to the authority-bound helpers.\n          parts = tests.split('def _sha256', 1)
+          if len(parts) != 2:
+              raise SystemExit('test body split mismatch')
+          prefix, body = parts
+          body = body.replace('validate_version2_package_tree(', '_validate_tree(')
+          body = body.replace('validate_version2_package_zip(', '_validate_zip(')
+          tests = prefix + 'def _sha256' + body
+          if tree_calls < 2 or zip_calls < 2:
+              raise SystemExit('unexpected validator call count')
+          test_path.write_text(tests, encoding='utf-8')
+          PY
+      - name: Focused RED-to-GREEN verification
+        run: >-
+          python -m unittest -v
+          tests.test_version2_package_preflight
+          tests.test_version2_package_preflight_hardening
+      - name: Commit materialized blobs
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          git diff --exit-code -- .github/workflows/tmp-v2-package-preflight-repair.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add acs/version2_package_preflight.py tests/test_version2_package_preflight.py
+          git commit -m 'tmp: materialize V2 package preflight repair'
+          git push origin HEAD:tmp/v2-data-release-package-repair-20260828
