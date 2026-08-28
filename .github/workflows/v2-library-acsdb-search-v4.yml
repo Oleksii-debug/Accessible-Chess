@@ -60,6 +60,7 @@ jobs:
           expected="$(printf '%s\n' \
             '.github/workflows/v2-library-acsdb-search-v4.yml' \
             'acs/acsdb.py' \
+            'tests/test_d07_library_import_service.py' \
             'tests/test_v2_library_acsdb_search_v4.py' \
             'tools/v2_library_acsdb_search_v4_benchmark.py' | sort)"
           test "$changed" = "$expected"
@@ -105,7 +106,7 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          python tools/v2_library_acsdb_search_v4_benchmark.py --games 100000 --repeats 5 | tee v2-acsdb-v4-100k.json
+          PYTHONPATH=. python tools/v2_library_acsdb_search_v4_benchmark.py --games 100000 --repeats 5 | tee v2-acsdb-v4-100k.json
       - name: Upload benchmark evidence
         if: always()
         uses: actions/upload-artifact@v4
