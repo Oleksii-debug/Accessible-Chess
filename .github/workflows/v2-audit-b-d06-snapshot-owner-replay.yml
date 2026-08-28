@@ -1,9 +1,11 @@
 name: V2 Audit-B D06 Snapshot Owner Replay
 
 on:
-  push:
-    branches:
-      - audit/v2-d06-snapshot-owner-replay-20260828
+  pull_request:
+    paths:
+      - 'tests/test_v2_audit_b_d06_snapshot_owner_replay.py'
+      - '.github/workflows/v2-audit-b-d06-snapshot-owner-replay.yml'
+      - 'acs/gametree_snapshot.py'
 
 permissions:
   contents: read
