@@ -49,6 +49,19 @@ class Version2UpgradeRecoveryError(Version2UpgradeError):
     pass
 
 
+class _DuplicateJsonKeyError(ValueError):
+    pass
+
+
+def _unique_json_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    result: dict[str, object] = {}
+    for key, value in pairs:
+        if key in result:
+            raise _DuplicateJsonKeyError(key)
+        result[key] = value
+    return result
+
+
 @dataclass(frozen=True, slots=True)
 class UpgradeLimits:
     max_files: int = 100_000
@@ -621,9 +634,18 @@ class Version2UpgradeCoordinator:
         self._notify(phase)
 
     def _read_json(self, path: Path, label: str) -> dict[str, object]:
-        _safe_stat(path, label)
         try:
-            value = json.loads(path.read_text(encoding="utf-8"))
+            info = _safe_stat(path, label)
+            if not stat.S_ISREG(info.st_mode):
+                raise Version2UpgradeRecoveryError(f"{label} must be a file")
+            value = json.loads(
+                path.read_text(encoding="utf-8"),
+                object_pairs_hook=_unique_json_object,
+            )
+        except _DuplicateJsonKeyError as exc:
+            raise Version2UpgradeRecoveryError(
+                f"{label} contains duplicate JSON keys"
+            ) from exc
         except (OSError, UnicodeError, json.JSONDecodeError) as exc:
             raise Version2UpgradeRecoveryError(f"{label} is unreadable") from exc
         if not isinstance(value, dict):
@@ -632,17 +654,41 @@ class Version2UpgradeCoordinator:
 
     def _journal(self) -> dict[str, object]:
         raw = self._read_json(self.layout.journal_path, "upgrade journal")
+        schema_version = raw.get("schema_version")
+        phase = raw.get("phase")
         if (
-            raw.get("schema_version") != UPGRADE_JOURNAL_SCHEMA_VERSION
-            or raw.get("phase") not in _PHASES
+            type(schema_version) is not int
+            or schema_version != UPGRADE_JOURNAL_SCHEMA_VERSION
+            or not isinstance(phase, str)
+            or phase not in _PHASES
         ):
             raise Version2UpgradeRecoveryError("invalid upgrade journal")
         upgrade_id = raw.get("upgrade_id")
+        backup_name = raw.get("backup_name")
         if (
             not isinstance(upgrade_id, str)
-            or raw.get("backup_name") != upgrade_id
+            or not isinstance(backup_name, str)
+            or backup_name != upgrade_id
         ):
             raise Version2UpgradeRecoveryError("upgrade journal identity mismatch")
+        if (
+            type(raw.get("target_settings_schema")) is not int
+            or raw.get("target_settings_schema") != SETTINGS_SCHEMA_VERSION
+            or type(raw.get("target_acsdb_schema")) is not int
+            or raw.get("target_acsdb_schema") != ACSDB_SCHEMA_VERSION
+        ):
+            raise Version2UpgradeRecoveryError(
+                "upgrade journal target schema mismatch"
+            )
+        if type(raw.get("recovered_interrupted_upgrade")) is not bool:
+            raise Version2UpgradeRecoveryError("invalid upgrade journal metadata")
+        updated_at = raw.get("updated_at")
+        if not isinstance(updated_at, str) or not updated_at:
+            raise Version2UpgradeRecoveryError("invalid upgrade journal metadata")
+        if "error_code" in raw and (
+            not isinstance(raw["error_code"], str) or not raw["error_code"]
+        ):
+            raise Version2UpgradeRecoveryError("invalid upgrade journal metadata")
         try:
             _portable_component(upgrade_id, "upgrade identifier")
         except ValueError as exc:
@@ -651,30 +697,59 @@ class Version2UpgradeCoordinator:
 
     def _manifest(self, upgrade_id: str) -> tuple[Path, dict[str, object]]:
         backup = self.layout.backup_root / upgrade_id
-        info = _safe_stat(backup, "upgrade backup directory")
+        try:
+            info = _safe_stat(backup, "upgrade backup directory")
+        except (OSError, Version2UpgradeError) as exc:
+            raise Version2UpgradeRecoveryError(
+                "upgrade backup directory is missing"
+            ) from exc
         if not stat.S_ISDIR(info.st_mode):
             raise Version2UpgradeRecoveryError(
                 "upgrade backup directory is missing"
             )
         raw = self._read_json(backup / "manifest.json", "upgrade backup manifest")
+        schema_version = raw.get("schema_version")
+        entries = raw.get("entries")
+        library_schema = raw.get("library_schema_before")
         if (
-            raw.get("schema_version") != _BACKUP_MANIFEST_SCHEMA_VERSION
+            type(schema_version) is not int
+            or schema_version != _BACKUP_MANIFEST_SCHEMA_VERSION
+            or not isinstance(raw.get("upgrade_id"), str)
             or raw.get("upgrade_id") != upgrade_id
+            or not isinstance(raw.get("settings_name"), str)
             or raw.get("settings_name") != self.layout.settings_name
+            or not isinstance(raw.get("library_name"), str)
             or raw.get("library_name") != self.layout.library_name
-            or not isinstance(raw.get("entries"), list)
+            or not isinstance(raw.get("created_at"), str)
+            or not raw.get("created_at")
+            or not isinstance(entries, list)
+            or not (
+                library_schema is None
+                or (type(library_schema) is int and library_schema >= 0)
+            )
         ):
             raise Version2UpgradeRecoveryError(
-                "upgrade backup manifest identity is invalid"
+                "upgrade backup manifest identity or schema metadata is invalid"
             )
         seen: set[str] = set()
         total = 0
-        for item in raw["entries"]:
+        library_entry_seen = False
+        for item in entries:
             if not isinstance(item, dict):
                 raise Version2UpgradeRecoveryError(
                     "upgrade backup entry is invalid"
                 )
-            path = _relative_token(str(item.get("path", "")), "upgrade backup path")
+            raw_path = item.get("path")
+            if not isinstance(raw_path, str):
+                raise Version2UpgradeRecoveryError(
+                    "upgrade backup entry metadata is invalid"
+                )
+            try:
+                path = _relative_token(raw_path, "upgrade backup path")
+            except Version2UpgradeError as exc:
+                raise Version2UpgradeRecoveryError(
+                    "upgrade backup entry metadata is invalid"
+                ) from exc
             size, digest = item.get("size"), item.get("sha256")
             if (
                 path.casefold() in seen
@@ -688,13 +763,21 @@ class Version2UpgradeCoordinator:
                     "upgrade backup entry metadata is invalid"
                 )
             seen.add(path.casefold())
+            library_entry_seen = library_entry_seen or (
+                path.casefold() == self.layout.library_name.casefold()
+            )
             total += size
             if len(seen) > self.limits.max_files or total > self.limits.max_bytes:
                 raise Version2UpgradeRecoveryError(
                     "upgrade backup exceeds recovery limits"
                 )
             candidate = backup / "data" / Path(*PurePosixPath(path).parts)
-            candidate_info = _safe_stat(candidate, "upgrade backup file")
+            try:
+                candidate_info = _safe_stat(candidate, "upgrade backup file")
+            except (OSError, Version2UpgradeError) as exc:
+                raise Version2UpgradeRecoveryError(
+                    "upgrade backup checksum mismatch"
+                ) from exc
             if (
                 not stat.S_ISREG(candidate_info.st_mode)
                 or candidate_info.st_size != size
@@ -703,6 +786,10 @@ class Version2UpgradeCoordinator:
                 raise Version2UpgradeRecoveryError(
                     "upgrade backup checksum mismatch"
                 )
+        if library_entry_seen != (library_schema is not None):
+            raise Version2UpgradeRecoveryError(
+                "upgrade backup manifest library schema metadata is inconsistent"
+            )
         return backup, raw
 
     def _restore(self, upgrade_id: str) -> int:
@@ -739,6 +826,22 @@ class Version2UpgradeCoordinator:
                 raise Version2UpgradeRecoveryError(
                     "upgrade backup changed during recovery"
                 )
+            try:
+                readback = _safe_stat(destination, "restored tracked data")
+                if (
+                    not stat.S_ISREG(readback.st_mode)
+                    or readback.st_size != item["size"]
+                    or _hash(destination) != item["sha256"]
+                ):
+                    raise Version2UpgradeRecoveryError(
+                        "tracked recovery readback mismatch"
+                    )
+            except Version2UpgradeRecoveryError:
+                raise
+            except Exception as exc:
+                raise Version2UpgradeRecoveryError(
+                    "tracked recovery readback validation failed"
+                ) from exc
             restored += 1
         for known in (self.layout.settings_name, self.layout.library_name):
             if known.casefold() not in originals:
@@ -760,6 +863,46 @@ class Version2UpgradeCoordinator:
                     )
                 sidecar.unlink()
         _fsync_dir(self.layout.root)
+
+        try:
+            if self.layout.settings_name.casefold() in originals:
+                settings_info = _safe_stat(
+                    self.layout.settings_path, "restored settings readback"
+                )
+                if not stat.S_ISREG(settings_info.st_mode):
+                    raise Version2UpgradeRecoveryError(
+                        "tracked settings recovery readback is not a file"
+                    )
+                candidate = self.settings_factory(
+                    self.layout.root / ".settings.recovery-readback"
+                )
+                candidate.import_json(
+                    self.layout.settings_path.read_text(encoding="utf-8"),
+                    persist=False,
+                )
+            if self.layout.library_name.casefold() in originals:
+                connection = sqlite3.connect(
+                    self.layout.library_path.resolve(strict=True).as_uri()
+                    + "?mode=ro",
+                    uri=True,
+                    timeout=0.0,
+                )
+                try:
+                    connection.execute("PRAGMA busy_timeout=0")
+                    restored_schema = _quick_check(connection)
+                finally:
+                    connection.close()
+                library_schema = manifest.get("library_schema_before")
+                if restored_schema != library_schema:
+                    raise Version2UpgradeRecoveryError(
+                        "tracked library recovery readback schema mismatch"
+                    )
+        except Version2UpgradeRecoveryError:
+            raise
+        except Exception as exc:
+            raise Version2UpgradeRecoveryError(
+                "tracked recovery readback validation failed"
+            ) from exc
         return restored
 
     def _recover_locked(self) -> bool:
