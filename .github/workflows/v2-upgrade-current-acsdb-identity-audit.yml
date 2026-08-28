@@ -83,4 +83,5 @@ jobs:
           cleanup
           trap - EXIT
       - name: Independent current-schema ACSDB identity oracle
+        if: ${{ always() }}
         run: python -m unittest -v tests.test_v2_upgrade_current_acsdb_identity_audit
