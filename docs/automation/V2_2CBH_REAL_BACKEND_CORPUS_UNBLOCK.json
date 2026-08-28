@@ -1,0 +1,90 @@
+{
+  "schema_version": 1,
+  "role": "V2-CHESSBASE-FORMATS",
+  "swarm_lane_key": "ACCESSIBLE-CHESS-V2-2CBH-REAL-BACKEND-CORPUS-UNBLOCK-20260828",
+  "parent_pr": 306,
+  "parent_sha": "e3c13d07a338d79764e71e4bef096900aa860cac",
+  "format": "2CBH",
+  "status": "BLOCKED",
+  "support_promotion_allowed": false,
+  "product_decoder_available": false,
+  "product_safe_to_import": false,
+  "official_evidence": {
+    "introduced_with": "ChessBase 17",
+    "fewer_files_than_classic_cbh": true,
+    "search_accelerators_not_required": true,
+    "official_example_observed_same_root_members": [
+      ".2cba",
+      ".2cbg",
+      ".2cbh",
+      ".2lcd",
+      ".2lgd",
+      ".2lid",
+      ".ini"
+    ],
+    "official_example_source": "https://help.chessbase.com/Fritz/19/Eng/new_data_format_2cbh.htm",
+    "format_overview_source": "https://help.chessbase.com/CBase/18/Eng/new_data_format_2cbh.htm",
+    "false_truncated_suffixes_rejected": [
+      ".2cd",
+      ".2gd",
+      ".2ld"
+    ],
+    "component_roles_qualified": false,
+    "complete_normative_component_map_qualified": false
+  },
+  "real_world_evidence": {
+    "ultracorr2025": {
+      "real_database": true,
+      "games_reported": 2680000,
+      "annotations_reported": true,
+      "archive": "UC-2025.2cbz",
+      "archive_expands_to_reported_files": 7,
+      "redistributable_ci_fixture": false,
+      "automatable_password_available": false,
+      "independent_pgn_oracle": false,
+      "source": "https://www.chessmail.com/UC-2025/Download-UC2025-newformat.html"
+    },
+    "commercial_chessbase_products": {
+      "real_2cbh_products_exist": true,
+      "raw_family_bytes_available_for_ci": false,
+      "independent_oracle_for_exact_bytes": false
+    }
+  },
+  "open_source_backend_probe": {
+    "rolandlo_libcbh": {
+      "commit": "9641c5c3949d8fb210b17dd9aa54455645843696",
+      "license": "GPL-2.0",
+      "classic_cbh_reader": true,
+      "2cbh_surface_found": false
+    },
+    "foolnotion_scidb": {
+      "commit": "7c1c9d89f2fabab0c1252cdd14c515fb9bfc1415",
+      "license": "GPL",
+      "classic_cbh_cbf_reader": true,
+      "2cbh_surface_found": false
+    },
+    "isarhamster_chessx": {
+      "commit": "e734a075346ca2ad7e3f3e35b42140169637c5ca",
+      "license": "GPL-2.0-or-later",
+      "scid_reader": true,
+      "2cbh_surface_found": false
+    }
+  },
+  "semantic_claims": {
+    "moves_decoded": false,
+    "variations_decoded": false,
+    "annotations_decoded": false,
+    "metadata_decoded": false,
+    "canonical_gametree_proven": false,
+    "library_roundtrip_proven": false
+  },
+  "blockers": [
+    "qualified complete component map with semantic roles",
+    "lawfully reusable real 2CBH family",
+    "independent PGN or GameTree oracle for the exact family",
+    "reproducible external 2CBH decoder/backend",
+    "bounded and trusted external execution contract",
+    "canonical legality and GameTree validation",
+    "Library/Search/Open/Export/Reopen/Integrity end-to-end equivalence"
+  ]
+}
