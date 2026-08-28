@@ -34,6 +34,14 @@ jobs:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
+      - name: Preserve committed Git bytes for cross-platform blob identity gates
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config core.autocrlf false
+          git config core.eol lf
+          git checkout-index --force --all
+
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
