@@ -1,0 +1,30 @@
+name: Temporary V2 Upgrade Source Export
+
+on:
+  push:
+    branches:
+      - tmp/v2-data-release-source-export-20260828
+
+permissions:
+  contents: read
+
+jobs:
+  export-source:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - name: Record exact source identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          git rev-parse HEAD
+          git hash-object acs/version2_upgrade.py
+          sha256sum acs/version2_upgrade.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: v2-upgrade-source
+          path: acs/version2_upgrade.py
+          if-no-files-found: error
+          retention-days: 1
