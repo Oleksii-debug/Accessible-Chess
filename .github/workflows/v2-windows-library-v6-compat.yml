@@ -1,0 +1,195 @@
+name: V2 Windows Library v6 Compatibility
+
+on:
+  push:
+    branches:
+      - qa/v2-windows-library-v6-compat-20260828
+  pull_request:
+    branches:
+      - work/v2-windows-nvda-ui-20260828
+    paths:
+      - '.github/workflows/v2-windows-library-v6-compat.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: v2-windows-library-v6-compat-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  HOST_BASE: dc7427cb89a0b6a997cae467f82265778ea78168
+  STAGING_SHA: 47750f4a1ad452e6b9b8811afaa3cc699bde4ea8
+
+jobs:
+  compose-host-over-library-v6:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Preserve exact Git bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config core.autocrlf false
+          git config core.eol lf
+          git reset --hard HEAD
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install pinned verification dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install -q pytest==8.4.2
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            python -m pip install -q pythonnet==3.0.5
+          fi
+
+      - name: Prove QA-only branch and exact composition inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor "$HOST_BASE" HEAD
+          test "$(git merge-base "$HOST_BASE" HEAD)" = "$HOST_BASE"
+          git diff --check "$HOST_BASE" HEAD
+          test "$(git diff --name-only "$HOST_BASE" HEAD)" = '.github/workflows/v2-windows-library-v6-compat.yml'
+          git cat-file -e "$STAGING_SHA^{commit}"
+          git merge-base --is-ancestor 575ec0088982d2f90adb47c040a5714d68186b0e "$STAGING_SHA"
+          test "$(git rev-parse "$STAGING_SHA:acs/acsdb.py")" != "$(git rev-parse '575ec0088982d2f90adb47c040a5714d68186b0e:acs/acsdb.py')"
+          test "$(git rev-parse "$STAGING_SHA:acs/pgn_service.py")" = "$(git rev-parse '575ec0088982d2f90adb47c040a5714d68186b0e:acs/pgn_service.py')"
+
+      - name: Materialize exact Library-v6 staging plus exact D01 host overlay
+        shell: bash
+        run: |
+          set -euo pipefail
+          git worktree add --detach composed "$STAGING_SHA"
+          host_paths=(
+            acs/version2_windows_file_workflows.py
+            acs/version2_windows_host_runtime.py
+            acs/version2_windows_import_event_mailbox.py
+            acs/version2_windows_import_ui_pump.py
+            acs/version2_windows_native_dialog_ownership.py
+            acs/version2_windows_pgn_export.py
+            tests/test_v2_windows_host_runtime.py
+            tests/test_v2_windows_import_event_mailbox.py
+            tests/test_v2_windows_import_ui_pump.py
+            tests/test_v2_windows_native_dialog_ownership.py
+            tests/test_v2_windows_nvda_file_workflows.py
+            tests/test_v2_windows_pgn_export.py
+          )
+          for path in "${host_paths[@]}"; do
+            if git cat-file -e "$STAGING_SHA:$path" 2>/dev/null; then
+              echo "Staging unexpectedly already owns D01 overlay path: $path"
+              exit 1
+            fi
+          done
+          git archive "$HOST_BASE" "${host_paths[@]}" | tar -x -C composed
+          for path in "${host_paths[@]}"; do
+            expected="$(git rev-parse "$HOST_BASE:$path")"
+            actual="$(git -C composed hash-object "$path")"
+            test "$actual" = "$expected"
+          done
+          for path in acs/acsdb.py acs/search_policy.py acs/search_service.py acs/library_import_service.py acs/pgn_service.py; do
+            expected="$(git rev-parse "$STAGING_SHA:$path")"
+            actual="$(git -C composed hash-object "$path")"
+            test "$actual" = "$expected"
+          done
+          test "$(git -C composed diff --name-only)" = ''
+          test "$(git -C composed ls-files --others --exclude-standard | sort)" = "$(printf '%s\n' "${host_paths[@]}" | sort)"
+
+      - name: Compile exact composed worktree
+        working-directory: composed
+        run: python -m compileall -q acs tests run_accessible_chess.py
+
+      - name: Focused D01 host plus Library-v6 contracts
+        working-directory: composed
+        run: >-
+          python -m unittest -v
+          tests.test_v2_windows_nvda_file_workflows
+          tests.test_v2_windows_host_runtime
+          tests.test_v2_windows_import_event_mailbox
+          tests.test_v2_windows_import_ui_pump
+          tests.test_v2_windows_native_dialog_ownership
+          tests.test_v2_windows_pgn_export
+          tests.test_d07_library_import_service
+          tests.test_v2_library_acsdb_search_v4
+          tests.test_v2_library_search_service_v4
+          tests.test_v2_library_date_filter_v5
+          tests.test_v2_library_integrity_repair
+
+      - name: Focused pytest parity
+        working-directory: composed
+        run: >-
+          python -m pytest -q
+          tests/test_v2_windows_nvda_file_workflows.py
+          tests/test_v2_windows_host_runtime.py
+          tests/test_v2_windows_import_event_mailbox.py
+          tests/test_v2_windows_import_ui_pump.py
+          tests/test_v2_windows_native_dialog_ownership.py
+          tests/test_v2_windows_pgn_export.py
+          tests/test_d07_library_import_service.py
+          tests/test_v2_library_acsdb_search_v4.py
+          tests/test_v2_library_search_service_v4.py
+          tests/test_v2_library_date_filter_v5.py
+          tests/test_v2_library_integrity_repair.py
+
+      - name: Windows WinForms owner runtime smoke on Library-v6 staging
+        if: runner.os == 'Windows'
+        working-directory: composed
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from acs.version2_windows_host_runtime import Version2WindowsFileWorkflowRuntime
+          from acs.version2_windows_import_ui_pump import Version2WinFormsUiPoster
+          from System.Windows.Forms import Control
+
+          owner = Control()
+          runtime = Version2WindowsFileWorkflowRuntime(
+              owner_control=owner,
+              get_pgn_session=lambda: None,
+              set_pgn_session=lambda session: None,
+              import_services_factory=lambda: None,
+              export_selected=lambda request, destination: None,
+              import_ui_ready=lambda mailbox: None,
+              pgn_export_event_sink=lambda event: None,
+              next_delegate=lambda action_id, payload: None,
+          )
+          try:
+              poster = Version2WinFormsUiPoster(owner)
+              delegate = poster._system_action(lambda: None)
+              assert delegate is not None
+              assert runtime.file_dialogs.dialog_owner.resolve() is owner
+              assert runtime.export_dialogs.dialog_owner.resolve() is owner
+              assert runtime.shutdown()
+              assert runtime.closed
+          finally:
+              owner.Dispose()
+          print('WINDOWS D01 HOST OVER LIBRARY V6 STAGING PASS')
+          PY
+
+      - name: Full repository unittest on composed worktree
+        working-directory: composed
+        run: python -m unittest discover -s tests -v
+
+      - name: Full repository pytest on composed worktree
+        working-directory: composed
+        run: python -m pytest -q tests
+
+      - name: SELFTEST and complete diagnostic on composed worktree
+        working-directory: composed
+        run: |
+          python -m acs.selftest
+          python run_accessible_chess.py --diagnostic
