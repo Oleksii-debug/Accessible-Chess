@@ -1,0 +1,88 @@
+name: V2 Audit-B Book FEN One-Core Oracle
+
+on:
+  push:
+    branches:
+      - audit/v2-book-fen-onecore-20260828
+  pull_request:
+    paths:
+      - 'tests/test_v2_audit_b_book_fen_onecore.py'
+      - '.github/workflows/v2-audit-b-book-fen-onecore.yml'
+      - 'acs/bookdocument.py'
+      - 'acs/bookreader.py'
+      - 'acs/chesscore.py'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: v2-audit-b-book-fen-onecore-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  audit-oracle:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install pinned verification dependency
+        run: python -m pip install -q pytest==8.4.2
+      - name: Exact authority and evidence-only scope
+        shell: bash
+        env:
+          PRODUCT_HEAD: 575ec0088982d2f90adb47c040a5714d68186b0e
+          BOOK_BLOB: 63e3e52d6078fdb003819ca915f7c2553c8983c7
+          CORE_BLOB: eb9229b5ee107afe06cdf8a916f466e1474dddd4
+        run: |
+          set -euo pipefail
+          test "$(git merge-base "$PRODUCT_HEAD" HEAD)" = "$PRODUCT_HEAD"
+          git diff --check "$PRODUCT_HEAD" HEAD
+          changed="$(git diff --name-only "$PRODUCT_HEAD" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/v2-audit-b-book-fen-onecore.yml' \
+            'tests/test_v2_audit_b_book_fen_onecore.py' | sort)"
+          test "$changed" = "$expected"
+          test "$(git rev-parse HEAD:acs/bookdocument.py)" = "$BOOK_BLOB"
+          test "$(git rev-parse HEAD:acs/chesscore.py)" = "$CORE_BLOB"
+      - name: Compile audit surface
+        run: python -m compileall -q tests/test_v2_audit_b_book_fen_onecore.py
+      - name: Existing Book and canonical FEN regressions remain green
+        run: >-
+          python -m unittest -v
+          tests.test_bookdocument
+          tests.test_bookreader
+          tests.test_dev2_fen_atomicity
+          tests.test_position_editor
+      - name: Broad exact-product regressions remain green
+        shell: bash
+        env:
+          PRODUCT_HEAD: 575ec0088982d2f90adb47c040a5714d68186b0e
+        run: |
+          set -euo pipefail
+          product_tree="../v2-book-fen-product-${GITHUB_RUN_ID}-${RUNNER_OS}"
+          rm -rf "$product_tree"
+          git worktree add --detach "$product_tree" "$PRODUCT_HEAD"
+          cleanup() {
+            git worktree remove --force "$product_tree" >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+          (
+            cd "$product_tree"
+            python -m unittest discover -s tests
+            python -m pytest -q tests
+          )
+          cleanup
+          trap - EXIT
+      - name: Independent Book FEN one-core oracle
+        if: ${{ always() }}
+        run: python -m unittest -v tests.test_v2_audit_b_book_fen_onecore
