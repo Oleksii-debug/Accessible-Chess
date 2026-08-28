@@ -13,12 +13,13 @@ from acs.chessbase_library_import import ChessBaseLibraryImportService
 from acs.game_identity import same_game_record, same_game_tree
 from acs.gametree import PgnGame, VariationLine, parse_games
 from acs.pgn_service import open_pgn, save_pgn_atomic
-from acs.search_service import GameSearchQuery, GameSearchService
+from acs.search_service import GameSearchItem, GameSearchQuery, GameSearchService
 
 
 LIBCBH_COMMIT = "9641c5c3949d8fb210b17dd9aa54455645843696"
 _PROMOTION_RE = re.compile(r"=([QRBN])")
 _CORE_TAGS = ("Event", "Site", "Date", "Round", "Result")
+_SEARCH_PAGE_LIMIT = 200
 
 
 def _ready() -> bool:
@@ -86,11 +87,45 @@ def _assert_metadata(test: unittest.TestCase, actual: PgnGame, expected: PgnGame
     return name_order_differences
 
 
-def _stored_games(database: AcsDatabase, source_id: int) -> tuple[PgnGame, ...]:
-    page = GameSearchService(database).search(GameSearchQuery(source_id=source_id, limit=1000))
-    if page.has_more:
-        raise AssertionError("promotion corpus unexpectedly exceeds one bounded QA page")
-    ordered = sorted(page.items, key=lambda item: item.source_index)
+def _source_items(database: AcsDatabase, source_id: int) -> tuple[tuple[GameSearchItem, ...], int]:
+    """Enumerate the complete source through the Product's bounded keyset API."""
+
+    service = GameSearchService(database)
+    items: list[GameSearchItem] = []
+    after_game_id: int | None = None
+    page_count = 0
+
+    while True:
+        page = service.search(
+            GameSearchQuery(
+                source_id=source_id,
+                after_game_id=after_game_id,
+                limit=_SEARCH_PAGE_LIMIT,
+            )
+        )
+        page_count += 1
+        if page.items:
+            if items and page.items[0].game_id <= items[-1].game_id:
+                raise AssertionError("promotion corpus keyset paging did not advance")
+            items.extend(page.items)
+
+        if not page.has_more:
+            if page.next_after_game_id is not None:
+                raise AssertionError("terminal Search page published an unexpected cursor")
+            break
+
+        next_cursor = page.next_after_game_id
+        if next_cursor is None:
+            raise AssertionError("non-terminal Search page omitted its keyset cursor")
+        if after_game_id is not None and next_cursor <= after_game_id:
+            raise AssertionError("promotion corpus Search cursor did not advance")
+        after_game_id = next_cursor
+
+    return tuple(items), page_count
+
+
+def _stored_games(database: AcsDatabase, items: tuple[GameSearchItem, ...]) -> tuple[PgnGame, ...]:
+    ordered = sorted(items, key=lambda item: item.source_index)
     games: list[PgnGame] = []
     for item in ordered:
         row = database.get_game(item.game_id)
@@ -147,12 +182,13 @@ class RealCbhPromotionsCorpusTests(unittest.TestCase):
                 self.assertEqual(report.warning_count, 0)
                 self.assertEqual(report.source_format, "cbh")
 
-                source_page = GameSearchService(database).search(
-                    GameSearchQuery(source_id=report.library_result.source_id, limit=1000)
+                source_items, search_page_count = _source_items(
+                    database,
+                    report.library_result.source_id,
                 )
-                self.assertEqual(len(source_page.items), len(reference))
+                self.assertEqual(len(source_items), len(reference))
                 self.assertEqual(
-                    [item.source_index for item in source_page.items],
+                    [item.source_index for item in source_items],
                     list(range(len(reference))),
                 )
 
@@ -161,7 +197,7 @@ class RealCbhPromotionsCorpusTests(unittest.TestCase):
                 )
                 self.assertGreaterEqual(len(player_page.items), 1)
 
-                stored = _stored_games(database, report.library_result.source_id)
+                stored = _stored_games(database, source_items)
                 self.assertEqual(len(stored), len(reference))
                 for index, (stored_game, expected) in enumerate(zip(stored, reference)):
                     self.assertTrue(
@@ -205,6 +241,8 @@ class RealCbhPromotionsCorpusTests(unittest.TestCase):
                     "normalized_name_order_differences": name_order_differences,
                     "all_game_trees": "PASS",
                     "library_search": "PASS",
+                    "search_page_limit": _SEARCH_PAGE_LIMIT,
+                    "search_page_count": search_page_count,
                     "export_reopen": "PASS",
                     "acsdb_reopen": "PASS",
                     "database_bytes": database_bytes,
