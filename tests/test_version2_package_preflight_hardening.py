@@ -16,7 +16,7 @@ from acs.version2_package_preflight import (
 from tests.test_version2_package_preflight import _make_tree, _write_checksums, _zip_tree
 
 
-_EXPECTED_SHA = "bde040a4c3a6080403d6f5b85f89587558b6aae5"
+_EXPECTED_SHA = "a" * 40
 _WRONG_SHA = "0" * 40
 
 
