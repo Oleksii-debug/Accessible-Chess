@@ -83,6 +83,83 @@ jobs:
             upstream/libcbh/gtest/UnusualStart/UnusualStartBytes.cbh \
             upstream/libcbh/gtest/UnusualStart/UnusualStart.pgn
 
+      - name: Capture raw bridge and Product decoder boundary evidence
+        working-directory: product
+        shell: bash
+        env:
+          LIBCBH_BRIDGE: ${{ github.workspace }}/product/build/libcbh/libcbh-json-bridge
+          LIBCBH_UNUSUAL_DIR: ${{ github.workspace }}/upstream/libcbh/gtest/UnusualStart
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from __future__ import annotations
+          import json
+          import os
+          from pathlib import Path
+          import subprocess
+
+          from acs.chessbase_decoder import ExternalChessBaseDecoderConfig, decode_chessbase_external
+
+          libcbh_commit = os.environ["LIBCBH_COMMIT"]
+          bridge = Path(os.environ["LIBCBH_BRIDGE"])
+          source = Path(os.environ["LIBCBH_UNUSUAL_DIR"]) / "UnusualStartBytes.cbh"
+
+          completed = subprocess.run(
+              [str(bridge), "--json-v1", str(source)],
+              check=True,
+              stdout=subprocess.PIPE,
+              stderr=subprocess.PIPE,
+          )
+          payload = json.loads(completed.stdout.decode("utf-8", errors="strict"))
+          raw_summary = {
+              "backend": payload.get("backend"),
+              "backend_commit": payload.get("backend_commit"),
+              "game_count": len(payload.get("games", [])),
+              "games": [],
+          }
+          for game in payload.get("games", []):
+              moves = game.get("moves")
+              raw_summary["games"].append(
+                  {
+                      "index": game.get("index"),
+                      "status": game.get("status"),
+                      "error_code": game.get("error_code"),
+                      "start_fen": game.get("start_fen"),
+                      "move_count": len(moves) if isinstance(moves, list) else None,
+                  }
+              )
+          Path("real-cbh-unusual-start-raw.json").write_text(
+              json.dumps(raw_summary, sort_keys=True, ensure_ascii=False, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          print("CBH_UNUSUAL_START_RAW=" + json.dumps(raw_summary, sort_keys=True, ensure_ascii=False))
+
+          config = ExternalChessBaseDecoderConfig(
+              bridge,
+              expected_backend_commit=libcbh_commit,
+              timeout_seconds=120,
+              library_directory=bridge.parent,
+          )
+          decoded = decode_chessbase_external(source, config)
+          decoded_summary = {
+              "decoded_games": len(decoded.games),
+              "warning_count": len(decoded.warnings),
+              "warnings": [
+                  {
+                      "game_index": warning.game_index,
+                      "code": warning.code,
+                      "message": warning.message,
+                  }
+                  for warning in decoded.warnings
+              ],
+          }
+          Path("real-cbh-unusual-start-decoder.json").write_text(
+              json.dumps(decoded_summary, sort_keys=True, ensure_ascii=False, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          print("CBH_UNUSUAL_START_DECODER=" + json.dumps(decoded_summary, sort_keys=True, ensure_ascii=False))
+          PY
+
       - name: Compile QA and Product surfaces
         working-directory: product
         run: python -m compileall -q acs tests/test_v2_real_cbh_unusual_start.py
@@ -134,6 +211,8 @@ jobs:
           path: |
             product/real-cbh-unusual-start.log
             product/real-cbh-unusual-start.status
+            product/real-cbh-unusual-start-raw.json
+            product/real-cbh-unusual-start-decoder.json
           if-no-files-found: ignore
           retention-days: 7
 
@@ -174,7 +253,27 @@ jobs:
           set -euo pipefail
           git config core.autocrlf false
           git config core.eol lf
-          git reset --hard HEAD
+          git checkout-index -a -f
+          python - <<'PY'
+          from __future__ import annotations
+          import hashlib
+          from pathlib import Path
+          import subprocess
+
+          for rel in (
+              "acs/stage1_release_ui_core.py",
+              "acs/webapp_keymap_core.py",
+          ):
+              data = Path(rel).read_bytes()
+              actual = hashlib.sha1(f"blob {len(data)}\0".encode("ascii") + data).hexdigest()
+              expected = subprocess.check_output(
+                  ["git", "rev-parse", f"HEAD:{rel}"],
+                  text=True,
+              ).strip()
+              if actual != expected:
+                  raise SystemExit(f"canonical Git-byte materialization failed for {rel}: {actual} != {expected}")
+              print(f"CANONICAL_GIT_BLOB={rel}:{actual}")
+          PY
 
       - name: Prove exact authority ancestry and evidence-only scope
         shell: bash
