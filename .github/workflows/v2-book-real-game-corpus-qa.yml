@@ -1,0 +1,128 @@
+name: V2 Book Real Game Corpus QA
+
+on:
+  push:
+    branches:
+      - qa/v2-book-real-game-corpus-20260828
+  pull_request:
+    branches:
+      - work/v2-book-canonical-game-content-20260828
+    paths:
+      - 'scripts/book_real_game_corpus_oracle.py'
+      - '.github/workflows/v2-book-real-game-corpus-qa.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: v2-book-real-game-corpus-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  real-book-game-corpus:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    env:
+      PACKAGE_PARENT_SHA: 294ec622c9feb6d4cd28b3cd66bb817d0d146ec6
+      PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Preserve exact Git bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config core.autocrlf false
+          git config core.eol lf
+          git checkout-index --force --all
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install pinned QA dependencies
+        run: python -m pip install -q pytest==8.4.2 zstandard==0.23.0
+
+      - name: Prove evidence-only Books ownership and ancestry
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            upstream="$PR_BASE_SHA"
+          elif git rev-parse --verify HEAD^2 >/dev/null 2>&1; then
+            upstream="$(git rev-parse HEAD^2)"
+          else
+            upstream="$PACKAGE_PARENT_SHA"
+          fi
+          test -n "$upstream"
+          git cat-file -e "$upstream^{commit}"
+          git merge-base --is-ancestor "$upstream" HEAD
+          test "$(git merge-base "$upstream" HEAD)" = "$upstream"
+          git diff --check "$upstream" HEAD
+          changed="$(git diff --name-only "$upstream" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/v2-book-real-game-corpus-qa.yml' \
+            'scripts/book_real_game_corpus_oracle.py' | sort)"
+          test "$changed" = "$expected"
+          git diff --quiet "$upstream" HEAD -- acs tests web run_accessible_chess.py
+          test "$(git rev-parse HEAD:acs/book_game_content.py)" = "$(git rev-parse "$PACKAGE_PARENT_SHA:acs/book_game_content.py")"
+          test "$(git rev-parse HEAD:acs/gametree.py)" = "$(git rev-parse "$PACKAGE_PARENT_SHA:acs/gametree.py")"
+          test "$(git rev-parse HEAD:acs/pgn_roundtrip.py)" = "$(git rev-parse "$PACKAGE_PARENT_SHA:acs/pgn_roundtrip.py")"
+          test "$(git rev-parse HEAD:acs/bookdocument.py)" = "$(git rev-parse "$PACKAGE_PARENT_SHA:acs/bookdocument.py")"
+          echo 'BOOK REAL CORPUS EVIDENCE-ONLY SCOPE PASS'
+
+      - name: Compile real Book corpus oracle
+        run: python -m py_compile scripts/book_real_game_corpus_oracle.py
+
+      - name: Focused canonical Books regressions
+        run: >-
+          python -m unittest -v
+          tests.test_v2_book_game_content
+          tests.test_gametree
+          tests.test_d06_pgn_roundtrip
+          tests.test_bookdocument
+          tests.test_v2_book_progress_store
+
+      - name: Verify pinned real annotated material through the Books boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m scripts.book_real_game_corpus_oracle --scan-limit 2000 --accepted-target 96 2>&1 | tee book-real-game-corpus-report.txt
+          grep -F '"source_sha256": "ea977569917718b33940ba5379db2adad77d58876c29084294d357f15fe6a31b"' book-real-game-corpus-report.txt
+          grep -F '"source_license": "CC BY-SA 4.0"' book-real-game-corpus-report.txt
+          grep -F '"canonical_ingress": "acs.pgn_roundtrip.parse_pgn_text(strict=False)"' book-real-game-corpus-report.txt
+          grep -F '"candidate_record_sha256": "af61c8a9631f1156f12d3a17bbdeb822b8073c6e1bbcfcb0b21e04afdd90502a"' book-real-game-corpus-report.txt
+          grep -F '"prefix_sha256": "1ab774b1f4ce4558bac6c21f76eef14776b10ad56e07fe45fc02ec867f0ace87"' book-real-game-corpus-report.txt
+          grep -F '"license": "CC0"' book-real-game-corpus-report.txt
+          grep -F '"reference_mode_real_game": true' book-real-game-corpus-report.txt
+          grep -F '"pgn_parser_support_claimed_here": false' book-real-game-corpus-report.txt
+          grep -F '"raw_eval_decoder_support_claimed_here": false' book-real-game-corpus-report.txt
+          grep -F 'BOOK REAL GAME CORPUS QA PASS' book-real-game-corpus-report.txt
+
+      - name: Upload Books corpus evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v2-book-real-game-corpus-${{ matrix.os }}
+          path: book-real-game-corpus-report.txt
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Full repository unittest
+        run: python -m unittest discover -s tests
+
+      - name: Full repository pytest
+        run: python -m pytest -q tests
+
+      - name: SELFTEST and complete diagnostic
+        run: |
+          python -m acs.selftest
+          python run_accessible_chess.py --diagnostic
