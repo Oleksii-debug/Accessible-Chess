@@ -1,0 +1,154 @@
+name: Accessible Chess V2 Real Corpus QA
+
+on:
+  push:
+    branches:
+      - qa/v2-real-corpus-20260828
+  pull_request:
+    paths:
+      - '.github/workflows/v2-real-corpus-qa.yml'
+      - 'tests/v2_real_corpus_probe.py'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: accessible-chess-v2-real-corpus-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  V2_AUTHORITY_SHA: b18ac89bb7f1ef3d4106517fe3521179ab4522a1
+  LIBCBH_COMMIT: 9641c5c3949d8fb210b17dd9aa54455645843696
+  UNCBV_COMMIT: 3c18e8a7c6a30c21f945a1ab5462521c306dca57
+
+jobs:
+  twic1134-cross-format:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 50
+    steps:
+      - name: Checkout exact V2 QA descendant
+        uses: actions/checkout@v4
+        with:
+          path: product
+          fetch-depth: 0
+
+      - name: Prove evidence-only ownership and exact authority ancestry
+        working-directory: product
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor "$V2_AUTHORITY_SHA" HEAD
+          git diff --check "$V2_AUTHORITY_SHA" HEAD
+          changed="$(git diff --name-only "$V2_AUTHORITY_SHA" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/v2-real-corpus-qa.yml' \
+            'tests/v2_real_corpus_probe.py' | sort)"
+          test "$changed" = "$expected" || {
+            printf 'Unexpected QA scope:\n%s\n' "$changed" >&2
+            exit 1
+          }
+          git diff --quiet "$V2_AUTHORITY_SHA" HEAD -- acs web tools/optional
+          printf 'V2_REAL_CORPUS_AUTHORITY=%s\n' "$V2_AUTHORITY_SHA"
+          printf 'QA_HEAD=%s\n' "$(git rev-parse HEAD)"
+
+      - name: Checkout pinned libcbh evidence corpus
+        uses: actions/checkout@v4
+        with:
+          repository: rolandlo/libcbh
+          ref: 9641c5c3949d8fb210b17dd9aa54455645843696
+          path: upstream/libcbh
+          fetch-depth: 1
+
+      - name: Checkout pinned uncbv evidence corpus
+        uses: actions/checkout@v4
+        with:
+          repository: antoyo/uncbv
+          ref: 3c18e8a7c6a30c21f945a1ab5462521c306dca57
+          path: upstream/uncbv
+          fetch-depth: 1
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Build pinned libcbh and Accessible Chess bridge
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S upstream/libcbh -B upstream/libcbh/build -DCMAKE_BUILD_TYPE=Release -DGTEST=OFF
+          cmake --build upstream/libcbh/build --config Release --parallel 2
+          mkdir -p product/build/libcbh
+          c++ -std=c++20 -O2 \
+            -DLIBCBH_SOURCE_COMMIT=\"$LIBCBH_COMMIT\" \
+            -I upstream/libcbh/include \
+            product/tools/optional/libcbh_json_bridge.cpp \
+            -L upstream/libcbh/build -lcbh \
+            -Wl,-rpath,'$ORIGIN' \
+            -o product/build/libcbh/libcbh-json-bridge
+          cp -a upstream/libcbh/build/libcbh.so* product/build/libcbh/
+          test -x product/build/libcbh/libcbh-json-bridge
+
+      - name: Build pinned uncbv
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo build --release --locked --manifest-path upstream/uncbv/Cargo.toml
+          test -x upstream/uncbv/target/release/uncbv
+          uncbv_sha256="$(sha256sum upstream/uncbv/target/release/uncbv | cut -d' ' -f1)"
+          cbv_sha256="$(sha256sum upstream/uncbv/tests/twic1134.cbv | cut -d' ' -f1)"
+          echo "UNCBV_BINARY_SHA256=$uncbv_sha256" >> "$GITHUB_ENV"
+          echo "TWIC_CBV_SHA256=$cbv_sha256" >> "$GITHUB_ENV"
+          printf 'UNCBV_SHA256=%s\nTWIC1134_CBV_SHA256=%s\n' "$uncbv_sha256" "$cbv_sha256"
+
+      - name: Acquire transient TWIC 1134 PGN oracle without redistributing it
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p transient-corpus/twic1134
+          curl --fail --location --retry 3 --connect-timeout 30 \
+            https://theweekinchess.com/zips/twic1134g.zip \
+            -o transient-corpus/twic1134g.zip
+          zip_sha256="$(sha256sum transient-corpus/twic1134g.zip | cut -d' ' -f1)"
+          pgn_member="$(unzip -Z1 transient-corpus/twic1134g.zip | grep -Ei '\.pgn$' | head -n 1)"
+          test -n "$pgn_member"
+          unzip -q transient-corpus/twic1134g.zip -d transient-corpus/twic1134
+          pgn_path="$(realpath "transient-corpus/twic1134/$pgn_member")"
+          test -s "$pgn_path"
+          echo "TWIC_PGN_ZIP_SHA256=$zip_sha256" >> "$GITHUB_ENV"
+          echo "TWIC_PGN_FIXTURE=$pgn_path" >> "$GITHUB_ENV"
+          printf 'TWIC1134_PGN_ZIP_SHA256=%s\nTWIC1134_PGN_MEMBER=%s\n' "$zip_sha256" "$pgn_member"
+
+      - name: Prove real nested-variation CBH fixture before large corpus
+        working-directory: product
+        env:
+          LIBCBH_BRIDGE: ${{ github.workspace }}/product/build/libcbh/libcbh-json-bridge
+          LIBCBH_FIXTURE_DIR: ${{ github.workspace }}/upstream/libcbh/gtest/WithVariations
+        run: python -m unittest -v tests.test_chessbase_libcbh_external_fixture
+
+      - name: Run real 6117-game CBV to PGN Library Search Export Reopen probe
+        working-directory: product
+        shell: bash
+        env:
+          LIBCBH_BRIDGE: ${{ github.workspace }}/product/build/libcbh/libcbh-json-bridge
+          UNCBV_BINARY: ${{ github.workspace }}/upstream/uncbv/target/release/uncbv
+          UNCBV_FIXTURE: ${{ github.workspace }}/upstream/uncbv/tests/twic1134.cbv
+        run: |
+          set -o pipefail
+          python tests/v2_real_corpus_probe.py 2>&1 | tee real-corpus-probe.log
+
+      - name: Remove transient copyrighted corpus before artifact publication
+        if: always()
+        shell: bash
+        run: rm -rf transient-corpus upstream/uncbv/tests/*.cbv upstream/uncbv/tests/*.cbz || true
+
+      - name: Upload evidence summary only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v2-real-corpus-evidence
+          path: |
+            product/real-corpus-summary.json
+            product/real-corpus-probe.log
+          if-no-files-found: ignore
+          retention-days: 7
