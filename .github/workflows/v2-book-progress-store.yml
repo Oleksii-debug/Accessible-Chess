@@ -5,6 +5,8 @@ on:
     branches:
       - work/v2-book-reading-persistence-20260828
   pull_request:
+    branches:
+      - work/version2-integration-formats-20260827
     paths:
       - 'acs/book_progress_store.py'
       - 'tests/test_v2_book_progress_store.py'
@@ -27,7 +29,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 55
     env:
-      V2_UPSTREAM_SHA: b18ac89bb7f1ef3d4106517fe3521179ab4522a1
+      V2_PACKAGE_PARENT_SHA: b18ac89bb7f1ef3d4106517fe3521179ab4522a1
+      PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -49,20 +52,44 @@ jobs:
       - name: Install verification dependency
         run: python -m pip install -q pytest==8.4.2
 
-      - name: Prove exact ancestry and disjoint Books persistence scope
+      - name: Prove Books persistence ownership and current-base scope
         shell: bash
         run: |
           set -euo pipefail
-          git merge-base --is-ancestor "$V2_UPSTREAM_SHA" HEAD
-          test "$(git merge-base "$V2_UPSTREAM_SHA" HEAD)" = "$V2_UPSTREAM_SHA"
-          git diff --check "$V2_UPSTREAM_SHA" HEAD
-          changed="$(git diff --name-only "$V2_UPSTREAM_SHA" HEAD | sort)"
-          expected="$(printf '%s\n' \
-            '.github/workflows/v2-book-progress-store.yml' \
-            'acs/book_progress_store.py' \
-            'tests/test_v2_book_progress_store.py' | sort)"
-          test "$changed" = "$expected"
-          git diff --quiet "$V2_UPSTREAM_SHA" HEAD -- \
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            upstream="$PR_BASE_SHA"
+            mode="child-pr"
+          else
+            upstream="$V2_PACKAGE_PARENT_SHA"
+            mode="original-package"
+          fi
+          test -n "$upstream"
+          git merge-base --is-ancestor "$upstream" HEAD
+          test "$(git merge-base "$upstream" HEAD)" = "$upstream"
+          git diff --check "$upstream" HEAD
+          changed="$(git diff --name-only "$upstream" HEAD | sort)"
+          test -n "$changed"
+
+          while IFS= read -r path; do
+            case "$path" in
+              .github/workflows/v2-book-progress-store.yml|acs/book_progress_store.py|tests/test_v2_book_progress_store.py)
+                ;;
+              *)
+                echo "Unexpected path outside Book progress ownership: $path" >&2
+                exit 1
+                ;;
+            esac
+          done <<< "$changed"
+
+          if [ "$mode" = "original-package" ]; then
+            expected="$(printf '%s\n' \
+              '.github/workflows/v2-book-progress-store.yml' \
+              'acs/book_progress_store.py' \
+              'tests/test_v2_book_progress_store.py' | sort)"
+            test "$changed" = "$expected"
+          fi
+
+          git diff --quiet "$upstream" HEAD -- \
             acs/bookreader.py \
             acs/book_index.py \
             acs/bookdocument.py \
