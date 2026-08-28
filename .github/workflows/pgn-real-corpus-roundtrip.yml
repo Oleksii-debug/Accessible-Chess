@@ -1,9 +1,6 @@
 name: PGN Real Corpus Round-Trip
 
 on:
-  push:
-    branches:
-      - qa/pgn-real-corpus-roundtrip-20260828
   pull_request:
     paths:
       - 'scripts/pgn_real_corpus_oracle.py'
@@ -31,7 +28,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          ref: ${{ github.event.pull_request.head.sha }}
 
       - name: Preserve exact Git bytes
         shell: bash
@@ -92,7 +89,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python -m scripts.pgn_real_corpus_oracle --games-per-corpus 2000 --batch-size 250 | tee pgn-real-corpus-report.txt
+          python -m scripts.pgn_real_corpus_oracle --games-per-corpus 2000 --batch-size 250 2>&1 | tee pgn-real-corpus-report.txt
           grep -F '"verified_games_total": 4000' pgn-real-corpus-report.txt
           grep -F 'PGN REAL CORPUS ROUND-TRIP PASS' pgn-real-corpus-report.txt
 
