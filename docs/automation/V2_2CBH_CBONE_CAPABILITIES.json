@@ -9,8 +9,10 @@
   ],
   "upstream_product": {
     "repository": "Oleksii-debug/Accessible-Chess",
-    "parent_pr": 302,
-    "sha": "0454f9e19854da9c2261bba4b5d64e688fa3b909"
+    "origin_parent_pr": 302,
+    "origin_parent_sha": "0454f9e19854da9c2261bba4b5d64e688fa3b909",
+    "integration_sync_pr": 295,
+    "integration_sync_sha": "958ae19cd91a135fd3f384d02a880c0ed1adfd10"
   },
   "formats": [
     {
@@ -45,7 +47,7 @@
   "evidence": {
     "chessbase_18_new_2cbh": "https://help.chessbase.com/CBase/18/Eng/new_data_format_2cbh.htm",
     "chessbase_17_database_formats": "https://help.chessbase.com/CBase/17/Eng/database_formats.htm",
-    "checked_utc": "2026-08-28T11:39:00Z",
+    "checked_utc": "2026-08-28T11:55:00Z",
     "real_world_acceptance": "Topology documentation does not substitute for a legal real fixture plus independent semantic oracle.",
     "real_2cbh_commercial_corpus": "https://www.chessmail.com/UC-2025/Download-UC2025-newformat.html",
     "real_2cbh_corpus_observation": "UltraCorr2025 2CBH archive expands to seven files, but access is commercial/passworded and is not a lawful reusable CI fixture or independent semantic oracle."
@@ -69,7 +71,7 @@
   },
   "out_of_scope": {
     "cbh_cbv": "Owned by PR #295 / V2-COORD plus independent audit; not duplicated here.",
-    "cbf_cbi": "Owned by parent PR #302; not requalified here.",
+    "cbf_cbi": "Merged from PR #302 into current integration authority; not requalified here.",
     "cbz": "No support claim in this package."
   }
 }
