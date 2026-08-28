@@ -496,7 +496,6 @@ class LibraryImportService:
 
             try:
                 self._begin_immediate_with_cancellable_busy_wait(cancel_check)
-                _poll_cancel(cancel_check, database=self._db)
 
                 existing_source_id = self._matching_source_id(
                     source_format,
