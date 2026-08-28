@@ -9,6 +9,7 @@ on:
       - 'tests/test_version2_upgrade_recovery_integrity.py'
       - 'acs/version2_package_preflight.py'
       - 'tests/test_version2_package_preflight.py'
+      - 'tests/test_version2_package_preflight_hardening.py'
       - '.github/workflows/v2-data-release-upgrade.yml'
 
 permissions:
@@ -49,6 +50,7 @@ jobs:
             'acs/version2_package_preflight.py' \
             'acs/version2_upgrade.py' \
             'tests/test_version2_package_preflight.py' \
+            'tests/test_version2_package_preflight_hardening.py' \
             'tests/test_version2_upgrade.py' \
             'tests/test_version2_upgrade_recovery_integrity.py' \
             'tests/test_version2_upgrade_stale_writer.py' | sort)"
@@ -65,6 +67,7 @@ jobs:
           tests.test_version2_upgrade_stale_writer
           tests.test_version2_upgrade_recovery_integrity
           tests.test_version2_package_preflight
+          tests.test_version2_package_preflight_hardening
           tests.test_settings
           tests.test_d07_acsdb_migration_atomicity
           tests.test_windows_data_release_regressions
