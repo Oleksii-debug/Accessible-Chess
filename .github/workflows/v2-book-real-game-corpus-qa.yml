@@ -91,7 +91,7 @@ jobs:
           tests.test_bookdocument
           tests.test_v2_book_progress_store
 
-      - name: Verify pinned real annotated games through the Books boundary
+      - name: Verify pinned real annotated material through the Books boundary
         shell: bash
         run: |
           set -euo pipefail
@@ -99,8 +99,12 @@ jobs:
           grep -F '"source_sha256": "ea977569917718b33940ba5379db2adad77d58876c29084294d357f15fe6a31b"' book-real-game-corpus-report.txt
           grep -F '"source_license": "CC BY-SA 4.0"' book-real-game-corpus-report.txt
           grep -F '"canonical_ingress": "acs.pgn_roundtrip.parse_pgn_text(strict=False)"' book-real-game-corpus-report.txt
+          grep -F '"candidate_record_sha256": "af61c8a9631f1156f12d3a17bbdeb822b8073c6e1bbcfcb0b21e04afdd90502a"' book-real-game-corpus-report.txt
+          grep -F '"prefix_sha256": "1ab774b1f4ce4558bac6c21f76eef14776b10ad56e07fe45fc02ec867f0ace87"' book-real-game-corpus-report.txt
+          grep -F '"license": "CC0"' book-real-game-corpus-report.txt
           grep -F '"reference_mode_real_game": true' book-real-game-corpus-report.txt
           grep -F '"pgn_parser_support_claimed_here": false' book-real-game-corpus-report.txt
+          grep -F '"raw_eval_decoder_support_claimed_here": false' book-real-game-corpus-report.txt
           grep -F 'BOOK REAL GAME CORPUS QA PASS' book-real-game-corpus-report.txt
 
       - name: Upload Books corpus evidence
