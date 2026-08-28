@@ -19,18 +19,31 @@ from typing import Iterable
 
 from .gametree import PgnGame, parse_games, serialize_game
 from .search_policy import (
+    SEARCH_DATE_KEY_SQL_FUNCTION,
     SEARCH_FOLD_SQL_FUNCTION,
     install_search_fold,
     literal_like_pattern,
+    normalize_search_date_bound,
     normalize_search_result,
     normalize_search_source_id,
     normalize_search_term,
+    search_fold,
 )
 
 IMPORT_STATUSES = {"full", "partial", "damaged", "warning"}
 IMPORT_ATTEMPT_STATUSES = {"pending", "full", "warning", "damaged", "failed"}
-ACSDB_SCHEMA_VERSION = 3
+ACSDB_SCHEMA_VERSION = 6
 _SQLITE_INTEGER_MAX = (1 << 63) - 1
+_SEARCH_FOLD_TABLE = "game_search_fold"
+_SEARCH_FOLD_DIRTY_TABLE = "game_search_fold_dirty"
+_SEARCH_FOLD_INSERT_TRIGGER = "trg_games_search_fold_insert"
+_SEARCH_FOLD_UPDATE_TRIGGER = "trg_games_search_fold_update"
+_SEARCH_FOLD_DELETE_CLEANUP_TRIGGER = "trg_games_search_fold_delete_cleanup"
+_SEARCH_FOLD_DIRTY_INSERT_TRIGGER = "trg_game_search_fold_dirty_insert"
+_SEARCH_FOLD_DIRTY_UPDATE_TRIGGER = "trg_game_search_fold_dirty_update"
+_SEARCH_FOLD_DIRTY_DELETE_TRIGGER = "trg_game_search_fold_dirty_delete"
+_DATE_RAW_INDEX = "idx_games_game_date"
+_DATE_KEY_INDEX = "idx_games_search_date_key"
 
 
 def _public_import_error(exc: BaseException) -> str:
@@ -62,6 +75,10 @@ class AcsDatabase:
             self.conn.row_factory = sqlite3.Row
             self.conn.execute("PRAGMA foreign_keys = ON")
             self.conn.execute("PRAGMA busy_timeout = 5000")
+            # Schema v4+ uses deterministic search functions inside migrations,
+            # database-level triggers and expression indexes. Install them before
+            # migration so old databases can backfill/index atomically.
+            install_search_fold(self.conn)
             self._migrate_schema()
             if self.path != ":memory:":
                 self.conn.execute("PRAGMA journal_mode = WAL")
@@ -199,6 +216,178 @@ class AcsDatabase:
             """
         )
 
+    def _migrate_to_v4(self) -> None:
+        """Add a normalized Unicode search projection with atomic backfill.
+
+        The sidecar remains derivative storage: canonical game metadata and PGN
+        stay in ``games``. Database triggers keep the projection in the same
+        transaction as canonical writes, including test/admin writes made
+        through the owned connection. A raw external writer that does not
+        install the canonical fold function fails closed instead of publishing a
+        stale search projection.
+        """
+        self._migration_script(
+            f"""
+            CREATE TABLE IF NOT EXISTS {_SEARCH_FOLD_TABLE} (
+                game_id INTEGER PRIMARY KEY REFERENCES games(id) ON DELETE CASCADE,
+                white_fold TEXT,
+                black_fold TEXT,
+                event_fold TEXT,
+                eco_fold TEXT,
+                opening_fold TEXT
+            );
+
+            INSERT OR REPLACE INTO {_SEARCH_FOLD_TABLE}(
+                game_id, white_fold, black_fold, event_fold, eco_fold, opening_fold
+            )
+            SELECT id,
+                   {SEARCH_FOLD_SQL_FUNCTION}(white),
+                   {SEARCH_FOLD_SQL_FUNCTION}(black),
+                   {SEARCH_FOLD_SQL_FUNCTION}(event),
+                   {SEARCH_FOLD_SQL_FUNCTION}(eco),
+                   {SEARCH_FOLD_SQL_FUNCTION}(opening)
+              FROM games;
+
+            CREATE TRIGGER IF NOT EXISTS {_SEARCH_FOLD_INSERT_TRIGGER}
+            AFTER INSERT ON games
+            BEGIN
+                INSERT OR REPLACE INTO {_SEARCH_FOLD_TABLE}(
+                    game_id, white_fold, black_fold, event_fold, eco_fold, opening_fold
+                ) VALUES(
+                    NEW.id,
+                    {SEARCH_FOLD_SQL_FUNCTION}(NEW.white),
+                    {SEARCH_FOLD_SQL_FUNCTION}(NEW.black),
+                    {SEARCH_FOLD_SQL_FUNCTION}(NEW.event),
+                    {SEARCH_FOLD_SQL_FUNCTION}(NEW.eco),
+                    {SEARCH_FOLD_SQL_FUNCTION}(NEW.opening)
+                );
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS {_SEARCH_FOLD_UPDATE_TRIGGER}
+            AFTER UPDATE OF white, black, event, eco, opening ON games
+            BEGIN
+                INSERT OR REPLACE INTO {_SEARCH_FOLD_TABLE}(
+                    game_id, white_fold, black_fold, event_fold, eco_fold, opening_fold
+                ) VALUES(
+                    NEW.id,
+                    {SEARCH_FOLD_SQL_FUNCTION}(NEW.white),
+                    {SEARCH_FOLD_SQL_FUNCTION}(NEW.black),
+                    {SEARCH_FOLD_SQL_FUNCTION}(NEW.event),
+                    {SEARCH_FOLD_SQL_FUNCTION}(NEW.eco),
+                    {SEARCH_FOLD_SQL_FUNCTION}(NEW.opening)
+                );
+            END;
+            """
+        )
+
+    def _migrate_to_v5(self) -> None:
+        """Add indexed exact and calendar-safe game-date search surfaces.
+
+        Raw PGN Date text remains canonical and loss-aware in ``games``. The
+        deterministic expression index derives a sortable key only for complete,
+        real ``YYYY.MM.DD`` dates; partial/unknown/malformed source text remains
+        stored unchanged and cannot be fabricated into calendar range matches.
+        """
+        self._migration_script(
+            f"""
+            CREATE INDEX IF NOT EXISTS {_DATE_RAW_INDEX}
+            ON games(game_date);
+            CREATE INDEX IF NOT EXISTS {_DATE_KEY_INDEX}
+            ON games({SEARCH_DATE_KEY_SQL_FUNCTION}(game_date));
+            """
+        )
+
+    def _migrate_to_v6(self) -> None:
+        """Make derivative search corruption observable before ordinary search.
+
+        Direct SQL changes to the derivative projection are tracked by database
+        triggers in a tiny dirty-id table. Canonical ``games`` writes repair and
+        clear their own id in the same transaction. Migration rebuilds the whole
+        projection from canonical metadata first, so a pre-existing missing or
+        stale v4/v5 sidecar cannot survive into v6 silently.
+        """
+        self._migration_script(
+            f"""
+            CREATE TABLE IF NOT EXISTS {_SEARCH_FOLD_DIRTY_TABLE} (
+                game_id INTEGER PRIMARY KEY
+            );
+
+            CREATE TRIGGER IF NOT EXISTS {_SEARCH_FOLD_DIRTY_INSERT_TRIGGER}
+            AFTER INSERT ON {_SEARCH_FOLD_TABLE}
+            BEGIN
+                INSERT OR IGNORE INTO {_SEARCH_FOLD_DIRTY_TABLE}(game_id) VALUES(NEW.game_id);
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS {_SEARCH_FOLD_DIRTY_UPDATE_TRIGGER}
+            AFTER UPDATE ON {_SEARCH_FOLD_TABLE}
+            BEGIN
+                INSERT OR IGNORE INTO {_SEARCH_FOLD_DIRTY_TABLE}(game_id) VALUES(OLD.game_id);
+                INSERT OR IGNORE INTO {_SEARCH_FOLD_DIRTY_TABLE}(game_id) VALUES(NEW.game_id);
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS {_SEARCH_FOLD_DIRTY_DELETE_TRIGGER}
+            AFTER DELETE ON {_SEARCH_FOLD_TABLE}
+            BEGIN
+                INSERT OR IGNORE INTO {_SEARCH_FOLD_DIRTY_TABLE}(game_id) VALUES(OLD.game_id);
+            END;
+
+            DELETE FROM {_SEARCH_FOLD_TABLE};
+            INSERT INTO {_SEARCH_FOLD_TABLE}(
+                game_id, white_fold, black_fold, event_fold, eco_fold, opening_fold
+            )
+            SELECT id,
+                   {SEARCH_FOLD_SQL_FUNCTION}(white),
+                   {SEARCH_FOLD_SQL_FUNCTION}(black),
+                   {SEARCH_FOLD_SQL_FUNCTION}(event),
+                   {SEARCH_FOLD_SQL_FUNCTION}(eco),
+                   {SEARCH_FOLD_SQL_FUNCTION}(opening)
+              FROM games;
+            DELETE FROM {_SEARCH_FOLD_DIRTY_TABLE};
+
+            DROP TRIGGER IF EXISTS {_SEARCH_FOLD_INSERT_TRIGGER};
+            DROP TRIGGER IF EXISTS {_SEARCH_FOLD_UPDATE_TRIGGER};
+            DROP TRIGGER IF EXISTS {_SEARCH_FOLD_DELETE_CLEANUP_TRIGGER};
+
+            CREATE TRIGGER {_SEARCH_FOLD_INSERT_TRIGGER}
+            AFTER INSERT ON games
+            BEGIN
+                INSERT OR REPLACE INTO {_SEARCH_FOLD_TABLE}(
+                    game_id, white_fold, black_fold, event_fold, eco_fold, opening_fold
+                ) VALUES(
+                    NEW.id,
+                    {SEARCH_FOLD_SQL_FUNCTION}(NEW.white),
+                    {SEARCH_FOLD_SQL_FUNCTION}(NEW.black),
+                    {SEARCH_FOLD_SQL_FUNCTION}(NEW.event),
+                    {SEARCH_FOLD_SQL_FUNCTION}(NEW.eco),
+                    {SEARCH_FOLD_SQL_FUNCTION}(NEW.opening)
+                );
+                DELETE FROM {_SEARCH_FOLD_DIRTY_TABLE} WHERE game_id=NEW.id;
+            END;
+
+            CREATE TRIGGER {_SEARCH_FOLD_UPDATE_TRIGGER}
+            AFTER UPDATE OF white, black, event, eco, opening ON games
+            BEGIN
+                INSERT OR REPLACE INTO {_SEARCH_FOLD_TABLE}(
+                    game_id, white_fold, black_fold, event_fold, eco_fold, opening_fold
+                ) VALUES(
+                    NEW.id,
+                    {SEARCH_FOLD_SQL_FUNCTION}(NEW.white),
+                    {SEARCH_FOLD_SQL_FUNCTION}(NEW.black),
+                    {SEARCH_FOLD_SQL_FUNCTION}(NEW.event),
+                    {SEARCH_FOLD_SQL_FUNCTION}(NEW.eco),
+                    {SEARCH_FOLD_SQL_FUNCTION}(NEW.opening)
+                );
+                DELETE FROM {_SEARCH_FOLD_DIRTY_TABLE} WHERE game_id=NEW.id;
+            END;
+
+            CREATE TRIGGER {_SEARCH_FOLD_DELETE_CLEANUP_TRIGGER}
+            AFTER DELETE ON games
+            BEGIN
+                DELETE FROM {_SEARCH_FOLD_DIRTY_TABLE} WHERE game_id=OLD.id;
+            END;
+            """
+        )
+
     @staticmethod
     def _now() -> str:
         return datetime.now(timezone.utc).isoformat()
@@ -238,6 +427,17 @@ class AcsDatabase:
         ply = cls._positive_cursor(after_ply, name="after_ply")
         assert game_id is not None and ply is not None
         return game_id, ply
+
+    @staticmethod
+    def _position_ply(value: int) -> int:
+        """Validate persisted ply identity without accepting coercive scalars."""
+        if type(value) is not int:
+            raise TypeError("ply must be an integer")
+        if value < 0:
+            raise ValueError("ply must be non-negative")
+        if value > _SQLITE_INTEGER_MAX:
+            raise ValueError("ply exceeds SQLite integer range")
+        return value
 
     @staticmethod
     def _validate_overwrite(overwrite: bool) -> bool:
@@ -286,6 +486,12 @@ class AcsDatabase:
                 "finished_at", "status", "source_id", "game_count", "warning_count",
                 "error_message",
             }
+        if version >= 4:
+            required_tables[_SEARCH_FOLD_TABLE] = {
+                "game_id", "white_fold", "black_fold", "event_fold", "eco_fold", "opening_fold",
+            }
+        if version >= 6:
+            required_tables[_SEARCH_FOLD_DIRTY_TABLE] = {"game_id"}
 
         for table, required_columns in required_tables.items():
             if not required_columns.issubset(cls._schema_columns(conn, table)):
@@ -304,9 +510,112 @@ class AcsDatabase:
             if index_columns != ["position_key", "game_id", "ply"]:
                 raise RuntimeError("ACSDB schema identity check failed")
 
+        if version >= 4:
+            foreign_keys = conn.execute(
+                f'PRAGMA foreign_key_list("{_SEARCH_FOLD_TABLE}")'
+            ).fetchall()
+            if not any(
+                str(row[2]) == "games"
+                and str(row[3]) == "game_id"
+                and str(row[4]) == "id"
+                and str(row[6]).upper() == "CASCADE"
+                for row in foreign_keys
+            ):
+                raise RuntimeError("ACSDB schema identity check failed")
+
+            trigger_sql = {
+                str(row[0]): str(row[1] or "")
+                for row in conn.execute(
+                    "SELECT name, sql FROM sqlite_master WHERE type='trigger' AND name IN (?,?)",
+                    (_SEARCH_FOLD_INSERT_TRIGGER, _SEARCH_FOLD_UPDATE_TRIGGER),
+                ).fetchall()
+            }
+            for trigger_name in (_SEARCH_FOLD_INSERT_TRIGGER, _SEARCH_FOLD_UPDATE_TRIGGER):
+                sql = trigger_sql.get(trigger_name, "")
+                if _SEARCH_FOLD_TABLE not in sql or SEARCH_FOLD_SQL_FUNCTION not in sql:
+                    raise RuntimeError("ACSDB schema identity check failed")
+
+            missing = conn.execute(
+                f"""SELECT 1 FROM games AS g
+                    LEFT JOIN {_SEARCH_FOLD_TABLE} AS sf ON sf.game_id=g.id
+                    WHERE sf.game_id IS NULL LIMIT 1"""
+            ).fetchone()
+            stale = conn.execute(
+                f"""SELECT 1 FROM games AS g
+                    JOIN {_SEARCH_FOLD_TABLE} AS sf ON sf.game_id=g.id
+                    WHERE NOT (sf.white_fold IS {SEARCH_FOLD_SQL_FUNCTION}(g.white))
+                       OR NOT (sf.black_fold IS {SEARCH_FOLD_SQL_FUNCTION}(g.black))
+                       OR NOT (sf.event_fold IS {SEARCH_FOLD_SQL_FUNCTION}(g.event))
+                       OR NOT (sf.eco_fold IS {SEARCH_FOLD_SQL_FUNCTION}(g.eco))
+                       OR NOT (sf.opening_fold IS {SEARCH_FOLD_SQL_FUNCTION}(g.opening))
+                    LIMIT 1"""
+            ).fetchone()
+            if missing is not None or stale is not None:
+                raise RuntimeError("ACSDB search projection integrity check failed")
+
+        if version >= 5:
+            raw_index_columns = [
+                str(row[2])
+                for row in conn.execute(
+                    f'PRAGMA index_info("{_DATE_RAW_INDEX}")'
+                ).fetchall()
+            ]
+            if raw_index_columns != ["game_date"]:
+                raise RuntimeError("ACSDB schema identity check failed")
+            date_index_row = conn.execute(
+                "SELECT sql FROM sqlite_master WHERE type='index' AND name=?",
+                (_DATE_KEY_INDEX,),
+            ).fetchone()
+            date_index_sql = str(date_index_row[0] or "") if date_index_row else ""
+            if (
+                SEARCH_DATE_KEY_SQL_FUNCTION not in date_index_sql
+                or "game_date" not in date_index_sql
+            ):
+                raise RuntimeError("ACSDB schema identity check failed")
+
+        if version >= 6:
+            expected_triggers = (
+                _SEARCH_FOLD_INSERT_TRIGGER,
+                _SEARCH_FOLD_UPDATE_TRIGGER,
+                _SEARCH_FOLD_DELETE_CLEANUP_TRIGGER,
+                _SEARCH_FOLD_DIRTY_INSERT_TRIGGER,
+                _SEARCH_FOLD_DIRTY_UPDATE_TRIGGER,
+                _SEARCH_FOLD_DIRTY_DELETE_TRIGGER,
+            )
+            trigger_sql = {
+                str(row[0]): str(row[1] or "")
+                for row in conn.execute(
+                    "SELECT name, sql FROM sqlite_master WHERE type='trigger' AND name IN (?,?,?,?,?,?)",
+                    expected_triggers,
+                ).fetchall()
+            }
+            if set(trigger_sql) != set(expected_triggers):
+                raise RuntimeError("ACSDB schema identity check failed")
+            for trigger_name in (
+                _SEARCH_FOLD_DIRTY_INSERT_TRIGGER,
+                _SEARCH_FOLD_DIRTY_UPDATE_TRIGGER,
+                _SEARCH_FOLD_DIRTY_DELETE_TRIGGER,
+            ):
+                sql = trigger_sql[trigger_name]
+                if _SEARCH_FOLD_TABLE not in sql or _SEARCH_FOLD_DIRTY_TABLE not in sql:
+                    raise RuntimeError("ACSDB schema identity check failed")
+            for trigger_name in (_SEARCH_FOLD_INSERT_TRIGGER, _SEARCH_FOLD_UPDATE_TRIGGER):
+                if _SEARCH_FOLD_DIRTY_TABLE not in trigger_sql[trigger_name]:
+                    raise RuntimeError("ACSDB schema identity check failed")
+            if _SEARCH_FOLD_DIRTY_TABLE not in trigger_sql[_SEARCH_FOLD_DELETE_CLEANUP_TRIGGER]:
+                raise RuntimeError("ACSDB schema identity check failed")
+            if conn.execute(
+                f"SELECT 1 FROM {_SEARCH_FOLD_DIRTY_TABLE} LIMIT 1"
+            ).fetchone() is not None:
+                raise RuntimeError("ACSDB search projection integrity check failed")
+
     @classmethod
     def _check_sqlite_integrity(cls, conn: sqlite3.Connection) -> int:
         try:
+            # v4+ schema identity verifies derivative search structures. The
+            # UDFs are connection-local, so backup connections need the same
+            # deterministic registration before validation.
+            install_search_fold(conn)
             row = conn.execute("PRAGMA quick_check").fetchone()
             if row is None or str(row[0]).lower() != "ok":
                 raise RuntimeError("ACSDB integrity check failed")
@@ -319,6 +628,14 @@ class AcsDatabase:
             )
         cls._check_acsdb_schema_identity(conn, version)
         return version
+
+    def verify_integrity(self) -> int:
+        """Run explicit SQLite, schema, FK and search-projection validation.
+
+        This is intentionally an explicit O(database-size) maintenance check,
+        not a per-search tax. Backup/restore already invoke the same validation.
+        """
+        return self._check_sqlite_integrity(self.conn)
 
     @staticmethod
     def _temporary_peer(destination: Path) -> Path:
@@ -527,7 +844,7 @@ class AcsDatabase:
                              before_id: int | None = None, limit: int = 100) -> list[dict]:
         """List import attempts newest-first using a stable keyset cursor.
 
-        ``before_id`` is the last row id from the previous page.  Using the
+        ``before_id`` is the last row id from the previous page. Using the
         primary key as the cursor avoids OFFSET drift if another import starts
         between page requests.
         """
@@ -552,12 +869,64 @@ class AcsDatabase:
         params.append(self._bounded_limit(limit))
         return [dict(row) for row in self.conn.execute(sql, params).fetchall()]
 
+    def _assert_search_projection_clean(self) -> None:
+        """Fail closed in constant-size metadata work if sidecar writes were untrusted."""
+        expected_triggers = (
+            _SEARCH_FOLD_INSERT_TRIGGER,
+            _SEARCH_FOLD_UPDATE_TRIGGER,
+            _SEARCH_FOLD_DELETE_CLEANUP_TRIGGER,
+            _SEARCH_FOLD_DIRTY_INSERT_TRIGGER,
+            _SEARCH_FOLD_DIRTY_UPDATE_TRIGGER,
+            _SEARCH_FOLD_DIRTY_DELETE_TRIGGER,
+        )
+        try:
+            rows = self.conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='trigger' AND name IN (?,?,?,?,?,?)",
+                expected_triggers,
+            ).fetchall()
+            if {str(row[0]) for row in rows} != set(expected_triggers):
+                raise RuntimeError("ACSDB search projection integrity check failed")
+            dirty = self.conn.execute(
+                f"SELECT 1 FROM {_SEARCH_FOLD_DIRTY_TABLE} LIMIT 1"
+            ).fetchone()
+        except sqlite3.DatabaseError as exc:
+            raise RuntimeError("ACSDB search projection integrity check failed") from exc
+        if dirty is not None:
+            raise RuntimeError("ACSDB search projection integrity check failed")
+
+    def rebuild_search_projection(self) -> None:
+        """Atomically rebuild derivative search data from canonical game metadata."""
+        install_search_fold(self.conn)
+        with self.conn:
+            self.conn.execute(f"DELETE FROM {_SEARCH_FOLD_TABLE}")
+            self.conn.execute(
+                f"""INSERT INTO {_SEARCH_FOLD_TABLE}(
+                    game_id, white_fold, black_fold, event_fold, eco_fold, opening_fold
+                )
+                SELECT id,
+                       {SEARCH_FOLD_SQL_FUNCTION}(white),
+                       {SEARCH_FOLD_SQL_FUNCTION}(black),
+                       {SEARCH_FOLD_SQL_FUNCTION}(event),
+                       {SEARCH_FOLD_SQL_FUNCTION}(eco),
+                       {SEARCH_FOLD_SQL_FUNCTION}(opening)
+                  FROM games"""
+            )
+            self.conn.execute(f"DELETE FROM {_SEARCH_FOLD_DIRTY_TABLE}")
+            self._check_acsdb_schema_identity(self.conn, self.schema_version)
+
     def search_games(self, *, player: str | None = None, event: str | None = None,
                      eco: str | None = None, opening: str | None = None,
-                     result: str | None = None, source_id: int | None = None,
-                     source_name: str | None = None, after_id: int | None = None,
-                     limit: int = 100) -> list[dict]:
-        """Search games with shared Unicode/literal/source/result semantics.
+                     game_date: str | None = None, date_from: str | None = None,
+                     date_to: str | None = None, result: str | None = None,
+                     source_id: int | None = None, source_name: str | None = None,
+                     after_id: int | None = None, limit: int = 100) -> list[dict]:
+        """Search games with shared Unicode/literal/date/source/result semantics.
+
+        ``game_date`` is exact loss-aware PGN Date text, so callers may explicitly
+        find partial values such as ``2024.??.??``. ``date_from``/``date_to`` are
+        calendar bounds and accept only real complete ``YYYY.MM.DD`` dates. Range
+        matching uses the deterministic indexed date key, so partial/unknown or
+        malformed stored tags are preserved but never fabricated into a range.
 
         Direct ACSDB search intentionally retains its existing bounded bulk cap
         of 1000 rows, while GameSearchService applies a smaller 200-row
@@ -572,27 +941,41 @@ class AcsDatabase:
         event = normalize_search_term(event, name="event")
         eco = normalize_search_term(eco, name="eco")
         opening = normalize_search_term(opening, name="opening")
+        game_date = normalize_search_term(game_date, name="game_date")
+        date_from = normalize_search_date_bound(date_from, name="date_from")
+        date_to = normalize_search_date_bound(date_to, name="date_to")
+        if date_from is not None and date_to is not None and date_from > date_to:
+            raise ValueError("date_from must not be later than date_to")
         source_name = normalize_search_term(source_name, name="source_name")
         install_search_fold(self.conn)
+        self._assert_search_projection_clean()
 
         clauses: list[str] = []
         params: list[object] = []
         if player:
             clauses.append(
-                f"({SEARCH_FOLD_SQL_FUNCTION}(g.white) LIKE ? ESCAPE '\\' OR "
-                f"{SEARCH_FOLD_SQL_FUNCTION}(g.black) LIKE ? ESCAPE '\\')"
+                "(sf.white_fold LIKE ? ESCAPE '\\' OR sf.black_fold LIKE ? ESCAPE '\\')"
             )
             needle = literal_like_pattern(player)
             params.extend([needle, needle])
         if event:
-            clauses.append(f"{SEARCH_FOLD_SQL_FUNCTION}(g.event) LIKE ? ESCAPE '\\'")
+            clauses.append("sf.event_fold LIKE ? ESCAPE '\\'")
             params.append(literal_like_pattern(event))
         if eco:
-            clauses.append(f"{SEARCH_FOLD_SQL_FUNCTION}(g.eco) LIKE ? ESCAPE '\\'")
+            clauses.append("sf.eco_fold LIKE ? ESCAPE '\\'")
             params.append(literal_like_pattern(eco, prefix=True))
         if opening:
-            clauses.append(f"{SEARCH_FOLD_SQL_FUNCTION}(g.opening) LIKE ? ESCAPE '\\'")
+            clauses.append("sf.opening_fold LIKE ? ESCAPE '\\'")
             params.append(literal_like_pattern(opening))
+        if game_date:
+            clauses.append("g.game_date=?")
+            params.append(game_date)
+        if date_from is not None:
+            clauses.append(f"{SEARCH_DATE_KEY_SQL_FUNCTION}(g.game_date)>=?")
+            params.append(date_from)
+        if date_to is not None:
+            clauses.append(f"{SEARCH_DATE_KEY_SQL_FUNCTION}(g.game_date)<=?")
+            params.append(date_to)
         if result is not None:
             clauses.append("g.result=?")
             params.append(result)
@@ -609,6 +992,7 @@ class AcsDatabase:
         sql = (
             "SELECT g.*, s.source_name, s.source_format, s.sha256 AS source_sha256, "
             "s.imported_at AS source_imported_at FROM games g "
+            f"JOIN {_SEARCH_FOLD_TABLE} sf ON sf.game_id=g.id "
             "JOIN sources s ON s.id=g.source_id"
         )
         if clauses:
@@ -617,20 +1001,54 @@ class AcsDatabase:
         params.append(self._bounded_limit(limit))
         return [dict(row) for row in self.conn.execute(sql, params).fetchall()]
 
-    def record_position(self, game_id: int, ply: int, fen: str) -> None:
+    def record_position(
+        self,
+        game_id: int,
+        ply: int,
+        fen: str,
+        *,
+        overwrite: bool = False,
+    ) -> None:
+        overwrite = self._validate_overwrite(overwrite)
+        ply = self._position_ply(ply)
         key = self.position_key(fen)
-        with self.conn:
-            self.conn.execute(
-                "INSERT OR REPLACE INTO positions(game_id, ply, fen, position_key) VALUES(?,?,?,?)",
-                (game_id, int(ply), fen, key),
+        if overwrite:
+            sql = (
+                "INSERT INTO positions(game_id, ply, fen, position_key) VALUES(?,?,?,?) "
+                "ON CONFLICT(game_id, ply) DO UPDATE SET "
+                "fen=excluded.fen, position_key=excluded.position_key"
             )
+        else:
+            sql = "INSERT INTO positions(game_id, ply, fen, position_key) VALUES(?,?,?,?)"
+        with self.conn:
+            self.conn.execute(sql, (game_id, ply, fen, key))
 
-    def record_positions(self, game_id: int, positions: Iterable[tuple[int, str]]) -> None:
-        rows = [(game_id, int(ply), fen, self.position_key(fen)) for ply, fen in positions]
-        with self.conn:
-            self.conn.executemany(
-                "INSERT OR REPLACE INTO positions(game_id, ply, fen, position_key) VALUES(?,?,?,?)", rows
+    def record_positions(
+        self,
+        game_id: int,
+        positions: Iterable[tuple[int, str]],
+        *,
+        overwrite: bool = False,
+    ) -> None:
+        overwrite = self._validate_overwrite(overwrite)
+        rows: list[tuple[int, int, str, str]] = []
+        seen: set[int] = set()
+        for raw_ply, fen in positions:
+            ply = self._position_ply(raw_ply)
+            if ply in seen:
+                raise ValueError("duplicate ply in position batch")
+            seen.add(ply)
+            rows.append((game_id, ply, fen, self.position_key(fen)))
+        if overwrite:
+            sql = (
+                "INSERT INTO positions(game_id, ply, fen, position_key) VALUES(?,?,?,?) "
+                "ON CONFLICT(game_id, ply) DO UPDATE SET "
+                "fen=excluded.fen, position_key=excluded.position_key"
             )
+        else:
+            sql = "INSERT INTO positions(game_id, ply, fen, position_key) VALUES(?,?,?,?)"
+        with self.conn:
+            self.conn.executemany(sql, rows)
 
     def search_position(
         self,
