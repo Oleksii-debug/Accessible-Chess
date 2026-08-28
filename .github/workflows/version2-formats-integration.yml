@@ -1,0 +1,390 @@
+name: Accessible Chess Version 2 Formats Integration
+
+on:
+  push:
+    branches:
+      - work/version2-integration-formats-20260827
+  pull_request:
+    paths:
+      - '.github/workflows/d01-full-product-native-menu.yml'
+      - '.github/workflows/d06-real-corpus-recovery.yml'
+      - '.github/workflows/d06-file-ingress-nag-normalization.yml'
+      - '.github/workflows/d08-owner-fixture-integration.yml'
+      - '.github/workflows/v2-book-progress-store.yml'
+      - '.github/workflows/v2-cbf-cbi-evidence.yml'
+      - '.github/workflows/whole-product-integration-preview.yml'
+      - 'acs/book_progress_store.py'
+      - 'acs/chessbase_adapter.py'
+      - 'acs/chessbase_decoder.py'
+      - 'acs/chessbase_integrity.py'
+      - 'acs/chessbase_library_import.py'
+      - 'acs/cbv_extractor.py'
+      - 'acs/import_contract.py'
+      - 'acs/library_import_service.py'
+      - 'acs/library_webview_bridge.py'
+      - 'acs/library_webview_projection.py'
+      - 'acs/pgn_document.py'
+      - 'acs/pgn_service.py'
+      - 'docs/automation/V2_CBF_CBI_EVIDENCE.md'
+      - 'docs/automation/V2_CHESSBASE_CAPABILITIES.json'
+      - 'tests/test_chessbase_adapter.py'
+      - 'tests/test_d06_real_corpus_recovery.py'
+      - 'tests/test_d06_file_ingress_nag_normalization.py'
+      - 'tests/test_v2_chessbase_capability_manifest.py'
+      - 'tests/test_v2_book_progress_store.py'
+      - 'tests/test_version2_formats_integration.py'
+      - 'tests/test_chessbase_decoder.py'
+      - 'tests/test_chessbase_libcbh_external_fixture.py'
+      - 'tests/test_cbv_extractor.py'
+      - 'tests/test_cbv_uncbv_external_fixture.py'
+      - 'tests/test_full_product_native_menu.py'
+      - 'tests/test_library_import_ui_integration.py'
+      - 'tests/test_library_workspace_ui_integration.py'
+      - 'tests/js/library_surface_dom_test.js'
+      - 'tools/optional/libcbh_json_bridge.cpp'
+      - 'tools/optional/UNCBV_BACKEND.md'
+      - 'docs/automation/DEV4_CHESSBASE_CAPABILITY_MATRIX.md'
+      - 'web/full_product_library.js'
+      - '.github/workflows/version2-formats-integration.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: accessible-chess-v2-formats-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  V2_BASE: 6567f3d35ffefaa85ae7e8b87d9fcc0d188e7cac
+  LIBRARY_SOURCE: 60dc2afc846b49e91c50f1682464833a1004789f
+  CHESSBASE_SOURCE: 5e2c390e0cd66cca166b80fec88c7402784ade47
+  LIBCBH_COMMIT: 9641c5c3949d8fb210b17dd9aa54455645843696
+  UNCBV_COMMIT: 3c18e8a7c6a30c21f945a1ab5462521c306dca57
+
+jobs:
+  combined-formats:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Preserve exact Git bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config core.autocrlf false
+          git config core.eol lf
+          git reset --hard HEAD
+          git checkout-index --force --all
+          while IFS='=' read -r path expected; do
+            git cat-file blob "HEAD:$path" > "$path"
+            actual="$(git hash-object --no-filters "$path")"
+            test "$actual" = "$expected" || {
+              printf 'Frozen Stage 1 workspace blob mismatch: %s expected=%s actual=%s\n' "$path" "$expected" "$actual" >&2
+              exit 1
+            }
+          done <<'FROZEN_STAGE1'
+          acs/stage1_release_ui_core.py=b8586a26b9ab20c3d3ec0b0a3dbbbd53e38e94e6
+          acs/webapp_keymap_core.py=0ba06f548d39dad7372e0339b3e121fd1717cc05
+          FROZEN_STAGE1
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install pinned verification dependency
+        run: python -m pip install -q pytest==8.4.2
+
+      - name: Prove Version 2 ancestry scope and Stage 1 isolation
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor "$V2_BASE" HEAD
+          git cat-file -e "$LIBRARY_SOURCE^{commit}"
+          git cat-file -e "$CHESSBASE_SOURCE^{commit}"
+          git diff --check "$V2_BASE" HEAD
+          changed="$(git diff --name-only "$V2_BASE" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/d01-full-product-native-menu.yml' \
+            '.github/workflows/d06-real-corpus-recovery.yml' \
+            '.github/workflows/d06-file-ingress-nag-normalization.yml' \
+            '.github/workflows/d08-owner-fixture-integration.yml' \
+            '.github/workflows/v2-book-progress-store.yml' \
+            '.github/workflows/v2-cbf-cbi-evidence.yml' \
+            '.github/workflows/version2-formats-integration.yml' \
+            '.github/workflows/whole-product-integration-preview.yml' \
+            'acs/book_progress_store.py' \
+            'acs/cbv_extractor.py' \
+            'acs/chessbase_adapter.py' \
+            'acs/chessbase_decoder.py' \
+            'acs/chessbase_integrity.py' \
+            'acs/chessbase_library_import.py' \
+            'acs/full_product_ui_shell.py' \
+            'acs/import_contract.py' \
+            'acs/library_import_service.py' \
+            'acs/library_webview_bridge.py' \
+            'acs/library_webview_projection.py' \
+            'acs/pgn_document.py' \
+            'acs/pgn_service.py' \
+            'docs/automation/DEV4_CHESSBASE_CAPABILITY_MATRIX.md' \
+            'docs/automation/V2_CBF_CBI_EVIDENCE.md' \
+            'docs/automation/V2_CHESSBASE_CAPABILITIES.json' \
+            'tests/js/library_surface_dom_test.js' \
+            'tests/test_cbv_extractor.py' \
+            'tests/test_cbv_uncbv_external_fixture.py' \
+            'tests/test_chessbase_adapter.py' \
+            'tests/test_chessbase_decoder.py' \
+            'tests/test_chessbase_libcbh_external_fixture.py' \
+            'tests/test_d06_real_corpus_recovery.py' \
+            'tests/test_d06_file_ingress_nag_normalization.py' \
+            'tests/test_dev1_full_product_accessible_shell.py' \
+            'tests/test_dev1_full_product_ui_packages.py' \
+            'tests/test_dev1_library_webview_projection.py' \
+            'tests/test_full_product_native_menu.py' \
+            'tests/test_library_import_ui_integration.py' \
+            'tests/test_library_workspace_ui_integration.py' \
+            'tests/test_import_contract.py' \
+            'tests/test_v2_book_progress_store.py' \
+            'tests/test_v2_chessbase_capability_manifest.py' \
+            'tests/test_version2_formats_integration.py' \
+            'tools/optional/UNCBV_BACKEND.md' \
+            'tools/optional/LIBCBH_BACKEND.md' \
+            'tools/optional/libcbh_json_bridge.cpp' \
+            'web/full_product_library.js' | sort)"
+          test "$changed" = "$expected"
+          if printf '%s\n' "$changed" | grep -E '(^|/)(stage1|tools/qa/|windows-stage1|release_preflight)'; then
+            echo 'Stage 1 or strict-release contamination detected' >&2
+            exit 1
+          fi
+          git diff --quiet "$V2_BASE" HEAD -- \
+            acs/chesscore.py acs/gametree.py acs/acsdb.py \
+            acs/pgn_workspace.py \
+            acs/bookdocument.py acs/bookreader.py acs/book_training.py \
+            acs/stage1_release_ui.py acs/stage1_release_ui_core.py \
+            web/stage1_release_bootstrap.js web/stage1_board_actions.js \
+            tools/qa
+
+      - name: Lock exact integrated owner blobs
+        shell: bash
+        run: |
+          set -euo pipefail
+          while IFS='=' read -r path expected; do
+            actual="$(git rev-parse "HEAD:$path")"
+            test "$actual" = "$expected" || {
+              printf 'Owner blob mismatch: %s expected=%s actual=%s\n' "$path" "$expected" "$actual" >&2
+              exit 1
+            }
+          done <<'LOCKS'
+          acs/chessbase_decoder.py=eb8ac2fae939d9efdb2330d4a1b01024d39ee101
+          tests/test_chessbase_decoder.py=6a872279f99d7587dd0a49dfbc7bd2381f61bb20
+          tests/test_chessbase_libcbh_external_fixture.py=d915c6517a3577b4f395f8885cc998b257029db6
+          tools/optional/LIBCBH_BACKEND.md=8dd90cd1f24bd42c8cbefb23be0dfcc979ca6560
+          tools/optional/libcbh_json_bridge.cpp=ab4ffb128eada2fd225386b20f01016e0f87325b
+          acs/library_webview_bridge.py=0e90011a761355251f96d56f204b3875c947daec
+          acs/library_webview_projection.py=149816ad0ca9a8d240e0b0c7057df15fe6cef0b5
+          tests/test_dev1_library_webview_projection.py=fc9fbc36b4b6b9a2792a2db6ef09b2f1405a4d9b
+          tests/test_library_import_ui_integration.py=7fca70f8100ee38c2f452b04e8165ad54941f773
+          tests/js/library_surface_dom_test.js=7f69c17619f73d7c001392ea43e037933d75a50b
+          web/full_product_library.js=c9a08f5cdb62f9ad82adac850c51ede607b42ed6
+          .github/workflows/v2-book-progress-store.yml=a06bdd168a2f519c528e94fc2853b75ce31f759c
+          acs/book_progress_store.py=665e2f4d09460f69850e4f71d739eca8e71f932e
+          tests/test_v2_book_progress_store.py=3887db6f4b92e0450a8c7994a03c25f4cd8baf9b
+          .github/workflows/v2-cbf-cbi-evidence.yml=f8882b122b80b829d300f8eb3f3c4e0ec9a0d5ec
+          acs/chessbase_adapter.py=b99cff635f845c7f5160242f9cc6c84c40b88c47
+          acs/chessbase_integrity.py=18734bbac21ed4df337c09587244ea469fe60ca9
+          docs/automation/V2_CBF_CBI_EVIDENCE.md=752db62bb6616bc1cc9aeb4fcb5ac37a97b9772f
+          docs/automation/V2_CHESSBASE_CAPABILITIES.json=88bfd2d5b198433b3c4839ec9158caadf6ea0193
+          tests/test_chessbase_adapter.py=a76aefcfa0e18dc2fc8049ebe4c85e7c4edd7b24
+          tests/test_v2_chessbase_capability_manifest.py=216f0675b7fab0bf57c7dea70d57b21f47434ca7
+          .github/workflows/d06-real-corpus-recovery.yml=0afef77aac8894b0077895e73bb65f7b251520a5
+          acs/pgn_document.py=ae0b7d3815c4d277b68ef3c170c95255cf5c6442
+          tests/test_d06_real_corpus_recovery.py=8bf849bc3246bc70fff59637c169c9873d9520dd
+          .github/workflows/d06-file-ingress-nag-normalization.yml=bf7d802aeb921f92ac121ff38fe6972601c2d299
+          acs/pgn_service.py=967669297402d91fd3c5651629b4f82c071a03ed
+          tests/test_d06_file_ingress_nag_normalization.py=466d201b514b94e2c4b11fd49c96ff4b9878e28c
+          LOCKS
+
+      - name: Compile Version 2 formats package
+        run: python -m compileall -q acs tests run_accessible_chess.py
+
+      - name: Execute accessible Library PGN and Books DOM contracts
+        run: |
+          node --check web/full_product_library.js
+          node --check web/full_product_pgn.js
+          node --check web/full_product_books_training.js
+          node tests/js/library_surface_dom_test.js
+          node tests/js/pgn_surface_dom_test.js
+          node tests/js/books_training_surface_dom_test.js
+
+      - name: Version 2 semantic format journeys
+        run: >-
+          python -m unittest -v
+          tests.test_version2_formats_integration
+          tests.test_cbv_extractor
+          tests.test_cbv_uncbv_external_fixture
+          tests.test_chessbase_decoder
+          tests.test_library_import_ui_integration
+          tests.test_library_workspace_ui_integration
+          tests.test_d06_real_corpus_recovery
+          tests.test_d06_file_ingress_nag_normalization
+          tests.test_pgn_document
+          tests.test_pgn_workspace
+          tests.test_dev1_pgn_workspace_webview_adapter
+          tests.test_books_training_ui_integration
+          tests.test_v2_book_progress_store
+          tests.test_whole_product_user_journey
+
+      - name: Format security migration and cancellation matrix
+        run: >-
+          python -m unittest -v
+          tests.test_chessbase_adapter
+          tests.test_chessbase_integrity
+          tests.test_v2_chessbase_capability_manifest
+          tests.test_dev4_chessbase_integrity_atomicity
+          tests.test_dev4_chessbase_symlink_security
+          tests.test_d07_acsdb_migration_atomicity
+          tests.test_d07_library_import_service
+          tests.test_d07_library_import_start_lock
+          tests.test_d07_library_import_transaction_ownership
+          tests.test_d07_library_search_cancellation
+          tests.test_d07_search_semantic_equivalence
+          tests.test_d07_search_scalar_equivalence
+          tests.test_pgn_concurrent_save
+          tests.test_dev4_pgn_export_concurrency_security
+          tests.test_dev4_pgn_export_failure_recovery
+          tests.test_dev4_pgn_export_path_security
+          tests.test_dev4_pgn_resource_security
+
+      - name: Re-materialize frozen Stage 1 blobs before full-suite byte contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          while IFS='=' read -r path expected; do
+            git cat-file blob "HEAD:$path" > "$path"
+            actual="$(git hash-object --no-filters "$path")"
+            test "$actual" = "$expected" || {
+              printf 'Frozen Stage 1 pre-suite blob mismatch: %s expected=%s actual=%s\n' "$path" "$expected" "$actual" >&2
+              exit 1
+            }
+          done <<'FROZEN_STAGE1'
+          acs/stage1_release_ui_core.py=b8586a26b9ab20c3d3ec0b0a3dbbbd53e38e94e6
+          acs/webapp_keymap_core.py=0ba06f548d39dad7372e0339b3e121fd1717cc05
+          FROZEN_STAGE1
+
+      - name: Full repository unittest
+        shell: bash
+        run: |
+          set -o pipefail
+          python -m unittest discover -s tests -v 2>&1 | tee full-unittest.log
+
+      - name: Upload full unittest diagnostic
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v2-full-unittest-${{ matrix.os }}
+          path: full-unittest.log
+          if-no-files-found: ignore
+          retention-days: 3
+
+      - name: Full repository pytest
+        run: python -m pytest -q tests
+
+      - name: SELFTEST and complete diagnostic
+        run: |
+          python -m acs.selftest
+          python run_accessible_chess.py --diagnostic
+
+  real-pinned-chessbase:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
+    steps:
+      - name: Checkout Accessible Chess
+        uses: actions/checkout@v4
+        with:
+          path: product
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Checkout pinned external libcbh evidence corpus
+        uses: actions/checkout@v4
+        with:
+          repository: rolandlo/libcbh
+          ref: 9641c5c3949d8fb210b17dd9aa54455645843696
+          path: upstream/libcbh
+          fetch-depth: 1
+      - name: Checkout pinned external uncbv evidence corpus
+        uses: actions/checkout@v4
+        with:
+          repository: antoyo/uncbv
+          ref: 3c18e8a7c6a30c21f945a1ab5462521c306dca57
+          path: upstream/uncbv
+          fetch-depth: 1
+      - name: Build pinned libcbh external component
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S upstream/libcbh -B upstream/libcbh/build -DCMAKE_BUILD_TYPE=Release -DGTEST=OFF
+          cmake --build upstream/libcbh/build --config Release --parallel 2
+      - name: Build Accessible Chess JSON bridge without bundling it
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p product/build/libcbh
+          c++ -std=c++20 -O2 \
+            -DLIBCBH_SOURCE_COMMIT=\"$LIBCBH_COMMIT\" \
+            -I upstream/libcbh/include \
+            product/tools/optional/libcbh_json_bridge.cpp \
+            -L upstream/libcbh/build -lcbh \
+            -Wl,-rpath,'$ORIGIN' \
+            -o product/build/libcbh/libcbh-json-bridge
+          cp -a upstream/libcbh/build/libcbh.so* product/build/libcbh/
+          test -x product/build/libcbh/libcbh-json-bridge
+      - name: Build pinned uncbv external component
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo build --release --locked --manifest-path upstream/uncbv/Cargo.toml
+          test -x upstream/uncbv/target/release/uncbv
+          uncbv_sha256="$(sha256sum upstream/uncbv/target/release/uncbv | cut -d' ' -f1)"
+          echo "UNCBV_BINARY_SHA256=$uncbv_sha256" >> "$GITHUB_ENV"
+      - name: Real CBH and CBV to canonical GameTree and Library journeys
+        shell: bash
+        working-directory: product
+        env:
+          LIBCBH_BRIDGE: ${{ github.workspace }}/product/build/libcbh/libcbh-json-bridge
+          LIBCBH_FIXTURE_DIR: ${{ github.workspace }}/upstream/libcbh/gtest/WithVariations
+          UNCBV_BINARY: ${{ github.workspace }}/upstream/uncbv/target/release/uncbv
+          UNCBV_FIXTURE: ${{ github.workspace }}/upstream/uncbv/tests/twic1134.cbv
+          UNCBV_SMALL_FIXTURE: ${{ github.workspace }}/upstream/uncbv/tests/small.cbv
+        run: |
+          set -o pipefail
+          {
+            python -m unittest -v tests.test_chessbase_libcbh_external_fixture
+            python -m unittest -v tests.test_cbv_uncbv_external_fixture
+            python -m unittest -v tests.test_version2_formats_integration
+          } 2>&1 | tee real-pinned.log
+
+      - name: Upload real pinned diagnostic
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v2-real-pinned-chessbase
+          path: product/real-pinned.log
+          if-no-files-found: ignore
+          retention-days: 3
+
+      - name: Default package excludes optional GPL backend
+        working-directory: product
+        shell: bash
+        run: |
+          set -euo pipefail
+          test ! -e libcbh-json-bridge
+          test ! -e libcbh.so
+          test ! -e uncbv
+          test -z "$(git status --porcelain --untracked-files=no)"

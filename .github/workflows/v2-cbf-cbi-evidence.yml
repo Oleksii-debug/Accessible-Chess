@@ -1,0 +1,158 @@
+name: V2 CBF CBI Evidence
+
+on:
+  push:
+    branches:
+      - work/v2-cbf-cbi-evidence-20260828
+  pull_request:
+    paths:
+      - "acs/chessbase_adapter.py"
+      - "acs/chessbase_integrity.py"
+      - "tests/test_chessbase_adapter.py"
+      - "tests/test_chessbase_integrity.py"
+      - "tests/test_v2_chessbase_capability_manifest.py"
+      - "docs/automation/DEV4_CHESSBASE_CAPABILITY_MATRIX.md"
+      - "docs/automation/V2_CBF_CBI_EVIDENCE.md"
+      - "docs/automation/V2_CHESSBASE_CAPABILITIES.json"
+      - ".github/workflows/v2-cbf-cbi-evidence.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: accessible-chess-v2-cbf-cbi-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  V2_FORMATS_BASE: b18ac89bb7f1ef3d4106517fe3521179ab4522a1
+
+jobs:
+  cbf-cbi-contract:
+    name: CBF CBI contract (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install pinned verification dependency
+        run: python -m pip install -q pytest==8.4.2
+
+      - name: Diff and compile checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor "$V2_FORMATS_BASE" HEAD
+          git diff --check "$V2_FORMATS_BASE" HEAD
+          python -m compileall -q acs tests run_accessible_chess.py
+
+      - name: Focused CBF CBI and no-overclaim tests
+        run: >-
+          python -m unittest -v
+          tests.test_chessbase_adapter
+          tests.test_chessbase_integrity
+          tests.test_v2_chessbase_capability_manifest
+          tests.test_import_contract
+          tests.test_dev4_chessbase_integrity_atomicity
+          tests.test_dev4_chessbase_symlink_security
+
+  full-regression:
+    name: Full regression (Ubuntu)
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pytest==8.4.2 jsonschema
+
+      - name: Full unittest
+        run: python -m unittest discover -s tests -v
+
+      - name: Full pytest
+        run: python -m pytest -q tests
+
+  pinned-scidb-cbf-source:
+    name: Pinned Scidb CBF source evidence
+    runs-on: ubuntu-22.04
+    env:
+      SCIDB_REPOSITORY: foolnotion/scidb
+      SCIDB_COMMIT: 7c1c9d89f2fabab0c1252cdd14c515fb9bfc1415
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Checkout exact research candidate
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.SCIDB_REPOSITORY }}
+          ref: ${{ env.SCIDB_COMMIT }}
+          path: upstream/scidb
+          fetch-depth: 1
+
+      - name: Verify exact identity, license and source blobs
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C upstream/scidb rev-parse HEAD)" = "$SCIDB_COMMIT"
+          grep -F "GNU GENERAL PUBLIC LICENSE" upstream/scidb/COPYING >/dev/null
+          grep -F "Version 2, June 1991" upstream/scidb/COPYING >/dev/null
+
+          test "$(git -C upstream/scidb rev-parse HEAD:src/db/cbf/cbf_codec.cpp)" = \
+            "c9608dc93e704070c5ec7f8294d09e6c52374b53"
+          test "$(git -C upstream/scidb rev-parse HEAD:src/db/cbf/cbf_codec.h)" = \
+            "fe2e1573b8942a2dbb9f5a3138428b94fa48b9ca"
+          test "$(git -C upstream/scidb rev-parse HEAD:src/db/cbf/cbf_decoder.cpp)" = \
+            "27172abed77db4961d7158337240d00d57474084"
+          test "$(git -C upstream/scidb rev-parse HEAD:src/db/cbf/cbf_decoder.h)" = \
+            "695584688eec65f432116cd517f651c8fb09c4ce"
+
+          grep -F 'static mstl::string const Suffix("cbf")' \
+            upstream/scidb/src/db/cbf/cbf_codec.cpp >/dev/null
+          grep -F 'originalSuffix == "cbf"' \
+            upstream/scidb/src/db/cbf/cbf_codec.cpp >/dev/null
+          grep -F '".CBI"' upstream/scidb/src/db/cbf/cbf_codec.cpp >/dev/null
+          grep -F '".cbi"' upstream/scidb/src/db/cbf/cbf_codec.cpp >/dev/null
+          grep -F 'openFile(m_gameStream, gameFilename, Readonly)' \
+            upstream/scidb/src/db/cbf/cbf_codec.cpp >/dev/null
+
+      - name: Prove candidate repository does not provide semantic fixture evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          if find upstream/scidb -type f \( -iname '*.cbf' -o -iname '*.cbi' \) \
+            -print -quit | grep -q .; then
+            echo "Pinned Scidb unexpectedly contains a CBF/CBI fixture; evidence manifest must be reviewed."
+            exit 1
+          fi
+
+      - name: Validate manifest remains BLOCKED
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          data = json.loads(Path("docs/automation/V2_CHESSBASE_CAPABILITIES.json").read_text())
+          legacy = next(item for item in data["formats"] if item["id"] == "legacy-cbf-cbi")
+          candidate = next(
+              item for item in data["backends"]
+              if item["id"] == "scidb-cbf-research-candidate"
+          )
+          assert legacy["status"] == "BLOCKED"
+          assert candidate["commit"] == "7c1c9d89f2fabab0c1252cdd14c515fb9bfc1415"
+          assert candidate["build_qualified"] is False
+          assert candidate["semantic_support"] is False
+          assert data["cbf_cbi_evidence"]["real_fixture_found"] is False
+          assert data["cbf_cbi_evidence"]["independent_semantic_oracle_found"] is False
+          PY
