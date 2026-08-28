@@ -22,8 +22,10 @@ class _Crash(BaseException):
 
 
 def _make_versioned_db(path: Path, version: int = 1) -> None:
-    # Start from the real current schema, add durable user data, then reduce the
-    # visible schema/version exactly the same way the D07 migration tests do.
+    # Start from the real current schema, add durable user data, then expose the
+    # requested schema version. For older versions remove only later schema
+    # objects, matching D07 migration fixtures. For a future version preserve
+    # today's structure and advance user_version so fail-closed handling is real.
     with AcsDatabase(path) as database:
         source_id = database.add_source("keep-source.pgn", "pgn")
         if version < ACSDB_SCHEMA_VERSION:
@@ -31,6 +33,7 @@ def _make_versioned_db(path: Path, version: int = 1) -> None:
                 database.conn.execute("DROP INDEX IF EXISTS idx_positions_key_game_ply")
             if version < 2:
                 database.conn.execute("DROP TABLE IF EXISTS import_attempts")
+        if version != ACSDB_SCHEMA_VERSION:
             database.conn.execute(f"PRAGMA user_version={version}")
             database.conn.commit()
         assert source_id == 1
