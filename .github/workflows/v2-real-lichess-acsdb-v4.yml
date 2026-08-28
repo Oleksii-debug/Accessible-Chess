@@ -1,0 +1,120 @@
+name: Accessible Chess V2 Real Lichess ACSDB V4
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/v2-real-lichess-acsdb-v4.yml'
+      - 'tests/v2_real_lichess_acsdb_v4_probe.py'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: accessible-chess-v2-real-lichess-acsdb-v4-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  V2_LIBRARY_OWNER_SHA: c26099870bbdc70a60cfb9aaf6bde59f447e490c
+
+jobs:
+  real-lichess-acsdb-v4:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 40
+    steps:
+      - name: Checkout exact QA head
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Prove post-owner evidence-only scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor "$V2_LIBRARY_OWNER_SHA" HEAD
+          test "$(git merge-base "$V2_LIBRARY_OWNER_SHA" HEAD)" = "$V2_LIBRARY_OWNER_SHA"
+          git diff --check "$V2_LIBRARY_OWNER_SHA" HEAD
+          changed="$(git diff --name-only "$V2_LIBRARY_OWNER_SHA" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/v2-real-lichess-acsdb-v4.yml' \
+            'tests/v2_real_lichess_acsdb_v4_probe.py' | sort)"
+          test "$changed" = "$expected" || {
+            printf 'Unexpected real-corpus QA scope:\n%s\n' "$changed" >&2
+            exit 1
+          }
+          git diff --quiet "$V2_LIBRARY_OWNER_SHA" HEAD -- acs web tools run_accessible_chess.py
+          printf 'V2_LIBRARY_OWNER_SHA=%s\nQA_HEAD=%s\n' "$V2_LIBRARY_OWNER_SHA" "$(git rev-parse HEAD)"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install pinned QA dependencies
+        run: python -m pip install -q pytest==8.4.2 zstandard==0.23.0
+
+      - name: Compile QA and Product data surfaces
+        run: python -m compileall -q acs tests/v2_real_lichess_acsdb_v4_probe.py
+
+      - name: Run legal real 10k Lichess to ACSDB v4 acceptance
+        id: corpus
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -o pipefail
+          python -m tests.v2_real_lichess_acsdb_v4_probe 2>&1 | tee real-lichess-acsdb-v4.log
+
+      - name: Focused ACSDB v4 Library Search regressions
+        if: always()
+        run: >-
+          python -m unittest -v
+          tests.test_v2_library_acsdb_search_v4
+          tests.test_v2_library_search_service_v4
+          tests.test_acsdb
+          tests.test_d07_acsdb_migration_atomicity
+          tests.test_d07_library_import_service
+          tests.test_d07_library_import_start_lock
+          tests.test_d07_library_import_transaction_ownership
+          tests.test_d07_library_search_cancellation
+          tests.test_d07_search_semantic_equivalence
+          tests.test_d07_search_scalar_equivalence
+
+      - name: Full repository unittest
+        if: always()
+        run: python -m unittest discover -s tests -v
+
+      - name: Full repository pytest
+        if: always()
+        run: python -m pytest -q tests
+
+      - name: SELFTEST and diagnostic
+        if: always()
+        run: |
+          python -m acs.selftest
+          python run_accessible_chess.py --diagnostic
+
+      - name: Remove transient corpus material
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          find /tmp -maxdepth 1 -type d -name 'accessible-chess-real-acsdb-v4-*' -exec rm -rf {} + || true
+          test ! -e lichess.pgn.zst
+          test ! -e lichess-first-10000.pgn
+
+      - name: Upload evidence only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v2-real-lichess-acsdb-v4-evidence
+          path: |
+            real-lichess-acsdb-v4-summary.json
+            real-lichess-acsdb-v4.log
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Enforce real-corpus verdict after regressions
+        if: always()
+        shell: bash
+        run: |
+          test "${{ steps.corpus.outcome }}" = "success"
