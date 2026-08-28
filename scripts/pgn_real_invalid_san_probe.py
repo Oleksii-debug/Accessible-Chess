@@ -3,9 +3,9 @@ from __future__ import annotations
 """One-shot bounded real-corpus INVALID_SAN classifier.
 
 No game text is printed or committed. The probe reports only corpus identity,
-record ordinal/digest, structural recovery warnings and the first short SAN token
-that the exact D06 validator rejects. The lower structural parser is used only
-for diagnosis because D06 ``strict=False`` intentionally still validates SAN.
+record ordinal/digest, structural warnings, bounded tag context and the first
+short SAN token that the exact D06 validator rejects. The lower structural parser
+is used only for diagnosis because D06 ``strict=False`` still validates SAN.
 """
 
 import hashlib
@@ -46,8 +46,11 @@ def main() -> int:
                         continue
                     recovered = parse_games(raw)
                     invalid: list[tuple[tuple[int, ...], str]] = []
+                    all_sans: list[str] = []
                     for game in recovered:
                         for path, san in _walk_sans(game.line):
+                            if len(all_sans) < 8:
+                                all_sans.append(san[:64])
                             try:
                                 _validate_san(san)
                             except PgnRoundTripError as san_exc:
@@ -57,14 +60,22 @@ def main() -> int:
                         raise AssertionError("INVALID_SAN record has no reproducible invalid node")
                     path, san = invalid[0]
                     first = recovered[0]
+                    fen = first.tags.get("FEN")
                     payload = {
-                        "schema": 2,
+                        "schema": 3,
                         "corpus": spec.name,
                         "ordinal": ordinal,
                         "record_sha256": hashlib.sha256(raw.encode("utf-8")).hexdigest(),
                         "record_chars": len(raw),
                         "structural_warnings": list(first.warnings)[:8],
+                        "tag_keys": sorted(first.tags)[:32],
+                        "header_result": first.tags.get("Result"),
                         "variant_tag": first.tags.get("Variant"),
+                        "setup_tag": first.tags.get("SetUp"),
+                        "fen_present": fen is not None,
+                        "fen_sha256": hashlib.sha256(fen.encode("utf-8")).hexdigest() if fen else None,
+                        "mainline_move_count": len(first.line.moves),
+                        "first_sans": all_sans,
                         "invalid_san": san[:64],
                         "invalid_san_sha256": hashlib.sha256(san.encode("utf-8")).hexdigest(),
                         "invalid_san_length": len(san),
