@@ -135,7 +135,7 @@ jobs:
           UNCBV_FIXTURE: ${{ github.workspace }}/upstream/uncbv/tests/twic1134.cbv
         run: |
           set -o pipefail
-          python tests/v2_real_corpus_probe.py 2>&1 | tee real-corpus-probe.log
+          python -m tests.v2_real_corpus_probe 2>&1 | tee real-corpus-probe.log
 
       - name: Remove transient copyrighted corpus before artifact publication
         if: always()
