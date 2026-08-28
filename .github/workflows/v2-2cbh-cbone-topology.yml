@@ -6,7 +6,7 @@ on:
       - work/v2-2cbh-cbone-topology-20260828
   pull_request:
     branches:
-      - work/v2-cbf-cbi-evidence-20260828
+      - work/version2-integration-formats-20260827
     paths:
       - acs/chessbase_adapter.py
       - acs/chessbase_integrity.py
@@ -19,7 +19,7 @@ permissions:
   contents: read
 
 env:
-  V2_TOPOLOGY_BASE: 0454f9e19854da9c2261bba4b5d64e688fa3b909
+  V2_TOPOLOGY_BASE: ${{ github.event.pull_request.base.sha || '958ae19cd91a135fd3f384d02a880c0ed1adfd10' }}
 
 jobs:
   topology-contract:
