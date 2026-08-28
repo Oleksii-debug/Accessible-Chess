@@ -1,0 +1,73 @@
+name: V2 Library Export Reachability Audit Oracle
+
+on:
+  push:
+    branches:
+      - audit/v2-library-export-reachability-r2-20260828
+  pull_request:
+    paths:
+      - 'tests/test_v2_library_export_reachability_audit.py'
+      - '.github/workflows/v2-library-export-reachability-audit.yml'
+      - 'acs/full_product_actions.py'
+      - 'acs/version2_windows_file_workflows.py'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: v2-library-export-reachability-r2-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  audit-oracle:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Prove evidence-only scope and exact live Windows-host ancestry
+        shell: bash
+        env:
+          HOST_HEAD: 8cb63aa49ac2b861e1866f049eba64f83446c4b0
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor "$HOST_HEAD" HEAD
+          test "$(git merge-base "$HOST_HEAD" HEAD)" = "$HOST_HEAD"
+          git diff --check "$HOST_HEAD" HEAD
+          changed="$(git diff --name-only "$HOST_HEAD" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/v2-library-export-reachability-audit.yml' \
+            'tests/test_v2_library_export_reachability_audit.py' | sort)"
+          test "$changed" = "$expected"
+          git diff --quiet "$HOST_HEAD" HEAD -- \
+            acs/full_product_actions.py \
+            acs/full_product_native_menu.py \
+            acs/library_webview_bridge.py \
+            acs/version2_windows_file_workflows.py \
+            acs/version2_windows_import_ui_pump.py \
+            acs/version2_windows_pgn_export.py
+
+      - name: Compile audit oracle
+        run: python -m compileall -q tests/test_v2_library_export_reachability_audit.py
+
+      - name: Existing live Windows host focused regressions remain green
+        run: >-
+          python -m unittest -v
+          tests.test_v2_windows_nvda_file_workflows
+          tests.test_v2_windows_import_event_mailbox
+          tests.test_v2_windows_import_ui_pump
+          tests.test_v2_windows_pgn_export
+
+      - name: Independent Library export reachability oracle
+        run: python -m unittest -v tests.test_v2_library_export_reachability_audit
