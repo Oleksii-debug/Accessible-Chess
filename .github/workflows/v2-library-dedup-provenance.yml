@@ -41,6 +41,11 @@ jobs:
           git config core.autocrlf false
           git config core.eol lf
           git reset --hard HEAD
+          # Git for Windows can regard an already-materialized CRLF worktree as
+          # clean after autocrlf changes. Force every tracked index entry to be
+          # rewritten under the canonical LF configuration before frozen-byte
+          # regressions inspect the worktree.
+          git checkout-index --force --all
           test "$(git hash-object --no-filters acs/stage1_release_ui_core.py)" = "$(git rev-parse HEAD:acs/stage1_release_ui_core.py)"
           test "$(git hash-object --no-filters acs/webapp_keymap_core.py)" = "$(git rev-parse HEAD:acs/webapp_keymap_core.py)"
       - uses: actions/setup-python@v5
