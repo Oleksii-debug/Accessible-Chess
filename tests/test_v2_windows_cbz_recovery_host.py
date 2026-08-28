@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import tempfile
+import threading
+import time
 import unittest
 from pathlib import Path
 
@@ -127,8 +129,14 @@ class Version2WindowsCbzRecoveryHostTests(unittest.TestCase):
         def recoverer(_root: Path) -> CbzRecoveryReport:
             nonlocal calls
             calls += 1
-            return _report(removed=0, bytes_removed=0, candidates=0, scanned_entries=0,
-                           skipped_active=0, skipped_fresh=0)
+            return _report(
+                removed=0,
+                bytes_removed=0,
+                candidates=0,
+                scanned_entries=0,
+                skipped_active=0,
+                skipped_fresh=0,
+            )
 
         preflight = Version2WindowsCbzRecoveryPreflight(root, recoverer=recoverer)
         first = preflight.run_once()
@@ -136,6 +144,50 @@ class Version2WindowsCbzRecoveryHostTests(unittest.TestCase):
         self.assertIs(first, second)
         self.assertEqual(calls, 1)
         self.assertEqual(first.status, WindowsCbzRecoveryStatus.CLEAN)
+
+    def test_concurrent_callers_still_invoke_cleanup_exactly_once(self) -> None:
+        root = Path(tempfile.gettempdir()).resolve()
+        worker_count = 12
+        start = threading.Barrier(worker_count + 1)
+        release = threading.Event()
+        calls_lock = threading.Lock()
+        calls = 0
+        results = []
+
+        def recoverer(_root: Path) -> CbzRecoveryReport:
+            nonlocal calls
+            with calls_lock:
+                calls += 1
+            release.wait(timeout=5.0)
+            return _report(
+                removed=0,
+                bytes_removed=0,
+                candidates=0,
+                scanned_entries=0,
+                skipped_active=0,
+                skipped_fresh=0,
+            )
+
+        preflight = Version2WindowsCbzRecoveryPreflight(root, recoverer=recoverer)
+
+        def caller() -> None:
+            start.wait(timeout=5.0)
+            results.append(preflight.run_once())
+
+        threads = [threading.Thread(target=caller) for _ in range(worker_count)]
+        for thread in threads:
+            thread.start()
+        start.wait(timeout=5.0)
+        time.sleep(0.05)
+        release.set()
+        for thread in threads:
+            thread.join(timeout=5.0)
+            self.assertFalse(thread.is_alive())
+
+        self.assertEqual(calls, 1)
+        self.assertEqual(len(results), worker_count)
+        self.assertTrue(all(result is results[0] for result in results))
+        self.assertEqual(results[0].status, WindowsCbzRecoveryStatus.CLEAN)
 
 
 if __name__ == "__main__":

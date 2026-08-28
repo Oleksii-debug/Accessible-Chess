@@ -19,6 +19,7 @@ separate real-world acceptance requirements are satisfied.
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
+import threading
 from typing import Callable
 
 from .cbz_extractor import (
@@ -108,9 +109,9 @@ class Version2WindowsCbzRecoveryPreflight:
     working directory, environment variable, or implicit OS temp location is
     accepted as authority here.
 
-    A single instance invokes the recovery service at most once.  Repeated
-    callers receive the cached path-free event and cannot trigger repeated
-    filesystem cleanup accidentally.
+    A single instance invokes the recovery service at most once, including when
+    multiple startup callers race. Repeated callers receive the same cached
+    path-free event and cannot trigger repeated filesystem cleanup accidentally.
     """
 
     def __init__(
@@ -126,26 +127,29 @@ class Version2WindowsCbzRecoveryPreflight:
         self._recovery_root = recovery_root
         self._recoverer = recoverer
         self._result: WindowsCbzRecoveryEvent | None = None
+        self._run_lock = threading.Lock()
 
     def run_once(self) -> WindowsCbzRecoveryEvent:
-        if self._result is not None:
-            return self._result
+        with self._run_lock:
+            if self._result is not None:
+                return self._result
 
-        try:
-            report = self._recoverer(self._recovery_root)
-            result = _event_from_report(report)
-        except CbzExtractError as exc:
-            result = WindowsCbzRecoveryEvent(
-                status=WindowsCbzRecoveryStatus.FAILED,
-                error_code=exc.code.value,
-            )
-        except Exception:
-            # Never surface raw filesystem/provider exception text through the
-            # host result.  Diagnostic ownership remains outside NVDA/WebView.
-            result = WindowsCbzRecoveryEvent(
-                status=WindowsCbzRecoveryStatus.FAILED,
-                error_code="internal_error",
-            )
+            try:
+                report = self._recoverer(self._recovery_root)
+                result = _event_from_report(report)
+            except CbzExtractError as exc:
+                result = WindowsCbzRecoveryEvent(
+                    status=WindowsCbzRecoveryStatus.FAILED,
+                    error_code=exc.code.value,
+                )
+            except Exception:
+                # Never surface raw filesystem/provider exception text through
+                # the host result. Diagnostic ownership remains outside
+                # NVDA/WebView.
+                result = WindowsCbzRecoveryEvent(
+                    status=WindowsCbzRecoveryStatus.FAILED,
+                    error_code="internal_error",
+                )
 
-        self._result = result
-        return result
+            self._result = result
+            return result
