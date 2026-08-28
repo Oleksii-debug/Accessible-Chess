@@ -15,6 +15,7 @@ BLOCKED without independent real-corpus acceptance evidence.
 
 from dataclasses import dataclass
 from enum import Enum
+import json
 import os
 from pathlib import Path
 import shutil
@@ -36,6 +37,15 @@ from .import_contract import SourceFingerprint, fingerprint, verify_source_uncha
 
 
 MAX_PASSWORD_BYTES = 1024
+_WORKSPACE_PREFIX = ".accessible-chess-cbz-"
+_WORKSPACE_MARKER = ".accessible-chess-cbz-workspace.json"
+_WORKSPACE_PURPOSE = "accessible-chess-cbz-private-workspace"
+_WORKSPACE_SCHEMA_VERSION = 1
+MAX_WORKSPACE_MARKER_BYTES = 4096
+DEFAULT_RECOVERY_MIN_AGE_SECONDS = 3600.0
+DEFAULT_RECOVERY_MAX_SCAN_ENTRIES = 4096
+DEFAULT_RECOVERY_MAX_WORKSPACE_ENTRIES = 8192
+DEFAULT_RECOVERY_MAX_WORKSPACE_BYTES = 16 * 1024 * 1024 * 1024
 
 
 class CbzExtractCode(str, Enum):
@@ -53,6 +63,7 @@ class CbzExtractCode(str, Enum):
     RESOURCE_LIMIT = "resource_limit"
     OUTPUT_INVALID = "output_invalid"
     TEMP_CLEANUP_FAILED = "temp_cleanup_failed"
+    RECOVERY_ROOT_INVALID = "recovery_root_invalid"
 
 
 class CbzExtractError(RuntimeError):
@@ -70,6 +81,20 @@ class CbzExtraction:
     backend_name: str
     backend_sha256: str
     decrypted_cbv_sha256: str
+
+
+@dataclass(frozen=True, slots=True)
+class CbzRecoveryReport:
+    scanned_entries: int
+    candidates: int
+    removed: int
+    bytes_removed: int
+    skipped_active: int
+    skipped_fresh: int
+    skipped_untrusted: int
+    skipped_unsafe: int
+    skipped_oversized: int
+    failed: int
 
 
 @dataclass(slots=True)
@@ -336,18 +361,73 @@ def _validate_decrypted_cbv(path: Path, *, max_bytes: int) -> SourceFingerprint:
         ) from exc
 
 
+def _strict_json_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    result: dict[str, object] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("duplicate workspace marker key")
+        result[key] = value
+    return result
+
+
+def _workspace_marker_payload(workspace: Path) -> dict[str, object]:
+    return {
+        "schema_version": _WORKSPACE_SCHEMA_VERSION,
+        "purpose": _WORKSPACE_PURPOSE,
+        "workspace_name": workspace.name,
+        "owner_pid": os.getpid(),
+        "created_unix_ns": time.time_ns(),
+    }
+
+
+def _write_workspace_marker(workspace: Path) -> None:
+    marker = workspace / _WORKSPACE_MARKER
+    payload = _workspace_marker_payload(workspace)
+    rendered = json.dumps(
+        payload,
+        ensure_ascii=True,
+        separators=(",", ":"),
+        sort_keys=True,
+    ) + "\n"
+    if len(rendered.encode("utf-8")) > MAX_WORKSPACE_MARKER_BYTES:
+        raise _error(
+            "CBZ private workspace marker exceeds its bound",
+            CbzExtractCode.OUTPUT_INVALID,
+        )
+    try:
+        with marker.open("x", encoding="utf-8", newline="\n") as handle:
+            handle.write(rendered)
+            handle.flush()
+            os.fsync(handle.fileno())
+        if os.name != "nt":
+            marker.chmod(0o600)
+    except OSError as exc:
+        raise _error(
+            "CBZ private workspace marker could not be created",
+            CbzExtractCode.OUTPUT_INVALID,
+        ) from exc
+
+
 def _make_private_workspace(parent: Path) -> Path:
+    workspace: Path | None = None
     try:
         workspace = Path(
             tempfile.mkdtemp(
-                prefix=".accessible-chess-cbz-",
+                prefix=_WORKSPACE_PREFIX,
                 dir=os.fspath(parent),
             )
         )
         if os.name != "nt":
             workspace.chmod(0o700)
+        _write_workspace_marker(workspace)
         return workspace
+    except CbzExtractError:
+        if workspace is not None:
+            shutil.rmtree(workspace, ignore_errors=True)
+        raise
     except OSError as exc:
+        if workspace is not None:
+            shutil.rmtree(workspace, ignore_errors=True)
         raise _error(
             "CBZ private staging workspace could not be created",
             CbzExtractCode.OUTPUT_INVALID,
@@ -363,6 +443,318 @@ def _cleanup_private_workspace(path: Path) -> None:
             "CBZ temporary decrypted material could not be removed",
             CbzExtractCode.TEMP_CLEANUP_FAILED,
         ) from exc
+
+
+def _read_workspace_marker(workspace: Path) -> dict[str, object] | None:
+    marker = workspace / _WORKSPACE_MARKER
+    try:
+        metadata = marker.lstat()
+        if (
+            stat.S_ISLNK(metadata.st_mode)
+            or _is_reparse_point(metadata)
+            or not stat.S_ISREG(metadata.st_mode)
+            or metadata.st_size <= 0
+            or metadata.st_size > MAX_WORKSPACE_MARKER_BYTES
+        ):
+            return None
+        text = marker.read_text(encoding="utf-8", errors="strict")
+        payload = json.loads(text, object_pairs_hook=_strict_json_object)
+    except (OSError, UnicodeError, ValueError):
+        return None
+    if type(payload) is not dict:
+        return None
+    expected_keys = {
+        "schema_version",
+        "purpose",
+        "workspace_name",
+        "owner_pid",
+        "created_unix_ns",
+    }
+    if set(payload) != expected_keys:
+        return None
+    if payload["schema_version"] != _WORKSPACE_SCHEMA_VERSION:
+        return None
+    if payload["purpose"] != _WORKSPACE_PURPOSE:
+        return None
+    if payload["workspace_name"] != workspace.name:
+        return None
+    owner_pid = payload["owner_pid"]
+    created = payload["created_unix_ns"]
+    if type(owner_pid) is not int or not 0 < owner_pid <= 0xFFFFFFFF:
+        return None
+    if type(created) is not int or created <= 0:
+        return None
+    return payload
+
+
+def _pid_is_running(pid: int) -> bool:
+    if type(pid) is not int or pid <= 0:
+        return True
+    if pid == os.getpid():
+        return True
+    if os.name != "nt":
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            return True
+        except OSError:
+            return True
+        return True
+
+    try:
+        import ctypes
+
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        open_process = kernel32.OpenProcess
+        open_process.argtypes = [ctypes.c_uint32, ctypes.c_int, ctypes.c_uint32]
+        open_process.restype = ctypes.c_void_p
+        get_exit_code = kernel32.GetExitCodeProcess
+        get_exit_code.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint32)]
+        get_exit_code.restype = ctypes.c_int
+        close_handle = kernel32.CloseHandle
+        close_handle.argtypes = [ctypes.c_void_p]
+        close_handle.restype = ctypes.c_int
+
+        handle = open_process(0x1000, 0, pid)
+        if not handle:
+            return ctypes.get_last_error() != 87
+        try:
+            exit_code = ctypes.c_uint32()
+            if not get_exit_code(handle, ctypes.byref(exit_code)):
+                return True
+            return exit_code.value == 259
+        finally:
+            close_handle(handle)
+    except Exception:
+        return True
+
+
+def _measure_workspace(
+    workspace: Path,
+    *,
+    max_entries: int,
+    max_bytes: int,
+) -> tuple[str, int, int]:
+    entries = 0
+    total_bytes = 0
+    try:
+        root_metadata = workspace.lstat()
+        if (
+            stat.S_ISLNK(root_metadata.st_mode)
+            or _is_reparse_point(root_metadata)
+            or not stat.S_ISDIR(root_metadata.st_mode)
+        ):
+            return "unsafe", 0, 0
+        for current, directory_names, file_names in os.walk(
+            workspace,
+            topdown=True,
+            followlinks=False,
+        ):
+            current_path = Path(current)
+            for name in directory_names:
+                child = current_path / name
+                metadata = child.lstat()
+                entries += 1
+                if entries > max_entries:
+                    return "oversized", entries, total_bytes
+                if (
+                    stat.S_ISLNK(metadata.st_mode)
+                    or _is_reparse_point(metadata)
+                    or not stat.S_ISDIR(metadata.st_mode)
+                ):
+                    return "unsafe", entries, total_bytes
+            for name in file_names:
+                child = current_path / name
+                metadata = child.lstat()
+                entries += 1
+                if entries > max_entries:
+                    return "oversized", entries, total_bytes
+                if (
+                    stat.S_ISLNK(metadata.st_mode)
+                    or _is_reparse_point(metadata)
+                    or not stat.S_ISREG(metadata.st_mode)
+                ):
+                    return "unsafe", entries, total_bytes
+                total_bytes += metadata.st_size
+                if total_bytes > max_bytes:
+                    return "oversized", entries, total_bytes
+    except OSError:
+        return "unsafe", entries, total_bytes
+    return "ok", entries, total_bytes
+
+
+def _validate_recovery_bounds(
+    *,
+    min_age_seconds: float,
+    max_scan_entries: int,
+    max_workspace_entries: int,
+    max_workspace_bytes: int,
+) -> None:
+    if (
+        type(min_age_seconds) not in (int, float)
+        or not 1.0 <= float(min_age_seconds) <= 30 * 24 * 60 * 60
+    ):
+        raise ValueError("min_age_seconds must be within [1, 2592000]")
+    for value, label, minimum, maximum in (
+        (max_scan_entries, "max_scan_entries", 1, 100_000),
+        (max_workspace_entries, "max_workspace_entries", 1, 100_000),
+        (
+            max_workspace_bytes,
+            "max_workspace_bytes",
+            1,
+            256 * 1024 * 1024 * 1024,
+        ),
+    ):
+        if type(value) is not int or not minimum <= value <= maximum:
+            raise ValueError(f"{label} is outside the supported bound")
+
+
+def recover_stale_cbz_workspaces(
+    recovery_root: str | Path,
+    *,
+    min_age_seconds: float = DEFAULT_RECOVERY_MIN_AGE_SECONDS,
+    max_scan_entries: int = DEFAULT_RECOVERY_MAX_SCAN_ENTRIES,
+    max_workspace_entries: int = DEFAULT_RECOVERY_MAX_WORKSPACE_ENTRIES,
+    max_workspace_bytes: int = DEFAULT_RECOVERY_MAX_WORKSPACE_BYTES,
+) -> CbzRecoveryReport:
+    """Remove only stale, marker-qualified, dead-owner CBZ private workspaces.
+
+    The caller must provide a trusted recovery root explicitly. This function
+    never scans the system temp directory on its own. Legacy pre-marker
+    workspaces are deliberately preserved because their ownership cannot be
+    established safely enough for automatic deletion.
+    """
+
+    _validate_recovery_bounds(
+        min_age_seconds=min_age_seconds,
+        max_scan_entries=max_scan_entries,
+        max_workspace_entries=max_workspace_entries,
+        max_workspace_bytes=max_workspace_bytes,
+    )
+    try:
+        root = _validate_real_directory(
+            Path(recovery_root),
+            must_be_empty=False,
+        )
+    except CbvExtractError as exc:
+        raise _error(
+            "CBZ recovery root is not a trusted real directory",
+            CbzExtractCode.RECOVERY_ROOT_INVALID,
+        ) from exc
+
+    children: list[Path] = []
+    try:
+        for child in root.iterdir():
+            children.append(child)
+            if len(children) > max_scan_entries:
+                raise _error(
+                    "CBZ recovery root exceeds the scan-entry bound",
+                    CbzExtractCode.RESOURCE_LIMIT,
+                )
+    except CbzExtractError:
+        raise
+    except OSError as exc:
+        raise _error(
+            "CBZ recovery root could not be inspected",
+            CbzExtractCode.RECOVERY_ROOT_INVALID,
+        ) from exc
+
+    candidates = 0
+    removed = 0
+    bytes_removed = 0
+    skipped_active = 0
+    skipped_fresh = 0
+    skipped_untrusted = 0
+    skipped_unsafe = 0
+    skipped_oversized = 0
+    failed = 0
+    now_ns = time.time_ns()
+    min_age_ns = int(float(min_age_seconds) * 1_000_000_000)
+
+    for child in children:
+        if not child.name.startswith(_WORKSPACE_PREFIX):
+            continue
+        candidates += 1
+
+        try:
+            metadata = child.lstat()
+        except OSError:
+            skipped_untrusted += 1
+            continue
+        if (
+            stat.S_ISLNK(metadata.st_mode)
+            or _is_reparse_point(metadata)
+            or not stat.S_ISDIR(metadata.st_mode)
+        ):
+            skipped_untrusted += 1
+            continue
+
+        marker = _read_workspace_marker(child)
+        if marker is None:
+            skipped_untrusted += 1
+            continue
+
+        created_ns = int(marker["created_unix_ns"])
+        if created_ns > now_ns or now_ns - created_ns < min_age_ns:
+            skipped_fresh += 1
+            continue
+        if _pid_is_running(int(marker["owner_pid"])):
+            skipped_active += 1
+            continue
+
+        status, _, _ = _measure_workspace(
+            child,
+            max_entries=max_workspace_entries,
+            max_bytes=max_workspace_bytes,
+        )
+        if status == "unsafe":
+            skipped_unsafe += 1
+            continue
+        if status == "oversized":
+            skipped_oversized += 1
+            continue
+
+        marker_again = _read_workspace_marker(child)
+        if marker_again != marker:
+            skipped_untrusted += 1
+            continue
+        if _pid_is_running(int(marker_again["owner_pid"])):
+            skipped_active += 1
+            continue
+        status_again, _, candidate_bytes_again = _measure_workspace(
+            child,
+            max_entries=max_workspace_entries,
+            max_bytes=max_workspace_bytes,
+        )
+        if status_again == "unsafe":
+            skipped_unsafe += 1
+            continue
+        if status_again == "oversized":
+            skipped_oversized += 1
+            continue
+
+        try:
+            shutil.rmtree(child)
+        except OSError:
+            failed += 1
+            continue
+        removed += 1
+        bytes_removed += candidate_bytes_again
+
+    return CbzRecoveryReport(
+        scanned_entries=len(children),
+        candidates=candidates,
+        removed=removed,
+        bytes_removed=bytes_removed,
+        skipped_active=skipped_active,
+        skipped_fresh=skipped_fresh,
+        skipped_untrusted=skipped_untrusted,
+        skipped_unsafe=skipped_unsafe,
+        skipped_oversized=skipped_oversized,
+        failed=failed,
+    )
 
 
 def _publish_staged_directory(staged: Path, output: Path) -> None:

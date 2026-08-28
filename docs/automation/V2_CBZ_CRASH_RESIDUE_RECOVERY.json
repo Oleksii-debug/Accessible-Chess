@@ -1,0 +1,63 @@
+{
+  "defaults": {
+    "max_marker_bytes": 4096,
+    "max_root_entries": 4096,
+    "max_workspace_bytes": 17179869184,
+    "max_workspace_entries": 8192,
+    "minimum_age_seconds": 3600
+  },
+  "format_status": "BLOCKED",
+  "integration": {
+    "automatic_startup_cleanup": false,
+    "extractor_creates_versioned_workspace_marker": true,
+    "password_storage_added": false,
+    "recovery_api_available": true,
+    "windows_host_wired": false
+  },
+  "parent_pr": 330,
+  "parent_sha": "3affc9e40e7416a7d680c537b271dd8718f8fce3",
+  "product_change": {
+    "does_not_modify": [
+      "Stage1",
+      "chess core",
+      "GameTree",
+      "Library/ACSDB",
+      "CBV extractor",
+      "Windows/NVDA UI",
+      "backend bundling"
+    ],
+    "path": "acs/cbz_extractor.py",
+    "purpose": "bound and recover stale private decrypted CBZ staging after hard process termination"
+  },
+  "recovery_contract": {
+    "active_owner_preserved": true,
+    "counts_only_report": true,
+    "duplicate_marker_keys_rejected": true,
+    "explicit_root_only": true,
+    "future_or_fresh_workspace_preserved": true,
+    "generic_temp_cleanup": false,
+    "indeterminate_owner_state_preserved": true,
+    "legacy_unmarked_auto_delete": false,
+    "marker_qualified_only": true,
+    "predelete_revalidation": true,
+    "resource_bounded": true,
+    "scan_bound_applies_before_deletion": true,
+    "symlink_reparse_or_nonregular_preserved": true,
+    "workspace_name_bound_marker": true
+  },
+  "remaining_blockers": [
+    "Windows trusted host must invoke recovery at a controlled lifecycle boundary before the capability is user-facing.",
+    "Legacy pre-marker residue cannot be safely auto-attributed and remains manual/OS cleanup territory.",
+    "CBZ still lacks a lawful reusable independent real-world semantic oracle and end-to-end support proof."
+  ],
+  "role": "V2-CHESSBASE-FORMATS",
+  "schema_version": 1,
+  "scope": "cbz-crash-residue-recovery-only",
+  "security_notes": [
+    "PID reuse can conservatively retain stale residue; it cannot authorize deletion.",
+    "Recovery refuses deletion when ownership or filesystem safety cannot be established.",
+    "Recovery reports aggregate counts only and does not expose private local paths.",
+    "The real-world semantic acceptance blocker is unchanged by this package."
+  ],
+  "support_promotion_allowed": false
+}
