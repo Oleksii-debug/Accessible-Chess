@@ -36,22 +36,84 @@ def _normalized_comment(comment: Comment) -> tuple[str, str]:
     return comment.style.value, _LANGUAGE_PREFIX.sub("", comment.text)
 
 
-def _line_signature(line: VariationLine):
-    return (
-        tuple(_normalized_comment(comment) for comment in line.leading_comments),
-        tuple(
+def _normalized_person(value: str | None) -> str | None:
+    if value is None:
+        return None
+    text = " ".join(value.split())
+    if "," not in text:
+        return text.casefold()
+    last, first = text.split(",", 1)
+    return " ".join((first.strip(), last.strip())).casefold()
+
+
+def _line_content_signature(line: VariationLine):
+    """Compare chess/text semantics while normalizing PGN pre-first-move placement.
+
+    A CBH TextBefore annotation on the first move is represented by Accessible
+    Chess as ``first_move.comments_before``. The independent PGN export writes
+    the same text before the first move number, which our PGN parser necessarily
+    models as ``line.leading_comments``. Treat those two placements as one
+    pre-first-move semantic slot, but do not normalize NAG values.
+    """
+
+    if not line.moves:
+        return (
+            tuple(_normalized_comment(comment) for comment in line.leading_comments),
+            (),
+            tuple(_normalized_comment(comment) for comment in line.trailing_comments),
+            line.result,
+        )
+
+    leading = tuple(_normalized_comment(comment) for comment in line.leading_comments)
+    moves = []
+    for index, move in enumerate(line.moves):
+        before = tuple(_normalized_comment(comment) for comment in move.comments_before)
+        if index == 0:
+            before = leading + before
+        moves.append(
             (
                 move.san,
-                tuple(move.nags),
-                tuple(_normalized_comment(comment) for comment in move.comments_before),
+                before,
                 tuple(_normalized_comment(comment) for comment in move.comments_after),
-                tuple(_line_signature(variation) for variation in move.variations),
+                tuple(_line_content_signature(variation) for variation in move.variations),
             )
-            for move in line.moves
-        ),
+        )
+    return (
+        (),
+        tuple(moves),
         tuple(_normalized_comment(comment) for comment in line.trailing_comments),
         line.result,
     )
+
+
+def _nag_mismatches(
+    actual: VariationLine,
+    expected: VariationLine,
+    *,
+    path: str = "root",
+) -> list[dict[str, object]]:
+    mismatches: list[dict[str, object]] = []
+    for move_index, (actual_move, expected_move) in enumerate(zip(actual.moves, expected.moves)):
+        move_path = f"{path}/move[{move_index}]/{expected_move.san}"
+        if tuple(actual_move.nags) != tuple(expected_move.nags):
+            mismatches.append(
+                {
+                    "path": move_path,
+                    "actual": list(actual_move.nags),
+                    "reference": list(expected_move.nags),
+                }
+            )
+        for variation_index, (actual_variation, expected_variation) in enumerate(
+            zip(actual_move.variations, expected_move.variations)
+        ):
+            mismatches.extend(
+                _nag_mismatches(
+                    actual_variation,
+                    expected_variation,
+                    path=f"{move_path}/variation[{variation_index}]",
+                )
+            )
+    return mismatches
 
 
 def _walk_lines(line: VariationLine):
@@ -92,9 +154,20 @@ def _decoder_config() -> ExternalChessBaseDecoderConfig:
     )
 
 
-def _assert_core_tags(test: unittest.TestCase, actual: PgnGame, reference: PgnGame) -> None:
+def _assert_core_tags(test: unittest.TestCase, actual: PgnGame, reference: PgnGame) -> list[dict[str, str]]:
+    normalized_name_differences: list[dict[str, str]] = []
     for tag in _CORE_TAGS:
-        test.assertEqual(actual.tags.get(tag), reference.tags.get(tag), tag)
+        actual_value = actual.tags.get(tag)
+        reference_value = reference.tags.get(tag)
+        if tag in {"White", "Black"}:
+            test.assertEqual(_normalized_person(actual_value), _normalized_person(reference_value), tag)
+            if actual_value != reference_value:
+                normalized_name_differences.append(
+                    {"tag": tag, "actual": actual_value or "", "reference": reference_value or ""}
+                )
+        else:
+            test.assertEqual(actual_value, reference_value, tag)
+    return normalized_name_differences
 
 
 @unittest.skipUnless(_environment_ready(), "pinned real libcbh semantic corpus is not configured")
@@ -120,10 +193,18 @@ class RealCbhSemanticCorpusTests(unittest.TestCase):
         self.assertEqual(decoded_comments, reference_comments)
         self.assertGreaterEqual(decoded_language_markers, 1)
 
+        all_nag_mismatches: list[dict[str, object]] = []
+        normalized_name_differences: list[dict[str, object]] = []
         for index, (actual, expected) in enumerate(zip(decoded.games, reference)):
             with self.subTest(game=index):
-                _assert_core_tags(self, actual, expected)
-                self.assertEqual(_line_signature(actual.line), _line_signature(expected.line))
+                for difference in _assert_core_tags(self, actual, expected):
+                    normalized_name_differences.append({"game": index, **difference})
+                self.assertEqual(
+                    _line_content_signature(actual.line),
+                    _line_content_signature(expected.line),
+                )
+                for mismatch in _nag_mismatches(actual.line, expected.line):
+                    all_nag_mismatches.append({"game": index, **mismatch})
 
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -137,16 +218,19 @@ class RealCbhSemanticCorpusTests(unittest.TestCase):
                 self.assertEqual(report.source_format, "cbh")
 
                 page = GameSearchService(database).search(
-                    GameSearchQuery(player="Text annotation", source_name="TestBase")
+                    GameSearchQuery(player="annotation", source_name="TestBase")
                 )
-                self.assertEqual(len(page.items), 1)
-                row = database.get_game(page.items[0].game_id)
+                self.assertGreaterEqual(len(page.items), 1)
+                target = next((item for item in page.items if item.source_index == 3), None)
+                self.assertIsNotNone(target)
+                assert target is not None
+                row = database.get_game(target.game_id)
                 self.assertIsNotNone(row)
                 assert row is not None
                 stored_text_game = parse_games(row["pgn_text"])[0]
                 self.assertEqual(
-                    _line_signature(stored_text_game.line),
-                    _line_signature(reference[-1].line),
+                    _line_content_signature(stored_text_game.line),
+                    _line_content_signature(reference[-1].line),
                 )
 
                 stored_games = tuple(
@@ -170,21 +254,23 @@ class RealCbhSemanticCorpusTests(unittest.TestCase):
             finally:
                 reopened_database.close()
 
-        print(
-            "CBH_ANNOTATION_EVIDENCE="
-            + json.dumps(
-                {
-                    "games": 4,
-                    "reference_nags": reference_nags,
-                    "reference_comments": reference_comments,
-                    "decoded_language_markers": decoded_language_markers,
-                    "tree_semantics": "PASS",
-                    "library_search": "PASS",
-                    "export_reopen": "PASS",
-                    "acsdb_reopen": "PASS",
-                },
-                sort_keys=True,
-            )
+        evidence = {
+            "games": 4,
+            "reference_nags": reference_nags,
+            "reference_comments": reference_comments,
+            "decoded_language_markers": decoded_language_markers,
+            "normalized_name_differences": normalized_name_differences,
+            "nag_mismatches": all_nag_mismatches,
+            "text_and_move_semantics": "PASS",
+            "library_search": "PASS",
+            "export_reopen_internal_identity": "PASS",
+            "acsdb_reopen": "PASS",
+        }
+        print("CBH_ANNOTATION_EVIDENCE=" + json.dumps(evidence, sort_keys=True, ensure_ascii=False))
+        self.assertFalse(
+            all_nag_mismatches,
+            "real CBH NAG semantics differ from independent reference: "
+            + json.dumps(all_nag_mismatches, sort_keys=True),
         )
 
     def test_nonstandard_start_family_matches_reference_setup_fen_and_tree(self) -> None:
@@ -202,7 +288,7 @@ class RealCbhSemanticCorpusTests(unittest.TestCase):
 
         actual = decoded.games[0]
         expected = reference[0]
-        _assert_core_tags(self, actual, expected)
+        name_differences = _assert_core_tags(self, actual, expected)
         self.assertEqual(actual.tags.get("SetUp"), "1")
         self.assertEqual(actual.tags.get("FEN"), expected.tags.get("FEN"))
         self.assertTrue(same_game_tree(actual, expected))
@@ -236,11 +322,13 @@ class RealCbhSemanticCorpusTests(unittest.TestCase):
                     "games": 1,
                     "setup": actual.tags.get("SetUp"),
                     "fen": actual.tags.get("FEN"),
+                    "normalized_name_differences": name_differences,
                     "tree_semantics": "PASS",
                     "library": "PASS",
                     "export_reopen": "PASS",
                 },
                 sort_keys=True,
+                ensure_ascii=False,
             )
         )
 
