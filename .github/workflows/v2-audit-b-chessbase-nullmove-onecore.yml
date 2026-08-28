@@ -1,0 +1,89 @@
+name: V2 Audit-B ChessBase Null Move One-Core Oracle
+
+on:
+  push:
+    branches:
+      - audit/v2-chessbase-nullmove-onecore-r2-20260828
+  pull_request:
+    paths:
+      - 'tests/test_v2_audit_b_chessbase_nullmove_onecore.py'
+      - '.github/workflows/v2-audit-b-chessbase-nullmove-onecore.yml'
+      - 'acs/chessbase_decoder.py'
+      - 'acs/gametree_legality.py'
+      - 'acs/chesscore.py'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: v2-audit-b-chessbase-nullmove-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  audit-oracle:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install pinned verification dependency
+        run: python -m pip install -q pytest==8.4.2
+      - name: Exact authority and evidence-only scope
+        shell: bash
+        env:
+          PRODUCT_HEAD: 575ec0088982d2f90adb47c040a5714d68186b0e
+          DECODER_BLOB: eb8ac2fae939d9efdb2330d4a1b01024d39ee101
+          LEGALITY_BLOB: ef32946c9117e094be725477c1578ab6972c6f9f
+        run: |
+          set -euo pipefail
+          test "$(git merge-base "$PRODUCT_HEAD" HEAD)" = "$PRODUCT_HEAD"
+          git diff --check "$PRODUCT_HEAD" HEAD
+          changed="$(git diff --name-only "$PRODUCT_HEAD" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/v2-audit-b-chessbase-nullmove-onecore.yml' \
+            'tests/test_v2_audit_b_chessbase_nullmove_onecore.py' | sort)"
+          test "$changed" = "$expected"
+          test "$(git rev-parse HEAD:acs/chessbase_decoder.py)" = "$DECODER_BLOB"
+          test "$(git rev-parse HEAD:acs/gametree_legality.py)" = "$LEGALITY_BLOB"
+      - name: Compile audit surface
+        run: python -m compileall -q tests/test_v2_audit_b_chessbase_nullmove_onecore.py
+      - name: Existing ChessBase and canonical GameTree regressions remain green
+        run: >-
+          python -m unittest -v
+          tests.test_chessbase_decoder
+          tests.test_chessbase_adapter
+          tests.test_gametree
+          tests.test_d06_gametree_persistence_vertical
+          tests.test_d06_pgn_roundtrip
+      - name: Broad exact-product regressions remain green
+        shell: bash
+        env:
+          PRODUCT_HEAD: 575ec0088982d2f90adb47c040a5714d68186b0e
+        run: |
+          set -euo pipefail
+          product_tree="../v2-nullmove-product-${GITHUB_RUN_ID}-${RUNNER_OS}"
+          rm -rf "$product_tree"
+          git worktree add --detach "$product_tree" "$PRODUCT_HEAD"
+          cleanup() {
+            git worktree remove --force "$product_tree" >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+          (
+            cd "$product_tree"
+            python -m unittest discover -s tests
+            python -m pytest -q tests
+          )
+          cleanup
+          trap - EXIT
+      - name: Independent null-move one-core oracle
+        if: ${{ always() }}
+        run: python -m unittest -v tests.test_v2_audit_b_chessbase_nullmove_onecore
