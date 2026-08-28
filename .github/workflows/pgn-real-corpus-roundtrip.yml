@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - 'scripts/pgn_real_corpus_oracle.py'
+      - 'scripts/pgn_real_corpus_diagnose.py'
       - '.github/workflows/pgn-real-corpus-roundtrip.yml'
 
 permissions:
@@ -56,15 +57,16 @@ jobs:
           changed="$(git diff --name-only "$PGN_BASE" HEAD | sort)"
           expected="$(printf '%s\n' \
             '.github/workflows/pgn-real-corpus-roundtrip.yml' \
+            'scripts/pgn_real_corpus_diagnose.py' \
             'scripts/pgn_real_corpus_oracle.py' | sort)"
           test "$changed" = "$expected"
           git diff --quiet "$PGN_BASE" HEAD -- acs tests web run_accessible_chess.py
           test "$(git rev-parse HEAD:acs/pgn_roundtrip.py)" = "96d62bf6dd7b2f5c8a75d5f2bd1fde2ad0823d20"
           echo 'PGN-03 EVIDENCE-ONLY SCOPE PASS'
 
-      - name: Compile and self-test corpus oracle
+      - name: Compile and self-test corpus tools
         run: |
-          python -m py_compile scripts/pgn_real_corpus_oracle.py
+          python -m py_compile scripts/pgn_real_corpus_oracle.py scripts/pgn_real_corpus_diagnose.py
           python -m scripts.pgn_real_corpus_oracle --selftest
 
       - name: Focused canonical PGN and GameTree regressions
@@ -85,6 +87,12 @@ jobs:
           tests.test_dev4_pgn_export_failure_recovery
           tests.test_dev4_pgn_postcommit_cleanup_atomicity
 
+      - name: Classify any first real-corpus strict rejection
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m scripts.pgn_real_corpus_diagnose 2>&1 | tee pgn-real-corpus-classification.txt
+
       - name: Verify 4,000 pinned real games and adversarial derivatives
         shell: bash
         run: |
@@ -98,7 +106,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: pgn-real-corpus-${{ matrix.os }}
-          path: pgn-real-corpus-report.txt
+          path: |
+            pgn-real-corpus-classification.txt
+            pgn-real-corpus-report.txt
           if-no-files-found: ignore
           retention-days: 14
 
