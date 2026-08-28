@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - 'scripts/pgn_large_resource_perf_oracle.py'
+      - 'scripts/pgn05_document_ingress_diagnostic.py'
       - '.github/workflows/pgn-large-resource-perf.yml'
 
 permissions:
@@ -56,6 +57,7 @@ jobs:
           changed="$(git diff --name-only "$PGN05_BASE" HEAD | sort)"
           expected="$(printf '%s\n' \
             '.github/workflows/pgn-large-resource-perf.yml' \
+            'scripts/pgn05_document_ingress_diagnostic.py' \
             'scripts/pgn_large_resource_perf_oracle.py' | sort)"
           test "$changed" = "$expected"
           git diff --quiet "$PGN05_BASE" HEAD -- acs tests web run_accessible_chess.py
@@ -66,7 +68,7 @@ jobs:
 
       - name: Compile and self-test oracle
         run: |
-          python -m py_compile scripts/pgn_large_resource_perf_oracle.py
+          python -m py_compile scripts/pgn_large_resource_perf_oracle.py scripts/pgn05_document_ingress_diagnostic.py
           python -m scripts.pgn_large_resource_perf_oracle --selftest
 
       - name: Focused PGN resource/document regressions
@@ -97,12 +99,21 @@ jobs:
           grep -F '"product_mutation": "NONE"' pgn05-large-resource-report.txt
           grep -F 'PGN-05 LARGE RESOURCE PERFORMANCE PASS' pgn05-large-resource-report.txt
 
+      - name: Isolate strict-vs-file document ingress divergence
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m scripts.pgn05_document_ingress_diagnostic --limit 500 2>&1 | tee pgn05-document-ingress-diagnostic.txt
+
       - name: Upload large-resource evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: pgn05-large-resource-${{ matrix.os }}
-          path: pgn05-large-resource-report.txt
+          path: |
+            pgn05-large-resource-report.txt
+            pgn05-document-ingress-diagnostic.txt
           if-no-files-found: ignore
           retention-days: 14
 
