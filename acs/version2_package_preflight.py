@@ -345,7 +345,8 @@ def _manifest(root: Path) -> tuple[str, dict[str, object]]:
         "optional_external_backends_bundled": False,
     }
     for field, expected in required.items():
-        if data.get(field) != expected:
+        actual = data.get(field)
+        if type(actual) is not type(expected) or actual != expected:
             _fail(f"release manifest contract mismatch: {field}")
     integration_sha = data.get("integration_sha")
     if (
@@ -392,37 +393,54 @@ def _checksums(root: Path, inventory: tuple[str, ...]) -> dict[str, str]:
 
 
 def _scan_text_hygiene(root: Path, inventory: tuple[str, ...], limits: PackageLimits) -> None:
+    # max_text_scan_bytes is the streaming read bound, never an exemption.
+    chunk_size = min(limits.max_text_scan_bytes, 1024 * 1024)
+    overlap_bytes = 512
     for relative in inventory:
         path = root.joinpath(*PurePosixPath(relative).parts)
+        tail = b""
         try:
-            if path.stat().st_size > limits.max_text_scan_bytes:
-                continue
-            payload = path.read_bytes()
+            with path.open("rb") as handle:
+                while True:
+                    block = handle.read(chunk_size)
+                    if not block:
+                        break
+                    window = tail + block
+                    # Signatures are ASCII; ignore unrelated invalid UTF-8 bytes
+                    # without treating a large/binary file as a scan exemption.
+                    text = window.decode("utf-8", errors="ignore")
+                    if any(pattern.search(text) for pattern in _PRIVATE_PATH_PATTERNS):
+                        _fail(f"private local path leaked into package text: {relative}")
+                    if any(pattern.search(text) for pattern in _SECRET_PATTERNS):
+                        _fail(f"secret-like credential leaked into package text: {relative}")
+                    tail = window[-overlap_bytes:]
+        except Version2PackagePreflightError:
+            raise
         except OSError as exc:
             _fail(f"package hygiene scan failed: {type(exc).__name__}")
-        if b"\x00" in payload:
-            continue
-        try:
-            text = payload.decode("utf-8-sig")
-        except UnicodeDecodeError:
-            continue
-        if any(pattern.search(text) for pattern in _PRIVATE_PATH_PATTERNS):
-            _fail(f"private local path leaked into package text: {relative}")
-        if any(pattern.search(text) for pattern in _SECRET_PATTERNS):
-            _fail(f"secret-like credential leaked into package text: {relative}")
+
+
+def _normalize_expected_integration_sha(value: str) -> str:
+    if not isinstance(value, str) or not _SHA40_RE.fullmatch(value.casefold()):
+        _fail("expected integration authority must be a 40-hex commit")
+    return value.casefold()
 
 
 def validate_version2_package_tree(
     root: str | Path,
     *,
+    expected_integration_sha: str,
     limits: PackageLimits = PackageLimits(),
 ) -> Version2PackagePreflightReport:
     if not isinstance(limits, PackageLimits):
         raise TypeError("limits must be PackageLimits")
+    expected_sha = _normalize_expected_integration_sha(expected_integration_sha)
     root = Path(root)
     inventory, total = _inventory(root, limits)
     _validate_topology(root, inventory)
     integration_sha, _ = _manifest(root)
+    if integration_sha != expected_sha:
+        _fail("release manifest integration_sha does not match expected integration authority")
     checksums = _checksums(root, inventory)
     _scan_text_hygiene(root, inventory, limits)
     return Version2PackagePreflightReport(
@@ -483,10 +501,12 @@ def _validate_zip_entries(
 def validate_version2_package_zip(
     zip_path: str | Path,
     *,
+    expected_integration_sha: str,
     limits: PackageLimits = PackageLimits(),
 ) -> Version2PackagePreflightReport:
     if not isinstance(limits, PackageLimits):
         raise TypeError("limits must be PackageLimits")
+    expected_sha = _normalize_expected_integration_sha(expected_integration_sha)
     path = Path(zip_path)
     info = _safe_lstat(path, label="Version 2 ZIP")
     if not stat.S_ISREG(info.st_mode):
@@ -525,7 +545,11 @@ def validate_version2_package_zip(
                     if written != member.file_size:
                         _fail("ZIP member readback size mismatch")
                     extracted_files.add(token)
-                report = validate_version2_package_tree(root, limits=limits)
+                report = validate_version2_package_tree(
+                    root,
+                    expected_integration_sha=expected_sha,
+                    limits=limits,
+                )
                 if set(report.inventory) != extracted_files:
                     _fail("ZIP readback inventory differs from archive file inventory")
                 return replace(report, archive_sha256=archive_sha)

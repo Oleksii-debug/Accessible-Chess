@@ -20,7 +20,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  V2_UPSTREAM: 4b23c5c5a47835e66f886df8b6705cdb535f6531
+  V2_UPSTREAM: 575ec0088982d2f90adb47c040a5714d68186b0e
 
 jobs:
   focused-upgrade:

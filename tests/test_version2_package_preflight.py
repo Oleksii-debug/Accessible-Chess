@@ -26,6 +26,18 @@ from acs.version2_upgrade import UPGRADE_JOURNAL_SCHEMA_VERSION
 _SHA = "a" * 40
 
 
+def _validate_tree(root, **kwargs):
+    return validate_version2_package_tree(
+        root, expected_integration_sha=_SHA, **kwargs
+    )
+
+
+def _validate_zip(archive, **kwargs):
+    return validate_version2_package_zip(
+        archive, expected_integration_sha=_SHA, **kwargs
+    )
+
+
 def _sha256(path: Path) -> str:
     digest = hashlib.sha256()
     digest.update(path.read_bytes())
@@ -85,14 +97,14 @@ class Version2PackagePreflightTests(unittest.TestCase):
             root.mkdir()
             _make_tree(root)
 
-            tree = validate_version2_package_tree(root)
+            tree = _validate_tree(root)
             self.assertEqual(tree.integration_sha, _SHA)
             self.assertGreaterEqual(tree.checksums_verified, 3)
             self.assertIsNone(tree.archive_sha256)
 
             archive = base / "Accessible-Chess-V2.zip"
             _zip_tree(root, archive)
-            readback = validate_version2_package_zip(archive)
+            readback = _validate_zip(archive)
             self.assertEqual(readback.integration_sha, _SHA)
             self.assertEqual(readback.inventory, tree.inventory)
             self.assertEqual(readback.checksums_verified, tree.checksums_verified)
@@ -111,7 +123,7 @@ class Version2PackagePreflightTests(unittest.TestCase):
             with self.assertRaisesRegex(
                 Version2PackagePreflightError, "manifest contract mismatch"
             ):
-                validate_version2_package_tree(root)
+                _validate_tree(root)
 
         with tempfile.TemporaryDirectory() as td:
             root = Path(td) / "package"
@@ -121,7 +133,7 @@ class Version2PackagePreflightTests(unittest.TestCase):
             with self.assertRaisesRegex(
                 Version2PackagePreflightError, "checksum mismatch"
             ):
-                validate_version2_package_tree(root)
+                _validate_tree(root)
 
     def test_duplicate_manifest_key_and_checksum_path_rejected(self):
         with tempfile.TemporaryDirectory() as td:
@@ -136,7 +148,7 @@ class Version2PackagePreflightTests(unittest.TestCase):
             with self.assertRaisesRegex(
                 Version2PackagePreflightError, "duplicate JSON keys"
             ):
-                validate_version2_package_tree(root)
+                _validate_tree(root)
 
         with tempfile.TemporaryDirectory() as td:
             root = Path(td) / "package"
@@ -150,7 +162,7 @@ class Version2PackagePreflightTests(unittest.TestCase):
             with self.assertRaisesRegex(
                 Version2PackagePreflightError, "duplicate paths"
             ):
-                validate_version2_package_tree(root)
+                _validate_tree(root)
 
     def test_user_state_raw_source_secret_and_optional_backend_are_rejected(self):
         cases = (
@@ -168,7 +180,7 @@ class Version2PackagePreflightTests(unittest.TestCase):
                 (root / "AccessibleChess" / name).write_bytes(payload)
                 _write_checksums(root)
                 with self.assertRaisesRegex(Version2PackagePreflightError, expected):
-                    validate_version2_package_tree(root)
+                    _validate_tree(root)
 
     def test_private_paths_and_credentials_in_text_are_rejected_without_echo(self):
         samples = (
@@ -184,7 +196,7 @@ class Version2PackagePreflightTests(unittest.TestCase):
                 leak.write_bytes(payload)
                 _write_checksums(root)
                 with self.assertRaises(Version2PackagePreflightError) as captured:
-                    validate_version2_package_tree(root)
+                    _validate_tree(root)
                 self.assertNotIn("Developer", str(captured.exception))
                 self.assertNotIn("github_pat_", str(captured.exception))
 
@@ -194,7 +206,7 @@ class Version2PackagePreflightTests(unittest.TestCase):
             root.mkdir()
             _make_tree(root)
             with self.assertRaisesRegex(Version2PackagePreflightError, "byte limit"):
-                validate_version2_package_tree(
+                _validate_tree(
                     root,
                     limits=PackageLimits(
                         max_files=50,
@@ -234,7 +246,7 @@ class Version2PackagePreflightTests(unittest.TestCase):
                 with zipfile.ZipFile(archive_path, "w") as archive:
                     builder(archive)
                 with self.assertRaisesRegex(Version2PackagePreflightError, expected):
-                    validate_version2_package_zip(archive_path)
+                    _validate_zip(archive_path)
 
         with tempfile.TemporaryDirectory() as td:
             archive_path = Path(td) / "large.zip"
@@ -243,7 +255,7 @@ class Version2PackagePreflightTests(unittest.TestCase):
             with self.assertRaisesRegex(
                 Version2PackagePreflightError, "member exceeds"
             ):
-                validate_version2_package_zip(
+                _validate_zip(
                     archive_path,
                     limits=PackageLimits(
                         max_files=50,
@@ -266,7 +278,7 @@ class Version2PackagePreflightTests(unittest.TestCase):
             archive_path = base / "bad-user-data.zip"
             _zip_tree(root, archive_path)
             with self.assertRaisesRegex(Version2PackagePreflightError, "user state"):
-                validate_version2_package_zip(archive_path)
+                _validate_zip(archive_path)
 
 
 if __name__ == "__main__":
