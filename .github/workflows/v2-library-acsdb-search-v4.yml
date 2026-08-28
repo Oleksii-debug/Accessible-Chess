@@ -19,6 +19,7 @@ on:
       - 'tests/test_d07_search_semantic_equivalence.py'
       - 'tests/test_d07_search_scalar_equivalence.py'
       - 'tests/test_v2_library_acsdb_search_v4.py'
+      - 'tests/test_v2_library_search_service_v4.py'
       - 'tools/v2_library_acsdb_search_v4_benchmark.py'
       - '.github/workflows/v2-library-acsdb-search-v4.yml'
 
@@ -60,8 +61,10 @@ jobs:
           expected="$(printf '%s\n' \
             '.github/workflows/v2-library-acsdb-search-v4.yml' \
             'acs/acsdb.py' \
+            'acs/search_service.py' \
             'tests/test_d07_library_import_service.py' \
             'tests/test_v2_library_acsdb_search_v4.py' \
+            'tests/test_v2_library_search_service_v4.py' \
             'tools/v2_library_acsdb_search_v4_benchmark.py' | sort)"
           test "$changed" = "$expected"
           if printf '%s\n' "$changed" | grep -E 'teacher|classroom|education|chessbase_decoder|gametree.py|pgn_'; then
@@ -74,6 +77,7 @@ jobs:
         run: >-
           python -m unittest -v
           tests.test_v2_library_acsdb_search_v4
+          tests.test_v2_library_search_service_v4
           tests.test_acsdb
           tests.test_d07_acsdb_migration_atomicity
           tests.test_d07_library_import_service
