@@ -1,0 +1,134 @@
+{
+  "schema_version": 1,
+  "as_of": "2026-08-28",
+  "scope": "cbz-real-world-semantic-acceptance-qualification",
+  "parent": {
+    "pr": 324,
+    "sha": "7f0c15bcc20dde101c79e41d074e1613dafee996"
+  },
+  "verdict": {
+    "cbz_status": "BLOCKED",
+    "support_promotion_allowed": false,
+    "reason": "No candidate simultaneously provides a real ChessBase CBZ, lawful reusable bytes, a usable password, and an independent semantic PGN/GameTree oracle."
+  },
+  "required_acceptance_dimensions": [
+    "authentic_chessbase_cbz",
+    "lawful_reusable_bytes",
+    "password_available_for_automated_acceptance",
+    "real_world_not_synthetic_or_self_fixture",
+    "independent_semantic_oracle",
+    "canonical_end_to_end_equivalence"
+  ],
+  "candidates": [
+    {
+      "id": "chessbase-official-format-documentation",
+      "kind": "format_authority",
+      "source": "ChessBase 18 help",
+      "url": "https://help.chessbase.com/CBase/18/Eng/password.htm",
+      "authentic_chessbase_cbz": true,
+      "lawful_reusable_bytes": false,
+      "password_available_for_automated_acceptance": false,
+      "real_world_not_synthetic_or_self_fixture": false,
+      "independent_semantic_oracle": false,
+      "canonical_end_to_end_equivalence": false,
+      "eligible": false,
+      "blocker": "Official documentation defines encrypted CBZ behavior but provides no acceptance database bytes or semantic oracle."
+    },
+    {
+      "id": "ultracorr2025-cbz",
+      "kind": "real_commercial_database",
+      "source": "UltraCorr2025 CBH-format distribution",
+      "url": "https://chessmail.com/UC-2025/Download-UC2025.html",
+      "reported_games": 2680000,
+      "reported_archive_size_mb": 281,
+      "reported_expanded_files": 18,
+      "authentic_chessbase_cbz": true,
+      "lawful_reusable_bytes": false,
+      "password_available_for_automated_acceptance": false,
+      "real_world_not_synthetic_or_self_fixture": true,
+      "independent_semantic_oracle": false,
+      "canonical_end_to_end_equivalence": false,
+      "eligible": false,
+      "blocker": "Commercial/password-gated corpus; page says password is supplied after payment and explicitly does not provide a PGN version. No redistribution/CI reuse authority or independent semantic oracle is established."
+    },
+    {
+      "id": "antoyo-uncbv-small-cbz",
+      "kind": "decoder_upstream_fixture",
+      "source": "antoyo/uncbv",
+      "repository": "antoyo/uncbv",
+      "commit": "3c18e8a7c6a30c21f945a1ab5462521c306dca57",
+      "license": "GPL-3.0",
+      "fixture": "tests/small.cbz",
+      "fixture_blob": "08bc5d6e53eecedc35e37d24cf29bbe0a5953839",
+      "authentic_chessbase_cbz": true,
+      "lawful_reusable_bytes": true,
+      "password_available_for_automated_acceptance": true,
+      "real_world_not_synthetic_or_self_fixture": false,
+      "independent_semantic_oracle": false,
+      "canonical_end_to_end_equivalence": false,
+      "eligible": false,
+      "blocker": "Legally reusable pinned backend fixture, but it is the decoder upstream's own fixture/oracle and cannot independently prove real-world semantic fidelity."
+    },
+    {
+      "id": "github-public-code-search",
+      "kind": "public-corpus-discovery",
+      "source": "GitHub public code search",
+      "queries": [
+        "extension:cbz chess in:path",
+        "extension:cbz password in:path",
+        "extension:cbz"
+      ],
+      "chess_specific_candidate_count": 0,
+      "general_extension_result_count_observed": 30,
+      "authentic_chessbase_cbz": false,
+      "lawful_reusable_bytes": false,
+      "password_available_for_automated_acceptance": false,
+      "real_world_not_synthetic_or_self_fixture": false,
+      "independent_semantic_oracle": false,
+      "canonical_end_to_end_equivalence": false,
+      "eligible": false,
+      "blocker": "Chess-specific searches returned no candidate; general .cbz hits include unrelated comic/malware/file-extension samples and are not ChessBase evidence."
+    },
+    {
+      "id": "scidb-public-project",
+      "kind": "independent-implementation-research",
+      "source": "Scidb public project site",
+      "url": "https://scidb.sourceforge.net/index.html",
+      "authentic_chessbase_cbz": false,
+      "lawful_reusable_bytes": false,
+      "password_available_for_automated_acceptance": false,
+      "real_world_not_synthetic_or_self_fixture": false,
+      "independent_semantic_oracle": false,
+      "canonical_end_to_end_equivalence": false,
+      "eligible": false,
+      "blocker": "Project site describes CBV/CBZ read-only support as in preparation and supplies no qualified real CBZ fixture plus independent expected semantics."
+    }
+  ],
+  "search_observations": {
+    "official_cbz_definition_confirmed": true,
+    "real_commercial_cbz_found": true,
+    "legal_reusable_real_world_cbz_with_public_password_found": false,
+    "independent_pgn_or_gametree_oracle_found": false,
+    "public_chess_specific_github_cbz_candidate_found": false
+  },
+  "existing_mechanics_evidence": {
+    "manifest": "docs/automation/V2_CBZ_SECURE_EXECUTION.json",
+    "exact_upstream_fixture_mechanics_tested": true,
+    "upstream_fixture_is_semantic_support_proof": false
+  },
+  "next_unlock": [
+    "obtain or discover a lawfully reusable real ChessBase-generated CBZ whose password can be used in automated acceptance",
+    "obtain an independent expected PGN/GameTree/metadata oracle not produced by the same decoder under test",
+    "run secure CBZ decrypt/extract through existing CBH decoder and canonical legality validation",
+    "atomically import into ACSDB, search, open, export PGN, reopen and compare semantic equivalence",
+    "account explicitly for comments, NAGs, variations, metadata and any unsupported/lost fields"
+  ],
+  "out_of_scope": [
+    "purchasing commercial corpus material",
+    "redistributing commercial encrypted archives",
+    "using the uncbv self-fixture as independent semantic proof",
+    "changing Stage1",
+    "adding another chess core, GameTree, Library, CBV extractor or decoder",
+    "adding Windows/NVDA password UI"
+  ]
+}
