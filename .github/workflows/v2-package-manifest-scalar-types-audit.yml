@@ -1,0 +1,63 @@
+name: V2 Package Manifest Scalar Types Audit Oracle
+
+on:
+  push:
+    branches:
+      - audit/v2-package-manifest-scalar-types-20260828
+  pull_request:
+    paths:
+      - 'tests/test_v2_package_manifest_scalar_types_audit.py'
+      - '.github/workflows/v2-package-manifest-scalar-types-audit.yml'
+      - 'acs/version2_package_preflight.py'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: v2-package-manifest-scalar-types-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  audit-oracle:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Prove evidence-only scope and exact package-preflight ancestry
+        shell: bash
+        env:
+          OWNER_HEAD: 6d75a374c5d9f0c8dc503acb826dfd68d598a8a7
+          OWNER_PREFLIGHT_BLOB: 911f5c30a50668822d7bec87037037e4ca1babb3
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor "$OWNER_HEAD" HEAD
+          test "$(git merge-base "$OWNER_HEAD" HEAD)" = "$OWNER_HEAD"
+          git diff --check "$OWNER_HEAD" HEAD
+          changed="$(git diff --name-only "$OWNER_HEAD" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/v2-package-manifest-scalar-types-audit.yml' \
+            'tests/test_v2_package_manifest_scalar_types_audit.py' | sort)"
+          test "$changed" = "$expected"
+          test "$(git rev-parse HEAD:acs/version2_package_preflight.py)" = "$OWNER_PREFLIGHT_BLOB"
+          git diff --quiet "$OWNER_HEAD" HEAD -- acs tests/test_version2_package_preflight.py
+
+      - name: Compile audit oracle
+        run: python -m compileall -q tests/test_v2_package_manifest_scalar_types_audit.py
+
+      - name: Existing owner package-preflight regressions remain green
+        run: python -m unittest -v tests.test_version2_package_preflight
+
+      - name: Independent strict scalar-type oracle
+        run: python -m unittest -v tests.test_v2_package_manifest_scalar_types_audit
