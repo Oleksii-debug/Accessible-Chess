@@ -1,0 +1,130 @@
+name: V2 Book Library Real Reference QA
+
+on:
+  push:
+    branches:
+      - qa/v2-book-library-real-reference-20260828
+  pull_request:
+    branches:
+      - work/v2-book-library-game-lookup-20260828
+    paths:
+      - 'scripts/book_library_real_reference_oracle.py'
+      - '.github/workflows/v2-book-library-real-reference-qa.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: v2-book-library-real-reference-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  real-book-library-reference:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 55
+    env:
+      PACKAGE_PARENT_SHA: 2d62619569d29930196889641b1fedd2840979f7
+      PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Preserve exact Git bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config core.autocrlf false
+          git config core.eol lf
+          git checkout-index --force --all
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install pinned QA dependencies
+        run: python -m pip install -q pytest==8.4.2 zstandard==0.23.0
+
+      - name: Prove exact evidence-only ancestry and scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          upstream="$PACKAGE_PARENT_SHA"
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            test "$PR_BASE_SHA" = "$PACKAGE_PARENT_SHA"
+            upstream="$PR_BASE_SHA"
+          fi
+          git merge-base --is-ancestor "$upstream" HEAD
+          test "$(git merge-base "$upstream" HEAD)" = "$upstream"
+          git diff --check "$upstream" HEAD
+          changed="$(git diff --name-only "$upstream" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/v2-book-library-real-reference-qa.yml' \
+            'scripts/book_library_real_reference_oracle.py' | sort)"
+          test "$changed" = "$expected"
+          git diff --quiet "$upstream" HEAD -- acs tests web run_accessible_chess.py
+          test "$(git rev-parse HEAD:acs/book_library_game_lookup.py)" = "$(git rev-parse "$PACKAGE_PARENT_SHA:acs/book_library_game_lookup.py")"
+          test "$(git rev-parse HEAD:acs/book_game_content.py)" = "$(git rev-parse "$PACKAGE_PARENT_SHA:acs/book_game_content.py")"
+          test "$(git rev-parse HEAD:acs/acsdb.py)" = "$(git rev-parse "$PACKAGE_PARENT_SHA:acs/acsdb.py")"
+          test "$(git rev-parse HEAD:acs/library_import_service.py)" = "$(git rev-parse "$PACKAGE_PARENT_SHA:acs/library_import_service.py")"
+          test "$(git rev-parse HEAD:acs/search_service.py)" = "$(git rev-parse "$PACKAGE_PARENT_SHA:acs/search_service.py")"
+          test "$(git rev-parse HEAD:acs/pgn_roundtrip.py)" = "$(git rev-parse "$PACKAGE_PARENT_SHA:acs/pgn_roundtrip.py")"
+          echo 'BOOK LIBRARY REAL REFERENCE EVIDENCE-ONLY SCOPE PASS'
+
+      - name: Compile real Book Library reference oracle
+        run: python -m py_compile scripts/book_library_real_reference_oracle.py
+
+      - name: Focused Books Library canonical regressions
+        run: >-
+          python -m unittest -v
+          tests.test_v2_book_library_game_lookup
+          tests.test_v2_book_game_content
+          tests.test_d07_library_import_service
+          tests.test_search_service
+          tests.test_d06_pgn_roundtrip
+          tests.test_gametree
+          tests.test_bookdocument
+          tests.test_v2_book_progress_store
+
+      - name: Verify pinned real Library referenced-game journey
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/book_library_real_reference_oracle.py
+          test -s book-library-real-reference-summary.json
+          grep -F '"status": "PASS"' book-library-real-reference-summary.json
+          grep -F '"license": "CC0"' book-library-real-reference-summary.json
+          grep -F '"compressed_sha256": "aa40b3671fa3cf1072eb182892cd90b0e1e003a4a5943492f64b77e7f3fd1635"' book-library-real-reference-summary.json
+          grep -F '"imported_games": 512' book-library-real-reference-summary.json
+          grep -F '"book_references_checked": 64' book-library-real-reference-summary.json
+          grep -F '"close_reopen": "PASS"' book-library-real-reference-summary.json
+          grep -F '"canonical_digest_identity": "PASS"' book-library-real-reference-summary.json
+          grep -F '"read_only_lookup": "PASS"' book-library-real-reference-summary.json
+          grep -F '"new_format_support_claimed": false' book-library-real-reference-summary.json
+          grep -F '"export": "N/A for referenced-game lookup seam"' book-library-real-reference-summary.json
+
+      - name: Upload real Books Library reference evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v2-book-library-real-reference-${{ matrix.os }}
+          path: book-library-real-reference-summary.json
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Full repository unittest
+        run: python -m unittest discover -s tests
+
+      - name: Full repository pytest
+        run: python -m pytest -q tests
+
+      - name: SELFTEST and complete diagnostic
+        run: |
+          python -m acs.selftest
+          python run_accessible_chess.py --diagnostic
