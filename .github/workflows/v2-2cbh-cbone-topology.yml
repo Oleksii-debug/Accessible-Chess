@@ -1,0 +1,93 @@
+name: V2 2CBH CBONE Topology
+
+on:
+  push:
+    branches:
+      - work/v2-2cbh-cbone-topology-20260828
+  pull_request:
+    branches:
+      - work/v2-cbf-cbi-evidence-20260828
+    paths:
+      - acs/chessbase_adapter.py
+      - acs/chessbase_integrity.py
+      - tests/test_v2_2cbh_cbone_topology.py
+      - docs/automation/V2_2CBH_CBONE_CAPABILITIES.json
+      - docs/automation/V2_2CBH_CBONE_TOPOLOGY_EVIDENCE.md
+      - .github/workflows/v2-2cbh-cbone-topology.yml
+
+permissions:
+  contents: read
+
+env:
+  V2_TOPOLOGY_BASE: 0454f9e19854da9c2261bba4b5d64e688fa3b909
+
+jobs:
+  topology-contract:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install pinned verification dependency
+        run: python -m pip install -q pytest==8.4.2
+      - name: Exact ancestry scope and compile checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor "$V2_TOPOLOGY_BASE" HEAD
+          git diff --check "$V2_TOPOLOGY_BASE" HEAD
+          unexpected="$(git diff --name-only "$V2_TOPOLOGY_BASE" HEAD | grep -Ev '^(acs/chessbase_adapter\.py|acs/chessbase_integrity\.py|tests/test_v2_2cbh_cbone_topology\.py|docs/automation/V2_2CBH_CBONE_CAPABILITIES\.json|docs/automation/V2_2CBH_CBONE_TOPOLOGY_EVIDENCE\.md|\.github/workflows/v2-2cbh-cbone-topology\.yml)$' || true)"
+          if [[ -n "$unexpected" ]]; then
+            printf 'Unexpected files outside 2CBH/CBONE owner scope:\n%s\n' "$unexpected"
+            exit 1
+          fi
+          python -m compileall -q acs tests run_accessible_chess.py
+      - name: Focused 2CBH CBONE no-overclaim gate
+        run: >-
+          python -m unittest -v
+          tests.test_chessbase_adapter
+          tests.test_chessbase_integrity
+          tests.test_v2_chessbase_capability_manifest
+          tests.test_v2_2cbh_cbone_topology
+          tests.test_import_contract
+          tests.test_dev4_chessbase_integrity_atomicity
+          tests.test_dev4_chessbase_symlink_security
+      - name: Focused pytest parity
+        run: >-
+          python -m pytest -q
+          tests/test_chessbase_adapter.py
+          tests/test_chessbase_integrity.py
+          tests/test_v2_chessbase_capability_manifest.py
+          tests/test_v2_2cbh_cbone_topology.py
+          tests/test_import_contract.py
+          tests/test_dev4_chessbase_integrity_atomicity.py
+          tests/test_dev4_chessbase_symlink_security.py
+
+  full-regression:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install test dependencies
+        run: python -m pip install -q pytest==8.4.2
+      - name: Exact ancestry and diff hygiene
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor "$V2_TOPOLOGY_BASE" HEAD
+          git diff --check "$V2_TOPOLOGY_BASE" HEAD
+      - name: Full unittest
+        run: python -m unittest discover -s tests -p 'test*.py'
+      - name: Full pytest
+        run: python -m pytest -q
