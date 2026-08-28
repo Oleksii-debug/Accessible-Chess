@@ -8,7 +8,6 @@ on:
     branches:
       - work/version2-integration-formats-20260827
     paths:
-      - 'acs/full_product_actions.py'
       - 'acs/version2_windows_file_workflows.py'
       - 'tests/test_v2_windows_nvda_file_workflows.py'
       - '.github/workflows/v2-windows-nvda-ui.yml'
@@ -68,7 +67,6 @@ jobs:
           changed="$(git diff --name-only "$V2_UI_BASE" HEAD | sort)"
           expected="$(printf '%s\n' \
             '.github/workflows/v2-windows-nvda-ui.yml' \
-            'acs/full_product_actions.py' \
             'acs/version2_windows_file_workflows.py' \
             'tests/test_v2_windows_nvda_file_workflows.py' | sort)"
           test "$changed" = "$expected"
@@ -78,6 +76,7 @@ jobs:
             acs/pgn_document.py \
             acs/pgn_service.py \
             acs/pgn_workspace.py \
+            acs/full_product_actions.py \
             acs/acsdb.py \
             acs/library_import_service.py \
             acs/library_webview_bridge.py \
@@ -95,7 +94,6 @@ jobs:
       - name: Compile host composition and tests
         run: >-
           python -m compileall -q
-          acs/full_product_actions.py
           acs/version2_windows_file_workflows.py
           tests/test_v2_windows_nvda_file_workflows.py
 
