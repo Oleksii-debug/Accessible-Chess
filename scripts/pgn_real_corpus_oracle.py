@@ -1,18 +1,21 @@
 from __future__ import annotations
 
-"""Real-world PGN corpus oracle for the canonical D06 GameTree boundary.
+"""Pinned real-world PGN corpus oracle for the canonical D06 GameTree boundary.
 
-This is QA/evidence code, not a second PGN implementation.  Corpus records are
-segmented only to keep external test inputs bounded; all PGN semantics, recovery,
-serialization and equality checks are delegated to ``acs.pgn_roundtrip`` and the
-canonical GameTree model.
+This is QA/evidence code, not a PGN parser and not a second chess core. External
+Lichess records are segmented only to keep inputs bounded. All PGN semantics,
+strict/recovery classification, serialization and equality are delegated to
+``acs.pgn_roundtrip`` and the canonical GameTree model.
 
-The oracle downloads pinned, legally reusable Lichess corpora at CI time.  Game
-collections are never committed to this repository.
+Malformed real records are evidence too. They are accepted by this oracle only
+when the canonical recovery parser emits an explicitly classified damage warning
+and strict mode rejects the same record. They are never silently promoted into
+strict round-trip-safe games.
 """
 
 import argparse
-from dataclasses import asdict, dataclass
+from collections import Counter
+from dataclasses import asdict, dataclass, field
 import hashlib
 import io
 import json
@@ -37,6 +40,15 @@ _MAX_COMPRESSED_BYTES = 32 * 1024 * 1024
 _DOWNLOAD_CHUNK = 1024 * 1024
 _BOM = b"\xef\xbb\xbf"
 _TERMINATION_RE = re.compile(r"(?:1-0|0-1|1/2-1/2|\*)\s*\Z")
+_MIN_STRICT_PER_CORPUS = 1900
+
+# Only damage surfaces independently established as malformed may be downgraded
+# from strict-round-trip evidence to recovery evidence. Any new warning remains
+# RED until explicitly audited; this prevents the real corpus gate from hiding
+# unsupported-but-valid PGN behind a generic recovery path.
+_ALLOWED_RECOVERY_WARNING_PREFIXES = (
+    "missing movetext game termination marker;",
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -71,7 +83,10 @@ class CorpusStats:
     name: str
     license: str
     published_games: int
-    verified_games: int = 0
+    sampled_records: int = 0
+    strict_roundtrip_games: int = 0
+    recovery_records: int = 0
+    recovery_warning_counts: dict[str, int] = field(default_factory=dict)
     unicode_games: int = 0
     games_with_comments: int = 0
     games_with_nags: int = 0
@@ -85,15 +100,8 @@ class CorpusStats:
 
 
 def _scan_comment_state(line: str, inside_brace: bool) -> bool:
-    """Track only enough lexical state to avoid splitting inside a comment.
+    """Track only enough lexical state to avoid splitting inside comments."""
 
-    This helper does not interpret moves, tags, results, RAV, SAN, NAG or chess
-    state.  Every yielded record is subsequently required to pass the canonical
-    D06 parser, so a segmentation mistake cannot create a false green result.
-    """
-
-    if not inside_brace and line.startswith("["):
-        return False
     index = 0
     while index < len(line):
         character = line[index]
@@ -110,12 +118,7 @@ def _scan_comment_state(line: str, inside_brace: bool) -> bool:
 
 
 def iter_complete_records(stream: TextIO, *, limit: int) -> Iterator[str]:
-    """Yield complete Lichess PGN records, bounded by ``limit``.
-
-    Lichess exports begin each game with an Event tag.  We detect that transport
-    boundary only when outside a brace comment.  Canonical strict parsing then
-    proves each candidate is exactly one complete PGN game.
-    """
+    """Yield bounded Lichess export records using only an Event-tag boundary."""
 
     if type(limit) is not int or isinstance(limit, bool) or limit < 1:
         raise ValueError("limit must be a positive exact integer")
@@ -123,7 +126,6 @@ def iter_complete_records(stream: TextIO, *, limit: int) -> Iterator[str]:
     current: list[str] = []
     inside_brace = False
     yielded = 0
-
     for line in stream:
         if not inside_brace and line.startswith('[Event "') and current:
             record = "".join(current).strip()
@@ -133,9 +135,8 @@ def iter_complete_records(stream: TextIO, *, limit: int) -> Iterator[str]:
                 if yielded >= limit:
                     return
             current = [line]
-            inside_brace = False
+            inside_brace = _scan_comment_state(line, False)
             continue
-
         current.append(line)
         inside_brace = _scan_comment_state(line, inside_brace)
 
@@ -151,8 +152,10 @@ def _download_verified(spec: CorpusSpec, destination: Path) -> None:
     total = 0
     try:
         response = urlopen(request, timeout=60)
-    except Exception as exc:  # network evidence failure, never Product evidence
-        raise RuntimeError(f"external corpus download failed for {spec.name}: {type(exc).__name__}") from exc
+    except Exception as exc:
+        raise RuntimeError(
+            f"external corpus download failed for {spec.name}: {type(exc).__name__}"
+        ) from exc
 
     with response, destination.open("wb") as output:
         while True:
@@ -206,9 +209,9 @@ def _line_metrics(line, depth: int = 0) -> tuple[int, int, int, int, int]:
     return nodes, comments, nags, rav, max_depth
 
 
-def _update_stats(stats: CorpusStats, raw: str, game) -> None:
+def _update_strict_stats(stats: CorpusStats, raw: str, game) -> None:
     _nodes, comments, nags, rav, max_depth = _line_metrics(game.line)
-    stats.verified_games += 1
+    stats.strict_roundtrip_games += 1
     stats.unicode_games += int(any(ord(character) > 127 for character in raw))
     stats.games_with_comments += int(comments > 0)
     stats.games_with_nags += int(nags > 0)
@@ -219,12 +222,40 @@ def _update_stats(stats: CorpusStats, raw: str, game) -> None:
     stats.max_variation_depth = max(stats.max_variation_depth, max_depth)
 
 
+def _classify_recovery(stats: CorpusStats, raw: str, strict_error: PgnRoundTripError) -> None:
+    if strict_error.code is not PgnRoundTripErrorCode.MALFORMED_PGN:
+        raise AssertionError(
+            f"{stats.name}: real record rejected with unclassified strict code "
+            f"{strict_error.code.value}"
+        ) from strict_error
+
+    recovered = parse_pgn_text(raw, strict=False)
+    if len(recovered) != 1:
+        raise AssertionError(
+            f"{stats.name}: recovery changed one transport record into {len(recovered)} games"
+        )
+    warnings = list(recovered[0].warnings)
+    if not warnings:
+        raise AssertionError(f"{stats.name}: strict rejection has no recovery evidence")
+
+    counts = Counter(warnings)
+    for warning in counts:
+        if not any(warning.startswith(prefix) for prefix in _ALLOWED_RECOVERY_WARNING_PREFIXES):
+            raise AssertionError(
+                f"{stats.name}: unclassified real-world recovery warning: {warning[:160]}"
+            )
+    stats.recovery_records += 1
+    merged = Counter(stats.recovery_warning_counts)
+    merged.update(counts)
+    stats.recovery_warning_counts = dict(sorted(merged.items()))
+
+
 def _strict_probe_child(connection, text: str) -> None:
     try:
         games = parse_pgn_text(text, strict=True)
     except PgnRoundTripError as exc:
         connection.send(("error", exc.code.value))
-    except BaseException as exc:  # preserve unexpected failure class without traceback/path noise
+    except BaseException as exc:
         connection.send(("unexpected", type(exc).__name__))
     else:
         connection.send(("ok", str(len(games))))
@@ -266,11 +297,9 @@ def _expect_error_code(call, expected: PgnRoundTripErrorCode) -> None:
 
 
 def _adversarial_real_record(raw: str) -> int:
-    """Derive damaged inputs from one real record and require fail-closed behavior."""
-
     baseline = parse_pgn_text(raw, strict=True)
     if len(baseline) != 1:
-        raise AssertionError("adversarial seed is not exactly one canonical game")
+        raise AssertionError("adversarial seed is not exactly one strict canonical game")
 
     encoded = raw.encode("utf-8", errors="strict")
     if parse_pgn_bytes(_BOM + encoded, strict=True) != baseline:
@@ -283,7 +312,7 @@ def _adversarial_real_record(raw: str) -> int:
 
     match = _TERMINATION_RE.search(raw)
     if match is None:
-        raise AssertionError("real corpus seed has no terminal result marker")
+        raise AssertionError("strict real corpus seed has no terminal result marker")
 
     truncated = raw[: match.start()].rstrip() + "\n"
     recovered = parse_pgn_text(truncated, strict=False)
@@ -306,6 +335,15 @@ def _adversarial_real_record(raw: str) -> int:
     return 5
 
 
+def _verify_batch(spec: CorpusSpec, batch: list[str]) -> None:
+    joined = "\n".join(batch)
+    result = canonical_round_trip_text(joined)
+    if len(result.games) != len(batch):
+        raise AssertionError(f"{spec.name}: multi-game batch cardinality changed")
+    if canonical_round_trip_text(result.text).text != result.text:
+        raise AssertionError(f"{spec.name}: multi-game serialization is nondeterministic")
+
+
 def _verify_corpus(spec: CorpusSpec, path: Path, *, game_limit: int, batch_size: int) -> CorpusStats:
     stats = CorpusStats(
         name=spec.name,
@@ -313,16 +351,21 @@ def _verify_corpus(spec: CorpusSpec, path: Path, *, game_limit: int, batch_size:
         published_games=spec.published_games,
     )
     source, reader, text = _open_zstd_text(path)
-    first_record: str | None = None
+    first_strict_record: str | None = None
     batch: list[str] = []
     try:
         for raw in iter_complete_records(text, limit=game_limit):
-            if first_record is None:
-                first_record = raw
+            stats.sampled_records += 1
+            try:
+                games = parse_pgn_text(raw, strict=True)
+            except PgnRoundTripError as exc:
+                _classify_recovery(stats, raw, exc)
+                continue
 
-            games = parse_pgn_text(raw, strict=True)
             if len(games) != 1:
                 raise AssertionError(f"{spec.name}: segmented record parsed as {len(games)} games")
+            if first_strict_record is None:
+                first_strict_record = raw
             game = games[0]
 
             serialized = serialize_pgn_text(games)
@@ -332,15 +375,10 @@ def _verify_corpus(spec: CorpusSpec, path: Path, *, game_limit: int, batch_size:
             if serialize_pgn_text(reparsed) != serialized:
                 raise AssertionError(f"{spec.name}: canonical serialization is nondeterministic")
 
-            _update_stats(stats, raw, game)
+            _update_strict_stats(stats, raw, game)
             batch.append(raw)
             if len(batch) >= batch_size:
-                joined = "\n".join(batch)
-                result = canonical_round_trip_text(joined)
-                if len(result.games) != len(batch):
-                    raise AssertionError(f"{spec.name}: multi-game batch cardinality changed")
-                if canonical_round_trip_text(result.text).text != result.text:
-                    raise AssertionError(f"{spec.name}: multi-game serialization is nondeterministic")
+                _verify_batch(spec, batch)
                 stats.multi_game_batches += 1
                 batch.clear()
     finally:
@@ -351,21 +389,24 @@ def _verify_corpus(spec: CorpusSpec, path: Path, *, game_limit: int, batch_size:
             source.close()
 
     if batch:
-        joined = "\n".join(batch)
-        result = canonical_round_trip_text(joined)
-        if len(result.games) != len(batch):
-            raise AssertionError(f"{spec.name}: final multi-game batch cardinality changed")
-        if canonical_round_trip_text(result.text).text != result.text:
-            raise AssertionError(f"{spec.name}: final multi-game serialization is nondeterministic")
+        _verify_batch(spec, batch)
         stats.multi_game_batches += 1
 
-    if stats.verified_games != game_limit:
+    if stats.sampled_records != game_limit:
         raise AssertionError(
-            f"{spec.name}: expected {game_limit} complete games, verified {stats.verified_games}"
+            f"{spec.name}: expected {game_limit} sampled records, got {stats.sampled_records}"
         )
-    if first_record is None:
-        raise AssertionError(f"{spec.name}: no complete real game was sampled")
-    stats.adversarial_checks += _adversarial_real_record(first_record)
+    if stats.strict_roundtrip_games < _MIN_STRICT_PER_CORPUS:
+        raise AssertionError(
+            f"{spec.name}: only {stats.strict_roundtrip_games} strict games; "
+            f"minimum is {_MIN_STRICT_PER_CORPUS}"
+        )
+    if stats.strict_roundtrip_games + stats.recovery_records != stats.sampled_records:
+        raise AssertionError(f"{spec.name}: sampled-record accounting is inconsistent")
+    if first_strict_record is None:
+        raise AssertionError(f"{spec.name}: no strict real game was sampled")
+
+    stats.adversarial_checks += _adversarial_real_record(first_strict_record)
     return stats
 
 
@@ -396,6 +437,21 @@ comment} e5 2. Nf3 1-0
         raise AssertionError("selftest records do not parse canonically")
     if parse_pgn_bytes(_BOM + records[0].encode("utf-8"), strict=True) != first:
         raise AssertionError("selftest BOM contract failed")
+
+    damaged = '[Event "Placeholder"]\n[Result "*"]\n'
+    try:
+        parse_pgn_text(damaged, strict=True)
+    except PgnRoundTripError as exc:
+        if exc.code is not PgnRoundTripErrorCode.MALFORMED_PGN:
+            raise
+    else:
+        raise AssertionError("header-only damaged game was accepted as strict")
+    recovered = parse_pgn_text(damaged, strict=False)
+    if len(recovered) != 1 or recovered[0].warnings != [
+        "missing movetext game termination marker; effective result recovered as *"
+    ]:
+        raise AssertionError("header-only recovery contract changed")
+
     print("PGN REAL CORPUS ORACLE SELFTEST PASS")
 
 
@@ -428,14 +484,22 @@ def main() -> int:
             )
             reports.append(asdict(stats))
 
-    total = sum(int(report["verified_games"]) for report in reports)
-    if total < 2000:
-        raise AssertionError("real-corpus gate did not verify thousands of games")
+    sampled_total = sum(int(report["sampled_records"]) for report in reports)
+    strict_total = sum(int(report["strict_roundtrip_games"]) for report in reports)
+    recovery_total = sum(int(report["recovery_records"]) for report in reports)
+    if sampled_total != args.games_per_corpus * len(CORPORA):
+        raise AssertionError("real-corpus sampled-record total changed")
+    if strict_total < 3000:
+        raise AssertionError("real-corpus gate did not verify thousands of strict games")
+    if strict_total + recovery_total != sampled_total:
+        raise AssertionError("real-corpus global accounting is inconsistent")
 
     payload = {
-        "schema": 1,
+        "schema": 2,
         "product_base": "6567f3d35ffefaa85ae7e8b87d9fcc0d188e7cac",
-        "verified_games_total": total,
+        "sampled_records_total": sampled_total,
+        "strict_roundtrip_games_total": strict_total,
+        "recovery_records_total": recovery_total,
         "corpora": reports,
     }
     print("PGN_REAL_CORPUS_REPORT=" + json.dumps(payload, ensure_ascii=False, sort_keys=True))
