@@ -1,8 +1,8 @@
 # Version 2 CBZ real-world semantic acceptance qualification
 
-ROLE=V2-CHESSBASE-FORMATS  
-UTC=2026-08-28  
-PARENT_PR=324  
+ROLE=V2-CHESSBASE-FORMATS
+UTC=2026-08-28
+PARENT_PR=324
 PARENT_SHA=7f0c15bcc20dde101c79e41d074e1613dafee996
 
 ## Verdict
@@ -60,7 +60,7 @@ Repository license: GPL-3.0.
 
 Exact fixture:
 
-`tests/small.cbz`  
+`tests/small.cbz`
 Git blob: `08bc5d6e53eecedc35e37d24cf29bbe0a5953839`
 
 The exact upstream tree also contains its own decrypted CBV and extracted CBH-family expected files. The secure-execution CI in PR #324 already proves password/decrypt/stage/publish mechanics against them.
