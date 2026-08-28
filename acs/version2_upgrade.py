@@ -294,7 +294,14 @@ def _stable_copy(source: Path, destination: Path) -> tuple[int, str]:
     digest = hashlib.sha256()
     source_fd = -1
     try:
-        flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+        # Low-level os.open/os.read is subject to CRT text translation on
+        # Windows unless O_BINARY is explicit. Upgrade backups and restores must
+        # preserve arbitrary user bytes (including CRLF and 0x1A) exactly.
+        flags = (
+            os.O_RDONLY
+            | getattr(os, "O_NOFOLLOW", 0)
+            | getattr(os, "O_BINARY", 0)
+        )
         source_fd = os.open(source, flags)
         opened = os.fstat(source_fd)
         opened_id = (
