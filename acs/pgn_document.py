@@ -96,6 +96,55 @@ def _new_game(tags: Mapping[str, str] | None = None) -> PgnGame:
     return PgnGame(tags=values, line=VariationLine(result=result))
 
 
+def _recover_malformed_result_placeholder(game: PgnGame) -> str | None:
+    """Canonicalize one unambiguous malformed result placeholder for recovery.
+
+    The structural parser deliberately preserves unknown movetext as SAN-like
+    data so inspection is loss-aware.  A damaged source can therefore encode an
+    invalid Result tag value twice: once in the header and once as the entire
+    movetext.  When the parser has already proved both an invalid header result
+    and a missing termination marker, and the duplicated token is the *only*
+    movetext content, it is safe to recover that token as a malformed result
+    placeholder rather than a chess move.
+
+    This is a recovery-only grammar/provenance rule.  It does not accept the
+    token in strict PGN, does not validate chess legality, and callers still
+    preserve the original source by requiring Save As.
+    """
+
+    header_result = game.tags.get("Result")
+    if header_result is None or header_result in RESULTS:
+        return None
+
+    invalid_header_warning = f"invalid header Result {header_result}"
+    if invalid_header_warning not in game.warnings:
+        return None
+    if not any(
+        warning.startswith("missing movetext game termination marker;")
+        for warning in game.warnings
+    ):
+        return None
+
+    line = game.line
+    if line.leading_comments or line.trailing_comments or len(line.moves) != 1:
+        return None
+    node = line.moves[0]
+    if (
+        node.san != header_result
+        or node.move_number is not None
+        or node.nags
+        or node.comments_before
+        or node.comments_after
+        or node.variations
+    ):
+        return None
+
+    line.moves.clear()
+    line.result = "*"
+    game.tags["Result"] = "*"
+    return f"recovered malformed result token {header_result} as *"
+
+
 class PgnDocumentSession:
     """One user-facing PGN document session over the canonical workspace."""
 
@@ -141,6 +190,9 @@ class PgnDocumentSession:
         warnings = list(opened.global_warnings)
         recovered_games = deepcopy(opened.games)
         for index, game in enumerate(recovered_games, start=1):
+            recovery_warning = _recover_malformed_result_placeholder(game)
+            if recovery_warning is not None:
+                game.warnings.append(recovery_warning)
             warnings.extend(f"Game {index}: {warning}" for warning in game.warnings)
             # Parser warnings are provenance about the damaged source, not
             # serializable GameTree content.  Keep them on the document view

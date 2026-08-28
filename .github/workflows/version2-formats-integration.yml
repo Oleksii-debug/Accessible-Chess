@@ -7,6 +7,7 @@ on:
   pull_request:
     paths:
       - '.github/workflows/d01-full-product-native-menu.yml'
+      - '.github/workflows/d06-real-corpus-recovery.yml'
       - '.github/workflows/d08-owner-fixture-integration.yml'
       - '.github/workflows/v2-book-progress-store.yml'
       - '.github/workflows/v2-cbf-cbi-evidence.yml'
@@ -21,9 +22,11 @@ on:
       - 'acs/library_import_service.py'
       - 'acs/library_webview_bridge.py'
       - 'acs/library_webview_projection.py'
+      - 'acs/pgn_document.py'
       - 'docs/automation/V2_CBF_CBI_EVIDENCE.md'
       - 'docs/automation/V2_CHESSBASE_CAPABILITIES.json'
       - 'tests/test_chessbase_adapter.py'
+      - 'tests/test_d06_real_corpus_recovery.py'
       - 'tests/test_v2_chessbase_capability_manifest.py'
       - 'tests/test_v2_book_progress_store.py'
       - 'tests/test_version2_formats_integration.py'
@@ -107,6 +110,7 @@ jobs:
           changed="$(git diff --name-only "$V2_BASE" HEAD | sort)"
           expected="$(printf '%s\n' \
             '.github/workflows/d01-full-product-native-menu.yml' \
+            '.github/workflows/d06-real-corpus-recovery.yml' \
             '.github/workflows/d08-owner-fixture-integration.yml' \
             '.github/workflows/v2-book-progress-store.yml' \
             '.github/workflows/v2-cbf-cbi-evidence.yml' \
@@ -123,6 +127,7 @@ jobs:
             'acs/library_import_service.py' \
             'acs/library_webview_bridge.py' \
             'acs/library_webview_projection.py' \
+            'acs/pgn_document.py' \
             'docs/automation/DEV4_CHESSBASE_CAPABILITY_MATRIX.md' \
             'docs/automation/V2_CBF_CBI_EVIDENCE.md' \
             'docs/automation/V2_CHESSBASE_CAPABILITIES.json' \
@@ -132,6 +137,7 @@ jobs:
             'tests/test_chessbase_adapter.py' \
             'tests/test_chessbase_decoder.py' \
             'tests/test_chessbase_libcbh_external_fixture.py' \
+            'tests/test_d06_real_corpus_recovery.py' \
             'tests/test_dev1_full_product_accessible_shell.py' \
             'tests/test_dev1_full_product_ui_packages.py' \
             'tests/test_dev1_library_webview_projection.py' \
@@ -153,7 +159,7 @@ jobs:
           fi
           git diff --quiet "$V2_BASE" HEAD -- \
             acs/chesscore.py acs/gametree.py acs/acsdb.py \
-            acs/pgn_document.py acs/pgn_service.py acs/pgn_workspace.py \
+            acs/pgn_service.py acs/pgn_workspace.py \
             acs/bookdocument.py acs/bookreader.py acs/book_training.py \
             acs/stage1_release_ui.py acs/stage1_release_ui_core.py \
             web/stage1_release_bootstrap.js web/stage1_board_actions.js \
@@ -191,6 +197,9 @@ jobs:
           docs/automation/V2_CHESSBASE_CAPABILITIES.json=88bfd2d5b198433b3c4839ec9158caadf6ea0193
           tests/test_chessbase_adapter.py=a76aefcfa0e18dc2fc8049ebe4c85e7c4edd7b24
           tests/test_v2_chessbase_capability_manifest.py=216f0675b7fab0bf57c7dea70d57b21f47434ca7
+          .github/workflows/d06-real-corpus-recovery.yml=0afef77aac8894b0077895e73bb65f7b251520a5
+          acs/pgn_document.py=ae0b7d3815c4d277b68ef3c170c95255cf5c6442
+          tests/test_d06_real_corpus_recovery.py=8bf849bc3246bc70fff59637c169c9873d9520dd
           LOCKS
 
       - name: Compile Version 2 formats package
@@ -214,6 +223,7 @@ jobs:
           tests.test_chessbase_decoder
           tests.test_library_import_ui_integration
           tests.test_library_workspace_ui_integration
+          tests.test_d06_real_corpus_recovery
           tests.test_pgn_document
           tests.test_pgn_workspace
           tests.test_dev1_pgn_workspace_webview_adapter
