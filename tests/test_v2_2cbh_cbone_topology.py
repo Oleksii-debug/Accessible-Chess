@@ -18,7 +18,8 @@ ROOT = Path(__file__).parents[1]
 MANIFEST = ROOT / "docs" / "automation" / "V2_2CBH_CBONE_CAPABILITIES.json"
 EVIDENCE = ROOT / "docs" / "automation" / "V2_2CBH_CBONE_TOPOLOGY_EVIDENCE.md"
 ALLOWED = {"SUPPORTED", "PARTIAL", "UNSUPPORTED", "BLOCKED"}
-PARENT_SHA = "0454f9e19854da9c2261bba4b5d64e688fa3b909"
+ORIGIN_PARENT_SHA = "0454f9e19854da9c2261bba4b5d64e688fa3b909"
+INTEGRATION_SYNC_SHA = "958ae19cd91a135fd3f384d02a880c0ed1adfd10"
 
 
 class Version2TwoCbhCboneTopologyTests(unittest.TestCase):
@@ -76,7 +77,11 @@ class Version2TwoCbhCboneTopologyTests(unittest.TestCase):
         payload = json.loads(MANIFEST.read_text(encoding="utf-8"))
         self.assertEqual(set(payload["status_vocabulary"]), ALLOWED)
         self.assertEqual(payload["scope"], "2cbh-cbone-topology-evidence-only")
-        self.assertEqual(payload["upstream_product"]["sha"], PARENT_SHA)
+        upstream = payload["upstream_product"]
+        self.assertEqual(upstream["origin_parent_pr"], 302)
+        self.assertEqual(upstream["origin_parent_sha"], ORIGIN_PARENT_SHA)
+        self.assertEqual(upstream["integration_sync_pr"], 295)
+        self.assertEqual(upstream["integration_sync_sha"], INTEGRATION_SYNC_SHA)
         self.assertEqual([item["id"] for item in payload["formats"]], ["2cbh", "cbone"])
         self.assertTrue(all(item["status"] == "BLOCKED" for item in payload["formats"]))
         self.assertFalse(payload["formats"][0]["complete_companion_map_qualified"])
@@ -92,6 +97,7 @@ class Version2TwoCbhCboneTopologyTests(unittest.TestCase):
         self.assertIn("real_fixture_found=false", evidence)
         self.assertIn("independent_semantic_oracle_found=false", evidence)
         self.assertIn("does not invent", evidence)
+        self.assertIn(INTEGRATION_SYNC_SHA, evidence)
         self.assertNotIn("2CBH=SUPPORTED", evidence)
         self.assertNotIn("CBONE=SUPPORTED", evidence)
 
