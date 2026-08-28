@@ -110,8 +110,8 @@ jobs:
           python -m unittest -v
           tests.test_chessbase_decoder
           tests.test_chessbase_integrity
-          tests.test_chessbase_library_import_atomicity
           tests.test_version2_formats_integration
+          tests.test_library_import_ui_integration
 
       - name: Full repository unittest
         working-directory: product
@@ -207,8 +207,8 @@ jobs:
           python -m unittest -v
           tests.test_chessbase_decoder
           tests.test_chessbase_integrity
-          tests.test_chessbase_library_import_atomicity
           tests.test_version2_formats_integration
+          tests.test_library_import_ui_integration
 
       - name: Full repository unittest
         run: python -m unittest discover -s tests -v
