@@ -1,0 +1,78 @@
+{
+  "schema_version": 1,
+  "as_of": "2026-08-28",
+  "scope": "cbz-secure-execution-mechanics-only",
+  "parent": {
+    "pr": 316,
+    "sha": "982c5ccb1b20e958f11af2d48c921ff823f03f85"
+  },
+  "format_status": "BLOCKED",
+  "two_cbz_status": "BLOCKED",
+  "upstream_uncbv": {
+    "repository": "antoyo/uncbv",
+    "commit": "3c18e8a7c6a30c21f945a1ab5462521c306dca57",
+    "license": "GPL-3.0",
+    "bundled": false,
+    "fixture": "tests/small.cbz",
+    "fixture_blob": "08bc5d6e53eecedc35e37d24cf29bbe0a5953839",
+    "decrypted_oracle": "tests/decrypted_small.cbv",
+    "password": "upstream test fixture password; supplied by CI only to the pinned fixture path"
+  },
+  "mechanical_contract": {
+    "password_stdin_only": true,
+    "password_in_argv": false,
+    "password_in_environment": false,
+    "password_in_exception_text": false,
+    "password_byte_bound": 1024,
+    "internal_stdin_buffer_wiped_after_write": true,
+    "caller_python_string_memory_wipe_guaranteed": false,
+    "backend_sha256_pin_reused": true,
+    "encrypted_source_mutation_detection": true,
+    "backend_mutation_detection": true,
+    "stdout_stderr_caps_reused": true,
+    "decrypt_timeout_bounded": true,
+    "decrypt_cancellation_kills_backend": true,
+    "decrypted_file_size_bound": true,
+    "decrypted_cbv_magic_validation": true,
+    "private_sibling_workspace": true,
+    "normal_success_failure_cancel_cleanup": true,
+    "staged_publish_atomicity": true,
+    "concurrent_final_output_change_fails_closed": true,
+    "delegates_cbv_parse_extract_to_existing_cbv_extractor": true,
+    "new_cbv_parser": false,
+    "new_chess_rules": false
+  },
+  "acceptance": {
+    "exact_upstream_fixture_mechanics_tested_in_ci": true,
+    "upstream_fixture_is_semantic_support_proof": false,
+    "legal_reusable_real_world_acceptance_corpus": false,
+    "independent_real_semantic_oracle": false,
+    "source_to_library_export_reopen_equivalence": false,
+    "user_reachable_windows_nvda_path": false,
+    "support_promotion_allowed": false
+  },
+  "known_limitations": [
+    "The caller supplies a Python str; the internal encoded bytearray is wiped, but immutable caller-string memory cannot be guaranteed erased.",
+    "A hard interpreter/process/OS crash can leave the private sibling staging workspace; startup crash-residue recovery is not qualified in this package.",
+    "Cancellation kills the decrypt subprocess and prevents publish at stage boundaries, but delegated existing CBV extraction is not interrupted mid-subprocess by this wrapper.",
+    "Only .cbz is accepted by the secure execution primitive; .2cbz remains recognition/evidence-only because its general decrypt/payload contract is not qualified.",
+    "The primitive is not wired into Windows/NVDA actions or Library import and therefore is not an end-user feature.",
+    "Pinned upstream small.cbz is fixture/backend-mechanics evidence only and cannot promote format support."
+  ],
+  "support_unlock_still_requires": [
+    "crash-residue recovery policy for decrypted staging material",
+    "interruptible cancellation across the delegated CBV extraction stage",
+    "trusted user-facing password entry with no persistence/logging/accessibility leakage",
+    "legal reusable real CBZ corpus with independent expected semantic oracle",
+    "canonical GameTree/Library/Search/Open/Export/Reopen integrity equivalence",
+    "explicit semantic loss accounting",
+    "separate evidence and execution qualification for 2CBZ"
+  ],
+  "ownership_boundaries": {
+    "backend_trust_profile": "Not modified; existing owner retains executable profile/config construction.",
+    "windows_host": "Not modified; PR #300 retains trusted dialog/import host composition.",
+    "cbh_cbv_integration": "Not modified; PR #295 remains current integration/capability authority.",
+    "cbz_2cbz_recognition": "Parent PR #316 remains evidence/recognition authority.",
+    "stage1": "Untouched."
+  }
+}

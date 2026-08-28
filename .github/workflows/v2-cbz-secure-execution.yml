@@ -1,0 +1,157 @@
+name: V2 CBZ Secure Execution
+
+on:
+  push:
+    branches:
+      - work/v2-cbz-secure-execution-20260828
+  pull_request:
+    branches:
+      - work/v2-cbz-2cbz-evidence-20260828
+    paths:
+      - acs/cbz_extractor.py
+      - tests/test_cbz_extractor.py
+      - tests/test_cbz_uncbv_external_fixture.py
+      - docs/automation/V2_CBZ_SECURE_EXECUTION.json
+      - docs/automation/V2_CBZ_SECURE_EXECUTION.md
+      - .github/workflows/v2-cbz-secure-execution.yml
+
+permissions:
+  contents: read
+
+env:
+  V2_CBZ_EXEC_BASE: ${{ github.event.pull_request.base.sha || '982c5ccb1b20e958f11af2d48c921ff823f03f85' }}
+  UNCBV_COMMIT: 3c18e8a7c6a30c21f945a1ab5462521c306dca57
+
+jobs:
+  secure-contract:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install pinned verification dependency
+        run: python -m pip install -q pytest==8.4.2
+      - name: Exact ancestry scope and compile checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor "$V2_CBZ_EXEC_BASE" HEAD
+          git diff --check "$V2_CBZ_EXEC_BASE" HEAD
+          unexpected="$(git diff --name-only "$V2_CBZ_EXEC_BASE" HEAD | grep -Ev '^(acs/cbz_extractor\.py|tests/test_cbz_extractor\.py|tests/test_cbz_uncbv_external_fixture\.py|docs/automation/V2_CBZ_SECURE_EXECUTION\.json|docs/automation/V2_CBZ_SECURE_EXECUTION\.md|\.github/workflows/v2-cbz-secure-execution\.yml)$' || true)"
+          if [[ -n "$unexpected" ]]; then
+            printf 'Unexpected files outside CBZ secure-execution owner scope:\n%s\n' "$unexpected"
+            exit 1
+          fi
+          python -m compileall -q acs tests run_accessible_chess.py
+      - name: Focused encrypted execution and inherited format contracts
+        run: >-
+          python -m unittest -v
+          tests.test_cbz_extractor
+          tests.test_cbv_extractor
+          tests.test_v2_cbz_2cbz_evidence
+          tests.test_chessbase_integrity
+          tests.test_v2_2cbh_cbone_topology
+          tests.test_v2_chessbase_capability_manifest
+      - name: Focused pytest parity
+        run: >-
+          python -m pytest -q
+          tests/test_cbz_extractor.py
+          tests/test_cbv_extractor.py
+          tests/test_v2_cbz_2cbz_evidence.py
+          tests/test_chessbase_integrity.py
+          tests/test_v2_2cbh_cbone_topology.py
+          tests/test_v2_chessbase_capability_manifest.py
+
+  pinned-uncbv-cbz-fixture:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout Accessible Chess
+        uses: actions/checkout@v4
+        with:
+          path: product
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Checkout exact pinned uncbv fixture source
+        uses: actions/checkout@v4
+        with:
+          repository: antoyo/uncbv
+          ref: 3c18e8a7c6a30c21f945a1ab5462521c306dca57
+          path: upstream/uncbv
+          fetch-depth: 1
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Prove exact upstream identity and fixture blobs
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C upstream/uncbv rev-parse HEAD)" = "$UNCBV_COMMIT"
+          test "$(git -C upstream/uncbv hash-object tests/small.cbz)" = "08bc5d6e53eecedc35e37d24cf29bbe0a5953839"
+          test -f upstream/uncbv/tests/decrypted_small.cbv
+          test -d upstream/uncbv/tests/small
+          grep -q 'GNU GENERAL PUBLIC LICENSE' upstream/uncbv/LICENSE
+      - name: Build exact pinned uncbv
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo build --release --locked --manifest-path upstream/uncbv/Cargo.toml
+          test -x upstream/uncbv/target/release/uncbv
+          uncbv_sha256="$(sha256sum upstream/uncbv/target/release/uncbv | cut -d' ' -f1)"
+          echo "UNCBV_BINARY_SHA256=$uncbv_sha256" >> "$GITHUB_ENV"
+      - name: Exact fixture password/decrypt/stage/publish mechanics
+        working-directory: product
+        env:
+          UNCBV_BINARY: ${{ github.workspace }}/upstream/uncbv/target/release/uncbv
+          UNCBV_CBZ_FIXTURE: ${{ github.workspace }}/upstream/uncbv/tests/small.cbz
+          UNCBV_CBZ_DECRYPTED_ORACLE: ${{ github.workspace }}/upstream/uncbv/tests/decrypted_small.cbv
+          UNCBV_CBZ_EXPECTED_DIR: ${{ github.workspace }}/upstream/uncbv/tests/small
+        shell: bash
+        run: |
+          set -o pipefail
+          python -m unittest -v tests.test_cbz_uncbv_external_fixture 2>&1 | tee cbz-real-pinned.log
+      - name: Upload pinned mechanics diagnostic
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v2-cbz-pinned-backend-mechanics
+          path: product/cbz-real-pinned.log
+          if-no-files-found: ignore
+          retention-days: 3
+      - name: Standard Product tree does not bundle backend or fixture
+        working-directory: product
+        shell: bash
+        run: |
+          set -euo pipefail
+          test ! -e uncbv
+          test ! -e small.cbz
+          test -z "$(git status --porcelain --untracked-files=no)"
+
+  full-regression:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install test dependencies
+        run: python -m pip install -q pytest==8.4.2
+      - name: Exact ancestry and diff hygiene
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor "$V2_CBZ_EXEC_BASE" HEAD
+          git diff --check "$V2_CBZ_EXEC_BASE" HEAD
+      - name: Full unittest
+        run: python -m unittest discover -s tests -p 'test*.py'
+      - name: Full pytest
+        run: python -m pytest -q
