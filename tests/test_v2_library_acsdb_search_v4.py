@@ -172,7 +172,7 @@ class V2LibraryAcsdbSearchV4Tests(unittest.TestCase):
                 1,
             )
 
-    def test_external_writer_without_canonical_fold_function_fails_closed(self) -> None:
+    def test_external_writer_without_canonical_search_functions_fails_closed(self) -> None:
         fd, path = tempfile.mkstemp(suffix=".acsdb")
         os.close(fd)
         try:
@@ -182,7 +182,7 @@ class V2LibraryAcsdbSearchV4Tests(unittest.TestCase):
             external = sqlite3.connect(path)
             try:
                 external.execute("PRAGMA foreign_keys = ON")
-                with self.assertRaisesRegex(sqlite3.OperationalError, "no such function"):
+                with self.assertRaisesRegex(sqlite3.OperationalError, "(?:no such|unknown) function"):
                     external.execute(INSERT_GAME, _game_row(source_id, 1))
                 external.rollback()
             finally:
