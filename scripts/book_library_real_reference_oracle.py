@@ -269,7 +269,7 @@ def main() -> None:
         summary = {
             "status": "PASS",
             "claim": "real lawful Books/Library referenced-game seam only",
-            "product_parent": "PR337@2d62619569d29930196889641b1fedd2840979f7",
+            "product_parent": "PR337@93a256730ff920751a27c56672f74ebdca2701e4",
             "corpus": {
                 "name": CORPUS_NAME,
                 "url": CORPUS_URL,

@@ -28,7 +28,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 55
     env:
-      PACKAGE_PARENT_SHA: 2d62619569d29930196889641b1fedd2840979f7
+      PACKAGE_PARENT_SHA: 93a256730ff920751a27c56672f74ebdca2701e4
       PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
     steps:
       - uses: actions/checkout@v4
@@ -42,7 +42,25 @@ jobs:
           set -euo pipefail
           git config core.autocrlf false
           git config core.eol lf
+          git reset --hard HEAD
           git checkout-index --force --all
+
+      - name: Restore frozen Stage1 blobs byte-exact on Windows
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          while IFS='=' read -r path expected; do
+            git cat-file blob "HEAD:$path" > "$path"
+            actual="$(git hash-object --no-filters "$path")"
+            test "$actual" = "$expected" || {
+              printf 'Frozen Stage 1 workspace blob mismatch: %s expected=%s actual=%s\n' "$path" "$expected" "$actual" >&2
+              exit 1
+            }
+          done <<'FROZEN_STAGE1'
+          acs/stage1_release_ui_core.py=b8586a26b9ab20c3d3ec0b0a3dbbbd53e38e94e6
+          acs/webapp_keymap_core.py=0ba06f548d39dad7372e0339b3e121fd1717cc05
+          FROZEN_STAGE1
 
       - uses: actions/setup-python@v5
         with:
@@ -99,6 +117,7 @@ jobs:
           python -m scripts.book_library_real_reference_oracle
           test -s book-library-real-reference-summary.json
           grep -F '"status": "PASS"' book-library-real-reference-summary.json
+          grep -F '"product_parent": "PR337@93a256730ff920751a27c56672f74ebdca2701e4"' book-library-real-reference-summary.json
           grep -F '"license": "CC0"' book-library-real-reference-summary.json
           grep -F '"compressed_sha256": "aa40b3671fa3cf1072eb182892cd90b0e1e003a4a5943492f64b77e7f3fd1635"' book-library-real-reference-summary.json
           grep -F '"imported_games": 512' book-library-real-reference-summary.json
