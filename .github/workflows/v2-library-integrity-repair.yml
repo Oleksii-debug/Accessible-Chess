@@ -1,0 +1,117 @@
+name: V2 Library Integrity Repair
+
+on:
+  push:
+    branches:
+      - work/v2-library-integrity-repair-20260828
+  pull_request:
+    paths:
+      - 'acs/acsdb.py'
+      - 'tests/test_v2_library_integrity_repair.py'
+      - 'tests/test_v2_library_acsdb_search_v4.py'
+      - 'tests/test_v2_library_date_filter_v5.py'
+      - '.github/workflows/v2-library-integrity-repair.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: v2-library-integrity-repair-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CHILD_BASE: e5ed60a042889a273f10b8f002574ebf5c727c33
+  AUDIT_HEAD: 045a010a25c292071e8d734734fe4bb21dd8296a
+  AUDIT_BLOB: 1c65639bee6af4e54ffebee83588368503d723b9
+
+jobs:
+  correctness:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Normalize worktree to canonical Git bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config core.autocrlf false
+          git config core.eol lf
+          git reset --hard HEAD
+          test "$(git hash-object --no-filters acs/stage1_release_ui_core.py)" = "$(git rev-parse HEAD:acs/stage1_release_ui_core.py)"
+          test "$(git hash-object --no-filters acs/webapp_keymap_core.py)" = "$(git rev-parse HEAD:acs/webapp_keymap_core.py)"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install pinned verification dependency
+        run: python -m pip install -q pytest==8.4.2
+      - name: Ownership ancestry and exact child diff hygiene
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor "$CHILD_BASE" HEAD
+          test "$(git merge-base "$CHILD_BASE" HEAD)" = "$CHILD_BASE"
+          git diff --check "$CHILD_BASE" HEAD
+          changed="$(git diff --name-only "$CHILD_BASE" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/v2-library-integrity-repair.yml' \
+            'acs/acsdb.py' \
+            'tests/test_v2_library_acsdb_search_v4.py' \
+            'tests/test_v2_library_date_filter_v5.py' \
+            'tests/test_v2_library_integrity_repair.py' | sort)"
+          test "$changed" = "$expected"
+          if printf '%s\n' "$changed" | grep -E 'teacher|classroom|education|chessbase_decoder|gametree.py|pgn_document|pgn_service|pgn_workspace'; then
+            echo 'Out-of-lane or parser/chess-core contamination detected' >&2
+            exit 1
+          fi
+      - name: Compile
+        run: python -m compileall -q acs tests tools run_accessible_chess.py
+      - name: Focused integrity repair and inherited D07 regressions
+        run: >-
+          python -m unittest -v
+          tests.test_v2_library_integrity_repair
+          tests.test_v2_library_acsdb_search_v4
+          tests.test_v2_library_date_filter_v5
+          tests.test_v2_library_search_service_v4
+          tests.test_acsdb
+          tests.test_d07_acsdb_migration_atomicity
+          tests.test_d07_library_import_service
+          tests.test_d07_library_import_start_lock
+          tests.test_d07_library_import_transaction_ownership
+          tests.test_d07_library_search_cancellation
+          tests.test_d07_search_semantic_equivalence
+          tests.test_d07_search_scalar_equivalence
+          tests.test_windows_data_release_regressions
+      - name: Replay independent Audit-B oracle byte-identically
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse "$AUDIT_HEAD:tests/test_v2_library_integrity_audit.py")" = "$AUDIT_BLOB"
+          git show "$AUDIT_HEAD:tests/test_v2_library_integrity_audit.py" > .audit_v2_library_integrity.py
+          PYTHONPATH="$PWD" python .audit_v2_library_integrity.py -v
+          rm -f .audit_v2_library_integrity.py
+      - name: Full repository unittest
+        shell: bash
+        run: |
+          set -o pipefail
+          python -m unittest discover -s tests -v 2>&1 | tee full-unittest.log
+      - name: Upload full unittest diagnostic
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v2-library-integrity-full-unittest-${{ matrix.os }}
+          path: full-unittest.log
+          if-no-files-found: ignore
+          retention-days: 3
+      - name: Full repository pytest
+        run: python -m pytest -q tests
+      - name: SELFTEST and complete diagnostic
+        run: |
+          python -m acs.selftest
+          python run_accessible_chess.py --diagnostic
