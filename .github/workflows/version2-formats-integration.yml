@@ -8,14 +8,24 @@ on:
     paths:
       - '.github/workflows/d01-full-product-native-menu.yml'
       - '.github/workflows/d08-owner-fixture-integration.yml'
+      - '.github/workflows/v2-book-progress-store.yml'
+      - '.github/workflows/v2-cbf-cbi-evidence.yml'
       - '.github/workflows/whole-product-integration-preview.yml'
+      - 'acs/book_progress_store.py'
+      - 'acs/chessbase_adapter.py'
       - 'acs/chessbase_decoder.py'
+      - 'acs/chessbase_integrity.py'
       - 'acs/chessbase_library_import.py'
       - 'acs/cbv_extractor.py'
       - 'acs/import_contract.py'
       - 'acs/library_import_service.py'
       - 'acs/library_webview_bridge.py'
       - 'acs/library_webview_projection.py'
+      - 'docs/automation/V2_CBF_CBI_EVIDENCE.md'
+      - 'docs/automation/V2_CHESSBASE_CAPABILITIES.json'
+      - 'tests/test_chessbase_adapter.py'
+      - 'tests/test_v2_chessbase_capability_manifest.py'
+      - 'tests/test_v2_book_progress_store.py'
       - 'tests/test_version2_formats_integration.py'
       - 'tests/test_chessbase_decoder.py'
       - 'tests/test_chessbase_libcbh_external_fixture.py'
@@ -98,10 +108,15 @@ jobs:
           expected="$(printf '%s\n' \
             '.github/workflows/d01-full-product-native-menu.yml' \
             '.github/workflows/d08-owner-fixture-integration.yml' \
+            '.github/workflows/v2-book-progress-store.yml' \
+            '.github/workflows/v2-cbf-cbi-evidence.yml' \
             '.github/workflows/version2-formats-integration.yml' \
             '.github/workflows/whole-product-integration-preview.yml' \
+            'acs/book_progress_store.py' \
             'acs/cbv_extractor.py' \
+            'acs/chessbase_adapter.py' \
             'acs/chessbase_decoder.py' \
+            'acs/chessbase_integrity.py' \
             'acs/chessbase_library_import.py' \
             'acs/full_product_ui_shell.py' \
             'acs/import_contract.py' \
@@ -109,9 +124,12 @@ jobs:
             'acs/library_webview_bridge.py' \
             'acs/library_webview_projection.py' \
             'docs/automation/DEV4_CHESSBASE_CAPABILITY_MATRIX.md' \
+            'docs/automation/V2_CBF_CBI_EVIDENCE.md' \
+            'docs/automation/V2_CHESSBASE_CAPABILITIES.json' \
             'tests/js/library_surface_dom_test.js' \
             'tests/test_cbv_extractor.py' \
             'tests/test_cbv_uncbv_external_fixture.py' \
+            'tests/test_chessbase_adapter.py' \
             'tests/test_chessbase_decoder.py' \
             'tests/test_chessbase_libcbh_external_fixture.py' \
             'tests/test_dev1_full_product_accessible_shell.py' \
@@ -121,6 +139,8 @@ jobs:
             'tests/test_library_import_ui_integration.py' \
             'tests/test_library_workspace_ui_integration.py' \
             'tests/test_import_contract.py' \
+            'tests/test_v2_book_progress_store.py' \
+            'tests/test_v2_chessbase_capability_manifest.py' \
             'tests/test_version2_formats_integration.py' \
             'tools/optional/UNCBV_BACKEND.md' \
             'tools/optional/LIBCBH_BACKEND.md' \
@@ -139,7 +159,7 @@ jobs:
             web/stage1_release_bootstrap.js web/stage1_board_actions.js \
             tools/qa
 
-      - name: Lock exact Library and ChessBase owner blobs
+      - name: Lock exact integrated owner blobs
         shell: bash
         run: |
           set -euo pipefail
@@ -161,6 +181,16 @@ jobs:
           tests/test_library_import_ui_integration.py=7fca70f8100ee38c2f452b04e8165ad54941f773
           tests/js/library_surface_dom_test.js=7f69c17619f73d7c001392ea43e037933d75a50b
           web/full_product_library.js=c9a08f5cdb62f9ad82adac850c51ede607b42ed6
+          .github/workflows/v2-book-progress-store.yml=a06bdd168a2f519c528e94fc2853b75ce31f759c
+          acs/book_progress_store.py=665e2f4d09460f69850e4f71d739eca8e71f932e
+          tests/test_v2_book_progress_store.py=3887db6f4b92e0450a8c7994a03c25f4cd8baf9b
+          .github/workflows/v2-cbf-cbi-evidence.yml=f8882b122b80b829d300f8eb3f3c4e0ec9a0d5ec
+          acs/chessbase_adapter.py=b99cff635f845c7f5160242f9cc6c84c40b88c47
+          acs/chessbase_integrity.py=18734bbac21ed4df337c09587244ea469fe60ca9
+          docs/automation/V2_CBF_CBI_EVIDENCE.md=752db62bb6616bc1cc9aeb4fcb5ac37a97b9772f
+          docs/automation/V2_CHESSBASE_CAPABILITIES.json=88bfd2d5b198433b3c4839ec9158caadf6ea0193
+          tests/test_chessbase_adapter.py=a76aefcfa0e18dc2fc8049ebe4c85e7c4edd7b24
+          tests/test_v2_chessbase_capability_manifest.py=216f0675b7fab0bf57c7dea70d57b21f47434ca7
           LOCKS
 
       - name: Compile Version 2 formats package
@@ -188,6 +218,7 @@ jobs:
           tests.test_pgn_workspace
           tests.test_dev1_pgn_workspace_webview_adapter
           tests.test_books_training_ui_integration
+          tests.test_v2_book_progress_store
           tests.test_whole_product_user_journey
 
       - name: Format security migration and cancellation matrix
@@ -195,6 +226,7 @@ jobs:
           python -m unittest -v
           tests.test_chessbase_adapter
           tests.test_chessbase_integrity
+          tests.test_v2_chessbase_capability_manifest
           tests.test_dev4_chessbase_integrity_atomicity
           tests.test_dev4_chessbase_symlink_security
           tests.test_d07_acsdb_migration_atomicity

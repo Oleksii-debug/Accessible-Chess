@@ -1,3 +1,4 @@
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -24,8 +25,8 @@ class ChessBaseAdapterContractTests(unittest.TestCase):
                 self.assertEqual(probe.status, "adapter_only")
                 self.assertTrue(probe.warnings)
 
-    def test_classic_components_are_recognized_but_never_treated_as_standalone_imports(self):
-        for suffix in (".cbg", ".cba", ".cbp", ".cbt", ".cbc", ".cbs"):
+    def test_known_component_suffixes_are_never_standalone_imports(self):
+        for suffix in (".cbg", ".cba", ".cbp", ".cbt", ".cbc", ".cbs", ".cbi"):
             with self.subTest(suffix=suffix):
                 probe = probe_chessbase_source("sample" + suffix)
                 self.assertTrue(probe.recognized)
@@ -64,7 +65,12 @@ class ChessBaseAdapterContractTests(unittest.TestCase):
             self.assertEqual(set(existing), {".cbg", ".cbp"})
             self.assertEqual(existing[".cbg"].path.name, "My Base.CBG")
             self.assertEqual(existing[".cbp"].path.name, "my base.CBP")
-            self.assertTrue(any(".cbg" in warning and ".cbp" in warning for warning in probe.warnings))
+            self.assertTrue(
+                any(
+                    ".cbg" in warning and ".cbp" in warning
+                    for warning in probe.warnings
+                )
+            )
             self.assertFalse(probe.safe_to_import)
 
     def test_cbh_missing_companions_is_reported_without_guessing_damage(self):
@@ -73,20 +79,103 @@ class ChessBaseAdapterContractTests(unittest.TestCase):
             path.write_bytes(b"header")
             probe = probe_chessbase_source(path)
             self.assertEqual(probe.existing_components, ())
-            self.assertTrue(any("No classic CBH companion files" in warning for warning in probe.warnings))
-            self.assertEqual(len(probe.components), len(component_extensions()))
+            self.assertTrue(
+                any(
+                    "No classic CBH companion files" in warning
+                    for warning in probe.warnings
+                )
+            )
+            self.assertEqual(
+                {item.extension for item in probe.components},
+                {".cba", ".cbg", ".cbp", ".cbs", ".cbt", ".cbc"},
+            )
+
+    def test_cbf_probe_models_same_stem_cbi_as_one_legacy_family(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            cbf = root / "Legacy Base.CBF"
+            cbi = root / "legacy base.cBi"
+            cbf.write_bytes(b"games")
+            cbi.write_bytes(b"index")
+            (root / "Other Base.cbi").write_bytes(b"wrong index")
+
+            probe = probe_chessbase_source(cbf)
+
+            self.assertEqual(probe.source_kind, "legacy_two_file_database")
+            self.assertEqual(len(probe.components), 1)
+            self.assertEqual(probe.components[0].extension, ".cbi")
+            self.assertTrue(probe.components[0].exists)
+            self.assertEqual(probe.components[0].path, cbi)
+            self.assertTrue(
+                any("CBF/CBI pair detected" in warning for warning in probe.warnings)
+            )
+            self.assertFalse(probe.decoder_available)
+            self.assertFalse(probe.safe_to_import)
+
+    def test_cbf_missing_same_stem_cbi_is_explicit_incomplete_topology(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            cbf = root / "Legacy.cbf"
+            cbf.write_bytes(b"games")
+            (root / "Other.cbi").write_bytes(b"not this database")
+
+            probe = probe_chessbase_source(cbf)
+
+            self.assertEqual(len(probe.components), 1)
+            self.assertFalse(probe.components[0].exists)
+            self.assertTrue(
+                any("incomplete" in warning.casefold() for warning in probe.warnings)
+            )
+            self.assertFalse(probe.safe_to_import)
+
+    def test_case_colliding_companion_names_fail_closed_where_filesystem_allows_it(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            cbf = root / "Legacy.cbf"
+            cbf.write_bytes(b"games")
+            first = root / "Legacy.CBI"
+            second = root / "legacy.cbi"
+            first.write_bytes(b"index-a")
+            second.write_bytes(b"index-b")
+
+            try:
+                same = os.path.samefile(first, second)
+            except OSError:
+                same = False
+            if same:
+                self.skipTest("filesystem is case-insensitive")
+
+            probe = probe_chessbase_source(cbf)
+            self.assertEqual(probe.components, ())
+            self.assertTrue(
+                any(
+                    "case-colliding" in warning.casefold()
+                    for warning in probe.warnings
+                )
+            )
+            self.assertFalse(probe.safe_to_import)
 
     def test_cbv_is_distinguished_from_cbh_component_family(self):
         probe = probe_chessbase_source("archive.cbv")
         self.assertEqual(probe.source_kind, "archive_container")
         self.assertEqual(probe.components, ())
-        self.assertTrue(any("archive/container" in warning for warning in probe.warnings))
+        self.assertTrue(
+            any("archive/container" in warning for warning in probe.warnings)
+        )
 
     def test_batch_probe_never_silently_drops_unknown_or_component_records(self):
-        probes = probe_many(["a.cbh", "b.unknown", "c.cbv", "d.cbg"])
-        self.assertEqual(len(probes), 4)
-        self.assertEqual([item.recognized for item in probes], [True, False, True, True])
-        self.assertEqual([item.is_primary_source for item in probes], [True, False, True, False])
+        probes = probe_many(
+            ["a.cbh", "b.unknown", "c.cbv", "d.cbg", "e.cbf", "e.cbi"]
+        )
+        self.assertEqual(len(probes), 6)
+        self.assertEqual(
+            [item.recognized for item in probes],
+            [True, False, True, True, True, True],
+        )
+        self.assertEqual(
+            [item.is_primary_source for item in probes],
+            [True, False, True, False, True, False],
+        )
 
     def test_extension_lists_are_stable_sorted_and_separate_primary_from_components(self):
         primaries = primary_extensions()
@@ -95,8 +184,14 @@ class ChessBaseAdapterContractTests(unittest.TestCase):
         self.assertEqual(primaries, tuple(sorted(primaries)))
         self.assertEqual(components, tuple(sorted(components)))
         self.assertEqual(extensions, tuple(sorted(extensions)))
-        self.assertEqual(set(primaries), {".2cbh", ".cbf", ".cbh", ".cbone", ".cbv"})
-        self.assertEqual(set(components), {".cba", ".cbg", ".cbp", ".cbs", ".cbt", ".cbc"})
+        self.assertEqual(
+            set(primaries),
+            {".2cbh", ".cbf", ".cbh", ".cbone", ".cbv"},
+        )
+        self.assertEqual(
+            set(components),
+            {".cba", ".cbg", ".cbp", ".cbs", ".cbt", ".cbc", ".cbi"},
+        )
         self.assertEqual(set(extensions), set(primaries) | set(components))
 
 
