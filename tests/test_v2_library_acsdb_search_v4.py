@@ -56,10 +56,10 @@ class _FailAfterV4(AcsDatabase):
 
 
 class V2LibraryAcsdbSearchV4Tests(unittest.TestCase):
-    def test_schema_v4_is_explicit_and_search_projection_is_one_to_one(self) -> None:
+    def test_schema_v4_projection_remains_explicit_in_current_schema(self) -> None:
         with AcsDatabase() as database:
-            self.assertEqual(ACSDB_SCHEMA_VERSION, 4)
-            self.assertEqual(database.schema_version, 4)
+            self.assertEqual(ACSDB_SCHEMA_VERSION, 5)
+            self.assertEqual(database.schema_version, 5)
             columns = {
                 str(row[1])
                 for row in database.conn.execute("PRAGMA table_info(game_search_fold)").fetchall()
@@ -76,7 +76,7 @@ class V2LibraryAcsdbSearchV4Tests(unittest.TestCase):
             }
             self.assertTrue(set(TRIGGERS).issubset(trigger_names))
 
-    def test_v3_migration_backfills_unicode_projection_and_reopens(self) -> None:
+    def test_v3_migration_backfills_unicode_projection_then_advances_to_current_schema(self) -> None:
         fd, path = tempfile.mkstemp(suffix=".acsdb")
         os.close(fd)
         try:
@@ -87,7 +87,7 @@ class V2LibraryAcsdbSearchV4Tests(unittest.TestCase):
                 _drop_v4(database)
 
             with AcsDatabase(path) as migrated:
-                self.assertEqual(migrated.schema_version, 4)
+                self.assertEqual(migrated.schema_version, 5)
                 row = migrated.conn.execute(
                     "SELECT white_fold, black_fold, event_fold, eco_fold, opening_fold "
                     "FROM game_search_fold WHERE game_id=1"
@@ -97,11 +97,11 @@ class V2LibraryAcsdbSearchV4Tests(unittest.TestCase):
                 self.assertEqual(row[2], search_fold("Ｃａｆｅ\u0301 Cup"))
                 self.assertEqual(row[3], search_fold("C42"))
                 self.assertEqual(row[4], search_fold("Французький \\ Варіант"))
-                self.assertEqual(migrated.verify_integrity(), 4)
+                self.assertEqual(migrated.verify_integrity(), 5)
 
             with AcsDatabase(path) as reopened:
                 self.assertEqual([row["id"] for row in reopened.search_games(player="STRASSE")], [1])
-                self.assertEqual(reopened.verify_integrity(), 4)
+                self.assertEqual(reopened.verify_integrity(), 5)
         finally:
             if os.path.exists(path):
                 os.unlink(path)
@@ -133,7 +133,7 @@ class V2LibraryAcsdbSearchV4Tests(unittest.TestCase):
                 raw.close()
 
             with AcsDatabase(path) as recovered:
-                self.assertEqual(recovered.schema_version, 4)
+                self.assertEqual(recovered.schema_version, 5)
                 self.assertEqual([row["id"] for row in recovered.search_games(player="strasse")], [1])
         finally:
             if os.path.exists(path):
@@ -172,7 +172,7 @@ class V2LibraryAcsdbSearchV4Tests(unittest.TestCase):
                 1,
             )
 
-    def test_external_writer_without_canonical_fold_function_fails_closed(self) -> None:
+    def test_external_writer_without_canonical_search_functions_fails_closed(self) -> None:
         fd, path = tempfile.mkstemp(suffix=".acsdb")
         os.close(fd)
         try:
@@ -182,7 +182,7 @@ class V2LibraryAcsdbSearchV4Tests(unittest.TestCase):
             external = sqlite3.connect(path)
             try:
                 external.execute("PRAGMA foreign_keys = ON")
-                with self.assertRaisesRegex(sqlite3.OperationalError, "no such function"):
+                with self.assertRaisesRegex(sqlite3.OperationalError, "(?:no such|unknown) function"):
                     external.execute(INSERT_GAME, _game_row(source_id, 1))
                 external.rollback()
             finally:
@@ -191,7 +191,7 @@ class V2LibraryAcsdbSearchV4Tests(unittest.TestCase):
             with AcsDatabase(path) as reopened:
                 self.assertEqual(reopened.conn.execute("SELECT COUNT(*) FROM games").fetchone()[0], 0)
                 self.assertEqual(reopened.conn.execute("SELECT COUNT(*) FROM game_search_fold").fetchone()[0], 0)
-                self.assertEqual(reopened.verify_integrity(), 4)
+                self.assertEqual(reopened.verify_integrity(), 5)
         finally:
             if os.path.exists(path):
                 os.unlink(path)
@@ -213,7 +213,7 @@ class V2LibraryAcsdbSearchV4Tests(unittest.TestCase):
                 (search_fold("Straße"),),
             )
             database.conn.commit()
-            self.assertEqual(database.verify_integrity(), 4)
+            self.assertEqual(database.verify_integrity(), 5)
 
             database.conn.execute("DELETE FROM game_search_fold WHERE game_id=1")
             database.conn.commit()
@@ -246,7 +246,7 @@ class V2LibraryAcsdbSearchV4Tests(unittest.TestCase):
                 database.conn.execute("DELETE FROM sources WHERE id=?", (source_id,))
             self.assertEqual(database.conn.execute("SELECT COUNT(*) FROM games").fetchone()[0], 0)
             self.assertEqual(database.conn.execute("SELECT COUNT(*) FROM game_search_fold").fetchone()[0], 0)
-            self.assertEqual(database.verify_integrity(), 4)
+            self.assertEqual(database.verify_integrity(), 5)
 
     def test_search_preserves_nfkc_casefold_literal_filters_keyset_and_public_shape(self) -> None:
         with AcsDatabase() as database:

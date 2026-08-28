@@ -19,9 +19,11 @@ from typing import Iterable
 
 from .gametree import PgnGame, parse_games, serialize_game
 from .search_policy import (
+    SEARCH_DATE_KEY_SQL_FUNCTION,
     SEARCH_FOLD_SQL_FUNCTION,
     install_search_fold,
     literal_like_pattern,
+    normalize_search_date_bound,
     normalize_search_result,
     normalize_search_source_id,
     normalize_search_term,
@@ -30,11 +32,13 @@ from .search_policy import (
 
 IMPORT_STATUSES = {"full", "partial", "damaged", "warning"}
 IMPORT_ATTEMPT_STATUSES = {"pending", "full", "warning", "damaged", "failed"}
-ACSDB_SCHEMA_VERSION = 4
+ACSDB_SCHEMA_VERSION = 5
 _SQLITE_INTEGER_MAX = (1 << 63) - 1
 _SEARCH_FOLD_TABLE = "game_search_fold"
 _SEARCH_FOLD_INSERT_TRIGGER = "trg_games_search_fold_insert"
 _SEARCH_FOLD_UPDATE_TRIGGER = "trg_games_search_fold_update"
+_DATE_RAW_INDEX = "idx_games_game_date"
+_DATE_KEY_INDEX = "idx_games_search_date_key"
 
 
 def _public_import_error(exc: BaseException) -> str:
@@ -66,9 +70,9 @@ class AcsDatabase:
             self.conn.row_factory = sqlite3.Row
             self.conn.execute("PRAGMA foreign_keys = ON")
             self.conn.execute("PRAGMA busy_timeout = 5000")
-            # Schema v4 uses this deterministic function inside migration and
-            # database-level write-through triggers. Install it before any
-            # migration so old databases can backfill atomically.
+            # Schema v4+ uses deterministic search functions inside migrations,
+            # database-level triggers and expression indexes. Install them before
+            # migration so old databases can backfill/index atomically.
             install_search_fold(self.conn)
             self._migrate_schema()
             if self.path != ":memory:":
@@ -271,6 +275,23 @@ class AcsDatabase:
             """
         )
 
+    def _migrate_to_v5(self) -> None:
+        """Add indexed exact and calendar-safe game-date search surfaces.
+
+        Raw PGN Date text remains canonical and loss-aware in ``games``. The
+        deterministic expression index derives a sortable key only for complete,
+        real ``YYYY.MM.DD`` dates; partial/unknown/malformed source text remains
+        stored unchanged and cannot be fabricated into calendar range matches.
+        """
+        self._migration_script(
+            f"""
+            CREATE INDEX IF NOT EXISTS {_DATE_RAW_INDEX}
+            ON games(game_date);
+            CREATE INDEX IF NOT EXISTS {_DATE_KEY_INDEX}
+            ON games({SEARCH_DATE_KEY_SQL_FUNCTION}(game_date));
+            """
+        )
+
     @staticmethod
     def _now() -> str:
         return datetime.now(timezone.utc).isoformat()
@@ -423,11 +444,31 @@ class AcsDatabase:
             if missing is not None or stale is not None:
                 raise RuntimeError("ACSDB search projection integrity check failed")
 
+        if version >= 5:
+            raw_index_columns = [
+                str(row[2])
+                for row in conn.execute(
+                    f'PRAGMA index_info("{_DATE_RAW_INDEX}")'
+                ).fetchall()
+            ]
+            if raw_index_columns != ["game_date"]:
+                raise RuntimeError("ACSDB schema identity check failed")
+            date_index_row = conn.execute(
+                "SELECT sql FROM sqlite_master WHERE type='index' AND name=?",
+                (_DATE_KEY_INDEX,),
+            ).fetchone()
+            date_index_sql = str(date_index_row[0] or "") if date_index_row else ""
+            if (
+                SEARCH_DATE_KEY_SQL_FUNCTION not in date_index_sql
+                or "game_date" not in date_index_sql
+            ):
+                raise RuntimeError("ACSDB schema identity check failed")
+
     @classmethod
     def _check_sqlite_integrity(cls, conn: sqlite3.Connection) -> int:
         try:
-            # v4 schema identity verifies normalized projection values. The UDF
-            # is connection-local, so read-only backup connections need the same
+            # v4+ schema identity verifies derivative search structures. The
+            # UDFs are connection-local, so backup connections need the same
             # deterministic registration before validation.
             install_search_fold(conn)
             row = conn.execute("PRAGMA quick_check").fetchone()
@@ -658,7 +699,7 @@ class AcsDatabase:
                              before_id: int | None = None, limit: int = 100) -> list[dict]:
         """List import attempts newest-first using a stable keyset cursor.
 
-        ``before_id`` is the last row id from the previous page.  Using the
+        ``before_id`` is the last row id from the previous page. Using the
         primary key as the cursor avoids OFFSET drift if another import starts
         between page requests.
         """
@@ -685,10 +726,17 @@ class AcsDatabase:
 
     def search_games(self, *, player: str | None = None, event: str | None = None,
                      eco: str | None = None, opening: str | None = None,
-                     result: str | None = None, source_id: int | None = None,
-                     source_name: str | None = None, after_id: int | None = None,
-                     limit: int = 100) -> list[dict]:
-        """Search games with shared Unicode/literal/source/result semantics.
+                     game_date: str | None = None, date_from: str | None = None,
+                     date_to: str | None = None, result: str | None = None,
+                     source_id: int | None = None, source_name: str | None = None,
+                     after_id: int | None = None, limit: int = 100) -> list[dict]:
+        """Search games with shared Unicode/literal/date/source/result semantics.
+
+        ``game_date`` is exact loss-aware PGN Date text, so callers may explicitly
+        find partial values such as ``2024.??.??``. ``date_from``/``date_to`` are
+        calendar bounds and accept only real complete ``YYYY.MM.DD`` dates. Range
+        matching uses the deterministic indexed date key, so partial/unknown or
+        malformed stored tags are preserved but never fabricated into a range.
 
         Direct ACSDB search intentionally retains its existing bounded bulk cap
         of 1000 rows, while GameSearchService applies a smaller 200-row
@@ -703,6 +751,11 @@ class AcsDatabase:
         event = normalize_search_term(event, name="event")
         eco = normalize_search_term(eco, name="eco")
         opening = normalize_search_term(opening, name="opening")
+        game_date = normalize_search_term(game_date, name="game_date")
+        date_from = normalize_search_date_bound(date_from, name="date_from")
+        date_to = normalize_search_date_bound(date_to, name="date_to")
+        if date_from is not None and date_to is not None and date_from > date_to:
+            raise ValueError("date_from must not be later than date_to")
         source_name = normalize_search_term(source_name, name="source_name")
         install_search_fold(self.conn)
 
@@ -723,6 +776,15 @@ class AcsDatabase:
         if opening:
             clauses.append("sf.opening_fold LIKE ? ESCAPE '\\'")
             params.append(literal_like_pattern(opening))
+        if game_date:
+            clauses.append("g.game_date=?")
+            params.append(game_date)
+        if date_from is not None:
+            clauses.append(f"{SEARCH_DATE_KEY_SQL_FUNCTION}(g.game_date)>=?")
+            params.append(date_from)
+        if date_to is not None:
+            clauses.append(f"{SEARCH_DATE_KEY_SQL_FUNCTION}(g.game_date)<=?")
+            params.append(date_to)
         if result is not None:
             clauses.append("g.result=?")
             params.append(result)
