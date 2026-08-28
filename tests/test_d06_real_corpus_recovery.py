@@ -9,6 +9,7 @@ from acs.pgn_document import (
     PgnDocumentErrorCode,
     PgnDocumentSession,
 )
+from acs.pgn_workspace import PgnWorkspaceError
 
 
 # Synthetic minimal equivalent of the real Lichess broadcast failure found by
@@ -67,6 +68,54 @@ class D06RealCorpusRecoveryTests(unittest.TestCase):
             self.assertEqual(canonical.tags["Result"], "*")
             self.assertEqual(canonical.line.result, "*")
             self.assertEqual(canonical.line.moves, [])
+
+    def test_invalid_result_placeholder_does_not_hide_other_movetext(self) -> None:
+        damaged = '''[Event "Not placeholder only"]
+[Result "0-0"]
+
+1. e4 0-0
+'''
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "damaged.pgn"
+            source.write_text(damaged, encoding="utf-8")
+            with self.assertRaises(PgnWorkspaceError):
+                PgnDocumentSession.open(source)
+
+    def test_valid_header_result_does_not_reclassify_invalid_san(self) -> None:
+        damaged = '''[Event "Valid header"]
+[Result "*"]
+
+0-0
+'''
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "damaged.pgn"
+            source.write_text(damaged, encoding="utf-8")
+            with self.assertRaises(PgnWorkspaceError):
+                PgnDocumentSession.open(source)
+
+    def test_invalid_header_must_match_the_only_movetext_token(self) -> None:
+        damaged = '''[Event "Mismatch"]
+[Result "0-0"]
+
+1-1
+'''
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "damaged.pgn"
+            source.write_text(damaged, encoding="utf-8")
+            with self.assertRaises(PgnWorkspaceError):
+                PgnDocumentSession.open(source)
+
+    def test_comments_make_result_placeholder_recovery_ambiguous(self) -> None:
+        damaged = '''[Event "Commented"]
+[Result "0-0"]
+
+{source note} 0-0
+'''
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "damaged.pgn"
+            source.write_text(damaged, encoding="utf-8")
+            with self.assertRaises(PgnWorkspaceError):
+                PgnDocumentSession.open(source)
 
 
 if __name__ == "__main__":
