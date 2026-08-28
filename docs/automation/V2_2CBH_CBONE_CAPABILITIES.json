@@ -1,0 +1,75 @@
+{
+  "schema_version": 1,
+  "scope": "2cbh-cbone-topology-evidence-only",
+  "status_vocabulary": [
+    "SUPPORTED",
+    "PARTIAL",
+    "UNSUPPORTED",
+    "BLOCKED"
+  ],
+  "upstream_product": {
+    "repository": "Oleksii-debug/Accessible-Chess",
+    "parent_pr": 302,
+    "sha": "0454f9e19854da9c2261bba4b5d64e688fa3b909"
+  },
+  "formats": [
+    {
+      "id": "2cbh",
+      "extensions": [
+        ".2cbh"
+      ],
+      "status": "BLOCKED",
+      "topology_evidence": "multi_file_confirmed",
+      "complete_companion_map_qualified": false,
+      "real_fixture_found": false,
+      "independent_semantic_oracle_found": false,
+      "decoder_available": false,
+      "safe_to_import": false,
+      "integrity_policy": "BLOCKED until complete companion topology is evidence-qualified"
+    },
+    {
+      "id": "cbone",
+      "extensions": [
+        ".cbone"
+      ],
+      "status": "BLOCKED",
+      "topology_evidence": "single_file_confirmed",
+      "complete_companion_map_qualified": true,
+      "real_fixture_found": false,
+      "independent_semantic_oracle_found": false,
+      "decoder_available": false,
+      "safe_to_import": false,
+      "integrity_policy": "single-file source fingerprint is allowed; semantic import remains blocked"
+    }
+  ],
+  "evidence": {
+    "chessbase_18_new_2cbh": "https://help.chessbase.com/CBase/18/Eng/new_data_format_2cbh.htm",
+    "chessbase_17_database_formats": "https://help.chessbase.com/CBase/17/Eng/database_formats.htm",
+    "checked_utc": "2026-08-28T11:39:00Z",
+    "real_world_acceptance": "Topology documentation does not substitute for a legal real fixture plus independent semantic oracle.",
+    "real_2cbh_commercial_corpus": "https://www.chessmail.com/UC-2025/Download-UC2025-newformat.html",
+    "real_2cbh_corpus_observation": "UltraCorr2025 2CBH archive expands to seven files, but access is commercial/passworded and is not a lawful reusable CI fixture or independent semantic oracle."
+  },
+  "unlock_requires": {
+    "2cbh": [
+      "legal real 2CBH database family",
+      "evidence-qualified complete companion-file map",
+      "qualified read-only decoder/backend with exact identity and license boundary",
+      "independent expected PGN/GameTree semantic oracle",
+      "canonical legality validation through the existing chess core",
+      "real-source ACSDB/search/open/export/reopen comparison"
+    ],
+    "cbone": [
+      "legal real CBONE database",
+      "qualified read-only decoder/backend with exact identity and license boundary",
+      "independent expected PGN/GameTree semantic oracle",
+      "canonical legality validation through the existing chess core",
+      "real-source ACSDB/search/open/export/reopen comparison"
+    ]
+  },
+  "out_of_scope": {
+    "cbh_cbv": "Owned by PR #295 / V2-COORD plus independent audit; not duplicated here.",
+    "cbf_cbi": "Owned by parent PR #302; not requalified here.",
+    "cbz": "No support claim in this package."
+  }
+}
