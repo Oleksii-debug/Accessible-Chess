@@ -58,8 +58,8 @@ class _FailAfterV4(AcsDatabase):
 class V2LibraryAcsdbSearchV4Tests(unittest.TestCase):
     def test_schema_v4_projection_remains_explicit_in_current_schema(self) -> None:
         with AcsDatabase() as database:
-            self.assertEqual(ACSDB_SCHEMA_VERSION, 5)
-            self.assertEqual(database.schema_version, 5)
+            self.assertEqual(ACSDB_SCHEMA_VERSION, 6)
+            self.assertEqual(database.schema_version, ACSDB_SCHEMA_VERSION)
             columns = {
                 str(row[1])
                 for row in database.conn.execute("PRAGMA table_info(game_search_fold)").fetchall()
@@ -87,7 +87,7 @@ class V2LibraryAcsdbSearchV4Tests(unittest.TestCase):
                 _drop_v4(database)
 
             with AcsDatabase(path) as migrated:
-                self.assertEqual(migrated.schema_version, 5)
+                self.assertEqual(migrated.schema_version, ACSDB_SCHEMA_VERSION)
                 row = migrated.conn.execute(
                     "SELECT white_fold, black_fold, event_fold, eco_fold, opening_fold "
                     "FROM game_search_fold WHERE game_id=1"
@@ -97,11 +97,11 @@ class V2LibraryAcsdbSearchV4Tests(unittest.TestCase):
                 self.assertEqual(row[2], search_fold("Ｃａｆｅ\u0301 Cup"))
                 self.assertEqual(row[3], search_fold("C42"))
                 self.assertEqual(row[4], search_fold("Французький \\ Варіант"))
-                self.assertEqual(migrated.verify_integrity(), 5)
+                self.assertEqual(migrated.verify_integrity(), ACSDB_SCHEMA_VERSION)
 
             with AcsDatabase(path) as reopened:
                 self.assertEqual([row["id"] for row in reopened.search_games(player="STRASSE")], [1])
-                self.assertEqual(reopened.verify_integrity(), 5)
+                self.assertEqual(reopened.verify_integrity(), ACSDB_SCHEMA_VERSION)
         finally:
             if os.path.exists(path):
                 os.unlink(path)
@@ -133,7 +133,7 @@ class V2LibraryAcsdbSearchV4Tests(unittest.TestCase):
                 raw.close()
 
             with AcsDatabase(path) as recovered:
-                self.assertEqual(recovered.schema_version, 5)
+                self.assertEqual(recovered.schema_version, ACSDB_SCHEMA_VERSION)
                 self.assertEqual([row["id"] for row in recovered.search_games(player="strasse")], [1])
         finally:
             if os.path.exists(path):
@@ -191,7 +191,7 @@ class V2LibraryAcsdbSearchV4Tests(unittest.TestCase):
             with AcsDatabase(path) as reopened:
                 self.assertEqual(reopened.conn.execute("SELECT COUNT(*) FROM games").fetchone()[0], 0)
                 self.assertEqual(reopened.conn.execute("SELECT COUNT(*) FROM game_search_fold").fetchone()[0], 0)
-                self.assertEqual(reopened.verify_integrity(), 5)
+                self.assertEqual(reopened.verify_integrity(), ACSDB_SCHEMA_VERSION)
         finally:
             if os.path.exists(path):
                 os.unlink(path)
@@ -208,12 +208,8 @@ class V2LibraryAcsdbSearchV4Tests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "search projection integrity"):
                 database.verify_integrity()
 
-            database.conn.execute(
-                "UPDATE game_search_fold SET white_fold=? WHERE game_id=1",
-                (search_fold("Straße"),),
-            )
-            database.conn.commit()
-            self.assertEqual(database.verify_integrity(), 5)
+            database.rebuild_search_projection()
+            self.assertEqual(database.verify_integrity(), ACSDB_SCHEMA_VERSION)
 
             database.conn.execute("DELETE FROM game_search_fold WHERE game_id=1")
             database.conn.commit()
@@ -246,7 +242,7 @@ class V2LibraryAcsdbSearchV4Tests(unittest.TestCase):
                 database.conn.execute("DELETE FROM sources WHERE id=?", (source_id,))
             self.assertEqual(database.conn.execute("SELECT COUNT(*) FROM games").fetchone()[0], 0)
             self.assertEqual(database.conn.execute("SELECT COUNT(*) FROM game_search_fold").fetchone()[0], 0)
-            self.assertEqual(database.verify_integrity(), 5)
+            self.assertEqual(database.verify_integrity(), ACSDB_SCHEMA_VERSION)
 
     def test_search_preserves_nfkc_casefold_literal_filters_keyset_and_public_shape(self) -> None:
         with AcsDatabase() as database:

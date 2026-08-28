@@ -5,7 +5,7 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from acs.acsdb import AcsDatabase
+from acs.acsdb import ACSDB_SCHEMA_VERSION, AcsDatabase
 from acs.cbv_extractor import ExternalCbvExtractorConfig
 from acs.chessbase_decoder import ExternalChessBaseDecoderConfig
 from acs.chessbase_library_import import ChessBaseLibraryImportService
@@ -54,6 +54,7 @@ class V2LibraryDateRealCbvTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / "twic1134-date-search.acsdb"
             with AcsDatabase(path) as database:
+                self.assertEqual(database.schema_version, ACSDB_SCHEMA_VERSION)
                 report = ChessBaseLibraryImportService(
                     database,
                     decoder_config,
@@ -100,12 +101,13 @@ class V2LibraryDateRealCbvTests(unittest.TestCase):
                     )
                 )
                 self.assertGreater(len(service_page.items), 0)
-                self.assertEqual(database.verify_integrity(), 5)
+                self.assertEqual(database.verify_integrity(), ACSDB_SCHEMA_VERSION)
                 source_id = report.library_result.source_id
                 source_sha256 = database.get_source(source_id)["sha256"]
 
             with AcsDatabase(path) as reopened:
-                self.assertEqual(reopened.verify_integrity(), 5)
+                self.assertEqual(reopened.schema_version, ACSDB_SCHEMA_VERSION)
+                self.assertEqual(reopened.verify_integrity(), ACSDB_SCHEMA_VERSION)
                 self.assertEqual(
                     reopened.get_source(source_id)["sha256"],
                     source_sha256,
