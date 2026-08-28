@@ -31,7 +31,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  STACK_BASE: b18ac89bb7f1ef3d4106517fe3521179ab4522a1
+  STACK_BASE: 958ae19cd91a135fd3f384d02a880c0ed1adfd10
 
 jobs:
   correctness:
