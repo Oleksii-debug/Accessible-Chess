@@ -33,7 +33,12 @@ def _environment_ready() -> bool:
 
 
 def _normalized_comment(comment: Comment) -> tuple[str, str]:
-    return comment.style.value, _LANGUAGE_PREFIX.sub("", comment.text)
+    # The independent libcbh PGN exporter line-wraps long brace comments. CBH
+    # TextBefore/TextAfter records carry the same words without that wrapping.
+    # Collapse formatting whitespace only; word content and comment style remain
+    # exact semantic evidence. Language preservation is checked separately.
+    text = _LANGUAGE_PREFIX.sub("", comment.text)
+    return comment.style.value, " ".join(text.split())
 
 
 def _normalized_person(value: str | None) -> str | None:
@@ -51,9 +56,10 @@ def _line_content_signature(line: VariationLine):
 
     A CBH TextBefore annotation on the first move is represented by Accessible
     Chess as ``first_move.comments_before``. The independent PGN export writes
-    the same text before the first move number, which our PGN parser necessarily
-    models as ``line.leading_comments``. Treat those two placements as one
-    pre-first-move semantic slot, but do not normalize NAG values.
+    the same text before the first move number, which the generic PGN parser
+    models as ``line.leading_comments``. Treat those placements as one semantic
+    pre-first-move slot. NAG values are deliberately compared elsewhere without
+    normalization.
     """
 
     if not line.moves:
@@ -170,6 +176,18 @@ def _assert_core_tags(test: unittest.TestCase, actual: PgnGame, reference: PgnGa
     return normalized_name_differences
 
 
+def _stored_games(database: AcsDatabase, source_id: int) -> tuple[PgnGame, ...]:
+    page = GameSearchService(database).search(GameSearchQuery(source_id=source_id, limit=50))
+    ordered = sorted(page.items, key=lambda item: item.source_index)
+    games: list[PgnGame] = []
+    for item in ordered:
+        row = database.get_game(item.game_id)
+        if row is None:
+            raise AssertionError(f"missing stored game id {item.game_id}")
+        games.append(parse_games(row["pgn_text"])[0])
+    return tuple(games)
+
+
 @unittest.skipUnless(_environment_ready(), "pinned real libcbh semantic corpus is not configured")
 class RealCbhSemanticCorpusTests(unittest.TestCase):
     def test_annotation_family_matches_reference_nags_and_text_comments_end_to_end(self) -> None:
@@ -221,21 +239,13 @@ class RealCbhSemanticCorpusTests(unittest.TestCase):
                     GameSearchQuery(player="annotation", source_name="TestBase")
                 )
                 self.assertGreaterEqual(len(page.items), 1)
-                target = next((item for item in page.items if item.source_index == 3), None)
-                self.assertIsNotNone(target)
-                assert target is not None
-                row = database.get_game(target.game_id)
-                self.assertIsNotNone(row)
-                assert row is not None
-                stored_text_game = parse_games(row["pgn_text"])[0]
-                self.assertEqual(
-                    _line_content_signature(stored_text_game.line),
-                    _line_content_signature(reference[-1].line),
-                )
+                self.assertTrue(any(item.source_index == 3 for item in page.items))
 
-                stored_games = tuple(
-                    parse_games(database.get_game(game_id)["pgn_text"])[0]
-                    for game_id in report.library_result.game_ids
+                stored_games = _stored_games(database, report.library_result.source_id)
+                self.assertEqual(len(stored_games), 4)
+                self.assertEqual(
+                    _line_content_signature(stored_games[-1].line),
+                    _line_content_signature(reference[-1].line),
                 )
                 exported = root / "annotation-export.pgn"
                 save_pgn_atomic(exported, stored_games)
@@ -261,6 +271,7 @@ class RealCbhSemanticCorpusTests(unittest.TestCase):
             "decoded_language_markers": decoded_language_markers,
             "normalized_name_differences": normalized_name_differences,
             "nag_mismatches": all_nag_mismatches,
+            "comment_whitespace_policy": "collapse exporter line wrapping only",
             "text_and_move_semantics": "PASS",
             "library_search": "PASS",
             "export_reopen_internal_identity": "PASS",
@@ -301,7 +312,7 @@ class RealCbhSemanticCorpusTests(unittest.TestCase):
                 report = ChessBaseLibraryImportService(database, _decoder_config()).import_database(source)
                 self.assertEqual(report.decoded_game_count, 1)
                 self.assertEqual(report.imported_game_count, 1)
-                row = database.get_game(report.library_result.game_ids[0])
+                row = database.get_game(report.library_result.first_game_id)
                 self.assertIsNotNone(row)
                 assert row is not None
                 self.assertEqual(row["start_fen"], expected.tags["FEN"])
