@@ -36,9 +36,9 @@ SOURCE_UPDATED = "2026-08-02"
 MAX_COMPRESSED_PREFIX = 8 * 1024 * 1024
 MAX_JSON_LINES = 120_000
 MIN_PV_PLIES = 4
-# Filled after the first bounded discovery run.  Until then the source is still
-# bounded but not yet content-pinned; terminal evidence requires this value.
-EXPECTED_PREFIX_SHA256: str | None = None
+# Exact 8 MiB prefix discovered by run 33169545957 on both Ubuntu and Windows.
+# Terminal PGN-03 evidence fails closed if the live CC0 export prefix drifts.
+EXPECTED_PREFIX_SHA256 = "1ab774b1f4ce4558bac6c21f76eef14776b10ad56e07fe45fc02ec867f0ace87"
 
 
 def _download_prefix() -> tuple[bytes, dict[str, str | int | None]]:
