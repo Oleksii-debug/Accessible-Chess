@@ -29,7 +29,6 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 55
     env:
-      PACKAGE_BASE_SHA: 294ec622c9feb6d4cd28b3cd66bb817d0d146ec6
       PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
     steps:
       - uses: actions/checkout@v4
@@ -56,20 +55,41 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          upstream="$PACKAGE_BASE_SHA"
           if [ "${{ github.event_name }}" = "pull_request" ]; then
-            test "$PR_BASE_SHA" = "$PACKAGE_BASE_SHA"
             upstream="$PR_BASE_SHA"
+            mode="current-pr"
+          elif git rev-parse --verify HEAD^2 >/dev/null 2>&1; then
+            upstream="$(git rev-parse HEAD^2)"
+            mode="merge-sync-push"
+          else
+            upstream="$(git rev-parse HEAD^)"
+            mode="incremental-push"
           fi
+          test -n "$upstream"
           git merge-base --is-ancestor "$upstream" HEAD
           test "$(git merge-base "$upstream" HEAD)" = "$upstream"
           git diff --check "$upstream" HEAD
           changed="$(git diff --name-only "$upstream" HEAD | sort)"
-          expected="$(printf '%s\n' \
-            '.github/workflows/v2-book-library-game-lookup.yml' \
-            'acs/book_library_game_lookup.py' \
-            'tests/test_v2_book_library_game_lookup.py' | sort)"
-          test "$changed" = "$expected"
+          test -n "$changed"
+
+          while IFS= read -r path; do
+            case "$path" in
+              .github/workflows/v2-book-library-game-lookup.yml|acs/book_library_game_lookup.py|tests/test_v2_book_library_game_lookup.py)
+                ;;
+              *)
+                echo "Unexpected path outside Book Library lookup ownership: $path" >&2
+                exit 1
+                ;;
+            esac
+          done <<< "$changed"
+
+          if [ "$mode" = "current-pr" ] || [ "$mode" = "merge-sync-push" ]; then
+            expected="$(printf '%s\n' \
+              '.github/workflows/v2-book-library-game-lookup.yml' \
+              'acs/book_library_game_lookup.py' \
+              'tests/test_v2_book_library_game_lookup.py' | sort)"
+            test "$changed" = "$expected"
+          fi
 
           git diff --quiet "$upstream" HEAD -- \
             acs/acsdb.py \
