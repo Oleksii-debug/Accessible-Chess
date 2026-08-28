@@ -91,11 +91,15 @@ jobs:
           tests.test_dev4_pgn_export_failure_recovery
           tests.test_dev4_pgn_postcommit_cleanup_atomicity
 
-      - name: Verify bounded real Lichess SetUp/FEN and recursive RAV
+      - name: Verify pinned real Lichess SetUp/FEN and recursive RAV
         shell: bash
         run: |
           set -euo pipefail
           python -m scripts.pgn_real_eval_rav_oracle 2>&1 | tee pgn-real-eval-rav-report.txt
+          grep -F '"prefix_pinned": true' pgn-real-eval-rav-report.txt
+          grep -F '"prefix_sha256": "1ab774b1f4ce4558bac6c21f76eef14776b10ad56e07fe45fc02ec867f0ace87"' pgn-real-eval-rav-report.txt
+          grep -F '"candidate_line_number": 2' pgn-real-eval-rav-report.txt
+          grep -F '"nested_path_depth": 2' pgn-real-eval-rav-report.txt
           grep -F 'PGN REAL EVAL FEN NESTED RAV PASS' pgn-real-eval-rav-report.txt
 
       - name: Verify 4,000 pinned real records through strict and recovery contracts
