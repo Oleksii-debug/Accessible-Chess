@@ -294,6 +294,50 @@ class Version2UpgradeTests(unittest.TestCase):
             )
             self.assertFalse((root / ".v2-upgrade-state.json").exists())
 
+    def test_backup_and_preserved_bytes_remain_stable_across_migration(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "AccessibleChess"
+            root.mkdir()
+            (root / "settings.json").write_text(
+                json.dumps({"language": "en", "volume": 42}),
+                encoding="utf-8",
+            )
+            (root / "books").mkdir()
+            (root / "books" / "stable.bin").write_bytes(b"stable-user-bytes\x00\xff")
+            library = root / "library.acsdb"
+            _make_versioned_db(library, version=1)
+
+            coordinator = Version2UpgradeCoordinator(UserDataLayout(root))
+            coordinator._ensure_roots()
+            backup, manifest = coordinator._create_backup("byte-identity-probe")
+            entries = manifest["entries"]
+            self.assertIsInstance(entries, list)
+
+            backup_before = {}
+            preserved_before = {}
+            for item in entries:
+                relative = item["path"]
+                source = backup / "data" / Path(*relative.split("/"))
+                backup_before[relative] = source.read_bytes()
+                if relative not in {"settings.json", "library.acsdb"}:
+                    preserved_before[relative] = (root / Path(*relative.split("/"))).read_bytes()
+
+            self.assertTrue(coordinator._migrate_settings())
+            self.assertTrue(coordinator._migrate_library())
+
+            for relative, expected in backup_before.items():
+                with self.subTest(stage="backup", path=relative):
+                    self.assertEqual(
+                        (backup / "data" / Path(*relative.split("/"))).read_bytes(),
+                        expected,
+                    )
+            for relative, expected in preserved_before.items():
+                with self.subTest(stage="preserved", path=relative):
+                    self.assertEqual(
+                        (root / Path(*relative.split("/"))).read_bytes(),
+                        expected,
+                    )
+
     def test_os_lock_rejects_parallel_upgrade_and_stale_file_is_reusable(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td) / "AccessibleChess"
