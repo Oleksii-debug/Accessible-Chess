@@ -96,7 +96,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python scripts/book_library_real_reference_oracle.py
+          python -m scripts.book_library_real_reference_oracle
           test -s book-library-real-reference-summary.json
           grep -F '"status": "PASS"' book-library-real-reference-summary.json
           grep -F '"license": "CC0"' book-library-real-reference-summary.json
