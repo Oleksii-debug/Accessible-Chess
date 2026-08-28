@@ -10,8 +10,10 @@ on:
     paths:
       - 'acs/version2_windows_file_workflows.py'
       - 'acs/version2_windows_pgn_export.py'
+      - 'acs/version2_windows_import_event_mailbox.py'
       - 'tests/test_v2_windows_nvda_file_workflows.py'
       - 'tests/test_v2_windows_pgn_export.py'
+      - 'tests/test_v2_windows_import_event_mailbox.py'
       - '.github/workflows/v2-windows-nvda-ui.yml'
   workflow_dispatch:
 
@@ -71,7 +73,9 @@ jobs:
           expected="$(printf '%s\n' \
             '.github/workflows/v2-windows-nvda-ui.yml' \
             'acs/version2_windows_file_workflows.py' \
+            'acs/version2_windows_import_event_mailbox.py' \
             'acs/version2_windows_pgn_export.py' \
+            'tests/test_v2_windows_import_event_mailbox.py' \
             'tests/test_v2_windows_nvda_file_workflows.py' \
             'tests/test_v2_windows_pgn_export.py' | sort)"
           test "$changed" = "$expected"
@@ -101,14 +105,17 @@ jobs:
         run: >-
           python -m compileall -q
           acs/version2_windows_file_workflows.py
+          acs/version2_windows_import_event_mailbox.py
           acs/version2_windows_pgn_export.py
           tests/test_v2_windows_nvda_file_workflows.py
+          tests/test_v2_windows_import_event_mailbox.py
           tests/test_v2_windows_pgn_export.py
 
       - name: Focused Version 2 Windows file workflow journeys
         run: >-
           python -m unittest -v
           tests.test_v2_windows_nvda_file_workflows
+          tests.test_v2_windows_import_event_mailbox
           tests.test_v2_windows_pgn_export
           tests.test_pgn_document
           tests.test_dev1_pgn_workspace_webview_adapter
