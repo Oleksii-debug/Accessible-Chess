@@ -83,8 +83,8 @@ class V2LibraryDateFilterV5Tests(unittest.TestCase):
                 raw.close()
 
             with AcsDatabase(path) as migrated:
-                self.assertEqual(migrated.schema_version, 5)
-                self.assertEqual(ACSDB_SCHEMA_VERSION, 5)
+                self.assertEqual(migrated.schema_version, ACSDB_SCHEMA_VERSION)
+                self.assertEqual(ACSDB_SCHEMA_VERSION, 6)
                 after = migrated.conn.execute(
                     "SELECT id, game_date, pgn_text FROM games ORDER BY id"
                 ).fetchall()
@@ -95,7 +95,7 @@ class V2LibraryDateFilterV5Tests(unittest.TestCase):
                 }
                 self.assertIn("idx_games_game_date", index_names)
                 self.assertIn("idx_games_search_date_key", index_names)
-                self.assertEqual(migrated.verify_integrity(), 5)
+                self.assertEqual(migrated.verify_integrity(), ACSDB_SCHEMA_VERSION)
 
             with AcsDatabase(path) as reopened:
                 self.assertEqual(
@@ -142,7 +142,7 @@ class V2LibraryDateFilterV5Tests(unittest.TestCase):
                 raw.close()
 
             with AcsDatabase(path) as recovered:
-                self.assertEqual(recovered.schema_version, 5)
+                self.assertEqual(recovered.schema_version, ACSDB_SCHEMA_VERSION)
                 self.assertEqual(
                     [row["id"] for row in recovered.search_games(
                         date_from="2025.01.01", date_to="2025.01.01"
@@ -308,7 +308,7 @@ class V2LibraryDateFilterV5Tests(unittest.TestCase):
                 [row["event"] for row in database.search_games(game_date="2024.??.??")],
                 ["Partial"],
             )
-            self.assertEqual(database.verify_integrity(), 5)
+            self.assertEqual(database.verify_integrity(), ACSDB_SCHEMA_VERSION)
 
     def test_raw_and_expression_date_indexes_are_usable_by_sqlite_query_planner(self) -> None:
         with AcsDatabase() as database:
