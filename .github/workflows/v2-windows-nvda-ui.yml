@@ -111,7 +111,7 @@ jobs:
           tests.test_v2_windows_nvda_file_workflows
           tests.test_v2_windows_pgn_export
           tests.test_pgn_document
-          tests.test_pgn_workspace_webview_adapter
+          tests.test_dev1_pgn_workspace_webview_adapter
           tests.test_dev1_full_product_accessible_shell
           tests.test_dev1_full_product_ui_packages
           tests.test_dev1_full_product_webview_adapter
