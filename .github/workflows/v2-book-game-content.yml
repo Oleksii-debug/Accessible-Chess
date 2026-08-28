@@ -93,6 +93,7 @@ jobs:
 
           git diff --quiet "$upstream" HEAD -- \
             acs/gametree.py \
+            acs/pgn_roundtrip.py \
             acs/bookdocument.py \
             acs/bookreader.py \
             acs/book_index.py \
@@ -119,6 +120,7 @@ jobs:
           python -m unittest -v
           tests.test_v2_book_game_content
           tests.test_gametree
+          tests.test_d06_pgn_roundtrip
           tests.test_bookdocument
           tests.test_v2_book_progress_store
 

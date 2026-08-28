@@ -71,6 +71,20 @@ class BookCanonicalGameContentTests(unittest.TestCase):
         # Books-specific PGN representation was invented.
         self.assertIn("(1. d4 $1 {Queen pawn})", serialize_game(resolved.game))
 
+    def test_embedded_symbolic_nag_uses_canonical_d06_ingress_normalization(self) -> None:
+        resolved = resolve_book_game(
+            Game(
+                pgn='''[Event "Attached NAG"]\n[Result "*"]\n\n1. e4?! e5 *\n''',
+                block_id="attached-nag",
+            )
+        )
+
+        first = resolved.game.line.moves[0]
+        self.assertEqual(first.san, "e4")
+        self.assertIn("?!", first.nags)
+        self.assertNotIn("?!", first.san)
+        self.assertEqual(resolved.block_id, "attached-nag")
+
     def test_reference_only_block_requires_explicit_application_lookup(self) -> None:
         block = Game(game_id=17, title="Library game")
         with self.assertRaises(BookGameContentError) as caught:
