@@ -28,6 +28,7 @@ from .import_contract import (
     SourceFingerprint,
     fingerprint,
 )
+from .pgn_roundtrip import PgnRoundTripError, parse_pgn_text
 
 
 MAX_PGN_SOURCE_BYTES = 64 * 1024 * 1024
@@ -183,12 +184,33 @@ def _read_text_snapshot(path: Path) -> tuple[SourceFingerprint, str, bool]:
     return before, text, decode_replaced
 
 
+def _parse_file_games(text: str) -> tuple[PgnGame, ...]:
+    """Prefer canonical D06 recovery normalization without narrowing inspection.
+
+    The historical structural parser is intentionally permissive so damaged
+    sources can still be inspected and classified.  The canonical D06 parser
+    additionally normalizes supported symbolic annotations such as ``c4?!``
+    into SAN ``c4`` plus NAG ``?!`` before an editable workspace sees them.
+
+    Use that canonical recovery path whenever it accepts the source.  If the
+    stricter D06 recovery contract rejects a damaged construct, retain the
+    established structural-recovery behavior rather than converting inspection
+    into strict editing validation.  Filesystem, decoding and publication
+    semantics remain outside this helper.
+    """
+
+    try:
+        return parse_pgn_text(text, strict=False)
+    except PgnRoundTripError:
+        return tuple(parse_games(text))
+
+
 def open_pgn(path: str | Path) -> PgnOpenResult:
     """Open a PGN without mutating it and preserve recursive GameTree content."""
 
     source_path = Path(path)
     source, text, decode_replaced = _read_text_snapshot(source_path)
-    games = tuple(parse_games(text))
+    games = _parse_file_games(text)
     warnings: list[str] = []
     if decode_replaced:
         warnings.append(
