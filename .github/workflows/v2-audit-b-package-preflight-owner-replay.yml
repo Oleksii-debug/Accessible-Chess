@@ -83,9 +83,57 @@ jobs:
           )
           cleanup
           trap - EXIT
-      - name: Replay unchanged AB-V2-017 and AB-V2-018 oracle
+      - name: Replay unchanged AB-V2-017 authority oracle
         if: ${{ always() }}
-        run: python -m unittest -v tests.test_v2_package_preflight_audit
-      - name: Replay unchanged AB-V2-021 oracle
+        run: >-
+          python -m unittest -v
+          tests.test_v2_package_preflight_audit.V2PackagePreflightAuditTests.test_release_preflight_exposes_expected_authority_binding
+      - name: Replay unchanged AB-V2-018 hygiene oracle through mandatory authority adapter
         if: ${{ always() }}
-        run: python -m unittest -v tests.test_v2_package_manifest_scalar_types_audit
+        shell: bash
+        run: |
+          python - <<'PY'
+          import unittest
+          import tests.test_v2_package_preflight_audit as audit
+
+          original = audit.validate_version2_package_tree
+
+          def authority_bound_tree(root, **kwargs):
+              kwargs.setdefault("expected_integration_sha", audit._EXPECTED_AUTHORITY)
+              return original(root, **kwargs)
+
+          audit.validate_version2_package_tree = authority_bound_tree
+          suite = unittest.TestSuite([
+              audit.V2PackagePreflightAuditTests(
+                  "test_large_text_secret_is_not_skipped_by_hygiene_scan"
+              )
+          ])
+          result = unittest.TextTestRunner(verbosity=2).run(suite)
+          raise SystemExit(0 if result.wasSuccessful() else 1)
+          PY
+      - name: Replay unchanged AB-V2-021 scalar oracle through mandatory authority adapter
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          python - <<'PY'
+          import unittest
+          import tests.test_v2_package_manifest_scalar_types_audit as audit
+          from tests.test_version2_package_preflight import _SHA
+
+          original_tree = audit.validate_version2_package_tree
+          original_zip = audit.validate_version2_package_zip
+
+          def authority_bound_tree(root, **kwargs):
+              kwargs.setdefault("expected_integration_sha", _SHA)
+              return original_tree(root, **kwargs)
+
+          def authority_bound_zip(archive, **kwargs):
+              kwargs.setdefault("expected_integration_sha", _SHA)
+              return original_zip(archive, **kwargs)
+
+          audit.validate_version2_package_tree = authority_bound_tree
+          audit.validate_version2_package_zip = authority_bound_zip
+          suite = unittest.defaultTestLoader.loadTestsFromModule(audit)
+          result = unittest.TextTestRunner(verbosity=2).run(suite)
+          raise SystemExit(0 if result.wasSuccessful() else 1)
+          PY
