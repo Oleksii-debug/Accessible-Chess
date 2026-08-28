@@ -3,8 +3,9 @@ from __future__ import annotations
 """One-shot bounded real-corpus INVALID_SAN classifier.
 
 No game text is printed or committed. The probe reports only corpus identity,
-record ordinal/digest, canonical recovery warnings and the first short SAN token
-that the current D06 strict validator rejects.
+record ordinal/digest, structural recovery warnings and the first short SAN token
+that the exact D06 validator rejects. The lower structural parser is used only
+for diagnosis because D06 ``strict=False`` intentionally still validates SAN.
 """
 
 import hashlib
@@ -12,6 +13,7 @@ import json
 from pathlib import Path
 import tempfile
 
+from acs.gametree import parse_games
 from acs.pgn_roundtrip import PgnRoundTripError, PgnRoundTripErrorCode, _validate_san, parse_pgn_text
 from scripts.pgn_real_corpus_oracle import (
     CORPORA,
@@ -42,7 +44,7 @@ def main() -> int:
                 except PgnRoundTripError as exc:
                     if exc.code is not PgnRoundTripErrorCode.INVALID_SAN:
                         continue
-                    recovered = parse_pgn_text(raw, strict=False)
+                    recovered = parse_games(raw)
                     invalid: list[tuple[tuple[int, ...], str]] = []
                     for game in recovered:
                         for path, san in _walk_sans(game.line):
@@ -56,12 +58,12 @@ def main() -> int:
                     path, san = invalid[0]
                     first = recovered[0]
                     payload = {
-                        "schema": 1,
+                        "schema": 2,
                         "corpus": spec.name,
                         "ordinal": ordinal,
                         "record_sha256": hashlib.sha256(raw.encode("utf-8")).hexdigest(),
                         "record_chars": len(raw),
-                        "recovery_warnings": list(first.warnings)[:8],
+                        "structural_warnings": list(first.warnings)[:8],
                         "variant_tag": first.tags.get("Variant"),
                         "invalid_san": san[:64],
                         "invalid_san_sha256": hashlib.sha256(san.encode("utf-8")).hexdigest(),
