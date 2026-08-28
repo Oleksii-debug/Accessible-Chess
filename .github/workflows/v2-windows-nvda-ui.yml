@@ -12,10 +12,12 @@ on:
       - 'acs/version2_windows_pgn_export.py'
       - 'acs/version2_windows_import_event_mailbox.py'
       - 'acs/version2_windows_import_ui_pump.py'
+      - 'acs/version2_windows_native_dialog_ownership.py'
       - 'tests/test_v2_windows_nvda_file_workflows.py'
       - 'tests/test_v2_windows_pgn_export.py'
       - 'tests/test_v2_windows_import_event_mailbox.py'
       - 'tests/test_v2_windows_import_ui_pump.py'
+      - 'tests/test_v2_windows_native_dialog_ownership.py'
       - '.github/workflows/v2-windows-nvda-ui.yml'
   workflow_dispatch:
 
@@ -77,9 +79,11 @@ jobs:
             'acs/version2_windows_file_workflows.py' \
             'acs/version2_windows_import_event_mailbox.py' \
             'acs/version2_windows_import_ui_pump.py' \
+            'acs/version2_windows_native_dialog_ownership.py' \
             'acs/version2_windows_pgn_export.py' \
             'tests/test_v2_windows_import_event_mailbox.py' \
             'tests/test_v2_windows_import_ui_pump.py' \
+            'tests/test_v2_windows_native_dialog_ownership.py' \
             'tests/test_v2_windows_nvda_file_workflows.py' \
             'tests/test_v2_windows_pgn_export.py' | sort)"
           test "$changed" = "$expected"
@@ -111,10 +115,12 @@ jobs:
           acs/version2_windows_file_workflows.py
           acs/version2_windows_import_event_mailbox.py
           acs/version2_windows_import_ui_pump.py
+          acs/version2_windows_native_dialog_ownership.py
           acs/version2_windows_pgn_export.py
           tests/test_v2_windows_nvda_file_workflows.py
           tests/test_v2_windows_import_event_mailbox.py
           tests/test_v2_windows_import_ui_pump.py
+          tests/test_v2_windows_native_dialog_ownership.py
           tests/test_v2_windows_pgn_export.py
 
       - name: Focused Version 2 Windows file workflow journeys
@@ -123,6 +129,7 @@ jobs:
           tests.test_v2_windows_nvda_file_workflows
           tests.test_v2_windows_import_event_mailbox
           tests.test_v2_windows_import_ui_pump
+          tests.test_v2_windows_native_dialog_ownership
           tests.test_v2_windows_pgn_export
           tests.test_pgn_document
           tests.test_dev1_pgn_workspace_webview_adapter
@@ -132,7 +139,7 @@ jobs:
           tests.test_library_import_ui_integration
           tests.test_version2_formats_integration
 
-      - name: Windows WinForms file-dialog and UI-post type composition smoke
+      - name: Windows WinForms file-dialog owner and UI-post type composition smoke
         if: runner.os == 'Windows'
         shell: bash
         run: |
@@ -140,6 +147,10 @@ jobs:
           python - <<'PY'
           from acs.version2_windows_file_workflows import Version2WindowsFileDialogs
           from acs.version2_windows_import_ui_pump import Version2WinFormsUiPoster
+          from acs.version2_windows_native_dialog_ownership import (
+              Version2OwnedWindowsFileDialogs,
+              Version2OwnedWindowsPgnExportDialogs,
+          )
           from acs.version2_windows_pgn_export import Version2WindowsPgnExportDialogs
 
           DialogResult, OpenFileDialog, SaveFileDialog = Version2WindowsFileDialogs._load_forms()
@@ -149,6 +160,8 @@ jobs:
           saved = SaveFileDialog()
           exported = ExportSaveFileDialog()
           owner = Control()
+          owned_files = Version2OwnedWindowsFileDialogs(lambda: owner)
+          owned_export = Version2OwnedWindowsPgnExportDialogs(lambda: owner)
           try:
               opened.Multiselect = False
               opened.CheckFileExists = True
@@ -160,6 +173,8 @@ jobs:
               delegate = poster._system_action(lambda: None)
               assert callable(owner.BeginInvoke)
               assert delegate is not None
+              assert owned_files.dialog_owner.resolve() is owner
+              assert owned_export.dialog_owner.resolve() is owner
               assert opened.Multiselect is False
               assert opened.CheckFileExists is True
               assert saved.AddExtension is True
@@ -173,7 +188,7 @@ jobs:
               opened.Dispose()
               saved.Dispose()
               exported.Dispose()
-          print('WINDOWS WINFORMS FILE DIALOG + UI POST COMPOSITION PASS')
+          print('WINDOWS WINFORMS FILE DIALOG OWNER + UI POST COMPOSITION PASS')
           PY
 
       - name: Full repository unittest
