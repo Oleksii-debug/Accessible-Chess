@@ -1,0 +1,91 @@
+name: V2 CBZ 2CBZ Evidence
+
+on:
+  push:
+    branches:
+      - work/v2-cbz-2cbz-evidence-20260828
+  pull_request:
+    branches:
+      - work/v2-2cbh-cbone-topology-20260828
+    paths:
+      - acs/chessbase_adapter.py
+      - tests/test_chessbase_adapter.py
+      - tests/test_v2_cbz_2cbz_evidence.py
+      - docs/automation/V2_CBZ_2CBZ_EVIDENCE.json
+      - docs/automation/V2_CBZ_2CBZ_EVIDENCE.md
+      - .github/workflows/v2-cbz-2cbz-evidence.yml
+
+permissions:
+  contents: read
+
+env:
+  V2_CBZ_BASE: ${{ github.event.pull_request.base.sha || 'e3c13d07a338d79764e71e4bef096900aa860cac' }}
+
+jobs:
+  encrypted-archive-contract:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install pinned verification dependency
+        run: python -m pip install -q pytest==8.4.2
+      - name: Exact ancestry scope and compile checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor "$V2_CBZ_BASE" HEAD
+          git diff --check "$V2_CBZ_BASE" HEAD
+          unexpected="$(git diff --name-only "$V2_CBZ_BASE" HEAD | grep -Ev '^(acs/chessbase_adapter\.py|tests/test_chessbase_adapter\.py|tests/test_v2_cbz_2cbz_evidence\.py|docs/automation/V2_CBZ_2CBZ_EVIDENCE\.json|docs/automation/V2_CBZ_2CBZ_EVIDENCE\.md|\.github/workflows/v2-cbz-2cbz-evidence\.yml)$' || true)"
+          if [[ -n "$unexpected" ]]; then
+            printf 'Unexpected files outside CBZ/2CBZ evidence owner scope:\n%s\n' "$unexpected"
+            exit 1
+          fi
+          python -m compileall -q acs tests run_accessible_chess.py
+      - name: Focused CBZ 2CBZ no-overclaim gate
+        run: >-
+          python -m unittest -v
+          tests.test_chessbase_adapter
+          tests.test_chessbase_integrity
+          tests.test_v2_cbz_2cbz_evidence
+          tests.test_cbv_extractor
+          tests.test_v2_2cbh_cbone_topology
+          tests.test_v2_chessbase_capability_manifest
+      - name: Focused pytest parity
+        run: >-
+          python -m pytest -q
+          tests/test_chessbase_adapter.py
+          tests/test_chessbase_integrity.py
+          tests/test_v2_cbz_2cbz_evidence.py
+          tests/test_cbv_extractor.py
+          tests/test_v2_2cbh_cbone_topology.py
+          tests/test_v2_chessbase_capability_manifest.py
+
+  full-regression:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install test dependencies
+        run: python -m pip install -q pytest==8.4.2
+      - name: Exact ancestry and diff hygiene
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor "$V2_CBZ_BASE" HEAD
+          git diff --check "$V2_CBZ_BASE" HEAD
+      - name: Full unittest
+        run: python -m unittest discover -s tests -p 'test*.py'
+      - name: Full pytest
+        run: python -m pytest -q

@@ -1,0 +1,106 @@
+{
+  "schema_version": 1,
+  "as_of": "2026-08-28",
+  "scope": "cbz-2cbz-encrypted-archive-evidence-only",
+  "authority_note": "This artifact records encrypted-archive recognition, immutable-source integrity and evidence boundaries only. It does not change CBH/CBV capability authority, qualify password handling, or claim semantic import support.",
+  "upstream_product": {
+    "repository": "Oleksii-debug/Accessible-Chess",
+    "pr": 306,
+    "sha": "e3c13d07a338d79764e71e4bef096900aa860cac"
+  },
+  "status_vocabulary": [
+    "SUPPORTED",
+    "PARTIAL",
+    "UNSUPPORTED",
+    "BLOCKED"
+  ],
+  "formats": [
+    {
+      "id": "cbz",
+      "extensions": [".cbz"],
+      "status": "BLOCKED",
+      "source_topology": "single password-protected encrypted archive container",
+      "official_format_documented": true,
+      "official_sources": [
+        "https://help.chessbase.com/CBase/16/Eng/archive_database.htm",
+        "https://help.chessbase.com/CBase/16/Eng/files_names_and_extensions.htm",
+        "https://help.chessbase.com/CBase/18/Eng/password.htm"
+      ],
+      "password_required": true,
+      "immutable_source_integrity_qualified": true,
+      "decrypt_qualified": false,
+      "semantic_import_qualified": false
+    },
+    {
+      "id": "2cbz",
+      "extensions": [".2cbz"],
+      "status": "BLOCKED",
+      "source_topology": "single password-protected encrypted archive container with 2CBH-family payload observed in a real commercial corpus",
+      "official_general_specification_found": false,
+      "real_world_source": "UltraCorr2025 commercial distribution evidence",
+      "real_world_source_url": "https://www.chessmail.com/ultracorr/UltraCorr2025.htm",
+      "password_required": true,
+      "immutable_source_integrity_qualified": true,
+      "decrypt_qualified": false,
+      "payload_contract_qualified": false,
+      "semantic_import_qualified": false
+    }
+  ],
+  "backend_evidence": {
+    "id": "uncbv",
+    "repository": "antoyo/uncbv",
+    "commit": "3c18e8a7c6a30c21f945a1ab5462521c306dca57",
+    "license": "GPL-3.0",
+    "bundled_by_default": false,
+    "cbz_fixture_git_blobs": {
+      "tests/small.cbz": "08bc5d6e53eecedc35e37d24cf29bbe0a5953839",
+      "tests/small2.cbz": "fe9a6360bb2341083328114cb966bf644ccc8061",
+      "tests/small3.cbz": "a7ac16b2a7b1cf2bcf9a970e44058aed1f16b2fa"
+    },
+    "mechanics_observed": [
+      "CBZ extension is treated as encrypted archive input",
+      "decrypt command produces a CBV archive",
+      "extract command can decrypt then extract CBZ",
+      "upstream tests pipe passwords to the process through stdin"
+    ],
+    "password_transport": "interactive stdin",
+    "product_cbv_extractor_blob": "0ff079754a963186daad47597e16d7fa3de32782",
+    "product_password_transport_qualified": false,
+    "product_cbz_invocation_qualified": false,
+    "semantic_support": false
+  },
+  "current_product_blockers": [
+    "extract_cbv_external accepts .cbv only and rejects .cbz/.2cbz before backend execution",
+    "_run_uncbv uses stdin=subprocess.DEVNULL while pinned upstream CBZ password handling requires interactive stdin",
+    "no qualified Product contract exists for password lifetime, redaction, cancellation and secret non-persistence",
+    "no qualified decrypted-CBV temporary-file lifecycle exists for encrypted archive import",
+    "2CBZ general payload/decrypt contract is not independently specified or qualified",
+    "no legal reusable real encrypted corpus plus independent semantic oracle proves source-to-GameTree-to-Library-to-export-to-reopen equivalence"
+  ],
+  "real_world_acceptance": {
+    "real_world_corpus_found": true,
+    "cbz_official_documentation_found": true,
+    "two_cbz_real_commercial_distribution_observed": true,
+    "legally_reusable_acceptance_fixture_found": false,
+    "independent_semantic_oracle_found": false,
+    "redistributed_commercial_material": false,
+    "support_promotion_allowed": false
+  },
+  "unlock_requires": [
+    "explicit secure password input boundary with no logging or persistence",
+    "bounded subprocess stdin/stdout/stderr and cancellation semantics",
+    "bounded decrypted temporary CBV lifecycle with guaranteed cleanup on success/failure/cancel",
+    "exact backend identity/license/build provenance and mutation detection",
+    "legal real CBZ and, separately, 2CBZ acceptance corpus",
+    "independent expected games/metadata/comments/variations oracle",
+    "canonical legality validation through the existing chess core",
+    "SOURCE -> DECRYPT/EXTRACT -> CANONICAL VALIDATION -> GAMETREE -> LIBRARY -> SEARCH -> OPEN -> EXPORT -> REOPEN -> INTEGRITY equivalence",
+    "explicit loss accounting and damaged/wrong-password/resource-limit tests"
+  ],
+  "out_of_scope": {
+    "cbh_cbv_capability_status": "Owned by PR #295 / V2 integration and independent audit; not changed here.",
+    "two_cbh_cbone_topology": "Owned by parent PR #306; not reimplemented here.",
+    "password_ui_or_storage": "Not implemented in this evidence package.",
+    "decrypt_or_semantic_decoder": "Not implemented in this evidence package."
+  }
+}
