@@ -15,21 +15,16 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.sha }}
-      - name: Record exact identity
+      - name: Archive complete committed tree
         shell: bash
         run: |
           set -euo pipefail
           git rev-parse HEAD
           git hash-object acs/version2_upgrade.py
+          git archive --format=zip --output=/tmp/v2-current-tree-complete.zip HEAD
       - uses: actions/upload-artifact@v4
         with:
-          name: v2-current-tree
-          path: |
-            .github
-            acs
-            tests
-            web
-            run_accessible_chess.py
-          include-hidden-files: true
+          name: v2-current-tree-complete
+          path: /tmp/v2-current-tree-complete.zip
           if-no-files-found: error
           retention-days: 1
