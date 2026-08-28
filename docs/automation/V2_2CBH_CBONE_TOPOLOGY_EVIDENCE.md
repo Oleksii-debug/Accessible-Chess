@@ -4,11 +4,11 @@ Status: `2CBH=BLOCKED`, `CBONE=BLOCKED` for semantic import.
 
 This package corrects source topology only. It does not add a decoder and it does not treat extension recognition, a synthetic fixture, or a source fingerprint as proof that games can be decoded correctly.
 
-## Authoritative product parent
+## Authoritative product lineage
 
 - Repository: `Oleksii-debug/Accessible-Chess`
-- Parent PR: `#302`
-- Parent SHA: `0454f9e19854da9c2261bba4b5d64e688fa3b909`
+- Origin parent: merged PR `#302` at `0454f9e19854da9c2261bba4b5d64e688fa3b909`.
+- Current integration synchronization point: PR `#295` at `958ae19cd91a135fd3f384d02a880c0ed1adfd10`.
 - Architecture remains: external ChessBase source -> bounded adapter/backend -> canonical validated GameTree + metadata + provenance -> ACSDB/PGN.
 
 ## External evidence checked
