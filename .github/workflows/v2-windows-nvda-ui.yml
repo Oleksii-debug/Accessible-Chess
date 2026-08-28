@@ -9,7 +9,9 @@ on:
       - work/version2-integration-formats-20260827
     paths:
       - 'acs/version2_windows_file_workflows.py'
+      - 'acs/version2_windows_pgn_export.py'
       - 'tests/test_v2_windows_nvda_file_workflows.py'
+      - 'tests/test_v2_windows_pgn_export.py'
       - '.github/workflows/v2-windows-nvda-ui.yml'
   workflow_dispatch:
 
@@ -21,7 +23,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  V2_UI_BASE: b18ac89bb7f1ef3d4106517fe3521179ab4522a1
+  V2_UI_BASE: 958ae19cd91a135fd3f384d02a880c0ed1adfd10
 
 jobs:
   file-workflow-accessibility:
@@ -63,12 +65,15 @@ jobs:
         run: |
           set -euo pipefail
           git merge-base --is-ancestor "$V2_UI_BASE" HEAD
+          test "$(git merge-base "$V2_UI_BASE" HEAD)" = "$V2_UI_BASE"
           git diff --check "$V2_UI_BASE" HEAD
           changed="$(git diff --name-only "$V2_UI_BASE" HEAD | sort)"
           expected="$(printf '%s\n' \
             '.github/workflows/v2-windows-nvda-ui.yml' \
             'acs/version2_windows_file_workflows.py' \
-            'tests/test_v2_windows_nvda_file_workflows.py' | sort)"
+            'acs/version2_windows_pgn_export.py' \
+            'tests/test_v2_windows_nvda_file_workflows.py' \
+            'tests/test_v2_windows_pgn_export.py' | sort)"
           test "$changed" = "$expected"
           git diff --quiet "$V2_UI_BASE" HEAD -- \
             acs/chesscore.py \
@@ -76,6 +81,7 @@ jobs:
             acs/pgn_document.py \
             acs/pgn_service.py \
             acs/pgn_workspace.py \
+            acs/pgn_workspace_webview_adapter.py \
             acs/full_product_actions.py \
             acs/acsdb.py \
             acs/library_import_service.py \
@@ -95,13 +101,17 @@ jobs:
         run: >-
           python -m compileall -q
           acs/version2_windows_file_workflows.py
+          acs/version2_windows_pgn_export.py
           tests/test_v2_windows_nvda_file_workflows.py
+          tests/test_v2_windows_pgn_export.py
 
       - name: Focused Version 2 Windows file workflow journeys
         run: >-
           python -m unittest -v
           tests.test_v2_windows_nvda_file_workflows
+          tests.test_v2_windows_pgn_export
           tests.test_pgn_document
+          tests.test_pgn_workspace_webview_adapter
           tests.test_dev1_full_product_accessible_shell
           tests.test_dev1_full_product_ui_packages
           tests.test_dev1_full_product_webview_adapter
@@ -115,22 +125,31 @@ jobs:
           set -euo pipefail
           python - <<'PY'
           from acs.version2_windows_file_workflows import Version2WindowsFileDialogs
+          from acs.version2_windows_pgn_export import Version2WindowsPgnExportDialogs
           DialogResult, OpenFileDialog, SaveFileDialog = Version2WindowsFileDialogs._load_forms()
+          export_result, _, ExportSaveFileDialog = Version2WindowsPgnExportDialogs._load_forms()
           opened = OpenFileDialog()
           saved = SaveFileDialog()
+          exported = ExportSaveFileDialog()
           try:
               opened.Multiselect = False
               opened.CheckFileExists = True
               saved.AddExtension = True
               saved.OverwritePrompt = True
+              exported.AddExtension = True
+              exported.OverwritePrompt = True
               assert opened.Multiselect is False
               assert opened.CheckFileExists is True
               assert saved.AddExtension is True
               assert saved.OverwritePrompt is True
+              assert exported.AddExtension is True
+              assert exported.OverwritePrompt is True
               assert DialogResult.OK is not None
+              assert export_result.OK is not None
           finally:
               opened.Dispose()
               saved.Dispose()
+              exported.Dispose()
           print('WINDOWS WINFORMS FILE DIALOG COMPOSITION PASS')
           PY
 
