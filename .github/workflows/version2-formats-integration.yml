@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - work/version2-integration-formats-20260827
+      - integration/v2-library-v4-intake-20260828
   pull_request:
     paths:
       - '.github/workflows/d01-full-product-native-menu.yml'
@@ -11,7 +12,9 @@ on:
       - '.github/workflows/d08-owner-fixture-integration.yml'
       - '.github/workflows/v2-book-progress-store.yml'
       - '.github/workflows/v2-cbf-cbi-evidence.yml'
+      - '.github/workflows/v2-library-acsdb-search-v4.yml'
       - '.github/workflows/whole-product-integration-preview.yml'
+      - 'acs/acsdb.py'
       - 'acs/book_progress_store.py'
       - 'acs/chessbase_adapter.py'
       - 'acs/chessbase_decoder.py'
@@ -23,12 +26,17 @@ on:
       - 'acs/library_webview_bridge.py'
       - 'acs/library_webview_projection.py'
       - 'acs/pgn_document.py'
+      - 'acs/search_policy.py'
+      - 'acs/search_service.py'
       - 'docs/automation/V2_CBF_CBI_EVIDENCE.md'
       - 'docs/automation/V2_CHESSBASE_CAPABILITIES.json'
       - 'tests/test_chessbase_adapter.py'
       - 'tests/test_d06_real_corpus_recovery.py'
+      - 'tests/test_d07_library_import_service.py'
       - 'tests/test_v2_chessbase_capability_manifest.py'
       - 'tests/test_v2_book_progress_store.py'
+      - 'tests/test_v2_library_acsdb_search_v4.py'
+      - 'tests/test_v2_library_search_service_v4.py'
       - 'tests/test_version2_formats_integration.py'
       - 'tests/test_chessbase_decoder.py'
       - 'tests/test_chessbase_libcbh_external_fixture.py'
@@ -38,6 +46,7 @@ on:
       - 'tests/test_library_import_ui_integration.py'
       - 'tests/test_library_workspace_ui_integration.py'
       - 'tests/js/library_surface_dom_test.js'
+      - 'tools/v2_library_acsdb_search_v4_benchmark.py'
       - 'tools/optional/libcbh_json_bridge.cpp'
       - 'tools/optional/UNCBV_BACKEND.md'
       - 'docs/automation/DEV4_CHESSBASE_CAPABILITY_MATRIX.md'
@@ -54,6 +63,7 @@ concurrency:
 env:
   V2_BASE: 6567f3d35ffefaa85ae7e8b87d9fcc0d188e7cac
   LIBRARY_SOURCE: 60dc2afc846b49e91c50f1682464833a1004789f
+  LIBRARY_V4_SOURCE: c26099870bbdc70a60cfb9aaf6bde59f447e490c
   CHESSBASE_SOURCE: 5e2c390e0cd66cca166b80fec88c7402784ade47
   LIBCBH_COMMIT: 9641c5c3949d8fb210b17dd9aa54455645843696
   UNCBV_COMMIT: 3c18e8a7c6a30c21f945a1ab5462521c306dca57
@@ -105,6 +115,7 @@ jobs:
           set -euo pipefail
           git merge-base --is-ancestor "$V2_BASE" HEAD
           git cat-file -e "$LIBRARY_SOURCE^{commit}"
+          git cat-file -e "$LIBRARY_V4_SOURCE^{commit}"
           git cat-file -e "$CHESSBASE_SOURCE^{commit}"
           git diff --check "$V2_BASE" HEAD
           changed="$(git diff --name-only "$V2_BASE" HEAD | sort)"
@@ -114,8 +125,10 @@ jobs:
             '.github/workflows/d08-owner-fixture-integration.yml' \
             '.github/workflows/v2-book-progress-store.yml' \
             '.github/workflows/v2-cbf-cbi-evidence.yml' \
+            '.github/workflows/v2-library-acsdb-search-v4.yml' \
             '.github/workflows/version2-formats-integration.yml' \
             '.github/workflows/whole-product-integration-preview.yml' \
+            'acs/acsdb.py' \
             'acs/book_progress_store.py' \
             'acs/cbv_extractor.py' \
             'acs/chessbase_adapter.py' \
@@ -128,6 +141,8 @@ jobs:
             'acs/library_webview_bridge.py' \
             'acs/library_webview_projection.py' \
             'acs/pgn_document.py' \
+            'acs/search_policy.py' \
+            'acs/search_service.py' \
             'docs/automation/DEV4_CHESSBASE_CAPABILITY_MATRIX.md' \
             'docs/automation/V2_CBF_CBI_EVIDENCE.md' \
             'docs/automation/V2_CHESSBASE_CAPABILITIES.json' \
@@ -138,6 +153,7 @@ jobs:
             'tests/test_chessbase_decoder.py' \
             'tests/test_chessbase_libcbh_external_fixture.py' \
             'tests/test_d06_real_corpus_recovery.py' \
+            'tests/test_d07_library_import_service.py' \
             'tests/test_dev1_full_product_accessible_shell.py' \
             'tests/test_dev1_full_product_ui_packages.py' \
             'tests/test_dev1_library_webview_projection.py' \
@@ -147,7 +163,10 @@ jobs:
             'tests/test_import_contract.py' \
             'tests/test_v2_book_progress_store.py' \
             'tests/test_v2_chessbase_capability_manifest.py' \
+            'tests/test_v2_library_acsdb_search_v4.py' \
+            'tests/test_v2_library_search_service_v4.py' \
             'tests/test_version2_formats_integration.py' \
+            'tools/v2_library_acsdb_search_v4_benchmark.py' \
             'tools/optional/UNCBV_BACKEND.md' \
             'tools/optional/LIBCBH_BACKEND.md' \
             'tools/optional/libcbh_json_bridge.cpp' \
@@ -158,7 +177,7 @@ jobs:
             exit 1
           fi
           git diff --quiet "$V2_BASE" HEAD -- \
-            acs/chesscore.py acs/gametree.py acs/acsdb.py \
+            acs/chesscore.py acs/gametree.py \
             acs/pgn_service.py acs/pgn_workspace.py \
             acs/bookdocument.py acs/bookreader.py acs/book_training.py \
             acs/stage1_release_ui.py acs/stage1_release_ui_core.py \
@@ -200,10 +219,18 @@ jobs:
           .github/workflows/d06-real-corpus-recovery.yml=0afef77aac8894b0077895e73bb65f7b251520a5
           acs/pgn_document.py=ae0b7d3815c4d277b68ef3c170c95255cf5c6442
           tests/test_d06_real_corpus_recovery.py=8bf849bc3246bc70fff59637c169c9873d9520dd
+          .github/workflows/v2-library-acsdb-search-v4.yml=8314872e3d4d5f008ce77e4b630c6b05db1c042d
+          acs/acsdb.py=9ef04dc8618ba727a226750a5ec00a15cca1b474
+          acs/search_policy.py=34b1a28999c8ad6ebc05466a4f02b1fb2c348633
+          acs/search_service.py=3c7536175db5b06c8d01c4f5c3f271abbb40d21a
+          tests/test_d07_library_import_service.py=e2fbd8600f2631f65108f336f3d8333199951bf0
+          tests/test_v2_library_acsdb_search_v4.py=eceac1491db10d94cf39cfff82e10e14e3646010
+          tests/test_v2_library_search_service_v4.py=04ee7f5b9eaf2f408eb703c897b72c7b77abc8de
+          tools/v2_library_acsdb_search_v4_benchmark.py=eb3890d2b4f59cd57c0b8c2aa8e552e8eecdbcde
           LOCKS
 
       - name: Compile Version 2 formats package
-        run: python -m compileall -q acs tests run_accessible_chess.py
+        run: python -m compileall -q acs tests tools run_accessible_chess.py
 
       - name: Execute accessible Library PGN and Books DOM contracts
         run: |
@@ -223,6 +250,8 @@ jobs:
           tests.test_chessbase_decoder
           tests.test_library_import_ui_integration
           tests.test_library_workspace_ui_integration
+          tests.test_v2_library_acsdb_search_v4
+          tests.test_v2_library_search_service_v4
           tests.test_d06_real_corpus_recovery
           tests.test_pgn_document
           tests.test_pgn_workspace
@@ -234,6 +263,7 @@ jobs:
       - name: Format security migration and cancellation matrix
         run: >-
           python -m unittest -v
+          tests.test_acsdb
           tests.test_chessbase_adapter
           tests.test_chessbase_integrity
           tests.test_v2_chessbase_capability_manifest
