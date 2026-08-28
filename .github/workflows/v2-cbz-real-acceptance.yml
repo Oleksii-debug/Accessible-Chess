@@ -1,0 +1,132 @@
+name: V2 CBZ Real Semantic Acceptance
+
+on:
+  push:
+    branches:
+      - work/v2-cbz-real-semantic-acceptance-20260828
+  pull_request:
+    branches:
+      - work/v2-cbz-secure-execution-20260828
+    paths:
+      - tests/test_v2_cbz_real_acceptance.py
+      - docs/automation/V2_CBZ_REAL_ACCEPTANCE.json
+      - docs/automation/V2_CBZ_REAL_ACCEPTANCE.md
+      - .github/workflows/v2-cbz-real-acceptance.yml
+
+permissions:
+  contents: read
+
+env:
+  V2_CBZ_REAL_BASE: ${{ github.event.pull_request.base.sha || '7f0c15bcc20dde101c79e41d074e1613dafee996' }}
+  UNCBV_COMMIT: 3c18e8a7c6a30c21f945a1ab5462521c306dca57
+  UNCBV_FIXTURE_BLOB: 08bc5d6e53eecedc35e37d24cf29bbe0a5953839
+
+jobs:
+  qualification-contract:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install pinned verification dependency
+        run: python -m pip install -q pytest==8.4.2
+      - name: Exact ancestry scope and compile checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor "$V2_CBZ_REAL_BASE" HEAD
+          git diff --check "$V2_CBZ_REAL_BASE" HEAD
+          unexpected="$(git diff --name-only "$V2_CBZ_REAL_BASE" HEAD | grep -Ev '^(tests/test_v2_cbz_real_acceptance\.py|docs/automation/V2_CBZ_REAL_ACCEPTANCE\.json|docs/automation/V2_CBZ_REAL_ACCEPTANCE\.md|\.github/workflows/v2-cbz-real-acceptance\.yml)$' || true)"
+          if [[ -n "$unexpected" ]]; then
+            printf 'Unexpected files outside real-CBZ acceptance owner scope:\n%s\n' "$unexpected"
+            exit 1
+          fi
+          python -m compileall -q acs tests run_accessible_chess.py
+      - name: Real-CBZ no-overclaim and inherited secure contracts
+        run: >-
+          python -m unittest -v
+          tests.test_v2_cbz_real_acceptance
+          tests.test_cbz_extractor
+          tests.test_v2_cbz_2cbz_evidence
+          tests.test_chessbase_adapter
+          tests.test_chessbase_integrity
+      - name: Focused pytest parity
+        run: >-
+          python -m pytest -q
+          tests/test_v2_cbz_real_acceptance.py
+          tests/test_cbz_extractor.py
+          tests/test_v2_cbz_2cbz_evidence.py
+          tests/test_chessbase_adapter.py
+          tests/test_chessbase_integrity.py
+
+  pinned-source-provenance:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout Accessible Chess
+        uses: actions/checkout@v4
+        with:
+          path: product
+          fetch-depth: 0
+      - name: Checkout exact decoder upstream
+        uses: actions/checkout@v4
+        with:
+          repository: antoyo/uncbv
+          ref: ${{ env.UNCBV_COMMIT }}
+          path: upstream/uncbv
+          fetch-depth: 1
+      - name: Verify exact self-fixture provenance and oracle limitation
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C upstream/uncbv rev-parse HEAD)" = "$UNCBV_COMMIT"
+          test "$(git -C upstream/uncbv hash-object tests/small.cbz)" = "$UNCBV_FIXTURE_BLOB"
+          test -f upstream/uncbv/LICENSE
+          test -f upstream/uncbv/tests/decrypted_small.cbv
+          test -f upstream/uncbv/tests/small/small.cbh
+          if find upstream/uncbv -type f -iname '*.pgn' -print -quit | grep -q .; then
+            echo "Unexpected PGN appeared in pinned decoder upstream; requalify oracle independence."
+            exit 1
+          fi
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          payload = json.loads(Path("product/docs/automation/V2_CBZ_REAL_ACCEPTANCE.json").read_text(encoding="utf-8"))
+          candidates = {item["id"]: item for item in payload["candidates"]}
+          fixture = candidates["antoyo-uncbv-small-cbz"]
+          assert fixture["commit"] == "3c18e8a7c6a30c21f945a1ab5462521c306dca57"
+          assert fixture["fixture_blob"] == "08bc5d6e53eecedc35e37d24cf29bbe0a5953839"
+          assert fixture["lawful_reusable_bytes"] is True
+          assert fixture["real_world_not_synthetic_or_self_fixture"] is False
+          assert fixture["independent_semantic_oracle"] is False
+          assert fixture["eligible"] is False
+          assert payload["verdict"]["support_promotion_allowed"] is False
+          PY
+
+  full-regression:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install test dependencies
+        run: python -m pip install -q pytest==8.4.2
+      - name: Exact ancestry and diff hygiene
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor "$V2_CBZ_REAL_BASE" HEAD
+          git diff --check "$V2_CBZ_REAL_BASE" HEAD
+      - name: Full unittest
+        run: python -m unittest discover -s tests -p 'test*.py'
+      - name: Full pytest
+        run: python -m pytest -q
