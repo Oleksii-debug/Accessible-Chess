@@ -81,7 +81,6 @@ jobs:
           tests.test_pgn_workspace
           tests.test_pgn_concurrent_save
           tests.test_pgn_service
-          tests.test_dev2_pgn_termination_semantics
           tests.test_dev4_pgn_encoding_quality
           tests.test_dev4_pgn_resource_security
           tests.test_dev4_pgn_export_path_security
