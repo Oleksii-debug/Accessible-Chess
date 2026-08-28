@@ -139,9 +139,19 @@ def _download_verified(spec: CorpusSpec, destination: Path) -> int:
 
 def _open_zstd_text(compressed: Path):
     source = compressed.open("rb")
-    reader = zstandard.ZstdDecompressor().stream_reader(source)
+    reader = zstandard.ZstdDecompressor().stream_reader(source, closefd=False)
     text = io.TextIOWrapper(reader, encoding="utf-8", errors="strict", newline="")
     return source, reader, text
+
+
+def _close_zstd_text(source, reader, text) -> None:
+    try:
+        text.close()
+    finally:
+        try:
+            reader.close()
+        finally:
+            source.close()
 
 
 def _make_subset(compressed: Path, subset: Path) -> int:
@@ -149,9 +159,7 @@ def _make_subset(compressed: Path, subset: Path) -> int:
     try:
         return _write_complete_game_subset(text, subset, SUBSET_GAMES)
     finally:
-        text.close()
-        reader.close()
-        source.close()
+        _close_zstd_text(source, reader, text)
 
 
 def _raw_record_has_unicode_search_metadata(record: str) -> bool:
@@ -182,9 +190,7 @@ def _find_real_unicode_game(compressed: Path, candidate_path: Path) -> tuple[obj
                 continue
             return opened, ordinal, scanned
     finally:
-        text.close()
-        reader.close()
-        source.close()
+        _close_zstd_text(source, reader, text)
     raise AssertionError(
         f"no strict real Unicode searchable-metadata game found in first {scanned} "
         f"records of {UNICODE_CORPUS.name}"
