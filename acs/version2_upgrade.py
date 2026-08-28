@@ -401,7 +401,10 @@ def _sqlite_backup(source: Path, destination: Path) -> tuple[int, str, int]:
                 if lock.in_transaction:
                     lock.rollback()
                 lock.close()
-        with temp.open("rb") as handle:
+        # Windows CRT rejects fsync() on a read-only descriptor. Open the
+        # completed SQLite snapshot read/write so the durability flush works on
+        # Windows as well as POSIX before the atomic replace.
+        with temp.open("r+b") as handle:
             os.fsync(handle.fileno())
         os.replace(temp, destination)
         _fsync_dir(destination.parent)
