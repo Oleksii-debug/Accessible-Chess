@@ -1,0 +1,91 @@
+name: V2 Audit-B Package Preflight Owner Repair Replay
+
+on:
+  push:
+    branches:
+      - audit/v2-package-preflight-owner-repair-replay-20260828
+  pull_request:
+    paths:
+      - 'tests/test_v2_package_preflight_audit.py'
+      - 'tests/test_v2_package_manifest_scalar_types_audit.py'
+      - '.github/workflows/v2-audit-b-package-preflight-owner-replay.yml'
+      - 'acs/version2_package_preflight.py'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: v2-audit-b-package-preflight-owner-replay-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  audit-replay:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install pinned verification dependency
+        run: python -m pip install -q pytest==8.4.2
+      - name: Prove exact owner head, evidence-only scope, and unchanged prior oracles
+        shell: bash
+        env:
+          OWNER_HEAD: 09f943e1e9b97b9d3cdafb62f4aef1bac9c0508a
+          PREFLIGHT_BLOB: 89fe01e0f1c641fa58416fdf15917972dfd26893
+          AUTHORITY_AUDIT_HEAD: e14d739f0f19dd5b66ec6429293818f773748f70
+          SCALAR_AUDIT_HEAD: da632ef32f076df745052bc6f5bef7364906e339
+        run: |
+          set -euo pipefail
+          test "$(git merge-base "$OWNER_HEAD" HEAD)" = "$OWNER_HEAD"
+          git diff --check "$OWNER_HEAD" HEAD
+          changed="$(git diff --name-only "$OWNER_HEAD" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/v2-audit-b-package-preflight-owner-replay.yml' \
+            'tests/test_v2_package_manifest_scalar_types_audit.py' \
+            'tests/test_v2_package_preflight_audit.py' | sort)"
+          test "$changed" = "$expected"
+          test "$(git rev-parse HEAD:acs/version2_package_preflight.py)" = "$PREFLIGHT_BLOB"
+          test "$(git rev-parse HEAD:tests/test_v2_package_preflight_audit.py)" = "$(git rev-parse "$AUTHORITY_AUDIT_HEAD:tests/test_v2_package_preflight_audit.py")"
+          test "$(git rev-parse HEAD:tests/test_v2_package_manifest_scalar_types_audit.py)" = "$(git rev-parse "$SCALAR_AUDIT_HEAD:tests/test_v2_package_manifest_scalar_types_audit.py")"
+      - name: Compile replay surface
+        run: >-
+          python -m compileall -q
+          tests/test_v2_package_preflight_audit.py
+          tests/test_v2_package_manifest_scalar_types_audit.py
+      - name: Existing owner package-preflight regressions remain green
+        run: python -m unittest -v tests.test_version2_package_preflight
+      - name: Broad exact-owner Product regressions remain green
+        shell: bash
+        env:
+          OWNER_HEAD: 09f943e1e9b97b9d3cdafb62f4aef1bac9c0508a
+        run: |
+          set -euo pipefail
+          product_tree="../v2-package-preflight-owner-${GITHUB_RUN_ID}-${RUNNER_OS}"
+          rm -rf "$product_tree"
+          git worktree add --detach "$product_tree" "$OWNER_HEAD"
+          cleanup() {
+            git worktree remove --force "$product_tree" >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+          (
+            cd "$product_tree"
+            python -m unittest discover -s tests
+            python -m pytest -q tests
+          )
+          cleanup
+          trap - EXIT
+      - name: Replay unchanged AB-V2-017 and AB-V2-018 oracle
+        if: ${{ always() }}
+        run: python -m unittest -v tests.test_v2_package_preflight_audit
+      - name: Replay unchanged AB-V2-021 oracle
+        if: ${{ always() }}
+        run: python -m unittest -v tests.test_v2_package_manifest_scalar_types_audit
