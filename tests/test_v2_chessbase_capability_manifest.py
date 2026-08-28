@@ -17,36 +17,34 @@ from acs.chessbase_integrity import (
 ROOT = Path(__file__).parents[1]
 MANIFEST = ROOT / "docs" / "automation" / "V2_CHESSBASE_CAPABILITIES.json"
 EVIDENCE = ROOT / "docs" / "automation" / "V2_CBF_CBI_EVIDENCE.md"
-MATRIX = ROOT / "docs" / "automation" / "DEV4_CHESSBASE_CAPABILITY_MATRIX.md"
 
 ALLOWED = {"SUPPORTED", "PARTIAL", "UNSUPPORTED", "BLOCKED"}
 UPSTREAM_SHA = "b18ac89bb7f1ef3d4106517fe3521179ab4522a1"
 SCIDB_COMMIT = "7c1c9d89f2fabab0c1252cdd14c515fb9bfc1415"
 
 
-class Version2ChessBaseCapabilityManifestTests(unittest.TestCase):
+class Version2CbfCbiCapabilityEvidenceTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.payload = json.loads(MANIFEST.read_text(encoding="utf-8"))
 
-    def test_status_vocabulary_is_exact_and_every_format_uses_it(self) -> None:
+    def test_status_vocabulary_is_exact(self) -> None:
         self.assertEqual(set(self.payload["status_vocabulary"]), ALLOWED)
-        formats = self.payload["formats"]
-        self.assertTrue(formats)
-        self.assertTrue(all(item["status"] in ALLOWED for item in formats))
+        self.assertEqual(
+            self.payload["scope"],
+            "legacy-cbf-cbi-evidence-only",
+        )
 
-    def test_cbh_and_cbv_are_supported_only_with_explicit_external_requirements(self) -> None:
-        by_id = {item["id"]: item for item in self.payload["formats"]}
-        self.assertEqual(by_id["cbh"]["status"], "SUPPORTED")
-        self.assertIn("requires", by_id["cbh"]["availability"])
-        self.assertIn("libcbh", by_id["cbh"]["availability"])
-        self.assertEqual(by_id["cbv"]["status"], "SUPPORTED")
-        self.assertIn("uncbv", by_id["cbv"]["availability"])
-        self.assertIn("libcbh", by_id["cbv"]["availability"])
+    def test_manifest_is_not_a_competing_cbh_or_cbv_capability_authority(self) -> None:
+        formats = self.payload["formats"]
+        self.assertEqual([item["id"] for item in formats], ["legacy-cbf-cbi"])
+        rendered = json.dumps(self.payload, sort_keys=True).lower()
+        self.assertNotIn('"id": "cbh"', rendered)
+        self.assertNotIn('"id": "cbv"', rendered)
+        self.assertIn("pr #295", self.payload["out_of_scope"]["cbh_cbv_capability_status"])
 
     def test_cbf_cbi_remains_blocked_despite_pinned_decoder_research(self) -> None:
-        by_id = {item["id"]: item for item in self.payload["formats"]}
-        legacy = by_id["legacy-cbf-cbi"]
+        legacy = self.payload["formats"][0]
         self.assertEqual(legacy["status"], "BLOCKED")
         self.assertEqual(set(legacy["extensions"]), {".cbf", ".cbi"})
 
@@ -58,30 +56,27 @@ class Version2ChessBaseCapabilityManifestTests(unittest.TestCase):
         self.assertEqual(evidence["support_status"], "BLOCKED")
         self.assertGreaterEqual(len(evidence["unlock_requires"]), 5)
 
-        candidate = next(
-            item
-            for item in self.payload["backends"]
-            if item["id"] == "scidb-cbf-research-candidate"
-        )
+        candidate = self.payload["backends"][0]
+        self.assertEqual(candidate["id"], "scidb-cbf-research-candidate")
         self.assertEqual(candidate["commit"], SCIDB_COMMIT)
         self.assertEqual(candidate["role"], "research_candidate_only")
         self.assertFalse(candidate["build_qualified"])
         self.assertFalse(candidate["semantic_support"])
         self.assertFalse(candidate["bundled_by_default"])
 
-    def test_exact_upstream_product_and_existing_backend_pins_are_preserved(self) -> None:
+    def test_exact_upstream_product_and_research_source_pins_are_preserved(self) -> None:
         self.assertEqual(self.payload["upstream_product"]["sha"], UPSTREAM_SHA)
-        backends = {item["id"]: item for item in self.payload["backends"]}
+        candidate = self.payload["backends"][0]
+        self.assertEqual(candidate["repository"], "foolnotion/scidb")
+        self.assertEqual(candidate["commit"], SCIDB_COMMIT)
         self.assertEqual(
-            backends["libcbh"]["commit"],
-            "9641c5c3949d8fb210b17dd9aa54455645843696",
+            candidate["source_blobs"]["src/db/cbf/cbf_codec.cpp"],
+            "c9608dc93e704070c5ec7f8294d09e6c52374b53",
         )
         self.assertEqual(
-            backends["uncbv"]["commit"],
-            "3c18e8a7c6a30c21f945a1ab5462521c306dca57",
+            candidate["source_blobs"]["src/db/cbf/cbf_decoder.cpp"],
+            "27172abed77db4961d7158337240d00d57474084",
         )
-        self.assertFalse(backends["libcbh"]["bundled_by_default"])
-        self.assertFalse(backends["uncbv"]["bundled_by_default"])
 
     def test_cbi_is_component_only_in_runtime_probe(self) -> None:
         probe = probe_chessbase_source("legacy.cbi")
@@ -91,16 +86,14 @@ class Version2ChessBaseCapabilityManifestTests(unittest.TestCase):
         self.assertFalse(probe.decoder_available)
         self.assertFalse(probe.safe_to_import)
 
-    def test_evidence_docs_do_not_promote_cbf_or_claim_lossless_support(self) -> None:
+    def test_evidence_doc_does_not_promote_cbf_or_claim_lossless_support(self) -> None:
         evidence = EVIDENCE.read_text(encoding="utf-8")
-        matrix = MATRIX.read_text(encoding="utf-8")
-        combined = evidence + "\n" + matrix
         self.assertIn("Status: `BLOCKED`", evidence)
-        self.assertIn(SCIDB_COMMIT, combined)
+        self.assertIn(SCIDB_COMMIT, evidence)
         self.assertIn("real_fixture_found=false", evidence)
         self.assertIn("independent_semantic_oracle_found=false", evidence)
-        self.assertNotIn("CBF/CBI | SUPPORTED", combined)
-        self.assertNotIn("lossless cbf", combined.casefold())
+        self.assertNotIn("CBF/CBI = SUPPORTED", evidence)
+        self.assertNotIn("lossless cbf", evidence.casefold())
 
 
 class Version2CbfCbiIntegrityTests(unittest.TestCase):

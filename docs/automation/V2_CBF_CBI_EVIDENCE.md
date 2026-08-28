@@ -2,10 +2,24 @@
 
 Status: `BLOCKED`.
 
-This document records research evidence only. It does not enable semantic CBF
-import and does not change the canonical adapter boundary:
+This document records CBF/CBI research evidence only. It does not enable
+semantic CBF import and does not change the canonical adapter boundary:
 
 `ChessBase source -> bounded adapter/backend -> validated GameTree + metadata + provenance -> ACSDB / PGN`.
+
+## Capability authority boundary
+
+This CBF/CBI lane does not own or duplicate CBH/CBV capability classification.
+The machine-readable `V2_CHESSBASE_CAPABILITIES.json` is deliberately scoped to
+`legacy-cbf-cbi-evidence-only`; CBH/CBV status remains with PR #295 / V2-COORD
+and independent format audit. This prevents a second capability source of truth.
+
+A live independent audit on 2026-08-28 found the current PR #295 CBV
+`SUPPORTED` claim exceeds its real semantic-oracle evidence: the 6117-game real
+TWIC path proves extraction/count/provenance but not independent decoded-game
+semantic equivalence plus real-source Library/open/export/reopen round-trip.
+That correction is routed to the #295 owner. This lane does not patch or
+reinterpret the owner matrix.
 
 ## Confirmed source-family topology
 
