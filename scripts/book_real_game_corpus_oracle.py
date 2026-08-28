@@ -5,9 +5,9 @@ from __future__ import annotations
 This module is QA/evidence only.  It does not implement PGN semantics, chess
 rules, book import, Library storage, or UI behavior.  Transport records are
 segmented only at top-level Lichess Event-tag boundaries.  PGN meaning is always
-resolved by the existing canonical ``acs.gametree`` parser, while the assertion
-surface under test is PR #303's ``BookDocument.Game`` / ``VariationTree``
-application boundary.
+resolved by the existing bounded D06 ``parse_pgn_text(strict=False)`` boundary,
+while the assertion surface under test is PR #303's ``BookDocument.Game`` /
+``VariationTree`` application boundary.
 """
 
 import argparse
@@ -22,7 +22,8 @@ from urllib.request import Request, urlopen
 
 from acs.book_game_content import BookGameSource, resolve_book_game, resolve_book_variation
 from acs.bookdocument import Game, VariationTree
-from acs.gametree import GameTreeContractError, PgnGame, parse_games, serialize_game
+from acs.gametree import PgnGame, serialize_game
+from acs.pgn_roundtrip import PgnRoundTripError, parse_pgn_text
 
 
 START_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
@@ -192,8 +193,8 @@ def run_oracle(*, scan_limit: int, accepted_target: int) -> dict[str, object]:
                 iter_transport_records(text, limit=scan_limit), start=1
             ):
                 try:
-                    direct_games = parse_games(raw)
-                except (GameTreeContractError, RecursionError):
+                    direct_games = parse_pgn_text(raw, strict=False)
+                except (PgnRoundTripError, RecursionError):
                     parser_rejected += 1
                     continue
                 if len(direct_games) != 1:
@@ -217,9 +218,9 @@ def run_oracle(*, scan_limit: int, accepted_target: int) -> dict[str, object]:
                 if resolved.block_id != block.block_id or resolved.source_anchor != block.source_anchor:
                     raise AssertionError("Book semantic identity changed at the GameTree boundary")
                 if resolved.warnings:
-                    raise AssertionError("warning-free direct game gained warnings through Books")
+                    raise AssertionError("warning-free canonical D06 game gained warnings through Books")
                 if serialize_game(resolved.game) != direct_serialized:
-                    raise AssertionError("Book Game boundary changed canonical GameTree serialization")
+                    raise AssertionError("Book Game boundary changed canonical D06 GameTree serialization")
 
                 comments, nags, rav, depth = _line_metrics(resolved.game.line)
                 accepted += 1
@@ -257,7 +258,7 @@ def run_oracle(*, scan_limit: int, accepted_target: int) -> dict[str, object]:
                         raise AssertionError("Book VariationTree root changed")
                     if serialize_game(variation.game) != direct_serialized:
                         raise AssertionError(
-                            "Book VariationTree boundary changed canonical GameTree serialization"
+                            "Book VariationTree boundary changed canonical D06 GameTree serialization"
                         )
                     variation_record_hash = record_hash
 
@@ -307,6 +308,7 @@ def run_oracle(*, scan_limit: int, accepted_target: int) -> dict[str, object]:
         "source_sha256": CORPUS.sha256,
         "source_license": CORPUS.license,
         "source_published_games": CORPUS.published_games,
+        "canonical_ingress": "acs.pgn_roundtrip.parse_pgn_text(strict=False)",
         "scan_limit": scan_limit,
         "accepted_book_games": accepted,
         "parser_rejected_records": parser_rejected,
