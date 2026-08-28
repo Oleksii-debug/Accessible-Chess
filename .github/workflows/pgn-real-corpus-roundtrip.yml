@@ -4,7 +4,7 @@ on:
   pull_request:
     paths:
       - 'scripts/pgn_real_corpus_oracle.py'
-      - 'scripts/pgn_real_invalid_san_probe.py'
+      - 'scripts/pgn_real_corpus_session_oracle.py'
       - '.github/workflows/pgn-real-corpus-roundtrip.yml'
 
 permissions:
@@ -15,7 +15,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  PGN_BASE: 6567f3d35ffefaa85ae7e8b87d9fcc0d188e7cac
+  PGN_BASE: d706eb93b9a4df3c6e99ab1af584a9cfe6b6f5ea
 
 jobs:
   real-corpus:
@@ -47,7 +47,7 @@ jobs:
       - name: Install pinned QA dependencies
         run: python -m pip install -q pytest==8.4.2 zstandard==0.23.0
 
-      - name: Prove terminal D06 base and evidence-only scope
+      - name: Prove repaired D06 base and evidence-only scope
         shell: bash
         run: |
           set -euo pipefail
@@ -58,20 +58,22 @@ jobs:
           expected="$(printf '%s\n' \
             '.github/workflows/pgn-real-corpus-roundtrip.yml' \
             'scripts/pgn_real_corpus_oracle.py' \
-            'scripts/pgn_real_invalid_san_probe.py' | sort)"
+            'scripts/pgn_real_corpus_session_oracle.py' | sort)"
           test "$changed" = "$expected"
           git diff --quiet "$PGN_BASE" HEAD -- acs tests web run_accessible_chess.py
           test "$(git rev-parse HEAD:acs/pgn_roundtrip.py)" = "96d62bf6dd7b2f5c8a75d5f2bd1fde2ad0823d20"
-          echo 'PGN-03 EVIDENCE-ONLY SCOPE PASS'
+          test "$(git rev-parse HEAD:acs/pgn_document.py)" = "ae0b7d3815c4d277b68ef3c170c95255cf5c6442"
+          echo 'PGN-03 REPAIRED-BASE EVIDENCE-ONLY SCOPE PASS'
 
       - name: Compile and self-test corpus tools
         run: |
-          python -m py_compile scripts/pgn_real_corpus_oracle.py scripts/pgn_real_invalid_san_probe.py
-          python -m scripts.pgn_real_corpus_oracle --selftest
+          python -m py_compile scripts/pgn_real_corpus_oracle.py scripts/pgn_real_corpus_session_oracle.py
+          python -m scripts.pgn_real_corpus_session_oracle --selftest
 
       - name: Focused canonical PGN and GameTree regressions
         run: >-
           python -m unittest -v
+          tests.test_d06_real_corpus_recovery
           tests.test_gametree
           tests.test_d06_pgn_roundtrip
           tests.test_d06_gametree_persistence_vertical
@@ -87,30 +89,22 @@ jobs:
           tests.test_dev4_pgn_export_failure_recovery
           tests.test_dev4_pgn_postcommit_cleanup_atomicity
 
-      - name: Isolate first real invalid-SAN token
+      - name: Verify 4,000 pinned real records through strict and recovery contracts
         shell: bash
         run: |
           set -euo pipefail
-          python -m scripts.pgn_real_invalid_san_probe 2>&1 | tee pgn-real-invalid-san.txt
-
-      - name: Verify 4,000 pinned real records, strict round-trip and recovery boundaries
-        shell: bash
-        run: |
-          set -euo pipefail
-          python -m scripts.pgn_real_corpus_oracle --games-per-corpus 2000 --batch-size 250 2>&1 | tee pgn-real-corpus-report.txt
+          python -m scripts.pgn_real_corpus_session_oracle --games-per-corpus 2000 --batch-size 250 2>&1 | tee pgn-real-corpus-report.txt
           grep -F '"sampled_records_total": 4000' pgn-real-corpus-report.txt
           grep -F '"recovery_records_total":' pgn-real-corpus-report.txt
           grep -F '"strict_roundtrip_games_total":' pgn-real-corpus-report.txt
-          grep -F 'PGN REAL CORPUS ROUND-TRIP PASS' pgn-real-corpus-report.txt
+          grep -F 'PGN REAL CORPUS SESSION ROUND-TRIP PASS' pgn-real-corpus-report.txt
 
       - name: Upload corpus evidence report
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: pgn-real-corpus-${{ matrix.os }}
-          path: |
-            pgn-real-invalid-san.txt
-            pgn-real-corpus-report.txt
+          path: pgn-real-corpus-report.txt
           if-no-files-found: ignore
           retention-days: 14
 
