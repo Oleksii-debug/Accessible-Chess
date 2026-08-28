@@ -1,0 +1,65 @@
+{
+  "schema_version": 1,
+  "scope": "cbf-cbi-real-corpus-unblock-qualification",
+  "role": "V2-CHESSBASE-FORMATS",
+  "parent_pr": 302,
+  "parent_sha": "0454f9e19854da9c2261bba4b5d64e688fa3b909",
+  "format_status": "BLOCKED",
+  "support_promotion_allowed": false,
+  "candidate_corpus": {
+    "name": "1995 Dortmund Pitt Chess Archives paired distribution",
+    "chessbase_archive_name": "95DORTCB.ZIP",
+    "pgn_archive_name": "95DORTPG.ZIP",
+    "same_event_distribution_record": true,
+    "public_distribution_history": true,
+    "current_index_reference_found": true,
+    "actual_archive_bytes_inspected": false,
+    "specific_archive_contains_cbf_cbi_confirmed": false,
+    "independent_pgn_counterpart_advertised": true,
+    "explicit_modern_redistribution_license_found": false,
+    "ci_reuse_rights_proven": false,
+    "semantic_equivalence_executed": false,
+    "notes": "Historical archive policy preferred contributions not copyrighted by others, but that is not treated as an explicit modern redistribution license. Current reachable indexes point to FTP; this runtime has not inspected either ZIP."
+  },
+  "decoder_chain": {
+    "scidb": {
+      "repository": "foolnotion/scidb",
+      "commit": "7c1c9d89f2fabab0c1252cdd14c515fb9bfc1415",
+      "license_boundary": "GPL external backend; default Accessible Chess package must not bundle it",
+      "cbh2si4_source_blob": "1830d059b987e3b9d4b97803d92f33936a69ace1",
+      "cbf_codec_source_blob": "c9608dc93e704070c5ec7f8294d09e6c52374b53",
+      "cli_source_accepts_cbf": true,
+      "source_database_open_mode": "ReadOnly",
+      "output_format": "SI4",
+      "runtime_build_qualified": false
+    },
+    "scid_pgn_export": {
+      "repository": "lpt/scid",
+      "commit": "5837653efa3975c64cff232006d9f981b36ac56b",
+      "license": "GPL-2.0",
+      "scidpgn_blob": "84273490e8ee6b47bc78ca26a274ab559845e7b5",
+      "source_opens_database_readonly": true,
+      "source_exports_tags_comments_variations": true,
+      "runtime_build_qualified": false
+    },
+    "proposed_external_sequence": [
+      "CBF+CBI immutable source family",
+      "Scidb cbh2si4 read-only conversion",
+      "SI4 temporary database",
+      "Scid tcscid/scidpgn read-only PGN export",
+      "Accessible Chess canonical PGN parser/GameTree validation"
+    ],
+    "accessible_chess_custom_cbf_parser_added": false
+  },
+  "promotion_requirements": {
+    "real_cbf_cbi_bytes": false,
+    "lawful_ci_reuse": false,
+    "independent_pgn_or_gametree_oracle": false,
+    "exact_scidb_runtime_build": false,
+    "exact_scid_pgn_runtime_build": false,
+    "decoded_vs_oracle_semantic_equality": false,
+    "canonical_legality_validation": false,
+    "library_search_open_export_reopen_integrity": false
+  },
+  "current_verdict": "BLOCKED: source-level read-only conversion chain is identified, but corpus bytes/rights and executable end-to-end semantic proof are not yet complete."
+}
