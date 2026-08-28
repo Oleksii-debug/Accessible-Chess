@@ -62,7 +62,7 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          python tests/v2_real_lichess_acsdb_v4_probe.py 2>&1 | tee real-lichess-acsdb-v4.log
+          python -m tests.v2_real_lichess_acsdb_v4_probe 2>&1 | tee real-lichess-acsdb-v4.log
 
       - name: Focused ACSDB v4 Library Search regressions
         if: always()
