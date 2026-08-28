@@ -14,7 +14,7 @@ from acs.chessbase_adapter import (
 
 class ChessBaseAdapterContractTests(unittest.TestCase):
     def test_known_primary_family_suffixes_are_recognized_but_not_claimed_supported(self):
-        for suffix in (".cbh", ".cbv", ".cbf", ".2cbh", ".cbone"):
+        for suffix in (".cbh", ".cbv", ".cbz", ".cbf", ".2cbh", ".2cbz", ".cbone"):
             with self.subTest(suffix=suffix):
                 probe = probe_chessbase_source("sample" + suffix)
                 self.assertTrue(probe.recognized)
@@ -186,7 +186,7 @@ class ChessBaseAdapterContractTests(unittest.TestCase):
         self.assertEqual(extensions, tuple(sorted(extensions)))
         self.assertEqual(
             set(primaries),
-            {".2cbh", ".cbf", ".cbh", ".cbone", ".cbv"},
+            {".2cbh", ".2cbz", ".cbf", ".cbh", ".cbone", ".cbv", ".cbz"},
         )
         self.assertEqual(
             set(components),
