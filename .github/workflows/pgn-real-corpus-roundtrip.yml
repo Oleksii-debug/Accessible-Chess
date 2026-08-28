@@ -5,6 +5,7 @@ on:
     paths:
       - 'scripts/pgn_real_corpus_oracle.py'
       - 'scripts/pgn_real_corpus_session_oracle.py'
+      - 'scripts/pgn_real_eval_rav_oracle.py'
       - '.github/workflows/pgn-real-corpus-roundtrip.yml'
 
 permissions:
@@ -58,7 +59,8 @@ jobs:
           expected="$(printf '%s\n' \
             '.github/workflows/pgn-real-corpus-roundtrip.yml' \
             'scripts/pgn_real_corpus_oracle.py' \
-            'scripts/pgn_real_corpus_session_oracle.py' | sort)"
+            'scripts/pgn_real_corpus_session_oracle.py' \
+            'scripts/pgn_real_eval_rav_oracle.py' | sort)"
           test "$changed" = "$expected"
           git diff --quiet "$PGN_BASE" HEAD -- acs tests web run_accessible_chess.py
           test "$(git rev-parse HEAD:acs/pgn_roundtrip.py)" = "96d62bf6dd7b2f5c8a75d5f2bd1fde2ad0823d20"
@@ -67,7 +69,7 @@ jobs:
 
       - name: Compile and self-test corpus tools
         run: |
-          python -m py_compile scripts/pgn_real_corpus_oracle.py scripts/pgn_real_corpus_session_oracle.py
+          python -m py_compile scripts/pgn_real_corpus_oracle.py scripts/pgn_real_corpus_session_oracle.py scripts/pgn_real_eval_rav_oracle.py
           python -m scripts.pgn_real_corpus_session_oracle --selftest
 
       - name: Focused canonical PGN and GameTree regressions
@@ -89,6 +91,13 @@ jobs:
           tests.test_dev4_pgn_export_failure_recovery
           tests.test_dev4_pgn_postcommit_cleanup_atomicity
 
+      - name: Verify bounded real Lichess SetUp/FEN and recursive RAV
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m scripts.pgn_real_eval_rav_oracle 2>&1 | tee pgn-real-eval-rav-report.txt
+          grep -F 'PGN REAL EVAL FEN NESTED RAV PASS' pgn-real-eval-rav-report.txt
+
       - name: Verify 4,000 pinned real records through strict and recovery contracts
         shell: bash
         run: |
@@ -104,7 +113,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: pgn-real-corpus-${{ matrix.os }}
-          path: pgn-real-corpus-report.txt
+          path: |
+            pgn-real-eval-rav-report.txt
+            pgn-real-corpus-report.txt
           if-no-files-found: ignore
           retention-days: 14
 
