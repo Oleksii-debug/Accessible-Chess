@@ -1,0 +1,65 @@
+name: V2 Library Integrity Audit Oracle
+
+on:
+  push:
+    branches:
+      - audit/v2-library-integrity-oracle-20260828
+  pull_request:
+    paths:
+      - 'tests/test_v2_library_integrity_audit.py'
+      - '.github/workflows/v2-library-integrity-audit.yml'
+      - 'acs/acsdb.py'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: v2-library-integrity-audit-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  audit-oracle:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Prove evidence-only scope and exact staging ancestry
+        shell: bash
+        env:
+          STAGING_HEAD: 26a8b8288a913345668d841a4b5ea793b4162dd9
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor "$STAGING_HEAD" HEAD
+          test "$(git merge-base "$STAGING_HEAD" HEAD)" = "$STAGING_HEAD"
+          git diff --check "$STAGING_HEAD" HEAD
+          changed="$(git diff --name-only "$STAGING_HEAD" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/v2-library-integrity-audit.yml' \
+            'tests/test_v2_library_integrity_audit.py' | sort)"
+          test "$changed" = "$expected"
+          git diff --quiet "$STAGING_HEAD" HEAD -- acs/acsdb.py acs/search_service.py acs/search_policy.py acs/gametree.py
+
+      - name: Compile audit oracle
+        run: python -m compileall -q tests/test_v2_library_integrity_audit.py
+
+      - name: Existing ACSDB v4 focused regressions remain green
+        run: >-
+          python -m unittest -v
+          tests.test_v2_library_acsdb_search_v4
+          tests.test_acsdb
+          tests.test_d07_acsdb_migration_atomicity
+
+      - name: Independent Library integrity oracle
+        run: python -m unittest -v tests.test_v2_library_integrity_audit
