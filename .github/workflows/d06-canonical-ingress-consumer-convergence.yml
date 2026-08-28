@@ -1,0 +1,126 @@
+name: D06 Canonical PGN Ingress Consumer Convergence
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/d06_pgn_ingress_consumer_oracle.py'
+      - '.github/workflows/d06-canonical-ingress-consumer-convergence.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: d06-ingress-consumer-convergence-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  D06_CONVERGENCE_BASE: 575ec0088982d2f90adb47c040a5714d68186b0e
+
+jobs:
+  convergence:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Preserve exact Git bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config core.autocrlf false
+          git config core.eol lf
+          git reset --hard HEAD
+          git checkout-index --force --all
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install pinned verification dependency
+        run: python -m pip install -q pytest==8.4.2
+
+      - name: Prove exact authority and evidence-only scope
+        id: scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          git cat-file -e "$D06_CONVERGENCE_BASE^{commit}"
+          test "$(git merge-base HEAD "$D06_CONVERGENCE_BASE")" = "$D06_CONVERGENCE_BASE"
+          git diff --check "$D06_CONVERGENCE_BASE" HEAD
+          changed="$(git diff --name-only "$D06_CONVERGENCE_BASE" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/d06-canonical-ingress-consumer-convergence.yml' \
+            'scripts/d06_pgn_ingress_consumer_oracle.py' | sort)"
+          test "$changed" = "$expected"
+          git diff --quiet "$D06_CONVERGENCE_BASE" HEAD -- acs tests web run_accessible_chess.py
+          test "$(git rev-parse HEAD:acs/pgn_roundtrip.py)" = "96d62bf6dd7b2f5c8a75d5f2bd1fde2ad0823d20"
+          test "$(git rev-parse HEAD:acs/pgn_service.py)" = "967669297402d91fd3c5651629b4f82c071a03ed"
+          echo 'D06 CONSUMER CONVERGENCE EVIDENCE-ONLY SCOPE PASS'
+
+      - name: Compile and self-test oracle
+        if: always() && steps.scope.outcome == 'success'
+        run: |
+          python -m py_compile scripts/d06_pgn_ingress_consumer_oracle.py
+          python -m scripts.d06_pgn_ingress_consumer_oracle --selftest
+
+      - name: Capture Product ingress consumer evidence
+        id: evidence
+        if: always() && steps.scope.outcome == 'success'
+        continue-on-error: true
+        run: >-
+          python -m scripts.d06_pgn_ingress_consumer_oracle
+          --report d06-ingress-consumer-report.json
+          --no-enforce
+
+      - name: Upload convergence evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: d06-ingress-consumer-convergence-${{ matrix.os }}
+          path: d06-ingress-consumer-report.json
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Focused D06 and classified-consumer regressions
+        if: always() && steps.scope.outcome == 'success'
+        run: >-
+          python -m unittest -v
+          tests.test_d06_pgn_roundtrip
+          tests.test_d06_file_ingress_nag_normalization
+          tests.test_d06_real_corpus_recovery
+          tests.test_pgn_service
+          tests.test_pgn_document
+          tests.test_pgn_workspace
+          tests.test_d06_gametree_persistence_vertical
+          tests.test_d06_annotation_insertion_persistence_vertical
+          tests.test_acsdb
+          tests.test_duplicate_detection
+          tests.test_d08_book_training_contract
+          tests.test_version2_formats_integration
+
+      - name: Full repository unittest
+        if: always() && steps.scope.outcome == 'success'
+        run: python -m unittest discover -s tests
+
+      - name: Full repository pytest
+        if: always() && steps.scope.outcome == 'success'
+        run: python -m pytest -q tests
+
+      - name: SELFTEST and diagnostic
+        if: always() && steps.scope.outcome == 'success'
+        run: |
+          python -m acs.selftest
+          python run_accessible_chess.py --diagnostic
+
+      - name: Enforce convergence verdict
+        if: always() && steps.scope.outcome == 'success'
+        run: >-
+          python -m scripts.d06_pgn_ingress_consumer_oracle
+          --enforce-report d06-ingress-consumer-report.json
