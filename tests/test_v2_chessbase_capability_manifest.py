@@ -41,7 +41,10 @@ class Version2CbfCbiCapabilityEvidenceTests(unittest.TestCase):
         rendered = json.dumps(self.payload, sort_keys=True).lower()
         self.assertNotIn('"id": "cbh"', rendered)
         self.assertNotIn('"id": "cbv"', rendered)
-        self.assertIn("pr #295", self.payload["out_of_scope"]["cbh_cbv_capability_status"])
+        self.assertIn(
+            "pr #295",
+            self.payload["out_of_scope"]["cbh_cbv_capability_status"].casefold(),
+        )
 
     def test_cbf_cbi_remains_blocked_despite_pinned_decoder_research(self) -> None:
         legacy = self.payload["formats"][0]
