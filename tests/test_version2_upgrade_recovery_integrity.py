@@ -59,6 +59,25 @@ class Version2UpgradeRecoveryIntegrityTests(unittest.TestCase):
                     coordinator.recover_interrupted()
                 self.assertEqual(path.read_text(encoding="utf-8"), raw)
 
+    def test_missing_recovery_metadata_fails_with_typed_recovery_error(self):
+        for target in ("journal", "manifest"):
+            with self.subTest(target=target), tempfile.TemporaryDirectory() as td:
+                root = Path(td) / "AccessibleChess"
+                coordinator, backup, _ = self._prepare_interrupted(root)
+                path = (
+                    root / ".v2-upgrade-state.json"
+                    if target == "journal"
+                    else backup / "manifest.json"
+                )
+                path.unlink()
+                if target == "journal":
+                    path.mkdir()
+
+                with self.assertRaisesRegex(
+                    Version2UpgradeRecoveryError, "file|unreadable"
+                ):
+                    coordinator.recover_interrupted()
+
     def test_manifest_path_and_library_schema_before_types_are_strict(self):
         for field in ("path", "library_schema_before"):
             with self.subTest(field=field), tempfile.TemporaryDirectory() as td:
