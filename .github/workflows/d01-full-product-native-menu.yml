@@ -2,6 +2,8 @@ name: D01 Full Product Native Menu
 
 on:
   pull_request:
+    branches:
+      - work/books-training-ui-integration-20260825
     paths:
       - 'acs/full_product_native_menu.py'
       - 'acs/full_product_webview_adapter.py'

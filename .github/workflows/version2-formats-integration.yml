@@ -6,6 +6,9 @@ on:
       - work/version2-integration-formats-20260827
   pull_request:
     paths:
+      - '.github/workflows/d01-full-product-native-menu.yml'
+      - '.github/workflows/d08-owner-fixture-integration.yml'
+      - '.github/workflows/whole-product-integration-preview.yml'
       - 'acs/chessbase_decoder.py'
       - 'acs/chessbase_library_import.py'
       - 'acs/cbv_extractor.py'
@@ -93,7 +96,10 @@ jobs:
           git diff --check "$V2_BASE" HEAD
           changed="$(git diff --name-only "$V2_BASE" HEAD | sort)"
           expected="$(printf '%s\n' \
+            '.github/workflows/d01-full-product-native-menu.yml' \
+            '.github/workflows/d08-owner-fixture-integration.yml' \
             '.github/workflows/version2-formats-integration.yml' \
+            '.github/workflows/whole-product-integration-preview.yml' \
             'acs/cbv_extractor.py' \
             'acs/chessbase_decoder.py' \
             'acs/chessbase_library_import.py' \

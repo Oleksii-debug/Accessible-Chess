@@ -2,6 +2,8 @@ name: Whole Product Integration Preview CI
 
 on:
   pull_request:
+    branches:
+      - work/d08-owner-fixture-integration-20260824
     paths:
       - 'acs/**'
       - 'tests/**'
