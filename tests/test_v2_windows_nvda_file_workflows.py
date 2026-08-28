@@ -8,7 +8,6 @@ from types import SimpleNamespace
 import unittest
 
 from acs.acsdb import AcsDatabase
-from acs.full_product_actions import build_full_product_action_registry
 from acs.library_import_service import (
     LibraryImportCancelledError,
     LibraryImportProgress,
@@ -102,10 +101,19 @@ class Version2WindowsFileWorkflowTests(unittest.TestCase):
         )
         return controller, events, session_box, fallback
 
-    def test_registry_exposes_save_and_save_as_without_stage1_collision(self) -> None:
-        registry = build_full_product_action_registry()
-        self.assertEqual(registry.definition("pgn.save").action_id, "pgn.save")
-        self.assertEqual(registry.definition("pgn.save_as").action_id, "pgn.save_as")
+    def test_host_owns_file_workflow_ports_without_claiming_registry_surface(self) -> None:
+        self.assertEqual(
+            Version2WindowsFileActionDelegate.OWNED_ACTIONS,
+            frozenset(
+                {
+                    "pgn.open",
+                    "pgn.save",
+                    "pgn.save_as",
+                    "library.import",
+                    "library.cancel_import",
+                }
+            ),
+        )
 
     def test_non_file_action_chains_to_existing_canonical_delegate(self) -> None:
         dialogs = _Dialogs()
