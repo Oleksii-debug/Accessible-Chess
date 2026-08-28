@@ -47,6 +47,7 @@ jobs:
         run: python -m pip install -q pytest==8.4.2
 
       - name: Prove exact authority and evidence-only scope
+        id: scope
         shell: bash
         run: |
           set -euo pipefail
@@ -64,12 +65,19 @@ jobs:
           echo 'D06 CONSUMER CONVERGENCE EVIDENCE-ONLY SCOPE PASS'
 
       - name: Compile and self-test oracle
+        if: always() && steps.scope.outcome == 'success'
         run: |
           python -m py_compile scripts/d06_pgn_ingress_consumer_oracle.py
           python -m scripts.d06_pgn_ingress_consumer_oracle --selftest
 
-      - name: Audit Product ingress consumers
-        run: python -m scripts.d06_pgn_ingress_consumer_oracle --report d06-ingress-consumer-report.json
+      - name: Capture Product ingress consumer evidence
+        id: evidence
+        if: always() && steps.scope.outcome == 'success'
+        continue-on-error: true
+        run: >-
+          python -m scripts.d06_pgn_ingress_consumer_oracle
+          --report d06-ingress-consumer-report.json
+          --no-enforce
 
       - name: Upload convergence evidence
         if: always()
@@ -80,7 +88,8 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
-      - name: Focused D06 regressions
+      - name: Focused D06 and classified-consumer regressions
+        if: always() && steps.scope.outcome == 'success'
         run: >-
           python -m unittest -v
           tests.test_d06_pgn_roundtrip
@@ -91,15 +100,27 @@ jobs:
           tests.test_pgn_workspace
           tests.test_d06_gametree_persistence_vertical
           tests.test_d06_annotation_insertion_persistence_vertical
+          tests.test_acsdb
+          tests.test_duplicate_detection
+          tests.test_d08_book_training_contract
           tests.test_version2_formats_integration
 
       - name: Full repository unittest
+        if: always() && steps.scope.outcome == 'success'
         run: python -m unittest discover -s tests
 
       - name: Full repository pytest
+        if: always() && steps.scope.outcome == 'success'
         run: python -m pytest -q tests
 
       - name: SELFTEST and diagnostic
+        if: always() && steps.scope.outcome == 'success'
         run: |
           python -m acs.selftest
           python run_accessible_chess.py --diagnostic
+
+      - name: Enforce convergence verdict
+        if: always() && steps.scope.outcome == 'success'
+        run: >-
+          python -m scripts.d06_pgn_ingress_consumer_oracle
+          --enforce-report d06-ingress-consumer-report.json
