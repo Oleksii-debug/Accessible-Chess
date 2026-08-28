@@ -70,10 +70,11 @@ class Version2WindowsNativeDialogOwnershipTests(unittest.TestCase):
         imported = dialogs.select_library_import()
 
         self.assertEqual(opened, Path("selected.pgn"))
-        self.assertEqual(saved, Path("selected.pgn"))
+        self.assertEqual(saved, Path("private-source.pgn"))
         self.assertEqual(imported, Path("selected.pgn"))
         self.assertEqual(len(_OpenDialog.instances), 2)
         self.assertEqual(len(_SaveDialog.instances), 1)
+        self.assertEqual(_SaveDialog.instances[0].FileName, "private-source.pgn")
         for dialog in (*_OpenDialog.instances, *_SaveDialog.instances):
             self.assertEqual(dialog.show_args, (owner,))
             self.assertTrue(dialog.disposed)
@@ -87,8 +88,9 @@ class Version2WindowsNativeDialogOwnershipTests(unittest.TestCase):
 
         destination = dialogs.export_selection("selection.pgn")
 
-        self.assertEqual(destination, Path("selected.pgn"))
+        self.assertEqual(destination, Path("selection.pgn"))
         self.assertEqual(len(_SaveDialog.instances), 1)
+        self.assertEqual(_SaveDialog.instances[0].FileName, "selection.pgn")
         self.assertEqual(_SaveDialog.instances[0].show_args, (owner,))
         self.assertTrue(_SaveDialog.instances[0].disposed)
 
