@@ -21,13 +21,8 @@ from enum import Enum
 from typing import Protocol
 
 from .bookdocument import Game, VariationTree
-from .gametree import (
-    GameTreeContractError,
-    GameTreeSerializationError,
-    PgnGame,
-    parse_games,
-    serialize_game,
-)
+from .gametree import GameTreeSerializationError, PgnGame, serialize_game
+from .pgn_roundtrip import PgnRoundTripError, parse_pgn_text
 
 
 class BookGameContentErrorCode(str, Enum):
@@ -97,8 +92,12 @@ def _source(value: object) -> BookGameSource:
 
 def _one_embedded_game(pgn: str) -> PgnGame:
     try:
-        games = parse_games(pgn)
-    except (GameTreeContractError, RecursionError) as exc:
+        # Embedded Book PGN is an ingress surface, so use the existing bounded
+        # D06 recovery boundary rather than calling the lower-level structural
+        # parser directly.  This preserves recovery warnings while also applying
+        # canonical SAN/NAG normalization and lexical/resource limits.
+        games = parse_pgn_text(pgn, strict=False)
+    except (PgnRoundTripError, RecursionError) as exc:
         raise BookGameContentError(
             "embedded book game could not be represented by the canonical GameTree",
             code=BookGameContentErrorCode.INVALID_CANONICAL_GAME,
@@ -114,9 +113,9 @@ def _one_embedded_game(pgn: str) -> PgnGame:
             code=BookGameContentErrorCode.MULTI_GAME_BLOCK,
         )
     game = games[0]
-    # Validate the complete mutable graph now.  parse_games normally produces a
-    # serializable tree, but this gives the boundary one fail-closed invariant and
-    # keeps later consumers from becoming the first validation point.
+    # Validate the complete mutable graph now.  The D06 ingress produces a
+    # serializable tree, but this keeps later consumers from becoming the first
+    # validation point if the canonical model contract changes.
     try:
         serialize_game(game)
     except GameTreeSerializationError as exc:
@@ -247,7 +246,7 @@ def resolve_book_game(
 def resolve_book_variation(block: VariationTree) -> ResolvedBookVariation:
     """Resolve a semantic variation block with its explicit root position.
 
-    The PGN parser remains the existing D06 structural GameTree parser.  This
+    Embedded variation PGN uses the existing bounded D06 recovery boundary.  This
     adapter does not synthesize moves, FEN tags, or legality.  If the source PGN
     itself carries a FEN tag, a mismatch with the Book block's explicit
     ``root_fen`` fails closed instead of choosing one silently.
