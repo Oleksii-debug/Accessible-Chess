@@ -89,19 +89,34 @@ jobs:
           : > ../upstream-probe.txt
           for repo in libcbh scidb chessx; do
             printf '=== %s ===\n' "$repo" >> ../upstream-probe.txt
-            if git -C "$repo" grep -ni -E '2cbh|2cba|2cbg|2lcd|2lgd|2lid' -- ':!*.lock' ':!*.sum' > ../hits.txt; then
+
+            find "$repo" -type f \( \
+              -iname '*.2cbh' -o -iname '*.2cba' -o -iname '*.2cbg' -o \
+              -iname '*.2lcd' -o -iname '*.2lgd' -o -iname '*.2lid' \
+            \) -print > ../fixture-hits.txt
+            if [[ -s ../fixture-hits.txt ]]; then
+              cat ../fixture-hits.txt | tee -a ../upstream-probe.txt
+              echo "Candidate 2CBH fixture surface found in pinned candidate $repo; inspect before any conclusion."
+              exit 1
+            fi
+
+            if git -C "$repo" grep -ni -E '\.(2cbh|2cba|2cbg|2lcd|2lgd|2lid)([^[:alnum:]_]|$)' -- \
+              '*.c' '*.cc' '*.cpp' '*.cxx' '*.h' '*.hpp' '*.py' '*.tcl' \
+              '*.md' '*.txt' '*.pro' '*.cmake' 'CMakeLists.txt' > ../hits.txt; then
               cat ../hits.txt | tee -a ../upstream-probe.txt
-              echo "Unexpected 2CBH-family token found in pinned candidate $repo; inspect before any conclusion."
+              echo "Candidate 2CBH extension reference found in pinned candidate $repo; inspect before any conclusion."
               exit 1
             else
-              echo 'no indexed 2CBH-family token in exact tree' >> ../upstream-probe.txt
+              echo 'no 2CBH extension or fixture surface in selected exact-tree source/text files' >> ../upstream-probe.txt
             fi
           done
       - name: Upload upstream probe evidence
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: v2-2cbh-upstream-source-probe
           path: upstream-probe.txt
+          if-no-files-found: warn
           retention-days: 3
 
   full-regression:
