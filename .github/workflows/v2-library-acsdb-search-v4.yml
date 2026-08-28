@@ -46,6 +46,15 @@ jobs:
         with:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Normalize worktree to canonical Git bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config core.autocrlf false
+          git config core.eol lf
+          git reset --hard HEAD
+          test "$(git hash-object --no-filters acs/stage1_release_ui_core.py)" = "$(git rev-parse HEAD:acs/stage1_release_ui_core.py)"
+          test "$(git hash-object --no-filters acs/webapp_keymap_core.py)" = "$(git rev-parse HEAD:acs/webapp_keymap_core.py)"
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
