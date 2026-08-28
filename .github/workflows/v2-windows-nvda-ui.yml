@@ -13,11 +13,13 @@ on:
       - 'acs/version2_windows_import_event_mailbox.py'
       - 'acs/version2_windows_import_ui_pump.py'
       - 'acs/version2_windows_native_dialog_ownership.py'
+      - 'acs/version2_windows_host_runtime.py'
       - 'tests/test_v2_windows_nvda_file_workflows.py'
       - 'tests/test_v2_windows_pgn_export.py'
       - 'tests/test_v2_windows_import_event_mailbox.py'
       - 'tests/test_v2_windows_import_ui_pump.py'
       - 'tests/test_v2_windows_native_dialog_ownership.py'
+      - 'tests/test_v2_windows_host_runtime.py'
       - '.github/workflows/v2-windows-nvda-ui.yml'
   workflow_dispatch:
 
@@ -77,10 +79,12 @@ jobs:
           expected="$(printf '%s\n' \
             '.github/workflows/v2-windows-nvda-ui.yml' \
             'acs/version2_windows_file_workflows.py' \
+            'acs/version2_windows_host_runtime.py' \
             'acs/version2_windows_import_event_mailbox.py' \
             'acs/version2_windows_import_ui_pump.py' \
             'acs/version2_windows_native_dialog_ownership.py' \
             'acs/version2_windows_pgn_export.py' \
+            'tests/test_v2_windows_host_runtime.py' \
             'tests/test_v2_windows_import_event_mailbox.py' \
             'tests/test_v2_windows_import_ui_pump.py' \
             'tests/test_v2_windows_native_dialog_ownership.py' \
@@ -113,11 +117,13 @@ jobs:
         run: >-
           python -m compileall -q
           acs/version2_windows_file_workflows.py
+          acs/version2_windows_host_runtime.py
           acs/version2_windows_import_event_mailbox.py
           acs/version2_windows_import_ui_pump.py
           acs/version2_windows_native_dialog_ownership.py
           acs/version2_windows_pgn_export.py
           tests/test_v2_windows_nvda_file_workflows.py
+          tests/test_v2_windows_host_runtime.py
           tests/test_v2_windows_import_event_mailbox.py
           tests/test_v2_windows_import_ui_pump.py
           tests/test_v2_windows_native_dialog_ownership.py
@@ -127,6 +133,7 @@ jobs:
         run: >-
           python -m unittest -v
           tests.test_v2_windows_nvda_file_workflows
+          tests.test_v2_windows_host_runtime
           tests.test_v2_windows_import_event_mailbox
           tests.test_v2_windows_import_ui_pump
           tests.test_v2_windows_native_dialog_ownership
@@ -139,13 +146,14 @@ jobs:
           tests.test_library_import_ui_integration
           tests.test_version2_formats_integration
 
-      - name: Windows WinForms file-dialog owner and UI-post type composition smoke
+      - name: Windows WinForms owner runtime and UI-post composition smoke
         if: runner.os == 'Windows'
         shell: bash
         run: |
           set -euo pipefail
           python - <<'PY'
           from acs.version2_windows_file_workflows import Version2WindowsFileDialogs
+          from acs.version2_windows_host_runtime import Version2WindowsFileWorkflowRuntime
           from acs.version2_windows_import_ui_pump import Version2WinFormsUiPoster
           from acs.version2_windows_native_dialog_ownership import (
               Version2OwnedWindowsFileDialogs,
@@ -162,6 +170,16 @@ jobs:
           owner = Control()
           owned_files = Version2OwnedWindowsFileDialogs(lambda: owner)
           owned_export = Version2OwnedWindowsPgnExportDialogs(lambda: owner)
+          runtime = Version2WindowsFileWorkflowRuntime(
+              owner_control=owner,
+              get_pgn_session=lambda: None,
+              set_pgn_session=lambda session: None,
+              import_services_factory=lambda: None,
+              export_selected=lambda request, destination: None,
+              import_ui_ready=lambda mailbox: None,
+              pgn_export_event_sink=lambda event: None,
+              next_delegate=lambda action_id, payload: None,
+          )
           try:
               opened.Multiselect = False
               opened.CheckFileExists = True
@@ -175,6 +193,10 @@ jobs:
               assert delegate is not None
               assert owned_files.dialog_owner.resolve() is owner
               assert owned_export.dialog_owner.resolve() is owner
+              assert runtime.file_dialogs.dialog_owner.resolve() is owner
+              assert runtime.export_dialogs.dialog_owner.resolve() is owner
+              assert runtime.shutdown()
+              assert runtime.closed
               assert opened.Multiselect is False
               assert opened.CheckFileExists is True
               assert saved.AddExtension is True
@@ -188,7 +210,7 @@ jobs:
               opened.Dispose()
               saved.Dispose()
               exported.Dispose()
-          print('WINDOWS WINFORMS FILE DIALOG OWNER + UI POST COMPOSITION PASS')
+          print('WINDOWS WINFORMS OWNER RUNTIME + UI POST COMPOSITION PASS')
           PY
 
       - name: Full repository unittest
