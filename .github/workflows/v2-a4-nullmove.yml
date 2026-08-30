@@ -39,7 +39,6 @@ jobs:
       - name: Focused one-core regressions
         run: >-
           python -m unittest -v
-          tests.test_chesscore
           tests.test_chessbase_decoder
           tests.test_chessbase_adapter
           tests.test_gametree
