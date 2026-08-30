@@ -305,7 +305,22 @@ class Board:
         before=self.fen(); san=self.san(m)
         self.undo_stack.append((before,san)); self.redo_stack.clear(); self._apply(m)
         return san
-    def push_text(self,t): return self.push(self.parse_move(t))
+    def push_null(self):
+        """Apply the canonical analysis null/pseudo move represented as ``--``.
+
+        A null move changes no pieces or castling rights. It clears en-passant,
+        advances the halfmove/fullmove counters using normal FEN turn semantics,
+        and participates in undo/redo exactly like an ordinary pushed move.
+        """
+        before=self.fen(); san='--'
+        self.undo_stack.append((before,san)); self.redo_stack.clear()
+        self.ep=None; self.halfmove+=1
+        if self.turn=='b': self.fullmove+=1
+        self.turn='b' if self.turn=='w' else 'w'; self.last_move=None
+        return san
+    def push_text(self,t):
+        if self.norm_san(t)=='--': return self.push_null()
+        return self.push(self.parse_move(t))
     def undo(self):
         if not self.undo_stack: return None
         current=self.fen(); before,san=self.undo_stack.pop(); self.redo_stack.append((current,san)); self.set_fen(before,clear_history=False); return san
