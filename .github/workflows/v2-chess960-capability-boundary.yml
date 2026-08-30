@@ -1,0 +1,60 @@
+name: V2 ChessBase Chess960 Capability Boundary
+
+on:
+  push:
+    branches:
+      - work/v2-chess960-capability-boundary-20260831
+  pull_request:
+    paths:
+      - 'docs/automation/DEV4_CHESSBASE_CAPABILITY_MATRIX.md'
+      - 'tests/test_v2_chessbase_chess960_capability_boundary.py'
+      - '.github/workflows/v2-chess960-capability-boundary.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: v2-chess960-capability-boundary-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  focused:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Exact authority and scope
+        shell: bash
+        env:
+          PRODUCT_HEAD: 575ec0088982d2f90adb47c040a5714d68186b0e
+        run: |
+          set -euo pipefail
+          test "$(git merge-base "$PRODUCT_HEAD" HEAD)" = "$PRODUCT_HEAD"
+          git diff --check "$PRODUCT_HEAD" HEAD
+          changed="$(git diff --name-only "$PRODUCT_HEAD" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/v2-chess960-capability-boundary.yml' \
+            'docs/automation/DEV4_CHESSBASE_CAPABILITY_MATRIX.md' \
+            'tests/test_v2_chessbase_chess960_capability_boundary.py' | sort)"
+          test "$changed" = "$expected"
+      - name: Compile regression
+        run: python -m compileall -q tests/test_v2_chessbase_chess960_capability_boundary.py
+      - name: Capability boundary regression
+        run: python -m unittest -v tests.test_v2_chessbase_chess960_capability_boundary
+      - name: Focused inherited ChessBase regressions
+        run: >-
+          python -m unittest -v
+          tests.test_chessbase_adapter
+          tests.test_chessbase_decoder
+          tests.test_v2_chessbase_capability_manifest
+          tests.test_version2_formats_integration
