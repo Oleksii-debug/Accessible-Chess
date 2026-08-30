@@ -56,5 +56,5 @@ jobs:
           python -m unittest -v
           tests.test_chessbase_adapter
           tests.test_chessbase_decoder
-          tests.test_chessbase_library_import
-          tests.test_v2_chessbase_integration
+          tests.test_v2_chessbase_capability_manifest
+          tests.test_version2_formats_integration
