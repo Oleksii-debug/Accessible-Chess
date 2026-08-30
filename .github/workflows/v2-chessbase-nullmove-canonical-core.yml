@@ -1,0 +1,61 @@
+name: V2 ChessBase Null Move Canonical Core
+
+on:
+  push:
+    branches:
+      - work/v2-chessbase-nullmove-canonical-core-20260831
+  pull_request:
+    paths:
+      - 'acs/chesscore.py'
+      - 'acs/chessbase_decoder.py'
+      - 'acs/gametree_legality.py'
+      - 'tests/test_v2_chessbase_nullmove_canonical_core.py'
+      - '.github/workflows/v2-chessbase-nullmove-canonical-core.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: v2-chessbase-nullmove-canonical-core-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  focused:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Exact authority and scope
+        shell: bash
+        env:
+          PRODUCT_HEAD: 575ec0088982d2f90adb47c040a5714d68186b0e
+        run: |
+          set -euo pipefail
+          test "$(git merge-base "$PRODUCT_HEAD" HEAD)" = "$PRODUCT_HEAD"
+          git diff --check "$PRODUCT_HEAD" HEAD
+          changed="$(git diff --name-only "$PRODUCT_HEAD" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/v2-chessbase-nullmove-canonical-core.yml' \
+            'acs/chesscore.py' \
+            'tests/test_v2_chessbase_nullmove_canonical_core.py' | sort)"
+          test "$changed" = "$expected"
+      - name: Compile focused surface
+        run: python -m compileall -q acs/chesscore.py tests/test_v2_chessbase_nullmove_canonical_core.py
+      - name: Canonical null move and inherited format regressions
+        run: >-
+          python -m unittest -v
+          tests.test_v2_chessbase_nullmove_canonical_core
+          tests.test_chessbase_decoder
+          tests.test_gametree
+          tests.test_d06_pgn_roundtrip
+          tests.test_d06_gametree_persistence_vertical
