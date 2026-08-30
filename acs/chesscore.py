@@ -111,8 +111,6 @@ class Board:
             moved_pawn='p' if turn=='w' else 'P'
             if bd[moved_sq]!=moved_pawn or bd[origin_sq] is not None:
                 raise ValueError('FEN: en passant не відповідає попередньому подвійому ходу пішака')
-
-        # Commit only after every syntactic and structural check has passed.
         self.board=bd; self.turn=turn; self.castling=castling; self.ep=ep
         self.halfmove=halfmove; self.fullmove=fullmove; self.last_move=None
         if clear_history: self.undo_stack=[]; self.redo_stack=[]
@@ -305,7 +303,28 @@ class Board:
         before=self.fen(); san=self.san(m)
         self.undo_stack.append((before,san)); self.redo_stack.clear(); self._apply(m)
         return san
-    def push_text(self,t): return self.push(self.parse_move(t))
+    def push_null(self):
+        """Apply the canonical null/pseudo-move transition used by format adapters.
+
+        A null move changes no pieces or castling rights. It clears en-passant,
+        advances the halfmove/fullmove counters exactly like a quiet ply, flips
+        the side to move, and participates in the same undo/redo history as
+        ordinary canonical moves.
+        """
+        before=self.fen()
+        self.undo_stack.append((before,'--')); self.redo_stack.clear()
+        self.ep=None
+        self.halfmove+=1
+        if self.turn=='b': self.fullmove+=1
+        self.turn='b' if self.turn=='w' else 'w'
+        self.last_move=None
+        return '--'
+    def push_text(self,t):
+        if type(t) is not str:
+            raise ValueError('Хід має бути текстом')
+        if self.norm_san(t)=='--':
+            return self.push_null()
+        return self.push(self.parse_move(t))
     def undo(self):
         if not self.undo_stack: return None
         current=self.fen(); before,san=self.undo_stack.pop(); self.redo_stack.append((current,san)); self.set_fen(before,clear_history=False); return san

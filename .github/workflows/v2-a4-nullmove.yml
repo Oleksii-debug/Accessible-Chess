@@ -1,0 +1,46 @@
+name: V2 A4 Canonical Null Move
+
+on:
+  push:
+    branches:
+      - work/v2-a4-canonical-nullmove-20260830
+  pull_request:
+    paths:
+      - 'acs/chesscore.py'
+      - 'tests/test_v2_a4_canonical_nullmove.py'
+      - '.github/workflows/v2-a4-nullmove.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: v2-a4-nullmove-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  focused:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Compile changed Python
+        run: python -m compileall -q acs/chesscore.py tests/test_v2_a4_canonical_nullmove.py
+      - name: Canonical null-move oracle
+        run: python -m unittest -v tests.test_v2_a4_canonical_nullmove
+      - name: Focused one-core regressions
+        run: >-
+          python -m unittest -v
+          tests.test_chessbase_decoder
+          tests.test_chessbase_adapter
+          tests.test_gametree
+          tests.test_d06_gametree_persistence_vertical
+          tests.test_d06_pgn_roundtrip
