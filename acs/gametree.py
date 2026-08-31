@@ -17,12 +17,13 @@ import re
 from typing import Iterable
 
 RESULTS = {"1-0", "0-1", "1/2-1/2", "*"}
-TAG_RE = re.compile(r'^\s*\[([A-Za-z0-9_]+)\s+"((?:\\.|[^"\\])*)"\]\s*$')
+TAG_RE = re.compile(r'^\s*\[\s*([A-Za-z0-9_]+)\s*"((?:\\.|[^"\\])*)"\s*\]\s*$')
 MOVE_NUMBER_RE = re.compile(r"^(\d+)\.(\.\.)?$")
 TAG_NAME_RE = re.compile(r"^[A-Za-z0-9_]+$")
 NAG_RE = re.compile(r"^\$\d+$")
 MOVE_NUMBER_TOKEN_RE = re.compile(r"^\d+\.{1,3}$")
 NAG_SYMBOLS = frozenset({"!", "?", "!!", "??", "!?", "?!"})
+MAX_NUMERIC_NAG = 255
 
 # Defensive structural bounds. They are intentionally high enough for real
 # books/databases but low enough to prevent recursive hostile graphs or PGN RAV
@@ -128,6 +129,13 @@ def _escape_tag(value: str) -> str:
     return value.replace("\\", "\\\\").replace('"', r'\"')
 
 
+def _numeric_nag_is_in_range(value: object) -> bool:
+    if not isinstance(value, str) or not NAG_RE.fullmatch(value):
+        return False
+    digits = value[1:].lstrip("0") or "0"
+    return len(digits) < 3 or (len(digits) == 3 and digits <= str(MAX_NUMERIC_NAG))
+
+
 def tokenize_movetext(text: str) -> list[_Token]:
     out: list[_Token] = []
     i = 0
@@ -173,8 +181,11 @@ def tokenize_movetext(text: str) -> list[_Token]:
                 j += 1
             if j > i + 1:
                 out.append(_Token("NAG", text[i:j])); i = j; continue
+            out.append(_Token("WARNING", "malformed numeric annotation glyph"))
+            i += 1
+            continue
         j = i
-        while j < n and not text[j].isspace() and text[j] not in "{};()":
+        while j < n and not text[j].isspace() and text[j] not in "{};()$":
             j += 1
         value = text[i:j]
         if value in RESULTS:
@@ -278,6 +289,8 @@ def _parse_line(
             pos += 1
             continue
         if tok.kind in {"NAG", "NAG_SYMBOL"}:
+            if tok.kind == "NAG" and not _numeric_nag_is_in_range(tok.value):
+                warnings.append(f"numeric annotation glyph out of range {tok.value}")
             if last is None:
                 warnings.append(f"orphan annotation {tok.value}")
             else:
@@ -460,7 +473,7 @@ def _validate_san(san: object) -> None:
         )
     if (
         any(character.isspace() for character in san)
-        or any(character in "{};()" for character in san)
+        or any(character in "{};()$" for character in san)
         or san in RESULTS
         or MOVE_NUMBER_TOKEN_RE.fullmatch(san)
         or NAG_RE.fullmatch(san)
@@ -479,7 +492,9 @@ def _validate_nags(nags: object) -> None:
             code=GameTreeErrorCode.INVALID_CONTAINER,
         )
     for nag in nags:
-        if not isinstance(nag, str) or not (NAG_RE.fullmatch(nag) or nag in NAG_SYMBOLS):
+        if not isinstance(nag, str) or not (
+            _numeric_nag_is_in_range(nag) or nag in NAG_SYMBOLS
+        ):
             raise GameTreeSerializationError(
                 "move NAG is not representable PGN annotation data",
                 code=GameTreeErrorCode.INVALID_NAG,
