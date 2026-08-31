@@ -61,8 +61,30 @@ def normalize_search_result(value: object | None) -> object | None:
     return value
 
 
+def normalize_search_year_bound(value: object | None, *, name: str) -> int | None:
+    """Validate one explicit calendar-year bound without scalar coercion.
+
+    PGN Date text remains loss-aware. A year bound is therefore an application
+    filter over complete real dates only; it is never used to repair partial or
+    malformed source metadata.
+    """
+    if value is None:
+        return None
+    if type(value) is not int:
+        raise TypeError(f"{name} must be an integer")
+    if not 1 <= value <= 9999:
+        raise ValueError(f"{name} must be between 1 and 9999")
+    return value
+
+
 def search_fold(value: str | None) -> str | None:
-    """Return Unicode NFKC + casefold text for SQLite comparisons."""
+    """Return Unicode NFKC + casefold text for SQLite comparisons.
+
+    This policy is deliberately accent/diacritic preserving. It normalizes
+    compatibility forms and case, but it does not strip combining marks or
+    transliterate letters; callers that need accent-insensitive search require a
+    separate explicit product contract rather than an implicit lossy fold.
+    """
     if value is None:
         return None
     return unicodedata.normalize("NFKC", value).casefold()
