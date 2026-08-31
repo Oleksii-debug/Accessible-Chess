@@ -1,86 +1,152 @@
-name: V2 DEV07 CBH Canonical Adapter Repair
+name: V2 DEV07 CBH Canonical Adapter
 
 on:
   push:
     branches:
       - work/v2-dev07-cbh-canonical-adapter-20260831
   pull_request:
-    types: [reopened]
+    types: [synchronize, reopened]
+    paths:
+      - 'acs/chessbase_decoder.py'
+      - 'tests/test_v2_dev07_cbh_canonical_adapter.py'
+      - 'tests/test_v2_dev07_cbh_real_corpora.py'
+      - '.github/workflows/v2-dev07-cbh-canonical-adapter.yml'
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
-  group: v2-dev07-cbh-canonical-adapter-repair
+  group: v2-dev07-cbh-canonical-adapter-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  LIBCBH_COMMIT: 9641c5c3949d8fb210b17dd9aa54455645843696
+
 jobs:
-  repair-and-verify:
-    runs-on: ubuntu-22.04
-    timeout-minutes: 35
+  canonical-adapter:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 55
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: work/v2-dev07-cbh-canonical-adapter-20260831
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Exact ancestry and RED checkpoint lineage
+      - name: Exact ancestry and narrow scope
         shell: bash
         run: |
           set -euo pipefail
           git merge-base --is-ancestor a213e6e87605560491d10d7e7b96623ea6e367c2 HEAD
-          git merge-base --is-ancestor 81158899198c7245b3d9dd2baffe6a8ed0da6b81 HEAD
+          git merge-base --is-ancestor 37f51df5649f521969d1df27809cc28a1cee8f40 HEAD
           git diff --check a213e6e87605560491d10d7e7b96623ea6e367c2 HEAD
-      - name: Remove adapter-owned null transition and delegate to canonical Board
+          changed="$(git diff --name-only a213e6e87605560491d10d7e7b96623ea6e367c2 HEAD | sort)"
+          expected="$(printf '%s\n' '.github/workflows/v2-dev07-cbh-canonical-adapter.yml' 'acs/chessbase_decoder.py' 'tests/test_v2_dev07_cbh_canonical_adapter.py' 'tests/test_v2_dev07_cbh_real_corpora.py' | sort)"
+          test "$changed" = "$expected"
+          test -z "$(git diff --name-only a213e6e87605560491d10d7e7b96623ea6e367c2 HEAD -- acs/chesscore.py acs/gametree.py acs/acsdb.py acs/chessbase_library_import.py)"
+      - name: One-core source lock
         shell: bash
         run: |
           set -euo pipefail
-          python - <<'PY'
-          from pathlib import Path
-
-          path = Path('acs/chessbase_decoder.py')
-          text = path.read_text(encoding='utf-8')
-          old_function = '''def _null_move(board: Board) -> str:\n    parts = board.fen().split()\n    if len(parts) != 6:\n        raise _decode_error(\n            "canonical board produced an invalid FEN while decoding a null move",\n            ChessBaseDecodeCode.INVALID_MOVE,\n        )\n    was_black = parts[1] == "b"\n    parts[1] = "w" if was_black else "b"\n    parts[3] = "-"\n    parts[4] = str(int(parts[4]) + 1)\n    if was_black:\n        parts[5] = str(int(parts[5]) + 1)\n    board.set_fen(" ".join(parts))\n    return "--"\n\n\n'''
-          old_call = '''    if promote == 6:\n        return _null_move(board)\n'''
-          new_call = '''    if promote == 6:\n        return board.push_null()\n'''
-          if old_function in text and old_call in text:
-              if text.count(old_function) != 1 or text.count(old_call) != 1:
-                  raise SystemExit('unexpected duplicate null-move implementation/call')
-              text = text.replace(old_function, '', 1).replace(old_call, new_call, 1)
-              path.write_text(text, encoding='utf-8')
-          elif 'def _null_move' not in text and new_call in text:
-              print('canonical delegation already present; no mutation required')
-          else:
-              raise SystemExit('decoder null-move shape changed; refusing blind repair')
-          PY
-          test -z "$(git diff --name-only | grep -v '^acs/chessbase_decoder.py$' || true)"
           ! grep -q 'def _null_move' acs/chessbase_decoder.py
           ! grep -q 'board.set_fen(" ".join(parts))' acs/chessbase_decoder.py
           grep -q 'return board.push_null()' acs/chessbase_decoder.py
-          git diff --check
       - name: Compile
         run: python -m compileall -q acs tests run_accessible_chess.py
-      - name: DEV07 focused canonical-adapter regressions
+      - name: Focused CBH canonical-adapter regressions
         run: >-
           python -m unittest -v
           tests.test_v2_dev07_cbh_canonical_adapter
           tests.test_v2_a4_canonical_nullmove
           tests.test_chessbase_decoder
           tests.test_chessbase_adapter
+          tests.test_chessbase_libcbh_external_fixture
           tests.test_version2_formats_integration
-      - name: Publish bounded Product repair
+      - name: Full unittest
+        run: python -m unittest discover -s tests -v
+      - name: Full pytest
+        run: python -m pytest -q tests
+      - name: SELFTEST and complete diagnostic
+        run: |
+          python -m acs.selftest
+          python run_accessible_chess.py --diagnostic
+
+  real-pinned-cbh:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 55
+    steps:
+      - name: Checkout Accessible Chess exact head
+        uses: actions/checkout@v4
+        with:
+          path: product
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Checkout pinned external libcbh corpus
+        uses: actions/checkout@v4
+        with:
+          repository: rolandlo/libcbh
+          ref: 9641c5c3949d8fb210b17dd9aa54455645843696
+          path: upstream/libcbh
+          fetch-depth: 1
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Build pinned libcbh external component
         shell: bash
         run: |
           set -euo pipefail
-          if git diff --quiet -- acs/chessbase_decoder.py; then
-            echo 'Product repair already published.'
-            exit 0
+          cmake -S upstream/libcbh -B upstream/libcbh/build -DCMAKE_BUILD_TYPE=Release -DGTEST=OFF
+          cmake --build upstream/libcbh/build --config Release --parallel 2
+      - name: Build Accessible Chess bridge outside default package
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p product/build/libcbh
+          c++ -std=c++20 -O2 \
+            -DLIBCBH_SOURCE_COMMIT=\"$LIBCBH_COMMIT\" \
+            -I upstream/libcbh/include \
+            product/tools/optional/libcbh_json_bridge.cpp \
+            -L upstream/libcbh/build -lcbh \
+            -Wl,-rpath,'$ORIGIN' \
+            -o product/build/libcbh/libcbh-json-bridge
+          cp -a upstream/libcbh/build/libcbh.so* product/build/libcbh/
+          test -x product/build/libcbh/libcbh-json-bridge
+          test -f upstream/libcbh/LICENSE
+          grep -q 'GNU GENERAL PUBLIC LICENSE' upstream/libcbh/LICENSE
+      - name: Pinned annotations variations promotions unusual zero-ply and null scan
+        working-directory: product
+        env:
+          LIBCBH_BRIDGE: ${{ github.workspace }}/product/build/libcbh/libcbh-json-bridge
+          LIBCBH_ROOT: ${{ github.workspace }}/upstream/libcbh
+          LIBCBH_FIXTURE_DIR: ${{ github.workspace }}/upstream/libcbh/gtest/WithVariations
+        run: |
+          set -o pipefail
+          {
+            python -m unittest -v tests.test_v2_dev07_cbh_real_corpora
+            python -m unittest -v tests.test_chessbase_libcbh_external_fixture
+          } 2>&1 | tee dev07-real-cbh.log
+      - name: Default package remains free of optional GPL backend
+        working-directory: product
+        shell: bash
+        run: |
+          set -euo pipefail
+          test ! -e libcbh-json-bridge
+          test ! -e libcbh.so
+          if git ls-files | grep -E '(^|/)(libcbh-json-bridge|libcbh\.so([.0-9]*)?)$'; then
+            echo 'Compiled GPL backend is tracked by the default Product tree.' >&2
+            exit 1
           fi
-          git config user.name 'accessible-chess-dev07'
-          git config user.email 'actions@users.noreply.github.com'
-          git add acs/chessbase_decoder.py
-          test "$(git diff --cached --name-only)" = 'acs/chessbase_decoder.py'
-          git commit -m 'fix: route CBH null records through canonical board'
-          git push origin HEAD:work/v2-dev07-cbh-canonical-adapter-20260831
+          test -z "$(git status --porcelain --untracked-files=no)"
+      - name: Upload DEV07 real-CBH evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v2-dev07-real-pinned-cbh
+          path: product/dev07-real-cbh.log
+          if-no-files-found: ignore
+          retention-days: 5
