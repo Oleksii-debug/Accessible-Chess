@@ -1,0 +1,87 @@
+name: V2 CBONE Semantic Acceptance Harness
+
+on:
+  push:
+    branches:
+      - work/v2-cbone-semantic-acceptance-harness-20260831
+  pull_request:
+    branches:
+      - work/v2-cbone-real-backend-corpus-unblock-20260828
+    paths:
+      - acs/cbone_acceptance.py
+      - tests/test_v2_cbone_semantic_acceptance.py
+      - docs/automation/V2_CBONE_SEMANTIC_ACCEPTANCE_HARNESS.md
+      - .github/workflows/v2-cbone-semantic-acceptance-harness.yml
+
+permissions:
+  contents: read
+
+env:
+  V2_CBONE_BASE: c6852b6ee5a6158bf0785ef35e4f4bca5fb58d82
+
+jobs:
+  acceptance-contract:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install pinned verification dependency
+        run: python -m pip install -q pytest==8.4.2
+      - name: Exact ancestry, scope and compile
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor "$V2_CBONE_BASE" HEAD
+          git diff --check "$V2_CBONE_BASE" HEAD
+          unexpected="$(git diff --name-only "$V2_CBONE_BASE" HEAD | grep -Ev '^(acs/cbone_acceptance\.py|tests/test_v2_cbone_semantic_acceptance\.py|docs/automation/V2_CBONE_SEMANTIC_ACCEPTANCE_HARNESS\.md|\.github/workflows/v2-cbone-semantic-acceptance-harness\.yml)$' || true)"
+          if [[ -n "$unexpected" ]]; then
+            printf 'Unexpected files outside CBONE acceptance-harness owner scope:\n%s\n' "$unexpected"
+            exit 1
+          fi
+          python -m compileall -q acs tests run_accessible_chess.py
+      - name: CBONE focused acceptance and no-overclaim contracts
+        run: >-
+          python -m unittest -v
+          tests.test_v2_cbone_semantic_acceptance
+          tests.test_v2_cbone_real_backend_corpus_unblock
+          tests.test_v2_2cbh_cbone_topology
+          tests.test_chessbase_adapter
+          tests.test_chessbase_integrity
+      - name: Pytest parity
+        run: >-
+          python -m pytest -q
+          tests/test_v2_cbone_semantic_acceptance.py
+          tests/test_v2_cbone_real_backend_corpus_unblock.py
+          tests/test_v2_2cbh_cbone_topology.py
+          tests/test_chessbase_adapter.py
+          tests/test_chessbase_integrity.py
+
+  full-regression:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install test dependencies
+        run: python -m pip install -q pytest==8.4.2
+      - name: Exact ancestry and diff hygiene
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor "$V2_CBONE_BASE" HEAD
+          git diff --check "$V2_CBONE_BASE" HEAD
+      - name: Full unittest
+        run: python -m unittest discover -s tests -p 'test*.py'
+      - name: Full pytest
+        run: python -m pytest -q
