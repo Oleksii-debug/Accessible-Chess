@@ -1,0 +1,65 @@
+name: V2 Library Large Real Performance
+
+on:
+  push:
+    branches:
+      - work/v2-library-large-real-performance-20260831
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: v2-library-large-real-performance-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  real-100k-profile:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install pinned real-corpus dependency
+        run: python -m pip install --disable-pip-version-check zstandard==0.23.0
+      - name: Compile profile and owned D07 modules
+        run: |
+          python -m py_compile tools/v2_library_large_real_profile.py
+          python -m py_compile acs/acsdb.py acs/library_import_service.py acs/search_service.py
+      - name: Profile lawful 100k+ real Library path
+        run: |
+          set -o pipefail
+          python tools/v2_library_large_real_profile.py | tee v2-library-large-real-profile.log
+          grep -F 'V2_LIBRARY_LARGE_REAL_PROFILE=' v2-library-large-real-profile.log
+      - name: Validate non-flaky evidence contract
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          data = json.loads(Path('v2-library-large-real-profile.json').read_text(encoding='utf-8'))
+          assert data['status'] == 'PASS'
+          assert data['schema'] == 6
+          assert data['corpus']['license'] == 'CC0'
+          assert data['corpus']['profile_games'] > 100_000
+          assert data['integrity_before_close']['games'] == data['corpus']['profile_games']
+          assert data['integrity_before_close']['search_fold_rows'] == data['corpus']['profile_games']
+          assert data['integrity_before_close']['dirty_rows'] == 0
+          assert data['integrity_after_reopen']['dirty_rows'] == 0
+          assert data['cancellation']['status'] == 'PASS'
+          assert data['export_subset']['status'] == 'PASS'
+          assert data['timing']['paging_pages'] > 1
+          # Deliberately no machine-speed wall-clock threshold.
+          print('V2_LIBRARY_LARGE_REAL_NONFLAKY_GUARD=PASS')
+          PY
+      - name: Upload real performance evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v2-library-large-real-performance-${{ github.sha }}
+          path: |
+            v2-library-large-real-profile.json
+            v2-library-large-real-profile.log
+          if-no-files-found: warn
+          retention-days: 14
