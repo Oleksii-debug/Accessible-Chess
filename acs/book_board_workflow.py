@@ -164,8 +164,17 @@ class BookBoardWorkflow:
     def _canonical_fen(value: object) -> str:
         """Delegate the complete position policy to the one canonical Board."""
 
+        # ``Board(None)`` means "start position" in the canonical constructor.
+        # A Book payload is not allowed to use that convenience convention:
+        # missing/corrupted semantic FEN must fail closed instead of silently
+        # becoming a different chess position.
+        if type(value) is not str or not value.strip():
+            raise BookBoardWorkflow._error(
+                "book position cannot be opened on the canonical board",
+                BookBoardWorkflowCode.INVALID_POSITION,
+            )
         try:
-            return Board(value).fen()  # type: ignore[arg-type]
+            return Board(value).fen()
         except Exception as exc:
             raise BookBoardWorkflow._error(
                 "book position cannot be opened on the canonical board",
