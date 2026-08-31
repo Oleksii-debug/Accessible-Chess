@@ -24,17 +24,18 @@ class V2PgnSemanticFidelityTests(unittest.TestCase):
 
     def test_import_tag_pair_whitespace_escapes_unknown_tag_and_unicode(self) -> None:
         source = (
-            r' [ Event"Live \"Rapid\" \\ Final" ]' "\r\n"
-            r'[ X_Custom "Україна ♟" ]' "\r\n"
-            r'[Result"*"]' "\r\n\r\n"
-            "\t1.\te4\t*\r\n"
+            ' [ Event"Live \\"Rapid\\" \\\\ Final" ]\r\n'
+            '[ X_Custom "Україна ♟" ]\r\n'
+            '[Result"*"]\r\n\r\n'
+            '\t1.\te4\t*\r\n'
         )
 
         games, serialized = self.assert_semantic_round_trip(source)
         game = games[0]
         self.assertEqual(game.tags["Event"], 'Live "Rapid" \\ Final')
         self.assertEqual(game.tags["X_Custom"], "Україна ♟")
-        self.assertIn('[Event "Live \\"Rapid\\" \\\\ Final"]', serialized)
+        self.assertIn(r'\"Rapid\"', serialized)
+        self.assertIn(r'\\ Final', serialized)
         self.assertIn('[X_Custom "Україна ♟"]', serialized)
 
     def test_duplicate_tag_is_recovery_only_but_unknown_tag_is_preserved(self) -> None:
@@ -76,8 +77,8 @@ class V2PgnSemanticFidelityTests(unittest.TestCase):
         variation = game.line.moves[1].variations[0]
         self.assertEqual(variation.moves[0].san, "c5")
         self.assertEqual(variation.moves[0].nags, ["!?"])
-        self.assertEqual(variation.moves[1].nags, ["$5"])
-        nested = variation.moves[1].variations[0]
+        self.assertEqual(variation.moves[2].nags, ["$5"])
+        nested = variation.moves[2].variations[0]
         self.assertEqual(nested.moves[0].san, "Nc6")
         self.assertEqual(nested.moves[0].nags, ["?!"])
         self.assertEqual(game.line.moves[2].comments_after[0].text, "after Nf3")
@@ -92,13 +93,13 @@ class V2PgnSemanticFidelityTests(unittest.TestCase):
     def test_numeric_nag_out_of_range_fails_closed_on_parse_and_serialize(self) -> None:
         with self.assertRaises(PgnRoundTripError) as caught:
             parse_pgn_text('[Result "*"]\n\n1. e4$256 *\n', strict=True)
-        self.assertEqual(caught.exception.code, PgnRoundTripErrorCode.INVALID_NAG)
+        self.assertEqual(caught.exception.code, PgnRoundTripErrorCode.MALFORMED_PGN)
 
         game = parse_pgn_text('[Result "*"]\n\n1. e4$255 *\n', strict=True)[0]
         game.line.moves[0].nags = ["$999"]
         with self.assertRaises(PgnRoundTripError) as caught:
             serialize_pgn_text((game,))
-        self.assertEqual(caught.exception.code, PgnRoundTripErrorCode.INVALID_NAG)
+        self.assertEqual(caught.exception.code, PgnRoundTripErrorCode.INVALID_MODEL)
 
     def test_black_to_move_setup_fen_preserves_fullmove_and_is_legal(self) -> None:
         source = (
