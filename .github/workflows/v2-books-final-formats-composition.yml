@@ -62,7 +62,6 @@ jobs:
             'scripts/v2_books_final_formats_composition_oracle.py' | sort)"
           test "$changed" = "$expected"
           git diff --quiet "$FINAL_BASE" HEAD -- acs tests web run_accessible_chess.py
-          test "$(git rev-parse "HEAD^")" != "" || true
           echo 'BOOKS FINAL-FORMATS QA-ONLY SCOPE PASS'
 
       - name: Materialize exact owner composition
@@ -103,6 +102,7 @@ jobs:
           overlay "$BOOK_BOARD" acs/book_board_workflow.py
           overlay "$BOOK_BOARD" tests/test_v2_book_board_workflow.py
 
+          mkdir -p "$composed/scripts"
           cp "$GITHUB_WORKSPACE/scripts/v2_books_final_formats_composition_oracle.py" \
              "$composed/scripts/v2_books_final_formats_composition_oracle.py"
 
