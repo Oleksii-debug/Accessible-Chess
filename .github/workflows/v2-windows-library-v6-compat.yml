@@ -152,8 +152,11 @@ jobs:
         run: |
           set -euo pipefail
           python - <<'PY'
+          from acs.version2_windows_file_workflows import Version2WindowsFileDialogs
           from acs.version2_windows_host_runtime import Version2WindowsFileWorkflowRuntime
           from acs.version2_windows_import_ui_pump import Version2WinFormsUiPoster
+
+          Version2WindowsFileDialogs._load_forms()
           from System.Windows.Forms import Control
 
           owner = Control()
