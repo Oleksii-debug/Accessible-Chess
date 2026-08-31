@@ -71,7 +71,7 @@ class ChessBaseMetadataContractTests(unittest.TestCase):
         self.assertIsNone(scid_eco_main_to_pgn(0))
         self.assertEqual(scid_eco_main_to_pgn(1), "A00")
         self.assertEqual(scid_eco_main_to_pgn(132), "A01")
-        self.assertEqual(scid_eco_main_to_pgn(13070), "A99")
+        self.assertEqual(scid_eco_main_to_pgn(12970), "A99")
         self.assertEqual(scid_eco_main_to_pgn(13101), "B00")
         self.assertEqual(scid_eco_main_to_pgn(65370), "E99")
         self.assertIsNone(scid_eco_main_to_pgn(2))
@@ -87,6 +87,7 @@ class ChessBaseMetadataContractTests(unittest.TestCase):
         for field in ("SourceDatabase", "SourceIndex", "SourceSHA256"):
             self.assertEqual(capabilities[field].status, ChessBaseMetadataStatus.PROVENANCE)
         self.assertEqual(capabilities["BackendTags"].status, ChessBaseMetadataStatus.PASSTHROUGH)
+        self.assertEqual(capabilities["BackendTextEncoding"].status, ChessBaseMetadataStatus.PASSTHROUGH)
         self.assertEqual(
             chessbase_metadata_unavailable_fields(),
             ("Opening", "WhiteTitle", "BlackTitle"),
