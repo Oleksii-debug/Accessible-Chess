@@ -2,14 +2,14 @@ from __future__ import annotations
 
 """Evidence-gated extraction of ChessBase ``.cbv`` archives.
 
-CBV is an archive/container rather than a game database decoder.  Accessible
+CBV is an archive/container rather than a game database decoder. Accessible
 Chess keeps the GPL extractor as an optional external executable, validates
 the complete archive entry list before extraction, writes only into a fresh
 temporary directory, and then hands the extracted classic ``.cbh`` family to
 the existing semantic decoder.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import Enum
 import os
 from pathlib import Path, PurePosixPath, PureWindowsPath
@@ -17,6 +17,7 @@ import stat
 import subprocess
 import threading
 import time
+from typing import Callable
 
 from .import_contract import SourceFingerprint, fingerprint, verify_source_unchanged
 
@@ -24,6 +25,7 @@ from .import_contract import SourceFingerprint, fingerprint, verify_source_uncha
 MAX_ARCHIVE_ENTRIES = 4096
 MAX_ARCHIVE_BYTES = 4 * 1024 * 1024 * 1024
 MAX_EXTRACTED_BYTES = 16 * 1024 * 1024 * 1024
+MAX_EXPANSION_RATIO = 1024
 MAX_LIST_STDOUT = 4 * 1024 * 1024
 MAX_BACKEND_STDERR = 1 * 1024 * 1024
 MAX_ENTRY_NAME_CHARS = 1024
@@ -40,12 +42,17 @@ class CbvExtractCode(str, Enum):
     INVALID_ENTRY = "invalid_entry"
     RESOURCE_LIMIT = "resource_limit"
     OUTPUT_INVALID = "output_invalid"
+    CANCELLED = "cancelled"
+    CONTROL_INVALID = "control_invalid"
 
 
 class CbvExtractError(RuntimeError):
     def __init__(self, message: str, *, code: CbvExtractCode) -> None:
         super().__init__(message)
         self.code = CbvExtractCode(code)
+
+
+CancelCheck = Callable[[], bool]
 
 
 @dataclass(frozen=True, slots=True)
@@ -58,6 +65,7 @@ class ExternalCbvExtractorConfig:
     max_entries: int = MAX_ARCHIVE_ENTRIES
     max_source_bytes: int = MAX_ARCHIVE_BYTES
     max_extracted_bytes: int = MAX_EXTRACTED_BYTES
+    max_expansion_ratio: int = MAX_EXPANSION_RATIO
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "executable", Path(self.executable))
@@ -68,14 +76,28 @@ class ExternalCbvExtractorConfig:
             or any(character not in "0123456789abcdef" for character in digest)
         ):
             raise ValueError("expected_backend_sha256 must be a lowercase SHA-256")
-        if type(self.timeout_seconds) not in (int, float) or not 0 < float(self.timeout_seconds) <= 600:
+        if (
+            type(self.timeout_seconds) not in (int, float)
+            or not 0 < float(self.timeout_seconds) <= 600
+        ):
             raise ValueError("timeout_seconds must be within (0, 600]")
         for value, label, minimum, maximum in (
             (self.max_stdout_bytes, "max_stdout_bytes", 1024, 64 * 1024 * 1024),
             (self.max_stderr_bytes, "max_stderr_bytes", 1024, 64 * 1024 * 1024),
             (self.max_entries, "max_entries", 1, 100_000),
-            (self.max_source_bytes, "max_source_bytes", 1, 64 * 1024 * 1024 * 1024),
-            (self.max_extracted_bytes, "max_extracted_bytes", 1, 256 * 1024 * 1024 * 1024),
+            (
+                self.max_source_bytes,
+                "max_source_bytes",
+                1,
+                64 * 1024 * 1024 * 1024,
+            ),
+            (
+                self.max_extracted_bytes,
+                "max_extracted_bytes",
+                1,
+                256 * 1024 * 1024 * 1024,
+            ),
+            (self.max_expansion_ratio, "max_expansion_ratio", 1, 1_000_000),
         ):
             if type(value) is not int or not minimum <= value <= maximum:
                 raise ValueError(f"{label} is outside the supported bound")
@@ -101,6 +123,36 @@ def _error(message: str, code: CbvExtractCode) -> CbvExtractError:
     return CbvExtractError(message, code=code)
 
 
+def _poll_cancel(cancel_check: CancelCheck | None) -> bool:
+    if cancel_check is None:
+        return False
+    if not callable(cancel_check):
+        raise _error(
+            "CBV cancellation control is invalid",
+            CbvExtractCode.CONTROL_INVALID,
+        )
+    try:
+        cancelled = cancel_check()
+    except CbvExtractError:
+        raise
+    except Exception as exc:
+        raise _error(
+            "CBV cancellation control failed",
+            CbvExtractCode.CONTROL_INVALID,
+        ) from exc
+    if type(cancelled) is not bool:
+        raise _error(
+            "CBV cancellation control must return a boolean",
+            CbvExtractCode.CONTROL_INVALID,
+        )
+    return cancelled
+
+
+def _raise_if_cancelled(cancel_check: CancelCheck | None) -> None:
+    if _poll_cancel(cancel_check):
+        raise _error("CBV extraction cancelled", CbvExtractCode.CANCELLED)
+
+
 def _is_reparse_point(st: os.stat_result) -> bool:
     marker = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
     return bool(getattr(st, "st_file_attributes", 0) & marker)
@@ -110,8 +162,15 @@ def _validate_real_directory(path: Path, *, must_be_empty: bool) -> Path:
     try:
         st = path.lstat()
     except OSError as exc:
-        raise _error("CBV extraction directory is unavailable", CbvExtractCode.OUTPUT_INVALID) from exc
-    if stat.S_ISLNK(st.st_mode) or _is_reparse_point(st) or not stat.S_ISDIR(st.st_mode):
+        raise _error(
+            "CBV extraction directory is unavailable",
+            CbvExtractCode.OUTPUT_INVALID,
+        ) from exc
+    if (
+        stat.S_ISLNK(st.st_mode)
+        or _is_reparse_point(st)
+        or not stat.S_ISDIR(st.st_mode)
+    ):
         raise _error(
             "CBV extraction directory must be a real non-indirected directory",
             CbvExtractCode.OUTPUT_INVALID,
@@ -167,12 +226,18 @@ def _scan_output(directory: Path) -> tuple[set[str], int]:
     files: set[str] = set()
     total = 0
     try:
-        for current, directory_names, file_names in os.walk(directory, followlinks=False):
+        for current, directory_names, file_names in os.walk(
+            directory, followlinks=False
+        ):
             current_path = Path(current)
             for name in directory_names:
                 child = current_path / name
                 st = child.lstat()
-                if stat.S_ISLNK(st.st_mode) or _is_reparse_point(st) or not stat.S_ISDIR(st.st_mode):
+                if (
+                    stat.S_ISLNK(st.st_mode)
+                    or _is_reparse_point(st)
+                    or not stat.S_ISDIR(st.st_mode)
+                ):
                     raise _error(
                         "CBV extractor produced an unsafe directory entry",
                         CbvExtractCode.OUTPUT_INVALID,
@@ -180,7 +245,11 @@ def _scan_output(directory: Path) -> tuple[set[str], int]:
             for name in file_names:
                 child = current_path / name
                 st = child.lstat()
-                if stat.S_ISLNK(st.st_mode) or _is_reparse_point(st) or not stat.S_ISREG(st.st_mode):
+                if (
+                    stat.S_ISLNK(st.st_mode)
+                    or _is_reparse_point(st)
+                    or not stat.S_ISREG(st.st_mode)
+                ):
                     raise _error(
                         "CBV extractor produced an unsafe file entry",
                         CbvExtractCode.OUTPUT_INVALID,
@@ -205,7 +274,14 @@ def _run_uncbv(
     *,
     cwd: Path,
     monitor_directory: Path | None = None,
+    cancel_check: CancelCheck | None = None,
 ) -> bytes:
+    if cancel_check is not None and not callable(cancel_check):
+        raise _error(
+            "CBV cancellation control is invalid",
+            CbvExtractCode.CONTROL_INVALID,
+        )
+
     creationflags = 0
     if os.name == "nt":
         creationflags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
@@ -248,8 +324,19 @@ def _run_uncbv(
     deadline = time.monotonic() + float(config.timeout_seconds)
     timed_out = False
     overflow = False
+    cancelled = False
     monitor_error: CbvExtractError | None = None
+    control_error: Exception | None = None
     while process.poll() is None:
+        try:
+            cancelled = _poll_cancel(cancel_check)
+        except Exception as exc:
+            control_error = exc
+            process.kill()
+            break
+        if cancelled:
+            process.kill()
+            break
         if stdout.overflow.is_set() or stderr.overflow.is_set():
             overflow = True
             process.kill()
@@ -282,6 +369,10 @@ def _run_uncbv(
     for thread in threads:
         thread.join(timeout=2.0)
 
+    if control_error is not None:
+        raise control_error
+    if cancelled:
+        raise _error("CBV extraction cancelled", CbvExtractCode.CANCELLED)
     if monitor_error is not None:
         raise monitor_error
     if timed_out:
@@ -304,7 +395,10 @@ def _run_uncbv(
 
 def _normalize_entry_name(value: str) -> str:
     if not value or len(value) > MAX_ENTRY_NAME_CHARS or "\x00" in value:
-        raise _error("CBV archive contains an invalid entry name", CbvExtractCode.INVALID_ENTRY)
+        raise _error(
+            "CBV archive contains an invalid entry name",
+            CbvExtractCode.INVALID_ENTRY,
+        )
     normalized = value.replace("\\", "/")
     windows = PureWindowsPath(value)
     path = PurePosixPath(normalized)
@@ -317,7 +411,10 @@ def _normalize_entry_name(value: str) -> str:
         or any(part in {"", ".", ".."} for part in parts)
         or any(len(part) > 255 for part in parts)
     ):
-        raise _error("CBV archive contains an unsafe entry path", CbvExtractCode.INVALID_ENTRY)
+        raise _error(
+            "CBV archive contains an unsafe entry path",
+            CbvExtractCode.INVALID_ENTRY,
+        )
     return PurePosixPath(*parts).as_posix()
 
 
@@ -329,7 +426,9 @@ def _parse_entry_list(data: bytes, *, max_entries: int) -> tuple[str, ...]:
             "CBV extractor returned a non-UTF-8 entry list",
             CbvExtractCode.INVALID_ENTRY,
         ) from exc
-    raw_names = [line.rstrip("\r") for line in text.splitlines() if line.rstrip("\r")]
+    raw_names = [
+        line.rstrip("\r") for line in text.splitlines() if line.rstrip("\r")
+    ]
     if not raw_names or len(raw_names) > max_entries:
         raise _error(
             "CBV archive entry count is outside the configured bound",
@@ -345,15 +444,32 @@ def _parse_entry_list(data: bytes, *, max_entries: int) -> tuple[str, ...]:
     return names
 
 
+def _effective_extraction_limit(
+    source: SourceFingerprint,
+    config: ExternalCbvExtractorConfig,
+) -> int:
+    if source.size <= 0:
+        raise _error(
+            "CBV archive is empty",
+            CbvExtractCode.RESOURCE_LIMIT,
+        )
+    ratio_limit = source.size * config.max_expansion_ratio
+    return min(config.max_extracted_bytes, ratio_limit)
+
+
 def extract_cbv_external(
     path: str | Path,
     output_directory: str | Path,
     config: ExternalCbvExtractorConfig,
+    *,
+    cancel_check: CancelCheck | None = None,
 ) -> CbvExtraction:
     """Extract one immutable CBV archive into a fresh trusted-host directory."""
 
     if not isinstance(config, ExternalCbvExtractorConfig):
         raise TypeError("config must be an ExternalCbvExtractorConfig")
+    _raise_if_cancelled(cancel_check)
+
     source_path = Path(path)
     if source_path.suffix.lower() != ".cbv":
         raise _error(
@@ -379,14 +495,20 @@ def extract_cbv_external(
             CbvExtractCode.BACKEND_INVALID,
         )
 
+    extraction_limit = _effective_extraction_limit(source, config)
+    extraction_config = replace(config, max_extracted_bytes=extraction_limit)
+
     output = _validate_real_directory(Path(output_directory), must_be_empty=True)
     executable = Path(backend.path)
     source_absolute = Path(source.path)
+
+    run_cancel = {} if cancel_check is None else {"cancel_check": cancel_check}
     listed = _run_uncbv(
         executable,
         ["list", os.fspath(source_absolute)],
         config,
         cwd=output,
+        **run_cancel,
     )
     entries = _parse_entry_list(listed, max_entries=config.max_entries)
     if not verify_source_unchanged(source, source_absolute):
@@ -394,6 +516,7 @@ def extract_cbv_external(
             "CBV source changed while its entry list was inspected",
             CbvExtractCode.SOURCE_CHANGED,
         )
+    _raise_if_cancelled(cancel_check)
 
     _run_uncbv(
         executable,
@@ -403,9 +526,10 @@ def extract_cbv_external(
             f"--output={os.fspath(output)}",
             "--no-confirm",
         ],
-        config,
+        extraction_config,
         cwd=output,
         monitor_directory=output,
+        **run_cancel,
     )
     if not verify_source_unchanged(source, source_absolute):
         raise _error(
@@ -417,11 +541,12 @@ def extract_cbv_external(
             "CBV extractor backend changed while it was running",
             CbvExtractCode.BACKEND_INVALID,
         )
+    _raise_if_cancelled(cancel_check)
 
     observed, extracted_bytes = _scan_output(output)
-    if extracted_bytes > config.max_extracted_bytes:
+    if extracted_bytes > extraction_limit:
         raise _error(
-            "CBV extracted content exceeds the configured limit",
+            "CBV extracted content exceeds the configured expansion limit",
             CbvExtractCode.RESOURCE_LIMIT,
         )
     expected = set(entries)
@@ -430,7 +555,11 @@ def extract_cbv_external(
             "CBV extractor output does not match the validated archive entry list",
             CbvExtractCode.OUTPUT_INVALID,
         )
-    primary_names = [name for name in entries if PurePosixPath(name).suffix.lower() == ".cbh"]
+    primary_names = [
+        name
+        for name in entries
+        if PurePosixPath(name).suffix.lower() == ".cbh"
+    ]
     if len(primary_names) != 1:
         raise _error(
             "CBV archive must contain exactly one classic .cbh primary source",
