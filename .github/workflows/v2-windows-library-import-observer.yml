@@ -97,7 +97,7 @@ jobs:
           tests.test_v2_windows_import_event_mailbox
           tests.test_v2_windows_import_ui_pump
           tests.test_library_import_ui_integration
-          tests.test_dev1_library_import_webview_projection
+          tests.test_dev1_library_webview_projection
           tests.test_d07_library_import_service
 
       - name: Focused pytest parity
@@ -109,7 +109,7 @@ jobs:
           tests/test_v2_windows_import_event_mailbox.py
           tests/test_v2_windows_import_ui_pump.py
           tests/test_library_import_ui_integration.py
-          tests/test_dev1_library_import_webview_projection.py
+          tests/test_dev1_library_webview_projection.py
           tests/test_d07_library_import_service.py
 
       - name: Full repository unittest
