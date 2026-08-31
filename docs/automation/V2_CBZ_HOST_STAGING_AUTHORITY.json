@@ -1,0 +1,64 @@
+{
+  "schema_version": 1,
+  "package": "v2-cbz-host-staging-authority",
+  "date_utc": "2026-08-31",
+  "base": {
+    "pr": 351,
+    "sha": "00bb0c6b02bc1638ef8829abc0dc040a4b3a6db9",
+    "cbz_extractor_blob": "50fa1758b8e78d4bc8e77976b9d0c6f80aaeeed3",
+    "windows_recovery_host_blob": "e0d65b135b4de46cbad6d6eae75b09e3337ad530"
+  },
+  "format_status": {
+    "cbz": "BLOCKED",
+    "2cbz": "BLOCKED"
+  },
+  "support_promotion_allowed": false,
+  "real_semantic_acceptance": {
+    "lawful_reusable_real_cbz_with_automatable_password": false,
+    "independent_pgn_or_gametree_oracle": false,
+    "full_decode_gametree_library_export_reopen": false
+  },
+  "host_contract": {
+    "single_explicit_recovery_root": true,
+    "root_is_application_owned_not_browser_payload": true,
+    "outer_marker_qualified_stage": true,
+    "decrypted_and_extracted_files_remain_inside_outer_stage_until_consumed": true,
+    "normal_success_error_cancel_cleanup": true,
+    "restart_recovery_reuses_same_root": true,
+    "global_system_temp_scan": false,
+    "user_selected_arbitrary_temp_root": false
+  },
+  "password_contract": {
+    "one_shot_provider": true,
+    "path_free_request": true,
+    "masked_input_required": true,
+    "persistence_allowed": false,
+    "command_line_allowed": false,
+    "environment_secret_allowed": false,
+    "existing_stdin_only_transport_reused": true,
+    "immutable_str_wipe_guaranteed": false,
+    "note": "The Python provider currently returns str; Product drops its local reference but cannot truthfully guarantee erasure of immutable interpreter/provider memory."
+  },
+  "inherited_security": {
+    "source_and_backend_fingerprint_revalidation": true,
+    "bounded_source_size": true,
+    "bounded_decrypted_cbv_size_with_live_monitor": true,
+    "bounded_stdout_stderr": true,
+    "backend_timeout": true,
+    "cancellation_kills_decrypt_process": true,
+    "cbv_path_traversal_rejected": true,
+    "symlink_reparse_nonregular_fail_closed": true,
+    "archive_resource_limits": true,
+    "atomic_publish_inside_private_stage": true,
+    "stale_marker_dead_owner_recovery": true
+  },
+  "explicit_non_claims": [
+    "No DRM or encryption bypass",
+    "No password recovery or cracking",
+    "No proprietary/commercial password or secret",
+    "No 2CBZ decryption or payload semantics",
+    "No user-facing CBZ import activation",
+    "No default GPL backend bundling",
+    "No semantic support promotion without lawful real corpus plus independent oracle"
+  ]
+}
