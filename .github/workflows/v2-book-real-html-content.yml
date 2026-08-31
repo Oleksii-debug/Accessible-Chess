@@ -32,9 +32,7 @@ jobs:
     env:
       PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
       BOOK_URL: https://www.gutenberg.org/files/16377/16377-h/16377-h.htm
-      # First run intentionally reports the exact live bytes; the follow-up
-      # checkpoint replaces this with that observed SHA before the PR is green.
-      BOOK_SHA256: UNPINNED
+      BOOK_SHA256: 397cd3d816b6e685d30d3d7cfb36627cff415c754cc8f4e455c24da652d3c21e
     steps:
       - uses: actions/checkout@v4
         with:
