@@ -23,28 +23,86 @@
 
 namespace {
 
+bool is_utf8_continuation(unsigned char value) {
+    return value >= 0x80 && value <= 0xBF;
+}
+
+std::size_t valid_utf8_sequence_length(const std::string& value, std::size_t index) {
+    const auto byte = [&value](std::size_t position) {
+        return static_cast<unsigned char>(value[position]);
+    };
+    const unsigned char first = byte(index);
+    const std::size_t remaining = value.size() - index;
+    if (first >= 0xC2 && first <= 0xDF) {
+        return remaining >= 2 && is_utf8_continuation(byte(index + 1)) ? 2 : 0;
+    }
+    if (remaining >= 3 && first >= 0xE0 && first <= 0xEF) {
+        const unsigned char second = byte(index + 1);
+        const unsigned char third = byte(index + 2);
+        if (!is_utf8_continuation(third)) {
+            return 0;
+        }
+        if (first == 0xE0) {
+            return second >= 0xA0 && second <= 0xBF ? 3 : 0;
+        }
+        if (first == 0xED) {
+            return second >= 0x80 && second <= 0x9F ? 3 : 0;
+        }
+        return is_utf8_continuation(second) ? 3 : 0;
+    }
+    if (remaining >= 4 && first >= 0xF0 && first <= 0xF4) {
+        const unsigned char second = byte(index + 1);
+        const unsigned char third = byte(index + 2);
+        const unsigned char fourth = byte(index + 3);
+        if (!is_utf8_continuation(third) || !is_utf8_continuation(fourth)) {
+            return 0;
+        }
+        if (first == 0xF0) {
+            return second >= 0x90 && second <= 0xBF ? 4 : 0;
+        }
+        if (first == 0xF4) {
+            return second >= 0x80 && second <= 0x8F ? 4 : 0;
+        }
+        return is_utf8_continuation(second) ? 4 : 0;
+    }
+    return 0;
+}
+
 std::string json_string(const std::string& value) {
     std::ostringstream out;
     out << '"';
-    for (unsigned char c : value) {
+    for (std::size_t index = 0; index < value.size();) {
+        const unsigned char c = static_cast<unsigned char>(value[index]);
         switch (c) {
-        case '"': out << "\\\""; break;
-        case '\\': out << "\\\\"; break;
-        case '\b': out << "\\b"; break;
-        case '\f': out << "\\f"; break;
-        case '\n': out << "\\n"; break;
-        case '\r': out << "\\r"; break;
-        case '\t': out << "\\t"; break;
+        case '"': out << "\\\""; ++index; break;
+        case '\\': out << "\\\\"; ++index; break;
+        case '\b': out << "\\b"; ++index; break;
+        case '\f': out << "\\f"; ++index; break;
+        case '\n': out << "\\n"; ++index; break;
+        case '\r': out << "\\r"; ++index; break;
+        case '\t': out << "\\t"; ++index; break;
         default:
-            // libcbh exposes byte strings without an encoding contract. Keep
-            // the JSON stream valid and preserve every byte deterministically.
-            // Bytes >= 0x80 are represented one-to-one as U+00XX rather than
-            // emitting possibly-invalid UTF-8.
-            if (c < 0x20 || c >= 0x80) {
+            if (c < 0x20) {
                 out << "\\u00" << std::hex << std::setw(2) << std::setfill('0')
                     << static_cast<unsigned int>(c) << std::dec;
-            } else {
+                ++index;
+            } else if (c < 0x80) {
                 out << static_cast<char>(c);
+                ++index;
+            } else {
+                // Preserve already-valid UTF-8 as Unicode.  libcbh otherwise
+                // exposes no charset contract, so an invalid high byte is
+                // retained deterministically as U+00XX rather than guessed as
+                // a proprietary/code-page character or emitted as invalid JSON.
+                const std::size_t length = valid_utf8_sequence_length(value, index);
+                if (length) {
+                    out.write(value.data() + index, static_cast<std::streamsize>(length));
+                    index += length;
+                } else {
+                    out << "\\u00" << std::hex << std::setw(2) << std::setfill('0')
+                        << static_cast<unsigned int>(c) << std::dec;
+                    ++index;
+                }
             }
         }
     }
@@ -222,7 +280,7 @@ int main(int argc, char** argv) {
     std::cout << "{\"protocol\":\"accessible-chess-libcbh-v1\""
               << ",\"backend\":\"libcbh\""
               << ",\"backend_commit\":" << json_string(LIBCBH_SOURCE_COMMIT)
-              << ",\"string_encoding\":\"byte_escape_u00xx\""
+              << ",\"string_encoding\":\"utf8_or_byte_escape_u00xx\""
               << ",\"games\":[";
 
     const std::size_t count = codec.numGames();
