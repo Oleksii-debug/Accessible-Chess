@@ -19,6 +19,7 @@ from .search_policy import (
     normalize_search_result,
     normalize_search_source_id,
     normalize_search_term,
+    normalize_search_year_bound,
 )
 
 SearchResult = Literal["1-0", "0-1", "1/2-1/2", "*"]
@@ -75,10 +76,14 @@ def _poll_cancel(cancel_check: Callable[[], bool]) -> bool:
 class GameSearchQuery:
     """Stable, neutral query contract for a page of ACSDB games.
 
-    ``game_date`` matches the stored loss-aware PGN Date tag exactly after the
-    normal text normalization policy. ``date_from`` and ``date_to`` are strict
-    calendar bounds and accept only complete real ``YYYY.MM.DD`` dates; partial
-    or unknown source dates remain stored but do not become invented range facts.
+    Text filters use the canonical NFKC + casefold literal-substring policy;
+    compatibility forms and case are normalized while diacritics remain
+    significant. ``game_date`` matches the stored loss-aware PGN Date tag
+    exactly after normal text normalization. ``date_from`` and ``date_to`` are
+    strict complete calendar bounds. ``year_from`` and ``year_to`` are exact
+    integer years and constrain only complete real stored dates; partial,
+    unknown, or malformed PGN dates remain preserved and never become invented
+    calendar facts.
 
     ``after_game_id`` is a keyset cursor rather than a row offset. This keeps paging
     deterministic while imports append games to the database. Filters are
@@ -87,11 +92,14 @@ class GameSearchQuery:
 
     player: str | None = None
     event: str | None = None
+    site: str | None = None
     eco: str | None = None
     opening: str | None = None
     game_date: str | None = None
     date_from: str | None = None
     date_to: str | None = None
+    year_from: int | None = None
+    year_to: int | None = None
     result: SearchResult | None = None
     source_id: int | None = None
     source_name: str | None = None
@@ -115,15 +123,22 @@ class GameSearchQuery:
         date_to = normalize_search_date_bound(self.date_to, name="date_to")
         if date_from is not None and date_to is not None and date_from > date_to:
             raise ValueError("date_from must not be later than date_to")
+        year_from = normalize_search_year_bound(self.year_from, name="year_from")
+        year_to = normalize_search_year_bound(self.year_to, name="year_to")
+        if year_from is not None and year_to is not None and year_from > year_to:
+            raise ValueError("year_from must not be later than year_to")
 
         return GameSearchQuery(
             player=normalize_search_term(self.player, name="player"),
             event=normalize_search_term(self.event, name="event"),
+            site=normalize_search_term(self.site, name="site"),
             eco=normalize_search_term(self.eco, name="eco"),
             opening=normalize_search_term(self.opening, name="opening"),
             game_date=normalize_search_term(self.game_date, name="game_date"),
             date_from=date_from,
             date_to=date_to,
+            year_from=year_from,
+            year_to=year_to,
             result=result,  # type: ignore[arg-type]
             source_id=source_id,
             source_name=normalize_search_term(self.source_name, name="source_name"),
@@ -180,9 +195,9 @@ class GameSearchService:
         connection-global progress hook is always removed before returning or
         raising so a cancelled query cannot poison later Library operations.
 
-        Query construction and Unicode/literal/date semantics are delegated to
-        :meth:`AcsDatabase.search_games`. This keeps the application service on the
-        same schema-v5 search/index path, ordering and provenance contract as the
+        Query construction and Unicode/literal/date/year/source semantics are
+        delegated to :meth:`AcsDatabase.search_games`. This keeps the application
+        service on the same canonical ordering and provenance contract as the
         direct database API instead of maintaining a second SQL implementation.
 
         The VM hook is deliberately not exposed as a percentage: SQLite opcode
@@ -199,11 +214,14 @@ class GameSearchService:
             return self._database.search_games(
                 player=q.player,
                 event=q.event,
+                site=q.site,
                 eco=q.eco,
                 opening=q.opening,
                 game_date=q.game_date,
                 date_from=q.date_from,
                 date_to=q.date_to,
+                year_from=q.year_from,
+                year_to=q.year_to,
                 result=q.result,
                 source_id=q.source_id,
                 source_name=q.source_name,
