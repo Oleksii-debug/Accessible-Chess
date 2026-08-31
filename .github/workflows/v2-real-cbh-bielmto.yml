@@ -1,0 +1,321 @@
+name: Accessible Chess V2 Real CBH BielMTO Corpus
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/v2-real-cbh-bielmto.yml'
+      - 'tests/test_v2_real_cbh_bielmto_corpus.py'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: accessible-chess-v2-real-cbh-bielmto-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  V2_AUTHORITY_SHA: 575ec0088982d2f90adb47c040a5714d68186b0e
+  LIBCBH_COMMIT: 9641c5c3949d8fb210b17dd9aa54455645843696
+
+jobs:
+  real-bielmto:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 90
+    steps:
+      - name: Checkout exact QA head
+        uses: actions/checkout@v4
+        with:
+          path: product
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Prove exact authority ancestry and evidence-only scope
+        working-directory: product
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor "$V2_AUTHORITY_SHA" HEAD
+          test "$(git merge-base "$V2_AUTHORITY_SHA" HEAD)" = "$V2_AUTHORITY_SHA"
+          git diff --check "$V2_AUTHORITY_SHA" HEAD
+          changed="$(git diff --name-only "$V2_AUTHORITY_SHA" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/v2-real-cbh-bielmto.yml' \
+            'tests/test_v2_real_cbh_bielmto_corpus.py' | sort)"
+          test "$changed" = "$expected" || {
+            printf 'Unexpected QA scope:\n%s\n' "$changed" >&2
+            exit 1
+          }
+          git diff --quiet "$V2_AUTHORITY_SHA" HEAD -- acs web tools docs/automation
+          printf 'PRODUCT_AUTHORITY=%s\nQA_HEAD=%s\n' "$V2_AUTHORITY_SHA" "$(git rev-parse HEAD)"
+
+      - name: Checkout pinned legal libcbh corpus and backend
+        uses: actions/checkout@v4
+        with:
+          repository: rolandlo/libcbh
+          ref: 9641c5c3949d8fb210b17dd9aa54455645843696
+          path: upstream/libcbh
+          fetch-depth: 1
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install pinned verification dependency
+        run: python -m pip install -q pytest==8.4.2
+
+      - name: Build pinned libcbh and existing bridge
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S upstream/libcbh -B upstream/libcbh/build -DCMAKE_BUILD_TYPE=Release -DGTEST=OFF
+          cmake --build upstream/libcbh/build --config Release --parallel 2
+          mkdir -p product/build/libcbh
+          c++ -std=c++20 -O2 \
+            -DLIBCBH_SOURCE_COMMIT=\"$LIBCBH_COMMIT\" \
+            -I upstream/libcbh/include \
+            product/tools/optional/libcbh_json_bridge.cpp \
+            -L upstream/libcbh/build -lcbh \
+            -Wl,-rpath,'$ORIGIN' \
+            -o product/build/libcbh/libcbh-json-bridge
+          cp -a upstream/libcbh/build/libcbh.so* product/build/libcbh/
+          test -x product/build/libcbh/libcbh-json-bridge
+          sha256sum \
+            upstream/libcbh/gtest/NormalGames/BielMTO.cbh \
+            upstream/libcbh/gtest/NormalGames/BielMTO.pgn
+
+      - name: Capture raw bridge and Product decoder boundary evidence
+        working-directory: product
+        shell: bash
+        env:
+          LIBCBH_BRIDGE: ${{ github.workspace }}/product/build/libcbh/libcbh-json-bridge
+          LIBCBH_NORMAL_DIR: ${{ github.workspace }}/upstream/libcbh/gtest/NormalGames
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from __future__ import annotations
+          from collections import Counter
+          import json
+          import os
+          from pathlib import Path
+          import subprocess
+
+          from acs.chessbase_decoder import ExternalChessBaseDecoderConfig, decode_chessbase_external
+
+          libcbh_commit = os.environ["LIBCBH_COMMIT"]
+          bridge = Path(os.environ["LIBCBH_BRIDGE"])
+          source = Path(os.environ["LIBCBH_NORMAL_DIR"]) / "BielMTO.cbh"
+
+          completed = subprocess.run(
+              [str(bridge), "--json-v1", str(source)],
+              check=True,
+              stdout=subprocess.PIPE,
+              stderr=subprocess.PIPE,
+          )
+          payload = json.loads(completed.stdout.decode("utf-8", errors="strict"))
+          games = payload.get("games", [])
+          statuses = Counter(str(game.get("status")) for game in games)
+          error_codes = Counter(
+              str(game.get("error_code"))
+              for game in games
+              if game.get("error_code") is not None
+          )
+          raw_summary = {
+              "backend": payload.get("backend"),
+              "backend_commit": payload.get("backend_commit"),
+              "game_count": len(games),
+              "statuses": dict(sorted(statuses.items())),
+              "error_codes": dict(sorted(error_codes.items())),
+              "move_records": sum(
+                  len(game.get("moves", []))
+                  for game in games
+                  if isinstance(game.get("moves"), list)
+              ),
+              "games_with_start_fen": sum(bool(game.get("start_fen")) for game in games),
+          }
+          Path("real-cbh-bielmto-raw.json").write_text(
+              json.dumps(raw_summary, sort_keys=True, ensure_ascii=False, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          print("CBH_BIELMTO_RAW=" + json.dumps(raw_summary, sort_keys=True, ensure_ascii=False))
+
+          config = ExternalChessBaseDecoderConfig(
+              bridge,
+              expected_backend_commit=libcbh_commit,
+              timeout_seconds=300,
+              library_directory=bridge.parent,
+          )
+          decoded = decode_chessbase_external(source, config)
+          decoded_summary = {
+              "decoded_games": len(decoded.games),
+              "warning_count": len(decoded.warnings),
+              "warning_codes": dict(sorted(Counter(warning.code for warning in decoded.warnings).items())),
+              "warning_sample": [
+                  {"game_index": warning.game_index, "code": warning.code, "message": warning.message}
+                  for warning in decoded.warnings[:20]
+              ],
+          }
+          Path("real-cbh-bielmto-decoder.json").write_text(
+              json.dumps(decoded_summary, sort_keys=True, ensure_ascii=False, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          print("CBH_BIELMTO_DECODER=" + json.dumps(decoded_summary, sort_keys=True, ensure_ascii=False))
+          PY
+
+      - name: Compile QA and Product surfaces
+        working-directory: product
+        run: python -m compileall -q acs tests/test_v2_real_cbh_bielmto_corpus.py
+
+      - name: Run exhaustive real BielMTO oracle
+        working-directory: product
+        shell: bash
+        env:
+          LIBCBH_BRIDGE: ${{ github.workspace }}/product/build/libcbh/libcbh-json-bridge
+          LIBCBH_NORMAL_DIR: ${{ github.workspace }}/upstream/libcbh/gtest/NormalGames
+        run: |
+          set +e
+          set -o pipefail
+          python -m unittest -v tests.test_v2_real_cbh_bielmto_corpus 2>&1 | tee real-cbh-bielmto.log
+          oracle_status=${PIPESTATUS[0]}
+          set -e
+          printf '%s\n' "$oracle_status" > real-cbh-bielmto.status
+          printf 'REAL_CBH_BIELMTO_ORACLE_EXIT=%s\n' "$oracle_status"
+          exit 0
+
+      - name: Focused existing ChessBase Library and PGN regressions
+        working-directory: product
+        run: >-
+          python -m unittest -v
+          tests.test_chessbase_decoder
+          tests.test_chessbase_integrity
+          tests.test_version2_formats_integration
+          tests.test_library_import_ui_integration
+          tests.test_pgn_service
+          tests.test_search_service
+
+      - name: Full repository unittest
+        working-directory: product
+        run: python -m unittest discover -s tests -v
+
+      - name: Full repository pytest
+        working-directory: product
+        run: python -m pytest -q tests
+
+      - name: SELFTEST and diagnostic
+        working-directory: product
+        run: |
+          python -m acs.selftest
+          python run_accessible_chess.py --diagnostic
+
+      - name: Upload evidence log only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v2-real-cbh-bielmto-evidence
+          path: |
+            product/real-cbh-bielmto.log
+            product/real-cbh-bielmto.status
+            product/real-cbh-bielmto-raw.json
+            product/real-cbh-bielmto-decoder.json
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Default source tree remains free of optional backend binaries
+        working-directory: product
+        shell: bash
+        run: |
+          set -euo pipefail
+          test ! -e libcbh-json-bridge
+          test ! -e libcbh.so
+          test -z "$(git status --porcelain --untracked-files=no)"
+
+      - name: Enforce real-corpus verdict after regressions
+        if: always()
+        working-directory: product
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f real-cbh-bielmto.status
+          status="$(cat real-cbh-bielmto.status)"
+          test "$status" = "0" || {
+            printf 'Real CBH BielMTO corpus is RED (oracle exit=%s).\n' "$status" >&2
+            exit "$status"
+          }
+
+  windows-regression:
+    runs-on: windows-2025
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Normalize worktree to canonical Git bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config core.autocrlf false
+          git config core.eol lf
+          git checkout-index -a -f
+          python - <<'PY'
+          from __future__ import annotations
+          import hashlib
+          from pathlib import Path
+          import subprocess
+
+          for rel in (
+              "acs/stage1_release_ui_core.py",
+              "acs/webapp_keymap_core.py",
+          ):
+              data = Path(rel).read_bytes()
+              actual = hashlib.sha1(f"blob {len(data)}\0".encode("ascii") + data).hexdigest()
+              expected = subprocess.check_output(["git", "rev-parse", f"HEAD:{rel}"], text=True).strip()
+              if actual != expected:
+                  raise SystemExit(f"canonical Git-byte materialization failed for {rel}: {actual} != {expected}")
+              print(f"CANONICAL_GIT_BLOB={rel}:{actual}")
+          PY
+
+      - name: Prove exact authority ancestry and evidence-only scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor "$V2_AUTHORITY_SHA" HEAD
+          test "$(git merge-base "$V2_AUTHORITY_SHA" HEAD)" = "$V2_AUTHORITY_SHA"
+          git diff --check "$V2_AUTHORITY_SHA" HEAD
+          changed="$(git diff --name-only "$V2_AUTHORITY_SHA" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/v2-real-cbh-bielmto.yml' \
+            'tests/test_v2_real_cbh_bielmto_corpus.py' | sort)"
+          test "$changed" = "$expected"
+          git diff --quiet "$V2_AUTHORITY_SHA" HEAD -- acs web tools docs/automation
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install pinned verification dependency
+        run: python -m pip install -q pytest==8.4.2
+
+      - name: Compile
+        run: python -m compileall -q acs tests run_accessible_chess.py
+
+      - name: Focused existing ChessBase Library and PGN regressions
+        run: >-
+          python -m unittest -v
+          tests.test_chessbase_decoder
+          tests.test_chessbase_integrity
+          tests.test_version2_formats_integration
+          tests.test_library_import_ui_integration
+          tests.test_pgn_service
+          tests.test_search_service
+
+      - name: Full repository unittest
+        run: python -m unittest discover -s tests -v
+
+      - name: Full repository pytest
+        run: python -m pytest -q tests
+
+      - name: SELFTEST and diagnostic
+        run: |
+          python -m acs.selftest
+          python run_accessible_chess.py --diagnostic
