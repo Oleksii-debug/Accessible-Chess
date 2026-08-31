@@ -4,6 +4,8 @@ on:
   push:
     branches:
       - work/v2-dev07-cbh-canonical-adapter-20260831
+  pull_request:
+    types: [reopened]
 
 permissions:
   contents: write
