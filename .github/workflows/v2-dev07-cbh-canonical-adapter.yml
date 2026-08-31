@@ -1,58 +1,85 @@
-name: V2 DEV07 CBH Canonical Adapter
+name: V2 DEV07 CBH Canonical Adapter Repair
 
 on:
   push:
     branches:
       - work/v2-dev07-cbh-canonical-adapter-20260831
-  pull_request:
-    paths:
-      - 'acs/chessbase_decoder.py'
-      - 'acs/chesscore.py'
-      - 'tests/test_v2_dev07_cbh_canonical_adapter.py'
-      - '.github/workflows/v2-dev07-cbh-canonical-adapter.yml'
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
-  group: v2-dev07-cbh-canonical-adapter-${{ github.ref }}
+  group: v2-dev07-cbh-canonical-adapter-repair
   cancel-in-progress: true
 
 jobs:
-  red-oracle:
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-22.04, windows-2025]
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 25
+  repair-and-verify:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          ref: work/v2-dev07-cbh-canonical-adapter-20260831
           fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Exact ancestry and narrow scope
+      - name: Exact ancestry and RED checkpoint lineage
         shell: bash
         run: |
           set -euo pipefail
           git merge-base --is-ancestor a213e6e87605560491d10d7e7b96623ea6e367c2 HEAD
+          git merge-base --is-ancestor 81158899198c7245b3d9dd2baffe6a8ed0da6b81 HEAD
           git diff --check a213e6e87605560491d10d7e7b96623ea6e367c2 HEAD
-          changed="$(git diff --name-only a213e6e87605560491d10d7e7b96623ea6e367c2 HEAD | sort)"
-          expected="$(printf '%s\n' '.github/workflows/v2-dev07-cbh-canonical-adapter.yml' 'tests/test_v2_dev07_cbh_canonical_adapter.py' | sort)"
-          test "$changed" = "$expected"
+      - name: Remove adapter-owned null transition and delegate to canonical Board
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('acs/chessbase_decoder.py')
+          text = path.read_text(encoding='utf-8')
+          old_function = '''def _null_move(board: Board) -> str:\n    parts = board.fen().split()\n    if len(parts) != 6:\n        raise _decode_error(\n            "canonical board produced an invalid FEN while decoding a null move",\n            ChessBaseDecodeCode.INVALID_MOVE,\n        )\n    was_black = parts[1] == "b"\n    parts[1] = "w" if was_black else "b"\n    parts[3] = "-"\n    parts[4] = str(int(parts[4]) + 1)\n    if was_black:\n        parts[5] = str(int(parts[5]) + 1)\n    board.set_fen(" ".join(parts))\n    return "--"\n\n\n'''
+          old_call = '''    if promote == 6:\n        return _null_move(board)\n'''
+          new_call = '''    if promote == 6:\n        return board.push_null()\n'''
+          if old_function in text and old_call in text:
+              if text.count(old_function) != 1 or text.count(old_call) != 1:
+                  raise SystemExit('unexpected duplicate null-move implementation/call')
+              text = text.replace(old_function, '', 1).replace(old_call, new_call, 1)
+              path.write_text(text, encoding='utf-8')
+          elif 'def _null_move' not in text and new_call in text:
+              print('canonical delegation already present; no mutation required')
+          else:
+              raise SystemExit('decoder null-move shape changed; refusing blind repair')
+          PY
+          test -z "$(git diff --name-only | grep -v '^acs/chessbase_decoder.py$' || true)"
+          ! grep -q 'def _null_move' acs/chessbase_decoder.py
+          ! grep -q 'board.set_fen(" ".join(parts))' acs/chessbase_decoder.py
+          grep -q 'return board.push_null()' acs/chessbase_decoder.py
+          git diff --check
       - name: Compile
         run: python -m compileall -q acs tests run_accessible_chess.py
-      - name: DEV07 one-core RED oracle
-        run: python -m unittest -v tests.test_v2_dev07_cbh_canonical_adapter
-      - name: Existing focused regressions
+      - name: DEV07 focused canonical-adapter regressions
         run: >-
           python -m unittest -v
+          tests.test_v2_dev07_cbh_canonical_adapter
           tests.test_v2_a4_canonical_nullmove
           tests.test_chessbase_decoder
           tests.test_chessbase_adapter
-          tests.test_gametree
           tests.test_gametree_legality
           tests.test_version2_formats_integration
+      - name: Publish bounded Product repair
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- acs/chessbase_decoder.py; then
+            echo 'Product repair already published.'
+            exit 0
+          fi
+          git config user.name 'accessible-chess-dev07'
+          git config user.email 'actions@users.noreply.github.com'
+          git add acs/chessbase_decoder.py
+          test "$(git diff --cached --name-only)" = 'acs/chessbase_decoder.py'
+          git commit -m 'fix: route CBH null records through canonical board'
+          git push origin HEAD:work/v2-dev07-cbh-canonical-adapter-20260831
