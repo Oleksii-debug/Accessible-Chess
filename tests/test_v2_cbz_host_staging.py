@@ -191,7 +191,11 @@ class CbzHostStagingAuthorityTests(unittest.TestCase):
 
         marker_path = outer / _WORKSPACE_MARKER
         marker = json.loads(marker_path.read_text(encoding="utf-8"))
-        marker["owner_pid"] = 0xFFFFFFFE
+        # Keep the synthetic dead owner inside the signed PID range accepted by
+        # both POSIX and Windows process APIs while remaining far above normal
+        # platform pid_max values.  The recovery contract is testing a dead
+        # owner, not integer-overflow behavior in an OS syscall boundary.
+        marker["owner_pid"] = 2_000_000_000
         marker["created_unix_ns"] = time.time_ns() - 3_000_000_000
         marker_path.write_text(
             json.dumps(marker, ensure_ascii=True, separators=(",", ":"), sort_keys=True)
