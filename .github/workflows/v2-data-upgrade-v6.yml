@@ -11,6 +11,7 @@ on:
       - 'tests/test_version2_upgrade_stale_writer.py'
       - 'tests/test_version2_upgrade_recovery_integrity.py'
       - 'tests/test_v2_upgrade_v6_successor.py'
+      - 'tests/test_v2_upgrade_current_acsdb_identity_audit.py'
       - '.github/workflows/v2-data-upgrade-v6.yml'
 
 permissions:
@@ -60,6 +61,7 @@ jobs:
           expected="$(printf '%s\n' \
             '.github/workflows/v2-data-upgrade-v6.yml' \
             'acs/version2_upgrade.py' \
+            'tests/test_v2_upgrade_current_acsdb_identity_audit.py' \
             'tests/test_v2_upgrade_v6_successor.py' \
             'tests/test_version2_upgrade.py' \
             'tests/test_version2_upgrade_recovery_integrity.py' \
@@ -74,6 +76,7 @@ jobs:
       - name: Focused V1 to V2 upgrade and D07 v6 integrity regressions
         run: >-
           python -m unittest -v
+          tests.test_v2_upgrade_current_acsdb_identity_audit
           tests.test_v2_upgrade_v6_successor
           tests.test_version2_upgrade
           tests.test_version2_upgrade_recovery_integrity
