@@ -1,0 +1,88 @@
+name: V2 Library Legacy Schema0 Probe
+
+on:
+  push:
+    branches:
+      - work/v2-library-legacy-schema0-upgrade-20260831
+    paths:
+      - '.github/workflows/v2-library-legacy-schema0-probe.yml'
+      - 'tools/v2_library_legacy_schema0_probe.py'
+  pull_request:
+    paths:
+      - '.github/workflows/v2-library-legacy-schema0-probe.yml'
+      - 'tools/v2_library_legacy_schema0_probe.py'
+      - 'acs/legacy_library_migration.py'
+      - 'tests/test_v2_library_legacy_schema0_upgrade.py'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: v2-library-legacy-schema0-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  OWNER_BASE: c1bd4f0c7610365458689a786ebb56d1c7d073df
+  RC3_COMMIT: 1a8934a0f7125262cfdb9854e459ffcd22e55348
+
+jobs:
+  pinned-runtime-evidence:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Normalize worktree to canonical Git bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config core.autocrlf false
+          git config core.eol lf
+          git checkout-index -f -a
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Exact ownership ancestry and evidence-only first delta
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor "$OWNER_BASE" HEAD
+          test "$(git merge-base "$OWNER_BASE" HEAD)" = "$OWNER_BASE"
+          git cat-file -e "$RC3_COMMIT^{commit}"
+          git diff --check "$OWNER_BASE" HEAD
+          changed="$(git diff --name-only "$OWNER_BASE" HEAD | sort)"
+          allowed="$(printf '%s\n' \
+            '.github/workflows/v2-library-legacy-schema0-probe.yml' \
+            'tools/v2_library_legacy_schema0_probe.py' \
+            'acs/legacy_library_migration.py' \
+            'tests/test_v2_library_legacy_schema0_upgrade.py' | sort)"
+          while IFS= read -r path; do
+            test -n "$path" || continue
+            printf '%s\n' "$allowed" | grep -Fx -- "$path" >/dev/null
+          done <<< "$changed"
+          if printf '%s\n' "$changed" | grep -E '(^|/)(stage1|web|teacher|classroom|education)|gametree\.py|pgn_roundtrip\.py|chessbase'; then
+            echo 'Out-of-lane or frozen semantic surface changed' >&2
+            exit 1
+          fi
+
+      - name: Compile probe
+        run: python -m py_compile tools/v2_library_legacy_schema0_probe.py
+
+      - name: Recover exact shipped Stage1 Library runtime identity
+        run: python tools/v2_library_legacy_schema0_probe.py --repo . --output legacy-schema0-runtime-evidence.json
+
+      - name: Upload evidence only
+        uses: actions/upload-artifact@v4
+        with:
+          name: legacy-schema0-runtime-${{ matrix.os }}
+          path: legacy-schema0-runtime-evidence.json
+          if-no-files-found: error
+          retention-days: 14
