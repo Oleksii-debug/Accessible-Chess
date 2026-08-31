@@ -72,7 +72,7 @@ class CbzHostStagingAuthority:
 
     def __post_init__(self) -> None:
         root = self.recovery_root
-        if type(root) is not Path or not root.is_absolute():
+        if not isinstance(root, Path) or not root.is_absolute():
             raise CbzExtractError(
                 "CBZ staging root must be an explicit absolute Path",
                 code=CbzExtractCode.RECOVERY_ROOT_INVALID,
