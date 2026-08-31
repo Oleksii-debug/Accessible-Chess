@@ -9,6 +9,7 @@ on:
       - '.github/workflows/v2-chess960-runtime-boundary.yml'
       - 'tools/optional/libcbh_json_bridge.cpp'
       - 'tests/test_v2_real_cbh_chess960_record_boundary.py'
+      - 'tests/test_v2_chess960_cbv_runtime_inheritance.py'
 
 permissions:
   contents: read
@@ -44,6 +45,7 @@ jobs:
           changed="$(git diff --name-only "$STACK_BASE" HEAD | sort)"
           expected="$(printf '%s\n' \
             '.github/workflows/v2-chess960-runtime-boundary.yml' \
+            'tests/test_v2_chess960_cbv_runtime_inheritance.py' \
             'tests/test_v2_real_cbh_chess960_record_boundary.py' \
             'tools/optional/libcbh_json_bridge.cpp' | sort)"
           test "$changed" = "$expected" || {
@@ -106,6 +108,7 @@ jobs:
         working-directory: product
         run: >-
           python -m unittest -v
+          tests.test_v2_chess960_cbv_runtime_inheritance
           tests.test_chessbase_decoder
           tests.test_chessbase_integrity
           tests.test_chessbase_libcbh_external_fixture
@@ -174,6 +177,7 @@ jobs:
           changed="$(git diff --name-only "$STACK_BASE" HEAD | sort)"
           expected="$(printf '%s\n' \
             '.github/workflows/v2-chess960-runtime-boundary.yml' \
+            'tests/test_v2_chess960_cbv_runtime_inheritance.py' \
             'tests/test_v2_real_cbh_chess960_record_boundary.py' \
             'tools/optional/libcbh_json_bridge.cpp' | sort)"
           test "$changed" = "$expected"
@@ -192,6 +196,7 @@ jobs:
       - name: Focused Windows ChessBase and Library regressions
         run: >-
           python -m unittest -v
+          tests.test_v2_chess960_cbv_runtime_inheritance
           tests.test_chessbase_decoder
           tests.test_chessbase_integrity
           tests.test_cbv_extractor
