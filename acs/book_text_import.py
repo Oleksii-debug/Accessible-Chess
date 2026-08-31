@@ -347,6 +347,7 @@ def _parse_markdown(text: str, builder: _Builder) -> None:
             marker = fence.group(1)
             language = fence.group(2).strip().lower().split(None, 1)[0] if fence.group(2).strip() else ""
             body_lines: list[str] = []
+            fence_chars = 0
             index += 1
             closed = False
             while index < len(lines):
@@ -355,7 +356,8 @@ def _parse_markdown(text: str, builder: _Builder) -> None:
                     closed = True
                     break
                 body_lines.append(current)
-                if sum(len(item) + 1 for item in body_lines) > MAX_TEXT_FENCE_CHARS:
+                fence_chars += len(current) + 1
+                if fence_chars > MAX_TEXT_FENCE_CHARS:
                     raise BookTextImportError(
                         "Markdown fenced block exceeds the supported size",
                         code=BookTextImportErrorCode.RESOURCE_LIMIT,
