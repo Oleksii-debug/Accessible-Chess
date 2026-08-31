@@ -226,7 +226,9 @@ class RealCbhChess960RecordBoundaryTests(unittest.TestCase):
                 ).fetchone()
                 self.assertIsNotNone(game_row)
                 self.assertEqual(int(game_row[0]), standard_index)
-                self.assertEqual(str(game_row[1]), "warning")
+                # Source-level Chess960 loss is represented on the import
+                # attempt; the accepted Standard game's semantic quality stays full.
+                self.assertEqual(str(game_row[1]), "full")
 
                 attempt = database.conn.execute(
                     "SELECT status, game_count, warning_count FROM import_attempts"
