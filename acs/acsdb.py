@@ -27,6 +27,7 @@ from .search_policy import (
     normalize_search_result,
     normalize_search_source_id,
     normalize_search_term,
+    normalize_search_year_bound,
     search_fold,
 )
 
@@ -75,9 +76,6 @@ class AcsDatabase:
             self.conn.row_factory = sqlite3.Row
             self.conn.execute("PRAGMA foreign_keys = ON")
             self.conn.execute("PRAGMA busy_timeout = 5000")
-            # Schema v4+ uses deterministic search functions inside migrations,
-            # database-level triggers and expression indexes. Install them before
-            # migration so old databases can backfill/index atomically.
             install_search_fold(self.conn)
             self._migrate_schema()
             if self.path != ":memory:":
@@ -125,14 +123,7 @@ class AcsDatabase:
             current = target
 
     def _migration_script(self, script: str) -> None:
-        """Execute one schema migration inside an explicit SQLite transaction.
-
-        ``sqlite3.Connection`` context managers do not start a transaction for
-        DDL, and ``executescript`` commits a pending transaction before running
-        its script. Starting ``BEGIN IMMEDIATE`` inside the script keeps every
-        schema statement, data backfill and the later ``user_version`` update in
-        one fail-closed transaction that the caller can roll back.
-        """
+        """Execute one schema migration inside an explicit SQLite transaction."""
         if self.conn.in_transaction:
             raise RuntimeError("ACSDB migration cannot start inside another transaction")
         self.conn.executescript("BEGIN IMMEDIATE;\n" + script)
@@ -217,15 +208,6 @@ class AcsDatabase:
         )
 
     def _migrate_to_v4(self) -> None:
-        """Add a normalized Unicode search projection with atomic backfill.
-
-        The sidecar remains derivative storage: canonical game metadata and PGN
-        stay in ``games``. Database triggers keep the projection in the same
-        transaction as canonical writes, including test/admin writes made
-        through the owned connection. A raw external writer that does not
-        install the canonical fold function fails closed instead of publishing a
-        stale search projection.
-        """
         self._migration_script(
             f"""
             CREATE TABLE IF NOT EXISTS {_SEARCH_FOLD_TABLE} (
@@ -281,13 +263,6 @@ class AcsDatabase:
         )
 
     def _migrate_to_v5(self) -> None:
-        """Add indexed exact and calendar-safe game-date search surfaces.
-
-        Raw PGN Date text remains canonical and loss-aware in ``games``. The
-        deterministic expression index derives a sortable key only for complete,
-        real ``YYYY.MM.DD`` dates; partial/unknown/malformed source text remains
-        stored unchanged and cannot be fabricated into calendar range matches.
-        """
         self._migration_script(
             f"""
             CREATE INDEX IF NOT EXISTS {_DATE_RAW_INDEX}
@@ -298,14 +273,6 @@ class AcsDatabase:
         )
 
     def _migrate_to_v6(self) -> None:
-        """Make derivative search corruption observable before ordinary search.
-
-        Direct SQL changes to the derivative projection are tracked by database
-        triggers in a tiny dirty-id table. Canonical ``games`` writes repair and
-        clear their own id in the same transaction. Migration rebuilds the whole
-        projection from canonical metadata first, so a pre-existing missing or
-        stale v4/v5 sidecar cannot survive into v6 silently.
-        """
         self._migration_script(
             f"""
             CREATE TABLE IF NOT EXISTS {_SEARCH_FOLD_DIRTY_TABLE} (
@@ -394,14 +361,12 @@ class AcsDatabase:
 
     @staticmethod
     def _bounded_limit(limit: int) -> int:
-        """Return the public query limit without coercing non-integer scalars."""
         if type(limit) is not int:
             raise TypeError("limit must be an integer")
         return max(1, min(limit, 1000))
 
     @staticmethod
     def _positive_cursor(value: int | None, *, name: str) -> int | None:
-        """Validate an optional SQLite integer keyset cursor without coercion."""
         if value is None:
             return None
         if type(value) is not int:
@@ -418,7 +383,6 @@ class AcsDatabase:
         after_game_id: int | None,
         after_ply: int | None,
     ) -> tuple[int, int] | None:
-        """Validate the composite keyset cursor used by exact-position search."""
         if after_game_id is None and after_ply is None:
             return None
         if after_game_id is None or after_ply is None:
@@ -430,7 +394,6 @@ class AcsDatabase:
 
     @staticmethod
     def _position_ply(value: int) -> int:
-        """Validate persisted ply identity without accepting coercive scalars."""
         if type(value) is not int:
             raise TypeError("ply must be an integer")
         if value < 0:
@@ -467,7 +430,6 @@ class AcsDatabase:
 
     @classmethod
     def _check_acsdb_schema_identity(cls, conn: sqlite3.Connection, version: int) -> None:
-        """Reject healthy SQLite files that are not a supported ACSDB schema."""
         if version < 1:
             raise RuntimeError("backup is not a supported ACSDB database")
 
@@ -612,9 +574,6 @@ class AcsDatabase:
     @classmethod
     def _check_sqlite_integrity(cls, conn: sqlite3.Connection) -> int:
         try:
-            # v4+ schema identity verifies derivative search structures. The
-            # UDFs are connection-local, so backup connections need the same
-            # deterministic registration before validation.
             install_search_fold(conn)
             row = conn.execute("PRAGMA quick_check").fetchone()
             if row is None or str(row[0]).lower() != "ok":
@@ -630,11 +589,6 @@ class AcsDatabase:
         return version
 
     def verify_integrity(self) -> int:
-        """Run explicit SQLite, schema, FK and search-projection validation.
-
-        This is intentionally an explicit O(database-size) maintenance check,
-        not a per-search tax. Backup/restore already invoke the same validation.
-        """
         return self._check_sqlite_integrity(self.conn)
 
     @staticmethod
@@ -648,12 +602,6 @@ class AcsDatabase:
         return Path(raw_path)
 
     def backup_to(self, destination: str | Path, *, overwrite: bool = False) -> Path:
-        """Write a consistent SQLite backup and atomically publish it.
-
-        The source database is never rewritten. The backup is first created as a
-        peer temporary file, validated with SQLite ``quick_check`` and only then
-        moved into place. Existing destinations require explicit ``overwrite``.
-        """
         overwrite = self._validate_overwrite(overwrite)
         destination_path = self._normalized_file_path(destination, name="destination")
         if self.path != ":memory:":
@@ -691,7 +639,6 @@ class AcsDatabase:
         *,
         overwrite: bool = False,
     ) -> Path:
-        """Validate an ACSDB backup and atomically restore it to a file path."""
         overwrite = cls._validate_overwrite(overwrite)
         backup_path = cls._normalized_file_path(backup, name="backup")
         destination_path = cls._normalized_file_path(destination, name="destination")
@@ -842,12 +789,6 @@ class AcsDatabase:
 
     def list_import_attempts(self, *, status: str | None = None, sha256: str | None = None,
                              before_id: int | None = None, limit: int = 100) -> list[dict]:
-        """List import attempts newest-first using a stable keyset cursor.
-
-        ``before_id`` is the last row id from the previous page. Using the
-        primary key as the cursor avoids OFFSET drift if another import starts
-        between page requests.
-        """
         clauses: list[str] = []
         params: list[object] = []
         if status is not None:
@@ -870,7 +811,6 @@ class AcsDatabase:
         return [dict(row) for row in self.conn.execute(sql, params).fetchall()]
 
     def _assert_search_projection_clean(self) -> None:
-        """Fail closed in constant-size metadata work if sidecar writes were untrusted."""
         expected_triggers = (
             _SEARCH_FOLD_INSERT_TRIGGER,
             _SEARCH_FOLD_UPDATE_TRIGGER,
@@ -895,7 +835,6 @@ class AcsDatabase:
             raise RuntimeError("ACSDB search projection integrity check failed")
 
     def rebuild_search_projection(self) -> None:
-        """Atomically rebuild derivative search data from canonical game metadata."""
         install_search_fold(self.conn)
         with self.conn:
             self.conn.execute(f"DELETE FROM {_SEARCH_FOLD_TABLE}")
@@ -914,31 +853,43 @@ class AcsDatabase:
             self.conn.execute(f"DELETE FROM {_SEARCH_FOLD_DIRTY_TABLE}")
             self._check_acsdb_schema_identity(self.conn, self.schema_version)
 
-    def search_games(self, *, player: str | None = None, event: str | None = None,
-                     eco: str | None = None, opening: str | None = None,
-                     game_date: str | None = None, date_from: str | None = None,
-                     date_to: str | None = None, result: str | None = None,
-                     source_id: int | None = None, source_name: str | None = None,
-                     after_id: int | None = None, limit: int = 100) -> list[dict]:
-        """Search games with shared Unicode/literal/date/source/result semantics.
+    def search_games(
+        self,
+        *,
+        player: str | None = None,
+        event: str | None = None,
+        site: str | None = None,
+        eco: str | None = None,
+        opening: str | None = None,
+        game_date: str | None = None,
+        date_from: str | None = None,
+        date_to: str | None = None,
+        year_from: int | None = None,
+        year_to: int | None = None,
+        result: str | None = None,
+        source_id: int | None = None,
+        source_name: str | None = None,
+        after_id: int | None = None,
+        limit: int = 100,
+    ) -> list[dict]:
+        """Search canonical game metadata with deterministic keyset ordering.
 
-        ``game_date`` is exact loss-aware PGN Date text, so callers may explicitly
-        find partial values such as ``2024.??.??``. ``date_from``/``date_to`` are
-        calendar bounds and accept only real complete ``YYYY.MM.DD`` dates. Range
-        matching uses the deterministic indexed date key, so partial/unknown or
-        malformed stored tags are preserved but never fabricated into a range.
+        Text filters use Unicode NFKC + casefold with literal LIKE escaping.
+        Diacritics remain significant. ``site`` follows the same literal policy
+        as other metadata and reads canonical ``games.site`` directly; no second
+        presentation search state exists.
 
-        Direct ACSDB search intentionally retains its existing bounded bulk cap
-        of 1000 rows, while GameSearchService applies a smaller 200-row
-        application-page contract. ``after_id`` is a keyset cursor rather than
-        an OFFSET, so later inserts cannot shift already-consumed rows into a
-        subsequent page. Search rows include source provenance so library
-        surfaces do not need a second lookup.
+        ``game_date`` searches exact loss-aware PGN Date text. Date and year
+        ranges match only complete real dates through the existing deterministic
+        date key. Year bounds are strict non-bool integers and combine with date
+        bounds by intersection; partial/unknown/malformed stored dates remain
+        preserved and are excluded from range matches.
         """
         source_id = normalize_search_source_id(source_id)
         result = normalize_search_result(result)  # type: ignore[assignment]
         player = normalize_search_term(player, name="player")
         event = normalize_search_term(event, name="event")
+        site = normalize_search_term(site, name="site")
         eco = normalize_search_term(eco, name="eco")
         opening = normalize_search_term(opening, name="opening")
         game_date = normalize_search_term(game_date, name="game_date")
@@ -946,6 +897,24 @@ class AcsDatabase:
         date_to = normalize_search_date_bound(date_to, name="date_to")
         if date_from is not None and date_to is not None and date_from > date_to:
             raise ValueError("date_from must not be later than date_to")
+        year_from = normalize_search_year_bound(year_from, name="year_from")
+        year_to = normalize_search_year_bound(year_to, name="year_to")
+        if year_from is not None and year_to is not None and year_from > year_to:
+            raise ValueError("year_from must not be later than year_to")
+
+        effective_from = date_from
+        effective_to = date_to
+        if year_from is not None:
+            year_floor = f"{year_from:04d}.01.01"
+            if effective_from is None or year_floor > effective_from:
+                effective_from = year_floor
+        if year_to is not None:
+            year_ceiling = f"{year_to:04d}.12.31"
+            if effective_to is None or year_ceiling < effective_to:
+                effective_to = year_ceiling
+        if effective_from is not None and effective_to is not None and effective_from > effective_to:
+            raise ValueError("date and year ranges do not overlap")
+
         source_name = normalize_search_term(source_name, name="source_name")
         install_search_fold(self.conn)
         self._assert_search_projection_clean()
@@ -961,6 +930,9 @@ class AcsDatabase:
         if event:
             clauses.append("sf.event_fold LIKE ? ESCAPE '\\'")
             params.append(literal_like_pattern(event))
+        if site:
+            clauses.append(f"{SEARCH_FOLD_SQL_FUNCTION}(g.site) LIKE ? ESCAPE '\\'")
+            params.append(literal_like_pattern(site))
         if eco:
             clauses.append("sf.eco_fold LIKE ? ESCAPE '\\'")
             params.append(literal_like_pattern(eco, prefix=True))
@@ -970,12 +942,12 @@ class AcsDatabase:
         if game_date:
             clauses.append("g.game_date=?")
             params.append(game_date)
-        if date_from is not None:
+        if effective_from is not None:
             clauses.append(f"{SEARCH_DATE_KEY_SQL_FUNCTION}(g.game_date)>=?")
-            params.append(date_from)
-        if date_to is not None:
+            params.append(effective_from)
+        if effective_to is not None:
             clauses.append(f"{SEARCH_DATE_KEY_SQL_FUNCTION}(g.game_date)<=?")
-            params.append(date_to)
+            params.append(effective_to)
         if result is not None:
             clauses.append("g.result=?")
             params.append(result)
@@ -1058,12 +1030,6 @@ class AcsDatabase:
         after_game_id: int | None = None,
         after_ply: int | None = None,
     ) -> list[dict]:
-        """Search exact positions with stable composite-key paging and provenance.
-
-        Position identity intentionally ignores only the FEN move counters. The
-        cursor is the final ``(game_id, matched_ply)`` from the previous page;
-        both cursor components must be supplied together.
-        """
         key = self.position_key(fen)
         cursor = self._position_cursor(after_game_id, after_ply)
         clauses = ["p.position_key=?"]
