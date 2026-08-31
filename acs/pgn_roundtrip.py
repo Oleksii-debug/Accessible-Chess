@@ -33,16 +33,22 @@ from .gametree import (
     serialize_games,
 )
 
-# Keep the in-memory/codec ceiling aligned with the established file-import
-# ceiling used by the safe PGN file adapter.  More specific lexical limits stop
-# a single hostile field from monopolising that whole budget.
+# Canonical D06 hostile-input policy.  File and future streaming adapters must
+# consume this boundary rather than inventing a looser parser/resource policy.
+# The limits are deliberately high enough for professional PGN use while
+# bounding the allocations that happen before canonical GameTree construction.
 MAX_PGN_SOURCE_BYTES = 64 * 1024 * 1024
 MAX_PGN_TEXT_CHARS = 64 * 1024 * 1024
+MAX_PGN_LINES = 200_000
+MAX_PGN_LINE_CHARS = 2 * 1024 * 1024
 MAX_PGN_LEXICAL_TOKENS = 500_000
 MAX_PGN_TOKEN_CHARS = 4_096
 MAX_PGN_COMMENT_CHARS = 1 * 1024 * 1024
+MAX_PGN_TAG_NAME_CHARS = 256
 MAX_PGN_TAG_VALUE_CHARS = 1 * 1024 * 1024
 MAX_PGN_TAGS_PER_GAME = 4_096
+MAX_PGN_FEN_CHARS = 512
+MAX_PGN_FEN_COUNTER_DIGITS = 12
 MAX_PGN_GAMES = 100_000
 
 
@@ -106,6 +112,86 @@ def _claim_token(counter: list[int]) -> None:
         )
 
 
+def _claim_game(counter: list[int]) -> None:
+    counter[0] += 1
+    if counter[0] > MAX_PGN_GAMES:
+        _raise_limit(
+            "PGN contains too many games",
+            PgnRoundTripErrorCode.GAME_COUNT_LIMIT,
+        )
+
+
+def _iter_bounded_lines(normalized: str):
+    """Yield one bounded line at a time without materialising ``str.split``."""
+
+    start = 0
+    line_count = 0
+    text_length = len(normalized)
+    while True:
+        newline = normalized.find("\n", start)
+        end = text_length if newline < 0 else newline
+        line_count += 1
+        if line_count > MAX_PGN_LINES:
+            _raise_limit(
+                "PGN contains too many logical lines",
+                PgnRoundTripErrorCode.TOKEN_COUNT_LIMIT,
+            )
+        if end - start > MAX_PGN_LINE_CHARS:
+            _raise_limit(
+                "PGN line exceeds the lexical safety limit",
+                PgnRoundTripErrorCode.TOKEN_SIZE_LIMIT,
+            )
+        yield normalized[start:end]
+        if newline < 0:
+            break
+        start = newline + 1
+
+
+def _reject_forbidden_controls(line: str) -> None:
+    """Reject controls that can hide/reshape PGN while allowing ordinary TAB."""
+
+    for character in line:
+        codepoint = ord(character)
+        if (codepoint < 0x20 and character != "\t") or 0x7F <= codepoint <= 0x9F:
+            # TOKEN_SIZE_LIMIT is intentionally a fail-closed D06 resource code:
+            # file recovery must never bypass this lexical security decision.
+            _raise_limit(
+                "PGN contains a forbidden control character",
+                PgnRoundTripErrorCode.TOKEN_SIZE_LIMIT,
+            )
+
+
+def _validate_tag_resource_fields(tag_name: str, tag_value: str) -> None:
+    if len(tag_name) > MAX_PGN_TAG_NAME_CHARS:
+        _raise_limit(
+            "PGN tag name exceeds the field safety limit",
+            PgnRoundTripErrorCode.TAG_SIZE_LIMIT,
+        )
+    if len(tag_value) > MAX_PGN_TAG_VALUE_CHARS:
+        _raise_limit(
+            "PGN tag value exceeds the field safety limit",
+            PgnRoundTripErrorCode.TAG_SIZE_LIMIT,
+        )
+    if tag_name != "FEN":
+        return
+    if len(tag_value) > MAX_PGN_FEN_CHARS:
+        _raise_limit(
+            "PGN FEN tag exceeds the field safety limit",
+            PgnRoundTripErrorCode.TAG_SIZE_LIMIT,
+        )
+    # This is a resource check, not FEN legality ownership.  Only bound the two
+    # standard numeric fields when they are visibly decimal; malformed semantic
+    # values continue to the existing canonical validation/recovery path.
+    fields = tag_value.split()
+    if len(fields) >= 6:
+        for counter in fields[4:6]:
+            if counter.isdigit() and len(counter) > MAX_PGN_FEN_COUNTER_DIGITS:
+                _raise_limit(
+                    "PGN FEN counter exceeds the field safety limit",
+                    PgnRoundTripErrorCode.TAG_SIZE_LIMIT,
+                )
+
+
 def _preflight_text(text: object) -> str:
     """Bound lexical work before the recovery parser allocates token objects."""
 
@@ -120,14 +206,19 @@ def _preflight_text(text: object) -> str:
             PgnRoundTripErrorCode.TEXT_SIZE_LIMIT,
         )
 
-    normalized = text.replace("\r\n", "\n").replace("\r", "\n")
+    normalized = text if "\r" not in text else text.replace("\r\n", "\n").replace("\r", "\n")
     inside_brace = False
     brace_length = 0
     token_count = [0]
+    game_count = [0]
     tags_in_game = 0
     seen_movetext = False
+    game_started = False
+    rav_depth = 0
 
-    for line in normalized.split("\n"):
+    for line in _iter_bounded_lines(normalized):
+        _reject_forbidden_controls(line)
+
         # Match the same header grammar as gametree while outside multiline
         # brace comments.  A line that looks like a header but does not satisfy
         # the grammar is not silently reinterpreted as a SAN token stream.
@@ -141,21 +232,29 @@ def _preflight_text(text: object) -> str:
             if seen_movetext:
                 tags_in_game = 0
                 seen_movetext = False
+                game_started = False
+                # A malformed unterminated RAV remains warning/recovery data in
+                # its source game; it must not inflate the next game's depth.
+                rav_depth = 0
+            if not game_started:
+                _claim_game(game_count)
+                game_started = True
             tags_in_game += 1
             if tags_in_game > MAX_PGN_TAGS_PER_GAME:
                 _raise_limit(
                     "PGN game contains too many tag pairs",
                     PgnRoundTripErrorCode.TAG_COUNT_LIMIT,
                 )
-            if len(match.group(2)) > MAX_PGN_TAG_VALUE_CHARS:
-                _raise_limit(
-                    "PGN tag value exceeds the field safety limit",
-                    PgnRoundTripErrorCode.TAG_SIZE_LIMIT,
-                )
+            tag_name = match.group(1)
+            tag_value = match.group(2)
+            _validate_tag_resource_fields(tag_name, tag_value)
             _claim_token(token_count)
             continue
 
         if line.strip() and not inside_brace:
+            if not game_started:
+                _claim_game(game_count)
+                game_started = True
             seen_movetext = True
 
         token_length = 0
@@ -204,8 +303,21 @@ def _preflight_text(text: object) -> str:
                 flush_token()
                 index += 1
                 continue
-            if character in "()":
+            if character == "(":
                 flush_token()
+                rav_depth += 1
+                if rav_depth > MAX_VARIATION_DEPTH:
+                    _raise_limit(
+                        "PGN variation nesting exceeds the safety limit",
+                        PgnRoundTripErrorCode.TOKEN_COUNT_LIMIT,
+                    )
+                _claim_token(token_count)
+                index += 1
+                continue
+            if character == ")":
+                flush_token()
+                if rav_depth:
+                    rav_depth -= 1
                 _claim_token(token_count)
                 index += 1
                 continue
@@ -500,11 +612,7 @@ def _measure_games(games: tuple[PgnGame, ...]) -> None:
                     "PGN tags must contain exact text keys and values",
                     code=PgnRoundTripErrorCode.INVALID_MODEL,
                 )
-            if len(value) > MAX_PGN_TAG_VALUE_CHARS:
-                _raise_limit(
-                    "PGN tag value exceeds the field safety limit",
-                    PgnRoundTripErrorCode.TAG_SIZE_LIMIT,
-                )
+            _validate_tag_resource_fields(key, value)
             _claim_model_chars(budget, len(key) + len(value) + 16)
         _measure_line(game.line, budget, seen, active, node_count, depth=0)
 
