@@ -49,6 +49,10 @@ class Version2UpgradeRecoveryError(Version2UpgradeError):
     pass
 
 
+class Version2UpgradeConflict(Version2UpgradeRecoveryError):
+    """A newer or ambiguous tracked user-data revision must be preserved."""
+
+
 class _DuplicateJsonKeyError(ValueError):
     pass
 
@@ -609,6 +613,8 @@ class Version2UpgradeCoordinator:
         *,
         recovered: bool,
         error_code: str | None = None,
+        tracked_revisions: Mapping[str, Mapping[str, object]] | None = None,
+        notify: bool = True,
     ) -> None:
         if phase not in _PHASES:
             raise ValueError("invalid upgrade phase")
@@ -626,8 +632,14 @@ class Version2UpgradeCoordinator:
         }
         if error_code is not None:
             payload["error_code"] = error_code
+        if tracked_revisions:
+            payload["tracked_revisions"] = {
+                name: dict(revision)
+                for name, revision in tracked_revisions.items()
+            }
         _atomic_json(self.layout.journal_path, payload)
-        self._notify(phase)
+        if notify:
+            self._notify(phase)
 
     def _read_json(self, path: Path, label: str) -> dict[str, object]:
         try:
@@ -685,6 +697,27 @@ class Version2UpgradeCoordinator:
             not isinstance(raw["error_code"], str) or not raw["error_code"]
         ):
             raise Version2UpgradeRecoveryError("invalid upgrade journal metadata")
+        revisions = raw.get("tracked_revisions", {})
+        if not isinstance(revisions, dict):
+            raise Version2UpgradeRecoveryError("invalid upgrade journal metadata")
+        allowed_revision_names = {
+            self.layout.settings_name,
+            self.layout.library_name,
+        }
+        for name, revision in revisions.items():
+            if name not in allowed_revision_names or not isinstance(revision, dict):
+                raise Version2UpgradeRecoveryError("invalid upgrade journal metadata")
+            size = revision.get("size")
+            digest = revision.get("sha256")
+            if (
+                set(revision) != {"size", "sha256"}
+                or type(size) is not int
+                or size < 0
+                or not isinstance(digest, str)
+                or len(digest) != 64
+                or any(c not in "0123456789abcdef" for c in digest)
+            ):
+                raise Version2UpgradeRecoveryError("invalid upgrade journal metadata")
         try:
             _portable_component(upgrade_id, "upgrade identifier")
         except ValueError as exc:
@@ -788,28 +821,135 @@ class Version2UpgradeCoordinator:
             )
         return backup, raw
 
-    def _restore(self, upgrade_id: str) -> int:
+    def _original_revision(
+        self,
+        manifest: Mapping[str, object],
+        name: str,
+    ) -> dict[str, object] | None:
+        entries = manifest.get("entries")
+        if not isinstance(entries, list):
+            raise Version2UpgradeRecoveryError("backup manifest entries are unavailable")
+        folded = name.casefold()
+        for item in entries:
+            if not isinstance(item, dict):
+                raise Version2UpgradeRecoveryError("upgrade backup entry is invalid")
+            if str(item.get("path", "")).casefold() == folded:
+                return {
+                    "size": item["size"],
+                    "sha256": item["sha256"],
+                }
+        return None
+
+    def _tracked_revision(self, name: str) -> dict[str, object] | None:
+        if name == self.layout.settings_name:
+            path = self.layout.settings_path
+        elif name == self.layout.library_name:
+            path = self.layout.library_path
+        else:
+            raise ValueError("unknown tracked user-data path")
+        if not path.exists() and not path.is_symlink():
+            return None
+        _safe_stat(path, "tracked user data")
+        with tempfile.TemporaryDirectory(
+            prefix=".v2-revision-", dir=str(self.layout.backup_root)
+        ) as raw:
+            snapshot = Path(raw) / name
+            if name == self.layout.library_name:
+                size, digest, _ = _sqlite_backup(path, snapshot)
+            else:
+                size, digest = _stable_copy(path, snapshot)
+        return {"size": size, "sha256": digest}
+
+    def _assert_original_revision(
+        self,
+        manifest: Mapping[str, object],
+        name: str,
+    ) -> None:
+        original = self._original_revision(manifest, name)
+        current = self._tracked_revision(name)
+        if current != original:
+            raise Version2UpgradeConflict(
+                "tracked user data changed after the upgrade snapshot"
+            )
+
+    def _record_owned_revision(
+        self,
+        revisions: dict[str, dict[str, object]],
+        name: str,
+    ) -> None:
+        revision = self._tracked_revision(name)
+        if revision is None:
+            raise Version2UpgradeRecoveryError(
+                "upgrader-owned tracked data disappeared"
+            )
+        revisions[name] = revision
+
+    def _assert_tracked_owned(
+        self,
+        manifest: Mapping[str, object],
+        revisions: Mapping[str, Mapping[str, object]],
+    ) -> None:
+        for name in (self.layout.settings_name, self.layout.library_name):
+            original = self._original_revision(manifest, name)
+            expected = revisions.get(name, original)
+            current = self._tracked_revision(name)
+            if current != expected:
+                raise Version2UpgradeConflict(
+                    "tracked user data changed during Version 2 upgrade"
+                )
+
+    def _restore(
+        self,
+        upgrade_id: str,
+        tracked_revisions: Mapping[str, Mapping[str, object]] | None = None,
+    ) -> int:
         backup, manifest = self._manifest(upgrade_id)
         entries = manifest["entries"]
         assert isinstance(entries, list)
-        originals: set[str] = set()
-        restore_names = {
-            self.layout.settings_name.casefold(),
-            self.layout.library_name.casefold(),
+        revisions = {
+            name: dict(revision)
+            for name, revision in (tracked_revisions or {}).items()
         }
-        restored = 0
-        for item in entries:
-            assert isinstance(item, dict)
-            relative = str(item["path"])
-            folded = relative.casefold()
-            originals.add(folded)
-            # Automatic rollback may only rewrite paths the upgrader itself can
-            # mutate. Other backup entries are preservation evidence; restoring
-            # them here could destroy a newer concurrent user change.
-            if folded not in restore_names:
+        tracked_names = (self.layout.settings_name, self.layout.library_name)
+        conflicts: list[str] = []
+        actions: list[tuple[str, dict[str, object] | None]] = []
+
+        # Classify every tracked path before writing any rollback bytes. A path
+        # is safe only when it is still the original snapshot or a revision
+        # durably recorded as published by this upgrader. Anything else belongs
+        # to an external/ambiguous writer and must be preserved.
+        for name in tracked_names:
+            original = self._original_revision(manifest, name)
+            try:
+                current = self._tracked_revision(name)
+            except Exception:
+                current = None
+                conflicts.append(name)
                 continue
-            source = backup / "data" / Path(*PurePosixPath(relative).parts)
-            destination = self.layout.root / Path(*PurePosixPath(relative).parts)
+            owned = revisions.get(name)
+            if current == original:
+                continue
+            if owned is not None and current == owned:
+                actions.append((name, original))
+                continue
+            conflicts.append(name)
+
+        restored_names: set[str] = set()
+        for name, original in actions:
+            destination = self.layout.root / name
+            if original is None:
+                if destination.exists() or destination.is_symlink():
+                    info = _safe_stat(destination, "upgrade-created tracked data")
+                    if stat.S_ISDIR(info.st_mode):
+                        raise Version2UpgradeRecoveryError(
+                            "upgrade-created tracked path is a directory"
+                        )
+                    destination.unlink()
+                    _fsync_dir(destination.parent)
+                restored_names.add(name)
+                continue
+
+            source = backup / "data" / Path(*PurePosixPath(name).parts)
             chain = _dir_chain(
                 self.layout.root, destination.parent, create=True
             )
@@ -818,50 +958,38 @@ class Version2UpgradeCoordinator:
                 raise Version2UpgradeRecoveryError(
                     "user-data parent directory changed during recovery"
                 )
-            if size != item["size"] or digest != item["sha256"]:
+            if size != original["size"] or digest != original["sha256"]:
                 raise Version2UpgradeRecoveryError(
                     "upgrade backup changed during recovery"
                 )
-            try:
-                readback = _safe_stat(destination, "restored tracked data")
-                if (
-                    not stat.S_ISREG(readback.st_mode)
-                    or readback.st_size != item["size"]
-                    or _hash(destination) != item["sha256"]
-                ):
-                    raise Version2UpgradeRecoveryError(
-                        "tracked recovery readback mismatch"
-                    )
-            except Version2UpgradeRecoveryError:
-                raise
-            except Exception as exc:
+            readback = _safe_stat(destination, "restored tracked data")
+            if (
+                not stat.S_ISREG(readback.st_mode)
+                or readback.st_size != original["size"]
+                or _hash(destination) != original["sha256"]
+            ):
                 raise Version2UpgradeRecoveryError(
-                    "tracked recovery readback validation failed"
-                ) from exc
-            restored += 1
-        for known in (self.layout.settings_name, self.layout.library_name):
-            if known.casefold() not in originals:
-                path = self.layout.root / known
-                if path.exists() or path.is_symlink():
-                    info = _safe_stat(path, "upgrade-created data")
+                    "tracked recovery readback mismatch"
+                )
+            restored_names.add(name)
+
+        if self.layout.library_name in restored_names:
+            for suffix in _DB_SIDECARS:
+                sidecar = Path(str(self.layout.library_path) + suffix)
+                if sidecar.exists() or sidecar.is_symlink():
+                    info = _safe_stat(sidecar, "library sidecar")
                     if stat.S_ISDIR(info.st_mode):
                         raise Version2UpgradeRecoveryError(
-                            "upgrade-created tracked path is a directory"
+                            "library sidecar is a directory"
                         )
-                    path.unlink()
-        for suffix in _DB_SIDECARS:
-            sidecar = Path(str(self.layout.library_path) + suffix)
-            if sidecar.exists() or sidecar.is_symlink():
-                info = _safe_stat(sidecar, "library sidecar")
-                if stat.S_ISDIR(info.st_mode):
-                    raise Version2UpgradeRecoveryError(
-                        "library sidecar is a directory"
-                    )
-                sidecar.unlink()
-        _fsync_dir(self.layout.root)
+                    sidecar.unlink()
+            _fsync_dir(self.layout.root)
 
         try:
-            if self.layout.settings_name.casefold() in originals:
+            if (
+                self.layout.settings_name in restored_names
+                and self.layout.settings_path.exists()
+            ):
                 settings_info = _safe_stat(
                     self.layout.settings_path, "restored settings readback"
                 )
@@ -876,7 +1004,10 @@ class Version2UpgradeCoordinator:
                     self.layout.settings_path.read_text(encoding="utf-8"),
                     persist=False,
                 )
-            if self.layout.library_name.casefold() in originals:
+            if (
+                self.layout.library_name in restored_names
+                and self.layout.library_path.exists()
+            ):
                 connection = sqlite3.connect(
                     self.layout.library_path.resolve(strict=True).as_uri()
                     + "?mode=ro",
@@ -899,7 +1030,12 @@ class Version2UpgradeCoordinator:
             raise Version2UpgradeRecoveryError(
                 "tracked recovery readback validation failed"
             ) from exc
-        return restored
+
+        if conflicts:
+            raise Version2UpgradeConflict(
+                "newer or ambiguous tracked user data was preserved"
+            )
+        return len(restored_names)
 
     def _recover_locked(self) -> bool:
         if (
@@ -911,7 +1047,21 @@ class Version2UpgradeCoordinator:
         if journal["phase"] in {"committed", "rolled_back"}:
             return False
         upgrade_id = str(journal["upgrade_id"])
-        self._restore(upgrade_id)
+        revisions = journal.get("tracked_revisions", {})
+        assert isinstance(revisions, dict)
+        try:
+            self._restore(upgrade_id, revisions)
+        except Version2UpgradeConflict as exc:
+            self._write_phase(
+                upgrade_id,
+                "rolled_back",
+                recovered=True,
+                error_code="TRACKED_WRITE_CONFLICT_PRESERVED",
+            )
+            raise Version2UpgradeConflict(
+                "interrupted upgrade found newer tracked user data; "
+                "the newer data was preserved"
+            ) from exc
         self._write_phase(
             upgrade_id,
             "rolled_back",
@@ -988,7 +1138,8 @@ class Version2UpgradeCoordinator:
             schema is not None and schema < ACSDB_SCHEMA_VERSION
         )
 
-    def _migrate_settings(self) -> bool:
+    def _migrate_settings(self, manifest: Mapping[str, object]) -> bool:
+        self._assert_original_revision(manifest, self.layout.settings_name)
         if not self._settings_need():
             return False
         path = self.layout.settings_path
@@ -1005,7 +1156,8 @@ class Version2UpgradeCoordinator:
         _atomic_bytes(path, payload)
         return True
 
-    def _migrate_library(self) -> bool:
+    def _migrate_library(self, manifest: Mapping[str, object]) -> bool:
+        self._assert_original_revision(manifest, self.layout.library_name)
         before = self._library_schema()
         if before is None or before == ACSDB_SCHEMA_VERSION:
             return False
@@ -1117,6 +1269,7 @@ class Version2UpgradeCoordinator:
                 + secrets.token_hex(4)
             )
             backup, manifest = self._create_backup(upgrade_id)
+            revisions: dict[str, dict[str, object]] = {}
             self._write_phase(
                 upgrade_id, "prepared", recovered=recovered
             )
@@ -1124,30 +1277,73 @@ class Version2UpgradeCoordinator:
                 self._write_phase(
                     upgrade_id, "migrating", recovered=recovered
                 )
-                settings_migrated = self._migrate_settings()
+                settings_migrated = self._migrate_settings(manifest)
+                if settings_migrated:
+                    self._record_owned_revision(
+                        revisions, self.layout.settings_name
+                    )
+                    self._write_phase(
+                        upgrade_id,
+                        "migrating",
+                        recovered=recovered,
+                        tracked_revisions=revisions,
+                        notify=False,
+                    )
                 self._notify("settings-migrated")
-                library_migrated = self._migrate_library()
+
+                library_migrated = self._migrate_library(manifest)
+                if library_migrated:
+                    self._record_owned_revision(
+                        revisions, self.layout.library_name
+                    )
+                    self._write_phase(
+                        upgrade_id,
+                        "migrating",
+                        recovered=recovered,
+                        tracked_revisions=revisions,
+                        notify=False,
+                    )
                 self._notify("library-migrated")
+
+                self._assert_tracked_owned(manifest, revisions)
                 self._write_phase(
-                    upgrade_id, "verifying", recovered=recovered
+                    upgrade_id,
+                    "verifying",
+                    recovered=recovered,
+                    tracked_revisions=revisions,
                 )
                 preserved = self._verify(backup, manifest)
+                self._assert_tracked_owned(manifest, revisions)
                 self._write_phase(
-                    upgrade_id, "committed", recovered=recovered
+                    upgrade_id,
+                    "committed",
+                    recovered=recovered,
+                    tracked_revisions=revisions,
                 )
             except Exception as exc:
                 try:
-                    self._restore(upgrade_id)
+                    self._restore(upgrade_id, revisions)
+                except Version2UpgradeConflict as recovery_conflict:
                     self._write_phase(
                         upgrade_id,
                         "rolled_back",
                         recovered=recovered,
-                        error_code=type(exc).__name__,
+                        error_code="TRACKED_WRITE_CONFLICT_PRESERVED",
                     )
+                    raise Version2UpgradeConflict(
+                        "Version 2 upgrade stopped because tracked user data "
+                        "changed; the newer data was preserved"
+                    ) from recovery_conflict
                 except Exception as recovery_exc:
                     raise Version2UpgradeRecoveryError(
                         "Version 2 upgrade failed and automatic recovery also failed"
                     ) from recovery_exc
+                self._write_phase(
+                    upgrade_id,
+                    "rolled_back",
+                    recovered=recovered,
+                    error_code=type(exc).__name__,
+                )
                 raise Version2UpgradeError(
                     "Version 2 upgrade failed; original user data was restored"
                 ) from exc
