@@ -135,7 +135,7 @@ jobs:
         run: |
           set +e
           set -o pipefail
-          python tests/test_v2_real_cbh_rare_moves_corpus.py 2>&1 | tee real-cbh-rare-moves.log
+          python -m tests.test_v2_real_cbh_rare_moves_corpus 2>&1 | tee real-cbh-rare-moves.log
           oracle_status=${PIPESTATUS[0]}
           set -e
           printf '%s\n' "$oracle_status" > real-cbh-rare-moves.status
@@ -150,7 +150,7 @@ jobs:
           tests.test_chessbase_integrity
           tests.test_version2_formats_integration
           tests.test_pgn_document
-          tests.test_gametree_legality
+          tests.test_gametree
 
       - name: Full repository unittest
         working-directory: product
