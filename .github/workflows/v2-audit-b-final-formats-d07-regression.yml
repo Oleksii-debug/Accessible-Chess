@@ -76,4 +76,5 @@ jobs:
           python run_accessible_chess.py --diagnostic
 
       - name: Independent final-formats D07 data-regression oracle
+        if: ${{ always() }}
         run: python -m unittest -v tests.test_v2_final_formats_d07_regression_audit
