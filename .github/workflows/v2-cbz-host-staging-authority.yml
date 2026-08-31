@@ -1,0 +1,96 @@
+name: V2 CBZ Host Staging Authority
+
+on:
+  push:
+    branches:
+      - work/v2-cbz-host-staging-authority-20260831
+  pull_request:
+    paths:
+      - acs/cbz_host_staging.py
+      - tests/test_v2_cbz_host_staging.py
+      - docs/automation/V2_CBZ_HOST_STAGING_AUTHORITY.json
+      - docs/automation/V2_CBZ_HOST_STAGING_AUTHORITY.md
+      - .github/workflows/v2-cbz-host-staging-authority.yml
+
+permissions:
+  contents: read
+
+env:
+  V2_CBZ_HOST_BASE: 00bb0c6b02bc1638ef8829abc0dc040a4b3a6db9
+  CBZ_EXTRACTOR_BLOB: 50fa1758b8e78d4bc8e77976b9d0c6f80aaeeed3
+  CBZ_RECOVERY_HOST_BLOB: e0d65b135b4de46cbad6d6eae75b09e3337ad530
+
+jobs:
+  cbz-host-staging-authority:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Preserve exact Git bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config core.autocrlf false
+          git config core.eol lf
+          git reset --hard HEAD
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install pinned verification dependency
+        run: python -m pip install -q pytest==8.4.2
+
+      - name: Prove exact parent, narrow owner scope, and inherited byte locks
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor "$V2_CBZ_HOST_BASE" HEAD
+          test "$(git merge-base "$V2_CBZ_HOST_BASE" HEAD)" = "$V2_CBZ_HOST_BASE"
+          git diff --check "$V2_CBZ_HOST_BASE" HEAD
+          changed="$(git diff --name-only "$V2_CBZ_HOST_BASE" HEAD)"
+          unexpected="$(printf '%s\n' "$changed" | grep -Ev '^(acs/cbz_host_staging\.py|tests/test_v2_cbz_host_staging\.py|docs/automation/V2_CBZ_HOST_STAGING_AUTHORITY\.(json|md)|\.github/workflows/v2-cbz-host-staging-authority\.yml)$' || true)"
+          if [[ -n "$unexpected" ]]; then
+            printf 'Unexpected paths outside CBZ host-staging ownership:\n%s\n' "$unexpected"
+            exit 1
+          fi
+          test "$(git rev-parse HEAD:acs/cbz_extractor.py)" = "$CBZ_EXTRACTOR_BLOB"
+          test "$(git rev-parse HEAD:acs/version2_windows_cbz_recovery_host.py)" = "$CBZ_RECOVERY_HOST_BLOB"
+
+      - name: Compile new host layer and inherited CBZ lifecycle
+        run: python -m compileall -q acs tests run_accessible_chess.py
+
+      - name: Focused CBZ host, extraction, crash recovery, and Windows preflight unittest
+        run: >-
+          python -m unittest -v
+          tests.test_v2_cbz_host_staging
+          tests.test_cbz_extractor
+          tests.test_v2_cbz_crash_recovery
+          tests.test_v2_windows_cbz_recovery_host
+
+      - name: Focused pytest parity
+        run: >-
+          python -m pytest -q
+          tests/test_v2_cbz_host_staging.py
+          tests/test_cbz_extractor.py
+          tests/test_v2_cbz_crash_recovery.py
+          tests/test_v2_windows_cbz_recovery_host.py
+
+      - name: Full repository unittest
+        run: python -m unittest discover -s tests -p 'test*.py'
+
+      - name: Full repository pytest
+        run: python -m pytest -q
+
+      - name: SELFTEST and complete diagnostic
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m acs.selftest
+          python run_accessible_chess.py --diagnostic
