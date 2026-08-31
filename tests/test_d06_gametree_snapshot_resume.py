@@ -9,7 +9,6 @@ import unittest
 from unittest import mock
 
 from acs.game_identity import identity_for_game
-from acs.gametree import GameTreeSnapshot if False else PgnGame  # type: ignore[syntax]
 from acs.gametree import parse_games, serialize_game
 from acs.gametree_navigation import (
     GameTreeCursor,
@@ -91,7 +90,7 @@ class D06GameTreeSnapshotResumeTests(unittest.TestCase):
             first_process = GameTreeResumeStore(path)
             saved = first_process.save(self.game, self.cursor)
 
-            # A new store instance models application restart.  Durable state
+            # A new store instance models application restart. Durable state
             # must resolve through the canonical GameTree, not object identity.
             reopened = GameTreeResumeStore(path).load()
 
