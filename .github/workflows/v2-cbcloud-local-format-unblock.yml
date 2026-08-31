@@ -1,0 +1,141 @@
+name: V2 CBCLOUD Local Format Unblock
+
+on:
+  push:
+    branches:
+      - work/v2-cbcloud-local-format-unblock-20260828
+  pull_request:
+    branches:
+      - work/v2-2cbh-cbone-topology-20260828
+    paths:
+      - docs/automation/V2_CBCLOUD_LOCAL_FORMAT_UNBLOCK.json
+      - docs/automation/V2_CBCLOUD_LOCAL_FORMAT_UNBLOCK.md
+      - tests/test_v2_cbcloud_local_format_unblock.py
+      - .github/workflows/v2-cbcloud-local-format-unblock.yml
+
+permissions:
+  contents: read
+
+env:
+  V2_CBCLOUD_BASE: ${{ github.event.pull_request.base.sha || 'e3c13d07a338d79764e71e4bef096900aa860cac' }}
+
+jobs:
+  qualification-contract:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install pinned verification dependency
+        run: python -m pip install -q pytest==8.4.2
+      - name: Exact ancestry scope and compile checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor "$V2_CBCLOUD_BASE" HEAD
+          git diff --check "$V2_CBCLOUD_BASE" HEAD
+          unexpected="$(git diff --name-only "$V2_CBCLOUD_BASE" HEAD | grep -Ev '^(docs/automation/V2_CBCLOUD_LOCAL_FORMAT_UNBLOCK\.json|docs/automation/V2_CBCLOUD_LOCAL_FORMAT_UNBLOCK\.md|tests/test_v2_cbcloud_local_format_unblock\.py|\.github/workflows/v2-cbcloud-local-format-unblock\.yml)$' || true)"
+          if [[ -n "$unexpected" ]]; then
+            printf 'Unexpected files outside CBCLOUD evidence owner scope:\n%s\n' "$unexpected"
+            exit 1
+          fi
+          python -m compileall -q acs tests run_accessible_chess.py
+      - name: CBCLOUD evidence no-overclaim contract
+        run: >-
+          python -m unittest -v
+          tests.test_v2_cbcloud_local_format_unblock
+          tests.test_v2_2cbh_cbone_topology
+          tests.test_chessbase_adapter
+          tests.test_chessbase_integrity
+      - name: Pytest parity
+        run: >-
+          python -m pytest -q
+          tests/test_v2_cbcloud_local_format_unblock.py
+          tests/test_v2_2cbh_cbone_topology.py
+          tests/test_chessbase_adapter.py
+          tests/test_chessbase_integrity.py
+
+  upstream-source-probe:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Probe exact CBCLOUD backend candidates
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir upstream && cd upstream
+
+          git clone -q https://github.com/rolandlo/libcbh.git libcbh
+          git -C libcbh checkout -q 9641c5c3949d8fb210b17dd9aa54455645843696
+          [[ "$(git -C libcbh rev-parse HEAD)" == "9641c5c3949d8fb210b17dd9aa54455645843696" ]]
+
+          git clone -q https://github.com/foolnotion/scidb.git scidb
+          git -C scidb checkout -q 7c1c9d89f2fabab0c1252cdd14c515fb9bfc1415
+          [[ "$(git -C scidb rev-parse HEAD)" == "7c1c9d89f2fabab0c1252cdd14c515fb9bfc1415" ]]
+
+          git clone -q https://github.com/Isarhamster/chessx.git chessx
+          git -C chessx checkout -q e734a075346ca2ad7e3f3e35b42140169637c5ca
+          [[ "$(git -C chessx rev-parse HEAD)" == "e734a075346ca2ad7e3f3e35b42140169637c5ca" ]]
+
+          git clone -q https://github.com/antoyo/uncbv.git uncbv
+          git -C uncbv checkout -q 3c18e8a7c6a30c21f945a1ab5462521c306dca57
+          [[ "$(git -C uncbv rev-parse HEAD)" == "3c18e8a7c6a30c21f945a1ab5462521c306dca57" ]]
+
+          : > ../upstream-probe.txt
+          for repo in libcbh scidb chessx uncbv; do
+            printf '=== %s ===\n' "$repo" >> ../upstream-probe.txt
+            find "$repo" -type f -iname '*.cbcloud' -print > ../fixture-hits.txt
+            if [[ -s ../fixture-hits.txt ]]; then
+              cat ../fixture-hits.txt | tee -a ../upstream-probe.txt
+              echo "Candidate CBCLOUD fixture surface found in pinned candidate $repo; inspect before any conclusion."
+              exit 1
+            fi
+            if git -C "$repo" grep -ni -E '\.cbcloud([^[:alnum:]_]|$)' -- \
+              '*.c' '*.cc' '*.cpp' '*.cxx' '*.h' '*.hpp' '*.rs' '*.py' '*.tcl' \
+              '*.md' '*.txt' '*.pro' '*.cmake' 'CMakeLists.txt' > ../hits.txt; then
+              cat ../hits.txt | tee -a ../upstream-probe.txt
+              echo "Candidate CBCLOUD extension reference found in pinned candidate $repo; inspect before any conclusion."
+              exit 1
+            else
+              echo 'no CBCLOUD extension or fixture surface in selected exact-tree source/text files' >> ../upstream-probe.txt
+            fi
+          done
+      - name: Upload upstream probe evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v2-cbcloud-upstream-source-probe
+          path: upstream-probe.txt
+          if-no-files-found: warn
+          retention-days: 3
+
+  full-regression:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install test dependencies
+        run: python -m pip install -q pytest==8.4.2
+      - name: Exact ancestry and diff hygiene
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor "$V2_CBCLOUD_BASE" HEAD
+          git diff --check "$V2_CBCLOUD_BASE" HEAD
+      - name: Full unittest
+        run: python -m unittest discover -s tests -p 'test*.py'
+      - name: Full pytest
+        run: python -m pytest -q
