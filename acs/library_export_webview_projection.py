@@ -8,8 +8,6 @@ are transient presentation state only; the canonical D07 export service later
 revalidates every id and enforces deterministic Library order.
 """
 
-from collections.abc import Mapping
-
 from .full_product_ui_shell import UILanguage
 from .library_export_service import LibraryExportRequest
 from .library_webview_projection import LibraryWebViewEvent, LibraryWebViewProjection
@@ -18,6 +16,7 @@ from .search_service import GameSearchQuery
 
 _EXPORT_LABELS = {
     UILanguage.UA: {
+        "heading": "Партії для експорту",
         "include": "Додати до експорту: {game}",
         "selected": "Експортувати вибрані партії ({count})",
         "filtered": "Експортувати всі результати фільтра",
@@ -27,6 +26,7 @@ _EXPORT_LABELS = {
         "cleared": "Вибір для експорту очищено.",
     },
     UILanguage.EN: {
+        "heading": "Games to export",
         "include": "Include in export: {game}",
         "selected": "Export selected games ({count})",
         "filtered": "Export all filtered results",
@@ -56,6 +56,7 @@ class LibraryExportWebViewProjection(LibraryWebViewProjection):
             raise ValueError("Library export row has invalid game id")
         label = str(projected["label"])
         projected["export_selected"] = game_id in self._export_game_ids
+        projected["export_dom_id"] = f"{projected['dom_id']}-export"
         projected["export_label"] = _EXPORT_LABELS[self.language]["include"].format(
             game=label
         )
@@ -84,6 +85,7 @@ class LibraryExportWebViewProjection(LibraryWebViewProjection):
             },
         )
         snapshot["actions"] = existing + export_actions
+        snapshot["export_selection_heading"] = labels["heading"]
         snapshot["export_selection_count"] = count
         return snapshot
 
@@ -112,6 +114,7 @@ class LibraryExportWebViewProjection(LibraryWebViewProjection):
         event = self._render_event(self._presenter.view(), announce=False)
         payload = dict(event.payload)
         payload["announcement"] = announcement
+        payload["focus_target"] = f"library-game-{__import__('hashlib').sha256(f'game:{game_id}'.encode('utf-8')).hexdigest()[:20]}-export"
         return LibraryWebViewEvent(event.kind, payload)
 
     def clear_export_selection(self) -> LibraryWebViewEvent:
