@@ -68,6 +68,12 @@ def chessbase_metadata_capabilities() -> tuple[ChessBaseMetadataCapability, ...]
         ChessBaseMetadataCapability("BlackElo", ChessBaseMetadataStatus.MAPPED, "BlackElo", f"{backend}: black rating"),
         ChessBaseMetadataCapability("ECO", ChessBaseMetadataStatus.MAPPED, "ECO", f"{backend}: Scid main ECO integer; subcodes intentionally unavailable"),
         ChessBaseMetadataCapability("BackendTags", ChessBaseMetadataStatus.PASSTHROUGH, "PGN tags", f"{backend}: decoded tag vector; no synthetic semantics"),
+        ChessBaseMetadataCapability(
+            "BackendTextEncoding",
+            ChessBaseMetadataStatus.PASSTHROUGH,
+            "Unicode text",
+            f"{backend}: bridge preserves every backend byte deterministically as U+00XX; libcbh exposes no source charset contract, so no charset inference is claimed",
+        ),
         ChessBaseMetadataCapability("SourceDatabase", ChessBaseMetadataStatus.PROVENANCE, "sources.name", "original user-selected CBH/CBV source, not extraction temp files"),
         ChessBaseMetadataCapability("SourceIndex", ChessBaseMetadataStatus.PROVENANCE, "games.source_index", "original decoded record index"),
         ChessBaseMetadataCapability("SourceSHA256", ChessBaseMetadataStatus.PROVENANCE, "sources.sha256", "fingerprint of the original selected CBH/CBV source"),
