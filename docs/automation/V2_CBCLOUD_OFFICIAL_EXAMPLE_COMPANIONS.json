@@ -1,0 +1,60 @@
+{
+  "schema_version": 1,
+  "role": "V2-CHESSBASE-FORMATS",
+  "swarm_lane_key": "ACCESSIBLE-CHESS-V2-CBCLOUD-OFFICIAL-EXAMPLE-COMPANIONS-20260831",
+  "parent_pr": 404,
+  "parent_sha": "a1b88d947b526d86c6a2dbdbcce32c4b4e4b0830",
+  "format": "CBCLOUD",
+  "status": "BLOCKED",
+  "support_promotion_allowed": false,
+  "product_mutation": false,
+  "official_example_evidence": {
+    "family_file_count_documented": 4,
+    "observed_same_root_suffixes": [
+      ".cbcloud",
+      ".cbclmov",
+      ".cbclhdr",
+      ".cbclatt"
+    ],
+    "english_manual_example_root": "WhiteRepertoire",
+    "german_manual_example_root": "BlackRepertoire",
+    "english_manual_source": "https://help.chessbase.com/cb14-eng.pdf",
+    "german_manual_source": "https://help.chessbase.com/pdf/CBase/13/deu.pdf",
+    "current_html_four_file_source": "https://help.chessbase.com/CBase/16/Eng/database_functions_with_cloud_.htm",
+    "normative_required_optional_map_qualified": false,
+    "binary_component_roles_qualified": false,
+    "screenshot_materialization_succeeded": false,
+    "screenshot_failure_reason": "web runtime could not materialize the oversized official PDF as a screenshot-enabled PDF source"
+  },
+  "secondary_corroboration": {
+    "file_association_sources_list_all_four_as_chessbase_database_extensions": true,
+    "authoritative_for_binary_roles": false
+  },
+  "real_world_acceptance": {
+    "official_real_examples_exist": true,
+    "downloadable_exact_family_bytes": false,
+    "stable_family_hashes": false,
+    "lawful_automated_ci_reuse_proven": false,
+    "independent_pgn_or_gametree_oracle": false,
+    "semantic_decode_executed": false
+  },
+  "semantic_claims": {
+    "moves_decoded": false,
+    "variations_decoded": false,
+    "annotations_decoded": false,
+    "metadata_decoded": false,
+    "canonical_gametree_proven": false,
+    "library_roundtrip_proven": false
+  },
+  "blockers": [
+    "normative required-vs-optional CBCLOUD component contract",
+    "qualified binary roles for CBCLMOV/CBCLHDR/CBCLATT",
+    "lawfully reusable authentic CBCLOUD four-file family bytes",
+    "pinned licensed CBCLOUD reader/backend",
+    "independent PGN or GameTree oracle for exact family bytes",
+    "complete-family immutable integrity and bounded execution",
+    "canonical GameTree validation",
+    "Library/Search/Open/Export/Reopen/Integrity end-to-end equivalence",
+    "applicable Windows runtime qualification before user-facing activation"
+  ]
+}
