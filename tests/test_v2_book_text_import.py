@@ -202,12 +202,9 @@ After game.
             self.assertEqual(reopened.location(), origin)
             self.assertEqual(reopened.next_game().block_id, game_location.block_id)
 
-    def test_capability_matrix_is_honest_before_real_acceptance(self) -> None:
-        self.assertEqual(BOOK_TEXT_CAPABILITIES["TXT"]["status"], "SUPPORTED_PENDING_REAL_GATE")
-        self.assertEqual(
-            BOOK_TEXT_CAPABILITIES["Markdown"]["status"],
-            "PARTIAL_PENDING_REAL_MARKDOWN_BOOK_CORPUS",
-        )
+    def test_capability_matrix_matches_real_acceptance_boundary(self) -> None:
+        self.assertEqual(BOOK_TEXT_CAPABILITIES["TXT"]["status"], "SUPPORTED")
+        self.assertEqual(BOOK_TEXT_CAPABILITIES["Markdown"]["status"], "PARTIAL")
         nonclaims = set(BOOK_TEXT_CAPABILITIES["does_not_claim"])
         self.assertTrue({"HTML/XHTML", "DOCX", "EPUB", "PDF/OCR"}.issubset(nonclaims))
         self.assertIn("ASCII-diagram recognition", nonclaims)
