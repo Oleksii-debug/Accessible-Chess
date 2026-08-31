@@ -2,6 +2,7 @@ import dataclasses
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from acs import chessbase_2cbh_backend as twocbh
 
@@ -200,6 +201,28 @@ class V2TwoCbhBackendContractTests(unittest.TestCase):
             (root / "sample.parta").write_bytes(b"changed")
             with self.assertRaises(twocbh.TwoCbhSourceChangedError):
                 twocbh.verify_twocbh_bundle_unchanged(evidence, descriptor)
+
+    def test_opened_handle_identity_must_match_prechecked_path(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            primary = self._write_family(root)
+            attacked = root / "sample.parta"
+            replacement = root / "replacement.bin"
+            replacement.write_bytes(b"different-opened-object")
+            original_open = Path.open
+
+            def substituted_open(path: Path, *args, **kwargs):
+                if path == attacked:
+                    return original_open(replacement, *args, **kwargs)
+                return original_open(path, *args, **kwargs)
+
+            # The pathname remains unchanged before and after hashing; only the
+            # object actually returned by open() is different.  Old code could
+            # therefore pass both lstat checks while hashing the wrong object.
+            with mock.patch.object(Path, "open", new=substituted_open):
+                with self.assertRaises(twocbh.TwoCbhSourceChangedError):
+                    twocbh.capture_twocbh_bundle(primary, self._descriptor())
+            self.assertEqual(attacked.read_bytes(), b"required")
 
     def test_new_optional_member_after_capture_is_detected_as_topology_change(self):
         with tempfile.TemporaryDirectory() as tmp:

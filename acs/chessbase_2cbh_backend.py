@@ -286,6 +286,35 @@ def _require_regular(path: Path, label: str) -> os.stat_result:
     return st
 
 
+def _require_opened_identity(
+    stream: object,
+    before: os.stat_result,
+    label: str,
+) -> os.stat_result:
+    """Bind a pathname pre-check to the exact object opened for reading."""
+
+    try:
+        fileno = stream.fileno()  # type: ignore[attr-defined]
+        opened = os.fstat(fileno)
+    except (AttributeError, OSError, ValueError) as exc:
+        raise TwoCbhSourceError(f"{label} opened-file identity is unavailable") from exc
+    if _is_reparse_point(opened) or not stat.S_ISREG(opened.st_mode):
+        raise TwoCbhSourceError(f"{label} opened object must be a regular non-indirected file")
+    if (
+        before.st_dev != opened.st_dev
+        or before.st_ino != opened.st_ino
+        or before.st_size != opened.st_size
+        or before.st_mtime_ns != opened.st_mtime_ns
+    ):
+        raise TwoCbhSourceChangedError(f"{label} changed between validation and open")
+    # A zero/unknown inode cannot prove that the opened object is the object
+    # validated by lstat.  Fail closed instead of treating path equality as
+    # identity on platforms/filesystems that cannot provide that evidence.
+    if before.st_ino == 0 or opened.st_ino == 0:
+        raise TwoCbhSourceError(f"{label} opened-file identity could not be proven")
+    return opened
+
+
 def _hash_bounded(
     path: Path,
     *,
@@ -300,6 +329,7 @@ def _hash_bounded(
     size = 0
     try:
         with path.open("rb") as stream:
+            _require_opened_identity(stream, before, "2CBH source member")
             while True:
                 chunk = stream.read(limits.hash_chunk_bytes)
                 if not chunk:
@@ -308,6 +338,9 @@ def _hash_bounded(
                 if size > limits.max_member_bytes:
                     raise TwoCbhSourceError("2CBH source member exceeds the configured size limit")
                 digest.update(chunk)
+            opened_after = _require_opened_identity(stream, before, "2CBH source member")
+            if size != opened_after.st_size:
+                raise TwoCbhSourceChangedError("2CBH source member changed while hashing")
     except TwoCbhSourceError:
         raise
     except OSError as exc:
