@@ -13,6 +13,7 @@ from acs.acsdb import ACSDB_SCHEMA_VERSION, AcsDatabase
 
 _SOURCE_ID = 17
 _GAME_ID = 101
+_ATTEMPT_ID = 23
 _POSITION_PLY = 1
 _SOURCE_SHA = "a" * 64
 _SOURCE_TIME = "2026-08-31T00:00:00+00:00"
@@ -47,7 +48,7 @@ def _file_sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def _seed_truth(database: AcsDatabase) -> None:
+def _seed_truth(database: AcsDatabase, *, include_attempt: bool) -> None:
     with database.conn:
         database.conn.execute(
             "INSERT INTO sources(id,source_name,source_format,sha256,imported_at) VALUES(?,?,?,?,?)",
@@ -81,6 +82,26 @@ def _seed_truth(database: AcsDatabase) -> None:
             "INSERT INTO positions(game_id,ply,fen,position_key) VALUES(?,?,?,?)",
             (_GAME_ID, _POSITION_PLY, _FEN, AcsDatabase.position_key(_FEN)),
         )
+        if include_attempt:
+            database.conn.execute(
+                """INSERT INTO import_attempts(
+                    id,source_name,source_format,sha256,started_at,finished_at,status,
+                    source_id,game_count,warning_count,error_message
+                ) VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
+                (
+                    _ATTEMPT_ID,
+                    "legacy-source.pgn",
+                    "pgn",
+                    _SOURCE_SHA,
+                    _SOURCE_TIME,
+                    _SOURCE_TIME,
+                    "full",
+                    _SOURCE_ID,
+                    1,
+                    0,
+                    None,
+                ),
+            )
 
 
 def _create_fixture(path: Path, version: int, *, seed: bool = True) -> None:
@@ -92,12 +113,19 @@ def _create_fixture(path: Path, version: int, *, seed: bool = True) -> None:
     with patch("acs.acsdb.ACSDB_SCHEMA_VERSION", version):
         with AcsDatabase(path) as database:
             if seed:
-                _seed_truth(database)
+                _seed_truth(database, include_attempt=version >= 2)
             if database.schema_version != version:
                 raise AssertionError((database.schema_version, version))
 
 
-def _truth_snapshot(path: Path) -> tuple[tuple[object, ...], tuple[object, ...], tuple[object, ...]]:
+def _truth_snapshot(
+    path: Path,
+) -> tuple[
+    tuple[object, ...],
+    tuple[object, ...],
+    tuple[object, ...],
+    tuple[object, ...] | None,
+]:
     connection = sqlite3.connect(path)
     try:
         source = tuple(
@@ -118,7 +146,20 @@ def _truth_snapshot(path: Path) -> tuple[tuple[object, ...], tuple[object, ...],
                 (_GAME_ID, _POSITION_PLY),
             ).fetchone()
         )
-        return source, game, position
+        attempt: tuple[object, ...] | None = None
+        has_attempts = connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='import_attempts'"
+        ).fetchone()
+        if has_attempts is not None:
+            row = connection.execute(
+                """SELECT id,source_name,source_format,sha256,started_at,finished_at,status,
+                          source_id,game_count,warning_count,error_message
+                   FROM import_attempts WHERE id=?""",
+                (_ATTEMPT_ID,),
+            ).fetchone()
+            if row is not None:
+                attempt = tuple(row)
+        return source, game, position, attempt
     finally:
         connection.close()
 
@@ -178,6 +219,31 @@ class V2AcsdbMigrationMatrixV6Tests(unittest.TestCase):
                     self.assertEqual(recovered.schema_version, ACSDB_SCHEMA_VERSION)
                     self.assertEqual(recovered.verify_integrity(), ACSDB_SCHEMA_VERSION)
 
+    def test_derivative_corruption_plus_interrupted_v6_recovers_on_retry(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "v4-corrupt-interrupted-v6.acsdb"
+            _create_fixture(path, 4)
+            before = _truth_snapshot(path)
+            raw = sqlite3.connect(path)
+            try:
+                raw.execute("DROP TABLE game_search_fold")
+                raw.commit()
+            finally:
+                raw.close()
+
+            failing_type = _failing_database(ACSDB_SCHEMA_VERSION)
+            with self.assertRaisesRegex(RuntimeError, "synthetic v6 migration interruption"):
+                failing_type(path)
+
+            # v4->v5 was a completed prior transaction; the interrupted v6
+            # replacement itself rolled back. A normal retry must finish from v5.
+            self.assertEqual(_raw_version(path), 5)
+            self.assertEqual(_truth_snapshot(path), before)
+            with AcsDatabase(path) as recovered:
+                self.assertEqual(recovered.schema_version, ACSDB_SCHEMA_VERSION)
+                self.assertEqual(recovered.verify_integrity(), ACSDB_SCHEMA_VERSION)
+            self.assertEqual(_truth_snapshot(path), before)
+
     def test_nonempty_schema0_is_rejected_without_reinterpreting_foreign_database(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / "foreign-schema0.sqlite"
@@ -201,6 +267,17 @@ class V2AcsdbMigrationMatrixV6Tests(unittest.TestCase):
                 self.assertEqual(raw.execute("SELECT body FROM notes").fetchone()[0], "foreign user bytes")
             finally:
                 raw.close()
+
+    def test_physically_corrupt_source_fails_closed_without_rewriting_bytes(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "corrupt.acsdb"
+            path.write_bytes(b"not-a-sqlite-database\x00\x01\x02")
+            before_hash = _file_sha256(path)
+
+            with self.assertRaisesRegex(RuntimeError, "schema inspection|integrity|database"):
+                AcsDatabase(path)
+
+            self.assertEqual(_file_sha256(path), before_hash)
 
     def test_corrupt_v1_missing_canonical_table_fails_before_advancing_chain(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -245,6 +322,62 @@ class V2AcsdbMigrationMatrixV6Tests(unittest.TestCase):
                             [_GAME_ID],
                         )
                     self.assertEqual(_truth_snapshot(path), before)
+
+    def test_v5_missing_date_derivative_indexes_are_rebuilt_by_v6(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "v5-missing-date-indexes.acsdb"
+            _create_fixture(path, 5)
+            before = _truth_snapshot(path)
+            raw = sqlite3.connect(path)
+            try:
+                raw.execute("DROP INDEX idx_games_game_date")
+                raw.execute("DROP INDEX idx_games_search_date_key")
+                raw.commit()
+            finally:
+                raw.close()
+
+            with AcsDatabase(path) as migrated:
+                self.assertEqual(migrated.schema_version, ACSDB_SCHEMA_VERSION)
+                self.assertEqual(migrated.verify_integrity(), ACSDB_SCHEMA_VERSION)
+                self.assertEqual(
+                    [row["id"] for row in migrated.search_games(date_from="2026.08.31")],
+                    [_GAME_ID],
+                )
+            self.assertEqual(_truth_snapshot(path), before)
+
+    def test_current_v6_derivative_structure_recovers_from_canonical_games(self) -> None:
+        for corruption in ("fold-table", "fold-shape", "dirty-table", "date-index", "fold-trigger"):
+            with self.subTest(corruption=corruption), tempfile.TemporaryDirectory() as temporary:
+                path = Path(temporary) / f"current-derivative-{corruption}.acsdb"
+                _create_fixture(path, ACSDB_SCHEMA_VERSION)
+                before = _truth_snapshot(path)
+                raw = sqlite3.connect(path)
+                try:
+                    if corruption == "fold-table":
+                        raw.execute("DROP TABLE game_search_fold")
+                    elif corruption == "fold-shape":
+                        raw.execute("DROP TABLE game_search_fold")
+                        raw.execute(
+                            "CREATE TABLE game_search_fold(game_id INTEGER PRIMARY KEY, broken TEXT)"
+                        )
+                    elif corruption == "dirty-table":
+                        raw.execute("DROP TABLE game_search_fold_dirty")
+                    elif corruption == "date-index":
+                        raw.execute("DROP INDEX idx_games_search_date_key")
+                    else:
+                        raw.execute("DROP TRIGGER trg_games_search_fold_update")
+                    raw.commit()
+                finally:
+                    raw.close()
+
+                with AcsDatabase(path) as recovered:
+                    self.assertEqual(recovered.schema_version, ACSDB_SCHEMA_VERSION)
+                    self.assertEqual(recovered.verify_integrity(), ACSDB_SCHEMA_VERSION)
+                    self.assertEqual(
+                        [row["id"] for row in recovered.search_games(player="alpha")],
+                        [_GAME_ID],
+                    )
+                self.assertEqual(_truth_snapshot(path), before)
 
     def test_current_v6_missing_canonical_table_or_required_index_fails_on_open(self) -> None:
         for corruption in ("positions-table", "position-index"):
@@ -300,10 +433,10 @@ class V2AcsdbMigrationMatrixV6Tests(unittest.TestCase):
     def test_migrated_database_backup_restore_and_reopen_preserve_truth(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            source = root / "source-v1.acsdb"
+            source = root / "source-v2.acsdb"
             backup = root / "backup.acsdb"
             restored = root / "restored.acsdb"
-            _create_fixture(source, 1)
+            _create_fixture(source, 2)
             before = _truth_snapshot(source)
 
             with AcsDatabase(source) as migrated:
