@@ -1,0 +1,98 @@
+name: D06 PGN Resource Security
+
+on:
+  push:
+    branches:
+      - work/v2-dev06-pgn-resource-security-20260831
+  pull_request:
+    paths:
+      - 'acs/pgn_roundtrip.py'
+      - 'tests/test_d06_pgn_resource_security_policy.py'
+      - '.github/workflows/d06-pgn-resource-security.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: d06-pgn-resource-security-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  V2_AUTHORITY: 575ec0088982d2f90adb47c040a5714d68186b0e
+
+jobs:
+  resource-security:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Preserve exact Git bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config core.autocrlf false
+          git config core.eol lf
+          git reset --hard HEAD
+          git checkout-index --force --all
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Prove authority ancestry and exact D06 scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor "$V2_AUTHORITY" HEAD
+          test "$(git merge-base "$V2_AUTHORITY" HEAD)" = "$V2_AUTHORITY"
+          git diff --check "$V2_AUTHORITY" HEAD
+          changed="$(git diff --name-only "$V2_AUTHORITY" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/d06-pgn-resource-security.yml' \
+            'acs/pgn_roundtrip.py' \
+            'tests/test_d06_pgn_resource_security_policy.py' | sort)"
+          # RED-first head intentionally has no Product delta yet.
+          expected_red="$(printf '%s\n' \
+            '.github/workflows/d06-pgn-resource-security.yml' \
+            'tests/test_d06_pgn_resource_security_policy.py' | sort)"
+          test "$changed" = "$expected" || test "$changed" = "$expected_red"
+          if printf '%s\n' "$changed" | grep -E '(^|/)tools/qa/|windows-stage1|release_preflight|stage1_release|library_import_service|acsdb'; then
+            echo 'Out-of-scope or Stage1/Library contamination detected' >&2
+            exit 1
+          fi
+
+      - name: Compile D06 resource-security surface
+        run: >-
+          python -m py_compile
+          acs/pgn_roundtrip.py
+          tests/test_d06_pgn_resource_security_policy.py
+
+      - name: Hostile PGN resource/security regression
+        run: python -m unittest -v tests.test_d06_pgn_resource_security_policy
+
+      - name: Existing D06 and file-ingress resource regressions
+        run: >-
+          python -m unittest -v
+          tests.test_d06_pgn_roundtrip
+          tests.test_dev4_pgn_resource_security
+          tests.test_pgn_service
+
+      - name: Full unittest regression
+        run: python -m unittest discover -s tests -v
+
+      - name: Full pytest regression
+        run: python -m pytest -q
+
+      - name: SELFTEST
+        run: python run_accessible_chess.py --selftest
+
+      - name: Complete diagnostic
+        run: python run_accessible_chess.py --diagnostic
