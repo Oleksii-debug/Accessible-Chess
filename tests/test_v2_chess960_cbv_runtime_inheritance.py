@@ -116,6 +116,14 @@ class Chess960CbvRuntimeInheritanceTests(unittest.TestCase):
                 self.assertEqual(report.imported_game_count, 1)
                 self.assertEqual(report.warning_count, 2)
                 self.assertEqual(tuple(warning.game_index for warning in report.warnings), (1, 4))
+                self.assertTrue(all(warning.code == "unsupported_variant" for warning in report.warnings))
+                self.assertTrue(
+                    all(
+                        warning.message
+                        == "Chess960/Fischer Random record is unsupported and was not imported"
+                        for warning in report.warnings
+                    )
+                )
 
                 source_row = database.conn.execute(
                     "SELECT source_name, source_format, sha256 FROM sources"
