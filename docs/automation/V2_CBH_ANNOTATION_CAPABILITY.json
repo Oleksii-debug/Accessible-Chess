@@ -27,17 +27,29 @@
     {
       "family": "Annotation/TestBase.cbh",
       "oracle": "Annotation/TestBaseExport.pgn",
+      "status": "SUPPORTED_FOR_TESTED_SEMANTICS",
       "expectation": "4 games, 29 NAGs, 3 text comments, multilingual language identity"
     },
     {
       "family": "WithVariations/WithVariations.cbh",
       "oracle": "WithVariations/GamesWithVariations.pgn",
+      "status": "SUPPORTED_FOR_TESTED_SEMANTICS",
       "expectation": "recursive nested and sibling RAV with comments and NAGs inside variations"
     },
     {
       "family": "UnusualStart/UnusualStartBytes.cbh",
       "oracle": "UnusualStart/UnusualStart.pgn",
-      "expectation": "9 unusual-start games including a real zero-ply game"
+      "status": "BLOCKED_EXTERNAL_BACKEND",
+      "expectation": "oracle contains 9 unusual-start games including a real zero-ply game",
+      "observed": "Pinned libcbh currently publishes zero games for this lawful family in independent QA #362 and the initial D09 oracle. D09 does not fabricate those games or claim zero-ply CBH support."
+    }
+  ],
+  "known_boundaries": [
+    {
+      "id": "unusual_start_zero_ply",
+      "status": "BLOCKED_EXTERNAL_BACKEND",
+      "owner": "outside D09 annotation-mapping scope",
+      "policy": "retain source identity and independent oracle evidence; do not invent missing decoded games"
     }
   ],
   "backend_unexposed_proprietary_annotations": [
@@ -59,6 +71,7 @@
   "nag_fidelity_policy": "For SymbolComment.evaluation only, the optional bridge reverses deterministic pinned-libcbh color-relative remapping back to the raw CBH evaluation byte that the independent ChessBase-export PGN uses as the NAG. Symbol and prefix fields are not normalized by this rule.",
   "no_claims": [
     "lossless_all_proprietary_annotations",
+    "zero_ply_unusual_start_support_while_backend_publishes_zero_games",
     "default_bundling_of_libcbh",
     "CBF_CBI_2CBH_CBONE_CBZ_support",
     "human_NVDA_verification"
