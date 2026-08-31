@@ -1,0 +1,48 @@
+name: Temporary V2 tracked-writer repair materializer v3
+
+on:
+  push:
+    branches:
+      - tmp/v2-data-tracked-writer-repair-materialize-20260831
+    paths:
+      - '.github/workflows/tmp-v2-data-tracked-writer-materialize-v3.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  materialize:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: tmp/v2-data-tracked-writer-repair-materialize-20260831
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Materialize Product repair
+        run: |
+          python .tmp/materialize_v2_tracked_writer_repair.py
+          python .tmp/materialize_v2_tracked_writer_postpatch.py
+      - name: Compile and focused regressions
+        run: |
+          python -m compileall -q acs tests
+          python -m unittest -v \
+            tests.test_v2_upgrade_tracked_writer_conflict \
+            tests.test_v2_upgrade_v6_successor \
+            tests.test_version2_upgrade \
+            tests.test_version2_upgrade_recovery_integrity \
+            tests.test_version2_upgrade_stale_writer
+          git diff --check
+      - name: Commit Product candidate only
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'Oleksii-debug'
+          git config user.email 'oleksiy.az.09@gmail.com'
+          git add acs/version2_upgrade.py
+          test "$(git diff --cached --name-only)" = "acs/version2_upgrade.py"
+          git commit -m 'fix: protect tracked V1 writes during V2 rollback'
+          git push origin HEAD:tmp/v2-data-tracked-writer-repair-materialize-20260831
