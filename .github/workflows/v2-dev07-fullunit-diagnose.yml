@@ -1,0 +1,48 @@
+name: V2 DEV07 Full Unittest Diagnose
+
+on:
+  push:
+    branches:
+      - ci/v2-dev07-fullunit-diagnose-20260831
+
+permissions:
+  contents: read
+
+concurrency:
+  group: v2-dev07-fullunit-diagnose
+  cancel-in-progress: true
+
+jobs:
+  diagnose:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Prove Product tree identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = '7855a83a90e2cd93057f3ac2e33cf9c03d3512bc'
+          test -z "$(git diff --name-only HEAD^ HEAD | grep -v '^.github/workflows/v2-dev07-fullunit-diagnose.yml$' || true)"
+      - name: Capture full unittest output
+        shell: bash
+        run: |
+          set -o pipefail
+          python -m unittest discover -s tests -v 2>&1 | tee "full-unittest-${{ matrix.os }}.log"
+      - name: Upload full unittest evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v2-dev07-full-unittest-${{ matrix.os }}
+          path: full-unittest-${{ matrix.os }}.log
+          if-no-files-found: error
+          retention-days: 3
