@@ -116,6 +116,25 @@ def _poll_cancel(cancel_check: CancelCheck | None) -> None:
         raise LibraryImportCancelledError("ChessBase import cancelled")
 
 
+def _cbv_cancel_adapter(cancel_check: CancelCheck | None) -> CancelCheck | None:
+    if cancel_check is None:
+        return None
+
+    def probe() -> bool:
+        try:
+            _poll_cancel(cancel_check)
+        except LibraryImportCancelledError:
+            return True
+        except LibraryImportControlError as exc:
+            raise CbvExtractError(
+                "CBV cancellation control failed",
+                code=CbvExtractCode.CONTROL_INVALID,
+            ) from exc
+        return False
+
+    return probe
+
+
 class ChessBaseLibraryImportService:
     """Decode a classic CBH family and publish it through one ACSDB transaction."""
 
@@ -179,7 +198,7 @@ class ChessBaseLibraryImportService:
                     source_path,
                     Path(temporary),
                     self._cbv_extractor_config,
-                    cancel_check=cancel_check,
+                    cancel_check=_cbv_cancel_adapter(cancel_check),
                 )
             except CbvExtractError as exc:
                 if exc.code is CbvExtractCode.CANCELLED:
