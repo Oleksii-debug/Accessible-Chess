@@ -17,6 +17,8 @@ jobs:
   real-100k-profile:
     runs-on: ubuntu-22.04
     timeout-minutes: 90
+    env:
+      PYTHONPATH: .
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
