@@ -496,13 +496,13 @@ def import_text_book(
 BOOK_TEXT_CAPABILITIES = MappingProxyType(
     {
         "TXT": {
-            "status": "SUPPORTED_PENDING_REAL_GATE",
+            "status": "SUPPORTED",
             "encoding": "UTF-8",
             "semantics": ("Paragraph",),
             "chess_inference": "NONE",
         },
         "Markdown": {
-            "status": "PARTIAL_PENDING_REAL_MARKDOWN_BOOK_CORPUS",
+            "status": "PARTIAL",
             "encoding": "UTF-8",
             "semantics": (
                 "Heading",
