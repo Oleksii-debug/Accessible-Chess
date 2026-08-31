@@ -5,9 +5,9 @@ from __future__ import annotations
 The snapshot stores canonical PGN exchange text plus semantic identity digests.
 An additional exact PGN digest protects loss-aware evidence such as move-number
 spelling and whitespace that is intentionally outside semantic GameIdentity.
-Restore always reparses through the existing structural parser and rejects any
-corruption before exposing a PgnGame.  This module does not create a second
-chess/tree representation.
+Restore always reparses through the canonical bounded D06 PGN boundary and
+rejects any corruption or normalization-changing payload before exposing a
+PgnGame. This module does not create a second chess/tree representation.
 """
 
 from dataclasses import dataclass
@@ -17,7 +17,12 @@ import json
 import re
 
 from .game_identity import GameIdentityContractError, identity_for_game
-from .gametree import PgnGame, parse_games, serialize_game
+from .gametree import PgnGame, serialize_game
+from .pgn_roundtrip import (
+    PgnRoundTripError,
+    PgnRoundTripErrorCode,
+    parse_pgn_text,
+)
 
 GAMETREE_SNAPSHOT_SCHEMA_VERSION = 1
 MAX_SNAPSHOT_TEXT_BYTES = 16 * 1024 * 1024
@@ -34,6 +39,18 @@ _SNAPSHOT_RECORD_FIELDS = frozenset(
         "record_digest",
         "source_index",
         "warnings",
+    }
+)
+_PGN_RESOURCE_LIMIT_CODES = frozenset(
+    {
+        PgnRoundTripErrorCode.BYTE_SIZE_LIMIT,
+        PgnRoundTripErrorCode.TEXT_SIZE_LIMIT,
+        PgnRoundTripErrorCode.TOKEN_SIZE_LIMIT,
+        PgnRoundTripErrorCode.TOKEN_COUNT_LIMIT,
+        PgnRoundTripErrorCode.COMMENT_SIZE_LIMIT,
+        PgnRoundTripErrorCode.TAG_SIZE_LIMIT,
+        PgnRoundTripErrorCode.TAG_COUNT_LIMIT,
+        PgnRoundTripErrorCode.GAME_COUNT_LIMIT,
     }
 )
 
@@ -89,6 +106,54 @@ def _require_warning_tuple(value: object) -> tuple[str, ...]:
                 code=GameTreeSnapshotCode.RESOURCE_LIMIT,
             )
     return value
+
+
+def _snapshot_pgn_error(
+    exc: PgnRoundTripError,
+    *,
+    fallback: GameTreeSnapshotCode,
+    context: str,
+) -> GameTreeSnapshotError:
+    code = (
+        GameTreeSnapshotCode.RESOURCE_LIMIT
+        if exc.code in _PGN_RESOURCE_LIMIT_CODES
+        else fallback
+    )
+    return GameTreeSnapshotError(
+        f"{context}: {exc}",
+        code=code,
+    )
+
+
+def _parse_canonical_snapshot_pgn(
+    text: str,
+    *,
+    failure_code: GameTreeSnapshotCode,
+    context: str,
+) -> PgnGame:
+    """Parse one snapshot payload through the canonical strict D06 boundary.
+
+    Snapshot warning provenance is stored independently from ``pgn_text`` and
+    restored after this check, so strict parsing of the exchange payload does
+    not discard legitimate source warnings. Attached symbolic NAG spelling is
+    normalized by D06; the caller's exact identity comparison then rejects any
+    payload whose normalization changes the snapshot's bound GameTree.
+    """
+
+    try:
+        parsed = parse_pgn_text(text, strict=True)
+    except PgnRoundTripError as exc:
+        raise _snapshot_pgn_error(
+            exc,
+            fallback=failure_code,
+            context=context,
+        ) from exc
+    if len(parsed) != 1:
+        raise GameTreeSnapshotError(
+            "snapshot PGN must contain exactly one game",
+            code=failure_code,
+        )
+    return parsed[0]
 
 
 def _reject_duplicate_object_pairs(pairs: list[tuple[str, object]]) -> dict[str, object]:
@@ -163,11 +228,24 @@ def snapshot_game(game: PgnGame) -> GameTreeSnapshot:
     try:
         identity = identity_for_game(game)
         pgn_text = serialize_game(game)
+        canonical_game = _parse_canonical_snapshot_pgn(
+            pgn_text,
+            failure_code=GameTreeSnapshotCode.INVALID_SNAPSHOT,
+            context="cannot snapshot noncanonical GameTree",
+        )
+        canonical_identity = identity_for_game(canonical_game)
+    except GameTreeSnapshotError:
+        raise
     except (GameIdentityContractError, ValueError, TypeError) as exc:
         raise GameTreeSnapshotError(
             f"cannot snapshot invalid GameTree: {exc}",
             code=GameTreeSnapshotCode.INVALID_SNAPSHOT,
         ) from exc
+    if canonical_identity != identity:
+        raise GameTreeSnapshotError(
+            "cannot snapshot GameTree whose canonical PGN changes semantic identity",
+            code=GameTreeSnapshotCode.INVALID_SNAPSHOT,
+        )
     warnings = tuple(game.warnings)
     _require_warning_tuple(warnings)
     return GameTreeSnapshot(
@@ -299,19 +377,11 @@ def snapshot_from_json(text: object) -> GameTreeSnapshot:
 def restore_game(snapshot: GameTreeSnapshot) -> PgnGame:
     if not isinstance(snapshot, GameTreeSnapshot):
         raise TypeError("restore_game requires a GameTreeSnapshot")
-    try:
-        parsed = parse_games(snapshot.pgn_text)
-    except (ValueError, TypeError) as exc:
-        raise GameTreeSnapshotError(
-            f"snapshot PGN cannot be parsed: {exc}",
-            code=GameTreeSnapshotCode.PARSE_FAILURE,
-        ) from exc
-    if len(parsed) != 1:
-        raise GameTreeSnapshotError(
-            "snapshot PGN must contain exactly one game",
-            code=GameTreeSnapshotCode.PARSE_FAILURE,
-        )
-    game = parsed[0]
+    game = _parse_canonical_snapshot_pgn(
+        snapshot.pgn_text,
+        failure_code=GameTreeSnapshotCode.PARSE_FAILURE,
+        context="snapshot PGN cannot be parsed canonically",
+    )
     try:
         identity = identity_for_game(game)
     except (GameIdentityContractError, ValueError, TypeError) as exc:

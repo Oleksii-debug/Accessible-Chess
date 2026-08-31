@@ -1,0 +1,108 @@
+name: D06 GameTree Snapshot Resume
+
+on:
+  pull_request:
+    paths:
+      - 'acs/gametree_resume.py'
+      - 'tests/test_d06_gametree_snapshot_resume.py'
+      - '.github/workflows/d06-gametree-snapshot-resume.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: d06-gametree-snapshot-resume-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  D06_RESUME_BASE: a3e52c621210c2dd5251dea4f97b611c12d56a22
+
+jobs:
+  gametree-resume:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Preserve exact Git bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config core.autocrlf false
+          git config core.eol lf
+          git reset --hard HEAD
+          git checkout-index --force --all
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install pinned verification dependency
+        run: python -m pip install -q pytest==8.4.2
+
+      - name: Prove exact successor ownership and locked canonical dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          git cat-file -e "$D06_RESUME_BASE^{commit}"
+          test "$(git merge-base HEAD "$D06_RESUME_BASE")" = "$D06_RESUME_BASE"
+          git diff --check "$D06_RESUME_BASE" HEAD
+          changed="$(git diff --name-only "$D06_RESUME_BASE" HEAD | sort)"
+          printf '%s\n' "$changed"
+          test -n "$changed"
+          test "$(printf '%s\n' "$changed" | grep -Fxc '.github/workflows/d06-gametree-snapshot-resume.yml')" = 1
+          test "$(printf '%s\n' "$changed" | grep -Fxc 'tests/test_d06_gametree_snapshot_resume.py')" = 1
+          unexpected="$(printf '%s\n' "$changed" | grep -vFx \
+            -e '.github/workflows/d06-gametree-snapshot-resume.yml' \
+            -e 'acs/gametree_resume.py' \
+            -e 'tests/test_d06_gametree_snapshot_resume.py' || true)"
+          test -z "$unexpected"
+          test "$(git rev-parse HEAD:acs/gametree_snapshot.py)" = "ac08a89055372c02d3d15744fd4de5a1fd0059d5"
+          test "$(git rev-parse HEAD:acs/pgn_roundtrip.py)" = "96d62bf6dd7b2f5c8a75d5f2bd1fde2ad0823d20"
+          test "$(git rev-parse HEAD:acs/gametree_navigation.py)" = "6209c29382105153ae4b22d4d70f9675a931826d"
+          echo 'D06 GAMETREE RESUME OWNERSHIP PASS'
+
+      - name: Compile RED-first regression and Product module when present
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m py_compile tests/test_d06_gametree_snapshot_resume.py
+          if test -f acs/gametree_resume.py; then
+            python -m py_compile acs/gametree_resume.py
+          fi
+
+      - name: RED-first durable resume regression
+        run: python -m unittest -v tests.test_d06_gametree_snapshot_resume
+
+      - name: Focused D06 snapshot persistence regressions
+        run: >-
+          python -m unittest -v
+          tests.test_d06_gametree_snapshot_resume
+          tests.test_d06_snapshot_canonical_restore
+          tests.test_d06_gametree_persistence_vertical
+          tests.test_d06_annotation_insertion_persistence_vertical
+          tests.test_d06_pgn_roundtrip
+          tests.test_d06_file_ingress_nag_normalization
+          tests.test_d06_real_corpus_recovery
+          tests.test_game_identity
+          tests.test_gametree
+          tests.test_pgn_concurrent_save
+          tests.test_version2_formats_integration
+
+      - name: Full repository unittest
+        run: python -m unittest discover -s tests
+
+      - name: Full repository pytest
+        run: python -m pytest -q tests
+
+      - name: SELFTEST and diagnostic
+        run: |
+          python -m acs.selftest
+          python run_accessible_chess.py --diagnostic
