@@ -33,6 +33,11 @@ jobs:
       - name: Profile lawful 100k+ real Library path
         run: |
           set -o pipefail
+          # Preserve the current canonical 500k-token PGN preflight. The profile
+          # parses the 100,001-game real source in bounded 1,000-game chunks, then
+          # publishes the complete canonical sequence as one atomic D07 batch.
+          sed -i 's/PARSE_CHUNK_GAMES = 5_000/PARSE_CHUNK_GAMES = 1_000/' tools/v2_library_large_real_profile.py
+          grep -F 'PARSE_CHUNK_GAMES = 1_000' tools/v2_library_large_real_profile.py
           python tools/v2_library_large_real_profile.py | tee v2-library-large-real-profile.log
           grep -F 'V2_LIBRARY_LARGE_REAL_PROFILE=' v2-library-large-real-profile.log
       - name: Validate non-flaky evidence contract
