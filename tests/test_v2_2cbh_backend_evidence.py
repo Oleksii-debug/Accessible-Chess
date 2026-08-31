@@ -83,7 +83,7 @@ class V2TwoCbhBackendEvidenceTests(unittest.TestCase):
     def test_evidence_text_states_exact_remaining_gate(self):
         for phrase in (
             "support not advertised / import not enabled",
-            "does **not** find the evidence set required",
+            "did **not** find the evidence set required",
             "does not create a hard-coded mapping",
             "No independent semantic oracle is qualified today",
             "default Accessible Chess package remains backend-free",
