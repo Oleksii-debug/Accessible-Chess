@@ -105,9 +105,13 @@ jobs:
           mkdir -p scripts
           git fetch --no-tags origin refs/pull/298/head:refs/remotes/origin/pgn03-evidence
           test "$(git rev-parse refs/remotes/origin/pgn03-evidence)" = "$PGN03_EVIDENCE_HEAD"
+          git show "$PGN03_EVIDENCE_HEAD:scripts/pgn_real_corpus_oracle.py" > scripts/pgn_real_corpus_oracle.py
           git show "$PGN03_EVIDENCE_HEAD:scripts/pgn_real_corpus_session_oracle.py" > scripts/pgn_real_corpus_session_oracle.py
           git show "$PGN03_EVIDENCE_HEAD:scripts/pgn_real_eval_rav_oracle.py" > scripts/pgn_real_eval_rav_oracle.py
-          python -m py_compile scripts/pgn_real_corpus_session_oracle.py scripts/pgn_real_eval_rav_oracle.py
+          python -m py_compile \
+            scripts/pgn_real_corpus_oracle.py \
+            scripts/pgn_real_corpus_session_oracle.py \
+            scripts/pgn_real_eval_rav_oracle.py
           python -m scripts.pgn_real_corpus_session_oracle --selftest
 
       - name: Pinned real annotated SetUp FEN nested RAV oracle
@@ -141,7 +145,10 @@ jobs:
       - name: Remove materialized QA scripts before broad repository gates
         shell: bash
         run: |
-          rm -f scripts/pgn_real_corpus_session_oracle.py scripts/pgn_real_eval_rav_oracle.py
+          rm -f \
+            scripts/pgn_real_corpus_oracle.py \
+            scripts/pgn_real_corpus_session_oracle.py \
+            scripts/pgn_real_eval_rav_oracle.py
 
       - name: Full repository unittest
         run: python -m unittest discover -s tests
