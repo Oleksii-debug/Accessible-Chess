@@ -214,6 +214,14 @@ class RealCbhChess960RecordBoundaryTests(unittest.TestCase):
                 self.assertEqual(report.imported_game_count, EXPECTED_STANDARD)
                 self.assertEqual(report.warning_count, EXPECTED_CHESS960)
                 self.assertEqual({warning.game_index for warning in report.warnings}, unsupported_indexes)
+                self.assertTrue(all(warning.code == "unsupported_variant" for warning in report.warnings))
+                self.assertTrue(
+                    all(
+                        warning.message
+                        == "Chess960/Fischer Random record is unsupported and was not imported"
+                        for warning in report.warnings
+                    )
+                )
 
                 source_row = database.conn.execute(
                     "SELECT source_name, source_format, sha256 FROM sources"
@@ -289,6 +297,7 @@ class RealCbhChess960RecordBoundaryTests(unittest.TestCase):
             "accepted_standard_source_index": accepted.source_index,
             "library_imported_records": EXPECTED_STANDARD,
             "library_warning_count": EXPECTED_CHESS960,
+            "library_warning_code": "unsupported_variant",
             "source_immutable": True,
             "acsdb_reopen": "PASS",
             "capability_matrix": "Chess960 UNSUPPORTED; CBV inherits CBH boundary",
