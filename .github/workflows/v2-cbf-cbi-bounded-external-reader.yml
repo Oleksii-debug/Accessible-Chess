@@ -1,0 +1,188 @@
+name: V2 CBF CBI Bounded External Reader
+
+on:
+  push:
+    branches:
+      - work/v2-cbf-cbi-bounded-external-reader-20260831
+  pull_request:
+    branches:
+      - work/v2-cbf-cbi-real-corpus-unblock-20260828
+    paths:
+      - acs/cbf_cbi_external.py
+      - tests/test_cbf_cbi_external.py
+      - tests/test_v2_cbf_cbi_real_corpus_unblock.py
+      - docs/automation/V2_CBF_CBI_REAL_CORPUS_UNBLOCK.json
+      - docs/automation/V2_CBF_CBI_REAL_CORPUS_UNBLOCK.md
+      - .github/workflows/v2-cbf-cbi-bounded-external-reader.yml
+      - .github/workflows/v2-cbf-cbi-real-corpus-unblock.yml
+
+permissions:
+  contents: read
+
+env:
+  OWNER_BASE: 1142466ca4c1553f75dd04c62c8ff0f4202ce61e
+  SCIDB_COMMIT: 7c1c9d89f2fabab0c1252cdd14c515fb9bfc1415
+  SCID_COMMIT: 5837653efa3975c64cff232006d9f981b36ac56b
+
+jobs:
+  qualification-contract:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install pinned verification dependency
+        run: python -m pip install -q pytest==8.4.2
+      - name: Exact ancestry, owner scope and compile
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor "$OWNER_BASE" HEAD
+          git diff --check "$OWNER_BASE" HEAD
+          unexpected="$(git diff --name-only "$OWNER_BASE" HEAD | grep -Ev '^(acs/cbf_cbi_external\.py|tests/test_cbf_cbi_external\.py|tests/test_v2_cbf_cbi_real_corpus_unblock\.py|docs/automation/V2_CBF_CBI_REAL_CORPUS_UNBLOCK\.(json|md)|\.github/workflows/v2-cbf-cbi-bounded-external-reader\.yml)$' || true)"
+          if [[ -n "$unexpected" ]]; then
+            printf 'Unexpected files outside CBF/CBI bounded-reader owner scope:\n%s\n' "$unexpected"
+            exit 1
+          fi
+          python -m compileall -q acs tests run_accessible_chess.py
+      - name: Bounded external reader and no-overclaim contracts
+        run: python -m unittest -v tests.test_cbf_cbi_external tests.test_v2_cbf_cbi_real_corpus_unblock
+      - name: Focused pytest parity
+        run: python -m pytest -q tests/test_cbf_cbi_external.py tests/test_v2_cbf_cbi_real_corpus_unblock.py tests/test_chessbase_adapter.py tests/test_chessbase_integrity.py tests/test_library_import_service.py tests/test_game_identity.py
+
+  pinned-reader-build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 40
+    steps:
+      - name: Checkout Accessible Chess owner head
+        uses: actions/checkout@v4
+        with:
+          path: product
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Checkout exact Scidb source
+        uses: actions/checkout@v4
+        with:
+          repository: foolnotion/scidb
+          ref: 7c1c9d89f2fabab0c1252cdd14c515fb9bfc1415
+          path: upstream/scidb
+          fetch-depth: 1
+      - name: Checkout exact Scid source
+        uses: actions/checkout@v4
+        with:
+          repository: lpt/scid
+          ref: 5837653efa3975c64cff232006d9f981b36ac56b
+          path: upstream/scid
+          fetch-depth: 1
+      - name: Verify pinned source identities and read-only contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C upstream/scidb rev-parse HEAD)" = "$SCIDB_COMMIT"
+          test "$(git -C upstream/scid rev-parse HEAD)" = "$SCID_COMMIT"
+          test "$(git -C upstream/scidb hash-object src/cbh2si4.cpp)" = "1830d059b987e3b9d4b97803d92f33936a69ace1"
+          test "$(git -C upstream/scidb hash-object src/db/cbf/cbf_codec.cpp)" = "c9608dc93e704070c5ec7f8294d09e6c52374b53"
+          test "$(git -C upstream/scid hash-object scripts/scidpgn.tcl)" = "84273490e8ee6b47bc78ca26a274ab559845e7b5"
+          grep -F 'permission::ReadOnly' upstream/scidb/src/cbh2si4.cpp
+          grep -F 'strcmp(cbhPath.c_str() + cbhPath.size() - 4, ".cbf")' upstream/scidb/src/cbh2si4.cpp
+          grep -F 'Usage: cbh2si4 [options ...] <ChessBase database> [destination database]' upstream/scidb/src/cbh2si4.cpp
+          grep -F 'sc_base open -fast -readonly' upstream/scid/scripts/scidpgn.tcl
+          grep -F 'sc_game pgn -tags 1 -comments 1 -var 1' upstream/scid/scripts/scidpgn.tcl
+      - name: Install exact-reader build dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential tcl8.6 tcl8.6-dev tk8.6 tk8.6-dev \
+            libfreetype6-dev libsm-dev libice-dev libx11-dev libxcursor-dev \
+            libfontconfig1-dev libgdbm-dev libexpat1-dev zlib1g-dev libminizip-dev
+      - name: Build pinned Scidb cbh2si4
+        working-directory: upstream/scidb
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./configure --prefix="$PWD/_qualified" --exec-prefix="$PWD/_qualified" --disable-freedesktop > "$GITHUB_WORKSPACE/scidb-configure.log" 2>&1
+          make -C src recursive -j2 > "$GITHUB_WORKSPACE/scidb-recursive.log" 2>&1
+          make -C src cbh2si4 -j2 > "$GITHUB_WORKSPACE/scidb-cbh2si4.log" 2>&1
+          test -x src/cbh2si4
+          src/cbh2si4 --help > "$GITHUB_WORKSPACE/cbh2si4-help.log" 2>&1
+          grep -F 'ChessBase database' "$GITHUB_WORKSPACE/cbh2si4-help.log"
+          sha256sum src/cbh2si4 | tee "$GITHUB_WORKSPACE/cbh2si4.sha256"
+      - name: Build and execute pinned Scid PGN exporter on neutral SI4
+        working-directory: upstream/scid
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./configure LANGUAGES="" TB="" > "$GITHUB_WORKSPACE/scid-configure.log" 2>&1
+          make -j2 pgnscid tcscid scidpgn > "$GITHUB_WORKSPACE/scid-build.log" 2>&1
+          test -x pgnscid
+          test -x tcscid
+          test -x scidpgn
+          cat > "$GITHUB_WORKSPACE/neutral.pgn" <<'PGN'
+          [Event "Neutral exporter qualification"]
+          [Site "CI"]
+          [Date "2026.08.31"]
+          [Round "1"]
+          [White "Alpha"]
+          [Black "Beta"]
+          [Result "1-0"]
+
+          1. e4 {keep comment} e5 (1... c5 {keep variation}) 2. Nf3 Nc6 1-0
+          PGN
+          ./pgnscid -f "$GITHUB_WORKSPACE/neutral.pgn" > "$GITHUB_WORKSPACE/pgnscid.log" 2>&1
+          PATH="$PWD:$PATH" ./scidpgn "$GITHUB_WORKSPACE/neutral.si4" > "$GITHUB_WORKSPACE/exported.pgn"
+          grep -F 'keep comment' "$GITHUB_WORKSPACE/exported.pgn"
+          grep -F 'keep variation' "$GITHUB_WORKSPACE/exported.pgn"
+          grep -F 'Nf3' "$GITHUB_WORKSPACE/exported.pgn"
+          sha256sum tcscid scidpgn | tee "$GITHUB_WORKSPACE/scid-runtime.sha256"
+      - name: Upload pinned-reader build evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v2-cbf-cbi-pinned-reader-build
+          path: |
+            scidb-configure.log
+            scidb-recursive.log
+            scidb-cbh2si4.log
+            cbh2si4-help.log
+            cbh2si4.sha256
+            scid-configure.log
+            scid-build.log
+            pgnscid.log
+            exported.pgn
+            scid-runtime.sha256
+          if-no-files-found: ignore
+          retention-days: 7
+
+  full-regression:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install test dependency
+        run: python -m pip install -q pytest==8.4.2
+      - name: Full compile and diff hygiene
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor "$OWNER_BASE" HEAD
+          git diff --check "$OWNER_BASE" HEAD
+          python -m compileall -q acs tests run_accessible_chess.py
+      - name: Full unittest
+        run: python -m unittest discover -s tests -p 'test*.py'
+      - name: Full pytest
+        run: python -m pytest -q
