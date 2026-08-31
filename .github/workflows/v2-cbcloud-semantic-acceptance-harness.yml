@@ -1,0 +1,87 @@
+name: V2 CBCLOUD Semantic Acceptance Harness
+
+on:
+  push:
+    branches:
+      - work/v2-cbcloud-semantic-acceptance-harness-20260831
+  pull_request:
+    branches:
+      - work/v2-cbcloud-local-format-unblock-20260828
+    paths:
+      - acs/cbcloud_acceptance.py
+      - tests/test_v2_cbcloud_semantic_acceptance.py
+      - docs/automation/V2_CBCLOUD_SEMANTIC_ACCEPTANCE_HARNESS.md
+      - .github/workflows/v2-cbcloud-semantic-acceptance-harness.yml
+
+permissions:
+  contents: read
+
+env:
+  V2_CBCLOUD_ACCEPTANCE_BASE: a1b88d947b526d86c6a2dbdbcce32c4b4e4b0830
+
+jobs:
+  acceptance-contract:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install pinned verification dependency
+        run: python -m pip install -q pytest==8.4.2
+      - name: Exact ancestry, scope and compile
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor "$V2_CBCLOUD_ACCEPTANCE_BASE" HEAD
+          git diff --check "$V2_CBCLOUD_ACCEPTANCE_BASE" HEAD
+          unexpected="$(git diff --name-only "$V2_CBCLOUD_ACCEPTANCE_BASE" HEAD | grep -Ev '^(acs/cbcloud_acceptance\.py|tests/test_v2_cbcloud_semantic_acceptance\.py|docs/automation/V2_CBCLOUD_SEMANTIC_ACCEPTANCE_HARNESS\.md|\.github/workflows/v2-cbcloud-semantic-acceptance-harness\.yml)$' || true)"
+          if [[ -n "$unexpected" ]]; then
+            printf 'Unexpected files outside CBCLOUD semantic-acceptance owner scope:\n%s\n' "$unexpected"
+            exit 1
+          fi
+          python -m compileall -q acs tests run_accessible_chess.py
+      - name: CBCLOUD focused semantic acceptance and no-overclaim contracts
+        run: >-
+          python -m unittest -v
+          tests.test_v2_cbcloud_semantic_acceptance
+          tests.test_v2_cbcloud_local_format_unblock
+          tests.test_v2_2cbh_cbone_topology
+          tests.test_chessbase_adapter
+          tests.test_chessbase_integrity
+      - name: Pytest parity
+        run: >-
+          python -m pytest -q
+          tests/test_v2_cbcloud_semantic_acceptance.py
+          tests/test_v2_cbcloud_local_format_unblock.py
+          tests/test_v2_2cbh_cbone_topology.py
+          tests/test_chessbase_adapter.py
+          tests/test_chessbase_integrity.py
+
+  full-regression:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install test dependencies
+        run: python -m pip install -q pytest==8.4.2
+      - name: Exact ancestry and diff hygiene
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor "$V2_CBCLOUD_ACCEPTANCE_BASE" HEAD
+          git diff --check "$V2_CBCLOUD_ACCEPTANCE_BASE" HEAD
+      - name: Full unittest
+        run: python -m unittest discover -s tests -p 'test*.py'
+      - name: Full pytest
+        run: python -m pytest -q
