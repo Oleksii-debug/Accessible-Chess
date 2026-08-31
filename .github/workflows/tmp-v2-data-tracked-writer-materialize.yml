@@ -1,0 +1,128 @@
+name: Temporary V2 tracked-writer repair materializer
+
+on:
+  push:
+    branches:
+      - tmp/v2-data-tracked-writer-repair-materialize-20260831
+    paths:
+      - '.github/workflows/tmp-v2-data-tracked-writer-materialize.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  materialize:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: tmp/v2-data-tracked-writer-repair-materialize-20260831
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Apply exact tracked-writer repair
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('acs/version2_upgrade.py')
+          text = path.read_text(encoding='utf-8')
+          original = text
+
+          def once(old: str, new: str) -> None:
+              global text
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'anchor count {count}, expected 1: {old[:80]!r}')
+              text = text.replace(old, new, 1)
+
+          once(
+              'def _sqlite_backup(source: Path, destination: Path) -> tuple[int, str, int]:\n',
+              '''def _is_sha256(value: object) -> bool:\n    return (\n        isinstance(value, str)\n        and len(value) == 64\n        and all(c in "0123456789abcdef" for c in value)\n    )\n\n\ndef _sqlite_state_sha256(connection: sqlite3.Connection) -> str:\n    """Hash SQLite logical state without owning any ACSDB schema knowledge."""\n    digest = hashlib.sha256()\n    row = connection.execute("PRAGMA user_version").fetchone()\n    version = row[0] if row is not None else None\n    marker = f"user_version={version!r}".encode("utf-8")\n    digest.update(len(marker).to_bytes(8, "big"))\n    digest.update(marker)\n    for statement in connection.iterdump():\n        raw = statement.encode("utf-8")\n        digest.update(len(raw).to_bytes(8, "big"))\n        digest.update(raw)\n    return digest.hexdigest()\n\n\ndef _library_state_sha256(path: Path) -> str:\n    connection = None\n    try:\n        connection = sqlite3.connect(\n            path.resolve(strict=True).as_uri() + "?mode=ro",\n            uri=True,\n            timeout=0.0,\n        )\n        connection.execute("PRAGMA busy_timeout=0")\n        _canonical_library_schema(connection)\n        return _sqlite_state_sha256(connection)\n    except Version2UpgradeError:\n        raise\n    except (OSError, sqlite3.DatabaseError) as exc:\n        raise Version2UpgradeError("library state validation failed") from exc\n    finally:\n        if connection is not None:\n            connection.close()\n\n\ndef _sqlite_backup(source: Path, destination: Path) -> tuple[int, str, int, str]:\n'''
+          )
+          once(
+              '            version = _canonical_library_schema(reader)\n            target = sqlite3.connect(str(temp))\n',
+              '            version = _canonical_library_schema(reader)\n            state_digest = _sqlite_state_sha256(reader)\n            target = sqlite3.connect(str(temp))\n'
+          )
+          once(
+              '            if _canonical_library_schema(target) != version:\n                raise Version2UpgradeError("library backup schema mismatch")\n',
+              '            if _canonical_library_schema(target) != version:\n                raise Version2UpgradeError("library backup schema mismatch")\n            if _sqlite_state_sha256(target) != state_digest:\n                raise Version2UpgradeError("library backup logical-state mismatch")\n'
+          )
+          once(
+              '        return destination.stat().st_size, _hash(destination), version\n',
+              '        return (\n            destination.stat().st_size,\n            _hash(destination),\n            version,\n            state_digest,\n        )\n'
+          )
+          once(
+              '        self.limits = limits\n        self.phase_hook = phase_hook\n',
+              '        self.limits = limits\n        self.phase_hook = phase_hook\n        self._owned_states: dict[str, str] = {}\n'
+          )
+          once(
+              '''                if relative == self.layout.library_name:\n                    size, digest, library_schema = _sqlite_backup(\n                        source, destination\n                    )\n                else:\n                    size, digest = _stable_copy(source, destination)\n                if _dir_chain(self.layout.root, source.parent) != chain:\n                    raise Version2UpgradeError(\n                        "user-data parent directory changed during backup copy"\n                    )\n                entries.append(\n                    {"path": relative, "size": size, "sha256": digest}\n                )\n''',
+              '''                state_digest = None\n                if relative == self.layout.library_name:\n                    size, digest, library_schema, state_digest = _sqlite_backup(\n                        source, destination\n                    )\n                else:\n                    size, digest = _stable_copy(source, destination)\n                    if relative == self.layout.settings_name:\n                        state_digest = digest\n                if _dir_chain(self.layout.root, source.parent) != chain:\n                    raise Version2UpgradeError(\n                        "user-data parent directory changed during backup copy"\n                    )\n                entry: dict[str, object] = {\n                    "path": relative, "size": size, "sha256": digest\n                }\n                if state_digest is not None:\n                    entry["state_sha256"] = state_digest\n                entries.append(entry)\n'''
+          )
+          once(
+              '''        *,\n        recovered: bool,\n        error_code: str | None = None,\n    ) -> None:\n''',
+              '''        *,\n        recovered: bool,\n        error_code: str | None = None,\n        notify: bool = True,\n    ) -> None:\n'''
+          )
+          once(
+              '            "recovered_interrupted_upgrade": recovered,\n            "updated_at": datetime.now(timezone.utc).isoformat(\n',
+              '            "recovered_interrupted_upgrade": recovered,\n            "owned_states": dict(self._owned_states),\n            "updated_at": datetime.now(timezone.utc).isoformat(\n'
+          )
+          once(
+              '        _atomic_json(self.layout.journal_path, payload)\n        self._notify(phase)\n',
+              '        _atomic_json(self.layout.journal_path, payload)\n        if notify:\n            self._notify(phase)\n'
+          )
+          once(
+              '''        if "error_code" in raw and (\n            not isinstance(raw["error_code"], str) or not raw["error_code"]\n        ):\n            raise Version2UpgradeRecoveryError("invalid upgrade journal metadata")\n        try:\n''',
+              '''        if "error_code" in raw and (\n            not isinstance(raw["error_code"], str) or not raw["error_code"]\n        ):\n            raise Version2UpgradeRecoveryError("invalid upgrade journal metadata")\n        owned_states = raw.get("owned_states", {})\n        if not isinstance(owned_states, dict):\n            raise Version2UpgradeRecoveryError("invalid upgrade journal ownership metadata")\n        allowed_owned = {self.layout.settings_name, self.layout.library_name}\n        if any(\n            not isinstance(name, str)\n            or name not in allowed_owned\n            or not _is_sha256(digest)\n            for name, digest in owned_states.items()\n        ):\n            raise Version2UpgradeRecoveryError("invalid upgrade journal ownership metadata")\n        try:\n'''
+          )
+          once(
+              '''            seen.add(path.casefold())\n            library_entry_seen = library_entry_seen or (\n''',
+              '''            if path.casefold() in {\n                self.layout.settings_name.casefold(),\n                self.layout.library_name.casefold(),\n            } and not _is_sha256(item.get("state_sha256")):\n                raise Version2UpgradeRecoveryError(\n                    "upgrade backup tracked-state metadata is invalid"\n                )\n            seen.add(path.casefold())\n            library_entry_seen = library_entry_seen or (\n'''
+          )
+
+          start = text.index('    def _restore(self, upgrade_id: str) -> int:\n')
+          end = text.index('    def _recover_locked(self) -> bool:\n', start)
+          replacement = '''    def _manifest_tracked_entry(\n        self, manifest: Mapping[str, object], name: str\n    ) -> dict[str, object] | None:\n        entries = manifest.get("entries")\n        if not isinstance(entries, list):\n            raise Version2UpgradeRecoveryError("backup manifest entries are unavailable")\n        folded = name.casefold()\n        for item in entries:\n            if isinstance(item, dict) and str(item.get("path", "")).casefold() == folded:\n                return item\n        return None\n\n    def _tracked_state_sha256(self, name: str) -> str | None:\n        if name not in {self.layout.settings_name, self.layout.library_name}:\n            raise ValueError("unknown tracked upgrade path")\n        path = self.layout.root / name\n        if not path.exists() and not path.is_symlink():\n            return None\n        info = _safe_stat(path, "tracked user data")\n        if not stat.S_ISREG(info.st_mode):\n            raise Version2UpgradeError("tracked user data must be a file")\n        if name == self.layout.library_name:\n            return _library_state_sha256(path)\n        return _hash(path)\n\n    def _assert_tracked_original(\n        self, manifest: Mapping[str, object], name: str\n    ) -> None:\n        entry = self._manifest_tracked_entry(manifest, name)\n        current = self._tracked_state_sha256(name)\n        if entry is None:\n            if current is not None:\n                raise Version2UpgradeError(\n                    "tracked user data changed after the upgrade snapshot"\n                )\n            return\n        original = entry.get("state_sha256")\n        if not _is_sha256(original) or current != original:\n            raise Version2UpgradeError(\n                "tracked user data changed after the upgrade snapshot"\n            )\n\n    def _record_owned_state(\n        self, upgrade_id: str, phase: str, name: str, *, recovered: bool\n    ) -> None:\n        state = self._tracked_state_sha256(name)\n        if state is None:\n            raise Version2UpgradeError("upgrader-owned tracked data disappeared")\n        self._owned_states[name] = state\n        # Persist ownership before any observer/hook can run. If this write fails\n        # after Product publication, later recovery deliberately fails closed.\n        self._write_phase(\n            upgrade_id, phase, recovered=recovered, notify=False\n        )\n\n    def _clear_library_sidecars(self) -> None:\n        for suffix in _DB_SIDECARS:\n            sidecar = Path(str(self.layout.library_path) + suffix)\n            if not sidecar.exists() and not sidecar.is_symlink():\n                continue\n            info = _safe_stat(sidecar, "library sidecar")\n            if not stat.S_ISREG(info.st_mode):\n                raise Version2UpgradeRecoveryError(\n                    "library sidecar is not a regular file"\n                )\n            sidecar.unlink()\n\n    def _restore(self, upgrade_id: str) -> int:\n        backup, manifest = self._manifest(upgrade_id)\n        journal = self._journal()\n        if journal.get("upgrade_id") != upgrade_id:\n            raise Version2UpgradeRecoveryError("upgrade recovery identity mismatch")\n        owned_raw = journal.get("owned_states", {})\n        assert isinstance(owned_raw, dict)\n        owned_states = {str(k): str(v) for k, v in owned_raw.items()}\n\n        actions: dict[str, str] = {}\n        # Authorize every destructive action before changing either tracked path.\n        # A state is restorable only when it is still the original snapshot or\n        # exactly a state durably recorded as published by this upgrade instance.\n        for name in (self.layout.settings_name, self.layout.library_name):\n            entry = self._manifest_tracked_entry(manifest, name)\n            try:\n                current = self._tracked_state_sha256(name)\n            except Exception as exc:\n                raise Version2UpgradeRecoveryError(\n                    "tracked recovery state cannot be authenticated"\n                ) from exc\n            owned = owned_states.get(name)\n            if entry is None:\n                if current is None:\n                    actions[name] = "noop"\n                elif owned is not None and current == owned:\n                    actions[name] = "delete"\n                else:\n                    raise Version2UpgradeRecoveryError(\n                        "tracked user data changed outside this upgrade"\n                    )\n                continue\n            original = entry.get("state_sha256")\n            if not _is_sha256(original):\n                raise Version2UpgradeRecoveryError(\n                    "upgrade backup tracked-state metadata is invalid"\n                )\n            if current == original:\n                actions[name] = "noop"\n            elif owned is not None and current == owned:\n                actions[name] = "restore"\n            else:\n                raise Version2UpgradeRecoveryError(\n                    "tracked user data changed outside this upgrade"\n                )\n\n        restored = 0\n        for name in (self.layout.settings_name, self.layout.library_name):\n            action = actions[name]\n            entry = self._manifest_tracked_entry(manifest, name)\n            destination = self.layout.root / name\n            if action == "noop":\n                continue\n            if name == self.layout.library_name:\n                self._clear_library_sidecars()\n            if action == "delete":\n                if destination.exists() or destination.is_symlink():\n                    info = _safe_stat(destination, "upgrade-created tracked data")\n                    if not stat.S_ISREG(info.st_mode):\n                        raise Version2UpgradeRecoveryError(\n                            "upgrade-created tracked data is not a file"\n                        )\n                    destination.unlink()\n                continue\n            assert entry is not None\n            relative = str(entry["path"])\n            source = backup / "data" / Path(*PurePosixPath(relative).parts)\n            chain = _dir_chain(self.layout.root, destination.parent, create=True)\n            size, digest = _stable_copy(source, destination)\n            if _dir_chain(self.layout.root, destination.parent) != chain:\n                raise Version2UpgradeRecoveryError(\n                    "user-data parent directory changed during recovery"\n                )\n            if size != entry["size"] or digest != entry["sha256"]:\n                raise Version2UpgradeRecoveryError(\n                    "upgrade backup changed during recovery"\n                )\n            expected_state = entry.get("state_sha256")\n            try:\n                if self._tracked_state_sha256(name) != expected_state:\n                    raise Version2UpgradeRecoveryError(\n                        "tracked recovery readback mismatch"\n                    )\n            except Version2UpgradeRecoveryError:\n                raise\n            except Exception as exc:\n                raise Version2UpgradeRecoveryError(\n                    "tracked recovery readback validation failed"\n                ) from exc\n            restored += 1\n\n        _fsync_dir(self.layout.root)\n        try:\n            settings_entry = self._manifest_tracked_entry(\n                manifest, self.layout.settings_name\n            )\n            if settings_entry is not None:\n                candidate = self.settings_factory(\n                    self.layout.root / ".settings.recovery-readback"\n                )\n                candidate.import_json(\n                    self.layout.settings_path.read_text(encoding="utf-8"),\n                    persist=False,\n                )\n            library_entry = self._manifest_tracked_entry(\n                manifest, self.layout.library_name\n            )\n            if library_entry is not None:\n                connection = sqlite3.connect(\n                    self.layout.library_path.resolve(strict=True).as_uri()\n                    + "?mode=ro",\n                    uri=True,\n                    timeout=0.0,\n                )\n                try:\n                    connection.execute("PRAGMA busy_timeout=0")\n                    restored_schema = _canonical_library_schema(connection)\n                finally:\n                    connection.close()\n                if restored_schema != manifest.get("library_schema_before"):\n                    raise Version2UpgradeRecoveryError(\n                        "tracked library recovery readback schema mismatch"\n                    )\n        except Version2UpgradeRecoveryError:\n            raise\n        except Exception as exc:\n            raise Version2UpgradeRecoveryError(\n                "tracked recovery readback validation failed"\n            ) from exc\n        return restored\n\n'''
+          text = text[:start] + replacement + text[end:]
+
+          once(
+              '''        upgrade_id = str(journal["upgrade_id"])\n        self._restore(upgrade_id)\n''',
+              '''        upgrade_id = str(journal["upgrade_id"])\n        owned = journal.get("owned_states", {})\n        assert isinstance(owned, dict)\n        self._owned_states = {str(k): str(v) for k, v in owned.items()}\n        self._restore(upgrade_id)\n'''
+          )
+          once(
+              '''            backup, manifest = self._create_backup(upgrade_id)\n            self._write_phase(\n                upgrade_id, "prepared", recovered=recovered\n            )\n''',
+              '''            backup, manifest = self._create_backup(upgrade_id)\n            self._owned_states = {}\n            self._write_phase(\n                upgrade_id, "prepared", recovered=recovered\n            )\n'''
+          )
+          once(
+              '''                settings_migrated = self._migrate_settings()\n                self._notify("settings-migrated")\n                library_migrated = self._migrate_library()\n                self._notify("library-migrated")\n''',
+              '''                self._assert_tracked_original(\n                    manifest, self.layout.settings_name\n                )\n                settings_migrated = self._migrate_settings()\n                if settings_migrated:\n                    self._record_owned_state(\n                        upgrade_id,\n                        "migrating",\n                        self.layout.settings_name,\n                        recovered=recovered,\n                    )\n                self._notify("settings-migrated")\n                self._assert_tracked_original(\n                    manifest, self.layout.library_name\n                )\n                library_migrated = self._migrate_library()\n                if library_migrated:\n                    self._record_owned_state(\n                        upgrade_id,\n                        "migrating",\n                        self.layout.library_name,\n                        recovered=recovered,\n                    )\n                self._notify("library-migrated")\n'''
+          )
+
+          if text == original:
+              raise SystemExit('no Product change materialized')
+          path.write_text(text, encoding='utf-8', newline='\n')
+          PY
+      - name: Compile and focused regression
+        run: |
+          python -m compileall -q acs tests
+          python -m unittest -v \
+            tests.test_v2_upgrade_tracked_writer_conflict \
+            tests.test_v2_upgrade_v6_successor \
+            tests.test_version2_upgrade \
+            tests.test_version2_upgrade_recovery_integrity \
+            tests.test_version2_upgrade_stale_writer
+          git diff --check
+      - name: Commit Product candidate only
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'Oleksii-debug'
+          git config user.email 'oleksiy.az.09@gmail.com'
+          git add acs/version2_upgrade.py
+          git diff --cached --quiet && { echo 'No Product delta'; exit 1; }
+          git commit -m 'fix: protect tracked V1 writes during V2 rollback'
+          git push origin HEAD:tmp/v2-data-tracked-writer-repair-materialize-20260831
