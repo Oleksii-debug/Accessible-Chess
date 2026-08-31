@@ -14,6 +14,7 @@ from acs.game_identity import same_game_tree
 from acs.gametree import parse_games, serialize_game
 from acs.gametree_legality import validate_game_legality
 from acs.pgn_service import open_pgn, save_pgn_atomic
+from acs.search_service import GameSearchQuery, GameSearchService
 
 
 LIBCBH_COMMIT = "9641c5c3949d8fb210b17dd9aa54455645843696"
@@ -97,23 +98,29 @@ class Dev07RealCbhCorpusTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             tmp = Path(temporary)
             db = AcsDatabase(tmp / "library.acsdb")
-            self.addCleanup(db.close)
-            report = ChessBaseLibraryImportService(db, self.config).import_database(source)
-            self.assertEqual(report.warning_count, 0)
-            self.assertEqual(report.imported_game_count, report.decoded_game_count)
-            rows = db.conn.execute(
-                "SELECT game_id, pgn_text FROM games WHERE source_id = ? ORDER BY source_index, game_id",
-                (report.library_result.source_id,),
-            ).fetchall()
-            self.assertEqual(len(rows), report.imported_game_count)
-            games = tuple(parse_games(row[1])[0] for row in rows)
-            for game in games:
-                self.assertTrue(validate_game_legality(game).complete)
-            destination = tmp / "cbh-export.pgn"
-            save_pgn_atomic(destination, games)
-            reopened = open_pgn(destination).games
-            self.assertEqual(len(reopened), len(games))
-            self.assertTrue(all(same_game_tree(a, b) for a, b in zip(games, reopened)))
+            try:
+                report = ChessBaseLibraryImportService(db, self.config).import_database(source)
+                self.assertEqual(report.warning_count, 0)
+                self.assertEqual(report.imported_game_count, report.decoded_game_count)
+                page = GameSearchService(db).search(
+                    GameSearchQuery(source_id=report.library_result.source_id, limit=1000)
+                )
+                ordered = sorted(page.items, key=lambda item: item.source_index)
+                self.assertEqual(len(ordered), report.imported_game_count)
+                games = []
+                for item in ordered:
+                    row = db.get_game(item.game_id)
+                    self.assertIsNotNone(row)
+                    games.append(parse_games(str(row["pgn_text"]))[0])
+                for game in games:
+                    self.assertTrue(validate_game_legality(game).complete)
+                destination = tmp / "cbh-export.pgn"
+                save_pgn_atomic(destination, tuple(games))
+                reopened = open_pgn(destination).games
+                self.assertEqual(len(reopened), len(games))
+                self.assertTrue(all(same_game_tree(a, b) for a, b in zip(games, reopened)))
+            finally:
+                db.close()
 
     def test_pinned_real_corpora_are_scanned_for_null_pseudo_records(self) -> None:
         fixtures = (
@@ -138,9 +145,9 @@ class Dev07RealCbhCorpusTests(unittest.TestCase):
                     if token.get("kind") == "move" and token.get("promote") == 6:
                         null_records += 1
         print(f"DEV07_PINNED_REAL_NULL_PSEUDO_RECORDS={null_records}")
-        # libcbh's pinned QA tree currently has no dedicated null-move fixture.
-        # The adapter protocol-level promote=6 path is therefore locked by the
-        # synthetic canonical-delegation regression in test_v2_dev07_cbh_canonical_adapter.
+        # No dedicated null-move fixture exists in the pinned libcbh gtest tree.
+        # The protocol-level promote=6 path is therefore locked separately by
+        # test_v2_dev07_cbh_canonical_adapter and may not be promoted by corpus absence.
         self.assertGreaterEqual(null_records, 0)
 
 
