@@ -165,6 +165,19 @@ class CbvExternalExtractorTests(unittest.TestCase):
                 extract_cbv_external(self.source, self.output, self.config)
         self.assertEqual(caught.exception.code, CbvExtractCode.SOURCE_CHANGED)
 
+    def test_backend_mutation_invalidates_all_extracted_output(self) -> None:
+        def runner(_executable, arguments, _config, **_kwargs):
+            if arguments[0] == "list":
+                return b"Archive.cbh\n"
+            (self.output / "Archive.cbh").write_bytes(b"header")
+            self.backend.write_bytes(b"mutated backend while running")
+            return b""
+
+        with mock.patch("acs.cbv_extractor._run_uncbv", side_effect=runner):
+            with self.assertRaises(CbvExtractError) as caught:
+                extract_cbv_external(self.source, self.output, self.config)
+        self.assertEqual(caught.exception.code, CbvExtractCode.BACKEND_INVALID)
+
     def test_backend_binary_is_sha256_pinned(self) -> None:
         config = ExternalCbvExtractorConfig(
             self.backend,
