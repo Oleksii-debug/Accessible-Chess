@@ -24,6 +24,7 @@ from acs.search_service import GameSearchQuery, GameSearchService
 
 EXPECTED_GAMES = 6117
 SEED = 20260831
+_TAG_LINE = re.compile(r'^\[([A-Za-z0-9_]+)\s+"((?:\\.|[^"\\])*)"\]\s*$')
 
 
 def _require_env(name: str) -> str:
@@ -50,9 +51,60 @@ def _sample_indices(count: int) -> list[int]:
     return sorted(indexes)
 
 
-def _first_with_tag(games: tuple[PgnGame, ...], tag: str) -> int | None:
+def _unescape_pgn_tag(value: str) -> str:
+    """Decode only the two escapes defined for PGN tag string values."""
+
+    output: list[str] = []
+    index = 0
+    while index < len(value):
+        char = value[index]
+        if char == "\\" and index + 1 < len(value) and value[index + 1] in {'"', "\\"}:
+            output.append(value[index + 1])
+            index += 2
+            continue
+        output.append(char)
+        index += 1
+    return "".join(output)
+
+
+def _read_oracle_tags(path: Path) -> tuple[dict[str, str], ...]:
+    """Stream only PGN header tags from the independent TWIC oracle.
+
+    Metadata verification does not need to parse 6117 games of movetext at
+    once.  Reading header blocks independently keeps this evidence path outside
+    Product parser resource limits instead of weakening those limits merely for
+    a test corpus.
+    """
+
+    games: list[dict[str, str]] = []
+    current: dict[str, str] = {}
+    in_movetext = False
+    with path.open("r", encoding="utf-8-sig", newline=None) as handle:
+        for raw_line in handle:
+            line = raw_line.strip()
+            match = _TAG_LINE.fullmatch(line)
+            if match is not None:
+                if in_movetext:
+                    if not current:
+                        raise AssertionError("TWIC oracle started a new header block without prior tags")
+                    games.append(current)
+                    current = {}
+                    in_movetext = False
+                name, encoded_value = match.groups()
+                if name in current:
+                    raise AssertionError(f"duplicate TWIC oracle tag in one game: {name}")
+                current[name] = _unescape_pgn_tag(encoded_value)
+                continue
+            if current and not in_movetext and not line:
+                in_movetext = True
+    if current:
+        games.append(current)
+    return tuple(games)
+
+
+def _first_with_tag(games: tuple[dict[str, str], ...], tag: str) -> int | None:
     for index, game in enumerate(games):
-        value = game.tags.get(tag, "").strip()
+        value = game.get(tag, "").strip()
         if value and value != "?":
             return index
     return None
@@ -66,7 +118,7 @@ def main() -> int:
     uncbv_sha = _require_env("UNCBV_BINARY_SHA256")
     cbv_sha = _require_env("TWIC_CBV_SHA256")
 
-    oracle_games = tuple(open_pgn(pgn_path).games)
+    oracle_games = _read_oracle_tags(pgn_path)
     if len(oracle_games) != EXPECTED_GAMES:
         raise AssertionError(f"TWIC PGN count mismatch: {len(oracle_games)} != {EXPECTED_GAMES}")
 
@@ -146,16 +198,16 @@ def main() -> int:
                 oracle = oracle_games[index]
                 stored = parse_games(str(rows[index]["pgn_text"]))[0]
                 for tag in differences:
-                    expected = oracle.tags.get(tag, "")
+                    expected = oracle.get(tag, "")
                     actual = stored.tags.get(tag, "")
                     if expected and expected != "?" and not _metadata_equal(tag, expected, actual):
                         differences[tag] += 1
-                oracle_opening = oracle.tags.get("Opening", "").strip()
+                oracle_opening = oracle.get("Opening", "").strip()
                 decoded_opening = stored.tags.get("Opening", "").strip()
                 opening_oracle_present += int(bool(oracle_opening and oracle_opening != "?"))
                 opening_decoded_present += int(bool(decoded_opening and decoded_opening != "?"))
 
-                eco = oracle.tags.get("ECO", "").strip()
+                eco = oracle.get("ECO", "").strip()
                 if eco and eco != "?" and eco_search_probe is None:
                     eco_search_probe = (index, eco)
 
@@ -191,7 +243,7 @@ def main() -> int:
                 raise AssertionError(f"Library ECO search did not find source_index={eco_index} ECO={eco_value}")
 
             first = oracle_games[0]
-            player_probe = first.tags.get("White", "").strip() or first.tags.get("Black", "").strip()
+            player_probe = first.get("White", "").strip() or first.get("Black", "").strip()
             player_page = search.search(GameSearchQuery(player=player_probe, source_id=source_id, limit=200))
             if not any(item.source_index == 0 for item in player_page.items):
                 raise AssertionError("Library player search did not find source_index=0")
@@ -226,7 +278,7 @@ def main() -> int:
     ]
     summary = {
         "authority_base_sha": os.environ.get("V2_METADATA_BASE_SHA"),
-        "corpus": "TWIC 1134 CBV + independent TWIC PGN oracle",
+        "corpus": "TWIC 1134 CBV + independent TWIC PGN header oracle",
         "expected_games": EXPECTED_GAMES,
         "sample_count": len(indexes),
         "sample_indices": indexes,
