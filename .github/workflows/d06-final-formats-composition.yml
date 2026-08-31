@@ -75,7 +75,7 @@ jobs:
         run: >-
           python -m unittest -v
           tests.test_v2_pgn_streaming_export
-          tests.test_d06_gametree_snapshot
+          tests.test_d06_snapshot_canonical_restore
           tests.test_d06_gametree_snapshot_resume
           tests.test_d06_pgn_roundtrip
           tests.test_pgn_document
