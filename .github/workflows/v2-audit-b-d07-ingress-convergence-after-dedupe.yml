@@ -1,0 +1,88 @@
+name: V2 Audit-B D07 Ingress Convergence After Dedupe
+
+on:
+  push:
+    branches:
+      - audit/v2-d07-ingress-convergence-after-dedupe-20260831
+  pull_request:
+    paths:
+      - 'tests/test_v2_d07_ingress_convergence_after_dedupe_audit.py'
+      - '.github/workflows/v2-audit-b-d07-ingress-convergence-after-dedupe.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: v2-audit-b-d07-ingress-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  audit-oracle:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install normal verification dependency
+        run: python -m pip install -q pytest==8.4.2
+
+      - name: Prove exact owner head and evidence-only scope
+        shell: bash
+        env:
+          OWNER_HEAD: 8883d5ca5a4a8772c3b36301771011771c76bbc1
+        run: |
+          set -euo pipefail
+          test "$(git merge-base "$OWNER_HEAD" HEAD)" = "$OWNER_HEAD"
+          git diff --check "$OWNER_HEAD" HEAD
+          changed="$(git diff --name-only "$OWNER_HEAD" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/v2-audit-b-d07-ingress-convergence-after-dedupe.yml' \
+            'tests/test_v2_d07_ingress_convergence_after_dedupe_audit.py' | sort)"
+          test "$changed" = "$expected"
+          git diff --quiet "$OWNER_HEAD" HEAD -- \
+            acs/duplicate_detection.py \
+            acs/game_identity.py \
+            acs/acsdb.py \
+            acs/pgn_roundtrip.py \
+            acs/library_import_service.py
+
+      - name: Compile audit surface
+        run: python -m compileall -q tests/test_v2_d07_ingress_convergence_after_dedupe_audit.py
+
+      - name: Existing D07 dedupe and canonical ingress-adjacent regressions
+        run: >-
+          python -m unittest -v
+          tests.test_duplicate_detection
+          tests.test_game_identity
+          tests.test_v2_library_dedup_provenance
+          tests.test_d07_library_import_service
+          tests.test_v2_library_integrity_repair
+          tests.test_d06_pgn_roundtrip
+
+      - name: Broad exact-owner Product baseline
+        shell: bash
+        env:
+          OWNER_HEAD: 8883d5ca5a4a8772c3b36301771011771c76bbc1
+        run: |
+          set -euo pipefail
+          git worktree add --detach _product "$OWNER_HEAD"
+          cd _product
+          python -m unittest discover -s tests -v
+          python -m pytest -q tests
+          python -m acs.selftest
+          python run_accessible_chess.py --diagnostic
+
+      - name: Independent D07 canonical ingress convergence oracle
+        if: ${{ always() }}
+        run: python -m unittest -v tests.test_v2_d07_ingress_convergence_after_dedupe_audit
