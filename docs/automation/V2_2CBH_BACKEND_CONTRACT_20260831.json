@@ -1,0 +1,150 @@
+{
+  "schema_version": 1,
+  "role": "V2-CHESSBASE-FORMATS",
+  "lane": "ONE-TIME-DEVELOPER-13-2CBH",
+  "parent_pr": 355,
+  "parent_sha": "5ebdf9f9b6051fd25178b58aec29d0459f454daa",
+  "format": "2CBH",
+  "status": "BLOCKED",
+  "support_promotion_allowed": false,
+  "product_decoder_available": false,
+  "product_safe_to_import": false,
+  "default_windows_third_party_2cbh_backend": false,
+  "authoritative_format_evidence": {
+    "introduced_with": "ChessBase 17",
+    "current_official_reader": "ChessBase 18",
+    "fewer_files_than_classic_cbh": true,
+    "search_accelerators_not_required": true,
+    "bidirectional_conversion_with_older_formats_documented": true,
+    "sources": [
+      "https://help.chessbase.com/CBase/18/Eng/new_data_format_2cbh.htm",
+      "https://help.chessbase.com/Fritz/19/Eng/new_data_format_2cbh.htm",
+      "https://help.chessbase.com/CBase/18/Eng/faq_2cbh_format.htm"
+    ]
+  },
+  "observed_real_family": {
+    "same_root_members_observed_in_official_example": [
+      ".2cba",
+      ".2cbg",
+      ".2cbh",
+      ".2lcd",
+      ".2lgd",
+      ".2lid",
+      ".ini"
+    ],
+    "complete_normative_component_set_qualified": false,
+    "component_semantic_roles_qualified": false,
+    "mandatory_optional_map_qualified": false,
+    "policy": "Observed filenames are evidence only. Product does not infer semantic role or required/optional status from suffix names."
+  },
+  "decoder_availability": {
+    "chessbase_18": {
+      "reads_2cbh": true,
+      "writes_or_converts_2cbh": true,
+      "product_backend_qualified": false,
+      "reason": "Commercial proprietary application; no qualified external automation decoder contract for Accessible Chess."
+    },
+    "chess_combine_0_1_168_beta": {
+      "public_reader_claim_for_cbh_2cbh": true,
+      "documented_stable_cli_or_api_found": false,
+      "product_backend_license_qualified": false,
+      "automation_permission_qualified": false,
+      "product_backend_qualified": false,
+      "source": "https://chesscombine.ru/download.html",
+      "reason": "Useful independent-reader lead only; public release notes do not establish a stable decoder API, embedding/automation license, or reproducible backend protocol."
+    },
+    "pinned_open_source_candidates": {
+      "rolandlo_libcbh": {
+        "commit": "9641c5c3949d8fb210b17dd9aa54455645843696",
+        "license": "GPL-2.0",
+        "2cbh_surface_found": false
+      },
+      "foolnotion_scidb": {
+        "commit": "7c1c9d89f2fabab0c1252cdd14c515fb9bfc1415",
+        "license": "GPL",
+        "2cbh_surface_found": false
+      },
+      "isarhamster_chessx": {
+        "commit": "e734a075346ca2ad7e3f3e35b42140169637c5ca",
+        "license": "GPL-2.0-or-later",
+        "2cbh_surface_found": false
+      }
+    }
+  },
+  "real_corpus": {
+    "ultracorr2025": {
+      "real_database": true,
+      "games_reported_at_least": 2680000,
+      "annotations_reported": true,
+      "archive": "UC-2025.2cbz",
+      "archive_encrypted": true,
+      "redistributable_ci_fixture": false,
+      "automation_password_available": false,
+      "independent_semantic_oracle_for_exact_bytes": false,
+      "accepted_as_product_test_corpus": false,
+      "source": "https://www.chessmail.com/UC-2025/Download-UC2025-newformat.html"
+    },
+    "unverified_public_downloads": {
+      "accepted_as_lawful_reusable_corpus": false,
+      "reason": "A downloadable file alone does not establish redistribution/testing rights or an independent semantic oracle."
+    }
+  },
+  "independent_semantic_oracle": {
+    "qualified": false,
+    "chessbase_manual_conversion": {
+      "potential_oracle": true,
+      "automation_reproducibility_qualified": false,
+      "exact_corpus_oracle_available": false
+    },
+    "chess_combine_reader": {
+      "potential_oracle": true,
+      "independence_from_future_decoder_must_be_proven": true,
+      "lawful_reproducible_export_path_qualified": false
+    },
+    "generated_open_pgn_to_2cbh_strategy": {
+      "potential_oracle": true,
+      "qualified_now": false,
+      "requirements": [
+        "lawful generator provenance and stable identity",
+        "reproducible 2CBH bytes or reproducible semantic generation process",
+        "independent PGN/GameTree comparison not derived from decoder output",
+        "documented coverage of comments, NAG, nested/sibling variations, unusual starts and zero-ply games"
+      ]
+    }
+  },
+  "product_backend_abstraction": {
+    "module": "acs/chessbase_2cbh_backend.py",
+    "shipping_registry_empty": true,
+    "topology_rules_backend_evidence_supplied_only": true,
+    "semantic_role_field_present": false,
+    "external_executable_only": true,
+    "backend_sha256_required": true,
+    "backend_license_metadata_required": true,
+    "automation_interface_evidence_required": true,
+    "lawful_independent_semantic_oracle_required": true,
+    "source_read_only": true,
+    "source_symlink_reparse_rejected": true,
+    "source_sha256_before_decode_ready": true,
+    "source_topology_mutation_detection": true,
+    "resource_bounds": {
+      "max_members": 32,
+      "max_member_bytes": 8589934592,
+      "max_total_bytes": 34359738368,
+      "hash_chunk_bytes": 1048576,
+      "decoder_timeout_seconds": 120,
+      "max_decoder_stdout_bytes": 67108864,
+      "max_decoder_stderr_bytes": 1048576
+    },
+    "note": "This is a qualification/topology/immutability seam, not a decoder. No 2CBH Product import path is enabled."
+  },
+  "remaining_blockers": [
+    "qualified complete 2CBH component topology including mandatory/optional status",
+    "qualified semantic meaning of component files where needed by a decoder",
+    "reproducible external 2CBH decoder with stable automation interface and license permission",
+    "lawfully reusable real or reproducibly generated 2CBH corpus",
+    "independent semantic PGN/GameTree oracle for the exact corpus",
+    "decoder output mapped through canonical legality/GameTree without invented semantics",
+    "Library/Search/Open/PGN Export/Reopen/Integrity end-to-end equivalence",
+    "Windows execution evidence for the exact future backend while keeping default package backend-free"
+  ]
+}
