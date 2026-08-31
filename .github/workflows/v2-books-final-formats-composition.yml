@@ -1,0 +1,215 @@
+name: V2 Books Final Formats Composition QA
+
+on:
+  push:
+    branches:
+      - qa/v2-books-final-formats-composition-20260831
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: v2-books-final-formats-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  FINAL_BASE: 43b8d22f4c80fa89c2bdd39a2f23d5f4819cc86d
+  BOOK_CORE: 7407d541fefdb971fce21c3b1f02bdcc0186e970
+  BOOK_GAME: 23a5825845370db5dda67be93326fcdf84dffc40
+  BOOK_LOOKUP: 93a256730ff920751a27c56672f74ebdca2701e4
+  BOOK_BOARD: f4594e48a7689ca5cc6c5a9ca467adbbc98c95f3
+
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.sha }}
+
+      - name: Preserve committed Git bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config core.autocrlf false
+          git config core.eol lf
+          git reset --hard HEAD
+          git checkout-index --force --all
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install pinned QA dependencies
+        run: python -m pip install -q pytest==8.4.2 zstandard==0.23.0
+
+      - name: Prove QA-only ownership and exact final authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git merge-base HEAD "$FINAL_BASE")" = "$FINAL_BASE"
+          git diff --check "$FINAL_BASE" HEAD
+          changed="$(git diff --name-only "$FINAL_BASE" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/v2-books-final-formats-composition.yml' \
+            'scripts/v2_books_final_formats_composition_oracle.py' | sort)"
+          test "$changed" = "$expected"
+          git diff --quiet "$FINAL_BASE" HEAD -- acs tests web run_accessible_chess.py
+          echo 'BOOKS FINAL-FORMATS QA-ONLY SCOPE PASS'
+
+      - name: Materialize exact owner composition
+        shell: bash
+        run: |
+          set -euo pipefail
+          composed="$RUNNER_TEMP/books-final-composed"
+          rm -rf "$composed"
+          git worktree add --detach "$composed" "$FINAL_BASE"
+          git -C "$composed" config core.autocrlf false
+          git -C "$composed" config core.eol lf
+          git -C "$composed" reset --hard "$FINAL_BASE"
+          git -C "$composed" checkout-index --force --all
+
+          overlay() {
+            owner="$1"
+            path="$2"
+            mkdir -p "$composed/$(dirname "$path")"
+            git show "$owner:$path" > "$composed/$path"
+            expected="$(git rev-parse "$owner:$path")"
+            actual="$(git -C "$composed" hash-object --no-filters "$path")"
+            test "$actual" = "$expected" || {
+              echo "Owner overlay blob mismatch: $owner $path expected=$expected actual=$actual" >&2
+              exit 1
+            }
+          }
+
+          overlay "$BOOK_CORE" acs/bookdocument.py
+          overlay "$BOOK_CORE" acs/book_index.py
+          overlay "$BOOK_CORE" tests/test_v2_accessible_book_core.py
+
+          overlay "$BOOK_GAME" acs/book_game_content.py
+          overlay "$BOOK_GAME" tests/test_v2_book_game_content.py
+
+          overlay "$BOOK_LOOKUP" acs/book_library_game_lookup.py
+          overlay "$BOOK_LOOKUP" tests/test_v2_book_library_game_lookup.py
+
+          overlay "$BOOK_BOARD" acs/book_board_workflow.py
+          overlay "$BOOK_BOARD" tests/test_v2_book_board_workflow.py
+
+          mkdir -p "$composed/scripts"
+          cp "$GITHUB_WORKSPACE/scripts/v2_books_final_formats_composition_oracle.py" \
+             "$composed/scripts/v2_books_final_formats_composition_oracle.py"
+
+          test "$(git -C "$composed" rev-parse "$FINAL_BASE:acs/book_progress_store.py")" = \
+               "0ea20c5a0e172852a0a48e2e01caa2de037b6342"
+          test "$(git -C "$composed" hash-object --no-filters acs/book_progress_store.py)" = \
+               "0ea20c5a0e172852a0a48e2e01caa2de037b6342"
+
+          for path in \
+            acs/chesscore.py \
+            acs/gametree.py \
+            acs/pgn_roundtrip.py \
+            acs/acsdb.py \
+            acs/search_service.py \
+            acs/library_import_service.py \
+            acs/engine_assisted_workflows.py; do
+            expected="$(git -C "$composed" rev-parse "$FINAL_BASE:$path")"
+            actual="$(git -C "$composed" hash-object --no-filters "$path")"
+            test "$actual" = "$expected" || {
+              echo "Protected canonical dependency changed: $path" >&2
+              exit 1
+            }
+          done
+
+          for path in acs/stage1_release_ui_core.py acs/webapp_keymap_core.py; do
+            git show "$FINAL_BASE:$path" > "$composed/$path"
+            expected="$(git rev-parse "$FINAL_BASE:$path")"
+            actual="$(git -C "$composed" hash-object --no-filters "$path")"
+            test "$actual" = "$expected" || {
+              echo "Frozen Stage1 byte identity mismatch: $path" >&2
+              exit 1
+            }
+          done
+
+          echo "COMPOSED=$composed" >> "$GITHUB_ENV"
+          echo 'EXACT BOOK OWNER COMPOSITION MATERIALIZED'
+
+      - name: Compile composed Books stack
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$COMPOSED"
+          python -m compileall -q acs tests scripts/v2_books_final_formats_composition_oracle.py run_accessible_chess.py
+
+      - name: Focused canonical Books regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$COMPOSED"
+          python -m unittest -v \
+            tests.test_v2_accessible_book_core \
+            tests.test_v2_book_game_content \
+            tests.test_v2_book_library_game_lookup \
+            tests.test_v2_book_board_workflow \
+            tests.test_v2_book_progress_store \
+            tests.test_v2_book_progress_store_production \
+            tests.test_bookdocument \
+            tests.test_bookreader \
+            tests.test_book_index \
+            tests.test_d06_pgn_roundtrip \
+            tests.test_gametree \
+            tests.test_search_service \
+            tests.test_d07_library_import_service
+
+      - name: Real lawful final-formats Books journey
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$COMPOSED"
+          python -m scripts.v2_books_final_formats_composition_oracle
+          test -s v2-books-final-formats-composition-summary.json
+          grep -F '"status": "PASS"' v2-books-final-formats-composition-summary.json
+          grep -F '"license": "CC0"' v2-books-final-formats-composition-summary.json
+          grep -F '"subset_games": 128' v2-books-final-formats-composition-summary.json
+          grep -F '"book_to_board_navigation": "PASS"' v2-books-final-formats-composition-summary.json
+          grep -F '"book_progress_close_reopen": "PASS"' v2-books-final-formats-composition-summary.json
+          grep -F '"read_only_library": "PASS"' v2-books-final-formats-composition-summary.json
+          grep -F '"product_mutation": false' v2-books-final-formats-composition-summary.json
+          grep -F '"new_format_support_claimed": false' v2-books-final-formats-composition-summary.json
+
+      - name: Upload Books final-formats evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v2-books-final-formats-${{ matrix.os }}
+          path: ${{ runner.temp }}/books-final-composed/v2-books-final-formats-composition-summary.json
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Full repository unittest
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$COMPOSED"
+          python -m unittest discover -s tests
+
+      - name: Full repository pytest
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$COMPOSED"
+          python -m pytest -q tests
+
+      - name: SELFTEST and complete diagnostic
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$COMPOSED"
+          python -m acs.selftest
+          python run_accessible_chess.py --diagnostic
