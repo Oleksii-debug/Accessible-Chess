@@ -356,24 +356,24 @@ def _stable_copy(source: Path, destination: Path) -> tuple[int, str]:
             temp.unlink()
 
 
-def _quick_check(connection: sqlite3.Connection) -> int:
-    row = connection.execute("PRAGMA quick_check").fetchone()
-    if row is None or str(row[0]).casefold() != "ok":
-        raise Version2UpgradeError("library integrity check failed")
-    raw = connection.execute("PRAGMA user_version").fetchone()[0]
-    if isinstance(raw, bool) or not isinstance(raw, int) or raw < 0:
-        raise Version2UpgradeError("library schema version is invalid")
-    return raw
-
-
-def _user_tables(connection: sqlite3.Connection) -> tuple[str, ...]:
-    return tuple(
-        str(row[0])
-        for row in connection.execute(
-            "SELECT name FROM sqlite_master "
-            "WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name"
-        ).fetchall()
-    )
+def _canonical_library_schema(connection: sqlite3.Connection) -> int:
+    """Delegate all ACSDB structural validation to the canonical D07 owner."""
+    try:
+        raw_row = connection.execute("PRAGMA user_version").fetchone()
+        raw_version = raw_row[0] if raw_row is not None else None
+        return AcsDatabase._check_sqlite_integrity(connection)
+    except RuntimeError as exc:
+        if type(raw_version) is int and raw_version > ACSDB_SCHEMA_VERSION:
+            raise Version2UpgradeError(
+                "library schema is newer than this Version 2 build"
+            ) from exc
+        if raw_version == 0:
+            raise Version2UpgradeError(
+                "unversioned legacy library requires an explicit D07 migration"
+            ) from exc
+        raise Version2UpgradeError("library validation failed") from exc
+    except sqlite3.DatabaseError as exc:
+        raise Version2UpgradeError("library validation failed") from exc
 
 
 def _sqlite_backup(source: Path, destination: Path) -> tuple[int, str, int]:
@@ -400,15 +400,11 @@ def _sqlite_backup(source: Path, destination: Path) -> tuple[int, str, int]:
                 timeout=0.0,
             )
             reader.execute("PRAGMA busy_timeout=0")
-            version = _quick_check(reader)
-            if version == 0 and _user_tables(reader):
-                raise Version2UpgradeError(
-                    "unversioned legacy library requires an explicit D07 migration"
-                )
+            version = _canonical_library_schema(reader)
             target = sqlite3.connect(str(temp))
             reader.backup(target)
             target.commit()
-            if _quick_check(target) != version:
+            if _canonical_library_schema(target) != version:
                 raise Version2UpgradeError("library backup schema mismatch")
         except sqlite3.DatabaseError as exc:
             raise Version2UpgradeError("library backup could not be validated") from exc
@@ -889,7 +885,7 @@ class Version2UpgradeCoordinator:
                 )
                 try:
                     connection.execute("PRAGMA busy_timeout=0")
-                    restored_schema = _quick_check(connection)
+                    restored_schema = _canonical_library_schema(connection)
                 finally:
                     connection.close()
                 library_schema = manifest.get("library_schema_before")
@@ -966,14 +962,15 @@ class Version2UpgradeCoordinator:
             raise Version2UpgradeError("library path must be a file")
         connection = None
         try:
-            connection = sqlite3.connect(str(path), timeout=0.0)
+            connection = sqlite3.connect(
+                path.resolve(strict=True).as_uri() + "?mode=ro",
+                uri=True,
+                timeout=0.0,
+            )
             connection.execute("PRAGMA busy_timeout=0")
-            version = _quick_check(connection)
-            if version == 0 and _user_tables(connection):
-                raise Version2UpgradeError(
-                    "unversioned legacy library requires an explicit D07 migration"
-                )
-            return version
+            return _canonical_library_schema(connection)
+        except Version2UpgradeError:
+            raise
         except sqlite3.DatabaseError as exc:
             raise Version2UpgradeError("library validation failed") from exc
         finally:
