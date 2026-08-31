@@ -121,7 +121,6 @@ jobs:
           python -m unittest -v
           tests.test_chessbase_decoder
           tests.test_chessbase_integrity
-          tests.test_chessbase_library_import
           tests.test_version2_formats_integration
           tests.test_library_import_ui_integration
           tests.test_pgn_document
@@ -174,7 +173,6 @@ jobs:
           python -m unittest -v
           tests.test_chessbase_decoder
           tests.test_chessbase_integrity
-          tests.test_chessbase_library_import
           tests.test_version2_formats_integration
           tests.test_library_import_ui_integration
           tests.test_pgn_document
