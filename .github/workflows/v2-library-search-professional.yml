@@ -1,0 +1,172 @@
+name: V2 Library Search Professional
+
+on:
+  push:
+    branches:
+      - work/v2-library-search-professional-20260831
+  pull_request:
+    paths:
+      - 'acs/acsdb.py'
+      - 'acs/search_policy.py'
+      - 'acs/search_service.py'
+      - 'tests/test_v2_library_search_professional.py'
+      - 'tools/v2_library_search_professional_benchmark.py'
+      - '.github/workflows/v2-library-search-professional.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: v2-library-search-professional-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  D07_V6_BASE: c1bd4f0c7610365458689a786ebb56d1c7d073df
+  REAL_QA_HEAD: 8ce2006821c123d13da909879cce91e24e67bb0a
+
+jobs:
+  correctness:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Normalize worktree to canonical Git bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config core.autocrlf false
+          git config core.eol lf
+          git reset --hard HEAD
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install pinned verification dependency
+        run: python -m pip install -q pytest==8.4.2
+      - name: Ownership ancestry and exact scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor "$D07_V6_BASE" HEAD
+          test "$(git merge-base "$D07_V6_BASE" HEAD)" = "$D07_V6_BASE"
+          git diff --check "$D07_V6_BASE" HEAD
+          changed="$(git diff --name-only "$D07_V6_BASE" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/v2-library-search-professional.yml' \
+            'acs/acsdb.py' \
+            'acs/search_policy.py' \
+            'acs/search_service.py' \
+            'tests/test_v2_library_search_professional.py' \
+            'tools/v2_library_search_professional_benchmark.py' | sort)"
+          test "$changed" = "$expected" || {
+            printf 'Unexpected D07 Search scope:\n%s\n' "$changed" >&2
+            exit 1
+          }
+          if printf '%s\n' "$changed" | grep -E 'library_import_service|duplicate_detection|gametree.py|pgn_|chessbase|teacher|classroom|education|stage1|web/'; then
+            echo 'Competing or out-of-lane implementation detected' >&2
+            exit 1
+          fi
+      - name: Compile
+        run: python -m compileall -q acs tests tools run_accessible_chess.py
+      - name: Professional Search and inherited D07 regressions
+        run: >-
+          python -m unittest -v
+          tests.test_v2_library_search_professional
+          tests.test_v2_library_integrity_repair
+          tests.test_v2_library_date_filter_v5
+          tests.test_v2_library_acsdb_search_v4
+          tests.test_v2_library_search_service_v4
+          tests.test_acsdb
+          tests.test_d07_acsdb_migration_atomicity
+          tests.test_d07_library_search_cancellation
+          tests.test_d07_search_semantic_equivalence
+          tests.test_d07_search_scalar_equivalence
+          tests.test_windows_data_release_regressions
+      - name: Full repository unittest
+        shell: bash
+        run: |
+          set -o pipefail
+          python -m unittest discover -s tests -v 2>&1 | tee full-unittest.log
+      - name: Full repository pytest
+        run: python -m pytest -q tests
+      - name: SELFTEST and complete diagnostic
+        run: |
+          python -m acs.selftest
+          python run_accessible_chess.py --diagnostic
+      - name: Upload full unittest diagnostic
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v2-library-search-full-unittest-${{ matrix.os }}
+          path: full-unittest.log
+          if-no-files-found: ignore
+          retention-days: 3
+
+  performance-100k:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: 100k site/year/combined/keyset evidence
+        shell: bash
+        run: |
+          set -o pipefail
+          PYTHONPATH=. python tools/v2_library_search_professional_benchmark.py --games 100000 --repeats 5 | tee v2-library-search-professional-100k.json
+      - name: Upload 100k evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v2-library-search-professional-100k
+          path: v2-library-search-professional-100k.json
+          if-no-files-found: error
+          retention-days: 7
+
+  real-lichess-10k:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install pinned real-corpus dependencies
+        run: python -m pip install -q pytest==8.4.2 zstandard==0.23.0
+      - name: Reuse independent pinned lawful Lichess oracle on current Product tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          git cat-file -e "$REAL_QA_HEAD^{commit}"
+          test "$(git rev-parse "$REAL_QA_HEAD:tests/v2_real_lichess_acsdb_v6_probe.py")" = "165ba3163284e66c4cb8e8868fcc9b8f7cfe1d14"
+          git show "$REAL_QA_HEAD:tests/v2_real_lichess_acsdb_v6_probe.py" > .real_lichess_search_probe.py
+          set -o pipefail
+          PYTHONPATH=. python .real_lichess_search_probe.py 2>&1 | tee real-lichess-search.log
+          rm -f .real_lichess_search_probe.py
+      - name: Upload lawful real-corpus evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v2-library-search-real-lichess-${{ matrix.os }}
+          path: |
+            real-lichess-search.log
+            real-lichess-acsdb-v6-summary.json
+          if-no-files-found: ignore
+          retention-days: 7
