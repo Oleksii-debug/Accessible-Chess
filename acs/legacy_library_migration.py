@@ -208,8 +208,11 @@ def migrate_legacy_library(
             migrated_rows = 0
             migrated_games = 0
             warning_games = 0
-            attempt_rows: list[tuple[str, str, int, int, int]] = []
 
+            # One transaction owns every target source/game/attempt row. Parsing
+            # is streamed one legacy record at a time, so conversion memory does
+            # not grow with the number of legacy rows, while any late failure can
+            # still roll the entire unpublished target back atomically.
             target.conn.execute("BEGIN IMMEDIATE")
             try:
                 cursor = legacy.execute(
@@ -238,30 +241,30 @@ def migrate_legacy_library(
                             warning_games += 1
                             row_warning_count += len(game.warnings)
 
-                    migrated_rows += 1
-                    attempt_rows.append(
-                        (title, digest, source_id, len(games), row_warning_count)
+                    now = target._now()
+                    target.conn.execute(
+                        """INSERT INTO import_attempts(
+                               source_name, source_format, sha256, started_at, finished_at,
+                               status, source_id, game_count, warning_count, error_message
+                           ) VALUES(?,?,?,?,?,?,?,?,?,NULL)""",
+                        (
+                            title,
+                            "pgn",
+                            digest,
+                            now,
+                            now,
+                            "warning" if row_warning_count else "full",
+                            source_id,
+                            len(games),
+                            row_warning_count,
+                        ),
                     )
+                    migrated_rows += 1
                 target.conn.commit()
             except Exception:
                 if target.conn.in_transaction:
                     target.conn.rollback()
                 raise
-
-            # The legacy store had no attempt table. Create one explicit migration
-            # attempt per original row after canonical publication into the private
-            # target so import history does not fabricate a pre-existing runtime
-            # attempt while still recording the migration provenance.
-            for title, digest, source_id, game_count, row_warning_count in attempt_rows:
-                attempt_id = target._create_import_attempt(title, "pgn", digest)
-                with target.conn:
-                    target._finish_import_attempt(
-                        attempt_id,
-                        status="warning" if row_warning_count else "full",
-                        source_id=source_id,
-                        game_count=game_count,
-                        warning_count=row_warning_count,
-                    )
 
             integrity_version = target.verify_integrity()
             if integrity_version != ACSDB_SCHEMA_VERSION:
