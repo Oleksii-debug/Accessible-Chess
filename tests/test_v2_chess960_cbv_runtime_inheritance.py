@@ -129,7 +129,9 @@ class Chess960CbvRuntimeInheritanceTests(unittest.TestCase):
                     "SELECT source_index, import_status FROM games"
                 ).fetchone()
                 self.assertIsNotNone(game_row)
-                self.assertEqual(tuple(game_row), (7, "warning"))
+                # Source-level unsupported-record warnings belong to the source
+                # attempt, not to the accepted Standard game's semantic quality.
+                self.assertEqual(tuple(game_row), (7, "full"))
                 attempt = database.conn.execute(
                     "SELECT status, game_count, warning_count FROM import_attempts"
                 ).fetchone()
