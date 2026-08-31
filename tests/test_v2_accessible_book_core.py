@@ -57,6 +57,21 @@ class V2AccessibleBookCoreTests(unittest.TestCase):
         self.assertEqual(document.as_dict(), before)
         self.assertEqual(len(document.blocks), 1)
 
+    def test_legacy_v1_without_enriched_provenance_keeps_exact_wire_shape(self) -> None:
+        legacy = {
+            "schema_version": 1,
+            "title": "Legacy book",
+            "language": "en",
+            "author": "Author",
+            "source_name": "legacy-source",
+            "warnings": [],
+            "blocks": [{"kind": "Paragraph", "text": "Existing semantic text"}],
+        }
+        restored = BookDocument.from_dict(legacy)
+        self.assertEqual(restored.as_dict(), legacy)
+        self.assertIsNone(restored.source_uri)
+        self.assertIsNone(restored.source_rights)
+
     def test_semantic_sections_lists_provenance_and_navigation_are_deterministic(self) -> None:
         document = BookDocument(
             "The Blue Book of Chess",
