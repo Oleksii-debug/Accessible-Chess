@@ -1,116 +1,99 @@
-# Version 2 CBF/CBI real-corpus unblock qualification
+# Version 2 CBF/CBI bounded external-reader unblock
 
 ROLE=V2-CHESSBASE-FORMATS
-UTC=2026-08-28
-PARENT_PR=302
-PARENT_SHA=0454f9e19854da9c2261bba4b5d64e688fa3b909
-SWARM_LANE_KEY=ACCESSIBLE-CHESS-V2-CBF-CBI-REAL-CORPUS-UNBLOCK-20260828
+DATE=2026-08-31
+PARENT_PR=348
+PARENT_SHA=1142466ca4c1553f75dd04c62c8ff0f4202ce61e
 
-## Verdict at package start
+## Verdict
 
-`CBF/CBI=BLOCKED`.
+`CBF/CBI=BLOCKED` and `support_promotion_allowed=false`.
 
-This successor does not create a CBF parser and does not promote support. It
-attempts to qualify the two missing prerequisites left by PR #302: a lawful
-real paired CBF+CBI corpus with an independent semantic oracle, and a bounded
-external read-only conversion path that can be reproduced independently.
+This successor removes the concrete Product-side execution blocker left by PR
+#348. It does **not** claim semantic CBF/CBI support, does not add a binary CBF
+parser, does not register a user-facing importer, and does not bundle GPL
+executables.
 
-## Real corpus candidate: 1995 Dortmund / Pitt Chess Archives
+## Why support is still blocked
 
-Historical University of Pittsburgh Chess Archive distribution records list a
-ChessBase archive `95DORTCB.ZIP` for the 1995 Dortmund event and, in the same
-distribution record, a separate PGN archive `95DORTPG.ZIP` for the same event.
-Current archive indexes still expose the filenames and point at the historical
-Pitt FTP tree.
+The strongest historical candidate remains the 1995 Dortmund Pittsburgh Chess
+Archive pair (`95DORTCB.ZIP` plus independently distributed `95DORTPG.ZIP`). A
+publicly indexed download is not treated as legal automated-use provenance.
+This cycle still lacks a lawfully reusable authenticated `.cbf + .cbi` pair and
+an independent semantic oracle for those exact bytes. Therefore no real CBF
+semantic equality is claimed.
 
-This is materially stronger than a synthetic test: it is evidence that a real
-ChessBase representation and an independently distributed PGN representation
-of the same event existed side by side.
+## Pinned external reader
 
-It is not yet an acceptance fixture. The available runtime has not inspected
-the ZIP bytes, so this package does not assert that `95DORTCB.ZIP` specifically
-contains a `.cbf + .cbi` pair. Historical Pitt discussion confirms that some
-Pitt ChessBase downloads were real `.cbf + .cbi`, but that does not prove the
-contents of this particular archive.
+Scidb source is fixed at
+`foolnotion/scidb@7c1c9d89f2fabab0c1252cdd14c515fb9bfc1415`.
+The exact `src/cbh2si4.cpp` blob is
+`1830d059b987e3b9d4b97803d92f33936a69ace1`; it explicitly accepts `.cbf`,
+opens the ChessBase database `permission::ReadOnly`, and documents the CLI as
+`cbh2si4 [options] <ChessBase database> [destination database]`.
 
-Rights are also deliberately unresolved. Historical Pitt upload policy asked
-for chess material that was not copyrighted by someone else, but that policy
-is not treated as a modern explicit redistribution/CI-reuse license. No Pitt
-archive bytes are copied into this repository or uploaded as CI artifacts.
+Scid PGN export source is fixed at
+`lpt/scid@5837653efa3975c64cff232006d9f981b36ac56b`.
+The exact `scripts/scidpgn.tcl` blob is
+`84273490e8ee6b47bc78ca26a274ab559845e7b5`; it opens the SI4 database
+`-readonly` and emits tags, comments and variations.
 
-## Exact external decoder chain identified
+The runtime pins the compiled `tcscid` executable and the exact `scidpgn.tcl`
+script separately, then invokes `tcscid <script> <SI4>` directly. It does not
+execute the shell wrapper or allow an unpinned interpreter lookup through PATH.
 
-### Scidb `cbh2si4`
+The intended external chain remains:
 
-Pinned source: `foolnotion/scidb@7c1c9d89f2fabab0c1252cdd14c515fb9bfc1415`.
+`immutable CBF+CBI -> cbh2si4 -> private SI4 -> tcscid+scidpgn.tcl -> canonical PGN/GameTree -> ACSDB`.
 
-Exact CLI source blob:
-`src/cbh2si4.cpp = 1830d059b987e3b9d4b97803d92f33936a69ace1`.
+## New Product-side boundary
 
-The CLI explicitly accepts `.cbf`/`.CBF` as input and constructs the source
-`Database` with `permission::ReadOnly`. It exports every game through the
-Scidb database abstraction into an SI4 database. The already-qualified CBF
-codec source remains:
-`src/db/cbf/cbf_codec.cpp = c9608dc93e704070c5ec7f8294d09e6c52374b53`.
+`acs/cbf_cbi_external.py` implements an isolated, currently unregistered seam:
 
-This is a bounded external-backend direction, not an Accessible Chess parser.
-The default Accessible Chess package must not bundle Scidb. The current Scidb
-Nix package is GPL-family external software and its full application build also
-has dependencies unrelated to a minimal CBF decoder; runtime qualification in
-this package therefore checks the exact command-line target rather than using
-GUI existence as proof.
+- requires the `.cbf` primary plus exactly the same-stem `.cbi` companion through
+  the existing ChessBase integrity layer;
+- requires explicit SHA-256 pins for `cbh2si4`, `tcscid`, and `scidpgn.tcl`;
+- never discovers the backend through PATH and never uses a shell;
+- uses a sterile environment and private temporary directory;
+- bounds execution time, stdout, stderr, game count and private SI4 bytes;
+- requires exactly `decoded.si4`, `decoded.sg4`, `decoded.sn4` as converter output;
+- rejects symlink/reparse/nonregular private output;
+- fingerprints the immutable source family before execution and verifies it again
+  after PGN export;
+- sends external PGN only through the existing canonical parser/GameTree model;
+- computes canonical GameIdentity values, serializes through the existing PGN
+  serializer, reopens, and requires exact record-identity equality;
+- hands only already-canonical `PgnGame` values to existing
+  `LibraryImportService`, preserving its one-transaction ACSDB publication and
+  cancellation boundary.
 
-### Scid `scidpgn`
+This closes bounded execution, canonical validation, atomic publication and
+canonical export/reopen as Product engineering seams. It does not replace the
+missing independent oracle: comparing canonical output with itself is only an
+internal integrity check, not proof that the proprietary source was decoded
+correctly.
 
-Pinned source: `lpt/scid@5837653efa3975c64cff232006d9f981b36ac56b`.
-License: GPLv2 distribution, with repository-specific exceptions documented in
-its `COPYING` file.
+## Build/evidence gate
 
-Exact exporter script:
-`scripts/scidpgn.tcl = 84273490e8ee6b47bc78ca26a274ab559845e7b5`.
+The dedicated workflow builds exact pinned Scidb `cbh2si4` and pinned Scid
+`pgnscid`/`tcscid`. The Scid runtime is exercised on a neutral
+PGN -> SI4 -> PGN round trip using the exact source `scidpgn.tcl`, retaining a
+comment and variation. This qualifies the external export runtime mechanics
+without pretending that a CBF corpus was decoded.
 
-The script starts the non-graphical `tcscid` interpreter, opens the Scid
-database `-readonly`, loads every game, and prints PGN with tags, comments and
-variations. This gives a concrete source-level sequence:
+Until that exact-head workflow is green, the manifest keeps the final exact
+reader/reproducible-build conditions false. They may be changed only in a
+follow-up evidence commit after CI is inspected.
 
-CBF+CBI read-only source -> Scidb `cbh2si4` -> temporary SI4 -> Scid
-`tcscid/scidpgn` read-only export -> PGN -> Accessible Chess canonical PGN /
-GameTree validation.
+## Promotion rule
 
-The Scid exporter runtime is not yet called qualified merely because its source
-exists. Its executable build and the actual CBF corpus journey remain separate
-promotion requirements.
+CBF/CBI may move out of BLOCKED only when all nine conditions in
+`V2_CBF_CBI_REAL_CORPUS_UNBLOCK.json` are true on one exact evidence lineage:
+authentic real family, legal automated-use provenance, independent oracle,
+exact pinned external reader, reproducible build, bounded execution, canonical
+validation, atomic ACSDB import, and export/reopen comparison. The real corpus
+must be compared with the independent oracle rather than with decoder output.
 
-## Machine gate
-
-The dedicated workflow:
-
-- locks exact PR #302 ancestry and an evidence-only file allowlist;
-- executes the manifest/no-overclaim contract on Ubuntu and Windows;
-- checks out the exact Scidb commit and validates the exact CBF codec and
-  `cbh2si4` blobs, read-only source contract and GPL evidence;
-- installs only build dependencies needed for the source tree and attempts an
-  exact `cbh2si4` command-line build on Ubuntu;
-- checks out exact `lpt/scid` and validates the exact `scidpgn.tcl` blob,
-  read-only/full-PGN source contract and GPL evidence;
-- runs full Accessible Chess unittest and pytest regressions.
-
-If the external build cannot be reproduced on the fixed runner, the job is RED
-and the runtime-build dimension remains BLOCKED. The gate is not allowed to
-turn a source-only claim into support.
-
-## Promotion requirements
-
-All of the following remain mandatory before CBF/CBI can move above BLOCKED:
-
-1. actual lawful real `.cbf + .cbi` bytes are acquired and inspected;
-2. CI reuse/redistribution rights are explicit enough for the chosen fixture;
-3. an independent PGN/GameTree/metadata oracle for the same database is
-   available;
-4. exact external decoder/exporter builds are reproducible and bounded;
-5. decoded semantics match the independent oracle;
-6. canonical chess legality validation succeeds;
-7. SOURCE -> decode -> GameTree -> ACSDB -> Search -> Open -> PGN Export ->
-   Reopen -> Integrity is proven without semantic loss.
-
-Until then: `CBF/CBI=BLOCKED`, `support_promotion_allowed=false`.
+Windows user-facing activation additionally requires a Windows runtime build and
+execution qualification for the selected external reader. No Windows/NVDA
+readiness is claimed here. `NVDA_VERIFIED=NO`.
