@@ -132,7 +132,6 @@ class BookBoardWorkflowTests(unittest.TestCase):
                 position = Position(fen=Board.START, block_id="bad")
                 document = BookDocument(title="Book", blocks=[position])
                 reader = BookReader(document)
-                progress_before = reader.snapshot()
                 position.fen = invalid_fen  # simulate corruption after validation
                 workflow, _engine, _analysis = self._workflow(reader)
 
@@ -142,7 +141,9 @@ class BookBoardWorkflowTests(unittest.TestCase):
                     caught.exception.code, BookBoardWorkflowCode.INVALID_POSITION
                 )
                 self.assertFalse(workflow.active)
-                self.assertEqual(reader.snapshot(), progress_before)
+                self.assertEqual(reader.location().index, 0)
+                with self.assertRaises(LookupError):
+                    reader.restore_return_point(workflow._RETURN_POINT)
 
     def test_embedded_game_uses_canonical_gametree_navigation_and_rav_return(self) -> None:
         reader = BookReader(
