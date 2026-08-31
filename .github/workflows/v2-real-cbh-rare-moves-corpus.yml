@@ -1,0 +1,197 @@
+name: Accessible Chess V2 Real CBH Rare Moves Corpus
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/v2-real-cbh-rare-moves-corpus.yml'
+      - 'tests/test_v2_real_cbh_rare_moves_corpus.py'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: accessible-chess-v2-real-cbh-rare-moves-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  V2_AUTHORITY_SHA: 575ec0088982d2f90adb47c040a5714d68186b0e
+  LIBCBH_COMMIT: 9641c5c3949d8fb210b17dd9aa54455645843696
+  UNCBV_COMMIT: 3c18e8a7c6a30c21f945a1ab5462521c306dca57
+
+jobs:
+  real-standard-rare-moves:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 70
+    steps:
+      - name: Checkout exact evidence head
+        uses: actions/checkout@v4
+        with:
+          path: product
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Prove exact authority ancestry and evidence-only scope
+        working-directory: product
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor "$V2_AUTHORITY_SHA" HEAD
+          git diff --check "$V2_AUTHORITY_SHA" HEAD
+          changed="$(git diff --name-only "$V2_AUTHORITY_SHA" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/v2-real-cbh-rare-moves-corpus.yml' \
+            'tests/test_v2_real_cbh_rare_moves_corpus.py' | sort)"
+          test "$changed" = "$expected" || {
+            printf 'Unexpected rare-move lane scope:\n%s\n' "$changed" >&2
+            exit 1
+          }
+          git diff --quiet "$V2_AUTHORITY_SHA" HEAD -- acs web tools/optional
+          printf 'V2_RARE_MOVES_AUTHORITY=%s\nEVIDENCE_HEAD=%s\n' "$V2_AUTHORITY_SHA" "$(git rev-parse HEAD)"
+
+      - name: Checkout pinned lawful libcbh corpus
+        uses: actions/checkout@v4
+        with:
+          repository: rolandlo/libcbh
+          ref: 9641c5c3949d8fb210b17dd9aa54455645843696
+          path: upstream/libcbh
+          fetch-depth: 1
+
+      - name: Checkout pinned lawful uncbv corpus
+        uses: actions/checkout@v4
+        with:
+          repository: antoyo/uncbv
+          ref: 3c18e8a7c6a30c21f945a1ab5462521c306dca57
+          path: upstream/uncbv
+          fetch-depth: 1
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install pinned regression dependency
+        run: python -m pip install -q pytest==8.4.2
+
+      - name: Build exact pinned libcbh and bridge
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S upstream/libcbh -B upstream/libcbh/build -DCMAKE_BUILD_TYPE=Release -DGTEST=OFF
+          cmake --build upstream/libcbh/build --config Release --parallel 2
+          mkdir -p product/build/libcbh
+          c++ -std=c++20 -O2 \
+            -DLIBCBH_SOURCE_COMMIT=\"$LIBCBH_COMMIT\" \
+            -I upstream/libcbh/include \
+            product/tools/optional/libcbh_json_bridge.cpp \
+            -L upstream/libcbh/build -lcbh \
+            -Wl,-rpath,'$ORIGIN' \
+            -o product/build/libcbh/libcbh-json-bridge
+          cp -a upstream/libcbh/build/libcbh.so* product/build/libcbh/
+          test -x product/build/libcbh/libcbh-json-bridge
+          sha256sum upstream/libcbh/gtest/ManyPromotions/ManyPromotions.cbh \
+            upstream/libcbh/gtest/ManyPromotions/Promotions.pgn
+
+      - name: Build exact pinned uncbv
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo build --release --locked --manifest-path upstream/uncbv/Cargo.toml
+          test -x upstream/uncbv/target/release/uncbv
+          uncbv_sha256="$(sha256sum upstream/uncbv/target/release/uncbv | cut -d' ' -f1)"
+          cbv_sha256="$(sha256sum upstream/uncbv/tests/twic1134.cbv | cut -d' ' -f1)"
+          echo "UNCBV_BINARY_SHA256=$uncbv_sha256" >> "$GITHUB_ENV"
+          echo "TWIC_CBV_SHA256=$cbv_sha256" >> "$GITHUB_ENV"
+          printf 'UNCBV_SHA256=%s\nTWIC1134_CBV_SHA256=%s\n' "$uncbv_sha256" "$cbv_sha256"
+
+      - name: Acquire transient independent TWIC 1134 PGN oracle
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p transient-corpus/twic1134
+          curl --fail --location --retry 3 --connect-timeout 30 \
+            https://theweekinchess.com/zips/twic1134g.zip \
+            -o transient-corpus/twic1134g.zip
+          zip_sha256="$(sha256sum transient-corpus/twic1134g.zip | cut -d' ' -f1)"
+          pgn_member="$(unzip -Z1 transient-corpus/twic1134g.zip | grep -Ei '\.pgn$' | head -n 1)"
+          test -n "$pgn_member"
+          unzip -q transient-corpus/twic1134g.zip -d transient-corpus/twic1134
+          pgn_path="$(realpath "transient-corpus/twic1134/$pgn_member")"
+          test -s "$pgn_path"
+          echo "TWIC_PGN_ZIP_SHA256=$zip_sha256" >> "$GITHUB_ENV"
+          echo "TWIC_PGN_FIXTURE=$pgn_path" >> "$GITHUB_ENV"
+          printf 'TWIC1134_PGN_ZIP_SHA256=%s\nTWIC1134_PGN_MEMBER=%s\n' "$zip_sha256" "$pgn_member"
+
+      - name: Compile evidence and Product surfaces
+        working-directory: product
+        run: python -m compileall -q acs tests/test_v2_real_cbh_rare_moves_corpus.py
+
+      - name: Run real CBH plus CBV rare-standard-move oracle
+        working-directory: product
+        shell: bash
+        env:
+          LIBCBH_BRIDGE: ${{ github.workspace }}/product/build/libcbh/libcbh-json-bridge
+          LIBCBH_PROMOTIONS_DIR: ${{ github.workspace }}/upstream/libcbh/gtest/ManyPromotions
+          UNCBV_BINARY: ${{ github.workspace }}/upstream/uncbv/target/release/uncbv
+          UNCBV_FIXTURE: ${{ github.workspace }}/upstream/uncbv/tests/twic1134.cbv
+        run: |
+          set +e
+          set -o pipefail
+          python tests/test_v2_real_cbh_rare_moves_corpus.py 2>&1 | tee real-cbh-rare-moves.log
+          oracle_status=${PIPESTATUS[0]}
+          set -e
+          printf '%s\n' "$oracle_status" > real-cbh-rare-moves.status
+          printf 'REAL_CBH_RARE_MOVES_ORACLE_EXIT=%s\n' "$oracle_status"
+          exit 0
+
+      - name: Focused canonical ChessBase regressions
+        working-directory: product
+        run: >-
+          python -m unittest -v
+          tests.test_chessbase_decoder
+          tests.test_chessbase_integrity
+          tests.test_version2_formats_integration
+          tests.test_pgn_document
+          tests.test_gametree_legality
+
+      - name: Full repository unittest
+        working-directory: product
+        run: python -m unittest discover -s tests -v
+
+      - name: Full repository pytest
+        working-directory: product
+        run: python -m pytest -q tests
+
+      - name: SELFTEST and diagnostic
+        working-directory: product
+        run: |
+          python -m acs.selftest
+          python run_accessible_chess.py --diagnostic
+
+      - name: Remove transient copyrighted corpus before artifact publication
+        if: always()
+        shell: bash
+        run: rm -rf transient-corpus upstream/uncbv/tests/*.cbv upstream/uncbv/tests/*.cbz || true
+
+      - name: Upload evidence summary only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v2-real-cbh-rare-moves-evidence
+          path: |
+            product/real-cbh-rare-moves-summary.json
+            product/real-cbh-rare-moves.log
+            product/real-cbh-rare-moves.status
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Enforce real-corpus verdict after broad regressions
+        if: always()
+        working-directory: product
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f real-cbh-rare-moves.status
+          status="$(cat real-cbh-rare-moves.status)"
+          test "$status" = "0" || {
+            printf 'Real CBH/CBV rare-move corpus is RED (oracle exit=%s).\n' "$status" >&2
+            exit "$status"
+          }
