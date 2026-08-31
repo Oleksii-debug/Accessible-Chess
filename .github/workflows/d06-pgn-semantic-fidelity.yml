@@ -60,14 +60,18 @@ jobs:
           git cat-file -e "$D06_AUTHORITY^{commit}"
           test "$(git merge-base HEAD "$D06_AUTHORITY")" = "$D06_AUTHORITY"
           git diff --check "$D06_AUTHORITY" HEAD
-          changed="$(git diff --name-only "$D06_AUTHORITY" HEAD | sort)"
-          expected="$(printf '%s\n' \
-            '.github/workflows/d06-pgn-semantic-fidelity.yml' \
-            'tests/test_v2_pgn-semantic-fidelity.py' | sort)"
-          if git diff --name-only "$D06_AUTHORITY" HEAD -- acs/gametree.py | grep -q .; then
-            expected="$(printf '%s\n%s\n' "$expected" 'acs/gametree.py' | sort)"
-          fi
-          test "$changed" = "$expected"
+          have_workflow=0
+          have_tests=0
+          while IFS= read -r path; do
+            case "$path" in
+              .github/workflows/d06-pgn-semantic-fidelity.yml) have_workflow=1 ;;
+              tests/test_v2_pgn_semantic_fidelity.py) have_tests=1 ;;
+              acs/gametree.py) ;;
+              *) echo "unexpected semantic-fidelity path: $path" >&2; exit 1 ;;
+            esac
+          done < <(git diff --name-only "$D06_AUTHORITY" HEAD | sort)
+          test "$have_workflow" = 1
+          test "$have_tests" = 1
           git diff --quiet "$D06_AUTHORITY" HEAD -- \
             acs/pgn_roundtrip.py acs/pgn_service.py acs/pgn_document.py acs/pgn_workspace.py \
             acs/gametree_legality.py acs/chesscore.py acs/acsdb.py web run_accessible_chess.py
