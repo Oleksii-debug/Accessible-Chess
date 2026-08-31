@@ -41,7 +41,7 @@ jobs:
           # canonical PGN Date in the qualified subset, so exercise the real
           # indexed no-match path for a concrete day instead.
           sed -i 's/, complete_date=True//' tools/v2_library_large_real_profile.py
-          sed -i '/raise AssertionError(f"real corpus did not expose required {column} metadata")/i\    if column == "game_date":\n        return None, "2013.01.01"' tools/v2_library_large_real_profile.py
+          sed -i '/raise AssertionError(f"real corpus did not expose required {column} metadata")/i\        if column == "game_date":\n            return None, "2013.01.01"' tools/v2_library_large_real_profile.py
           grep -F 'PARSE_CHUNK_GAMES = 1_000' tools/v2_library_large_real_profile.py
           grep -F 'return None, "2013.01.01"' tools/v2_library_large_real_profile.py
           python tools/v2_library_large_real_profile.py | tee v2-library-large-real-profile.log
