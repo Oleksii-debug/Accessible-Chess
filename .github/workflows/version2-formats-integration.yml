@@ -7,39 +7,65 @@ on:
   pull_request:
     paths:
       - '.github/workflows/d01-full-product-native-menu.yml'
+      - '.github/workflows/d06-file-ingress-nag-normalization.yml'
+      - '.github/workflows/d06-real-corpus-recovery.yml'
       - '.github/workflows/d08-owner-fixture-integration.yml'
       - '.github/workflows/v2-book-progress-store.yml'
       - '.github/workflows/v2-cbf-cbi-evidence.yml'
+      - '.github/workflows/v2-library-acsdb-search-v4.yml'
+      - '.github/workflows/v2-library-date-filter-v5.yml'
+      - '.github/workflows/v2-library-integrity-repair.yml'
+      - '.github/workflows/version2-formats-integration.yml'
       - '.github/workflows/whole-product-integration-preview.yml'
+      - 'acs/acsdb.py'
       - 'acs/book_progress_store.py'
+      - 'acs/cbv_extractor.py'
       - 'acs/chessbase_adapter.py'
       - 'acs/chessbase_decoder.py'
       - 'acs/chessbase_integrity.py'
       - 'acs/chessbase_library_import.py'
-      - 'acs/cbv_extractor.py'
+      - 'acs/full_product_ui_shell.py'
       - 'acs/import_contract.py'
       - 'acs/library_import_service.py'
       - 'acs/library_webview_bridge.py'
       - 'acs/library_webview_projection.py'
+      - 'acs/pgn_document.py'
+      - 'acs/pgn_service.py'
+      - 'acs/search_policy.py'
+      - 'acs/search_service.py'
+      - 'docs/automation/DEV4_CHESSBASE_CAPABILITY_MATRIX.md'
       - 'docs/automation/V2_CBF_CBI_EVIDENCE.md'
       - 'docs/automation/V2_CHESSBASE_CAPABILITIES.json'
-      - 'tests/test_chessbase_adapter.py'
-      - 'tests/test_v2_chessbase_capability_manifest.py'
-      - 'tests/test_v2_book_progress_store.py'
-      - 'tests/test_version2_formats_integration.py'
-      - 'tests/test_chessbase_decoder.py'
-      - 'tests/test_chessbase_libcbh_external_fixture.py'
+      - 'tests/js/library_surface_dom_test.js'
       - 'tests/test_cbv_extractor.py'
       - 'tests/test_cbv_uncbv_external_fixture.py'
+      - 'tests/test_chessbase_adapter.py'
+      - 'tests/test_chessbase_decoder.py'
+      - 'tests/test_chessbase_libcbh_external_fixture.py'
+      - 'tests/test_d06_file_ingress_nag_normalization.py'
+      - 'tests/test_d06_real_corpus_recovery.py'
+      - 'tests/test_d07_library_import_service.py'
+      - 'tests/test_dev1_full_product_accessible_shell.py'
+      - 'tests/test_dev1_full_product_ui_packages.py'
+      - 'tests/test_dev1_library_webview_projection.py'
       - 'tests/test_full_product_native_menu.py'
+      - 'tests/test_import_contract.py'
       - 'tests/test_library_import_ui_integration.py'
       - 'tests/test_library_workspace_ui_integration.py'
-      - 'tests/js/library_surface_dom_test.js'
-      - 'tools/optional/libcbh_json_bridge.cpp'
+      - 'tests/test_v2_book_progress_store.py'
+      - 'tests/test_v2_chessbase_capability_manifest.py'
+      - 'tests/test_v2_library_acsdb_search_v4.py'
+      - 'tests/test_v2_library_date_filter_v5.py'
+      - 'tests/test_v2_library_date_real_cbv.py'
+      - 'tests/test_v2_library_integrity_repair.py'
+      - 'tests/test_v2_library_search_service_v4.py'
+      - 'tests/test_version2_formats_integration.py'
+      - 'tools/optional/LIBCBH_BACKEND.md'
       - 'tools/optional/UNCBV_BACKEND.md'
-      - 'docs/automation/DEV4_CHESSBASE_CAPABILITY_MATRIX.md'
+      - 'tools/optional/libcbh_json_bridge.cpp'
+      - 'tools/v2_library_acsdb_search_v4_benchmark.py'
+      - 'tools/v2_library_date_filter_v5_benchmark.py'
       - 'web/full_product_library.js'
-      - '.github/workflows/version2-formats-integration.yml'
 
 permissions:
   contents: read
@@ -51,6 +77,7 @@ concurrency:
 env:
   V2_BASE: 6567f3d35ffefaa85ae7e8b87d9fcc0d188e7cac
   LIBRARY_SOURCE: 60dc2afc846b49e91c50f1682464833a1004789f
+  LIBRARY_V6_SOURCE: c1bd4f0c7610365458689a786ebb56d1c7d073df
   CHESSBASE_SOURCE: 5e2c390e0cd66cca166b80fec88c7402784ade47
   LIBCBH_COMMIT: 9641c5c3949d8fb210b17dd9aa54455645843696
   UNCBV_COMMIT: 3c18e8a7c6a30c21f945a1ab5462521c306dca57
@@ -62,7 +89,7 @@ jobs:
       matrix:
         os: [ubuntu-22.04, windows-2025]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 50
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
         with:
@@ -101,17 +128,24 @@ jobs:
         run: |
           set -euo pipefail
           git merge-base --is-ancestor "$V2_BASE" HEAD
+          git merge-base --is-ancestor "$LIBRARY_V6_SOURCE" HEAD
           git cat-file -e "$LIBRARY_SOURCE^{commit}"
           git cat-file -e "$CHESSBASE_SOURCE^{commit}"
           git diff --check "$V2_BASE" HEAD
           changed="$(git diff --name-only "$V2_BASE" HEAD | sort)"
           expected="$(printf '%s\n' \
             '.github/workflows/d01-full-product-native-menu.yml' \
+            '.github/workflows/d06-file-ingress-nag-normalization.yml' \
+            '.github/workflows/d06-real-corpus-recovery.yml' \
             '.github/workflows/d08-owner-fixture-integration.yml' \
             '.github/workflows/v2-book-progress-store.yml' \
             '.github/workflows/v2-cbf-cbi-evidence.yml' \
+            '.github/workflows/v2-library-acsdb-search-v4.yml' \
+            '.github/workflows/v2-library-date-filter-v5.yml' \
+            '.github/workflows/v2-library-integrity-repair.yml' \
             '.github/workflows/version2-formats-integration.yml' \
             '.github/workflows/whole-product-integration-preview.yml' \
+            'acs/acsdb.py' \
             'acs/book_progress_store.py' \
             'acs/cbv_extractor.py' \
             'acs/chessbase_adapter.py' \
@@ -123,6 +157,10 @@ jobs:
             'acs/library_import_service.py' \
             'acs/library_webview_bridge.py' \
             'acs/library_webview_projection.py' \
+            'acs/pgn_document.py' \
+            'acs/pgn_service.py' \
+            'acs/search_policy.py' \
+            'acs/search_service.py' \
             'docs/automation/DEV4_CHESSBASE_CAPABILITY_MATRIX.md' \
             'docs/automation/V2_CBF_CBI_EVIDENCE.md' \
             'docs/automation/V2_CHESSBASE_CAPABILITIES.json' \
@@ -132,19 +170,29 @@ jobs:
             'tests/test_chessbase_adapter.py' \
             'tests/test_chessbase_decoder.py' \
             'tests/test_chessbase_libcbh_external_fixture.py' \
+            'tests/test_d06_file_ingress_nag_normalization.py' \
+            'tests/test_d06_real_corpus_recovery.py' \
+            'tests/test_d07_library_import_service.py' \
             'tests/test_dev1_full_product_accessible_shell.py' \
             'tests/test_dev1_full_product_ui_packages.py' \
             'tests/test_dev1_library_webview_projection.py' \
             'tests/test_full_product_native_menu.py' \
+            'tests/test_import_contract.py' \
             'tests/test_library_import_ui_integration.py' \
             'tests/test_library_workspace_ui_integration.py' \
-            'tests/test_import_contract.py' \
             'tests/test_v2_book_progress_store.py' \
             'tests/test_v2_chessbase_capability_manifest.py' \
+            'tests/test_v2_library_acsdb_search_v4.py' \
+            'tests/test_v2_library_date_filter_v5.py' \
+            'tests/test_v2_library_date_real_cbv.py' \
+            'tests/test_v2_library_integrity_repair.py' \
+            'tests/test_v2_library_search_service_v4.py' \
             'tests/test_version2_formats_integration.py' \
-            'tools/optional/UNCBV_BACKEND.md' \
             'tools/optional/LIBCBH_BACKEND.md' \
+            'tools/optional/UNCBV_BACKEND.md' \
             'tools/optional/libcbh_json_bridge.cpp' \
+            'tools/v2_library_acsdb_search_v4_benchmark.py' \
+            'tools/v2_library_date_filter_v5_benchmark.py' \
             'web/full_product_library.js' | sort)"
           test "$changed" = "$expected"
           if printf '%s\n' "$changed" | grep -E '(^|/)(stage1|tools/qa/|windows-stage1|release_preflight)'; then
@@ -152,8 +200,7 @@ jobs:
             exit 1
           fi
           git diff --quiet "$V2_BASE" HEAD -- \
-            acs/chesscore.py acs/gametree.py acs/acsdb.py \
-            acs/pgn_document.py acs/pgn_service.py acs/pgn_workspace.py \
+            acs/chesscore.py acs/gametree.py acs/pgn_roundtrip.py acs/pgn_workspace.py \
             acs/bookdocument.py acs/bookreader.py acs/book_training.py \
             acs/stage1_release_ui.py acs/stage1_release_ui_core.py \
             web/stage1_release_bootstrap.js web/stage1_board_actions.js \
@@ -191,6 +238,25 @@ jobs:
           docs/automation/V2_CHESSBASE_CAPABILITIES.json=88bfd2d5b198433b3c4839ec9158caadf6ea0193
           tests/test_chessbase_adapter.py=a76aefcfa0e18dc2fc8049ebe4c85e7c4edd7b24
           tests/test_v2_chessbase_capability_manifest.py=216f0675b7fab0bf57c7dea70d57b21f47434ca7
+          .github/workflows/d06-real-corpus-recovery.yml=0afef77aac8894b0077895e73bb65f7b251520a5
+          acs/pgn_document.py=ae0b7d3815c4d277b68ef3c170c95255cf5c6442
+          tests/test_d06_real_corpus_recovery.py=8bf849bc3246bc70fff59637c169c9873d9520dd
+          .github/workflows/d06-file-ingress-nag-normalization.yml=bf7d802aeb921f92ac121ff38fe6972601c2d299
+          acs/pgn_service.py=967669297402d91fd3c5651629b4f82c071a03ed
+          tests/test_d06_file_ingress_nag_normalization.py=466d201b514b94e2c4b11fd49c96ff4b9878e28c
+          .github/workflows/v2-library-acsdb-search-v4.yml=8314872e3d4d5f008ce77e4b630c6b05db1c042d
+          .github/workflows/v2-library-date-filter-v5.yml=be4d1bee84327075752739d4273aaa04b6fb91eb
+          .github/workflows/v2-library-integrity-repair.yml=bd8895696a95a43a707d7cac0305166179d21408
+          acs/acsdb.py=f5dd56e017c09aa8bf2ba3aa66c0658f8a229e74
+          acs/search_policy.py=566e635d0af1675ea5e5c4cd4d4bef32550097de
+          acs/search_service.py=98466d081fb4c77d52029963c2f295e5f022dd07
+          tests/test_v2_library_acsdb_search_v4.py=8b345405589ffdc8fe3cac2f065466f5295360c9
+          tests/test_v2_library_search_service_v4.py=04ee7f5b9eaf2f408eb703c897b72c7b77abc8de
+          tests/test_v2_library_date_filter_v5.py=2824f0d4382c7804eba039d95ce7e7310cb83813
+          tests/test_v2_library_date_real_cbv.py=b9b2b27123434936a8622a0d3b5869069d9f29a7
+          tests/test_v2_library_integrity_repair.py=8af99242b66e217e129130a4075f6812f03a573d
+          tools/v2_library_acsdb_search_v4_benchmark.py=eb3890d2b4f59cd57c0b8c2aa8e552e8eecdbcde
+          tools/v2_library_date_filter_v5_benchmark.py=5fe7a7bfe626ff405427e6a2487cb396bf19aad2
           LOCKS
 
       - name: Compile Version 2 formats package
@@ -214,12 +280,29 @@ jobs:
           tests.test_chessbase_decoder
           tests.test_library_import_ui_integration
           tests.test_library_workspace_ui_integration
+          tests.test_d06_real_corpus_recovery
+          tests.test_d06_file_ingress_nag_normalization
           tests.test_pgn_document
           tests.test_pgn_workspace
           tests.test_dev1_pgn_workspace_webview_adapter
           tests.test_books_training_ui_integration
           tests.test_v2_book_progress_store
           tests.test_whole_product_user_journey
+
+      - name: Library schema-v6 integrity date and bounded search matrix
+        run: >-
+          python -m unittest -v
+          tests.test_v2_library_acsdb_search_v4
+          tests.test_v2_library_search_service_v4
+          tests.test_v2_library_date_filter_v5
+          tests.test_v2_library_integrity_repair
+          tests.test_d07_acsdb_migration_atomicity
+          tests.test_d07_library_import_service
+          tests.test_d07_library_import_start_lock
+          tests.test_d07_library_import_transaction_ownership
+          tests.test_d07_library_search_cancellation
+          tests.test_d07_search_semantic_equivalence
+          tests.test_d07_search_scalar_equivalence
 
       - name: Format security migration and cancellation matrix
         run: >-
@@ -283,7 +366,7 @@ jobs:
 
   real-pinned-chessbase:
     runs-on: ubuntu-22.04
-    timeout-minutes: 45
+    timeout-minutes: 70
     steps:
       - name: Checkout Accessible Chess
         uses: actions/checkout@v4
@@ -291,6 +374,7 @@ jobs:
           path: product
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
       - name: Checkout pinned external libcbh evidence corpus
         uses: actions/checkout@v4
         with:
@@ -298,6 +382,7 @@ jobs:
           ref: 9641c5c3949d8fb210b17dd9aa54455645843696
           path: upstream/libcbh
           fetch-depth: 1
+
       - name: Checkout pinned external uncbv evidence corpus
         uses: actions/checkout@v4
         with:
@@ -305,12 +390,14 @@ jobs:
           ref: 3c18e8a7c6a30c21f945a1ab5462521c306dca57
           path: upstream/uncbv
           fetch-depth: 1
+
       - name: Build pinned libcbh external component
         shell: bash
         run: |
           set -euo pipefail
           cmake -S upstream/libcbh -B upstream/libcbh/build -DCMAKE_BUILD_TYPE=Release -DGTEST=OFF
           cmake --build upstream/libcbh/build --config Release --parallel 2
+
       - name: Build Accessible Chess JSON bridge without bundling it
         shell: bash
         run: |
@@ -325,6 +412,7 @@ jobs:
             -o product/build/libcbh/libcbh-json-bridge
           cp -a upstream/libcbh/build/libcbh.so* product/build/libcbh/
           test -x product/build/libcbh/libcbh-json-bridge
+
       - name: Build pinned uncbv external component
         shell: bash
         run: |
@@ -333,7 +421,8 @@ jobs:
           test -x upstream/uncbv/target/release/uncbv
           uncbv_sha256="$(sha256sum upstream/uncbv/target/release/uncbv | cut -d' ' -f1)"
           echo "UNCBV_BINARY_SHA256=$uncbv_sha256" >> "$GITHUB_ENV"
-      - name: Real CBH and CBV to canonical GameTree and Library journeys
+
+      - name: Real CBH and CBV to canonical GameTree and schema-v6 Library journeys
         shell: bash
         working-directory: product
         env:
@@ -348,13 +437,14 @@ jobs:
             python -m unittest -v tests.test_chessbase_libcbh_external_fixture
             python -m unittest -v tests.test_cbv_uncbv_external_fixture
             python -m unittest -v tests.test_version2_formats_integration
+            python -m unittest -v tests.test_v2_library_date_real_cbv
           } 2>&1 | tee real-pinned.log
 
       - name: Upload real pinned diagnostic
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: v2-real-pinned-chessbase
+          name: v2-real-pinned-chessbase-library-v6
           path: product/real-pinned.log
           if-no-files-found: ignore
           retention-days: 3
