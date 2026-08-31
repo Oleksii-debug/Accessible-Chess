@@ -9,6 +9,7 @@ on:
       - work/version2-integration-formats-20260827
     paths:
       - 'acs/bookdocument.py'
+      - 'acs/book_index.py'
       - 'tests/test_v2_accessible_book_core.py'
       - '.github/workflows/v2-accessible-book-core.yml'
   workflow_dispatch:
@@ -70,7 +71,7 @@ jobs:
           test -n "$changed"
           while IFS= read -r path; do
             case "$path" in
-              .github/workflows/v2-accessible-book-core.yml|acs/bookdocument.py|tests/test_v2_accessible_book_core.py)
+              .github/workflows/v2-accessible-book-core.yml|acs/bookdocument.py|acs/book_index.py|tests/test_v2_accessible_book_core.py)
                 ;;
               *)
                 echo "Unexpected path outside Accessible Book Core ownership: $path" >&2
@@ -82,6 +83,7 @@ jobs:
             expected="$(printf '%s\n' \
               '.github/workflows/v2-accessible-book-core.yml' \
               'acs/bookdocument.py' \
+              'acs/book_index.py' \
               'tests/test_v2_accessible_book_core.py' | sort)"
             test "$changed" = "$expected"
           fi
@@ -91,7 +93,6 @@ jobs:
             acs/gametree.py \
             acs/pgn_roundtrip.py \
             acs/bookreader.py \
-            acs/book_index.py \
             acs/book_training.py \
             acs/book_progress_store.py \
             acs/book_webview_bridge.py \
@@ -106,6 +107,7 @@ jobs:
         run: >-
           python -m compileall -q
           acs/bookdocument.py
+          acs/book_index.py
           tests/test_v2_accessible_book_core.py
 
       - name: Focused semantic Book regressions
@@ -113,6 +115,8 @@ jobs:
           python -m unittest -v
           tests.test_v2_accessible_book_core
           tests.test_bookdocument
+          tests.test_book_index
+          tests.test_bookreader
 
       - name: Full repository unittest
         run: python -m unittest discover -s tests -v
