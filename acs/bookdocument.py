@@ -5,12 +5,14 @@ from __future__ import annotations
 BookDocument is deliberately independent from DOCX, HTML, PGN and ChessBase.
 Importers convert source material into these semantic blocks; accessible UIs and
 exporters consume the blocks without needing to understand the source format.
+Chess position validation is delegated to the canonical chess core.
 """
 
 from dataclasses import dataclass, field
 from enum import Enum
-import re
 from typing import Any, Iterable, Iterator
+
+from .chesscore import Board
 
 
 BOOK_DOCUMENT_SCHEMA_VERSION = 1
@@ -51,12 +53,14 @@ def _optional_identifier(value: object, field_name: str) -> str | None:
     return None if text is None else text.strip()
 
 
-_FEN_PIECES = frozenset("PNBRQKpnbrqk")
-_FEN_CASTLING = frozenset("KQkq")
-_FEN_EN_PASSANT_RE = re.compile(r"^[a-h][36]$")
-
-
 def _fen_text(value: object, field_name: str) -> str:
+    """Validate a Book FEN through the one canonical Board contract.
+
+    Books may retain the historical compact four-field form or the full six-field
+    form, but they do not own piece-placement, king, castling, en-passant or pawn
+    legality rules. A rejected value never becomes a published semantic block.
+    """
+
     text = _required_text(value, field_name).strip()
     fields = text.split()
     if len(fields) not in {4, 6}:
@@ -64,80 +68,13 @@ def _fen_text(value: object, field_name: str) -> str:
             f"{field_name} must contain exactly 4 or 6 FEN fields",
             code=BookDocumentErrorCode.INVALID_FIELD,
         )
-    board, turn, castling, en_passant = fields[:4]
-    ranks = board.split("/")
-    if len(ranks) != 8:
+    try:
+        Board(text)
+    except (TypeError, ValueError):
         raise BookDocumentError(
-            f"{field_name} board must contain exactly 8 ranks",
+            f"{field_name} is not accepted by canonical Board validation",
             code=BookDocumentErrorCode.INVALID_FIELD,
-        )
-    for rank in ranks:
-        if any(left.isdigit() and right.isdigit() for left, right in zip(rank, rank[1:])):
-            raise BookDocumentError(
-                f"{field_name} empty-square runs must use one canonical digit",
-                code=BookDocumentErrorCode.INVALID_FIELD,
-            )
-        squares = 0
-        for token in rank:
-            if token in "12345678":
-                squares += int(token)
-            elif token in _FEN_PIECES:
-                squares += 1
-            else:
-                raise BookDocumentError(
-                    f"{field_name} contains an invalid board token",
-                    code=BookDocumentErrorCode.INVALID_FIELD,
-                )
-        if squares != 8:
-            raise BookDocumentError(
-                f"{field_name} ranks must expand to exactly 8 squares",
-                code=BookDocumentErrorCode.INVALID_FIELD,
-            )
-    if turn not in {"w", "b"}:
-        raise BookDocumentError(
-            f"{field_name} turn must be 'w' or 'b'",
-            code=BookDocumentErrorCode.INVALID_FIELD,
-        )
-    if castling != "-" and (
-        not castling
-        or any(symbol not in _FEN_CASTLING for symbol in castling)
-        or len(set(castling)) != len(castling)
-        or castling != "".join(symbol for symbol in "KQkq" if symbol in castling)
-    ):
-        raise BookDocumentError(
-            f"{field_name} castling rights are invalid",
-            code=BookDocumentErrorCode.INVALID_FIELD,
-        )
-    if en_passant != "-":
-        expected_rank = "6" if turn == "w" else "3"
-        if (
-            _FEN_EN_PASSANT_RE.fullmatch(en_passant) is None
-            or en_passant[1] != expected_rank
-        ):
-            raise BookDocumentError(
-                f"{field_name} en-passant square is invalid for the side to move",
-                code=BookDocumentErrorCode.INVALID_FIELD,
-            )
-    if len(fields) == 6:
-        halfmove, fullmove = fields[4:]
-        if (
-            not halfmove.isascii()
-            or not halfmove.isdigit()
-            or (len(halfmove) > 1 and halfmove.startswith("0"))
-        ):
-            raise BookDocumentError(
-                f"{field_name} halfmove clock must be canonical decimal text",
-                code=BookDocumentErrorCode.INVALID_FIELD,
-            )
-        if (
-            not fullmove.isascii()
-            or not fullmove.isdigit()
-            or fullmove.startswith("0")
-        ):
-            raise BookDocumentError(
-                f"{field_name} fullmove number must be canonical positive decimal text",
-                code=BookDocumentErrorCode.INVALID_FIELD,
-            )
+        ) from None
     return text
 
 
@@ -162,10 +99,7 @@ class BookBlock:
                 data[name] = value
         # Dataclass instances are intentionally mutable for authoring. Rebuild
         # the exact current payload before export so post-construction mutation
-        # cannot bypass the semantic validators and leak corrupt wire data.
-        # Export the rebuilt payload rather than the mutable source payload so
-        # constructor-normalized identifiers and FEN remain canonical and the
-        # schema-v1 wire value is stable across import/export round trips.
+        # cannot bypass semantic validators and leak corrupt wire data.
         rebuilt = block_from_dict(dict(data))
         canonical = {"kind": rebuilt.kind}
         for name in rebuilt.__dataclass_fields__:
@@ -201,6 +135,47 @@ class Paragraph(BookBlock):
     def __post_init__(self) -> None:
         BookBlock.__post_init__(self)
         self.text = _required_text(self.text, "Paragraph text")
+
+
+@dataclass(slots=True)
+class ListBlock(BookBlock):
+    """Semantic ordered/unordered list; consumers must not flatten it to prose."""
+
+    items: list[str] = field(default_factory=list)
+    ordered: bool = False
+    start: int | None = None
+
+    @property
+    def kind(self) -> str:
+        return "List"
+
+    def __post_init__(self) -> None:
+        BookBlock.__post_init__(self)
+        if not isinstance(self.items, list) or not self.items:
+            raise BookDocumentError(
+                "List items must be a non-empty list of text items",
+                code=BookDocumentErrorCode.INVALID_FIELD,
+            )
+        validated_items: list[str] = []
+        for item in self.items:
+            validated_items.append(_required_text(item, "List item"))
+        if type(self.ordered) is not bool:
+            raise BookDocumentError(
+                "List ordered must be a boolean",
+                code=BookDocumentErrorCode.INVALID_FIELD,
+            )
+        if self.start is not None:
+            if type(self.start) is not int or self.start < 1:
+                raise BookDocumentError(
+                    "List start must be a positive integer or None",
+                    code=BookDocumentErrorCode.INVALID_FIELD,
+                )
+            if not self.ordered:
+                raise BookDocumentError(
+                    "List start is only valid for ordered lists",
+                    code=BookDocumentErrorCode.INVALID_FIELD,
+                )
+        self.items = validated_items
 
 
 @dataclass(slots=True)
@@ -313,10 +288,11 @@ class Note(BookBlock):
         self.note_type = _required_text(self.note_type, "Note note_type")
 
 
-SemanticBlock = Heading | Paragraph | Position | Diagram | Game | VariationTree | Exercise | Note
+SemanticBlock = Heading | Paragraph | ListBlock | Position | Diagram | Game | VariationTree | Exercise | Note
 _BLOCK_TYPES = {
     "Heading": Heading,
     "Paragraph": Paragraph,
+    "List": ListBlock,
     "Position": Position,
     "Diagram": Diagram,
     "Game": Game,
@@ -364,6 +340,8 @@ class BookDocument:
     language: str | None = None
     author: str | None = None
     source_name: str | None = None
+    source_uri: str | None = None
+    source_rights: str | None = None
     warnings: list[str] = field(default_factory=list)
 
     def __post_init__(self) -> None:
@@ -371,6 +349,8 @@ class BookDocument:
         self.language = _optional_text(self.language, "Book language")
         self.author = _optional_text(self.author, "Book author")
         self.source_name = _optional_text(self.source_name, "Book source_name")
+        self.source_uri = _optional_text(self.source_uri, "Book source_uri")
+        self.source_rights = _optional_text(self.source_rights, "Book source_rights")
         if not isinstance(self.blocks, list) or not all(
             isinstance(block, _SEMANTIC_BLOCK_TYPES) for block in self.blocks
         ):
@@ -418,6 +398,9 @@ class BookDocument:
     def headings(self) -> list[Heading]:
         return [block for block in self.blocks if isinstance(block, Heading)]
 
+    def lists(self) -> list[ListBlock]:
+        return [block for block in self.blocks if isinstance(block, ListBlock)]
+
     def exercises(self) -> list[Exercise]:
         return [block for block in self.blocks if isinstance(block, Exercise)]
 
@@ -446,6 +429,8 @@ class BookDocument:
         _optional_text(self.language, "Book language")
         _optional_text(self.author, "Book author")
         _optional_text(self.source_name, "Book source_name")
+        _optional_text(self.source_uri, "Book source_uri")
+        _optional_text(self.source_rights, "Book source_rights")
         if type(self.blocks) is not list or not all(
             isinstance(block, _SEMANTIC_BLOCK_TYPES) for block in self.blocks
         ):
@@ -472,6 +457,8 @@ class BookDocument:
             "language": self.language,
             "author": self.author,
             "source_name": self.source_name,
+            "source_uri": self.source_uri,
+            "source_rights": self.source_rights,
             "warnings": list(self.warnings),
             "blocks": [block.as_dict() for block in self.blocks],
         }
@@ -500,6 +487,8 @@ class BookDocument:
             "language",
             "author",
             "source_name",
+            "source_uri",
+            "source_rights",
             "warnings",
             "blocks",
         }
@@ -528,6 +517,8 @@ class BookDocument:
             language=data.get("language"),
             author=data.get("author"),
             source_name=data.get("source_name"),
+            source_uri=data.get("source_uri"),
+            source_rights=data.get("source_rights"),
             warnings=list(warnings),
             blocks=[block_from_dict(item) for item in raw_blocks],
         )
