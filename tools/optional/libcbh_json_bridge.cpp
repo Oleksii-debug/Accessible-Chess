@@ -52,6 +52,34 @@ std::string json_string(const std::string& value) {
     return out.str();
 }
 
+std::string scid_eco_main_to_pgn(unsigned int value) {
+    // Pinned libcbh intentionally drops ChessBase ECO subcodes and exposes the
+    // Scid main-code sequence 1 + 131*n for A00..E99.  Zero is unknown.  Keep
+    // this strict: an unexpected non-main-code value is not converted.
+    constexpr unsigned int stride = 131;
+    constexpr unsigned int main_codes = 500;
+    if (value == 0 || (value - 1) % stride != 0) {
+        return {};
+    }
+    const unsigned int index = (value - 1) / stride;
+    if (index >= main_codes) {
+        return {};
+    }
+    const char letter = static_cast<char>('A' + index / 100);
+    std::ostringstream out;
+    out << letter << std::setw(2) << std::setfill('0') << index % 100;
+    return out.str();
+}
+
+bool has_exact_tag(const std::vector<Tag>& tags, const std::string& name) {
+    for (const auto& tag : tags) {
+        if (tag.tag == name) {
+            return true;
+        }
+    }
+    return false;
+}
+
 void write_comment(std::ostream& out, const Comment& comment) {
     std::visit(
         [&out](const auto& value) {
@@ -111,12 +139,27 @@ void write_move(std::ostream& out, const AnnotatedMove& move) {
     out << "]}";
 }
 
-void write_tags(std::ostream& out, const std::vector<Tag>& tags) {
+void write_tags(std::ostream& out, const std::vector<Tag>& tags, unsigned int eco) {
     out << '[';
-    for (std::size_t i = 0; i < tags.size(); ++i) {
-        if (i) out << ',';
-        out << "{\"name\":" << json_string(tags[i].tag)
-            << ",\"value\":" << json_string(tags[i].value) << '}';
+    bool wrote = false;
+    for (const auto& tag : tags) {
+        if (wrote) out << ',';
+        out << "{\"name\":" << json_string(tag.tag)
+            << ",\"value\":" << json_string(tag.value) << '}';
+        wrote = true;
+    }
+
+    // libcbh exposes ECO as a Scid main-code integer rather than a PGN tag.
+    // Publish the loss-aware three-character main ECO only when the backend did
+    // not already provide an explicit ECO tag.  The Python adapter also retains
+    // the raw integer as CBH_ECO for audit/debug provenance.
+    if (!has_exact_tag(tags, "ECO")) {
+        const std::string canonical_eco = scid_eco_main_to_pgn(eco);
+        if (!canonical_eco.empty()) {
+            if (wrote) out << ',';
+            out << "{\"name\":\"ECO\",\"value\":"
+                << json_string(canonical_eco) << '}';
+        }
     }
     out << ']';
 }
@@ -141,7 +184,7 @@ void write_game(std::ostream& out, std::size_t index, const GameReturnValue& gam
         << ",\"round\":" << static_cast<unsigned int>(game.round)
         << ",\"subround\":" << static_cast<unsigned int>(game.subround)
         << ",\"tags\":";
-    write_tags(out, game.tags);
+    write_tags(out, game.tags, static_cast<unsigned int>(game.eco));
 
     // libcbh appends one structural MovePop when the root decoder returns.
     // It is backend control flow, not canonical game data. Nested pops occur
