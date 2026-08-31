@@ -7,6 +7,7 @@ on:
   pull_request:
     paths:
       - '.github/workflows/v2-chess960-runtime-boundary.yml'
+      - 'acs/chessbase_library_import.py'
       - 'tools/optional/libcbh_json_bridge.cpp'
       - 'tests/test_v2_real_cbh_chess960_record_boundary.py'
       - 'tests/test_v2_chess960_cbv_runtime_inheritance.py'
@@ -45,6 +46,7 @@ jobs:
           changed="$(git diff --name-only "$STACK_BASE" HEAD | sort)"
           expected="$(printf '%s\n' \
             '.github/workflows/v2-chess960-runtime-boundary.yml' \
+            'acs/chessbase_library_import.py' \
             'tests/test_v2_chess960_cbv_runtime_inheritance.py' \
             'tests/test_v2_real_cbh_chess960_record_boundary.py' \
             'tools/optional/libcbh_json_bridge.cpp' | sort)"
@@ -52,7 +54,7 @@ jobs:
             printf 'Unexpected runtime-boundary scope:\n%s\n' "$changed" >&2
             exit 1
           }
-          git diff --quiet "$STACK_BASE" HEAD -- acs web docs/automation
+          git diff --quiet "$STACK_BASE" HEAD -- web docs/automation
           printf 'STACK_BASE=%s\nRUNTIME_HEAD=%s\n' "$STACK_BASE" "$(git rev-parse HEAD)"
 
       - name: Checkout pinned legal libcbh corpus and backend
@@ -177,11 +179,12 @@ jobs:
           changed="$(git diff --name-only "$STACK_BASE" HEAD | sort)"
           expected="$(printf '%s\n' \
             '.github/workflows/v2-chess960-runtime-boundary.yml' \
+            'acs/chessbase_library_import.py' \
             'tests/test_v2_chess960_cbv_runtime_inheritance.py' \
             'tests/test_v2_real_cbh_chess960_record_boundary.py' \
             'tools/optional/libcbh_json_bridge.cpp' | sort)"
           test "$changed" = "$expected"
-          git diff --quiet "$STACK_BASE" HEAD -- acs web docs/automation
+          git diff --quiet "$STACK_BASE" HEAD -- web docs/automation
 
       - uses: actions/setup-python@v5
         with:
