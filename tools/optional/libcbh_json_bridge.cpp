@@ -8,6 +8,8 @@
 #include <cbh.h>
 #include <interface.h>
 
+#include <algorithm>
+#include <cctype>
 #include <cstdlib>
 #include <iomanip>
 #include <iostream>
@@ -22,6 +24,12 @@
 #endif
 
 namespace {
+
+// Protocol-v1 record-level adapter code.  This is deliberately outside the
+// libcbh errorT range: it means the backend decoded the proprietary record but
+// Accessible Chess intentionally did not expose it to the Standard-only
+// canonical core because the record is explicitly Chess960/Fischer Random.
+constexpr unsigned int UNSUPPORTED_CHESS960_RECORD = 960;
 
 std::string json_string(const std::string& value) {
     std::ostringstream out;
@@ -50,6 +58,56 @@ std::string json_string(const std::string& value) {
     }
     out << '"';
     return out.str();
+}
+
+std::string normalized_ascii_token(const std::string& value) {
+    std::string normalized;
+    normalized.reserve(value.size());
+    for (unsigned char c : value) {
+        if (std::isalnum(c)) {
+            normalized.push_back(static_cast<char>(std::tolower(c)));
+        }
+    }
+    return normalized;
+}
+
+bool has_explicit_chess960_tag(const std::vector<Tag>& tags) {
+    for (const Tag& tag : tags) {
+        if (normalized_ascii_token(tag.tag) != "variant") {
+            continue;
+        }
+        const std::string value = normalized_ascii_token(tag.value);
+        if (value == "chess960" || value == "fischerrandom" || value == "frc") {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool has_shredder_fen_castling_rights(const std::string& fen) {
+    // The pinned real Chess960 corpus uses Shredder-FEN/X-FEN rook-file
+    // castling rights (for example AHah).  Standard FEN uses only KQkq or '-'.
+    // Treat only that explicit transport signature as Chess960; a merely
+    // non-standard board layout is still a valid Standard custom position and
+    // must continue through the canonical Board validator.
+    std::istringstream input(fen);
+    std::string board;
+    std::string side;
+    std::string castling;
+    if (!(input >> board >> side >> castling)) {
+        return false;
+    }
+    for (unsigned char c : castling) {
+        if ((c >= 'A' && c <= 'H') || (c >= 'a' && c <= 'h')) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool is_explicit_chess960_record(const GameReturnValue& game) {
+    return has_explicit_chess960_tag(game.tags) ||
+           has_shredder_fen_castling_rights(game.startFen);
 }
 
 void write_comment(std::ostream& out, const Comment& comment) {
@@ -191,6 +249,13 @@ int main(int argc, char** argv) {
             std::cout << "{\"index\":" << index
                       << ",\"status\":\"skipped\",\"error_code\":"
                       << static_cast<unsigned int>(parse_error) << '}';
+            continue;
+        }
+        if (is_explicit_chess960_record(game)) {
+            std::cout << "{\"index\":" << index
+                      << ",\"status\":\"skipped\",\"error_code\":"
+                      << UNSUPPORTED_CHESS960_RECORD
+                      << ",\"reason\":\"unsupported_chess960\"}";
             continue;
         }
         write_game(std::cout, index, game);
