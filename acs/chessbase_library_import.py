@@ -2,9 +2,9 @@ from __future__ import annotations
 
 """Trusted-host ChessBase decoding to atomic ACSDB publication.
 
-The external decoder owns only the read-only source adapter.  This module is
+The external decoder owns only the read-only source adapter. This module is
 the narrow application seam that hands its already validated canonical
-``PgnGame`` objects to the existing Library import transaction.  It never
+``PgnGame`` objects to the existing Library import transaction. It never
 exposes ChessBase records to ACSDB or presentation code and never writes to the
 source family.
 """
@@ -142,7 +142,12 @@ class ChessBaseLibraryImportService:
         self._decoder_config = decoder_config
         self._cbv_extractor_config = cbv_extractor_config
 
-    def _decode_source(self, path: str | Path):
+    def _decode_source(
+        self,
+        path: str | Path,
+        *,
+        cancel_check: CancelCheck | None = None,
+    ):
         """Return decoded games plus path-safe provenance for CBH or CBV."""
 
         source_path = Path(path)
@@ -169,11 +174,25 @@ class ChessBaseLibraryImportService:
             )
 
         with tempfile.TemporaryDirectory(prefix="accessible-chess-cbv-") as temporary:
-            extracted = extract_cbv_external(
-                source_path,
-                Path(temporary),
-                self._cbv_extractor_config,
-            )
+            try:
+                extracted = extract_cbv_external(
+                    source_path,
+                    Path(temporary),
+                    self._cbv_extractor_config,
+                    cancel_check=cancel_check,
+                )
+            except CbvExtractError as exc:
+                if exc.code is CbvExtractCode.CANCELLED:
+                    raise LibraryImportCancelledError(
+                        "ChessBase import cancelled"
+                    ) from None
+                if exc.code is CbvExtractCode.CONTROL_INVALID:
+                    raise LibraryImportControlError(
+                        "ChessBase import cancellation check failed"
+                    ) from exc
+                raise
+
+            _poll_cancel(cancel_check)
             decoded = decode_chessbase_external(
                 extracted.primary_path,
                 self._decoder_config,
@@ -201,8 +220,9 @@ class ChessBaseLibraryImportService:
     ) -> ChessBaseLibraryImportReport:
         """Decode fully, then atomically publish canonical games to the Library.
 
-        Cancellation is checked before external decoding and again before any
-        ACSDB attempt is created.  The existing Library transaction continues
+        Cancellation is checked before external decoding, during delegated CBV
+        extraction, after extraction/before CBH decode, and again before any
+        ACSDB attempt is created. The existing Library transaction continues
         polling through staging and immediately before commit, so cancellation
         can never publish a partial source.
         """
@@ -215,7 +235,7 @@ class ChessBaseLibraryImportService:
             source_format,
             archive_backend_name,
             archive_backend_sha256,
-        ) = self._decode_source(path)
+        ) = self._decode_source(path, cancel_check=cancel_check)
         _poll_cancel(cancel_check)
 
         warnings = tuple(decoded.warnings)
