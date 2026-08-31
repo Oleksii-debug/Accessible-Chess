@@ -1,0 +1,58 @@
+name: V2 DEV07 CBH Canonical Adapter
+
+on:
+  push:
+    branches:
+      - work/v2-dev07-cbh-canonical-adapter-20260831
+  pull_request:
+    paths:
+      - 'acs/chessbase_decoder.py'
+      - 'acs/chesscore.py'
+      - 'tests/test_v2_dev07_cbh_canonical_adapter.py'
+      - '.github/workflows/v2-dev07-cbh-canonical-adapter.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: v2-dev07-cbh-canonical-adapter-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  red-oracle:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Exact ancestry and narrow scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor a213e6e87605560491d10d7e7b96623ea6e367c2 HEAD
+          git diff --check a213e6e87605560491d10d7e7b96623ea6e367c2 HEAD
+          changed="$(git diff --name-only a213e6e87605560491d10d7e7b96623ea6e367c2 HEAD | sort)"
+          expected="$(printf '%s\n' '.github/workflows/v2-dev07-cbh-canonical-adapter.yml' 'tests/test_v2_dev07_cbh_canonical_adapter.py' | sort)"
+          test "$changed" = "$expected"
+      - name: Compile
+        run: python -m compileall -q acs tests run_accessible_chess.py
+      - name: DEV07 one-core RED oracle
+        run: python -m unittest -v tests.test_v2_dev07_cbh_canonical_adapter
+      - name: Existing focused regressions
+        run: >-
+          python -m unittest -v
+          tests.test_v2_a4_canonical_nullmove
+          tests.test_chessbase_decoder
+          tests.test_chessbase_adapter
+          tests.test_gametree
+          tests.test_gametree_legality
+          tests.test_version2_formats_integration
