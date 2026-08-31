@@ -1,0 +1,153 @@
+name: D06 PGN Semantic Fidelity
+
+on:
+  push:
+    branches:
+      - work/v2-pgn-semantic-fidelity-20260831
+  pull_request:
+    branches:
+      - work/version2-integration-formats-20260827
+    paths:
+      - 'acs/gametree.py'
+      - 'acs/pgn_roundtrip.py'
+      - 'tests/test_v2_pgn_semantic_fidelity.py'
+      - '.github/workflows/d06-pgn-semantic-fidelity.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: d06-pgn-semantic-fidelity-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  D06_AUTHORITY: 575ec0088982d2f90adb47c040a5714d68186b0e
+  PGN03_EVIDENCE_HEAD: f2993ef7d79369ef5e7161ba1d75273e7c9a24d3
+
+jobs:
+  semantic-fidelity:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 70
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Preserve exact Git bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config core.autocrlf false
+          git config core.eol lf
+          git reset --hard HEAD
+          git checkout-index --force --all
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install pinned verification dependencies
+        run: python -m pip install -q pytest==8.4.2 zstandard==0.23.0
+
+      - name: Prove exact authority ancestry and semantic-only scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          git cat-file -e "$D06_AUTHORITY^{commit}"
+          test "$(git merge-base HEAD "$D06_AUTHORITY")" = "$D06_AUTHORITY"
+          git diff --check "$D06_AUTHORITY" HEAD
+          changed="$(git diff --name-only "$D06_AUTHORITY" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/d06-pgn-semantic-fidelity.yml' \
+            'tests/test_v2_pgn_semantic_fidelity.py' | sort)"
+          for optional in acs/gametree.py acs/pgn_roundtrip.py; do
+            if git diff --name-only "$D06_AUTHORITY" HEAD -- "$optional" | grep -q .; then
+              expected="$(printf '%s\n%s\n' "$expected" "$optional" | sort)"
+            fi
+          done
+          test "$changed" = "$expected"
+          git diff --quiet "$D06_AUTHORITY" HEAD -- \
+            acs/pgn_service.py acs/pgn_document.py acs/pgn_workspace.py \
+            acs/gametree_legality.py acs/chesscore.py acs/acsdb.py web run_accessible_chess.py
+          echo 'D06 SEMANTIC FIDELITY SCOPE PASS'
+
+      - name: Compile semantic surface
+        run: python -m compileall -q acs tests/test_v2_pgn_semantic_fidelity.py
+
+      - name: Semantic fidelity regression matrix
+        run: python -m unittest -v tests.test_v2_pgn_semantic_fidelity
+
+      - name: Focused D06 and canonical legality regressions
+        run: >-
+          python -m unittest -v
+          tests.test_gametree
+          tests.test_d06_pgn_roundtrip
+          tests.test_gametree_legality
+          tests.test_d06_gametree_persistence_vertical
+          tests.test_d06_annotation_insertion_persistence_vertical
+          tests.test_pgn_service
+          tests.test_pgn_document
+          tests.test_pgn_workspace
+          tests.test_d06_real_corpus_recovery
+          tests.test_dev4_pgn_resource_security
+          tests.test_dev4_pgn_encoding_quality
+          tests.test_dev4_pgn_truncation_quality
+
+      - name: Materialize exact pinned PGN-03 real-corpus oracles
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin "$PGN03_EVIDENCE_HEAD"
+          git show "$PGN03_EVIDENCE_HEAD:scripts/pgn_real_corpus_session_oracle.py" > scripts/pgn_real_corpus_session_oracle.py
+          git show "$PGN03_EVIDENCE_HEAD:scripts/pgn_real_eval_rav_oracle.py" > scripts/pgn_real_eval_rav_oracle.py
+          python -m py_compile scripts/pgn_real_corpus_session_oracle.py scripts/pgn_real_eval_rav_oracle.py
+          python -m scripts.pgn_real_corpus_session_oracle --selftest
+
+      - name: Pinned real annotated SetUp FEN nested RAV oracle
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m scripts.pgn_real_eval_rav_oracle 2>&1 | tee pgn-semantic-real-rav.txt
+          grep -F '"prefix_pinned": true' pgn-semantic-real-rav.txt
+          grep -F '"nested_path_depth": 2' pgn-semantic-real-rav.txt
+          grep -F 'PGN REAL EVAL FEN NESTED RAV PASS' pgn-semantic-real-rav.txt
+
+      - name: Pinned real 4000-game annotated corpus round-trip
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m scripts.pgn_real_corpus_session_oracle --games-per-corpus 2000 --batch-size 250 2>&1 | tee pgn-semantic-real-corpus.txt
+          grep -F '"sampled_records_total": 4000' pgn-semantic-real-corpus.txt
+          grep -F 'PGN REAL CORPUS SESSION ROUND-TRIP PASS' pgn-semantic-real-corpus.txt
+
+      - name: Upload real semantic evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: d06-pgn-semantic-fidelity-${{ matrix.os }}
+          path: |
+            pgn-semantic-real-rav.txt
+            pgn-semantic-real-corpus.txt
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Remove materialized QA scripts before broad repository gates
+        shell: bash
+        run: |
+          rm -f scripts/pgn_real_corpus_session_oracle.py scripts/pgn_real_eval_rav_oracle.py
+
+      - name: Full repository unittest
+        run: python -m unittest discover -s tests
+
+      - name: Full repository pytest
+        run: python -m pytest -q tests
+
+      - name: SELFTEST and complete diagnostic
+        run: |
+          python -m acs.selftest
+          python run_accessible_chess.py --diagnostic
