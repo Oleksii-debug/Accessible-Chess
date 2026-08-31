@@ -451,17 +451,23 @@ class BookDocument:
 
     def as_dict(self) -> dict[str, Any]:
         self._validate_export_state()
-        return {
+        payload: dict[str, Any] = {
             "schema_version": BOOK_DOCUMENT_SCHEMA_VERSION,
             "title": self.title,
             "language": self.language,
             "author": self.author,
             "source_name": self.source_name,
-            "source_uri": self.source_uri,
-            "source_rights": self.source_rights,
             "warnings": list(self.warnings),
             "blocks": [block.as_dict() for block in self.blocks],
         }
+        # Preserve exact legacy v1 payload shape when richer provenance is absent.
+        # Existing snapshots/import fixtures therefore do not change merely by
+        # passing through a newer BookDocument implementation.
+        if self.source_uri is not None:
+            payload["source_uri"] = self.source_uri
+        if self.source_rights is not None:
+            payload["source_rights"] = self.source_rights
+        return payload
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "BookDocument":
