@@ -80,6 +80,7 @@ class AcsDatabase:
             # migration so old databases can backfill/index atomically.
             install_search_fold(self.conn)
             self._migrate_schema()
+            self._ensure_current_schema_ready()
             if self.path != ":memory:":
                 self.conn.execute("PRAGMA journal_mode = WAL")
         except Exception:
@@ -99,12 +100,53 @@ class AcsDatabase:
     def schema_version(self) -> int:
         return int(self.conn.execute("PRAGMA user_version").fetchone()[0])
 
+    def _schema0_has_user_objects(self) -> bool:
+        """Return whether an unversioned SQLite file already owns user schema.
+
+        Schema 0 is only the bootstrap state for a genuinely empty ACSDB file.
+        An existing non-empty schema-0 file may belong to another application or
+        to an unqualified legacy format, so silently layering ACSDB tables into
+        it would be destructive ambiguity rather than a migration.
+        """
+        try:
+            row = self.conn.execute(
+                """SELECT 1 FROM sqlite_master
+                   WHERE name NOT LIKE 'sqlite_%'
+                     AND type IN ('table','view','index','trigger')
+                   LIMIT 1"""
+            ).fetchone()
+        except sqlite3.DatabaseError as exc:
+            raise RuntimeError("ACSDB schema inspection failed") from exc
+        return row is not None
+
     def _migrate_schema(self) -> None:
-        current = self.schema_version
+        try:
+            current = self.schema_version
+        except sqlite3.DatabaseError as exc:
+            raise RuntimeError("ACSDB schema inspection failed") from exc
         if current > ACSDB_SCHEMA_VERSION:
             raise RuntimeError(
                 f"ACSDB schema {current} is newer than supported schema {ACSDB_SCHEMA_VERSION}"
             )
+        if current == 0:
+            if self._schema0_has_user_objects():
+                raise RuntimeError(
+                    "ACSDB schema 0 is non-empty; explicit legacy import is required"
+                )
+        elif current < ACSDB_SCHEMA_VERSION:
+            # Versions 4/5 may have corrupt derivative search structures. Their
+            # canonical games/positions/provenance are still independently
+            # verifiable, and v6 intentionally reconstructs the derivative
+            # projection from that canonical truth. Earlier/canonical structure
+            # corruption must fail before any later migration can commit.
+            self._check_acsdb_schema_identity(
+                self.conn,
+                current,
+                validate_data=True,
+                allow_repairable_derivatives=current in (4, 5),
+            )
+
+        repairable_derivatives = current in (4, 5)
         while current < ACSDB_SCHEMA_VERSION:
             target = current + 1
             migration = getattr(self, f"_migrate_to_v{target}", None)
@@ -116,6 +158,14 @@ class AcsDatabase:
                     raise RuntimeError(
                         f"ACSDB migration to schema {target} did not open a transaction"
                     )
+                self._check_acsdb_schema_identity(
+                    self.conn,
+                    target,
+                    validate_data=True,
+                    allow_repairable_derivatives=(
+                        repairable_derivatives and target < ACSDB_SCHEMA_VERSION
+                    ),
+                )
                 self.conn.execute(f"PRAGMA user_version = {target}")
                 self.conn.commit()
             except Exception:
@@ -123,6 +173,44 @@ class AcsDatabase:
                     self.conn.rollback()
                 raise
             current = target
+
+    def _ensure_current_schema_ready(self) -> None:
+        """Boundedly validate current schema and repair derivative structure only.
+
+        Ordinary open must reject missing canonical tables/indexes immediately,
+        but it should not discard valid canonical games merely because a
+        disposable v4+ search projection was structurally damaged. If the
+        canonical schema is intact, reconstruct the v6 derivative structures in
+        one transaction and then revalidate their exact shape. Row-level
+        projection tampering remains guarded by the v6 dirty markers and the
+        explicit full integrity check.
+        """
+        version = self.schema_version
+        if version != ACSDB_SCHEMA_VERSION:
+            return
+        try:
+            self._check_acsdb_schema_identity(
+                self.conn,
+                version,
+                validate_data=False,
+            )
+            return
+        except (RuntimeError, sqlite3.DatabaseError) as original:
+            try:
+                self._check_acsdb_schema_identity(
+                    self.conn,
+                    version,
+                    validate_data=False,
+                    allow_repairable_derivatives=True,
+                )
+            except (RuntimeError, sqlite3.DatabaseError):
+                raise RuntimeError("ACSDB schema identity check failed") from original
+        self._repair_v6_derivative_schema()
+        self._check_acsdb_schema_identity(
+            self.conn,
+            version,
+            validate_data=False,
+        )
 
     def _migration_script(self, script: str) -> None:
         """Execute one schema migration inside an explicit SQLite transaction.
@@ -297,41 +385,37 @@ class AcsDatabase:
             """
         )
 
-    def _migrate_to_v6(self) -> None:
-        """Make derivative search corruption observable before ordinary search.
+    @staticmethod
+    def _v6_derivative_schema_sql() -> str:
+        """Return the replaceable v6 search/index schema built from ``games``."""
+        return f"""
+            DROP TRIGGER IF EXISTS {_SEARCH_FOLD_DIRTY_INSERT_TRIGGER};
+            DROP TRIGGER IF EXISTS {_SEARCH_FOLD_DIRTY_UPDATE_TRIGGER};
+            DROP TRIGGER IF EXISTS {_SEARCH_FOLD_DIRTY_DELETE_TRIGGER};
+            DROP TRIGGER IF EXISTS {_SEARCH_FOLD_INSERT_TRIGGER};
+            DROP TRIGGER IF EXISTS {_SEARCH_FOLD_UPDATE_TRIGGER};
+            DROP TRIGGER IF EXISTS {_SEARCH_FOLD_DELETE_CLEANUP_TRIGGER};
+            DROP TABLE IF EXISTS {_SEARCH_FOLD_DIRTY_TABLE};
+            DROP TABLE IF EXISTS {_SEARCH_FOLD_TABLE};
+            DROP INDEX IF EXISTS {_DATE_RAW_INDEX};
+            DROP INDEX IF EXISTS {_DATE_KEY_INDEX};
 
-        Direct SQL changes to the derivative projection are tracked by database
-        triggers in a tiny dirty-id table. Canonical ``games`` writes repair and
-        clear their own id in the same transaction. Migration rebuilds the whole
-        projection from canonical metadata first, so a pre-existing missing or
-        stale v4/v5 sidecar cannot survive into v6 silently.
-        """
-        self._migration_script(
-            f"""
-            CREATE TABLE IF NOT EXISTS {_SEARCH_FOLD_DIRTY_TABLE} (
+            CREATE TABLE {_SEARCH_FOLD_TABLE} (
+                game_id INTEGER PRIMARY KEY REFERENCES games(id) ON DELETE CASCADE,
+                white_fold TEXT,
+                black_fold TEXT,
+                event_fold TEXT,
+                eco_fold TEXT,
+                opening_fold TEXT
+            );
+            CREATE INDEX {_DATE_RAW_INDEX}
+            ON games(game_date);
+            CREATE INDEX {_DATE_KEY_INDEX}
+            ON games({SEARCH_DATE_KEY_SQL_FUNCTION}(game_date));
+            CREATE TABLE {_SEARCH_FOLD_DIRTY_TABLE} (
                 game_id INTEGER PRIMARY KEY
             );
 
-            CREATE TRIGGER IF NOT EXISTS {_SEARCH_FOLD_DIRTY_INSERT_TRIGGER}
-            AFTER INSERT ON {_SEARCH_FOLD_TABLE}
-            BEGIN
-                INSERT OR IGNORE INTO {_SEARCH_FOLD_DIRTY_TABLE}(game_id) VALUES(NEW.game_id);
-            END;
-
-            CREATE TRIGGER IF NOT EXISTS {_SEARCH_FOLD_DIRTY_UPDATE_TRIGGER}
-            AFTER UPDATE ON {_SEARCH_FOLD_TABLE}
-            BEGIN
-                INSERT OR IGNORE INTO {_SEARCH_FOLD_DIRTY_TABLE}(game_id) VALUES(OLD.game_id);
-                INSERT OR IGNORE INTO {_SEARCH_FOLD_DIRTY_TABLE}(game_id) VALUES(NEW.game_id);
-            END;
-
-            CREATE TRIGGER IF NOT EXISTS {_SEARCH_FOLD_DIRTY_DELETE_TRIGGER}
-            AFTER DELETE ON {_SEARCH_FOLD_TABLE}
-            BEGIN
-                INSERT OR IGNORE INTO {_SEARCH_FOLD_DIRTY_TABLE}(game_id) VALUES(OLD.game_id);
-            END;
-
-            DELETE FROM {_SEARCH_FOLD_TABLE};
             INSERT INTO {_SEARCH_FOLD_TABLE}(
                 game_id, white_fold, black_fold, event_fold, eco_fold, opening_fold
             )
@@ -342,11 +426,25 @@ class AcsDatabase:
                    {SEARCH_FOLD_SQL_FUNCTION}(eco),
                    {SEARCH_FOLD_SQL_FUNCTION}(opening)
               FROM games;
-            DELETE FROM {_SEARCH_FOLD_DIRTY_TABLE};
 
-            DROP TRIGGER IF EXISTS {_SEARCH_FOLD_INSERT_TRIGGER};
-            DROP TRIGGER IF EXISTS {_SEARCH_FOLD_UPDATE_TRIGGER};
-            DROP TRIGGER IF EXISTS {_SEARCH_FOLD_DELETE_CLEANUP_TRIGGER};
+            CREATE TRIGGER {_SEARCH_FOLD_DIRTY_INSERT_TRIGGER}
+            AFTER INSERT ON {_SEARCH_FOLD_TABLE}
+            BEGIN
+                INSERT OR IGNORE INTO {_SEARCH_FOLD_DIRTY_TABLE}(game_id) VALUES(NEW.game_id);
+            END;
+
+            CREATE TRIGGER {_SEARCH_FOLD_DIRTY_UPDATE_TRIGGER}
+            AFTER UPDATE ON {_SEARCH_FOLD_TABLE}
+            BEGIN
+                INSERT OR IGNORE INTO {_SEARCH_FOLD_DIRTY_TABLE}(game_id) VALUES(OLD.game_id);
+                INSERT OR IGNORE INTO {_SEARCH_FOLD_DIRTY_TABLE}(game_id) VALUES(NEW.game_id);
+            END;
+
+            CREATE TRIGGER {_SEARCH_FOLD_DIRTY_DELETE_TRIGGER}
+            AFTER DELETE ON {_SEARCH_FOLD_TABLE}
+            BEGIN
+                INSERT OR IGNORE INTO {_SEARCH_FOLD_DIRTY_TABLE}(game_id) VALUES(OLD.game_id);
+            END;
 
             CREATE TRIGGER {_SEARCH_FOLD_INSERT_TRIGGER}
             AFTER INSERT ON games
@@ -385,8 +483,34 @@ class AcsDatabase:
             BEGIN
                 DELETE FROM {_SEARCH_FOLD_DIRTY_TABLE} WHERE game_id=OLD.id;
             END;
-            """
-        )
+        """
+
+    def _migrate_to_v6(self) -> None:
+        """Rebuild all derivative search structures from canonical game truth.
+
+        v4/v5 sidecars and date indexes are disposable projections. A missing,
+        stale or malformed derivative object must never force loss of valid
+        canonical games, ids or provenance. Replacing the derivative schema and
+        backfill in the migration transaction makes v6 deterministic even after
+        derivative-only corruption while canonical-source corruption has already
+        failed the migration preflight.
+        """
+        self._migration_script(self._v6_derivative_schema_sql())
+
+    def _repair_v6_derivative_schema(self) -> None:
+        """Transactionally recover current-v6 derivative structure from games."""
+        try:
+            self._migration_script(self._v6_derivative_schema_sql())
+            self._check_acsdb_schema_identity(
+                self.conn,
+                ACSDB_SCHEMA_VERSION,
+                validate_data=True,
+            )
+            self.conn.commit()
+        except Exception:
+            if self.conn.in_transaction:
+                self.conn.rollback()
+            raise
 
     @staticmethod
     def _now() -> str:
@@ -466,8 +590,15 @@ class AcsDatabase:
         return {str(row[1]) for row in conn.execute(f'PRAGMA table_info("{table}")').fetchall()}
 
     @classmethod
-    def _check_acsdb_schema_identity(cls, conn: sqlite3.Connection, version: int) -> None:
-        """Reject healthy SQLite files that are not a supported ACSDB schema."""
+    def _check_acsdb_schema_identity(
+        cls,
+        conn: sqlite3.Connection,
+        version: int,
+        *,
+        validate_data: bool = True,
+        allow_repairable_derivatives: bool = False,
+    ) -> None:
+        """Reject unsupported schema while keeping derivative truth replaceable."""
         if version < 1:
             raise RuntimeError("backup is not a supported ACSDB database")
 
@@ -486,19 +617,24 @@ class AcsDatabase:
                 "finished_at", "status", "source_id", "game_count", "warning_count",
                 "error_message",
             }
-        if version >= 4:
+        if version >= 4 and not allow_repairable_derivatives:
             required_tables[_SEARCH_FOLD_TABLE] = {
                 "game_id", "white_fold", "black_fold", "event_fold", "eco_fold", "opening_fold",
             }
-        if version >= 6:
+        if version >= 6 and not allow_repairable_derivatives:
             required_tables[_SEARCH_FOLD_DIRTY_TABLE] = {"game_id"}
 
         for table, required_columns in required_tables.items():
             if not required_columns.issubset(cls._schema_columns(conn, table)):
                 raise RuntimeError("ACSDB schema identity check failed")
 
-        if conn.execute("PRAGMA foreign_key_check").fetchone() is not None:
-            raise RuntimeError("ACSDB foreign-key integrity check failed")
+        if validate_data:
+            if allow_repairable_derivatives:
+                for table in ("games", "positions"):
+                    if conn.execute(f'PRAGMA foreign_key_check("{table}")').fetchone() is not None:
+                        raise RuntimeError("ACSDB foreign-key integrity check failed")
+            elif conn.execute("PRAGMA foreign_key_check").fetchone() is not None:
+                raise RuntimeError("ACSDB foreign-key integrity check failed")
 
         if version >= 3:
             index_columns = [
@@ -510,7 +646,7 @@ class AcsDatabase:
             if index_columns != ["position_key", "game_id", "ply"]:
                 raise RuntimeError("ACSDB schema identity check failed")
 
-        if version >= 4:
+        if version >= 4 and not allow_repairable_derivatives:
             foreign_keys = conn.execute(
                 f'PRAGMA foreign_key_list("{_SEARCH_FOLD_TABLE}")'
             ).fetchall()
@@ -535,25 +671,26 @@ class AcsDatabase:
                 if _SEARCH_FOLD_TABLE not in sql or SEARCH_FOLD_SQL_FUNCTION not in sql:
                     raise RuntimeError("ACSDB schema identity check failed")
 
-            missing = conn.execute(
-                f"""SELECT 1 FROM games AS g
-                    LEFT JOIN {_SEARCH_FOLD_TABLE} AS sf ON sf.game_id=g.id
-                    WHERE sf.game_id IS NULL LIMIT 1"""
-            ).fetchone()
-            stale = conn.execute(
-                f"""SELECT 1 FROM games AS g
-                    JOIN {_SEARCH_FOLD_TABLE} AS sf ON sf.game_id=g.id
-                    WHERE NOT (sf.white_fold IS {SEARCH_FOLD_SQL_FUNCTION}(g.white))
-                       OR NOT (sf.black_fold IS {SEARCH_FOLD_SQL_FUNCTION}(g.black))
-                       OR NOT (sf.event_fold IS {SEARCH_FOLD_SQL_FUNCTION}(g.event))
-                       OR NOT (sf.eco_fold IS {SEARCH_FOLD_SQL_FUNCTION}(g.eco))
-                       OR NOT (sf.opening_fold IS {SEARCH_FOLD_SQL_FUNCTION}(g.opening))
-                    LIMIT 1"""
-            ).fetchone()
-            if missing is not None or stale is not None:
-                raise RuntimeError("ACSDB search projection integrity check failed")
+            if validate_data:
+                missing = conn.execute(
+                    f"""SELECT 1 FROM games AS g
+                        LEFT JOIN {_SEARCH_FOLD_TABLE} AS sf ON sf.game_id=g.id
+                        WHERE sf.game_id IS NULL LIMIT 1"""
+                ).fetchone()
+                stale = conn.execute(
+                    f"""SELECT 1 FROM games AS g
+                        JOIN {_SEARCH_FOLD_TABLE} AS sf ON sf.game_id=g.id
+                        WHERE NOT (sf.white_fold IS {SEARCH_FOLD_SQL_FUNCTION}(g.white))
+                           OR NOT (sf.black_fold IS {SEARCH_FOLD_SQL_FUNCTION}(g.black))
+                           OR NOT (sf.event_fold IS {SEARCH_FOLD_SQL_FUNCTION}(g.event))
+                           OR NOT (sf.eco_fold IS {SEARCH_FOLD_SQL_FUNCTION}(g.eco))
+                           OR NOT (sf.opening_fold IS {SEARCH_FOLD_SQL_FUNCTION}(g.opening))
+                        LIMIT 1"""
+                ).fetchone()
+                if missing is not None or stale is not None:
+                    raise RuntimeError("ACSDB search projection integrity check failed")
 
-        if version >= 5:
+        if version >= 5 and not allow_repairable_derivatives:
             raw_index_columns = [
                 str(row[2])
                 for row in conn.execute(
@@ -573,7 +710,7 @@ class AcsDatabase:
             ):
                 raise RuntimeError("ACSDB schema identity check failed")
 
-        if version >= 6:
+        if version >= 6 and not allow_repairable_derivatives:
             expected_triggers = (
                 _SEARCH_FOLD_INSERT_TRIGGER,
                 _SEARCH_FOLD_UPDATE_TRIGGER,
@@ -604,7 +741,7 @@ class AcsDatabase:
                     raise RuntimeError("ACSDB schema identity check failed")
             if _SEARCH_FOLD_DIRTY_TABLE not in trigger_sql[_SEARCH_FOLD_DELETE_CLEANUP_TRIGGER]:
                 raise RuntimeError("ACSDB schema identity check failed")
-            if conn.execute(
+            if validate_data and conn.execute(
                 f"SELECT 1 FROM {_SEARCH_FOLD_DIRTY_TABLE} LIMIT 1"
             ).fetchone() is not None:
                 raise RuntimeError("ACSDB search projection integrity check failed")
@@ -895,24 +1032,15 @@ class AcsDatabase:
             raise RuntimeError("ACSDB search projection integrity check failed")
 
     def rebuild_search_projection(self) -> None:
-        """Atomically rebuild derivative search data from canonical game metadata."""
+        """Atomically rebuild all derivative search/index state from games."""
         install_search_fold(self.conn)
-        with self.conn:
-            self.conn.execute(f"DELETE FROM {_SEARCH_FOLD_TABLE}")
-            self.conn.execute(
-                f"""INSERT INTO {_SEARCH_FOLD_TABLE}(
-                    game_id, white_fold, black_fold, event_fold, eco_fold, opening_fold
-                )
-                SELECT id,
-                       {SEARCH_FOLD_SQL_FUNCTION}(white),
-                       {SEARCH_FOLD_SQL_FUNCTION}(black),
-                       {SEARCH_FOLD_SQL_FUNCTION}(event),
-                       {SEARCH_FOLD_SQL_FUNCTION}(eco),
-                       {SEARCH_FOLD_SQL_FUNCTION}(opening)
-                  FROM games"""
-            )
-            self.conn.execute(f"DELETE FROM {_SEARCH_FOLD_DIRTY_TABLE}")
-            self._check_acsdb_schema_identity(self.conn, self.schema_version)
+        self._check_acsdb_schema_identity(
+            self.conn,
+            self.schema_version,
+            validate_data=False,
+            allow_repairable_derivatives=True,
+        )
+        self._repair_v6_derivative_schema()
 
     def search_games(self, *, player: str | None = None, event: str | None = None,
                      eco: str | None = None, opening: str | None = None,
