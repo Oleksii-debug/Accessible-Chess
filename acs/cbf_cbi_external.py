@@ -3,13 +3,14 @@ from __future__ import annotations
 """Bounded external CBF/CBI reader seam; not a support-promotion switch.
 
 The legacy ChessBase decoder remains an optional out-of-process dependency.
-Accessible Chess never interprets CBF binary records here.  A complete immutable
+Accessible Chess never interprets CBF binary records here. A complete immutable
 ``.cbf + .cbi`` family is converted by the pinned Scidb ``cbh2si4`` tool into a
-private SI4 database, exported read-only by pinned Scid ``scidpgn``, and only
-then admitted through the canonical PGN/GameTree path.
+private SI4 database, exported read-only by a pinned Scid ``tcscid`` runtime
+executing the pinned ``scidpgn.tcl`` script, and only then admitted through the
+canonical PGN/GameTree path.
 
 This module is deliberately not registered as a user-facing importer while the
-real-corpus/license/oracle acceptance gate is incomplete.  Its purpose is to
+real-corpus/license/oracle acceptance gate is incomplete. Its purpose is to
 remove the Product-side bounded-execution blocker without inventing support.
 """
 
@@ -77,15 +78,18 @@ class CbfCbiExternalError(RuntimeError):
 
 @dataclass(frozen=True, slots=True)
 class ExternalCbfCbiReaderConfig:
-    """Trust profile for separately installed GPL conversion executables.
+    """Trust profile for separately installed GPL conversion components.
 
-    SHA-256 pins are mandatory.  The executables are never discovered through
-    PATH and are never bundled by this module.
+    SHA-256 pins are mandatory for the converter executable, the Scid Tcl
+    interpreter executable, and the exact PGN-export script. No component is
+    discovered through PATH and none is bundled by this module.
     """
 
     cbh2si4_executable: Path
     cbh2si4_sha256: str
-    scidpgn_executable: Path
+    tcscid_executable: Path
+    tcscid_sha256: str
+    scidpgn_script: Path
     scidpgn_sha256: str
     timeout_seconds: float = 120.0
     max_stdout_bytes: int = MAX_PROCESS_STDOUT
@@ -94,24 +98,39 @@ class ExternalCbfCbiReaderConfig:
     max_games: int = MAX_CANONICAL_GAMES
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "cbh2si4_executable", Path(self.cbh2si4_executable))
-        object.__setattr__(self, "scidpgn_executable", Path(self.scidpgn_executable))
+        for field_name in (
+            "cbh2si4_executable",
+            "tcscid_executable",
+            "scidpgn_script",
+        ):
+            object.__setattr__(self, field_name, Path(getattr(self, field_name)))
         for value, label in (
             (self.cbh2si4_sha256, "cbh2si4_sha256"),
+            (self.tcscid_sha256, "tcscid_sha256"),
             (self.scidpgn_sha256, "scidpgn_sha256"),
         ):
             if type(value) is not str or _SHA256_RE.fullmatch(value) is None:
                 raise ValueError(f"{label} must be a lowercase SHA-256 digest")
-        if type(self.timeout_seconds) not in (int, float) or not 0 < float(self.timeout_seconds) <= 600:
+        if (
+            type(self.timeout_seconds) not in (int, float)
+            or not 0 < float(self.timeout_seconds) <= 600
+        ):
             raise ValueError("timeout_seconds must be within (0, 600]")
         for value, label, maximum in (
             (self.max_stdout_bytes, "max_stdout_bytes", 256 * 1024 * 1024),
             (self.max_stderr_bytes, "max_stderr_bytes", 64 * 1024 * 1024),
-            (self.max_private_si4_bytes, "max_private_si4_bytes", 8 * 1024 * 1024 * 1024),
+            (
+                self.max_private_si4_bytes,
+                "max_private_si4_bytes",
+                8 * 1024 * 1024 * 1024,
+            ),
         ):
             if type(value) is not int or value < 1024 or value > maximum:
                 raise ValueError(f"{label} is outside the supported bound")
-        if type(self.max_games) is not int or not 1 <= self.max_games <= MAX_CANONICAL_GAMES:
+        if (
+            type(self.max_games) is not int
+            or not 1 <= self.max_games <= MAX_CANONICAL_GAMES
+        ):
             raise ValueError("max_games is outside the supported bound")
 
 
@@ -120,6 +139,7 @@ class CbfCbiReadResult:
     source: ChessBaseIntegritySnapshot
     source_family_sha256: str
     cbh2si4_sha256: str
+    tcscid_sha256: str
     scidpgn_sha256: str
     games: tuple[PgnGame, ...]
     canonical_roundtrip_verified: bool
@@ -142,6 +162,7 @@ class CbfCbiLibraryImportReport:
     decoded_game_count: int
     library_result: LibraryImportResult | None
     cbh2si4_sha256: str
+    tcscid_sha256: str
     scidpgn_sha256: str
 
     @property
@@ -168,10 +189,17 @@ def _sha256_regular_file(path: Path, expected: str) -> tuple[Path, str]:
     try:
         before = path.lstat()
     except OSError as exc:
-        raise _error("CBF/CBI external backend is unavailable", CbfCbiExternalCode.BACKEND_INVALID) from exc
-    if stat.S_ISLNK(before.st_mode) or _is_reparse_point(before) or not stat.S_ISREG(before.st_mode):
         raise _error(
-            "CBF/CBI external backend must be a regular non-indirected file",
+            "CBF/CBI external backend component is unavailable",
+            CbfCbiExternalCode.BACKEND_INVALID,
+        ) from exc
+    if (
+        stat.S_ISLNK(before.st_mode)
+        or _is_reparse_point(before)
+        or not stat.S_ISREG(before.st_mode)
+    ):
+        raise _error(
+            "CBF/CBI external backend component must be a regular non-indirected file",
             CbfCbiExternalCode.BACKEND_INVALID,
         )
     digest = sha256()
@@ -181,7 +209,10 @@ def _sha256_regular_file(path: Path, expected: str) -> tuple[Path, str]:
                 digest.update(chunk)
         after = path.lstat()
     except OSError as exc:
-        raise _error("CBF/CBI external backend could not be verified", CbfCbiExternalCode.BACKEND_INVALID) from exc
+        raise _error(
+            "CBF/CBI external backend component could not be verified",
+            CbfCbiExternalCode.BACKEND_INVALID,
+        ) from exc
     if (
         before.st_dev != after.st_dev
         or before.st_ino != after.st_ino
@@ -190,22 +221,28 @@ def _sha256_regular_file(path: Path, expected: str) -> tuple[Path, str]:
         or stat.S_ISLNK(after.st_mode)
         or _is_reparse_point(after)
     ):
-        raise _error("CBF/CBI external backend changed during verification", CbfCbiExternalCode.BACKEND_INVALID)
+        raise _error(
+            "CBF/CBI external backend component changed during verification",
+            CbfCbiExternalCode.BACKEND_INVALID,
+        )
     actual = digest.hexdigest()
     if actual != expected:
-        raise _error("CBF/CBI external backend identity does not match the configured pin", CbfCbiExternalCode.BACKEND_INVALID)
+        raise _error(
+            "CBF/CBI external backend component identity does not match the configured pin",
+            CbfCbiExternalCode.BACKEND_INVALID,
+        )
     return Path(os.path.abspath(os.fspath(path))), actual
 
 
-def _sterile_environment(*executables: Path) -> dict[str, str]:
+def _sterile_environment(*components: Path) -> dict[str, str]:
     env: dict[str, str] = {}
     for key in ("SystemRoot", "WINDIR", "COMSPEC", "TEMP", "TMP"):
         value = os.environ.get(key)
         if value:
             env[key] = value
     search: list[str] = []
-    for executable in executables:
-        parent = os.fspath(executable.parent)
+    for component in components:
+        parent = os.fspath(component.parent)
         if parent not in search:
             search.append(parent)
     env["PATH"] = os.pathsep.join(search)
@@ -271,14 +308,25 @@ def _run_process(
             start_new_session=(os.name != "nt"),
         )
     except OSError as exc:
-        raise _error("CBF/CBI external backend could not be started", CbfCbiExternalCode.BACKEND_INVALID) from exc
+        raise _error(
+            "CBF/CBI external backend could not be started",
+            CbfCbiExternalCode.BACKEND_INVALID,
+        ) from exc
 
     assert process.stdout is not None and process.stderr is not None
     stdout = _CapturedStream(bytearray(), threading.Event())
     stderr = _CapturedStream(bytearray(), threading.Event())
     readers = (
-        threading.Thread(target=_read_capped, args=(process.stdout, max_stdout_bytes, stdout), daemon=True),
-        threading.Thread(target=_read_capped, args=(process.stderr, max_stderr_bytes, stderr), daemon=True),
+        threading.Thread(
+            target=_read_capped,
+            args=(process.stdout, max_stdout_bytes, stdout),
+            daemon=True,
+        ),
+        threading.Thread(
+            target=_read_capped,
+            args=(process.stderr, max_stderr_bytes, stderr),
+            daemon=True,
+        ),
     )
     for reader in readers:
         reader.start()
@@ -306,17 +354,29 @@ def _run_process(
         reader.join(timeout=2.0)
 
     if timed_out:
-        raise _error("CBF/CBI external backend exceeded its time limit", CbfCbiExternalCode.BACKEND_TIMEOUT)
+        raise _error(
+            "CBF/CBI external backend exceeded its time limit",
+            CbfCbiExternalCode.BACKEND_TIMEOUT,
+        )
     if overflow or stdout.overflow.is_set() or stderr.overflow.is_set():
-        raise _error("CBF/CBI external backend exceeded its output limit", CbfCbiExternalCode.BACKEND_OUTPUT_LIMIT)
+        raise _error(
+            "CBF/CBI external backend exceeded its output limit",
+            CbfCbiExternalCode.BACKEND_OUTPUT_LIMIT,
+        )
     if process.returncode != 0:
-        raise _error("CBF/CBI external backend failed", CbfCbiExternalCode.BACKEND_FAILED)
+        raise _error(
+            "CBF/CBI external backend failed",
+            CbfCbiExternalCode.BACKEND_FAILED,
+        )
     return bytes(stdout.data)
 
 
 def _family_sha256(snapshot: ChessBaseIntegritySnapshot) -> str:
     digest = sha256(b"Accessible-Chess-CBF-family-v1\0")
-    for item in sorted(snapshot.files, key=lambda value: (value.extension, value.role, value.sha256)):
+    for item in sorted(
+        snapshot.files,
+        key=lambda value: (value.extension, value.role, value.sha256),
+    ):
         digest.update(item.extension.encode("utf-8"))
         digest.update(b"\0")
         digest.update(item.role.encode("utf-8"))
@@ -333,21 +393,40 @@ def _validate_si4_family(directory: Path, base: str, max_bytes: int) -> None:
     try:
         entries = tuple(directory.iterdir())
     except OSError as exc:
-        raise _error("Private SI4 output could not be inspected", CbfCbiExternalCode.TEMP_OUTPUT_INVALID) from exc
+        raise _error(
+            "Private SI4 output could not be inspected",
+            CbfCbiExternalCode.TEMP_OUTPUT_INVALID,
+        ) from exc
     names = {entry.name for entry in entries}
     if names != expected:
-        raise _error("External CBF conversion produced an unexpected private output topology", CbfCbiExternalCode.TEMP_OUTPUT_INVALID)
+        raise _error(
+            "External CBF conversion produced an unexpected private output topology",
+            CbfCbiExternalCode.TEMP_OUTPUT_INVALID,
+        )
     total = 0
     for entry in entries:
         try:
             st = entry.lstat()
         except OSError as exc:
-            raise _error("Private SI4 output could not be inspected", CbfCbiExternalCode.TEMP_OUTPUT_INVALID) from exc
-        if stat.S_ISLNK(st.st_mode) or _is_reparse_point(st) or not stat.S_ISREG(st.st_mode):
-            raise _error("Private SI4 output must contain regular non-indirected files only", CbfCbiExternalCode.TEMP_OUTPUT_INVALID)
+            raise _error(
+                "Private SI4 output could not be inspected",
+                CbfCbiExternalCode.TEMP_OUTPUT_INVALID,
+            ) from exc
+        if (
+            stat.S_ISLNK(st.st_mode)
+            or _is_reparse_point(st)
+            or not stat.S_ISREG(st.st_mode)
+        ):
+            raise _error(
+                "Private SI4 output must contain regular non-indirected files only",
+                CbfCbiExternalCode.TEMP_OUTPUT_INVALID,
+            )
         total += st.st_size
         if total > max_bytes:
-            raise _error("Private SI4 output exceeds the configured resource limit", CbfCbiExternalCode.RESOURCE_LIMIT)
+            raise _error(
+                "Private SI4 output exceeds the configured resource limit",
+                CbfCbiExternalCode.RESOURCE_LIMIT,
+            )
 
 
 def _canonical_games_from_pgn(payload: bytes, max_games: int) -> tuple[PgnGame, ...]:
@@ -355,17 +434,31 @@ def _canonical_games_from_pgn(payload: bytes, max_games: int) -> tuple[PgnGame, 
         text = payload.decode("utf-8", errors="strict")
         games = tuple(parse_games(text))
     except Exception as exc:
-        raise _error("External CBF conversion did not produce valid canonical PGN", CbfCbiExternalCode.PGN_INVALID) from exc
+        raise _error(
+            "External CBF conversion did not produce valid canonical PGN",
+            CbfCbiExternalCode.PGN_INVALID,
+        ) from exc
     if len(games) > max_games:
-        raise _error("External CBF conversion exceeds the configured game limit", CbfCbiExternalCode.RESOURCE_LIMIT)
+        raise _error(
+            "External CBF conversion exceeds the configured game limit",
+            CbfCbiExternalCode.RESOURCE_LIMIT,
+        )
     try:
         identities = tuple(identity_for_game(game).record_digest for game in games)
         reopened = tuple(parse_games(serialize_games(games)))
-        reopened_identities = tuple(identity_for_game(game).record_digest for game in reopened)
+        reopened_identities = tuple(
+            identity_for_game(game).record_digest for game in reopened
+        )
     except Exception as exc:
-        raise _error("Canonical CBF PGN export/reopen validation failed", CbfCbiExternalCode.PGN_INVALID) from exc
+        raise _error(
+            "Canonical CBF PGN export/reopen validation failed",
+            CbfCbiExternalCode.PGN_INVALID,
+        ) from exc
     if identities != reopened_identities:
-        raise _error("Canonical CBF PGN export/reopen changed semantic game identity", CbfCbiExternalCode.ROUNDTRIP_MISMATCH)
+        raise _error(
+            "Canonical CBF PGN export/reopen changed semantic game identity",
+            CbfCbiExternalCode.ROUNDTRIP_MISMATCH,
+        )
     return games
 
 
@@ -376,58 +469,81 @@ def read_cbf_cbi_external(
     """Read one complete legacy CBF/CBI family through pinned external tools.
 
     The source is fingerprinted before backend execution and re-fingerprinted
-    after PGN export.  Any mutation discards all output.  Temporary SI4 files
-    live only in a private temporary directory and are removed on every exit.
+    after PGN export. Any mutation discards all output. Temporary SI4 files live
+    only in a private temporary directory and are removed on every exit.
     """
 
     if not isinstance(config, ExternalCbfCbiReaderConfig):
         raise TypeError("config must be an ExternalCbfCbiReaderConfig")
     source = Path(path)
     if source.suffix.lower() != ".cbf":
-        raise _error("CBF/CBI external reader requires the .cbf primary source", CbfCbiExternalCode.UNSUPPORTED_SOURCE)
+        raise _error(
+            "CBF/CBI external reader requires the .cbf primary source",
+            CbfCbiExternalCode.UNSUPPORTED_SOURCE,
+        )
 
     try:
         snapshot = capture_integrity_snapshot(source)
     except Exception as exc:
-        raise _error("CBF/CBI source family is incomplete or unavailable", CbfCbiExternalCode.UNSUPPORTED_SOURCE) from exc
+        raise _error(
+            "CBF/CBI source family is incomplete or unavailable",
+            CbfCbiExternalCode.UNSUPPORTED_SOURCE,
+        ) from exc
 
-    cbh2si4, cbh2si4_hash = _sha256_regular_file(config.cbh2si4_executable, config.cbh2si4_sha256)
-    scidpgn, scidpgn_hash = _sha256_regular_file(config.scidpgn_executable, config.scidpgn_sha256)
-    env = _sterile_environment(cbh2si4, scidpgn)
+    cbh2si4, cbh2si4_hash = _sha256_regular_file(
+        config.cbh2si4_executable,
+        config.cbh2si4_sha256,
+    )
+    tcscid, tcscid_hash = _sha256_regular_file(
+        config.tcscid_executable,
+        config.tcscid_sha256,
+    )
+    scidpgn, scidpgn_hash = _sha256_regular_file(
+        config.scidpgn_script,
+        config.scidpgn_sha256,
+    )
+    env = _sterile_environment(cbh2si4, tcscid, scidpgn)
 
-    try:
-        with tempfile.TemporaryDirectory(prefix="accessible-chess-cbf-") as raw_temp:
-            private = Path(raw_temp)
-            destination = private / "decoded.si4"
-            _run_process(
-                [os.fspath(cbh2si4), "--all-tags", "--unusual-tags", os.fspath(snapshot.primary_path), os.fspath(destination)],
-                cwd=private,
-                env=env,
-                timeout_seconds=config.timeout_seconds,
-                max_stdout_bytes=min(config.max_stdout_bytes, 4 * 1024 * 1024),
-                max_stderr_bytes=config.max_stderr_bytes,
-            )
-            _validate_si4_family(private, "decoded", config.max_private_si4_bytes)
-            pgn = _run_process(
-                [os.fspath(scidpgn), os.fspath(destination)],
-                cwd=private,
-                env=env,
-                timeout_seconds=config.timeout_seconds,
-                max_stdout_bytes=config.max_stdout_bytes,
-                max_stderr_bytes=config.max_stderr_bytes,
-            )
-            games = _canonical_games_from_pgn(pgn, config.max_games)
-            try:
-                verify_integrity_snapshot(snapshot)
-            except Exception as exc:
-                raise _error("CBF/CBI source family changed during external decoding", CbfCbiExternalCode.SOURCE_CHANGED) from exc
-    except CbfCbiExternalError:
-        raise
+    with tempfile.TemporaryDirectory(prefix="accessible-chess-cbf-") as raw_temp:
+        private = Path(raw_temp)
+        destination = private / "decoded.si4"
+        _run_process(
+            [
+                os.fspath(cbh2si4),
+                "--all-tags",
+                "--unusual-tags",
+                os.fspath(snapshot.primary_path),
+                os.fspath(destination),
+            ],
+            cwd=private,
+            env=env,
+            timeout_seconds=config.timeout_seconds,
+            max_stdout_bytes=min(config.max_stdout_bytes, 4 * 1024 * 1024),
+            max_stderr_bytes=config.max_stderr_bytes,
+        )
+        _validate_si4_family(private, "decoded", config.max_private_si4_bytes)
+        pgn = _run_process(
+            [os.fspath(tcscid), os.fspath(scidpgn), os.fspath(destination)],
+            cwd=private,
+            env=env,
+            timeout_seconds=config.timeout_seconds,
+            max_stdout_bytes=config.max_stdout_bytes,
+            max_stderr_bytes=config.max_stderr_bytes,
+        )
+        games = _canonical_games_from_pgn(pgn, config.max_games)
+        try:
+            verify_integrity_snapshot(snapshot)
+        except Exception as exc:
+            raise _error(
+                "CBF/CBI source family changed during external decoding",
+                CbfCbiExternalCode.SOURCE_CHANGED,
+            ) from exc
 
     return CbfCbiReadResult(
         source=snapshot,
         source_family_sha256=_family_sha256(snapshot),
         cbh2si4_sha256=cbh2si4_hash,
+        tcscid_sha256=tcscid_hash,
         scidpgn_sha256=scidpgn_hash,
         games=games,
         canonical_roundtrip_verified=True,
@@ -448,7 +564,9 @@ def _poll_cancel(cancel_check: CancelCheck | None) -> None:
     except LibraryImportCancelledError:
         raise
     except Exception as exc:
-        raise LibraryImportControlError("CBF/CBI import cancellation check failed") from exc
+        raise LibraryImportControlError(
+            "CBF/CBI import cancellation check failed"
+        ) from exc
     if type(cancelled) is not bool:
         raise LibraryImportControlError("cancel_check must return a boolean")
     if cancelled:
@@ -484,6 +602,7 @@ class CbfCbiLibraryImportService:
                 decoded_game_count=0,
                 library_result=None,
                 cbh2si4_sha256=decoded.cbh2si4_sha256,
+                tcscid_sha256=decoded.tcscid_sha256,
                 scidpgn_sha256=decoded.scidpgn_sha256,
             )
         imported = self._library.import_games(
@@ -502,5 +621,6 @@ class CbfCbiLibraryImportService:
             decoded_game_count=len(decoded.games),
             library_result=imported,
             cbh2si4_sha256=decoded.cbh2si4_sha256,
+            tcscid_sha256=decoded.tcscid_sha256,
             scidpgn_sha256=decoded.scidpgn_sha256,
         )

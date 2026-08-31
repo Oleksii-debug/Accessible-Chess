@@ -14,7 +14,6 @@ on:
       - docs/automation/V2_CBF_CBI_REAL_CORPUS_UNBLOCK.json
       - docs/automation/V2_CBF_CBI_REAL_CORPUS_UNBLOCK.md
       - .github/workflows/v2-cbf-cbi-bounded-external-reader.yml
-      - .github/workflows/v2-cbf-cbi-real-corpus-unblock.yml
 
 permissions:
   contents: read
@@ -123,10 +122,10 @@ jobs:
         run: |
           set -euo pipefail
           ./configure LANGUAGES="" TB="" > "$GITHUB_WORKSPACE/scid-configure.log" 2>&1
-          make -j2 pgnscid tcscid scidpgn > "$GITHUB_WORKSPACE/scid-build.log" 2>&1
+          make -j2 pgnscid tcscid > "$GITHUB_WORKSPACE/scid-build.log" 2>&1
           test -x pgnscid
           test -x tcscid
-          test -x scidpgn
+          test "$(git hash-object scripts/scidpgn.tcl)" = "84273490e8ee6b47bc78ca26a274ab559845e7b5"
           cat > "$GITHUB_WORKSPACE/neutral.pgn" <<'PGN'
           [Event "Neutral exporter qualification"]
           [Site "CI"]
@@ -139,11 +138,12 @@ jobs:
           1. e4 {keep comment} e5 (1... c5 {keep variation}) 2. Nf3 Nc6 1-0
           PGN
           ./pgnscid -f "$GITHUB_WORKSPACE/neutral.pgn" > "$GITHUB_WORKSPACE/pgnscid.log" 2>&1
-          PATH="$PWD:$PATH" ./scidpgn "$GITHUB_WORKSPACE/neutral.si4" > "$GITHUB_WORKSPACE/exported.pgn"
+          ./tcscid scripts/scidpgn.tcl "$GITHUB_WORKSPACE/neutral.si4" > "$GITHUB_WORKSPACE/exported.pgn"
           grep -F 'keep comment' "$GITHUB_WORKSPACE/exported.pgn"
           grep -F 'keep variation' "$GITHUB_WORKSPACE/exported.pgn"
           grep -F 'Nf3' "$GITHUB_WORKSPACE/exported.pgn"
-          sha256sum tcscid scidpgn | tee "$GITHUB_WORKSPACE/scid-runtime.sha256"
+          sha256sum tcscid | tee "$GITHUB_WORKSPACE/tcscid.sha256"
+          printf '%s  %s\n' "84273490e8ee6b47bc78ca26a274ab559845e7b5" "scripts/scidpgn.tcl" | tee "$GITHUB_WORKSPACE/scidpgn-source.sha1"
       - name: Upload pinned-reader build evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -159,7 +159,8 @@ jobs:
             scid-build.log
             pgnscid.log
             exported.pgn
-            scid-runtime.sha256
+            tcscid.sha256
+            scidpgn-source.sha1
           if-no-files-found: ignore
           retention-days: 7
 

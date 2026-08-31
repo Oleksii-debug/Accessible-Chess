@@ -50,13 +50,17 @@ class CbfCbiExternalReaderTests(unittest.TestCase):
 
     def _config(self, root: Path) -> ExternalCbfCbiReaderConfig:
         cbh2si4 = root / "cbh2si4.bin"
-        scidpgn = root / "scidpgn.bin"
+        tcscid = root / "tcscid.bin"
+        scidpgn = root / "scidpgn.tcl"
         cbh_hash = _write(cbh2si4, b"pinned-cbh2si4-test-double")
+        tcscid_hash = _write(tcscid, b"pinned-tcscid-test-double")
         pgn_hash = _write(scidpgn, b"pinned-scidpgn-test-double")
         return ExternalCbfCbiReaderConfig(
             cbh2si4_executable=cbh2si4,
             cbh2si4_sha256=cbh_hash,
-            scidpgn_executable=scidpgn,
+            tcscid_executable=tcscid,
+            tcscid_sha256=tcscid_hash,
+            scidpgn_script=scidpgn,
             scidpgn_sha256=pgn_hash,
             timeout_seconds=5,
             max_stdout_bytes=1024 * 1024,
@@ -66,15 +70,23 @@ class CbfCbiExternalReaderTests(unittest.TestCase):
         )
 
     def test_source_and_exporter_commits_are_exactly_pinned(self) -> None:
-        self.assertEqual(SCIDB_COMMIT, "7c1c9d89f2fabab0c1252cdd14c515fb9bfc1415")
-        self.assertEqual(SCID_COMMIT, "5837653efa3975c64cff232006d9f981b36ac56b")
+        self.assertEqual(
+            SCIDB_COMMIT,
+            "7c1c9d89f2fabab0c1252cdd14c515fb9bfc1415",
+        )
+        self.assertEqual(
+            SCID_COMMIT,
+            "5837653efa3975c64cff232006d9f981b36ac56b",
+        )
 
-    def test_hash_pins_are_mandatory_and_exact(self) -> None:
+    def test_hash_pins_are_mandatory_for_converter_interpreter_and_script(self) -> None:
         with self.assertRaises(ValueError):
             ExternalCbfCbiReaderConfig(
                 cbh2si4_executable=Path("cbh2si4"),
                 cbh2si4_sha256="not-a-digest",
-                scidpgn_executable=Path("scidpgn"),
+                tcscid_executable=Path("tcscid"),
+                tcscid_sha256="0" * 64,
+                scidpgn_script=Path("scidpgn.tcl"),
                 scidpgn_sha256="0" * 64,
             )
 
@@ -87,10 +99,13 @@ class CbfCbiExternalReaderTests(unittest.TestCase):
             with patch("acs.cbf_cbi_external._run_process") as runner:
                 with self.assertRaises(CbfCbiExternalError) as caught:
                     read_cbf_cbi_external(cbf, config)
-            self.assertEqual(caught.exception.code, CbfCbiExternalCode.UNSUPPORTED_SOURCE)
+            self.assertEqual(
+                caught.exception.code,
+                CbfCbiExternalCode.UNSUPPORTED_SOURCE,
+            )
             runner.assert_not_called()
 
-    def test_bounded_chain_uses_private_si4_then_canonical_pgn_roundtrip(self) -> None:
+    def test_bounded_chain_pins_tcscid_and_script_then_roundtrips_pgn(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw)
             cbf, _ = self._source_family(root)
@@ -107,18 +122,24 @@ class CbfCbiExternalReaderTests(unittest.TestCase):
                     return b"1 game(s) written.\n"
                 return _PGN
 
-            with patch("acs.cbf_cbi_external._run_process", side_effect=fake_run):
+            with patch(
+                "acs.cbf_cbi_external._run_process",
+                side_effect=fake_run,
+            ):
                 decoded = read_cbf_cbi_external(cbf, config)
 
             self.assertEqual(decoded.total_games, 1)
             self.assertTrue(decoded.canonical_roundtrip_verified)
             self.assertEqual(decoded.cbh2si4_sha256, config.cbh2si4_sha256)
+            self.assertEqual(decoded.tcscid_sha256, config.tcscid_sha256)
             self.assertEqual(decoded.scidpgn_sha256, config.scidpgn_sha256)
             self.assertEqual(len(decoded.source.files), 2)
             self.assertEqual(calls[0][1:3], ["--all-tags", "--unusual-tags"])
             self.assertTrue(calls[0][-2].lower().endswith("sample.cbf"))
             self.assertTrue(calls[0][-1].lower().endswith("decoded.si4"))
-            self.assertTrue(calls[1][-1].lower().endswith("decoded.si4"))
+            self.assertTrue(calls[1][0].lower().endswith("tcscid.bin"))
+            self.assertTrue(calls[1][1].lower().endswith("scidpgn.tcl"))
+            self.assertTrue(calls[1][2].lower().endswith("decoded.si4"))
 
     def test_unexpected_private_output_fails_closed(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
@@ -131,13 +152,22 @@ class CbfCbiExternalReaderTests(unittest.TestCase):
                 destination.write_bytes(b"index")
                 destination.with_suffix(".sg4").write_bytes(b"games")
                 destination.with_suffix(".sn4").write_bytes(b"names")
-                (destination.parent / "unexpected.txt").write_text("unexpected", encoding="utf-8")
+                (destination.parent / "unexpected.txt").write_text(
+                    "unexpected",
+                    encoding="utf-8",
+                )
                 return b"ok"
 
-            with patch("acs.cbf_cbi_external._run_process", side_effect=fake_run):
+            with patch(
+                "acs.cbf_cbi_external._run_process",
+                side_effect=fake_run,
+            ):
                 with self.assertRaises(CbfCbiExternalError) as caught:
                     read_cbf_cbi_external(cbf, config)
-            self.assertEqual(caught.exception.code, CbfCbiExternalCode.TEMP_OUTPUT_INVALID)
+            self.assertEqual(
+                caught.exception.code,
+                CbfCbiExternalCode.TEMP_OUTPUT_INVALID,
+            )
 
     def test_source_mutation_discards_decoded_output(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
@@ -158,10 +188,16 @@ class CbfCbiExternalReaderTests(unittest.TestCase):
                 cbi.write_bytes(b"mutated after decode")
                 return _PGN
 
-            with patch("acs.cbf_cbi_external._run_process", side_effect=fake_run):
+            with patch(
+                "acs.cbf_cbi_external._run_process",
+                side_effect=fake_run,
+            ):
                 with self.assertRaises(CbfCbiExternalError) as caught:
                     read_cbf_cbi_external(cbf, config)
-            self.assertEqual(caught.exception.code, CbfCbiExternalCode.SOURCE_CHANGED)
+            self.assertEqual(
+                caught.exception.code,
+                CbfCbiExternalCode.SOURCE_CHANGED,
+            )
 
     def test_invalid_external_pgn_fails_before_library_publication(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
@@ -181,10 +217,16 @@ class CbfCbiExternalReaderTests(unittest.TestCase):
                     return b"ok"
                 return b"\xff\xfe"
 
-            with patch("acs.cbf_cbi_external._run_process", side_effect=fake_run):
+            with patch(
+                "acs.cbf_cbi_external._run_process",
+                side_effect=fake_run,
+            ):
                 with self.assertRaises(CbfCbiExternalError) as caught:
                     read_cbf_cbi_external(cbf, config)
-            self.assertEqual(caught.exception.code, CbfCbiExternalCode.PGN_INVALID)
+            self.assertEqual(
+                caught.exception.code,
+                CbfCbiExternalCode.PGN_INVALID,
+            )
 
     def test_library_seam_publishes_canonical_games_atomically(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
@@ -197,18 +239,28 @@ class CbfCbiExternalReaderTests(unittest.TestCase):
                 source=snapshot,
                 source_family_sha256="1" * 64,
                 cbh2si4_sha256=config.cbh2si4_sha256,
+                tcscid_sha256=config.tcscid_sha256,
                 scidpgn_sha256=config.scidpgn_sha256,
                 games=games,
                 canonical_roundtrip_verified=True,
             )
             with AcsDatabase() as database:
                 service = CbfCbiLibraryImportService(database, config)
-                with patch("acs.cbf_cbi_external.read_cbf_cbi_external", return_value=decoded):
+                with patch(
+                    "acs.cbf_cbi_external.read_cbf_cbi_external",
+                    return_value=decoded,
+                ):
                     report = service.import_database(cbf)
-                self.assertEqual(report.status, CbfCbiLibraryImportStatus.IMPORTED)
+                self.assertEqual(
+                    report.status,
+                    CbfCbiLibraryImportStatus.IMPORTED,
+                )
                 self.assertEqual(report.decoded_game_count, 1)
                 self.assertEqual(report.imported_game_count, 1)
-                self.assertEqual(database.conn.execute("SELECT COUNT(*) FROM games").fetchone()[0], 1)
+                self.assertEqual(
+                    database.conn.execute("SELECT COUNT(*) FROM games").fetchone()[0],
+                    1,
+                )
 
     def test_library_cancellation_after_decode_publishes_no_games(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
@@ -221,6 +273,7 @@ class CbfCbiExternalReaderTests(unittest.TestCase):
                 source=snapshot,
                 source_family_sha256="2" * 64,
                 cbh2si4_sha256=config.cbh2si4_sha256,
+                tcscid_sha256=config.tcscid_sha256,
                 scidpgn_sha256=config.scidpgn_sha256,
                 games=games,
                 canonical_roundtrip_verified=True,
@@ -234,10 +287,16 @@ class CbfCbiExternalReaderTests(unittest.TestCase):
 
             with AcsDatabase() as database:
                 service = CbfCbiLibraryImportService(database, config)
-                with patch("acs.cbf_cbi_external.read_cbf_cbi_external", return_value=decoded):
+                with patch(
+                    "acs.cbf_cbi_external.read_cbf_cbi_external",
+                    return_value=decoded,
+                ):
                     with self.assertRaises(LibraryImportCancelledError):
                         service.import_database(cbf, cancel_check=cancel)
-                self.assertEqual(database.conn.execute("SELECT COUNT(*) FROM games").fetchone()[0], 0)
+                self.assertEqual(
+                    database.conn.execute("SELECT COUNT(*) FROM games").fetchone()[0],
+                    0,
+                )
 
 
 if __name__ == "__main__":

@@ -1,8 +1,8 @@
 # Version 2 CBF/CBI bounded external-reader unblock
 
-ROLE=V2-CHESSBASE-FORMATS  
-DATE=2026-08-31  
-PARENT_PR=348  
+ROLE=V2-CHESSBASE-FORMATS
+DATE=2026-08-31
+PARENT_PR=348
 PARENT_SHA=1142466ca4c1553f75dd04c62c8ff0f4202ce61e
 
 ## Verdict
@@ -38,9 +38,13 @@ The exact `scripts/scidpgn.tcl` blob is
 `84273490e8ee6b47bc78ca26a274ab559845e7b5`; it opens the SI4 database
 `-readonly` and emits tags, comments and variations.
 
+The runtime pins the compiled `tcscid` executable and the exact `scidpgn.tcl`
+script separately, then invokes `tcscid <script> <SI4>` directly. It does not
+execute the shell wrapper or allow an unpinned interpreter lookup through PATH.
+
 The intended external chain remains:
 
-`immutable CBF+CBI -> cbh2si4 -> private SI4 -> scidpgn -> canonical PGN/GameTree -> ACSDB`.
+`immutable CBF+CBI -> cbh2si4 -> private SI4 -> tcscid+scidpgn.tcl -> canonical PGN/GameTree -> ACSDB`.
 
 ## New Product-side boundary
 
@@ -48,7 +52,7 @@ The intended external chain remains:
 
 - requires the `.cbf` primary plus exactly the same-stem `.cbi` companion through
   the existing ChessBase integrity layer;
-- requires explicit SHA-256 pins for both separately installed executables;
+- requires explicit SHA-256 pins for `cbh2si4`, `tcscid`, and `scidpgn.tcl`;
 - never discovers the backend through PATH and never uses a shell;
 - uses a sterile environment and private temporary directory;
 - bounds execution time, stdout, stderr, game count and private SI4 bytes;
@@ -71,11 +75,11 @@ correctly.
 
 ## Build/evidence gate
 
-The dedicated workflow builds exact pinned Scidb `cbh2si4` and also builds
-pinned Scid `pgnscid`, `tcscid` and `scidpgn`. The Scid runtime is exercised on
-a neutral PGN -> SI4 -> PGN round trip retaining a comment and variation. This
-qualifies the external export runtime mechanics without pretending that a CBF
-corpus was decoded.
+The dedicated workflow builds exact pinned Scidb `cbh2si4` and pinned Scid
+`pgnscid`/`tcscid`. The Scid runtime is exercised on a neutral
+PGN -> SI4 -> PGN round trip using the exact source `scidpgn.tcl`, retaining a
+comment and variation. This qualifies the external export runtime mechanics
+without pretending that a CBF corpus was decoded.
 
 Until that exact-head workflow is green, the manifest keeps the final exact
 reader/reproducible-build conditions false. They may be changed only in a

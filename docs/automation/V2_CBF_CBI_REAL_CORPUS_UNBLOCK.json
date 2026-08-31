@@ -39,6 +39,9 @@
       "license": "GPL-2.0",
       "source_opens_database_readonly": true,
       "source_exports_tags_comments_variations": true,
+      "tcscid_binary_sha256_pin_required": true,
+      "scidpgn_script_sha256_pin_required": true,
+      "runtime_invocation": "<pinned tcscid> <pinned scidpgn.tcl> <private SI4>",
       "exact_runtime_build_proven": false
     },
     "accessible_chess": {
@@ -46,9 +49,15 @@
       "product_module": "acs/cbf_cbi_external.py",
       "registered_as_user_facing_importer": false,
       "binary_sha256_pin_required": true,
+      "script_sha256_pin_required": true,
+      "path_discovery_used": false,
       "shell_execution": false,
       "source_integrity_before_after": true,
-      "private_temp_si4_exact_files": ["decoded.si4", "decoded.sg4", "decoded.sn4"],
+      "private_temp_si4_exact_files": [
+        "decoded.si4",
+        "decoded.sg4",
+        "decoded.sn4"
+      ],
       "process_timeout_bounded": true,
       "stdout_stderr_bounded": true,
       "private_temp_bytes_bounded": true,
