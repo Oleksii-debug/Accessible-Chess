@@ -8,6 +8,8 @@ are transient presentation state only; the canonical D07 export service later
 revalidates every id and enforces deterministic Library order.
 """
 
+from collections.abc import Mapping
+
 from .full_product_ui_shell import UILanguage
 from .library_export_service import LibraryExportRequest
 from .library_webview_projection import LibraryWebViewEvent, LibraryWebViewProjection
@@ -99,6 +101,21 @@ class LibraryExportWebViewProjection(LibraryWebViewProjection):
             result.add(game_id)
         return result
 
+    @staticmethod
+    def _export_focus_target(event: LibraryWebViewEvent, game_id: int) -> str:
+        snapshot = event.payload.get("snapshot")
+        if not isinstance(snapshot, Mapping):
+            raise ValueError("Library export render is missing its snapshot")
+        rows = snapshot.get("rows")
+        if not isinstance(rows, (tuple, list)):
+            raise ValueError("Library export render has invalid rows")
+        for row in rows:
+            if isinstance(row, Mapping) and row.get("game_id") == game_id:
+                target = row.get("export_dom_id")
+                if type(target) is str and target:
+                    return target
+        raise ValueError("Library export render lost the toggled game")
+
     def toggle_export_selection(self, game_id: int) -> LibraryWebViewEvent:
         if type(game_id) is not int or game_id <= 0:
             raise ValueError("game_id must be a positive integer")
@@ -114,7 +131,7 @@ class LibraryExportWebViewProjection(LibraryWebViewProjection):
         event = self._render_event(self._presenter.view(), announce=False)
         payload = dict(event.payload)
         payload["announcement"] = announcement
-        payload["focus_target"] = f"library-game-{__import__('hashlib').sha256(f'game:{game_id}'.encode('utf-8')).hexdigest()[:20]}-export"
+        payload["focus_target"] = self._export_focus_target(event, game_id)
         return LibraryWebViewEvent(event.kind, payload)
 
     def clear_export_selection(self) -> LibraryWebViewEvent:
