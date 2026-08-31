@@ -148,10 +148,10 @@ jobs:
           tests.test_v2_book_game_content
           tests.test_v2_book_library_game_lookup
           tests.test_bookreader
-          tests.test_gametree_navigation
-          tests.test_dev2_gametree_legality
-          tests.test_engine_assisted_workflows
-          tests.test_analysis_provider
+          tests.test_gametree
+          tests.test_pgn_workspace
+          tests.test_dev3_engine_assisted_workflows
+          tests.test_analysis_service
 
       - name: Full repository unittest
         run: python -m unittest discover -s tests -v
