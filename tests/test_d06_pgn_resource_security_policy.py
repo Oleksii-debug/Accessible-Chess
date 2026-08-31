@@ -33,26 +33,23 @@ class D06PgnResourceSecurityPolicyTests(unittest.TestCase):
         self.assertEqual(pgn.MAX_VARIATION_DEPTH, 128)
 
     def test_newline_allocation_bomb_fails_before_structural_split(self):
-        source = "\n" * 200_000  # 200,001 logical lines.
-        self.assert_preflight_rejects(
-            pgn.PgnRoundTripErrorCode.TOKEN_COUNT_LIMIT,
-            source,
-        )
+        source = "\n" * 200_000
+        self.assert_preflight_rejects(pgn.PgnRoundTripErrorCode.TOKEN_COUNT_LIMIT, source)
 
     def test_pathological_whitespace_line_fails_before_full_line_scan(self):
         source = " " * ((2 * 1024 * 1024) + 1)
-        self.assert_preflight_rejects(
-            pgn.PgnRoundTripErrorCode.TOKEN_SIZE_LIMIT,
-            source,
-        )
+        self.assert_preflight_rejects(pgn.PgnRoundTripErrorCode.TOKEN_SIZE_LIMIT, source)
+
+    def test_extreme_move_token_count_fails_before_structural_parser(self):
+        source = '[Result "*"]\n\n' + ("e4 " * 500_001)
+        self.assert_preflight_rejects(pgn.PgnRoundTripErrorCode.TOKEN_COUNT_LIMIT, source)
 
     def test_nul_c0_c1_and_del_controls_fail_closed_before_parser(self):
         for control in ("\x00", "\x01", "\x1b", "\x7f", "\x85"):
             with self.subTest(codepoint=ord(control)):
                 source = f'[Event "safe{control}hidden"]\n[Result "*"]\n\n1. e4 *\n'
                 error = self.assert_preflight_rejects(
-                    pgn.PgnRoundTripErrorCode.TOKEN_SIZE_LIMIT,
-                    source,
+                    pgn.PgnRoundTripErrorCode.TOKEN_SIZE_LIMIT, source
                 )
                 self.assertNotIn("hidden", str(error))
 
@@ -64,43 +61,33 @@ class D06PgnResourceSecurityPolicyTests(unittest.TestCase):
 
     def test_extreme_rav_depth_fails_before_recursive_structural_parse(self):
         source = '[Result "*"]\n\n1. e4 ' + ("(" * 129) + "1... e5" + (")" * 129) + " *"
-        self.assert_preflight_rejects(
-            pgn.PgnRoundTripErrorCode.TOKEN_COUNT_LIMIT,
-            source,
-        )
+        self.assert_preflight_rejects(pgn.PgnRoundTripErrorCode.TOKEN_COUNT_LIMIT, source)
 
-    def test_gigantic_tag_name_is_bounded_before_structural_parse(self):
-        source = f'[{"A" * 257} "x"]\n[Result "*"]\n\n1. e4 *\n'
-        self.assert_preflight_rejects(
-            pgn.PgnRoundTripErrorCode.TAG_SIZE_LIMIT,
-            source,
-        )
+    def test_gigantic_tag_name_and_value_are_bounded_before_parser(self):
+        name_source = f'[{"A" * 257} "x"]\n[Result "*"]\n\n1. e4 *\n'
+        self.assert_preflight_rejects(pgn.PgnRoundTripErrorCode.TAG_SIZE_LIMIT, name_source)
+        value_source = '[Event "' + ("x" * ((1024 * 1024) + 1)) + '"]\n[Result "*"]\n\n*\n'
+        self.assert_preflight_rejects(pgn.PgnRoundTripErrorCode.TAG_SIZE_LIMIT, value_source)
+
+    def test_unterminated_tag_line_fails_as_malformed_header_before_parser(self):
+        source = '[Event "unterminated"\n[Result "*"]\n\n1. e4 *\n'
+        self.assert_preflight_rejects(pgn.PgnRoundTripErrorCode.MALFORMED_HEADER, source)
 
     def test_fen_has_tighter_field_and_counter_bounds_than_generic_tags(self):
         oversized_fen = f'[FEN "{"x" * 513}"]\n[Result "*"]\n\n*\n'
-        self.assert_preflight_rejects(
-            pgn.PgnRoundTripErrorCode.TAG_SIZE_LIMIT,
-            oversized_fen,
-        )
-
+        self.assert_preflight_rejects(pgn.PgnRoundTripErrorCode.TAG_SIZE_LIMIT, oversized_fen)
         huge_counter = (
             '[FEN "8/8/8/8/8/8/4K3/4k3 w - - 1234567890123 1"]\n'
             '[Result "*"]\n\n*\n'
         )
-        self.assert_preflight_rejects(
-            pgn.PgnRoundTripErrorCode.TAG_SIZE_LIMIT,
-            huge_counter,
-        )
+        self.assert_preflight_rejects(pgn.PgnRoundTripErrorCode.TAG_SIZE_LIMIT, huge_counter)
 
     def test_game_count_limit_is_enforced_before_structural_game_allocation(self):
         source = "\n\n".join(
-            f'[Event "G{index}"]\n[Result "*"]\n\n1. e4 *'
-            for index in range(3)
+            f'[Event "G{index}"]\n[Result "*"]\n\n1. e4 *' for index in range(3)
         )
         with patch.object(pgn, "MAX_PGN_GAMES", 2), patch.object(
-            pgn,
-            "parse_games",
-            side_effect=AssertionError("structural parser must not be reached"),
+            pgn, "parse_games", side_effect=AssertionError("structural parser must not be reached")
         ):
             self.assert_code(
                 pgn.PgnRoundTripErrorCode.GAME_COUNT_LIMIT,
@@ -116,7 +103,6 @@ class D06PgnResourceSecurityPolicyTests(unittest.TestCase):
             b'[Event "private"]\n\xff\n',
         )
         self.assertNotIn("private", str(error))
-
         with patch.object(pgn, "MAX_PGN_COMMENT_CHARS", 32):
             self.assert_code(
                 pgn.PgnRoundTripErrorCode.COMMENT_SIZE_LIMIT,
@@ -127,11 +113,7 @@ class D06PgnResourceSecurityPolicyTests(unittest.TestCase):
 
     def test_small_unterminated_comment_keeps_existing_recovery_semantics(self):
         source = '[Result "*"]\n\n1. e4 {recoverable note'
-        self.assert_code(
-            pgn.PgnRoundTripErrorCode.MALFORMED_PGN,
-            pgn.parse_pgn_text,
-            source,
-        )
+        self.assert_code(pgn.PgnRoundTripErrorCode.MALFORMED_PGN, pgn.parse_pgn_text, source)
         games = pgn.parse_pgn_text(source, strict=False)
         self.assertEqual(len(games), 1)
         self.assertTrue(any("unterminated brace comment" in w for w in games[0].warnings))
@@ -143,9 +125,7 @@ class D06PgnResourceSecurityPolicyTests(unittest.TestCase):
             side_effect=AssertionError("permissive fallback must not be reached"),
         ):
             self.assert_code(
-                pgn.PgnRoundTripErrorCode.TOKEN_COUNT_LIMIT,
-                _parse_file_games,
-                source,
+                pgn.PgnRoundTripErrorCode.TOKEN_COUNT_LIMIT, _parse_file_games, source
             )
 
     def test_recursive_programmatic_model_still_fails_without_recursion_escape(self):
