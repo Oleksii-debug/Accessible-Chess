@@ -37,10 +37,13 @@ jobs:
           # 100,001 real games in bounded chunks, then publishes the complete
           # canonical sequence as one atomic D07 batch.
           sed -i 's/PARSE_CHUNK_GAMES = 5_000/PARSE_CHUNK_GAMES = 1_000/' tools/v2_library_large_real_profile.py
-          # The helper only needs a real non-empty date to seed the public Search
-          # service. Do not call the private SQLite date UDF from evidence SQL.
+          # Never fabricate source Date metadata. This Lichess dump has no
+          # canonical PGN Date in the qualified subset, so exercise the real
+          # indexed no-match path for a concrete day instead.
           sed -i 's/, complete_date=True//' tools/v2_library_large_real_profile.py
+          sed -i '/raise AssertionError(f"real corpus did not expose required {column} metadata")/i\    if column == "game_date":\n        return None, "2013.01.01"' tools/v2_library_large_real_profile.py
           grep -F 'PARSE_CHUNK_GAMES = 1_000' tools/v2_library_large_real_profile.py
+          grep -F 'return None, "2013.01.01"' tools/v2_library_large_real_profile.py
           python tools/v2_library_large_real_profile.py | tee v2-library-large-real-profile.log
           grep -F 'V2_LIBRARY_LARGE_REAL_PROFILE=' v2-library-large-real-profile.log
       - name: Validate non-flaky evidence contract
