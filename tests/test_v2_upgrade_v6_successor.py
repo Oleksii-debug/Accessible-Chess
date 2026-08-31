@@ -142,6 +142,26 @@ class V2UpgradeV6SuccessorTests(unittest.TestCase):
                 Version2UpgradeCoordinator(UserDataLayout(root)).run()
             self.assertFalse((root / ".v2-upgrade-state.json").exists())
 
+    def test_current_v6_with_foreign_key_violation_is_rejected_not_already_current(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "AccessibleChess"
+            root.mkdir()
+            library = root / "library.acsdb"
+            self._make_current_library_with_game(library)
+            conn = sqlite3.connect(library)
+            try:
+                conn.execute("PRAGMA foreign_keys=OFF")
+                conn.execute("UPDATE games SET source_id=999999")
+                conn.commit()
+                self.assertEqual(str(conn.execute("PRAGMA quick_check").fetchone()[0]).lower(), "ok")
+                self.assertIsNotNone(conn.execute("PRAGMA foreign_key_check").fetchone())
+            finally:
+                conn.close()
+
+            with self.assertRaisesRegex(Version2UpgradeError, "library validation failed"):
+                Version2UpgradeCoordinator(UserDataLayout(root)).run()
+            self.assertFalse((root / ".v2-upgrade-state.json").exists())
+
     def test_corrupt_old_v1_is_rejected_before_backup_or_journal(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td) / "AccessibleChess"
@@ -169,17 +189,17 @@ class V2UpgradeV6SuccessorTests(unittest.TestCase):
             root.mkdir()
             library = root / "library.acsdb"
             self._make_current_library_with_game(library)
-            before = library.read_bytes()
             conn = sqlite3.connect(library)
             try:
                 conn.execute(f"PRAGMA user_version={ACSDB_SCHEMA_VERSION + 1}")
                 conn.commit()
             finally:
                 conn.close()
+            marked_future_bytes = library.read_bytes()
 
             with self.assertRaisesRegex(Version2UpgradeError, "newer than"):
                 Version2UpgradeCoordinator(UserDataLayout(root)).run()
-            self.assertEqual(library.read_bytes(), before[:0] + library.read_bytes())
+            self.assertEqual(library.read_bytes(), marked_future_bytes)
             conn = sqlite3.connect(library)
             try:
                 self.assertEqual(conn.execute("PRAGMA user_version").fetchone()[0], 7)
@@ -187,8 +207,9 @@ class V2UpgradeV6SuccessorTests(unittest.TestCase):
                 conn.close()
             self.assertFalse((root / ".v2-upgrade-state.json").exists())
 
-    def test_upgrade_module_contains_no_d07_schema_object_names(self) -> None:
+    def test_upgrade_module_delegates_d07_and_contains_no_schema_object_names(self) -> None:
         source = (Path(__file__).parents[1] / "acs" / "version2_upgrade.py").read_text(encoding="utf-8")
+        self.assertIn("AcsDatabase._check_sqlite_integrity", source)
         for token in (
             "idx_positions_key_game_ply",
             "game_search_fold",
