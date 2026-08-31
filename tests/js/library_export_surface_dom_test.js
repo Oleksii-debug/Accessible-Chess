@@ -131,8 +131,9 @@ function snapshot(checked) {
 
   checkbox.checked = true;
   checkbox.listeners.change({});
-  await Promise.resolve();
-  await Promise.resolve();
+  // The production adapter intentionally chains invoke -> apply/render through
+  // Promises. Wait for the full turn rather than racing an incomplete chain.
+  await new Promise((resolve) => setImmediate(resolve));
 
   check(calls.length === 1, "export toggle did not dispatch exactly once");
   check(calls[0][0] === "library.toggle_export_selection", "wrong export command");
