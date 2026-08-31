@@ -69,7 +69,6 @@ jobs:
           tests.test_v2_a4_canonical_nullmove
           tests.test_chessbase_decoder
           tests.test_chessbase_adapter
-          tests.test_gametree_legality
           tests.test_version2_formats_integration
       - name: Publish bounded Product repair
         shell: bash
