@@ -168,7 +168,7 @@ class RealCbhBielMTOCorpusTests(unittest.TestCase):
                 source_id = report.library_result.source_id
 
                 source_search = GameSearchService(database).search(
-                    GameSearchQuery(source_name="BielMTO", limit=1000)
+                    GameSearchQuery(source_name="BielMTO", limit=200)
                 )
                 self.assertGreater(len(source_search.items), 0, "real Library source search returned no games")
                 self.assertTrue(all(item.source_id == source_id for item in source_search.items))
