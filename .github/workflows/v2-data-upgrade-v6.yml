@@ -12,6 +12,7 @@ on:
       - 'tests/test_version2_upgrade_recovery_integrity.py'
       - 'tests/test_v2_upgrade_v6_successor.py'
       - 'tests/test_v2_upgrade_current_acsdb_identity_audit.py'
+      - 'tests/test_v2_upgrade_tracked_writer_conflict.py'
       - '.github/workflows/v2-data-upgrade-v6.yml'
 
 permissions:
@@ -62,6 +63,7 @@ jobs:
             '.github/workflows/v2-data-upgrade-v6.yml' \
             'acs/version2_upgrade.py' \
             'tests/test_v2_upgrade_current_acsdb_identity_audit.py' \
+            'tests/test_v2_upgrade_tracked_writer_conflict.py' \
             'tests/test_v2_upgrade_v6_successor.py' \
             'tests/test_version2_upgrade.py' \
             'tests/test_version2_upgrade_recovery_integrity.py' \
@@ -77,6 +79,7 @@ jobs:
         run: >-
           python -m unittest -v
           tests.test_v2_upgrade_current_acsdb_identity_audit
+          tests.test_v2_upgrade_tracked_writer_conflict
           tests.test_v2_upgrade_v6_successor
           tests.test_version2_upgrade
           tests.test_version2_upgrade_recovery_integrity
