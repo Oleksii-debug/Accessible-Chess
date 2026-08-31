@@ -1,23 +1,21 @@
-name: V2 Book Reading Progress Store
+name: V2 Book Progress Production Repair
 
 on:
   push:
     branches:
-      - work/v2-book-reading-persistence-20260828
+      - work/v2-book-progress-production-repair-20260831
   pull_request:
-    branches:
-      - work/version2-integration-formats-20260827
     paths:
       - 'acs/book_progress_store.py'
-      - 'tests/test_v2_book_progress_store.py'
-      - '.github/workflows/v2-book-progress-store.yml'
+      - 'tests/test_v2_book_progress_store_production.py'
+      - '.github/workflows/v2-book-progress-production-repair.yml'
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: v2-book-progress-${{ github.ref }}
+  group: v2-book-progress-production-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -27,9 +25,9 @@ jobs:
       matrix:
         os: [ubuntu-22.04, windows-2025]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 55
+    timeout-minutes: 60
     env:
-      V2_PACKAGE_PARENT_SHA: b18ac89bb7f1ef3d4106517fe3521179ab4522a1
+      STACK_PARENT_SHA: 5ec896f00615d10157c5ec52a1ef83917779a1b5
       PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
     steps:
       - uses: actions/checkout@v4
@@ -37,82 +35,74 @@ jobs:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
-      - name: Preserve committed Git bytes for cross-platform blob identity gates
+      - name: Preserve committed Git bytes
         shell: bash
         run: |
           set -euo pipefail
           git config core.autocrlf false
           git config core.eol lf
+          git reset --hard HEAD
           git checkout-index --force --all
 
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
 
-      - name: Install verification dependency
+      - name: Install pinned verification dependency
         run: python -m pip install -q pytest==8.4.2
 
-      - name: Prove Books persistence ownership and current-base scope
+      - name: Prove exact ownership and current-base scope
         shell: bash
         run: |
           set -euo pipefail
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             upstream="$PR_BASE_SHA"
-            mode="child-pr"
           else
-            upstream="$V2_PACKAGE_PARENT_SHA"
-            mode="original-package"
+            upstream="$STACK_PARENT_SHA"
           fi
           test -n "$upstream"
-          git merge-base --is-ancestor "$upstream" HEAD
+          git cat-file -e "$upstream^{commit}"
           test "$(git merge-base "$upstream" HEAD)" = "$upstream"
           git diff --check "$upstream" HEAD
           changed="$(git diff --name-only "$upstream" HEAD | sort)"
-          test -n "$changed"
-
-          while IFS= read -r path; do
-            case "$path" in
-              .github/workflows/v2-book-progress-store.yml|acs/book_progress_store.py|tests/test_v2_book_progress_store.py)
-                ;;
-              *)
-                echo "Unexpected path outside Book progress ownership: $path" >&2
-                exit 1
-                ;;
-            esac
-          done <<< "$changed"
-
-          if [ "$mode" = "original-package" ]; then
-            expected="$(printf '%s\n' \
-              '.github/workflows/v2-book-progress-store.yml' \
-              'acs/book_progress_store.py' \
-              'tests/test_v2_book_progress_store.py' | sort)"
-            test "$changed" = "$expected"
-          fi
-
+          expected="$(printf '%s\n' \
+            '.github/workflows/v2-book-progress-production-repair.yml' \
+            'acs/book_progress_store.py' \
+            'tests/test_v2_book_progress_store_production.py' | sort)"
+          test "$changed" = "$expected"
           git diff --quiet "$upstream" HEAD -- \
+            .github/workflows/v2-book-progress-store.yml \
             acs/bookreader.py \
             acs/book_index.py \
             acs/bookdocument.py \
+            acs/book_game_content.py \
+            acs/book_library_game_lookup.py \
             acs/book_training.py \
             acs/training.py \
             acs/book_webview_bridge.py \
             acs/book_webview_projection.py \
             acs/full_product_presenters.py \
             acs/gametree.py \
+            acs/pgn_roundtrip.py \
             acs/chesscore.py \
             acs/analysis_service.py \
             acs/engine_assisted_workflows.py \
             acs/acsdb.py \
             web/full_product_books_training.js \
             acs/stage1_release_ui.py
+          echo 'BOOK PROGRESS PRODUCTION OWNERSHIP PASS'
 
-      - name: Compile Book progress package
+      - name: Compile Book progress repair
         run: >-
           python -m compileall -q
           acs/book_progress_store.py
+          tests/test_v2_book_progress_store_production.py
           tests/test_v2_book_progress_store.py
 
-      - name: Focused Book reading persistence regressions
+      - name: Deterministic production Book progress regressions
+        run: python -m unittest -v tests.test_v2_book_progress_store_production
+
+      - name: Existing Book progress and semantic reading regressions
         run: >-
           python -m unittest -v
           tests.test_v2_book_progress_store
