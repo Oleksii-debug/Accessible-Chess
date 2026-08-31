@@ -1,0 +1,66 @@
+{
+  "schema_version": 1,
+  "as_of": "2026-08-31",
+  "scope": "classic-cbh-annotations-through-pinned-libcbh",
+  "product_authority": {
+    "repository": "Oleksii-debug/Accessible-Chess",
+    "pr": 295,
+    "sha": "575ec0088982d2f90adb47c040a5714d68186b0e"
+  },
+  "backend": {
+    "repository": "rolandlo/libcbh",
+    "commit": "9641c5c3949d8fb210b17dd9aa54455645843696",
+    "bundled_by_default": false
+  },
+  "overall_status": "PARTIAL",
+  "supported_and_observable": [
+    "text_before_move_with_language_marker",
+    "text_after_move_with_language_marker",
+    "numeric_annotation_glyph_symbol",
+    "numeric_annotation_glyph_evaluation_normalized_from_pinned_libcbh_to_independent_pgn_semantics",
+    "numeric_annotation_glyph_prefix",
+    "square_marker",
+    "arrow_marker",
+    "recursive_variation_structure"
+  ],
+  "real_oracles": [
+    {
+      "family": "Annotation/TestBase.cbh",
+      "oracle": "Annotation/TestBaseExport.pgn",
+      "expectation": "4 games, 29 NAGs, 3 text comments, multilingual language identity"
+    },
+    {
+      "family": "WithVariations/WithVariations.cbh",
+      "oracle": "WithVariations/GamesWithVariations.pgn",
+      "expectation": "recursive nested and sibling RAV with comments and NAGs inside variations"
+    },
+    {
+      "family": "UnusualStart/UnusualStartBytes.cbh",
+      "oracle": "UnusualStart/UnusualStart.pgn",
+      "expectation": "9 unusual-start games including a real zero-ply game"
+    }
+  ],
+  "backend_unexposed_proprietary_annotations": [
+    "training_annotation",
+    "sound",
+    "picture",
+    "game_quotation",
+    "pawn_structure",
+    "piece_path",
+    "critical_position",
+    "correspondence_move",
+    "medal",
+    "variation_color",
+    "time_control",
+    "correspondence_header",
+    "unknown_annotation_types"
+  ],
+  "loss_policy": "Pinned libcbh silently drops the listed proprietary annotation classes before the Accessible Chess bridge receives a record. Accessible Chess therefore cannot reconstruct, fabricate, or truthfully report per-record values for those classes. Their capability remains PARTIAL/unobservable until a backend exposes them with an independently verifiable oracle.",
+  "nag_fidelity_policy": "For SymbolComment.evaluation only, the optional bridge reverses deterministic pinned-libcbh color-relative remapping back to the raw CBH evaluation byte that the independent ChessBase-export PGN uses as the NAG. Symbol and prefix fields are not normalized by this rule.",
+  "no_claims": [
+    "lossless_all_proprietary_annotations",
+    "default_bundling_of_libcbh",
+    "CBF_CBI_2CBH_CBONE_CBZ_support",
+    "human_NVDA_verification"
+  ]
+}
