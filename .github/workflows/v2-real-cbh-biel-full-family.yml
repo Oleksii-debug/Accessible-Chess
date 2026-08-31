@@ -1,0 +1,211 @@
+name: Accessible Chess V2 Real CBH Biel Full Family
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/v2-real-cbh-biel-full-family.yml'
+      - 'tests/test_v2_real_cbh_biel_full_family.py'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: accessible-chess-v2-real-cbh-biel-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  V2_AUTHORITY_SHA: 575ec0088982d2f90adb47c040a5714d68186b0e
+  LIBCBH_COMMIT: 9641c5c3949d8fb210b17dd9aa54455645843696
+
+jobs:
+  real-cbh-biel-full-family:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 35
+    steps:
+      - name: Checkout exact QA head
+        uses: actions/checkout@v4
+        with:
+          path: product
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Prove exact authority ancestry and evidence-only scope
+        working-directory: product
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor "$V2_AUTHORITY_SHA" HEAD
+          test "$(git merge-base "$V2_AUTHORITY_SHA" HEAD)" = "$V2_AUTHORITY_SHA"
+          git diff --check "$V2_AUTHORITY_SHA" HEAD
+          changed="$(git diff --name-only "$V2_AUTHORITY_SHA" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/v2-real-cbh-biel-full-family.yml' \
+            'tests/test_v2_real_cbh_biel_full_family.py' | sort)"
+          test "$changed" = "$expected" || {
+            printf 'Unexpected QA scope:\n%s\n' "$changed" >&2
+            exit 1
+          }
+          git diff --quiet "$V2_AUTHORITY_SHA" HEAD -- acs web tools docs/automation
+          printf 'PRODUCT_AUTHORITY=%s\nQA_HEAD=%s\n' "$V2_AUTHORITY_SHA" "$(git rev-parse HEAD)"
+
+      - name: Checkout pinned lawful libcbh corpus
+        uses: actions/checkout@v4
+        with:
+          repository: rolandlo/libcbh
+          ref: 9641c5c3949d8fb210b17dd9aa54455645843696
+          path: upstream/libcbh
+          fetch-depth: 1
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install pinned regression dependency
+        run: python -m pip install -q pytest==8.4.2
+
+      - name: Build pinned libcbh and existing Accessible Chess bridge
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S upstream/libcbh -B upstream/libcbh/build -DCMAKE_BUILD_TYPE=Release -DGTEST=OFF
+          cmake --build upstream/libcbh/build --config Release --parallel 2
+          mkdir -p product/build/libcbh
+          c++ -std=c++20 -O2 \
+            -DLIBCBH_SOURCE_COMMIT=\"$LIBCBH_COMMIT\" \
+            -I upstream/libcbh/include \
+            product/tools/optional/libcbh_json_bridge.cpp \
+            -L upstream/libcbh/build -lcbh \
+            -Wl,-rpath,'$ORIGIN' \
+            -o product/build/libcbh/libcbh-json-bridge
+          cp -a upstream/libcbh/build/libcbh.so* product/build/libcbh/
+          test -x product/build/libcbh/libcbh-json-bridge
+          sha256sum \
+            upstream/libcbh/gtest/NormalGames/BielMTO.cbh \
+            upstream/libcbh/gtest/NormalGames/BielMTO.pgn
+
+      - name: Compile QA and Product surfaces
+        working-directory: product
+        run: python -m compileall -q acs tests/test_v2_real_cbh_biel_full_family.py
+
+      - name: Run all-game real classic-CBH full-family oracle
+        working-directory: product
+        shell: bash
+        env:
+          LIBCBH_BRIDGE: ${{ github.workspace }}/product/build/libcbh/libcbh-json-bridge
+          LIBCBH_BIEL_DIR: ${{ github.workspace }}/upstream/libcbh/gtest/NormalGames
+        run: |
+          set +e
+          set -o pipefail
+          python -m unittest -v tests.test_v2_real_cbh_biel_full_family 2>&1 | tee real-cbh-biel-full-family.log
+          oracle_status=${PIPESTATUS[0]}
+          set -e
+          printf '%s\n' "$oracle_status" > real-cbh-biel-full-family.status
+          printf 'REAL_CBH_BIEL_FULL_FAMILY_ORACLE_EXIT=%s\n' "$oracle_status"
+          exit 0
+
+      - name: Focused ChessBase canonical regressions
+        working-directory: product
+        run: >-
+          python -m unittest -v
+          tests.test_chessbase_decoder
+          tests.test_chessbase_integrity
+          tests.test_version2_formats_integration
+          tests.test_library_import_ui_integration
+          tests.test_pgn_document
+
+      - name: Full repository unittest
+        working-directory: product
+        run: python -m unittest discover -s tests -v
+
+      - name: Full repository pytest
+        working-directory: product
+        run: python -m pytest -q tests
+
+      - name: SELFTEST and diagnostic
+        working-directory: product
+        run: |
+          python -m acs.selftest
+          python run_accessible_chess.py --diagnostic
+
+      - name: Upload immutable evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v2-real-cbh-biel-full-family-evidence
+          path: |
+            product/real-cbh-biel-full-family.log
+            product/real-cbh-biel-full-family.status
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Enforce real-corpus verdict after regressions
+        if: always()
+        working-directory: product
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f real-cbh-biel-full-family.status
+          status="$(cat real-cbh-biel-full-family.status)"
+          test "$status" = "0" || {
+            printf 'Real CBH Biel full-family corpus is RED (oracle exit=%s).\n' "$status" >&2
+            exit "$status"
+          }
+
+  windows-regression:
+    runs-on: windows-2025
+    timeout-minutes: 25
+    steps:
+      - name: Checkout exact QA head
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Materialize canonical Git bytes and prove QA-only scope
+        shell: pwsh
+        run: |
+          git config core.autocrlf false
+          git checkout-index -a -f
+          git merge-base --is-ancestor $env:V2_AUTHORITY_SHA HEAD
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $base = (git merge-base $env:V2_AUTHORITY_SHA HEAD).Trim()
+          if ($base -ne $env:V2_AUTHORITY_SHA) { throw "unexpected authority merge-base $base" }
+          git diff --check $env:V2_AUTHORITY_SHA HEAD
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $changed = @(git diff --name-only $env:V2_AUTHORITY_SHA HEAD | Sort-Object)
+          $expected = @('.github/workflows/v2-real-cbh-biel-full-family.yml','tests/test_v2_real_cbh_biel_full_family.py') | Sort-Object
+          if (($changed -join "`n") -ne ($expected -join "`n")) { throw "unexpected QA scope: $($changed -join ', ')" }
+          git diff --quiet $env:V2_AUTHORITY_SHA HEAD -- acs web tools docs/automation
+          if ($LASTEXITCODE -ne 0) { throw 'Product mutation detected' }
+          Write-Host "PRODUCT_AUTHORITY=$env:V2_AUTHORITY_SHA"
+          Write-Host "QA_HEAD=$(git rev-parse HEAD)"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install pinned regression dependency
+        run: python -m pip install -q pytest==8.4.2
+
+      - name: Compile Product and QA test
+        run: python -m compileall -q acs tests/test_v2_real_cbh_biel_full_family.py
+
+      - name: Focused Product regressions
+        run: >-
+          python -m unittest -v
+          tests.test_chessbase_decoder
+          tests.test_chessbase_integrity
+          tests.test_version2_formats_integration
+          tests.test_library_import_ui_integration
+          tests.test_pgn_document
+
+      - name: Full repository unittest
+        run: python -m unittest discover -s tests -v
+
+      - name: Full repository pytest
+        run: python -m pytest -q tests
+
+      - name: SELFTEST and diagnostic
+        run: |
+          python -m acs.selftest
+          python run_accessible_chess.py --diagnostic
