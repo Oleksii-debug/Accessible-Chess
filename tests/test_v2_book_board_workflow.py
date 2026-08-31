@@ -122,22 +122,27 @@ class BookBoardWorkflowTests(unittest.TestCase):
         self.assertEqual(reader.location(), origin)
         self.assertFalse(workflow.active)
 
-    def test_book_fen_that_bookdocument_accepts_but_board_rejects_fails_before_progress_mutation(self) -> None:
-        # AB-V2-008 is owned by D08.  This workflow does not repair BookDocument;
-        # it independently refuses to expose a Board until canonical Board accepts it.
-        document = BookDocument(
-            title="Book",
-            blocks=[Position(fen="8/8/8/8/8/8/8/8 w - - 0 1", block_id="bad")],
-        )
-        reader = BookReader(document)
-        progress_before = reader.snapshot()
-        workflow, _engine, _analysis = self._workflow(reader)
+    def test_corrupted_book_fen_fails_closed_before_progress_mutation(self) -> None:
+        # PR #380 owns constructor-time Book FEN parity.  This application seam
+        # still protects against a corrupted/mutated block arriving after normal
+        # construction, including None which canonical Board treats as START for
+        # its own convenience API.
+        for invalid_fen in (None, "", "8/8/8/8/8/8/8/8 w - - 0 1"):
+            with self.subTest(invalid_fen=invalid_fen):
+                position = Position(fen=Board.START, block_id="bad")
+                document = BookDocument(title="Book", blocks=[position])
+                reader = BookReader(document)
+                progress_before = reader.snapshot()
+                position.fen = invalid_fen  # simulate corruption after validation
+                workflow, _engine, _analysis = self._workflow(reader)
 
-        with self.assertRaises(BookBoardWorkflowError) as caught:
-            workflow.open_current()
-        self.assertEqual(caught.exception.code, BookBoardWorkflowCode.INVALID_POSITION)
-        self.assertFalse(workflow.active)
-        self.assertEqual(reader.snapshot(), progress_before)
+                with self.assertRaises(BookBoardWorkflowError) as caught:
+                    workflow.open_current()
+                self.assertEqual(
+                    caught.exception.code, BookBoardWorkflowCode.INVALID_POSITION
+                )
+                self.assertFalse(workflow.active)
+                self.assertEqual(reader.snapshot(), progress_before)
 
     def test_embedded_game_uses_canonical_gametree_navigation_and_rav_return(self) -> None:
         reader = BookReader(
