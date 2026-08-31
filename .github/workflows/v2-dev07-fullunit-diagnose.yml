@@ -31,8 +31,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD^)" = '7855a83a90e2cd93057f3ac2e33cf9c03d3512bc'
-          test -z "$(git diff --name-only HEAD^ HEAD | grep -v '^.github/workflows/v2-dev07-fullunit-diagnose.yml$' || true)"
+          git merge-base --is-ancestor 7855a83a90e2cd93057f3ac2e33cf9c03d3512bc HEAD
+          test -z "$(git diff --name-only 7855a83a90e2cd93057f3ac2e33cf9c03d3512bc HEAD | grep -v '^.github/workflows/v2-dev07-fullunit-diagnose.yml$' || true)"
+          test "$(git rev-parse 7855a83a90e2cd93057f3ac2e33cf9c03d3512bc^{tree})" != "$(git rev-parse HEAD^{tree})"
       - name: Capture full unittest output
         shell: bash
         run: |
