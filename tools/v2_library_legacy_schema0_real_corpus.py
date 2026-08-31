@@ -24,7 +24,7 @@ from tools.v2_library_dedup_real_corpus import (
 )
 
 
-PAGE_LIMIT = 1000
+PAGE_LIMIT = 200
 
 
 def _sha256(path: Path) -> str:
