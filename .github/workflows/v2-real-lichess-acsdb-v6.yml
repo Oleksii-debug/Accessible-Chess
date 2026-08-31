@@ -14,7 +14,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  V6_OWNER_SHA: c1bd4f0c7610365458689a786ebb56d1c7d073df
+  V6_STAGING_SHA: 47750f4a1ad452e6b9b8811afaa3cc699bde4ea8
 
 jobs:
   real-lichess-v6:
@@ -39,14 +39,14 @@ jobs:
           git config core.eol lf
           git reset --hard HEAD
 
-      - name: Prove exact v6 owner ancestry and evidence-only scope
+      - name: Prove exact D07 staging ancestry and evidence-only scope
         shell: bash
         run: |
           set -euo pipefail
-          git cat-file -e "$V6_OWNER_SHA^{commit}"
-          test "$(git merge-base HEAD "$V6_OWNER_SHA")" = "$V6_OWNER_SHA"
-          git diff --check "$V6_OWNER_SHA" HEAD
-          changed="$(git diff --name-only "$V6_OWNER_SHA" HEAD | sort)"
+          git cat-file -e "$V6_STAGING_SHA^{commit}"
+          test "$(git merge-base HEAD "$V6_STAGING_SHA")" = "$V6_STAGING_SHA"
+          git diff --check "$V6_STAGING_SHA" HEAD
+          changed="$(git diff --name-only "$V6_STAGING_SHA" HEAD | sort)"
           expected="$(printf '%s\n' \
             '.github/workflows/v2-real-lichess-acsdb-v6.yml' \
             'tests/v2_real_lichess_acsdb_v6_probe.py' | sort)"
@@ -54,8 +54,8 @@ jobs:
             printf 'Unexpected v6 real-corpus QA scope:\n%s\n' "$changed" >&2
             exit 1
           }
-          git diff --quiet "$V6_OWNER_SHA" HEAD -- acs web tools run_accessible_chess.py
-          echo "V6 real-corpus evidence-only scope PASS"
+          git diff --quiet "$V6_STAGING_SHA" HEAD -- acs web tools run_accessible_chess.py
+          echo "D07 staging real-corpus evidence-only scope PASS"
 
       - uses: actions/setup-python@v5
         with:
