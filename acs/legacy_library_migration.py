@@ -263,8 +263,8 @@ def migrate_legacy_library(
                         warning_count=row_warning_count,
                     )
 
-            integrity = target.verify_integrity()
-            if not integrity.get("ok"):
+            integrity_version = target.verify_integrity()
+            if integrity_version != ACSDB_SCHEMA_VERSION:
                 raise LegacyLibraryMigrationError("converted ACSDB failed canonical integrity validation")
             if target.schema_version != ACSDB_SCHEMA_VERSION:
                 raise LegacyLibraryMigrationError("converted ACSDB did not reach the current schema")
