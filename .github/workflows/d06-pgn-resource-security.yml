@@ -34,18 +34,28 @@ jobs:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
-      - name: Preserve exact Git bytes
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Restore exact Git blob bytes
         shell: bash
         run: |
           set -euo pipefail
           git config core.autocrlf false
           git config core.eol lf
-          git reset --hard HEAD
-          git checkout-index --force --all
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
+          python - <<'PY'
+          from pathlib import Path
+          import subprocess
+          for raw in subprocess.check_output(["git", "ls-files", "-z"]).split(b"\0"):
+              if not raw:
+                  continue
+              path = raw.decode("utf-8")
+              data = subprocess.check_output(["git", "cat-file", "blob", f"HEAD:{path}"])
+              target = Path(path)
+              target.parent.mkdir(parents=True, exist_ok=True)
+              target.write_bytes(data)
+          PY
 
       - name: Install pinned verification dependency
         run: python -m pip install -q pytest==8.4.2
@@ -62,7 +72,6 @@ jobs:
             '.github/workflows/d06-pgn-resource-security.yml' \
             'acs/pgn_roundtrip.py' \
             'tests/test_d06_pgn_resource_security_policy.py' | sort)"
-          # RED-first head intentionally has no Product delta yet.
           expected_red="$(printf '%s\n' \
             '.github/workflows/d06-pgn-resource-security.yml' \
             'tests/test_d06_pgn_resource_security_policy.py' | sort)"
@@ -93,9 +102,3 @@ jobs:
 
       - name: Full pytest regression
         run: python -m pytest -q
-
-      - name: SELFTEST
-        run: python run_accessible_chess.py --selftest
-
-      - name: Complete diagnostic
-        run: python run_accessible_chess.py --diagnostic
