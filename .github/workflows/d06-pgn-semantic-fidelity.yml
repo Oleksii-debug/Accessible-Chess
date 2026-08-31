@@ -102,6 +102,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          mkdir -p scripts
           git fetch --no-tags origin refs/pull/298/head:refs/remotes/origin/pgn03-evidence
           test "$(git rev-parse refs/remotes/origin/pgn03-evidence)" = "$PGN03_EVIDENCE_HEAD"
           git show "$PGN03_EVIDENCE_HEAD:scripts/pgn_real_corpus_session_oracle.py" > scripts/pgn_real_corpus_session_oracle.py
