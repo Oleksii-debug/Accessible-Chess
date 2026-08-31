@@ -73,6 +73,40 @@ class ChessBaseLibraryImportReport:
 
 CancelCheck = Callable[[], bool]
 ProgressCallback = Callable[[LibraryImportProgress], None]
+_LIBCBH_UNSUPPORTED_CHESS960_RECORD = 960
+
+
+def _library_warnings(
+    warnings: tuple[ChessBaseDecodeWarning, ...] | list[ChessBaseDecodeWarning],
+) -> tuple[ChessBaseDecodeWarning, ...]:
+    """Project adapter transport losses into stable user-facing capability loss.
+
+    Protocol v1 keeps the generic backend-skipped shape for compatibility.  The
+    optional Accessible Chess libcbh bridge reserves code 960 specifically for
+    an explicitly detected Chess960/Fischer Random record.  Translate only that
+    exact bounded transport value at the ChessBase application seam; unrelated
+    backend parse skips retain their original diagnostics.
+    """
+
+    projected: list[ChessBaseDecodeWarning] = []
+    expected_message = (
+        f"backend record skipped with code {_LIBCBH_UNSUPPORTED_CHESS960_RECORD}"
+    )
+    for warning in warnings:
+        if (
+            warning.code == "backend_record_skipped"
+            and warning.message == expected_message
+        ):
+            projected.append(
+                ChessBaseDecodeWarning(
+                    warning.game_index,
+                    "unsupported_variant",
+                    "Chess960/Fischer Random record is unsupported and was not imported",
+                )
+            )
+        else:
+            projected.append(warning)
+    return tuple(projected)
 
 
 def chessbase_family_sha256(snapshot: ChessBaseIntegritySnapshot) -> str:
@@ -218,7 +252,7 @@ class ChessBaseLibraryImportService:
         ) = self._decode_source(path)
         _poll_cancel(cancel_check)
 
-        warnings = tuple(decoded.warnings)
+        warnings = _library_warnings(decoded.warnings)
         if not decoded.games:
             return ChessBaseLibraryImportReport(
                 status=ChessBaseLibraryImportStatus.NO_GAMES,
