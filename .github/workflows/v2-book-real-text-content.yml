@@ -24,7 +24,7 @@ env:
   PACKAGE_BASE_SHA: 23a5825845370db5dda67be93326fcdf84dffc40
   PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
   BOOK_URL: https://www.gutenberg.org/ebooks/5614.txt.utf-8
-  BOOK_SHA256: UNPINNED
+  BOOK_SHA256: 2746ab9364067ce9332aeff8242dc9f7c8592eee53836ed73179990478c6cbdb
 
 jobs:
   verify:
@@ -148,11 +148,6 @@ jobs:
         shell: bash
         run: |
           set -uo pipefail
-          if [ "$BOOK_SHA256" = "UNPINNED" ]; then
-            echo 'REAL_TEXT_CORPUS_STATUS=RED_UNPINNED_SHA'
-            echo 'REAL_TEXT_CORPUS_RC=2' >> "$GITHUB_ENV"
-            exit 0
-          fi
           python -m scripts.v2_real_text_book_oracle real-book-5614.txt --expected-sha256 "$BOOK_SHA256"
           rc=$?
           echo "REAL_TEXT_CORPUS_RC=$rc" >> "$GITHUB_ENV"
