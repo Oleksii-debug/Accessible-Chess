@@ -46,6 +46,15 @@ MAX_PGN_TAG_VALUE_CHARS = 1 * 1024 * 1024
 MAX_PGN_TAGS_PER_GAME = 4_096
 MAX_PGN_GAMES = 100_000
 
+# Large-file streaming deliberately raises only whole-source transport/work
+# ceilings. Every individual frame remains subject to the canonical limits
+# above. Keeping this policy here prevents transport adapters from inventing
+# independent parser budgets or resetting lexical work for every game.
+MAX_STREAMING_PGN_SOURCE_BYTES = 4 * 1024 * 1024 * 1024
+MAX_STREAMING_PGN_TEXT_CHARS = 4 * 1024 * 1024 * 1024
+MAX_STREAMING_PGN_LEXICAL_TOKENS = 50_000_000
+MAX_STREAMING_PGN_GAMES = 250_000
+
 
 class PgnRoundTripErrorCode(str, Enum):
     INVALID_TEXT = "invalid_text"
@@ -76,6 +85,101 @@ class PgnRoundTripError(ValueError):
 
 
 @dataclass(frozen=True, slots=True)
+class PgnSourceLimits:
+    """Canonical cumulative work limits for one complete PGN source."""
+
+    max_source_bytes: int
+    max_text_chars: int
+    max_lexical_tokens: int
+    max_games: int
+
+    def __post_init__(self) -> None:
+        for name, value in (
+            ("max_source_bytes", self.max_source_bytes),
+            ("max_text_chars", self.max_text_chars),
+            ("max_lexical_tokens", self.max_lexical_tokens),
+            ("max_games", self.max_games),
+        ):
+            if type(value) is not int:
+                raise TypeError(f"{name} must be an integer")
+            if value < 1:
+                raise ValueError(f"{name} must be positive")
+
+
+WHOLE_DOCUMENT_PGN_LIMITS = PgnSourceLimits(
+    max_source_bytes=MAX_PGN_SOURCE_BYTES,
+    max_text_chars=MAX_PGN_TEXT_CHARS,
+    max_lexical_tokens=MAX_PGN_LEXICAL_TOKENS,
+    max_games=MAX_PGN_GAMES,
+)
+
+STREAMING_PGN_SOURCE_LIMITS = PgnSourceLimits(
+    max_source_bytes=MAX_STREAMING_PGN_SOURCE_BYTES,
+    max_text_chars=MAX_STREAMING_PGN_TEXT_CHARS,
+    max_lexical_tokens=MAX_STREAMING_PGN_LEXICAL_TOKENS,
+    max_games=MAX_STREAMING_PGN_GAMES,
+)
+
+
+@dataclass(slots=True)
+class PgnSourceBudget:
+    """Accumulate source-wide bytes, text, tokens and games without resets."""
+
+    limits: PgnSourceLimits
+    source_bytes: int = 0
+    text_chars: int = 0
+    lexical_tokens: int = 0
+    games: int = 0
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.limits, PgnSourceLimits):
+            raise TypeError("limits must be PgnSourceLimits")
+        for name in ("source_bytes", "text_chars", "lexical_tokens", "games"):
+            if getattr(self, name) != 0:
+                raise ValueError("new PGN source budgets must start at zero")
+
+    @staticmethod
+    def _validate_amount(amount: object) -> int:
+        if type(amount) is not int:
+            raise TypeError("PGN budget amount must be an integer")
+        if amount < 0:
+            raise ValueError("PGN budget amount must be non-negative")
+        return amount
+
+    def claim_source_bytes(self, amount: int) -> None:
+        self.source_bytes += self._validate_amount(amount)
+        if self.source_bytes > self.limits.max_source_bytes:
+            _raise_limit(
+                "PGN source exceeds the byte safety limit",
+                PgnRoundTripErrorCode.BYTE_SIZE_LIMIT,
+            )
+
+    def claim_text_chars(self, amount: int) -> None:
+        self.text_chars += self._validate_amount(amount)
+        if self.text_chars > self.limits.max_text_chars:
+            _raise_limit(
+                "PGN source exceeds the decoded-text safety limit",
+                PgnRoundTripErrorCode.TEXT_SIZE_LIMIT,
+            )
+
+    def claim_lexical_tokens(self, amount: int = 1) -> None:
+        self.lexical_tokens += self._validate_amount(amount)
+        if self.lexical_tokens > self.limits.max_lexical_tokens:
+            _raise_limit(
+                "PGN source exceeds the lexical-work safety limit",
+                PgnRoundTripErrorCode.TOKEN_COUNT_LIMIT,
+            )
+
+    def claim_games(self, amount: int) -> None:
+        self.games += self._validate_amount(amount)
+        if self.games > self.limits.max_games:
+            _raise_limit(
+                "PGN source contains too many games",
+                PgnRoundTripErrorCode.GAME_COUNT_LIMIT,
+            )
+
+
+@dataclass(frozen=True, slots=True)
 class PgnRoundTripResult:
     """One canonical serialization and the reparsed equivalent GameTrees."""
 
@@ -98,13 +202,14 @@ def _raise_limit(message: str, code: PgnRoundTripErrorCode) -> None:
     raise PgnRoundTripError(message, code=code)
 
 
-def _claim_token(counter: list[int]) -> None:
+def _claim_token(counter: list[int], source_budget: PgnSourceBudget) -> None:
     counter[0] += 1
     if counter[0] > MAX_PGN_LEXICAL_TOKENS:
         _raise_limit(
             "PGN contains too many lexical tokens",
             PgnRoundTripErrorCode.TOKEN_COUNT_LIMIT,
         )
+    source_budget.claim_lexical_tokens()
 
 
 def _preflight_recovered_brace_comment_lengths(normalized: str) -> None:
@@ -141,9 +246,20 @@ def _preflight_recovered_brace_comment_lengths(normalized: str) -> None:
         index = next_index
 
 
-def _preflight_text(text: object) -> str:
+def _preflight_text(
+    text: object,
+    *,
+    source_budget: PgnSourceBudget | None = None,
+    text_precounted: bool = False,
+) -> str:
     """Bound lexical work before the recovery parser allocates token objects."""
 
+    if type(text_precounted) is not bool:
+        raise TypeError("text_precounted must be a boolean")
+    if source_budget is None:
+        source_budget = PgnSourceBudget(WHOLE_DOCUMENT_PGN_LIMITS)
+    if not isinstance(source_budget, PgnSourceBudget):
+        raise TypeError("source_budget must be PgnSourceBudget")
     if type(text) is not str:
         raise PgnRoundTripError(
             "PGN text must be exact text",
@@ -154,6 +270,8 @@ def _preflight_text(text: object) -> str:
             "PGN text exceeds the character safety limit",
             PgnRoundTripErrorCode.TEXT_SIZE_LIMIT,
         )
+    if not text_precounted:
+        source_budget.claim_text_chars(len(text))
 
     normalized = text.replace("\r\n", "\n").replace("\r", "\n")
     _preflight_recovered_brace_comment_lengths(normalized)
@@ -188,7 +306,7 @@ def _preflight_text(text: object) -> str:
                     "PGN tag value exceeds the field safety limit",
                     PgnRoundTripErrorCode.TAG_SIZE_LIMIT,
                 )
-            _claim_token(token_count)
+            _claim_token(token_count, source_budget)
             continue
 
         if line.strip() and not inside_brace:
@@ -199,7 +317,7 @@ def _preflight_text(text: object) -> str:
         def flush_token() -> None:
             nonlocal token_length
             if token_length:
-                _claim_token(token_count)
+                _claim_token(token_count, source_budget)
                 token_length = 0
 
         index = 0
@@ -208,7 +326,7 @@ def _preflight_text(text: object) -> str:
             if inside_brace:
                 if character == "}":
                     inside_brace = False
-                    _claim_token(token_count)
+                    _claim_token(token_count, source_budget)
                     brace_length = 0
                 else:
                     brace_length += 1
@@ -234,7 +352,7 @@ def _preflight_text(text: object) -> str:
                         "PGN semicolon comment exceeds the field safety limit",
                         PgnRoundTripErrorCode.COMMENT_SIZE_LIMIT,
                     )
-                _claim_token(token_count)
+                _claim_token(token_count, source_budget)
                 break
             if character.isspace():
                 flush_token()
@@ -242,7 +360,7 @@ def _preflight_text(text: object) -> str:
                 continue
             if character in "()":
                 flush_token()
-                _claim_token(token_count)
+                _claim_token(token_count, source_budget)
                 index += 1
                 continue
             if character == "[" and token_length == 0:
@@ -286,6 +404,8 @@ def decode_pgn_bytes(data: object) -> str:
             "PGN byte input exceeds the safety limit",
             PgnRoundTripErrorCode.BYTE_SIZE_LIMIT,
         )
+    source_budget = PgnSourceBudget(WHOLE_DOCUMENT_PGN_LIMITS)
+    source_budget.claim_source_bytes(len(data))
     try:
         text = data.decode("utf-8-sig", errors="strict")
     except UnicodeDecodeError as exc:
@@ -293,7 +413,7 @@ def decode_pgn_bytes(data: object) -> str:
             "PGN is not valid UTF-8",
             code=PgnRoundTripErrorCode.INVALID_ENCODING,
         ) from exc
-    return _preflight_text(text)
+    return _preflight_text(text, source_budget=source_budget)
 
 
 def _split_attached_annotation(node: MoveNode) -> None:
@@ -347,7 +467,13 @@ def _normalize_and_validate_line(line: VariationLine, *, depth: int = 0) -> None
         _validate_parsed_comment_size(comment)
 
 
-def parse_pgn_text(text: object, *, strict: bool = True) -> tuple[PgnGame, ...]:
+def parse_pgn_text(
+    text: object,
+    *,
+    strict: bool = True,
+    source_budget: PgnSourceBudget | None = None,
+    text_precounted: bool = False,
+) -> tuple[PgnGame, ...]:
     """Parse bounded PGN into canonical GameTrees.
 
     ``strict=True`` is the edit/write contract: any recovery warning means the
@@ -356,13 +482,22 @@ def parse_pgn_text(text: object, *, strict: bool = True) -> tuple[PgnGame, ...]:
     inspection while retaining D06 resource bounds and SAN normalization.
     """
 
-    normalized = _preflight_text(text)
+    if source_budget is None:
+        source_budget = PgnSourceBudget(WHOLE_DOCUMENT_PGN_LIMITS)
+    if not isinstance(source_budget, PgnSourceBudget):
+        raise TypeError("source_budget must be PgnSourceBudget")
+    normalized = _preflight_text(
+        text,
+        source_budget=source_budget,
+        text_precounted=text_precounted,
+    )
     games = tuple(parse_games(normalized))
     if len(games) > MAX_PGN_GAMES:
         _raise_limit(
             "PGN contains too many games",
             PgnRoundTripErrorCode.GAME_COUNT_LIMIT,
         )
+    source_budget.claim_games(len(games))
     if strict and not games:
         raise PgnRoundTripError(
             "PGN contains no game",
