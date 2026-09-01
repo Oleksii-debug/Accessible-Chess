@@ -1,0 +1,61 @@
+{
+  "schema_version": 1,
+  "role": "V2-CHESSBASE-FORMATS",
+  "lane_key": "ACCESSIBLE-CHESS-V2-2CBV-OFFICIAL-ARCHIVE-RECOGNITION-20260901",
+  "upstream": {
+    "repository": "Oleksii-debug/Accessible-Chess",
+    "pr": 295,
+    "sha": "575ec0088982d2f90adb47c040a5714d68186b0e"
+  },
+  "format": {
+    "id": "2cbv",
+    "extension": ".2cbv",
+    "status": "BLOCKED",
+    "recognized": true,
+    "source_kind": "modern_archive_container_unqualified_payload",
+    "decoder_available": false,
+    "safe_to_import": false,
+    "support_promotion_allowed": false
+  },
+  "official_evidence": {
+    "current_chessbase_26_url": "https://en.chessbase.com/newsroom/post/chessbase-26-tips-for-beginners-part-29-creating-effective-training-material-part-3?page=0",
+    "current_chessbase_26_published": "2026-08-30",
+    "claim": "ChessBase creates a complete database archive as CBV or 2CBV so a multi-file database can be sent as one file.",
+    "older_chessbase_18_url": "https://en.chessbase.com/post/chessbase-18-tips-for-beginners-part-29-creating-effective-training-material-part-3"
+  },
+  "real_world_lead": {
+    "url": "https://sites.google.com/view/australianchess/home/faqs",
+    "description": "Public Australian Chess material documents and distributes CBV/2CBV archives; 2CBV is used for modern ChessBase 17-era material.",
+    "acceptance_fixture_qualified": false,
+    "explicit_repository_ci_redistribution_rights": false,
+    "independent_exact_byte_pgn_oracle": false
+  },
+  "pinned_backend_probe": {
+    "repository": "antoyo/uncbv",
+    "commit": "3c18e8a7c6a30c21f945a1ab5462521c306dca57",
+    "license": "GPL-3.0",
+    "2cbv_source_reference_found": false,
+    "2cbv_fixture_found": false,
+    "2cbv_decoder_qualified": false,
+    "classic_cbv_compatibility_inferred": false
+  },
+  "integrity_boundary": {
+    "opaque_single_file_snapshot_allowed": true,
+    "later_mutation_detected_by_existing_snapshot_contract": true,
+    "semantic_payload_validated": false,
+    "opened_handle_identity_race_safe_claim": false
+  },
+  "acceptance_requirements_remaining": [
+    "lawful exact 2CBV bytes with automated test rights",
+    "pinned licensed reader or independently qualified decoder",
+    "independent PGN/GameTree oracle tied to exact source bytes",
+    "canonical legality and GameTree validation",
+    "atomic ACSDB/Library publication",
+    "Search/Open equivalence",
+    "PGN export and reopen semantic equivalence",
+    "source integrity validation across decode",
+    "applicable Windows runtime evidence"
+  ],
+  "nvda_verified": false,
+  "version2_windows_zip": false
+}
