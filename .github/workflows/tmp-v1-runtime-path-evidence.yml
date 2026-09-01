@@ -1,0 +1,111 @@
+name: Temporary RC3 V1 Runtime Path Evidence
+
+on:
+  push:
+    branches:
+      - tmp/v2-data-v1-runtime-path-evidence-20260901
+    paths:
+      - '.github/workflows/tmp-v1-runtime-path-evidence.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  evidence:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Reconstruct exact shipped RC3 source
+        shell: bash
+        run: |
+          set -euo pipefail
+          ordered=(
+            build_snapshot_exact/group00.b64
+            build_snapshot_exact/group01.b64
+            build_parts10k/part04.b64
+            build_parts10k/part05.b64
+            build_parts10k/part06.b64
+            build_parts10k/part07.b64
+          )
+          for f in "${ordered[@]}"; do test -f "$f"; done
+          cat "${ordered[@]}" | tr -cd 'A-Za-z0-9+/=' > stage1_source.b64
+          test "$(wc -c < stage1_source.b64)" -eq 77128
+          base64 -d stage1_source.b64 > stage1_source.zip
+          test "$(wc -c < stage1_source.zip)" -eq 57844
+          test "$(sha256sum stage1_source.zip | awk '{print $1}')" = 'cb0a89778b436cdf44c42e3207ef9638160a992b372156bc4d901391717a1e6a'
+          mkdir work
+          unzip -q stage1_source.zip -d work
+          test -f work/acs/main.py
+          test -f work/acs/storage.py
+          test -f work/run_accessible_chess.py
+      - name: Extract runtime path evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          import ast, hashlib, json, re
+
+          root = Path('work')
+          targets = sorted([*root.rglob('*.py')])
+          patterns = re.compile(r'Library|storage|LOCALAPPDATA|APPDATA|USERPROFILE|Path\.home|expanduser|settings|\.db|\.sqlite|library', re.I)
+          rows = []
+          for path in targets:
+              text = path.read_text(encoding='utf-8')
+              rel = path.relative_to(root).as_posix()
+              for n, line in enumerate(text.splitlines(), 1):
+                  if patterns.search(line):
+                      rows.append({'file': rel, 'line': n, 'text': line.rstrip()})
+
+          calls = []
+          for path in targets:
+              text = path.read_text(encoding='utf-8')
+              tree = ast.parse(text, filename=str(path))
+              for node in ast.walk(tree):
+                  if isinstance(node, ast.Call):
+                      fn = node.func
+                      name = fn.id if isinstance(fn, ast.Name) else fn.attr if isinstance(fn, ast.Attribute) else ''
+                      if name == 'Library':
+                          calls.append({
+                              'file': path.relative_to(root).as_posix(),
+                              'line': node.lineno,
+                              'source': ast.get_source_segment(text, node),
+                          })
+
+          important = ['acs/main.py', 'acs/storage.py', 'acs/settings.py', 'run_accessible_chess.py']
+          hashes = {}
+          excerpts = {}
+          for rel in important:
+              p = root / rel
+              if p.exists():
+                  data = p.read_bytes()
+                  hashes[rel] = hashlib.sha256(data).hexdigest()
+                  excerpts[rel] = p.read_text(encoding='utf-8').splitlines()
+
+          report = {
+              'evidence_kind': 'immutable-shipped-rc3-source-reconstruction',
+              'tag_commit': '1a8934a0f7125262cfdb9854e459ffcd22e55348',
+              'source_zip_size': 57844,
+              'source_zip_sha256': 'cb0a89778b436cdf44c42e3207ef9638160a992b372156bc4d901391717a1e6a',
+              'library_calls': calls,
+              'path_related_lines': rows,
+              'important_file_sha256': hashes,
+              'important_file_lines': excerpts,
+          }
+          Path('V1_RUNTIME_PATH_EVIDENCE.json').write_text(json.dumps(report, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+          print(json.dumps({'library_calls': calls, 'important_file_sha256': hashes}, ensure_ascii=False, indent=2))
+          PY
+          test -s V1_RUNTIME_PATH_EVIDENCE.json
+      - name: Commit evidence report only
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'accessible-chess-evidence-bot'
+          git config user.email 'actions@users.noreply.github.com'
+          git add V1_RUNTIME_PATH_EVIDENCE.json
+          git diff --cached --check
+          git commit -m 'evidence: record shipped RC3 V1 runtime data path'
+          git push origin HEAD:tmp/v2-data-v1-runtime-path-evidence-20260901
