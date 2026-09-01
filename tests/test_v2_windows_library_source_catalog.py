@@ -12,7 +12,6 @@ from acs.library_import_service import LibraryImportService
 from acs.library_source_service import (
     LibrarySourceCatalogService,
     SourceCatalogCancelledError,
-    SourceCatalogPage,
 )
 from acs.search_service import GameSearchPage
 from acs.version2_windows_library_source_catalog import (
@@ -53,6 +52,47 @@ class _FailureCatalog(LibrarySourceCatalogService):
 
     def list_sources(self, query=None, *, cancel_check=None):
         raise RuntimeError(r"C:\Users\Private\library.acsdb traceback provider=secret")
+
+
+class _DelayedCatalog(LibrarySourceCatalogService):
+    def __init__(
+        self,
+        database: AcsDatabase,
+        *,
+        detail_entered: threading.Event,
+        detail_release: threading.Event,
+        games_entered: threading.Event,
+        games_release: threading.Event,
+    ) -> None:
+        super().__init__(database)
+        self._detail_entered = detail_entered
+        self._detail_release = detail_release
+        self._games_entered = games_entered
+        self._games_release = games_release
+
+    def get_source(self, source_id: int, *, cancel_check=None):
+        self._detail_entered.set()
+        if not self._detail_release.wait(5.0):
+            raise RuntimeError("detail test gate timed out")
+        return super().get_source(source_id, cancel_check=cancel_check)
+
+    def source_games(
+        self,
+        source_id: int,
+        *,
+        after_game_id: int | None = None,
+        limit: int = 50,
+        cancel_check=None,
+    ):
+        self._games_entered.set()
+        if not self._games_release.wait(5.0):
+            raise RuntimeError("games test gate timed out")
+        return super().source_games(
+            source_id,
+            after_game_id=after_game_id,
+            limit=limit,
+            cancel_check=cancel_check,
+        )
 
 
 class V2WindowsLibrarySourceCatalogTests(unittest.TestCase):
@@ -201,7 +241,6 @@ class V2WindowsLibrarySourceCatalogTests(unittest.TestCase):
         self.assertTrue(page2.has_previous)
         self.assertEqual([row.source_name for row in page2.rows], ["source-2.pgn", "source-3.pgn"])
 
-        # Appending later data must not change the already-traversed keyset identity.
         self._import(source_name="source-5.pgn", digest_char="f")
 
         self.assertTrue(controller.previous_page())
@@ -272,9 +311,82 @@ class V2WindowsLibrarySourceCatalogTests(unittest.TestCase):
         self.assertTrue(all(item.source_id == source_id for item in games[0].items))
         self.assertEqual(events[-1].kind, SourceCatalogUiEventKind.GAMES_READY)
         self.assertEqual(events[-1].focus_target, "library-game-list")
-        # Canonical game rows stay on the trusted application callback, not the UI event DTO.
         self.assertNotIn(str(source_id), repr(events[-1]))
         self.assertNotIn("start_fen", repr(events[-1]))
+
+    def test_async_detail_and_games_do_not_publish_for_a_changed_same_page_selection(self) -> None:
+        first_source = self._import(
+            source_name="first.pgn",
+            digest_char="a",
+            game_count=3,
+        )
+        self._import(
+            source_name="second.pgn",
+            digest_char="b",
+            game_count=2,
+        )
+        detail_entered = threading.Event()
+        detail_release = threading.Event()
+        games_entered = threading.Event()
+        games_release = threading.Event()
+        events = []
+        games = []
+        posted: list[object] = []
+
+        def factory():
+            database = AcsDatabase(self.db_path)
+            service = _DelayedCatalog(
+                database,
+                detail_entered=detail_entered,
+                detail_release=detail_release,
+                games_entered=games_entered,
+                games_release=games_release,
+            )
+            return service, database.close
+
+        controller = Version2WindowsLibrarySourceCatalogController(
+            factory,
+            event_sink=events.append,
+            trusted_games_sink=games.append,
+            post_to_ui=posted.append,
+        )
+        self.assertTrue(controller.load())
+        self._complete(controller, posted)
+        page = controller.page
+        assert page is not None
+        generation = page.generation
+        self.assertTrue(controller.select(0, generation=generation))
+        self._flush(posted)
+
+        self.assertTrue(controller.selected_detail())
+        self.assertTrue(detail_entered.wait(5.0))
+        self.assertTrue(controller.select(1, generation=generation))
+        self._flush(posted)
+        detail_release.set()
+        self._complete(controller, posted)
+        self.assertEqual(events[-1].kind, SourceCatalogUiEventKind.SELECTION)
+        self.assertEqual(events[-1].detail.source_name, "second.pgn")
+        self.assertFalse(any(event.kind == SourceCatalogUiEventKind.DETAIL for event in events[-2:]))
+
+        self.assertTrue(controller.select(0, generation=generation))
+        self._flush(posted)
+        marker = len(events)
+        self.assertTrue(controller.open_selected_games(limit=2))
+        self.assertTrue(games_entered.wait(5.0))
+        self.assertTrue(controller.select(1, generation=generation))
+        self._flush(posted)
+        games_release.set()
+        self._complete(controller, posted)
+        self.assertEqual(games, [])
+        self.assertFalse(
+            any(
+                event.kind == SourceCatalogUiEventKind.GAMES_READY
+                for event in events[marker:]
+            )
+        )
+        self.assertEqual(events[-1].kind, SourceCatalogUiEventKind.SELECTION)
+        self.assertEqual(events[-1].detail.source_name, "second.pgn")
+        self.assertNotIn(str(first_source), repr(events[-1]))
 
     def test_format_filter_and_zero_game_source_are_preserved_without_ui_search_truth(self) -> None:
         self._import(source_name="one.pgn", digest_char="a", source_format="PGN")
