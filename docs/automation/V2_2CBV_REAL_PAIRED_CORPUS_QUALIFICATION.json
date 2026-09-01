@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "role": "V2-CHESSBASE-FORMATS",
+  "lane_key": "ACCESSIBLE-CHESS-V2-2CBV-REAL-PAIRED-CORPUS-QUALIFICATION-20260901",
+  "upstream": {
+    "pr": 429,
+    "sha": "6280d7d701330fc176d282387205d8c8183b3321"
+  },
+  "format": {
+    "id": "2CBV",
+    "status": "BLOCKED",
+    "support_promotion_allowed": false,
+    "decoder_qualified": false,
+    "semantic_acceptance_executed": false
+  },
+  "candidate": {
+    "event": "Berliner Einzelmeisterschaft 2024 - M-Klasse",
+    "dates": "2024-03-30/2024-04-07",
+    "mattnetz_page": "https://www.sv-mattnetz-berlin.de/?cat=19",
+    "mattnetz_claim": "public same-event PGN, CBV and 2CBV downloads for the first eight boards, all rounds",
+    "independent_pgn_page": "https://www.berlinerschachverband.de/berliner-einzelmeisterschaft-m-klasse.html",
+    "independent_pgn_claim": "Berliner Schachverband independently publishes M-Klasse PGN files by round",
+    "same_event_pairing_evidence": true,
+    "runtime_exact_link_and_hash_probe_required": true
+  },
+  "legal_boundary": {
+    "public_download_invitation_observed": true,
+    "explicit_repository_redistribution_license_found": false,
+    "explicit_ci_redistribution_license_found": false,
+    "commit_real_payload_bytes": false,
+    "upload_real_payload_bytes_as_artifact": false,
+    "runtime_probe_may_emit_only_url_size_hash_provenance": true
+  },
+  "acceptance_blockers": [
+    "exact 2CBV payload identity must be reproducibly obtained rather than a preview/interstitial",
+    "explicit reuse terms must be sufficient for any retained or redistributed fixture bytes",
+    "a pinned licensed 2CBV reader/backend is still absent",
+    "independent PGN must be bound semantically to decoded exact 2CBV bytes",
+    "canonical GameTree legality and metadata equivalence are unproven",
+    "Library/Search/Open/Export/Reopen/Integrity acceptance is unproven"
+  ],
+  "runtime_probe": {
+    "script": "scripts/v2_2cbv_real_paired_corpus_probe.py",
+    "max_html_bytes": 2097152,
+    "max_download_bytes": 67108864,
+    "payload_bytes_persisted": false,
+    "report_only_artifact": true
+  },
+  "nvda_verified": false,
+  "version2_windows_zip": false
+}
