@@ -86,12 +86,21 @@ class Dev07RealCbhCorpusTests(unittest.TestCase):
         self.assertTrue(any("=N" in san for san in promotion_sans))
         self.assertTrue(any("=B" in san for san in promotion_sans))
 
-    def test_unusual_starts_and_real_zero_ply_game_survive(self) -> None:
-        decoded = self._decode("gtest/UnusualStart/UnusualStartBytes.cbh")
-        self.assertEqual(len(decoded.games), 9)
-        zero_ply = [game for game in decoded.games if not game.line.moves]
-        self.assertGreaterEqual(len(zero_ply), 1)
-        self.assertTrue(any(game.tags.get("SetUp") == "1" and game.tags.get("FEN") for game in decoded.games))
+    def test_unusual_start_zero_ply_backend_boundary_is_not_overclaimed(self) -> None:
+        decoded = decode_chessbase_external(
+            self.root / "gtest/UnusualStart/UnusualStartBytes.cbh",
+            self.config,
+        )
+        self.assertEqual(decoded.backend_commit, LIBCBH_COMMIT)
+        self.assertEqual(decoded.games, ())
+        self.assertEqual(len(decoded.warnings), 9)
+        self.assertTrue(
+            all(
+                warning.code == "backend_record_skipped"
+                and warning.message == "backend record skipped with code 406"
+                for warning in decoded.warnings
+            )
+        )
 
     def test_real_with_variations_reaches_library_export_and_reopen(self) -> None:
         source = self.root / "gtest/WithVariations/WithVariations.cbh"
@@ -102,10 +111,27 @@ class Dev07RealCbhCorpusTests(unittest.TestCase):
                 report = ChessBaseLibraryImportService(db, self.config).import_database(source)
                 self.assertEqual(report.warning_count, 0)
                 self.assertEqual(report.imported_game_count, report.decoded_game_count)
-                page = GameSearchService(db).search(
-                    GameSearchQuery(source_id=report.library_result.source_id, limit=1000)
-                )
-                ordered = sorted(page.items, key=lambda item: item.source_index)
+                service = GameSearchService(db)
+                items = []
+                after_game_id = None
+                while True:
+                    page = service.search(
+                        GameSearchQuery(
+                            source_id=report.library_result.source_id,
+                            after_game_id=after_game_id,
+                            limit=200,
+                        )
+                    )
+                    items.extend(page.items)
+                    if not page.has_more:
+                        self.assertIsNone(page.next_after_game_id)
+                        break
+                    self.assertIsNotNone(page.next_after_game_id)
+                    assert page.next_after_game_id is not None
+                    if after_game_id is not None:
+                        self.assertGreater(page.next_after_game_id, after_game_id)
+                    after_game_id = page.next_after_game_id
+                ordered = sorted(items, key=lambda item: item.source_index)
                 self.assertEqual(len(ordered), report.imported_game_count)
                 games = []
                 for item in ordered:
