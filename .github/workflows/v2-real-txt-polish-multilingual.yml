@@ -1,0 +1,185 @@
+name: V2 Real Multilingual Polish TXT Book QA
+
+on:
+  pull_request:
+    branches:
+      - work/v2-book-text-markdown-content-20260831
+    paths:
+      - 'scripts/v2_real_polish_text_book_oracle.py'
+      - '.github/workflows/v2-real-txt-polish-multilingual.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: v2-real-txt-polish-multilingual-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  OWNER_SHA: 4e88c0a0bb9b125ee57ab4bc2d667876c00ffc92
+  PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+  HISTORY_URL: 'https://pl.wikibooks.org/w/index.php?title=Szachy%2FHistoria&oldid=192022&action=raw'
+  RULES_URL: 'https://pl.wikibooks.org/w/index.php?title=Szachy%2FOg%C3%B3lne_zasady_gry&oldid=125460&action=raw'
+  ENDGAME_URL: 'https://pl.wikibooks.org/w/index.php?title=Szachy%2FKoniec_gry&oldid=486248&action=raw'
+  HISTORY_SHA256: UNPINNED
+  RULES_SHA256: UNPINNED
+  ENDGAME_SHA256: UNPINNED
+
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Preserve committed Git bytes for cross-platform identity gates
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config core.autocrlf false
+          git config core.eol lf
+          git reset --hard HEAD
+          git checkout-index --force --all
+
+      - name: Restore frozen Stage1 blobs byte-exact on Windows
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          git cat-file blob HEAD:acs/stage1_release_ui_core.py > acs/stage1_release_ui_core.py
+          git cat-file blob HEAD:acs/webapp_keymap_core.py > acs/webapp_keymap_core.py
+          test "$(git hash-object --no-filters acs/stage1_release_ui_core.py)" = "b8586a26b9ab20c3d3ec0b0a3dbbbd53e38e94e6"
+          test "$(git hash-object --no-filters acs/webapp_keymap_core.py)" = "0ba06f548d39dad7372e0339b3e121fd1717cc05"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install pinned verification dependency
+        run: python -m pip install -q pytest==8.4.2
+
+      - name: Prove exact owner ancestry and QA-only scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          git cat-file -e "$OWNER_SHA^{commit}"
+          test "$PR_BASE_SHA" = "$OWNER_SHA"
+          test "$(git merge-base "$OWNER_SHA" HEAD)" = "$OWNER_SHA"
+          git diff --check "$OWNER_SHA" HEAD
+          changed="$(git diff --name-only "$OWNER_SHA" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/v2-real-txt-polish-multilingual.yml' \
+            'scripts/v2_real_polish_text_book_oracle.py' | sort)"
+          test "$changed" = "$expected"
+          git diff --quiet "$OWNER_SHA" HEAD -- \
+            acs tests web bridge tools/qa \
+            .github/workflows/v2-book-real-text-content.yml \
+            scripts/v2_real_text_book_oracle.py
+          echo 'POLISH TXT QA OWNERSHIP PASS'
+
+      - name: Compile QA and owner TXT surfaces
+        run: >-
+          python -m compileall -q
+          acs/book_text_import.py
+          scripts/v2_real_polish_text_book_oracle.py
+
+      - name: Focused existing TXT Book and semantic regressions
+        run: >-
+          python -m unittest -v
+          tests.test_v2_book_text_import
+          tests.test_bookdocument
+          tests.test_bookreader
+          tests.test_v2_book_progress_store
+
+      - name: Download pinned lawful Polish Wikibooks revisions transiently
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import hashlib
+          import os
+          import time
+          import urllib.request
+
+          sources = (
+              ("HISTORY", os.environ["HISTORY_URL"], "polish-history.txt"),
+              ("RULES", os.environ["RULES_URL"], "polish-rules.txt"),
+              ("ENDGAME", os.environ["ENDGAME_URL"], "polish-endgame.txt"),
+          )
+          for label, url, path in sources:
+              data = None
+              for attempt in range(4):
+                  try:
+                      request = urllib.request.Request(
+                          url,
+                          headers={"User-Agent": "Accessible-Chess-CI/1.0 multilingual-real-book-verification"},
+                      )
+                      with urllib.request.urlopen(request, timeout=60) as response:
+                          data = response.read()
+                      break
+                  except Exception:
+                      if attempt == 3:
+                          raise
+                      time.sleep(2 ** attempt)
+              assert data is not None
+              if not data or len(data) > 8 * 1024 * 1024:
+                  raise SystemExit(f"{label} corpus source violates #421 source bound")
+              data.decode("utf-8-sig")
+              with open(path, "wb") as stream:
+                  stream.write(data)
+              print(f"{label}_SOURCE_BYTES={len(data)}")
+              print(f"{label}_SOURCE_SHA256={hashlib.sha256(data).hexdigest()}")
+          PY
+
+      - name: Run real Polish multilingual TXT oracle nonfatal first
+        shell: bash
+        run: |
+          set -uo pipefail
+          python -m scripts.v2_real_polish_text_book_oracle \
+            --history polish-history.txt --history-sha256 "$HISTORY_SHA256" \
+            --rules polish-rules.txt --rules-sha256 "$RULES_SHA256" \
+            --endgame polish-endgame.txt --endgame-sha256 "$ENDGAME_SHA256"
+          rc=$?
+          echo "POLISH_TEXT_CORPUS_RC=$rc" >> "$GITHUB_ENV"
+          exit 0
+
+      - name: Upload multilingual TXT evidence summary only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v2-real-polish-txt-${{ matrix.os }}
+          path: book-real-polish-text-summary.json
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Re-materialize frozen Stage1 blobs before broad byte contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          git cat-file blob HEAD:acs/stage1_release_ui_core.py > acs/stage1_release_ui_core.py
+          git cat-file blob HEAD:acs/webapp_keymap_core.py > acs/webapp_keymap_core.py
+
+      - name: Full repository unittest
+        run: python -m unittest discover -s tests
+
+      - name: Full repository pytest
+        run: python -m pytest -q tests
+
+      - name: SELFTEST and complete diagnostic
+        run: |
+          python -m acs.selftest
+          python run_accessible_chess.py --diagnostic
+
+      - name: Enforce exact real multilingual corpus verdict
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${POLISH_TEXT_CORPUS_RC:-2}" = "0"
+          echo 'REAL POLISH MULTILINGUAL TXT ACCEPTANCE PASS'
