@@ -12,7 +12,7 @@ from acs.acsdb import AcsDatabase
 from acs.chessbase_decoder import ExternalChessBaseDecoderConfig, decode_chessbase_external
 from acs.chessbase_library_import import ChessBaseLibraryImportService
 from acs.game_identity import same_game_record, same_game_tree
-from acs.gametree import PgnGame, VariationLine, parse_games
+from acs.gametree import Comment, PgnGame, VariationLine, parse_games
 from acs.pgn_service import open_pgn, save_pgn_atomic
 from acs.search_service import GameSearchQuery, GameSearchService
 
@@ -116,6 +116,69 @@ def _feature_profile(games: tuple[PgnGame, ...]) -> dict[str, int]:
     return profile
 
 
+def _all_comments(game: PgnGame) -> tuple[Comment, ...]:
+    comments: list[Comment] = []
+
+    def visit(line: VariationLine) -> None:
+        comments.extend(line.leading_comments)
+        comments.extend(line.trailing_comments)
+        for move in line.moves:
+            comments.extend(move.comments_before)
+            comments.extend(move.comments_after)
+            for variation in move.variations:
+                visit(variation)
+
+    visit(game.line)
+    return tuple(comments)
+
+
+def _clock_comment_count(games: tuple[PgnGame, ...]) -> int:
+    return sum(
+        1
+        for game in games
+        for comment in _all_comments(game)
+        if comment.text.strip().startswith("[%clk ") and comment.text.strip().endswith("]")
+    )
+
+
+def _mainline_move_differences(
+    actual_games: tuple[PgnGame, ...], expected_games: tuple[PgnGame, ...]
+) -> list[dict[str, object]]:
+    differences: list[dict[str, object]] = []
+    for index, (actual, expected) in enumerate(zip(actual_games, expected_games)):
+        actual_san = tuple(move.san for move in actual.line.moves)
+        expected_san = tuple(move.san for move in expected.line.moves)
+        if actual_san == expected_san:
+            continue
+        common = min(len(actual_san), len(expected_san))
+        first_diff = next(
+            (ply for ply in range(common) if actual_san[ply] != expected_san[ply]),
+            common,
+        )
+        differences.append(
+            {
+                "game_index": index,
+                "actual_plies": len(actual_san),
+                "reference_plies": len(expected_san),
+                "first_diff_ply_zero_based": first_diff,
+                "actual_san": actual_san[first_diff] if first_diff < len(actual_san) else None,
+                "reference_san": expected_san[first_diff] if first_diff < len(expected_san) else None,
+            }
+        )
+    return differences
+
+
+def _tag_difference_counts(
+    actual_games: tuple[PgnGame, ...], expected_games: tuple[PgnGame, ...]
+) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for actual, expected in zip(actual_games, expected_games):
+        for key in set(actual.tags) | set(expected.tags):
+            if actual.tags.get(key) != expected.tags.get(key):
+                counts[key] = counts.get(key, 0) + 1
+    return dict(sorted(counts.items()))
+
+
 def _max_rss_kib() -> int | None:
     try:
         import resource
@@ -144,18 +207,23 @@ class RealCbhBielMTOCorpusTests(unittest.TestCase):
 
         before_hashes = _family_hashes(fixture)
         decoded = decode_chessbase_external(source, _decoder_config())
-        decoded_profile = _feature_profile(tuple(decoded.games))
+        decoded_games = tuple(decoded.games)
+        decoded_profile = _feature_profile(decoded_games)
 
         decoded_tree_mismatches = [
             index
-            for index, (actual, expected) in enumerate(zip(decoded.games, reference))
+            for index, (actual, expected) in enumerate(zip(decoded_games, reference))
             if not same_game_tree(actual, expected)
         ]
         decoded_record_mismatches = [
             index
-            for index, (actual, expected) in enumerate(zip(decoded.games, reference))
+            for index, (actual, expected) in enumerate(zip(decoded_games, reference))
             if not same_game_record(actual, expected)
         ]
+        mainline_move_differences = _mainline_move_differences(decoded_games, reference)
+        tag_difference_counts = _tag_difference_counts(decoded_games, reference)
+        reference_clock_comments = _clock_comment_count(reference)
+        decoded_clock_comments = _clock_comment_count(decoded_games)
 
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -228,11 +296,16 @@ class RealCbhBielMTOCorpusTests(unittest.TestCase):
             "reference_pgn_sha256": _sha256(reference_path),
             "family_file_count": len(before_hashes),
             "reference_games": len(reference),
-            "decoded_games": len(decoded.games),
+            "decoded_games": len(decoded_games),
             "decode_warning_count": len(decoded.warnings),
             "warning_codes": sorted({warning.code for warning in decoded.warnings}),
             "reference_profile": reference_profile,
             "decoded_profile": decoded_profile,
+            "reference_clock_comment_count": reference_clock_comments,
+            "decoded_clock_comment_count": decoded_clock_comments,
+            "mainline_move_mismatch_count": len(mainline_move_differences),
+            "mainline_move_mismatch_sample": mainline_move_differences[:20],
+            "tag_difference_counts": tag_difference_counts,
             "decoded_tree_mismatch_count": len(decoded_tree_mismatches),
             "decoded_tree_mismatch_sample": decoded_tree_mismatches[:20],
             "decoded_record_mismatch_count": len(decoded_record_mismatches),
@@ -266,7 +339,7 @@ class RealCbhBielMTOCorpusTests(unittest.TestCase):
         }
         print("CBH_BIELMTO_EVIDENCE=" + json.dumps(evidence, sort_keys=True, ensure_ascii=False))
 
-        self.assertEqual(len(decoded.games), len(reference), "real CBH decode count differs from independent PGN")
+        self.assertEqual(len(decoded_games), len(reference), "real CBH decode count differs from independent PGN")
         self.assertEqual(len(decoded.warnings), 0, "real CBH decode emitted loss warnings")
         self.assertEqual(decoded_tree_mismatches, [], "decoded GameTree semantics differ from independent PGN")
         self.assertEqual(decoded_record_mismatches, [], "decoded record semantics differ from independent PGN")
