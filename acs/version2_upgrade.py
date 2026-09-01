@@ -271,6 +271,47 @@ def _atomic_bytes(path: Path, payload: bytes) -> None:
             temp.unlink()
 
 
+def _publication_guard(path: Path) -> Path:
+    """Keep the authenticated pre-publication inode reachable across replace.
+
+    A legitimate writer can race after the last semantic re-authentication but
+    before the atomic name replacement. A same-filesystem hard link preserves
+    that exact inode so an in-place writer cannot be silently discarded by the
+    upgrader's replace. If the platform/filesystem cannot provide this guard,
+    publication fails closed rather than widening the data-loss window.
+    """
+    info = _safe_stat(path, "tracked publication target")
+    if not stat.S_ISREG(info.st_mode):
+        raise Version2UpgradeError("tracked publication target must be a file")
+    for _ in range(8):
+        guard = path.parent / (
+            f".{path.name}.publish-guard-{secrets.token_hex(6)}"
+        )
+        try:
+            os.link(path, guard)
+        except FileExistsError:
+            continue
+        except OSError as exc:
+            raise Version2UpgradeBusy(
+                "tracked publication cannot be protected safely"
+            ) from exc
+        try:
+            guard_info = _safe_stat(guard, "tracked publication guard")
+            if not stat.S_ISREG(guard_info.st_mode):
+                raise Version2UpgradeError(
+                    "tracked publication guard must be a file"
+                )
+            return guard
+        except Exception:
+            if guard.exists() or guard.is_symlink():
+                try:
+                    guard.unlink()
+                except OSError:
+                    pass
+            raise
+    raise Version2UpgradeBusy("tracked publication guard could not be allocated")
+
+
 def _atomic_json(path: Path, value: Mapping[str, object]) -> None:
     _atomic_bytes(
         path,
@@ -992,6 +1033,17 @@ class Version2UpgradeCoordinator:
                     raise Version2UpgradeBusy(
                         "library is busy during upgrade publication"
                     )
+                # A basename-specific WAL created in the final replace window
+                # cannot be retained by a hard-link guard on the main file.
+                # Persist DELETE mode while the database is quiescent so a
+                # subsequent legitimate writer commits to the guarded inode.
+                mode_row = connection.execute(
+                    "PRAGMA journal_mode=DELETE"
+                ).fetchone()
+                if not mode_row or str(mode_row[0]).casefold() != "delete":
+                    raise Version2UpgradeBusy(
+                        "library journal mode could not be normalized safely"
+                    )
             connection.execute("BEGIN IMMEDIATE")
             if _sqlite_state_sha256(connection) != expected_original:
                 connection.rollback()
@@ -1277,8 +1329,18 @@ class Version2UpgradeCoordinator:
                 manifest, self.layout.settings_name
             )
         expected = hashlib.sha256(payload).hexdigest()
+        original_state: str | None = None
+        if manifest is not None:
+            entry = self._manifest_tracked_entry(
+                manifest, self.layout.settings_name
+            )
+            if entry is None or not _is_sha256(entry.get("state_sha256")):
+                raise Version2UpgradeError(
+                    "settings backup tracked-state metadata is invalid"
+                )
+            original_state = str(entry["state_sha256"])
         if upgrade_id is not None:
-            if manifest is None:
+            if manifest is None or original_state is None:
                 raise ValueError(
                     "upgrade manifest is required with an upgrade identifier"
                 )
@@ -1292,12 +1354,39 @@ class Version2UpgradeCoordinator:
             self._assert_tracked_original(
                 manifest, self.layout.settings_name
             )
-        _atomic_bytes(path, payload)
-        if _hash(path) != expected:
-            raise Version2UpgradeError(
-                "settings migration publication verification failed"
-            )
-        return True
+
+        guard: Path | None = None
+        try:
+            if original_state is not None:
+                guard = _publication_guard(path)
+                if (
+                    _hash(guard) != original_state
+                    or _hash(path) != original_state
+                ):
+                    raise Version2UpgradeError(
+                        "tracked user data changed during settings publication"
+                    )
+            _atomic_bytes(path, payload)
+            if guard is not None and _hash(guard) != original_state:
+                # A writer changed the old inode after our final authentication.
+                # Put those exact user bytes back before failing closed.
+                os.replace(guard, path)
+                guard = None
+                _fsync_dir(path.parent)
+                raise Version2UpgradeError(
+                    "tracked user data changed during settings publication"
+                )
+            if _hash(path) != expected:
+                raise Version2UpgradeError(
+                    "settings migration publication verification failed"
+                )
+            return True
+        finally:
+            if guard is not None and (guard.exists() or guard.is_symlink()):
+                try:
+                    guard.unlink()
+                except OSError:
+                    pass
 
     def _migrate_library(
         self,
@@ -1384,17 +1473,43 @@ class Version2UpgradeCoordinator:
                 manifest, self.layout.library_name
             )
             self._prepare_library_publication(str(original_state))
-            os.replace(publish, self.layout.library_path)
-            _fsync_dir(self.layout.root)
-            if (
-                self._library_schema() != ACSDB_SCHEMA_VERSION
-                or self._tracked_state_sha256(self.layout.library_name)
-                != publish_state
-            ):
-                raise Version2UpgradeError(
-                    "library migration publication verification failed"
-                )
-            return True
+
+            guard: Path | None = _publication_guard(self.layout.library_path)
+            try:
+                if (
+                    _library_state_sha256(guard) != original_state
+                    or _library_state_sha256(self.layout.library_path)
+                    != original_state
+                ):
+                    raise Version2UpgradeError(
+                        "tracked user data changed during library publication"
+                    )
+                os.replace(publish, self.layout.library_path)
+                _fsync_dir(self.layout.root)
+                if _library_state_sha256(guard) != original_state:
+                    # Preserve a writer that committed to the authenticated old
+                    # inode after the final re-authentication but before replace.
+                    os.replace(guard, self.layout.library_path)
+                    guard = None
+                    _fsync_dir(self.layout.root)
+                    raise Version2UpgradeError(
+                        "tracked user data changed during library publication"
+                    )
+                if (
+                    self._library_schema() != ACSDB_SCHEMA_VERSION
+                    or self._tracked_state_sha256(self.layout.library_name)
+                    != publish_state
+                ):
+                    raise Version2UpgradeError(
+                        "library migration publication verification failed"
+                    )
+                return True
+            finally:
+                if guard is not None and (guard.exists() or guard.is_symlink()):
+                    try:
+                        guard.unlink()
+                    except OSError:
+                        pass
         finally:
             if database is not None:
                 close = getattr(database, "close", None)

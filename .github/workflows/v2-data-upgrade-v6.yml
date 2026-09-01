@@ -13,6 +13,7 @@ on:
       - 'tests/test_v2_upgrade_v6_successor.py'
       - 'tests/test_v2_upgrade_current_acsdb_identity_audit.py'
       - 'tests/test_v2_upgrade_tracked_writer_conflict.py'
+      - 'tests/test_v2_upgrade_publish_race_audit.py'
       - '.github/workflows/v2-data-upgrade-v6.yml'
       - '.github/workflows/v2-data-upgrade-tracked-writer.yml'
 
@@ -65,6 +66,7 @@ jobs:
             '.github/workflows/v2-data-upgrade-v6.yml' \
             'acs/version2_upgrade.py' \
             'tests/test_v2_upgrade_current_acsdb_identity_audit.py' \
+            'tests/test_v2_upgrade_publish_race_audit.py' \
             'tests/test_v2_upgrade_tracked_writer_conflict.py' \
             'tests/test_v2_upgrade_v6_successor.py' \
             'tests/test_version2_upgrade.py' \
@@ -82,6 +84,8 @@ jobs:
           python -m unittest -v
           tests.test_v2_upgrade_current_acsdb_identity_audit
           tests.test_v2_upgrade_v6_successor
+          tests.test_v2_upgrade_publish_race_audit
+          tests.test_v2_upgrade_tracked_writer_conflict
           tests.test_version2_upgrade
           tests.test_version2_upgrade_recovery_integrity
           tests.test_version2_upgrade_stale_writer
