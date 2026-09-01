@@ -1,0 +1,170 @@
+name: V2 2CBV Official Archive Recognition
+
+on:
+  push:
+    branches:
+      - work/v2-2cbv-official-archive-recognition-20260901
+  pull_request:
+    branches:
+      - work/version2-integration-formats-20260827
+    paths:
+      - "acs/chessbase_adapter.py"
+      - "tests/test_chessbase_adapter.py"
+      - "tests/test_v2_2cbv_official_archive_recognition.py"
+      - "docs/automation/V2_2CBV_OFFICIAL_ARCHIVE_RECOGNITION.json"
+      - "docs/automation/V2_2CBV_OFFICIAL_ARCHIVE_RECOGNITION.md"
+      - ".github/workflows/v2-2cbv-official-archive-recognition.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: accessible-chess-v2-2cbv-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  V2_FORMATS_BASE: 575ec0088982d2f90adb47c040a5714d68186b0e
+  UNCBV_REPOSITORY: antoyo/uncbv
+  UNCBV_COMMIT: 3c18e8a7c6a30c21f945a1ab5462521c306dca57
+
+jobs:
+  contract:
+    name: 2CBV recognition contract (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install pinned verification dependencies
+        run: python -m pip install -q pytest==8.4.2 jsonschema
+
+      - name: Exact ancestry, scope and compile
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor "$V2_FORMATS_BASE" HEAD
+          git diff --check "$V2_FORMATS_BASE" HEAD
+          mapfile -t changed < <(git diff --name-only "$V2_FORMATS_BASE" HEAD | sort)
+          expected=(
+            ".github/workflows/v2-2cbv-official-archive-recognition.yml"
+            "acs/chessbase_adapter.py"
+            "docs/automation/V2_2CBV_OFFICIAL_ARCHIVE_RECOGNITION.json"
+            "docs/automation/V2_2CBV_OFFICIAL_ARCHIVE_RECOGNITION.md"
+            "tests/test_chessbase_adapter.py"
+            "tests/test_v2_2cbv_official_archive_recognition.py"
+          )
+          mapfile -t expected_sorted < <(printf '%s\n' "${expected[@]}" | sort)
+          diff -u <(printf '%s\n' "${expected_sorted[@]}") <(printf '%s\n' "${changed[@]}")
+          python -m compileall -q acs tests run_accessible_chess.py
+
+      - name: Focused recognition and integrity regressions
+        run: >-
+          python -m unittest -v
+          tests.test_chessbase_adapter
+          tests.test_chessbase_integrity
+          tests.test_v2_2cbv_official_archive_recognition
+          tests.test_import_contract
+          tests.test_dev4_chessbase_integrity_atomicity
+          tests.test_dev4_chessbase_symlink_security
+
+      - name: Pytest parity
+        run: >-
+          python -m pytest -q
+          tests/test_chessbase_adapter.py
+          tests/test_chessbase_integrity.py
+          tests/test_v2_2cbv_official_archive_recognition.py
+          tests/test_import_contract.py
+          tests/test_dev4_chessbase_integrity_atomicity.py
+          tests/test_dev4_chessbase_symlink_security.py
+
+      - name: Validate machine evidence remains BLOCKED
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          data = json.loads(
+              Path("docs/automation/V2_2CBV_OFFICIAL_ARCHIVE_RECOGNITION.json").read_text(
+                  encoding="utf-8"
+              )
+          )
+          fmt = data["format"]
+          assert fmt["id"] == "2cbv"
+          assert fmt["extension"] == ".2cbv"
+          assert fmt["status"] == "BLOCKED"
+          assert fmt["recognized"] is True
+          assert fmt["decoder_available"] is False
+          assert fmt["safe_to_import"] is False
+          assert fmt["support_promotion_allowed"] is False
+          assert data["pinned_backend_probe"]["classic_cbv_compatibility_inferred"] is False
+          assert data["real_world_lead"]["acceptance_fixture_qualified"] is False
+          assert data["integrity_boundary"]["opened_handle_identity_race_safe_claim"] is False
+          PY
+
+  pinned-uncbv-probe:
+    name: Pinned uncbv 2CBV surface probe
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Checkout exact classic archive backend
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.UNCBV_REPOSITORY }}
+          ref: ${{ env.UNCBV_COMMIT }}
+          path: upstream/uncbv
+          fetch-depth: 1
+
+      - name: Verify exact backend identity and absence of 2CBV evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C upstream/uncbv rev-parse HEAD)" = "$UNCBV_COMMIT"
+          grep -F "GNU GENERAL PUBLIC LICENSE" upstream/uncbv/LICENSE >/dev/null
+          if find upstream/uncbv -type f -iname '*.2cbv' -print -quit | grep -q .; then
+            echo "Pinned uncbv unexpectedly contains a 2CBV fixture; requalify before claiming BLOCKED backend evidence."
+            exit 1
+          fi
+          if grep -R -i -n \
+            --include='*.rs' --include='*.adoc' --include='*.toml' \
+            '2cbv' upstream/uncbv; then
+            echo "Pinned uncbv unexpectedly exposes a 2CBV source surface; requalify instead of inheriting classic CBV assumptions."
+            exit 1
+          fi
+          find upstream/uncbv/tests -maxdepth 1 -type f \( -iname '*.cbv' -o -iname '*.cbz' \) -print | sort > uncbv-classic-archive-fixtures.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: v2-2cbv-pinned-uncbv-probe
+          path: uncbv-classic-archive-fixtures.txt
+
+  full-regression:
+    name: Full regression (Ubuntu)
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pytest==8.4.2 jsonschema
+
+      - name: Full unittest
+        run: python -m unittest discover -s tests -v
+
+      - name: Full pytest
+        run: python -m pytest -q tests

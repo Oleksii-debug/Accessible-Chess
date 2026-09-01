@@ -19,6 +19,7 @@ from .report_paths import report_safe_name
 _PRIMARY_EXTENSIONS = {
     ".cbh": "ChessBase database header/component set",
     ".cbv": "ChessBase archive/container",
+    ".2cbv": "ChessBase modern archive/container",
     ".cbf": "legacy ChessBase database",
     ".2cbh": "ChessBase 2CBH database",
     ".cbone": "ChessBase single-file database",
@@ -214,6 +215,9 @@ def probe_chessbase_source(path: str | Path) -> ChessBaseSourceProbe:
     if extension == ".cbv":
         source_kind = "archive_container"
         components: tuple[ChessBaseComponent, ...] = ()
+    elif extension == ".2cbv":
+        source_kind = "modern_archive_container_unqualified_payload"
+        components = ()
     elif extension == ".cbh":
         source_kind = "component_set"
         try:
@@ -263,6 +267,15 @@ def probe_chessbase_source(path: str | Path) -> ChessBaseSourceProbe:
         if extension == ".cbv":
             warnings.append(
                 "CBV is treated as an archive/container, distinct from the classic CBH component family."
+            )
+        elif extension == ".2cbv":
+            warnings.append(
+                "2CBV is an officially documented modern ChessBase archive filename, but filename recognition "
+                "does not establish payload compatibility with the classic CBV decoder or any semantic import support."
+            )
+            warnings.append(
+                "2CBV remains blocked until a pinned licensed reader, lawful exact corpus, independent semantic oracle, "
+                "canonical GameTree validation, and end-to-end Library/export/reopen equivalence are qualified."
             )
         elif extension == ".cbh":
             if topology_error:
