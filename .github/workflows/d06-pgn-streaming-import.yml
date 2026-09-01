@@ -175,15 +175,19 @@ jobs:
         run: |
           set -euo pipefail
           rm -f real-lichess-acsdb-v6-summary.json real-lichess-streaming-v6.log
-          # actions/checkout materializes text with the Windows CRLF policy before
-          # this workflow restores frozen Git blobs as exact LF bytes. Compare
-          # through Git's checkout normalization so platform-only line endings do
-          # not masquerade as Product residue; untracked files and semantic
-          # changes remain visible.
-          status="$(git -c core.autocrlf=true status --porcelain)"
-          if [ -n "$status" ]; then
-            printf '%s\n' 'Unexpected repository residue after acceptance:'
-            printf '%s\n' "$status"
-            git diff --name-status HEAD
+          # This repository contains both LF and historically committed CRLF text.
+          # The exact-byte bootstrap therefore makes Git's single autocrlf policy
+          # report false modifications in one direction or the other. Ignore only
+          # a carriage return at end-of-line while still detecting every semantic
+          # tracked-file change and every non-ignored untracked path.
+          if ! git diff --quiet --ignore-cr-at-eol HEAD; then
+            printf '%s\n' 'Unexpected tracked Product residue after acceptance:'
+            git diff --name-status --ignore-cr-at-eol HEAD
+            exit 1
+          fi
+          untracked="$(git ls-files --others --exclude-standard)"
+          if [ -n "$untracked" ]; then
+            printf '%s\n' 'Unexpected untracked residue after acceptance:'
+            printf '%s\n' "$untracked"
             exit 1
           fi
