@@ -50,6 +50,10 @@ jobs:
           git config core.autocrlf false
           git config core.eol lf
           git checkout-index --force --all
+          git cat-file blob HEAD:acs/stage1_release_ui_core.py > acs/stage1_release_ui_core.py
+          git cat-file blob HEAD:acs/webapp_keymap_core.py > acs/webapp_keymap_core.py
+          test "$(git hash-object acs/stage1_release_ui_core.py)" = "b8586a26b9ab20c3d3ec0b0a3dbbbd53e38e94e6"
+          test "$(git hash-object acs/webapp_keymap_core.py)" = "0ba06f548d39dad7372e0339b3e121fd1717cc05"
 
       - uses: actions/setup-python@v5
         with:
