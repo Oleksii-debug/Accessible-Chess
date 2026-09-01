@@ -1,0 +1,244 @@
+name: V2 Books HTML + D06 Recovery Composition
+
+on:
+  push:
+    branches:
+      - qa/v2-book-html-d06-recovery-composition-20260901
+  pull_request:
+    branches:
+      - work/v2-book-real-html-content-20260831
+    paths:
+      - '.github/workflows/v2-book-html-d06-recovery-composition.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: v2-book-html-d06-recovery-composition-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  composition:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    env:
+      HTML_OWNER_SHA: cc949235fba8a9c3f7cb36587a52cb23eed5546d
+      D06_OWNER_SHA: 0aa9df53a7dc1c67087eccf44e1785594eb6b3fe
+      BOOK_URL: https://www.gutenberg.org/files/16377/16377-h/16377-h.htm
+      BOOK_SHA256: 397cd3d816b6e685d30d3d7cfb36627cff415c754cc8f4e455c24da652d3c21e
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Preserve committed Git bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config core.autocrlf false
+          git config core.eol lf
+          git checkout-index --force --all
+
+      - name: Prove exact HTML parent and QA-only scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          git cat-file -e "$HTML_OWNER_SHA^{commit}"
+          test "$(git merge-base HEAD "$HTML_OWNER_SHA")" = "$HTML_OWNER_SHA"
+          git diff --check "$HTML_OWNER_SHA" HEAD
+          changed="$(git diff --name-only "$HTML_OWNER_SHA" HEAD | sort)"
+          expected='.github/workflows/v2-book-html-d06-recovery-composition.yml'
+          test "$changed" = "$expected" || {
+            printf 'Unexpected committed QA scope:\n%s\n' "$changed" >&2
+            exit 1
+          }
+          test "$(git rev-parse HEAD^)" = "$HTML_OWNER_SHA" || {
+            echo 'QA branch must remain a direct child of exact #391 head' >&2
+            exit 1
+          }
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install verification dependency
+        run: python -m pip install -q pytest==8.4.2
+
+      - name: Lock exact HTML owner blobs before composition
+        shell: bash
+        run: |
+          set -euo pipefail
+          for path in \
+            acs/book_html_import.py \
+            tests/test_v2_book_html_import.py \
+            scripts/v2_real_html_book_oracle.py \
+            acs/book_game_content.py \
+            acs/bookdocument.py \
+            acs/bookreader.py \
+            acs/book_index.py \
+            acs/book_progress_store.py \
+            acs/chesscore.py \
+            acs/acsdb.py \
+            acs/book_board_workflow.py \
+            acs/version2_windows_book_board_adapter.py \
+            acs/stage1_release_ui.py; do
+            if git cat-file -e "$HTML_OWNER_SHA:$path" 2>/dev/null; then
+              cmp -s "$path" <(git show "$HTML_OWNER_SHA:$path") || {
+                echo "HTML-owner blob drift before overlay: $path" >&2
+                exit 1
+              }
+            fi
+          done
+
+      - name: Overlay exact D06 owner repair in runtime worktree
+        shell: bash
+        run: |
+          set -euo pipefail
+          git cat-file -e "$D06_OWNER_SHA^{commit}"
+          paths=(
+            acs/gametree.py
+            acs/pgn_roundtrip.py
+            tests/test_pgn_document.py
+            tests/test_v2_pgn_nested_comment_recovery.py
+            scripts/v2_pgn_nested_comment_real_book_oracle.py
+          )
+          for path in "${paths[@]}"; do
+            git cat-file -e "$D06_OWNER_SHA:$path"
+            mkdir -p "$(dirname "$path")"
+            git show "$D06_OWNER_SHA:$path" > "$path"
+            cmp -s "$path" <(git show "$D06_OWNER_SHA:$path") || {
+              echo "D06 runtime overlay mismatch: $path" >&2
+              exit 1
+            }
+          done
+          echo "Exact #423 D06 runtime overlay PASS"
+
+      - name: Prove non-owner Product remained exact after overlay
+        shell: bash
+        run: |
+          set -euo pipefail
+          for path in \
+            acs/book_html_import.py \
+            tests/test_v2_book_html_import.py \
+            scripts/v2_real_html_book_oracle.py \
+            acs/book_game_content.py \
+            acs/bookdocument.py \
+            acs/bookreader.py \
+            acs/book_index.py \
+            acs/book_progress_store.py \
+            acs/chesscore.py \
+            acs/acsdb.py \
+            acs/stage1_release_ui.py; do
+            if git cat-file -e "$HTML_OWNER_SHA:$path" 2>/dev/null; then
+              cmp -s "$path" <(git show "$HTML_OWNER_SHA:$path") || {
+                echo "Non-owner Product drift after overlay: $path" >&2
+                exit 1
+              }
+            fi
+          done
+
+      - name: Compile composed Books and D06 package
+        run: >-
+          python -m compileall -q
+          acs/book_html_import.py
+          acs/gametree.py
+          acs/pgn_roundtrip.py
+          tests/test_v2_book_html_import.py
+          tests/test_v2_pgn_nested_comment_recovery.py
+          scripts/v2_real_html_book_oracle.py
+          scripts/v2_pgn_nested_comment_real_book_oracle.py
+
+      - name: Focused cross-owner regressions
+        run: >-
+          python -m unittest -v
+          tests.test_v2_book_html_import
+          tests.test_v2_pgn_nested_comment_recovery
+          tests.test_pgn_document
+          tests.test_v2_book_game_content
+          tests.test_bookdocument
+          tests.test_bookreader
+          tests.test_v2_book_progress_store
+          tests.test_gametree
+          tests.test_d06_pgn_roundtrip
+
+      - name: Download exact lawful Project Gutenberg corpus transiently
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os
+          import time
+          import urllib.request
+
+          url = os.environ['BOOK_URL']
+          for attempt in range(4):
+              try:
+                  request = urllib.request.Request(
+                      url,
+                      headers={'User-Agent': 'Accessible-Chess-CI/1.0 Books-D06-composition'},
+                  )
+                  with urllib.request.urlopen(request, timeout=60) as response:
+                      data = response.read()
+                  with open('real-book-16377.html', 'wb') as stream:
+                      stream.write(data)
+                  print(f'downloaded {len(data)} bytes')
+                  break
+              except Exception:
+                  if attempt == 3:
+                      raise
+                  time.sleep(2 ** attempt)
+          PY
+
+      - name: Exact D06 PGN 73 owner oracle on same corpus
+        shell: bash
+        run: |
+          set -o pipefail
+          python -m scripts.v2_pgn_nested_comment_real_book_oracle \
+            real-book-16377.html \
+            --expected-sha256 "$BOOK_SHA256" 2>&1 | tee d06-pgn73-composition.log
+
+      - name: Unchanged Books HTML 85-game oracle
+        shell: bash
+        run: |
+          set -o pipefail
+          python -m scripts.v2_real_html_book_oracle \
+            real-book-16377.html \
+            --expected-sha256 "$BOOK_SHA256" 2>&1 | tee books-html-composition.log
+
+      - name: Remove transient corpus
+        if: always()
+        shell: bash
+        run: rm -f real-book-16377.html
+
+      - name: Full repository unittest
+        run: python -m unittest discover -s tests -v
+
+      - name: Full repository pytest
+        run: python -m pytest -q tests
+
+      - name: SELFTEST and complete diagnostic
+        run: |
+          python -m acs.selftest
+          python run_accessible_chess.py --diagnostic
+
+      - name: Prove corpus residue absent
+        if: always()
+        shell: bash
+        run: test ! -e real-book-16377.html
+
+      - name: Upload composition evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v2-book-html-d06-recovery-${{ matrix.os }}
+          path: |
+            d06-pgn73-composition.log
+            books-html-composition.log
+          if-no-files-found: ignore
+          retention-days: 7
