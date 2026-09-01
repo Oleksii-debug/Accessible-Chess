@@ -175,7 +175,12 @@ jobs:
         run: |
           set -euo pipefail
           rm -f real-lichess-acsdb-v6-summary.json real-lichess-streaming-v6.log
-          status="$(git status --porcelain)"
+          # actions/checkout materializes text with the Windows CRLF policy before
+          # this workflow restores frozen Git blobs as exact LF bytes. Compare
+          # through Git's checkout normalization so platform-only line endings do
+          # not masquerade as Product residue; untracked files and semantic
+          # changes remain visible.
+          status="$(git -c core.autocrlf=true status --porcelain)"
           if [ -n "$status" ]; then
             printf '%s\n' 'Unexpected repository residue after acceptance:'
             printf '%s\n' "$status"
