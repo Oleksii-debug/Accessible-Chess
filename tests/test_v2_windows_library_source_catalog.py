@@ -315,7 +315,7 @@ class V2WindowsLibrarySourceCatalogTests(unittest.TestCase):
         self.assertNotIn("start_fen", repr(events[-1]))
 
     def test_async_detail_and_games_do_not_publish_for_a_changed_same_page_selection(self) -> None:
-        first_source = self._import(
+        self._import(
             source_name="first.pgn",
             digest_char="a",
             game_count=3,
@@ -386,7 +386,8 @@ class V2WindowsLibrarySourceCatalogTests(unittest.TestCase):
         )
         self.assertEqual(events[-1].kind, SourceCatalogUiEventKind.SELECTION)
         self.assertEqual(events[-1].detail.source_name, "second.pgn")
-        self.assertNotIn(str(first_source), repr(events[-1]))
+        self.assertFalse(hasattr(events[-1].detail, "source_id"))
+        self.assertNotIn("first.pgn", repr(events[-1].detail))
 
     def test_format_filter_and_zero_game_source_are_preserved_without_ui_search_truth(self) -> None:
         self._import(source_name="one.pgn", digest_char="a", source_format="PGN")
