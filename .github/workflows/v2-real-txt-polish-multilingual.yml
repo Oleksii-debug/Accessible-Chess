@@ -21,9 +21,9 @@ env:
   HISTORY_URL: 'https://pl.wikibooks.org/w/index.php?title=Szachy%2FHistoria&oldid=192022&action=raw'
   RULES_URL: 'https://pl.wikibooks.org/w/index.php?title=Szachy%2FOg%C3%B3lne_zasady_gry&oldid=125460&action=raw'
   ENDGAME_URL: 'https://pl.wikibooks.org/w/index.php?title=Szachy%2FKoniec_gry&oldid=486248&action=raw'
-  HISTORY_SHA256: UNPINNED
-  RULES_SHA256: UNPINNED
-  ENDGAME_SHA256: UNPINNED
+  HISTORY_SHA256: cf798c965d68ade7011112bf615b728aa77e3b1e21a0fea982c9b7342bfa198c
+  RULES_SHA256: 516ecfeba7edfdbcd0ce10e11e81689fc91c6b32961b11362ffa904c42a80025
+  ENDGAME_SHA256: 317a9b9631887441cf4e8c44ed6ee97d7b168393c4a20f5cb775c1b5450f23b3
 
 jobs:
   verify:
@@ -142,11 +142,11 @@ jobs:
         shell: bash
         run: |
           set -uo pipefail
+          rc=0
           python -m scripts.v2_real_polish_text_book_oracle \
             --history polish-history.txt --history-sha256 "$HISTORY_SHA256" \
             --rules polish-rules.txt --rules-sha256 "$RULES_SHA256" \
-            --endgame polish-endgame.txt --endgame-sha256 "$ENDGAME_SHA256"
-          rc=$?
+            --endgame polish-endgame.txt --endgame-sha256 "$ENDGAME_SHA256" || rc=$?
           echo "POLISH_TEXT_CORPUS_RC=$rc" >> "$GITHUB_ENV"
           exit 0
 
