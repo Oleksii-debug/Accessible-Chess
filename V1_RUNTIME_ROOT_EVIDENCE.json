@@ -1,0 +1,41 @@
+{
+  "evidence_kind": "immutable-shipped-rc3-runtime-root",
+  "tag_commit": "1a8934a0f7125262cfdb9854e459ffcd22e55348",
+  "source_zip_size": 57844,
+  "source_zip_sha256": "cb0a89778b436cdf44c42e3207ef9638160a992b372156bc4d901391717a1e6a",
+  "checkout_matches_shipped": false,
+  "shipped_logging_setup_sha256": "8cf725feacdccbbf189721454e5dcc3427135cfc6aafcb2de089858070552313",
+  "checkout_logging_setup_sha256": "d2f32813fef80fc2198bdfd55f38ae0ac7a06bbafa12fa96677654a0bfd78067",
+  "shipped_root_lines": [
+    {
+      "line": 5,
+      "text": "ROOT = Path(sys.executable).resolve().parent if getattr(sys,'frozen',False) else Path(__file__).resolve().parents[1]"
+    },
+    {
+      "line": 6,
+      "text": "REPORTS = ROOT / \"ЗВІТИ_ПОМИЛОК\""
+    }
+  ],
+  "checkout_root_lines": [
+    {
+      "line": 5,
+      "text": "ROOT = Path(sys.executable).resolve().parent if getattr(sys,'frozen',False) else Path(__file__).resolve().parents[1]"
+    },
+    {
+      "line": 6,
+      "text": "REPORTS = ROOT / \"ЗВІТИ_ПОМИЛОК\""
+    }
+  ],
+  "shipped_main_sha256": "8ba1a641548f7d6596b7f3dd99933d8daf3eee9f1e18810ccd74d74de8c490b5",
+  "main_data_calls": [
+    {
+      "line": 25,
+      "text": "        self.settings=Settings(ROOT/'data'/'settings.json')"
+    },
+    {
+      "line": 39,
+      "text": "        self.library=Library(ROOT/'data'/'library.acsdb')"
+    }
+  ],
+  "derived_windows_frozen_topology_from_shipped_root_only": "<directory containing sys.executable>/data/{settings.json,library.acsdb}"
+}
