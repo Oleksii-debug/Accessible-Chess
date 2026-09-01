@@ -8,6 +8,7 @@ on:
     paths:
       - 'acs/version2_upgrade.py'
       - 'tests/test_v2_upgrade_tracked_writer_conflict.py'
+      - '.github/workflows/v2-data-upgrade-v6.yml'
       - '.github/workflows/v2-data-upgrade-tracked-writer.yml'
 
 permissions:
@@ -42,10 +43,12 @@ jobs:
           git diff --check "$BASE" HEAD
           changed="$(git diff --name-only "$BASE" HEAD | sort)"
           expected="$(printf '%s\n' \
+            '.github/workflows/v2-data-upgrade-v6.yml' \
             '.github/workflows/v2-data-upgrade-tracked-writer.yml' \
             'tests/test_v2_upgrade_tracked_writer_conflict.py' | sort)"
           if test "$(git rev-parse HEAD:acs/version2_upgrade.py)" != "f4f99cf3d97116405c483deddcd1a9e60dc1f803"; then
             expected="$(printf '%s\n' \
+              '.github/workflows/v2-data-upgrade-v6.yml' \
               '.github/workflows/v2-data-upgrade-tracked-writer.yml' \
               'acs/version2_upgrade.py' \
               'tests/test_v2_upgrade_tracked_writer_conflict.py' | sort)"
