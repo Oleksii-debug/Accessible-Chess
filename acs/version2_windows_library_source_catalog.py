@@ -532,7 +532,9 @@ class Version2WindowsLibrarySourceCatalogController:
         )
         return True
 
-    def _selected_source_id(self) -> tuple[int, int, AccessibleSourceRow] | None:
+    def _selected_source_id(
+        self,
+    ) -> tuple[int, int, int, AccessibleSourceRow] | None:
         with self._lock:
             page = self._page
             index = self._selected_index
@@ -544,29 +546,53 @@ class Version2WindowsLibrarySourceCatalogController:
                 or index >= len(page.rows)
             ):
                 return None
-            return self._current_source_ids[index], page.generation, page.rows[index]
+            return (
+                self._current_source_ids[index],
+                page.generation,
+                index,
+                page.rows[index],
+            )
+
+    def _selection_is_current(
+        self,
+        *,
+        source_id: int,
+        generation: int,
+        row_index: int,
+    ) -> bool:
+        with self._lock:
+            page = self._page
+            return bool(
+                page is not None
+                and page.generation == generation
+                and self._selected_index == row_index
+                and 0 <= row_index < len(self._current_source_ids)
+                and self._current_source_ids[row_index] == source_id
+                and row_index < len(page.rows)
+            )
 
     def selected_detail(self) -> bool:
         selected = self._selected_source_id()
         if selected is None:
             return False
-        source_id, expected_generation, _ = selected
+        source_id, expected_generation, expected_index, _ = selected
 
         def operation(service: LibrarySourceCatalogService, cancel_check: Callable[[], bool]) -> None:
             item = service.get_source(source_id, cancel_check=cancel_check)
             if item is None:
                 raise LookupError("selected source is no longer available")
-            with self._lock:
-                page = self._page
-                index = self._selected_index
-                if page is None or page.generation != expected_generation or index is None:
-                    return
-            detail = _row(index, item)
+            if not self._selection_is_current(
+                source_id=source_id,
+                generation=expected_generation,
+                row_index=expected_index,
+            ):
+                return
+            detail = _row(expected_index, item)
             self._deliver(
                 SourceCatalogUiEvent(
                     SourceCatalogUiEventKind.DETAIL,
                     SourceCatalogUiAction.DETAIL,
-                    focus_target=f"library-source-{index}",
+                    focus_target=f"library-source-{expected_index}",
                     detail=detail,
                 )
             )
@@ -577,7 +603,7 @@ class Version2WindowsLibrarySourceCatalogController:
         selected = self._selected_source_id()
         if selected is None:
             return False
-        source_id, expected_generation, _ = selected
+        source_id, expected_generation, expected_index, _ = selected
 
         def operation(service: LibrarySourceCatalogService, cancel_check: Callable[[], bool]) -> None:
             games = service.source_games(
@@ -587,11 +613,12 @@ class Version2WindowsLibrarySourceCatalogController:
             )
             if not isinstance(games, GameSearchPage):
                 raise TypeError("canonical source-games result is invalid")
-            with self._lock:
-                page = self._page
-                index = self._selected_index
-                if page is None or page.generation != expected_generation or index is None:
-                    return
+            if not self._selection_is_current(
+                source_id=source_id,
+                generation=expected_generation,
+                row_index=expected_index,
+            ):
+                return
             self._deliver_games(games)
             self._deliver(
                 SourceCatalogUiEvent(
