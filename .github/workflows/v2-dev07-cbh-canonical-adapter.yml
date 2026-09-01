@@ -1,0 +1,164 @@
+name: V2 DEV07 CBH Canonical Adapter
+
+on:
+  push:
+    branches:
+      - work/v2-dev07-cbh-canonical-adapter-20260831
+  pull_request:
+    types: [synchronize, reopened]
+    paths:
+      - 'acs/chessbase_decoder.py'
+      - 'tests/test_v2_dev07_cbh_canonical_adapter.py'
+      - 'tests/test_v2_dev07_cbh_real_corpora.py'
+      - '.github/workflows/v2-dev07-cbh-canonical-adapter.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: v2-dev07-cbh-canonical-adapter-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  LIBCBH_COMMIT: 9641c5c3949d8fb210b17dd9aa54455645843696
+
+jobs:
+  canonical-adapter:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+      - name: Preserve frozen committed bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config core.autocrlf false
+          git config core.eol lf
+          git cat-file blob HEAD:acs/stage1_release_ui_core.py > acs/stage1_release_ui_core.py
+          git cat-file blob HEAD:acs/webapp_keymap_core.py > acs/webapp_keymap_core.py
+          test "$(git hash-object acs/stage1_release_ui_core.py)" = "b8586a26b9ab20c3d3ec0b0a3dbbbd53e38e94e6"
+          test "$(git hash-object acs/webapp_keymap_core.py)" = "0ba06f548d39dad7372e0339b3e121fd1717cc05"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install pinned verification dependencies
+        run: python -m pip install -q pytest==8.4.2 zstandard==0.23.0
+      - name: Exact ancestry and narrow scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor a213e6e87605560491d10d7e7b96623ea6e367c2 HEAD
+          git merge-base --is-ancestor 37f51df5649f521969d1df27809cc28a1cee8f40 HEAD
+          git diff --check a213e6e87605560491d10d7e7b96623ea6e367c2 HEAD
+          changed="$(git diff --name-only a213e6e87605560491d10d7e7b96623ea6e367c2 HEAD | sort)"
+          expected="$(printf '%s\n' '.github/workflows/v2-dev07-cbh-canonical-adapter.yml' 'acs/chessbase_decoder.py' 'tests/test_v2_dev07_cbh_canonical_adapter.py' 'tests/test_v2_dev07_cbh_real_corpora.py' | sort)"
+          test "$changed" = "$expected"
+          test -z "$(git diff --name-only a213e6e87605560491d10d7e7b96623ea6e367c2 HEAD -- acs/chesscore.py acs/gametree.py acs/acsdb.py acs/chessbase_library_import.py)"
+      - name: One-core source lock
+        shell: bash
+        run: |
+          set -euo pipefail
+          ! grep -q 'def _null_move' acs/chessbase_decoder.py
+          ! grep -q 'board.set_fen(" ".join(parts))' acs/chessbase_decoder.py
+          grep -q 'return board.push_null()' acs/chessbase_decoder.py
+      - name: Compile
+        run: python -m compileall -q acs tests run_accessible_chess.py
+      - name: Focused CBH canonical-adapter regressions
+        run: >-
+          python -m unittest -v
+          tests.test_v2_dev07_cbh_canonical_adapter
+          tests.test_v2_a4_canonical_nullmove
+          tests.test_chessbase_decoder
+          tests.test_chessbase_adapter
+          tests.test_chessbase_libcbh_external_fixture
+          tests.test_version2_formats_integration
+      - name: Full unittest
+        run: python -m unittest discover -s tests -v
+      - name: Full pytest
+        run: python -m pytest -q tests
+      - name: SELFTEST and complete diagnostic
+        run: |
+          python -m acs.selftest
+          python run_accessible_chess.py --diagnostic
+
+  real-pinned-cbh:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 55
+    steps:
+      - name: Checkout Accessible Chess exact head
+        uses: actions/checkout@v4
+        with:
+          path: product
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Checkout pinned external libcbh corpus
+        uses: actions/checkout@v4
+        with:
+          repository: rolandlo/libcbh
+          ref: 9641c5c3949d8fb210b17dd9aa54455645843696
+          path: upstream/libcbh
+          fetch-depth: 1
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Build pinned libcbh external component
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S upstream/libcbh -B upstream/libcbh/build -DCMAKE_BUILD_TYPE=Release -DGTEST=OFF
+          cmake --build upstream/libcbh/build --config Release --parallel 2
+      - name: Build Accessible Chess bridge outside default package
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p product/build/libcbh
+          c++ -std=c++20 -O2 \
+            -DLIBCBH_SOURCE_COMMIT=\"$LIBCBH_COMMIT\" \
+            -I upstream/libcbh/include \
+            product/tools/optional/libcbh_json_bridge.cpp \
+            -L upstream/libcbh/build -lcbh \
+            -Wl,-rpath,'$ORIGIN' \
+            -o product/build/libcbh/libcbh-json-bridge
+          cp -a upstream/libcbh/build/libcbh.so* product/build/libcbh/
+          test -x product/build/libcbh/libcbh-json-bridge
+          test -f upstream/libcbh/LICENSE
+          grep -q 'GNU GENERAL PUBLIC LICENSE' upstream/libcbh/LICENSE
+      - name: Pinned annotations variations promotions unusual zero-ply and null scan
+        working-directory: product
+        env:
+          LIBCBH_BRIDGE: ${{ github.workspace }}/product/build/libcbh/libcbh-json-bridge
+          LIBCBH_ROOT: ${{ github.workspace }}/upstream/libcbh
+          LIBCBH_FIXTURE_DIR: ${{ github.workspace }}/upstream/libcbh/gtest/WithVariations
+        run: |
+          set -o pipefail
+          {
+            python -m unittest -v tests.test_v2_dev07_cbh_real_corpora
+            python -m unittest -v tests.test_chessbase_libcbh_external_fixture
+          } 2>&1 | tee dev07-real-cbh.log
+      - name: Default package remains free of optional GPL backend
+        working-directory: product
+        shell: bash
+        run: |
+          set -euo pipefail
+          test ! -e libcbh-json-bridge
+          test ! -e libcbh.so
+          if git ls-files | grep -E '(^|/)(libcbh-json-bridge|libcbh\.so([.0-9]*)?)$'; then
+            echo 'Compiled GPL backend is tracked by the default Product tree.' >&2
+            exit 1
+          fi
+          test -z "$(git status --porcelain --untracked-files=no)"
+      - name: Upload DEV07 real-CBH evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v2-dev07-real-pinned-cbh
+          path: product/dev07-real-cbh.log
+          if-no-files-found: ignore
+          retention-days: 5
