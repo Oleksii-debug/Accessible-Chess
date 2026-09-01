@@ -92,7 +92,7 @@ jobs:
           tests.test_v2_windows_library_source_catalog
           tests.test_v2_library_source_catalog
           tests.test_search_service
-          tests.test_library_import_service
+          tests.test_d07_library_import_service
           tests.test_library_import_ui_integration
 
       - name: Focused pytest parity
@@ -101,7 +101,7 @@ jobs:
           tests/test_v2_windows_library_source_catalog.py
           tests/test_v2_library_source_catalog.py
           tests/test_search_service.py
-          tests/test_library_import_service.py
+          tests/test_d07_library_import_service.py
           tests/test_library_import_ui_integration.py
 
       - name: Full repository unittest
