@@ -1,0 +1,151 @@
+name: V2 2CBV Real Paired Corpus Qualification
+
+on:
+  push:
+    branches:
+      - work/v2-2cbv-real-paired-corpus-qualification-20260901
+  pull_request:
+    branches:
+      - work/v2-2cbv-official-archive-recognition-20260901
+    paths:
+      - "scripts/v2_2cbv_real_paired_corpus_probe.py"
+      - "tests/test_v2_2cbv_real_paired_corpus_probe.py"
+      - "docs/automation/V2_2CBV_REAL_PAIRED_CORPUS_QUALIFICATION.json"
+      - "docs/automation/V2_2CBV_REAL_PAIRED_CORPUS_QUALIFICATION.md"
+      - ".github/workflows/v2-2cbv-real-paired-corpus.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: accessible-chess-v2-2cbv-real-corpus-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PARENT_SHA: 6280d7d701330fc176d282387205d8c8183b3321
+
+jobs:
+  contract:
+    name: Evidence contract (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install pinned verification dependencies
+        run: python -m pip install -q pytest==8.4.2
+
+      - name: Exact ancestry, five-file scope and compile
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor "$PARENT_SHA" HEAD
+          git diff --check "$PARENT_SHA" HEAD
+          mapfile -t changed < <(git diff --name-only "$PARENT_SHA" HEAD | sort)
+          expected=(
+            ".github/workflows/v2-2cbv-real-paired-corpus.yml"
+            "docs/automation/V2_2CBV_REAL_PAIRED_CORPUS_QUALIFICATION.json"
+            "docs/automation/V2_2CBV_REAL_PAIRED_CORPUS_QUALIFICATION.md"
+            "scripts/v2_2cbv_real_paired_corpus_probe.py"
+            "tests/test_v2_2cbv_real_paired_corpus_probe.py"
+          )
+          mapfile -t expected_sorted < <(printf '%s\n' "${expected[@]}" | sort)
+          diff -u <(printf '%s\n' "${expected_sorted[@]}") <(printf '%s\n' "${changed[@]}")
+          python -m compileall -q acs scripts tests run_accessible_chess.py
+
+      - name: Offline paired-corpus probe tests
+        run: python -m unittest -v tests.test_v2_2cbv_real_paired_corpus_probe
+
+      - name: Pytest parity
+        run: python -m pytest -q tests/test_v2_2cbv_real_paired_corpus_probe.py
+
+      - name: Manifest remains fail-closed
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          data = json.loads(Path("docs/automation/V2_2CBV_REAL_PAIRED_CORPUS_QUALIFICATION.json").read_text(encoding="utf-8"))
+          fmt = data["format"]
+          legal = data["legal_boundary"]
+          assert fmt["status"] == "BLOCKED"
+          assert fmt["support_promotion_allowed"] is False
+          assert fmt["decoder_qualified"] is False
+          assert fmt["semantic_acceptance_executed"] is False
+          assert legal["explicit_repository_redistribution_license_found"] is False
+          assert legal["explicit_ci_redistribution_license_found"] is False
+          assert legal["commit_real_payload_bytes"] is False
+          assert legal["upload_real_payload_bytes_as_artifact"] is False
+          PY
+
+  live-source-probe:
+    name: Public paired-source identity probe
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Probe public sources without persisting payload bytes
+        run: python scripts/v2_2cbv_real_paired_corpus_probe.py --output 2cbv-real-source-report.json
+
+      - name: Validate report is metadata-only and support remains blocked
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          report = json.loads(Path("2cbv-real-source-report.json").read_text(encoding="utf-8"))
+          assert report["format"] == "2CBV"
+          assert report["status"] == "BLOCKED"
+          assert report["support_promotion_allowed"] is False
+          assert report["payload_bytes_persisted"] is False
+          assert report["payload_bytes_uploaded_as_artifact"] is False
+          assert report["repository_ci_redistribution_rights_qualified"] is False
+          assert report["decoder_qualified"] is False
+          assert report["semantic_acceptance_executed"] is False
+          assert report["mattnetz_page"]["same_event_pgn_anchor_found"] is True
+          assert report["mattnetz_page"]["same_event_2cbv_anchor_found"] is True
+          assert report["independent_bsv_mklasse_pgn"]["round_anchor_count"] == 9
+          assert report["acceptance_ready"] is False
+          text = Path("2cbv-real-source-report.json").read_text(encoding="utf-8")
+          assert "payload_base64" not in text
+          assert "payload_bytes\"" not in text
+          PY
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: v2-2cbv-real-source-metadata
+          path: 2cbv-real-source-report.json
+
+  full-regression:
+    name: Full regression (Ubuntu)
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pytest==8.4.2 jsonschema
+
+      - name: Full unittest
+        run: python -m unittest discover -s tests -v
+
+      - name: Full pytest
+        run: python -m pytest -q tests
