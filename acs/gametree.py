@@ -136,6 +136,53 @@ def _numeric_nag_is_in_range(value: object) -> bool:
     return len(digits) < 3 or (len(digits) == 3 and digits <= str(MAX_NUMERIC_NAG))
 
 
+def _scan_brace_comment_span(text: str, start: int) -> tuple[int, bool, bool]:
+    """Find one recoverable brace-comment span without allocating its text.
+
+    PGN brace comments are not nestable, but lawful historical corpora contain
+    editorial abbreviations such as ``{the Black {K. B.} is brought ...}``.
+    The scan is iterative so the D06 resource preflight can reuse the exact same
+    boundary before the tokenizer allocates recovered comment text.
+    """
+
+    depth = 1
+    nested = False
+    first_closing = -1
+    index = start + 1
+    while index < len(text):
+        character = text[index]
+        if character == "{":
+            depth += 1
+            nested = True
+        elif character == "}":
+            if first_closing < 0:
+                first_closing = index
+            depth -= 1
+            if depth == 0:
+                return index + 1, nested, False
+        index += 1
+    if first_closing >= 0:
+        # Preserve the long-standing representation of a literal opening brace
+        # inside a valid comment (for example ``{{ editorial opener}``).  If no
+        # second closing delimiter exists, the first close is the outer close;
+        # treating the literal opener as nesting would consume later movetext.
+        return first_closing + 1, False, False
+    return len(text), nested, True
+
+
+def _consume_brace_comment(text: str, start: int) -> tuple[str, int, bool, bool]:
+    """Consume and normalize one span selected by ``_scan_brace_comment_span``."""
+
+    next_index, nested, unterminated = _scan_brace_comment_span(text, start)
+    content_end = next_index if unterminated else next_index - 1
+    comment = text[start + 1 : content_end]
+    if nested:
+        # Parentheses are legal brace-comment text and preserve the readable
+        # editorial grouping in a form that strict canonical PGN can serialize.
+        comment = comment.translate(str.maketrans({"{": "(", "}": ")"}))
+    return comment, next_index, nested, unterminated
+
+
 def tokenize_movetext(text: str) -> list[_Token]:
     out: list[_Token] = []
     i = 0
@@ -146,15 +193,19 @@ def tokenize_movetext(text: str) -> list[_Token]:
             i += 1
             continue
         if c == "{":
-            j = i + 1
-            while j < n and text[j] != "}":
-                j += 1
-            if j >= n:
-                out.append(_Token("COMMENT_BRACE", text[i + 1 :]))
+            comment, next_index, nested, unterminated = _consume_brace_comment(text, i)
+            out.append(_Token("COMMENT_BRACE", comment))
+            if nested:
+                out.append(
+                    _Token(
+                        "WARNING",
+                        "nested brace comment delimiters normalized to parentheses",
+                    )
+                )
+            if unterminated:
                 out.append(_Token("WARNING", "unterminated brace comment"))
                 break
-            out.append(_Token("COMMENT_BRACE", text[i + 1 : j]))
-            i = j + 1
+            i = next_index
             continue
         if c == ";":
             j = text.find("\n", i + 1)

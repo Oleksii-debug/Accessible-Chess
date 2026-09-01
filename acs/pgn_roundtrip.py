@@ -29,6 +29,7 @@ from .gametree import (
     PgnGame,
     TAG_RE,
     VariationLine,
+    _scan_brace_comment_span,
     parse_games,
     serialize_games,
 )
@@ -106,6 +107,40 @@ def _claim_token(counter: list[int]) -> None:
         )
 
 
+def _preflight_recovered_brace_comment_lengths(normalized: str) -> None:
+    """Enforce the comment cap before nested-comment recovery allocates text."""
+
+    index = 0
+    length = len(normalized)
+    while index < length:
+        if index == 0 or normalized[index - 1] == "\n":
+            line_end = normalized.find("\n", index)
+            if line_end < 0:
+                line_end = length
+            if TAG_RE.match(normalized[index:line_end]):
+                index = line_end
+                continue
+
+        character = normalized[index]
+        if character == ";":
+            line_end = normalized.find("\n", index + 1)
+            index = length if line_end < 0 else line_end
+            continue
+        if character != "{":
+            index += 1
+            continue
+
+        next_index, _nested, unterminated = _scan_brace_comment_span(normalized, index)
+        delimiter_chars = 1 if unterminated else 2
+        comment_chars = next_index - index - delimiter_chars
+        if comment_chars > MAX_PGN_COMMENT_CHARS:
+            _raise_limit(
+                "PGN brace comment exceeds the field safety limit",
+                PgnRoundTripErrorCode.COMMENT_SIZE_LIMIT,
+            )
+        index = next_index
+
+
 def _preflight_text(text: object) -> str:
     """Bound lexical work before the recovery parser allocates token objects."""
 
@@ -121,6 +156,7 @@ def _preflight_text(text: object) -> str:
         )
 
     normalized = text.replace("\r\n", "\n").replace("\r", "\n")
+    _preflight_recovered_brace_comment_lengths(normalized)
     inside_brace = False
     brace_length = 0
     token_count = [0]
@@ -277,17 +313,38 @@ def _validate_san(san: object) -> None:
         )
 
 
+def _validate_parsed_comment_size(comment: object) -> None:
+    if not isinstance(comment, Comment) or type(comment.text) is not str:
+        raise PgnRoundTripError(
+            "PGN contains an invalid comment model",
+            code=PgnRoundTripErrorCode.INVALID_MODEL,
+        )
+    if len(comment.text) > MAX_PGN_COMMENT_CHARS:
+        _raise_limit(
+            "PGN comment exceeds the field safety limit",
+            PgnRoundTripErrorCode.COMMENT_SIZE_LIMIT,
+        )
+
+
 def _normalize_and_validate_line(line: VariationLine, *, depth: int = 0) -> None:
     if depth > MAX_VARIATION_DEPTH:
         _raise_limit(
             "PGN variation nesting exceeds the safety limit",
             PgnRoundTripErrorCode.TOKEN_COUNT_LIMIT,
         )
+    for comment in line.leading_comments:
+        _validate_parsed_comment_size(comment)
     for node in line.moves:
         _split_attached_annotation(node)
         _validate_san(node.san)
+        for comment in node.comments_before:
+            _validate_parsed_comment_size(comment)
+        for comment in node.comments_after:
+            _validate_parsed_comment_size(comment)
         for variation in node.variations:
             _normalize_and_validate_line(variation, depth=depth + 1)
+    for comment in line.trailing_comments:
+        _validate_parsed_comment_size(comment)
 
 
 def parse_pgn_text(text: object, *, strict: bool = True) -> tuple[PgnGame, ...]:
