@@ -110,21 +110,43 @@ jobs:
           done
           echo "Exact #423 D06 runtime overlay PASS"
 
-      - name: Prove runtime dirty scope is exact D06 overlay only
+      - name: Reverify exact owner identities after runtime overlay
         shell: bash
         run: |
           set -euo pipefail
-          status_paths="$(git status --porcelain=v1 | awk '{print $2}' | sort)"
-          expected="$(printf '%s\n' \
-            'acs/gametree.py' \
-            'acs/pgn_roundtrip.py' \
-            'scripts/v2_pgn_nested_comment_real_book_oracle.py' \
-            'tests/test_pgn_document.py' \
-            'tests/test_v2_pgn_nested_comment_recovery.py' | sort)"
-          test "$status_paths" = "$expected" || {
-            printf 'Unexpected runtime worktree scope:\n%s\n' "$status_paths" >&2
-            exit 1
-          }
+          for path in \
+            acs/gametree.py \
+            acs/pgn_roundtrip.py \
+            tests/test_pgn_document.py \
+            tests/test_v2_pgn_nested_comment_recovery.py \
+            scripts/v2_pgn_nested_comment_real_book_oracle.py; do
+            test "$(git hash-object "$path")" = "$(git rev-parse "$D06_OWNER_SHA:$path")" || {
+              echo "D06 runtime identity drift: $path" >&2
+              exit 1
+            }
+          done
+          for path in \
+            acs/book_html_import.py \
+            tests/test_v2_book_html_import.py \
+            scripts/v2_real_html_book_oracle.py \
+            acs/book_game_content.py \
+            acs/bookdocument.py \
+            acs/bookreader.py \
+            acs/book_index.py \
+            acs/book_progress_store.py \
+            acs/chesscore.py \
+            acs/acsdb.py \
+            acs/book_board_workflow.py \
+            acs/version2_windows_book_board_adapter.py \
+            acs/stage1_release_ui.py; do
+            if git cat-file -e "$HTML_OWNER_SHA:$path" 2>/dev/null; then
+              test "$(git rev-parse "HEAD:$path")" = "$(git rev-parse "$HTML_OWNER_SHA:$path")" || {
+                echo "Committed non-overlay owner identity drift: $path" >&2
+                exit 1
+              }
+            fi
+          done
+          echo "Runtime composition owner identities PASS"
 
       - name: Compile composed Books and D06 package
         run: >-
