@@ -1,0 +1,57 @@
+name: V2 Audit-B Upgrade Publication Race R2
+
+on:
+  push:
+    branches:
+      - audit/v2-upgrade-publish-race-r2-20260901
+  pull_request:
+    branches:
+      - work/v2-data-upgrade-tracked-writer-20260831
+    paths:
+      - '.github/workflows/v2-audit-b-upgrade-publish-race-r2.yml'
+      - 'tests/test_v2_upgrade_publish_race_audit.py'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: v2-audit-b-upgrade-publish-race-r2-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  OWNER_HEAD: 2a5af209d0b83168b1cdf8273b5a9e499af66d36
+
+jobs:
+  audit-oracle:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Prove exact current owner ancestry and evidence-only scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git merge-base "$OWNER_HEAD" HEAD)" = "$OWNER_HEAD"
+          git diff --check "$OWNER_HEAD" HEAD
+          changed="$(git diff --name-only "$OWNER_HEAD" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/v2-audit-b-upgrade-publish-race-r2.yml' \
+            'tests/test_v2_upgrade_publish_race_audit.py' | sort)"
+          test "$changed" = "$expected"
+          git diff --quiet "$OWNER_HEAD" HEAD -- acs/version2_upgrade.py acs/acsdb.py
+      - name: Compile audit oracle
+        run: python -m compileall -q tests/test_v2_upgrade_publish_race_audit.py
+      - name: Existing owner tracked-writer tests remain green
+        run: python -m unittest -v tests.test_v2_upgrade_tracked_writer_conflict
+      - name: Independent post-reauth publication-race oracle
+        run: python -m unittest -v tests.test_v2_upgrade_publish_race_audit
