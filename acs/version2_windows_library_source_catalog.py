@@ -140,11 +140,13 @@ def _bounded_text(value: object, *, limit: int, fallback: str) -> str:
 
 
 def _source_leaf(value: object) -> str:
-    """Return a bounded leaf label without exposing a local directory path."""
+    """Return a bounded leaf label without exposing a local directory or drive."""
 
     text = _bounded_text(value, limit=4096, fallback="source")
     normalized = text.replace("\\", "/").rstrip("/")
     leaf = normalized.rsplit("/", 1)[-1] if normalized else "source"
+    if len(leaf) >= 2 and leaf[1] == ":" and leaf[0].isalpha():
+        leaf = leaf[2:]
     return _bounded_text(leaf, limit=_MAX_PRESENTATION_TEXT, fallback="source")
 
 
@@ -213,7 +215,6 @@ class Version2WindowsLibrarySourceCatalogController:
             raise TypeError("trusted_games_sink must be callable")
         if not callable(post_to_ui):
             raise TypeError("post_to_ui must be callable")
-        # Reuse the canonical query validator rather than inventing page bounds.
         normalized = SourceCatalogQuery(limit=page_size).normalized()
         self._page_size = normalized.limit
         self._service_factory = service_factory
@@ -254,7 +255,6 @@ class Version2WindowsLibrarySourceCatalogController:
         try:
             self._post_to_ui(invoke)
         except Exception:
-            # Never invoke UI directly as a worker-thread fallback.
             _LOG.warning("Library source catalog UI posting failed")
 
     def _deliver_games(self, page: GameSearchPage) -> None:
@@ -369,12 +369,15 @@ class Version2WindowsLibrarySourceCatalogController:
         self,
         canonical: SourceCatalogPage,
         *,
+        action: SourceCatalogUiAction,
         history: list[int | None],
         source_format: str | None,
         preferred_index: int | None = None,
     ) -> None:
         if not isinstance(canonical, SourceCatalogPage):
             raise TypeError("canonical source page is invalid")
+        if not isinstance(action, SourceCatalogUiAction):
+            raise TypeError("action must be SourceCatalogUiAction")
         rows = tuple(_row(index, item) for index, item in enumerate(canonical.items))
         source_ids = tuple(item.source_id for item in canonical.items)
         with self._lock:
@@ -404,15 +407,13 @@ class Version2WindowsLibrarySourceCatalogController:
         self._deliver(
             SourceCatalogUiEvent(
                 SourceCatalogUiEventKind.PAGE,
-                SourceCatalogUiAction.LOAD if len(history) == 1 else SourceCatalogUiAction.REFRESH,
+                action,
                 focus_target=page.focus_target,
                 page=page,
             )
         )
 
     def load(self, *, source_format: str | None = None) -> bool:
-        # Canonical normalization runs before worker creation so obviously invalid
-        # browser scalars cannot allocate a worker.  No SQL/domain rule is copied.
         query = SourceCatalogQuery(
             source_format=source_format,
             limit=self._page_size,
@@ -423,6 +424,7 @@ class Version2WindowsLibrarySourceCatalogController:
             page = service.list_sources(query, cancel_check=cancel_check)
             self._publish_page(
                 page,
+                action=SourceCatalogUiAction.LOAD,
                 history=[None],
                 source_format=normalized_format,
             )
@@ -445,6 +447,7 @@ class Version2WindowsLibrarySourceCatalogController:
             page = service.list_sources(query, cancel_check=cancel_check)
             self._publish_page(
                 page,
+                action=SourceCatalogUiAction.REFRESH,
                 history=history,
                 source_format=source_format,
                 preferred_index=preferred,
@@ -467,7 +470,12 @@ class Version2WindowsLibrarySourceCatalogController:
 
         def operation(service: LibrarySourceCatalogService, cancel_check: Callable[[], bool]) -> None:
             page = service.list_sources(query, cancel_check=cancel_check)
-            self._publish_page(page, history=history, source_format=source_format)
+            self._publish_page(
+                page,
+                action=SourceCatalogUiAction.NEXT_PAGE,
+                history=history,
+                source_format=source_format,
+            )
 
         return self._start(SourceCatalogUiAction.NEXT_PAGE, operation)
 
@@ -486,7 +494,12 @@ class Version2WindowsLibrarySourceCatalogController:
 
         def operation(service: LibrarySourceCatalogService, cancel_check: Callable[[], bool]) -> None:
             page = service.list_sources(query, cancel_check=cancel_check)
-            self._publish_page(page, history=history, source_format=source_format)
+            self._publish_page(
+                page,
+                action=SourceCatalogUiAction.PREVIOUS_PAGE,
+                history=history,
+                source_format=source_format,
+            )
 
         return self._start(SourceCatalogUiAction.PREVIOUS_PAGE, operation)
 
