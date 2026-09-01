@@ -47,7 +47,7 @@ def _case_summary(case: CorpusCase, *, provenance_pending: bool) -> tuple[dict[s
     if len(raw) > 8 * 1024 * 1024:
         raise AssertionError(f"{case.key}: source exceeds #421 TXT source bound")
     try:
-        raw_text = raw.decode("utf-8-sig")
+        raw.decode("utf-8-sig")
     except UnicodeDecodeError as exc:
         raise AssertionError(f"{case.key}: pinned Wikibooks revision is not UTF-8") from exc
 
@@ -186,7 +186,7 @@ def main() -> None:
         for case in cases:
             result = imported[case.key]
             reader = BookReader(result.document)
-            reader.go_to(origins[case.key].block_index)
+            reader.go_to(origins[case.key].index)
             reader.save_return_point(f"polish-{case.key}-origin")
             store.save(result.book_key, reader)
 
