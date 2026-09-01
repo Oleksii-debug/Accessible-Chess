@@ -14,7 +14,7 @@ from acs.chessbase_adapter import (
 
 class ChessBaseAdapterContractTests(unittest.TestCase):
     def test_known_primary_family_suffixes_are_recognized_but_not_claimed_supported(self):
-        for suffix in (".cbh", ".cbv", ".cbf", ".2cbh", ".cbone"):
+        for suffix in (".cbh", ".cbv", ".2cbv", ".cbf", ".2cbh", ".cbone"):
             with self.subTest(suffix=suffix):
                 probe = probe_chessbase_source("sample" + suffix)
                 self.assertTrue(probe.recognized)
@@ -163,18 +163,30 @@ class ChessBaseAdapterContractTests(unittest.TestCase):
             any("archive/container" in warning for warning in probe.warnings)
         )
 
+    def test_2cbv_is_recognized_without_inheriting_cbv_decoder_support(self):
+        probe = probe_chessbase_source("Modern Archive.2CBV")
+        self.assertTrue(probe.recognized)
+        self.assertTrue(probe.is_primary_source)
+        self.assertEqual(probe.extension, ".2cbv")
+        self.assertEqual(probe.source_kind, "modern_archive_container_unqualified_payload")
+        self.assertEqual(probe.components, ())
+        self.assertFalse(probe.decoder_available)
+        self.assertFalse(probe.safe_to_import)
+        self.assertTrue(any("officially documented" in warning for warning in probe.warnings))
+        self.assertTrue(any("classic CBV decoder" in warning for warning in probe.warnings))
+
     def test_batch_probe_never_silently_drops_unknown_or_component_records(self):
         probes = probe_many(
-            ["a.cbh", "b.unknown", "c.cbv", "d.cbg", "e.cbf", "e.cbi"]
+            ["a.cbh", "b.unknown", "c.cbv", "c2.2cbv", "d.cbg", "e.cbf", "e.cbi"]
         )
-        self.assertEqual(len(probes), 6)
+        self.assertEqual(len(probes), 7)
         self.assertEqual(
             [item.recognized for item in probes],
-            [True, False, True, True, True, True],
+            [True, False, True, True, True, True, True],
         )
         self.assertEqual(
             [item.is_primary_source for item in probes],
-            [True, False, True, False, True, False],
+            [True, False, True, True, False, True, False],
         )
 
     def test_extension_lists_are_stable_sorted_and_separate_primary_from_components(self):
@@ -186,7 +198,7 @@ class ChessBaseAdapterContractTests(unittest.TestCase):
         self.assertEqual(extensions, tuple(sorted(extensions)))
         self.assertEqual(
             set(primaries),
-            {".2cbh", ".cbf", ".cbh", ".cbone", ".cbv"},
+            {".2cbh", ".2cbv", ".cbf", ".cbh", ".cbone", ".cbv"},
         )
         self.assertEqual(
             set(components),
