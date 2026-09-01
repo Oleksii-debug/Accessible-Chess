@@ -1,0 +1,55 @@
+name: Temporary V2 Data Publish Race Repair
+
+on:
+  push:
+    branches:
+      - tmp/v2-data-publish-race-repair-20260901
+    paths:
+      - '.github/workflows/tmp-v2-data-publish-race-repair.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  materialize:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Materialize exact Product repair and immutable Audit-B oracle
+        shell: bash
+        run: |
+          set -euo pipefail
+          python .tmp/materialize_publish_race_repair.py
+          git show 95afc926c4ea313ac04de63a095a0f96286581d4:tests/test_v2_upgrade_publish_race_audit.py > tests/test_v2_upgrade_publish_race_audit.py
+          git diff --check -- acs/version2_upgrade.py
+      - name: Compile and focused owner plus Audit-B regressions
+        run: >-
+          python -m unittest -v
+          tests.test_v2_upgrade_publish_race_audit
+          tests.test_v2_upgrade_tracked_writer_conflict
+          tests.test_v2_upgrade_v6_successor
+          tests.test_version2_upgrade
+          tests.test_version2_upgrade_recovery_integrity
+          tests.test_version2_upgrade_stale_writer
+      - name: Commit Product candidate only
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'accessible-chess-repair-bot'
+          git config user.email 'actions@users.noreply.github.com'
+          git add acs/version2_upgrade.py
+          git diff --cached --check
+          test "$(git diff --cached --name-only)" = 'acs/version2_upgrade.py'
+          git commit -m 'fix: preserve writers in final upgrade publication window'
+          git push origin HEAD:tmp/v2-data-publish-race-repair-20260901
