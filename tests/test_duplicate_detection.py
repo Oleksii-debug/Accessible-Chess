@@ -103,6 +103,26 @@ def test_attached_symbolic_nag_matches_numeric_nag_at_moves_strength_only():
         assert [match.kind for match in report.matches] == ["moves"]
 
 
+def test_attached_symbolic_nag_is_canonical_record_duplicate_after_library_ingress():
+    attached = '''[Event "NAG equivalence"]
+[Result "*"]
+
+1. e4?! *
+'''
+    with AcsDatabase() as db:
+        imported = db.import_pgn_text(attached, "attached.pgn")
+        stored = db.get_game(imported.game_ids[0])
+        assert stored is not None
+        assert "e4 ?!" in stored["pgn_text"]
+
+        report = detect_pgn_duplicates(db, attached)
+        semantic = [match for match in report.matches if match.kind in {"record", "tree"}]
+
+        assert len(semantic) == 1
+        assert semantic[0].kind == "record"
+        assert semantic[0].existing_game_id == imported.game_ids[0]
+
+
 def test_richer_metadata_is_classified_without_overwriting_sparse_record():
     sparse = '''[Result "*"]
 

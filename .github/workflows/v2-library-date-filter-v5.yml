@@ -5,6 +5,8 @@ on:
     branches:
       - work/v2-library-date-filter-20260828
   pull_request:
+    branches:
+      - work/v2-library-acsdb-search-v4-20260828
     paths:
       - 'acs/acsdb.py'
       - 'acs/search_policy.py'

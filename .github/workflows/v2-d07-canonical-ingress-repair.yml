@@ -1,0 +1,175 @@
+name: V2 D07 Canonical PGN Ingress Repair
+
+on:
+  push:
+    branches:
+      - work/v2-d07-canonical-ingress-repair-20260901
+  pull_request:
+    branches:
+      - work/v2-library-semantic-dedup-20260831
+    paths:
+      - '.github/workflows/v2-d07-canonical-ingress-repair.yml'
+      - '.github/workflows/v2-library-acsdb-search-v4.yml'
+      - '.github/workflows/v2-library-date-filter-v5.yml'
+      - '.github/workflows/v2-library-integrity-repair.yml'
+      - '.github/workflows/v2-library-semantic-dedup.yml'
+      - 'acs/acsdb.py'
+      - 'acs/duplicate_detection.py'
+      - 'tests/test_acsdb.py'
+      - 'tests/test_duplicate_detection.py'
+      - 'tests/test_dev4_import_history_error_privacy.py'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: v2-d07-canonical-ingress-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  OWNER_BASE: 8883d5ca5a4a8772c3b36301771011771c76bbc1
+  AUDIT_HEAD: 9673ae84b5887a8f05c6ca078d4103f75a294033
+  AUDIT_TEST_BLOB: 06f650e8db4baf23d26ef81de4113dcadcc470cc
+
+jobs:
+  correctness:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 65
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Normalize worktree to canonical Git bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config core.autocrlf false
+          git config core.eol lf
+          git reset --hard HEAD
+          git checkout-index --force --all
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install pinned verification dependency
+        run: python -m pip install -q pytest==8.4.2
+
+      - name: Prove exact ancestry and repair ownership
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git merge-base "$OWNER_BASE" HEAD)" = "$OWNER_BASE"
+          git diff --check "$OWNER_BASE" HEAD
+          changed="$(git diff --name-only "$OWNER_BASE" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/v2-d07-canonical-ingress-repair.yml' \
+            '.github/workflows/v2-library-acsdb-search-v4.yml' \
+            '.github/workflows/v2-library-date-filter-v5.yml' \
+            '.github/workflows/v2-library-integrity-repair.yml' \
+            '.github/workflows/v2-library-semantic-dedup.yml' \
+            'acs/acsdb.py' \
+            'acs/duplicate_detection.py' \
+            'tests/test_acsdb.py' \
+            'tests/test_duplicate_detection.py' \
+            'tests/test_dev4_import_history_error_privacy.py' | sort)"
+          test "$changed" = "$expected"
+          if printf '%s\n' "$changed" | grep -E 'gametree.py|pgn_roundtrip.py|library_import_service.py|chessbase|book|stage1|release_preflight|web/'; then
+            echo 'D06, import-owner, ChessBase, Books, Stage1, release, or UI scope contamination detected' >&2
+            exit 1
+          fi
+
+      - name: Materialize immutable Audit-B oracle
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse "$AUDIT_HEAD:tests/test_v2_d07_ingress_convergence_after_dedupe_audit.py")" = "$AUDIT_TEST_BLOB"
+          mkdir -p _audit_b
+          git cat-file blob "$AUDIT_TEST_BLOB" > _audit_b/test_v2_d07_ingress_convergence_after_dedupe_audit.py
+          test "$(git hash-object _audit_b/test_v2_d07_ingress_convergence_after_dedupe_audit.py)" = "$AUDIT_TEST_BLOB"
+
+      - name: Compile Product and regression surfaces
+        run: python -m compileall -q acs tests _audit_b tools run_accessible_chess.py
+
+      - name: Focused D06 and D07 regressions
+        run: >-
+          python -m unittest -v
+          tests.test_acsdb
+          tests.test_duplicate_detection
+          tests.test_game_identity
+          tests.test_v2_library_dedup_provenance
+          tests.test_d07_library_import_service
+          tests.test_d07_library_import_start_lock
+          tests.test_d07_library_import_transaction_ownership
+          tests.test_v2_library_integrity_repair
+          tests.test_d06_pgn_roundtrip
+          tests.test_dev4_import_history_error_privacy
+
+      - name: Replay unchanged Audit-B canonical-ingress oracle
+        shell: bash
+        run: PYTHONPATH="$PWD" python _audit_b/test_v2_d07_ingress_convergence_after_dedupe_audit.py
+
+      - name: Full repository unittest
+        shell: bash
+        run: |
+          set -o pipefail
+          python -m unittest discover -s tests -v 2>&1 | tee full-unittest.log
+
+      - name: Full repository pytest
+        run: python -m pytest -q tests
+
+      - name: SELFTEST and complete diagnostic
+        run: |
+          python -m acs.selftest
+          python run_accessible_chess.py --diagnostic
+
+      - name: Upload full-test diagnostic
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v2-d07-canonical-ingress-full-${{ matrix.os }}
+          path: full-unittest.log
+          if-no-files-found: ignore
+          retention-days: 7
+
+  inherited-real-lichess-repeat-5k:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install pinned lawful-corpus dependency
+        run: python -m pip install -q zstandard==0.23.0
+      - name: Reprove canonical Library repeat and reopen on 5000 real games
+        shell: bash
+        run: |
+          set -euo pipefail
+          PYTHONPATH="$PWD" python tools/v2_library_dedup_real_corpus.py
+      - name: Upload evidence summary only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v2-d07-canonical-ingress-real-5k-evidence
+          path: dedup-real-evidence.json
+          if-no-files-found: error
+          retention-days: 7
+      - name: Reject retained corpus or optional backend payloads
+        shell: bash
+        run: |
+          set -euo pipefail
+          test ! -e lichess.pgn.zst
+          test ! -e lichess-first-5000.pgn
+          test ! -e libcbh-json-bridge
+          test ! -e libcbh.so
+          test ! -e uncbv
