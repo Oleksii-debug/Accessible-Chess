@@ -20,7 +20,7 @@ from .game_identity import (
     identity_for_game,
     move_identity_for_game,
 )
-from .gametree import parse_games
+from .pgn_roundtrip import parse_pgn_text
 
 DuplicateKind = Literal["exact_source", "record", "tree", "moves"]
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
@@ -168,7 +168,12 @@ def detect_pgn_duplicates(database: AcsDatabase, text: str) -> DuplicateReport:
         for row in exact_sources
     )
 
-    incoming_games = parse_games(text)
+    # Duplicate evidence must use the same canonical D06 normalization as
+    # Library publication.  In particular, an attached symbolic NAG such as
+    # ``e4?!`` is represented as SAN ``e4`` plus a NAG before record/tree
+    # identity is calculated.  Recovery mode preserves the detector's
+    # read-only handling of bounded damaged PGN without bypassing D06 limits.
+    incoming_games = parse_pgn_text(text, strict=False)
     if not incoming_games:
         return DuplicateReport(
             source_format=source_format,
@@ -209,7 +214,7 @@ def detect_pgn_duplicates(database: AcsDatabase, text: str) -> DuplicateReport:
 
     for row in stored_rows:
         try:
-            stored_games = parse_games(str(row["pgn_text"]))
+            stored_games = parse_pgn_text(str(row["pgn_text"]), strict=False)
             if len(stored_games) != 1:
                 continue
             stored_full_identity = identity_for_game(stored_games[0])

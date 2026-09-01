@@ -5,6 +5,8 @@ on:
     branches:
       - work/v2-library-semantic-dedup-20260831
   pull_request:
+    branches:
+      - work/v2-library-dedup-provenance-20260828
     paths:
       - 'acs/game_identity.py'
       - 'acs/duplicate_detection.py'

@@ -4,6 +4,11 @@ import tempfile
 import unittest
 
 from acs.acsdb import ACSDB_SCHEMA_VERSION, AcsDatabase
+from acs.pgn_roundtrip import (
+    MAX_PGN_TAG_VALUE_CHARS,
+    PgnRoundTripError,
+    PgnRoundTripErrorCode,
+)
 
 
 class AcsDatabaseTests(unittest.TestCase):
@@ -237,6 +242,21 @@ class AcsDatabaseTests(unittest.TestCase):
         report = self.db.import_pgn_text('', 'empty.pgn')
         self.assertEqual(report.damaged, 1)
         self.assertEqual(self.db.get_import_attempt(report.attempt_id)['status'], 'damaged')
+
+    def test_import_uses_canonical_pgn_bounds_before_publication(self):
+        oversized = 'X' * (MAX_PGN_TAG_VALUE_CHARS + 1)
+        text = f'[Event "{oversized}"]\n[Result "*"]\n\n*\n'
+
+        with self.assertRaises(PgnRoundTripError) as raised:
+            self.db.import_pgn_text(text, 'oversized-event.pgn')
+
+        self.assertEqual(raised.exception.code, PgnRoundTripErrorCode.TAG_SIZE_LIMIT)
+        self.assertEqual(self.db.conn.execute('SELECT COUNT(*) FROM sources').fetchone()[0], 0)
+        self.assertEqual(self.db.conn.execute('SELECT COUNT(*) FROM games').fetchone()[0], 0)
+        failures = self.db.list_import_attempts(status='failed')
+        self.assertEqual(len(failures), 1)
+        self.assertIsNone(failures[0]['source_id'])
+        self.assertEqual(failures[0]['error_message'], 'PgnRoundTripError: import failed')
 
     def test_multi_game_import_is_atomic_on_storage_failure_and_failure_is_reported(self):
         text = '''[Event "First"]

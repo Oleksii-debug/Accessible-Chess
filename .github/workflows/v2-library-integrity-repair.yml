@@ -5,6 +5,8 @@ on:
     branches:
       - work/v2-library-integrity-repair-20260828
   pull_request:
+    branches:
+      - work/v2-library-date-filter-20260828
     paths:
       - 'acs/acsdb.py'
       - 'tests/test_v2_library_integrity_repair.py'
