@@ -160,21 +160,16 @@ class Version2WindowsUpgradeStatusRunner:
             try:
                 self._event_sink(event)
             except Exception:
-                # UI observer failure is not data-upgrade authority.  Do not
-                # expose exception detail or disturb the canonical migration.
                 _LOG.warning("Version 2 upgrade status observer failed")
 
         try:
             self._post_to_ui(invoke)
         except Exception:
-            # Never fall back to invoking presentation directly from the worker
-            # thread.  That would violate the Windows UI-thread boundary.
             _LOG.warning("Version 2 upgrade UI posting failed")
 
     def _phase_hook(self, phase: str) -> None:
         mapped = _PHASES.get(phase)
         if mapped is None:
-            # Future internal phases must not leak arbitrary text into NVDA.
             _LOG.warning("Version 2 upgrade emitted an unrecognized phase")
             return
         self._deliver(

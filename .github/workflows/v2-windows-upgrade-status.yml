@@ -6,7 +6,7 @@ on:
       - work/v2-windows-upgrade-status-adapter-20260831
   pull_request:
     branches:
-      - work/v2-data-upgrade-v6-20260831
+      - work/v2-data-upgrade-tracked-writer-20260831
     paths:
       - 'acs/version2_windows_upgrade_status.py'
       - 'tests/test_v2_windows_upgrade_status.py'
@@ -21,7 +21,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  UPGRADE_BASE: e94bf1d2416af35acfe541840523d874464b6607
+  UPGRADE_BASE: 2a5af209d0b83168b1cdf8273b5a9e499af66d36
 
 jobs:
   upgrade-status:
@@ -57,7 +57,6 @@ jobs:
         run: |
           set -euo pipefail
           git merge-base --is-ancestor "$UPGRADE_BASE" HEAD
-          test "$(git merge-base "$UPGRADE_BASE" HEAD)" = "$UPGRADE_BASE"
           git diff --check "$UPGRADE_BASE" HEAD
           changed="$(git diff --name-only "$UPGRADE_BASE" HEAD | sort)"
           expected="$(printf '%s\n' \
@@ -69,16 +68,13 @@ jobs:
             acs/version2_upgrade.py \
             acs/acsdb.py \
             acs/settings.py \
+            tests/test_v2_upgrade_tracked_writer_conflict.py \
             acs/release_app.py \
             acs/stage1_release_ui.py \
             acs/stage1_release_ui_core.py \
             run_accessible_chess.py; do
             test "$(git rev-parse "HEAD:$path")" = "$(git rev-parse "$UPGRADE_BASE:$path")"
           done
-          if git cat-file -e "HEAD:tests/test_v2_upgrade_tracked_writer_conflict.py" 2>/dev/null; then
-            echo 'Active #403 successor test leaked into the #378-based D01 branch.'
-            exit 1
-          fi
 
       - name: Compile adapter package
         run: >-
@@ -86,10 +82,11 @@ jobs:
           acs/version2_windows_upgrade_status.py
           tests/test_v2_windows_upgrade_status.py
 
-      - name: Focused accessible adapter and exact #378 upgrade contracts
+      - name: Focused accessible adapter and current canonical upgrade contracts
         run: >-
           python -m unittest -v
           tests.test_v2_windows_upgrade_status
+          tests.test_v2_upgrade_tracked_writer_conflict
           tests.test_v2_upgrade_current_acsdb_identity_audit
           tests.test_v2_upgrade_v6_successor
           tests.test_version2_upgrade
@@ -100,6 +97,7 @@ jobs:
         run: >-
           python -m pytest -q
           tests/test_v2_windows_upgrade_status.py
+          tests/test_v2_upgrade_tracked_writer_conflict.py
           tests/test_v2_upgrade_current_acsdb_identity_audit.py
           tests/test_v2_upgrade_v6_successor.py
           tests/test_version2_upgrade.py

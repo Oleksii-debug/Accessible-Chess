@@ -1,0 +1,90 @@
+name: V2 Data Upgrade Tracked Writer
+
+on:
+  push:
+    branches:
+      - work/v2-data-upgrade-tracked-writer-20260831
+  pull_request:
+    paths:
+      - 'acs/version2_upgrade.py'
+      - 'tests/test_v2_upgrade_tracked_writer_conflict.py'
+      - '.github/workflows/v2-data-upgrade-v6.yml'
+      - '.github/workflows/v2-data-upgrade-tracked-writer.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: v2-data-upgrade-tracked-writer-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tracked-writer:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Exact successor ownership
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE=6e7b449193d795e76c9f5409d2a162bdf017af3d
+          test "$(git merge-base "$BASE" HEAD)" = "$BASE"
+          git diff --check "$BASE" HEAD
+          changed="$(git diff --name-only "$BASE" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/v2-data-upgrade-v6.yml' \
+            '.github/workflows/v2-data-upgrade-tracked-writer.yml' \
+            'tests/test_v2_upgrade_tracked_writer_conflict.py' | sort)"
+          if test "$(git rev-parse HEAD:acs/version2_upgrade.py)" != "f4f99cf3d97116405c483deddcd1a9e60dc1f803"; then
+            expected="$(printf '%s\n' \
+              '.github/workflows/v2-data-upgrade-v6.yml' \
+              '.github/workflows/v2-data-upgrade-tracked-writer.yml' \
+              'acs/version2_upgrade.py' \
+              'tests/test_v2_upgrade_tracked_writer_conflict.py' | sort)"
+          fi
+          test "$changed" = "$expected"
+          test "$(git rev-parse HEAD:acs/acsdb.py)" = "f5dd56e017c09aa8bf2ba3aa66c0658f8a229e74"
+      - name: Compile
+        run: python -m compileall -q acs tests
+      - name: Existing upgrade regressions
+        run: >-
+          python -m unittest -v
+          tests.test_v2_upgrade_v6_successor
+          tests.test_version2_upgrade
+          tests.test_version2_upgrade_recovery_integrity
+          tests.test_version2_upgrade_stale_writer
+      - name: Tracked writer conflict oracle
+        run: python -m unittest -v tests.test_v2_upgrade_tracked_writer_conflict
+
+  broad-regression:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install verification dependency
+        run: python -m pip install -q pytest==8.4.2
+      - name: Full unittest
+        run: python -m unittest discover -s tests -v
+      - name: Full pytest
+        run: python -m pytest -q tests
+      - name: SELFTEST and complete diagnostic
+        run: |
+          python -m acs.selftest
+          python run_accessible_chess.py --diagnostic
