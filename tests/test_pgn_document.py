@@ -123,7 +123,13 @@ class ProfessionalPgnDocumentTests(unittest.TestCase):
         self.assertTrue(session.view().global_warnings)
         self.assertTrue(session.dirty)
         self.assertTrue(
-            any("unmatched closing brace" in warning for warning in session.view().global_warnings)
+            any("Invalid UTF-8 bytes were replaced" in warning for warning in session.view().global_warnings)
+        )
+        self.assertTrue(
+            any(
+                "nested brace comment delimiters normalized to parentheses" in warning
+                for warning in session.view().global_warnings
+            )
         )
 
         with self.assertRaises(PgnDocumentError) as caught:

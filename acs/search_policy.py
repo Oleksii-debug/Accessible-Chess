@@ -2,14 +2,18 @@ from __future__ import annotations
 
 """Canonical search policy shared by ACSDB and Library/Search services."""
 
+from datetime import date
+import re
 import sqlite3
 import unicodedata
 
 SEARCH_FOLD_SQL_FUNCTION = "ACS_SEARCH_FOLD"
+SEARCH_DATE_KEY_SQL_FUNCTION = "ACS_SEARCH_DATE_KEY"
 MAX_SEARCH_TERM_CHARS = 256
 MAX_SEARCH_PAGE_SIZE = 200
 SQLITE_INTEGER_MAX = (1 << 63) - 1
 SEARCH_RESULTS = frozenset({"1-0", "0-1", "1/2-1/2", "*"})
+_COMPLETE_PGN_DATE_RE = re.compile(r"^(\d{4})\.(\d{2})\.(\d{2})$")
 
 
 def normalize_search_term(value: str | None, *, name: str) -> str | None:
@@ -64,6 +68,40 @@ def search_fold(value: str | None) -> str | None:
     return unicodedata.normalize("NFKC", value).casefold()
 
 
+def search_date_key(value: str | None) -> str | None:
+    """Return a sortable key only for a complete, real PGN calendar date.
+
+    Stored PGN Date metadata is loss-aware and may legitimately contain unknown
+    components such as ``????.??.??``.  Search must never invent calendar facts
+    from such text, so only an exact, valid ``YYYY.MM.DD`` value receives a key.
+    """
+    if value is None or type(value) is not str:
+        return None
+    normalized = unicodedata.normalize("NFKC", value)
+    match = _COMPLETE_PGN_DATE_RE.fullmatch(normalized)
+    if match is None:
+        return None
+    year, month, day = (int(part) for part in match.groups())
+    try:
+        date(year, month, day)
+    except ValueError:
+        return None
+    return f"{year:04d}.{month:02d}.{day:02d}"
+
+
+def normalize_search_date_bound(value: object | None, *, name: str) -> str | None:
+    """Validate a complete calendar bound without coercing partial PGN dates."""
+    if value is None:
+        return None
+    if type(value) is not str:
+        raise TypeError(f"{name} must be text")
+    normalized = unicodedata.normalize("NFKC", value).strip()
+    key = search_date_key(normalized)
+    if key is None:
+        raise ValueError(f"{name} must be a valid complete date in YYYY.MM.DD format")
+    return key
+
+
 def escape_like(value: str) -> str:
     """Escape a folded user term for literal SQLite LIKE matching."""
     return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
@@ -77,10 +115,28 @@ def literal_like_pattern(value: str, *, prefix: bool = False) -> str:
 
 
 def install_search_fold(connection: sqlite3.Connection) -> None:
-    """Install the deterministic Unicode fold function on one SQLite connection."""
-    connection.create_function(
+    """Install deterministic search functions when SQLite UDFs are available.
+
+    Some fail-closed schema-preflight tests intentionally wrap a real SQLite
+    connection with only the minimal execute/close surface needed to prove that
+    an unsupported future ACSDB is rejected and closed without being rewritten.
+    Such a proxy does not expose ``create_function``. Skipping registration for
+    that narrow proxy is safe: any supported-schema migration/search that really
+    needs either UDF will fail closed at SQL execution rather than publishing
+    stale or partially migrated data.
+    """
+    create_function = getattr(connection, "create_function", None)
+    if create_function is None:
+        return
+    create_function(
         SEARCH_FOLD_SQL_FUNCTION,
         1,
         search_fold,
+        deterministic=True,
+    )
+    create_function(
+        SEARCH_DATE_KEY_SQL_FUNCTION,
+        1,
+        search_date_key,
         deterministic=True,
     )
