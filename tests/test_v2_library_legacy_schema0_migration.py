@@ -44,6 +44,17 @@ PGN_TWO_GAMES = '''[Event "Legacy A"]
 1. Nf3 Nf6 2. g3 g6 *
 '''
 
+PGN_INVALID_SAN = '''[Event "Legacy malformed SAN"]
+[Site "?"]
+[Date "2026.08.31"]
+[Round "1"]
+[White "White"]
+[Black "Black"]
+[Result "*"]
+
+1. NotAMove *
+'''
+
 
 def _make_legacy(path: Path, rows: list[tuple[int, object, object, object]]) -> None:
     connection = sqlite3.connect(path)
@@ -127,6 +138,24 @@ class V2LibraryLegacySchema0MigrationTests(unittest.TestCase):
                     reopened.conn.execute("SELECT COUNT(*) FROM games").fetchone()[0],
                     3,
                 )
+
+    def test_canonical_ingress_rejection_publishes_no_destination(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "legacy.db"
+            destination = root / "current.acsdb"
+            _make_legacy(
+                source,
+                [(1, "malformed", PGN_INVALID_SAN, "2026-08-31T00:00:00Z")],
+            )
+            before = _digest(source)
+
+            with self.assertRaises(LegacyLibraryDataError):
+                migrate_legacy_library(source, destination)
+
+            self.assertFalse(destination.exists())
+            self.assertEqual(before, _digest(source))
+            self.assertFalse(any(root.glob(".current.acsdb.legacy-migrate-*.tmp*")))
 
     def test_empty_exact_legacy_library_becomes_empty_current_acsdb(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
