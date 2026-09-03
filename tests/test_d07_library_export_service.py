@@ -115,8 +115,8 @@ class LibraryExportServiceTests(unittest.TestCase):
         self.assertEqual(self._library_rows(), before_rows)
         self.assertIn("Ірина", reopened.games[0].tags["White"])
         self.assertEqual(reopened.games[0].line.moves[0].nags, ["$1"])
-        self.assertTrue(reopened.games[0].line.moves[0].comments)
-        self.assertEqual(len(reopened.games[0].line.moves[0].variations), 1)
+        self.assertTrue(reopened.games[0].line.moves[0].comments_after)
+        self.assertEqual(len(reopened.games[0].line.moves[1].variations), 1)
 
     def test_single_game_export_uses_same_canonical_path(self) -> None:
         request = LibraryExportRequest.selected([self.ids[1]])
