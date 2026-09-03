@@ -25,7 +25,7 @@ import sqlite3
 import tempfile
 
 from .acsdb import ACSDB_SCHEMA_VERSION, AcsDatabase
-from .gametree import parse_games
+from .pgn_roundtrip import PgnRoundTripError, parse_pgn_text
 
 
 class LegacyLibraryMigrationError(RuntimeError):
@@ -165,6 +165,24 @@ def _legacy_row(row: sqlite3.Row) -> tuple[int, str, str, str]:
     return legacy_id, title, pgn, created_at
 
 
+def _parse_legacy_pgn(pgn: str):
+    """Use D06 canonical bounded recovery ingress for one historical row.
+
+    Legacy rows may legitimately require the historical recovery policy, so the
+    migration uses ``strict=False``.  This still enforces the D06 lexical/resource
+    bounds plus canonical SAN normalization/validation before anything can be
+    published into the current ACSDB.  A D06 rejection is translated into the
+    migration domain so callers receive one stable fail-closed error surface.
+    """
+
+    try:
+        return parse_pgn_text(pgn, strict=False)
+    except PgnRoundTripError as exc:
+        raise LegacyLibraryDataError(
+            "legacy Library row contains PGN rejected by canonical ingress"
+        ) from exc
+
+
 def migrate_legacy_library(
     source: str | Path,
     destination: str | Path,
@@ -220,7 +238,7 @@ def migrate_legacy_library(
                 )
                 for raw_row in cursor:
                     _legacy_id, title, pgn, created_at = _legacy_row(raw_row)
-                    games = parse_games(pgn)
+                    games = _parse_legacy_pgn(pgn)
                     if not games:
                         raise LegacyLibraryDataError(
                             "legacy Library row contains no canonically representable game"
