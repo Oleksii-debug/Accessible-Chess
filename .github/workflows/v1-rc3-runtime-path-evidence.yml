@@ -1,0 +1,90 @@
+name: V1 RC3 Runtime Path Evidence
+
+on:
+  push:
+    branches:
+      - audit/v1-rc3-runtime-path-20260903
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  shipped-source-path:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Prove RC3 tag ancestry and immutable source inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          RC3=1a8934a0f7125262cfdb9854e459ffcd22e55348
+          git merge-base --is-ancestor "$RC3" HEAD
+          test "$(git rev-parse stage1-0.3.3-rc3^{commit})" = "$RC3"
+          test "$(git rev-parse "$RC3:acs/storage.py")" = 'b52a12cf27f567e2dac2fde1717025d8c7ede8fe'
+          git diff --quiet "$RC3" HEAD -- \
+            build_snapshot_exact/group00.b64 \
+            build_snapshot_exact/group01.b64 \
+            build_parts10k/part04.b64 \
+            build_parts10k/part05.b64 \
+            build_parts10k/part06.b64 \
+            build_parts10k/part07.b64 \
+            acs/storage.py \
+            .github/workflows/windows-stage1-build.yml
+
+      - name: Reconstruct exact shipped Stage 1 source
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat \
+            build_snapshot_exact/group00.b64 \
+            build_snapshot_exact/group01.b64 \
+            build_parts10k/part04.b64 \
+            build_parts10k/part05.b64 \
+            build_parts10k/part06.b64 \
+            build_parts10k/part07.b64 \
+            | tr -d '[:space:]' > stage1_source.b64
+          test "$(wc -c < stage1_source.b64 | tr -d ' ')" = '77128'
+          base64 -d stage1_source.b64 > stage1_source.zip
+          test "$(wc -c < stage1_source.zip | tr -d ' ')" = '57844'
+          echo 'cb0a897286d0dce6ff9d05d985169d42e4f9540203115611356e6f831de2bce7  stage1_source.zip' | sha256sum -c -
+          mkdir reconstructed
+          unzip -q stage1_source.zip -d reconstructed
+          test -f reconstructed/acs/main.py
+          test -f reconstructed/acs/storage.py
+
+      - name: Emit exact legacy Library callsite and path construction
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo '=== IMPORT/CALLSITE MATCHES ==='
+          grep -R -n -E 'from .*storage import|import .*storage|Library\(' reconstructed/acs reconstructed/run_accessible_chess.py || true
+          echo '=== PATH-RELATED MATCHES ==='
+          grep -R -n -E 'LOCALAPPDATA|APPDATA|AccessibleChess|library|Library|\.db|settings' reconstructed/acs reconstructed/run_accessible_chess.py || true
+          echo '=== MAIN.PY ==='
+          cat reconstructed/acs/main.py
+          echo '=== STORAGE.PY ==='
+          cat reconstructed/acs/storage.py
+
+      - name: Preserve text evidence only
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            echo 'RC3_TAG=stage1-0.3.3-rc3'
+            echo 'RC3_COMMIT=1a8934a0f7125262cfdb9854e459ffcd22e55348'
+            echo 'SOURCE_ZIP_SHA256=cb0a897286d0dce6ff9d05d985169d42e4f9540203115611356e6f831de2bce7'
+            echo
+            grep -R -n -E 'from .*storage import|import .*storage|Library\(|LOCALAPPDATA|APPDATA|AccessibleChess|library|Library|\.db|settings' reconstructed/acs reconstructed/run_accessible_chess.py || true
+          } > v1-rc3-runtime-path-evidence.txt
+          rm -rf reconstructed stage1_source.zip stage1_source.b64
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: v1-rc3-runtime-path-evidence
+          path: v1-rc3-runtime-path-evidence.txt
+          retention-days: 14
