@@ -402,45 +402,125 @@ def _brace_comment_state_after_line(line: str, inside_comment: bool) -> bool:
     return inside_comment
 
 
+class PgnGameFrameSizeError(ValueError):
+    """One canonical framed game exceeded its caller-selected byte ceiling."""
+
+
+@dataclass(frozen=True, slots=True)
+class PgnGameFrame:
+    """One game boundary produced by the canonical PGN line framer."""
+
+    tags: dict[str, str]
+    movetext: str
+    warnings: tuple[str, ...]
+    text: str
+
+
+class CanonicalPgnGameFramer:
+    """Share one tag/comment game-boundary state machine across all ingress.
+
+    The recovery parser historically framed games inside ``_split_games`` while
+    large-file ingress carried a second, slightly different implementation.  A
+    malformed line beginning with ``[`` could consequently publish a prefix in
+    the streaming path even though whole-text D06 treated it as movetext in the
+    preceding game.  This class is now the only line-framing authority used by
+    both paths.  It recognizes a boundary only for the exact ``TAG_RE`` grammar.
+    """
+
+    def __init__(self, *, max_frame_bytes: int | None = None) -> None:
+        if max_frame_bytes is not None:
+            if type(max_frame_bytes) is not int:
+                raise TypeError("max_frame_bytes must be an integer or None")
+            if max_frame_bytes < 1:
+                raise ValueError("max_frame_bytes must be positive")
+        self._max_frame_bytes = max_frame_bytes
+        self._reset()
+
+    @property
+    def inside_brace_comment(self) -> bool:
+        return self._inside_brace_comment
+
+    def _reset(self) -> None:
+        self._tags: dict[str, str] = {}
+        self._moves: list[str] = []
+        self._raw_lines: list[str] = []
+        self._warnings: list[str] = []
+        self._seen_movetext = False
+        self._inside_brace_comment = False
+        self._frame_bytes = 0
+
+    def _append_raw(self, line: str) -> None:
+        line_bytes = len(line.encode("utf-8")) + 1
+        if (
+            self._max_frame_bytes is not None
+            and self._frame_bytes + line_bytes > self._max_frame_bytes
+        ):
+            raise PgnGameFrameSizeError(
+                "PGN game exceeds the configured frame safety limit"
+            )
+        self._raw_lines.append(line)
+        self._frame_bytes += line_bytes
+
+    def _flush(self) -> PgnGameFrame | None:
+        if not self._tags and not any(line.strip() for line in self._moves):
+            self._reset()
+            return None
+        text = "\n".join(self._raw_lines).strip("\n") + "\n"
+        frame = PgnGameFrame(
+            tags=dict(self._tags),
+            movetext="\n".join(self._moves).strip(),
+            warnings=tuple(self._warnings),
+            text=text,
+        )
+        self._reset()
+        return frame
+
+    def feed_line(self, line: str) -> PgnGameFrame | None:
+        if type(line) is not str:
+            raise TypeError("PGN frame line must be exact text")
+
+        match = None if self._inside_brace_comment else TAG_RE.match(line)
+        completed: PgnGameFrame | None = None
+        if match is not None:
+            if self._seen_movetext:
+                completed = self._flush()
+            self._append_raw(line)
+            key = match.group(1)
+            if key in self._tags:
+                self._warnings.append(f"duplicate tag {key}; last value preserved")
+            self._tags[key] = _unescape_tag(match.group(2))
+            return completed
+
+        if line.strip():
+            self._seen_movetext = True
+        if self._seen_movetext or self._moves:
+            self._append_raw(line)
+            self._moves.append(line)
+        self._inside_brace_comment = _brace_comment_state_after_line(
+            line,
+            self._inside_brace_comment,
+        )
+        return completed
+
+    def finish(self) -> PgnGameFrame | None:
+        return self._flush()
+
+
 def _split_games(text: str) -> list[tuple[dict[str, str], str, list[str]]]:
     lines = text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
-    games: list[tuple[dict[str, str], str, list[str]]] = []
-    tags: dict[str, str] = {}
-    moves: list[str] = []
-    split_warnings: list[str] = []
-    seen_movetext = False
-    inside_brace_comment = False
-
-    def flush() -> None:
-        nonlocal tags, moves, split_warnings, seen_movetext, inside_brace_comment
-        if tags or any(x.strip() for x in moves):
-            games.append((tags, "\n".join(moves).strip(), split_warnings))
-        tags = {}
-        moves = []
-        split_warnings = []
-        seen_movetext = False
-        inside_brace_comment = False
-
+    framer = CanonicalPgnGameFramer()
+    framed: list[PgnGameFrame] = []
     for line in lines:
-        m = None if inside_brace_comment else TAG_RE.match(line)
-        if m:
-            if seen_movetext:
-                flush()
-            key = m.group(1)
-            if key in tags:
-                split_warnings.append(f"duplicate tag {key}; last value preserved")
-            tags[key] = _unescape_tag(m.group(2))
-            continue
-        if line.strip():
-            seen_movetext = True
-        if seen_movetext or moves:
-            moves.append(line)
-        inside_brace_comment = _brace_comment_state_after_line(
-            line,
-            inside_brace_comment,
-        )
-    flush()
-    return games
+        completed = framer.feed_line(line)
+        if completed is not None:
+            framed.append(completed)
+    completed = framer.finish()
+    if completed is not None:
+        framed.append(completed)
+    return [
+        (frame.tags, frame.movetext, list(frame.warnings))
+        for frame in framed
+    ]
 
 
 def parse_games(text: str) -> list[PgnGame]:
