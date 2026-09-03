@@ -120,7 +120,8 @@ class LibraryExportReachabilityTests(unittest.TestCase):
                     (0, 1),
                 )
                 self.assertEqual(expected[0].line.moves[0].nags, ["$1"])
-                self.assertTrue(expected[0].line.moves[0].variations)
+                self.assertTrue(expected[0].line.moves[0].comments_after)
+                self.assertTrue(expected[0].line.moves[1].variations)
                 self.assertEqual(expected[1].tags["SetUp"], "1")
                 self.assertEqual(fallback, [])
 
