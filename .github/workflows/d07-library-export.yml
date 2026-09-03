@@ -144,6 +144,10 @@ jobs:
         run: |
           set -euo pipefail
           python - <<'PY'
+          import clr
+
+          clr.AddReference("System.Windows.Forms")
+
           from acs.acsdb import AcsDatabase
           from acs.library_export_service import LibraryExportService
           from acs.version2_windows_library_export import Version2WindowsLibraryExportDelegate
