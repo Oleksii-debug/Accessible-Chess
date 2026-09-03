@@ -6,6 +6,7 @@ import unittest
 from unittest.mock import patch
 
 from acs.acsdb import AcsDatabase
+from acs.game_identity import identity_for_game
 from acs.library_export_service import (
     LibraryExportError,
     LibraryExportRequest,
@@ -54,6 +55,10 @@ PGN = '''[Event "Київ Open"]
 '''
 
 
+def _record_digests(games: tuple[object, ...] | list[object]) -> tuple[str, ...]:
+    return tuple(identity_for_game(game).record_digest for game in games)
+
+
 class LibraryExportServiceTests(unittest.TestCase):
     def setUp(self) -> None:
         self.db = AcsDatabase()
@@ -67,6 +72,14 @@ class LibraryExportServiceTests(unittest.TestCase):
 
     def tearDown(self) -> None:
         self.db.close()
+
+    def _library_rows(self) -> tuple[tuple[object, ...], ...]:
+        return tuple(
+            tuple(row)
+            for row in self.db.conn.execute(
+                "SELECT id, source_id, source_index, pgn_text FROM games ORDER BY id"
+            ).fetchall()
+        )
 
     def test_selected_request_rejects_paths_duplicates_bool_and_unknown_fields(self) -> None:
         with self.assertRaises(ValueError):
@@ -87,6 +100,8 @@ class LibraryExportServiceTests(unittest.TestCase):
         self.assertEqual(request.scope, LibraryExportScope.SELECTED)
         self.assertEqual(request.game_ids, (self.ids[0], self.ids[2]))
         expected = self.service.resolve_games(request)
+        before_rows = self._library_rows()
+        self.assertEqual(tuple(game.source_index for game in expected), (0, 0))
 
         with tempfile.TemporaryDirectory() as directory:
             destination = Path(directory) / "selected.pgn"
@@ -94,7 +109,10 @@ class LibraryExportServiceTests(unittest.TestCase):
             reopened = open_pgn(destination)
 
         self.assertEqual(result.game_count, 2)
-        self.assertEqual(reopened.games, expected)
+        self.assertEqual(len(reopened.games), len(expected))
+        self.assertEqual(_record_digests(reopened.games), _record_digests(expected))
+        self.assertEqual(tuple(game.source_index for game in reopened.games), (0, 1))
+        self.assertEqual(self._library_rows(), before_rows)
         self.assertIn("Ірина", reopened.games[0].tags["White"])
         self.assertEqual(reopened.games[0].line.moves[0].nags, ["$1"])
         self.assertTrue(reopened.games[0].line.moves[0].comments)
@@ -140,12 +158,7 @@ class LibraryExportServiceTests(unittest.TestCase):
             self.assertFalse(destination.exists())
 
     def test_writer_failure_does_not_mutate_library(self) -> None:
-        before_rows = tuple(
-            tuple(row)
-            for row in self.db.conn.execute(
-                "SELECT id, source_id, source_index, pgn_text FROM games ORDER BY id"
-            ).fetchall()
-        )
+        before_rows = self._library_rows()
         before_changes = self.db.conn.total_changes
         request = LibraryExportRequest.selected([self.ids[0], self.ids[1]])
 
@@ -156,12 +169,7 @@ class LibraryExportServiceTests(unittest.TestCase):
             with self.assertRaises(OSError):
                 self.service.export_to(Path("ignored.pgn"), request)
 
-        after_rows = tuple(
-            tuple(row)
-            for row in self.db.conn.execute(
-                "SELECT id, source_id, source_index, pgn_text FROM games ORDER BY id"
-            ).fetchall()
-        )
+        after_rows = self._library_rows()
         self.assertEqual(after_rows, before_rows)
         self.assertEqual(self.db.conn.total_changes, before_changes)
 
