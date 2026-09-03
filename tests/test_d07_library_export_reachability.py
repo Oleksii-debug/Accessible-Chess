@@ -6,6 +6,7 @@ import unittest
 
 from acs.acsdb import AcsDatabase
 from acs.full_product_ui_shell import UILanguage
+from acs.game_identity import identity_for_game
 from acs.library_export_service import LibraryExportRequest, LibraryExportService
 from acs.library_export_workspace import build_library_export_webview
 from acs.pgn_service import open_pgn
@@ -49,6 +50,10 @@ _PGN = '''[Event "Reachability"]
 
 1. d4 d5 *
 '''
+
+
+def _record_digests(games: tuple[object, ...] | list[object]) -> tuple[str, ...]:
+    return tuple(identity_for_game(game).record_digest for game in games)
 
 
 class _Dialog:
@@ -104,7 +109,16 @@ class LibraryExportReachabilityTests(unittest.TestCase):
                 expected = service.resolve_games(
                     LibraryExportRequest.selected([rows[1]["game_id"], rows[0]["game_id"]])
                 )
-                self.assertEqual(open_pgn(selected_path).games, expected)
+                selected_reopened = open_pgn(selected_path)
+                self.assertEqual(len(selected_reopened.games), len(expected))
+                self.assertEqual(
+                    _record_digests(selected_reopened.games),
+                    _record_digests(expected),
+                )
+                self.assertEqual(
+                    tuple(game.source_index for game in selected_reopened.games),
+                    (0, 1),
+                )
                 self.assertEqual(expected[0].line.moves[0].nags, ["$1"])
                 self.assertTrue(expected[0].line.moves[0].variations)
                 self.assertEqual(expected[1].tags["SetUp"], "1")
@@ -114,12 +128,17 @@ class LibraryExportReachabilityTests(unittest.TestCase):
                 dialogs.destination = filtered_path
                 bridge.dispatch("library.export_filtered", {})
                 filtered = open_pgn(filtered_path)
+                filtered_expected = service.resolve_games(
+                    LibraryExportRequest.filtered(GameSearchQuery(event="Reachability"))
+                )
                 self.assertEqual(len(filtered.games), 2)
                 self.assertEqual(
-                    filtered.games,
-                    service.resolve_games(
-                        LibraryExportRequest.filtered(GameSearchQuery(event="Reachability"))
-                    ),
+                    _record_digests(filtered.games),
+                    _record_digests(filtered_expected),
+                )
+                self.assertEqual(
+                    tuple(game.source_index for game in filtered.games),
+                    (0, 1),
                 )
                 self.assertEqual(dialogs.calls, ["library-export.pgn", "library-export.pgn"])
                 self.assertNotIn(str(selected_path), repr(events))
