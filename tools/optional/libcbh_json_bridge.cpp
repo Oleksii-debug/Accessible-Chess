@@ -23,33 +23,119 @@
 
 namespace {
 
+bool is_utf8_continuation(unsigned char value) {
+    return value >= 0x80 && value <= 0xBF;
+}
+
+std::size_t valid_utf8_sequence_length(const std::string& value, std::size_t index) {
+    const auto byte = [&value](std::size_t position) {
+        return static_cast<unsigned char>(value[position]);
+    };
+    const unsigned char first = byte(index);
+    const std::size_t remaining = value.size() - index;
+    if (first >= 0xC2 && first <= 0xDF) {
+        return remaining >= 2 && is_utf8_continuation(byte(index + 1)) ? 2 : 0;
+    }
+    if (remaining >= 3 && first >= 0xE0 && first <= 0xEF) {
+        const unsigned char second = byte(index + 1);
+        const unsigned char third = byte(index + 2);
+        if (!is_utf8_continuation(third)) {
+            return 0;
+        }
+        if (first == 0xE0) {
+            return second >= 0xA0 && second <= 0xBF ? 3 : 0;
+        }
+        if (first == 0xED) {
+            return second >= 0x80 && second <= 0x9F ? 3 : 0;
+        }
+        return is_utf8_continuation(second) ? 3 : 0;
+    }
+    if (remaining >= 4 && first >= 0xF0 && first <= 0xF4) {
+        const unsigned char second = byte(index + 1);
+        const unsigned char third = byte(index + 2);
+        const unsigned char fourth = byte(index + 3);
+        if (!is_utf8_continuation(third) || !is_utf8_continuation(fourth)) {
+            return 0;
+        }
+        if (first == 0xF0) {
+            return second >= 0x90 && second <= 0xBF ? 4 : 0;
+        }
+        if (first == 0xF4) {
+            return second >= 0x80 && second <= 0x8F ? 4 : 0;
+        }
+        return is_utf8_continuation(second) ? 4 : 0;
+    }
+    return 0;
+}
+
 std::string json_string(const std::string& value) {
     std::ostringstream out;
     out << '"';
-    for (unsigned char c : value) {
+    for (std::size_t index = 0; index < value.size();) {
+        const unsigned char c = static_cast<unsigned char>(value[index]);
         switch (c) {
-        case '"': out << "\\\""; break;
-        case '\\': out << "\\\\"; break;
-        case '\b': out << "\\b"; break;
-        case '\f': out << "\\f"; break;
-        case '\n': out << "\\n"; break;
-        case '\r': out << "\\r"; break;
-        case '\t': out << "\\t"; break;
+        case '"': out << "\\\""; ++index; break;
+        case '\\': out << "\\\\"; ++index; break;
+        case '\b': out << "\\b"; ++index; break;
+        case '\f': out << "\\f"; ++index; break;
+        case '\n': out << "\\n"; ++index; break;
+        case '\r': out << "\\r"; ++index; break;
+        case '\t': out << "\\t"; ++index; break;
         default:
-            // libcbh exposes byte strings without an encoding contract. Keep
-            // the JSON stream valid and preserve every byte deterministically.
-            // Bytes >= 0x80 are represented one-to-one as U+00XX rather than
-            // emitting possibly-invalid UTF-8.
-            if (c < 0x20 || c >= 0x80) {
+            if (c < 0x20) {
                 out << "\\u00" << std::hex << std::setw(2) << std::setfill('0')
                     << static_cast<unsigned int>(c) << std::dec;
-            } else {
+                ++index;
+            } else if (c < 0x80) {
                 out << static_cast<char>(c);
+                ++index;
+            } else {
+                // Preserve already-valid UTF-8 as Unicode.  libcbh otherwise
+                // exposes no charset contract, so an invalid high byte is
+                // retained deterministically as U+00XX rather than guessed as
+                // a proprietary/code-page character or emitted as invalid JSON.
+                const std::size_t length = valid_utf8_sequence_length(value, index);
+                if (length) {
+                    out.write(value.data() + index, static_cast<std::streamsize>(length));
+                    index += length;
+                } else {
+                    out << "\\u00" << std::hex << std::setw(2) << std::setfill('0')
+                        << static_cast<unsigned int>(c) << std::dec;
+                    ++index;
+                }
             }
         }
     }
     out << '"';
     return out.str();
+}
+
+std::string scid_eco_main_to_pgn(unsigned int value) {
+    // Pinned libcbh intentionally drops ChessBase ECO subcodes and exposes the
+    // Scid main-code sequence 1 + 131*n for A00..E99.  Zero is unknown.  Keep
+    // this strict: an unexpected non-main-code value is not converted.
+    constexpr unsigned int stride = 131;
+    constexpr unsigned int main_codes = 500;
+    if (value == 0 || (value - 1) % stride != 0) {
+        return {};
+    }
+    const unsigned int index = (value - 1) / stride;
+    if (index >= main_codes) {
+        return {};
+    }
+    const char letter = static_cast<char>('A' + index / 100);
+    std::ostringstream out;
+    out << letter << std::setw(2) << std::setfill('0') << index % 100;
+    return out.str();
+}
+
+bool has_exact_tag(const std::vector<Tag>& tags, const std::string& name) {
+    for (const auto& tag : tags) {
+        if (tag.tag == name) {
+            return true;
+        }
+    }
+    return false;
 }
 
 void write_comment(std::ostream& out, const Comment& comment) {
@@ -111,12 +197,27 @@ void write_move(std::ostream& out, const AnnotatedMove& move) {
     out << "]}";
 }
 
-void write_tags(std::ostream& out, const std::vector<Tag>& tags) {
+void write_tags(std::ostream& out, const std::vector<Tag>& tags, unsigned int eco) {
     out << '[';
-    for (std::size_t i = 0; i < tags.size(); ++i) {
-        if (i) out << ',';
-        out << "{\"name\":" << json_string(tags[i].tag)
-            << ",\"value\":" << json_string(tags[i].value) << '}';
+    bool wrote = false;
+    for (const auto& tag : tags) {
+        if (wrote) out << ',';
+        out << "{\"name\":" << json_string(tag.tag)
+            << ",\"value\":" << json_string(tag.value) << '}';
+        wrote = true;
+    }
+
+    // libcbh exposes ECO as a Scid main-code integer rather than a PGN tag.
+    // Publish the loss-aware three-character main ECO only when the backend did
+    // not already provide an explicit ECO tag.  The Python adapter also retains
+    // the raw integer as CBH_ECO for audit/debug provenance.
+    if (!has_exact_tag(tags, "ECO")) {
+        const std::string canonical_eco = scid_eco_main_to_pgn(eco);
+        if (!canonical_eco.empty()) {
+            if (wrote) out << ',';
+            out << "{\"name\":\"ECO\",\"value\":"
+                << json_string(canonical_eco) << '}';
+        }
     }
     out << ']';
 }
@@ -141,7 +242,7 @@ void write_game(std::ostream& out, std::size_t index, const GameReturnValue& gam
         << ",\"round\":" << static_cast<unsigned int>(game.round)
         << ",\"subround\":" << static_cast<unsigned int>(game.subround)
         << ",\"tags\":";
-    write_tags(out, game.tags);
+    write_tags(out, game.tags, static_cast<unsigned int>(game.eco));
 
     // libcbh appends one structural MovePop when the root decoder returns.
     // It is backend control flow, not canonical game data. Nested pops occur
@@ -179,7 +280,7 @@ int main(int argc, char** argv) {
     std::cout << "{\"protocol\":\"accessible-chess-libcbh-v1\""
               << ",\"backend\":\"libcbh\""
               << ",\"backend_commit\":" << json_string(LIBCBH_SOURCE_COMMIT)
-              << ",\"string_encoding\":\"byte_escape_u00xx\""
+              << ",\"string_encoding\":\"utf8_or_byte_escape_u00xx\""
               << ",\"games\":[";
 
     const std::size_t count = codec.numGames();
