@@ -1,0 +1,116 @@
+name: D06 Final Formats Composition
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/pgn_final_formats_composition_oracle.py'
+      - '.github/workflows/d06-final-formats-composition.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: d06-final-formats-composition-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  D06_COMPOSE_BASE: 43b8d22f4c80fa89c2bdd39a2f23d5f4819cc86d
+
+jobs:
+  composition:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Preserve exact Git bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config core.autocrlf false
+          git config core.eol lf
+          git reset --hard HEAD
+          git checkout-index --force --all
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install pinned QA dependencies
+        run: python -m pip install -q pytest==8.4.2 zstandard==0.23.0
+
+      - name: Prove exact final-formats authority and evidence-only scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          git cat-file -e "$D06_COMPOSE_BASE^{commit}"
+          test "$(git merge-base HEAD "$D06_COMPOSE_BASE")" = "$D06_COMPOSE_BASE"
+          git diff --check "$D06_COMPOSE_BASE" HEAD
+          changed="$(git diff --name-only "$D06_COMPOSE_BASE" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/d06-final-formats-composition.yml' \
+            'scripts/pgn_final_formats_composition_oracle.py' | sort)"
+          test "$changed" = "$expected"
+          git diff --quiet "$D06_COMPOSE_BASE" HEAD -- acs tests web run_accessible_chess.py
+          test "$(git rev-parse HEAD:acs/pgn_service.py)" = "9079bd16f3783886e10cad9396f08fc5458738cb"
+          test "$(git rev-parse HEAD:acs/gametree_resume.py)" = "de2e05e7558190785edf268f25c277f7d4292625"
+          test "$(git rev-parse HEAD:acs/gametree_snapshot.py)" = "ac08a89055372c02d3d15744fd4de5a1fd0059d5"
+          test "$(git rev-parse HEAD:acs/pgn_roundtrip.py)" = "96d62bf6dd7b2f5c8a75d5f2bd1fde2ad0823d20"
+          test "$(git rev-parse HEAD:acs/pgn_document.py)" = "ae0b7d3815c4d277b68ef3c170c95255cf5c6442"
+          echo 'D06 FINAL FORMATS EVIDENCE-ONLY SCOPE PASS'
+
+      - name: Compile and self-test composition oracle
+        run: |
+          python -m py_compile scripts/pgn_final_formats_composition_oracle.py
+          python -m scripts.pgn_final_formats_composition_oracle --selftest
+
+      - name: Focused accepted D06 regressions
+        run: >-
+          python -m unittest -v
+          tests.test_v2_pgn_streaming_export
+          tests.test_d06_snapshot_canonical_restore
+          tests.test_d06_gametree_snapshot_resume
+          tests.test_d06_pgn_roundtrip
+          tests.test_pgn_document
+          tests.test_pgn_workspace
+          tests.test_pgn_service
+
+      - name: Real final-formats cross-composition acceptance
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m scripts.pgn_final_formats_composition_oracle 2>&1 | tee d06-final-formats-composition-report.txt
+          grep -F '"license": "CC0"' d06-final-formats-composition-report.txt
+          grep -F '"games": 64' d06-final-formats-composition-report.txt
+          grep -F '"byte_identical_to_canonical_serializer": true' d06-final-formats-composition-report.txt
+          grep -F '"strict_file_reopen_equal": true' d06-final-formats-composition-report.txt
+          grep -F '"professional_document_reopen_equal": true' d06-final-formats-composition-report.txt
+          grep -F '"product_mutation": "NONE"' d06-final-formats-composition-report.txt
+          grep -F 'D06 FINAL FORMATS COMPOSITION PASS' d06-final-formats-composition-report.txt
+
+      - name: Upload composition evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: d06-final-formats-composition-${{ matrix.os }}
+          path: d06-final-formats-composition-report.txt
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Full repository unittest
+        run: python -m unittest discover -s tests
+
+      - name: Full repository pytest
+        run: python -m pytest -q tests
+
+      - name: SELFTEST and complete diagnostic
+        run: |
+          python -m acs.selftest
+          python run_accessible_chess.py --diagnostic
