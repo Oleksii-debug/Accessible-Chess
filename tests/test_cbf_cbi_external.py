@@ -136,6 +136,7 @@ class CbfCbiExternalReaderTests(unittest.TestCase):
             self.assertEqual(len(decoded.source.files), 2)
             self.assertEqual(calls[0][1:3], ["--all-tags", "--unusual-tags"])
             self.assertTrue(calls[0][-2].lower().endswith("sample.cbf"))
+            self.assertNotEqual(Path(calls[0][-2]), cbf)
             self.assertTrue(calls[0][-1].lower().endswith("decoded.si4"))
             self.assertTrue(calls[1][0].lower().endswith("tcscid.bin"))
             self.assertTrue(calls[1][1].lower().endswith("scidpgn.tcl"))
@@ -179,6 +180,57 @@ class CbfCbiExternalReaderTests(unittest.TestCase):
 
             self.assertEqual(decoded.total_games, 1)
             self.assertEqual(len(calls), 2)
+
+    def test_verified_source_family_is_staged_before_external_decode(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            cbf, cbi = self._source_family(root)
+            config = self._config(root)
+            expected_cbf = cbf.read_bytes()
+            expected_cbi = cbi.read_bytes()
+            calls = 0
+
+            def fake_run(argv: list[str], **kwargs) -> bytes:
+                nonlocal calls
+                calls += 1
+                if calls == 1:
+                    staged_cbf = Path(argv[-2])
+                    staged_cbi = staged_cbf.with_suffix(".cbi")
+                    self.assertNotEqual(staged_cbf, cbf)
+                    self.assertNotEqual(staged_cbi, cbi)
+                    self.assertEqual(staged_cbf.read_bytes(), expected_cbf)
+                    self.assertEqual(staged_cbi.read_bytes(), expected_cbi)
+
+                    original_cbf = root / "original-cbf.keep"
+                    original_cbi = root / "original-cbi.keep"
+                    cbf.replace(original_cbf)
+                    cbi.replace(original_cbi)
+                    cbf.write_bytes(b"transient-attacker-cbf")
+                    cbi.write_bytes(b"transient-attacker-cbi")
+                    self.assertEqual(staged_cbf.read_bytes(), expected_cbf)
+                    self.assertEqual(staged_cbi.read_bytes(), expected_cbi)
+                    cbf.unlink()
+                    cbi.unlink()
+                    original_cbf.replace(cbf)
+                    original_cbi.replace(cbi)
+
+                    destination = Path(argv[-1])
+                    destination.write_bytes(b"index")
+                    destination.with_suffix(".sg4").write_bytes(b"games")
+                    destination.with_suffix(".sn4").write_bytes(b"names")
+                    return b"ok"
+                return _PGN
+
+            with patch(
+                "acs.cbf_cbi_external._run_process",
+                side_effect=fake_run,
+            ):
+                decoded = read_cbf_cbi_external(cbf, config)
+
+            self.assertEqual(decoded.total_games, 1)
+            self.assertEqual(calls, 2)
+            self.assertEqual(cbf.read_bytes(), expected_cbf)
+            self.assertEqual(cbi.read_bytes(), expected_cbi)
 
     def test_unexpected_private_output_fails_closed(self) -> None:
         with tempfile.TemporaryDirectory() as raw:

@@ -31,6 +31,7 @@ from typing import Callable
 from .acsdb import AcsDatabase
 from .chessbase_integrity import (
     ChessBaseIntegritySnapshot,
+    SourceFileEvidence,
     capture_integrity_snapshot,
     verify_integrity_snapshot,
 )
@@ -299,6 +300,136 @@ def _stage_verified_component(
     return Path(os.path.abspath(os.fspath(destination))), actual
 
 
+def _stage_snapshot_source_member(
+    evidence: SourceFileEvidence,
+    destination: Path,
+) -> Path:
+    """Stage exactly the source bytes bound to an integrity-snapshot member.
+
+    External tools must never reopen a user-controlled pathname after the
+    snapshot has been accepted. The snapshotted member is reopened only long
+    enough to bind pathname identity to the same open handle, stream/hash those
+    exact bytes into reader-owned storage, and compare them with the snapshot.
+    The external decoder receives only the private staged pathname.
+    """
+
+    path = evidence.path
+    try:
+        before = path.lstat()
+    except OSError as exc:
+        raise _error(
+            "CBF/CBI source family changed before private staging",
+            CbfCbiExternalCode.SOURCE_CHANGED,
+        ) from exc
+    if (
+        stat.S_ISLNK(before.st_mode)
+        or _is_reparse_point(before)
+        or not stat.S_ISREG(before.st_mode)
+    ):
+        raise _error(
+            "CBF/CBI source family changed before private staging",
+            CbfCbiExternalCode.SOURCE_CHANGED,
+        )
+
+    digest = sha256()
+    size = 0
+    try:
+        with path.open("rb") as source_handle:
+            opened_before = os.fstat(source_handle.fileno())
+            if (
+                not _same_file_identity(before, opened_before)
+                or not stat.S_ISREG(opened_before.st_mode)
+                or _is_reparse_point(opened_before)
+            ):
+                raise _error(
+                    "CBF/CBI source family changed before private staging",
+                    CbfCbiExternalCode.SOURCE_CHANGED,
+                )
+            with destination.open("xb") as staged_handle:
+                while True:
+                    chunk = source_handle.read(1024 * 1024)
+                    if not chunk:
+                        break
+                    size += len(chunk)
+                    if size > evidence.size_bytes:
+                        raise _error(
+                            "CBF/CBI source family changed during private staging",
+                            CbfCbiExternalCode.SOURCE_CHANGED,
+                        )
+                    digest.update(chunk)
+                    staged_handle.write(chunk)
+                staged_handle.flush()
+                os.fsync(staged_handle.fileno())
+            opened_after = os.fstat(source_handle.fileno())
+        after = path.lstat()
+    except CbfCbiExternalError:
+        raise
+    except OSError as exc:
+        raise _error(
+            "CBF/CBI source family could not be staged safely",
+            CbfCbiExternalCode.SOURCE_CHANGED,
+        ) from exc
+
+    if (
+        not _same_file_identity(opened_before, opened_after)
+        or not _same_file_identity(opened_after, after)
+        or stat.S_ISLNK(after.st_mode)
+        or _is_reparse_point(after)
+        or not stat.S_ISREG(after.st_mode)
+        or size != evidence.size_bytes
+        or digest.hexdigest() != evidence.sha256
+    ):
+        raise _error(
+            "CBF/CBI source family changed during private staging",
+            CbfCbiExternalCode.SOURCE_CHANGED,
+        )
+
+    try:
+        os.chmod(destination, 0o600)
+        staged = destination.lstat()
+    except OSError as exc:
+        raise _error(
+            "CBF/CBI staged source family is unavailable",
+            CbfCbiExternalCode.SOURCE_CHANGED,
+        ) from exc
+    if (
+        stat.S_ISLNK(staged.st_mode)
+        or _is_reparse_point(staged)
+        or not stat.S_ISREG(staged.st_mode)
+        or staged.st_size != evidence.size_bytes
+    ):
+        raise _error(
+            "CBF/CBI staged source family is invalid",
+            CbfCbiExternalCode.SOURCE_CHANGED,
+        )
+    return Path(os.path.abspath(os.fspath(destination)))
+
+
+def _stage_snapshot_source_family(
+    snapshot: ChessBaseIntegritySnapshot,
+    directory: Path,
+) -> Path:
+    """Create one private same-stem CBF+CBI pair from exact snapshot bytes."""
+
+    by_extension = {item.extension: item for item in snapshot.files}
+    if len(snapshot.files) != 2 or set(by_extension) != {".cbf", ".cbi"}:
+        raise _error(
+            "CBF/CBI integrity snapshot does not describe exactly one legacy pair",
+            CbfCbiExternalCode.UNSUPPORTED_SOURCE,
+        )
+    primary_name = snapshot.primary_path.name
+    staged_primary = _stage_snapshot_source_member(
+        by_extension[".cbf"],
+        directory / primary_name,
+    )
+    companion_name = Path(primary_name).with_suffix(".cbi").name
+    _stage_snapshot_source_member(
+        by_extension[".cbi"],
+        directory / companion_name,
+    )
+    return staged_primary
+
+
 def _sterile_environment(*components: Path) -> dict[str, str]:
     env: dict[str, str] = {}
     for key in ("SystemRoot", "WINDIR", "COMSPEC", "TEMP", "TMP"):
@@ -533,9 +664,10 @@ def read_cbf_cbi_external(
 ) -> CbfCbiReadResult:
     """Read one complete legacy CBF/CBI family through pinned external tools.
 
-    The source is fingerprinted before backend execution and re-fingerprinted
-    after PGN export. Any mutation discards all output. Backend components are
-    copied from verified open handles into a private directory before execution;
+    The source is fingerprinted, copied from snapshot-bound open handles into a
+    private same-stem CBF/CBI family, decoded only from that private family, and
+    re-fingerprinted after PGN export. Any mutation discards all output. Backend
+    components are likewise copied from verified open handles before execution;
     temporary SI4 files live in a separate private data directory.
     """
 
@@ -559,10 +691,13 @@ def read_cbf_cbi_external(
     with tempfile.TemporaryDirectory(prefix="accessible-chess-cbf-") as raw_temp:
         private = Path(raw_temp)
         backend_dir = private / "backend"
+        source_dir = private / "source"
         data_dir = private / "data"
         backend_dir.mkdir(mode=0o700)
+        source_dir.mkdir(mode=0o700)
         data_dir.mkdir(mode=0o700)
 
+        staged_source = _stage_snapshot_source_family(snapshot, source_dir)
         cbh_suffix = config.cbh2si4_executable.suffix
         tcscid_suffix = config.tcscid_executable.suffix
         cbh2si4, cbh2si4_hash = _stage_verified_component(
@@ -590,7 +725,7 @@ def read_cbf_cbi_external(
                 os.fspath(cbh2si4),
                 "--all-tags",
                 "--unusual-tags",
-                os.fspath(snapshot.primary_path),
+                os.fspath(staged_source),
                 os.fspath(destination),
             ],
             cwd=data_dir,
