@@ -1,0 +1,47 @@
+name: WORK V2 External Review Analysis Return Evidence
+
+on:
+  push:
+    branches:
+      - work/w3-v2-external-review-analysis-return-evidence-20260907
+  pull_request:
+    branches:
+      - work/w5-v2-book-real-board-projection-20260907
+
+permissions:
+  contents: read
+
+concurrency:
+  group: work-v2-external-review-analysis-return-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  evidence:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Prove exact #554 evidence-only child scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          base=1e866f3dfb72795393442bc1f4184b71cc3ff1dd
+          git merge-base --is-ancestor "$base" HEAD
+          git diff --check "$base" HEAD
+          changed="$(git diff --name-only "$base" HEAD | sort | tr '\n' ' ')"
+          test "$changed" = ".github/workflows/work-v2-external-review-analysis-return-evidence.yml tests/test_work_v2_external_review_analysis_return_evidence.py "
+      - name: Compile evidence test
+        run: python -m py_compile tests/test_work_v2_external_review_analysis_return_evidence.py
+      - name: Preserve #554 external-review isolation regressions
+        run: python -m unittest -v tests.test_version2_review_presentation_isolation
+      - name: Prove external-review PV exploration Return never selects synthetic node -1
+        run: python -m unittest -v tests.test_work_v2_external_review_analysis_return_evidence
