@@ -11,12 +11,12 @@ instead of relying on an unowned ``ShowDialog()``.
 The production owner-bound dialogs also project the current V2 UI language into
 native titles, filters and destructive confirmations. The language is resolved
 lazily for every invocation so a live Ukrainian/English switch does not require
-recreating the native host runtime. No PGN, GameTree, Library, ChessBase, export,
-or chess semantics live here.
+recreating the native host runtime. The projection wraps the existing dialog
+methods rather than copying their file/format behavior, so this module still owns
+no PGN, GameTree, Library, ChessBase, export, or chess semantics.
 """
 
 from collections.abc import Callable
-from pathlib import Path
 import threading
 from typing import Any
 
@@ -70,6 +70,7 @@ _DIALOG_TEXT: dict[str, dict[str, str]] = {
         ),
     },
 }
+_SOURCE_TEXT_KEY = {value: key for key, value in _DIALOG_TEXT["en"].items()}
 
 
 class Version2WindowsDialogText:
@@ -94,6 +95,14 @@ class Version2WindowsDialogText:
         if type(key) is not str or key not in _DIALOG_TEXT["en"]:
             raise KeyError("unknown Version 2 native dialog text key")
         return _DIALOG_TEXT[self._language()][key]
+
+    def localize(self, value: str) -> str:
+        """Translate known presentation copy while preserving unknown host values."""
+
+        if type(value) is not str:
+            raise TypeError("native dialog presentation text must be text")
+        key = _SOURCE_TEXT_KEY.get(value)
+        return value if key is None else self.get(key)
 
 
 class Version2WinFormsDialogOwner:
@@ -132,13 +141,19 @@ class Version2WinFormsDialogOwner:
 
 
 class _OwnedDialogProxy:
-    """Transparent CommonDialog proxy that always supplies the validated owner."""
+    """Transparent CommonDialog proxy that supplies the owner and localized copy."""
 
-    __slots__ = ("_dialog", "_owner")
+    __slots__ = ("_dialog", "_owner", "_text")
 
-    def __init__(self, dialog: object, owner: Version2WinFormsDialogOwner) -> None:
+    def __init__(
+        self,
+        dialog: object,
+        owner: Version2WinFormsDialogOwner,
+        text: Version2WindowsDialogText,
+    ) -> None:
         object.__setattr__(self, "_dialog", dialog)
         object.__setattr__(self, "_owner", owner)
+        object.__setattr__(self, "_text", text)
 
     def __getattr__(self, name: str) -> Any:
         return getattr(self._dialog, name)
@@ -147,6 +162,8 @@ class _OwnedDialogProxy:
         if name in self.__slots__:
             object.__setattr__(self, name, value)
             return
+        if name in {"Title", "Filter"} and type(value) is str:
+            value = self._text.localize(value)
         setattr(self._dialog, name, value)
 
     def ShowDialog(self):  # noqa: N802 - mirrors the WinForms API
@@ -159,10 +176,11 @@ class _OwnedDialogProxy:
 def _owned_dialog_factory(
     native_dialog_type: Callable[[], object],
     owner: Version2WinFormsDialogOwner,
+    text: Version2WindowsDialogText,
 ):
     class OwnedDialog:
         def __new__(cls):
-            return _OwnedDialogProxy(native_dialog_type(), owner)
+            return _OwnedDialogProxy(native_dialog_type(), owner, text)
 
     return OwnedDialog
 
@@ -189,8 +207,8 @@ class _OwnedDialogMixin:
         DialogResult, OpenFileDialog, SaveFileDialog = self._forms_loader()
         return (
             DialogResult,
-            _owned_dialog_factory(OpenFileDialog, self._dialog_owner),
-            _owned_dialog_factory(SaveFileDialog, self._dialog_owner),
+            _owned_dialog_factory(OpenFileDialog, self._dialog_owner, self._dialog_text),
+            _owned_dialog_factory(SaveFileDialog, self._dialog_owner, self._dialog_text),
         )
 
 
@@ -239,50 +257,6 @@ class Version2OwnedWindowsFileDialogs(_OwnedDialogMixin, Version2WindowsFileDial
         )
         return result == DialogResult.Yes
 
-    def open_pgn(self) -> Path | None:
-        DialogResult, OpenFileDialog, _ = self._load_forms()
-        dialog = OpenFileDialog()
-        try:
-            dialog.Title = self.dialog_text("open_pgn_title")
-            dialog.Filter = self.dialog_text("pgn_filter")
-            dialog.CheckFileExists = True
-            dialog.CheckPathExists = True
-            dialog.Multiselect = False
-            return self._selected(dialog, dialog.ShowDialog(), DialogResult.OK)
-        finally:
-            dialog.Dispose()
-
-    def save_pgn_as(self, suggested_filename: str = "game.pgn") -> Path | None:
-        if type(suggested_filename) is not str:
-            raise TypeError("suggested PGN filename must be text")
-        safe_name = Path(suggested_filename).name or "game.pgn"
-        DialogResult, _, SaveFileDialog = self._load_forms()
-        dialog = SaveFileDialog()
-        try:
-            dialog.Title = self.dialog_text("save_pgn_as_title")
-            dialog.Filter = self.dialog_text("pgn_filter")
-            dialog.DefaultExt = "pgn"
-            dialog.AddExtension = True
-            dialog.OverwritePrompt = True
-            dialog.CheckPathExists = True
-            dialog.FileName = safe_name
-            return self._selected(dialog, dialog.ShowDialog(), DialogResult.OK)
-        finally:
-            dialog.Dispose()
-
-    def select_library_import(self) -> Path | None:
-        DialogResult, OpenFileDialog, _ = self._load_forms()
-        dialog = OpenFileDialog()
-        try:
-            dialog.Title = self.dialog_text("import_library_title")
-            dialog.Filter = self.dialog_text("import_library_filter")
-            dialog.CheckFileExists = True
-            dialog.CheckPathExists = True
-            dialog.Multiselect = False
-            return self._selected(dialog, dialog.ShowDialog(), DialogResult.OK)
-        finally:
-            dialog.Dispose()
-
 
 class Version2OwnedWindowsPgnExportDialogs(
     _OwnedDialogMixin,
@@ -305,24 +279,6 @@ class Version2OwnedWindowsPgnExportDialogs(
             forms_loader or Version2WindowsPgnExportDialogs._load_forms,
             language_provider,
         )
-
-    def export_selection(self, suggested_filename: str = "selection.pgn") -> Path | None:
-        if type(suggested_filename) is not str:
-            raise TypeError("suggested export filename must be text")
-        safe_name = Path(suggested_filename).name or "selection.pgn"
-        DialogResult, _, SaveFileDialog = self._load_forms()
-        dialog = SaveFileDialog()
-        try:
-            dialog.Title = self.dialog_text("export_pgn_title")
-            dialog.Filter = self.dialog_text("pgn_filter")
-            dialog.DefaultExt = "pgn"
-            dialog.AddExtension = True
-            dialog.OverwritePrompt = True
-            dialog.CheckPathExists = True
-            dialog.FileName = safe_name
-            return self._selected(dialog, dialog.ShowDialog(), DialogResult.OK)
-        finally:
-            dialog.Dispose()
 
 
 __all__ = [
