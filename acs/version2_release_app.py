@@ -18,6 +18,7 @@ from .book_progress_store import BookProgressStore
 from .continuous_analysis import ContinuousAnalysisService
 from .engine_assisted_workflows import EngineAssistedWorkflowService
 from .engine_play_service import EnginePlayService
+from .full_product_ui_shell import UILanguage
 from .release_app import _sound_cache_dir, _user_root
 from .settings import Settings
 from .sound_runtime import GameSoundRuntime, SoundRuntime, SoundRuntimeSettings
@@ -253,6 +254,7 @@ def create_version2_release_application(
     engine_play = EnginePlayService(engine_runtime.provider, owns_engine=False)
 
     settings = Settings(layout.settings_path)
+    language = UILanguage(settings.get("language", "uk"))
     playback = sound_playback
     if playback is None:
         playback = WindowsSoundPlaybackAdapter(
@@ -266,6 +268,7 @@ def create_version2_release_application(
     game_sounds = GameSoundRuntime(sound_runtime)
 
     api = Version2ReleaseAccessibleChessAPI(
+        lang=language.value,
         continuous_analysis=continuous,
         game_sounds=game_sounds,
         sound_runtime=sound_runtime,
@@ -283,6 +286,7 @@ def create_version2_release_application(
             board_dispatch=api.v2_board_dispatch,
             board_position_projector=api.set_fen,
             copy_text=copy_text,
+            language=language,
         )
         _share_v2_action_registry(api, application)
         api.bind_version2_application(application)
