@@ -12,8 +12,10 @@ live in this module.
 from collections.abc import Mapping
 from typing import Any, Callable
 
+from .chesscore import Board
 from .full_product_native_menu import install_full_product_windows_native_menu
 from .stage1_release_ui import Stage1ReleaseAccessibleChessAPI, _asset_root
+from .ui_review_adapter import ReviewView
 from .version2_profile import Version2NativeMenuController
 
 
@@ -23,11 +25,17 @@ class Version2ReleaseAccessibleChessAPI(Stage1ReleaseAccessibleChessAPI):
     Stage 1 public methods remain inherited unchanged.  V2 methods are explicit
     additions so pywebview does not need a second ``js_api`` object and therefore
     cannot accidentally create a second board/engine authority.
+
+    PGN and Book review positions are a presentation projection over that same
+    semantic board.  They never replace ``self.board`` or its ReviewHistory.  This
+    mirrors the existing Stage 1 non-destructive history-review contract while
+    keeping the V2 format cursor owned by its canonical PGN/Book workflow.
     """
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         self._version2_application: Any | None = None
+        self._version2_review_fen: str | None = None
 
     def bind_version2_application(self, application: Any) -> None:
         if self._version2_application is not None and self._version2_application is not application:
@@ -51,6 +59,70 @@ class Version2ReleaseAccessibleChessAPI(Stage1ReleaseAccessibleChessAPI):
         if application is None:
             raise RuntimeError("Version 2 application is not bound")
         return application
+
+    def _active_version2_review_fen(self) -> str | None:
+        """Return the external review FEN only while its owner says review is active.
+
+        The V2 application already owns PGN/Book review lifecycle.  The release
+        board therefore does not invent a second cursor or explicit clear command:
+        once the owner leaves review, the stored presentation value is discarded
+        lazily and the inherited board immediately exposes the untouched live game.
+        """
+
+        fen = self._version2_review_fen
+        if fen is None:
+            return None
+        application = self._version2_application
+        if application is None:
+            return None
+        pgn_active = bool(getattr(application, "pgn_board_active", False))
+        workflow = getattr(application, "book_workflow", None)
+        book_active = workflow is not None and bool(getattr(workflow, "active", False))
+        if pgn_active or book_active:
+            return fen
+        self._version2_review_fen = None
+        return None
+
+    def project_review_position(self, fen: str) -> dict[str, object]:
+        """Project one canonical review FEN without mutating the live chess game.
+
+        ``set_fen`` remains the destructive Position/FEN command.  This method is
+        intentionally separate so PGN/Book review cannot erase SAN, history,
+        engine-game identity, undo/redo or other live state merely to render the
+        selected position on the existing accessible 64-square board.
+        """
+
+        if not isinstance(fen, str) or not fen.strip():
+            return {"ok": False, "message": "Review position is unavailable."}
+        try:
+            canonical = Board(fen).fen()
+        except Exception:
+            return {"ok": False, "message": "Review position is invalid."}
+        self._version2_review_fen = canonical
+        return {"ok": True, "fen": canonical, "message": ""}
+
+    def _display_review(self) -> ReviewView:
+        fen = self._active_version2_review_fen()
+        if fen is None:
+            return super()._display_review()
+        return ReviewView(
+            fen=fen,
+            ply=0,
+            node_id=-1,
+            at_start=False,
+            at_end=False,
+            status=(
+                "Позиція зовнішнього перегляду."
+                if self.lang == "uk"
+                else "External review position."
+            ),
+            last_move=None,
+        )
+
+    def _at_history_end(self) -> bool:
+        if self._active_version2_review_fen() is not None:
+            return False
+        return super()._at_history_end()
 
     def v2_snapshot(self) -> dict[str, object]:
         return self._version2().snapshot()
