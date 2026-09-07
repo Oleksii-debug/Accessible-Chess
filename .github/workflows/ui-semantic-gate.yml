@@ -48,7 +48,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: ui-semantic-gate-${{ github.ref }}-${{ matrix.os }}
+  group: ui-semantic-gate-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
