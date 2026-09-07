@@ -7,6 +7,7 @@ on:
   pull_request:
     paths:
       - 'acs/library_source_service.py'
+      - 'acs/library_import_service.py'
       - 'tests/test_v2_library_source_catalog.py'
       - 'tools/v2_library_source_catalog_real_corpus.py'
       - '.github/workflows/w2-library-source-catalog-current-base.yml'
@@ -21,12 +22,13 @@ concurrency:
 env:
   CURRENT_BASE: 9ac0600bf9d270e02334df1657c1ccc941f909b5
   OWNER_HEAD: 8065568d0759c9371e5b4ff5f8a0ac0d813248fe
+  DEDUPE_OWNER_HEAD: 5b68baf4c1f32a992f46067b8da120e4d1168294
   OWNER_SERVICE_BLOB: bb848b9cfc7eb643630143833be52075fca3e165
   OWNER_TEST_BLOB: 99848ec1771e44e44c95af3f6aa9c66d634080fd
   OWNER_REAL_ORACLE_BLOB: d7a5690cff793892e0056f03e9e5b61d8c5fdda5
   CURRENT_ACSDB_BLOB: f5dd56e017c09aa8bf2ba3aa66c0658f8a229e74
   CURRENT_SEARCH_BLOB: 98466d081fb4c77d52029963c2f295e5f022dd07
-  CURRENT_IMPORT_BLOB: 334418b6dc3d98838d353ba8909baa3a05f2b419
+  DEDUPE_IMPORT_BLOB: f9f6959c429c2681e355d11faecb0b1034e0f22b
 
 jobs:
   correctness:
@@ -63,6 +65,7 @@ jobs:
           changed="$(git diff --name-only "$CURRENT_BASE" HEAD | sort)"
           expected="$(printf '%s\n' \
             '.github/workflows/w2-library-source-catalog-current-base.yml' \
+            'acs/library_import_service.py' \
             'acs/library_source_service.py' \
             'tests/test_v2_library_source_catalog.py' \
             'tools/v2_library_source_catalog_real_corpus.py' | sort)"
@@ -72,13 +75,13 @@ jobs:
           test "$(git rev-parse HEAD:tools/v2_library_source_catalog_real_corpus.py)" = "$OWNER_REAL_ORACLE_BLOB"
           test "$(git rev-parse HEAD:acs/acsdb.py)" = "$CURRENT_ACSDB_BLOB"
           test "$(git rev-parse HEAD:acs/search_service.py)" = "$CURRENT_SEARCH_BLOB"
-          test "$(git rev-parse HEAD:acs/library_import_service.py)" = "$CURRENT_IMPORT_BLOB"
+          test "$(git rev-parse HEAD:acs/library_import_service.py)" = "$DEDUPE_IMPORT_BLOB"
           if printf '%s\n' "$changed" | grep -E 'gametree|pgn_|chesscore|book_|training|version2_windows|stage1|web/'; then
             echo 'Out-of-lane Product mutation' >&2
             exit 1
           fi
       - name: Compile
-        run: python -m compileall -q acs/library_source_service.py tests/test_v2_library_source_catalog.py tools/v2_library_source_catalog_real_corpus.py
+        run: python -m compileall -q acs/library_import_service.py acs/library_source_service.py tests/test_v2_library_source_catalog.py tools/v2_library_source_catalog_real_corpus.py
       - name: Focused source catalog and current D07 regressions
         run: >-
           python -m unittest -v
@@ -121,6 +124,7 @@ jobs:
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD:tools/v2_library_source_catalog_real_corpus.py)" = "$OWNER_REAL_ORACLE_BLOB"
+          test "$(git rev-parse HEAD:acs/library_import_service.py)" = "$DEDUPE_IMPORT_BLOB"
           PYTHONPATH="$PWD" python tools/v2_library_source_catalog_real_corpus.py
       - name: Bind evidence summary to current convergence head
         shell: bash
@@ -131,6 +135,7 @@ jobs:
           path = Path('source-catalog-real-evidence.json')
           payload = json.loads(path.read_text(encoding='utf-8'))
           payload['owner_source'] = os.environ['OWNER_HEAD']
+          payload['dedupe_owner_source'] = os.environ['DEDUPE_OWNER_HEAD']
           payload['convergence_base'] = os.environ['CURRENT_BASE']
           payload['convergence_head'] = os.environ['GITHUB_SHA']
           path.write_text(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + '\n', encoding='utf-8')
