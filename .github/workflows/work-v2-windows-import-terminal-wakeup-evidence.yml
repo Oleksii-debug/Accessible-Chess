@@ -46,6 +46,7 @@ jobs:
           expected="$(printf '%s\n' \
             '.github/workflows/work-v2-windows-import-terminal-wakeup-evidence.yml' \
             'acs/version2_windows_import_ui_pump.py' \
+            'tests/test_v2_windows_import_ui_pump.py' \
             'tests/test_work_v2_windows_import_terminal_wakeup_evidence.py' | sort)"
           test "$changed" = "$expected" || {
             printf 'Unexpected terminal-wakeup repair scope:\n%s\n' "$changed" >&2
@@ -56,6 +57,7 @@ jobs:
           python -m compileall -q
           acs/version2_windows_import_ui_pump.py
           acs/version2_windows_host_runtime.py
+          tests/test_v2_windows_import_ui_pump.py
           tests/test_work_v2_windows_import_terminal_wakeup_evidence.py
       - name: Preserve inherited mailbox, UI-pump and exact-host contracts
         run: >-
