@@ -107,6 +107,7 @@ jobs:
         run: >-
           python -m unittest -v
           tests.test_version2_windows_composition_profile
+          tests.test_version2_release_accessibility_contract
           tests.test_dev1_full_product_accessible_shell
           tests.test_dev1_full_product_webview_adapter
           tests.test_full_product_native_menu
