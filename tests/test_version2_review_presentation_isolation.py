@@ -73,28 +73,32 @@ class Version2ReviewPresentationIsolationTests(unittest.TestCase):
         self.assertTrue(result["ok"])
         return self._live_identity()
 
-    def test_pgn_review_uses_same_64_square_board_without_mutating_live_game(self) -> None:
+    def _open_pgn_review(self):
         live = self._seed_live_game()
         self.app.set_document(PgnDocumentSession.open(self.pgn_path))
         reviewed_fen = self.app.pgn_commands.current_fen()
         self.assertNotEqual(reviewed_fen, live[0])
-
         opened = self.app.browser_command("review", "pgn.open_on_board")
-
         self.assertEqual(opened["kind"], "review")
+        return live, reviewed_fen
+
+    def test_pgn_review_uses_same_64_square_board_without_mutating_live_game(self) -> None:
+        live, reviewed_fen = self._open_pgn_review()
+
         state = self.api.get_state()
         self.assertEqual(state["fen"], reviewed_fen)
         self.assertEqual(len(state["board"]), 64)
+        self.assertFalse(state["atHistoryEnd"])
+        self.assertEqual(state["historyLength"], 0)
+        self.assertEqual(state["moves"], "Ходів ще немає")
+        self.assertEqual(state["lastMove"], "Останнього ходу немає")
         self.assertEqual(self._live_identity(), live)
 
-        # The ordinary Stage 1 Move Edit and reset/editor commands must not mutate
-        # the hidden live game while the shared board is displaying PGN review.
-        move = self.api.make_move("d4")
-        self.assertFalse(move["ok"])
-        reset = self.api.set_fen(reviewed_fen)
-        self.assertFalse(reset["ok"])
-        new_game = self.api.new_game()
-        self.assertFalse(new_game["ok"])
+        # Board information must query the displayed review position, not hidden
+        # live e4. The selected PGN still has the white pawn on e2.
+        current = self.api.dispatch_action("board.current", "e2")
+        self.assertTrue(current["ok"])
+        self.assertIn("білий пішак", current["announcement"])
         self.assertEqual(self._live_identity(), live)
 
         advanced = self.app.browser_command("review", "pgn.board_next_move")
@@ -103,12 +107,54 @@ class Version2ReviewPresentationIsolationTests(unittest.TestCase):
         self.assertEqual(self._live_identity(), live)
 
         # Direct application dispatch models native-menu routing, which does not
-        # cross v2_browser_command.  Lifecycle state alone must deactivate the
+        # cross v2_browser_command. Lifecycle state alone must deactivate the
         # cached review projection and reveal the untouched live board.
         returned = self.app.browser_command("review", "pgn.return")
         self.assertEqual(returned["kind"], "review")
         self.assertFalse(self.app.pgn_board_active)
         self.assertEqual(self.api.get_state()["fen"], live[0])
+        self.assertEqual(self._live_identity(), live)
+
+    def test_all_live_mutation_entry_points_fail_before_side_effects_during_review(self) -> None:
+        live, reviewed_fen = self._open_pgn_review()
+        self.api._engine_game_phase = "stopped"
+        before_phase = self.api._engine_game_phase
+
+        attempts = (
+            lambda: self.api.make_move("d4"),
+            # Historical Move Input alias `s` dispatches New Game; the guard must
+            # run before alias routing can reset the hidden live position.
+            lambda: self.api.make_move("s"),
+            lambda: self.api.activate_square("e2"),
+            self.api.new_game,
+            self.api.clear_board,
+            lambda: self.api.set_fen(reviewed_fen),
+            lambda: self.api.set_turn("b"),
+            lambda: self.api.set_position_text("white king e1; black king e8", "w"),
+            self.api.undo,
+            self.api.redo,
+            self.api.start_engine_game,
+            self.api.stop_engine_game,
+            self.api.retry_engine_move,
+            self.api.engine_takeback,
+            self.api.offer_draw_engine_game,
+            self.api.resign_engine_game,
+        )
+        for attempt in attempts:
+            with self.subTest(attempt=attempt):
+                result = attempt()
+                self.assertFalse(result["ok"])
+                self.assertEqual(self.api._engine_game_phase, before_phase)
+                self.assertEqual(self._live_identity(), live)
+                self.assertEqual(self.api.get_state()["fen"], reviewed_fen)
+
+    def test_analysis_origin_follows_external_review_not_hidden_live_history(self) -> None:
+        live, reviewed_fen = self._open_pgn_review()
+        self.api.analysis_ui.target_fen = reviewed_fen
+        self.assertTrue(self.api._analysis_origin_matches())
+
+        self.api.analysis_ui.target_fen = live[0]
+        self.assertFalse(self.api._analysis_origin_matches())
         self.assertEqual(self._live_identity(), live)
 
     def test_book_review_reuses_the_same_non_mutating_projection_and_exact_return(self) -> None:
@@ -150,9 +196,7 @@ class Version2ReviewPresentationIsolationTests(unittest.TestCase):
         self.assertEqual(self.api.get_state()["fen"], live[0])
 
     def test_browser_return_clears_cached_projection_eagerly(self) -> None:
-        live = self._seed_live_game()
-        self.app.set_document(PgnDocumentSession.open(self.pgn_path))
-        self.assertEqual(self.api.v2_browser_command("review", "pgn.open_on_board")["kind"], "review")
+        live, _ = self._open_pgn_review()
         self.assertNotEqual(self.api.get_state()["fen"], live[0])
 
         returned = self.api.v2_browser_command("review", "pgn.return")
