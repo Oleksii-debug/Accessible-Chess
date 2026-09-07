@@ -9,6 +9,7 @@ on:
       - 'acs/legacy_v1_data_bridge.py'
       - 'acs/legacy_library_migration.py'
       - 'tests/test_w2_v1_legacy_data_bridge.py'
+      - 'tests/test_v2_library_legacy_schema0_migration.py'
       - '.github/workflows/w2-v1-exe-data-bridge.yml'
 
 permissions:
@@ -46,9 +47,11 @@ jobs:
             '.github/workflows/w2-v1-exe-data-bridge.yml' \
             'acs/legacy_library_migration.py' \
             'acs/legacy_v1_data_bridge.py' \
+            'tests/test_v2_library_legacy_schema0_migration.py' \
             'tests/test_w2_v1_legacy_data_bridge.py' | sort)"
           test "$changed" = "$expected"
           test "$(git rev-parse HEAD:acs/legacy_library_migration.py)" = "cbb6a5e84608bdcd00c7cac58994433d34e8c3d6"
+          test "$(git rev-parse HEAD:tests/test_v2_library_legacy_schema0_migration.py)" = "abceb9136b724c57a3eb0da44f0067bb03ff836e"
           test "$(git rev-parse HEAD:acs/acsdb.py)" = "f5dd56e017c09aa8bf2ba3aa66c0658f8a229e74"
           test "$(git rev-parse HEAD:acs/pgn_roundtrip.py)" = "96d62bf6dd7b2f5c8a75d5f2bd1fde2ad0823d20"
       - name: Compile
