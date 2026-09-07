@@ -1,0 +1,66 @@
+name: WORK V2 Package Payload Completeness Evidence
+
+on:
+  pull_request:
+    branches:
+      - work/w6-v2-package-assembler-20260907
+    paths:
+      - 'tests/test_work_v2_package_payload_completeness.py'
+      - '.github/workflows/work-v2-package-payload-completeness-evidence.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: work-v2-package-payload-completeness-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PACKAGE_ASSEMBLER_PARENT: 39b8b7969162e96dfef855cf343177dab7cd1299
+
+jobs:
+  evidence:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Exact evidence-only parent and scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git merge-base "$PACKAGE_ASSEMBLER_PARENT" HEAD)" = "$PACKAGE_ASSEMBLER_PARENT"
+          git diff --check "$PACKAGE_ASSEMBLER_PARENT" HEAD
+          changed="$(git diff --name-only "$PACKAGE_ASSEMBLER_PARENT" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/work-v2-package-payload-completeness-evidence.yml' \
+            'tests/test_work_v2_package_payload_completeness.py' | sort)"
+          test "$changed" = "$expected"
+          if printf '%s\n' "$changed" | grep -E '^acs/|^web/|^run_accessible_chess'; then
+            echo 'Evidence branch mutated Product bytes' >&2
+            exit 1
+          fi
+
+      - name: Compile evidence
+        run: python -m compileall -q tests/test_work_v2_package_payload_completeness.py
+
+      - name: Inherited package gates stay green
+        run: >-
+          python -m unittest -v
+          tests.test_version2_package_assembler
+          tests.test_version2_package_preflight
+          tests.test_version2_package_preflight_hardening
+
+      - name: Release-critical payload completeness oracle
+        run: python -m unittest -v tests.test_work_v2_package_payload_completeness
