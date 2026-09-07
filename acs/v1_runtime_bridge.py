@@ -88,8 +88,14 @@ def _sha256_bytes(payload: bytes) -> str:
     return hashlib.sha256(payload).hexdigest()
 
 
-def _validate_backup_name(value: object, label: str) -> str:
-    if not isinstance(value, str) or _BACKUP_NAME_RE.fullmatch(value) is None:
+def _validate_backup_name(value: object, bridge_id: object, label: str) -> str:
+    if (
+        not isinstance(value, str)
+        or not isinstance(bridge_id, str)
+        or not bridge_id
+        or _BACKUP_NAME_RE.fullmatch(value) is None
+        or value != f"{bridge_id}-legacy-runtime"
+    ):
         raise V1RuntimeBridgeError(f"{label} is invalid")
     return value
 
@@ -297,7 +303,9 @@ class V1RuntimeBridgeCoordinator:
     def _verify_manifest_binding(
         self, record: Mapping[str, object], label: str
     ) -> None:
-        backup_name = _validate_backup_name(record.get("backup_name"), label)
+        backup_name = _validate_backup_name(
+            record.get("backup_name"), record.get("bridge_id"), label
+        )
         backup = self.layout.backup_root / backup_name
         _require_directory(backup, "V1 runtime bridge backup")
         manifest_path = backup / "manifest.json"
