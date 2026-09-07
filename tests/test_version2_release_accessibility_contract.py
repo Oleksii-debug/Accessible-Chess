@@ -108,11 +108,24 @@ class Version2ReleaseAccessibilityContractTests(unittest.TestCase):
         self.assertIn(record, focus_handler)
         self.assertLess(focus_handler.index(skip), focus_handler.index(record))
 
-    def test_background_event_refresh_never_steals_keyboard_focus(self) -> None:
+    def test_library_import_events_patch_only_the_import_region(self) -> None:
+        # Import progress can arrive several times per second. The existing
+        # Library surface has an incremental render-import seam, so V2 must use
+        # it instead of rebuilding filters/results and destroying typed input.
+        apply_start = BOOTSTRAP.index('  function applyQueuedEvent(event)')
+        apply_end = BOOTSTRAP.index('  function drainEvents()', apply_start)
+        queued = BOOTSTRAP[apply_start:apply_end]
+        self.assertIn('if (event.kind === "render-import")', queued)
+        self.assertIn('currentRouteId === "library"', queued)
+        self.assertIn('global.AccessibleChessLibrarySurface.apply(workspace, event, areaInvoke("library"), announce);', queued)
+        self.assertIn('return false;', queued)
+
         drain_start = BOOTSTRAP.index('  function drainEvents()')
         drain_end = BOOTSTRAP.index('  documentRef.addEventListener("focusin"', drain_start)
         drain = BOOTSTRAP[drain_start:drain_end]
-        self.assertIn('refresh(false);', drain)
+        self.assertIn('let needsRefresh = false;', drain)
+        self.assertIn('if (applyQueuedEvent(event)) needsRefresh = true;', drain)
+        self.assertIn('if (needsRefresh) refresh(false);', drain)
         self.assertNotIn('refresh(true);', drain)
 
 
