@@ -68,6 +68,44 @@ class CbvWindowsPathSafetyTests(unittest.TestCase):
                     "unsafe archive entry reached the extraction invocation",
                 )
 
+    def test_non_lf_inventory_separators_fail_before_extraction(self) -> None:
+        unsafe_payloads = (
+            b"safe.cbh\x0bevil.cbg\n",
+            b"safe.cbh\x0cevil.cbg\n",
+            "safe.cbh\u0085evil.cbg\n".encode("utf-8"),
+            "safe.cbh\u2028evil.cbg\n".encode("utf-8"),
+            "safe.cbh\u2029evil.cbg\n".encode("utf-8"),
+            b"safe.cbh\revil.cbg\n",
+        )
+        for payload in unsafe_payloads:
+            with self.subTest(payload=payload):
+                with mock.patch("acs.cbv_extractor._run_uncbv", return_value=payload) as runner:
+                    with self.assertRaises(CbvExtractError) as caught:
+                        extract_cbv_external(self.source, self.output, self.config)
+                self.assertEqual(caught.exception.code, CbvExtractCode.INVALID_ENTRY)
+                self.assertEqual(
+                    runner.call_count,
+                    1,
+                    "invalid list framing reached the extraction invocation",
+                )
+
+    def test_crlf_inventory_remains_valid(self) -> None:
+        def runner(_executable, arguments, _config, *, cwd, monitor_directory=None):
+            if arguments[0] == "list":
+                return b"Training Set/Database.v1.cbh\r\nTraining Set/Database.v1.cbg\r\nTraining Set/Database.v1.cba\r\n"
+            self.assertEqual(arguments[0], "extract")
+            nested = self.output / "Training Set"
+            nested.mkdir()
+            (nested / "Database.v1.cbh").write_bytes(b"header")
+            (nested / "Database.v1.cbg").write_bytes(b"moves")
+            (nested / "Database.v1.cba").write_bytes(b"annotations")
+            return b""
+
+        with mock.patch("acs.cbv_extractor._run_uncbv", side_effect=runner):
+            result = extract_cbv_external(self.source, self.output, self.config)
+
+        self.assertEqual(result.entry_count, 3)
+
     def test_normal_nested_chessbase_names_remain_valid(self) -> None:
         def runner(_executable, arguments, _config, *, cwd, monitor_directory=None):
             if arguments[0] == "list":
