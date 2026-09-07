@@ -70,8 +70,6 @@ class FileWorkflowEvent:
         for name in ("action_id", "focus_target", "error_code"):
             if type(getattr(self, name)) is not str:
                 raise TypeError(f"{name} must be text")
-        if not self.action_id:
-            raise ValueError("file workflow action id must not be empty")
         for name in ("processed_games", "total_games", "game_count", "warning_count"):
             value = getattr(self, name)
             if type(value) is not int:
@@ -111,9 +109,23 @@ class Version2WindowsFileDialogs:
         import clr  # type: ignore
 
         clr.AddReference("System.Windows.Forms")
-        from System.Windows.Forms import DialogResult, OpenFileDialog, SaveFileDialog  # type: ignore
+        from System.Windows.Forms import (  # type: ignore
+            DialogResult,
+            MessageBox,
+            MessageBoxButtons,
+            MessageBoxIcon,
+            OpenFileDialog,
+            SaveFileDialog,
+        )
 
-        return DialogResult, OpenFileDialog, SaveFileDialog
+        return (
+            DialogResult,
+            MessageBox,
+            MessageBoxButtons,
+            MessageBoxIcon,
+            OpenFileDialog,
+            SaveFileDialog,
+        )
 
     @staticmethod
     def _selected(dialog: object, dialog_result: object, ok_value: object) -> Path | None:
@@ -124,8 +136,18 @@ class Version2WindowsFileDialogs:
             return None
         return Path(value)
 
+    def confirm_discard_unsaved_pgn(self) -> bool:
+        DialogResult, MessageBox, MessageBoxButtons, MessageBoxIcon, _, _ = self._load_forms()
+        result = MessageBox.Show(
+            "The current PGN has unsaved changes. Discard those changes and open another PGN?",
+            "Unsaved PGN changes",
+            MessageBoxButtons.YesNo,
+            MessageBoxIcon.Warning,
+        )
+        return result == DialogResult.Yes
+
     def open_pgn(self) -> Path | None:
-        DialogResult, OpenFileDialog, _ = self._load_forms()
+        DialogResult, _, _, _, OpenFileDialog, _ = self._load_forms()
         dialog = OpenFileDialog()
         try:
             dialog.Title = "Open PGN"
@@ -141,7 +163,7 @@ class Version2WindowsFileDialogs:
         if type(suggested_filename) is not str:
             raise TypeError("suggested PGN filename must be text")
         safe_name = Path(suggested_filename).name or "game.pgn"
-        DialogResult, _, SaveFileDialog = self._load_forms()
+        DialogResult, _, _, _, _, SaveFileDialog = self._load_forms()
         dialog = SaveFileDialog()
         try:
             dialog.Title = "Save PGN As"
@@ -156,7 +178,7 @@ class Version2WindowsFileDialogs:
             dialog.Dispose()
 
     def select_library_import(self) -> Path | None:
-        DialogResult, OpenFileDialog, _ = self._load_forms()
+        DialogResult, _, _, _, OpenFileDialog, _ = self._load_forms()
         dialog = OpenFileDialog()
         try:
             dialog.Title = "Import into Library"
@@ -197,7 +219,12 @@ class Version2WindowsFileActionDelegate:
         next_delegate: Callable[[str, Mapping[str, object]], Any],
         current_focus_provider: Callable[[], str] | None = None,
     ) -> None:
-        for method in ("open_pgn", "save_pgn_as", "select_library_import"):
+        for method in (
+            "open_pgn",
+            "save_pgn_as",
+            "select_library_import",
+            "confirm_discard_unsaved_pgn",
+        ):
             if not callable(getattr(dialogs, method, None)):
                 raise TypeError(f"Windows file dialogs must expose {method}")
         for name, callback in (
@@ -239,8 +266,6 @@ class Version2WindowsFileActionDelegate:
         try:
             self._event_sink(event)
         except Exception:
-            # Event delivery is an observer boundary.  A WebView failure must not
-            # roll back a successful canonical PGN save or corrupt an ACSDB import.
             _LOG.warning("Version 2 file workflow event sink failed", exc_info=True)
         return event
 
@@ -286,6 +311,24 @@ class Version2WindowsFileActionDelegate:
 
     def _open_pgn(self) -> FileWorkflowEvent:
         previous_focus = self._focus()
+        try:
+            current = self._get_pgn_session()
+        except Exception:
+            return self._failed("pgn.open", "pgn_session_unavailable", focus_target=previous_focus)
+        if current is not None:
+            if not isinstance(current, PgnDocumentSession):
+                return self._failed("pgn.open", "pgn_session_invalid", focus_target=previous_focus)
+            if current.dirty:
+                try:
+                    discard = self._dialogs.confirm_discard_unsaved_pgn()
+                except Exception:
+                    return self._failed(
+                        "pgn.open",
+                        "unsaved_confirmation_failed",
+                        focus_target=previous_focus,
+                    )
+                if not discard:
+                    return self._dialog_cancelled("pgn.open", previous_focus)
         try:
             path = self._dialogs.open_pgn()
         except Exception:
@@ -587,8 +630,6 @@ class Version2WindowsFileActionDelegate:
                 ),
             )
         except Exception:
-            # Backend exception text may contain paths, SQLite details, decoder
-            # names, or provider internals.  It remains machine-log evidence only.
             _LOG.warning("Version 2 Library import failed", exc_info=True)
             self._emit_if_current(
                 generation,
