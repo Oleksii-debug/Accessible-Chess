@@ -1,52 +1,116 @@
-name: V2 Package Required Resources
+name: V2 Package Required Resources Repair
 
 on:
   pull_request:
     branches:
-      - work/w6-v2-package-preflight-intake-20260907
+      - work/v2-package-required-resources-hardening-20260907
     paths:
+      - 'acs/version2_package_preflight.py'
+      - 'tests/test_version2_package_preflight.py'
       - 'tests/test_v2_package_required_resources.py'
       - '.github/workflows/v2-package-required-resources.yml'
-      - 'acs/version2_package_preflight.py'
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: v2-package-required-resources-${{ github.ref }}
+  group: v2-package-required-resources-repair-${{ github.ref }}
   cancel-in-progress: true
 
 env:
+  RED_PARENT: c40a3e74c18e5dc6770c94048ac3b8fed542d135
   OWNER_PARENT: 58be5a7e577714f221be6653655f4bc1d6bb1acd
-  OWNER_PREFLIGHT_BLOB: ab038e5aa68600d1388a71604e9ef0e4221df4bc
 
 jobs:
-  red-first-resource-contract:
-    runs-on: ubuntu-22.04
-    timeout-minutes: 12
+  focused:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
 
-      - name: Prove RED-first child scope and unchanged preflight owner
+      - name: Prove RED ancestry and bounded successor scope
         shell: bash
         run: |
           set -euo pipefail
+          git merge-base --is-ancestor "$RED_PARENT" HEAD
           git merge-base --is-ancestor "$OWNER_PARENT" HEAD
-          git diff --check "$OWNER_PARENT" HEAD
-          mapfile -t changed < <(git diff --name-only "$OWNER_PARENT" HEAD)
-          printf '%s\n' "${changed[@]}"
-          test "${#changed[@]}" -eq 2
-          printf '%s\n' "${changed[@]}" | grep -Fx '.github/workflows/v2-package-required-resources.yml'
-          printf '%s\n' "${changed[@]}" | grep -Fx 'tests/test_v2_package_required_resources.py'
-          test "$(git rev-parse HEAD:acs/version2_package_preflight.py)" = "$OWNER_PREFLIGHT_BLOB"
-          echo 'RED-FIRST SCOPE / OWNER BYTE LOCK PASS'
+          git diff --check "$RED_PARENT" HEAD
+          changed="$(git diff --name-only "$RED_PARENT" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/v2-package-required-resources.yml' \
+            'acs/version2_package_preflight.py' \
+            'tests/test_v2_package_required_resources.py' \
+            'tests/test_version2_package_preflight.py' | sort)"
+          test "$changed" = "$expected"
+          for path in acs/sound_events.py acs/sound_windows.py acs/stockfish_runtime.py acs/version2_release_ui.py; do
+            test "$(git rev-parse HEAD:$path)" = "$(git rev-parse $OWNER_PARENT:$path)"
+          done
+          echo 'RED-FIRST SUCCESSOR / PRODUCTION CONTRACT BYTE-LOCK PASS'
 
-      - name: Existing V2 package preflight suite must remain green first
-        run: python -m unittest -v tests.test_version2_package_preflight tests.test_version2_package_preflight_hardening
+      - name: Compile repaired preflight and exact production resource contracts
+        run: >-
+          python -m compileall -q
+          acs/version2_package_preflight.py
+          acs/sound_events.py
+          acs/sound_windows.py
+          acs/stockfish_runtime.py
+          tests/test_version2_package_preflight.py
+          tests/test_version2_package_preflight_hardening.py
+          tests/test_v2_package_required_resources.py
 
-      - name: Required release-resource oracle
-        run: python -m unittest -v tests.test_v2_package_required_resources
+      - name: Focused V2 package and required-resource regressions
+        run: >-
+          python -m unittest -v
+          tests.test_version2_package_preflight
+          tests.test_version2_package_preflight_hardening
+          tests.test_v2_package_required_resources
+
+      - name: Release resource contract smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from acs.sound_events import SoundEvent
+          from acs.stockfish_runtime import PACKAGED_STOCKFISH_RELATIVE_PATH
+          from acs.version2_package_preflight import V2_PACKAGE_PROFILE
+          assert V2_PACKAGE_PROFILE == 'version2-default'
+          assert PACKAGED_STOCKFISH_RELATIVE_PATH.as_posix() == 'engines/stockfish/stockfish.exe'
+          assert {event.value for event in SoundEvent} == {
+              'move','capture','check','castle','promotion','illegal','start','end','tick'
+          }
+          print('V2 REQUIRED RELEASE RESOURCE CONTRACT PASS')
+          PY
+
+  broad:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install verification dependency
+        run: python -m pip install -q pytest==8.4.2
+      - name: Full unittest
+        run: python -m unittest discover -s tests -v
+      - name: Full pytest
+        run: python -m pytest -q tests
+      - name: Exact diagnostics
+        run: |
+          python -m acs.selftest
+          python run_accessible_chess.py --diagnostic
+          python run_accessible_chess_v2.py --diagnostic

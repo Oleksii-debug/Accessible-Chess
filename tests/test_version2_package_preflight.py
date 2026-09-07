@@ -7,10 +7,12 @@ import stat
 import tempfile
 import unittest
 from unittest.mock import patch
+import wave
 import zipfile
 
 from acs.acsdb import ACSDB_SCHEMA_VERSION
 from acs.settings import SCHEMA_VERSION as SETTINGS_SCHEMA_VERSION
+from acs.sound_events import SoundEvent
 from acs.version2_package_preflight import (
     CHECKSUMS_NAME,
     MANIFEST_NAME,
@@ -60,8 +62,56 @@ def _make_tree(root: Path) -> None:
     product = root / "AccessibleChess"
     product.mkdir(parents=True)
     (product / "AccessibleChess.exe").write_bytes(b"MZ\x00V2")
-    (product / "assets").mkdir()
-    (product / "assets" / "content.dat").write_bytes(b"canonical-v2-content")
+
+    web = product / "web"
+    web.mkdir()
+    web_files = (
+        "index.html",
+        "stage1_release_bootstrap.js",
+        "stage1_board_actions.js",
+        "full_product_pgn.js",
+        "full_product_library.js",
+        "full_product_books_training.js",
+        "version2_release_bootstrap.js",
+    )
+    for name in web_files:
+        (web / name).write_text(f"// fixture {name}\n", encoding="utf-8")
+
+    assets = product / "assets"
+    assets.mkdir()
+    (assets / "content.dat").write_bytes(b"canonical-v2-content")
+    sounds = assets / "sounds"
+    sounds.mkdir()
+    sound_files = {}
+    for event in SoundEvent:
+        name = f"{event.value}.wav"
+        sound_files[event.value] = name
+        with wave.open(str(sounds / name), "wb") as writer:
+            writer.setnchannels(1)
+            writer.setsampwidth(2)
+            writer.setframerate(8000)
+            writer.writeframes(b"\x00\x00" * 16)
+    (sounds / "manifest.json").write_text(
+        json.dumps({"schema_version": 1, "files": sound_files}, sort_keys=True)
+        + "\n",
+        encoding="utf-8",
+    )
+
+    engine = product / "engines" / "stockfish"
+    engine.mkdir(parents=True)
+    (engine / "stockfish.exe").write_bytes(b"MZ\x00Stockfish18")
+
+    notices = root / "THIRD_PARTY_NOTICES"
+    notices.mkdir()
+    source_archive = notices / "Stockfish-18-source.zip"
+    with zipfile.ZipFile(source_archive, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("Stockfish-sf_18/src/main.cpp", "// source fixture\n")
+        archive.writestr("Stockfish-sf_18/Copying.txt", "GNU GPL v3\n")
+    (notices / "Stockfish-NOTICE.txt").write_text(
+        "Stockfish 18\nLicense: GNU GPL v3\nComplete corresponding source is included.\n",
+        encoding="utf-8",
+    )
+
     manifest = {
         "manifest_schema": V2_PACKAGE_MANIFEST_SCHEMA_VERSION,
         "product": "Accessible Chess",

@@ -14,10 +14,18 @@ from pathlib import Path, PurePosixPath
 import re
 import stat
 import tempfile
+import wave
 import zipfile
 
 from .acsdb import ACSDB_SCHEMA_VERSION
 from .settings import SCHEMA_VERSION as SETTINGS_SCHEMA_VERSION
+from .sound_events import SoundEvent
+from .sound_windows import (
+    DEFAULT_SOUND_MANIFEST,
+    DEFAULT_SOUND_RELATIVE_DIR,
+    SOUND_MANIFEST_SCHEMA_VERSION,
+)
+from .stockfish_runtime import PACKAGED_STOCKFISH_RELATIVE_PATH
 from .version2_upgrade import UPGRADE_JOURNAL_SCHEMA_VERSION
 
 
@@ -81,6 +89,27 @@ _SECRET_PATTERNS = (
     re.compile(r"\bghp_[A-Za-z0-9]{20,}\b"),
     re.compile(r"\bAKIA[0-9A-Z]{16}\b"),
     re.compile(r"\bsk-[A-Za-z0-9_-]{20,}\b"),
+)
+_PRODUCT_ROOT = PurePosixPath("AccessibleChess")
+_REQUIRED_STOCKFISH = (
+    _PRODUCT_ROOT / PurePosixPath(PACKAGED_STOCKFISH_RELATIVE_PATH.as_posix())
+).as_posix()
+_REQUIRED_SOUND_ROOT = (
+    _PRODUCT_ROOT / PurePosixPath(DEFAULT_SOUND_RELATIVE_DIR.as_posix())
+)
+_REQUIRED_SOUND_MANIFEST = (
+    _REQUIRED_SOUND_ROOT / DEFAULT_SOUND_MANIFEST
+).as_posix()
+_REQUIRED_STOCKFISH_SOURCE = "THIRD_PARTY_NOTICES/Stockfish-18-source.zip"
+_REQUIRED_STOCKFISH_NOTICE = "THIRD_PARTY_NOTICES/Stockfish-NOTICE.txt"
+_REQUIRED_WEB_FILES = (
+    "AccessibleChess/web/index.html",
+    "AccessibleChess/web/stage1_release_bootstrap.js",
+    "AccessibleChess/web/stage1_board_actions.js",
+    "AccessibleChess/web/full_product_pgn.js",
+    "AccessibleChess/web/full_product_library.js",
+    "AccessibleChess/web/full_product_books_training.js",
+    "AccessibleChess/web/version2_release_bootstrap.js",
 )
 
 
@@ -291,6 +320,8 @@ def _validate_topology(root: Path, inventory: tuple[str, ...]) -> None:
         _fail("unexpected top-level file in Version 2 package")
     if "AccessibleChess" not in top_dirs:
         _fail("AccessibleChess product directory is missing")
+    if "THIRD_PARTY_NOTICES" not in top_dirs:
+        _fail("THIRD_PARTY_NOTICES directory is missing")
     exe_hits = [
         item
         for item in inventory
@@ -320,6 +351,136 @@ def _json_no_duplicates(text: str, *, label: str) -> dict[str, object]:
     if not isinstance(value, dict):
         _fail(f"{label} must be a JSON object")
     return value
+
+
+def _require_package_file(
+    root: Path,
+    inventory: tuple[str, ...],
+    relative: str,
+    *,
+    label: str,
+    min_bytes: int = 1,
+) -> Path:
+    if relative not in inventory:
+        _fail(f"{label} is missing")
+    path = root.joinpath(*PurePosixPath(relative).parts)
+    info = _safe_lstat(path, label=label)
+    if not stat.S_ISREG(info.st_mode) or info.st_size < min_bytes:
+        _fail(f"{label} is empty or invalid")
+    return path
+
+
+def _validate_required_runtime_resources(
+    root: Path,
+    inventory: tuple[str, ...],
+) -> None:
+    for relative in _REQUIRED_WEB_FILES:
+        _require_package_file(
+            root,
+            inventory,
+            relative,
+            label="packaged Version 2 web resource",
+        )
+
+    stockfish = _require_package_file(
+        root,
+        inventory,
+        _REQUIRED_STOCKFISH,
+        label="packaged Stockfish 18 executable",
+        min_bytes=2,
+    )
+    try:
+        with stockfish.open("rb") as handle:
+            signature = handle.read(2)
+    except OSError as exc:
+        _fail(f"packaged Stockfish executable cannot be read: {type(exc).__name__}")
+    if signature != b"MZ":
+        _fail("packaged Stockfish executable is not a Windows executable")
+
+    manifest_path = _require_package_file(
+        root,
+        inventory,
+        _REQUIRED_SOUND_MANIFEST,
+        label="packaged sound manifest",
+    )
+    try:
+        manifest_text = manifest_path.read_text(encoding="utf-8-sig")
+    except (OSError, UnicodeError) as exc:
+        _fail(f"packaged sound manifest is unreadable: {type(exc).__name__}")
+    manifest = _json_no_duplicates(manifest_text, label="packaged sound manifest")
+    schema = manifest.get("schema_version")
+    if type(schema) is not int or schema != SOUND_MANIFEST_SCHEMA_VERSION:
+        _fail("packaged sound manifest schema is invalid")
+    mapping = manifest.get("files")
+    if not isinstance(mapping, dict):
+        _fail("packaged sound manifest files must be an object")
+    expected_events = {event.value for event in SoundEvent}
+    if set(mapping) != expected_events:
+        _fail("packaged sound manifest must declare every semantic sound event exactly once")
+
+    seen_sound_paths: set[str] = set()
+    for event in SoundEvent:
+        value = mapping.get(event.value)
+        if not isinstance(value, str) or not value:
+            _fail(f"packaged sound manifest entry is invalid: {event.value}")
+        token = _relative_token(value, label="sound asset path")
+        folded_token = token.casefold()
+        if folded_token in seen_sound_paths:
+            _fail("packaged sound events must use distinct WAV assets")
+        seen_sound_paths.add(folded_token)
+        if PurePosixPath(token).suffix.casefold() != ".wav":
+            _fail(f"packaged sound asset is not WAV: {event.value}")
+        relative = (_REQUIRED_SOUND_ROOT / PurePosixPath(token)).as_posix()
+        sound_path = _require_package_file(
+            root,
+            inventory,
+            relative,
+            label=f"packaged sound asset {event.value}",
+            min_bytes=45,
+        )
+        try:
+            with wave.open(str(sound_path), "rb") as reader:
+                if (
+                    reader.getsampwidth() != 2
+                    or reader.getframerate() <= 0
+                    or reader.getnframes() <= 0
+                ):
+                    _fail(f"packaged sound asset is not usable 16-bit PCM: {event.value}")
+        except Version2PackagePreflightError:
+            raise
+        except (OSError, EOFError, wave.Error) as exc:
+            _fail(f"packaged sound asset is invalid: {event.value} ({type(exc).__name__})")
+
+    source_archive = _require_package_file(
+        root,
+        inventory,
+        _REQUIRED_STOCKFISH_SOURCE,
+        label="Stockfish 18 corresponding source archive",
+    )
+    try:
+        with zipfile.ZipFile(source_archive) as archive:
+            names = tuple(info.filename.replace("\\", "/") for info in archive.infolist())
+    except (OSError, zipfile.BadZipFile, zipfile.LargeZipFile) as exc:
+        _fail(f"Stockfish corresponding source archive is invalid: {type(exc).__name__}")
+    if not any("/src/" in f"/{name.lstrip('/')}" for name in names):
+        _fail("Stockfish corresponding source archive does not contain source files")
+
+    notice_path = _require_package_file(
+        root,
+        inventory,
+        _REQUIRED_STOCKFISH_NOTICE,
+        label="Stockfish GPL notice",
+    )
+    try:
+        notice = notice_path.read_text(encoding="utf-8-sig").casefold()
+    except (OSError, UnicodeError) as exc:
+        _fail(f"Stockfish GPL notice is unreadable: {type(exc).__name__}")
+    if (
+        "stockfish 18" not in notice
+        or "gpl" not in notice
+        or "source" not in notice
+    ):
+        _fail("Stockfish GPL notice is incomplete")
 
 
 def _manifest(root: Path) -> tuple[str, dict[str, object]]:
@@ -440,6 +601,7 @@ def validate_version2_package_tree(
     root = Path(root)
     inventory, total = _inventory(root, limits)
     _validate_topology(root, inventory)
+    _validate_required_runtime_resources(root, inventory)
     integration_sha, _ = _manifest(root)
     if integration_sha != expected_sha:
         _fail("release manifest integration_sha does not match expected integration authority")
