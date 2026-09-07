@@ -20,9 +20,35 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - name: Prove exact child scope and current parent ancestry
+        shell: bash
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            upstream="$PR_BASE_SHA"
+          else
+            upstream="9ac0600bf9d270e02334df1657c1ccc941f909b5"
+          fi
+          test -n "$upstream"
+          git merge-base --is-ancestor "$upstream" HEAD
+          git diff --check "$upstream" HEAD
+          changed="$(git diff --name-only "$upstream" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/w1-d06-nested-comment-framer.yml' \
+            'acs/gametree.py' \
+            'tests/test_w1_d06_nested_comment_framer_convergence.py' | sort)"
+          test "$changed" = "$expected" || {
+            printf 'Unexpected W1 D06 framer scope:\n%s\n' "$changed" >&2
+            exit 1
+          }
       - name: Compile canonical PGN modules
         run: python -m compileall -q acs/gametree.py acs/pgn_roundtrip.py tests/test_w1_d06_nested_comment_framer_convergence.py
       - name: Focused W1 D06 framer regression
