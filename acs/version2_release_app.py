@@ -32,7 +32,7 @@ from .webapp_keymap import _asset_root
 
 
 class _Version2OwnedBookDialogs(Version2OwnedWindowsFileDialogs):
-    """Owner-bound Open dialog for already-supported HTML/TXT/Markdown books."""
+    """Owner-bound Open and release-lifecycle dialogs for supported books/PGN."""
 
     def open_book(self) -> Path | None:
         DialogResult, OpenFileDialog, _ = self._load_forms()
@@ -51,6 +51,72 @@ class _Version2OwnedBookDialogs(Version2OwnedWindowsFileDialogs):
             return self._selected(dialog, dialog.ShowDialog(), DialogResult.OK)
         finally:
             dialog.Dispose()
+
+    def confirm_discard_unsaved_pgn_on_exit(self) -> bool:
+        """Confirm destructive application close on the exact native owner Form."""
+
+        owner = self._dialog_owner.resolve()
+        DialogResult, _, _ = self._forms_loader()
+        MessageBox, MessageBoxButtons, MessageBoxIcon = self._message_box_loader()
+        result = MessageBox.Show(
+            owner,
+            "The current PGN has unsaved changes. Exit without saving these changes?",
+            "Unsaved PGN changes",
+            MessageBoxButtons.YesNo,
+            MessageBoxIcon.Warning,
+        )
+        return result == DialogResult.Yes
+
+
+def _install_unsaved_pgn_close_guard(
+    application: Version2Application,
+    owner_control: object,
+    dialogs: object,
+):
+    """Cancel native Form closing unless a dirty PGN discard is confirmed.
+
+    The real WinForms ``FormClosing`` event is used rather than a browser event so
+    Alt+F4, the title-bar close button and the native File > Exit command all cross
+    the same UI-thread, owner-bound confirmation boundary.  Confirmation failures
+    fail closed and preserve the canonical document.
+    """
+
+    if owner_control is None:
+        raise RuntimeError("Version 2 Windows owner control is unavailable")
+    confirmation = getattr(dialogs, "confirm_discard_unsaved_pgn_on_exit", None)
+    if not callable(confirmation):
+        raise TypeError("Version 2 exit confirmation is unavailable")
+    closing_event = getattr(owner_control, "FormClosing", None)
+    if closing_event is None:
+        raise RuntimeError("Version 2 native owner does not expose FormClosing")
+
+    existing = getattr(application, "_native_unsaved_close_guard", None)
+    if existing is not None:
+        raise RuntimeError("Version 2 unsaved close guard is already installed")
+
+    def on_form_closing(_sender: object, event: object) -> None:
+        try:
+            session = getattr(application, "session", None)
+            dirty = session is not None and bool(getattr(session, "dirty"))
+        except Exception:
+            dirty = True
+        if not dirty:
+            return
+        try:
+            discard = confirmation() is True
+        except Exception:
+            discard = False
+        if discard:
+            return
+        try:
+            setattr(event, "Cancel", True)
+        except Exception:
+            # A malformed native event cannot be trusted to close a dirty document.
+            return
+
+    owner_control.FormClosing += on_form_closing
+    application._native_unsaved_close_guard = on_form_closing
+    return on_form_closing
 
 
 def _copy_text_to_windows_clipboard(value: str) -> None:
@@ -233,7 +299,7 @@ def create_version2_release_application(
             raise RuntimeError("Version 2 Windows owner control is unavailable")
         book_dialogs = _Version2OwnedBookDialogs(lambda: owner_control)
         application.open_book_dialog = book_dialogs.open_book
-        return Version2WindowsFileWorkflowRuntime(
+        file_runtime = Version2WindowsFileWorkflowRuntime(
             owner_control=owner_control,
             get_pgn_session=lambda: application.session,
             set_pgn_session=lambda session: _install_host_confirmed_document(application, session),
@@ -244,6 +310,8 @@ def create_version2_release_application(
             next_delegate=api.v2_board_dispatch,
             current_focus_provider=lambda: str(application._focus),
         )
+        _install_unsaved_pgn_close_guard(application, owner_control, book_dialogs)
+        return file_runtime
 
     return api, application, engine_runtime, native_runtime_factory
 
