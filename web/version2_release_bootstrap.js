@@ -8,6 +8,12 @@
   const live = documentRef.getElementById("live");
   if (!originalMain || !live) return;
 
+  let currentLanguage = documentRef.documentElement.lang === "en" ? "en" : "uk";
+
+  function uiText(uk, en) {
+    return currentLanguage === "en" ? en : uk;
+  }
+
   function api() {
     return global.pywebview && global.pywebview.api;
   }
@@ -20,10 +26,8 @@
 
   const nav = documentRef.createElement("nav");
   nav.id = "v2-navigation";
-  nav.setAttribute("aria-label", "Розділи Accessible Chess");
   const navHeading = documentRef.createElement("h2");
   navHeading.id = "v2-navigation-heading";
-  navHeading.textContent = "Розділи";
   nav.appendChild(navHeading);
   const navList = documentRef.createElement("ul");
   navList.id = "v2-navigation-list";
@@ -73,22 +77,16 @@
       button.type = "button";
       button.id = "v2-nav-" + String(item.route_id || "");
       button.textContent = String(item.label || item.route_id || "");
-      button.setAttribute("aria-describedby", button.id + "-description");
       if (String(item.current) === "true") button.setAttribute("aria-current", "page");
-      const description = documentRef.createElement("span");
-      description.id = button.id + "-description";
-      description.hidden = true;
-      description.textContent = String(item.description || "");
       button.addEventListener("click", function () {
         const bridge = api();
         if (!bridge || typeof bridge.v2_browser_command !== "function") return;
         bridge.v2_browser_command("shell", String(item.action_id || ""), {}).then(function (result) {
           if (result && result.kind === "error" && result.payload) announce(result.payload.message || "");
           refresh(true);
-        }, function () { announce("Не вдалося відкрити розділ."); });
+        }, function () { announce(uiText("Не вдалося відкрити розділ.", "Could not open the section.")); });
       });
       row.appendChild(button);
-      row.appendChild(description);
       fragment.appendChild(row);
     });
     navList.replaceChildren(fragment);
@@ -101,7 +99,9 @@
       if (snapshot.pgn && global.AccessibleChessPgnSurface) {
         global.AccessibleChessPgnSurface.render(workspace, snapshot.pgn, areaInvoke("pgn"), announce, requestedFocus || "");
       } else {
-        workspace.replaceChildren(Object.assign(documentRef.createElement("p"), { textContent: "PGN ще не відкрито." }));
+        workspace.replaceChildren(Object.assign(documentRef.createElement("p"), {
+          textContent: uiText("PGN ще не відкрито.", "No PGN is open yet.")
+        }));
       }
       return;
     }
@@ -115,18 +115,23 @@
       if (snapshot.books && global.AccessibleChessBookSurface) {
         global.AccessibleChessBookSurface.render(workspace, snapshot.books, areaInvoke("books"), announce, requestedFocus || "");
       } else {
-        workspace.replaceChildren(Object.assign(documentRef.createElement("p"), { textContent: "Книгу ще не відкрито." }));
+        workspace.replaceChildren(Object.assign(documentRef.createElement("p"), {
+          textContent: uiText("Книгу ще не відкрито.", "No book is open yet.")
+        }));
       }
     }
   }
 
   function render(snapshot, restoreFocus) {
     if (!snapshot || typeof snapshot !== "object") return;
+    currentLanguage = snapshot.document && snapshot.document.lang === "en" ? "en" : "uk";
+    documentRef.documentElement.lang = currentLanguage;
+    nav.setAttribute("aria-label", uiText("Розділи Accessible Chess", "Accessible Chess sections"));
+    navHeading.textContent = uiText("Розділи", "Sections");
     renderNavigation(snapshot);
     const screen = snapshot.screen && typeof snapshot.screen === "object" ? snapshot.screen : {};
     const routeId = String(screen.route_id || "board");
     const requestedFocus = String(screen.focus_target || "");
-    documentRef.documentElement.lang = snapshot.document && snapshot.document.lang === "en" ? "en" : "uk";
 
     if (routeId === "pgn" || routeId === "library" || routeId === "books") {
       renderProductSurface(snapshot, routeId, requestedFocus);
@@ -168,6 +173,8 @@
     }
   }, true);
 
-  refresh(false).catch(function () { announce("Не вдалося завантажити розділи Version 2."); });
+  refresh(false).catch(function () {
+    announce(uiText("Не вдалося завантажити розділи Version 2.", "Could not load Version 2 sections."));
+  });
   global.setInterval(drainEvents, 300);
 })(window);

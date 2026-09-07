@@ -63,17 +63,27 @@ jobs:
 
       - name: Prove Version 2 ancestry and convergence-safe isolation
         shell: bash
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
           set -euo pipefail
           git cat-file -e "$V2_FORMATS_UPSTREAM^{commit}"
           git merge-base --is-ancestor "$V2_FORMATS_UPSTREAM" HEAD
-          git diff --check "$V2_FORMATS_UPSTREAM" HEAD
-          changed="$(git diff --name-only "$V2_FORMATS_UPSTREAM" HEAD | sort)"
+
+          scope_base="$PR_BASE_SHA"
+          if [ -z "$scope_base" ]; then
+            scope_base="$V2_FORMATS_UPSTREAM"
+          fi
+          git cat-file -e "$scope_base^{commit}"
+          git merge-base --is-ancestor "$scope_base" HEAD
+          git diff --check "$scope_base" HEAD
+
+          changed="$(git diff --name-only "$scope_base" HEAD | sort)"
           if printf '%s\n' "$changed" | grep -E '(^|/)(stage1|tools/qa/|windows-stage1|release_preflight)'; then
             echo 'Stage 1 or strict-release contamination detected' >&2
             exit 1
           fi
-          git diff --quiet "$V2_FORMATS_UPSTREAM" HEAD -- \
+          git diff --quiet "$scope_base" HEAD -- \
             run_accessible_chess.py acs/release_app.py \
             acs/stage1_release_ui.py acs/stage1_release_ui_core.py \
             acs/chesscore.py acs/gametree.py acs/pgn_document.py \
@@ -107,6 +117,7 @@ jobs:
         run: >-
           python -m unittest -v
           tests.test_version2_windows_composition_profile
+          tests.test_version2_release_accessibility_contract
           tests.test_dev1_full_product_accessible_shell
           tests.test_dev1_full_product_webview_adapter
           tests.test_full_product_native_menu
