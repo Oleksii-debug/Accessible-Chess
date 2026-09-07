@@ -1,0 +1,99 @@
+name: D04 Wire Canonical Fingerprint Regressions
+
+on:
+  push:
+    branches:
+      - work/d04-canonical-fingerprint-regression-rebind-20260907
+
+permissions:
+  contents: write
+
+concurrency:
+  group: d04-canonical-regression-rebind-bootstrap
+  cancel-in-progress: false
+
+jobs:
+  wire:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: work/d04-canonical-fingerprint-regression-rebind-20260907
+          fetch-depth: 0
+      - name: Bind repaired regressions into the exact D04 gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          git pull --ff-only origin work/d04-canonical-fingerprint-regression-rebind-20260907
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('.github/workflows/d04-current-formats-convergence.yml')
+          text = path.read_text(encoding='utf-8')
+
+          trigger_anchor = "      - 'tests/test_d04_drive_relative_report_privacy.py'\n"
+          trigger_insert = trigger_anchor + (
+              "      - 'tests/test_dev4_chessbase_integrity_atomicity.py'\n"
+              "      - 'tests/test_dev4_chessbase_integrity_io_observability.py'\n"
+          )
+          if 'tests/test_dev4_chessbase_integrity_atomicity.py' not in text.split('permissions:', 1)[0]:
+              if trigger_anchor not in text:
+                  raise SystemExit('pull_request trigger anchor missing')
+              text = text.replace(trigger_anchor, trigger_insert, 1)
+
+          scope_anchor = "            tests/test_d04_drive_relative_report_privacy.py \\\n"
+          scope_insert = scope_anchor + (
+              "            tests/test_dev4_chessbase_integrity_atomicity.py \\\n"
+              "            tests/test_dev4_chessbase_integrity_io_observability.py \\\n"
+          )
+          scope_section = text.split('allowed="$(printf', 1)[1].split('| sort)', 1)[0]
+          if 'tests/test_dev4_chessbase_integrity_atomicity.py' not in scope_section:
+              if scope_anchor not in text:
+                  raise SystemExit('exact-scope anchor missing')
+              text = text.replace(scope_anchor, scope_insert, 1)
+
+          unittest_anchor = "          tests.test_d04_drive_relative_report_privacy\n"
+          unittest_insert = unittest_anchor + (
+              "          tests.test_dev4_chessbase_integrity_atomicity\n"
+              "          tests.test_dev4_chessbase_integrity_io_observability\n"
+          )
+          focused_section = text.split('- name: Focused D04 composition regressions', 1)[1].split('- name: Focused pytest parity', 1)[0]
+          if 'tests.test_dev4_chessbase_integrity_atomicity' not in focused_section:
+              if unittest_anchor not in text:
+                  raise SystemExit('focused unittest anchor missing')
+              text = text.replace(unittest_anchor, unittest_insert, 1)
+
+          pytest_anchor = "          tests/test_d04_drive_relative_report_privacy.py\n"
+          pytest_insert = pytest_anchor + (
+              "          tests/test_dev4_chessbase_integrity_atomicity.py\n"
+              "          tests/test_dev4_chessbase_integrity_io_observability.py\n"
+          )
+          pytest_section = text.split('- name: Focused pytest parity', 1)[1].split('- name: Re-materialize frozen Stage1 blobs', 1)[0]
+          if 'tests/test_dev4_chessbase_integrity_atomicity.py' not in pytest_section:
+              if pytest_anchor not in text:
+                  raise SystemExit('focused pytest anchor missing')
+              text = text.replace(pytest_anchor, pytest_insert, 1)
+
+          path.write_text(text, encoding='utf-8')
+          PY
+
+          python -m py_compile \
+            tests/test_dev4_chessbase_integrity_atomicity.py \
+            tests/test_dev4_chessbase_integrity_io_observability.py
+          python -m unittest -v \
+            tests.test_dev4_chessbase_integrity_atomicity \
+            tests.test_dev4_chessbase_integrity_io_observability \
+            tests.test_d04_chessbase_integrity_handle_identity \
+            tests.test_chessbase_integrity \
+            tests.test_import_contract
+          git diff --check
+
+          git config user.name "accessible-chess-d04-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git rm .github/workflows/d04-canonical-regression-rebind-bootstrap.yml
+          git add .github/workflows/d04-current-formats-convergence.yml \
+            tests/test_dev4_chessbase_integrity_atomicity.py \
+            tests/test_dev4_chessbase_integrity_io_observability.py
+          git commit -m "test(d04): rebind integrity faults to canonical fingerprint"
+          git push origin HEAD:work/d04-canonical-fingerprint-regression-rebind-20260907
