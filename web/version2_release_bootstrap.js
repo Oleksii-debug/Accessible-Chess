@@ -9,6 +9,7 @@
   if (!originalMain || !live) return;
 
   let currentLanguage = documentRef.documentElement.lang === "en" ? "en" : "uk";
+  let currentRouteId = "board";
 
   function uiText(uk, en) {
     return currentLanguage === "en" ? en : uk;
@@ -159,6 +160,7 @@
     renderNavigation(snapshot);
     const screen = snapshot.screen && typeof snapshot.screen === "object" ? snapshot.screen : {};
     const routeId = String(screen.route_id || "board");
+    currentRouteId = routeId;
     const requestedFocus = String(screen.focus_target || "");
 
     if (routeId === "pgn" || routeId === "library" || routeId === "books") {
@@ -178,17 +180,37 @@
     return bridge.v2_snapshot().then(function (snapshot) { render(snapshot, !!restoreFocus); });
   }
 
+  function applyQueuedEvent(event) {
+    if (!event || typeof event !== "object") return false;
+    const payload = event.payload && typeof event.payload === "object" ? event.payload : {};
+    if (event.kind === "render-import") {
+      if (currentRouteId === "library" && global.AccessibleChessLibrarySurface &&
+          typeof global.AccessibleChessLibrarySurface.apply === "function") {
+        try {
+          global.AccessibleChessLibrarySurface.apply(workspace, event, areaInvoke("library"), announce);
+        } catch (_) {
+          return true;
+        }
+      } else if (payload.announcement) {
+        announce(payload.announcement);
+      }
+      return false;
+    }
+    if (payload.announcement) announce(payload.announcement);
+    if (event.kind === "error" && payload.message) announce(payload.message);
+    return event.kind !== "error";
+  }
+
   function drainEvents() {
     const bridge = api();
     if (!bridge || typeof bridge.v2_drain_events !== "function") return;
     bridge.v2_drain_events().then(function (events) {
       if (!Array.isArray(events) || !events.length) return;
+      let needsRefresh = false;
       events.forEach(function (event) {
-        const payload = event && event.payload && typeof event.payload === "object" ? event.payload : {};
-        if (payload.announcement) announce(payload.announcement);
-        if (event && event.kind === "error" && payload.message) announce(payload.message);
+        if (applyQueuedEvent(event)) needsRefresh = true;
       });
-      refresh(false);
+      if (needsRefresh) refresh(false);
     }, function () {});
   }
 
