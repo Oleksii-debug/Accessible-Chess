@@ -125,9 +125,12 @@ class Version2Application:
         workflow = BookBoardWorkflow(reader, self.engine_assistance, game_lookup=AcsdbBookGameLookup(self.database))
         delegate = Version2WindowsBookBoardActionDelegate(workflow, event_sink=self._book_event, next_delegate=self._board_dispatch)
         bridge = build_version2_book_webview(reader, workflow, self.router.dispatch, language=self.shell.language)
+        # The staged reader must be durably publishable before it becomes live UI
+        # state.  Otherwise a progress I/O failure would return an error after the
+        # application had already switched reader/workflow/route.
+        self.progress_store.save(imported.book_key, reader)
         self.reader, self.book_key, self.book_workflow, self.book_delegate, self.books = reader, imported.book_key, workflow, delegate, bridge
         self.shell.open_route("books")
-        self.save_book_progress()
         return len(imported.warnings)
 
     def save_book_progress(self):
