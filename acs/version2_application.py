@@ -32,7 +32,11 @@ from .search_service import GameSearchQuery
 from .version2_book_workspace import build_version2_book_webview
 from .version2_pgn_commands import Version2PgnCommands
 from .version2_profile import build_version2_shell, build_version2_router, build_version2_webview_adapter
-from .version2_windows_book_board_adapter import Version2WindowsBookBoardActionDelegate, BookBoardUiEventKind
+from .version2_windows_book_board_adapter import (
+    Version2WindowsBookBoardActionDelegate,
+    BookBoardUiEvent,
+    BookBoardUiEventKind,
+)
 from .version2_windows_file_workflows import FileWorkflowEvent, FileWorkflowEventKind, Version2ImportWorkerServices
 from .version2_windows_library_import_observer import Version2ObservedImportServicesFactory
 
@@ -92,8 +96,6 @@ class Version2Application:
             if self.books is not None:
                 self.books.projection.set_language(language)
         except Exception:
-            # These transitions are presentation-only. Roll them all back before
-            # surfacing a failure so Stage1/V2 cannot remain split in memory.
             self.shell.set_language(previous)
             try:
                 self.library.projection.set_language(previous)
@@ -151,7 +153,6 @@ class Version2Application:
         else:
             kind = BookTextFormat.TXT if suffix == ".txt" else BookTextFormat.MARKDOWN
             imported = import_text_book(raw, source_name=report_safe_name(source), source_format=kind)
-        # Parse and validate the entire new source before replacing reader state.
         self.save_book_progress()
         reader = self.progress_store.restore(imported.book_key, imported.document) if self.progress_store.has(imported.book_key) else BookReader(imported.document)
         workflow = BookBoardWorkflow(reader, self.engine_assistance, game_lookup=AcsdbBookGameLookup(self.database))
@@ -167,11 +168,11 @@ class Version2Application:
         if self.reader is not None: self.progress_store.save(self.book_key, self.reader)
 
     def _book_event(self, event):
-        if event.kind is BookBoardUiEventKind.BOARD_OPENED:
-            self.pgn_board_active = False
-            self.shell.open_route("board")
-            self._events.append({"kind": "book-board", "payload": {"focus_target": "board-launcher"}})
-        elif event.kind is BookBoardUiEventKind.RETURNED_TO_BOOK:
+        # BOARD_OPENED / BOARD_UPDATED are deliberately not routed here.  The
+        # adapter treats event sinks as observers and swallows observer failures;
+        # release-board projection therefore belongs to the synchronous owner
+        # dispatch path below, before Board becomes an active visible route.
+        if event.kind is BookBoardUiEventKind.RETURNED_TO_BOOK:
             self.shell.open_route("books")
             self.save_book_progress()
         elif event.kind is BookBoardUiEventKind.FAILED:
@@ -180,19 +181,67 @@ class Version2Application:
     def _error(self):
         return {"kind": "error", "payload": {"message": concise_user_error("", language=self.shell.language)}}
 
-    def _project_pgn_position(self, fen=None):
-        """Project canonical PGN FEN through a trusted Python-only board sink."""
+    def _project_position(self, fen, *, source):
+        """Project an already-canonical FEN through the one trusted release-board sink."""
         sink = self._position_sink
         if sink is None:
-            raise RuntimeError("PGN board projection is unavailable")
-        canonical_fen = self.pgn_commands.current_fen() if fen is None else fen
-        result = sink(canonical_fen)
+            raise RuntimeError(f"{source} board projection is unavailable")
+        result = sink(fen)
         if not isinstance(result, dict) or result.get("ok") is not True:
-            raise ValueError("canonical board rejected PGN position")
-        return canonical_fen
+            raise ValueError(f"canonical board rejected {source} position")
+        return fen
+
+    def _project_pgn_position(self, fen=None):
+        canonical_fen = self.pgn_commands.current_fen() if fen is None else fen
+        return self._project_position(canonical_fen, source="PGN")
+
+    def _project_book_position(self):
+        if self.book_delegate is None or self.book_workflow is None or not self.book_workflow.active:
+            raise RuntimeError("Book board projection is unavailable")
+        canonical_fen = self.book_delegate.board_snapshot().fen()
+        return self._project_position(canonical_fen, source="Book")
+
+    def _close_failed_book_review(self, action):
+        """Fail closed if a canonical Book position cannot reach the release board.
+
+        The BookBoard workflow owns an exact saved reading return point.  Rather
+        than leave its hidden session ahead of the visible 64-square board, close
+        that review through the canonical return operation and expose Books again.
+        """
+        returned = False
+        if self.book_workflow is not None and self.book_workflow.active:
+            try:
+                self.book_workflow.return_to_book()
+                returned = True
+            except Exception:
+                returned = False
+        if returned:
+            self.pgn_board_active = False
+            self.shell.open_route("books")
+            self.save_book_progress()
+        self._events.append(self._error())
+        return BookBoardUiEvent(
+            BookBoardUiEventKind.FAILED,
+            action,
+            focus_target="book" if returned else "board",
+            error_code="board_projection_failed",
+        )
+
+    def _dispatch_book_board(self, action, payload):
+        event = self.book_delegate(action, payload)
+        if event.kind not in {BookBoardUiEventKind.BOARD_OPENED, BookBoardUiEventKind.BOARD_UPDATED}:
+            return event
+        try:
+            self._project_book_position()
+        except Exception:
+            return self._close_failed_book_review(action)
+        self.pgn_board_active = False
+        self.shell.open_route("board")
+        if event.kind is BookBoardUiEventKind.BOARD_OPENED:
+            self._events.append({"kind": "book-board", "payload": {"focus_target": "board-launcher"}})
+        return event
 
     def _delegate(self, action, payload):
-        # Native menus enter the same projection commands as keyboard buttons.
         if action == "pgn.open_on_board":
             if payload: raise ValueError("PGN board accepts no payload")
             fen = self.pgn_commands.current_fen()
@@ -236,7 +285,6 @@ class Version2Application:
             if row is None or (row["source_id"], row["source_index"]) != (payload["source_id"], payload["source_index"]):
                 raise ValueError("Library selection is stale")
             game = AcsdbBookGameLookup(self.database).load_book_game(payload["game_id"])
-            # Opening a detached Library record must not renumber/write its source.
             game.source_index = 0
             self.set_document(PgnDocumentSession(PgnWorkspace((game,))))
             return None
@@ -253,7 +301,8 @@ class Version2Application:
             return None if source is None else self.open_book(source)
         if action.startswith("book."):
             if self.book_delegate is None: raise ValueError("no book is open")
-            if action in self.book_delegate.OWNED_ACTIONS: return self.book_delegate(action, payload)
+            if action in self.book_delegate.OWNED_ACTIONS:
+                return self._dispatch_book_board(action, payload)
             command = {"book.previous_block": "book.previous", "book.next_block": "book.next", "book.bookmark": "book.bookmark.save"}.get(action, action)
             result = self.books.dispatch(command, {"name": "default"} if action == "book.bookmark" else payload)
             if result.kind == "error": raise ValueError("book command failed")
@@ -356,7 +405,6 @@ class Version2Application:
         if result is not None and ui.phase in active:
             if ui.snapshot()["total_games"] == 0: ui.begin(result.game_count)
             self._events.append(asdict(ui.complete(result)))
-            # Update rows without moving focus from another surface.
             self.library.projection.search(self.library.projection.query)
 
     def _file_event(self, event):
