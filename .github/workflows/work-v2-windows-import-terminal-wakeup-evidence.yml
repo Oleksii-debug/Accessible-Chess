@@ -1,9 +1,9 @@
-name: WORK V2 Windows Import Terminal Wakeup Evidence
+name: V2 Windows Import Terminal Wakeup Recovery
 
 on:
   push:
     branches:
-      - work/w3-v2-windows-import-terminal-wakeup-evidence-20260907
+      - work/v2-import-terminal-wakeup-retry-20260907
   pull_request:
     branches:
       - codex/v2-runtime-completion-20260907
@@ -12,16 +12,20 @@ permissions:
   contents: read
 
 concurrency:
-  group: work-v2-windows-import-terminal-wakeup-${{ github.ref }}
+  group: v2-windows-import-terminal-wakeup-recovery-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  RUNTIME_BASE: 40e1ef2184177600bcc88911529b718adde65df9
+
 jobs:
-  evidence:
+  recovery:
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-22.04, windows-2025]
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
         with:
@@ -30,17 +34,29 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Prove evidence-only exact-head scope
+      - name: Install pinned test dependency
+        run: python -m pip install -q pytest==8.4.2
+      - name: Prove exact current-runtime ancestry and bounded scope
         shell: bash
         run: |
           set -euo pipefail
-          base=40e1ef2184177600bcc88911529b718adde65df9
-          git merge-base --is-ancestor "$base" HEAD
-          git diff --check "$base" HEAD
-          changed="$(git diff --name-only "$base" HEAD | sort | tr '\n' ' ')"
-          test "$changed" = ".github/workflows/work-v2-windows-import-terminal-wakeup-evidence.yml tests/test_work_v2_windows_import_terminal_wakeup_evidence.py "
-      - name: Compile evidence test
-        run: python -m py_compile tests/test_work_v2_windows_import_terminal_wakeup_evidence.py
+          git merge-base --is-ancestor "$RUNTIME_BASE" HEAD
+          git diff --check "$RUNTIME_BASE" HEAD
+          changed="$(git diff --name-only "$RUNTIME_BASE" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/work-v2-windows-import-terminal-wakeup-evidence.yml' \
+            'acs/version2_windows_import_ui_pump.py' \
+            'tests/test_work_v2_windows_import_terminal_wakeup_evidence.py' | sort)"
+          test "$changed" = "$expected" || {
+            printf 'Unexpected terminal-wakeup repair scope:\n%s\n' "$changed" >&2
+            exit 1
+          }
+      - name: Compile owned boundary
+        run: >-
+          python -m compileall -q
+          acs/version2_windows_import_ui_pump.py
+          acs/version2_windows_host_runtime.py
+          tests/test_work_v2_windows_import_terminal_wakeup_evidence.py
       - name: Preserve inherited mailbox, UI-pump and exact-host contracts
         run: >-
           python -m unittest -v
@@ -48,5 +64,9 @@ jobs:
           tests.test_v2_windows_import_ui_pump
           tests.test_v2_windows_host_runtime
           tests.test_version2_import_terminal_ui
-      - name: Prove terminal import event self-recovers after one transient UI-post failure
+      - name: Prove terminal import event self-recovers after transient UI-post failure
         run: python -m unittest -v tests.test_work_v2_windows_import_terminal_wakeup_evidence
+      - name: Full unittest regression
+        run: python -m unittest discover -s tests -v
+      - name: Full pytest regression
+        run: python -m pytest -q
