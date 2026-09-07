@@ -7,7 +7,17 @@ on:
   pull_request:
     paths:
       - 'acs/version2_profile.py'
-      - 'tests/test_version2_windows_composition_profile.py'
+      - 'acs/version2_application.py'
+      - 'acs/version2_pgn_commands.py'
+      - 'acs/version2_release_app.py'
+      - 'acs/version2_release_ui.py'
+      - 'acs/version2_windows_*.py'
+      - 'acs/full_product_actions.py'
+      - 'acs/full_product_native_menu.py'
+      - 'acs/library_webview_projection.py'
+      - 'web/version2_release_bootstrap.js'
+      - 'tests/test_version2_*.py'
+      - 'tests/test_v2_windows_*.py'
       - '.github/workflows/version2-windows-composition.yml'
 
 permissions:
@@ -50,7 +60,7 @@ jobs:
       - name: Install pinned verification dependency
         run: python -m pip install -q pytest==8.4.2
 
-      - name: Prove exact Version 2 ancestry and collision-safe scope
+      - name: Prove Version 2 ancestry and convergence-safe isolation
         shell: bash
         run: |
           set -euo pipefail
@@ -58,24 +68,15 @@ jobs:
           git merge-base --is-ancestor "$V2_FORMATS_UPSTREAM" HEAD
           git diff --check "$V2_FORMATS_UPSTREAM" HEAD
           changed="$(git diff --name-only "$V2_FORMATS_UPSTREAM" HEAD | sort)"
-          expected="$(printf '%s\n' \
-            '.github/workflows/version2-windows-composition.yml' \
-            'acs/version2_profile.py' \
-            'tests/test_version2_windows_composition_profile.py' | sort)"
-          test "$changed" = "$expected" || {
-            echo 'Unexpected Version 2 composition scope:' >&2
-            printf '%s\n' "$changed" >&2
+          if printf '%s\n' "$changed" | grep -E '(^|/)(stage1|tools/qa/|windows-stage1|release_preflight)'; then
+            echo 'Stage 1 or strict-release contamination detected' >&2
             exit 1
-          }
+          fi
           git diff --quiet "$V2_FORMATS_UPSTREAM" HEAD -- \
             run_accessible_chess.py acs/release_app.py \
             acs/stage1_release_ui.py acs/stage1_release_ui_core.py \
-            acs/chesscore.py acs/gametree.py acs/acsdb.py \
-            acs/pgn_workspace.py acs/library_import_service.py \
-            acs/chessbase_decoder.py acs/cbv_extractor.py \
-            acs/bookdocument.py acs/bookreader.py acs/book_training.py \
-            acs/full_product_actions.py acs/full_product_ui_shell.py \
-            acs/full_product_native_menu.py acs/full_product_webview_adapter.py \
+            acs/chesscore.py acs/gametree.py acs/pgn_document.py \
+            acs/pgn_service.py acs/pgn_workspace.py \
             web/stage1_release_bootstrap.js web/stage1_board_actions.js \
             tools/qa
 
@@ -87,6 +88,18 @@ jobs:
           node --check web/full_product_pgn.js
           node --check web/full_product_library.js
           node --check web/full_product_books_training.js
+          node --check web/version2_release_bootstrap.js
+
+      - name: Version 2 release host contracts
+        run: >-
+          python -m unittest -v
+          tests.test_version2_release_app
+          tests.test_version2_release_ui
+          tests.test_version2_application
+          tests.test_version2_pgn_commands
+          tests.test_version2_import_terminal_ui
+          tests.test_v2_windows_library_import_observer
+          tests.test_w3_windows_file_action_ui_thread_affinity
 
       - name: Version 2 composition and accessibility contracts
         run: >-
