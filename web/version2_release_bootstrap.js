@@ -33,7 +33,7 @@
   navList.id = "v2-navigation-list";
   nav.appendChild(navList);
 
-  const workspace = documentRef.createElement("section");
+  const workspace = documentRef.createElement("main");
   workspace.id = "v2-workspace";
   workspace.setAttribute("aria-live", "off");
   workspace.hidden = true;
@@ -118,8 +118,8 @@
   }
 
   function renderProductSurface(snapshot, routeId, requestedFocus, restoreFocus) {
-    workspace.hidden = false;
     originalMain.hidden = true;
+    workspace.hidden = false;
     if (routeId === "pgn") {
       if (snapshot.pgn && global.AccessibleChessPgnSurface) {
         global.AccessibleChessPgnSurface.render(workspace, snapshot.pgn, areaInvoke("pgn"), announce, requestedFocus || "");
