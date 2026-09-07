@@ -1,0 +1,62 @@
+name: W6 V2 Language Render Refresh
+
+on:
+  push:
+    branches:
+      - work/w6-v2-language-render-refresh-20260907
+
+permissions:
+  contents: read
+
+concurrency:
+  group: w6-v2-language-render-refresh-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  focused:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Prove W5 successor ancestry and exact residual scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          base=1be97f52557e5a02024dc6a94e04db62b4c92ece
+          git merge-base --is-ancestor "$base" HEAD
+          git diff --check "$base" HEAD
+          changed="$(git diff --name-only "$base" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/w6-v2-language-render-refresh.yml' \
+            'acs/version2_release_ui.py' \
+            'tests/test_w6_v2_language_render_refresh.py' | sort)"
+          test "$changed" = "$expected"
+          git diff --quiet "$base" HEAD -- \
+            acs/version2_application.py \
+            acs/version2_release_app.py \
+            acs/settings.py \
+            acs/chesscore.py \
+            acs/gametree.py \
+            acs/pgn_document.py \
+            acs/acsdb.py \
+            web \
+            tools/qa
+      - name: Compile residual host repair
+        run: python -m py_compile acs/version2_release_ui.py tests/test_w6_v2_language_render_refresh.py
+      - name: Run residual and owner regressions
+        run: >-
+          python -m unittest -v
+          tests.test_w6_v2_language_render_refresh
+          tests.test_w5_version2_composition_board_language
+          tests.test_version2_release_ui
+          tests.test_version2_application
+          tests.test_full_product_native_menu
