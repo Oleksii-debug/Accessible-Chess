@@ -10,11 +10,12 @@ live in this module.
 """
 
 from collections.abc import Mapping
+from dataclasses import asdict
 from typing import Any, Callable
 
 from .full_product_native_menu import install_full_product_windows_native_menu
 from .stage1_release_ui import Stage1ReleaseAccessibleChessAPI, _asset_root
-from .version2_profile import Version2NativeMenuController
+from .version2_profile import VERSION2_FULL_PRODUCT_ACTION_IDS, Version2NativeMenuController
 
 
 class Version2ReleaseAccessibleChessAPI(Stage1ReleaseAccessibleChessAPI):
@@ -51,6 +52,35 @@ class Version2ReleaseAccessibleChessAPI(Stage1ReleaseAccessibleChessAPI):
         if application is None:
             raise RuntimeError("Version 2 application is not bound")
         return application
+
+    def dispatch_action(self, action_id: str, square: str | None = None) -> dict[str, Any]:
+        """Keep the inherited Stage1 keyboard fallback valid for V2 registry actions.
+
+        ``web/index.html`` is still the one keyboard owner for the canonical board.
+        When its shared keymap resolves a V2-only action, route that exact action
+        through the accepted V2 adapter instead of returning Stage1
+        ``Command unavailable``. Stage1 actions continue unchanged through the
+        parent API.
+        """
+
+        if (
+            self._version2_application is not None
+            and isinstance(action_id, str)
+            and action_id in VERSION2_FULL_PRODUCT_ACTION_IDS
+        ):
+            if square not in (None, ""):
+                return self._error("Дія Version 2 не приймає поле дошки." if self.lang == "uk" else "Version 2 action does not accept a board square.")
+            application = self._version2()
+            command = application.adapter.activate_action(
+                action_id,
+                current_focus_id=str(getattr(application, "_focus", "")),
+            )
+            application.native_command(command)
+            payload = dict(command.payload)
+            if command.kind == "error":
+                return self._error(str(payload.get("message", "")))
+            return {"ok": True, "announcement": "", "v2": asdict(command)}
+        return super().dispatch_action(action_id, square)
 
     def v2_snapshot(self) -> dict[str, object]:
         return self._version2().snapshot()
@@ -90,7 +120,7 @@ class Version2ReleaseAccessibleChessAPI(Stage1ReleaseAccessibleChessAPI):
             if set(values) != {"square"} or not isinstance(values.get("square"), str):
                 raise ValueError("board action payload is not supported")
             square = str(values["square"])
-        result = self.dispatch_action(action_id.strip(), square)
+        result = super().dispatch_action(action_id.strip(), square)
         if not isinstance(result, dict):
             raise RuntimeError("canonical board action returned an invalid result")
         if result.get("ok") is False:
