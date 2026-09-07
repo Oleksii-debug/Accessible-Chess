@@ -39,6 +39,21 @@ class Version2ReleaseAccessibilityContractTests(unittest.TestCase):
         self.assertNotIn('workspace.setAttribute("aria-live", "polite")', BOOTSTRAP)
         self.assertNotIn('workspace.setAttribute("aria-live", "assertive")', BOOTSTRAP)
 
+    def test_product_routes_keep_a_real_main_landmark(self) -> None:
+        # V2 product routes hide the Stage 1 main region. Their replacement must
+        # therefore itself be a native main landmark, not a generic section.
+        self.assertIn('const workspace = documentRef.createElement("main")', BOOTSTRAP)
+        self.assertNotIn('const workspace = documentRef.createElement("section")', BOOTSTRAP)
+        product_start = BOOTSTRAP.index('  function renderProductSurface(')
+        product_end = BOOTSTRAP.index('  function render(snapshot, restoreFocus)', product_start)
+        product = BOOTSTRAP[product_start:product_end]
+        self.assertIn('originalMain.hidden = true;', product)
+        self.assertIn('workspace.hidden = false;', product)
+        self.assertLess(product.index('originalMain.hidden = true;'), product.index('workspace.hidden = false;'))
+        stage1_restore = BOOTSTRAP[product_end:]
+        self.assertIn('workspace.hidden = true;', stage1_restore)
+        self.assertIn('originalMain.hidden = false;', stage1_restore)
+
     def test_fallback_status_text_follows_document_language(self) -> None:
         for english in (
             "Could not open the section.",
