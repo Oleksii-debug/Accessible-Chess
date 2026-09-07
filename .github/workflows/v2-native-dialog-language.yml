@@ -42,7 +42,9 @@ jobs:
             '.github/workflows/v2-native-dialog-language.yml' \
             'acs/version2_release_app.py' \
             'acs/version2_windows_host_runtime.py' \
+            'acs/version2_windows_library_export.py' \
             'acs/version2_windows_native_dialog_ownership.py' \
+            'tests/test_v2_library_export_dialog_language.py' \
             'tests/test_v2_native_dialog_language.py' | sort)"
           test "$changed" = "$expected"
           git diff --quiet "$base" HEAD -- \
@@ -59,14 +61,19 @@ jobs:
             run_accessible_chess.py \
             run_accessible_chess_v2.py
       - name: Compile V2 native dialog language composition
-        run: python -m compileall -q acs tests/test_v2_native_dialog_language.py
+        run: >-
+          python -m compileall -q acs
+          tests/test_v2_native_dialog_language.py
+          tests/test_v2_library_export_dialog_language.py
       - name: Focused native dialog and persisted-language regressions
         run: >-
           python -m unittest -v
           tests.test_v2_native_dialog_language
+          tests.test_v2_library_export_dialog_language
           tests.test_v2_windows_native_dialog_ownership
           tests.test_v2_windows_host_runtime
           tests.test_v2_windows_pgn_export
+          tests.test_v2_windows_library_export
           tests.test_version2_release_app
           tests.test_w3_v2_language_consistency
       - name: Full repository unittest
