@@ -73,19 +73,32 @@ class V2UserErrorSurfacePrivacyTests(unittest.TestCase):
                     concise_user_error(message, language=UILanguage.EN),
                 )
 
-    def test_stringification_failure_also_fails_closed(self):
-        class BrokenMessage:
+    def test_stringification_or_truthiness_failure_also_fails_closed(self):
+        class BrokenStringMessage:
             def __str__(self):
                 raise RuntimeError("must not escape the UI error boundary")
 
-        self.assertEqual(
-            "The action could not be completed.",
-            concise_user_error(BrokenMessage(), language=UILanguage.EN),
-        )
-        self.assertEqual(
-            "Не вдалося виконати дію.",
-            concise_user_error(BrokenMessage(), language=UILanguage.UA),
-        )
+        class BrokenTruthMessage:
+            def __bool__(self):
+                raise RuntimeError("truthiness must not be consulted")
+
+            def __str__(self):
+                return "safe text"
+
+        for message in (BrokenStringMessage(), BrokenTruthMessage()):
+            with self.subTest(message=type(message).__name__):
+                self.assertEqual(
+                    "The action could not be completed.",
+                    concise_user_error(message, language=UILanguage.EN),
+                )
+                self.assertEqual(
+                    "Не вдалося виконати дію.",
+                    concise_user_error(message, language=UILanguage.UA),
+                )
+
+    def test_scalar_messages_do_not_depend_on_truthiness_coercion(self):
+        self.assertEqual("0", concise_user_error(0, language=UILanguage.EN))
+        self.assertEqual("False", concise_user_error(False, language=UILanguage.EN))
 
     def test_long_or_empty_messages_keep_existing_generic_fallback(self):
         self.assertEqual(
