@@ -73,28 +73,37 @@ class V2UserErrorSurfacePrivacyTests(unittest.TestCase):
                     concise_user_error(message, language=UILanguage.EN),
                 )
 
-    def test_stringification_or_truthiness_failure_also_fails_closed(self):
+    def test_stringification_failure_fails_closed_without_truthiness(self):
         class BrokenStringMessage:
             def __str__(self):
                 raise RuntimeError("must not escape the UI error boundary")
 
         class BrokenTruthMessage:
+            def __init__(self):
+                self.truthiness_calls = 0
+
             def __bool__(self):
+                self.truthiness_calls += 1
                 raise RuntimeError("truthiness must not be consulted")
 
             def __str__(self):
                 return "safe text"
 
-        for message in (BrokenStringMessage(), BrokenTruthMessage()):
-            with self.subTest(message=type(message).__name__):
-                self.assertEqual(
-                    "The action could not be completed.",
-                    concise_user_error(message, language=UILanguage.EN),
-                )
-                self.assertEqual(
-                    "Не вдалося виконати дію.",
-                    concise_user_error(message, language=UILanguage.UA),
-                )
+        self.assertEqual(
+            "The action could not be completed.",
+            concise_user_error(BrokenStringMessage(), language=UILanguage.EN),
+        )
+        self.assertEqual(
+            "Не вдалося виконати дію.",
+            concise_user_error(BrokenStringMessage(), language=UILanguage.UA),
+        )
+
+        truth_message = BrokenTruthMessage()
+        self.assertEqual(
+            "safe text",
+            concise_user_error(truth_message, language=UILanguage.EN),
+        )
+        self.assertEqual(0, truth_message.truthiness_calls)
 
     def test_scalar_messages_do_not_depend_on_truthiness_coercion(self):
         self.assertEqual("0", concise_user_error(0, language=UILanguage.EN))
