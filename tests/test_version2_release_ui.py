@@ -65,6 +65,7 @@ class _Application:
         self._focus = ""
         self.events = []
         self.closed = False
+        self.files = None
 
     def snapshot(self):
         return {**self.adapter.snapshot(), "pgn": None, "library": {}, "books": None}
@@ -85,6 +86,9 @@ class _Application:
 
     def native_command(self, value: WebViewCommand):
         self.events.append({"kind": value.kind, "payload": dict(value.payload)})
+
+    def bind_files(self, runtime):
+        self.files = runtime
 
     def shutdown(self):
         self.closed = True
@@ -137,6 +141,51 @@ class Version2ReleaseUiTests(unittest.TestCase):
         self.assertIn("AccessibleChessBookSurface", combined)
         self.assertIn("v2-navigation", combined)
         self.assertIn("board-launcher", combined)
+
+    def test_release_window_binds_file_runtime_to_exact_menu_owner(self):
+        api = self.make_api()
+        app = _Application()
+        webview = _WebView()
+        owner = object()
+        runtime = object()
+        seen_owners = []
+
+        def install_menu(window, _controller):
+            window._accessible_chess_native_menu_host = owner
+            return True
+
+        def build_files(value):
+            seen_owners.append(value)
+            return runtime
+
+        run_version2_release_window(
+            api,
+            app,
+            webview_module=webview,
+            menu_installer=install_menu,
+            file_runtime_factory=build_files,
+        )
+
+        self.assertEqual(seen_owners, [owner])
+        self.assertIs(app.files, runtime)
+
+    def test_release_window_fails_closed_when_native_owner_is_missing(self):
+        api = self.make_api()
+        app = _Application()
+        webview = _WebView()
+        built = []
+
+        with self.assertRaisesRegex(RuntimeError, "native Windows owner"):
+            run_version2_release_window(
+                api,
+                app,
+                webview_module=webview,
+                menu_installer=lambda *_: True,
+                file_runtime_factory=lambda owner: built.append(owner),
+            )
+
+        self.assertEqual(built, [])
+        self.assertTrue(app.closed)
 
 
 if __name__ == "__main__":
