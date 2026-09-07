@@ -81,12 +81,16 @@ if "--diagnostic" in sys.argv:
             v2 = api.v2_snapshot()
             stage1_state = api.get_state()
         finally:
-            if application is not None:
-                shutdown_ok = application.shutdown() is True
-            if api is not None:
-                api.close_analysis()
-            if runtime is not None:
-                runtime.close()
+            try:
+                if application is not None:
+                    shutdown_ok = application.shutdown() is True
+            finally:
+                try:
+                    if api is not None:
+                        api.close_analysis()
+                finally:
+                    if runtime is not None:
+                        runtime.close()
 
     navigation = v2.get("navigation", ()) if isinstance(v2, Mapping) else ()
     route_ids = tuple(
