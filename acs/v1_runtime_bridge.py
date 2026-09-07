@@ -51,6 +51,17 @@ _BRIDGE_SCHEMA_VERSION = 1
 _PHASES = {"prepared", "settings_published", "library_published", "committed"}
 _JOURNAL_NAME = ".v1-runtime-bridge-state.json"
 _COMPLETED_NAME = ".v1-runtime-bridge-completed.json"
+_IMMUTABLE_RECORD_FIELDS = (
+    "schema_version",
+    "bridge_id",
+    "backup_name",
+    "legacy_root",
+    "source_identities",
+    "candidate_identities",
+    "has_settings",
+    "has_library",
+    "library_result",
+)
 
 
 class V1RuntimeBridgeError(Version2UpgradeError):
@@ -273,6 +284,29 @@ class V1RuntimeBridgeCoordinator:
             result["library"] = library
         return result
 
+    def _verify_manifest_binding(
+        self, record: Mapping[str, object], label: str
+    ) -> None:
+        backup_name = record.get("backup_name")
+        if not isinstance(backup_name, str) or not backup_name:
+            raise V1RuntimeBridgeError(f"{label} is invalid")
+        backup = self.layout.backup_root / backup_name
+        _require_directory(backup, "V1 runtime bridge backup")
+        manifest_path = backup / "manifest.json"
+        _require_regular(manifest_path, "V1 runtime bridge backup manifest")
+        manifest = _load_json(manifest_path, "V1 runtime bridge backup manifest")
+        if manifest.get("phase") != "prepared":
+            raise V1RuntimeBridgeError("V1 runtime bridge backup manifest is invalid")
+        if type(record.get("has_settings")) is not bool or type(record.get("has_library")) is not bool:
+            raise V1RuntimeBridgeError(f"{label} is invalid")
+        if record.get("library_result") is not None and not isinstance(record.get("library_result"), dict):
+            raise V1RuntimeBridgeError(f"{label} is invalid")
+        for key in _IMMUTABLE_RECORD_FIELDS:
+            if manifest.get(key) != record.get(key):
+                raise V1RuntimeBridgeError(
+                    "V1 runtime bridge durable state does not match its backup manifest"
+                )
+
     def _completed(
         self, legacy_root: Path, sources: Mapping[str, Path]
     ) -> V1RuntimeBridgeReport | None:
@@ -287,6 +321,7 @@ class V1RuntimeBridgeCoordinator:
         identities = marker.get("source_identities")
         if not isinstance(identities, dict):
             raise V1RuntimeBridgeError("V1 runtime bridge completion marker is invalid")
+        self._verify_manifest_binding(marker, "V1 runtime bridge completion marker")
 
         if bool(marker.get("has_settings")):
             if not self.layout.settings_path.is_file():
@@ -427,6 +462,7 @@ class V1RuntimeBridgeCoordinator:
             raise V1RuntimeBridgeError("V1 runtime bridge journal is invalid")
         if not isinstance(journal.get("candidate_identities"), dict):
             raise V1RuntimeBridgeError("V1 runtime bridge journal is invalid")
+        self._verify_manifest_binding(journal, "V1 runtime bridge journal")
         return journal
 
     def _verify_sources(
