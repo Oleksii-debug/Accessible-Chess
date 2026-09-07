@@ -9,6 +9,7 @@ from acs.keybindings import ActionRegistry
 from acs.version2_profile import build_version2_action_registry
 from acs.version2_release_app import (
     _install_host_confirmed_document,
+    _packaged_legacy_executable,
     _prepare_version2_user_data,
     _share_v2_action_registry,
     _version2_user_data_layout,
@@ -122,10 +123,102 @@ class Version2ReleaseAppTests(unittest.TestCase):
         self.assertIs(events[1][1], layout)
         self.assertEqual(layout.root, root)
 
-    def test_clean_install_passes_real_upgrade_coordinator(self) -> None:
+    def test_explicit_v1_bridge_runs_before_upgrade(self) -> None:
+        events = []
+
+        class Bridge:
+            def __init__(self, layout, executable):
+                events.append(("bridge-construct", layout, Path(executable)))
+                self.layout = layout
+
+            def run(self):
+                events.append(("bridge-run", self.layout, None))
+
+        class Coordinator:
+            def __init__(self, layout):
+                events.append(("upgrade-construct", layout, None))
+                self.layout = layout
+
+            def run(self):
+                events.append(("upgrade-run", self.layout, None))
+
         with tempfile.TemporaryDirectory() as temp:
-            root = Path(temp) / "clean-v2"
-            layout = _prepare_version2_user_data(data_root=root)
+            base = Path(temp)
+            executable = base / "legacy" / "AccessibleChess.exe"
+            executable.parent.mkdir()
+            executable.write_bytes(b"stub")
+            layout = _prepare_version2_user_data(
+                data_root=base / "v2",
+                legacy_executable=executable,
+                bridge_factory=Bridge,
+                coordinator_factory=Coordinator,
+            )
+
+        self.assertEqual(
+            [event[0] for event in events],
+            ["bridge-construct", "bridge-run", "upgrade-construct", "upgrade-run"],
+        )
+        self.assertEqual(events[0][2], executable)
+        self.assertTrue(all(event[1] is layout for event in events))
+
+    def test_bridge_failure_prevents_upgrade_from_opening(self) -> None:
+        events = []
+
+        class Bridge:
+            def __init__(self, layout, executable):
+                events.append("bridge-construct")
+
+            def run(self):
+                events.append("bridge-run")
+                raise RuntimeError("synthetic bridge failure")
+
+        def upgrade_factory(_layout):
+            events.append("upgrade-construct")
+            return object()
+
+        with tempfile.TemporaryDirectory() as temp:
+            executable = Path(temp) / "AccessibleChess.exe"
+            executable.write_bytes(b"stub")
+            with self.assertRaisesRegex(RuntimeError, "synthetic bridge failure"):
+                _prepare_version2_user_data(
+                    data_root=Path(temp) / "v2",
+                    legacy_executable=executable,
+                    bridge_factory=Bridge,
+                    coordinator_factory=upgrade_factory,
+                )
+
+        self.assertEqual(events, ["bridge-construct", "bridge-run"])
+
+    def test_source_mode_does_not_probe_python_install_for_v1_data(self) -> None:
+        class Upgrade:
+            def __init__(self, _layout):
+                pass
+
+            def run(self):
+                pass
+
+        def bridge_factory(_layout, _executable):
+            raise AssertionError("source mode must not construct the legacy bridge")
+
+        self.assertIsNone(_packaged_legacy_executable())
+        with tempfile.TemporaryDirectory() as temp:
+            _prepare_version2_user_data(
+                data_root=Path(temp) / "v2",
+                bridge_factory=bridge_factory,
+                coordinator_factory=Upgrade,
+            )
+
+    def test_clean_install_passes_real_bridge_and_upgrade_coordinators(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            base = Path(temp)
+            executable = base / "package" / "AccessibleChess.exe"
+            executable.parent.mkdir()
+            executable.write_bytes(b"stub")
+            root = base / "clean-v2"
+            layout = _prepare_version2_user_data(
+                data_root=root,
+                legacy_executable=executable,
+            )
             self.assertTrue(root.is_dir())
             self.assertEqual(layout.settings_path, root / "settings.json")
             self.assertEqual(layout.library_path, root / "library.acsdb")
@@ -137,6 +230,17 @@ class Version2ReleaseAppTests(unittest.TestCase):
                 _prepare_version2_user_data(
                     data_root=Path(temp) / "userdata",
                     coordinator_factory=lambda layout: object(),
+                )
+
+    def test_prepare_user_data_rejects_invalid_bridge_contract(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            executable = Path(temp) / "AccessibleChess.exe"
+            executable.write_bytes(b"stub")
+            with self.assertRaisesRegex(TypeError, "bridge coordinator must expose run"):
+                _prepare_version2_user_data(
+                    data_root=Path(temp) / "userdata",
+                    legacy_executable=executable,
+                    bridge_factory=lambda layout, path: object(),
                 )
 
 
