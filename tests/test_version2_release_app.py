@@ -8,6 +8,7 @@ import unittest
 from acs.keybindings import ActionRegistry
 from acs.version2_profile import build_version2_action_registry
 from acs.version2_release_app import (
+    _install_close_guard_or_shutdown,
     _install_host_confirmed_document,
     _install_unsaved_pgn_close_guard,
     _prepare_version2_user_data,
@@ -60,6 +61,19 @@ class _ExitDialogs:
 
     def confirm_discard_unsaved_pgn_on_exit(self) -> bool:
         self.calls += 1
+        if self.error is not None:
+            raise self.error
+        return self.result
+
+
+class _CloseTrackedRuntime:
+    def __init__(self, *, result: bool = True, error: Exception | None = None) -> None:
+        self.result = result
+        self.error = error
+        self.shutdown_calls = 0
+
+    def shutdown(self):
+        self.shutdown_calls += 1
         if self.error is not None:
             raise self.error
         return self.result
@@ -150,6 +164,26 @@ class Version2ReleaseAppTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "already installed"):
             _install_unsaved_pgn_close_guard(application, owner, dialogs)
         self.assertEqual(len(owner.FormClosing.handlers), 1)
+
+    def test_unbound_file_runtime_is_closed_when_close_guard_installation_fails(self) -> None:
+        application = SimpleNamespace(session=None)
+        runtime = _CloseTrackedRuntime()
+        dialogs = _ExitDialogs(True)
+
+        with self.assertRaisesRegex(RuntimeError, "does not expose FormClosing"):
+            _install_close_guard_or_shutdown(runtime, application, object(), dialogs)
+
+        self.assertEqual(runtime.shutdown_calls, 1)
+
+    def test_close_guard_failure_never_hides_unbound_runtime_cleanup_failure(self) -> None:
+        application = SimpleNamespace(session=None)
+        runtime = _CloseTrackedRuntime(result=False)
+        dialogs = _ExitDialogs(True)
+
+        with self.assertRaisesRegex(RuntimeError, "unbound native runtime cleanup failed"):
+            _install_close_guard_or_shutdown(runtime, application, object(), dialogs)
+
+        self.assertEqual(runtime.shutdown_calls, 1)
 
     def test_shared_v2_registry_preserves_stage1_user_remaps(self) -> None:
         stage1 = ActionRegistry()

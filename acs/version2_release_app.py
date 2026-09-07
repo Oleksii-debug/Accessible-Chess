@@ -111,12 +111,47 @@ def _install_unsaved_pgn_close_guard(
         try:
             setattr(event, "Cancel", True)
         except Exception:
-            # A malformed native event cannot be trusted to close a dirty document.
+            # Real WinForms FormClosingEventArgs has a writable Cancel property.
+            # A malformed synthetic event is outside that native platform contract.
             return
 
     owner_control.FormClosing += on_form_closing
     application._native_unsaved_close_guard = on_form_closing
     return on_form_closing
+
+
+def _install_close_guard_or_shutdown(
+    file_runtime: object,
+    application: Version2Application,
+    owner_control: object,
+    dialogs: object,
+):
+    """Install the close guard or synchronously retire the unbound runtime.
+
+    The native file runtime is allocated before it can be bound to the application.
+    If FormClosing/owner/dialog validation fails at that boundary, the outer release
+    cleanup cannot see that runtime.  Close it here before propagating the original
+    guard failure; never leave a worker/pump ownerless during startup.
+    """
+
+    try:
+        _install_unsaved_pgn_close_guard(application, owner_control, dialogs)
+    except Exception:
+        cleanup_error = None
+        try:
+            shutdown = getattr(file_runtime, "shutdown", None)
+            if not callable(shutdown) or shutdown() is not True:
+                cleanup_error = RuntimeError(
+                    "Version 2 unbound native runtime did not shut down"
+                )
+        except Exception as exc:
+            cleanup_error = exc
+        if cleanup_error is not None:
+            raise RuntimeError(
+                "Version 2 unbound native runtime cleanup failed after close-guard installation failure"
+            ) from cleanup_error
+        raise
+    return file_runtime
 
 
 def _copy_text_to_windows_clipboard(value: str) -> None:
@@ -310,8 +345,9 @@ def create_version2_release_application(
             next_delegate=api.v2_board_dispatch,
             current_focus_provider=lambda: str(application._focus),
         )
-        _install_unsaved_pgn_close_guard(application, owner_control, book_dialogs)
-        return file_runtime
+        return _install_close_guard_or_shutdown(
+            file_runtime, application, owner_control, book_dialogs
+        )
 
     return api, application, engine_runtime, native_runtime_factory
 
