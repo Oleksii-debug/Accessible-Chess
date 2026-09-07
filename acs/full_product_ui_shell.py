@@ -231,12 +231,15 @@ def concise_user_error(
     """Project failures into concise user speech without developer internals."""
     if not isinstance(language, UILanguage):
         raise TypeError("language must be UILanguage")
-    text = str(message or "").strip()
     fallback = (
         "Не вдалося виконати дію."
         if language is UILanguage.UA
         else "The action could not be completed."
     )
+    try:
+        text = str(message or "").strip()
+    except Exception:
+        return fallback
     if not text:
         return fallback
     if (
