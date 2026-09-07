@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 import tempfile
 import unittest
 
@@ -73,28 +74,31 @@ class Version2ReviewPresentationIsolationTests(unittest.TestCase):
         self.assertTrue(result["ok"])
         return self._live_identity()
 
-    def test_pgn_review_uses_same_64_square_board_without_mutating_live_game(self) -> None:
+    def _open_pgn_review_after_live_e4(self):
         live = self._seed_live_game()
         self.app.set_document(PgnDocumentSession.open(self.pgn_path))
         reviewed_fen = self.app.pgn_commands.current_fen()
         self.assertNotEqual(reviewed_fen, live[0])
-
         opened = self.app.browser_command("review", "pgn.open_on_board")
-
         self.assertEqual(opened["kind"], "review")
+        return live, reviewed_fen
+
+    def test_pgn_review_uses_same_64_square_board_without_mutating_live_game(self) -> None:
+        live, reviewed_fen = self._open_pgn_review_after_live_e4()
+
         state = self.api.get_state()
         self.assertEqual(state["fen"], reviewed_fen)
         self.assertEqual(len(state["board"]), 64)
+        self.assertEqual(state["historyLength"], 0)
+        self.assertEqual(state["moves"], self.api._t("no_moves"))
+        self.assertEqual(state["lastMove"], self.api._t("no_last"))
         self.assertEqual(self._live_identity(), live)
 
-        # The ordinary Stage 1 Move Edit and reset/editor commands must not mutate
-        # the hidden live game while the shared board is displaying PGN review.
-        move = self.api.make_move("d4")
-        self.assertFalse(move["ok"])
-        reset = self.api.set_fen(reviewed_fen)
-        self.assertFalse(reset["ok"])
-        new_game = self.api.new_game()
-        self.assertFalse(new_game["ok"])
+        # Board information must follow the displayed PGN position, never the
+        # hidden live game. Live e4 emptied e2; the PGN starts with the pawn on e2.
+        current = self.api.dispatch_action("board.current", "e2")
+        self.assertTrue(current["ok"])
+        self.assertIn("білий пішак", current["announcement"])
         self.assertEqual(self._live_identity(), live)
 
         advanced = self.app.browser_command("review", "pgn.board_next_move")
@@ -103,12 +107,65 @@ class Version2ReviewPresentationIsolationTests(unittest.TestCase):
         self.assertEqual(self._live_identity(), live)
 
         # Direct application dispatch models native-menu routing, which does not
-        # cross v2_browser_command.  Lifecycle state alone must deactivate the
+        # cross v2_browser_command. Lifecycle state alone must deactivate the
         # cached review projection and reveal the untouched live board.
         returned = self.app.browser_command("review", "pgn.return")
         self.assertEqual(returned["kind"], "review")
         self.assertFalse(self.app.pgn_board_active)
         self.assertEqual(self.api.get_state()["fen"], live[0])
+        self.assertEqual(self._live_identity(), live)
+
+    def test_all_live_mutation_entry_points_fail_before_hidden_side_effects(self) -> None:
+        live, reviewed_fen = self._open_pgn_review_after_live_e4()
+        before_phase = self.api._engine_game_phase = "stopped"
+
+        attempts = (
+            lambda: self.api.make_move("d4"),
+            # Stage1 alias `s` historically dispatches new_game from Move Input.
+            lambda: self.api.make_move("s"),
+            self.api.new_game,
+            self.api.clear_board,
+            lambda: self.api.set_fen(reviewed_fen),
+            lambda: self.api.set_turn("b"),
+            lambda: self.api.set_position_text("white king e1; black king e8", "w"),
+            self.api.review_previous,
+            self.api.review_next,
+            lambda: self.api.go_to_move("0"),
+            self.api.undo,
+            self.api.redo,
+            lambda: self.api.activate_square("e2"),
+            self.api.start_engine_game,
+            self.api.stop_engine_game,
+            self.api.retry_engine_move,
+            self.api.engine_takeback,
+            self.api.offer_draw_engine_game,
+            self.api.resign_engine_game,
+            self.api.insert_analysis_move,
+            self.api.insert_analysis_line,
+        )
+        for attempt in attempts:
+            with self.subTest(attempt=attempt):
+                result = attempt()
+                self.assertFalse(result["ok"])
+                self.assertEqual(self._live_identity(), live)
+                self.assertEqual(self.api._engine_game_phase, before_phase)
+
+    def test_external_analysis_origin_cannot_alias_hidden_live_history_node(self) -> None:
+        live, _ = self._open_pgn_review_after_live_e4()
+        real_analysis_ui = self.api.analysis_ui
+        try:
+            # Deliberately create a FEN coincidence with real live node 0.  The
+            # review is still externally owned and therefore must not inherit that
+            # live ReviewHistory identity merely because the strings are equal.
+            self.api._v2_review_fen = self.api.start_fen
+            self.api._analysis_origin_node_id = 0
+            self.api.analysis_ui = SimpleNamespace(target_fen=self.api.start_fen)
+            self.assertFalse(self.api._analysis_origin_matches())
+
+            self.api._analysis_origin_node_id = self.api._EXTERNAL_REVIEW_NODE_ID
+            self.assertTrue(self.api._analysis_origin_matches())
+        finally:
+            self.api.analysis_ui = real_analysis_ui
         self.assertEqual(self._live_identity(), live)
 
     def test_book_review_reuses_the_same_non_mutating_projection_and_exact_return(self) -> None:
@@ -122,8 +179,10 @@ class Version2ReviewPresentationIsolationTests(unittest.TestCase):
         self.assertEqual(opened["kind"], "delegated")
         self.assertTrue(self.app.book_workflow.active)
         reviewed_fen = self.app.book_workflow.view().current_fen
-        self.assertEqual(self.api.get_state()["fen"], reviewed_fen)
-        self.assertEqual(len(self.api.get_state()["board"]), 64)
+        state = self.api.get_state()
+        self.assertEqual(state["fen"], reviewed_fen)
+        self.assertEqual(len(state["board"]), 64)
+        self.assertEqual(state["historyLength"], 0)
         self.assertEqual(self._live_identity(), live)
 
         advanced = self.app.browser_command("review", "book.board_next_move")
