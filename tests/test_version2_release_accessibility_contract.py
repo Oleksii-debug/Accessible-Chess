@@ -125,7 +125,7 @@ class Version2ReleaseAccessibilityContractTests(unittest.TestCase):
         self.assertLess(focus_handler.index(skip), focus_handler.index(record))
 
     def test_library_import_events_patch_only_the_import_region(self) -> None:
-        apply_start = BOOTSTRAP.index('  function applyQueuedEvent(event)')
+        apply_start = BOOTSTRAP.index('  function applyQueuedEvent(event, orderedStage1Refreshes)')
         apply_end = BOOTSTRAP.index('  function drainEvents()', apply_start)
         queued = BOOTSTRAP[apply_start:apply_end]
         self.assertIn('if (event.kind === "render-import")', queued)
@@ -139,11 +139,11 @@ class Version2ReleaseAccessibilityContractTests(unittest.TestCase):
         drain_end = BOOTSTRAP.index('  documentRef.addEventListener("focusin"', drain_start)
         drain = BOOTSTRAP[drain_start:drain_end]
         self.assertIn('let needsRefresh = false;', drain)
-        self.assertIn('const refreshRequired = applyQueuedEvent(event);', drain)
+        self.assertIn('const refreshRequired = applyQueuedEvent(event, orderedStage1Refreshes);', drain)
         self.assertIn('if (!refreshRequired) return;', drain)
 
     def test_status_only_events_announce_without_rebuilding_the_active_surface(self) -> None:
-        apply_start = BOOTSTRAP.index('  function applyQueuedEvent(event)')
+        apply_start = BOOTSTRAP.index('  function applyQueuedEvent(event, orderedStage1Refreshes)')
         apply_end = BOOTSTRAP.index('  function drainEvents()', apply_start)
         queued = BOOTSTRAP[apply_start:apply_end]
         self.assertIn('if (payload.announcement) announce(payload.announcement);', queued)
@@ -156,14 +156,29 @@ class Version2ReleaseAccessibilityContractTests(unittest.TestCase):
         self.assertIn('actionId.indexOf("library.") === 0', BOOTSTRAP)
         self.assertIn('actionId.indexOf("book.") === 0', BOOTSTRAP)
         self.assertIn('function refreshStage1Surface()', BOOTSTRAP)
-        self.assertIn('Promise.resolve(global.refreshState()).catch(function () {', BOOTSTRAP)
-        apply_start = BOOTSTRAP.index('  function applyQueuedEvent(event)')
+        self.assertIn('return Promise.resolve(global.refreshState()).then(function () {', BOOTSTRAP)
+        self.assertIn('announce(uiText("Не вдалося оновити дошку.", "Could not refresh the board."));', BOOTSTRAP)
+        apply_start = BOOTSTRAP.index('  function applyQueuedEvent(event, orderedStage1Refreshes)')
         apply_end = BOOTSTRAP.index('  function drainEvents()', apply_start)
         queued = BOOTSTRAP[apply_start:apply_end]
         self.assertIn('if (event.kind === "delegated")', queued)
         self.assertIn('if (actionId && !isVersion2DomainAction(actionId)) {', queued)
         self.assertIn('refreshStage1Surface();', queued)
         self.assertIn('return false;', queued)
+
+    def test_book_board_repaint_is_an_awaited_focus_barrier(self) -> None:
+        apply_start = BOOTSTRAP.index('  function applyQueuedEvent(event, orderedStage1Refreshes)')
+        apply_end = BOOTSTRAP.index('  function drainEvents()', apply_start)
+        queued = BOOTSTRAP[apply_start:apply_end]
+        self.assertIn('if (event.kind === "book-board")', queued)
+        self.assertIn('orderedStage1Refreshes.push(refreshStage1Surface());', queued)
+        drain_start = BOOTSTRAP.index('  function drainEvents()')
+        drain_end = BOOTSTRAP.index('  documentRef.addEventListener("focusin"', drain_start)
+        drain = BOOTSTRAP[drain_start:drain_end]
+        self.assertIn('const orderedStage1Refreshes = [];', drain)
+        self.assertIn('const repaintBarrier = orderedStage1Refreshes.length', drain)
+        self.assertIn('Promise.all(orderedStage1Refreshes)', drain)
+        self.assertIn('return refresh(true);', drain)
 
     def test_native_event_batch_restores_final_route_then_visible_explicit_focus(self) -> None:
         self.assertIn('<button id="board-launcher" type="button">', HTML)
@@ -173,10 +188,10 @@ class Version2ReleaseAccessibilityContractTests(unittest.TestCase):
         self.assertIn('let queuedFocusTarget = "";', drain)
         self.assertIn('const candidate = typeof payload.focus_target === "string" ? payload.focus_target : "";', drain)
         self.assertIn('if (candidate) queuedFocusTarget = candidate;', drain)
-        self.assertIn('refresh(true).then(function () {', drain)
+        self.assertIn('return refresh(true);', drain)
         self.assertIn('if (queuedFocusTarget) focusById(queuedFocusTarget);', drain)
         self.assertLess(
-            drain.index('refresh(true).then(function () {'),
+            drain.index('return refresh(true);'),
             drain.index('if (queuedFocusTarget) focusById(queuedFocusTarget);'),
         )
 
