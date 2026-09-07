@@ -74,6 +74,12 @@ class Version2ReleaseAccessibilityContractTests(unittest.TestCase):
         self.assertIn('refresh(true).catch(function () {', BOOTSTRAP)
         self.assertNotIn('refresh(false).catch(function () {', BOOTSTRAP)
 
+    def test_focus_targets_under_hidden_routes_are_never_programmatically_focused(self) -> None:
+        self.assertIn('function hiddenByAncestor(target)', BOOTSTRAP)
+        self.assertIn('if (node.hidden) return true;', BOOTSTRAP)
+        self.assertIn('node = node.parentNode;', BOOTSTRAP)
+        self.assertIn('if (!target || hiddenByAncestor(target) || typeof target.focus !== "function") return false;', BOOTSTRAP)
+
     def test_product_route_focus_converges_to_real_surface_or_current_navigation(self) -> None:
         self.assertIn('return "pgn-node-" + sha256(', PGN_PROJECTION)
         self.assertIn('"focus_target": focus_target', PGN_PROJECTION)
@@ -131,7 +137,6 @@ class Version2ReleaseAccessibilityContractTests(unittest.TestCase):
         self.assertIn('let needsRefresh = false;', drain)
         self.assertIn('const refreshRequired = applyQueuedEvent(event);', drain)
         self.assertIn('if (!refreshRequired) return;', drain)
-        self.assertNotIn('refresh(true);', drain)
 
     def test_status_only_events_announce_without_rebuilding_the_active_surface(self) -> None:
         apply_start = BOOTSTRAP.index('  function applyQueuedEvent(event)')
@@ -140,17 +145,18 @@ class Version2ReleaseAccessibilityContractTests(unittest.TestCase):
         self.assertIn('if (payload.announcement) announce(payload.announcement);', queued)
         self.assertIn('return event.kind !== "error" && event.kind !== "status";', queued)
 
-    def test_queued_route_event_restores_its_explicit_focus_after_refresh(self) -> None:
+    def test_native_event_batch_restores_final_route_then_visible_explicit_focus(self) -> None:
         self.assertIn('<button id="board-launcher" type="button">', HTML)
         drain_start = BOOTSTRAP.index('  function drainEvents()')
         drain_end = BOOTSTRAP.index('  documentRef.addEventListener("focusin"', drain_start)
         drain = BOOTSTRAP[drain_start:drain_end]
         self.assertIn('let queuedFocusTarget = "";', drain)
-        self.assertIn('queuedFocusTarget = typeof payload.focus_target === "string" ? payload.focus_target : "";', drain)
-        self.assertIn('refresh(false).then(function () {', drain)
+        self.assertIn('const candidate = typeof payload.focus_target === "string" ? payload.focus_target : "";', drain)
+        self.assertIn('if (candidate) queuedFocusTarget = candidate;', drain)
+        self.assertIn('refresh(true).then(function () {', drain)
         self.assertIn('if (queuedFocusTarget) focusById(queuedFocusTarget);', drain)
         self.assertLess(
-            drain.index('refresh(false).then(function () {'),
+            drain.index('refresh(true).then(function () {'),
             drain.index('if (queuedFocusTarget) focusById(queuedFocusTarget);'),
         )
 
