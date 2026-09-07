@@ -22,6 +22,8 @@ from .version2_windows_import_event_mailbox import Version2ImportUiEventMailbox
 
 
 _LOG = logging.getLogger(__name__)
+_POST_RETRY_LIMIT = 3
+_POST_RETRY_DELAY_SECONDS = 0.025
 
 
 class Version2WinFormsUiPoster:
@@ -102,6 +104,8 @@ class Version2ImportUiWakeupPump:
         self._closed = False
         self._post_failures = 0
         self._ready_failures = 0
+        self._consecutive_post_failures = 0
+        self._retry_timer: threading.Timer | None = None
 
     @property
     def wakeup_pending(self) -> bool:
@@ -141,6 +145,44 @@ class Version2ImportUiWakeupPump:
         self._request_wakeup()
         return returned
 
+    def _schedule_post_retry(self) -> None:
+        """Schedule one bounded background retry of the UI-post boundary.
+
+        The timer never drains the mailbox and never projects UI/NVDA state.  It
+        only retries the same trusted ``BeginInvoke`` scheduling seam.  This is
+        needed for a terminal worker event: after one transient post failure there
+        may be no later worker event to wake the UI again.
+        """
+
+        with self._lock:
+            if (
+                self._closed
+                or self._wakeup_pending
+                or self._retry_timer is not None
+                or self._mailbox.pending_count == 0
+                or self._consecutive_post_failures > _POST_RETRY_LIMIT
+            ):
+                return
+            timer = threading.Timer(_POST_RETRY_DELAY_SECONDS, self._retry_pending_post)
+            timer.daemon = True
+            self._retry_timer = timer
+        timer.start()
+
+    def _retry_pending_post(self) -> None:
+        with self._lock:
+            self._retry_timer = None
+            if self._closed or self._wakeup_pending:
+                return
+        if self._mailbox.pending_count == 0:
+            return
+        try:
+            self._request_wakeup()
+        except RuntimeError:
+            # _request_wakeup already accounted for the failed post and, while
+            # within the bound, scheduled the next retry.  Never leak a timer
+            # thread traceback for an observer-boundary failure.
+            return
+
     def _request_wakeup(self) -> None:
         with self._lock:
             if self._closed or self._wakeup_pending:
@@ -153,10 +195,25 @@ class Version2ImportUiWakeupPump:
             with self._lock:
                 self._wakeup_pending = False
                 self._post_failures += 1
+                self._consecutive_post_failures += 1
+                should_retry = (
+                    not self._closed
+                    and self._mailbox.pending_count > 0
+                    and self._consecutive_post_failures <= _POST_RETRY_LIMIT
+                )
+            if should_retry:
+                self._schedule_post_retry()
             # The exact event is still retained in the bounded mailbox. Raising
             # here is safe: Version2WindowsFileActionDelegate isolates event_sink
             # observer failures from canonical import/storage completion.
             raise RuntimeError("failed to post Library import event to UI thread") from exc
+        else:
+            with self._lock:
+                self._consecutive_post_failures = 0
+                retry_timer = self._retry_timer
+                self._retry_timer = None
+            if retry_timer is not None:
+                retry_timer.cancel()
 
     def _run_ui_ready(self) -> None:
         if threading.get_ident() != self._ui_thread_id:
@@ -195,6 +252,10 @@ class Version2ImportUiWakeupPump:
         with self._lock:
             self._closed = True
             self._wakeup_pending = False
+            retry_timer = self._retry_timer
+            self._retry_timer = None
+        if retry_timer is not None:
+            retry_timer.cancel()
 
 
 __all__ = [
