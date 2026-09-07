@@ -119,13 +119,32 @@
     workspace.replaceChildren(title, status);
   }
 
+  function refreshAfterDirectLibraryOpen(result) {
+    if (result && result.kind === "error") return Promise.resolve(result);
+    const bridge = api();
+    if (!bridge || typeof bridge.v2_snapshot !== "function") return Promise.resolve(result);
+    return bridge.v2_snapshot().then(function (snapshot) {
+      const screen = snapshot && snapshot.screen && typeof snapshot.screen === "object" ? snapshot.screen : {};
+      const routeId = String(screen.route_id || currentRouteId);
+      if (routeId !== currentRouteId) render(snapshot, true);
+      return result;
+    }, function () {
+      announce(uiText("Не вдалося оновити відкриту партію.", "Could not refresh the opened game."));
+      return result;
+    });
+  }
+
   function areaInvoke(area) {
     return function (command, payload) {
       const bridge = api();
       if (!bridge || typeof bridge.v2_browser_command !== "function") {
         return Promise.reject(new Error("V2 bridge unavailable"));
       }
-      return bridge.v2_browser_command(area, command, payload || {});
+      const request = bridge.v2_browser_command(area, command, payload || {});
+      if (area === "library" && command === "library.open_game") {
+        return Promise.resolve(request).then(refreshAfterDirectLibraryOpen);
+      }
+      return request;
     };
   }
 
