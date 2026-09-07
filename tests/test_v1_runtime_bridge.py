@@ -149,6 +149,32 @@ class V1RuntimeBridgeTests(unittest.TestCase):
             self.assertEqual(layout.settings_path.read_bytes(), before)
             self.assertFalse(layout.library_path.exists())
 
+    def test_library_collision_is_detected_before_settings_publication(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            executable, _legacy, layout = self._fixture(root)
+            layout.root.mkdir(parents=True)
+            connection = sqlite3.connect(layout.library_path)
+            try:
+                connection.execute("CREATE TABLE keep_me(value TEXT)")
+                connection.execute("INSERT INTO keep_me(value) VALUES('v2-user-data')")
+                connection.commit()
+            finally:
+                connection.close()
+            before_library = layout.library_path.read_bytes()
+
+            with self.assertRaises(V1RuntimeBridgeError):
+                V1RuntimeBridgeCoordinator(layout, executable).run()
+
+            self.assertFalse(
+                layout.settings_path.exists(),
+                "a V2 Library collision must be rejected before settings publication",
+            )
+            self.assertEqual(layout.library_path.read_bytes(), before_library)
+            self.assertFalse(
+                (layout.backup_root / ".v1-runtime-bridge-state.json").exists()
+            )
+
     def test_invalid_legacy_library_publishes_nothing(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
@@ -200,6 +226,41 @@ class V1RuntimeBridgeTests(unittest.TestCase):
             self.assertTrue(layout.library_path.is_file())
             self.assertFalse(
                 (layout.backup_root / ".v1-runtime-bridge-state.json").exists()
+            )
+            self.assertEqual(self._sha(legacy / "settings.json"), source_settings_sha)
+            self.assertEqual(self._sha(legacy / "library.acsdb"), source_library_sha)
+
+    def test_interruption_after_library_publication_resumes_commit(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            executable, legacy, layout = self._fixture(root)
+            source_settings_sha = self._sha(legacy / "settings.json")
+            source_library_sha = self._sha(legacy / "library.acsdb")
+
+            def crash(phase: str) -> None:
+                if phase == "library-published":
+                    raise RuntimeError("simulated process interruption after library")
+
+            with self.assertRaises(RuntimeError):
+                V1RuntimeBridgeCoordinator(
+                    layout, executable, phase_hook=crash
+                ).run()
+
+            self.assertTrue(layout.settings_path.is_file())
+            self.assertTrue(layout.library_path.is_file())
+            self.assertTrue(
+                (layout.backup_root / ".v1-runtime-bridge-state.json").is_file()
+            )
+
+            report = V1RuntimeBridgeCoordinator(layout, executable).run()
+
+            self.assertEqual(report.status, "migrated")
+            self.assertTrue(report.recovered)
+            self.assertFalse(
+                (layout.backup_root / ".v1-runtime-bridge-state.json").exists()
+            )
+            self.assertTrue(
+                (layout.backup_root / ".v1-runtime-bridge-completed.json").is_file()
             )
             self.assertEqual(self._sha(legacy / "settings.json"), source_settings_sha)
             self.assertEqual(self._sha(legacy / "library.acsdb"), source_library_sha)
