@@ -14,6 +14,7 @@ MAX_SEARCH_PAGE_SIZE = 200
 SQLITE_INTEGER_MAX = (1 << 63) - 1
 SEARCH_RESULTS = frozenset({"1-0", "0-1", "1/2-1/2", "*"})
 _COMPLETE_PGN_DATE_RE = re.compile(r"^(\d{4})\.(\d{2})\.(\d{2})$")
+_PLAYER_COMPONENT_SPLIT_RE = re.compile(r"[,\s]+")
 
 
 def normalize_search_term(value: str | None, *, name: str) -> str | None:
@@ -28,6 +29,32 @@ def normalize_search_term(value: str | None, *, name: str) -> str | None:
             f"{name} exceeds maximum search term length of {MAX_SEARCH_TERM_CHARS} characters"
         )
     return normalized or None
+
+
+def normalize_player_search_terms(value: str | None) -> tuple[str, ...]:
+    """Return bounded person-name components for canonical player search.
+
+    PGN and external chess databases may spell the same person as ``First Last``
+    or ``Last, First``.  Player search treats comma/whitespace-separated name
+    components as order-independent while keeping every component losslessly
+    NFKC-normalized.  Matching still uses the shared accent-preserving search
+    fold and literal LIKE escaping; this function does not transliterate, strip
+    diacritics, or invent aliases.
+
+    A punctuation-only non-empty query falls back to its exact normalized text
+    so literal metacharacter behavior is not silently converted into an empty
+    filter.
+    """
+
+    normalized = normalize_search_term(value, name="player")
+    if normalized is None:
+        return ()
+    components = tuple(
+        component
+        for component in _PLAYER_COMPONENT_SPLIT_RE.split(normalized)
+        if component
+    )
+    return components or (normalized,)
 
 
 def normalize_search_limit(value: object) -> int:
