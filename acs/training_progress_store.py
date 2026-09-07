@@ -8,11 +8,11 @@ moves, validate positions, or introduce another chess/application authority.
 
 Writes are serialized with a persistent peer advisory lock file, validated
 against the caller's exact previously observed revision, written to a peer
-temporary file, fsynced, and atomically published.  A missing expected revision
-is create-only; updates therefore cannot silently overwrite progress that the
-caller never observed.  The lock file itself may survive process termination;
-the operating-system lock is released with the process, so crash residue cannot
-permanently block later progress saves.
+temporary file, fsynced, revalidated against the publication base, and atomically
+published.  A missing expected revision is create-only; updates therefore cannot
+silently overwrite progress that the caller never observed.  The lock file itself
+may survive process termination; the operating-system lock is released with the
+process, so crash residue cannot permanently block later progress saves.
 
 Both read and write paths are bounded.  Progress data must be one regular local
 file, duplicate JSON object keys are rejected, and oversized state fails closed
@@ -312,6 +312,15 @@ class TrainingProgressStore:
                         temporary.unlink()
                     temporary = None
                     raise
+
+                publication_base = self._read_progress_bytes(missing_ok=True)
+                publication_revision = (
+                    None if publication_base is None else _revision(publication_base)
+                )
+                if publication_revision != current_revision:
+                    raise TrainingProgressConflictError(
+                        "training progress changed during publication"
+                    )
 
                 os.replace(temporary, self.path)
                 temporary = None
