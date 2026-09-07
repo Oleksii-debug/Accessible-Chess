@@ -7,12 +7,14 @@ from pathlib import Path
 import tempfile
 import time
 import unittest
+from unittest import mock
 
 from acs.chesscore import Board
 from acs.training import ExerciseDefinition, ExerciseSession, ExerciseStep
 from acs.training_progress_store import (
     MAX_TRAINING_PROGRESS_BYTES,
     TrainingProgressBusyError,
+    TrainingProgressConflictError,
     TrainingProgressResourceError,
     TrainingProgressStore,
 )
@@ -169,6 +171,36 @@ class TrainingProgressCrashRecoveryTests(unittest.TestCase):
                 )
             self.assertEqual("outside-user-data", target.read_text(encoding="utf-8"))
             self.assertTrue(path.is_symlink())
+
+    def test_external_change_during_save_is_not_overwritten(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "training-progress.json"
+            store = TrainingProgressStore(path)
+            definition = self._definition()
+            first_session = ExerciseSession(definition)
+            revision = store.save(first_session, expected_revision=None)
+            original = path.read_bytes()
+
+            next_session = ExerciseSession(definition)
+            next_session.submit("e4")
+            external = b'{"external":"writer"}'
+            real_read = store._read_progress_bytes
+            calls = 0
+
+            def racing_read(*, missing_ok: bool):
+                nonlocal calls
+                calls += 1
+                if calls == 2:
+                    path.write_bytes(external)
+                return real_read(missing_ok=missing_ok)
+
+            with mock.patch.object(store, "_read_progress_bytes", side_effect=racing_read):
+                with self.assertRaises(TrainingProgressConflictError):
+                    store.save(next_session, expected_revision=revision)
+
+            self.assertGreaterEqual(calls, 2)
+            self.assertEqual(external, path.read_bytes())
+            self.assertNotEqual(original, path.read_bytes())
 
 
 if __name__ == "__main__":
