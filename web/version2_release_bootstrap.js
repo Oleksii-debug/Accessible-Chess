@@ -49,13 +49,19 @@
   });
 
   function focusById(id) {
-    if (!id) return;
+    if (!id) return false;
     const target = documentRef.getElementById(id);
-    if (!target || typeof target.focus !== "function") return;
+    if (!target || typeof target.focus !== "function") return false;
     if (!target.hasAttribute("tabindex") && !/^(BUTTON|INPUT|SELECT|TEXTAREA|A)$/.test(target.tagName)) {
       target.setAttribute("tabindex", "-1");
     }
     target.focus({ preventScroll: true });
+    return documentRef.activeElement === target;
+  }
+
+  function restoreStage1Focus(routeId, requestedFocus) {
+    if (focusById(requestedFocus)) return true;
+    return focusById(stage1Focus[routeId] || "");
   }
 
   function areaInvoke(area) {
@@ -141,7 +147,7 @@
     workspace.hidden = true;
     workspace.replaceChildren();
     originalMain.hidden = false;
-    if (restoreFocus) focusById(stage1Focus[routeId] || requestedFocus);
+    if (restoreFocus) restoreStage1Focus(routeId, requestedFocus);
   }
 
   function refresh(restoreFocus) {
@@ -173,7 +179,7 @@
     }
   }, true);
 
-  refresh(false).catch(function () {
+  refresh(true).catch(function () {
     announce(uiText("Не вдалося завантажити розділи Version 2.", "Could not load Version 2 sections."));
   });
   global.setInterval(drainEvents, 300);
