@@ -1,0 +1,96 @@
+name: W6 V2 Windows Standalone Build Evidence
+
+on:
+  pull_request:
+    branches:
+      - work/w6-v2-release-diagnostic-composition-20260907
+    paths:
+      - '.github/workflows/w6-v2-windows-standalone-build-evidence.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: w6-v2-standalone-build-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PRODUCT_PARENT: c37c652d8cf8a10fa4e9ebba7255f2d582153b87
+  PYWEBVIEW_VERSION: '6.2.1'
+  NUITKA_UPSTREAM_FIX_COMMIT: b7ea05bf570e0b6950de6db7c4c8e579e1b77d29
+
+jobs:
+  windows-standalone-build:
+    runs-on: windows-2025
+    timeout-minutes: 55
+    steps:
+      - name: Checkout exact evidence child
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Prove workflow-only child and exact Product parent
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor "$PRODUCT_PARENT" HEAD
+          git diff --check "$PRODUCT_PARENT" HEAD
+          changed="$(git diff --name-only "$PRODUCT_PARENT" HEAD)"
+          test "$changed" = '.github/workflows/w6-v2-windows-standalone-build-evidence.yml'
+          test "$(git rev-parse HEAD:run_accessible_chess_v2.py)" = "$(git rev-parse $PRODUCT_PARENT:run_accessible_chess_v2.py)"
+          test "$(git rev-parse HEAD:acs/version2_release_app.py)" = "$(git rev-parse $PRODUCT_PARENT:acs/version2_release_app.py)"
+          echo 'EXACT V2 PRODUCT PARENT / WORKFLOW-ONLY EVIDENCE PASS'
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install pinned WebView2 runtime bindings and patched Nuitka
+        shell: pwsh
+        run: |
+          $nuitkaUrl="https://github.com/Nuitka/Nuitka/archive/$env:NUITKA_UPSTREAM_FIX_COMMIT.zip"
+          python -m pip install --disable-pip-version-check "pywebview==$env:PYWEBVIEW_VERSION" "Nuitka @ $nuitkaUrl" ordered-set zstandard
+          if($LASTEXITCODE -ne 0){throw 'Pinned Windows runtime/compiler installation failed'}
+          python -c "from pathlib import Path; import nuitka; p=Path(nuitka.__file__).parent/'plugins'/'standard'/'PywebViewPlugin.py'; assert 'webview.platforms.win32' in p.read_text(encoding='utf-8'); print('PATCHED NUITKA PYWEBVIEW PLUGIN PASS')"
+          if($LASTEXITCODE -ne 0){throw 'Pinned Nuitka pywebview patch missing'}
+
+      - name: Source diagnostic must exercise production V2 composition
+        shell: pwsh
+        run: |
+          python run_accessible_chess_v2.py --diagnostic
+          if($LASTEXITCODE -ne 0){throw 'Source V2 release diagnostic failed before build'}
+
+      - name: Build standalone AccessibleChess.exe from the V2 launcher
+        shell: pwsh
+        run: |
+          python -m nuitka --standalone --assume-yes-for-downloads --windows-console-mode=disable --output-filename=AccessibleChess.exe --include-data-dir=web=web --report=nuitka-compilation-report.xml run_accessible_chess_v2.py
+          if($LASTEXITCODE -ne 0){throw 'V2 Nuitka standalone compile failed'}
+          $exe=Get-ChildItem -Recurse -Filter AccessibleChess.exe | Where-Object {$_.FullName -match '\.dist\\'} | Select-Object -First 1
+          if(-not $exe){throw 'Built V2 AccessibleChess.exe missing'}
+          "V2_EXE=$($exe.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "V2_DIST=$($exe.Directory.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          Write-Host "V2 standalone executable: $($exe.FullName)"
+
+      - name: Built executable must pass the real-composition diagnostic
+        shell: pwsh
+        run: |
+          & $env:V2_EXE --diagnostic
+          if($LASTEXITCODE -ne 0){throw 'Built V2 executable diagnostic failed'}
+          Write-Host 'BUILT V2 REAL-COMPOSITION DIAGNOSTIC PASS'
+
+      - name: Standalone directory privacy and source-leak gate
+        shell: pwsh
+        run: |
+          $source=Get-ChildItem $env:V2_DIST -Recurse -File | Where-Object {$_.Extension -in '.py','.pyc','.pyo'}
+          if($source){$source | ForEach-Object {$_.FullName}; throw 'Python source/bytecode leaked into standalone directory'}
+          if(Test-Path (Join-Path $env:V2_DIST 'nuitka-compilation-report.xml')){throw 'Nuitka compilation report leaked into standalone directory'}
+          $web=Join-Path $env:V2_DIST 'web'
+          if(-not (Test-Path (Join-Path $web 'index.html'))){throw 'V2 standalone web/index.html missing'}
+          $exeHash=(Get-FileHash -Algorithm SHA256 $env:V2_EXE).Hash.ToLowerInvariant()
+          $fileCount=(Get-ChildItem $env:V2_DIST -Recurse -File).Count
+          Write-Host "V2_STANDALONE_SHA256=$exeHash"
+          Write-Host "V2_STANDALONE_FILE_COUNT=$fileCount"
+          Write-Host 'V2 STANDALONE BUILD EVIDENCE PASS — NOT A RELEASE ZIP'
