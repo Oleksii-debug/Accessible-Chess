@@ -5,7 +5,7 @@ import tempfile
 import unittest
 
 from acs.acsdb import AcsDatabase
-from acs.library_import_service import LibraryImportService
+from acs.library_import_service import LibraryImportResult, LibraryImportService
 from acs.pgn_streaming_import import (
     StreamingPgnErrorCode,
     StreamingPgnFailurePolicy,
@@ -39,16 +39,29 @@ REPLACEMENT_PGN = '''[Event "Replacement one"]
 
 
 class _ReplaceBeforeStreamImporter(StreamingPgnLibraryImporter):
-    def __init__(self, library: LibraryImportService, replacement: Path) -> None:
+    def __init__(self, library: object, replacement: Path) -> None:
         super().__init__(library)
         self._replacement = replacement
 
     def _stream_source(self, source, spool, **kwargs):
         # This is the exact historical gap: the preliminary fingerprint is done,
-        # but the streaming descriptor has not yet been opened.  Replace the path
+        # but the streaming descriptor has not yet been opened. Replace the path
         # atomically with a different valid regular PGN before delegating.
         self._replacement.replace(Path(source.path))
         return super()._stream_source(source, spool, **kwargs)
+
+
+class _ObservedLibraryProxy:
+    """Minimal equivalent of the V2 D07 observer wrapper around Library."""
+
+    def __init__(self, service: LibraryImportService) -> None:
+        self._service = service
+        self.results: list[LibraryImportResult] = []
+
+    def import_games(self, *args, **kwargs):
+        result = self._service.import_games(*args, **kwargs)
+        self.results.append(result)
+        return result
 
 
 class StreamingPgnSourceBindingTests(unittest.TestCase):
@@ -80,6 +93,41 @@ class StreamingPgnSourceBindingTests(unittest.TestCase):
                 [],
             )
             self.assertEqual(database.search_games(limit=100), [])
+
+    def test_streaming_accepts_v2_observer_wrapped_canonical_library_service(self) -> None:
+        with tempfile.TemporaryDirectory() as directory, AcsDatabase() as database:
+            source = Path(directory) / "observed.pgn"
+            source.write_text(ORIGINAL_PGN, encoding="utf-8", newline="")
+            observed = _ObservedLibraryProxy(LibraryImportService(database))
+
+            result = StreamingPgnLibraryImporter(observed).import_file(
+                source,
+                failure_policy=StreamingPgnFailurePolicy.SOURCE_ATOMIC,
+            )
+
+            self.assertTrue(result.complete)
+            self.assertEqual(result.accepted_games, 2)
+            self.assertEqual(result.library.game_count, 2)
+            self.assertEqual(observed.results, [result.library])
+            self.assertEqual(len(database.search_games(limit=100)), 2)
+
+    def test_streaming_rejects_non_library_result_from_structural_port(self) -> None:
+        class InvalidLibrary:
+            def import_games(self, *args, **kwargs):
+                return object()
+
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "invalid-result.pgn"
+            source.write_text(ORIGINAL_PGN, encoding="utf-8", newline="")
+            importer = StreamingPgnLibraryImporter(InvalidLibrary())
+
+            with self.assertRaises(StreamingPgnImportError) as caught:
+                importer.import_file(
+                    source,
+                    failure_policy=StreamingPgnFailurePolicy.SOURCE_ATOMIC,
+                )
+
+            self.assertEqual(caught.exception.code, StreamingPgnErrorCode.LIBRARY_ERROR)
 
 
 if __name__ == "__main__":
