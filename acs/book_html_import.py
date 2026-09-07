@@ -262,10 +262,13 @@ class _SemanticHtmlParser(HTMLParser):
                 self._list_warning(
                     "HTML list numbering or nesting could not be represented canonically and was preserved as readable text"
                 )
-            raw_start = captured.attrs.get("start", "").strip()
-            fallback_start = int(raw_start) if ordered and _HTML_INTEGER_RE.fullmatch(raw_start) else 1
-            for offset, item in enumerate(items):
-                text = f"{fallback_start + offset}. {item}" if ordered else f"• {item}"
+            for item in items:
+                # Once numbering semantics are outside the canonical ListBlock model
+                # (reversed lists, per-item value overrides, invalid starts, nesting),
+                # never synthesize a numeric sequence. Preserve the source item text
+                # and list membership only; the warning above makes structure loss
+                # explicit without publishing invented ordering as book truth.
+                text = f"• {item}"
                 self._append_block(
                     Paragraph(
                         text=text,
