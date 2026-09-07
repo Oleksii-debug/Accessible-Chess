@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 import tempfile
 import unittest
 
@@ -52,43 +53,107 @@ class Version2ExternalReviewLiveStateIsolationTests(unittest.TestCase):
             for record in api.review_history.tree_nodes()
         )
 
-    def test_pgn_review_projects_accessible_board_without_replacing_live_game(self) -> None:
+    def _open_external_review_after_live_e4(self):
         played = self.api.make_move("e4")
         self.assertTrue(played["ok"])
-        live_fen = self.api.board.fen()
-        live_sans = tuple(self.api.sans)
-        live_node = self.api.live_history_node
-        live_history = self._history_identity(self.api)
-
+        live = {
+            "fen": self.api.board.fen(),
+            "sans": tuple(self.api.sans),
+            "node": self.api.live_history_node,
+            "history": self._history_identity(self.api),
+        }
         self.app.set_document(PgnDocumentSession.open(self.source))
         reviewed_fen = self.app.pgn_commands.current_fen()
-        self.assertNotEqual(reviewed_fen, live_fen)
-
+        self.assertNotEqual(reviewed_fen, live["fen"])
         opened = self.app.browser_command("review", "pgn.open_on_board")
         self.assertEqual(opened["kind"], "review")
+        return live, reviewed_fen
+
+    def _assert_live_identity(self, live) -> None:
+        self.assertEqual(self.api.board.fen(), live["fen"])
+        self.assertEqual(tuple(self.api.sans), live["sans"])
+        self.assertEqual(self.api.live_history_node, live["node"])
+        self.assertEqual(self._history_identity(self.api), live["history"])
+
+    def test_pgn_review_projects_accessible_board_without_replacing_live_game(self) -> None:
+        live, reviewed_fen = self._open_external_review_after_live_e4()
+
         state = self.api.get_state()
         self.assertEqual(state["fen"], reviewed_fen)
         self.assertEqual(len(state["board"]), 64)
         self.assertFalse(state["atHistoryEnd"])
+        self.assertEqual(state["historyLength"], 0)
+        self.assertEqual(state["moves"], "Ходів ще немає")
+        self.assertEqual(state["lastMove"], "Останнього ходу немає")
 
-        self.assertEqual(self.api.board.fen(), live_fen)
-        self.assertEqual(tuple(self.api.sans), live_sans)
-        self.assertEqual(self.api.live_history_node, live_node)
-        self.assertEqual(self._history_identity(self.api), live_history)
-
-        rejected_move = self.api.make_move("d4")
-        self.assertFalse(rejected_move["ok"])
-        self.assertEqual(self.api.board.fen(), live_fen)
-        self.assertEqual(tuple(self.api.sans), live_sans)
-        self.assertEqual(self._history_identity(self.api), live_history)
+        # Board information commands must query the displayed external position,
+        # not the hidden live board.  Live e4 leaves e2 empty; the reviewed PGN
+        # starts with the canonical white pawn still on e2.
+        current = self.api.dispatch_action("board.current", "e2")
+        self.assertTrue(current["ok"])
+        self.assertIn("білий пішак", current["announcement"])
+        self._assert_live_identity(live)
 
         returned = self.app.browser_command("review", "pgn.return")
         self.assertEqual(returned["kind"], "review")
-        self.assertEqual(self.api.get_state()["fen"], live_fen)
-        self.assertEqual(self.api.board.fen(), live_fen)
-        self.assertEqual(tuple(self.api.sans), live_sans)
-        self.assertEqual(self.api.live_history_node, live_node)
-        self.assertEqual(self._history_identity(self.api), live_history)
+        self.assertEqual(self.api.get_state()["fen"], live["fen"])
+        self._assert_live_identity(live)
+
+    def test_all_direct_live_mutation_entry_points_fail_closed_during_external_review(self) -> None:
+        live, _ = self._open_external_review_after_live_e4()
+
+        attempts = (
+            lambda: self.api.make_move("d4"),
+            # Historical Move Input alias `s` dispatches new_game before the
+            # inherited ordinary-move review guard; this must be blocked here.
+            lambda: self.api.make_move("s"),
+            self.api.new_game,
+            self.api.clear_board,
+            lambda: self.api.set_fen(self.api.start_fen),
+            lambda: self.api.set_turn("b"),
+            lambda: self.api.set_position_text("white king e1; black king e8", "w"),
+            self.api.undo,
+            self.api.redo,
+            lambda: self.api.activate_square("e2"),
+            self.api.start_engine_game,
+            self.api.stop_engine_game,
+            self.api.engine_takeback,
+            self.api.offer_draw_engine_game,
+            self.api.resign_engine_game,
+        )
+        for attempt in attempts:
+            with self.subTest(attempt=attempt):
+                result = attempt()
+                self.assertFalse(result["ok"])
+                self._assert_live_identity(live)
+
+    def test_review_guard_runs_before_stage1_engine_side_effects(self) -> None:
+        live, _ = self._open_external_review_after_live_e4()
+        # Stage1 make_move/activate_square/undo/redo contain engine-state work
+        # before delegating to the ordinary review guard.  The V2 external-review
+        # guard must fire before those inherited side effects.
+        self.api._engine_game_phase = "stopped"
+        before_phase = self.api._engine_game_phase
+
+        result = self.api.make_move("d4")
+
+        self.assertFalse(result["ok"])
+        self.assertEqual(self.api._engine_game_phase, before_phase)
+        self._assert_live_identity(live)
+
+    def test_external_review_analysis_origin_never_becomes_live_history_origin(self) -> None:
+        # Construct the dangerous coincidence explicitly: target FEN equals a
+        # real live-history node while an external review owns Board display.
+        live, _ = self._open_external_review_after_live_e4()
+        self.api.analysis_ui = SimpleNamespace(
+            target_fen=self.api.start_fen,
+            exploration=None,
+        )
+        self.api._analysis_origin_node_id = 0
+        self.api._external_review_fen = self.api.start_fen
+
+        self.assertFalse(self.api._analysis_origin_matches())
+        self._assert_live_identity(live)
 
     def test_invalid_external_review_fen_fails_without_changing_live_state(self) -> None:
         played = self.api.make_move("e4")
