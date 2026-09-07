@@ -237,7 +237,7 @@ def concise_user_error(
         else "The action could not be completed."
     )
     try:
-        text = str(message or "").strip()
+        text = "" if message is None else str(message).strip()
     except Exception:
         return fallback
     if not text:
