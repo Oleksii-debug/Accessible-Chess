@@ -52,6 +52,6 @@ jobs:
       - name: Compile affected Python surface
         run: python -m compileall -q acs tests/test_w6_v2_review_engine_retry_isolation.py
       - name: Current canonical P0 review regressions remain green first
-        run: python -m unittest -v tests.test_version2_external_review_live_state
+        run: python -m unittest -v tests.test_version2_external_review_live_state_isolation
       - name: RED-first engine retry side-effect oracle
         run: python -m unittest -v tests.test_w6_v2_review_engine_retry_isolation
