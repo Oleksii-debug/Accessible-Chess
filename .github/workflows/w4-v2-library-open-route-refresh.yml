@@ -1,0 +1,58 @@
+name: W4 V2 Library Open Route Refresh
+
+on:
+  pull_request:
+    branches:
+      - work/w4-v2-library-open-route-refresh-evidence-20260907
+    paths:
+      - 'web/version2_release_bootstrap.js'
+      - '.github/workflows/w4-v2-library-open-route-refresh.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: w4-v2-library-open-route-refresh-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  library-open-route:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Prove exact RED-first parent and bounded Product successor
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE=0a30e003c8d8d2b71cd4bae45e0f8c84bc48a3c5
+          git merge-base --is-ancestor "$BASE" HEAD
+          test "$(git merge-base "$BASE" HEAD)" = "$BASE"
+          git diff --check "$BASE" HEAD
+          changed="$(git diff --name-only "$BASE" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/w4-v2-library-open-route-refresh.yml' \
+            'web/version2_release_bootstrap.js' | sort)"
+          test "$changed" = "$expected"
+          git diff --quiet "$BASE" HEAD -- acs run_accessible_chess.py run_accessible_chess_v2.py web/full_product_library.js
+
+      - name: JavaScript syntax
+        run: |
+          node --check web/full_product_library.js
+          node --check web/version2_release_bootstrap.js
+          node --check tests/js/version2_release_bootstrap_dom_test.js
+          node --check tests/js/version2_library_open_route_refresh_dom_test.js
+
+      - name: Preserve inherited W4 focus and event behavior
+        run: node tests/js/version2_release_bootstrap_dom_test.js
+
+      - name: Turn immutable Library-to-PGN oracle GREEN
+        run: node tests/js/version2_library_open_route_refresh_dom_test.js
