@@ -41,8 +41,6 @@ class Version2ReleaseAccessibilityContractTests(unittest.TestCase):
         self.assertNotIn('workspace.setAttribute("aria-live", "assertive")', BOOTSTRAP)
 
     def test_product_routes_keep_a_real_main_landmark(self) -> None:
-        # V2 product routes hide the Stage 1 main region. Their replacement must
-        # therefore itself be a native main landmark, not a generic section.
         self.assertIn('const workspace = documentRef.createElement("main")', BOOTSTRAP)
         self.assertNotIn('const workspace = documentRef.createElement("section")', BOOTSTRAP)
         product_start = BOOTSTRAP.index('  function renderProductSurface(')
@@ -59,6 +57,7 @@ class Version2ReleaseAccessibilityContractTests(unittest.TestCase):
         for english in (
             "Could not open the section.",
             "No PGN is open yet.",
+            "The Library is not ready to browse yet.",
             "No book is open yet.",
             "Could not load Version 2 sections.",
         ):
@@ -66,9 +65,6 @@ class Version2ReleaseAccessibilityContractTests(unittest.TestCase):
                 self.assertIn(english, BOOTSTRAP)
 
     def test_initial_snapshot_restores_the_shell_keyboard_focus_target(self) -> None:
-        # The shell's initial Board route names the real Stage 1 move edit as its
-        # keyboard target. The V2 bootstrap must apply that target on the first
-        # snapshot rather than leaving WebView2/NVDA focus at an undefined body.
         self.assertIn('default_focus_id="move-input"', SHELL)
         self.assertIn('<input id="move-input" type="text"', HTML)
         self.assertIn('function restoreStage1Focus(routeId, requestedFocus)', BOOTSTRAP)
@@ -79,15 +75,10 @@ class Version2ReleaseAccessibilityContractTests(unittest.TestCase):
         self.assertNotIn('refresh(false).catch(function () {', BOOTSTRAP)
 
     def test_product_route_focus_converges_to_real_surface_or_current_navigation(self) -> None:
-        # Shell defaults are presentation-level placeholders. PGN and Books own
-        # the exact DOM identities of their current canonical content, so route
-        # entry must converge to those identities instead of dropping focus when
-        # renderNavigation replaces the previously focused navigation button.
         self.assertIn('return "pgn-node-" + sha256(', PGN_PROJECTION)
         self.assertIn('"focus_target": focus_target', PGN_PROJECTION)
         self.assertIn('"dom_id": f"book-block-{block.index}"', BOOK_PROJECTION)
         self.assertIn('"focus_target": snapshot["block"]["dom_id"]', BOOK_PROJECTION)
-
         self.assertIn('function productSurfaceFocusTarget(snapshot, routeId)', BOOTSTRAP)
         self.assertIn('return String(snapshot.pgn.focus_target || "");', BOOTSTRAP)
         self.assertIn('return String(block.dom_id || "");', BOOTSTRAP)
@@ -99,20 +90,21 @@ class Version2ReleaseAccessibilityContractTests(unittest.TestCase):
         self.assertIn('renderProductSurface(snapshot, routeId, requestedFocus, restoreFocus, heading);', BOOTSTRAP)
         self.assertIn('if (restoreFocus) restoreProductFocus(snapshot, routeId, requestedFocus);', BOOTSTRAP)
 
-    def test_empty_pgn_and_books_routes_have_heading_and_focusable_status(self) -> None:
-        # Before any file is opened, entering PGN or Books must put keyboard/UIA
-        # focus on an explanatory status inside the product main landmark rather
-        # than silently leaving focus on the navigation control that was invoked.
-        self.assertIn('function emptyStatusId(routeId)', BOOTSTRAP)
+    def test_empty_product_routes_have_heading_and_focusable_status(self) -> None:
+        self.assertIn('routeId === "pgn" || routeId === "library" || routeId === "books"', BOOTSTRAP)
         self.assertIn('return "v2-" + routeId + "-empty-status";', BOOTSTRAP)
         self.assertIn('function renderEmptyProduct(routeId, heading)', BOOTSTRAP)
         self.assertIn('const title = documentRef.createElement("h2");', BOOTSTRAP)
-        self.assertIn('title.textContent = String(heading ||', BOOTSTRAP)
+        self.assertIn('routeId === "library"', BOOTSTRAP)
+        self.assertIn('uiText("Бібліотека", "Library")', BOOTSTRAP)
+        self.assertIn('uiText("Бібліотека ще не готова до перегляду.", "The Library is not ready to browse yet.")', BOOTSTRAP)
         self.assertIn('status.id = emptyStatusId(routeId);', BOOTSTRAP)
         self.assertIn('status.tabIndex = -1;', BOOTSTRAP)
         self.assertIn('workspace.replaceChildren(title, status);', BOOTSTRAP)
-        self.assertIn('return emptyStatusId(routeId);', BOOTSTRAP)
-        self.assertIn('renderEmptyProduct(routeId, heading);', BOOTSTRAP)
+        library_start = BOOTSTRAP.index('    if (routeId === "library") {')
+        library_end = BOOTSTRAP.index('    if (routeId === "books") {', library_start)
+        library = BOOTSTRAP[library_start:library_end]
+        self.assertIn('renderEmptyProduct(routeId, heading);', library)
         self.assertIn('const heading = String(screen.heading || "");', BOOTSTRAP)
 
     def test_global_navigation_focus_does_not_overwrite_route_local_history(self) -> None:
@@ -126,9 +118,6 @@ class Version2ReleaseAccessibilityContractTests(unittest.TestCase):
         self.assertLess(focus_handler.index(skip), focus_handler.index(record))
 
     def test_library_import_events_patch_only_the_import_region(self) -> None:
-        # Import progress can arrive several times per second. The existing
-        # Library surface has an incremental render-import seam, so V2 must use
-        # it instead of rebuilding filters/results and destroying typed input.
         apply_start = BOOTSTRAP.index('  function applyQueuedEvent(event)')
         apply_end = BOOTSTRAP.index('  function drainEvents()', apply_start)
         queued = BOOTSTRAP[apply_start:apply_end]
@@ -136,7 +125,6 @@ class Version2ReleaseAccessibilityContractTests(unittest.TestCase):
         self.assertIn('currentRouteId === "library"', queued)
         self.assertIn('global.AccessibleChessLibrarySurface.apply(workspace, event, areaInvoke("library"), announce);', queued)
         self.assertIn('return false;', queued)
-
         drain_start = BOOTSTRAP.index('  function drainEvents()')
         drain_end = BOOTSTRAP.index('  documentRef.addEventListener("focusin"', drain_start)
         drain = BOOTSTRAP[drain_start:drain_end]
