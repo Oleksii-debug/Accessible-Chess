@@ -1,0 +1,34 @@
+name: W1 D06 Resume Lock TOCTOU
+
+on:
+  push:
+    branches:
+      - work/w1-d06-resume-lock-toctou-20260907
+  pull_request:
+    branches:
+      - codex/v2-formats-completion-20260907
+
+permissions:
+  contents: read
+
+jobs:
+  focused:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Compile resume surfaces
+        run: python -m compileall -q acs/gametree_resume.py tests/test_w1_d06_resume_lock_toctou.py
+      - name: Focused resume lock and existing resume regressions
+        run: python -m unittest -v tests.test_w1_d06_resume_lock_toctou tests.test_d06_gametree_snapshot_resume
+      - name: Diff hygiene
+        run: git diff --check HEAD^ HEAD
