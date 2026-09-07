@@ -1,13 +1,24 @@
 from __future__ import annotations
 
+from pathlib import Path
+import tempfile
 import unittest
 
+from acs.acsdb import AcsDatabase
 from acs.gametree import CanonicalPgnGameFramer
+from acs.library_import_service import LibraryImportService
 from acs.pgn_roundtrip import (
     PgnRoundTripError,
     PgnRoundTripErrorCode,
     parse_pgn_text,
     serialize_pgn_text,
+)
+from acs.pgn_streaming_import import (
+    StreamingPgnErrorCode,
+    StreamingPgnFailurePolicy,
+    StreamingPgnImportError,
+    StreamingPgnLibraryImporter,
+    StreamingPgnLimits,
 )
 
 
@@ -65,6 +76,28 @@ class W1D06NestedCommentFramerConvergenceTests(unittest.TestCase):
         with self.assertRaises(PgnRoundTripError) as caught:
             parse_pgn_text(NESTED_MULTILINE_TAGLIKE_COMMENT, strict=True)
         self.assertEqual(caught.exception.code, PgnRoundTripErrorCode.MALFORMED_PGN)
+
+    def test_streaming_prefix_policy_cannot_publish_false_nested_boundary(self) -> None:
+        with tempfile.TemporaryDirectory() as directory, AcsDatabase() as database:
+            source = Path(directory) / "nested-taglike-comment.pgn"
+            source.write_text(
+                NESTED_MULTILINE_TAGLIKE_COMMENT,
+                encoding="utf-8",
+                newline="",
+            )
+            importer = StreamingPgnLibraryImporter(LibraryImportService(database))
+
+            with self.assertRaises(StreamingPgnImportError) as caught:
+                importer.import_file(
+                    source,
+                    failure_policy=StreamingPgnFailurePolicy.COMMIT_ACCEPTED_PREFIX,
+                    limits=StreamingPgnLimits(read_chunk_bytes=7),
+                )
+
+            self.assertEqual(caught.exception.code, StreamingPgnErrorCode.MALFORMED_PGN)
+            self.assertEqual(caught.exception.semantic_code, "pgn_malformed_pgn")
+            self.assertEqual(caught.exception.accepted_games, 0)
+            self.assertEqual(database.search_games(limit=10), [])
 
     def test_literal_opening_brace_legacy_case_is_not_held_open(self) -> None:
         source = (
