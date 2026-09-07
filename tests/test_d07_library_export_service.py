@@ -149,6 +149,46 @@ class LibraryExportServiceTests(unittest.TestCase):
         self.assertNotIn("limit", payload["filters"])
         self.assertNotIn("after_game_id", payload["filters"])
 
+    def test_filtered_export_streams_before_full_materialization_under_one_snapshot(self) -> None:
+        loaded_ids: list[int] = []
+        real_load_game = self.service._load_game
+        fingerprint = object()
+
+        def tracked_load(game_id: int):
+            loaded_ids.append(game_id)
+            return real_load_game(game_id)
+
+        def consume_stream(destination, games, *, overwrite=False, expected_sha256=None):
+            self.assertTrue(
+                self.db.conn.in_transaction,
+                "the stable Library read snapshot must remain active while D06 consumes the stream",
+            )
+            self.assertEqual(
+                loaded_ids,
+                [],
+                "export must hand a lazy iterable to D06 before resolving every filtered game",
+            )
+            iterator = iter(games)
+            first = next(iterator)
+            self.assertEqual(len(loaded_ids), 1)
+            remaining = list(iterator)
+            self.assertEqual(len(loaded_ids), 3)
+            self.assertEqual(len((first, *remaining)), 3)
+            self.assertTrue(overwrite)
+            self.assertIsNone(expected_sha256)
+            return fingerprint
+
+        with patch("acs.library_export_service._EXPORT_PAGE_SIZE", 2):
+            request = LibraryExportRequest.filtered(GameSearchQuery())
+            with patch.object(self.service, "_load_game", side_effect=tracked_load), patch(
+                "acs.library_export_service.save_pgn_atomic", side_effect=consume_stream
+            ):
+                result = self.service.export_to(Path("ignored.pgn"), request)
+
+        self.assertEqual(result.game_count, 3)
+        self.assertIs(result.destination_fingerprint, fingerprint)
+        self.assertFalse(self.db.conn.in_transaction)
+
     def test_empty_filtered_result_fails_before_any_file_write(self) -> None:
         request = LibraryExportRequest.filtered(GameSearchQuery(event="does-not-exist"))
         with tempfile.TemporaryDirectory() as directory:
