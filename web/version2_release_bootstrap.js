@@ -256,6 +256,12 @@
         return false;
       }
     }
+    if (event.kind === "book-board") {
+      // A BookBoard workflow has already projected a new canonical review FEN
+      // into the shared release API.  The original Stage 1 DOM owns the actual
+      // 64-square accessible board, so repaint it before V2 restores Board focus.
+      refreshStage1Surface();
+    }
     if (payload.announcement) announce(payload.announcement);
     if (event.kind === "error" && payload.message) announce(payload.message);
     return event.kind !== "error" && event.kind !== "status";
