@@ -32,7 +32,13 @@
   function renderBookBlock(host, block) {
     const role = String(block.role || "group");
     let content;
-    if (role === "heading") {
+    if (block.list && Array.isArray(block.list.items)) {
+      content = node(block.list.ordered ? "ol" : "ul");
+      if (block.list.ordered && Number.isSafeInteger(block.list.start) && block.list.start > 0) {
+        content.setAttribute("start", String(block.list.start));
+      }
+      block.list.items.forEach(function (text) { content.appendChild(node("li", text)); });
+    } else if (role === "heading") {
       const level = Math.min(6, Math.max(1, Number(block.heading_level || 2)));
       content = node("h" + level, block.text || block.title || "");
     } else if (role === "paragraph") {
