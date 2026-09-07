@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 import tempfile
 import unittest
+from unittest import mock
 
 from acs.full_product_webview_adapter import WebViewCommand
 from acs.version2_profile import build_version2_router, build_version2_shell, build_version2_webview_adapter
@@ -55,6 +56,19 @@ class _WebView:
         self.started = kwargs
         self.window.events.before_show.fire()
         self.window.events.loaded.fire()
+
+
+class _CreateWindowFailureWebView(_WebView):
+    def create_window(self, title, **kwargs):
+        raise RuntimeError("window creation failed")
+
+
+class _Runtime:
+    def __init__(self):
+        self.closed = 0
+
+    def close(self):
+        self.closed += 1
 
 
 class _Application:
@@ -186,6 +200,41 @@ class Version2ReleaseUiTests(unittest.TestCase):
 
         self.assertEqual(built, [])
         self.assertTrue(app.closed)
+
+    def test_release_window_cleans_resources_when_create_window_fails(self):
+        api = self.make_api()
+        app = _Application()
+        runtime = _Runtime()
+        analysis_closed = []
+        api.close_analysis = lambda: analysis_closed.append(True)
+
+        with self.assertRaisesRegex(RuntimeError, "window creation failed"):
+            run_version2_release_window(
+                api,
+                app,
+                runtime,
+                webview_module=_CreateWindowFailureWebView(),
+            )
+
+        self.assertTrue(app.closed)
+        self.assertEqual(analysis_closed, [True])
+        self.assertEqual(runtime.closed, 1)
+
+    def test_release_window_cleans_resources_when_packaged_document_is_missing(self):
+        api = self.make_api()
+        app = _Application()
+        runtime = _Runtime()
+        analysis_closed = []
+        api.close_analysis = lambda: analysis_closed.append(True)
+        with tempfile.TemporaryDirectory() as directory:
+            missing_root = Path(directory)
+            with mock.patch("acs.version2_release_ui._asset_root", return_value=missing_root):
+                with self.assertRaisesRegex(RuntimeError, "Accessible HTML UI not found"):
+                    run_version2_release_window(api, app, runtime, webview_module=_WebView())
+
+        self.assertTrue(app.closed)
+        self.assertEqual(analysis_closed, [True])
+        self.assertEqual(runtime.closed, 1)
 
 
 if __name__ == "__main__":
