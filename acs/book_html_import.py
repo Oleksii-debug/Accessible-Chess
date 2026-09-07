@@ -262,10 +262,13 @@ class _SemanticHtmlParser(HTMLParser):
                 self._list_warning(
                     "HTML list numbering or nesting could not be represented canonically and was preserved as readable text"
                 )
-            raw_start = captured.attrs.get("start", "").strip()
-            fallback_start = int(raw_start) if ordered and _HTML_INTEGER_RE.fullmatch(raw_start) else 1
-            for offset, item in enumerate(items):
-                text = f"{fallback_start + offset}. {item}" if ordered else f"• {item}"
+            for item in items:
+                # Once numbering semantics are outside the canonical ListBlock model
+                # (reversed lists, per-item value overrides, invalid starts, nesting),
+                # never synthesize a numeric sequence. Preserve the source item text
+                # and list membership only; the warning above makes structure loss
+                # explicit without publishing invented ordering as book truth.
+                text = f"• {item}"
                 self._append_block(
                     Paragraph(
                         text=text,
@@ -383,6 +386,11 @@ class _SemanticHtmlParser(HTMLParser):
         elif "data-acs-fen" in attrs:
             self._emit_explicit_position(tag, attrs)
 
+        if tag in {"ol", "ul"} and self._lists:
+            for capture in self._captures:
+                if capture.kind == "list_item" and capture.list_depth == len(self._lists):
+                    capture.parts.append(" ")
+
         if tag in {"ol", "ul"}:
             nested = bool(self._lists)
             if nested:
@@ -404,6 +412,10 @@ class _SemanticHtmlParser(HTMLParser):
         if kind is not None:
             if kind == "list_item" and self._lists and "value" in attrs:
                 self._lists[-1].unsupported = True
+            if kind == "list_item" and self._lists:
+                for capture in self._captures:
+                    if capture.kind == "list_item" and capture.list_depth < len(self._lists):
+                        capture.parts.append(" ")
             self._captures.append(
                 _Capture(
                     tag=tag,
@@ -433,6 +445,9 @@ class _SemanticHtmlParser(HTMLParser):
         if tag in {"ol", "ul"} and self._lists and self._lists[-1].tag == tag:
             captured = self._lists.pop()
             if captured.nested:
+                for capture in self._captures:
+                    if capture.kind == "list_item" and capture.list_depth == len(self._lists):
+                        capture.parts.append(" ")
                 # Text from a nested list is already retained by the enclosing
                 # list-item capture. Suppress a second flattened copy and make the
                 # outer list fall back with an explicit structure-loss warning.
