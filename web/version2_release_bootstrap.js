@@ -232,10 +232,19 @@
     bridge.v2_drain_events().then(function (events) {
       if (!Array.isArray(events) || !events.length) return;
       let needsRefresh = false;
+      let queuedFocusTarget = "";
       events.forEach(function (event) {
-        if (applyQueuedEvent(event)) needsRefresh = true;
+        const refreshRequired = applyQueuedEvent(event);
+        if (!refreshRequired) return;
+        needsRefresh = true;
+        const payload = event && event.payload && typeof event.payload === "object" ? event.payload : {};
+        queuedFocusTarget = typeof payload.focus_target === "string" ? payload.focus_target : "";
       });
-      if (needsRefresh) refresh(false);
+      if (needsRefresh) {
+        refresh(false).then(function () {
+          if (queuedFocusTarget) focusById(queuedFocusTarget);
+        }, function () {});
+      }
     }, function () {});
   }
 
