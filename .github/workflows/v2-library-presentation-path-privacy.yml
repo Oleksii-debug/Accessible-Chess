@@ -19,15 +19,18 @@ concurrency:
 
 env:
   STACK_PARENT: 08aa740bc6f694fb6f891989c7b16dc86bf0516e
+  SHARED_PRIVACY_BLOB: 00a7463476e9f8a6126bb4ae94f9196d42a4e527
+  LIBRARY_PROJECTION_BLOB: 02aa2f2e5063055472d0afb388161b77865fb283
+  PRIVACY_TEST_BLOB: 52d963f3705857d7ba9f4043c84905a361d0f241
 
 jobs:
-  red-first:
+  focused:
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-22.04, windows-2025]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
         with:
@@ -41,7 +44,7 @@ jobs:
       - name: Install pinned test dependency
         run: python -m pip install -q pytest==8.4.2
 
-      - name: Prove evidence-only RED scope
+      - name: Prove stacked ancestry and bounded Library privacy scope
         shell: bash
         run: |
           set -euo pipefail
@@ -50,18 +53,43 @@ jobs:
           changed="$(git diff --name-only "$STACK_PARENT" HEAD | sort)"
           allowed="$(printf '%s\n' \
             .github/workflows/v2-library-presentation-path-privacy.yml \
+            acs/library_webview_projection.py \
             tests/test_v2_library_presentation_path_privacy.py | sort)"
           test "$changed" = "$allowed" || {
-            printf 'Unexpected RED-first Library privacy scope:\n%s\n' "$changed" >&2
+            printf 'Unexpected Library presentation privacy scope:\n%s\n' "$changed" >&2
             exit 1
           }
+          test "$(git rev-parse HEAD:acs/presentation_privacy.py)" = "$SHARED_PRIVACY_BLOB"
+          test "$(git rev-parse HEAD:acs/library_webview_projection.py)" = "$LIBRARY_PROJECTION_BLOB"
+          test "$(git rev-parse HEAD:tests/test_v2_library_presentation_path_privacy.py)" = "$PRIVACY_TEST_BLOB"
 
-      - name: Compile unchanged Library projection and oracle
-        run: python -m compileall -q acs/library_webview_projection.py tests/test_v2_library_presentation_path_privacy.py
+      - name: Compile Library privacy surface
+        run: python -m compileall -q acs/presentation_privacy.py acs/library_webview_projection.py tests/test_v2_library_presentation_path_privacy.py tests/test_dev1_library_webview_projection.py
 
-      - name: Reproduce Library path privacy gap
-        run: python -m unittest -v tests.test_v2_library_presentation_path_privacy
+      - name: Focused Library privacy regressions
+        run: python -m unittest -v tests.test_v2_library_presentation_path_privacy tests.test_dev1_library_webview_projection
 
-      - name: Existing Library projection must remain independently green
-        if: always()
-        run: python -m unittest -v tests.test_dev1_library_webview_projection
+      - name: Focused pytest parity
+        run: python -m pytest -q tests/test_v2_library_presentation_path_privacy.py tests/test_dev1_library_webview_projection.py
+
+  broad-ubuntu:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install pinned test dependency
+        run: python -m pip install -q pytest==8.4.2
+
+      - name: Full unittest regression
+        run: python -m unittest discover -s tests -v
+
+      - name: Full pytest regression
+        run: python -m pytest -q
