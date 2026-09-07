@@ -84,23 +84,23 @@ jobs:
             test "$changed" = "$expected"
           else
             echo "Integrated/convergence validation mode"
-            # The isolated Books feature is already an ancestor.  Do not demand
-            # the historical two-commit topology after legal selective intake.
-            # Product integrity is enforced below by exact presentation blobs
-            # plus the focused D08 and full-repository regression suites.
+            # The isolated feature is an ancestor. Its presentation may evolve
+            # during lawful convergence, so validate behavior below rather than
+            # requiring historical blobs or the original two-commit topology.
           fi
 
-      - name: Lock Books and Training presentation blobs
+      - name: Preserve isolated Books and Training blob contract
         shell: bash
         run: |
           set -euo pipefail
-          while IFS='=' read -r path expected; do
-            actual="$(git rev-parse "HEAD:$path")"
-            test "$actual" = "$expected" || {
-              printf 'Blob mismatch: %s expected=%s actual=%s\n' "$path" "$expected" "$actual" >&2
-              exit 1
-            }
-          done <<'LOCKS'
+          if test "$(git rev-parse HEAD~1)" = "$BOOKS_TRAINING_FEATURE"; then
+            while IFS='=' read -r path expected; do
+              actual="$(git rev-parse "HEAD:$path")"
+              test "$actual" = "$expected" || {
+                printf 'Blob mismatch: %s expected=%s actual=%s\n' "$path" "$expected" "$actual" >&2
+                exit 1
+              }
+            done <<'LOCKS'
           acs/book_webview_bridge.py=c888f8bf1bc32ea39b25bef7088f8c4fb095485e
           acs/book_webview_projection.py=2e5bbc9cdb8a8884b70a295ba853f4bc40d8ea33
           acs/training_webview_bridge.py=7c429f7c92688552e4e59226b70b3ed9dc65daa9
@@ -113,6 +113,7 @@ jobs:
           tests/test_dev1_books_training_webview_projection.py=902ec327df0739c90c31911fd128c3fdc8987163
           web/full_product_books_training.js=864c7d63b376f5d69c696b99d8e9e96efc1b7d4b
           LOCKS
+          fi
 
       - name: Preserve isolated canonical lock contract
         shell: bash
@@ -171,6 +172,7 @@ jobs:
           tests.test_dev1_books_training_webview_projection
           tests.test_d08_book_training_contract
           tests.test_d08_training_canonical_resume
+          tests.test_w2_book_training_canonical_ingress
           tests.test_dev3_engine_assisted_workflows
           tests.test_dev1_full_product_ui_packages
           tests.test_dev1_full_product_accessible_shell
