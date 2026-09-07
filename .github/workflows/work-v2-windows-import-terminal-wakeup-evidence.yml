@@ -1,0 +1,52 @@
+name: WORK V2 Windows Import Terminal Wakeup Evidence
+
+on:
+  push:
+    branches:
+      - work/w3-v2-windows-import-terminal-wakeup-evidence-20260907
+  pull_request:
+    branches:
+      - codex/v2-runtime-completion-20260907
+
+permissions:
+  contents: read
+
+concurrency:
+  group: work-v2-windows-import-terminal-wakeup-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  evidence:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Prove evidence-only exact-head scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          base=40e1ef2184177600bcc88911529b718adde65df9
+          git merge-base --is-ancestor "$base" HEAD
+          git diff --check "$base" HEAD
+          changed="$(git diff --name-only "$base" HEAD | sort | tr '\n' ' ')"
+          test "$changed" = ".github/workflows/work-v2-windows-import-terminal-wakeup-evidence.yml tests/test_work_v2_windows_import_terminal_wakeup_evidence.py "
+      - name: Compile evidence test
+        run: python -m py_compile tests/test_work_v2_windows_import_terminal_wakeup_evidence.py
+      - name: Preserve inherited mailbox, UI-pump and exact-host contracts
+        run: >-
+          python -m unittest -v
+          tests.test_v2_windows_import_event_mailbox
+          tests.test_v2_windows_import_ui_pump
+          tests.test_v2_windows_host_runtime
+          tests.test_version2_import_terminal_ui
+      - name: Prove terminal import event self-recovers after one transient UI-post failure
+        run: python -m unittest -v tests.test_work_v2_windows_import_terminal_wakeup_evidence
