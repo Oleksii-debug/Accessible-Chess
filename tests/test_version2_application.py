@@ -98,6 +98,33 @@ class Version2ApplicationTests(unittest.TestCase):
         self.app.open_book(book)
         self.assertEqual(self.app.reader.location(), origin)
 
+    def test_book_open_progress_failure_is_atomic(self):
+        book = self.root / "atomic.md"
+        book.write_text("# Atomic\n\nText\n", encoding="utf-8")
+        before_route = self.app.shell.current_route.route_id
+
+        class FailingProgressStore:
+            def has(self, _book_key):
+                return False
+
+            def restore(self, _book_key, _document):
+                self.fail("restore must not run without saved progress")
+
+            def save(self, _book_key, _reader):
+                raise OSError("simulated progress write failure")
+
+        self.app.progress_store = FailingProgressStore()
+
+        with self.assertRaisesRegex(OSError, "simulated progress write failure"):
+            self.app.open_book(book)
+
+        self.assertIsNone(self.app.reader)
+        self.assertIsNone(self.app.book_key)
+        self.assertIsNone(self.app.book_workflow)
+        self.assertIsNone(self.app.book_delegate)
+        self.assertIsNone(self.app.books)
+        self.assertEqual(self.app.shell.current_route.route_id, before_route)
+
     def test_browser_path_payload_rejected_before_native_picker(self):
         self.dialogs.open_pgn = lambda: self.fail("must not open dialog")
         result = self.app.browser_command("shell", "pgn.open", {"path": str(self.source)})
