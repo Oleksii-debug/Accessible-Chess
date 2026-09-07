@@ -8,6 +8,7 @@ import unittest
 from unittest import mock
 
 from acs.acsdb import AcsDatabase
+from acs.settings import Settings, SettingsError
 import acs.version2_upgrade as upgrade_module
 from acs.version2_upgrade import (
     UserDataLayout,
@@ -92,6 +93,60 @@ class V2UpgradePublishRaceAuditTests(unittest.TestCase):
                 external_bytes,
                 "external settings writer was silently overwritten after final re-auth",
             )
+
+    def test_canonical_settings_save_cannot_replace_during_upgrade(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "AccessibleChess"
+            root.mkdir()
+            settings = root / "settings.json"
+            settings.write_text(
+                json.dumps({"language": "en", "volume": 10}), encoding="utf-8"
+            )
+
+            real_atomic_bytes = upgrade_module._atomic_bytes
+            attempted = False
+            blocked = False
+
+            def race_atomic_bytes(path: Path, payload: bytes) -> None:
+                nonlocal attempted, blocked
+                if Path(path) == settings and not attempted:
+                    attempted = True
+                    external = Settings(settings)
+                    try:
+                        # Settings.set() exercises the real canonical save path:
+                        # write settings.json.tmp then atomically replace pathname.
+                        external.set("volume", 97)
+                    except SettingsError:
+                        blocked = True
+                    else:
+                        self.fail(
+                            "canonical Settings.save replaced settings during active upgrade"
+                        )
+                real_atomic_bytes(path, payload)
+
+            with mock.patch.object(
+                upgrade_module, "_atomic_bytes", side_effect=race_atomic_bytes
+            ):
+                report = Version2UpgradeCoordinator(UserDataLayout(root)).run()
+
+            self.assertTrue(
+                attempted,
+                "canonical writer injection did not reach final settings publication",
+            )
+            self.assertTrue(
+                blocked,
+                "canonical Settings.save did not fail closed on the active upgrade lock",
+            )
+            self.assertEqual(report.status, "upgraded")
+            persisted = json.loads(settings.read_text(encoding="utf-8"))
+            self.assertEqual(persisted["schema_version"], 2)
+            self.assertEqual(persisted["values"]["volume"], 10)
+
+            # The lock is only a serialization boundary. Once the upgrade is
+            # complete, the same canonical writer can retry and persist normally.
+            retry = Settings(settings)
+            retry.set("volume", 97)
+            self.assertEqual(Settings(settings).get("volume"), 97)
 
     def test_library_writer_after_final_reauth_is_not_overwritten(self) -> None:
         with tempfile.TemporaryDirectory() as td:

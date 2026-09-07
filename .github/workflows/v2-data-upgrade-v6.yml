@@ -7,6 +7,7 @@ on:
   pull_request:
     paths:
       - 'acs/version2_upgrade.py'
+      - 'acs/settings.py'
       - 'tests/test_version2_upgrade.py'
       - 'tests/test_version2_upgrade_stale_writer.py'
       - 'tests/test_version2_upgrade_recovery_integrity.py'
@@ -64,6 +65,7 @@ jobs:
           expected="$(printf '%s\n' \
             '.github/workflows/v2-data-upgrade-tracked-writer.yml' \
             '.github/workflows/v2-data-upgrade-v6.yml' \
+            'acs/settings.py' \
             'acs/version2_upgrade.py' \
             'tests/test_v2_upgrade_current_acsdb_identity_audit.py' \
             'tests/test_v2_upgrade_publish_race_audit.py' \
