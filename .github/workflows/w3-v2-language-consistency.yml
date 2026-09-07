@@ -3,7 +3,7 @@ name: W3 V2 Language Consistency
 on:
   push:
     branches:
-      - worker/w3-v2-language-consistency-red-20260907
+      - work/v2-language-consistency-repair-20260907
   pull_request:
     branches:
       - codex/v2-runtime-completion-20260907
@@ -29,7 +29,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Prove exact W3 child scope
+      - name: Prove exact W3 repair scope
         shell: bash
         run: |
           set -euo pipefail
@@ -37,12 +37,12 @@ jobs:
           git merge-base --is-ancestor "$base" HEAD
           git diff --check "$base" HEAD
           changed="$(git diff --name-only "$base" HEAD | sort)"
-          expected=$'.github/workflows/w3-v2-language-consistency.yml\ntests/test_w3_v2_language_consistency.py'
+          expected=$'.github/workflows/w3-v2-language-consistency.yml\nacs/version2_release_app.py\nacs/version2_release_ui.py\ntests/test_w3_v2_language_consistency.py'
           test "$changed" = "$expected"
-          git diff --quiet "$base" HEAD -- acs web run_accessible_chess_v2.py
-      - name: Compile language oracle and release composition
+          git diff --quiet "$base" HEAD -- acs/chesscore.py acs/gametree.py acs/acsdb.py web run_accessible_chess_v2.py
+      - name: Compile language repair and release composition
         run: python -m compileall -q acs tests/test_w3_v2_language_consistency.py
-      - name: Existing release-app contracts remain green
-        run: python -m unittest -v tests.test_version2_release_app tests.test_version2_application
-      - name: W3 persisted-language RED oracle
+      - name: Existing release contracts remain green
+        run: python -m unittest -v tests.test_version2_release_app tests.test_version2_release_ui tests.test_version2_application
+      - name: Persisted language consistency regression
         run: python -m unittest -v tests.test_w3_v2_language_consistency
