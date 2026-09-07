@@ -27,6 +27,8 @@ class Version2ReleaseAccessibleChessAPI(Stage1ReleaseAccessibleChessAPI):
     cannot accidentally create a second board/engine authority.
     """
 
+    _EXTERNAL_REVIEW_NODE_ID = -1
+
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         self._version2_application: Any | None = None
@@ -93,6 +95,15 @@ class Version2ReleaseAccessibleChessAPI(Stage1ReleaseAccessibleChessAPI):
             return {"ok": False}
         self._v2_review_fen = canonical
         self.selected_source = None
+        # External review has no live ReviewHistory node.  Recording the sentinel
+        # prevents a coincidentally equal live-node FEN from becoming the owner of
+        # Stockfish exploration/insert actions for this presentation position.
+        if self.analysis_ui.enabled and not self.analysis_ui.target_locked:
+            try:
+                self.analysis_ui.sync_position(canonical)
+                self._analysis_origin_node_id = self._EXTERNAL_REVIEW_NODE_ID
+            except Exception:
+                pass
         return {"ok": True, "fen": canonical}
 
     def v2_clear_review_projection(self) -> dict[str, Any]:
@@ -108,7 +119,7 @@ class Version2ReleaseAccessibleChessAPI(Stage1ReleaseAccessibleChessAPI):
         return ReviewView(
             fen=fen,
             ply=0,
-            node_id=-1,
+            node_id=self._EXTERNAL_REVIEW_NODE_ID,
             at_start=False,
             at_end=False,
             status=(
@@ -132,8 +143,22 @@ class Version2ReleaseAccessibleChessAPI(Stage1ReleaseAccessibleChessAPI):
 
     def _analysis_origin_matches(self) -> bool:
         if self._v2_review_is_active():
-            return self.analysis_ui.target_fen == self._v2_review_fen
+            return (
+                self._analysis_origin_node_id == self._EXTERNAL_REVIEW_NODE_ID
+                and self.analysis_ui.target_fen == self._v2_review_fen
+            )
         return super()._analysis_origin_matches()
+
+    def get_state(self) -> dict[str, Any]:
+        state = super().get_state()
+        if self._v2_review_is_active():
+            # The Stage 1 history regions belong to the hidden live game.  Do not
+            # announce those moves as though they belonged to the PGN/Book review
+            # position; the V2 PGN/Book surfaces own their own canonical history.
+            state["historyLength"] = 0
+            state["moves"] = self._t("no_moves")
+            state["lastMove"] = self._t("no_last")
+        return state
 
     def _v2_review_mutation_error(self) -> dict[str, Any]:
         return self._error(
@@ -142,10 +167,12 @@ class Version2ReleaseAccessibleChessAPI(Stage1ReleaseAccessibleChessAPI):
             else "Return from the game or book review first."
         )
 
-    # These reset-style Stage 1 commands historically do not consult
-    # ``_at_history_end`` themselves.  Keep them fail-closed while a V2 review
-    # projection is active so hidden live state can never change behind the
-    # displayed PGN/Book position.
+    # Stage 1 has several engine/reset side effects that run before its ordinary
+    # history-review guard.  External V2 review therefore guards every reachable
+    # live-mutating entry point here, before delegating to inherited behavior.
+    def make_move(self, text: str) -> dict[str, Any]:
+        return self._v2_review_mutation_error() if self._v2_review_is_active() else super().make_move(text)
+
     def new_game(self) -> dict[str, Any]:
         return self._v2_review_mutation_error() if self._v2_review_is_active() else super().new_game()
 
@@ -157,8 +184,29 @@ class Version2ReleaseAccessibleChessAPI(Stage1ReleaseAccessibleChessAPI):
             return self._v2_review_mutation_error()
         return super().set_position_text(text, turn)
 
+    def set_turn(self, color: str) -> dict[str, Any]:
+        return self._v2_review_mutation_error() if self._v2_review_is_active() else super().set_turn(color)
+
     def set_fen(self, fen: str) -> dict[str, Any]:
         return self._v2_review_mutation_error() if self._v2_review_is_active() else super().set_fen(fen)
+
+    def review_previous(self) -> dict[str, Any]:
+        return self._v2_review_mutation_error() if self._v2_review_is_active() else super().review_previous()
+
+    def review_next(self) -> dict[str, Any]:
+        return self._v2_review_mutation_error() if self._v2_review_is_active() else super().review_next()
+
+    def go_to_move(self, target: str) -> dict[str, Any]:
+        return self._v2_review_mutation_error() if self._v2_review_is_active() else super().go_to_move(target)
+
+    def undo(self) -> dict[str, Any]:
+        return self._v2_review_mutation_error() if self._v2_review_is_active() else super().undo()
+
+    def redo(self) -> dict[str, Any]:
+        return self._v2_review_mutation_error() if self._v2_review_is_active() else super().redo()
+
+    def activate_square(self, square: str) -> dict[str, Any]:
+        return self._v2_review_mutation_error() if self._v2_review_is_active() else super().activate_square(square)
 
     def start_engine_game(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
         if self._v2_review_is_active():
@@ -168,6 +216,9 @@ class Version2ReleaseAccessibleChessAPI(Stage1ReleaseAccessibleChessAPI):
     def stop_engine_game(self) -> dict[str, Any]:
         return self._v2_review_mutation_error() if self._v2_review_is_active() else super().stop_engine_game()
 
+    def retry_engine_move(self) -> dict[str, Any]:
+        return self._v2_review_mutation_error() if self._v2_review_is_active() else super().retry_engine_move()
+
     def engine_takeback(self) -> dict[str, Any]:
         return self._v2_review_mutation_error() if self._v2_review_is_active() else super().engine_takeback()
 
@@ -176,6 +227,34 @@ class Version2ReleaseAccessibleChessAPI(Stage1ReleaseAccessibleChessAPI):
 
     def resign_engine_game(self) -> dict[str, Any]:
         return self._v2_review_mutation_error() if self._v2_review_is_active() else super().resign_engine_game()
+
+    def return_from_analysis(self) -> dict[str, Any]:
+        if not self._v2_review_is_active():
+            return super().return_from_analysis()
+        try:
+            if not self._analysis_origin_matches():
+                raise RuntimeError("analysis origin changed")
+            self.analysis_ui.return_from_exploration()
+            self.selected_source = None
+            return self._ok(
+                "Повернуто до позиції зовнішнього перегляду."
+                if self.lang == "uk"
+                else "Returned to the external review position."
+            )
+        except Exception:
+            return self._error(
+                "Не вдалося відновити позицію зовнішнього перегляду."
+                if self.lang == "uk"
+                else "The external review position could not be restored."
+            )
+
+    def _insert_analysis_line(self, *, one_move: bool) -> dict[str, Any]:
+        if self._v2_review_is_active():
+            # V2 PGN/Book owners must explicitly decide how an engine line is
+            # written into their own GameTree.  Never fall through to the hidden
+            # live ReviewHistory implementation.
+            return self._v2_review_mutation_error()
+        return super()._insert_analysis_line(one_move=one_move)
 
     def v2_snapshot(self) -> dict[str, object]:
         return self._version2().snapshot()
