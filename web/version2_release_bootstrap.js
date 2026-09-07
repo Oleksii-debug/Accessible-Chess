@@ -1,0 +1,173 @@
+(function (global) {
+  "use strict";
+  if (global.__accessibleChessVersion2ReleaseInstalled) return;
+  global.__accessibleChessVersion2ReleaseInstalled = true;
+
+  const documentRef = global.document;
+  const originalMain = documentRef.getElementById("main-content");
+  const live = documentRef.getElementById("live");
+  if (!originalMain || !live) return;
+
+  function api() {
+    return global.pywebview && global.pywebview.api;
+  }
+
+  function announce(message) {
+    if (!message) return;
+    live.textContent = "";
+    global.setTimeout(function () { live.textContent = String(message).slice(0, 300); }, 20);
+  }
+
+  const nav = documentRef.createElement("nav");
+  nav.id = "v2-navigation";
+  nav.setAttribute("aria-label", "Розділи Accessible Chess");
+  const navHeading = documentRef.createElement("h2");
+  navHeading.id = "v2-navigation-heading";
+  navHeading.textContent = "Розділи";
+  nav.appendChild(navHeading);
+  const navList = documentRef.createElement("ul");
+  navList.id = "v2-navigation-list";
+  nav.appendChild(navList);
+
+  const workspace = documentRef.createElement("section");
+  workspace.id = "v2-workspace";
+  workspace.setAttribute("aria-live", "off");
+  workspace.hidden = true;
+
+  originalMain.parentNode.insertBefore(nav, originalMain);
+  originalMain.parentNode.insertBefore(workspace, originalMain);
+
+  const stage1Focus = Object.freeze({
+    board: "board-launcher",
+    analysis: "h-engine",
+    settings: "h-settings",
+    help: "h-help"
+  });
+
+  function focusById(id) {
+    if (!id) return;
+    const target = documentRef.getElementById(id);
+    if (!target || typeof target.focus !== "function") return;
+    if (!target.hasAttribute("tabindex") && !/^(BUTTON|INPUT|SELECT|TEXTAREA|A)$/.test(target.tagName)) {
+      target.setAttribute("tabindex", "-1");
+    }
+    target.focus({ preventScroll: true });
+  }
+
+  function areaInvoke(area) {
+    return function (command, payload) {
+      const bridge = api();
+      if (!bridge || typeof bridge.v2_browser_command !== "function") {
+        return Promise.reject(new Error("V2 bridge unavailable"));
+      }
+      return bridge.v2_browser_command(area, command, payload || {});
+    };
+  }
+
+  function renderNavigation(snapshot) {
+    const items = Array.isArray(snapshot.navigation) ? snapshot.navigation : [];
+    const fragment = documentRef.createDocumentFragment();
+    items.forEach(function (item) {
+      const row = documentRef.createElement("li");
+      const button = documentRef.createElement("button");
+      button.type = "button";
+      button.id = "v2-nav-" + String(item.route_id || "");
+      button.textContent = String(item.label || item.route_id || "");
+      button.setAttribute("aria-describedby", button.id + "-description");
+      if (String(item.current) === "true") button.setAttribute("aria-current", "page");
+      const description = documentRef.createElement("span");
+      description.id = button.id + "-description";
+      description.hidden = true;
+      description.textContent = String(item.description || "");
+      button.addEventListener("click", function () {
+        const bridge = api();
+        if (!bridge || typeof bridge.v2_browser_command !== "function") return;
+        bridge.v2_browser_command("shell", String(item.action_id || ""), {}).then(function (result) {
+          if (result && result.kind === "error" && result.payload) announce(result.payload.message || "");
+          refresh(true);
+        }, function () { announce("Не вдалося відкрити розділ."); });
+      });
+      row.appendChild(button);
+      row.appendChild(description);
+      fragment.appendChild(row);
+    });
+    navList.replaceChildren(fragment);
+  }
+
+  function renderProductSurface(snapshot, routeId, requestedFocus) {
+    workspace.hidden = false;
+    originalMain.hidden = true;
+    if (routeId === "pgn") {
+      if (snapshot.pgn && global.AccessibleChessPgnSurface) {
+        global.AccessibleChessPgnSurface.render(workspace, snapshot.pgn, areaInvoke("pgn"), announce, requestedFocus || "");
+      } else {
+        workspace.replaceChildren(Object.assign(documentRef.createElement("p"), { textContent: "PGN ще не відкрито." }));
+      }
+      return;
+    }
+    if (routeId === "library") {
+      if (snapshot.library && global.AccessibleChessLibrarySurface) {
+        global.AccessibleChessLibrarySurface.render(workspace, snapshot.library, areaInvoke("library"), announce, requestedFocus || "");
+      }
+      return;
+    }
+    if (routeId === "books") {
+      if (snapshot.books && global.AccessibleChessBookSurface) {
+        global.AccessibleChessBookSurface.render(workspace, snapshot.books, areaInvoke("books"), announce, requestedFocus || "");
+      } else {
+        workspace.replaceChildren(Object.assign(documentRef.createElement("p"), { textContent: "Книгу ще не відкрито." }));
+      }
+    }
+  }
+
+  function render(snapshot, restoreFocus) {
+    if (!snapshot || typeof snapshot !== "object") return;
+    renderNavigation(snapshot);
+    const screen = snapshot.screen && typeof snapshot.screen === "object" ? snapshot.screen : {};
+    const routeId = String(screen.route_id || "board");
+    const requestedFocus = String(screen.focus_target || "");
+    documentRef.documentElement.lang = snapshot.document && snapshot.document.lang === "en" ? "en" : "uk";
+
+    if (routeId === "pgn" || routeId === "library" || routeId === "books") {
+      renderProductSurface(snapshot, routeId, requestedFocus);
+      return;
+    }
+
+    workspace.hidden = true;
+    workspace.replaceChildren();
+    originalMain.hidden = false;
+    if (restoreFocus) focusById(stage1Focus[routeId] || requestedFocus);
+  }
+
+  function refresh(restoreFocus) {
+    const bridge = api();
+    if (!bridge || typeof bridge.v2_snapshot !== "function") return Promise.resolve();
+    return bridge.v2_snapshot().then(function (snapshot) { render(snapshot, !!restoreFocus); });
+  }
+
+  function drainEvents() {
+    const bridge = api();
+    if (!bridge || typeof bridge.v2_drain_events !== "function") return;
+    bridge.v2_drain_events().then(function (events) {
+      if (!Array.isArray(events) || !events.length) return;
+      events.forEach(function (event) {
+        const payload = event && event.payload && typeof event.payload === "object" ? event.payload : {};
+        if (payload.announcement) announce(payload.announcement);
+        if (event && event.kind === "error" && payload.message) announce(payload.message);
+      });
+      refresh(false);
+    }, function () {});
+  }
+
+  documentRef.addEventListener("focusin", function (event) {
+    const target = event.target;
+    if (!target || !target.id || !/^[A-Za-z0-9_-]{1,160}$/.test(target.id)) return;
+    const bridge = api();
+    if (bridge && typeof bridge.v2_record_focus === "function") {
+      bridge.v2_record_focus(target.id).catch(function () {});
+    }
+  }, true);
+
+  refresh(false).catch(function () { announce("Не вдалося завантажити розділи Version 2."); });
+  global.setInterval(drainEvents, 300);
+})(window);
