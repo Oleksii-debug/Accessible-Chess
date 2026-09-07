@@ -13,9 +13,9 @@ from acs.version2_application import Version2Application
 class Version2BookProgressCommandAtomicityEvidenceTests(unittest.TestCase):
     """RED-first evidence for application-owned Book progress publication.
 
-    The V2 application reports a Book browser command as failed when durable
-    progress publication fails. A failed command must therefore not leave a
-    different live BookReader cursor/bookmark state behind.
+    Commands that mutate durable BookReader progress must roll back live reader
+    state if publication fails. Presentation-only commands such as language
+    changes must not depend on Book progress I/O at all.
     """
 
     def setUp(self):
@@ -77,6 +77,28 @@ class Version2BookProgressCommandAtomicityEvidenceTests(unittest.TestCase):
             before,
             "failed durable progress publication committed a new live bookmark",
         )
+
+    def test_presentation_language_does_not_depend_on_progress_io(self):
+        before_reader = self.app.reader.snapshot()
+
+        with patch.object(
+            self.progress_store,
+            "save",
+            side_effect=OSError("progress store intentionally unavailable"),
+        ):
+            result = self.app.browser_command(
+                "books",
+                "book.language",
+                {"language": "en"},
+            )
+
+        self.assertEqual(
+            result["kind"],
+            "render",
+            "presentation-only language change was incorrectly coupled to progress I/O",
+        )
+        self.assertEqual(result["payload"]["snapshot"]["document"]["lang"], "en")
+        self.assertEqual(self.app.reader.snapshot(), before_reader)
 
 
 if __name__ == "__main__":
