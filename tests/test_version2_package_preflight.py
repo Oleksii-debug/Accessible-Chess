@@ -6,6 +6,7 @@ from pathlib import Path
 import stat
 import tempfile
 import unittest
+from unittest.mock import patch
 import zipfile
 
 from acs.acsdb import ACSDB_SCHEMA_VERSION
@@ -266,6 +267,31 @@ class Version2PackagePreflightTests(unittest.TestCase):
                         max_text_scan_bytes=100,
                     ),
                 )
+
+    def test_zip_rejects_superscript_windows_device_aliases_before_readback(self):
+        reserved = (
+            "COM¹.txt",
+            "com².bin",
+            "Com³.dat",
+            "LPT¹.txt",
+            "lpt².bin",
+            "Lpt³.dat",
+        )
+        for name in reserved:
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as td:
+                archive_path = Path(td) / "hostile.zip"
+                with zipfile.ZipFile(archive_path, "w") as archive:
+                    archive.writestr(f"AccessibleChess/{name}", b"hostile")
+
+                with patch(
+                    "acs.version2_package_preflight.tempfile.TemporaryDirectory",
+                    side_effect=AssertionError("ZIP readback must not start"),
+                ):
+                    with self.assertRaisesRegex(
+                        Version2PackagePreflightError,
+                        "reserved Windows name",
+                    ):
+                        _validate_zip(archive_path)
 
     def test_zip_readback_rejects_accidental_user_data(self):
         with tempfile.TemporaryDirectory() as td:
