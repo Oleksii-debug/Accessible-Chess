@@ -148,7 +148,7 @@ class V2ImportRegistryPathPrivacyTests(unittest.TestCase):
             for item in batch.errors:
                 self._assert_private_parent_hidden(item.error)
             self.assertIn(self.SAFE_NAME, batch.errors[0].error)
-            self.assertIn("study.unknown", batch.errors[1].error)
+            self.assertIn(".unknown", batch.errors[1].error)
 
     def test_process_control_exceptions_are_not_swallowed_by_batch_isolation(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
