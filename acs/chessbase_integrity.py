@@ -53,10 +53,16 @@ def _fingerprint(path: Path, extension: str, role: str) -> SourceFileEvidence:
     """Capture one member through the canonical identity-bound file reader.
 
     Classic ChessBase integrity must not maintain a second pathname-open hashing
-    implementation.  ``import_contract.fingerprint`` already rejects symlink /
+    implementation. ``import_contract.fingerprint`` already rejects symlink /
     reparse indirection, binds the opened descriptor to the validated pathname,
     double-hashes the exact inode to catch same-size concurrent mutation, and
     revalidates the public path before provenance publication.
+
+    Keep the probe/submitted path spelling in the ChessBase snapshot. On Windows
+    the canonical fingerprint may expand an 8.3 alias while publishing its own
+    provenance path; rewriting this API-visible family path would make an
+    unchanged source compare different (`RUNNER~1` versus its long spelling).
+    Descriptor identity and digest validation remain entirely canonical.
     """
 
     safe_name = report_safe_name(path)
@@ -67,7 +73,7 @@ def _fingerprint(path: Path, extension: str, role: str) -> SourceFileEvidence:
             f"ChessBase source evidence is unavailable or changed for {safe_name}"
         ) from exc
     return SourceFileEvidence(
-        path=Path(source.path),
+        path=path,
         extension=extension,
         role=role,
         size_bytes=source.size,
