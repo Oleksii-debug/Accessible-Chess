@@ -64,7 +64,7 @@ class W3Version2LanguageConsistencyTests(unittest.TestCase):
                 "V2 shell ignored the same persisted Settings.language",
             )
 
-    def test_runtime_language_change_persists_and_keeps_v2_snapshot_in_sync(self) -> None:
+    def test_runtime_language_change_persists_and_keeps_all_live_v2_surfaces_in_sync(self) -> None:
         """The existing language-select command must not split Stage1 and V2 state."""
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -82,15 +82,97 @@ class W3Version2LanguageConsistencyTests(unittest.TestCase):
                 board_dispatch=lambda *_args, **_kwargs: {"ok": True},
             )
             api.bind_version2_application(application)
+            native_refresh = mock.Mock(return_value=True)
+            api.bind_version2_language_refresh(native_refresh)
             try:
                 result = api.set_language("en")
                 self.assertTrue(result["ok"])
                 settings.set.assert_called_once_with("language", "en")
+                native_refresh.assert_called_once_with()
                 self.assertEqual(api.lang, "en")
+                snapshot = application.snapshot()
                 self.assertEqual(
-                    application.snapshot()["document"]["lang"],
+                    snapshot["document"]["lang"],
                     "en",
                     "V2 navigation would overwrite the English Stage1 document language",
+                )
+                self.assertEqual(
+                    snapshot["library"]["document"]["lang"],
+                    "en",
+                    "Library remained in the previous presentation language",
+                )
+                self.assertTrue(
+                    any(event.get("kind") == "language" for event in application.drain_events()),
+                    "V2 WebView poller was not woken after a successful language transition",
+                )
+            finally:
+                application.shutdown()
+                analysis.close()
+                api.close_analysis()
+
+    def test_failed_persistence_does_not_partially_change_live_language(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            database = AcsDatabase(root / "library.acsdb")
+            analysis = AnalysisService(lambda: None)
+            settings = mock.Mock()
+            settings.set.side_effect = RuntimeError("disk unavailable")
+            api = Version2ReleaseAccessibleChessAPI(
+                keymap_path=root / "keymap.json",
+                settings=settings,
+            )
+            application = Version2Application(
+                database,
+                progress_store=BookProgressStore(root / "book-progress.json"),
+                engine_assistance=EngineAssistedWorkflowService(analysis),
+                board_dispatch=lambda *_args, **_kwargs: {"ok": True},
+            )
+            api.bind_version2_application(application)
+            try:
+                result = api.set_language("en")
+                self.assertFalse(result["ok"])
+                self.assertEqual(api.lang, "uk")
+                self.assertEqual(application.snapshot()["document"]["lang"], "uk")
+                self.assertEqual(application.snapshot()["library"]["document"]["lang"], "uk")
+                self.assertFalse(application.drain_events())
+            finally:
+                application.shutdown()
+                analysis.close()
+                api.close_analysis()
+
+    def test_failed_native_menu_refresh_rolls_back_settings_and_v2_surfaces(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            database = AcsDatabase(root / "library.acsdb")
+            analysis = AnalysisService(lambda: None)
+            settings = mock.Mock()
+            api = Version2ReleaseAccessibleChessAPI(
+                keymap_path=root / "keymap.json",
+                settings=settings,
+            )
+            application = Version2Application(
+                database,
+                progress_store=BookProgressStore(root / "book-progress.json"),
+                engine_assistance=EngineAssistedWorkflowService(analysis),
+                board_dispatch=lambda *_args, **_kwargs: {"ok": True},
+            )
+            api.bind_version2_application(application)
+            native_refresh = mock.Mock(side_effect=[False, True])
+            api.bind_version2_language_refresh(native_refresh)
+            try:
+                result = api.set_language("en")
+                self.assertFalse(result["ok"])
+                self.assertEqual(
+                    settings.set.call_args_list,
+                    [mock.call("language", "en"), mock.call("language", "uk")],
+                )
+                self.assertEqual(api.lang, "uk")
+                snapshot = application.snapshot()
+                self.assertEqual(snapshot["document"]["lang"], "uk")
+                self.assertEqual(snapshot["library"]["document"]["lang"], "uk")
+                self.assertTrue(
+                    any(event.get("kind") == "language" for event in application.drain_events()),
+                    "rollback must wake the V2 renderer so stale English labels cannot remain visible",
                 )
             finally:
                 application.shutdown()
