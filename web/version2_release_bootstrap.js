@@ -56,10 +56,19 @@
     return "";
   }
 
+  function hiddenByAncestor(target) {
+    let node = target;
+    while (node) {
+      if (node.hidden) return true;
+      node = node.parentNode;
+    }
+    return false;
+  }
+
   function focusById(id) {
     if (!id) return false;
     const target = documentRef.getElementById(id);
-    if (!target || typeof target.focus !== "function") return false;
+    if (!target || hiddenByAncestor(target) || typeof target.focus !== "function") return false;
     if (!target.hasAttribute("tabindex") && !/^(BUTTON|INPUT|SELECT|TEXTAREA|A)$/.test(target.tagName)) {
       target.setAttribute("tabindex", "-1");
     }
@@ -238,10 +247,11 @@
         if (!refreshRequired) return;
         needsRefresh = true;
         const payload = event && event.payload && typeof event.payload === "object" ? event.payload : {};
-        queuedFocusTarget = typeof payload.focus_target === "string" ? payload.focus_target : "";
+        const candidate = typeof payload.focus_target === "string" ? payload.focus_target : "";
+        if (candidate) queuedFocusTarget = candidate;
       });
       if (needsRefresh) {
-        refresh(false).then(function () {
+        refresh(true).then(function () {
           if (queuedFocusTarget) focusById(queuedFocusTarget);
         }, function () {});
       }
