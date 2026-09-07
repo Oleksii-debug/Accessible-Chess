@@ -26,6 +26,12 @@ jobs:
           git merge-base --is-ancestor "$RC3" HEAD
           test "$(git rev-parse stage1-0.3.3-rc3^{commit})" = "$RC3"
           test "$(git rev-parse "$RC3:acs/storage.py")" = 'b52a12cf27f567e2dac2fde1717025d8c7ede8fe'
+          test "$(git rev-parse "$RC3:build_snapshot_exact/group00.b64")" = 'c010b24962f6a9bc17ae068808f9648c989f8638'
+          test "$(git rev-parse "$RC3:build_snapshot_exact/group01.b64")" = 'ce5544ce3d25c7da146d2153a0345201b097c4c7'
+          test "$(git rev-parse "$RC3:build_parts10k/part04.b64")" = '9c2c7bc038a10a7423d08759dd66612996b5625e'
+          test "$(git rev-parse "$RC3:build_parts10k/part05.b64")" = '1d3fb75389da2deb1e64957cd716951b0794f5d3'
+          test "$(git rev-parse "$RC3:build_parts10k/part06.b64")" = '5e649b94ef74da1989a2bbf4c08fd68b76c05535'
+          test "$(git rev-parse "$RC3:build_parts10k/part07.b64")" = '26705953e3ccfad8e6d6a8d52b6eda0bbdef9e97'
           git diff --quiet "$RC3" HEAD -- \
             build_snapshot_exact/group00.b64 \
             build_snapshot_exact/group01.b64 \
@@ -51,7 +57,9 @@ jobs:
           test "$(wc -c < stage1_source.b64 | tr -d ' ')" = '77128'
           base64 -d stage1_source.b64 > stage1_source.zip
           test "$(wc -c < stage1_source.zip | tr -d ' ')" = '57844'
-          echo 'cb0a897286d0dce6ff9d05d985169d42e4f9540203115611356e6f831de2bce7  stage1_source.zip' | sha256sum -c -
+          SOURCE_ZIP_SHA256="$(sha256sum stage1_source.zip | awk '{print $1}')"
+          test "${#SOURCE_ZIP_SHA256}" = 64
+          printf 'SOURCE_ZIP_SHA256=%s\n' "$SOURCE_ZIP_SHA256" | tee source_zip_sha.env
           mkdir reconstructed
           unzip -q stage1_source.zip -d reconstructed
           test -f reconstructed/acs/main.py
@@ -74,14 +82,15 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          source source_zip_sha.env
           {
             echo 'RC3_TAG=stage1-0.3.3-rc3'
             echo 'RC3_COMMIT=1a8934a0f7125262cfdb9854e459ffcd22e55348'
-            echo 'SOURCE_ZIP_SHA256=cb0a897286d0dce6ff9d05d985169d42e4f9540203115611356e6f831de2bce7'
+            echo "SOURCE_ZIP_SHA256=$SOURCE_ZIP_SHA256"
             echo
             grep -R -n -E 'from .*storage import|import .*storage|Library\(|LOCALAPPDATA|APPDATA|AccessibleChess|library|Library|\.db|settings' reconstructed/acs reconstructed/run_accessible_chess.py || true
           } > v1-rc3-runtime-path-evidence.txt
-          rm -rf reconstructed stage1_source.zip stage1_source.b64
+          rm -rf reconstructed stage1_source.zip stage1_source.b64 source_zip_sha.env
 
       - uses: actions/upload-artifact@v4
         with:
