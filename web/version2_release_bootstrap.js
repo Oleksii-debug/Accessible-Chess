@@ -218,6 +218,10 @@
     return actionId.indexOf("pgn.") === 0 || actionId.indexOf("library.") === 0 || actionId.indexOf("book.") === 0;
   }
 
+  function delegatedHasOwnPresentationEvent(actionId) {
+    return actionId === "library.import" || actionId === "library.cancel_import";
+  }
+
   function refreshStage1Surface() {
     if (typeof global.refreshState !== "function") {
       announce(uiText("Не вдалося оновити дошку.", "Could not refresh the board."));
@@ -246,6 +250,7 @@
     }
     if (event.kind === "delegated") {
       const actionId = typeof payload.action_id === "string" ? payload.action_id : "";
+      if (delegatedHasOwnPresentationEvent(actionId)) return false;
       if (actionId && !isVersion2DomainAction(actionId)) {
         refreshStage1Surface();
         return false;
