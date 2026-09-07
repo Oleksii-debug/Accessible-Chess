@@ -1,0 +1,99 @@
+name: V2 Shared Review Live State Isolation
+
+on:
+  push:
+    branches:
+      - work/v2-shared-review-live-state-isolation-20260907
+  pull_request:
+    paths:
+      - '.github/workflows/v2-shared-review-live-state-isolation.yml'
+      - 'acs/version2_release_ui.py'
+      - 'tests/test_version2_shared_review_projection_isolation.py'
+      - 'tests/test_version2_pgn_review_live_state_isolation.py'
+      - 'tests/test_version2_book_review_live_state_isolation.py'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: v2-shared-review-live-state-isolation-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  REVIEW_PARENT: 31934608ed62f2485b5a17972f7536dac72e98e3
+
+jobs:
+  review-state-isolation:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install pinned test dependency
+        run: python -m pip install -q pytest==8.4.2
+
+      - name: Prove exact base and bounded Product scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor "$REVIEW_PARENT" HEAD
+          git diff --check "$REVIEW_PARENT" HEAD
+          changed="$(git diff --name-only "$REVIEW_PARENT" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/v2-shared-review-live-state-isolation.yml' \
+            'acs/version2_release_ui.py' \
+            'tests/test_version2_book_review_live_state_isolation.py' \
+            'tests/test_version2_pgn_review_live_state_isolation.py' \
+            'tests/test_version2_shared_review_projection_isolation.py' | sort)"
+          test "$changed" = "$expected" || {
+            printf 'Unexpected P0 review-isolation scope:\n%s\n' "$changed" >&2
+            exit 1
+          }
+
+      - name: Compile owned boundary
+        run: >-
+          python -m compileall -q
+          acs/version2_release_ui.py
+          acs/version2_application.py
+          tests/test_version2_shared_review_projection_isolation.py
+          tests/test_version2_pgn_review_live_state_isolation.py
+          tests/test_version2_book_review_live_state_isolation.py
+
+      - name: Focused review isolation and board projection regressions
+        run: >-
+          python -m unittest -v
+          tests.test_version2_shared_review_projection_isolation
+          tests.test_version2_pgn_review_live_state_isolation
+          tests.test_version2_book_review_live_state_isolation
+          tests.test_version2_pgn_real_board_projection
+          tests.test_version2_book_real_board_projection
+          tests.test_version2_release_ui
+          tests.test_version2_application
+
+      - name: Focused pytest parity
+        run: >-
+          python -m pytest -q
+          tests/test_version2_shared_review_projection_isolation.py
+          tests/test_version2_pgn_review_live_state_isolation.py
+          tests/test_version2_book_review_live_state_isolation.py
+          tests/test_version2_pgn_real_board_projection.py
+          tests/test_version2_book_real_board_projection.py
+          tests/test_version2_release_ui.py
+          tests/test_version2_application.py
+
+      - name: Full unittest regression
+        run: python -m unittest discover -s tests -v
+
+      - name: Full pytest regression
+        run: python -m pytest -q
