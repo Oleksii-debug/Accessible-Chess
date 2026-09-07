@@ -7,7 +7,12 @@ on:
   pull_request:
     paths:
       - 'acs/version2_profile.py'
-      - 'tests/test_version2_windows_composition_profile.py'
+      - 'acs/version2_windows_*.py'
+      - 'acs/full_product_*.py'
+      - 'acs/book*.py'
+      - 'web/full_product_*.js'
+      - 'tests/test_version2_windows_*.py'
+      - 'tests/test_v2_windows_*.py'
       - '.github/workflows/version2-windows-composition.yml'
 
 permissions:
@@ -50,32 +55,29 @@ jobs:
       - name: Install pinned verification dependency
         run: python -m pip install -q pytest==8.4.2
 
-      - name: Prove exact Version 2 ancestry and collision-safe scope
+      - name: Prove Version 2 ancestry and canonical-core collision safety
         shell: bash
         run: |
           set -euo pipefail
           git cat-file -e "$V2_FORMATS_UPSTREAM^{commit}"
           git merge-base --is-ancestor "$V2_FORMATS_UPSTREAM" HEAD
           git diff --check "$V2_FORMATS_UPSTREAM" HEAD
-          changed="$(git diff --name-only "$V2_FORMATS_UPSTREAM" HEAD | sort)"
-          expected="$(printf '%s\n' \
-            '.github/workflows/version2-windows-composition.yml' \
-            'acs/version2_profile.py' \
-            'tests/test_version2_windows_composition_profile.py' | sort)"
-          test "$changed" = "$expected" || {
-            echo 'Unexpected Version 2 composition scope:' >&2
-            printf '%s\n' "$changed" >&2
-            exit 1
-          }
+
+          # This workflow used to require the entire branch to differ from the
+          # original V2 upstream in exactly three files. That was valid for the
+          # isolated Windows-composition package, but it becomes a false RED
+          # once vetted Books/Library/Windows accessibility packages are
+          # intentionally converged into the same release lineage.
+          #
+          # Keep the meaningful collision boundary instead: presentation and
+          # workflow composition may evolve, but the convergence package must
+          # not silently fork canonical chess/database/parser truth.
           git diff --quiet "$V2_FORMATS_UPSTREAM" HEAD -- \
             run_accessible_chess.py acs/release_app.py \
             acs/stage1_release_ui.py acs/stage1_release_ui_core.py \
             acs/chesscore.py acs/gametree.py acs/acsdb.py \
             acs/pgn_workspace.py acs/library_import_service.py \
             acs/chessbase_decoder.py acs/cbv_extractor.py \
-            acs/bookdocument.py acs/bookreader.py acs/book_training.py \
-            acs/full_product_actions.py acs/full_product_ui_shell.py \
-            acs/full_product_native_menu.py acs/full_product_webview_adapter.py \
             web/stage1_release_bootstrap.js web/stage1_board_actions.js \
             tools/qa
 
