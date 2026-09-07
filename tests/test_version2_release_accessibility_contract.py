@@ -4,9 +4,10 @@ import unittest
 from pathlib import Path
 
 
-BOOTSTRAP = (
-    Path(__file__).resolve().parents[1] / "web" / "version2_release_bootstrap.js"
-).read_text(encoding="utf-8")
+ROOT = Path(__file__).resolve().parents[1]
+BOOTSTRAP = (ROOT / "web" / "version2_release_bootstrap.js").read_text(encoding="utf-8")
+HTML = (ROOT / "web" / "index.html").read_text(encoding="utf-8")
+SHELL = (ROOT / "acs" / "full_product_ui_shell.py").read_text(encoding="utf-8")
 
 
 class Version2ReleaseAccessibilityContractTests(unittest.TestCase):
@@ -45,6 +46,19 @@ class Version2ReleaseAccessibilityContractTests(unittest.TestCase):
         ):
             with self.subTest(text=english):
                 self.assertIn(english, BOOTSTRAP)
+
+    def test_initial_snapshot_restores_the_shell_keyboard_focus_target(self) -> None:
+        # The shell's initial Board route names the real Stage 1 move edit as its
+        # keyboard target. The V2 bootstrap must apply that target on the first
+        # snapshot rather than leaving WebView2/NVDA focus at an undefined body.
+        self.assertIn('default_focus_id="move-input"', SHELL)
+        self.assertIn('<input id="move-input" type="text"', HTML)
+        self.assertIn('function restoreStage1Focus(routeId, requestedFocus)', BOOTSTRAP)
+        self.assertIn('if (focusById(requestedFocus)) return true;', BOOTSTRAP)
+        self.assertIn('return focusById(stage1Focus[routeId] || "");', BOOTSTRAP)
+        self.assertIn('return documentRef.activeElement === target;', BOOTSTRAP)
+        self.assertIn('refresh(true).catch(function () {', BOOTSTRAP)
+        self.assertNotIn('refresh(false).catch(function () {', BOOTSTRAP)
 
 
 if __name__ == "__main__":
