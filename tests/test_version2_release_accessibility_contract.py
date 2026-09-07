@@ -95,8 +95,24 @@ class Version2ReleaseAccessibilityContractTests(unittest.TestCase):
         self.assertIn('if (focusById(productSurfaceFocusTarget(snapshot, routeId))) return true;', BOOTSTRAP)
         self.assertIn('if (focusById(requestedFocus)) return true;', BOOTSTRAP)
         self.assertIn('return focusById("v2-nav-" + routeId);', BOOTSTRAP)
-        self.assertIn('renderProductSurface(snapshot, routeId, requestedFocus, restoreFocus);', BOOTSTRAP)
+        self.assertIn('renderProductSurface(snapshot, routeId, requestedFocus, restoreFocus, heading);', BOOTSTRAP)
         self.assertIn('if (restoreFocus) restoreProductFocus(snapshot, routeId, requestedFocus);', BOOTSTRAP)
+
+    def test_empty_pgn_and_books_routes_have_heading_and_focusable_status(self) -> None:
+        # Before any file is opened, entering PGN or Books must put keyboard/UIA
+        # focus on an explanatory status inside the product main landmark rather
+        # than silently leaving focus on the navigation control that was invoked.
+        self.assertIn('function emptyStatusId(routeId)', BOOTSTRAP)
+        self.assertIn('return "v2-" + routeId + "-empty-status";', BOOTSTRAP)
+        self.assertIn('function renderEmptyProduct(routeId, heading)', BOOTSTRAP)
+        self.assertIn('const title = documentRef.createElement("h2");', BOOTSTRAP)
+        self.assertIn('title.textContent = String(heading ||', BOOTSTRAP)
+        self.assertIn('status.id = emptyStatusId(routeId);', BOOTSTRAP)
+        self.assertIn('status.tabIndex = -1;', BOOTSTRAP)
+        self.assertIn('workspace.replaceChildren(title, status);', BOOTSTRAP)
+        self.assertIn('return emptyStatusId(routeId);', BOOTSTRAP)
+        self.assertIn('renderEmptyProduct(routeId, heading);', BOOTSTRAP)
+        self.assertIn('const heading = String(screen.heading || "");', BOOTSTRAP)
 
     def test_global_navigation_focus_does_not_overwrite_route_local_history(self) -> None:
         focus_start = BOOTSTRAP.index('  documentRef.addEventListener("focusin"')
