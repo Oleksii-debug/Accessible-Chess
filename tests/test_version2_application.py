@@ -125,6 +125,37 @@ class Version2ApplicationTests(unittest.TestCase):
         self.assertIsNone(self.app.books)
         self.assertEqual(self.app.shell.current_route.route_id, before_route)
 
+    def test_book_open_progress_failure_browser_path_is_sanitized_and_atomic(self):
+        book = self.root / "browser-atomic.md"
+        book.write_text("# Browser atomic\n\nText\n", encoding="utf-8")
+        before_route = self.app.shell.current_route.route_id
+        self.app.open_book_dialog = lambda: book
+
+        class FailingProgressStore:
+            def has(self, _book_key):
+                return False
+
+            def restore(self, _book_key, _document):
+                raise AssertionError("restore must not run without saved progress")
+
+            def save(self, _book_key, _reader):
+                raise OSError(f"private progress path: {book}")
+
+        self.app.progress_store = FailingProgressStore()
+        result = self.app.browser_command("shell", "book.open")
+        serialized = json.dumps(result, ensure_ascii=False)
+
+        self.assertEqual(result["kind"], "error")
+        self.assertNotIn(str(book), serialized)
+        self.assertNotIn("OSError", serialized)
+        self.assertNotIn("private progress path", serialized)
+        self.assertIsNone(self.app.reader)
+        self.assertIsNone(self.app.book_key)
+        self.assertIsNone(self.app.book_workflow)
+        self.assertIsNone(self.app.book_delegate)
+        self.assertIsNone(self.app.books)
+        self.assertEqual(self.app.shell.current_route.route_id, before_route)
+
     def test_replacing_book_progress_failure_preserves_current_book(self):
         first = self.root / "first.md"
         second = self.root / "second.md"
