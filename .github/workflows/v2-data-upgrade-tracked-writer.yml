@@ -20,6 +20,10 @@ concurrency:
   group: v2-data-upgrade-tracked-writer-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  DATA_OWNER: 9828010f7b0c08776684a176352ad1914eeb6409
+  D07_V6_BLOB: f5dd56e017c09aa8bf2ba3aa66c0658f8a229e74
+
 jobs:
   tracked-writer:
     strategy:
@@ -36,31 +40,30 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Exact successor ownership
+      - name: Exact owner ancestry and Product immutability
         shell: bash
         run: |
           set -euo pipefail
-          BASE=6e7b449193d795e76c9f5409d2a162bdf017af3d
-          test "$(git merge-base "$BASE" HEAD)" = "$BASE"
-          git diff --check "$BASE" HEAD
-          changed="$(git diff --name-only "$BASE" HEAD | sort)"
-          expected="$(printf '%s\n' \
-            '.github/workflows/v2-data-upgrade-v6.yml' \
-            '.github/workflows/v2-data-upgrade-tracked-writer.yml' \
-            'acs/settings.py' \
-            'tests/test_v2_upgrade_publish_race_audit.py' \
-            'tests/test_v2_upgrade_tracked_writer_conflict.py' | sort)"
-          if test "$(git rev-parse HEAD:acs/version2_upgrade.py)" != "f4f99cf3d97116405c483deddcd1a9e60dc1f803"; then
-            expected="$(printf '%s\n' \
-              '.github/workflows/v2-data-upgrade-v6.yml' \
-              '.github/workflows/v2-data-upgrade-tracked-writer.yml' \
-              'acs/settings.py' \
-              'acs/version2_upgrade.py' \
-              'tests/test_v2_upgrade_publish_race_audit.py' \
-              'tests/test_v2_upgrade_tracked_writer_conflict.py' | sort)"
-          fi
-          test "$changed" = "$expected"
-          test "$(git rev-parse HEAD:acs/acsdb.py)" = "f5dd56e017c09aa8bf2ba3aa66c0658f8a229e74"
+          git cat-file -e "$DATA_OWNER^{commit}"
+          git merge-base --is-ancestor "$DATA_OWNER" HEAD
+          git diff --check "$DATA_OWNER" HEAD -- \
+            acs/settings.py \
+            acs/version2_upgrade.py \
+            tests/test_v2_upgrade_publish_race_audit.py \
+            tests/test_v2_upgrade_tracked_writer_conflict.py
+          test "$(git rev-parse HEAD:acs/acsdb.py)" = "$D07_V6_BLOB"
+          while IFS='=' read -r path expected; do
+            actual="$(git rev-parse "HEAD:$path")"
+            test "$actual" = "$expected" || {
+              echo "Accepted V2 data owner drift: $path expected=$expected actual=$actual" >&2
+              exit 1
+            }
+          done <<'LOCKS'
+          acs/settings.py=3d0dfe1b6765128a970543ff57e533620a80e5fc
+          acs/version2_upgrade.py=b92a2c75e23ffb5944b1a3a758e20c56da34315f
+          tests/test_v2_upgrade_publish_race_audit.py=b70d5fa08dae643c9c1a082d7abe98d913d8678a
+          tests/test_v2_upgrade_tracked_writer_conflict.py=5d04c0dd33a19912ff939f6010df8ee210c4fdeb
+          LOCKS
       - name: Compile
         run: python -m compileall -q acs tests
       - name: Existing upgrade regressions
@@ -92,7 +95,8 @@ jobs:
         run: python -m unittest discover -s tests -v
       - name: Full pytest
         run: python -m pytest -q tests
-      - name: SELFTEST and complete diagnostic
+      - name: SELFTEST and complete diagnostics
         run: |
           python -m acs.selftest
           python run_accessible_chess.py --diagnostic
+          if [ -f run_accessible_chess_v2.py ]; then python run_accessible_chess_v2.py --diagnostic; fi
