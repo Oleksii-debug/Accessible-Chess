@@ -225,14 +225,17 @@
   function refreshStage1Surface() {
     if (typeof global.refreshState !== "function") {
       announce(uiText("Не вдалося оновити дошку.", "Could not refresh the board."));
-      return;
+      return Promise.resolve(false);
     }
-    Promise.resolve(global.refreshState()).catch(function () {
+    return Promise.resolve(global.refreshState()).then(function () {
+      return true;
+    }, function () {
       announce(uiText("Не вдалося оновити дошку.", "Could not refresh the board."));
+      return false;
     });
   }
 
-  function applyQueuedEvent(event) {
+  function applyQueuedEvent(event, orderedStage1Refreshes) {
     if (!event || typeof event !== "object") return false;
     const payload = event.payload && typeof event.payload === "object" ? event.payload : {};
     if (event.kind === "render-import") {
@@ -258,9 +261,11 @@
     }
     if (event.kind === "book-board") {
       // A BookBoard workflow has already projected a new canonical review FEN
-      // into the shared release API.  The original Stage 1 DOM owns the actual
-      // 64-square accessible board, so repaint it before V2 restores Board focus.
-      refreshStage1Surface();
+      // into the shared release API. The original Stage 1 DOM owns the actual
+      // 64-square accessible board. Treat that repaint as an ordered dependency
+      // of the route/focus transition rather than restoring focus while its
+      // asynchronous refreshState() call is still in flight.
+      orderedStage1Refreshes.push(refreshStage1Surface());
     }
     if (payload.announcement) announce(payload.announcement);
     if (event.kind === "error" && payload.message) announce(payload.message);
@@ -274,8 +279,9 @@
       if (!Array.isArray(events) || !events.length) return;
       let needsRefresh = false;
       let queuedFocusTarget = "";
+      const orderedStage1Refreshes = [];
       events.forEach(function (event) {
-        const refreshRequired = applyQueuedEvent(event);
+        const refreshRequired = applyQueuedEvent(event, orderedStage1Refreshes);
         if (!refreshRequired) return;
         needsRefresh = true;
         const payload = event && event.payload && typeof event.payload === "object" ? event.payload : {};
@@ -283,7 +289,12 @@
         if (candidate) queuedFocusTarget = candidate;
       });
       if (needsRefresh) {
-        refresh(true).then(function () {
+        const repaintBarrier = orderedStage1Refreshes.length
+          ? Promise.all(orderedStage1Refreshes)
+          : Promise.resolve();
+        repaintBarrier.then(function () {
+          return refresh(true);
+        }).then(function () {
           if (queuedFocusTarget) focusById(queuedFocusTarget);
         }, function () {});
       }
