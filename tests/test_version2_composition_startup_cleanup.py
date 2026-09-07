@@ -59,6 +59,31 @@ class Version2CompositionStartupCleanupTests(unittest.TestCase):
             analysis.close.assert_called_once_with()
             runtime.close.assert_called_once_with()
 
+    def test_cleanup_failure_preserves_primary_startup_error_and_continues_unwind(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            runtime = mock.Mock()
+            runtime.provider = mock.Mock()
+            analysis = mock.Mock()
+            continuous = mock.Mock()
+            continuous.close.side_effect = RuntimeError("cleanup failed")
+            with (
+                mock.patch.object(release_app, "_prepare_version2_user_data", return_value=self._layout(root)),
+                mock.patch.object(release_app, "AnalysisService", return_value=analysis),
+                mock.patch.object(release_app, "ContinuousAnalysisService", return_value=continuous),
+                mock.patch.object(release_app, "EnginePlayService", return_value=mock.Mock()),
+                mock.patch.object(release_app, "Settings", side_effect=RuntimeError("primary startup failure")),
+            ):
+                with self.assertRaisesRegex(RuntimeError, "primary startup failure"):
+                    release_app.create_version2_release_application(
+                        runtime_factory=lambda _config: runtime,
+                        sound_playback=object(),
+                    )
+
+            continuous.close.assert_called_once_with()
+            analysis.close.assert_called_once_with()
+            runtime.close.assert_called_once_with()
+
     def test_database_construction_failure_closes_complete_engine_stack(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
