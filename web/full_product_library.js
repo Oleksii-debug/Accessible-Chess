@@ -16,7 +16,8 @@
     if (!focusTarget) return;
     if (focusTarget === "library-search-player" ||
         focusTarget === "library-import-file" ||
-        focusTarget === "library-import-cancel") {
+        focusTarget === "library-import-cancel" ||
+        (focusTarget.indexOf("library-game-") === 0 && focusTarget.endsWith("-export"))) {
       const control = root.querySelector("#" + focusTarget);
       if (control && typeof control.focus === "function") control.focus({ preventScroll: true });
       return;
@@ -205,6 +206,33 @@
     host.appendChild(section);
   }
 
+  function renderExportSelection(root, host, snapshot, invoke, announce) {
+    const rows = Array.isArray(snapshot.rows) ? snapshot.rows : [];
+    if (!snapshot.export_selection_heading || !rows.length) return;
+    const fieldset = node("fieldset");
+    fieldset.id = "library-export-selection";
+    fieldset.appendChild(node("legend", snapshot.export_selection_heading));
+    rows.forEach(function (row) {
+      if (!row.export_dom_id || !row.export_label) return;
+      const wrapper = node("div");
+      const checkbox = node("input");
+      checkbox.type = "checkbox";
+      checkbox.id = String(row.export_dom_id);
+      checkbox.checked = !!row.export_selected;
+      const label = node("label", row.export_label);
+      label.htmlFor = checkbox.id;
+      checkbox.addEventListener("change", function () {
+        invokeCommand(root, invoke, announce, snapshot, "library.toggle_export_selection", {
+          game_id: row.game_id
+        });
+      });
+      wrapper.appendChild(checkbox);
+      wrapper.appendChild(label);
+      fieldset.appendChild(wrapper);
+    });
+    host.appendChild(fieldset);
+  }
+
   function renderActions(root, host, snapshot, invoke, announce) {
     const toolbar = node("div");
     toolbar.setAttribute("role", "toolbar");
@@ -236,6 +264,7 @@
     renderImport(root, main, snapshot, invoke, announce);
     renderFilters(root, main, snapshot, invoke, announce);
     renderResults(root, main, snapshot, invoke, announce);
+    renderExportSelection(root, main, snapshot, invoke, announce);
     renderActions(root, main, snapshot, invoke, announce);
     if (snapshot.message) {
       const message = node("p", snapshot.message);

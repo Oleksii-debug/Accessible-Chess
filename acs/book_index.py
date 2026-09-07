@@ -10,7 +10,18 @@ keyboard shortcuts and has no WebView/DOM dependency.
 from dataclasses import dataclass
 from enum import Enum
 
-from .bookdocument import BookDocument, Diagram, Exercise, Game, Heading, Note, Paragraph, Position, VariationTree
+from .bookdocument import (
+    BookDocument,
+    Diagram,
+    Exercise,
+    Game,
+    Heading,
+    ListBlock,
+    Note,
+    Paragraph,
+    Position,
+    VariationTree,
+)
 
 
 class BookEntryKind(str, Enum):
@@ -21,6 +32,7 @@ class BookEntryKind(str, Enum):
     VARIATION = "variation"
     NOTE = "note"
     PARAGRAPH = "paragraph"
+    LIST = "list"
 
 
 @dataclass(frozen=True, slots=True)
@@ -104,6 +116,10 @@ class BookIndex:
             return BookEntryKind.NOTE, block.text
         if isinstance(block, Paragraph):
             return BookEntryKind.PARAGRAPH, block.text
+        if isinstance(block, ListBlock):
+            # Index/search needs one concise deterministic label, while the
+            # BookDocument retains item boundaries and ordering as semantic data.
+            return BookEntryKind.LIST, block.items[0]
         raise TypeError(f"Unsupported BookDocument block type: {type(block).__name__}")
 
     def _build_entries(self):

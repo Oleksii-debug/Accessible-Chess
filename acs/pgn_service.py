@@ -18,9 +18,9 @@ import os
 from pathlib import Path
 import stat
 import tempfile
-from typing import Iterable
+from typing import Iterable, TextIO
 
-from .gametree import PgnGame, parse_games, serialize_games
+from .gametree import PgnGame, parse_games, serialize_game
 from .import_contract import (
     ImportQuality,
     ImportReport,
@@ -358,6 +358,20 @@ def _publish_expected_hash(
             _cleanup_redundant_link_after_commit(snapshot)
 
 
+def _write_games_incrementally(handle: TextIO, games: Iterable[PgnGame]) -> None:
+    """Write canonical multi-game PGN without materializing the collection/text."""
+
+    first = True
+    for game in games:
+        block = serialize_game(game).rstrip()
+        if not first:
+            handle.write("\n\n")
+        handle.write(block)
+        first = False
+    if not first:
+        handle.write("\n")
+
+
 def save_pgn_atomic(
     path: str | Path,
     games: Iterable[PgnGame],
@@ -366,6 +380,12 @@ def save_pgn_atomic(
     expected_sha256: str | None = None,
 ) -> SourceFingerprint:
     """Serialize GameTree content and commit one complete PGN file safely.
+
+    Games are consumed and serialized one at a time into the unpublished
+    temporary file. This preserves canonical ``serialize_games`` byte layout
+    without holding the complete collection or complete PGN text in memory.
+    Publication remains atomic: iterator/serialization failure leaves the
+    destination unchanged and the temporary file is removed.
 
     ``overwrite=False`` uses an atomic no-clobber hard-link publication in the
     destination directory. ``expected_sha256`` uses a recoverable pre-commit
@@ -383,7 +403,6 @@ def save_pgn_atomic(
     if expected_sha256 is not None and current_sha != expected_sha256:
         raise PgnConcurrentWriteError(f"PGN changed since it was opened: {destination}")
 
-    payload = serialize_games(tuple(games))
     destination.parent.mkdir(parents=True, exist_ok=True)
     _reject_export_indirection(destination)
 
@@ -399,7 +418,7 @@ def save_pgn_atomic(
             delete=False,
         ) as handle:
             tmp_path = Path(handle.name)
-            handle.write(payload)
+            _write_games_incrementally(handle, games)
             handle.flush()
             os.fsync(handle.fileno())
 

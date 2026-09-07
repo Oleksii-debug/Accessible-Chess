@@ -3,7 +3,7 @@ import sqlite3
 import tempfile
 import unittest
 
-from acs.acsdb import AcsDatabase
+from acs.acsdb import ACSDB_SCHEMA_VERSION, AcsDatabase
 from acs.gametree import PgnGame, VariationLine
 from acs.library_import_service import (
     LibraryImportCancelledError,
@@ -284,7 +284,7 @@ class D07LibraryImportServiceTests(unittest.TestCase):
                 self.assertEqual(database.get_game(result.last_game_id)["source_index"], 4999)
 
             with AcsDatabase(path) as reopened:
-                self.assertEqual(reopened.schema_version, 3)
+                self.assertEqual(reopened.schema_version, ACSDB_SCHEMA_VERSION)
                 self.assertEqual(reopened.conn.execute("SELECT COUNT(*) FROM games").fetchone()[0], 5000)
                 source = reopened.conn.execute(
                     "SELECT id FROM sources WHERE source_name=?",
