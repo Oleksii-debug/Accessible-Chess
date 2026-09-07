@@ -41,6 +41,17 @@
     return result;
   }
 
+  function pieceMap(snapshot) {
+    const pieces = Array.isArray(snapshot.pieces) ? snapshot.pieces : [];
+    const result = Object.create(null);
+    pieces.forEach(function (item) {
+      if (!item || typeof item !== "object") return;
+      const square = String(item.square || "");
+      if (/^[a-h][1-8]$/.test(square)) result[square] = item;
+    });
+    return result;
+  }
+
   function applySquareState(button, snapshot) {
     const square = button.getAttribute("data-square");
     const pointer = snapshot.pointer && snapshot.pointer.square === square;
@@ -56,6 +67,7 @@
     const visual = node("section");
     visual.id = "teacher-visual-region";
     const boardState = snapshot.board || {};
+    const pieces = pieceMap(snapshot);
     const grid = node("div");
     grid.id = "teacher-visual-board";
     grid.setAttribute("role", "grid");
@@ -65,19 +77,32 @@
     boardSquares(String(boardState.orientation || "white")).forEach(function (square) {
       const cell = node("div");
       cell.setAttribute("role", "gridcell");
-      const button = node("button", boardState.coordinates_visible === false ? "" : square);
+      const piece = pieces[square] || null;
+      const coordinateVisible = boardState.coordinates_visible !== false;
+      const glyph = piece ? String(piece.glyph || "") : "";
+      const visibleText = piece ? (glyph + (coordinateVisible ? " " + square : "")) : (coordinateVisible ? square : "");
+      const button = node("button", visibleText);
       button.type = "button";
       button.id = "teacher-square-" + square;
       button.setAttribute("data-square", square);
-      button.setAttribute("aria-label", square);
+      button.setAttribute("data-piece", piece ? String(piece.symbol || "") : "");
+      button.setAttribute("aria-label", piece && piece.name ? square + ", " + String(piece.name) : square);
       applySquareState(button, snapshot);
       button.addEventListener("mouseenter", function () {
-        safeInvoke(invoke, "teacher.student_event", { kind: "hover", square: square, piece_name: "" }, function (result) {
+        safeInvoke(invoke, "teacher.student_event", {
+          kind: "hover",
+          square: square,
+          piece_name: piece && piece.name ? String(piece.name) : ""
+        }, function (result) {
           applyTeacherEvent(visual.parentNode, result, invoke, announce, fallbackMessage);
         }, announce, fallbackMessage);
       });
       button.addEventListener("click", function () {
-        safeInvoke(invoke, "teacher.student_event", { kind: "select", square: square, piece_name: "" }, function (result) {
+        safeInvoke(invoke, "teacher.student_event", {
+          kind: "select",
+          square: square,
+          piece_name: piece && piece.name ? String(piece.name) : ""
+        }, function (result) {
           applyTeacherEvent(visual.parentNode, result, invoke, announce, fallbackMessage);
         }, announce, fallbackMessage);
       });
