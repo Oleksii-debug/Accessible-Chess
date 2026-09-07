@@ -57,7 +57,7 @@ class Version2ReleaseAccessibleChessAPI(Stage1ReleaseAccessibleChessAPI):
         """Map the inherited Stage1 key handler onto the active V2 registry contexts.
 
         The shipped document already owns keyboard capture and protects editable
-        controls/selection shortcuts.  Reusing that handler avoids a second JS
+        controls/selection shortcuts. Reusing that handler avoids a second JS
         shortcut engine: only its final Python resolution seam gains V2 context
         fallbacks after the requested Stage1 context has missed.
         """
@@ -117,11 +117,11 @@ class Version2ReleaseAccessibleChessAPI(Stage1ReleaseAccessibleChessAPI):
     def dispatch_action(self, action_id: str, square: str | None = None) -> dict[str, Any]:
         """Keep the inherited Stage1 keyboard fallback valid for V2 registry actions.
 
-        ``web/index.html`` is still the one keyboard owner for the canonical board.
-        When its shared keymap resolves a V2-only action, route that exact action
-        through the accepted V2 adapter instead of returning Stage1
-        ``Command unavailable``. Stage1 actions continue unchanged through the
-        parent API.
+        ``web/index.html`` remains the one keyboard owner for the canonical board.
+        Its ``apiAction`` helper renders every returned mapping as Stage1 state, so
+        a V2 keyboard action must return a complete current Stage1 projection while
+        the queued V2 command refreshes the V2 route separately. This avoids both a
+        second key handler and a transient blank/stale board projection.
         """
 
         if (
@@ -144,7 +144,9 @@ class Version2ReleaseAccessibleChessAPI(Stage1ReleaseAccessibleChessAPI):
             payload = dict(command.payload)
             if command.kind == "error":
                 return self._error(str(payload.get("message", "")))
-            return {"ok": True, "announcement": "", "v2": asdict(command)}
+            result = self._ok("")
+            result["v2"] = asdict(command)
+            return result
         return super().dispatch_action(action_id, square)
 
     def v2_snapshot(self) -> dict[str, object]:
@@ -171,7 +173,7 @@ class Version2ReleaseAccessibleChessAPI(Stage1ReleaseAccessibleChessAPI):
     ) -> dict[str, Any]:
         """Delegate V2 board/global actions to the canonical Stage 1 API.
 
-        The only payload accepted at this seam is an optional board square.  All
+        The only payload accepted at this seam is an optional board square. All
         richer V2 domain payloads remain owned by their format/library adapters.
         """
 
