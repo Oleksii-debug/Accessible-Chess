@@ -79,6 +79,12 @@ _STANDARD_TAGS = {
     "Result": "*",
 }
 
+# These two tags jointly define chess state, not ordinary descriptive metadata.
+# Allowing the generic tag editor to change only one of them can convert a
+# valid custom-start game into a different standard-start game.  The canonical
+# Position workflow owns atomic start-position changes.
+_POSITION_TAGS = frozenset(("SetUp", "FEN"))
+
 
 def _error(message: str, code: PgnDocumentErrorCode) -> PgnDocumentError:
     return PgnDocumentError(message, code=code)
@@ -318,6 +324,11 @@ class PgnDocumentSession:
             raise _error("PGN tag name must be non-empty text", PgnDocumentErrorCode.INVALID_TAG)
         if not isinstance(value, str):
             raise _error("PGN tag value must be text", PgnDocumentErrorCode.INVALID_TAG)
+        if name in _POSITION_TAGS:
+            raise _error(
+                "PGN start position must be changed through the position workflow",
+                PgnDocumentErrorCode.INVALID_TAG,
+            )
         if name == "Result":
             return self.set_result(value)
 
@@ -336,6 +347,11 @@ class PgnDocumentSession:
     def delete_tag(self, name: object) -> PgnWorkspaceView:
         if not isinstance(name, str) or not name or name == "Result":
             raise _error("PGN tag cannot be removed", PgnDocumentErrorCode.INVALID_TAG)
+        if name in _POSITION_TAGS:
+            raise _error(
+                "PGN start position must be changed through the position workflow",
+                PgnDocumentErrorCode.INVALID_TAG,
+            )
         old = self._workspace.view()
         games = list(self._workspace.games())
         games[old.selected_game_index].tags.pop(name, None)
