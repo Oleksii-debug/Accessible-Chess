@@ -1,0 +1,33 @@
+name: W3 Version2 PGN Board Projection Evidence
+
+on:
+  push:
+    branches:
+      - work/w3-pgn-board-runtime-evidence-20260907
+  pull_request:
+    paths:
+      - tests/test_w3_version2_pgn_board_projection.py
+      - .github/workflows/w3-version2-pgn-board-projection-evidence.yml
+
+jobs:
+  evidence:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify evidence-only scope
+        shell: bash
+        run: |
+          git diff --check
+          test "$(git diff --name-only c19a76e38e47f4f55bc50635eaed5f42400ecf10...HEAD | sort | tr '\n' ' ')" = ".github/workflows/w3-version2-pgn-board-projection-evidence.yml tests/test_w3_version2_pgn_board_projection.py "
+      - name: Compile evidence test
+        run: python -m py_compile tests/test_w3_version2_pgn_board_projection.py
+      - name: Run PGN-to-board release journey evidence
+        run: python -m unittest -v tests.test_w3_version2_pgn_board_projection
+
