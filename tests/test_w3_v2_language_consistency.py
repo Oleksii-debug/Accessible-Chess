@@ -87,14 +87,56 @@ class W3Version2LanguageConsistencyTests(unittest.TestCase):
                 self.assertTrue(result["ok"])
                 settings.set.assert_called_once_with("language", "en")
                 self.assertEqual(api.lang, "en")
+                snapshot = application.snapshot()
                 self.assertEqual(
-                    application.snapshot()["document"]["lang"],
+                    snapshot["document"]["lang"],
                     "en",
                     "V2 navigation would overwrite the English Stage1 document language",
+                )
+                self.assertEqual(
+                    snapshot["library"]["document"]["lang"],
+                    "en",
+                    "Library remained in a different language from the V2 shell",
                 )
             finally:
                 application.shutdown()
                 analysis.close()
+                api.close_analysis()
+
+    def test_runtime_language_change_updates_every_active_projection(self) -> None:
+        """Active PGN, Library and Books projections must follow the same setting."""
+        with tempfile.TemporaryDirectory() as temp:
+            settings = mock.Mock()
+            api = Version2ReleaseAccessibleChessAPI(
+                keymap_path=Path(temp) / "keymap.json",
+                settings=settings,
+            )
+            adapter = SimpleNamespace(set_language=mock.Mock())
+            pgn_projection = SimpleNamespace(set_language=mock.Mock())
+            library_projection = SimpleNamespace(set_language=mock.Mock())
+            books_projection = SimpleNamespace(set_language=mock.Mock())
+            application = SimpleNamespace(
+                snapshot=lambda: {},
+                browser_command=lambda *_args, **_kwargs: {},
+                drain_events=lambda: (),
+                record_focus=lambda *_args, **_kwargs: None,
+                native_command=lambda *_args, **_kwargs: None,
+                shutdown=lambda *_args, **_kwargs: True,
+                adapter=adapter,
+                pgn=SimpleNamespace(projection=pgn_projection),
+                library=SimpleNamespace(projection=library_projection),
+                books=SimpleNamespace(projection=books_projection),
+            )
+            api.bind_version2_application(application)
+            try:
+                result = api.set_language("en")
+                self.assertTrue(result["ok"])
+                settings.set.assert_called_once_with("language", "en")
+                adapter.set_language.assert_called_once_with("en")
+                pgn_projection.set_language.assert_called_once_with(UILanguage.EN)
+                library_projection.set_language.assert_called_once_with(UILanguage.EN)
+                books_projection.set_language.assert_called_once_with(UILanguage.EN)
+            finally:
                 api.close_analysis()
 
 
