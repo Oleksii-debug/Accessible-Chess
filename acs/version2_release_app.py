@@ -18,13 +18,14 @@ from .book_progress_store import BookProgressStore
 from .continuous_analysis import ContinuousAnalysisService
 from .engine_assisted_workflows import EngineAssistedWorkflowService
 from .engine_play_service import EnginePlayService
-from .release_app import _settings_path, _sound_cache_dir, _user_root
+from .release_app import _sound_cache_dir, _user_root
 from .settings import Settings
 from .sound_runtime import GameSoundRuntime, SoundRuntime, SoundRuntimeSettings
 from .sound_windows import PackagedSoundAssetResolver, WindowsSoundPlaybackAdapter
 from .stockfish_runtime import StockfishRuntime, StockfishRuntimeConfig
 from .version2_application import Version2Application
 from .version2_release_ui import Version2ReleaseAccessibleChessAPI, run_version2_release_window
+from .version2_upgrade import UserDataLayout, Version2UpgradeCoordinator
 from .version2_windows_host_runtime import Version2WindowsFileWorkflowRuntime
 from .version2_windows_native_dialog_ownership import Version2OwnedWindowsFileDialogs
 from .webapp_keymap import _asset_root
@@ -117,6 +118,46 @@ def _share_v2_action_registry(
     return registry
 
 
+def _version2_user_data_layout(
+    *,
+    data_root: str | Path | None = None,
+    settings_path: str | Path | None = None,
+) -> UserDataLayout:
+    """Resolve the one canonical V2 user-data root used by all persistent writers."""
+
+    explicit_settings = Path(settings_path) if settings_path is not None else None
+    if data_root is None:
+        if explicit_settings is None:
+            return UserDataLayout(_user_root())
+        return UserDataLayout(explicit_settings.parent, settings_name=explicit_settings.name)
+
+    root = Path(data_root)
+    if explicit_settings is None:
+        return UserDataLayout(root)
+    if explicit_settings.parent != root:
+        raise ValueError("settings_path must belong to the Version 2 data_root")
+    return UserDataLayout(root, settings_name=explicit_settings.name)
+
+
+def _prepare_version2_user_data(
+    *,
+    data_root: str | Path | None = None,
+    settings_path: str | Path | None = None,
+    coordinator_factory: Callable[[UserDataLayout], Any] = Version2UpgradeCoordinator,
+) -> UserDataLayout:
+    """Recover/upgrade V2 state before any normal settings or database writer opens."""
+
+    if not callable(coordinator_factory):
+        raise TypeError("coordinator_factory must be callable")
+    layout = _version2_user_data_layout(data_root=data_root, settings_path=settings_path)
+    coordinator = coordinator_factory(layout)
+    run = getattr(coordinator, "run", None)
+    if not callable(run):
+        raise TypeError("Version 2 upgrade coordinator must expose run()")
+    run()
+    return layout
+
+
 def create_version2_release_application(
     *,
     application_dir: str | Path | None = None,
@@ -128,23 +169,29 @@ def create_version2_release_application(
 ):
     """Compose one engine provider plus the persistent V2 application state.
 
-    The returned native-runtime factory must be called on the actual Windows UI
-    thread with the exact pywebview owner control.  This keeps SQLite worker
-    connections and WinForms dialog ownership on their required boundaries.
+    Persistent state is recovered/upgraded before any normal ``Settings`` or
+    ``AcsDatabase`` writer opens.  The returned native-runtime factory must then be
+    called on the actual Windows UI thread with the exact pywebview owner control.
+    This keeps SQLite worker connections and WinForms dialog ownership on their
+    required boundaries.
     """
 
+    layout = _prepare_version2_user_data(
+        data_root=data_root,
+        settings_path=settings_path,
+    )
     app_dir = Path(application_dir) if application_dir is not None else _asset_root()
     engine_runtime = runtime_factory(StockfishRuntimeConfig(application_dir=app_dir))
     analysis = AnalysisService(engine_runtime.provider, owns_engine=False)
     continuous = ContinuousAnalysisService(analysis)
     engine_play = EnginePlayService(engine_runtime.provider, owns_engine=False)
 
-    settings = Settings(Path(settings_path) if settings_path is not None else _settings_path())
+    settings = Settings(layout.settings_path)
     playback = sound_playback
     if playback is None:
         playback = WindowsSoundPlaybackAdapter(
             PackagedSoundAssetResolver(app_dir),
-            cache_dir=_sound_cache_dir(),
+            cache_dir=(layout.root / "sound-cache") if data_root is not None else _sound_cache_dir(),
         )
     sound_runtime = SoundRuntime(
         playback,
@@ -160,14 +207,12 @@ def create_version2_release_application(
         engine_play_service=engine_play,
     )
 
-    root = Path(data_root) if data_root is not None else _user_root()
-    root.mkdir(parents=True, exist_ok=True)
-    database_path = root / "library.acsdb"
+    database_path = layout.library_path
     database = AcsDatabase(database_path)
     try:
         application = Version2Application(
             database,
-            progress_store=BookProgressStore(root / "book-progress.json"),
+            progress_store=BookProgressStore(layout.root / "book-progress.json"),
             engine_assistance=EngineAssistedWorkflowService(analysis),
             board_dispatch=api.v2_board_dispatch,
             copy_text=copy_text,
