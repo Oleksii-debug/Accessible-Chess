@@ -9,6 +9,7 @@ from acs.keybindings import ActionRegistry
 from acs.version2_profile import build_version2_action_registry
 from acs.version2_release_app import (
     _install_host_confirmed_document,
+    _install_unsaved_pgn_close_guard,
     _prepare_version2_user_data,
     _share_v2_action_registry,
     _version2_user_data_layout,
@@ -31,6 +32,37 @@ class _Application:
             raise RuntimeError("replacement was not host-confirmed")
         self.installed.append(session)
         return session
+
+
+class _FormClosingEvent:
+    def __init__(self) -> None:
+        self.handlers = []
+
+    def __iadd__(self, handler):
+        self.handlers.append(handler)
+        return self
+
+    def fire(self, event) -> None:
+        for handler in tuple(self.handlers):
+            handler(None, event)
+
+
+class _OwnerForm:
+    def __init__(self) -> None:
+        self.FormClosing = _FormClosingEvent()
+
+
+class _ExitDialogs:
+    def __init__(self, result=True, *, error: Exception | None = None) -> None:
+        self.result = result
+        self.error = error
+        self.calls = 0
+
+    def confirm_discard_unsaved_pgn_on_exit(self) -> bool:
+        self.calls += 1
+        if self.error is not None:
+            raise self.error
+        return self.result
 
 
 class Version2ReleaseAppTests(unittest.TestCase):
@@ -60,6 +92,64 @@ class Version2ReleaseAppTests(unittest.TestCase):
 
         self.assertIs(application.confirm_document_replace, original)
         self.assertEqual(application.confirm_calls, 0)
+
+    def test_native_close_guard_does_not_prompt_for_clean_pgn(self) -> None:
+        application = SimpleNamespace(session=SimpleNamespace(dirty=False))
+        owner = _OwnerForm()
+        dialogs = _ExitDialogs(False)
+        event = SimpleNamespace(Cancel=False)
+
+        _install_unsaved_pgn_close_guard(application, owner, dialogs)
+        owner.FormClosing.fire(event)
+
+        self.assertFalse(event.Cancel)
+        self.assertEqual(dialogs.calls, 0)
+
+    def test_native_close_guard_cancels_dirty_exit_when_user_refuses(self) -> None:
+        application = SimpleNamespace(session=SimpleNamespace(dirty=True))
+        owner = _OwnerForm()
+        dialogs = _ExitDialogs(False)
+        event = SimpleNamespace(Cancel=False)
+
+        _install_unsaved_pgn_close_guard(application, owner, dialogs)
+        owner.FormClosing.fire(event)
+
+        self.assertTrue(event.Cancel)
+        self.assertEqual(dialogs.calls, 1)
+
+    def test_native_close_guard_allows_explicit_dirty_discard(self) -> None:
+        application = SimpleNamespace(session=SimpleNamespace(dirty=True))
+        owner = _OwnerForm()
+        dialogs = _ExitDialogs(True)
+        event = SimpleNamespace(Cancel=False)
+
+        _install_unsaved_pgn_close_guard(application, owner, dialogs)
+        owner.FormClosing.fire(event)
+
+        self.assertFalse(event.Cancel)
+        self.assertEqual(dialogs.calls, 1)
+
+    def test_native_close_guard_fails_closed_when_confirmation_fails(self) -> None:
+        application = SimpleNamespace(session=SimpleNamespace(dirty=True))
+        owner = _OwnerForm()
+        dialogs = _ExitDialogs(error=RuntimeError("synthetic dialog failure"))
+        event = SimpleNamespace(Cancel=False)
+
+        _install_unsaved_pgn_close_guard(application, owner, dialogs)
+        owner.FormClosing.fire(event)
+
+        self.assertTrue(event.Cancel)
+        self.assertEqual(dialogs.calls, 1)
+
+    def test_native_close_guard_rejects_duplicate_installation(self) -> None:
+        application = SimpleNamespace(session=None)
+        owner = _OwnerForm()
+        dialogs = _ExitDialogs(True)
+
+        _install_unsaved_pgn_close_guard(application, owner, dialogs)
+        with self.assertRaisesRegex(RuntimeError, "already installed"):
+            _install_unsaved_pgn_close_guard(application, owner, dialogs)
+        self.assertEqual(len(owner.FormClosing.handlers), 1)
 
     def test_shared_v2_registry_preserves_stage1_user_remaps(self) -> None:
         stage1 = ActionRegistry()
