@@ -118,6 +118,7 @@ jobs:
           tests/test_release_preflight.py
           tests/test_stage1_packaged_focus_origin_contract.py
           tests/test_version2_release_accessibility_contract.py
+          tests/test_version2_release_app.py
           tests/test_version2_release_ui.py
 
       - name: Keyboard NVDA issue-22 and release-candidate regression contracts
@@ -145,6 +146,7 @@ jobs:
           tests.test_version2_application
           tests.test_version2_import_terminal_ui
           tests.test_version2_pgn_commands
+          tests.test_version2_release_app
           tests.test_version2_release_ui
 
       - name: Windows WinForms owner runtime and UI-post composition smoke
