@@ -31,6 +31,15 @@ inner {K. B.}
 tail} e5 *
 '''
 
+NESTED_TRAILING_COMMENT_AFTER_RESULT = '''[Event "Completed before comment"]
+[Result "*"]
+
+1. e4 e5 * {outer line
+inner {K. B.}
+[Site "comment metadata"]
+tail}
+'''
+
 
 class W1D06NestedCommentFramerConvergenceTests(unittest.TestCase):
     def _frames(self, source: str):
@@ -96,6 +105,38 @@ class W1D06NestedCommentFramerConvergenceTests(unittest.TestCase):
                     source,
                     failure_policy=StreamingPgnFailurePolicy.COMMIT_ACCEPTED_PREFIX,
                     limits=StreamingPgnLimits(read_chunk_bytes=7),
+                )
+
+            self.assertEqual(caught.exception.code, StreamingPgnErrorCode.MALFORMED_PGN)
+            self.assertEqual(caught.exception.semantic_code, "pgn_malformed_pgn")
+            self.assertEqual(caught.exception.accepted_games, 0)
+            self.assertEqual(database.search_games(limit=10), [])
+
+    def test_completed_game_before_nested_trailing_comment_cannot_publish_false_prefix(self) -> None:
+        frames = self._frames(NESTED_TRAILING_COMMENT_AFTER_RESULT)
+        self.assertEqual(len(frames), 1)
+        self.assertEqual(frames[0].tags["Event"], "Completed before comment")
+        self.assertNotIn("Site", frames[0].tags)
+        self.assertIn('[Site "comment metadata"]', frames[0].movetext)
+
+        with self.assertRaises(PgnRoundTripError) as strict_failure:
+            parse_pgn_text(NESTED_TRAILING_COMMENT_AFTER_RESULT, strict=True)
+        self.assertEqual(strict_failure.exception.code, PgnRoundTripErrorCode.MALFORMED_PGN)
+
+        with tempfile.TemporaryDirectory() as directory, AcsDatabase() as database:
+            source = Path(directory) / "completed-then-nested-comment.pgn"
+            source.write_text(
+                NESTED_TRAILING_COMMENT_AFTER_RESULT,
+                encoding="utf-8",
+                newline="",
+            )
+            importer = StreamingPgnLibraryImporter(LibraryImportService(database))
+
+            with self.assertRaises(StreamingPgnImportError) as caught:
+                importer.import_file(
+                    source,
+                    failure_policy=StreamingPgnFailurePolicy.COMMIT_ACCEPTED_PREFIX,
+                    limits=StreamingPgnLimits(read_chunk_bytes=5),
                 )
 
             self.assertEqual(caught.exception.code, StreamingPgnErrorCode.MALFORMED_PGN)
