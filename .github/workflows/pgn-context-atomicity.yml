@@ -1,4 +1,4 @@
-name: PGN Context Atomicity
+name: PGN Document Integrity
 
 on:
   push:
@@ -8,6 +8,7 @@ on:
     paths:
       - 'acs/pgn_document.py'
       - 'tests/test_pgn_document_context_atomicity.py'
+      - 'tests/test_pgn_document_setup_fen_integrity.py'
       - '.github/workflows/pgn-context-atomicity.yml'
   workflow_dispatch:
 
@@ -15,7 +16,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: pgn-context-atomicity-${{ github.ref }}
+  group: pgn-document-integrity-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -59,7 +60,7 @@ jobs:
           git diff --check "$PARENT" HEAD
           changed="$(git diff --name-only "$PARENT" HEAD | sort)"
           printf '%s\n' "$changed"
-          unexpected="$(printf '%s\n' "$changed" | grep -Ev '^(acs/pgn_document\.py|tests/test_pgn_document_context_atomicity\.py|\.github/workflows/pgn-context-atomicity\.yml)$' || true)"
+          unexpected="$(printf '%s\n' "$changed" | grep -Ev '^(acs/pgn_document\.py|tests/test_pgn_document_context_atomicity\.py|tests/test_pgn_document_setup_fen_integrity\.py|\.github/workflows/pgn-context-atomicity\.yml)$' || true)"
           if [ -n "$unexpected" ]; then
             echo "Unexpected child-scope paths:" >&2
             printf '%s\n' "$unexpected" >&2
@@ -76,15 +77,18 @@ jobs:
           acs/pgn_document.py
           tests/test_pgn_document.py
           tests/test_pgn_document_context_atomicity.py
+          tests/test_pgn_document_setup_fen_integrity.py
 
       - name: Focused PGN document regressions
         run: >-
           python -m unittest -v
           tests.test_pgn_document_context_atomicity
+          tests.test_pgn_document_setup_fen_integrity
           tests.test_pgn_document
           tests.test_pgn_workspace
           tests.test_pgn_service
           tests.test_d06_pgn_roundtrip
+          tests.test_gametree_legality
 
       - name: Full repository unittest
         run: python -m unittest discover -s tests -v
