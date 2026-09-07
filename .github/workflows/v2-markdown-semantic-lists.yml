@@ -1,0 +1,74 @@
+name: V2 Markdown Semantic Lists
+
+on:
+  push:
+    branches:
+      - work/v2-markdown-semantic-lists-20260907
+  pull_request:
+    branches:
+      - codex/v2-runtime-completion-20260907
+
+permissions:
+  contents: read
+
+concurrency:
+  group: accessible-chess-v2-markdown-lists-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  semantic-lists:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install pinned verification dependency
+        run: python -m pip install -q pytest==8.4.2
+      - name: Prove current runtime ancestry and bounded scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          base=40e1ef2184177600bcc88911529b718adde65df9
+          git merge-base --is-ancestor "$base" HEAD
+          git diff --check "$base" HEAD
+          changed="$(git diff --name-only "$base" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/v2-markdown-semantic-lists.yml' \
+            'acs/book_text_import.py' \
+            'tests/test_v2_markdown_semantic_lists.py' | sort)"
+          test "$changed" = "$expected"
+          git diff --quiet "$base" HEAD -- \
+            acs/bookdocument.py acs/book_index.py acs/bookreader.py \
+            acs/chesscore.py acs/gametree.py acs/pgn_roundtrip.py \
+            acs/book_html_import.py web tools/qa
+      - name: Compile bounded Books adapter
+        run: python -m py_compile acs/book_text_import.py tests/test_v2_markdown_semantic_lists.py
+      - name: Existing TXT and Markdown importer contracts
+        run: python -m unittest -v tests.test_v2_book_text_import
+      - name: Canonical semantic-list regression
+        run: python -m unittest -v tests.test_v2_markdown_semantic_lists
+      - name: Canonical Book core and reader regressions
+        run: >-
+          python -m unittest -v
+          tests.test_bookdocument
+          tests.test_book_index
+          tests.test_bookreader
+          tests.test_v2_accessible_book_core
+      - name: Full repository unittest
+        run: python -m unittest discover -s tests -v
+      - name: Full repository pytest
+        run: python -m pytest -q tests
+      - name: Product diagnostics
+        run: |
+          python -m acs.selftest
+          python run_accessible_chess.py --diagnostic
+          python run_accessible_chess_v2.py --diagnostic
