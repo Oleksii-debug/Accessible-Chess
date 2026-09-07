@@ -20,7 +20,16 @@ import re
 from types import MappingProxyType
 from urllib.parse import urlsplit
 
-from .bookdocument import BookDocument, Diagram, Game, Heading, Note, Paragraph, Position
+from .bookdocument import (
+    BookDocument,
+    Diagram,
+    Game,
+    Heading,
+    ListBlock,
+    Note,
+    Paragraph,
+    Position,
+)
 from .chesscore import Board
 from .pgn_roundtrip import PgnRoundTripError, parse_pgn_text
 
@@ -67,6 +76,16 @@ class _Capture:
     kind: str
     attrs: dict[str, str]
     parts: list[str]
+    list_depth: int = 0
+
+
+@dataclass(slots=True)
+class _ListCapture:
+    tag: str
+    ordered: bool
+    start: int | None
+    source_anchor: str | None
+    items: list[str]
 
 
 _BLOCK_BOUNDARY_TAGS = frozenset(
@@ -171,11 +190,12 @@ class _SemanticHtmlParser(HTMLParser):
         self.image_references: list[str] = []
         self.missing_assets: set[str] = set()
         self._captures: list[_Capture] = []
+        self._lists: list[_ListCapture] = []
         self._suppressed_depth = 0
         self._node_count = 0
         self._ids: dict[str, int] = {}
         self._warned_table_flatten = False
-        self._warned_list_flatten = False
+        self._warned_nested_list = False
 
     def _warning(self, message: str) -> None:
         if len(self.warnings) < MAX_HTML_WARNINGS:
@@ -258,6 +278,33 @@ class _SemanticHtmlParser(HTMLParser):
             return
         if self._suppressed_depth:
             return
+        if tag in {"ol", "ul"}:
+            ordered = tag == "ol"
+            start_value = None
+            if ordered:
+                raw_start = attrs.get("start", "").strip()
+                if raw_start:
+                    try:
+                        candidate = int(raw_start, 10)
+                    except ValueError:
+                        self._warning("HTML ordered list start is invalid; default numbering was used")
+                    else:
+                        if candidate >= 1:
+                            start_value = candidate
+                        else:
+                            self._warning("HTML ordered list start is outside the canonical positive range; default numbering was used")
+            if self._lists and not self._warned_nested_list:
+                self._warning("nested HTML list hierarchy is preserved as adjacent semantic lists because BookDocument lists are not recursive")
+                self._warned_nested_list = True
+            self._lists.append(
+                _ListCapture(
+                    tag=tag,
+                    ordered=ordered,
+                    start=start_value,
+                    source_anchor=attrs.get("id") or None,
+                    items=[],
+                )
+            )
         if tag in _BLOCK_BOUNDARY_TAGS:
             self._append_visible("\n")
         if tag == "html" and not self.language:
@@ -302,7 +349,15 @@ class _SemanticHtmlParser(HTMLParser):
 
         kind = _CAPTURE_KINDS.get(tag)
         if kind is not None:
-            self._captures.append(_Capture(tag=tag, kind=kind, attrs=attrs, parts=[]))
+            self._captures.append(
+                _Capture(
+                    tag=tag,
+                    kind=kind,
+                    attrs=attrs,
+                    parts=[],
+                    list_depth=len(self._lists),
+                )
+            )
 
     def handle_startendtag(self, tag: str, attrs_list: list[tuple[str, str | None]]) -> None:
         self.handle_starttag(tag, attrs_list)
@@ -320,6 +375,8 @@ class _SemanticHtmlParser(HTMLParser):
         if self._captures and self._captures[-1].tag == tag:
             capture = self._captures.pop()
             self._finish_capture(capture)
+        if tag in {"ol", "ul"}:
+            self._finish_list(tag)
         if tag in _BLOCK_BOUNDARY_TAGS:
             self._append_visible("\n")
 
@@ -327,8 +384,39 @@ class _SemanticHtmlParser(HTMLParser):
         if self._suppressed_depth:
             return
         self._append_visible(data)
+        current_list_depth = len(self._lists)
         for capture in self._captures:
-            capture.parts.append(data)
+            if capture.kind != "list_item" or capture.list_depth == current_list_depth:
+                capture.parts.append(data)
+
+    def _finish_list(self, tag: str, *, recovered: bool = False) -> None:
+        if not self._lists:
+            return
+        state = self._lists[-1]
+        if state.tag != tag:
+            self._warning("malformed HTML list nesting was recovered without inventing list membership")
+            return
+        self._lists.pop()
+        if recovered:
+            self._warning(f"malformed HTML left an unclosed {state.tag} list; readable items were recovered")
+        if not state.items:
+            return
+        payload = (
+            ("ordered" if state.ordered else "unordered")
+            + "\0"
+            + (str(state.start) if state.start is not None else "")
+            + "\0"
+            + "\0".join(state.items)
+        )
+        self._append_block(
+            ListBlock(
+                items=list(state.items),
+                ordered=state.ordered,
+                start=state.start,
+                block_id=self._block_id("List", payload),
+                source_anchor=state.source_anchor,
+            )
+        )
 
     def _finish_capture(self, capture: _Capture, *, recovered: bool = False) -> None:
         raw = "".join(capture.parts)
@@ -354,10 +442,10 @@ class _SemanticHtmlParser(HTMLParser):
             )
             return
         if capture.kind == "list_item":
-            if not self._warned_list_flatten:
-                self._warning("HTML list structure is preserved as ordered reading text because BookDocument has no list block kind")
-                self._warned_list_flatten = True
-            text = "• " + text
+            if self._lists:
+                self._lists[-1].items.append(text)
+                return
+            self._warning("HTML list item appeared outside a list; readable text was preserved as a paragraph")
         elif capture.kind == "table_row":
             if not self._warned_table_flatten:
                 self._warning("HTML table structure is preserved as row text because BookDocument has no table block kind")
@@ -376,6 +464,8 @@ class _SemanticHtmlParser(HTMLParser):
         super().close()
         while self._captures:
             self._finish_capture(self._captures.pop(), recovered=True)
+        while self._lists:
+            self._finish_list(self._lists[-1].tag, recovered=True)
 
 
 def _pgn_candidates(visible_text: str) -> list[str]:
@@ -563,6 +653,7 @@ SUPPORTED_HTML_BOOK_CAPABILITY = MappingProxyType(
         "semantic_blocks": (
             "Heading",
             "Paragraph",
+            "List",
             "Note(image)",
             "Game(PGN)",
             "Position(data-acs-fen)",
