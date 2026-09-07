@@ -37,7 +37,7 @@ class Version2ApplicationTests(unittest.TestCase):
             return {"ok": True}
 
         self.app = Version2Application(self.database, progress_store=BookProgressStore(self.root / "progress.json"),
-            engine_assisted_workflows=None if False else EngineAssistedWorkflowService(self.analysis), board_dispatch=lambda *_: None,
+            engine_assistance=EngineAssistedWorkflowService(self.analysis), board_dispatch=lambda *_: None,
             board_position_projector=project_position, copy_text=self.copied.append)
         self.mailbox = Version2ImportUiEventMailbox()
         self.dialogs = SimpleNamespace(open_pgn=lambda: self.source, save_pgn_as=lambda *_: self.root / "saved.pgn", select_library_import=lambda: self.source)
