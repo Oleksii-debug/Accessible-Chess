@@ -255,6 +255,21 @@ class PgnDocumentSession:
                 "PGN content changed; exact saved context is stale",
                 PgnDocumentErrorCode.CONTEXT_STALE,
             )
+
+        # Validate the complete return point against a detached canonical
+        # workspace before mutating the live session.  Calling select_game()
+        # first would otherwise switch games/reset the cursor even when the
+        # subsequent cursor validation rejects a forged or damaged context.
+        probe = PgnWorkspace(self._workspace.games())
+        try:
+            probe.select_game(context.selected_game_index)
+            probe.set_cursor(context.cursor)
+        except (TypeError, ValueError) as exc:
+            raise _error(
+                "saved PGN context is not valid for the current document",
+                PgnDocumentErrorCode.CONTEXT_STALE,
+            ) from exc
+
         self._workspace.select_game(context.selected_game_index)
         return self._workspace.set_cursor(context.cursor)
 
