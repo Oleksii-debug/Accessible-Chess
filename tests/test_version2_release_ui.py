@@ -130,7 +130,7 @@ class Version2ReleaseUiTests(unittest.TestCase):
         title, kwargs = webview.created
         self.assertEqual(title, "Accessible Chess")
         self.assertIs(kwargs["js_api"], api)
-        self.assertTrue(str(kwargs["url"]).endswith("web/index.html"))
+        self.assertEqual(Path(kwargs["url"]).parts[-2:], ("web", "index.html"))
         self.assertEqual(webview.started, {"gui": "edgechromium", "private_mode": True})
         self.assertEqual(len(menus), 1)
         self.assertTrue(app.closed)
