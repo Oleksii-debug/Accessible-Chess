@@ -296,6 +296,53 @@ class V1RuntimeBridgeTests(unittest.TestCase):
                 91,
             )
 
+    def test_valid_json_journal_cannot_drop_library_declared_by_manifest(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            executable, _legacy, layout = self._fixture(root)
+
+            def crash(phase: str) -> None:
+                if phase == "prepared":
+                    raise RuntimeError("simulated interruption after durable prepare")
+
+            with self.assertRaises(RuntimeError):
+                V1RuntimeBridgeCoordinator(
+                    layout, executable, phase_hook=crash
+                ).run()
+
+            journal_path = layout.backup_root / ".v1-runtime-bridge-state.json"
+            journal = json.loads(journal_path.read_text(encoding="utf-8"))
+            self.assertTrue(journal["has_library"])
+            journal["has_library"] = False
+            journal_path.write_text(
+                json.dumps(journal, ensure_ascii=False, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+
+            with self.assertRaises(V1RuntimeBridgeError):
+                V1RuntimeBridgeCoordinator(layout, executable).run()
+
+            self.assertFalse(layout.settings_path.exists())
+            self.assertFalse(layout.library_path.exists())
+
+    def test_completed_marker_must_match_immutable_backup_manifest(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            executable, _legacy, layout = self._fixture(root)
+            V1RuntimeBridgeCoordinator(layout, executable).run()
+
+            marker_path = layout.backup_root / ".v1-runtime-bridge-completed.json"
+            marker = json.loads(marker_path.read_text(encoding="utf-8"))
+            self.assertTrue(marker["has_library"])
+            marker["has_library"] = False
+            marker_path.write_text(
+                json.dumps(marker, ensure_ascii=False, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+
+            with self.assertRaises(V1RuntimeBridgeError):
+                V1RuntimeBridgeCoordinator(layout, executable).run()
+
     def test_completed_marker_rejects_legacy_source_changed_later(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
