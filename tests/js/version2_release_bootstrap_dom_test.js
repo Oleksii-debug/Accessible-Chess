@@ -247,15 +247,18 @@ async function clickRoute(routeId) {
   const libraryInput = documentRef.getElementById("library-search-player");
   check(documentRef.activeElement === libraryInput, "Library route did not restore its real search focus");
   const beforeImportSnapshotCalls = snapshotCalls;
-  eventQueue = [{ kind: "render-import", payload: { import: {}, focus_target: "", announcement: "1 of 4" } }];
+  eventQueue = [
+    { kind: "render-import", payload: { import: {}, focus_target: "", announcement: "1 of 4" } },
+    { kind: "delegated", payload: { action_id: "library.import" } }
+  ];
   check(typeof intervalCallback === "function", "event-drain timer was not installed");
   intervalCallback();
   await flush();
   await flush();
   check(libraryApplyCalls === 1, "Library import event did not use incremental surface apply");
-  check(snapshotCalls === beforeImportSnapshotCalls, "Library import progress triggered a full V2 snapshot rerender");
-  check(documentRef.getElementById("library-search-player") === libraryInput, "Library import progress replaced search input");
-  check(documentRef.activeElement === libraryInput, "Library import progress moved keyboard focus");
+  check(snapshotCalls === beforeImportSnapshotCalls, "native Library import companion triggered a full V2 snapshot rerender");
+  check(documentRef.getElementById("library-search-player") === libraryInput, "native Library import replaced search input");
+  check(documentRef.activeElement === libraryInput, "native Library import moved keyboard focus");
 
   const beforeStatusSnapshotCalls = snapshotCalls;
   eventQueue = [{ kind: "status", payload: { announcement: "PGN saved." } }];
