@@ -42,7 +42,7 @@ class Version2RemappedKeyboardRoutingEvidenceTests(unittest.TestCase):
         # Two architectures are valid and keep one command authority:
         # 1. the inherited keyboard fallback reaches an API-level V2 bridge; or
         # 2. the V2 release script intercepts the resolved binding and invokes the
-        #    existing V2 browser-command bridge.  The evidence must not force one.
+        #    existing V2 browser-command bridge. The evidence must not force one.
         api_bridge = False
         try:
             result = self.api.dispatch_action(resolved["actionId"])
@@ -61,25 +61,40 @@ class Version2RemappedKeyboardRoutingEvidenceTests(unittest.TestCase):
             "executable keyboard bridge from that binding to the V2 application router",
         )
 
-    def test_v2_only_binding_context_is_not_left_outside_the_keyboard_path(self) -> None:
-        root = Path(__file__).resolve().parents[1]
-        index_source = (root / "web" / "index.html").read_text(encoding="utf-8")
-        v2_source = (root / "web" / "version2_release_bootstrap.js").read_text(encoding="utf-8")
+    def test_v2_only_global_context_is_inside_inherited_keyboard_resolution(self) -> None:
+        """The shipped Stage1 document handler's final lookup is ``document``.
 
-        # An API-level V2 bridge may let the inherited handler stay small, but in
-        # that architecture the handler still needs to resolve the V2-only GLOBAL
-        # context.  A dedicated V2 JS keyboard bridge may instead own both context
-        # resolution and dispatch.  Either is acceptable.
-        explicit_v2_script_bridge = self._script_has_v2_keyboard_bridge(v2_source)
-        inherited_script_extended = (
-            "'global'" in index_source or '"global"' in index_source
-        ) and "keymap_resolve_binding" in index_source
+        An API-level bridge is valid only if that exact lookup can discover a V2
+        GLOBAL binding. This is behavioral evidence, not a source-layout check.
+        """
+        registry = self.application.adapter.registry
+        registry.set_binding("screen.library", "Ctrl+Alt+L", allow_warnings=True)
 
-        self.assertTrue(
-            explicit_v2_script_bridge or inherited_script_extended,
-            "Version 2 publishes remappable GLOBAL actions, but no active release keyboard "
-            "path resolves that V2-only binding context",
+        resolved = self.api.keymap_resolve_binding("document", "Ctrl+Alt+L")
+
+        self.assertIsNotNone(
+            resolved,
+            "Version 2 publishes remappable GLOBAL actions, but the inherited release "
+            "keyboard path cannot resolve that V2-only context",
         )
+        self.assertEqual(resolved["actionId"], "screen.library")
+        self.assertEqual(resolved["context"], "global")
+
+    def test_route_specific_v2_contexts_are_inside_inherited_keyboard_resolution(self) -> None:
+        registry = self.application.adapter.registry
+        registry.set_binding("library.next_page", "Ctrl+Alt+N", allow_warnings=True)
+        self.application.shell.open_route("library")
+        database = self.api.keymap_resolve_binding("document", "Ctrl+Alt+N")
+        self.assertIsNotNone(database)
+        self.assertEqual(database["actionId"], "library.next_page")
+        self.assertEqual(database["context"], "database")
+
+        registry.set_binding("book.next_heading", "Ctrl+Alt+H", allow_warnings=True)
+        self.application.shell.open_route("books")
+        book = self.api.keymap_resolve_binding("document", "Ctrl+Alt+H")
+        self.assertIsNotNone(book)
+        self.assertEqual(book["actionId"], "book.next_heading")
+        self.assertEqual(book["context"], "book_reader")
 
 
 if __name__ == "__main__":
