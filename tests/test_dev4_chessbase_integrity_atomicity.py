@@ -7,6 +7,8 @@ from pathlib import Path
 from unittest.mock import patch
 
 import acs.chessbase_integrity as integrity
+import acs.import_contract as import_contract
+from acs.chessbase_integrity import ChessBaseIntegrityIOError
 
 
 class Dev4ChessBaseIntegrityAtomicityTests(unittest.TestCase):
@@ -37,8 +39,16 @@ class Dev4ChessBaseIntegrityAtomicityTests(unittest.TestCase):
                 def hexdigest(self) -> str:
                     return self._inner.hexdigest()
 
-            with patch.object(integrity, "sha256", side_effect=lambda: MutatingDigest()):
-                with self.assertRaises((OSError, RuntimeError, ValueError)):
+            # ChessBase integrity now delegates byte identity to the canonical
+            # descriptor-bound import fingerprint. Keep the adversarial oracle
+            # at the authority that actually owns hashing rather than reviving a
+            # second sha256 implementation in chessbase_integrity.
+            with patch.object(
+                import_contract.hashlib,
+                "sha256",
+                side_effect=lambda: MutatingDigest(),
+            ):
+                with self.assertRaises(ChessBaseIntegrityIOError):
                     integrity.capture_integrity_snapshot(source)
 
             self.assertTrue(mutated, "test must exercise an in-flight same-size source mutation")
