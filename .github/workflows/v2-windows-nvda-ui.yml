@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - worker/w4-v2-current-accessibility-qa-20260907
+      - codex/v2-runtime-completion-20260907
   pull_request:
     branches:
       - codex/v2-runtime-completion-20260907
@@ -20,6 +21,7 @@ on:
       - 'acs/webview2_accessibility.py'
       - 'web/index.html'
       - 'web/version2_release_bootstrap.js'
+      - 'web/full_product_*.js'
       - 'web/stage1_release_bootstrap.js'
       - 'web/stage1_board_actions.js'
       - 'tests/test_nvda_p0_contract.py'
@@ -53,7 +55,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          ref: ${{ github.event.pull_request.merge_commit_sha || github.sha }}
 
       - name: Preserve exact Git bytes
         shell: bash
@@ -206,7 +208,7 @@ jobs:
       - name: Startup diagnostic smoke
         run: python run_accessible_chess.py --diagnostic
 
-      - name: Write exact-head QA evidence
+      - name: Write exact checkout QA evidence
         shell: bash
         run: |
           set -euo pipefail
@@ -225,6 +227,7 @@ jobs:
               "schema": "accessible-chess-w4-v2-windows-nvda-qa-v1",
               "git_sha": tested_sha,
               "workflow_event_sha": os.environ["GITHUB_SHA"],
+              "event_name": os.environ["GITHUB_EVENT_NAME"],
               "runner_os": os.environ["RUNNER_OS"],
               "python": platform.python_version(),
               "automated_windows_accessibility_qa": "PASS",
@@ -242,7 +245,7 @@ jobs:
       - name: Preserve QA evidence
         uses: actions/upload-artifact@v4
         with:
-          name: w4-v2-windows-nvda-qa-${{ runner.os }}-${{ github.event.pull_request.head.sha || github.sha }}
+          name: w4-v2-windows-nvda-qa-${{ runner.os }}-${{ github.event.pull_request.merge_commit_sha || github.sha }}
           path: qa-evidence/result.json
           if-no-files-found: error
           retention-days: 14
