@@ -461,15 +461,23 @@ class Version2WindowsFileActionDelegate:
                 daemon=False,
             )
             self._worker = worker
-            worker.start()
-
-        return self._emit(
-            FileWorkflowEvent(
-                FileWorkflowEventKind.IMPORT_STARTED,
-                "library.import",
-                focus_target="library-import-cancel",
+            # Publish start before allowing even an immediately completing worker
+            # to emit its terminal event. Otherwise an empty/fast import can be
+            # announced complete and then become spuriously RUNNING again.
+            started = self._emit(
+                FileWorkflowEvent(
+                    FileWorkflowEventKind.IMPORT_STARTED,
+                    "library.import",
+                    focus_target="library-import-cancel",
+                )
             )
-        )
+            try:
+                worker.start()
+            except Exception:
+                self._worker = None
+                self._cancel_event = None
+                return self._failed("library.import", "import_worker_unavailable", focus_target=previous_focus)
+            return started
 
     def _cancel_import(self) -> FileWorkflowEvent:
         with self._lock:
