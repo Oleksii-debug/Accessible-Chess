@@ -124,6 +124,18 @@ class Version2WindowsFileDialogs:
             return None
         return Path(value)
 
+    def confirm_discard_unsaved_pgn(self) -> bool:
+        DialogResult, _, _ = self._load_forms()
+        from System.Windows.Forms import MessageBox, MessageBoxButtons, MessageBoxIcon  # type: ignore
+
+        result = MessageBox.Show(
+            "The current PGN has unsaved changes. Discard those changes and open another PGN?",
+            "Unsaved PGN changes",
+            MessageBoxButtons.YesNo,
+            MessageBoxIcon.Warning,
+        )
+        return result == DialogResult.Yes
+
     def open_pgn(self) -> Path | None:
         DialogResult, OpenFileDialog, _ = self._load_forms()
         dialog = OpenFileDialog()
@@ -286,6 +298,31 @@ class Version2WindowsFileActionDelegate:
 
     def _open_pgn(self) -> FileWorkflowEvent:
         previous_focus = self._focus()
+        try:
+            current = self._get_pgn_session()
+        except Exception:
+            return self._failed("pgn.open", "pgn_session_unavailable", focus_target=previous_focus)
+        if current is not None:
+            if not isinstance(current, PgnDocumentSession):
+                return self._failed("pgn.open", "pgn_session_invalid", focus_target=previous_focus)
+            if current.dirty:
+                confirmation = getattr(self._dialogs, "confirm_discard_unsaved_pgn", None)
+                if not callable(confirmation):
+                    return self._failed(
+                        "pgn.open",
+                        "unsaved_confirmation_unavailable",
+                        focus_target=previous_focus,
+                    )
+                try:
+                    discard = confirmation()
+                except Exception:
+                    return self._failed(
+                        "pgn.open",
+                        "unsaved_confirmation_failed",
+                        focus_target=previous_focus,
+                    )
+                if not discard:
+                    return self._dialog_cancelled("pgn.open", previous_focus)
         try:
             path = self._dialogs.open_pgn()
         except Exception:
