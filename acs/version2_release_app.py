@@ -18,6 +18,7 @@ from .book_progress_store import BookProgressStore
 from .continuous_analysis import ContinuousAnalysisService
 from .engine_assisted_workflows import EngineAssistedWorkflowService
 from .engine_play_service import EnginePlayService
+from .full_product_ui_shell import UILanguage
 from .release_app import _sound_cache_dir, _user_root
 from .settings import Settings
 from .sound_runtime import GameSoundRuntime, SoundRuntime, SoundRuntimeSettings
@@ -187,6 +188,13 @@ def create_version2_release_application(
     engine_play = EnginePlayService(engine_runtime.provider, owns_engine=False)
 
     settings = Settings(layout.settings_path)
+    try:
+        language = UILanguage(settings.get("language", UILanguage.UA.value))
+    except (TypeError, ValueError):
+        # Settings owns validation/recovery.  A non-canonical value reaching the
+        # production composition root is an integration defect, not permission to
+        # create a second fallback language state.
+        raise RuntimeError("Version 2 language setting is invalid") from None
     playback = sound_playback
     if playback is None:
         playback = WindowsSoundPlaybackAdapter(
@@ -205,6 +213,7 @@ def create_version2_release_application(
         sound_runtime=sound_runtime,
         settings=settings,
         engine_play_service=engine_play,
+        lang=language.value,
     )
 
     database_path = layout.library_path
@@ -216,6 +225,7 @@ def create_version2_release_application(
             engine_assistance=EngineAssistedWorkflowService(analysis),
             board_dispatch=api.v2_board_dispatch,
             copy_text=copy_text,
+            language=language,
         )
         _share_v2_action_registry(api, application)
         api.bind_version2_application(application)
