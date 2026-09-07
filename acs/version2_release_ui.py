@@ -13,6 +13,7 @@ from collections.abc import Mapping
 from typing import Any, Callable
 
 from .full_product_native_menu import install_full_product_windows_native_menu
+from .full_product_ui_shell import UILanguage
 from .stage1_release_ui import Stage1ReleaseAccessibleChessAPI, _asset_root
 from .version2_profile import Version2NativeMenuController
 
@@ -51,6 +52,94 @@ class Version2ReleaseAccessibleChessAPI(Stage1ReleaseAccessibleChessAPI):
         if application is None:
             raise RuntimeError("Version 2 application is not bound")
         return application
+
+    @staticmethod
+    def _projection_language(projection: Any) -> UILanguage | None:
+        language = getattr(projection, "language", None)
+        return language if isinstance(language, UILanguage) else None
+
+    def _set_bound_version2_language(self, language: UILanguage) -> None:
+        """Synchronize all currently reachable V2 presentation surfaces atomically.
+
+        The V2 shell, PGN, Library/import and Books projections already own their
+        bilingual presentation rules.  This coordinator only invokes those
+        existing transitions and rolls changed surfaces back if one rejects the
+        update; no content/chess state is recreated here.
+        """
+
+        if not isinstance(language, UILanguage):
+            raise TypeError("Version 2 language must be UILanguage")
+        application = self._version2_application
+        if application is None:
+            return
+
+        shell = application.adapter.shell
+        previous_shell = shell.language
+        projections: list[Any] = [application.library.projection]
+        if application.pgn is not None:
+            projections.append(application.pgn.projection)
+        if application.books is not None:
+            projections.append(application.books.projection)
+
+        changed: list[tuple[Any, UILanguage]] = []
+        try:
+            for projection in projections:
+                previous = self._projection_language(projection)
+                if previous is None:
+                    raise TypeError("Version 2 projection has no language contract")
+                projection.set_language(language)
+                changed.append((projection, previous))
+            application.adapter.set_language(language.value)
+        except Exception:
+            for projection, previous in reversed(changed):
+                try:
+                    projection.set_language(previous)
+                except Exception:
+                    pass
+            try:
+                application.adapter.set_language(previous_shell.value)
+            except Exception:
+                pass
+            raise
+
+    def set_language(self, lang: str) -> dict[str, Any]:
+        """Persist and synchronize one language across the Stage 1 board and V2 UI."""
+
+        if lang not in ("uk", "en"):
+            return super().set_language(lang)
+        target = UILanguage(lang)
+        previous = self.lang
+        previous_ui = UILanguage(previous)
+        settings = getattr(self, "_settings", None)
+        result: dict[str, Any] | None = None
+        try:
+            result = super().set_language(lang)
+            if result.get("ok") is not True:
+                return result
+            self._set_bound_version2_language(target)
+            if settings is not None:
+                setter = getattr(settings, "set", None)
+                if not callable(setter):
+                    raise TypeError("settings language persistence is unavailable")
+                setter("language", lang)
+            return result
+        except Exception:
+            # Restore presentation state before projecting the bounded failure.
+            try:
+                self._set_bound_version2_language(previous_ui)
+            except Exception:
+                pass
+            try:
+                super().set_language(previous)
+            except Exception:
+                self.lang = previous
+            if settings is not None:
+                data = getattr(settings, "data", None)
+                if isinstance(data, dict):
+                    data["language"] = previous
+            return self._error(
+                "Не вдалося змінити мову." if previous == "uk" else "Language could not be changed."
+            )
 
     def v2_snapshot(self) -> dict[str, object]:
         return self._version2().snapshot()
