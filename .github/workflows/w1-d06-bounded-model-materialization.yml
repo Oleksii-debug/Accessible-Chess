@@ -1,0 +1,32 @@
+name: W1 D06 Bounded Model Materialization
+
+on:
+  push:
+    branches:
+      - work/w1-d06-bounded-model-materialization-20260907
+  pull_request:
+    branches:
+      - codex/v2-formats-completion-20260907
+
+permissions:
+  contents: read
+
+jobs:
+  focused:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Compile touched PGN modules
+        run: python -m compileall -q acs/pgn_roundtrip.py acs/pgn_workspace.py tests/test_w1_d06_bounded_model_materialization.py
+      - name: Focused bounded-materialization regression
+        run: python -m unittest -v tests.test_w1_d06_bounded_model_materialization tests.test_d06_pgn_roundtrip
