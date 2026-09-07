@@ -1,0 +1,58 @@
+name: W6 V2 Book Progress Command Atomicity Evidence
+
+on:
+  push:
+    branches:
+      - work/w6-v2-book-progress-command-atomicity-evidence-20260907
+  pull_request:
+    paths:
+      - tests/test_w6_v2_book_progress_command_atomicity.py
+      - .github/workflows/w6-v2-book-progress-command-atomicity-evidence.yml
+      - acs/version2_application.py
+      - acs/bookreader.py
+      - acs/book_progress_store.py
+      - acs/book_webview_bridge.py
+      - acs/version2_book_workspace.py
+
+permissions:
+  contents: read
+
+jobs:
+  red-first-evidence:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Verify evidence-only scope from runtime parent
+        shell: bash
+        run: |
+          python - <<'PY'
+          import subprocess
+          allowed = {
+              'tests/test_w6_v2_book_progress_command_atomicity.py',
+              '.github/workflows/w6-v2-book-progress-command-atomicity-evidence.yml',
+          }
+          parent = '40e1ef2184177600bcc88911529b718adde65df9'
+          changed = set(subprocess.check_output(
+              ['git', 'diff', '--name-only', f'{parent}...HEAD'], text=True
+          ).splitlines())
+          if changed != allowed:
+              raise SystemExit(f'unexpected evidence scope: {sorted(changed)}')
+          print('EVIDENCE_SCOPE_PASS')
+          PY
+      - name: Diff hygiene
+        run: git diff --check 40e1ef2184177600bcc88911529b718adde65df9...HEAD
+      - name: Compile evidence and current application surface
+        run: python -m compileall -q acs tests/test_w6_v2_book_progress_command_atomicity.py
+      - name: Current V2 Book/application regressions remain green first
+        run: python -m unittest -v tests.test_version2_application tests.test_version2_book_workspace
+      - name: RED-first durable progress command atomicity oracle
+        run: python -m unittest -v tests.test_w6_v2_book_progress_command_atomicity
