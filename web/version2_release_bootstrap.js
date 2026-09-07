@@ -195,6 +195,7 @@
   documentRef.addEventListener("focusin", function (event) {
     const target = event.target;
     if (!target || !target.id || !/^[A-Za-z0-9_-]{1,160}$/.test(target.id)) return;
+    if (target.id.indexOf("v2-nav-") === 0) return;
     const bridge = api();
     if (bridge && typeof bridge.v2_record_focus === "function") {
       bridge.v2_record_focus(target.id).catch(function () {});
