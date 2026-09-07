@@ -73,6 +73,20 @@ class V2UserErrorSurfacePrivacyTests(unittest.TestCase):
                     concise_user_error(message, language=UILanguage.EN),
                 )
 
+    def test_stringification_failure_also_fails_closed(self):
+        class BrokenMessage:
+            def __str__(self):
+                raise RuntimeError("must not escape the UI error boundary")
+
+        self.assertEqual(
+            "The action could not be completed.",
+            concise_user_error(BrokenMessage(), language=UILanguage.EN),
+        )
+        self.assertEqual(
+            "Не вдалося виконати дію.",
+            concise_user_error(BrokenMessage(), language=UILanguage.UA),
+        )
+
     def test_long_or_empty_messages_keep_existing_generic_fallback(self):
         self.assertEqual(
             "The action could not be completed.",
