@@ -55,29 +55,34 @@ class Version2PersistedLanguageIntegrationTests(unittest.TestCase):
             self.assertEqual(api_class.call_args.kwargs.get("lang"), "en")
             self.assertEqual(application_class.call_args.kwargs.get("language"), UILanguage.EN)
 
+    def _runtime(self, root: Path, settings: mock.Mock):
+        database = AcsDatabase(root / "library.acsdb")
+        analysis = AnalysisService(lambda: None)
+        api = Version2ReleaseAccessibleChessAPI(
+            keymap_path=root / "keymap.json",
+            settings=settings,
+        )
+        application = Version2Application(
+            database,
+            progress_store=BookProgressStore(root / "book-progress.json"),
+            engine_assistance=EngineAssistedWorkflowService(analysis),
+            board_dispatch=lambda *_args, **_kwargs: {"ok": True},
+            board_position_projector=lambda _fen: None,
+        )
+        api.bind_version2_application(application)
+        return api, application, analysis
+
     def test_runtime_language_change_persists_and_synchronizes_v2_surfaces(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            database = AcsDatabase(root / "library.acsdb")
-            analysis = AnalysisService(lambda: None)
             settings = mock.Mock()
-            api = Version2ReleaseAccessibleChessAPI(
-                keymap_path=root / "keymap.json",
-                settings=settings,
-            )
-            application = Version2Application(
-                database,
-                progress_store=BookProgressStore(root / "book-progress.json"),
-                engine_assistance=EngineAssistedWorkflowService(analysis),
-                board_dispatch=lambda *_args, **_kwargs: {"ok": True},
-                board_position_projector=lambda _fen: None,
-            )
-            api.bind_version2_application(application)
+            api, application, analysis = self._runtime(root, settings)
             try:
                 result = api.set_language("en")
                 self.assertTrue(result["ok"])
                 settings.set.assert_called_once_with("language", "en")
                 self.assertEqual(api.lang, "en")
+                self.assertEqual(api.keymap_service.editor.lang, "en")
                 snapshot = application.snapshot()
                 self.assertEqual(snapshot["document"]["lang"], "en")
                 self.assertEqual(snapshot["library"]["document"]["lang"], "en")
@@ -87,24 +92,32 @@ class Version2PersistedLanguageIntegrationTests(unittest.TestCase):
                 analysis.close()
                 api.close_analysis()
 
+    def test_persistence_failure_rolls_back_all_live_language_state(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            settings = mock.Mock()
+            settings.set.side_effect = RuntimeError("disk failure")
+            api, application, analysis = self._runtime(root, settings)
+            try:
+                result = api.set_language("en")
+                self.assertFalse(result["ok"])
+                self.assertEqual(api.lang, "uk")
+                self.assertEqual(api.keymap_service.editor.lang, "uk")
+                snapshot = application.snapshot()
+                self.assertEqual(snapshot["document"]["lang"], "uk")
+                self.assertEqual(snapshot["library"]["document"]["lang"], "uk")
+                self.assertEqual(application.shell.language, UILanguage.UA)
+                self.assertNotIn("disk failure", result["announcement"])
+            finally:
+                application.shutdown()
+                analysis.close()
+                api.close_analysis()
+
     def test_invalid_language_does_not_persist_or_split_v2_state(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            database = AcsDatabase(root / "library.acsdb")
-            analysis = AnalysisService(lambda: None)
             settings = mock.Mock()
-            api = Version2ReleaseAccessibleChessAPI(
-                keymap_path=root / "keymap.json",
-                settings=settings,
-            )
-            application = Version2Application(
-                database,
-                progress_store=BookProgressStore(root / "book-progress.json"),
-                engine_assistance=EngineAssistedWorkflowService(analysis),
-                board_dispatch=lambda *_args, **_kwargs: {"ok": True},
-                board_position_projector=lambda _fen: None,
-            )
-            api.bind_version2_application(application)
+            api, application, analysis = self._runtime(root, settings)
             try:
                 result = api.set_language("xx")
                 self.assertFalse(result["ok"])
