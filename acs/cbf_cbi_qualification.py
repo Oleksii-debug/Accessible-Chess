@@ -80,6 +80,11 @@ def _canonical_oracle_games(
             "CBF/CBI independent PGN oracle is not valid canonical PGN",
             CbfCbiOracleCode.ORACLE_INVALID,
         ) from exc
+    if not games:
+        raise _error(
+            "CBF/CBI independent PGN oracle must contain at least one canonical game",
+            CbfCbiOracleCode.ORACLE_INVALID,
+        )
     if len(games) > max_games:
         raise _error(
             "CBF/CBI independent PGN oracle exceeds the configured game limit",
@@ -127,7 +132,7 @@ def qualify_cbf_cbi_against_pgn_oracle(
 ) -> CbfCbiOracleQualificationResult:
     """Decode CBF/CBI and require exact semantic equality with PGN oracle bytes.
 
-    No result object is returned for malformed, over-limit or semantically
+    No result object is returned for malformed, empty, over-limit or semantically
     different oracle input.  The comparison is order-independent but preserves
     duplicate multiplicity, preventing database ordering from becoming a false
     mismatch while still rejecting missing or duplicated games.
