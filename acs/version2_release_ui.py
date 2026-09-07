@@ -12,8 +12,10 @@ live in this module.
 from collections.abc import Mapping
 from typing import Any, Callable
 
+from .chesscore import Board
 from .full_product_native_menu import install_full_product_windows_native_menu
 from .stage1_release_ui import Stage1ReleaseAccessibleChessAPI, _asset_root
+from .ui_review_adapter import ReviewView
 from .version2_profile import Version2NativeMenuController
 
 
@@ -28,6 +30,7 @@ class Version2ReleaseAccessibleChessAPI(Stage1ReleaseAccessibleChessAPI):
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         self._version2_application: Any | None = None
+        self._v2_review_fen: str | None = None
 
     def bind_version2_application(self, application: Any) -> None:
         if self._version2_application is not None and self._version2_application is not application:
@@ -51,6 +54,57 @@ class Version2ReleaseAccessibleChessAPI(Stage1ReleaseAccessibleChessAPI):
         if application is None:
             raise RuntimeError("Version 2 application is not bound")
         return application
+
+    def _version2_review_active(self) -> bool:
+        application = self._version2_application
+        if application is None:
+            return False
+        if bool(getattr(application, "pgn_board_active", False)):
+            return True
+        workflow = getattr(application, "book_workflow", None)
+        return bool(workflow is not None and getattr(workflow, "active", False))
+
+    def _project_review_fen(self, fen: str) -> dict[str, Any]:
+        """Project trusted PGN/Book review state without mutating the live game.
+
+        This private application port deliberately does not call ``set_fen``.
+        The canonical Board parser validates/normalizes the projected position,
+        while the inherited Stage 1 presentation stack renders it through the
+        same semantic 64-square board.  ``self.board``, SAN history and engine
+        game state remain the live-game authority underneath the review overlay.
+        """
+
+        if not isinstance(fen, str) or not fen.strip():
+            return {"ok": False}
+        try:
+            canonical = Board(fen).fen()
+        except Exception:
+            return {"ok": False}
+        self._v2_review_fen = canonical
+        return {"ok": True, "fen": canonical}
+
+    def _display_review(self) -> ReviewView:
+        fen = self._v2_review_fen
+        if fen is not None and self._version2_review_active():
+            return ReviewView(
+                fen=fen,
+                ply=0,
+                node_id=-1,
+                at_start=False,
+                at_end=False,
+                status=(
+                    "Перегляд зовнішньої позиції."
+                    if self.lang == "uk"
+                    else "Reviewing an external position."
+                ),
+                last_move=None,
+            )
+        return super()._display_review()
+
+    def _at_history_end(self) -> bool:
+        if self._v2_review_fen is not None and self._version2_review_active():
+            return False
+        return super()._at_history_end()
 
     def v2_snapshot(self) -> dict[str, object]:
         return self._version2().snapshot()
