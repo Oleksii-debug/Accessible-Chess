@@ -1,0 +1,48 @@
+name: W3 V2 Language Consistency
+
+on:
+  push:
+    branches:
+      - worker/w3-v2-language-consistency-red-20260907
+  pull_request:
+    branches:
+      - codex/v2-runtime-completion-20260907
+
+permissions:
+  contents: read
+
+concurrency:
+  group: w3-v2-language-consistency-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  language-contract:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Prove exact W3 child scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          base=c19a76e38e47f4f55bc50635eaed5f42400ecf10
+          git merge-base --is-ancestor "$base" HEAD
+          git diff --check "$base" HEAD
+          changed="$(git diff --name-only "$base" HEAD | sort)"
+          expected=$'.github/workflows/w3-v2-language-consistency.yml\ntests/test_w3_v2_language_consistency.py'
+          test "$changed" = "$expected"
+          git diff --quiet "$base" HEAD -- acs web run_accessible_chess_v2.py
+      - name: Compile language oracle and release composition
+        run: python -m compileall -q acs tests/test_w3_v2_language_consistency.py
+      - name: Existing release-app contracts remain green
+        run: python -m unittest -v tests.test_version2_release_app tests.test_version2_application
+      - name: W3 persisted-language RED oracle
+        run: python -m unittest -v tests.test_w3_v2_language_consistency
