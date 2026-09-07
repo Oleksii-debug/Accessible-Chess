@@ -70,6 +70,9 @@ originalMain.id = "main-content";
 const moveInput = new FakeElement("input");
 moveInput.id = "move-input";
 originalMain.appendChild(moveInput);
+const boardLauncher = new FakeElement("button");
+boardLauncher.id = "board-launcher";
+originalMain.appendChild(boardLauncher);
 const live = new FakeElement("div");
 live.id = "live";
 container.appendChild(originalMain);
@@ -248,6 +251,15 @@ async function clickRoute(routeId) {
   check(snapshotCalls === beforeImportSnapshotCalls, "Library import progress triggered a full V2 snapshot rerender");
   check(documentRef.getElementById("library-search-player") === libraryInput, "Library import progress replaced search input");
   check(documentRef.activeElement === libraryInput, "Library import progress moved keyboard focus");
+
+  currentRoute = "board";
+  eventQueue = [{ kind: "book-board", payload: { focus_target: "board-launcher" } }];
+  intervalCallback();
+  await flush();
+  await flush();
+  check(originalMain.hidden === false, "queued Board transition did not restore the Stage 1 main");
+  check(workspace.hidden === true, "queued Board transition left the V2 product main exposed");
+  check(documentRef.activeElement === boardLauncher, "queued route event ignored its explicit board focus target");
 
   console.log("Version 2 release bootstrap DOM/focus contract PASS");
 })().catch((error) => {
