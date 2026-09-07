@@ -1,0 +1,101 @@
+name: V2 Shared Presentation Path Privacy
+
+on:
+  push:
+    branches:
+      - work/v2-shared-presentation-path-privacy-20260907
+  pull_request:
+    paths:
+      - '.github/workflows/v2-shared-presentation-path-privacy.yml'
+      - 'acs/presentation_privacy.py'
+      - 'acs/book_webview_projection.py'
+      - 'acs/training_webview_projection.py'
+      - 'tests/test_v2_shared_presentation_path_privacy.py'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: v2-shared-presentation-path-privacy-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  STACK_PARENT: d1b32eeb980ac14d540d9b14c1c9c2ae156a0e5c
+  PRIVACY_BLOB: 00a7463476e9f8a6126bb4ae94f9196d42a4e527
+  BOOK_PROJECTION_BLOB: 707268d119e3844f2d4b5c2611976e7fd2af406a
+  TRAINING_PROJECTION_BLOB: 848586c8927a531335b0f09a7b0830550c9265cb
+  PRIVACY_TEST_BLOB: ad5264ea52632ae450046522fd6d87e28f658fb4
+
+jobs:
+  focused:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install pinned test dependency
+        run: python -m pip install -q pytest==8.4.2
+
+      - name: Prove stacked ancestry and bounded privacy scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor "$STACK_PARENT" HEAD
+          git diff --check "$STACK_PARENT" HEAD
+          changed="$(git diff --name-only "$STACK_PARENT" HEAD | sort)"
+          allowed="$(printf '%s\n' \
+            .github/workflows/v2-shared-presentation-path-privacy.yml \
+            acs/book_webview_projection.py \
+            acs/presentation_privacy.py \
+            acs/training_webview_projection.py \
+            tests/test_v2_shared_presentation_path_privacy.py | sort)"
+          test "$changed" = "$allowed" || {
+            printf 'Unexpected shared presentation privacy scope:\n%s\n' "$changed" >&2
+            exit 1
+          }
+          test "$(git rev-parse HEAD:acs/presentation_privacy.py)" = "$PRIVACY_BLOB"
+          test "$(git rev-parse HEAD:acs/book_webview_projection.py)" = "$BOOK_PROJECTION_BLOB"
+          test "$(git rev-parse HEAD:acs/training_webview_projection.py)" = "$TRAINING_PROJECTION_BLOB"
+          test "$(git rev-parse HEAD:tests/test_v2_shared_presentation_path_privacy.py)" = "$PRIVACY_TEST_BLOB"
+
+      - name: Compile privacy surfaces
+        run: python -m compileall -q acs/presentation_privacy.py acs/book_webview_projection.py acs/training_webview_projection.py tests/test_v2_shared_presentation_path_privacy.py
+
+      - name: Focused Books and Training privacy regressions
+        run: python -m unittest -v tests.test_v2_shared_presentation_path_privacy tests.test_dev1_books_training_webview_projection tests.test_books_training_ui_integration
+
+      - name: Focused pytest parity
+        run: python -m pytest -q tests/test_v2_shared_presentation_path_privacy.py tests/test_dev1_books_training_webview_projection.py tests/test_books_training_ui_integration.py
+
+  broad-ubuntu:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install pinned test dependency
+        run: python -m pip install -q pytest==8.4.2
+
+      - name: Full unittest regression
+        run: python -m unittest discover -s tests -v
+
+      - name: Full pytest regression
+        run: python -m pytest -q
