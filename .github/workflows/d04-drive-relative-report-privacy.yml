@@ -69,7 +69,7 @@ jobs:
         run: python -m pytest -q tests/test_d04_drive_relative_report_privacy.py tests/test_dev4_chessbase_cross_platform_path_privacy.py tests/test_dev4_chessbase_report_path_privacy.py
 
       - name: Full unittest regression
-        run: python -m unittest discover -v
+        run: python -m unittest discover -s tests -v
 
       - name: Full pytest regression
         run: python -m pytest -q
