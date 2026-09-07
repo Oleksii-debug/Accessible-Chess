@@ -253,6 +253,26 @@ def _publish_no_clobber(source: Path, destination: Path, label: str) -> None:
     _fsync_dir(destination.parent)
 
 
+def _rollback_published_hardlink(source: Path, destination: Path, label: str) -> None:
+    """Remove only the exact hard-link created by this bridge after failed verification."""
+
+    try:
+        if not destination.exists() and not destination.is_symlink():
+            return
+        # Refuse to unlink a pathname that a concurrent actor replaced after our
+        # no-clobber publication.  A bridge rollback owns only its own hard-link.
+        if not os.path.samefile(source, destination):
+            raise V1RuntimeBridgeError(
+                f"{label} publication changed before rollback"
+            )
+        destination.unlink()
+        _fsync_dir(destination.parent)
+    except V1RuntimeBridgeError:
+        raise
+    except OSError as exc:
+        raise V1RuntimeBridgeError(f"{label} publication rollback failed") from exc
+
+
 class V1RuntimeBridgeCoordinator:
     """Restartable, source-preserving bridge for the exact shipped V1 topology."""
 
@@ -549,7 +569,19 @@ class V1RuntimeBridgeCoordinator:
                 _publish_no_clobber(
                     settings_candidate, self.layout.settings_path, "Version 2 settings"
                 )
-                if _hash(self.layout.settings_path) != expected:
+                try:
+                    published_settings_ok = _hash(self.layout.settings_path) == expected
+                except Exception as exc:
+                    _rollback_published_hardlink(
+                        settings_candidate, self.layout.settings_path, "Version 2 settings"
+                    )
+                    raise V1RuntimeBridgeError(
+                        "published V2 settings verification failed"
+                    ) from exc
+                if not published_settings_ok:
+                    _rollback_published_hardlink(
+                        settings_candidate, self.layout.settings_path, "Version 2 settings"
+                    )
                     raise V1RuntimeBridgeError("published V2 settings verification failed")
             journal["phase"] = "settings_published"
             _atomic_json(self.journal_path, journal)
@@ -574,7 +606,21 @@ class V1RuntimeBridgeCoordinator:
                 _publish_no_clobber(
                     library_candidate, self.layout.library_path, "Version 2 library"
                 )
-                if _library_state_sha256(self.layout.library_path) != expected:
+                try:
+                    published_library_ok = (
+                        _library_state_sha256(self.layout.library_path) == expected
+                    )
+                except Exception as exc:
+                    _rollback_published_hardlink(
+                        library_candidate, self.layout.library_path, "Version 2 library"
+                    )
+                    raise V1RuntimeBridgeError(
+                        "published V2 library verification failed"
+                    ) from exc
+                if not published_library_ok:
+                    _rollback_published_hardlink(
+                        library_candidate, self.layout.library_path, "Version 2 library"
+                    )
                     raise V1RuntimeBridgeError("published V2 library verification failed")
             journal["phase"] = "library_published"
             _atomic_json(self.journal_path, journal)
