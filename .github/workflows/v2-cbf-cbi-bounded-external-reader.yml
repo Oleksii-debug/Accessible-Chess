@@ -9,7 +9,9 @@ on:
       - work/v2-cbf-cbi-real-corpus-unblock-20260828
     paths:
       - acs/cbf_cbi_external.py
+      - acs/cbf_cbi_qualification.py
       - tests/test_cbf_cbi_external.py
+      - tests/test_cbf_cbi_qualification.py
       - tests/test_v2_cbf_cbi_real_corpus_unblock.py
       - docs/automation/V2_CBF_CBI_REAL_CORPUS_UNBLOCK.json
       - docs/automation/V2_CBF_CBI_REAL_CORPUS_UNBLOCK.md
@@ -46,16 +48,16 @@ jobs:
           set -euo pipefail
           git merge-base --is-ancestor "$OWNER_BASE" HEAD
           git diff --check "$OWNER_BASE" HEAD
-          unexpected="$(git diff --name-only "$OWNER_BASE" HEAD | grep -Ev '^(acs/cbf_cbi_external\.py|tests/test_cbf_cbi_external\.py|tests/test_v2_cbf_cbi_real_corpus_unblock\.py|docs/automation/V2_CBF_CBI_REAL_CORPUS_UNBLOCK\.(json|md)|\.github/workflows/v2-cbf-cbi-bounded-external-reader\.yml)$' || true)"
+          unexpected="$(git diff --name-only "$OWNER_BASE" HEAD | grep -Ev '^(acs/cbf_cbi_(external|qualification)\.py|tests/test_cbf_cbi_(external|qualification)\.py|tests/test_v2_cbf_cbi_real_corpus_unblock\.py|docs/automation/V2_CBF_CBI_REAL_CORPUS_UNBLOCK\.(json|md)|\.github/workflows/v2-cbf-cbi-bounded-external-reader\.yml)$' || true)"
           if [[ -n "$unexpected" ]]; then
             printf 'Unexpected files outside CBF/CBI bounded-reader owner scope:\n%s\n' "$unexpected"
             exit 1
           fi
           python -m compileall -q acs tests run_accessible_chess.py
-      - name: Bounded external reader and no-overclaim contracts
-        run: python -m unittest -v tests.test_cbf_cbi_external tests.test_v2_cbf_cbi_real_corpus_unblock
+      - name: Bounded reader, oracle and no-overclaim contracts
+        run: python -m unittest -v tests.test_cbf_cbi_external tests.test_cbf_cbi_qualification tests.test_v2_cbf_cbi_real_corpus_unblock
       - name: Focused pytest parity
-        run: python -m pytest -q tests/test_cbf_cbi_external.py tests/test_v2_cbf_cbi_real_corpus_unblock.py tests/test_chessbase_adapter.py tests/test_chessbase_integrity.py tests/test_d07_library_import_service.py tests/test_game_identity.py
+        run: python -m pytest -q tests/test_cbf_cbi_external.py tests/test_cbf_cbi_qualification.py tests/test_v2_cbf_cbi_real_corpus_unblock.py tests/test_chessbase_adapter.py tests/test_chessbase_integrity.py tests/test_d07_library_import_service.py tests/test_game_identity.py
 
   pinned-reader-build:
     runs-on: ubuntu-22.04
