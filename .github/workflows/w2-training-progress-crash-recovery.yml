@@ -1,0 +1,87 @@
+name: W2 Training Progress Crash Recovery
+
+on:
+  push:
+    branches:
+      - work/w2-training-progress-crash-recovery-20260907
+  pull_request:
+    paths:
+      - 'acs/training_progress_store.py'
+      - 'tests/test_w2_training_progress_crash_recovery.py'
+      - '.github/workflows/w2-training-progress-crash-recovery.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: w2-training-progress-crash-recovery-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  W2_BASE: 9ac0600bf9d270e02334df1657c1ccc941f909b5
+
+jobs:
+  focused:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Exact W2 scope and ancestry
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git merge-base "$W2_BASE" HEAD)" = "$W2_BASE"
+          git diff --check "$W2_BASE" HEAD
+          changed="$(git diff --name-only "$W2_BASE" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/w2-training-progress-crash-recovery.yml' \
+            'acs/training_progress_store.py' \
+            'tests/test_w2_training_progress_crash_recovery.py' | sort)"
+          test "$changed" = "$expected"
+          if printf '%s\n' "$changed" | grep -E 'gametree|pgn_|chesscore|book_training|version2_windows|release_preflight'; then
+            echo 'Out-of-lane Product mutation' >&2
+            exit 1
+          fi
+      - name: Compile
+        run: python -m compileall -q acs/training_progress_store.py tests/test_w2_training_progress_crash_recovery.py
+      - name: Crash/restart lock oracle
+        run: python -m unittest -v tests.test_w2_training_progress_crash_recovery
+      - name: Existing Training and Books integration regressions
+        run: >-
+          python -m unittest -v
+          tests.test_training
+          tests.test_d08_training_canonical_resume
+          tests.test_d08_book_training_contract
+          tests.test_books_training_ui_integration
+
+  broad-regression:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install verification dependency
+        run: python -m pip install -q pytest==8.4.2
+      - name: Full unittest
+        run: python -m unittest discover -s tests -v
+      - name: Full pytest
+        run: python -m pytest -q tests
+      - name: SELFTEST and diagnostic
+        run: |
+          python -m acs.selftest
+          python run_accessible_chess.py --diagnostic
