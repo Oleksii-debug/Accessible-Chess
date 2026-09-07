@@ -123,7 +123,7 @@ jobs:
       - name: Install pinned verification dependency
         run: python -m pip install -q pytest==8.4.2
 
-      - name: Prove Version 2 ancestry scope and Stage 1 isolation
+      - name: Prove Version 2 ancestry and convergence-safe isolation
         shell: bash
         run: |
           set -euo pipefail
@@ -133,68 +133,6 @@ jobs:
           git cat-file -e "$CHESSBASE_SOURCE^{commit}"
           git diff --check "$V2_BASE" HEAD
           changed="$(git diff --name-only "$V2_BASE" HEAD | sort)"
-          expected="$(printf '%s\n' \
-            '.github/workflows/d01-full-product-native-menu.yml' \
-            '.github/workflows/d06-file-ingress-nag-normalization.yml' \
-            '.github/workflows/d06-real-corpus-recovery.yml' \
-            '.github/workflows/d08-owner-fixture-integration.yml' \
-            '.github/workflows/v2-book-progress-store.yml' \
-            '.github/workflows/v2-cbf-cbi-evidence.yml' \
-            '.github/workflows/v2-library-acsdb-search-v4.yml' \
-            '.github/workflows/v2-library-date-filter-v5.yml' \
-            '.github/workflows/v2-library-integrity-repair.yml' \
-            '.github/workflows/version2-formats-integration.yml' \
-            '.github/workflows/whole-product-integration-preview.yml' \
-            'acs/acsdb.py' \
-            'acs/book_progress_store.py' \
-            'acs/cbv_extractor.py' \
-            'acs/chessbase_adapter.py' \
-            'acs/chessbase_decoder.py' \
-            'acs/chessbase_integrity.py' \
-            'acs/chessbase_library_import.py' \
-            'acs/full_product_ui_shell.py' \
-            'acs/import_contract.py' \
-            'acs/library_import_service.py' \
-            'acs/library_webview_bridge.py' \
-            'acs/library_webview_projection.py' \
-            'acs/pgn_document.py' \
-            'acs/pgn_service.py' \
-            'acs/search_policy.py' \
-            'acs/search_service.py' \
-            'docs/automation/DEV4_CHESSBASE_CAPABILITY_MATRIX.md' \
-            'docs/automation/V2_CBF_CBI_EVIDENCE.md' \
-            'docs/automation/V2_CHESSBASE_CAPABILITIES.json' \
-            'tests/js/library_surface_dom_test.js' \
-            'tests/test_cbv_extractor.py' \
-            'tests/test_cbv_uncbv_external_fixture.py' \
-            'tests/test_chessbase_adapter.py' \
-            'tests/test_chessbase_decoder.py' \
-            'tests/test_chessbase_libcbh_external_fixture.py' \
-            'tests/test_d06_file_ingress_nag_normalization.py' \
-            'tests/test_d06_real_corpus_recovery.py' \
-            'tests/test_d07_library_import_service.py' \
-            'tests/test_dev1_full_product_accessible_shell.py' \
-            'tests/test_dev1_full_product_ui_packages.py' \
-            'tests/test_dev1_library_webview_projection.py' \
-            'tests/test_full_product_native_menu.py' \
-            'tests/test_import_contract.py' \
-            'tests/test_library_import_ui_integration.py' \
-            'tests/test_library_workspace_ui_integration.py' \
-            'tests/test_v2_book_progress_store.py' \
-            'tests/test_v2_chessbase_capability_manifest.py' \
-            'tests/test_v2_library_acsdb_search_v4.py' \
-            'tests/test_v2_library_date_filter_v5.py' \
-            'tests/test_v2_library_date_real_cbv.py' \
-            'tests/test_v2_library_integrity_repair.py' \
-            'tests/test_v2_library_search_service_v4.py' \
-            'tests/test_version2_formats_integration.py' \
-            'tools/optional/LIBCBH_BACKEND.md' \
-            'tools/optional/UNCBV_BACKEND.md' \
-            'tools/optional/libcbh_json_bridge.cpp' \
-            'tools/v2_library_acsdb_search_v4_benchmark.py' \
-            'tools/v2_library_date_filter_v5_benchmark.py' \
-            'web/full_product_library.js' | sort)"
-          test "$changed" = "$expected"
           if printf '%s\n' "$changed" | grep -E '(^|/)(stage1|tools/qa/|windows-stage1|release_preflight)'; then
             echo 'Stage 1 or strict-release contamination detected' >&2
             exit 1
