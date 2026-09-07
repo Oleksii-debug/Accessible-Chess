@@ -224,6 +224,32 @@ def _prepare_version2_user_data(
     return layout
 
 
+def _close_partial_version2_composition(
+    *,
+    database: Any | None,
+    continuous: Any | None,
+    analysis: Any | None,
+    engine_runtime: Any | None,
+) -> None:
+    """Best-effort unwind of resources acquired before composition completed.
+
+    A constructor failure is the primary error and must not be replaced by a
+    secondary close failure.  Cleanup therefore follows reverse ownership order
+    and attempts every successfully acquired resource independently.
+    """
+
+    for resource in (database, continuous, analysis, engine_runtime):
+        if resource is None:
+            continue
+        close = getattr(resource, "close", None)
+        if not callable(close):
+            continue
+        try:
+            close()
+        except Exception:
+            pass
+
+
 def create_version2_release_application(
     *,
     application_dir: str | Path | None = None,
@@ -247,35 +273,40 @@ def create_version2_release_application(
         settings_path=settings_path,
     )
     app_dir = Path(application_dir) if application_dir is not None else _asset_root()
-    engine_runtime = runtime_factory(StockfishRuntimeConfig(application_dir=app_dir))
-    analysis = AnalysisService(engine_runtime.provider, owns_engine=False)
-    continuous = ContinuousAnalysisService(analysis)
-    engine_play = EnginePlayService(engine_runtime.provider, owns_engine=False)
 
-    settings = Settings(layout.settings_path)
-    playback = sound_playback
-    if playback is None:
-        playback = WindowsSoundPlaybackAdapter(
-            PackagedSoundAssetResolver(app_dir),
-            cache_dir=(layout.root / "sound-cache") if data_root is not None else _sound_cache_dir(),
-        )
-    sound_runtime = SoundRuntime(
-        playback,
-        settings=lambda: SoundRuntimeSettings.from_mapping(settings.data),
-    )
-    game_sounds = GameSoundRuntime(sound_runtime)
-
-    api = Version2ReleaseAccessibleChessAPI(
-        continuous_analysis=continuous,
-        game_sounds=game_sounds,
-        sound_runtime=sound_runtime,
-        settings=settings,
-        engine_play_service=engine_play,
-    )
-
-    database_path = layout.library_path
-    database = AcsDatabase(database_path)
+    engine_runtime: Any | None = None
+    analysis: Any | None = None
+    continuous: Any | None = None
+    database: Any | None = None
     try:
+        engine_runtime = runtime_factory(StockfishRuntimeConfig(application_dir=app_dir))
+        analysis = AnalysisService(engine_runtime.provider, owns_engine=False)
+        continuous = ContinuousAnalysisService(analysis)
+        engine_play = EnginePlayService(engine_runtime.provider, owns_engine=False)
+
+        settings = Settings(layout.settings_path)
+        playback = sound_playback
+        if playback is None:
+            playback = WindowsSoundPlaybackAdapter(
+                PackagedSoundAssetResolver(app_dir),
+                cache_dir=(layout.root / "sound-cache") if data_root is not None else _sound_cache_dir(),
+            )
+        sound_runtime = SoundRuntime(
+            playback,
+            settings=lambda: SoundRuntimeSettings.from_mapping(settings.data),
+        )
+        game_sounds = GameSoundRuntime(sound_runtime)
+
+        api = Version2ReleaseAccessibleChessAPI(
+            continuous_analysis=continuous,
+            game_sounds=game_sounds,
+            sound_runtime=sound_runtime,
+            settings=settings,
+            engine_play_service=engine_play,
+        )
+
+        database_path = layout.library_path
+        database = AcsDatabase(database_path)
         application = Version2Application(
             database,
             progress_store=BookProgressStore(layout.root / "book-progress.json"),
@@ -287,12 +318,12 @@ def create_version2_release_application(
         _share_v2_action_registry(api, application)
         api.bind_version2_application(application)
     except Exception:
-        database.close()
-        try:
-            continuous.close()
-        finally:
-            analysis.close()
-            engine_runtime.close()
+        _close_partial_version2_composition(
+            database=database,
+            continuous=continuous,
+            analysis=analysis,
+            engine_runtime=engine_runtime,
+        )
         raise
 
     def native_runtime_factory(owner_control: object) -> Version2WindowsFileWorkflowRuntime:
