@@ -2,9 +2,10 @@
 
 DEV1 owns projection, focus/keyboard semantics and bounded NVDA feedback.
 Authoritative pointer/highlight/arrow/permission state remains external and is
-read through :class:`TeacherPresentationState`.  A separate optional read-only
-FEN provider may expose the canonical teaching position for sighted rendering;
-the projection never stores or mutates chess state and never returns raw FEN.
+read through :class:`TeacherPresentationState`.  Sighted-board pieces may be
+read either through a narrow FEN provider or, preferably, one canonical
+:class:`TeachingSessionState` provider.  The projection never stores or mutates
+chess state and never returns raw FEN.
 """
 from __future__ import annotations
 
@@ -18,6 +19,7 @@ from .teacher_presentation import (
     StudentEventKind,
     TeacherPresentationState,
 )
+from .teaching_session import TeachingSessionState
 
 _ALLOWED_PERMISSIONS = frozenset({"locked", "select_only", "move_allowed"})
 _ALLOWED_ENGINE_VISIBILITY = frozenset(
@@ -67,13 +69,82 @@ class TeacherWebViewProjection:
         teacher: TeacherPresentationState,
         *,
         position_fen_provider: Callable[[], str] | None = None,
+        teaching_state_provider: Callable[[], TeachingSessionState] | None = None,
     ) -> None:
         if not isinstance(teacher, TeacherPresentationState):
             raise TypeError("teacher must be TeacherPresentationState")
         if position_fen_provider is not None and not callable(position_fen_provider):
             raise TypeError("position_fen_provider must be callable or None")
+        if teaching_state_provider is not None and not callable(teaching_state_provider):
+            raise TypeError("teaching_state_provider must be callable or None")
+        if position_fen_provider is not None and teaching_state_provider is not None:
+            raise ValueError("choose one canonical teaching-position provider")
         self._teacher = teacher
         self._position_fen_provider = position_fen_provider
+        self._teaching_state_provider = teaching_state_provider
+
+    @classmethod
+    def from_teaching_session(
+        cls,
+        dispatch: Callable[[str, Mapping[str, object]], object],
+        state_provider: Callable[[], TeachingSessionState],
+        *,
+        feedback_limit: int = 50,
+    ) -> "TeacherWebViewProjection":
+        """Compose the WebView surface directly over canonical teaching state.
+
+        The application still owns state mutation. ``dispatch`` must route stable
+        action IDs to that application boundary; this helper only adapts the
+        immutable canonical state for presentation and guarantees that one
+        ``snapshot()`` uses one teaching-state revision for pieces and overlays.
+        """
+
+        if not callable(dispatch):
+            raise TypeError("teacher presentation dispatcher must be callable")
+        if not callable(state_provider):
+            raise TypeError("teaching_state_provider must be callable")
+
+        def presentation_provider() -> Mapping[str, object]:
+            state = cls._read_teaching_state(state_provider)
+            return cls._presentation_mapping(state)
+
+        teacher = TeacherPresentationState(
+            dispatch,
+            presentation_provider,
+            feedback_limit=feedback_limit,
+        )
+        return cls(teacher, teaching_state_provider=state_provider)
+
+    @staticmethod
+    def _read_teaching_state(
+        provider: Callable[[], TeachingSessionState],
+    ) -> TeachingSessionState:
+        state = provider()
+        if type(state) is not TeachingSessionState:
+            raise TypeError("canonical teaching state provider must return TeachingSessionState")
+        return state
+
+    @staticmethod
+    def _presentation_mapping(state: TeachingSessionState) -> dict[str, object]:
+        presentation = state.presentation
+        return {
+            "pointer_square": presentation.pointer.square,
+            "highlights": tuple(
+                {"square": item.square, "purpose": item.purpose}
+                for item in presentation.highlights
+            ),
+            "arrows": tuple(
+                {
+                    "start_square": item.start_square,
+                    "end_square": item.end_square,
+                    "purpose": item.purpose,
+                }
+                for item in presentation.arrows
+            ),
+            "coordinates_visible": presentation.coordinate_labels_visible,
+            "board_permission": presentation.board_permission.value,
+            "engine_visibility": presentation.engine_visibility.value,
+        }
 
     @staticmethod
     def _visual_cell(square: str, orientation: BoardOrientation) -> dict[str, int]:
@@ -103,10 +174,14 @@ class TeacherWebViewProjection:
             "cell": self._visual_cell(normalized, self._teacher.orientation),
         }
 
-    def _piece_items(self, *, language: str) -> tuple[dict[str, object], ...]:
-        if self._position_fen_provider is None:
+    def _piece_items(
+        self,
+        *,
+        language: str,
+        fen: str | None,
+    ) -> tuple[dict[str, object], ...]:
+        if fen is None:
             return ()
-        fen = self._position_fen_provider()
         if type(fen) is not str:
             raise TypeError("canonical teaching position provider must return FEN text")
         board = Board(fen)
@@ -159,9 +234,18 @@ class TeacherWebViewProjection:
         return ". ".join(parts) + "."
 
     def snapshot(self, *, language: str = "uk") -> dict[str, object]:
-        # Read canonical presentation state exactly once so visual and accessible
-        # projections can never describe different concurrent snapshots.
-        state = self._teacher.snapshot()
+        # The canonical TeachingSession path reads exactly one immutable state
+        # revision, so pieces and presentation overlays cannot tear across
+        # concurrent session updates.
+        if self._teaching_state_provider is not None:
+            teaching_state = self._read_teaching_state(self._teaching_state_provider)
+            state = self._presentation_mapping(teaching_state)
+            fen: str | None = teaching_state.position_fen
+        else:
+            state = self._teacher.snapshot()
+            fen = None
+            if self._position_fen_provider is not None:
+                fen = self._position_fen_provider()
         lang = "en" if str(language).lower() == "en" else "uk"
 
         pointer = state.get("pointer_square")
@@ -220,7 +304,7 @@ class TeacherWebViewProjection:
 
         highlight_items = tuple(highlights)
         arrow_items = tuple(arrows)
-        piece_items = self._piece_items(language=lang)
+        piece_items = self._piece_items(language=lang, fen=fen)
         return {
             "board": {
                 "orientation": self._teacher.orientation.value,
