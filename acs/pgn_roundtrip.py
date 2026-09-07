@@ -700,17 +700,41 @@ def _measure_games(games: tuple[PgnGame, ...]) -> None:
         _measure_line(game.line, budget, seen, active, node_count, depth=0)
 
 
-def serialize_pgn_text(games: Iterable[PgnGame]) -> str:
-    """Serialize only a bounded model that can be reparsed by the strict codec."""
+def materialize_pgn_games_bounded(
+    games: Iterable[PgnGame],
+) -> tuple[PgnGame, ...]:
+    """Materialize and validate a PGN iterable without reading past D06 limits.
 
+    The count ceiling is enforced while consuming the iterable, before a caller can
+    allocate an unbounded tuple/deep copy. One-shot iterables remain supported and
+    an over-limit source is consumed only through the first disallowed item.
+    """
+
+    snapshot: list[PgnGame] = []
     try:
-        snapshot = tuple(games)
+        iterator = iter(games)
+        for index, game in enumerate(iterator):
+            if index >= MAX_PGN_GAMES:
+                _raise_limit(
+                    "PGN contains too many games",
+                    PgnRoundTripErrorCode.GAME_COUNT_LIMIT,
+                )
+            snapshot.append(game)
     except TypeError as exc:
         raise PgnRoundTripError(
             "PGN games must be an iterable of PgnGame values",
             code=PgnRoundTripErrorCode.INVALID_MODEL,
         ) from exc
-    _measure_games(snapshot)
+
+    bounded = tuple(snapshot)
+    _measure_games(bounded)
+    return bounded
+
+
+def serialize_pgn_text(games: Iterable[PgnGame]) -> str:
+    """Serialize only a bounded model that can be reparsed by the strict codec."""
+
+    snapshot = materialize_pgn_games_bounded(games)
     try:
         text = serialize_games(snapshot)
     except GameTreeSerializationError as exc:
