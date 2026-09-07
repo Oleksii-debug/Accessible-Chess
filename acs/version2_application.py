@@ -409,11 +409,14 @@ class Version2Application:
         in-flight SQLite/import transaction on process exit is not an acceptable
         release behaviour. Tests and recovery callers may supply a bounded
         timeout and retry without closing the database when the worker is still
-        alive.
+        alive. Once worker shutdown succeeds, database cleanup is guaranteed even
+        if durable Book progress publication itself fails.
         """
         self._assert_thread()
         if self._files is not None and not self._files.shutdown(timeout=timeout):
             return False
-        self.save_book_progress()
-        self.database.close()
+        try:
+            self.save_book_progress()
+        finally:
+            self.database.close()
         return True
