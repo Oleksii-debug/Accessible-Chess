@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 from pathlib import Path
 import tempfile
 import unittest
@@ -10,6 +11,7 @@ from acs.book_progress_store import BookProgressStore
 from acs.engine_assisted_workflows import EngineAssistedWorkflowService
 from acs.pgn_document import PgnDocumentSession
 from acs.version2_application import Version2Application
+from acs.version2_release_app import create_version2_release_application
 from acs.version2_release_ui import Version2ReleaseAccessibleChessAPI
 
 
@@ -34,7 +36,7 @@ class Version2PgnReviewLiveStateIsolationTests(unittest.TestCase):
             progress_store=BookProgressStore(self.root / "book-progress.json"),
             engine_assistance=EngineAssistedWorkflowService(self.analysis),
             board_dispatch=self.api.v2_board_dispatch,
-            board_position_projector=self.api.set_fen,
+            board_position_projector=self.api._project_version2_review_position,
         )
         self.api.bind_version2_application(self.app)
 
@@ -52,6 +54,14 @@ class Version2PgnReviewLiveStateIsolationTests(unittest.TestCase):
             for record in api.review_history.tree_nodes()
         )
 
+    def test_production_composition_uses_presentation_only_review_projector(self) -> None:
+        source = inspect.getsource(create_version2_release_application)
+        self.assertIn(
+            "board_position_projector=api._project_version2_review_position",
+            source,
+        )
+        self.assertNotIn("board_position_projector=api.set_fen", source)
+
     def test_pgn_review_projection_must_not_replace_live_game_or_history(self) -> None:
         played = self.api.make_move("e4")
         self.assertTrue(played["ok"])
@@ -67,10 +77,11 @@ class Version2PgnReviewLiveStateIsolationTests(unittest.TestCase):
 
         opened = self.app.browser_command("review", "pgn.open_on_board")
         self.assertEqual(opened["kind"], "review")
-        # Presentation must show the selected PGN position.
+        # Presentation must show the selected PGN position through the same
+        # accessible 64-square state projection.
         self.assertEqual(self.api.get_state()["fen"], reviewed_fen)
 
-        # But PGN review is presentation/review state: it must not overwrite the
+        # PGN review is presentation/review state: it must not overwrite the
         # canonical live game, move list, or ReviewHistory identity underneath.
         self.assertEqual(self.api.board.fen(), live_fen)
         self.assertEqual(tuple(self.api.sans), live_sans)
@@ -79,6 +90,7 @@ class Version2PgnReviewLiveStateIsolationTests(unittest.TestCase):
 
         returned = self.app.browser_command("review", "pgn.return")
         self.assertEqual(returned["kind"], "review")
+        self.assertEqual(self.api.get_state()["fen"], live_fen)
         self.assertEqual(self.api.board.fen(), live_fen)
         self.assertEqual(tuple(self.api.sans), live_sans)
         self.assertEqual(self.api.live_history_node, live_node)
