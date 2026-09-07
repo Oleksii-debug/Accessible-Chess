@@ -10,7 +10,6 @@ live in this module.
 """
 
 from collections.abc import Mapping
-from pathlib import Path
 from typing import Any, Callable
 
 from .full_product_native_menu import install_full_product_windows_native_menu
@@ -33,7 +32,14 @@ class Version2ReleaseAccessibleChessAPI(Stage1ReleaseAccessibleChessAPI):
     def bind_version2_application(self, application: Any) -> None:
         if self._version2_application is not None and self._version2_application is not application:
             raise RuntimeError("Version 2 application is already bound")
-        for name in ("snapshot", "browser_command", "drain_events", "record_focus", "shutdown"):
+        for name in (
+            "snapshot",
+            "browser_command",
+            "drain_events",
+            "record_focus",
+            "native_command",
+            "shutdown",
+        ):
             if not callable(getattr(application, name, None)):
                 raise TypeError("Version 2 application host contract is incomplete")
         if getattr(application, "adapter", None) is None:
@@ -117,6 +123,7 @@ def run_version2_release_window(
     *,
     webview_module: Any | None = None,
     menu_installer: Callable[[Any, Any], bool] = install_full_product_windows_native_menu,
+    file_runtime_factory: Callable[[object], Any] | None = None,
 ) -> None:
     """Run V2 on the original Stage 1 document and real Edge/WebView2 host."""
 
@@ -124,6 +131,8 @@ def run_version2_release_window(
         raise TypeError("V2 release window requires Version2ReleaseAccessibleChessAPI")
     if not callable(menu_installer):
         raise TypeError("V2 native menu installer must be callable")
+    if file_runtime_factory is not None and not callable(file_runtime_factory):
+        raise TypeError("V2 file runtime factory must be callable or None")
     api.bind_version2_application(application)
 
     html = _asset_root() / "web" / "index.html"
@@ -157,10 +166,19 @@ def run_version2_release_window(
         exit_callback=exit_application,
         current_focus_provider=lambda: str(getattr(application, "_focus", "")),
     )
+    native_files: Any | None = None
 
     def install_menu_on_native_host(*_args: Any) -> None:
+        nonlocal native_files
         if not menu_installer(window, controller):
             raise RuntimeError("Accessible Version 2 native Windows menu could not be attached.")
+        if file_runtime_factory is None or native_files is not None:
+            return
+        owner = getattr(window, "_accessible_chess_native_menu_host", None)
+        if owner is None:
+            raise RuntimeError("Accessible Version 2 native Windows owner could not be resolved.")
+        native_files = file_runtime_factory(owner)
+        application.bind_files(native_files)
 
     def install_release_web_contract(*_args: Any) -> None:
         for _label, source in sources:
