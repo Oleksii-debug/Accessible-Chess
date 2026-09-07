@@ -35,6 +35,24 @@ class Version2RemappedKeyboardRoutingTests(unittest.TestCase):
         self.assertEqual(self.application.shell.current_route.route_id, "library")
         self.assertTrue(any(event["kind"] == "route" for event in self.application.events))
 
+        # web/index.html's existing apiAction() always passes API results through
+        # the Stage1 renderer. A V2 shortcut therefore must return a complete
+        # current Stage1 projection, not a tiny V2-only command envelope.
+        for key in (
+            "lang",
+            "gameInfo",
+            "moves",
+            "whitePieces",
+            "blackPieces",
+            "gameStatus",
+            "fen",
+            "board",
+        ):
+            self.assertIn(key, result)
+        self.assertEqual(len(result["board"]), 64)
+        self.assertEqual(result["announcement"], "")
+        self.assertEqual(result["v2"]["kind"], "route")
+
     def test_library_route_uses_database_context_before_global(self) -> None:
         self.registry.set_binding("library.next_page", "Ctrl+Alt+N", allow_warnings=True)
         self.api.dispatch_action("screen.library")
