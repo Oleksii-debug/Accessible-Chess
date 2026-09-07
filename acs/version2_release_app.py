@@ -111,6 +111,7 @@ def _install_unsaved_pgn_close_guard(
         try:
             setattr(event, "Cancel", True)
         except Exception:
+            # A malformed native event cannot be trusted to close a dirty document.
             return
 
     owner_control.FormClosing += on_form_closing
