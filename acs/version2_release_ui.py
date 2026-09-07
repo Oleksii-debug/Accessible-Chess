@@ -52,6 +52,20 @@ class Version2ReleaseAccessibleChessAPI(Stage1ReleaseAccessibleChessAPI):
                 raise TypeError("Version 2 application host contract is incomplete")
         if getattr(application, "adapter", None) is None:
             raise TypeError("Version 2 application requires its accepted WebView adapter")
+
+        # Historical V2 composition passed the destructive Position command
+        # ``api.set_fen`` as the private review-board projector.  Accepting that
+        # exact bound method would let PGN/Book review replace live Board/history.
+        # Convert only this known legacy binding to the presentation-only seam;
+        # arbitrary projectors are not silently rewritten.  This also makes old
+        # owner/evidence compositions fail safe without changing Stage 1 set_fen.
+        projector = getattr(application, "_board_position_projector", None)
+        if (
+            getattr(projector, "__self__", None) is self
+            and getattr(projector, "__name__", "") == "set_fen"
+        ):
+            application._board_position_projector = self.project_review_position
+
         self._version2_application = application
 
     def _version2(self) -> Any:
