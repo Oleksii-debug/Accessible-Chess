@@ -125,6 +125,11 @@ class Version2ReleaseAccessibleChessAPI(Stage1ReleaseAccessibleChessAPI):
             return Board(self._v2_review_fen)
         return super()._display_board()
 
+    def _visible_ply_count(self) -> int:
+        if self._v2_review_is_active():
+            return 0
+        return super()._visible_ply_count()
+
     def _at_history_end(self) -> bool:
         # Stage 1 already blocks live mutation while its own history cursor is in
         # review.  External V2 review must obey the same invariant.
@@ -135,6 +140,14 @@ class Version2ReleaseAccessibleChessAPI(Stage1ReleaseAccessibleChessAPI):
             return self.analysis_ui.target_fen == self._v2_review_fen
         return super()._analysis_origin_matches()
 
+    def get_state(self) -> dict[str, Any]:
+        state = super().get_state()
+        if self._v2_review_is_active():
+            # Never label hidden live-history identity as belonging to the
+            # externally reviewed PGN/Book position.
+            state["historyLength"] = 0
+        return state
+
     def _v2_review_mutation_error(self) -> dict[str, Any]:
         return self._error(
             "Спочатку поверніться з перегляду партії або книги."
@@ -142,10 +155,17 @@ class Version2ReleaseAccessibleChessAPI(Stage1ReleaseAccessibleChessAPI):
             else "Return from the game or book review first."
         )
 
-    # These reset-style Stage 1 commands historically do not consult
-    # ``_at_history_end`` themselves.  Keep them fail-closed while a V2 review
-    # projection is active so hidden live state can never change behind the
-    # displayed PGN/Book position.
+    # The guard must run before Stage 1 engine/reset side effects.  Relying only
+    # on _at_history_end is insufficient because several Stage 1 entry points
+    # mutate engine/session state before reaching the ordinary review guard.
+    def make_move(self, text: str) -> dict[str, Any]:
+        return self._v2_review_mutation_error() if self._v2_review_is_active() else super().make_move(text)
+
+    def activate_square(self, square: str) -> dict[str, Any]:
+        if self._v2_review_is_active():
+            return self._v2_review_mutation_error()
+        return super().activate_square(square)
+
     def new_game(self) -> dict[str, Any]:
         return self._v2_review_mutation_error() if self._v2_review_is_active() else super().new_game()
 
@@ -160,6 +180,15 @@ class Version2ReleaseAccessibleChessAPI(Stage1ReleaseAccessibleChessAPI):
     def set_fen(self, fen: str) -> dict[str, Any]:
         return self._v2_review_mutation_error() if self._v2_review_is_active() else super().set_fen(fen)
 
+    def set_turn(self, color: str) -> dict[str, Any]:
+        return self._v2_review_mutation_error() if self._v2_review_is_active() else super().set_turn(color)
+
+    def undo(self) -> dict[str, Any]:
+        return self._v2_review_mutation_error() if self._v2_review_is_active() else super().undo()
+
+    def redo(self) -> dict[str, Any]:
+        return self._v2_review_mutation_error() if self._v2_review_is_active() else super().redo()
+
     def start_engine_game(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
         if self._v2_review_is_active():
             return self._v2_review_mutation_error()
@@ -167,6 +196,9 @@ class Version2ReleaseAccessibleChessAPI(Stage1ReleaseAccessibleChessAPI):
 
     def stop_engine_game(self) -> dict[str, Any]:
         return self._v2_review_mutation_error() if self._v2_review_is_active() else super().stop_engine_game()
+
+    def retry_engine_move(self) -> dict[str, Any]:
+        return self._v2_review_mutation_error() if self._v2_review_is_active() else super().retry_engine_move()
 
     def engine_takeback(self) -> dict[str, Any]:
         return self._v2_review_mutation_error() if self._v2_review_is_active() else super().engine_takeback()
