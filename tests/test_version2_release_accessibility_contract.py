@@ -10,6 +10,7 @@ HTML = (ROOT / "web" / "index.html").read_text(encoding="utf-8")
 SHELL = (ROOT / "acs" / "full_product_ui_shell.py").read_text(encoding="utf-8")
 PGN_PROJECTION = (ROOT / "acs" / "pgn_webview_projection.py").read_text(encoding="utf-8")
 BOOK_PROJECTION = (ROOT / "acs" / "book_webview_projection.py").read_text(encoding="utf-8")
+WINDOWS_COMPOSITION = (ROOT / ".github" / "workflows" / "version2-windows-composition.yml").read_text(encoding="utf-8")
 
 
 class Version2ReleaseAccessibilityContractTests(unittest.TestCase):
@@ -143,6 +144,12 @@ class Version2ReleaseAccessibilityContractTests(unittest.TestCase):
         self.assertIn('if (applyQueuedEvent(event)) needsRefresh = true;', drain)
         self.assertIn('if (needsRefresh) refresh(false);', drain)
         self.assertNotIn('refresh(true);', drain)
+
+    def test_windows_composition_executes_behavioral_v2_bootstrap_smoke(self) -> None:
+        test_path = "tests/js/version2_release_bootstrap_dom_test.js"
+        self.assertIn("- '" + test_path + "'", WINDOWS_COMPOSITION)
+        self.assertIn("node " + test_path, WINDOWS_COMPOSITION)
+        self.assertIn("matrix:\n        os: [ubuntu-22.04, windows-2025]", WINDOWS_COMPOSITION)
 
 
 if __name__ == "__main__":
