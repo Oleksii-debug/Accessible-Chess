@@ -4,12 +4,13 @@ on:
   push:
     branches:
       - work/v2-native-dialog-language-20260907
+  pull_request:
 
 permissions:
   contents: read
 
 concurrency:
-  group: v2-native-dialog-language-${{ github.ref }}
+  group: v2-native-dialog-language-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
