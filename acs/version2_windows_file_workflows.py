@@ -209,12 +209,7 @@ class Version2WindowsFileActionDelegate:
         next_delegate: Callable[[str, Mapping[str, object]], Any],
         current_focus_provider: Callable[[], str] | None = None,
     ) -> None:
-        for method in (
-            "open_pgn",
-            "save_pgn_as",
-            "select_library_import",
-            "confirm_discard_unsaved_pgn",
-        ):
+        for method in ("open_pgn", "save_pgn_as", "select_library_import"):
             if not callable(getattr(dialogs, method, None)):
                 raise TypeError(f"Windows file dialogs must expose {method}")
         for name, callback in (
@@ -311,8 +306,15 @@ class Version2WindowsFileActionDelegate:
             if not isinstance(current, PgnDocumentSession):
                 return self._failed("pgn.open", "pgn_session_invalid", focus_target=previous_focus)
             if current.dirty:
+                confirmation = getattr(self._dialogs, "confirm_discard_unsaved_pgn", None)
+                if not callable(confirmation):
+                    return self._failed(
+                        "pgn.open",
+                        "unsaved_confirmation_unavailable",
+                        focus_target=previous_focus,
+                    )
                 try:
-                    discard = self._dialogs.confirm_discard_unsaved_pgn()
+                    discard = confirmation()
                 except Exception:
                     return self._failed(
                         "pgn.open",
