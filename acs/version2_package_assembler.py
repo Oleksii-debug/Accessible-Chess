@@ -42,6 +42,7 @@ _ALLOWED_DIAGNOSTICS = frozenset(
     }
 )
 _FIXED_ZIP_TIMESTAMP = (1980, 1, 1, 0, 0, 0)
+_COPY_CHUNK_BYTES = 1024 * 1024
 
 
 class Version2PackageAssemblyError(RuntimeError):
@@ -145,7 +146,7 @@ def _sha256(path: Path) -> str:
     digest = hashlib.sha256()
     try:
         with path.open("rb") as handle:
-            for block in iter(lambda: handle.read(1024 * 1024), b""):
+            for block in iter(lambda: handle.read(_COPY_CHUNK_BYTES), b""):
                 digest.update(block)
     except OSError as exc:
         _fail(f"package file cannot be hashed: {type(exc).__name__}")
@@ -226,6 +227,14 @@ def _diagnostics(value: Mapping[str, str | Path] | None) -> Mapping[str, Path]:
     return MappingProxyType(normalized)
 
 
+def _require_notice_payload(notices_root: Path) -> None:
+    for path in notices_root.rglob("*"):
+        info = _safe_info(path, label="third-party notice entry")
+        if stat.S_ISREG(info.st_mode):
+            return
+    _fail("third-party notices directory must contain at least one notice file")
+
+
 def assemble_version2_package_tree(
     prepared_product_dir: str | Path,
     third_party_notices_dir: str | Path,
@@ -256,7 +265,9 @@ def assemble_version2_package_tree(
     try:
         staged.mkdir()
         _copy_tree(product, staged / "AccessibleChess", label="prepared product directory")
-        _copy_tree(notices, staged / "THIRD_PARTY_NOTICES", label="third-party notices directory")
+        staged_notices = staged / "THIRD_PARTY_NOTICES"
+        _copy_tree(notices, staged_notices, label="third-party notices directory")
+        _require_notice_payload(staged_notices)
         for name, source in diagnostics.items():
             _copy_file(source, staged / name, label="release diagnostic evidence")
         _write_manifest(staged, sha)
@@ -265,6 +276,8 @@ def assemble_version2_package_tree(
             staged,
             expected_integration_sha=sha,
         )
+        if output.exists():
+            _fail("package output appeared during assembly and will not be overwritten")
         try:
             staged.rename(output)
         except OSError as exc:
@@ -325,17 +338,33 @@ def write_version2_package_zip(
                 info.create_system = 3
                 info.external_attr = (stat.S_IFREG | 0o644) << 16
                 try:
-                    archive.writestr(info, source.read_bytes(), compress_type=zipfile.ZIP_DEFLATED, compresslevel=9)
-                except OSError as exc:
-                    _fail(f"package archive source could not be read: {type(exc).__name__}")
+                    with source.open("rb") as source_handle, archive.open(
+                        info,
+                        mode="w",
+                        force_zip64=True,
+                    ) as archive_handle:
+                        shutil.copyfileobj(
+                            source_handle,
+                            archive_handle,
+                            length=_COPY_CHUNK_BYTES,
+                        )
+                except (OSError, RuntimeError, ValueError, zipfile.LargeZipFile) as exc:
+                    _fail(f"package archive source could not be streamed: {type(exc).__name__}")
         report = validate_version2_package_zip(
             temporary,
             expected_integration_sha=sha,
         )
         try:
-            os.replace(temporary, target)
+            # The validated temporary ZIP lives in the same directory, so a
+            # hard link gives us atomic no-overwrite publication on NTFS and
+            # POSIX filesystems.  Only after the link succeeds is the temporary
+            # name removed; an existing target can never be replaced silently.
+            os.link(temporary, target)
+        except FileExistsError:
+            _fail("Version 2 ZIP output appeared during assembly and will not be overwritten")
         except OSError as exc:
             _fail(f"validated Version 2 ZIP could not be published atomically: {type(exc).__name__}")
+        temporary.unlink()
         return report
     finally:
         try:
