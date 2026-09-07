@@ -91,6 +91,7 @@ const documentRef = {
 global.document = documentRef;
 
 let currentRoute = "board";
+let libraryAvailable = false;
 let eventQueue = [];
 let intervalCallback = null;
 let snapshotCalls = 0;
@@ -121,7 +122,7 @@ function snapshot(route) {
     navigation,
     screen: { route_id: route, heading: headings[route], focus_target: focus },
     pgn: null,
-    library: route === "library" ? { heading: "Library" } : null,
+    library: route === "library" && libraryAvailable ? { heading: "Library" } : null,
     books: null
   };
 }
@@ -223,6 +224,17 @@ async function clickRoute(routeId) {
   await flush();
   check(recordedFocus.length === 0, "global V2 navigation overwrote route-local focus history");
 
+  await clickRoute("library");
+  const libraryStatus = documentRef.getElementById("v2-library-empty-status");
+  check(workspace.children[0] && workspace.children[0].tagName === "H2", "empty Library route has no heading");
+  check(workspace.children[0].textContent === "Library", "empty Library route lost canonical heading");
+  check(libraryStatus && libraryStatus.textContent === "The Library is not ready to browse yet.", "empty Library status missing");
+  check(libraryStatus.tabIndex === -1, "empty Library status is not programmatically focusable");
+  check(documentRef.activeElement === libraryStatus, "empty Library route did not focus its explanatory status");
+
+  libraryAvailable = true;
+  await clickRoute("board");
+  check(documentRef.activeElement === moveInput, "return to Board did not restore move input focus");
   await clickRoute("library");
   const libraryInput = documentRef.getElementById("library-search-player");
   check(documentRef.activeElement === libraryInput, "Library route did not restore its real search focus");
