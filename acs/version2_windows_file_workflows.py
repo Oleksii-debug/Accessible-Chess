@@ -111,23 +111,9 @@ class Version2WindowsFileDialogs:
         import clr  # type: ignore
 
         clr.AddReference("System.Windows.Forms")
-        from System.Windows.Forms import (  # type: ignore
-            DialogResult,
-            MessageBox,
-            MessageBoxButtons,
-            MessageBoxIcon,
-            OpenFileDialog,
-            SaveFileDialog,
-        )
+        from System.Windows.Forms import DialogResult, OpenFileDialog, SaveFileDialog  # type: ignore
 
-        return (
-            DialogResult,
-            MessageBox,
-            MessageBoxButtons,
-            MessageBoxIcon,
-            OpenFileDialog,
-            SaveFileDialog,
-        )
+        return DialogResult, OpenFileDialog, SaveFileDialog
 
     @staticmethod
     def _selected(dialog: object, dialog_result: object, ok_value: object) -> Path | None:
@@ -139,7 +125,9 @@ class Version2WindowsFileDialogs:
         return Path(value)
 
     def confirm_discard_unsaved_pgn(self) -> bool:
-        DialogResult, MessageBox, MessageBoxButtons, MessageBoxIcon, _, _ = self._load_forms()
+        DialogResult, _, _ = self._load_forms()
+        from System.Windows.Forms import MessageBox, MessageBoxButtons, MessageBoxIcon  # type: ignore
+
         result = MessageBox.Show(
             "The current PGN has unsaved changes. Discard those changes and open another PGN?",
             "Unsaved PGN changes",
@@ -149,7 +137,7 @@ class Version2WindowsFileDialogs:
         return result == DialogResult.Yes
 
     def open_pgn(self) -> Path | None:
-        DialogResult, _, _, _, OpenFileDialog, _ = self._load_forms()
+        DialogResult, OpenFileDialog, _ = self._load_forms()
         dialog = OpenFileDialog()
         try:
             dialog.Title = "Open PGN"
@@ -165,7 +153,7 @@ class Version2WindowsFileDialogs:
         if type(suggested_filename) is not str:
             raise TypeError("suggested PGN filename must be text")
         safe_name = Path(suggested_filename).name or "game.pgn"
-        DialogResult, _, _, _, _, SaveFileDialog = self._load_forms()
+        DialogResult, _, SaveFileDialog = self._load_forms()
         dialog = SaveFileDialog()
         try:
             dialog.Title = "Save PGN As"
@@ -180,7 +168,7 @@ class Version2WindowsFileDialogs:
             dialog.Dispose()
 
     def select_library_import(self) -> Path | None:
-        DialogResult, _, _, _, OpenFileDialog, _ = self._load_forms()
+        DialogResult, OpenFileDialog, _ = self._load_forms()
         dialog = OpenFileDialog()
         try:
             dialog.Title = "Import into Library"
