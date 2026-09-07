@@ -13,6 +13,7 @@ from collections.abc import Mapping
 from typing import Any, Callable
 
 from .full_product_native_menu import install_full_product_windows_native_menu
+from .full_product_ui_shell import UILanguage
 from .stage1_release_ui import Stage1ReleaseAccessibleChessAPI, _asset_root
 from .version2_profile import Version2NativeMenuController
 
@@ -51,6 +52,64 @@ class Version2ReleaseAccessibleChessAPI(Stage1ReleaseAccessibleChessAPI):
         if application is None:
             raise RuntimeError("Version 2 application is not bound")
         return application
+
+    def _apply_version2_language(self, language: UILanguage) -> None:
+        """Project one language choice into every currently composed V2 surface."""
+
+        if not isinstance(language, UILanguage):
+            raise TypeError("Version 2 language must be UILanguage")
+        application = self._version2_application
+        if application is None:
+            return
+
+        application.adapter.set_language(language.value)
+        for bridge_name in ("pgn", "library", "books"):
+            bridge = getattr(application, bridge_name, None)
+            if bridge is None:
+                continue
+            projection = getattr(bridge, "projection", None)
+            setter = getattr(projection, "set_language", None)
+            if not callable(setter):
+                raise RuntimeError("Version 2 presentation language contract is incomplete")
+            setter(language)
+
+    def set_language(self, lang: str) -> dict[str, Any]:
+        """Persist and synchronize the one release language across Stage1 and V2."""
+
+        try:
+            language = UILanguage(lang.strip().lower())
+        except (AttributeError, ValueError):
+            # Preserve the established Stage1 validation/error contract for
+            # unsupported browser values and never persist an invalid token.
+            return super().set_language(lang)
+
+        previous = self.lang
+        result = super().set_language(language.value)
+        if not result.get("ok"):
+            return result
+
+        try:
+            self._apply_version2_language(language)
+            settings = getattr(self, "_settings", None)
+            if settings is not None:
+                settings.set("language", language.value)
+        except Exception:
+            # Runtime and persisted language are one logical setting.  If any
+            # presentation/persistence boundary rejects the transition, restore
+            # the previous runtime language instead of leaving split surfaces.
+            try:
+                previous_language = UILanguage(previous)
+                super().set_language(previous_language.value)
+                self._apply_version2_language(previous_language)
+                settings = getattr(self, "_settings", None)
+                if settings is not None:
+                    settings.set("language", previous_language.value)
+            except Exception:
+                pass
+            return self._error(
+                "Не вдалося змінити мову." if previous == "uk" else "Language could not be changed."
+            )
+        return result
 
     def v2_snapshot(self) -> dict[str, object]:
         return self._version2().snapshot()
