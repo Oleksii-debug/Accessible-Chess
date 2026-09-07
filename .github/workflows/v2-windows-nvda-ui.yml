@@ -12,6 +12,7 @@ on:
       - 'acs/version2_*.py'
       - 'acs/version2_windows_*.py'
       - 'acs/full_product_*.py'
+      - 'acs/release_preflight.py'
       - 'acs/stage1_release_ui.py'
       - 'acs/stage1_release_ui_core.py'
       - 'acs/webapp.py'
@@ -22,6 +23,7 @@ on:
       - 'web/stage1_board_actions.js'
       - 'tests/test_nvda_p0_contract.py'
       - 'tests/test_issue22_release_contract.py'
+      - 'tests/test_release_preflight.py'
       - 'tests/test_stage1_packaged_focus_origin_contract.py'
       - 'tests/test_v2_windows_*.py'
       - 'tests/test_version2_*.py'
@@ -92,9 +94,10 @@ jobs:
             exit 1
           fi
 
-      - name: Compile active Windows and accessibility composition
+      - name: Compile active Windows accessibility and package QA composition
         run: >-
           python -m compileall -q
+          acs/release_preflight.py
           acs/version2_application.py
           acs/version2_pgn_commands.py
           acs/version2_windows_file_workflows.py
@@ -107,13 +110,15 @@ jobs:
           acs/webview2_accessibility.py
           tests/test_nvda_p0_contract.py
           tests/test_issue22_release_contract.py
+          tests/test_release_preflight.py
           tests/test_stage1_packaged_focus_origin_contract.py
 
-      - name: Keyboard NVDA and issue-22 release regression contracts
+      - name: Keyboard NVDA issue-22 and release-candidate regression contracts
         run: >-
           python -m unittest -v
           tests.test_nvda_p0_contract
           tests.test_issue22_release_contract
+          tests.test_release_preflight
           tests.test_stage1_packaged_focus_origin_contract
           tests.test_dev1_release_ui_regressions
           tests.test_stage1_webview2_accessibility_boundary
