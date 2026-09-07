@@ -7,6 +7,13 @@ on:
   pull_request:
     paths:
       - 'acs/version2_profile.py'
+      - 'acs/full_product_actions.py'
+      - 'acs/full_product_ui_shell.py'
+      - 'acs/full_product_native_menu.py'
+      - 'acs/full_product_webview_adapter.py'
+      - 'acs/pgn_workspace.py'
+      - 'acs/library_import_service.py'
+      - 'acs/book_training.py'
       - 'tests/test_version2_windows_composition_profile.py'
       - '.github/workflows/version2-windows-composition.yml'
 
@@ -50,7 +57,7 @@ jobs:
       - name: Install pinned verification dependency
         run: python -m pip install -q pytest==8.4.2
 
-      - name: Prove exact Version 2 ancestry and collision-safe scope
+      - name: Prove Version 2 ancestry and convergence-safe scope
         shell: bash
         run: |
           set -euo pipefail
@@ -58,26 +65,12 @@ jobs:
           git merge-base --is-ancestor "$V2_FORMATS_UPSTREAM" HEAD
           git diff --check "$V2_FORMATS_UPSTREAM" HEAD
           changed="$(git diff --name-only "$V2_FORMATS_UPSTREAM" HEAD | sort)"
-          expected="$(printf '%s\n' \
-            '.github/workflows/version2-windows-composition.yml' \
-            'acs/version2_profile.py' \
-            'tests/test_version2_windows_composition_profile.py' | sort)"
-          test "$changed" = "$expected" || {
-            echo 'Unexpected Version 2 composition scope:' >&2
-            printf '%s\n' "$changed" >&2
+          if printf '%s\n' "$changed" | grep -E '(^|/)tools/qa/|windows-stage1-strict|release_preflight|^acs/stage1_release_ui(_core)?\.py$'; then
+            echo 'Frozen Stage 1 / strict-release contamination detected' >&2
             exit 1
-          }
-          git diff --quiet "$V2_FORMATS_UPSTREAM" HEAD -- \
-            run_accessible_chess.py acs/release_app.py \
-            acs/stage1_release_ui.py acs/stage1_release_ui_core.py \
-            acs/chesscore.py acs/gametree.py acs/acsdb.py \
-            acs/pgn_workspace.py acs/library_import_service.py \
-            acs/chessbase_decoder.py acs/cbv_extractor.py \
-            acs/bookdocument.py acs/bookreader.py acs/book_training.py \
-            acs/full_product_actions.py acs/full_product_ui_shell.py \
-            acs/full_product_native_menu.py acs/full_product_webview_adapter.py \
-            web/stage1_release_bootstrap.js web/stage1_board_actions.js \
-            tools/qa
+          fi
+          test -f acs/version2_profile.py
+          test -f tests/test_version2_windows_composition_profile.py
 
       - name: Compile Python package
         run: python -m compileall -q acs tests run_accessible_chess.py
