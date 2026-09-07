@@ -68,6 +68,23 @@ class UnsavedPgnOpenGuardTests(unittest.TestCase):
         )
         return controller, box, events
 
+    def test_clean_document_opens_replacement_without_discard_prompt(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "source.pgn"
+            replacement = Path(tmp) / "replacement.pgn"
+            source.write_text(PGN, encoding="utf-8")
+            replacement.write_text(PGN.replace("Original", "Replacement"), encoding="utf-8")
+            session = PgnDocumentSession.open(source)
+            dialogs = _Dialogs(replacement, discard=False)
+            controller, box, _ = self._controller(dialogs, session)
+
+            result = controller("pgn.open", {})
+
+            self.assertEqual(result.kind, FileWorkflowEventKind.PGN_OPENED)
+            self.assertEqual(dialogs.confirm_calls, 0)
+            self.assertEqual(dialogs.open_calls, 1)
+            self.assertEqual(box["session"].workspace.current_game().tags["Event"], "Replacement")
+
     def test_refusing_confirmation_preserves_dirty_document_and_skips_open_dialog(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             source = Path(tmp) / "source.pgn"
