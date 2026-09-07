@@ -7,6 +7,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import acs.chessbase_integrity as integrity
+import acs.import_contract as import_contract
 
 
 class Dev4ChessBaseIntegrityAtomicityTests(unittest.TestCase):
@@ -20,6 +21,10 @@ class Dev4ChessBaseIntegrityAtomicityTests(unittest.TestCase):
             source = Path(directory) / "atomic.cbh"
             source.write_bytes(original)
 
+            # chessbase_integrity now correctly delegates its byte identity to
+            # import_contract.fingerprint(). Fault injection must therefore bind
+            # to the canonical hash seam rather than resurrecting the removed
+            # duplicate chessbase_integrity hasher.
             real_sha256 = hashlib.sha256
             mutated = False
 
@@ -37,7 +42,11 @@ class Dev4ChessBaseIntegrityAtomicityTests(unittest.TestCase):
                 def hexdigest(self) -> str:
                     return self._inner.hexdigest()
 
-            with patch.object(integrity, "sha256", side_effect=lambda: MutatingDigest()):
+            with patch.object(
+                import_contract.hashlib,
+                "sha256",
+                side_effect=lambda: MutatingDigest(),
+            ):
                 with self.assertRaises((OSError, RuntimeError, ValueError)):
                     integrity.capture_integrity_snapshot(source)
 
