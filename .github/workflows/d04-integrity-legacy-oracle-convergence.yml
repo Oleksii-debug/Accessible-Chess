@@ -1,0 +1,97 @@
+name: D04 Integrity Legacy Oracle Convergence
+
+on:
+  push:
+    branches:
+      - work/d04-integrity-legacy-oracle-convergence-20260907
+  pull_request:
+    paths:
+      - '.github/workflows/d04-integrity-legacy-oracle-convergence.yml'
+      - 'tests/test_dev4_chessbase_integrity_atomicity.py'
+      - 'tests/test_dev4_chessbase_integrity_io_observability.py'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: d04-integrity-legacy-oracle-convergence-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  D04_PARENT: cbb4f98fdf0f18e72989ec04ef0b3d9130bb5a75
+  INTEGRITY_BLOB: 21c7b1a6bbc7a0f8d64c5d2e3d739ec23dc922cc
+  IMPORT_CONTRACT_BLOB: a072d0ee5c54c303e2af0112f83225282bcb0e1c
+
+jobs:
+  legacy-oracle-convergence:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install pinned test dependency
+        run: python -m pip install -q pytest==8.4.2
+
+      - name: Prove exact successor scope and Product byte locks
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor "$D04_PARENT" HEAD
+          git diff --check "$D04_PARENT" HEAD
+          changed="$(git diff --name-only "$D04_PARENT" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/d04-integrity-legacy-oracle-convergence.yml' \
+            'tests/test_dev4_chessbase_integrity_atomicity.py' \
+            'tests/test_dev4_chessbase_integrity_io_observability.py' | sort)"
+          test "$changed" = "$expected" || {
+            printf 'Unexpected successor scope:\n%s\n' "$changed" >&2
+            exit 1
+          }
+          test "$(git rev-parse HEAD:acs/chessbase_integrity.py)" = "$INTEGRITY_BLOB"
+          test "$(git rev-parse HEAD:acs/import_contract.py)" = "$IMPORT_CONTRACT_BLOB"
+
+      - name: Compile affected boundaries and oracles
+        run: >-
+          python -m compileall -q
+          acs/chessbase_integrity.py
+          acs/import_contract.py
+          tests/test_dev4_chessbase_integrity_atomicity.py
+          tests/test_dev4_chessbase_integrity_io_observability.py
+          tests/test_d04_chessbase_integrity_handle_identity.py
+          tests/test_chessbase_integrity.py
+          tests/test_import_contract.py
+
+      - name: Focused integrity regression
+        run: >-
+          python -m unittest -v
+          tests.test_dev4_chessbase_integrity_atomicity
+          tests.test_dev4_chessbase_integrity_io_observability
+          tests.test_d04_chessbase_integrity_handle_identity
+          tests.test_chessbase_integrity
+          tests.test_import_contract
+
+      - name: Focused pytest parity
+        run: >-
+          python -m pytest -q
+          tests/test_dev4_chessbase_integrity_atomicity.py
+          tests/test_dev4_chessbase_integrity_io_observability.py
+          tests/test_d04_chessbase_integrity_handle_identity.py
+          tests/test_chessbase_integrity.py
+          tests/test_import_contract.py
+
+      - name: Full unittest regression
+        run: python -m unittest discover -s tests -v
+
+      - name: Full pytest regression
+        run: python -m pytest -q
