@@ -64,6 +64,25 @@
     return focusById(stage1Focus[routeId] || "");
   }
 
+  function productSurfaceFocusTarget(snapshot, routeId) {
+    if (routeId === "pgn" && snapshot.pgn && typeof snapshot.pgn === "object") {
+      return String(snapshot.pgn.focus_target || "");
+    }
+    if (routeId === "books" && snapshot.books && typeof snapshot.books === "object") {
+      const block = snapshot.books.block && typeof snapshot.books.block === "object" ? snapshot.books.block : {};
+      return String(block.dom_id || "");
+    }
+    return "";
+  }
+
+  function restoreProductFocus(snapshot, routeId, requestedFocus) {
+    const active = documentRef.activeElement;
+    if (active && workspace.contains(active)) return true;
+    if (focusById(productSurfaceFocusTarget(snapshot, routeId))) return true;
+    if (focusById(requestedFocus)) return true;
+    return focusById("v2-nav-" + routeId);
+  }
+
   function areaInvoke(area) {
     return function (command, payload) {
       const bridge = api();
@@ -98,7 +117,7 @@
     navList.replaceChildren(fragment);
   }
 
-  function renderProductSurface(snapshot, routeId, requestedFocus) {
+  function renderProductSurface(snapshot, routeId, requestedFocus, restoreFocus) {
     workspace.hidden = false;
     originalMain.hidden = true;
     if (routeId === "pgn") {
@@ -109,12 +128,14 @@
           textContent: uiText("PGN ще не відкрито.", "No PGN is open yet.")
         }));
       }
+      if (restoreFocus) restoreProductFocus(snapshot, routeId, requestedFocus);
       return;
     }
     if (routeId === "library") {
       if (snapshot.library && global.AccessibleChessLibrarySurface) {
         global.AccessibleChessLibrarySurface.render(workspace, snapshot.library, areaInvoke("library"), announce, requestedFocus || "");
       }
+      if (restoreFocus) restoreProductFocus(snapshot, routeId, requestedFocus);
       return;
     }
     if (routeId === "books") {
@@ -125,6 +146,7 @@
           textContent: uiText("Книгу ще не відкрито.", "No book is open yet.")
         }));
       }
+      if (restoreFocus) restoreProductFocus(snapshot, routeId, requestedFocus);
     }
   }
 
@@ -140,7 +162,7 @@
     const requestedFocus = String(screen.focus_target || "");
 
     if (routeId === "pgn" || routeId === "library" || routeId === "books") {
-      renderProductSurface(snapshot, routeId, requestedFocus);
+      renderProductSurface(snapshot, routeId, requestedFocus, restoreFocus);
       return;
     }
 
