@@ -31,23 +31,52 @@ inner {K. B.}
 tail} e5 *
 '''
 
+ADJACENT_NESTED_MULTILINE_TAGLIKE_COMMENT = '''[Event "Adjacent nested"]
+[Result "*"]
+
+1. e4 {{inner}
+[Site "still comment metadata"]
+tail} e5 *
+'''
+
 
 class W1D06NestedCommentFramerConvergenceTests(unittest.TestCase):
-    def test_canonical_framer_keeps_taglike_line_inside_recovered_outer_comment(self) -> None:
+    def _frames(self, source: str):
         framer = CanonicalPgnGameFramer()
         frames = []
-        for line in NESTED_MULTILINE_TAGLIKE_COMMENT.split("\n"):
+        for line in source.split("\n"):
             completed = framer.feed_line(line)
             if completed is not None:
                 frames.append(completed)
         completed = framer.finish()
         if completed is not None:
             frames.append(completed)
+        return frames
+
+    def test_canonical_framer_keeps_taglike_line_inside_recovered_outer_comment(self) -> None:
+        frames = self._frames(NESTED_MULTILINE_TAGLIKE_COMMENT)
 
         self.assertEqual(len(frames), 1)
         self.assertEqual(frames[0].tags["Event"], "Outer game")
         self.assertNotIn("Site", frames[0].tags)
         self.assertIn('[Site "comment metadata"]', frames[0].movetext)
+
+    def test_adjacent_nested_opener_stays_nested_when_outer_close_is_later(self) -> None:
+        frames = self._frames(ADJACENT_NESTED_MULTILINE_TAGLIKE_COMMENT)
+
+        self.assertEqual(len(frames), 1)
+        self.assertEqual(frames[0].tags["Event"], "Adjacent nested")
+        self.assertNotIn("Site", frames[0].tags)
+        self.assertIn('[Site "still comment metadata"]', frames[0].movetext)
+        recovered = parse_pgn_text(
+            ADJACENT_NESTED_MULTILINE_TAGLIKE_COMMENT,
+            strict=False,
+        )
+        self.assertEqual(len(recovered), 1)
+        self.assertEqual(
+            recovered[0].warnings,
+            ["nested brace comment delimiters normalized to parentheses"],
+        )
 
     def test_recovery_round_trip_preserves_taglike_text_as_comment_not_new_game(self) -> None:
         games = parse_pgn_text(NESTED_MULTILINE_TAGLIKE_COMMENT, strict=False)
