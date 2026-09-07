@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from acs.full_product_webview_adapter import WebViewCommand
 from acs.version2_profile import build_version2_router, build_version2_shell, build_version2_webview_adapter
@@ -55,6 +56,19 @@ class _WebView:
         self.started = kwargs
         self.window.events.before_show.fire()
         self.window.events.loaded.fire()
+
+
+class _CreateWindowFailureWebView:
+    def create_window(self, *_args, **_kwargs):
+        raise RuntimeError("window creation failed")
+
+
+class _Runtime:
+    def __init__(self):
+        self.closed = 0
+
+    def close(self):
+        self.closed += 1
 
 
 class _Application:
@@ -186,6 +200,45 @@ class Version2ReleaseUiTests(unittest.TestCase):
 
         self.assertEqual(built, [])
         self.assertTrue(app.closed)
+
+    def test_release_window_closes_all_owned_resources_when_window_creation_fails(self):
+        api = self.make_api()
+        app = _Application()
+        runtime = _Runtime()
+        analysis_closes = []
+        api.close_analysis = lambda: analysis_closes.append("closed")
+
+        with self.assertRaisesRegex(RuntimeError, "window creation failed"):
+            run_version2_release_window(
+                api,
+                app,
+                runtime,
+                webview_module=_CreateWindowFailureWebView(),
+            )
+
+        self.assertTrue(app.closed)
+        self.assertEqual(analysis_closes, ["closed"])
+        self.assertEqual(runtime.closed, 1)
+
+    def test_release_window_closes_all_owned_resources_when_resource_preflight_fails(self):
+        api = self.make_api()
+        app = _Application()
+        runtime = _Runtime()
+        analysis_closes = []
+        api.close_analysis = lambda: analysis_closes.append("closed")
+
+        with patch("acs.version2_release_ui._resource_sources", side_effect=RuntimeError("resource preflight failed")):
+            with self.assertRaisesRegex(RuntimeError, "resource preflight failed"):
+                run_version2_release_window(
+                    api,
+                    app,
+                    runtime,
+                    webview_module=_WebView(),
+                )
+
+        self.assertTrue(app.closed)
+        self.assertEqual(analysis_closes, ["closed"])
+        self.assertEqual(runtime.closed, 1)
 
 
 if __name__ == "__main__":
