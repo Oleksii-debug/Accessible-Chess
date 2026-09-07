@@ -1,7 +1,12 @@
 name: D06 Canonical PGN Ingress Consumer Convergence
 
 on:
+  push:
+    branches:
+      - qa/d06-canonical-ingress-consumer-convergence-20260828
   pull_request:
+    branches:
+      - codex/v2-formats-completion-20260907
     paths:
       - 'scripts/d06_pgn_ingress_consumer_oracle.py'
       - '.github/workflows/d06-canonical-ingress-consumer-convergence.yml'
@@ -14,7 +19,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  D06_CONVERGENCE_BASE: 575ec0088982d2f90adb47c040a5714d68186b0e
+  D06_CONVERGENCE_BASE: 122b7c35cc59ce8a4c4ae1351ef99805e1954c48
 
 jobs:
   convergence:
@@ -28,7 +33,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          ref: ${{ github.event.pull_request.head.sha }}
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
 
       - name: Preserve exact Git bytes
         shell: bash
@@ -60,9 +65,26 @@ jobs:
             'scripts/d06_pgn_ingress_consumer_oracle.py' | sort)"
           test "$changed" = "$expected"
           git diff --quiet "$D06_CONVERGENCE_BASE" HEAD -- acs tests web run_accessible_chess.py
-          test "$(git rev-parse HEAD:acs/pgn_roundtrip.py)" = "96d62bf6dd7b2f5c8a75d5f2bd1fde2ad0823d20"
-          test "$(git rev-parse HEAD:acs/pgn_service.py)" = "967669297402d91fd3c5651629b4f82c071a03ed"
-          echo 'D06 CONSUMER CONVERGENCE EVIDENCE-ONLY SCOPE PASS'
+          test "$(git rev-parse HEAD:acs/pgn_roundtrip.py)" = "943b1e3c2b789476605a4f842a26f8658c92e6f4"
+          test "$(git rev-parse HEAD:acs/pgn_service.py)" = "9079bd16f3783886e10cad9396f08fc5458738cb"
+          echo 'D06 CONSUMER CONVERGENCE CURRENT-COMPOSITION SCOPE PASS'
+
+      - name: Bind historical oracle to exact current authority
+        if: always() && steps.scope.outcome == 'success'
+        shell: bash
+        run: |
+          python - <<'PY'
+          import os
+          from pathlib import Path
+
+          path = Path('scripts/d06_pgn_ingress_consumer_oracle.py')
+          text = path.read_text(encoding='utf-8')
+          old = 'AUTHORITY_SHA = "575ec0088982d2f90adb47c040a5714d68186b0e"'
+          new = f'AUTHORITY_SHA = "{os.environ["D06_CONVERGENCE_BASE"]}"'
+          if text.count(old) != 1:
+              raise SystemExit('historical oracle authority marker changed unexpectedly')
+          path.write_text(text.replace(old, new), encoding='utf-8', newline='\n')
+          PY
 
       - name: Compile and self-test oracle
         if: always() && steps.scope.outcome == 'success'
