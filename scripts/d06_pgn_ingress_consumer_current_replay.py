@@ -3,23 +3,25 @@ from __future__ import annotations
 """Current-authority adapter for the historical D06 ingress convergence oracle.
 
 The original oracle intentionally remains the provenance for the four RED
-consumer classes found on 2026-08-28.  Current Product correctly changed one
-of those contracts: external non-canonical GameTree snapshots can now fail
-closed during ``restore_game``.  The historical probe predated that repair and
-assumed restore always returned a game, so a correct rejection would crash the
-QA harness instead of being classified as convergence.
+consumer classes found on 2026-08-28. Current Product correctly changed one of
+those contracts: external non-canonical GameTree snapshots now fail closed
+during ``restore_game``. The historical probe predates that repair and assumes
+restore always returns a game, so the exact correct rejection would otherwise
+crash the QA harness instead of being classified as convergence.
 
-This adapter changes evidence plumbing only.  It reuses every historical static
+This adapter changes evidence plumbing only. It reuses every historical static
 inventory and dynamic probe, binds the report to the exact current formats base,
-and classifies only the snapshot probe's canonical ``GameTreeSnapshotError`` as
-a fail-closed closure.  Product code and acceptance thresholds are untouched.
+and accepts only the exact ``IDENTITY_MISMATCH`` produced when strict canonical
+D06 normalization changes the historical attached-NAG snapshot identity. Any
+other snapshot error remains an evidence failure. Product code and acceptance
+thresholds are untouched.
 """
 
 import argparse
 import os
 from pathlib import Path
 
-from acs.gametree_snapshot import GameTreeSnapshotError
+from acs.gametree_snapshot import GameTreeSnapshotCode, GameTreeSnapshotError
 from scripts import d06_pgn_ingress_consumer_oracle as oracle
 
 
@@ -35,7 +37,10 @@ def _current_dynamic_probes() -> tuple[list[dict[str, object]], list[str]]:
         try:
             result, found = probe()
         except GameTreeSnapshotError as exc:
-            if probe is not oracle._snapshot_probe:
+            if (
+                probe is not oracle._snapshot_probe
+                or exc.code is not GameTreeSnapshotCode.IDENTITY_MISMATCH
+            ):
                 raise
             result = {
                 "surface": "gametree_snapshot.restore_game",
