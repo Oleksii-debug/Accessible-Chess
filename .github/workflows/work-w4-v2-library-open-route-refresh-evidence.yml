@@ -1,0 +1,61 @@
+name: Work W4 V2 Library Open Route Refresh Evidence
+
+on:
+  push:
+    branches:
+      - work/w4-v2-library-open-route-refresh-evidence-20260907
+  pull_request:
+    branches:
+      - codex/v2-runtime-completion-20260907
+    paths:
+      - 'tests/js/version2_library_open_route_refresh_dom_test.js'
+      - '.github/workflows/work-w4-v2-library-open-route-refresh-evidence.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: work-w4-v2-library-open-route-refresh-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  direct-library-open-route:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Prove exact W4 parent and evidence-only scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE=0bff6e9f2bbb23846a5cb71e9b2bab799d9b13d5
+          git merge-base --is-ancestor "$BASE" HEAD
+          test "$(git merge-base "$BASE" HEAD)" = "$BASE"
+          git diff --check "$BASE" HEAD
+          changed="$(git diff --name-only "$BASE" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/work-w4-v2-library-open-route-refresh-evidence.yml' \
+            'tests/js/version2_library_open_route_refresh_dom_test.js' | sort)"
+          test "$changed" = "$expected"
+          git diff --quiet "$BASE" HEAD -- acs web run_accessible_chess.py run_accessible_chess_v2.py
+
+      - name: JavaScript syntax
+        run: |
+          node --check web/full_product_library.js
+          node --check web/version2_release_bootstrap.js
+          node --check tests/js/version2_release_bootstrap_dom_test.js
+          node --check tests/js/version2_library_open_route_refresh_dom_test.js
+
+      - name: Prove inherited W4 focus/landmark contract is green
+        run: node tests/js/version2_release_bootstrap_dom_test.js
+
+      - name: Run direct Library to PGN convergence oracle
+        run: node tests/js/version2_library_open_route_refresh_dom_test.js
