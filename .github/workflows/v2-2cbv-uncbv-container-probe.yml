@@ -74,7 +74,7 @@ jobs:
           if [[ "$RUNNER_OS" == 'Windows' ]]; then binary="${binary}.exe"; fi
           test -f "$binary"
           backend_sha="$(python -c "import hashlib, pathlib; print(hashlib.sha256(pathlib.Path(r'$binary').read_bytes()).hexdigest())")"
-          python scripts/v2_2cbv_uncbv_probe.py \
+          python -m scripts.v2_2cbv_uncbv_probe \
             --uncbv "$binary" \
             --uncbv-sha256 "$backend_sha" \
             --output "2cbv-uncbv-${RUNNER_OS}.json"
