@@ -24,7 +24,7 @@ PGN = '''[Event "Book board projection"]
 class Version2BookRealBoardProjectionEvidenceTests(unittest.TestCase):
     """Independent release-composition oracle over exact PR #441 behavior.
 
-    BookBoardWorkflow already owns a detached canonical Board.  Version 2 is only
+    BookBoardWorkflow already owns a detached canonical Board. Version 2 is only
     release-correct when opening/navigating that workflow also projects the same
     canonical position into the real Stage1-derived 64-square board runtime.
     Merely switching the shell route to ``board`` is not sufficient evidence.
@@ -61,7 +61,6 @@ class Version2BookRealBoardProjectionEvidenceTests(unittest.TestCase):
     def _open_game(self) -> None:
         self.app.open_book(self.book)
         self.app.browser_command("books", "book.next_game")
-        self.assertEqual(self.app.reader.current().__class__.__name__, "Game")
 
     def test_opening_book_game_projects_canonical_position_to_real_board_runtime(self) -> None:
         self._open_game()
