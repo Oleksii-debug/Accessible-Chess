@@ -1,0 +1,77 @@
+name: W5 Close Guard Review Repair Bootstrap
+
+on:
+  push:
+    branches:
+      - work/w5-v2-shutdown-lifecycle-20260907
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: work/w5-v2-shutdown-lifecycle-20260907
+          fetch-depth: 0
+      - name: Apply bounded lifecycle repair
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          product = Path('acs/version2_release_app.py')
+          text = product.read_text(encoding='utf-8')
+          anchor = '''    owner_control.FormClosing += on_form_closing\n    application._native_unsaved_close_guard = on_form_closing\n    return on_form_closing\n\n\ndef _copy_text_to_windows_clipboard(value: str) -> None:\n'''
+          replacement = '''    owner_control.FormClosing += on_form_closing\n    application._native_unsaved_close_guard = on_form_closing\n    return on_form_closing\n\n\ndef _install_close_guard_or_shutdown(\n    file_runtime: object,\n    application: Version2Application,\n    owner_control: object,\n    dialogs: object,\n):\n    \"\"\"Install the close guard or synchronously retire the unbound runtime.\n\n    The native file runtime is allocated before it can be bound to the application.\n    If FormClosing/owner/dialog validation fails at that boundary, the outer release\n    cleanup cannot see that runtime.  Close it here before propagating the original\n    guard failure; never leave a worker/pump ownerless during startup.\n    \"\"\"\n\n    try:\n        _install_unsaved_pgn_close_guard(application, owner_control, dialogs)\n    except Exception:\n        cleanup_error = None\n        try:\n            shutdown = getattr(file_runtime, \"shutdown\", None)\n            if not callable(shutdown) or shutdown() is not True:\n                cleanup_error = RuntimeError(\n                    \"Version 2 unbound native runtime did not shut down\"\n                )\n        except Exception as exc:\n            cleanup_error = exc\n        if cleanup_error is not None:\n            raise RuntimeError(\n                \"Version 2 unbound native runtime cleanup failed after close-guard installation failure\"\n            ) from cleanup_error\n        raise\n    return file_runtime\n\n\ndef _copy_text_to_windows_clipboard(value: str) -> None:\n'''
+          if anchor not in text:
+              raise SystemExit('close-guard helper insertion anchor missing or already changed')
+          text = text.replace(anchor, replacement, 1)
+
+          old_factory = '''        _install_unsaved_pgn_close_guard(application, owner_control, book_dialogs)\n        return file_runtime\n'''
+          new_factory = '''        return _install_close_guard_or_shutdown(\n            file_runtime, application, owner_control, book_dialogs\n        )\n'''
+          if old_factory not in text:
+              raise SystemExit('native runtime factory anchor missing or already changed')
+          text = text.replace(old_factory, new_factory, 1)
+
+          old_comment = '''        except Exception:\n            # A malformed native event cannot be trusted to close a dirty document.\n            return\n'''
+          new_comment = '''        except Exception:\n            # Real WinForms FormClosingEventArgs has a writable Cancel property.\n            # A malformed synthetic event is outside that native platform contract.\n            return\n'''
+          if old_comment not in text:
+              raise SystemExit('malformed-event comment anchor missing')
+          product.write_text(text.replace(old_comment, new_comment, 1), encoding='utf-8')
+
+          tests = Path('tests/test_version2_release_app.py')
+          text = tests.read_text(encoding='utf-8')
+          import_anchor = '''from acs.version2_release_app import (\n    _install_host_confirmed_document,\n    _install_unsaved_pgn_close_guard,\n'''
+          import_replacement = '''from acs.version2_release_app import (\n    _install_close_guard_or_shutdown,\n    _install_host_confirmed_document,\n    _install_unsaved_pgn_close_guard,\n'''
+          if import_anchor not in text:
+              raise SystemExit('test import anchor missing')
+          text = text.replace(import_anchor, import_replacement, 1)
+
+          class_anchor = '''class Version2ReleaseAppTests(unittest.TestCase):\n'''
+          class_addition = '''class _CloseTrackedRuntime:\n    def __init__(self, *, result: bool = True, error: Exception | None = None) -> None:\n        self.result = result\n        self.error = error\n        self.shutdown_calls = 0\n\n    def shutdown(self):\n        self.shutdown_calls += 1\n        if self.error is not None:\n            raise self.error\n        return self.result\n\n\nclass Version2ReleaseAppTests(unittest.TestCase):\n'''
+          if class_anchor not in text:
+              raise SystemExit('test helper class anchor missing')
+          text = text.replace(class_anchor, class_addition, 1)
+
+          test_anchor = '''    def test_shared_v2_registry_preserves_stage1_user_remaps(self) -> None:\n'''
+          test_addition = '''    def test_unbound_file_runtime_is_closed_when_close_guard_installation_fails(self) -> None:\n        application = SimpleNamespace(session=None)\n        runtime = _CloseTrackedRuntime()\n        dialogs = _ExitDialogs(True)\n\n        with self.assertRaisesRegex(RuntimeError, \"does not expose FormClosing\"):\n            _install_close_guard_or_shutdown(runtime, application, object(), dialogs)\n\n        self.assertEqual(runtime.shutdown_calls, 1)\n\n    def test_close_guard_failure_never_hides_unbound_runtime_cleanup_failure(self) -> None:\n        application = SimpleNamespace(session=None)\n        runtime = _CloseTrackedRuntime(result=False)\n        dialogs = _ExitDialogs(True)\n\n        with self.assertRaisesRegex(RuntimeError, \"unbound native runtime cleanup failed\"):\n            _install_close_guard_or_shutdown(runtime, application, object(), dialogs)\n\n        self.assertEqual(runtime.shutdown_calls, 1)\n\n    def test_shared_v2_registry_preserves_stage1_user_remaps(self) -> None:\n'''
+          if test_anchor not in text:
+              raise SystemExit('test insertion anchor missing')
+          text = text.replace(test_anchor, test_addition, 1)
+          tests.write_text(text, encoding='utf-8')
+          PY
+
+          python -m compileall -q acs/version2_release_app.py tests/test_version2_release_app.py
+          python -m unittest -v tests.test_version2_release_app
+          git diff --check
+          rm .github/workflows/w5-close-guard-review-repair-bootstrap.yml
+          git config user.name "accessible-chess-work"
+          git config user.email "actions@users.noreply.github.com"
+          git add acs/version2_release_app.py tests/test_version2_release_app.py .github/workflows/w5-close-guard-review-repair-bootstrap.yml
+          git commit -m "fix(w5): close unbound file runtime on guard failure"
+          git push origin HEAD:work/w5-v2-shutdown-lifecycle-20260907
