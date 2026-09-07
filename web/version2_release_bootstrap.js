@@ -119,13 +119,25 @@
     workspace.replaceChildren(title, status);
   }
 
+  function directCommandNeedsSnapshotRefresh(area, command, result) {
+    return area === "library" && command === "library.open_game" &&
+      result && typeof result === "object" && result.kind !== "error";
+  }
+
   function areaInvoke(area) {
     return function (command, payload) {
       const bridge = api();
       if (!bridge || typeof bridge.v2_browser_command !== "function") {
         return Promise.reject(new Error("V2 bridge unavailable"));
       }
-      return bridge.v2_browser_command(area, command, payload || {});
+      return bridge.v2_browser_command(area, command, payload || {}).then(function (result) {
+        if (!directCommandNeedsSnapshotRefresh(area, command, result)) return result;
+        // Library Open changes canonical application route synchronously but its
+        // delegated response has no queued presentation event. Refresh through
+        // the one V2 snapshot/render/focus authority before resolving the command
+        // so keyboard/NVDA cannot remain on a stale detached Library surface.
+        return refresh(true).then(function () { return result; });
+      });
     };
   }
 
