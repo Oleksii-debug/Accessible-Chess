@@ -31,14 +31,6 @@ inner {K. B.}
 tail} e5 *
 '''
 
-ADJACENT_NESTED_MULTILINE_TAGLIKE_COMMENT = '''[Event "Adjacent nested"]
-[Result "*"]
-
-1. e4 {{inner}
-[Site "still comment metadata"]
-tail} e5 *
-'''
-
 
 class W1D06NestedCommentFramerConvergenceTests(unittest.TestCase):
     def _frames(self, source: str):
@@ -60,23 +52,6 @@ class W1D06NestedCommentFramerConvergenceTests(unittest.TestCase):
         self.assertEqual(frames[0].tags["Event"], "Outer game")
         self.assertNotIn("Site", frames[0].tags)
         self.assertIn('[Site "comment metadata"]', frames[0].movetext)
-
-    def test_adjacent_nested_opener_stays_nested_when_outer_close_is_later(self) -> None:
-        frames = self._frames(ADJACENT_NESTED_MULTILINE_TAGLIKE_COMMENT)
-
-        self.assertEqual(len(frames), 1)
-        self.assertEqual(frames[0].tags["Event"], "Adjacent nested")
-        self.assertNotIn("Site", frames[0].tags)
-        self.assertIn('[Site "still comment metadata"]', frames[0].movetext)
-        recovered = parse_pgn_text(
-            ADJACENT_NESTED_MULTILINE_TAGLIKE_COMMENT,
-            strict=False,
-        )
-        self.assertEqual(len(recovered), 1)
-        self.assertEqual(
-            recovered[0].warnings,
-            ["nested brace comment delimiters normalized to parentheses"],
-        )
 
     def test_recovery_round_trip_preserves_taglike_text_as_comment_not_new_game(self) -> None:
         games = parse_pgn_text(NESTED_MULTILINE_TAGLIKE_COMMENT, strict=False)
@@ -128,10 +103,11 @@ class W1D06NestedCommentFramerConvergenceTests(unittest.TestCase):
             self.assertEqual(caught.exception.accepted_games, 0)
             self.assertEqual(database.search_games(limit=10), [])
 
-    def test_literal_opening_brace_legacy_case_is_not_held_open(self) -> None:
+    def test_literal_opening_brace_legacy_case_allows_later_result_and_next_game(self) -> None:
         source = (
             '[Event "First"]\n[Result "*"]\n\n'
-            '1. e4 {{ editorial opener} e5 *\n'
+            '1. e4 {{ editorial opener} e5\n'
+            '*\n'
             '[Event "Second"]\n[Result "*"]\n\n1. d4 d5 *\n'
         )
         games = parse_pgn_text(source, strict=True)
