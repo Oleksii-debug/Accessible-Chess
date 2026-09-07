@@ -6,6 +6,7 @@ on:
       - work/version2-windows-composition-20260828
   pull_request:
     paths:
+      - 'run_accessible_chess_v2.py'
       - 'acs/version2_profile.py'
       - 'acs/version2_application.py'
       - 'acs/version2_pgn_commands.py'
@@ -81,7 +82,7 @@ jobs:
             tools/qa
 
       - name: Compile Python package
-        run: python -m compileall -q acs tests run_accessible_chess.py
+        run: python -m compileall -q acs tests run_accessible_chess.py run_accessible_chess_v2.py
 
       - name: Parse retained Version 2 web surfaces
         run: |
@@ -96,6 +97,7 @@ jobs:
           tests.test_version2_release_app
           tests.test_version2_release_ui
           tests.test_version2_application
+          tests.test_version2_shutdown
           tests.test_version2_pgn_commands
           tests.test_version2_import_terminal_ui
           tests.test_v2_windows_library_import_observer
@@ -143,7 +145,8 @@ jobs:
       - name: Full repository pytest
         run: python -m pytest -q tests
 
-      - name: Existing Stage 1 diagnostic remains unchanged
+      - name: Stage 1 and Version 2 automated diagnostics
         run: |
           python -m acs.selftest
           python run_accessible_chess.py --diagnostic
+          python run_accessible_chess_v2.py --diagnostic
