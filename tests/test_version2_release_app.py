@@ -1,8 +1,14 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
 import unittest
 
-from acs.version2_release_app import _install_host_confirmed_document
+from acs.keybindings import ActionRegistry
+from acs.version2_profile import build_version2_action_registry
+from acs.version2_release_app import (
+    _install_host_confirmed_document,
+    _share_v2_action_registry,
+)
 
 
 class _Application:
@@ -50,6 +56,24 @@ class Version2ReleaseAppTests(unittest.TestCase):
 
         self.assertIs(application.confirm_document_replace, original)
         self.assertEqual(application.confirm_calls, 0)
+
+    def test_shared_v2_registry_preserves_stage1_user_remaps(self) -> None:
+        stage1 = ActionRegistry()
+        stage1.set_binding("board.current", "Ctrl+F12")
+        stage1.set_alias("move.undo", "back")
+        api = SimpleNamespace(
+            keymap_service=SimpleNamespace(editor=SimpleNamespace(registry=stage1))
+        )
+        v2 = build_version2_action_registry()
+        application = SimpleNamespace(adapter=SimpleNamespace(registry=v2))
+
+        shared = _share_v2_action_registry(api, application)
+
+        self.assertIs(shared, v2)
+        self.assertIs(api.keymap_service.editor.registry, v2)
+        self.assertEqual(v2.get_binding("board.current"), "Ctrl+F12")
+        self.assertEqual(v2.get_alias("move.undo"), "back")
+        self.assertIsNotNone(v2.definition("screen.library"))
 
 
 if __name__ == "__main__":
