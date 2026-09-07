@@ -13,6 +13,7 @@ from collections.abc import Mapping
 from typing import Any, Callable
 
 from .full_product_native_menu import install_full_product_windows_native_menu
+from .full_product_ui_shell import UILanguage
 from .stage1_release_ui import Stage1ReleaseAccessibleChessAPI, _asset_root
 from .version2_profile import Version2NativeMenuController
 
@@ -51,6 +52,59 @@ class Version2ReleaseAccessibleChessAPI(Stage1ReleaseAccessibleChessAPI):
         if application is None:
             raise RuntimeError("Version 2 application is not bound")
         return application
+
+    def _apply_version2_language(self, language: UILanguage) -> None:
+        """Synchronize every active V2 presentation with the Stage1 language.
+
+        Settings remains the only persisted authority.  These are presentation
+        projections only; no format or chess state is recreated here.
+        """
+
+        if not isinstance(language, UILanguage):
+            raise TypeError("language must be UILanguage")
+        application = self._version2_application
+        if application is None:
+            return
+        application.shell.set_language(language)
+        application.library.projection.set_language(language)
+        if application.pgn is not None:
+            application.pgn.projection.set_language(language)
+        if application.books is not None:
+            application.books.projection.set_language(language)
+
+    def set_language(self, lang: str) -> dict[str, Any]:
+        """Persist one language and keep Stage1 plus all V2 surfaces synchronized."""
+
+        if lang not in ("uk", "en"):
+            return super().set_language(lang)
+        previous = self.lang
+        target = UILanguage(lang)
+        previous_ui = UILanguage(previous)
+
+        result = super().set_language(lang)
+        if not result.get("ok"):
+            return result
+        self.keymap_service.editor.set_language(lang)
+        try:
+            self._apply_version2_language(target)
+            if self._settings is not None:
+                self._settings.set("language", lang)
+        except Exception:
+            # A failed Settings write or V2 projection update must not leave the
+            # live release window split between languages.  Roll back only
+            # presentation state; no chess/format state is touched.
+            super().set_language(previous)
+            self.keymap_service.editor.set_language(previous)
+            try:
+                self._apply_version2_language(previous_ui)
+            except Exception:
+                pass
+            return self._error(
+                "Не вдалося зберегти мову."
+                if previous == "uk"
+                else "Language could not be saved."
+            )
+        return result
 
     def v2_snapshot(self) -> dict[str, object]:
         return self._version2().snapshot()
