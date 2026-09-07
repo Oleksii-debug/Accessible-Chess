@@ -8,6 +8,7 @@ on:
       - 'acs/teacher_webview_bridge.py'
       - 'acs/teacher_webview_projection.py'
       - 'tests/js/teacher_surface_dom_test.js'
+      - 'tests/test_d09_teacher_canonical_webview_composition.py'
       - 'tests/test_dev1_classroom_web_asset.py'
       - 'tests/test_dev1_classroom_webview_bridge.py'
       - 'tests/test_dev1_classroom_webview_privacy.py'
@@ -79,6 +80,7 @@ jobs:
             'acs/teacher_webview_bridge.py' \
             'acs/teacher_webview_projection.py' \
             'tests/js/teacher_surface_dom_test.js' \
+            'tests/test_d09_teacher_canonical_webview_composition.py' \
             'tests/test_dev1_classroom_web_asset.py' \
             'tests/test_dev1_classroom_webview_bridge.py' \
             'tests/test_dev1_classroom_webview_privacy.py' \
@@ -104,6 +106,7 @@ jobs:
           acs/classroom_webview_projection.py
           acs/teacher_webview_bridge.py
           acs/teacher_webview_projection.py
+          tests/test_d09_teacher_canonical_webview_composition.py
           tests/test_dev1_teacher_webview_projection.py
           tests/test_teacher_webview_bridge.py
 
@@ -116,6 +119,7 @@ jobs:
       - name: Teacher canonical-state focused tests
         run: >-
           python -m unittest -v
+          tests.test_d09_teacher_canonical_webview_composition
           tests.test_dev1_teacher_webview_projection
           tests.test_teacher_webview_bridge
           tests.test_dev1_full_product_ui_packages
