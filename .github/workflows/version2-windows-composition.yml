@@ -19,6 +19,7 @@ on:
       - 'web/version2_release_bootstrap.js'
       - 'tests/test_version2_*.py'
       - 'tests/test_v2_windows_*.py'
+      - 'tests/js/version2_release_bootstrap_dom_test.js'
       - '.github/workflows/version2-windows-composition.yml'
 
 permissions:
@@ -94,12 +95,13 @@ jobs:
       - name: Compile Python package
         run: python -m compileall -q acs tests run_accessible_chess.py run_accessible_chess_v2.py
 
-      - name: Parse retained Version 2 web surfaces
+      - name: Parse and execute retained Version 2 web surfaces
         run: |
           node --check web/full_product_pgn.js
           node --check web/full_product_library.js
           node --check web/full_product_books_training.js
           node --check web/version2_release_bootstrap.js
+          node tests/js/version2_release_bootstrap_dom_test.js
 
       - name: Version 2 release host contracts
         run: >-
