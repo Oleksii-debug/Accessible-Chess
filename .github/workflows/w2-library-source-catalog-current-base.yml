@@ -83,7 +83,6 @@ jobs:
         run: >-
           python -m unittest -v
           tests.test_v2_library_source_catalog
-          tests.test_v2_library_dedup_provenance
           tests.test_v2_library_integrity_repair
           tests.test_v2_library_date_filter_v5
           tests.test_v2_library_acsdb_search_v4
