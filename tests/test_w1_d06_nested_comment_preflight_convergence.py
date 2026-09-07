@@ -35,7 +35,8 @@ class W1D06NestedCommentPreflightConvergenceTests(unittest.TestCase):
 
         canonical = serialize_pgn_text(recovered)
         reopened = parse_pgn_text(canonical, strict=True)
-        self.assertEqual(reopened, recovered)
+        self.assertEqual(reopened[0].tags, game.tags)
+        self.assertEqual(reopened[0].line, game.line)
         self.assertFalse(reopened[0].warnings)
 
     def test_nested_comment_tail_counts_as_comment_not_many_source_tokens(self) -> None:
