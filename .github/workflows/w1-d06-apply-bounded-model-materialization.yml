@@ -29,54 +29,56 @@ jobs:
 
           roundtrip_path = Path("acs/pgn_roundtrip.py")
           roundtrip = roundtrip_path.read_text(encoding="utf-8")
-          old_roundtrip = '''def serialize_pgn_text(games: Iterable[PgnGame]) -> str:
-              """Serialize only a bounded model that can be reparsed by the strict codec."""
-
-              try:
-                  snapshot = tuple(games)
-              except TypeError as exc:
-                  raise PgnRoundTripError(
-                      "PGN games must be an iterable of PgnGame values",
-                      code=PgnRoundTripErrorCode.INVALID_MODEL,
-                  ) from exc
-              _measure_games(snapshot)
-          '''.replace("          ", "")
-          new_roundtrip = '''def materialize_pgn_games_bounded(
-              games: Iterable[PgnGame],
-          ) -> tuple[PgnGame, ...]:
-              """Materialize and validate a PGN iterable without reading past D06 limits.
-
-              The count ceiling is enforced while consuming the iterable, before a caller can
-              allocate an unbounded tuple/deep copy.  One-shot iterables remain supported and
-              an over-limit source is consumed only through the first disallowed item.
-              """
-
-              snapshot: list[PgnGame] = []
-              try:
-                  iterator = iter(games)
-                  for index, game in enumerate(iterator):
-                      if index >= MAX_PGN_GAMES:
-                          _raise_limit(
-                              "PGN contains too many games",
-                              PgnRoundTripErrorCode.GAME_COUNT_LIMIT,
-                          )
-                      snapshot.append(game)
-              except TypeError as exc:
-                  raise PgnRoundTripError(
-                      "PGN games must be an iterable of PgnGame values",
-                      code=PgnRoundTripErrorCode.INVALID_MODEL,
-                  ) from exc
-
-              bounded = tuple(snapshot)
-              _measure_games(bounded)
-              return bounded
-
-
-          def serialize_pgn_text(games: Iterable[PgnGame]) -> str:
-              """Serialize only a bounded model that can be reparsed by the strict codec."""
-
-              snapshot = materialize_pgn_games_bounded(games)
-          '''.replace("          ", "")
+          old_roundtrip = (
+              "def serialize_pgn_text(games: Iterable[PgnGame]) -> str:\n"
+              "    \"\"\"Serialize only a bounded model that can be reparsed by the strict codec.\"\"\"\n"
+              "\n"
+              "    try:\n"
+              "        snapshot = tuple(games)\n"
+              "    except TypeError as exc:\n"
+              "        raise PgnRoundTripError(\n"
+              "            \"PGN games must be an iterable of PgnGame values\",\n"
+              "            code=PgnRoundTripErrorCode.INVALID_MODEL,\n"
+              "        ) from exc\n"
+              "    _measure_games(snapshot)\n"
+          )
+          new_roundtrip = (
+              "def materialize_pgn_games_bounded(\n"
+              "    games: Iterable[PgnGame],\n"
+              ") -> tuple[PgnGame, ...]:\n"
+              "    \"\"\"Materialize and validate a PGN iterable without reading past D06 limits.\n"
+              "\n"
+              "    The count ceiling is enforced while consuming the iterable, before a caller can\n"
+              "    allocate an unbounded tuple/deep copy. One-shot iterables remain supported and\n"
+              "    an over-limit source is consumed only through the first disallowed item.\n"
+              "    \"\"\"\n"
+              "\n"
+              "    snapshot: list[PgnGame] = []\n"
+              "    try:\n"
+              "        iterator = iter(games)\n"
+              "        for index, game in enumerate(iterator):\n"
+              "            if index >= MAX_PGN_GAMES:\n"
+              "                _raise_limit(\n"
+              "                    \"PGN contains too many games\",\n"
+              "                    PgnRoundTripErrorCode.GAME_COUNT_LIMIT,\n"
+              "                )\n"
+              "            snapshot.append(game)\n"
+              "    except TypeError as exc:\n"
+              "        raise PgnRoundTripError(\n"
+              "            \"PGN games must be an iterable of PgnGame values\",\n"
+              "            code=PgnRoundTripErrorCode.INVALID_MODEL,\n"
+              "        ) from exc\n"
+              "\n"
+              "    bounded = tuple(snapshot)\n"
+              "    _measure_games(bounded)\n"
+              "    return bounded\n"
+              "\n"
+              "\n"
+              "def serialize_pgn_text(games: Iterable[PgnGame]) -> str:\n"
+              "    \"\"\"Serialize only a bounded model that can be reparsed by the strict codec.\"\"\"\n"
+              "\n"
+              "    snapshot = materialize_pgn_games_bounded(games)\n"
+          )
           if roundtrip.count(old_roundtrip) != 1:
               raise SystemExit("expected exact serialize_pgn_text materialization block once")
           roundtrip_path.write_text(
@@ -86,80 +88,68 @@ jobs:
 
           workspace_path = Path("acs/pgn_workspace.py")
           workspace = workspace_path.read_text(encoding="utf-8")
-          old_import = '''from .pgn_roundtrip import (
-              PgnRoundTripError,
-              canonical_round_trip_bytes,
-              canonical_round_trip_text,
-              parse_pgn_text,
-              serialize_pgn_bytes,
-              serialize_pgn_text,
+          old_import = (
+              "from .pgn_roundtrip import (\n"
+              "    PgnRoundTripError,\n"
+              "    canonical_round_trip_bytes,\n"
+              "    canonical_round_trip_text,\n"
+              "    parse_pgn_text,\n"
+              "    serialize_pgn_bytes,\n"
+              "    serialize_pgn_text,\n"
+              ")\n"
           )
-          '''.replace("          ", "")
-          new_import = '''from .pgn_roundtrip import (
-              PgnRoundTripError,
-              canonical_round_trip_bytes,
-              canonical_round_trip_text,
-              materialize_pgn_games_bounded,
-              parse_pgn_text,
-              serialize_pgn_bytes,
-              serialize_pgn_text,
+          new_import = (
+              "from .pgn_roundtrip import (\n"
+              "    PgnRoundTripError,\n"
+              "    canonical_round_trip_bytes,\n"
+              "    canonical_round_trip_text,\n"
+              "    materialize_pgn_games_bounded,\n"
+              "    parse_pgn_text,\n"
+              "    serialize_pgn_bytes,\n"
+              "    serialize_pgn_text,\n"
+              ")\n"
           )
-          '''.replace("          ", "")
           if workspace.count(old_import) != 1:
               raise SystemExit("expected exact pgn_roundtrip import block once")
           workspace = workspace.replace(old_import, new_import, 1)
 
-          old_validate = '''def _validate_document(games: Iterable[PgnGame]) -> list[PgnGame]:
-              try:
-                  snapshot = tuple(deepcopy(tuple(games)))
-              except TypeError as exc:
-                  raise _workspace_error(
-                      "PGN workspace requires an iterable of games",
-                      PgnWorkspaceErrorCode.INVALID_DOCUMENT,
-                  ) from exc
-              if not snapshot:
-                  raise _workspace_error(
-                      "PGN workspace cannot be empty",
-                      PgnWorkspaceErrorCode.EMPTY_DOCUMENT,
-                  )
-              try:
-                  text = serialize_pgn_text(snapshot)
-                  reparsed = parse_pgn_text(text, strict=True)
-              except PgnRoundTripError as exc:
-                  raise _workspace_error(
-                      "PGN document is not strict round-trip safe",
-                      PgnWorkspaceErrorCode.INVALID_DOCUMENT,
-                  ) from exc
-          '''.replace("          ", "")
-          new_validate = '''def _validate_document(games: Iterable[PgnGame]) -> list[PgnGame]:
-              try:
-                  bounded = materialize_pgn_games_bounded(games)
-              except PgnRoundTripError as exc:
-                  raise _workspace_error(
-                      "PGN document exceeds strict model/resource bounds",
-                      PgnWorkspaceErrorCode.INVALID_DOCUMENT,
-                  ) from exc
-              if not bounded:
-                  raise _workspace_error(
-                      "PGN workspace cannot be empty",
-                      PgnWorkspaceErrorCode.EMPTY_DOCUMENT,
-                  )
-              try:
-                  snapshot = tuple(deepcopy(bounded))
-              except TypeError as exc:
-                  raise _workspace_error(
-                      "PGN workspace requires an iterable of games",
-                      PgnWorkspaceErrorCode.INVALID_DOCUMENT,
-                  ) from exc
-              try:
-                  text = serialize_pgn_text(snapshot)
-                  reparsed = parse_pgn_text(text, strict=True)
-              except PgnRoundTripError as exc:
-                  raise _workspace_error(
-                      "PGN document is not strict round-trip safe",
-                      PgnWorkspaceErrorCode.INVALID_DOCUMENT,
-                  ) from exc
-          '''.replace("          ", "")
+          old_validate = (
+              "def _validate_document(games: Iterable[PgnGame]) -> list[PgnGame]:\n"
+              "    try:\n"
+              "        snapshot = tuple(deepcopy(tuple(games)))\n"
+              "    except TypeError as exc:\n"
+              "        raise _workspace_error(\n"
+              "            \"PGN workspace requires an iterable of games\",\n"
+              "            PgnWorkspaceErrorCode.INVALID_DOCUMENT,\n"
+              "        ) from exc\n"
+              "    if not snapshot:\n"
+              "        raise _workspace_error(\n"
+              "            \"PGN workspace cannot be empty\",\n"
+              "            PgnWorkspaceErrorCode.EMPTY_DOCUMENT,\n"
+              "        )\n"
+          )
+          new_validate = (
+              "def _validate_document(games: Iterable[PgnGame]) -> list[PgnGame]:\n"
+              "    try:\n"
+              "        bounded = materialize_pgn_games_bounded(games)\n"
+              "    except PgnRoundTripError as exc:\n"
+              "        raise _workspace_error(\n"
+              "            \"PGN workspace input is not a valid bounded document\",\n"
+              "            PgnWorkspaceErrorCode.INVALID_DOCUMENT,\n"
+              "        ) from exc\n"
+              "    if not bounded:\n"
+              "        raise _workspace_error(\n"
+              "            \"PGN workspace cannot be empty\",\n"
+              "            PgnWorkspaceErrorCode.EMPTY_DOCUMENT,\n"
+              "        )\n"
+              "    try:\n"
+              "        snapshot = tuple(deepcopy(bounded))\n"
+              "    except TypeError as exc:\n"
+              "        raise _workspace_error(\n"
+              "            \"PGN workspace requires an iterable of games\",\n"
+              "            PgnWorkspaceErrorCode.INVALID_DOCUMENT,\n"
+              "        ) from exc\n"
+          )
           if workspace.count(old_validate) != 1:
               raise SystemExit("expected exact _validate_document prefix once")
           workspace_path.write_text(
