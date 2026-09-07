@@ -38,6 +38,19 @@ from .version2_windows_library_import_observer import Version2ObservedImportServ
 
 
 class Version2Application:
+    _BOOK_PROGRESS_COMMANDS = frozenset(
+        {
+            "book.previous",
+            "book.next",
+            "book.previous_heading",
+            "book.next_heading",
+            "book.next_position",
+            "book.next_game",
+            "book.bookmark.save",
+            "book.bookmark.restore",
+        }
+    )
+
     def __init__(self, database: AcsDatabase, *, progress_store: BookProgressStore,
                  engine_assistance: EngineAssistedWorkflowService, board_dispatch,
                  copy_text=lambda _: None, language=UILanguage.UA):
@@ -126,7 +139,7 @@ class Version2Application:
         delegate = Version2WindowsBookBoardActionDelegate(workflow, event_sink=self._book_event, next_delegate=self._board_dispatch)
         bridge = build_version2_book_webview(reader, workflow, self.router.dispatch, language=self.shell.language)
         # The staged reader must be durably publishable before it becomes live UI
-        # state.  Otherwise a progress I/O failure would return an error after the
+        # state. Otherwise a progress I/O failure would return an error after the
         # application had already switched reader/workflow/route.
         self.progress_store.save(imported.book_key, reader)
         self.reader, self.book_key, self.book_workflow, self.book_delegate, self.books = reader, imported.book_key, workflow, delegate, bridge
@@ -136,6 +149,61 @@ class Version2Application:
     def save_book_progress(self):
         self._assert_thread()
         if self.reader is not None: self.progress_store.save(self.book_key, self.reader)
+
+    def _restore_book_progress(self, snapshot, *, language, bookmark_name):
+        """Restore a failed progress transaction without publishing partial state."""
+        restored_reader = BookReader.restore_snapshot(self.reader.document, snapshot)
+        restored_workflow = BookBoardWorkflow(
+            restored_reader,
+            self.engine_assistance,
+            game_lookup=AcsdbBookGameLookup(self.database),
+        )
+        restored_delegate = Version2WindowsBookBoardActionDelegate(
+            restored_workflow,
+            event_sink=self._book_event,
+            next_delegate=self._board_dispatch,
+        )
+        restored_books = build_version2_book_webview(
+            restored_reader,
+            restored_workflow,
+            self.router.dispatch,
+            language=language,
+        )
+        restored_books.projection.restore_bookmark_name(bookmark_name)
+        self.reader = restored_reader
+        self.book_workflow = restored_workflow
+        self.book_delegate = restored_delegate
+        self.books = restored_books
+
+    def _dispatch_book_surface_command(self, command, payload=None):
+        """Commit durable reading progress only after its store accepts the state."""
+        if self.books is None or self.reader is None:
+            raise ValueError("no book is open")
+        if command == "book.language":
+            # Language is presentation state. A broken progress store must not
+            # make a non-progress operation fail or mutate durable reader state.
+            return self.books.dispatch(command, payload)
+        if command in self._BOOK_PROGRESS_COMMANDS:
+            before = self.reader.snapshot()
+            language = self.books.projection.language
+            bookmark_name = self.books.projection.bookmark_name
+            result = self.books.dispatch(command, payload)
+            if result.kind == "error":
+                return result
+            try:
+                self.save_book_progress()
+            except Exception:
+                self._restore_book_progress(
+                    before,
+                    language=language,
+                    bookmark_name=bookmark_name,
+                )
+                return self.books.projection.generic_error()
+            return result
+        result = self.books.dispatch(command, payload)
+        if result.kind != "error":
+            self.save_book_progress()
+        return result
 
     def _book_event(self, event):
         if event.kind is BookBoardUiEventKind.BOARD_OPENED:
@@ -209,9 +277,11 @@ class Version2Application:
             if self.book_delegate is None: raise ValueError("no book is open")
             if action in self.book_delegate.OWNED_ACTIONS: return self.book_delegate(action, payload)
             command = {"book.previous_block": "book.previous", "book.next_block": "book.next", "book.bookmark": "book.bookmark.save"}.get(action, action)
-            result = self.books.dispatch(command, {"name": "default"} if action == "book.bookmark" else payload)
+            result = self._dispatch_book_surface_command(
+                command,
+                {"name": "default"} if action == "book.bookmark" else payload,
+            )
             if result.kind == "error": raise ValueError("book command failed")
-            self.save_book_progress()
             return result
         if self._files is not None and action in {"pgn.open", "pgn.save", "pgn.save_as", "pgn.export_selection", "library.import", "library.cancel_import", "library.export"}:
             result = self._files(action, payload)
@@ -242,10 +312,12 @@ class Version2Application:
                     raise ValueError("unsupported shell command")
                 value = self.adapter.activate_action(command, current_focus_id=self._focus)
                 return asdict(value)
-            bridge = {"pgn": self.pgn, "library": self.library, "books": self.books}.get(area)
+            if area == "books":
+                value = self._dispatch_book_surface_command(command, payload)
+                return asdict(value)
+            bridge = {"pgn": self.pgn, "library": self.library}.get(area)
             if bridge is None: raise ValueError("surface is unavailable")
             value = bridge.dispatch(command, payload)
-            if area == "books" and value.kind != "error": self.save_book_progress()
             return asdict(value)
         except Exception:
             return self._error()
@@ -333,9 +405,9 @@ class Version2Application:
         """Cancel and join native import work before closing shared application state.
 
         ``None`` deliberately waits for the canonical import worker to honour its
-        cancellation contract.  The worker is non-daemon because abandoning an
+        cancellation contract. The worker is non-daemon because abandoning an
         in-flight SQLite/import transaction on process exit is not an acceptable
-        release behaviour.  Tests and recovery callers may supply a bounded
+        release behaviour. Tests and recovery callers may supply a bounded
         timeout and retry without closing the database when the worker is still
         alive.
         """
