@@ -10,6 +10,7 @@ format semantics of its own.
 
 from collections.abc import Mapping
 from pathlib import Path
+import sys
 from typing import Any, Callable
 
 from .acsdb import AcsDatabase
@@ -23,6 +24,7 @@ from .settings import Settings
 from .sound_runtime import GameSoundRuntime, SoundRuntime, SoundRuntimeSettings
 from .sound_windows import PackagedSoundAssetResolver, WindowsSoundPlaybackAdapter
 from .stockfish_runtime import StockfishRuntime, StockfishRuntimeConfig
+from .v1_runtime_bridge import V1RuntimeBridgeCoordinator
 from .version2_application import Version2Application
 from .version2_release_ui import Version2ReleaseAccessibleChessAPI, run_version2_release_window
 from .version2_upgrade import UserDataLayout, Version2UpgradeCoordinator
@@ -139,17 +141,48 @@ def _version2_user_data_layout(
     return UserDataLayout(root, settings_name=explicit_settings.name)
 
 
+def _packaged_legacy_executable(
+    legacy_executable: str | Path | None = None,
+) -> Path | None:
+    """Return the only safe automatic V1 source: the currently frozen executable.
+
+    Source/development Python must not scan the Python installation or arbitrary
+    directories for a legacy ``data`` folder.  Tests and explicit migration flows
+    may provide an exact executable path; a frozen production build uses its own
+    executable path, which is the shipped V1 topology proven by the bridge owner.
+    """
+
+    if legacy_executable is not None:
+        return Path(legacy_executable)
+    if bool(getattr(sys, "frozen", False)):
+        return Path(sys.executable)
+    return None
+
+
 def _prepare_version2_user_data(
     *,
     data_root: str | Path | None = None,
     settings_path: str | Path | None = None,
+    legacy_executable: str | Path | None = None,
+    bridge_factory: Callable[[UserDataLayout, str | Path], Any] = V1RuntimeBridgeCoordinator,
     coordinator_factory: Callable[[UserDataLayout], Any] = Version2UpgradeCoordinator,
 ) -> UserDataLayout:
-    """Recover/upgrade V2 state before any normal settings or database writer opens."""
+    """Bridge shipped V1 state, then recover/upgrade V2 before normal writers open."""
 
     if not callable(coordinator_factory):
         raise TypeError("coordinator_factory must be callable")
     layout = _version2_user_data_layout(data_root=data_root, settings_path=settings_path)
+
+    executable = _packaged_legacy_executable(legacy_executable)
+    if executable is not None:
+        if not callable(bridge_factory):
+            raise TypeError("bridge_factory must be callable")
+        bridge = bridge_factory(layout, executable)
+        bridge_run = getattr(bridge, "run", None)
+        if not callable(bridge_run):
+            raise TypeError("V1 runtime bridge coordinator must expose run()")
+        bridge_run()
+
     coordinator = coordinator_factory(layout)
     run = getattr(coordinator, "run", None)
     if not callable(run):
@@ -165,20 +198,23 @@ def create_version2_release_application(
     sound_playback: Any | None = None,
     settings_path: str | Path | None = None,
     data_root: str | Path | None = None,
+    legacy_executable: str | Path | None = None,
     copy_text: Callable[[str], Any] = _copy_text_to_windows_clipboard,
 ):
     """Compose one engine provider plus the persistent V2 application state.
 
-    Persistent state is recovered/upgraded before any normal ``Settings`` or
-    ``AcsDatabase`` writer opens.  The returned native-runtime factory must then be
-    called on the actual Windows UI thread with the exact pywebview owner control.
-    This keeps SQLite worker connections and WinForms dialog ownership on their
-    required boundaries.
+    Shipped V1 executable-local state is bridged first when an exact packaged
+    executable is available. Persistent V2 state is then recovered/upgraded before
+    any normal ``Settings`` or ``AcsDatabase`` writer opens.  The returned
+    native-runtime factory must be called on the actual Windows UI thread with the
+    exact pywebview owner control.  This keeps SQLite worker connections and
+    WinForms dialog ownership on their required boundaries.
     """
 
     layout = _prepare_version2_user_data(
         data_root=data_root,
         settings_path=settings_path,
+        legacy_executable=legacy_executable,
     )
     app_dir = Path(application_dir) if application_dir is not None else _asset_root()
     engine_runtime = runtime_factory(StockfishRuntimeConfig(application_dir=app_dir))
