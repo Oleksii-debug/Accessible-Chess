@@ -40,12 +40,15 @@ from .version2_windows_library_import_observer import Version2ObservedImportServ
 class Version2Application:
     def __init__(self, database: AcsDatabase, *, progress_store: BookProgressStore,
                  engine_assistance: EngineAssistedWorkflowService, board_dispatch,
-                 copy_text=lambda _: None, language=UILanguage.UA):
+                 position_sink=None, copy_text=lambda _: None, language=UILanguage.UA):
         self._thread = threading.get_ident()
         self.database = database
         self.progress_store = progress_store
         self.engine_assistance = engine_assistance
         self._board_dispatch = board_dispatch
+        if position_sink is not None and not callable(position_sink):
+            raise TypeError("position_sink must be callable or None")
+        self._position_sink = position_sink
         self._events = deque(maxlen=64)
         self._observation_lock = threading.Lock()
         self._progress = self._result = None
@@ -72,6 +75,35 @@ class Version2Application:
     def bind_files(self, runtime):
         self._assert_thread()
         self._files = runtime
+
+    def set_language(self, language: UILanguage):
+        """Synchronize every live V2 presentation surface to one language."""
+        self._assert_thread()
+        if not isinstance(language, UILanguage):
+            raise TypeError("language must be UILanguage")
+        previous = self.shell.language
+        if language is previous:
+            return
+        try:
+            self.shell.set_language(language)
+            self.library.projection.set_language(language)
+            if self.pgn is not None:
+                self.pgn.projection.set_language(language)
+            if self.books is not None:
+                self.books.projection.set_language(language)
+        except Exception:
+            # These transitions are presentation-only. Roll them all back before
+            # surfacing a failure so Stage1/V2 cannot remain split in memory.
+            self.shell.set_language(previous)
+            try:
+                self.library.projection.set_language(previous)
+                if self.pgn is not None:
+                    self.pgn.projection.set_language(previous)
+                if self.books is not None:
+                    self.books.projection.set_language(previous)
+            except Exception:
+                pass
+            raise
 
     def observe_progress(self, value: LibraryImportProgress):
         if not isinstance(value, LibraryImportProgress): raise TypeError("invalid import progress")
@@ -148,11 +180,23 @@ class Version2Application:
     def _error(self):
         return {"kind": "error", "payload": {"message": concise_user_error("", language=self.shell.language)}}
 
+    def _project_pgn_position(self, fen=None):
+        """Project canonical PGN FEN through a trusted Python-only board sink."""
+        sink = self._position_sink
+        if sink is None:
+            raise RuntimeError("PGN board projection is unavailable")
+        canonical_fen = self.pgn_commands.current_fen() if fen is None else fen
+        result = sink(canonical_fen)
+        if not isinstance(result, dict) or result.get("ok") is not True:
+            raise ValueError("canonical board rejected PGN position")
+        return canonical_fen
+
     def _delegate(self, action, payload):
         # Native menus enter the same projection commands as keyboard buttons.
         if action == "pgn.open_on_board":
             if payload: raise ValueError("PGN board accepts no payload")
-            self.pgn_commands.current_fen()
+            fen = self.pgn_commands.current_fen()
+            self._project_pgn_position(fen)
             self.pgn_board_active = True
             self.shell.open_route("board")
             return None
@@ -165,13 +209,18 @@ class Version2Application:
             if payload or not self.pgn_board_active: raise ValueError("no PGN board review")
             workspace = self.session.workspace
             before = workspace.cursor
+            before_fen = self.pgn_commands.current_fen()
             try:
                 method = {"pgn.board_next_move": workspace.next_move, "pgn.board_previous_move": workspace.previous_move,
                           "pgn.board_enter_variation": workspace.enter_variation, "pgn.board_leave_variation": workspace.leave_variation}[action]
                 method()
-                self.pgn_commands.current_fen()
+                self._project_pgn_position(self.pgn_commands.current_fen())
             except Exception:
                 workspace.set_cursor(before)
+                try:
+                    self._project_pgn_position(before_fen)
+                except Exception:
+                    pass
                 raise
             return None
         if action.startswith("pgn.") and action not in {"pgn.open", "pgn.save", "pgn.save_as", "pgn.export_selection"}:
