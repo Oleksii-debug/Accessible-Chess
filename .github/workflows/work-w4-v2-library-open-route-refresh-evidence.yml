@@ -6,7 +6,7 @@ on:
       - work/w4-v2-library-open-route-refresh-evidence-20260907
   pull_request:
     branches:
-      - codex/v2-runtime-completion-20260907
+      - work/w4-v2-startup-focus-20260907
     paths:
       - 'tests/js/version2_library_open_route_refresh_dom_test.js'
       - '.github/workflows/work-w4-v2-library-open-route-refresh-evidence.yml'
