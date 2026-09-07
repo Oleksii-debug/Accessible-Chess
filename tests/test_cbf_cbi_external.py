@@ -141,6 +141,45 @@ class CbfCbiExternalReaderTests(unittest.TestCase):
             self.assertTrue(calls[1][1].lower().endswith("scidpgn.tcl"))
             self.assertTrue(calls[1][2].lower().endswith("decoded.si4"))
 
+    def test_verified_backend_bytes_are_staged_before_execution(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            cbf, _ = self._source_family(root)
+            config = self._config(root)
+            calls: list[list[str]] = []
+            expected_cbh = config.cbh2si4_executable.read_bytes()
+            expected_tcscid = config.tcscid_executable.read_bytes()
+            expected_script = config.scidpgn_script.read_bytes()
+
+            def fake_run(argv: list[str], **kwargs) -> bytes:
+                calls.append(list(argv))
+                if len(calls) == 1:
+                    staged_cbh = Path(argv[0])
+                    self.assertNotEqual(staged_cbh, config.cbh2si4_executable)
+                    self.assertEqual(staged_cbh.read_bytes(), expected_cbh)
+                    config.cbh2si4_executable.write_bytes(b"replaced-cbh2si4")
+                    config.tcscid_executable.write_bytes(b"replaced-tcscid")
+                    config.scidpgn_script.write_bytes(b"replaced-script")
+                    destination = Path(argv[-1])
+                    destination.write_bytes(b"index")
+                    destination.with_suffix(".sg4").write_bytes(b"games")
+                    destination.with_suffix(".sn4").write_bytes(b"names")
+                    return b"ok"
+                self.assertNotEqual(Path(argv[0]), config.tcscid_executable)
+                self.assertNotEqual(Path(argv[1]), config.scidpgn_script)
+                self.assertEqual(Path(argv[0]).read_bytes(), expected_tcscid)
+                self.assertEqual(Path(argv[1]).read_bytes(), expected_script)
+                return _PGN
+
+            with patch(
+                "acs.cbf_cbi_external._run_process",
+                side_effect=fake_run,
+            ):
+                decoded = read_cbf_cbi_external(cbf, config)
+
+            self.assertEqual(decoded.total_games, 1)
+            self.assertEqual(len(calls), 2)
+
     def test_unexpected_private_output_fails_closed(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw)
