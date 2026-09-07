@@ -390,18 +390,15 @@ def _parse_line(
 def _brace_comment_state_after_line(line: str, comment_depth: int) -> int:
     """Track recoverable brace-comment depth for canonical game framing.
 
-    Nested recovery must keep an outer comment open across inner ``}`` tokens.
-    The historical immediate ``{{ ...}`` literal-opening-brace spelling is
-    ambiguous until more text arrives.  We only apply its legacy fallback when
-    the first close is followed on the same line by an explicit PGN result
-    token; otherwise depth remains nested so a later tag-looking line cannot be
-    promoted to a game boundary before the real outer close arrives.
+    Nested recovery keeps an outer comment open across inner ``}`` tokens.  The
+    long-standing immediate ``{{ ...}`` spelling is deliberately treated as a
+    literal opening brace for framing, matching the compatibility contract that
+    predates nested-comment recovery.  Other inner braces remain depth-aware.
     """
 
     if type(comment_depth) is not int or comment_depth < 0:
         raise ValueError("comment_depth must be a non-negative exact integer")
 
-    adjacent_fallback = False
     index = 0
     while index < len(line):
         character = line[index]
@@ -410,20 +407,17 @@ def _brace_comment_state_after_line(line: str, comment_depth: int) -> int:
                 break
             if character == "{":
                 comment_depth = 1
-                adjacent_fallback = index + 1 < len(line) and line[index + 1] == "{"
+                if index + 1 < len(line) and line[index + 1] == "{":
+                    # Preserve the established literal-opening-brace form
+                    # without tying it to where the result token is laid out.
+                    index += 1
             index += 1
             continue
 
         if character == "{":
             comment_depth += 1
         elif character == "}":
-            previous_depth = comment_depth
             comment_depth -= 1
-            if previous_depth == 2 and comment_depth == 1 and adjacent_fallback:
-                suffix = line[index + 1 :].split(";", 1)[0]
-                if any(token in RESULTS for token in suffix.split()):
-                    comment_depth = 0
-                    adjacent_fallback = False
         index += 1
     return comment_depth
 
