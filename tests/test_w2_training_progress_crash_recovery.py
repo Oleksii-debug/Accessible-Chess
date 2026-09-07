@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import multiprocessing
+import os
 from pathlib import Path
 import tempfile
 import time
@@ -101,6 +102,42 @@ class TrainingProgressCrashRecoveryTests(unittest.TestCase):
             revision = store.save(session, expected_revision=None)
             self.assertEqual(64, len(revision))
 
+    def test_lock_path_swap_after_precheck_never_writes_target(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            path = root / "training-progress.json"
+            store = TrainingProgressStore(path)
+            store._lock_path.write_bytes(b"\0")
+            target = root / "outside-user-data.bin"
+            target.write_bytes(b"")
+
+            real_lstat = os.lstat
+            swapped = False
+
+            def racing_lstat(candidate):
+                nonlocal swapped
+                metadata = real_lstat(candidate)
+                if Path(candidate) == store._lock_path and not swapped:
+                    swapped = True
+                    store._lock_path.unlink()
+                    try:
+                        store._lock_path.symlink_to(target)
+                    except (OSError, NotImplementedError):
+                        self.skipTest("symlink creation is unavailable on this platform")
+                return metadata
+
+            with mock.patch("acs.training_progress_store.os.lstat", side_effect=racing_lstat):
+                with self.assertRaises(TrainingProgressBusyError):
+                    store.save(
+                        ExerciseSession(self._definition()),
+                        expected_revision=None,
+                    )
+
+            self.assertTrue(swapped)
+            self.assertEqual(b"", target.read_bytes())
+            self.assertTrue(store._lock_path.is_symlink())
+            self.assertFalse(path.exists())
+
     def test_oversized_existing_progress_fails_before_parse_or_overwrite(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             path = Path(td) / "training-progress.json"
@@ -162,9 +199,9 @@ class TrainingProgressCrashRecoveryTests(unittest.TestCase):
                 self.skipTest("symlink creation is unavailable on this platform")
 
             store = TrainingProgressStore(path)
-            with self.assertRaisesRegex(ValueError, "not a regular file"):
+            with self.assertRaisesRegex(ValueError, "could not be inspected"):
                 store.load(self._definition())
-            with self.assertRaisesRegex(ValueError, "not a regular file"):
+            with self.assertRaisesRegex(ValueError, "could not be inspected"):
                 store.save(
                     ExerciseSession(self._definition()),
                     expected_revision=None,
