@@ -72,6 +72,7 @@ class FakeElement {
 global.document = {
   activeElement: null,
   createElement: (tagName) => new FakeElement(tagName),
+  createElementNS: (_namespace, tagName) => new FakeElement(tagName),
   createDocumentFragment: () => new FakeElement("fragment")
 };
 global.window = {};
@@ -97,7 +98,14 @@ function snapshot(pointer, coordinatesVisible) {
     ],
     pointer: pointer ? { square: pointer } : null,
     highlights: [{ square: "c7", purpose: "target", color: "#ffcc00" }],
-    arrows: [{ start_square: "a1", end_square: "h8", purpose: "idea", color: "#0078d4" }],
+    arrows: [{
+      start_square: "a1",
+      end_square: "h8",
+      purpose: "idea",
+      color: "#0078d4",
+      start_cell: { row: 8, column: 1 },
+      end_cell: { row: 1, column: 8 }
+    }],
     accessible_summary: pointer ? "Pointer " + pointer : "No teaching annotations.",
     feedback: []
   };
@@ -155,6 +163,16 @@ async function run() {
   check(e4Initial.getAttribute("data-piece") === "P", "canonical piece symbol missing");
   check(e4Initial.getAttribute("aria-label") === "e4, white pawn", "piece accessible label missing");
 
+  const overlay = root.querySelector("#teacher-arrow-overlay");
+  check(Boolean(overlay), "visual arrow overlay missing");
+  const arrowLine = overlay.descendants().find((item) => item.tagName === "LINE");
+  check(Boolean(arrowLine), "visual arrow line missing");
+  check(arrowLine.getAttribute("data-start-square") === "a1", "visual arrow start changed");
+  check(arrowLine.getAttribute("data-end-square") === "h8", "visual arrow end changed");
+  check(arrowLine.getAttribute("x1") === "0.5" && arrowLine.getAttribute("y1") === "7.5", "visual arrow start geometry wrong");
+  check(arrowLine.getAttribute("x2") === "7.5" && arrowLine.getAttribute("y2") === "0.5", "visual arrow end geometry wrong");
+  check(overlay.getAttribute("aria-hidden") === "true", "visual arrow polluted accessibility tree");
+
   const hiddenRoot = new FakeElement("div");
   window.AccessibleChessTeacherSurface.render(
     hiddenRoot,
@@ -196,7 +214,7 @@ async function run() {
   check(!calls.some((item) => item[0] === "student.move" || item[0] === "board.input"), "pointer/hover/selection became a move");
   check(announcements.length === 1 && announcements[0] === "Selected e4", "hover flooded or selection failed to announce once");
 
-  console.log("Teacher canonical-piece/pointer/hover/selection DOM contract PASS");
+  console.log("Teacher canonical-piece/spatial-arrow/pointer/hover/selection DOM contract PASS");
 }
 
 run().catch(function (error) {
