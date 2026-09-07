@@ -185,7 +185,31 @@ def _is_reparse_point(st: os.stat_result) -> bool:
     return bool(getattr(st, "st_file_attributes", 0) & marker)
 
 
-def _sha256_regular_file(path: Path, expected: str) -> tuple[Path, str]:
+def _same_file_identity(left: os.stat_result, right: os.stat_result) -> bool:
+    return (
+        left.st_dev == right.st_dev
+        and left.st_ino == right.st_ino
+        and left.st_size == right.st_size
+        and left.st_mtime_ns == right.st_mtime_ns
+    )
+
+
+def _stage_verified_component(
+    path: Path,
+    expected: str,
+    destination: Path,
+    *,
+    executable: bool,
+) -> tuple[Path, str]:
+    """Copy exact pinned bytes from one verified open handle into private storage.
+
+    The executable/script pathname supplied by configuration is never executed
+    after verification. Instead, the bytes hashed from the same open handle are
+    staged into the reader-owned private directory and only that staged object is
+    passed to subprocess. This binds the pin to the bytes that will execute and
+    closes pathname replacement between verification and execution.
+    """
+
     try:
         before = path.lstat()
     except OSError as exc:
@@ -202,36 +226,77 @@ def _sha256_regular_file(path: Path, expected: str) -> tuple[Path, str]:
             "CBF/CBI external backend component must be a regular non-indirected file",
             CbfCbiExternalCode.BACKEND_INVALID,
         )
+
     digest = sha256()
     try:
-        with path.open("rb") as handle:
-            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-                digest.update(chunk)
+        with path.open("rb") as source_handle:
+            opened_before = os.fstat(source_handle.fileno())
+            if (
+                not _same_file_identity(before, opened_before)
+                or not stat.S_ISREG(opened_before.st_mode)
+                or _is_reparse_point(opened_before)
+            ):
+                raise _error(
+                    "CBF/CBI external backend component changed before verification",
+                    CbfCbiExternalCode.BACKEND_INVALID,
+                )
+            with destination.open("xb") as staged_handle:
+                while True:
+                    chunk = source_handle.read(1024 * 1024)
+                    if not chunk:
+                        break
+                    digest.update(chunk)
+                    staged_handle.write(chunk)
+                staged_handle.flush()
+                os.fsync(staged_handle.fileno())
+            opened_after = os.fstat(source_handle.fileno())
         after = path.lstat()
+    except CbfCbiExternalError:
+        raise
     except OSError as exc:
         raise _error(
             "CBF/CBI external backend component could not be verified",
             CbfCbiExternalCode.BACKEND_INVALID,
         ) from exc
+
     if (
-        before.st_dev != after.st_dev
-        or before.st_ino != after.st_ino
-        or before.st_size != after.st_size
-        or before.st_mtime_ns != after.st_mtime_ns
+        not _same_file_identity(opened_before, opened_after)
+        or not _same_file_identity(opened_after, after)
         or stat.S_ISLNK(after.st_mode)
         or _is_reparse_point(after)
+        or not stat.S_ISREG(after.st_mode)
     ):
         raise _error(
             "CBF/CBI external backend component changed during verification",
             CbfCbiExternalCode.BACKEND_INVALID,
         )
+
     actual = digest.hexdigest()
     if actual != expected:
         raise _error(
             "CBF/CBI external backend component identity does not match the configured pin",
             CbfCbiExternalCode.BACKEND_INVALID,
         )
-    return Path(os.path.abspath(os.fspath(path))), actual
+
+    try:
+        os.chmod(destination, 0o700 if executable else 0o600)
+        staged = destination.lstat()
+    except OSError as exc:
+        raise _error(
+            "CBF/CBI external backend component could not be staged safely",
+            CbfCbiExternalCode.BACKEND_INVALID,
+        ) from exc
+    if (
+        stat.S_ISLNK(staged.st_mode)
+        or _is_reparse_point(staged)
+        or not stat.S_ISREG(staged.st_mode)
+        or staged.st_size != opened_after.st_size
+    ):
+        raise _error(
+            "CBF/CBI staged backend component is invalid",
+            CbfCbiExternalCode.BACKEND_INVALID,
+        )
+    return Path(os.path.abspath(os.fspath(destination))), actual
 
 
 def _sterile_environment(*components: Path) -> dict[str, str]:
@@ -469,8 +534,9 @@ def read_cbf_cbi_external(
     """Read one complete legacy CBF/CBI family through pinned external tools.
 
     The source is fingerprinted before backend execution and re-fingerprinted
-    after PGN export. Any mutation discards all output. Temporary SI4 files live
-    only in a private temporary directory and are removed on every exit.
+    after PGN export. Any mutation discards all output. Backend components are
+    copied from verified open handles into a private directory before execution;
+    temporary SI4 files live in a separate private data directory.
     """
 
     if not isinstance(config, ExternalCbfCbiReaderConfig):
@@ -490,23 +556,35 @@ def read_cbf_cbi_external(
             CbfCbiExternalCode.UNSUPPORTED_SOURCE,
         ) from exc
 
-    cbh2si4, cbh2si4_hash = _sha256_regular_file(
-        config.cbh2si4_executable,
-        config.cbh2si4_sha256,
-    )
-    tcscid, tcscid_hash = _sha256_regular_file(
-        config.tcscid_executable,
-        config.tcscid_sha256,
-    )
-    scidpgn, scidpgn_hash = _sha256_regular_file(
-        config.scidpgn_script,
-        config.scidpgn_sha256,
-    )
-    env = _sterile_environment(cbh2si4, tcscid, scidpgn)
-
     with tempfile.TemporaryDirectory(prefix="accessible-chess-cbf-") as raw_temp:
         private = Path(raw_temp)
-        destination = private / "decoded.si4"
+        backend_dir = private / "backend"
+        data_dir = private / "data"
+        backend_dir.mkdir(mode=0o700)
+        data_dir.mkdir(mode=0o700)
+
+        cbh_suffix = config.cbh2si4_executable.suffix
+        tcscid_suffix = config.tcscid_executable.suffix
+        cbh2si4, cbh2si4_hash = _stage_verified_component(
+            config.cbh2si4_executable,
+            config.cbh2si4_sha256,
+            backend_dir / f"cbh2si4{cbh_suffix}",
+            executable=True,
+        )
+        tcscid, tcscid_hash = _stage_verified_component(
+            config.tcscid_executable,
+            config.tcscid_sha256,
+            backend_dir / f"tcscid{tcscid_suffix}",
+            executable=True,
+        )
+        scidpgn, scidpgn_hash = _stage_verified_component(
+            config.scidpgn_script,
+            config.scidpgn_sha256,
+            backend_dir / "scidpgn.tcl",
+            executable=False,
+        )
+        env = _sterile_environment(cbh2si4, tcscid, scidpgn)
+        destination = data_dir / "decoded.si4"
         _run_process(
             [
                 os.fspath(cbh2si4),
@@ -515,16 +593,16 @@ def read_cbf_cbi_external(
                 os.fspath(snapshot.primary_path),
                 os.fspath(destination),
             ],
-            cwd=private,
+            cwd=data_dir,
             env=env,
             timeout_seconds=config.timeout_seconds,
             max_stdout_bytes=min(config.max_stdout_bytes, 4 * 1024 * 1024),
             max_stderr_bytes=config.max_stderr_bytes,
         )
-        _validate_si4_family(private, "decoded", config.max_private_si4_bytes)
+        _validate_si4_family(data_dir, "decoded", config.max_private_si4_bytes)
         pgn = _run_process(
             [os.fspath(tcscid), os.fspath(scidpgn), os.fspath(destination)],
-            cwd=private,
+            cwd=data_dir,
             env=env,
             timeout_seconds=config.timeout_seconds,
             max_stdout_bytes=config.max_stdout_bytes,
