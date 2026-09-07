@@ -1,0 +1,321 @@
+name: Work V2 Packaged Resource Composition Evidence
+
+on:
+  pull_request:
+    branches:
+      - work/w6-v2-windows-standalone-build-evidence-20260907
+    paths:
+      - '.github/workflows/work-v2-packaged-resource-composition-evidence.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: work-v2-package-resource-composition-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  STACK_PARENT: 6fac50228f6ea5e96f2951ca92096a19e03b6241
+  PRODUCT_PARENT: c37c652d8cf8a10fa4e9ebba7255f2d582153b87
+  V2_PREFLIGHT_OWNER: 58be5a7e577714f221be6653655f4bc1d6bb1acd
+  V2_PREFLIGHT_BLOB: ab038e5aa68600d1388a71604e9ef0e4221df4bc
+  PYWEBVIEW_VERSION: '6.2.1'
+  NUITKA_UPSTREAM_FIX_COMMIT: b7ea05bf570e0b6950de6db7c4c8e579e1b77d29
+  STOCKFISH_VERSION: '18'
+
+jobs:
+  windows-packaged-resource-composition:
+    runs-on: windows-2025
+    timeout-minutes: 75
+    steps:
+      - name: Checkout exact evidence child
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Prove one-file evidence scope and exact Product ancestry
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor "$STACK_PARENT" HEAD
+          git merge-base --is-ancestor "$PRODUCT_PARENT" HEAD
+          git diff --check "$STACK_PARENT" HEAD
+          changed="$(git diff --name-only "$STACK_PARENT" HEAD)"
+          test "$changed" = '.github/workflows/work-v2-packaged-resource-composition-evidence.yml'
+          non_workflow="$(git diff --name-only "$PRODUCT_PARENT" HEAD | grep -v '^\.github/workflows/' || true)"
+          test -z "$non_workflow"
+          for path in run_accessible_chess_v2.py acs/version2_release_app.py acs/version2_application.py acs/stockfish_runtime.py acs/sound_windows.py; do
+            test "$(git rev-parse HEAD:$path)" = "$(git rev-parse $PRODUCT_PARENT:$path)"
+          done
+          echo 'EXACT PRODUCT / EVIDENCE-ONLY SCOPE PASS'
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install pinned Windows runtime and compiler
+        shell: pwsh
+        run: |
+          $nuitkaUrl="https://github.com/Nuitka/Nuitka/archive/$env:NUITKA_UPSTREAM_FIX_COMMIT.zip"
+          python -m pip install --disable-pip-version-check "pywebview==$env:PYWEBVIEW_VERSION" "Nuitka @ $nuitkaUrl" ordered-set zstandard
+          if($LASTEXITCODE -ne 0){throw 'Pinned Windows runtime/compiler installation failed'}
+          python -c "from pathlib import Path; import nuitka; p=Path(nuitka.__file__).parent/'plugins'/'standard'/'PywebViewPlugin.py'; assert 'webview.platforms.win32' in p.read_text(encoding='utf-8'); print('PATCHED NUITKA PYWEBVIEW PLUGIN PASS')"
+          if($LASTEXITCODE -ne 0){throw 'Pinned Nuitka pywebview patch missing'}
+
+      - name: Source diagnostic must exercise production V2 composition
+        shell: pwsh
+        run: |
+          python run_accessible_chess_v2.py --diagnostic
+          if($LASTEXITCODE -ne 0){throw 'Source V2 release diagnostic failed before resource assembly'}
+
+      - name: Build and validate nine real WAV resources
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path 'release-assets\assets\sounds' | Out-Null
+          @'
+          import json, math, struct, wave
+          from pathlib import Path
+          root = Path('release-assets/assets/sounds')
+          root.mkdir(parents=True, exist_ok=True)
+          events = ('move','capture','check','castle','promotion','illegal','start','end','tick')
+          freqs = (330,220,660,440,550,140,392,196,880)
+          for name, freq in zip(events, freqs):
+              path = root / f'{name}.wav'
+              rate = 22050
+              duration = 0.12 if name == 'tick' else 0.18
+              frames = []
+              for i in range(int(rate * duration)):
+                  envelope = max(0.0, 1.0 - i / (rate * duration))
+                  value = int(9000 * envelope * math.sin(2 * math.pi * freq * i / rate))
+                  frames.append(struct.pack('<h', value))
+              with wave.open(str(path), 'wb') as out:
+                  out.setnchannels(1); out.setsampwidth(2); out.setframerate(rate); out.writeframes(b''.join(frames))
+          (root / 'manifest.json').write_text(json.dumps({'schema_version':1,'files':{e:f'{e}.wav' for e in events}}, ensure_ascii=False, indent=2), encoding='utf-8')
+          print('REAL NINE-EVENT WAV PACK CREATED')
+          '@ | Set-Content -Encoding UTF8 make_v2_evidence_sounds.py
+          python make_v2_evidence_sounds.py
+          if($LASTEXITCODE -ne 0){throw 'WAV creation failed'}
+          python -c "from acs.sound_windows import PackagedSoundAssetResolver; from pathlib import Path; import wave; r=PackagedSoundAssetResolver(Path('release-assets')); m=r.load_manifest(); assert set(m.files)==set(('move','capture','check','castle','promotion','illegal','start','end','tick')); [wave.open(str(p),'rb').close() for p in m.files.values()]; print('REAL WAV MANIFEST/FILES PASS')"
+          if($LASTEXITCODE -ne 0){throw 'WAV package validation failed'}
+
+      - name: Acquire official Stockfish 18 binary and corresponding source
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path 'release-assets\engines\stockfish','release-assets\THIRD_PARTY\Stockfish' | Out-Null
+          Invoke-WebRequest -Uri 'https://github.com/official-stockfish/Stockfish/releases/download/sf_18/stockfish-windows-x86-64.zip' -OutFile stockfish18-bin.zip
+          if($LASTEXITCODE -ne 0){throw 'Official Stockfish 18 binary download failed'}
+          Expand-Archive stockfish18-bin.zip stockfish18-bin -Force
+          $engine=Get-ChildItem stockfish18-bin -Recurse -Filter '*.exe' | Where-Object {$_.Name -match 'stockfish.*x86-64'} | Select-Object -First 1
+          if(-not $engine){throw 'Official Stockfish 18 executable missing'}
+          Copy-Item $engine.FullName 'release-assets\engines\stockfish\stockfish.exe' -Force
+          Invoke-WebRequest -Uri 'https://github.com/official-stockfish/Stockfish/archive/refs/tags/sf_18.zip' -OutFile 'release-assets\THIRD_PARTY\Stockfish\Stockfish-18-source.zip'
+          if($LASTEXITCODE -ne 0){throw 'Official Stockfish 18 source download failed'}
+          @"
+          Stockfish 18
+          License: GNU GPL v3
+          Upstream: official-stockfish/Stockfish tag sf_18
+          Complete corresponding source archive is included as Stockfish-18-source.zip.
+          "@ | Set-Content -Encoding UTF8 'release-assets\THIRD_PARTY\Stockfish\NOTICE.txt'
+          $binaryHash=(Get-FileHash 'release-assets\engines\stockfish\stockfish.exe' -Algorithm SHA256).Hash.ToLowerInvariant()
+          $sourceHash=(Get-FileHash 'release-assets\THIRD_PARTY\Stockfish\Stockfish-18-source.zip' -Algorithm SHA256).Hash.ToLowerInvariant()
+          Write-Host "STOCKFISH18_BINARY_SHA256=$binaryHash"
+          Write-Host "STOCKFISH18_SOURCE_SHA256=$sourceHash"
+          @'
+          import pathlib, re, subprocess, time
+          exe = pathlib.Path('release-assets/engines/stockfish/stockfish.exe').resolve()
+          fen = 'rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1'
+          p = subprocess.Popen([str(exe)], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
+          def send(text): p.stdin.write(text+'\n'); p.stdin.flush()
+          def until(token, seconds=30):
+              deadline=time.time()+seconds; lines=[]
+              while time.time()<deadline:
+                  line=p.stdout.readline()
+                  if line:
+                      lines.append(line.strip())
+                      if token in line: return lines
+              raise RuntimeError((token, lines[-30:]))
+          send('uci'); until('uciok'); send('isready'); until('readyok')
+          send('setoption name MultiPV value 5'); send('isready'); until('readyok')
+          send('position fen '+fen); send('go depth 10'); lines=until('bestmove')
+          multipv=set()
+          for line in lines:
+              parts=line.split()
+              if line.startswith('info ') and 'multipv' in parts:
+                  multipv.add(int(parts[parts.index('multipv')+1]))
+          assert len(multipv)>=5, multipv
+          best=[line for line in lines if line.startswith('bestmove')][-1].split()[1]
+          assert re.fullmatch(r'[a-h][1-8][a-h][1-8][qrbn]?', best), best
+          send('quit'); p.wait(timeout=5)
+          print('OFFICIAL STOCKFISH 18 DIRECT MULTIPV5 PASS', best)
+          '@ | Set-Content -Encoding UTF8 stockfish_v2_evidence_direct.py
+          python stockfish_v2_evidence_direct.py
+          if($LASTEXITCODE -ne 0){throw 'Official Stockfish 18 direct UCI/MultiPV gate failed'}
+
+      - name: Build standalone V2 executable with packaged web and sounds
+        shell: pwsh
+        run: |
+          python -m nuitka --standalone --assume-yes-for-downloads --windows-console-mode=disable --output-filename=AccessibleChess.exe --include-data-dir=web=web --include-data-dir=release-assets\assets=assets --report=nuitka-compilation-report.xml run_accessible_chess_v2.py
+          if($LASTEXITCODE -ne 0){throw 'V2 Nuitka standalone compile failed'}
+          $exe=Get-ChildItem -Recurse -Filter AccessibleChess.exe | Where-Object {$_.FullName -match '\.dist\\'} | Select-Object -First 1
+          if(-not $exe){throw 'Built V2 AccessibleChess.exe missing'}
+          $dist=$exe.Directory.FullName
+          $stockfishTarget=Join-Path $dist 'engines\stockfish\stockfish.exe'
+          New-Item -ItemType Directory -Force -Path (Split-Path $stockfishTarget -Parent) | Out-Null
+          Copy-Item 'release-assets\engines\stockfish\stockfish.exe' $stockfishTarget -Force
+          "V2_EXE=$($exe.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "V2_DIST=$dist" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          Write-Host "V2 packaged-resource executable: $($exe.FullName)"
+
+      - name: Built V2 executable and standalone hygiene gate
+        shell: pwsh
+        run: |
+          & $env:V2_EXE --diagnostic
+          if($LASTEXITCODE -ne 0){throw 'Built V2 executable production-composition diagnostic failed'}
+          $source=Get-ChildItem $env:V2_DIST -Recurse -File | Where-Object {$_.Extension -in '.py','.pyc','.pyo'}
+          if($source){$source | ForEach-Object {$_.FullName}; throw 'Python source/bytecode leaked into standalone directory'}
+          if(Test-Path (Join-Path $env:V2_DIST 'nuitka-compilation-report.xml')){throw 'Nuitka compilation report leaked into standalone directory'}
+          if(-not (Test-Path (Join-Path $env:V2_DIST 'web\index.html'))){throw 'V2 standalone web/index.html missing'}
+          if(-not (Test-Path (Join-Path $env:V2_DIST 'assets\sounds\manifest.json'))){throw 'V2 packaged sound manifest missing'}
+          if(-not (Test-Path (Join-Path $env:V2_DIST 'engines\stockfish\stockfish.exe'))){throw 'V2 packaged Stockfish executable missing'}
+          $exeHits=@(Get-ChildItem $env:V2_DIST -Recurse -Filter AccessibleChess.exe)
+          if($exeHits.Count -ne 1){throw "Standalone directory contains $($exeHits.Count) AccessibleChess.exe files"}
+          Write-Host 'BUILT V2 EXECUTABLE + RESOURCE TOPOLOGY PASS'
+
+      - name: Prove packaged sound and Stockfish runtime lifecycle
+        shell: pwsh
+        run: |
+          @'
+          import pathlib, sys, tempfile
+          from acs.sound_windows import PackagedSoundAssetResolver, WindowsSoundPlaybackAdapter
+          from acs.sound_runtime import SoundRuntime, GameSoundRuntime, SoundRuntimeSettings
+          from acs.sound_events import MoveSoundFacts
+          app=pathlib.Path(sys.argv[1]).resolve()
+          resolver=PackagedSoundAssetResolver(app)
+          manifest=resolver.load_manifest()
+          assert len(manifest.files)==9
+          runtime=GameSoundRuntime(SoundRuntime(WindowsSoundPlaybackAdapter(resolver, cache_dir=pathlib.Path(tempfile.gettempdir())/'acs-v2-evidence-sound-cache'), settings=SoundRuntimeSettings(volume=100)))
+          reports=[runtime.start(), runtime.move(MoveSoundFacts()), runtime.illegal(), runtime.tick(), runtime.end()]
+          assert all(report.ok for report in reports), reports
+          print('V2 PACKAGED SOUND RUNTIME PASS')
+          '@ | Set-Content -Encoding UTF8 packaged_sound_v2_evidence.py
+          python packaged_sound_v2_evidence.py "$env:V2_DIST"
+          if($LASTEXITCODE -ne 0){throw 'V2 packaged sound runtime failed'}
+          @'
+          import pathlib, sys
+          from acs.stockfish_runtime import StockfishRuntime, StockfishRuntimeConfig, resolve_stockfish_path, PACKAGED_STOCKFISH_RELATIVE_PATH
+          app=pathlib.Path(sys.argv[1]).resolve()
+          config=StockfishRuntimeConfig(application_dir=app)
+          resolved=resolve_stockfish_path(config)
+          assert resolved==(app/PACKAGED_STOCKFISH_RELATIVE_PATH).resolve() and resolved.stat().st_size>0
+          fen='rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1'
+          runtime=StockfishRuntime(config)
+          engine=runtime.provider()
+          lines=engine.analyze(fen,multipv=5,depth=8)
+          assert len(lines)>=5
+          best=engine.best_move(fen,skill_level=8,movetime_ms=150)
+          assert best
+          runtime.close()
+          print('V2 PACKAGED STOCKFISH LIFECYCLE PASS', best)
+          '@ | Set-Content -Encoding UTF8 packaged_stockfish_v2_evidence.py
+          python packaged_stockfish_v2_evidence.py "$env:V2_DIST"
+          if($LASTEXITCODE -ne 0){throw 'V2 packaged Stockfish lifecycle failed'}
+          Start-Sleep -Seconds 1
+          if(@(Get-Process stockfish* -ErrorAction SilentlyContinue).Count -gt 0){throw 'Orphan Stockfish remains after V2 runtime close'}
+
+      - name: Materialize the validated V2 package preflight owner after build
+        shell: pwsh
+        run: |
+          git cat-file -e "$env:V2_PREFLIGHT_OWNER^{commit}"
+          if($LASTEXITCODE -ne 0){throw 'V2 preflight owner commit unavailable'}
+          $ownerBlob=(git rev-parse "$env:V2_PREFLIGHT_OWNER`:acs/version2_package_preflight.py").Trim()
+          if($ownerBlob -ne $env:V2_PREFLIGHT_BLOB){throw "V2 preflight owner blob drift: $ownerBlob"}
+          python -c "import os,pathlib,subprocess; spec=os.environ['V2_PREFLIGHT_OWNER']+':acs/version2_package_preflight.py'; pathlib.Path('acs/version2_package_preflight.py').write_bytes(subprocess.check_output(['git','show',spec]))"
+          if($LASTEXITCODE -ne 0){throw 'V2 preflight owner materialization failed'}
+          $materialized=(git hash-object acs/version2_package_preflight.py).Trim()
+          if($materialized -ne $env:V2_PREFLIGHT_BLOB){throw "Materialized V2 preflight blob mismatch: $materialized"}
+          Write-Host 'BYTE-IDENTICAL VALIDATED V2 PREFLIGHT MATERIALIZED AFTER BUILD'
+
+      - name: Assemble evidence package tree and validate exact V2 manifest/checksums
+        shell: pwsh
+        run: |
+          Remove-Item package-v2-evidence -Recurse -Force -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force -Path 'package-v2-evidence\AccessibleChess','package-v2-evidence\THIRD_PARTY_NOTICES' | Out-Null
+          Copy-Item "$env:V2_DIST\*" 'package-v2-evidence\AccessibleChess\' -Recurse -Force
+          Copy-Item 'release-assets\THIRD_PARTY\Stockfish\Stockfish-18-source.zip' 'package-v2-evidence\THIRD_PARTY_NOTICES\Stockfish-18-source.zip' -Force
+          Copy-Item 'release-assets\THIRD_PARTY\Stockfish\NOTICE.txt' 'package-v2-evidence\THIRD_PARTY_NOTICES\Stockfish-NOTICE.txt' -Force
+          @"
+          Accessible Chess Version 2 third-party notices — machine evidence only
+          Stockfish 18 — GNU GPL v3; complete corresponding source archive included.
+          pywebview $env:PYWEBVIEW_VERSION — BSD-3-Clause runtime dependency.
+          Nuitka commit $env:NUITKA_UPSTREAM_FIX_COMMIT — build compiler only; compilation report is not shipped.
+          This assembled tree and transient ZIP are CI evidence, not a user release candidate.
+          "@ | Set-Content -Encoding UTF8 'package-v2-evidence\THIRD_PARTY_NOTICES\README.txt'
+          @'
+          import hashlib, json, os
+          from pathlib import Path
+          from acs.acsdb import ACSDB_SCHEMA_VERSION
+          from acs.settings import SCHEMA_VERSION as SETTINGS_SCHEMA_VERSION
+          from acs.version2_upgrade import UPGRADE_JOURNAL_SCHEMA_VERSION
+          from acs.version2_package_preflight import V2_PACKAGE_MANIFEST_SCHEMA_VERSION, V2_PACKAGE_PROFILE, validate_version2_package_tree
+          root=Path('package-v2-evidence')
+          manifest={
+              'manifest_schema': V2_PACKAGE_MANIFEST_SCHEMA_VERSION,
+              'product': 'Accessible Chess',
+              'package_profile': V2_PACKAGE_PROFILE,
+              'integration_sha': os.environ['PRODUCT_PARENT'],
+              'nvda_verified': False,
+              'upgrade_from_version1': True,
+              'upgrade_journal_schema': UPGRADE_JOURNAL_SCHEMA_VERSION,
+              'settings_schema': SETTINGS_SCHEMA_VERSION,
+              'acsdb_schema': ACSDB_SCHEMA_VERSION,
+              'user_data_bundled': False,
+              'raw_source_bundled': False,
+              'optional_external_backends_bundled': False,
+          }
+          (root/'RELEASE_MANIFEST.json').write_text(json.dumps(manifest,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
+          rows=[]
+          for path in sorted((p for p in root.rglob('*') if p.is_file() and p.name!='SHA256SUMS.txt'), key=lambda p:p.relative_to(root).as_posix().casefold()):
+              digest=hashlib.sha256(path.read_bytes()).hexdigest()
+              rows.append(f"{digest}  {path.relative_to(root).as_posix()}")
+          (root/'SHA256SUMS.txt').write_text('\n'.join(rows)+'\n',encoding='utf-8')
+          report=validate_version2_package_tree(root,expected_integration_sha=os.environ['PRODUCT_PARENT'])
+          assert report.integration_sha==os.environ['PRODUCT_PARENT']
+          assert report.checksums_verified==len(rows)
+          assert 'AccessibleChess/AccessibleChess.exe' in report.inventory
+          print('V2 PACKAGE TREE PREFLIGHT PASS', report.as_dict())
+          '@ | Set-Content -Encoding UTF8 validate_v2_evidence_tree.py
+          python validate_v2_evidence_tree.py
+          if($LASTEXITCODE -ne 0){throw 'Validated V2 package tree rejected actual assembled resources'}
+
+      - name: Transient ZIP readback through the V2 preflight — never publish as candidate
+        shell: pwsh
+        run: |
+          @'
+          import os, pathlib, zipfile
+          from acs.version2_package_preflight import validate_version2_package_zip
+          root=pathlib.Path('package-v2-evidence')
+          archive=pathlib.Path('V2-PACKAGE-EVIDENCE-NOT-A-CANDIDATE.zip')
+          if archive.exists(): archive.unlink()
+          with zipfile.ZipFile(archive,'w',compression=zipfile.ZIP_DEFLATED,allowZip64=True) as out:
+              for path in sorted((p for p in root.rglob('*') if p.is_file()),key=lambda p:p.relative_to(root).as_posix().casefold()):
+                  out.write(path,path.relative_to(root).as_posix())
+          report=validate_version2_package_zip(archive,expected_integration_sha=os.environ['PRODUCT_PARENT'])
+          assert report.archive_sha256 and len(report.archive_sha256)==64
+          print('TRANSIENT V2 ZIP READBACK PREFLIGHT PASS — NOT A CANDIDATE',report.as_dict())
+          archive.unlink()
+          assert not archive.exists()
+          print('TRANSIENT ZIP DELETED; NO RELEASE ARTIFACT WILL BE UPLOADED')
+          '@ | Set-Content -Encoding UTF8 validate_v2_evidence_zip.py
+          python validate_v2_evidence_zip.py
+          if($LASTEXITCODE -ne 0){throw 'Transient V2 ZIP readback validation failed'}
+          if(Test-Path 'V2-PACKAGE-EVIDENCE-NOT-A-CANDIDATE.zip'){throw 'Transient evidence ZIP was not deleted'}
+          Write-Host 'V2 RESOURCE/PACKAGE COMPOSITION EVIDENCE PASS — VERSION2_WINDOWS_ZIP=NO — NVDA_VERIFIED=NO'
+
+      - name: Cleanup engine processes
+        if: always()
+        shell: pwsh
+        run: |
+          Get-Process stockfish* -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
