@@ -1,14 +1,18 @@
-"""WebView-facing Teacher/Classroom visual projection over canonical presentation state.
+"""WebView-facing Teacher/Classroom visual projection over canonical state.
 
-DEV1 owns only projection, focus/keyboard semantics and bounded NVDA feedback.
+DEV1 owns projection, focus/keyboard semantics and bounded NVDA feedback.
 Authoritative pointer/highlight/arrow/permission state remains external and is
-read through :class:`TeacherPresentationState`; no chess position is stored here.
+read through :class:`TeacherPresentationState`.  A separate optional read-only
+FEN provider may expose the canonical teaching position for sighted rendering;
+the projection never stores or mutates chess state and never returns raw FEN.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Mapping
+from typing import Callable, Mapping
 
+from .chesscore import Board, PIECE_UA
+from .squares import square_name
 from .teacher_presentation import (
     BoardOrientation,
     StudentEventKind,
@@ -19,6 +23,34 @@ _ALLOWED_PERMISSIONS = frozenset({"locked", "select_only", "move_allowed"})
 _ALLOWED_ENGINE_VISIBILITY = frozenset(
     {"visible_to_teacher", "visible_to_student", "hidden"}
 )
+_PIECE_GLYPHS = {
+    "K": "♔",
+    "Q": "♕",
+    "R": "♖",
+    "B": "♗",
+    "N": "♘",
+    "P": "♙",
+    "k": "♚",
+    "q": "♛",
+    "r": "♜",
+    "b": "♝",
+    "n": "♞",
+    "p": "♟",
+}
+_PIECE_EN = {
+    "P": "white pawn",
+    "N": "white knight",
+    "B": "white bishop",
+    "R": "white rook",
+    "Q": "white queen",
+    "K": "white king",
+    "p": "black pawn",
+    "n": "black knight",
+    "b": "black bishop",
+    "r": "black rook",
+    "q": "black queen",
+    "k": "black king",
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -30,10 +62,18 @@ class TeacherWebViewEvent:
 class TeacherWebViewProjection:
     """JSON-ready Teacher board projection without owning canonical state."""
 
-    def __init__(self, teacher: TeacherPresentationState) -> None:
+    def __init__(
+        self,
+        teacher: TeacherPresentationState,
+        *,
+        position_fen_provider: Callable[[], str] | None = None,
+    ) -> None:
         if not isinstance(teacher, TeacherPresentationState):
             raise TypeError("teacher must be TeacherPresentationState")
+        if position_fen_provider is not None and not callable(position_fen_provider):
+            raise TypeError("position_fen_provider must be callable or None")
         self._teacher = teacher
+        self._position_fen_provider = position_fen_provider
 
     @staticmethod
     def _visual_cell(square: str, orientation: BoardOrientation) -> dict[str, int]:
@@ -62,6 +102,30 @@ class TeacherWebViewProjection:
             "color": style.color,
             "cell": self._visual_cell(normalized, self._teacher.orientation),
         }
+
+    def _piece_items(self, *, language: str) -> tuple[dict[str, object], ...]:
+        if self._position_fen_provider is None:
+            return ()
+        fen = self._position_fen_provider()
+        if type(fen) is not str:
+            raise TypeError("canonical teaching position provider must return FEN text")
+        board = Board(fen)
+        names = _PIECE_EN if language == "en" else PIECE_UA
+        result: list[dict[str, object]] = []
+        for index, piece in enumerate(board.board):
+            if piece is None:
+                continue
+            square = square_name(index)
+            result.append(
+                {
+                    "square": square,
+                    "symbol": piece,
+                    "glyph": _PIECE_GLYPHS[piece],
+                    "name": names[piece],
+                    "cell": self._visual_cell(square, self._teacher.orientation),
+                }
+            )
+        return tuple(result)
 
     @staticmethod
     def _accessible_summary(
@@ -156,6 +220,7 @@ class TeacherWebViewProjection:
 
         highlight_items = tuple(highlights)
         arrow_items = tuple(arrows)
+        piece_items = self._piece_items(language=lang)
         return {
             "board": {
                 "orientation": self._teacher.orientation.value,
@@ -163,6 +228,7 @@ class TeacherWebViewProjection:
                 "permission": permission,
                 "engine_visibility": engine_visibility,
             },
+            "pieces": piece_items,
             "pointer": pointer_item,
             "highlights": highlight_items,
             "arrows": arrow_items,
