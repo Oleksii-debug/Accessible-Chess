@@ -133,6 +133,13 @@ class Version2ReleaseAccessibilityContractTests(unittest.TestCase):
         self.assertIn('if (!refreshRequired) return;', drain)
         self.assertNotIn('refresh(true);', drain)
 
+    def test_status_only_events_announce_without_rebuilding_the_active_surface(self) -> None:
+        apply_start = BOOTSTRAP.index('  function applyQueuedEvent(event)')
+        apply_end = BOOTSTRAP.index('  function drainEvents()', apply_start)
+        queued = BOOTSTRAP[apply_start:apply_end]
+        self.assertIn('if (payload.announcement) announce(payload.announcement);', queued)
+        self.assertIn('return event.kind !== "error" && event.kind !== "status";', queued)
+
     def test_queued_route_event_restores_its_explicit_focus_after_refresh(self) -> None:
         self.assertIn('<button id="board-launcher" type="button">', HTML)
         drain_start = BOOTSTRAP.index('  function drainEvents()')
