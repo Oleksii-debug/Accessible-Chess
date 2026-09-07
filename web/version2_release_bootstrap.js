@@ -50,7 +50,9 @@
   });
 
   function emptyStatusId(routeId) {
-    if (routeId === "pgn" || routeId === "books") return "v2-" + routeId + "-empty-status";
+    if (routeId === "pgn" || routeId === "library" || routeId === "books") {
+      return "v2-" + routeId + "-empty-status";
+    }
     return "";
   }
 
@@ -91,13 +93,20 @@
 
   function renderEmptyProduct(routeId, heading) {
     const title = documentRef.createElement("h2");
-    title.textContent = String(heading || (routeId === "pgn" ? "PGN" : uiText("Книги", "Books")));
+    const fallbackHeading = routeId === "pgn"
+      ? "PGN"
+      : routeId === "library"
+        ? uiText("Бібліотека", "Library")
+        : uiText("Книги", "Books");
+    title.textContent = String(heading || fallbackHeading);
     const status = documentRef.createElement("p");
     status.id = emptyStatusId(routeId);
     status.tabIndex = -1;
     status.textContent = routeId === "pgn"
       ? uiText("PGN ще не відкрито.", "No PGN is open yet.")
-      : uiText("Книгу ще не відкрито.", "No book is open yet.");
+      : routeId === "library"
+        ? uiText("Бібліотека ще не готова до перегляду.", "The Library is not ready to browse yet.")
+        : uiText("Книгу ще не відкрито.", "No book is open yet.");
     workspace.replaceChildren(title, status);
   }
 
@@ -150,6 +159,8 @@
     if (routeId === "library") {
       if (snapshot.library && global.AccessibleChessLibrarySurface) {
         global.AccessibleChessLibrarySurface.render(workspace, snapshot.library, areaInvoke("library"), announce, requestedFocus || "");
+      } else {
+        renderEmptyProduct(routeId, heading);
       }
       if (restoreFocus) restoreProductFocus(snapshot, routeId, requestedFocus);
       return;
