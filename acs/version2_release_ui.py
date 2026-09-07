@@ -12,8 +12,10 @@ live in this module.
 from collections.abc import Mapping
 from typing import Any, Callable
 
+from .chesscore import Board
 from .full_product_native_menu import install_full_product_windows_native_menu
 from .stage1_release_ui import Stage1ReleaseAccessibleChessAPI, _asset_root
+from .ui_review_adapter import ReviewView
 from .version2_profile import Version2NativeMenuController
 
 
@@ -28,6 +30,11 @@ class Version2ReleaseAccessibleChessAPI(Stage1ReleaseAccessibleChessAPI):
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         self._version2_application: Any | None = None
+        # External PGN/Book review is presentation state.  It deliberately does
+        # not replace ``self.board`` or touch ReviewHistory.  The same pattern is
+        # already used by Stage 1 historical review, which constructs a detached
+        # canonical Board only for rendering.
+        self._v2_review_fen: str | None = None
 
     def bind_version2_application(self, application: Any) -> None:
         if self._version2_application is not None and self._version2_application is not application:
@@ -52,6 +59,124 @@ class Version2ReleaseAccessibleChessAPI(Stage1ReleaseAccessibleChessAPI):
             raise RuntimeError("Version 2 application is not bound")
         return application
 
+    def _v2_review_is_active(self) -> bool:
+        """Return whether V2 currently owns the shared board as review state.
+
+        The application remains the lifecycle authority.  Merely caching a FEN
+        here cannot make review active, which means a successful PGN/Book return
+        immediately exposes the untouched live board even for native-menu paths.
+        """
+
+        if self._v2_review_fen is None:
+            return False
+        application = self._version2_application
+        if application is None:
+            return False
+        if bool(getattr(application, "pgn_board_active", False)):
+            return True
+        workflow = getattr(application, "book_workflow", None)
+        return workflow is not None and bool(getattr(workflow, "active", False))
+
+    def v2_project_review_fen(self, fen: str) -> dict[str, Any]:
+        """Validate and cache one presentation-only review position.
+
+        ``Board`` is reused only as the canonical FEN validator/renderer.  The
+        live ``self.board``, SAN list, undo/redo stacks, engine-game state and
+        ReviewHistory are intentionally untouched.
+        """
+
+        if type(fen) is not str or not fen.strip():
+            return {"ok": False}
+        try:
+            canonical = Board(fen.strip()).fen()
+        except Exception:
+            return {"ok": False}
+        self._v2_review_fen = canonical
+        self.selected_source = None
+        return {"ok": True, "fen": canonical}
+
+    def v2_clear_review_projection(self) -> dict[str, Any]:
+        self._v2_review_fen = None
+        self.selected_source = None
+        return {"ok": True, "fen": self.board.fen()}
+
+    def _display_review(self) -> ReviewView:
+        if not self._v2_review_is_active():
+            return super()._display_review()
+        fen = self._v2_review_fen
+        assert fen is not None
+        return ReviewView(
+            fen=fen,
+            ply=0,
+            node_id=-1,
+            at_start=False,
+            at_end=False,
+            status=(
+                "Перегляд зовнішньої шахової позиції."
+                if self.lang == "uk"
+                else "Reviewing an external chess position."
+            ),
+            last_move=None,
+        )
+
+    def _display_board(self) -> Board:
+        if self._v2_review_is_active():
+            assert self._v2_review_fen is not None
+            return Board(self._v2_review_fen)
+        return super()._display_board()
+
+    def _at_history_end(self) -> bool:
+        # Stage 1 already blocks live mutation while its own history cursor is in
+        # review.  External V2 review must obey the same invariant.
+        return False if self._v2_review_is_active() else super()._at_history_end()
+
+    def _analysis_origin_matches(self) -> bool:
+        if self._v2_review_is_active():
+            return self.analysis_ui.target_fen == self._v2_review_fen
+        return super()._analysis_origin_matches()
+
+    def _v2_review_mutation_error(self) -> dict[str, Any]:
+        return self._error(
+            "Спочатку поверніться з перегляду партії або книги."
+            if self.lang == "uk"
+            else "Return from the game or book review first."
+        )
+
+    # These reset-style Stage 1 commands historically do not consult
+    # ``_at_history_end`` themselves.  Keep them fail-closed while a V2 review
+    # projection is active so hidden live state can never change behind the
+    # displayed PGN/Book position.
+    def new_game(self) -> dict[str, Any]:
+        return self._v2_review_mutation_error() if self._v2_review_is_active() else super().new_game()
+
+    def clear_board(self) -> dict[str, Any]:
+        return self._v2_review_mutation_error() if self._v2_review_is_active() else super().clear_board()
+
+    def set_position_text(self, text: str, turn: str | None = None) -> dict[str, Any]:
+        if self._v2_review_is_active():
+            return self._v2_review_mutation_error()
+        return super().set_position_text(text, turn)
+
+    def set_fen(self, fen: str) -> dict[str, Any]:
+        return self._v2_review_mutation_error() if self._v2_review_is_active() else super().set_fen(fen)
+
+    def start_engine_game(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
+        if self._v2_review_is_active():
+            return self._v2_review_mutation_error()
+        return super().start_engine_game(*args, **kwargs)
+
+    def stop_engine_game(self) -> dict[str, Any]:
+        return self._v2_review_mutation_error() if self._v2_review_is_active() else super().stop_engine_game()
+
+    def engine_takeback(self) -> dict[str, Any]:
+        return self._v2_review_mutation_error() if self._v2_review_is_active() else super().engine_takeback()
+
+    def offer_draw_engine_game(self) -> dict[str, Any]:
+        return self._v2_review_mutation_error() if self._v2_review_is_active() else super().offer_draw_engine_game()
+
+    def resign_engine_game(self) -> dict[str, Any]:
+        return self._v2_review_mutation_error() if self._v2_review_is_active() else super().resign_engine_game()
+
     def v2_snapshot(self) -> dict[str, object]:
         return self._version2().snapshot()
 
@@ -61,7 +186,18 @@ class Version2ReleaseAccessibleChessAPI(Stage1ReleaseAccessibleChessAPI):
         command: str,
         payload: Mapping[str, object] | None = None,
     ) -> dict[str, object]:
-        return self._version2().browser_command(area, command, payload)
+        result = self._version2().browser_command(area, command, payload)
+        # Browser return paths clear the cached projection eagerly.  Native-menu
+        # return is still safe because _v2_review_is_active() follows application
+        # lifecycle state rather than this cache alone.
+        if (
+            area == "review"
+            and command in {"pgn.return", "book.return"}
+            and isinstance(result, dict)
+            and result.get("kind") != "error"
+        ):
+            self.v2_clear_review_projection()
+        return result
 
     def v2_drain_events(self) -> tuple[dict[str, object], ...]:
         return tuple(self._version2().drain_events())
