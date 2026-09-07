@@ -139,6 +139,8 @@ def bridge_legacy_v1_data(
     The caller must pass the trusted directory that contained the shipped
     ``AccessibleChess.exe``. Only its direct ``data/settings.json`` and
     ``data/library.acsdb`` children are considered. Source files stay untouched.
+    All canonical-target conflicts are authenticated before the first mutation,
+    so a conflicting Library cannot leave a partially copied settings file.
     """
     exe_root = Path(executable_dir)
     source_root = exe_root / "data"
@@ -158,22 +160,28 @@ def bridge_legacy_v1_data(
         if existing is not None:
             return existing
 
+        # Authenticate all current targets before modifying either one. A target
+        # created after this preflight is still rejected by no-clobber publish.
+        settings_destination_existed = target.settings_path.exists() or target.settings_path.is_symlink()
+        if has_settings and settings_destination_existed:
+            if not _regular_file(target.settings_path, "canonical settings") or _sha256(target.settings_path) != _sha256(settings_source):
+                raise LegacyV1BridgeError("canonical settings already contain different data")
+        if has_library and (target.library_path.exists() or target.library_path.is_symlink()):
+            raise LegacyV1BridgeError("canonical library already exists; refusing legacy overwrite")
+
         settings_copied = False
         library_converted = False
         library_games = 0
 
         if has_settings:
             before = _sha256(settings_source)
-            destination_existed = target.settings_path.exists() or target.settings_path.is_symlink()
             _copy_no_clobber(settings_source, target.settings_path)
             if _sha256(settings_source) != before:
                 raise LegacyV1BridgeError("legacy settings changed during bridge")
-            settings_copied = not destination_existed
+            settings_copied = not settings_destination_existed
 
         if has_library:
             before = _sha256(library_source)
-            if target.library_path.exists() or target.library_path.is_symlink():
-                raise LegacyV1BridgeError("canonical library already exists; refusing legacy overwrite")
             try:
                 result = library_converter(library_source, target.library_path)
             except (LegacyV1BridgeError, Version2UpgradeBusy):
