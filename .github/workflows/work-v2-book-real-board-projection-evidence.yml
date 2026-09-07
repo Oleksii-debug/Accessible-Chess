@@ -1,0 +1,76 @@
+name: WORK V2 Book Real Board Projection Evidence
+
+on:
+  pull_request:
+    branches:
+      - codex/v2-runtime-completion-20260907
+    paths:
+      - 'tests/test_work_version2_book_real_board_projection.py'
+      - '.github/workflows/work-v2-book-real-board-projection-evidence.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: work-v2-book-real-board-projection-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  exact-owner-evidence:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    env:
+      OWNER_PARENT: c19a76e38e47f4f55bc50635eaed5f42400ecf10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install pinned verification dependency
+        run: python -m pip install -q pytest==8.4.2
+
+      - name: Prove exact evidence-only child scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          git cat-file -e "$OWNER_PARENT^{commit}"
+          git merge-base --is-ancestor "$OWNER_PARENT" HEAD
+          git diff --check "$OWNER_PARENT" HEAD
+          changed="$(git diff --name-only "$OWNER_PARENT" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/work-v2-book-real-board-projection-evidence.yml' \
+            'tests/test_work_version2_book_real_board_projection.py' | sort)"
+          test "$changed" = "$expected"
+          if printf '%s\n' "$changed" | grep -E '^(acs/|web/|run_accessible_chess|tools/qa/)'; then
+            echo 'Evidence child must not mutate Product, Stage1, or QA-owned sources' >&2
+            exit 1
+          fi
+
+      - name: Compile evidence and current Book/Board application seams
+        run: >-
+          python -m compileall -q
+          acs/version2_application.py
+          acs/version2_windows_book_board_adapter.py
+          acs/book_board_workflow.py
+          tests/test_version2_application.py
+          tests/test_v2_windows_book_board_adapter.py
+          tests/test_work_version2_book_real_board_projection.py
+
+      - name: Prove inherited canonical BookBoard and V2 application contracts stay green
+        run: >-
+          python -m unittest -v
+          tests.test_v2_windows_book_board_adapter
+          tests.test_v2_book_board_workflow
+          tests.test_version2_application
+
+      - name: Independent real release-board projection oracle
+        run: python -m unittest -v tests.test_work_version2_book_real_board_projection
