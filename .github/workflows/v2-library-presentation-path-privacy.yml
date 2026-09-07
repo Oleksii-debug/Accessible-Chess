@@ -1,0 +1,67 @@
+name: V2 Library Presentation Path Privacy
+
+on:
+  push:
+    branches:
+      - work/v2-library-presentation-path-privacy-20260907
+  pull_request:
+    paths:
+      - '.github/workflows/v2-library-presentation-path-privacy.yml'
+      - 'acs/library_webview_projection.py'
+      - 'tests/test_v2_library_presentation_path_privacy.py'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: v2-library-presentation-path-privacy-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  STACK_PARENT: 08aa740bc6f694fb6f891989c7b16dc86bf0516e
+
+jobs:
+  red-first:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install pinned test dependency
+        run: python -m pip install -q pytest==8.4.2
+
+      - name: Prove evidence-only RED scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor "$STACK_PARENT" HEAD
+          git diff --check "$STACK_PARENT" HEAD
+          changed="$(git diff --name-only "$STACK_PARENT" HEAD | sort)"
+          allowed="$(printf '%s\n' \
+            .github/workflows/v2-library-presentation-path-privacy.yml \
+            tests/test_v2_library_presentation_path_privacy.py | sort)"
+          test "$changed" = "$allowed" || {
+            printf 'Unexpected RED-first Library privacy scope:\n%s\n' "$changed" >&2
+            exit 1
+          }
+
+      - name: Compile unchanged Library projection and oracle
+        run: python -m compileall -q acs/library_webview_projection.py tests/test_v2_library_presentation_path_privacy.py
+
+      - name: Reproduce Library path privacy gap
+        run: python -m unittest -v tests.test_v2_library_presentation_path_privacy
+
+      - name: Existing Library projection must remain independently green
+        if: always()
+        run: python -m unittest -v tests.test_dev1_library_webview_projection
