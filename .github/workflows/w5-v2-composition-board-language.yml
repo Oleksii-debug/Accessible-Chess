@@ -1,0 +1,48 @@
+name: W5 V2 Board Projection and Language Composition
+
+on:
+  push:
+    branches:
+      - work/w5-v2-composition-board-language-20260907
+  pull_request:
+    branches:
+      - codex/v2-runtime-completion-20260907
+
+permissions:
+  contents: read
+
+concurrency:
+  group: w5-v2-board-language-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  composition:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Prove bounded W5 successor scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          base=c19a76e38e47f4f55bc50635eaed5f42400ecf10
+          git merge-base --is-ancestor "$base" HEAD
+          git diff --check "$base" HEAD
+          changed="$(git diff --name-only "$base" HEAD | sort)"
+          expected=$'.github/workflows/w5-v2-composition-board-language.yml\nacs/version2_application.py\nacs/version2_release_app.py\nacs/version2_release_ui.py\ntests/test_w5_version2_composition_board_language.py'
+          test "$changed" = "$expected"
+          git diff --quiet "$base" HEAD -- acs/chesscore.py acs/gametree.py acs/pgn_roundtrip.py
+      - name: Compile changed composition and regression
+        run: python -m py_compile acs/version2_application.py acs/version2_release_app.py acs/version2_release_ui.py tests/test_w5_version2_composition_board_language.py
+      - name: Run focused W5 regression
+        run: python -m unittest -v tests.test_w5_version2_composition_board_language
+      - name: Run inherited V2 composition regressions
+        run: python -m unittest -v tests.test_version2_application tests.test_version2_release_app tests.test_version2_release_ui
