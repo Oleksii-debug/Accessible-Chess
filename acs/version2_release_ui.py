@@ -12,8 +12,10 @@ live in this module.
 from collections.abc import Mapping
 from typing import Any, Callable
 
+from .chesscore import Board
 from .full_product_native_menu import install_full_product_windows_native_menu
 from .stage1_release_ui import Stage1ReleaseAccessibleChessAPI, _asset_root
+from .ui_review_adapter import ReviewView
 from .version2_profile import Version2NativeMenuController
 
 
@@ -28,6 +30,7 @@ class Version2ReleaseAccessibleChessAPI(Stage1ReleaseAccessibleChessAPI):
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         self._version2_application: Any | None = None
+        self._external_review_fen: str | None = None
 
     def bind_version2_application(self, application: Any) -> None:
         if self._version2_application is not None and self._version2_application is not application:
@@ -51,6 +54,85 @@ class Version2ReleaseAccessibleChessAPI(Stage1ReleaseAccessibleChessAPI):
         if application is None:
             raise RuntimeError("Version 2 application is not bound")
         return application
+
+    def _external_review_active(self) -> bool:
+        """Whether the V2 shell is presently displaying PGN/Book review on Board.
+
+        The application owns the review lifecycle.  The release API owns only the
+        presentation projection.  Returning to PGN/Books or opening the ordinary
+        Board route therefore makes any cached external FEN inactive without
+        touching the canonical live game underneath.
+        """
+
+        fen = self._external_review_fen
+        application = self._version2_application
+        if fen is None or application is None:
+            return False
+        shell = getattr(application, "shell", None)
+        route = getattr(getattr(shell, "current_route", None), "route_id", "")
+        if route != "board":
+            return False
+        pgn_active = getattr(application, "pgn_board_active", False) is True
+        workflow = getattr(application, "book_workflow", None)
+        book_active = workflow is not None and getattr(workflow, "active", False) is True
+        return pgn_active or book_active
+
+    def project_review_fen(self, fen: str) -> dict[str, Any]:
+        """Project an external canonical position without mutating the live game.
+
+        PGN and Book review are presentation state.  They must drive the same
+        accessible 64-square board while leaving ``self.board``, SAN history,
+        ReviewHistory identity and engine-game ownership untouched.  Validation
+        is delegated to the canonical Board implementation; malformed input is
+        rejected before the cached projection changes.
+        """
+
+        if type(fen) is not str or not fen.strip():
+            return {"ok": False}
+        try:
+            canonical = Board(fen).fen()
+        except Exception:
+            return {"ok": False}
+        self._external_review_fen = canonical
+        return {"ok": True}
+
+    def _display_review(self) -> ReviewView:
+        if self._external_review_active():
+            return ReviewView(
+                fen=str(self._external_review_fen),
+                ply=0,
+                node_id=-1,
+                at_start=False,
+                at_end=False,
+                status=(
+                    "Зовнішня позиція для перегляду."
+                    if self.lang == "uk"
+                    else "External review position."
+                ),
+                last_move=None,
+            )
+        return super()._display_review()
+
+    def _display_board(self) -> Board:
+        if self._external_review_active():
+            return Board(str(self._external_review_fen))
+        return super()._display_board()
+
+    def _at_history_end(self) -> bool:
+        # A PGN/Book review position is intentionally not a live move target.
+        # This reuses the existing Stage 1 mutation guard instead of inventing a
+        # second legality or move-routing implementation.
+        if self._external_review_active():
+            return False
+        return super()._at_history_end()
+
+    def get_state(self) -> dict[str, Any]:
+        state = super().get_state()
+        if self._external_review_active():
+            # Do not present the underlying live game's move list as if it
+            # belonged to the externally reviewed PGN/Book position.
+            state["historyLength"] = 0
+        return state
 
     def v2_snapshot(self) -> dict[str, object]:
         return self._version2().snapshot()
