@@ -8,15 +8,92 @@ every Open/Save/Import/Export dialog can be bound to the real application
 WinForms owner so z-order, modality and focus restoration are deterministic
 instead of relying on an unowned ``ShowDialog()``.
 
-No PGN, GameTree, Library, ChessBase, or export semantics live here.
+The production owner-bound dialogs also project the current V2 UI language into
+native titles, filters and destructive confirmations. The language is resolved
+lazily for every invocation so a live Ukrainian/English switch does not require
+recreating the native host runtime. No PGN, GameTree, Library, ChessBase, export,
+or chess semantics live here.
 """
 
 from collections.abc import Callable
+from pathlib import Path
 import threading
 from typing import Any
 
 from .version2_windows_file_workflows import Version2WindowsFileDialogs
 from .version2_windows_pgn_export import Version2WindowsPgnExportDialogs
+
+
+_DIALOG_TEXT: dict[str, dict[str, str]] = {
+    "en": {
+        "open_pgn_title": "Open PGN",
+        "save_pgn_as_title": "Save PGN As",
+        "pgn_filter": "PGN files (*.pgn)|*.pgn|All files (*.*)|*.*",
+        "import_library_title": "Import into Library",
+        "import_library_filter": (
+            "Supported chess sources (*.pgn;*.cbh;*.cbv)|*.pgn;*.cbh;*.cbv|"
+            "PGN files (*.pgn)|*.pgn|ChessBase files (*.cbh;*.cbv)|*.cbh;*.cbv"
+        ),
+        "unsaved_pgn_title": "Unsaved PGN changes",
+        "unsaved_pgn_message": (
+            "The current PGN has unsaved changes. Discard those changes and open another PGN?"
+        ),
+        "export_pgn_title": "Export PGN selection",
+        "open_book_title": "Open chess book",
+        "book_filter": (
+            "Supported books (*.html;*.htm;*.xhtml;*.txt;*.md;*.markdown)|"
+            "*.html;*.htm;*.xhtml;*.txt;*.md;*.markdown|"
+            "HTML books (*.html;*.htm;*.xhtml)|*.html;*.htm;*.xhtml|"
+            "Text and Markdown (*.txt;*.md;*.markdown)|*.txt;*.md;*.markdown"
+        ),
+    },
+    "uk": {
+        "open_pgn_title": "Відкрити PGN",
+        "save_pgn_as_title": "Зберегти PGN як",
+        "pgn_filter": "Файли PGN (*.pgn)|*.pgn|Усі файли (*.*)|*.*",
+        "import_library_title": "Імпортувати до бібліотеки",
+        "import_library_filter": (
+            "Підтримувані шахові джерела (*.pgn;*.cbh;*.cbv)|*.pgn;*.cbh;*.cbv|"
+            "Файли PGN (*.pgn)|*.pgn|Файли ChessBase (*.cbh;*.cbv)|*.cbh;*.cbv"
+        ),
+        "unsaved_pgn_title": "Незбережені зміни PGN",
+        "unsaved_pgn_message": (
+            "Поточний PGN має незбережені зміни. Відкинути їх і відкрити інший PGN?"
+        ),
+        "export_pgn_title": "Експортувати вибране як PGN",
+        "open_book_title": "Відкрити шахову книгу",
+        "book_filter": (
+            "Підтримувані книги (*.html;*.htm;*.xhtml;*.txt;*.md;*.markdown)|"
+            "*.html;*.htm;*.xhtml;*.txt;*.md;*.markdown|"
+            "Книги HTML (*.html;*.htm;*.xhtml)|*.html;*.htm;*.xhtml|"
+            "Текст і Markdown (*.txt;*.md;*.markdown)|*.txt;*.md;*.markdown"
+        ),
+    },
+}
+
+
+class Version2WindowsDialogText:
+    """Resolve path-free native-dialog copy from the live V2 language owner."""
+
+    def __init__(self, language_provider: Callable[[], object] | None = None) -> None:
+        if language_provider is not None and not callable(language_provider):
+            raise TypeError("dialog language provider must be callable")
+        self._language_provider = language_provider
+
+    def _language(self) -> str:
+        if self._language_provider is None:
+            return "en"
+        try:
+            value = self._language_provider()
+        except Exception:
+            return "en"
+        value = getattr(value, "value", value)
+        return "uk" if value == "uk" else "en"
+
+    def get(self, key: str) -> str:
+        if type(key) is not str or key not in _DIALOG_TEXT["en"]:
+            raise KeyError("unknown Version 2 native dialog text key")
+        return _DIALOG_TEXT[self._language()][key]
 
 
 class Version2WinFormsDialogOwner:
@@ -95,13 +172,18 @@ class _OwnedDialogMixin:
         self,
         owner_provider: Callable[[], object],
         forms_loader: Callable[[], tuple[object, Callable[[], object], Callable[[], object]]],
+        language_provider: Callable[[], object] | None = None,
     ) -> None:
         self._dialog_owner = Version2WinFormsDialogOwner(owner_provider)
         self._forms_loader = forms_loader
+        self._dialog_text = Version2WindowsDialogText(language_provider)
 
     @property
     def dialog_owner(self) -> Version2WinFormsDialogOwner:
         return self._dialog_owner
+
+    def dialog_text(self, key: str) -> str:
+        return self._dialog_text.get(key)
 
     def _load_forms(self):
         DialogResult, OpenFileDialog, SaveFileDialog = self._forms_loader()
@@ -113,7 +195,7 @@ class _OwnedDialogMixin:
 
 
 class Version2OwnedWindowsFileDialogs(_OwnedDialogMixin, Version2WindowsFileDialogs):
-    """Owner-bound Open/Save/Import/confirmation dialogs for the trusted Windows host."""
+    """Owner-bound localized Open/Save/Import dialogs for the trusted Windows host."""
 
     def __init__(
         self,
@@ -124,10 +206,12 @@ class Version2OwnedWindowsFileDialogs(_OwnedDialogMixin, Version2WindowsFileDial
         ]
         | None = None,
         message_box_loader: Callable[[], tuple[object, object, object]] | None = None,
+        language_provider: Callable[[], object] | None = None,
     ) -> None:
         self._configure_owned_dialogs(
             owner_provider,
             forms_loader or Version2WindowsFileDialogs._load_forms,
+            language_provider,
         )
         self._message_box_loader = message_box_loader or self._load_message_box
 
@@ -148,19 +232,63 @@ class Version2OwnedWindowsFileDialogs(_OwnedDialogMixin, Version2WindowsFileDial
         MessageBox, MessageBoxButtons, MessageBoxIcon = self._message_box_loader()
         result = MessageBox.Show(
             owner,
-            "The current PGN has unsaved changes. Discard those changes and open another PGN?",
-            "Unsaved PGN changes",
+            self.dialog_text("unsaved_pgn_message"),
+            self.dialog_text("unsaved_pgn_title"),
             MessageBoxButtons.YesNo,
             MessageBoxIcon.Warning,
         )
         return result == DialogResult.Yes
+
+    def open_pgn(self) -> Path | None:
+        DialogResult, OpenFileDialog, _ = self._load_forms()
+        dialog = OpenFileDialog()
+        try:
+            dialog.Title = self.dialog_text("open_pgn_title")
+            dialog.Filter = self.dialog_text("pgn_filter")
+            dialog.CheckFileExists = True
+            dialog.CheckPathExists = True
+            dialog.Multiselect = False
+            return self._selected(dialog, dialog.ShowDialog(), DialogResult.OK)
+        finally:
+            dialog.Dispose()
+
+    def save_pgn_as(self, suggested_filename: str = "game.pgn") -> Path | None:
+        if type(suggested_filename) is not str:
+            raise TypeError("suggested PGN filename must be text")
+        safe_name = Path(suggested_filename).name or "game.pgn"
+        DialogResult, _, SaveFileDialog = self._load_forms()
+        dialog = SaveFileDialog()
+        try:
+            dialog.Title = self.dialog_text("save_pgn_as_title")
+            dialog.Filter = self.dialog_text("pgn_filter")
+            dialog.DefaultExt = "pgn"
+            dialog.AddExtension = True
+            dialog.OverwritePrompt = True
+            dialog.CheckPathExists = True
+            dialog.FileName = safe_name
+            return self._selected(dialog, dialog.ShowDialog(), DialogResult.OK)
+        finally:
+            dialog.Dispose()
+
+    def select_library_import(self) -> Path | None:
+        DialogResult, OpenFileDialog, _ = self._load_forms()
+        dialog = OpenFileDialog()
+        try:
+            dialog.Title = self.dialog_text("import_library_title")
+            dialog.Filter = self.dialog_text("import_library_filter")
+            dialog.CheckFileExists = True
+            dialog.CheckPathExists = True
+            dialog.Multiselect = False
+            return self._selected(dialog, dialog.ShowDialog(), DialogResult.OK)
+        finally:
+            dialog.Dispose()
 
 
 class Version2OwnedWindowsPgnExportDialogs(
     _OwnedDialogMixin,
     Version2WindowsPgnExportDialogs,
 ):
-    """Owner-bound Save dialog for canonical PGN selection export."""
+    """Owner-bound localized Save dialog for canonical PGN selection export."""
 
     def __init__(
         self,
@@ -170,14 +298,35 @@ class Version2OwnedWindowsPgnExportDialogs(
             [], tuple[object, Callable[[], object], Callable[[], object]]
         ]
         | None = None,
+        language_provider: Callable[[], object] | None = None,
     ) -> None:
         self._configure_owned_dialogs(
             owner_provider,
             forms_loader or Version2WindowsPgnExportDialogs._load_forms,
+            language_provider,
         )
+
+    def export_selection(self, suggested_filename: str = "selection.pgn") -> Path | None:
+        if type(suggested_filename) is not str:
+            raise TypeError("suggested export filename must be text")
+        safe_name = Path(suggested_filename).name or "selection.pgn"
+        DialogResult, _, SaveFileDialog = self._load_forms()
+        dialog = SaveFileDialog()
+        try:
+            dialog.Title = self.dialog_text("export_pgn_title")
+            dialog.Filter = self.dialog_text("pgn_filter")
+            dialog.DefaultExt = "pgn"
+            dialog.AddExtension = True
+            dialog.OverwritePrompt = True
+            dialog.CheckPathExists = True
+            dialog.FileName = safe_name
+            return self._selected(dialog, dialog.ShowDialog(), DialogResult.OK)
+        finally:
+            dialog.Dispose()
 
 
 __all__ = [
+    "Version2WindowsDialogText",
     "Version2WinFormsDialogOwner",
     "Version2OwnedWindowsFileDialogs",
     "Version2OwnedWindowsPgnExportDialogs",
