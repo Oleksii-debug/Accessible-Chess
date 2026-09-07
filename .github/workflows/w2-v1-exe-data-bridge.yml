@@ -1,0 +1,88 @@
+name: W2 V1 EXE Data Bridge
+
+on:
+  push:
+    branches:
+      - work/w2-v1-exe-data-bridge-20260907
+  pull_request:
+    paths:
+      - 'acs/legacy_v1_data_bridge.py'
+      - 'acs/legacy_library_migration.py'
+      - 'tests/test_w2_v1_legacy_data_bridge.py'
+      - '.github/workflows/w2-v1-exe-data-bridge.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: w2-v1-exe-data-bridge-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  bridge-correctness:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Exact ownership and dependency identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE=9828010f7b0c08776684a176352ad1914eeb6409
+          test "$(git merge-base "$BASE" HEAD)" = "$BASE"
+          git diff --check "$BASE" HEAD
+          changed="$(git diff --name-only "$BASE" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/w2-v1-exe-data-bridge.yml' \
+            'acs/legacy_library_migration.py' \
+            'acs/legacy_v1_data_bridge.py' \
+            'tests/test_w2_v1_legacy_data_bridge.py' | sort)"
+          test "$changed" = "$expected"
+          test "$(git rev-parse HEAD:acs/legacy_library_migration.py)" = "cbb6a5e84608bdcd00c7cac58994433d34e8c3d6"
+          test "$(git rev-parse HEAD:acs/acsdb.py)" = "f5dd56e017c09aa8bf2ba3aa66c0658f8a229e74"
+          test "$(git rev-parse HEAD:acs/pgn_roundtrip.py)" = "96d62bf6dd7b2f5c8a75d5f2bd1fde2ad0823d20"
+      - name: Compile
+        run: python -m compileall -q acs tests
+      - name: W2 bridge and inherited upgrade/library regressions
+        run: >-
+          python -m unittest -v
+          tests.test_w2_v1_legacy_data_bridge
+          tests.test_v2_library_legacy_schema0_migration
+          tests.test_v2_upgrade_publish_race_audit
+          tests.test_v2_upgrade_tracked_writer_conflict
+          tests.test_version2_upgrade
+          tests.test_version2_upgrade_recovery_integrity
+          tests.test_v2_library_integrity_repair
+          tests.test_acsdb
+      - name: SELFTEST and diagnostic
+        run: |
+          python -m acs.selftest
+          python run_accessible_chess.py --diagnostic
+
+  broad-regression:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install verification dependency
+        run: python -m pip install -q pytest==8.4.2
+      - name: Full unittest
+        run: python -m unittest discover -s tests -v
+      - name: Full pytest
+        run: python -m pytest -q tests
