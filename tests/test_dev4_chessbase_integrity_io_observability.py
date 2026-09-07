@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import os
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+import acs.import_contract as import_contract
 from acs.chessbase_integrity import capture_integrity_snapshot, verify_integrity_snapshot
 
 
@@ -20,15 +22,20 @@ class Dev4ChessBaseIntegrityIoObservabilityTests(unittest.TestCase):
             companion.write_bytes(b"moves")
             snapshot = capture_integrity_snapshot(primary)
 
-            original_open = Path.open
+            # The production integrity owner now delegates to the canonical
+            # no-follow descriptor-bound fingerprint(), which uses os.open.
+            # Inject the same companion-unavailability failure at that real seam
+            # rather than patching the removed Path.open implementation.
+            real_open = os.open
+            companion_absolute = os.path.abspath(os.fspath(companion))
 
-            def guarded_open(path: Path, *args, **kwargs):
-                if path == companion:
+            def guarded_open(path, flags, *args, **kwargs):
+                if os.path.abspath(os.fspath(path)) == companion_absolute:
                     raise PermissionError("synthetic companion I/O failure")
-                return original_open(path, *args, **kwargs)
+                return real_open(path, flags, *args, **kwargs)
 
             try:
-                with patch.object(Path, "open", new=guarded_open):
+                with patch.object(import_contract.os, "open", side_effect=guarded_open):
                     verify_integrity_snapshot(snapshot)
             except OSError as exc:
                 self.fail(
