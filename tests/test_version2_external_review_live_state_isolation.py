@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-from types import SimpleNamespace
 import tempfile
 import unittest
 
@@ -142,13 +141,12 @@ class Version2ExternalReviewLiveStateIsolationTests(unittest.TestCase):
         self._assert_live_identity(live)
 
     def test_external_review_analysis_origin_never_becomes_live_history_origin(self) -> None:
-        # Construct the dangerous coincidence explicitly: target FEN equals a
-        # real live-history node while an external review owns Board display.
+        # Construct the dangerous coincidence explicitly: analysis target FEN
+        # equals a real live-history node while an external review owns Board.
+        # Keep the real AnalysisPresentationAdapter so teardown/close remains a
+        # production lifecycle check rather than a fake-specific path.
         live, _ = self._open_external_review_after_live_e4()
-        self.api.analysis_ui = SimpleNamespace(
-            target_fen=self.api.start_fen,
-            exploration=None,
-        )
+        self.api.analysis_ui._fen = self.api.start_fen
         self.api._analysis_origin_node_id = 0
         self.api._external_review_fen = self.api.start_fen
 
