@@ -70,6 +70,8 @@ class FileWorkflowEvent:
         for name in ("action_id", "focus_target", "error_code"):
             if type(getattr(self, name)) is not str:
                 raise TypeError(f"{name} must be text")
+        if not self.action_id:
+            raise ValueError("file workflow action id must not be empty")
         for name in ("processed_games", "total_games", "game_count", "warning_count"):
             value = getattr(self, name)
             if type(value) is not int:
@@ -266,6 +268,8 @@ class Version2WindowsFileActionDelegate:
         try:
             self._event_sink(event)
         except Exception:
+            # Event delivery is an observer boundary.  A WebView failure must not
+            # roll back a successful canonical PGN save or corrupt an ACSDB import.
             _LOG.warning("Version 2 file workflow event sink failed", exc_info=True)
         return event
 
@@ -630,6 +634,8 @@ class Version2WindowsFileActionDelegate:
                 ),
             )
         except Exception:
+            # Backend exception text may contain paths, SQLite details, decoder
+            # names, or provider internals.  It remains machine-log evidence only.
             _LOG.warning("Version 2 Library import failed", exc_info=True)
             self._emit_if_current(
                 generation,
