@@ -49,8 +49,13 @@ ROUTES: tuple[ModuleRoute, ...] = (
 
 _ROUTE_INDEX = {route.route_id: route for route in ROUTES}
 _INTERNAL_ERROR_PATTERN = re.compile(
-    r'(?:Traceback|File\s+".*?"|[A-Za-z]:\\|/[^\s]+\.py\b|sqlite|UCI\s+error|HRESULT|'
-    r'OperationalError|PermissionError|WinError\s*\d+)',
+    r'(?:Traceback|File\s+".*?"|[A-Za-z]:[\\/]|\\\\[^\\\s]+\\[^\\\s]+|'
+    r'/(?:home|tmp|var|private|opt|usr|mnt|Users)(?:/|\b)|/[^\s]+\.py\b|sqlite|'
+    r'\b[A-Za-z_][\w.]*?(?:Error|Exception)\s*:|UCI\s+error|HRESULT|'
+    r'OperationalError|PermissionError|WinError\s*\d+|'
+    r'\b(?:uciok|readyok)\b|\bbestmove\s+\S+|'
+    r'\binfo\s+(?:depth|seldepth|multipv|score)\b|\bsetoption\s+name\b|'
+    r'\bposition\s+(?:startpos|fen)\b|\bgo\s+(?:depth|movetime|nodes)\b)',
     re.IGNORECASE,
 )
 
