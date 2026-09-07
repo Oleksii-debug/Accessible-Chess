@@ -137,9 +137,12 @@ jobs:
             echo 'Stage 1 or strict-release contamination detected' >&2
             exit 1
           fi
+          # These are genuinely frozen release/core seams. GameTree/PGN round-trip
+          # and Books owners are intentionally allowed to differ from V2_BASE
+          # because accepted V2 convergence packages changed them and the semantic
+          # suites below are their current authority.
           git diff --quiet "$V2_BASE" HEAD -- \
-            acs/chesscore.py acs/gametree.py acs/pgn_roundtrip.py acs/pgn_workspace.py \
-            acs/bookdocument.py acs/bookreader.py acs/book_training.py \
+            acs/chesscore.py acs/pgn_workspace.py \
             acs/stage1_release_ui.py acs/stage1_release_ui_core.py \
             web/stage1_release_bootstrap.js web/stage1_board_actions.js \
             tools/qa
