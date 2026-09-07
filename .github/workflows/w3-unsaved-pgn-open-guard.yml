@@ -1,0 +1,58 @@
+name: W3 Unsaved PGN Open Guard
+
+on:
+  push:
+    branches:
+      - automation/w3-unsaved-pgn-open-guard-20260907
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: w3-unsaved-pgn-open-guard-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  focused:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install Windows runtime dependency
+        if: runner.os == 'Windows'
+        run: python -m pip install -q pythonnet==3.0.5
+      - name: Diff hygiene
+        shell: bash
+        run: git diff --check HEAD^ HEAD
+      - name: Compile changed workflow package
+        run: python -m compileall -q acs/version2_windows_file_workflows.py tests/test_w3_unsaved_pgn_open_guard.py
+      - name: Focused W3 regression and retained file workflow suite
+        run: python -m unittest -v tests.test_w3_unsaved_pgn_open_guard tests.test_v2_windows_nvda_file_workflows tests.test_v2_windows_host_runtime
+      - name: Windows WinForms contract smoke
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          python - <<'PY'
+          import clr
+          clr.AddReference('System.Windows.Forms')
+          from acs.version2_windows_file_workflows import Version2WindowsFileDialogs
+          DialogResult, OpenFileDialog, SaveFileDialog = Version2WindowsFileDialogs._load_forms()
+          assert DialogResult is not None
+          opened = OpenFileDialog()
+          saved = SaveFileDialog()
+          try:
+              assert opened is not None and saved is not None
+              assert callable(Version2WindowsFileDialogs().confirm_discard_unsaved_pgn)
+          finally:
+              opened.Dispose()
+              saved.Dispose()
+          print('W3 WINFORMS CONTRACT PASS')
+          PY
