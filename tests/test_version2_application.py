@@ -7,6 +7,7 @@ import unittest
 from acs.acsdb import AcsDatabase
 from acs.analysis_service import AnalysisService
 from acs.book_progress_store import BookProgressStore
+from acs.chesscore import Board
 from acs.engine_assisted_workflows import EngineAssistedWorkflowService
 from acs.pgn_service import open_pgn
 from acs.version2_application import Version2Application
@@ -29,8 +30,15 @@ class Version2ApplicationTests(unittest.TestCase):
         self.analysis = AnalysisService(lambda: None)
         self.addCleanup(self.analysis.close)
         self.copied = []
+        self.projected_positions = []
+
+        def project_position(fen):
+            self.projected_positions.append(fen)
+            return {"ok": True}
+
         self.app = Version2Application(self.database, progress_store=BookProgressStore(self.root / "progress.json"),
-            engine_assistance=EngineAssistedWorkflowService(self.analysis), board_dispatch=lambda *_: None, copy_text=self.copied.append)
+            engine_assisted_workflows=None if False else EngineAssistedWorkflowService(self.analysis), board_dispatch=lambda *_: None,
+            board_position_projector=project_position, copy_text=self.copied.append)
         self.mailbox = Version2ImportUiEventMailbox()
         self.dialogs = SimpleNamespace(open_pgn=lambda: self.source, save_pgn_as=lambda *_: self.root / "saved.pgn", select_library_import=lambda: self.source)
         self.files = Version2WindowsFileActionDelegate(dialogs=self.dialogs, get_pgn_session=lambda: self.app.session,
@@ -83,20 +91,63 @@ class Version2ApplicationTests(unittest.TestCase):
         self.app.import_ui_ready(self.mailbox)
         self.assertEqual(self.app.snapshot()["library"]["import"]["phase"], "completed")
 
-    def test_book_native_open_board_exact_return_and_persistent_resume(self):
+    def _open_book_game(self):
         book = self.root / "study.md"
         book.write_text("# Навчання\n\nТекст\n\n```pgn\n" + PGN + "```\n\nПісля\n", encoding="utf-8")
         self.app.open_book_dialog = lambda: book
         self.assertEqual(self.app.browser_command("shell", "book.open")["kind"], "delegated")
         self.app.browser_command("books", "book.next_game")
-        origin = self.app.reader.location()
+        return book, self.app.reader.location()
+
+    def test_book_native_open_board_exact_return_and_persistent_resume(self):
+        book, origin = self._open_book_game()
+        self.projected_positions.clear()
         self.assertEqual(self.app.browser_command("books", "book.open_position")["kind"], "delegated")
         self.assertTrue(self.app.book_workflow.active)
+        self.assertEqual(self.projected_positions[-1], Board.START)
+
         self.app.router.dispatch("book.board_next_move")
+        expected = Board()
+        expected.push_text("e4")
+        self.assertEqual(self.projected_positions[-1], expected.fen())
+        self.assertEqual(self.app.book_delegate.board_snapshot().fen(), expected.fen())
+
         self.assertEqual(self.app.browser_command("books", "book.return_from_board")["kind"], "render")
         self.assertEqual(self.app.reader.location(), origin)
         self.app.open_book(book)
         self.assertEqual(self.app.reader.location(), origin)
+
+    def test_book_open_fails_closed_when_release_board_rejects_position(self):
+        _book, origin = self._open_book_game()
+        self.app._board_position_projector = lambda _fen: {"ok": False}
+
+        result = self.app.browser_command("books", "book.open_position")
+
+        self.assertEqual(result["kind"], "error")
+        self.assertFalse(self.app.book_workflow.active)
+        self.assertEqual(self.app.reader.location(), origin)
+        self.assertEqual(self.app.shell.current_route.route_id, "books")
+
+    def test_book_navigation_projection_failure_restores_canonical_cursor(self):
+        _book, _origin = self._open_book_game()
+        self.assertEqual(self.app.browser_command("books", "book.open_position")["kind"], "delegated")
+        before = self.app.book_delegate.view()
+        projected = []
+
+        def reject_changed_position(fen):
+            projected.append(fen)
+            return {"ok": fen == before.current_fen}
+
+        self.app._board_position_projector = reject_changed_position
+        result = self.app.browser_command("review", "book.board_next_move")
+
+        self.assertEqual(result["kind"], "error")
+        after = self.app.book_delegate.view()
+        self.assertEqual(after.cursor, before.cursor)
+        self.assertEqual(after.current_fen, before.current_fen)
+        self.assertTrue(self.app.book_workflow.active)
+        self.assertEqual(self.app.shell.current_route.route_id, "board")
+        self.assertEqual(projected[-1], before.current_fen)
 
     def test_browser_path_payload_rejected_before_native_picker(self):
         self.dialogs.open_pgn = lambda: self.fail("must not open dialog")
