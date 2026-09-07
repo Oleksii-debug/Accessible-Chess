@@ -1,1 +1,0 @@
-Temporary ownership marker; superseded by PR body after apply.
