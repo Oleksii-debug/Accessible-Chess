@@ -14,9 +14,10 @@ silently overwrite progress that the caller never observed.  The lock file itsel
 may survive process termination; the operating-system lock is released with the
 process, so crash residue cannot permanently block later progress saves.
 
-Both read and write paths are bounded.  Progress data must be one regular local
-file, duplicate JSON object keys are rejected, and oversized state fails closed
-before parsing or publication.
+Both read and write paths are bounded.  Progress data and the peer lock are bound
+to the actually opened filesystem object before any byte is consumed or written;
+symlink/reparse substitution between pathname inspection and open therefore fails
+closed instead of redirecting durable progress or lock I/O.
 """
 
 from contextlib import contextmanager
@@ -97,17 +98,120 @@ def _reject_duplicate_object_pairs(pairs: list[tuple[str, Any]]) -> dict[str, An
     return result
 
 
-class TrainingProgressStore:
-    """Atomic single-exercise progress file with compare-and-swap updates.
+def _windows_open_no_reparse(path: Path, *, create: bool) -> int:
+    """Open one Windows disk file without following a reparse point.
 
-    ``expected_revision=None`` means create-only.  To update an existing file,
-    callers must first :meth:`load` it and pass the returned exact revision.
-    This makes stale progress writes fail closed instead of last-writer-wins.
-
-    Writers coordinate through an OS advisory lock attached to a persistent
-    sibling file.  Unlike the historical mkdir lock, a process crash releases
-    ownership automatically even if the lock file remains on disk.
+    ``FILE_FLAG_OPEN_REPARSE_POINT`` makes the opened handle, not a prior pathname
+    observation, authoritative.  The handle is rejected before conversion to a
+    CRT descriptor if it is itself a reparse point or not a disk file.
     """
+
+    import ctypes
+    from ctypes import wintypes
+    import msvcrt
+
+    GENERIC_READ = 0x80000000
+    GENERIC_WRITE = 0x40000000
+    FILE_SHARE_READ = 0x00000001
+    FILE_SHARE_WRITE = 0x00000002
+    FILE_SHARE_DELETE = 0x00000004
+    OPEN_EXISTING = 3
+    OPEN_ALWAYS = 4
+    FILE_ATTRIBUTE_NORMAL = 0x00000080
+    FILE_ATTRIBUTE_REPARSE_POINT = 0x00000400
+    FILE_FLAG_OPEN_REPARSE_POINT = 0x00200000
+    FILE_TYPE_DISK = 0x0001
+    FILE_ATTRIBUTE_TAG_INFO_CLASS = 9
+
+    class FILE_ATTRIBUTE_TAG_INFO(ctypes.Structure):
+        _fields_ = [
+            ("FileAttributes", wintypes.DWORD),
+            ("ReparseTag", wintypes.DWORD),
+        ]
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    create_file = kernel32.CreateFileW
+    create_file.argtypes = [
+        wintypes.LPCWSTR,
+        wintypes.DWORD,
+        wintypes.DWORD,
+        ctypes.c_void_p,
+        wintypes.DWORD,
+        wintypes.DWORD,
+        wintypes.HANDLE,
+    ]
+    create_file.restype = wintypes.HANDLE
+
+    get_file_type = kernel32.GetFileType
+    get_file_type.argtypes = [wintypes.HANDLE]
+    get_file_type.restype = wintypes.DWORD
+
+    get_info = kernel32.GetFileInformationByHandleEx
+    get_info.argtypes = [
+        wintypes.HANDLE,
+        ctypes.c_int,
+        ctypes.c_void_p,
+        wintypes.DWORD,
+    ]
+    get_info.restype = wintypes.BOOL
+
+    close_handle = kernel32.CloseHandle
+    close_handle.argtypes = [wintypes.HANDLE]
+    close_handle.restype = wintypes.BOOL
+
+    handle = create_file(
+        str(path),
+        GENERIC_READ | (GENERIC_WRITE if create else 0),
+        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+        None,
+        OPEN_ALWAYS if create else OPEN_EXISTING,
+        FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OPEN_REPARSE_POINT,
+        None,
+    )
+    invalid = ctypes.c_void_p(-1).value
+    if handle == invalid:
+        error = ctypes.get_last_error()
+        raise OSError(error, "could not open training progress storage")
+
+    transferred = False
+    try:
+        if get_file_type(handle) != FILE_TYPE_DISK:
+            raise OSError("training progress storage is not a disk file")
+        info = FILE_ATTRIBUTE_TAG_INFO()
+        if not get_info(
+            handle,
+            FILE_ATTRIBUTE_TAG_INFO_CLASS,
+            ctypes.byref(info),
+            ctypes.sizeof(info),
+        ):
+            error = ctypes.get_last_error()
+            raise OSError(error, "could not inspect opened training progress storage")
+        if info.FileAttributes & FILE_ATTRIBUTE_REPARSE_POINT:
+            raise OSError("training progress storage is a reparse point")
+
+        flags = os.O_RDWR if create else os.O_RDONLY
+        flags |= getattr(os, "O_BINARY", 0)
+        flags |= getattr(os, "O_NOINHERIT", 0)
+        descriptor = msvcrt.open_osfhandle(int(handle), flags)
+        transferred = True
+        return descriptor
+    finally:
+        if not transferred:
+            close_handle(handle)
+
+
+def _open_no_reparse(path: Path, *, create: bool) -> int:
+    if os.name == "nt":
+        return _windows_open_no_reparse(path, create=create)
+
+    flags = os.O_RDWR | os.O_CREAT if create else os.O_RDONLY
+    flags |= getattr(os, "O_CLOEXEC", 0)
+    flags |= getattr(os, "O_NOFOLLOW", 0)
+    return os.open(path, flags, 0o600) if create else os.open(path, flags)
+
+
+class TrainingProgressStore:
+    """Atomic single-exercise progress file with compare-and-swap updates."""
 
     def __init__(self, path: str | Path) -> None:
         if not isinstance(path, (str, Path)):
@@ -128,7 +232,7 @@ class TrainingProgressStore:
 
     def _read_progress_bytes(self, *, missing_ok: bool) -> bytes | None:
         try:
-            metadata = os.lstat(self.path)
+            descriptor = _open_no_reparse(self.path, create=False)
         except FileNotFoundError:
             if missing_ok:
                 return None
@@ -136,20 +240,31 @@ class TrainingProgressStore:
         except OSError as exc:
             raise ValueError("training progress file could not be inspected") from exc
 
-        self._require_regular_progress(metadata)
-        if metadata.st_size > MAX_TRAINING_PROGRESS_BYTES:
-            raise TrainingProgressResourceError(
-                "training progress file exceeds the resource limit"
-            )
         try:
-            data = self.path.read_bytes()
+            metadata = os.fstat(descriptor)
+            self._require_regular_progress(metadata)
+            if metadata.st_size > MAX_TRAINING_PROGRESS_BYTES:
+                raise TrainingProgressResourceError(
+                    "training progress file exceeds the resource limit"
+                )
+            chunks: list[bytes] = []
+            remaining = MAX_TRAINING_PROGRESS_BYTES + 1
+            while remaining:
+                chunk = os.read(descriptor, min(64 * 1024, remaining))
+                if not chunk:
+                    break
+                chunks.append(chunk)
+                remaining -= len(chunk)
+            data = b"".join(chunks)
+            if len(data) > MAX_TRAINING_PROGRESS_BYTES:
+                raise TrainingProgressResourceError(
+                    "training progress file exceeds the resource limit"
+                )
+            return data
         except OSError as exc:
             raise ValueError("training progress file could not be read") from exc
-        if len(data) > MAX_TRAINING_PROGRESS_BYTES:
-            raise TrainingProgressResourceError(
-                "training progress file exceeds the resource limit"
-            )
-        return data
+        finally:
+            os.close(descriptor)
 
     def load(self, definition: ExerciseDefinition) -> LoadedTrainingProgress | None:
         data = self._read_progress_bytes(missing_ok=True)
@@ -189,6 +304,8 @@ class TrainingProgressStore:
             raise TrainingProgressBusyError("training progress store is busy")
 
     def _open_lock_descriptor(self) -> int:
+        # The precheck is only an early diagnostic.  The opened descriptor/handle
+        # below is authoritative and is revalidated before any write.
         try:
             existing = os.lstat(self._lock_path)
         except FileNotFoundError:
@@ -198,13 +315,8 @@ class TrainingProgressStore:
         if existing is not None:
             self._require_regular_lock(existing)
 
-        flags = os.O_RDWR | os.O_CREAT
-        flags |= getattr(os, "O_BINARY", 0)
-        flags |= getattr(os, "O_NOINHERIT", 0)
-        flags |= getattr(os, "O_CLOEXEC", 0)
-        flags |= getattr(os, "O_NOFOLLOW", 0)
         try:
-            descriptor = os.open(self._lock_path, flags, 0o600)
+            descriptor = _open_no_reparse(self._lock_path, create=True)
         except OSError as exc:
             raise TrainingProgressBusyError("training progress store is busy") from exc
         try:
@@ -276,10 +388,7 @@ class TrainingProgressStore:
         with self._exclusive_access():
             try:
                 current_data = self._read_progress_bytes(missing_ok=True)
-                current_revision = (
-                    None if current_data is None else _revision(current_data)
-                )
-
+                current_revision = None if current_data is None else _revision(current_data)
                 if current_revision != expected:
                     raise TrainingProgressConflictError(
                         "training progress changed since the caller last observed it"
