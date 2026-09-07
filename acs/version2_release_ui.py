@@ -29,6 +29,7 @@ class Version2ReleaseAccessibleChessAPI(Stage1ReleaseAccessibleChessAPI):
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         self._version2_application: Any | None = None
+        self._version2_language_refresh: Callable[[], bool] | None = None
 
     def bind_version2_application(self, application: Any) -> None:
         if self._version2_application is not None and self._version2_application is not application:
@@ -46,6 +47,23 @@ class Version2ReleaseAccessibleChessAPI(Stage1ReleaseAccessibleChessAPI):
         if getattr(application, "adapter", None) is None:
             raise TypeError("Version 2 application requires its accepted WebView adapter")
         self._version2_application = application
+
+    def bind_version2_language_refresh(self, callback: Callable[[], bool]) -> None:
+        """Bind the owner-host operation that rebuilds the localized native menu."""
+        if not callable(callback):
+            raise TypeError("Version 2 language refresh callback must be callable")
+        if self._version2_language_refresh is not None and self._version2_language_refresh is not callback:
+            raise RuntimeError("Version 2 language refresh callback is already bound")
+        self._version2_language_refresh = callback
+
+    @staticmethod
+    def _queue_version2_language_refresh(application: Any) -> None:
+        """Wake the existing browser poller without creating a spoken announcement."""
+        events = getattr(application, "_events", None)
+        append = getattr(events, "append", None)
+        if not callable(append):
+            raise TypeError("Version 2 application event queue is unavailable")
+        append({"kind": "language", "payload": {}})
 
     def set_language(self, lang: str) -> dict[str, Any]:
         """Apply one settings-backed language transition to Stage1 and all V2 UI."""
@@ -65,11 +83,16 @@ class Version2ReleaseAccessibleChessAPI(Stage1ReleaseAccessibleChessAPI):
                 setter(target)
             if self._settings is not None:
                 self._settings.set("language", self.lang)
+            if self._version2_language_refresh is not None:
+                if self._version2_language_refresh() is not True:
+                    raise RuntimeError("Version 2 native menu language refresh failed")
+            if application is not None:
+                self._queue_version2_language_refresh(application)
             return result
         except Exception:
-            # Persistence is the final commit point. Restore both in-memory
-            # surfaces and the previous setting on any failure so language state
-            # cannot silently split between Stage1 and V2.
+            # Persistence and host refresh are part of one presentation commit.
+            # Restore every live/persisted surface so NVDA and visual labels cannot
+            # remain split between languages after a partial host failure.
             if self._settings is not None:
                 try:
                     self._settings.set("language", previous)
@@ -81,6 +104,16 @@ class Version2ReleaseAccessibleChessAPI(Stage1ReleaseAccessibleChessAPI):
                 except Exception:
                     pass
             super().set_language(previous)
+            if self._version2_language_refresh is not None:
+                try:
+                    self._version2_language_refresh()
+                except Exception:
+                    pass
+            if application is not None:
+                try:
+                    self._queue_version2_language_refresh(application)
+                except Exception:
+                    pass
             return self._concise_error(
                 "Не вдалося змінити мову.",
                 "Language could not be changed.",
@@ -206,6 +239,7 @@ def run_version2_release_window(
         exit_callback=exit_application,
         current_focus_provider=lambda: str(getattr(application, "_focus", "")),
     )
+    api.bind_version2_language_refresh(lambda: bool(menu_installer(window, controller)))
     native_files: Any | None = None
 
     def install_menu_on_native_host(*_args: Any) -> None:
