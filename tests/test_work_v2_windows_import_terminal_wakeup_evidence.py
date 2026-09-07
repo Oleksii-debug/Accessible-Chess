@@ -192,7 +192,7 @@ class Version2WindowsImportTerminalWakeupEvidenceTests(unittest.TestCase):
             self.assertTrue(runtime.wait_for_import(5.0))
             self.assertEqual(closed_services, [True])
             self.assertEqual(runtime.import_mailbox.pending_count, 1)
-            self.assertEqual(runtime.import_mailbox.wakeup_failure_count, 1)
+            self.assertGreaterEqual(owner.calls, 2)
 
             # Required product contract: terminal state must arrange its own bounded
             # retry.  There is no later worker event and the user must not need to
