@@ -204,8 +204,9 @@ def _settings_candidate(source: Path, destination: Path) -> tuple[str, bytes]:
         payload = (candidate.export_json() + "\n").encode("utf-8")
     except Exception as exc:
         raise V1RuntimeBridgeError("legacy settings cannot be migrated safely") from exc
-    destination.write_bytes(payload)
-    with destination.open("rb") as handle:
+    with destination.open("wb") as handle:
+        handle.write(payload)
+        handle.flush()
         os.fsync(handle.fileno())
     _fsync_dir(destination.parent)
     return _sha256_bytes(payload), payload
