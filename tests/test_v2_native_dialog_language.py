@@ -1,9 +1,13 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
+import tempfile
 import unittest
+from unittest import mock
 
 from acs.full_product_ui_shell import UILanguage
+import acs.version2_release_app as release_app
 from acs.version2_release_app import _Version2OwnedBookDialogs
 from acs.version2_windows_host_runtime import Version2WindowsFileWorkflowRuntime
 from acs.version2_windows_native_dialog_ownership import (
@@ -180,6 +184,59 @@ class Version2NativeDialogLanguageTests(unittest.TestCase):
         self.assertEqual(runtime.file_dialogs.open_pgn(), Path("selected.pgn"))
         self.assertEqual(_OpenDialog.instances[-1].Title, "Open PGN")
         self.assertTrue(runtime.shutdown())
+
+    def test_production_factory_binds_native_dialogs_to_live_v2_shell_language(self) -> None:
+        """Lock the real composition seam, not only a synthetic provider contract."""
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            layout = SimpleNamespace(
+                root=root,
+                settings_path=root / "settings.json",
+                library_path=root / "library.acsdb",
+            )
+            settings = mock.Mock()
+            settings.data = {"language": "uk"}
+            settings.get.side_effect = lambda key, default=None: settings.data.get(key, default)
+            engine_runtime = mock.Mock()
+            engine_runtime.provider = mock.Mock()
+            api = mock.MagicMock()
+            application = mock.MagicMock()
+            application.shell.language = UILanguage.UA
+            database = mock.MagicMock()
+            native_runtime = mock.MagicMock()
+
+            with (
+                mock.patch.object(release_app, "_prepare_version2_user_data", return_value=layout),
+                mock.patch.object(release_app, "Settings", return_value=settings),
+                mock.patch.object(release_app, "AnalysisService", return_value=mock.MagicMock()),
+                mock.patch.object(release_app, "ContinuousAnalysisService", return_value=mock.MagicMock()),
+                mock.patch.object(release_app, "EnginePlayService", return_value=mock.MagicMock()),
+                mock.patch.object(release_app, "SoundRuntime", return_value=mock.MagicMock()),
+                mock.patch.object(release_app, "GameSoundRuntime", return_value=mock.MagicMock()),
+                mock.patch.object(release_app, "Version2ReleaseAccessibleChessAPI", return_value=api),
+                mock.patch.object(release_app, "AcsDatabase", return_value=database),
+                mock.patch.object(release_app, "Version2Application", return_value=application),
+                mock.patch.object(release_app, "_share_v2_action_registry"),
+                mock.patch.object(
+                    release_app,
+                    "Version2WindowsFileWorkflowRuntime",
+                    return_value=native_runtime,
+                ) as runtime_class,
+            ):
+                _, returned_application, _, native_runtime_factory = (
+                    release_app.create_version2_release_application(
+                        runtime_factory=lambda _config: engine_runtime,
+                        sound_playback=object(),
+                    )
+                )
+                self.assertIs(returned_application, application)
+                self.assertIs(native_runtime_factory(_Owner()), native_runtime)
+
+            provider = runtime_class.call_args.kwargs["dialog_language_provider"]
+            self.assertEqual(provider(), UILanguage.UA)
+            application.shell.language = UILanguage.EN
+            self.assertEqual(provider(), UILanguage.EN)
 
     def test_language_projection_fails_safe_without_exposing_provider_exception(self) -> None:
         def broken_provider():
