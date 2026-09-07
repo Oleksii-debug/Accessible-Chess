@@ -6,20 +6,24 @@ The training domain owns snapshot semantics in :mod:`acs.training`.  This module
 only owns filesystem publication and optimistic concurrency.  It does not parse
 moves, validate positions, or introduce another chess/application authority.
 
-Writes are serialized with an atomic peer lock directory, validated against the
-caller's exact previously observed revision, written to a peer temporary file,
-fsynced, and atomically published.  A missing expected revision is create-only;
-updates therefore cannot silently overwrite progress that the caller never
-observed.
+Writes are serialized with a persistent peer advisory lock file, validated
+against the caller's exact previously observed revision, written to a peer
+temporary file, fsynced, and atomically published.  A missing expected revision
+is create-only; updates therefore cannot silently overwrite progress that the
+caller never observed.  The lock file itself may survive process termination;
+the operating-system lock is released with the process, so crash residue cannot
+permanently block later progress saves.
 """
 
+from contextlib import contextmanager
 from dataclasses import dataclass
 import hashlib
 import json
 import os
 from pathlib import Path
+import stat
 import tempfile
-from typing import Mapping
+from typing import Iterator, Mapping
 
 from .training import ExerciseDefinition, ExerciseSession
 
@@ -68,12 +72,22 @@ def _validate_revision(value: str | None) -> str | None:
     return value
 
 
+def _is_reparse_point(metadata: os.stat_result) -> bool:
+    flag = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)
+    attributes = getattr(metadata, "st_file_attributes", 0)
+    return bool(flag and attributes & flag)
+
+
 class TrainingProgressStore:
     """Atomic single-exercise progress file with compare-and-swap updates.
 
     ``expected_revision=None`` means create-only.  To update an existing file,
     callers must first :meth:`load` it and pass the returned exact revision.
     This makes stale progress writes fail closed instead of last-writer-wins.
+
+    Writers coordinate through an OS advisory lock attached to a persistent
+    sibling file.  Unlike the historical mkdir lock, a process crash releases
+    ownership automatically even if the lock file remains on disk.
     """
 
     def __init__(self, path: str | Path) -> None:
@@ -110,6 +124,89 @@ class TrainingProgressStore:
         session = ExerciseSession.restore(definition, snapshot)
         return LoadedTrainingProgress(session=session, revision=_revision(data))
 
+    @staticmethod
+    def _require_regular_lock(metadata: os.stat_result) -> None:
+        if (
+            stat.S_ISLNK(metadata.st_mode)
+            or _is_reparse_point(metadata)
+            or not stat.S_ISREG(metadata.st_mode)
+        ):
+            raise TrainingProgressBusyError("training progress store is busy")
+
+    def _open_lock_descriptor(self) -> int:
+        try:
+            existing = os.lstat(self._lock_path)
+        except FileNotFoundError:
+            existing = None
+        except OSError as exc:
+            raise TrainingProgressBusyError("training progress store is busy") from exc
+        if existing is not None:
+            self._require_regular_lock(existing)
+
+        flags = os.O_RDWR | os.O_CREAT
+        flags |= getattr(os, "O_BINARY", 0)
+        flags |= getattr(os, "O_NOINHERIT", 0)
+        flags |= getattr(os, "O_CLOEXEC", 0)
+        flags |= getattr(os, "O_NOFOLLOW", 0)
+        try:
+            descriptor = os.open(self._lock_path, flags, 0o600)
+        except OSError as exc:
+            raise TrainingProgressBusyError("training progress store is busy") from exc
+        try:
+            metadata = os.fstat(descriptor)
+            self._require_regular_lock(metadata)
+            if metadata.st_size == 0:
+                os.write(descriptor, b"\0")
+                os.fsync(descriptor)
+            return descriptor
+        except BaseException:
+            os.close(descriptor)
+            raise
+
+    @staticmethod
+    def _lock_descriptor(descriptor: int) -> None:
+        try:
+            if os.name == "nt":
+                import msvcrt
+
+                os.lseek(descriptor, 0, os.SEEK_SET)
+                msvcrt.locking(descriptor, msvcrt.LK_NBLCK, 1)
+            else:
+                import fcntl
+
+                fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except (OSError, BlockingIOError) as exc:
+            raise TrainingProgressBusyError("training progress store is busy") from exc
+
+    @staticmethod
+    def _unlock_descriptor(descriptor: int) -> None:
+        try:
+            if os.name == "nt":
+                import msvcrt
+
+                os.lseek(descriptor, 0, os.SEEK_SET)
+                msvcrt.locking(descriptor, msvcrt.LK_UNLCK, 1)
+            else:
+                import fcntl
+
+                fcntl.flock(descriptor, fcntl.LOCK_UN)
+        except OSError:
+            pass
+
+    @contextmanager
+    def _exclusive_access(self) -> Iterator[None]:
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        descriptor = self._open_lock_descriptor()
+        acquired = False
+        try:
+            self._lock_descriptor(descriptor)
+            acquired = True
+            yield
+        finally:
+            if acquired:
+                self._unlock_descriptor(descriptor)
+            os.close(descriptor)
+
     def save(
         self,
         session: ExerciseSession,
@@ -119,59 +216,50 @@ class TrainingProgressStore:
         if not isinstance(session, ExerciseSession):
             raise TypeError("session must be an ExerciseSession")
         expected = _validate_revision(expected_revision)
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-
-        try:
-            self._lock_path.mkdir()
-        except FileExistsError as exc:
-            raise TrainingProgressBusyError("training progress store is busy") from exc
 
         temporary: Path | None = None
-        try:
-            current_revision: str | None
+        with self._exclusive_access():
             try:
-                current_data = self.path.read_bytes()
-            except FileNotFoundError:
-                current_revision = None
-            else:
-                current_revision = _revision(current_data)
+                current_revision: str | None
+                try:
+                    current_data = self.path.read_bytes()
+                except FileNotFoundError:
+                    current_revision = None
+                else:
+                    current_revision = _revision(current_data)
 
-            if current_revision != expected:
-                raise TrainingProgressConflictError(
-                    "training progress changed since the caller last observed it"
+                if current_revision != expected:
+                    raise TrainingProgressConflictError(
+                        "training progress changed since the caller last observed it"
+                    )
+
+                envelope: dict[str, object] = {
+                    "schema_version": TRAINING_PROGRESS_STORE_SCHEMA_VERSION,
+                    "snapshot": session.snapshot(),
+                }
+                data = _canonical_bytes(envelope)
+                new_revision = _revision(data)
+
+                fd, raw_path = tempfile.mkstemp(
+                    prefix=f".{self.path.name}.",
+                    suffix=".tmp",
+                    dir=str(self.path.parent),
                 )
+                temporary = Path(raw_path)
+                try:
+                    with os.fdopen(fd, "wb") as handle:
+                        handle.write(data)
+                        handle.flush()
+                        os.fsync(handle.fileno())
+                except Exception:
+                    if temporary.exists():
+                        temporary.unlink()
+                    temporary = None
+                    raise
 
-            envelope: dict[str, object] = {
-                "schema_version": TRAINING_PROGRESS_STORE_SCHEMA_VERSION,
-                "snapshot": session.snapshot(),
-            }
-            data = _canonical_bytes(envelope)
-            new_revision = _revision(data)
-
-            fd, raw_path = tempfile.mkstemp(
-                prefix=f".{self.path.name}.",
-                suffix=".tmp",
-                dir=str(self.path.parent),
-            )
-            temporary = Path(raw_path)
-            try:
-                with os.fdopen(fd, "wb") as handle:
-                    handle.write(data)
-                    handle.flush()
-                    os.fsync(handle.fileno())
-            except Exception:
-                if temporary.exists():
-                    temporary.unlink()
+                os.replace(temporary, self.path)
                 temporary = None
-                raise
-
-            os.replace(temporary, self.path)
-            temporary = None
-            return new_revision
-        finally:
-            if temporary is not None and temporary.exists():
-                temporary.unlink()
-            try:
-                self._lock_path.rmdir()
-            except FileNotFoundError:
-                pass
+                return new_revision
+            finally:
+                if temporary is not None and temporary.exists():
+                    temporary.unlink()
