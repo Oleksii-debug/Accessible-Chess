@@ -33,7 +33,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          base=c19a76e38e47f4f55bc50635eaed5f42400ecf10
+          base=40e1ef2184177600bcc88911529b718adde65df9
           git merge-base --is-ancestor "$base" HEAD
           git diff --check "$base" HEAD
           changed="$(git diff --name-only "$base" HEAD | sort)"
