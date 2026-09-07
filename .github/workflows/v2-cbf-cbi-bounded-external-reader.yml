@@ -55,7 +55,7 @@ jobs:
       - name: Bounded external reader and no-overclaim contracts
         run: python -m unittest -v tests.test_cbf_cbi_external tests.test_v2_cbf_cbi_real_corpus_unblock
       - name: Focused pytest parity
-        run: python -m pytest -q tests/test_cbf_cbi_external.py tests/test_v2_cbf_cbi_real_corpus_unblock.py tests/test_chessbase_adapter.py tests/test_chessbase_integrity.py tests/test_library_import_service.py tests/test_game_identity.py
+        run: python -m pytest -q tests/test_cbf_cbi_external.py tests/test_v2_cbf_cbi_real_corpus_unblock.py tests/test_chessbase_adapter.py tests/test_chessbase_integrity.py tests/test_d07_library_import_service.py tests/test_game_identity.py
 
   pinned-reader-build:
     runs-on: ubuntu-22.04
