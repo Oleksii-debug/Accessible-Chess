@@ -70,8 +70,9 @@ if "--diagnostic" in sys.argv:
     navigation = v2_snapshot.get("navigation") if isinstance(v2_snapshot, dict) else None
     screen = v2_snapshot.get("screen") if isinstance(v2_snapshot, dict) else None
     library = v2_snapshot.get("library") if isinstance(v2_snapshot, dict) else None
+    navigation_sequence = isinstance(navigation, (list, tuple))
     v2_composition_ok = (
-        isinstance(navigation, list)
+        navigation_sequence
         and len(navigation) == 7
         and isinstance(screen, dict)
         and screen.get("route_id") == "board"
@@ -100,7 +101,7 @@ if "--diagnostic" in sys.argv:
                     "userFlow": flow,
                     "v2Composition": {
                         "ok": v2_composition_ok,
-                        "navigationCount": len(navigation) if isinstance(navigation, list) else None,
+                        "navigationCount": len(navigation) if navigation_sequence else None,
                         "route": screen.get("route_id") if isinstance(screen, dict) else None,
                         "libraryPresent": isinstance(library, dict),
                         "applicationClosed": application_closed,
