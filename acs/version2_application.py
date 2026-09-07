@@ -414,6 +414,11 @@ class Version2Application:
         self._assert_thread()
         if self._files is not None and not self._files.shutdown(timeout=timeout):
             return False
-        self.save_book_progress()
-        self.database.close()
+        try:
+            self.save_book_progress()
+        finally:
+            # Book progress persistence is independent of the application-owned
+            # ACSDB lifecycle.  A publication error remains observable, but it
+            # must not strand SQLite resources after shutdown has begun.
+            self.database.close()
         return True
