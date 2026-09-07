@@ -1,0 +1,129 @@
+name: V2 2CBV Pinned uncbv Container Probe
+
+on:
+  push:
+    branches:
+      - work/v2-2cbv-uncbv-container-probe-20260907
+  pull_request:
+    paths:
+      - 'scripts/v2_2cbv_uncbv_probe.py'
+      - 'tests/test_v2_2cbv_uncbv_probe.py'
+      - '.github/workflows/v2-2cbv-uncbv-container-probe.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: v2-2cbv-uncbv-container-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  BASE: 8d3e0a5dac2736d42655181f8be68d4447c5c3b4
+  UNCBV_COMMIT: 3c18e8a7c6a30c21f945a1ab5462521c306dca57
+  SOURCE_SHA256: 6707e6f2c59978cebf00738505f0e59fc6692ac3e5c88bf05d4528a8197efd8d
+
+jobs:
+  real-container-probe:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Prove evidence-only ancestry and scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor "$BASE" HEAD
+          git diff --check "$BASE" HEAD
+          changed="$(git diff --name-only "$BASE" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/v2-2cbv-uncbv-container-probe.yml' \
+            'scripts/v2_2cbv_uncbv_probe.py' \
+            'tests/test_v2_2cbv_uncbv_probe.py' | sort)"
+          test "$changed" = "$expected"
+          test -z "$(git diff --name-only "$BASE" HEAD -- acs web tools/optional)"
+
+      - name: Offline evidence projection tests
+        run: python -m unittest -v tests.test_v2_2cbv_uncbv_probe tests.test_v2_2cbv_real_paired_corpus_probe
+
+      - name: Build exact pinned uncbv
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --quiet https://github.com/antoyo/uncbv.git uncbv-upstream
+          git -C uncbv-upstream checkout --quiet --detach "$UNCBV_COMMIT"
+          test "$(git -C uncbv-upstream rev-parse HEAD)" = "$UNCBV_COMMIT"
+          cargo build --locked --release --manifest-path uncbv-upstream/Cargo.toml
+
+      - name: Probe exact public 2CBV without retaining payload
+        shell: bash
+        run: |
+          set -euo pipefail
+          binary='uncbv-upstream/target/release/uncbv'
+          if [[ "$RUNNER_OS" == 'Windows' ]]; then binary="${binary}.exe"; fi
+          test -f "$binary"
+          backend_sha="$(python -c "import hashlib, pathlib; print(hashlib.sha256(pathlib.Path(r'$binary').read_bytes()).hexdigest())")"
+          python scripts/v2_2cbv_uncbv_probe.py \
+            --uncbv "$binary" \
+            --uncbv-sha256 "$backend_sha" \
+            --output "2cbv-uncbv-${RUNNER_OS}.json"
+          python - "$RUNNER_OS" <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          import sys
+
+          path = Path(f"2cbv-uncbv-{sys.argv[1]}.json")
+          report = json.loads(path.read_text(encoding="utf-8"))
+          assert report["source_sha256"] == os.environ["SOURCE_SHA256"]
+          assert report["source_size"] == 40857
+          assert report["payload_persisted"] is False
+          assert report["payload_uploaded_as_artifact"] is False
+          assert report["support_promotion_allowed"] is False
+          assert report["decoder_qualified"] is False
+          assert report["semantic_acceptance_executed"] is False
+          print(
+              "2CBV uncbv evidence:",
+              "original=", report["backend_recognizes_original_extension"],
+              "renamed=", report["backend_recognizes_payload_when_renamed_cbv"],
+              "extract=", report["backend_can_extract_payload"],
+              "2cbh=", report["extracts_modern_2cbh_family"],
+          )
+          PY
+
+      - name: Upload metadata-only evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: v2-2cbv-uncbv-${{ runner.os }}-metadata
+          path: 2cbv-uncbv-${{ runner.os }}.json
+          if-no-files-found: error
+          retention-days: 7
+
+  full-regression:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -q pytest==8.4.2
+      - name: Compile and full repository tests
+        run: |
+          python -m compileall -q acs tests scripts run_accessible_chess.py
+          python -m unittest discover -s tests -q
+          python -m pytest -q
