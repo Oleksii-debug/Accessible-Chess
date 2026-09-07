@@ -17,9 +17,9 @@ GameTree/PGN -> ACSDB/Library -> ChessBase adapters -> Books/Training -> later T
 - #467 is the current bounded owner-lock convergence repair for that broad Formats gate. Its exact CI is queued; do not bypass it by weakening locks.
 - #461 merged into the #441 runtime lineage and repaired the D01 PGN gate topology without Product mutation. #441 advanced to `40e1ef2184177600bcc88911529b718adde65df9`; its current full CI wave is queued.
 - #448 advanced again to current head `503014c85e8839e8f5fe7a598ce75adc21123e1e` with source-presence/publication hardening. Its exact V1 Runtime Bridge CI is queued.
-- #464 consumed an obsolete #448 snapshot and is therefore STOP_STALE as release authority until recomposed from terminal current #448.
-- #466 was merged into the stale #464 stack. Its package-preflight owner bytes remain useful, but the combined runtime/package candidate MUST NOT be packaged or promoted as release-ready. Recompose only after current #448 terminalizes and #464 is refreshed.
-- #480 addresses a proven Windows worktree byte-materialization false RED in the composition gate only; exact CI is queued.
+- #464 consumed an obsolete #448 snapshot and has now been CLOSED as STOP_STALE release authority. Its branch/history is evidence only until a fresh recomposition from terminal current #448.
+- #466 was merged into the stale #464 branch. Its package-preflight owner bytes remain useful, but the combined runtime/package candidate MUST NOT be packaged or promoted as release-ready. Recompose only after current #448 terminalizes and a fresh runtime-data intake is created.
+- #480's Windows byte-rematerialization diagnosis remains useful, but the PR is now CLOSED as STOP_STALE_PARENT because it was built on stale #464. Reuse the bounded workflow technique only if the same defect reproduces on the future refreshed candidate.
 - #469 and stacked #475 are W5 runtime lifecycle/PGN real-board Product repairs with exact Windows Composition CI queued. Do not duplicate their scopes.
 - #473 remains evidence-only for the single-language defect; #482 is the current Product successor for that defect. Do not create a second language implementation.
 - #479 and #481 are evidence-only Work findings for Book->real-board projection and startup cleanup. Product repairs belong to explicit runtime successors, not to duplicate evidence branches.
@@ -43,8 +43,9 @@ GameTree/PGN -> ACSDB/Library -> ChessBase adapters -> Books/Training -> later T
 - #450 older W2 V1 executable-data bridge.
 - #453 partial duplicate of the D07 lock repair.
 - #465 and #477 duplicate D01 topology repairs; #461 is canonical.
-- #464 as current release authority until recomposed from terminal latest #448.
+- #464 closed stale runtime-data intake; recompose only from terminal latest #448.
 - #466 as combined release candidate because it inherits stale #464. Preserve its package-preflight bytes for later recomposition; do not package from it.
+- #480 closed stale-parent Windows CI child. Preserve only the byte-rematerialization technique for conditional reuse.
 
 ## Active reservations / collision boundaries
 - #441 owns Version2Application, runtime/release bootstrap, actual Windows composition and the shared runtime application boundary. Current head `40e1ef2184177600bcc88911529b718adde65df9`; CI queued. Do not directly rewrite this moving branch from another worker.
@@ -64,7 +65,7 @@ GameTree/PGN -> ACSDB/Library -> ChessBase adapters -> Books/Training -> later T
 ## Current release gates
 1. #467 must prove the broad Formats owner-lock convergence GREEN on exact head; #435's current broad Formats RED is not acceptable release evidence by itself.
 2. #441 current exact head must terminalize after #461 intake across Windows Composition, D01 PGN, Formats, UI Semantic and upgrade gates.
-3. #448 current exact head must terminalize. Only then recompose #464 from the exact accepted owner bytes and subsequently recompose package-preflight intake; do not package from stale #464/#466.
+3. #448 current exact head must terminalize. Only then create a fresh runtime-data recomposition from exact accepted owner bytes and subsequently recompose package-preflight intake; do not package from stale #464/#466.
 4. #454 must terminalize; if #467 subsumes its exact lock lawfully, reconcile rather than duplicate.
 5. #469/#475 must terminalize in stack order before PGN runtime projection can enter the release candidate.
 6. #482 must terminalize before the release can claim one persisted runtime language across Stage1/V2.
@@ -89,7 +90,7 @@ KEEP evidence/review role around current #441. #473 evidence is now consumed by 
 PROMOTE #462 as the one current accessibility successor. Await terminal CI. After stable runtime/data stack exists, build one fresh candidate and exact-machine QA; never reuse rejected packages and never claim human NVDA verification.
 
 ### W5 — Integration / release / coordination
-PROMOTE. Immediate job is dependency hygiene and convergence: keep #467/#454/#441/#448/#480/#469/#475/#482 under exact-head watch; mark stale stacks explicitly; intake only terminal verified packages in dependency order. Do not create a second umbrella.
+PROMOTE. Immediate job is dependency hygiene and convergence: keep #467/#454/#441/#448/#469/#475/#482 under exact-head watch; keep #464/#466/#480 out of release authority; intake only terminal verified packages in dependency order. Do not create a second umbrella.
 
 ## Codex Cloud / Work
 Codex Cloud: safe work is a bounded exact-head release/integration repair that does not touch #441/#448/#462/#467/#469/#475/#482 owner surfaces. Prefer CI/evidence topology or a disjoint current-base integration blocker.
@@ -107,11 +108,11 @@ Work: useful work is independent exact-head release/user-journey evidence on gap
 
 ## Windows/package/NVDA readiness truth
 - Real V2 Windows composition exists, but the current #441 exact head and stacked runtime fixes are not terminally proven yet.
-- The old runtime/package stack is explicitly stale because its #448 dependency moved after intake.
+- The old runtime/package stack is explicitly stale because its #448 dependency moved after intake; #464 and #480 are closed to prevent accidental promotion.
 - No fresh final Windows ZIP is accepted in this epoch.
 - W4 #462 is the current accessibility hardening candidate; CI pending.
 - Automated accessibility/semantic CI does not equal human NVDA acceptance.
 - `NVDA_VERIFIED=NO`.
 
 ## Next audit trigger
-Audit immediately when any of these occurs: #467 terminal GREEN/RED; #441 current wave terminalizes; #448 terminalizes; #454 terminalizes; #469/#475 or #482 terminalize; #462 terminalizes; stale #464 is recomposed from current #448; a fresh Windows candidate appears; a major security child becomes intakeable; ownership collides/stales again. Otherwise perform the next broader audit after the current worker wave or roughly six hours from this checkpoint.
+Audit immediately when any of these occurs: #467 terminal GREEN/RED; #441 current wave terminalizes; #448 terminalizes; #454 terminalizes; #469/#475 or #482 terminalize; #462 terminalizes; a fresh runtime-data recomposition from current #448 appears; a fresh Windows candidate appears; a major security child becomes intakeable; ownership collides/stales again. Otherwise perform the next broader audit after the current worker wave or roughly six hours from this checkpoint.
