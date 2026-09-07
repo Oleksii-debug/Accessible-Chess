@@ -129,9 +129,23 @@ class Version2ReleaseAccessibilityContractTests(unittest.TestCase):
         drain_end = BOOTSTRAP.index('  documentRef.addEventListener("focusin"', drain_start)
         drain = BOOTSTRAP[drain_start:drain_end]
         self.assertIn('let needsRefresh = false;', drain)
-        self.assertIn('if (applyQueuedEvent(event)) needsRefresh = true;', drain)
-        self.assertIn('if (needsRefresh) refresh(false);', drain)
+        self.assertIn('const refreshRequired = applyQueuedEvent(event);', drain)
+        self.assertIn('if (!refreshRequired) return;', drain)
         self.assertNotIn('refresh(true);', drain)
+
+    def test_queued_route_event_restores_its_explicit_focus_after_refresh(self) -> None:
+        self.assertIn('<button id="board-launcher" type="button">', HTML)
+        drain_start = BOOTSTRAP.index('  function drainEvents()')
+        drain_end = BOOTSTRAP.index('  documentRef.addEventListener("focusin"', drain_start)
+        drain = BOOTSTRAP[drain_start:drain_end]
+        self.assertIn('let queuedFocusTarget = "";', drain)
+        self.assertIn('queuedFocusTarget = typeof payload.focus_target === "string" ? payload.focus_target : "";', drain)
+        self.assertIn('refresh(false).then(function () {', drain)
+        self.assertIn('if (queuedFocusTarget) focusById(queuedFocusTarget);', drain)
+        self.assertLess(
+            drain.index('refresh(false).then(function () {'),
+            drain.index('if (queuedFocusTarget) focusById(queuedFocusTarget);'),
+        )
 
     def test_windows_composition_executes_behavioral_v2_bootstrap_smoke(self) -> None:
         test_path = "tests/js/version2_release_bootstrap_dom_test.js"
