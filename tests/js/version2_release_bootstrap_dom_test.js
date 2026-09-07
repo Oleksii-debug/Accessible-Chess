@@ -99,6 +99,7 @@ let eventQueue = [];
 let intervalCallback = null;
 let snapshotCalls = 0;
 let libraryApplyCalls = 0;
+let stage1RefreshCalls = 0;
 const recordedFocus = [];
 
 function snapshot(route) {
@@ -134,6 +135,10 @@ const windowObject = {
   document: documentRef,
   setTimeout: (callback) => { callback(); return 1; },
   setInterval: (callback) => { intervalCallback = callback; return 1; },
+  refreshState: () => {
+    stage1RefreshCalls += 1;
+    return Promise.resolve();
+  },
   pywebview: {
     api: {
       v2_snapshot: () => {
@@ -286,6 +291,18 @@ async function clickRoute(routeId) {
   check(originalMain.hidden === true, "final PGN route exposed the Stage 1 main");
   check(finalPgnStatus !== null, "final PGN route did not render its empty status");
   check(documentRef.activeElement === finalPgnStatus, "stale Board focus target overrode final-route focus");
+
+  await clickRoute("board");
+  const beforeStage1ActionSnapshots = snapshotCalls;
+  const beforeStage1Refreshes = stage1RefreshCalls;
+  eventQueue = [{ kind: "delegated", payload: { action_id: "edit.undo" } }];
+  intervalCallback();
+  await flush();
+  await flush();
+  check(stage1RefreshCalls === beforeStage1Refreshes + 1, "native Stage 1 action did not refresh the original Stage 1 DOM");
+  check(snapshotCalls === beforeStage1ActionSnapshots, "native Stage 1 action incorrectly used a V2-only snapshot refresh");
+  check(originalMain.hidden === false, "native Stage 1 action hid the original main");
+  check(documentRef.activeElement === moveInput, "native Stage 1 action disturbed the current Stage 1 keyboard focus");
 
   console.log("Version 2 release bootstrap DOM/focus contract PASS");
 })().catch((error) => {
