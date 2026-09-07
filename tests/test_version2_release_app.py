@@ -1,13 +1,17 @@
 from __future__ import annotations
 
+from pathlib import Path
 from types import SimpleNamespace
+import tempfile
 import unittest
 
 from acs.keybindings import ActionRegistry
 from acs.version2_profile import build_version2_action_registry
 from acs.version2_release_app import (
     _install_host_confirmed_document,
+    _prepare_version2_user_data,
     _share_v2_action_registry,
+    _version2_user_data_layout,
 )
 
 
@@ -74,6 +78,66 @@ class Version2ReleaseAppTests(unittest.TestCase):
         self.assertEqual(v2.get_binding("board.current"), "Ctrl+F12")
         self.assertEqual(v2.get_alias("move.undo"), "back")
         self.assertIsNotNone(v2.definition("screen.library"))
+
+    def test_custom_settings_and_library_share_one_v2_data_root(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "userdata"
+            layout = _version2_user_data_layout(
+                data_root=root,
+                settings_path=root / "preferences.json",
+            )
+
+        self.assertEqual(layout.root, root)
+        self.assertEqual(layout.settings_path, root / "preferences.json")
+        self.assertEqual(layout.library_path, root / "library.acsdb")
+        self.assertEqual(layout.lock_path.parent, root)
+
+    def test_settings_path_cannot_split_v2_persistent_roots(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "userdata"
+            other = Path(temp) / "other" / "settings.json"
+            with self.assertRaisesRegex(ValueError, "must belong"):
+                _version2_user_data_layout(data_root=root, settings_path=other)
+
+    def test_prepare_user_data_runs_upgrade_before_returning_layout(self) -> None:
+        events = []
+
+        class Coordinator:
+            def __init__(self, layout):
+                events.append(("construct", layout))
+                self.layout = layout
+
+            def run(self):
+                events.append(("run", self.layout))
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "userdata"
+            layout = _prepare_version2_user_data(
+                data_root=root,
+                coordinator_factory=Coordinator,
+            )
+
+        self.assertEqual([kind for kind, _ in events], ["construct", "run"])
+        self.assertIs(events[0][1], layout)
+        self.assertIs(events[1][1], layout)
+        self.assertEqual(layout.root, root)
+
+    def test_clean_install_passes_real_upgrade_coordinator(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "clean-v2"
+            layout = _prepare_version2_user_data(data_root=root)
+            self.assertTrue(root.is_dir())
+            self.assertEqual(layout.settings_path, root / "settings.json")
+            self.assertEqual(layout.library_path, root / "library.acsdb")
+            self.assertFalse(layout.journal_path.exists())
+
+    def test_prepare_user_data_rejects_invalid_coordinator_contract(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            with self.assertRaisesRegex(TypeError, "must expose run"):
+                _prepare_version2_user_data(
+                    data_root=Path(temp) / "userdata",
+                    coordinator_factory=lambda layout: object(),
+                )
 
 
 if __name__ == "__main__":
