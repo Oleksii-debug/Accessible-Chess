@@ -125,7 +125,18 @@
       if (!bridge || typeof bridge.v2_browser_command !== "function") {
         return Promise.reject(new Error("V2 bridge unavailable"));
       }
-      return bridge.v2_browser_command(area, command, payload || {});
+      return bridge.v2_browser_command(area, command, payload || {}).then(function (result) {
+        // Library Open is a direct browser command whose trusted application
+        // handler synchronously changes the canonical shell route to PGN but
+        // intentionally queues no second application event. Reuse the one V2
+        // snapshot/render/focus authority before resolving the command so the
+        // visible/NVDA surface cannot remain on stale Library content.
+        if (area === "library" && command === "library.open_game" &&
+            result && result.kind !== "error") {
+          return refresh(true).then(function () { return result; });
+        }
+        return result;
+      });
     };
   }
 
@@ -260,11 +271,6 @@
       }
     }
     if (event.kind === "book-board") {
-      // A BookBoard workflow has already projected a new canonical review FEN
-      // into the shared release API. The original Stage 1 DOM owns the actual
-      // 64-square accessible board. Treat that repaint as an ordered dependency
-      // of the route/focus transition rather than restoring focus while its
-      // asynchronous refreshState() call is still in flight.
       orderedStage1Refreshes.push(refreshStage1Surface());
     }
     if (payload.announcement) announce(payload.announcement);
