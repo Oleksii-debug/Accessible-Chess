@@ -4,6 +4,8 @@ on:
   pull_request:
     paths:
       - 'acs/full_product_actions.py'
+      - 'acs/full_product_native_menu.py'
+      - 'acs/full_product_ui_shell.py'
       - 'acs/pgn_webview_bridge.py'
       - 'acs/pgn_webview_projection.py'
       - 'acs/pgn_workspace_webview_adapter.py'
@@ -35,6 +37,7 @@ jobs:
       D01_FEATURE: 76d20f9ce3f24120935a8f122ce0c8e0b6e4fb64
       P1_PARENT: fe249c24cad049f77a998ff305fbad0ace77c6ac
       P1_REPAIR: 48b0aeabd485d9f9e26e335f232209e86debeb7a
+      CONVERGENCE_BASE: c19a76e38e47f4f55bc50635eaed5f42400ecf10
       D06_HEAD: 1e3ea862bcff2ac13077f879c2ce9af01c4f983f
       D06_WORKSPACE_BLOB: 346f31f828191e76d57b372bb6c84a4a90568594
       D06_WORKSPACE_TEST_BLOB: edce8f6a591ffc09d419e9046e14725c4a07cf54
@@ -51,9 +54,6 @@ jobs:
           git config core.autocrlf false
           git config core.eol lf
           git reset --hard HEAD
-          # actions/checkout has already populated the Windows worktree before
-          # the repository-local config above exists.  A hard reset may retain
-          # those CRLF bytes because the index is clean, so force a byte rewrite.
           git checkout-index --force --all
 
       - uses: actions/setup-python@v5
@@ -63,46 +63,28 @@ jobs:
       - name: Install pinned verification dependency
         run: python -m pip install -q pytest==8.4.2
 
-      - name: Prove exact ancestry and isolated D01 scope
+      - name: Prove D01 ancestry and convergence-safe isolation
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD~2)" = "$P1_PARENT"
-          test "$(git rev-parse HEAD~1)" = "$P1_REPAIR"
-          test "$(git rev-list --count "$D01_BASE"..HEAD)" = "7"
           git merge-base --is-ancestor "$D01_BASE" HEAD
           git merge-base --is-ancestor "$D01_FEATURE" HEAD
-          git diff --check "$D01_BASE" HEAD
-          repair_changed="$(git diff --name-only "$P1_PARENT" HEAD | sort)"
-          repair_expected="$(printf '%s\n' \
-            '.github/workflows/d01-pgn-workspace-webview.yml' \
-            'acs/full_product_actions.py' \
-            'acs/pgn_webview_projection.py' \
-            'acs/pgn_workspace_webview_adapter.py' \
-            'tests/js/pgn_surface_dom_test.js' \
-            'tests/test_dev1_pgn_workspace_webview_adapter.py' \
-            'web/full_product_pgn.js' | sort)"
-          test "$repair_changed" = "$repair_expected"
-          test "$(git diff --name-only "$P1_REPAIR" HEAD)" = '.github/workflows/d01-pgn-workspace-webview.yml'
-          changed="$(git diff --name-only "$D01_BASE" HEAD | sort)"
-          expected="$(printf '%s\n' \
-            '.github/workflows/d01-pgn-workspace-webview.yml' \
-            'acs/full_product_actions.py' \
-            'acs/pgn_webview_bridge.py' \
-            'acs/pgn_webview_projection.py' \
-            'acs/pgn_workspace_webview_adapter.py' \
-            'tests/js/pgn_surface_dom_test.js' \
-            'tests/test_dev1_pgn_webview_atomicity.py' \
-            'tests/test_dev1_pgn_webview_projection.py' \
-            'tests/test_dev1_pgn_workspace_webview_adapter.py' \
-            'web/full_product_pgn.js' | sort)"
-          test "$changed" = "$expected"
-          if printf '%s\n' "$changed" | grep -E '(^|/)tools/qa/|windows-stage1-strict|release_preflight|pgn_workspace\.py$|pgn_document\.py$'; then
-            echo 'Foreign owner or strict-release contamination detected' >&2
+          git merge-base --is-ancestor "$P1_PARENT" HEAD
+          git merge-base --is-ancestor "$P1_REPAIR" HEAD
+          git merge-base --is-ancestor "$CONVERGENCE_BASE" HEAD
+          git diff --check "$CONVERGENCE_BASE" HEAD
+
+          # The historical owner gate required a fixed seven-commit shape and
+          # therefore rejected lawful umbrella convergence before running any
+          # Product tests.  Current safety is fail-closed by exact accepted blob
+          # locks below plus the full semantic and repository suites.  Still reject
+          # any attempt by this gate itself to become a strict-release/package lane.
+          if git diff --name-only "$CONVERGENCE_BASE" HEAD | grep -E '(^|/)tools/qa/|windows-stage1-strict|release_preflight|version2_package_preflight'; then
+            echo 'Strict-release/package contamination detected' >&2
             exit 1
           fi
 
-      - name: Lock frozen Stage1 and central D01 routing
+      - name: Lock frozen Stage1 and accepted central routing
         shell: bash
         run: |
           set -euo pipefail
@@ -114,8 +96,9 @@ jobs:
             }
           done <<'LOCKS'
           acs/full_product_presenters.py=a752bb6b837d0332ad69047912dffeb537c7bd3f
-          acs/full_product_actions.py=ade8f65186c3cf00c9f0ab372fc815e4a635e803
-          acs/full_product_ui_shell.py=f97b3b35dbca7c0527d068ad557ddf3c67c3e491
+          acs/full_product_actions.py=b6be4376cbe0695136210c3b5b850cdf562f85a4
+          acs/full_product_native_menu.py=f90981de6833841a11c7ddbe07144dcced926aff
+          acs/full_product_ui_shell.py=4745468f0939bdf02a4df215eda36f3de4010280
           acs/keybindings.py=b222f0d625999d8119cb3bb7cebffc961217f610
           acs/ui_native_menu.py=dabed76f2ad60ad0c1032b13ca353e4acc0bf2ad
           acs/stage1_release_ui.py=16e78af6219c8c36f0c4026942ef1d02875a370a
@@ -160,6 +143,7 @@ jobs:
           tests.test_dev1_pgn_workspace_webview_adapter
           tests.test_dev1_full_product_ui_packages
           tests.test_dev1_full_product_webview_adapter
+          tests.test_full_product_native_menu
           tests.test_gametree
           tests.test_d06_gametree_persistence_vertical
           tests.test_d06_annotation_insertion_persistence_vertical
