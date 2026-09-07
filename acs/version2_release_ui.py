@@ -87,8 +87,8 @@ class Version2ReleaseAccessibleChessAPI(Stage1ReleaseAccessibleChessAPI):
                 previous = self._projection_language(projection)
                 if previous is None:
                     raise TypeError("Version 2 projection has no language contract")
-                projection.set_language(language)
                 changed.append((projection, previous))
+                projection.set_language(language)
             application.adapter.set_language(language.value)
         except Exception:
             for projection, previous in reversed(changed):
@@ -124,7 +124,6 @@ class Version2ReleaseAccessibleChessAPI(Stage1ReleaseAccessibleChessAPI):
                 setter("language", lang)
             return result
         except Exception:
-            # Restore presentation state before projecting the bounded failure.
             try:
                 self._set_bound_version2_language(previous_ui)
             except Exception:
