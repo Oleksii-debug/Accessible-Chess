@@ -1,0 +1,54 @@
+name: Accessible Chess V2 Release Preflight
+
+on:
+  pull_request:
+    paths:
+      - 'acs/release_preflight.py'
+      - 'acs/version2_release_preflight.py'
+      - 'tests/test_release_preflight.py'
+      - 'tests/test_version2_release_preflight.py'
+      - '.github/workflows/v2-release-preflight.yml'
+  push:
+    branches:
+      - work/v2-release-preflight-profile-20260907
+
+permissions:
+  contents: read
+
+concurrency:
+  group: accessible-chess-v2-release-preflight-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  preflight:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Compile release preflight modules and tests
+        run: >-
+          python -m compileall -q
+          acs/release_preflight.py
+          acs/version2_release_preflight.py
+          tests/test_release_preflight.py
+          tests/test_version2_release_preflight.py
+
+      - name: Stage 1 and Version 2 fail-closed release contracts
+        run: >-
+          python -m unittest -v
+          tests.test_release_preflight
+          tests.test_version2_release_preflight
+
+      - name: Version 2 preflight CLI is importable
+        run: python -m acs.version2_release_preflight --help
