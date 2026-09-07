@@ -96,6 +96,8 @@ class Version2Application:
             if self.books is not None:
                 self.books.projection.set_language(language)
         except Exception:
+            # These transitions are presentation-only. Roll them all back before
+            # surfacing a failure so Stage1/V2 cannot remain split in memory.
             self.shell.set_language(previous)
             try:
                 self.library.projection.set_language(previous)
@@ -153,6 +155,7 @@ class Version2Application:
         else:
             kind = BookTextFormat.TXT if suffix == ".txt" else BookTextFormat.MARKDOWN
             imported = import_text_book(raw, source_name=report_safe_name(source), source_format=kind)
+        # Parse and validate the entire new source before replacing reader state.
         self.save_book_progress()
         reader = self.progress_store.restore(imported.book_key, imported.document) if self.progress_store.has(imported.book_key) else BookReader(imported.document)
         workflow = BookBoardWorkflow(reader, self.engine_assistance, game_lookup=AcsdbBookGameLookup(self.database))
@@ -242,6 +245,7 @@ class Version2Application:
         return event
 
     def _delegate(self, action, payload):
+        # Native menus enter the same projection commands as keyboard buttons.
         if action == "pgn.open_on_board":
             if payload: raise ValueError("PGN board accepts no payload")
             fen = self.pgn_commands.current_fen()
@@ -285,6 +289,7 @@ class Version2Application:
             if row is None or (row["source_id"], row["source_index"]) != (payload["source_id"], payload["source_index"]):
                 raise ValueError("Library selection is stale")
             game = AcsdbBookGameLookup(self.database).load_book_game(payload["game_id"])
+            # Opening a detached Library record must not renumber/write its source.
             game.source_index = 0
             self.set_document(PgnDocumentSession(PgnWorkspace((game,))))
             return None
@@ -405,6 +410,7 @@ class Version2Application:
         if result is not None and ui.phase in active:
             if ui.snapshot()["total_games"] == 0: ui.begin(result.game_count)
             self._events.append(asdict(ui.complete(result)))
+            # Update rows without moving focus from another surface.
             self.library.projection.search(self.library.projection.query)
 
     def _file_event(self, event):
