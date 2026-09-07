@@ -263,13 +263,29 @@ async function clickRoute(routeId) {
   check(documentRef.activeElement === libraryInput, "status-only event moved keyboard focus");
 
   currentRoute = "board";
-  eventQueue = [{ kind: "book-board", payload: { focus_target: "board-launcher" } }];
+  eventQueue = [
+    { kind: "book-board", payload: { focus_target: "board-launcher" } },
+    { kind: "delegated", payload: { action_id: "book.open_position" } }
+  ];
   intervalCallback();
   await flush();
   await flush();
   check(originalMain.hidden === false, "queued Board transition did not restore the Stage 1 main");
   check(workspace.hidden === true, "queued Board transition left the V2 product main exposed");
-  check(documentRef.activeElement === boardLauncher, "queued route event ignored its explicit board focus target");
+  check(documentRef.activeElement === boardLauncher, "trailing delegated event erased the Book-to-Board focus target");
+
+  currentRoute = "pgn";
+  eventQueue = [
+    { kind: "book-board", payload: { focus_target: "board-launcher" } },
+    { kind: "delegated", payload: { action_id: "library.open_game" } }
+  ];
+  intervalCallback();
+  await flush();
+  await flush();
+  const finalPgnStatus = documentRef.getElementById("v2-pgn-empty-status");
+  check(originalMain.hidden === true, "final PGN route exposed the Stage 1 main");
+  check(finalPgnStatus !== null, "final PGN route did not render its empty status");
+  check(documentRef.activeElement === finalPgnStatus, "stale Board focus target overrode final-route focus");
 
   console.log("Version 2 release bootstrap DOM/focus contract PASS");
 })().catch((error) => {
