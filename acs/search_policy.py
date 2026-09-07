@@ -14,6 +14,27 @@ MAX_SEARCH_PAGE_SIZE = 200
 SQLITE_INTEGER_MAX = (1 << 63) - 1
 SEARCH_RESULTS = frozenset({"1-0", "0-1", "1/2-1/2", "*"})
 _COMPLETE_PGN_DATE_RE = re.compile(r"^(\d{4})\.(\d{2})\.(\d{2})$")
+_EXPLICIT_PLAYER_COMMA_ORDER_RE = re.compile(r"^([^,]+),\s+([^,]+)$")
+
+
+def _normalize_explicit_player_comma_order(value: str) -> str:
+    """Normalize conventional ``Surname, Given`` player queries to stored order.
+
+    PGN White/Black values are loss-aware source text and are not rewritten on
+    import.  Some real source families expose a person as ``Given Surname`` while
+    independent PGN metadata commonly spells the same person ``Surname, Given``.
+    The comma+space form is therefore treated as an explicit query-order marker,
+    not as generic punctuation removal.  This keeps ordinary substring and
+    literal-search behavior unchanged for names without that conventional form.
+    """
+
+    match = _EXPLICIT_PLAYER_COMMA_ORDER_RE.fullmatch(value)
+    if match is None:
+        return value
+    surname, given = (part.strip() for part in match.groups())
+    if not surname or not given:
+        return value
+    return f"{given} {surname}"
 
 
 def normalize_search_term(value: str | None, *, name: str) -> str | None:
@@ -27,6 +48,8 @@ def normalize_search_term(value: str | None, *, name: str) -> str | None:
         raise ValueError(
             f"{name} exceeds maximum search term length of {MAX_SEARCH_TERM_CHARS} characters"
         )
+    if name == "player":
+        normalized = _normalize_explicit_player_comma_order(normalized)
     return normalized or None
 
 
