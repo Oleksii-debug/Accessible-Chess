@@ -1,0 +1,29 @@
+name: W1 D06 Nested Comment Framer Convergence
+
+on:
+  push:
+    branches:
+      - w1/d06-nested-comment-framer-convergence-20260907
+  pull_request:
+    branches:
+      - codex/v2-formats-completion-20260907
+
+permissions:
+  contents: read
+
+jobs:
+  focused:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Compile canonical PGN modules
+        run: python -m compileall -q acs/gametree.py acs/pgn_roundtrip.py tests/test_w1_d06_nested_comment_framer_convergence.py
+      - name: Focused W1 D06 framer regression
+        run: python -m unittest -v tests.test_w1_d06_nested_comment_framer_convergence tests.test_v2_pgn_nested_comment_recovery tests.test_pgn_streaming_import tests.test_d06_pgn_roundtrip
