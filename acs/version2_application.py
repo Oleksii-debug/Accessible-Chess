@@ -414,6 +414,10 @@ class Version2Application:
         self._assert_thread()
         if self._files is not None and not self._files.shutdown(timeout=timeout):
             return False
-        self.save_book_progress()
-        self.database.close()
+        try:
+            self.save_book_progress()
+        finally:
+            # A durable Book-progress failure remains observable, but it cannot
+            # prevent release of the application-owned ACSDB connection/lock.
+            self.database.close()
         return True
