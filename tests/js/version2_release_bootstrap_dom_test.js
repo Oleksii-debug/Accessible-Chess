@@ -252,6 +252,16 @@ async function clickRoute(routeId) {
   check(documentRef.getElementById("library-search-player") === libraryInput, "Library import progress replaced search input");
   check(documentRef.activeElement === libraryInput, "Library import progress moved keyboard focus");
 
+  const beforeStatusSnapshotCalls = snapshotCalls;
+  eventQueue = [{ kind: "status", payload: { announcement: "PGN saved." } }];
+  intervalCallback();
+  await flush();
+  await flush();
+  check(live.textContent === "PGN saved.", "status announcement did not reach the live region");
+  check(snapshotCalls === beforeStatusSnapshotCalls, "status-only event triggered a full V2 snapshot rerender");
+  check(documentRef.getElementById("library-search-player") === libraryInput, "status-only event replaced active Library controls");
+  check(documentRef.activeElement === libraryInput, "status-only event moved keyboard focus");
+
   currentRoute = "board";
   eventQueue = [{ kind: "book-board", payload: { focus_target: "board-launcher" } }];
   intervalCallback();
