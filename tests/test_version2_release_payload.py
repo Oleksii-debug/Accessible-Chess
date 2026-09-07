@@ -14,6 +14,7 @@ from acs import version2_release_payload as payload
 from acs.sound_events import SoundEvent
 from acs.sound_windows import PackagedSoundAssetResolver
 from acs.stockfish_runtime import StockfishRuntimeConfig, resolve_stockfish_path
+from acs.version2_package_assembler import assemble_version2_package_tree
 
 
 class Version2ReleasePayloadTests(unittest.TestCase):
@@ -114,6 +115,31 @@ class Version2ReleasePayloadTests(unittest.TestCase):
             provenance["packaged_executable_sha256"],
             hashlib.sha256(b"MZ\0stockfish18").hexdigest(),
         )
+
+    def test_prepared_payload_flows_into_existing_package_assembler(self) -> None:
+        prepared = self._prepare()
+        package = self.root / "candidate"
+
+        assembled = assemble_version2_package_tree(
+            prepared.product_dir,
+            prepared.notices_dir,
+            package,
+            integration_sha="a" * 40,
+        )
+
+        self.assertEqual(assembled.package_root, package)
+        self.assertEqual(assembled.tree_report.integration_sha, "a" * 40)
+        self.assertTrue(
+            (package / "AccessibleChess" / "engines" / "stockfish" / "stockfish.exe").is_file()
+        )
+        self.assertTrue(
+            (package / "AccessibleChess" / "assets" / "sounds" / "manifest.json").is_file()
+        )
+        self.assertTrue(
+            (package / "THIRD_PARTY_NOTICES" / "Stockfish-18-windows-x86-64.zip").is_file()
+        )
+        self.assertTrue((package / "RELEASE_MANIFEST.json").is_file())
+        self.assertTrue((package / "SHA256SUMS.txt").is_file())
 
     def test_wrong_stockfish_digest_fails_without_output(self) -> None:
         output = self.root / "payload"
