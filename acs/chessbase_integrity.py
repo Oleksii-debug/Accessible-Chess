@@ -57,6 +57,13 @@ def _fingerprint(path: Path, extension: str, role: str) -> SourceFileEvidence:
     reparse indirection, binds the opened descriptor to the validated pathname,
     double-hashes the exact inode to catch same-size concurrent mutation, and
     revalidates the public path before provenance publication.
+
+    The integrity snapshot deliberately retains the probe's submitted path
+    spelling.  On Windows the canonical fingerprint may expand an 8.3 alias while
+    validating/publicizing provenance; replacing the probe path with that spelling
+    would change the ChessBase family identity even though the exact file object
+    and bytes are unchanged.  Safety comes from the canonical fingerprint's
+    descriptor binding and digest, not from rewriting this API-visible path.
     """
 
     safe_name = report_safe_name(path)
@@ -67,7 +74,7 @@ def _fingerprint(path: Path, extension: str, role: str) -> SourceFileEvidence:
             f"ChessBase source evidence is unavailable or changed for {safe_name}"
         ) from exc
     return SourceFileEvidence(
-        path=Path(source.path),
+        path=path,
         extension=extension,
         role=role,
         size_bytes=source.size,
