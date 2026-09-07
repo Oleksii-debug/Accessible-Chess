@@ -74,6 +74,14 @@ class Version2PgnReviewLiveStateIsolationTests(unittest.TestCase):
         self.assertEqual(self.api.live_history_node, live_node)
         self.assertEqual(self._history_identity(self.api), live_history)
 
+        blocked = self.api.make_move("e5")
+        self.assertFalse(blocked["ok"])
+        self.assertEqual(self.api.get_state()["fen"], reviewed_fen)
+        self.assertEqual(self.api.board.fen(), live_fen)
+        self.assertEqual(tuple(self.api.sans), live_sans)
+        self.assertEqual(self.api.live_history_node, live_node)
+        self.assertEqual(self._history_identity(self.api), live_history)
+
         returned = self.app.browser_command("review", "pgn.return")
         self.assertEqual(returned["kind"], "review")
         self.assertEqual(self.api.get_state()["fen"], live_fen)
