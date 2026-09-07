@@ -79,6 +79,83 @@ class V2LibrarySearchServiceV4Tests(unittest.TestCase):
                     service_ids = [item.game_id for item in service.search(query).items]
                     self.assertEqual(service_ids, direct_ids)
 
+    def test_player_search_accepts_explicit_comma_name_order_without_cross_player_mixing(self) -> None:
+        with AcsDatabase() as database:
+            source_id = database.add_source("people.pgn", "pgn")
+            with database.conn:
+                database.conn.executemany(
+                    INSERT_GAME,
+                    (
+                        (
+                            source_id,
+                            1,
+                            "full",
+                            "[]",
+                            "Real corpus",
+                            "Kyiv",
+                            "2026.08.31",
+                            "1",
+                            "José Álvarez",
+                            "Marta García",
+                            "1-0",
+                            "C42",
+                            "Other",
+                            None,
+                            "*",
+                        ),
+                        (
+                            source_id,
+                            2,
+                            "full",
+                            "[]",
+                            "Control",
+                            "Kyiv",
+                            "2026.08.31",
+                            "2",
+                            "Álvarez",
+                            "José",
+                            "0-1",
+                            "B01",
+                            "Other",
+                            None,
+                            "*",
+                        ),
+                        (
+                            source_id,
+                            3,
+                            "full",
+                            "[]",
+                            "Diacritic control",
+                            "Kyiv",
+                            "2026.08.31",
+                            "3",
+                            "Jose Alvarez",
+                            "Other",
+                            "1/2-1/2",
+                            "A00",
+                            "Other",
+                            None,
+                            "*",
+                        ),
+                    ),
+                )
+
+            service = GameSearchService(database)
+            comma_query = GameSearchQuery(player="Álvarez, José")
+            service_ids = [item.game_id for item in service.search(comma_query).items]
+            direct_ids = [row["id"] for row in database.search_games(player="Álvarez, José")]
+
+            self.assertEqual(service_ids, [1])
+            self.assertEqual(direct_ids, [1])
+            self.assertEqual(
+                [item.game_id for item in service.search(GameSearchQuery(player="Álvarez")).items],
+                [1, 2],
+            )
+            self.assertEqual(
+                [item.game_id for item in service.search(GameSearchQuery(player="Jose Alvarez")).items],
+                [3],
+            )
+
 
 if __name__ == "__main__":
     unittest.main()
