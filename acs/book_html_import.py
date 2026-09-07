@@ -12,7 +12,7 @@ Image-only diagrams remain image notes unless the source carries an explicit
 alt text, coordinates, or surrounding prose.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from hashlib import sha256
 from html.parser import HTMLParser
@@ -20,7 +20,16 @@ import re
 from types import MappingProxyType
 from urllib.parse import urlsplit
 
-from .bookdocument import BookDocument, Diagram, Game, Heading, Note, Paragraph, Position
+from .bookdocument import (
+    BookDocument,
+    Diagram,
+    Game,
+    Heading,
+    ListBlock,
+    Note,
+    Paragraph,
+    Position,
+)
 from .chesscore import Board
 from .pgn_roundtrip import PgnRoundTripError, parse_pgn_text
 
@@ -67,6 +76,16 @@ class _Capture:
     kind: str
     attrs: dict[str, str]
     parts: list[str]
+    list_depth: int = 0
+
+
+@dataclass(slots=True)
+class _ListCapture:
+    tag: str
+    attrs: dict[str, str]
+    items: list[str] = field(default_factory=list)
+    unsupported: bool = False
+    nested: bool = False
 
 
 _BLOCK_BOUNDARY_TAGS = frozenset(
@@ -96,6 +115,7 @@ _CAPTURE_KINDS = {
 _PGN_EVENT_RE = re.compile(r'^\[Event\s+"', re.IGNORECASE)
 _PGN_MARKER_RE = re.compile(r'^\{PGN\s+\d+\}\s*$', re.IGNORECASE)
 _END_PGN_RE = re.compile(r'^End of PGN Supplement\s*$', re.IGNORECASE)
+_HTML_INTEGER_RE = re.compile(r"^[+-]?\d+$")
 
 
 def _text(value: object, field: str, *, optional: bool = False) -> str | None:
@@ -171,17 +191,23 @@ class _SemanticHtmlParser(HTMLParser):
         self.image_references: list[str] = []
         self.missing_assets: set[str] = set()
         self._captures: list[_Capture] = []
+        self._lists: list[_ListCapture] = []
         self._suppressed_depth = 0
         self._node_count = 0
         self._ids: dict[str, int] = {}
         self._warned_table_flatten = False
-        self._warned_list_flatten = False
+        self._warned_list_fallback = False
 
     def _warning(self, message: str) -> None:
         if len(self.warnings) < MAX_HTML_WARNINGS:
             self.warnings.append(message)
         elif len(self.warnings) == MAX_HTML_WARNINGS:
             self.warnings.append("additional HTML import warnings were suppressed")
+
+    def _list_warning(self, message: str) -> None:
+        if not self._warned_list_fallback:
+            self._warning(message)
+            self._warned_list_fallback = True
 
     def _append_visible(self, text: str) -> None:
         if not text:
@@ -208,6 +234,63 @@ class _SemanticHtmlParser(HTMLParser):
                 code=BookHtmlImportErrorCode.RESOURCE_LIMIT,
             )
         self.blocks.append(block)
+
+    @staticmethod
+    def _ordered_start(attrs: dict[str, str]) -> tuple[int | None, bool]:
+        if "start" not in attrs:
+            return None, True
+        raw = attrs.get("start", "").strip()
+        if _HTML_INTEGER_RE.fullmatch(raw) is None:
+            return None, False
+        value = int(raw)
+        return (value, value >= 1)
+
+    def _emit_list(self, captured: _ListCapture) -> None:
+        items = [item for item in captured.items if item]
+        if not items:
+            return
+        ordered = captured.tag == "ol"
+        start, start_valid = self._ordered_start(captured.attrs) if ordered else (None, True)
+        unsupported = captured.unsupported or not start_valid
+
+        if unsupported:
+            if ordered and not start_valid:
+                self._list_warning(
+                    "HTML ordered list start could not be represented canonically and was preserved as reading text because canonical List start must be positive"
+                )
+            else:
+                self._list_warning(
+                    "HTML list numbering or nesting could not be represented canonically and was preserved as readable text"
+                )
+            raw_start = captured.attrs.get("start", "").strip()
+            fallback_start = int(raw_start) if ordered and _HTML_INTEGER_RE.fullmatch(raw_start) else 1
+            for offset, item in enumerate(items):
+                text = f"{fallback_start + offset}. {item}" if ordered else f"• {item}"
+                self._append_block(
+                    Paragraph(
+                        text=text,
+                        block_id=self._block_id("Paragraph", text),
+                        source_anchor=captured.attrs.get("id") or None,
+                    )
+                )
+            return
+
+        identity = (
+            ("ordered" if ordered else "unordered")
+            + "\0"
+            + (str(start) if start is not None else "")
+            + "\0"
+            + "\0".join(items)
+        )
+        self._append_block(
+            ListBlock(
+                items=items,
+                ordered=ordered,
+                start=start if ordered else None,
+                block_id=self._block_id("List", identity),
+                source_anchor=captured.attrs.get("id") or None,
+            )
+        )
 
     def _validate_fen(self, fen: str) -> str:
         try:
@@ -300,9 +383,36 @@ class _SemanticHtmlParser(HTMLParser):
         elif "data-acs-fen" in attrs:
             self._emit_explicit_position(tag, attrs)
 
+        if tag in {"ol", "ul"}:
+            nested = bool(self._lists)
+            if nested:
+                self._lists[-1].unsupported = True
+            unsupported = nested or "reversed" in attrs
+            if tag == "ol":
+                _, start_valid = self._ordered_start(attrs)
+                unsupported = unsupported or not start_valid
+            self._lists.append(
+                _ListCapture(
+                    tag=tag,
+                    attrs=attrs,
+                    unsupported=unsupported,
+                    nested=nested,
+                )
+            )
+
         kind = _CAPTURE_KINDS.get(tag)
         if kind is not None:
-            self._captures.append(_Capture(tag=tag, kind=kind, attrs=attrs, parts=[]))
+            if kind == "list_item" and self._lists and "value" in attrs:
+                self._lists[-1].unsupported = True
+            self._captures.append(
+                _Capture(
+                    tag=tag,
+                    kind=kind,
+                    attrs=attrs,
+                    parts=[],
+                    list_depth=len(self._lists) if kind == "list_item" else 0,
+                )
+            )
 
     def handle_startendtag(self, tag: str, attrs_list: list[tuple[str, str | None]]) -> None:
         self.handle_starttag(tag, attrs_list)
@@ -320,6 +430,17 @@ class _SemanticHtmlParser(HTMLParser):
         if self._captures and self._captures[-1].tag == tag:
             capture = self._captures.pop()
             self._finish_capture(capture)
+        if tag in {"ol", "ul"} and self._lists and self._lists[-1].tag == tag:
+            captured = self._lists.pop()
+            if captured.nested:
+                # Text from a nested list is already retained by the enclosing
+                # list-item capture. Suppress a second flattened copy and make the
+                # outer list fall back with an explicit structure-loss warning.
+                self._list_warning(
+                    "Nested HTML list structure cannot be represented by the flat canonical List block and was preserved as readable parent-item text"
+                )
+            else:
+                self._emit_list(captured)
         if tag in _BLOCK_BOUNDARY_TAGS:
             self._append_visible("\n")
 
@@ -354,9 +475,12 @@ class _SemanticHtmlParser(HTMLParser):
             )
             return
         if capture.kind == "list_item":
-            if not self._warned_list_flatten:
-                self._warning("HTML list structure is preserved as ordered reading text because BookDocument has no list block kind")
-                self._warned_list_flatten = True
+            if self._lists and capture.list_depth == len(self._lists):
+                self._lists[-1].items.append(text)
+                return
+            self._list_warning(
+                "HTML list item occurred outside a representable list container and was preserved as readable text"
+            )
             text = "• " + text
         elif capture.kind == "table_row":
             if not self._warned_table_flatten:
@@ -376,6 +500,10 @@ class _SemanticHtmlParser(HTMLParser):
         super().close()
         while self._captures:
             self._finish_capture(self._captures.pop(), recovered=True)
+        while self._lists:
+            captured = self._lists.pop()
+            captured.unsupported = True
+            self._emit_list(captured)
 
 
 def _pgn_candidates(visible_text: str) -> list[str]:
@@ -563,6 +691,7 @@ SUPPORTED_HTML_BOOK_CAPABILITY = MappingProxyType(
         "semantic_blocks": (
             "Heading",
             "Paragraph",
+            "List(ordered/unordered)",
             "Note(image)",
             "Game(PGN)",
             "Position(data-acs-fen)",
