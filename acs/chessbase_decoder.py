@@ -386,23 +386,6 @@ def _apply_comments(node: MoveNode, comments: object) -> None:
             node.comments_after.append(comment)
 
 
-def _null_move(board: Board) -> str:
-    parts = board.fen().split()
-    if len(parts) != 6:
-        raise _decode_error(
-            "canonical board produced an invalid FEN while decoding a null move",
-            ChessBaseDecodeCode.INVALID_MOVE,
-        )
-    was_black = parts[1] == "b"
-    parts[1] = "w" if was_black else "b"
-    parts[3] = "-"
-    parts[4] = str(int(parts[4]) + 1)
-    if was_black:
-        parts[5] = str(int(parts[5]) + 1)
-    board.set_fen(" ".join(parts))
-    return "--"
-
-
 _PROMOTIONS = {2: "Q", 3: "R", 4: "B", 5: "N", 7: None}
 
 
@@ -411,7 +394,7 @@ def _decode_move(board: Board, token: dict[str, object]) -> str:
     to = _exact_int(token.get("to"), "move.to", 0, 63)
     promote = _exact_int(token.get("promote"), "move.promote", 0, 255)
     if promote == 6:
-        return _null_move(board)
+        return board.push_null()
     if promote == 1:
         candidates = [
             move
