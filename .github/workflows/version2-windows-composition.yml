@@ -1,0 +1,136 @@
+name: Accessible Chess Version 2 Windows Composition
+
+on:
+  push:
+    branches:
+      - work/version2-windows-composition-20260828
+  pull_request:
+    paths:
+      - 'acs/version2_profile.py'
+      - 'tests/test_version2_windows_composition_profile.py'
+      - '.github/workflows/version2-windows-composition.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: accessible-chess-v2-windows-composition-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  V2_FORMATS_UPSTREAM: b18ac89bb7f1ef3d4106517fe3521179ab4522a1
+
+jobs:
+  composition:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Preserve exact Git bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config core.autocrlf false
+          git config core.eol lf
+          git reset --hard HEAD
+          git checkout-index --force --all
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install pinned verification dependency
+        run: python -m pip install -q pytest==8.4.2
+
+      - name: Prove exact Version 2 ancestry and collision-safe scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          git cat-file -e "$V2_FORMATS_UPSTREAM^{commit}"
+          git merge-base --is-ancestor "$V2_FORMATS_UPSTREAM" HEAD
+          git diff --check "$V2_FORMATS_UPSTREAM" HEAD
+          changed="$(git diff --name-only "$V2_FORMATS_UPSTREAM" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/version2-windows-composition.yml' \
+            'acs/version2_profile.py' \
+            'tests/test_version2_windows_composition_profile.py' | sort)"
+          test "$changed" = "$expected" || {
+            echo 'Unexpected Version 2 composition scope:' >&2
+            printf '%s\n' "$changed" >&2
+            exit 1
+          }
+          git diff --quiet "$V2_FORMATS_UPSTREAM" HEAD -- \
+            run_accessible_chess.py acs/release_app.py \
+            acs/stage1_release_ui.py acs/stage1_release_ui_core.py \
+            acs/chesscore.py acs/gametree.py acs/acsdb.py \
+            acs/pgn_workspace.py acs/library_import_service.py \
+            acs/chessbase_decoder.py acs/cbv_extractor.py \
+            acs/bookdocument.py acs/bookreader.py acs/book_training.py \
+            acs/full_product_actions.py acs/full_product_ui_shell.py \
+            acs/full_product_native_menu.py acs/full_product_webview_adapter.py \
+            web/stage1_release_bootstrap.js web/stage1_board_actions.js \
+            tools/qa
+
+      - name: Compile Python package
+        run: python -m compileall -q acs tests run_accessible_chess.py
+
+      - name: Parse retained Version 2 web surfaces
+        run: |
+          node --check web/full_product_pgn.js
+          node --check web/full_product_library.js
+          node --check web/full_product_books_training.js
+
+      - name: Version 2 composition and accessibility contracts
+        run: >-
+          python -m unittest -v
+          tests.test_version2_windows_composition_profile
+          tests.test_dev1_full_product_accessible_shell
+          tests.test_dev1_full_product_webview_adapter
+          tests.test_full_product_native_menu
+          tests.test_dev1_pgn_workspace_webview_adapter
+          tests.test_library_workspace_ui_integration
+          tests.test_books_training_ui_integration
+          tests.test_version2_formats_integration
+          tests.test_nvda_p0_contract
+
+      - name: Version 2 data migration and atomicity regressions
+        run: >-
+          python -m unittest -v
+          tests.test_whole_product_user_journey
+          tests.test_d07_acsdb_migration_atomicity
+          tests.test_d07_library_import_service
+          tests.test_d07_library_search_cancellation
+          tests.test_pgn_concurrent_save
+          tests.test_dev4_pgn_export_failure_recovery
+          tests.test_dev4_pgn_export_path_security
+
+      - name: Full repository unittest
+        shell: bash
+        run: |
+          set -o pipefail
+          python -m unittest discover -s tests -v 2>&1 | tee v2-composition-unittest.log
+
+      - name: Upload unittest diagnostic
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v2-composition-unittest-${{ matrix.os }}
+          path: v2-composition-unittest.log
+          if-no-files-found: ignore
+          retention-days: 3
+
+      - name: Full repository pytest
+        run: python -m pytest -q tests
+
+      - name: Existing Stage 1 diagnostic remains unchanged
+        run: |
+          python -m acs.selftest
+          python run_accessible_chess.py --diagnostic
