@@ -55,27 +55,34 @@ class Version2ReleaseAccessibleChessAPI(Stage1ReleaseAccessibleChessAPI):
             raise RuntimeError("Version 2 application is not bound")
         return application
 
-    def _external_review_active(self) -> bool:
-        """Whether the V2 shell is presently displaying PGN/Book review on Board.
+    def _external_review_owned(self) -> bool:
+        """Whether a PGN/Book workflow still owns the external Board review.
 
-        The application owns the review lifecycle.  The release API owns only the
-        presentation projection.  Returning to PGN/Books or opening the ordinary
-        Board route therefore makes any cached external FEN inactive without
-        touching the canonical live game underneath.
+        Ownership persists while the user temporarily visits another V2 route.
+        Explicit PGN/Book Return ends it.  Keeping this separate from visible
+        Board projection prevents a global/native mutation from changing the
+        hidden live game while the external review session is still open.
         """
 
-        fen = self._external_review_fen
-        application = self._version2_application
-        if fen is None or application is None:
+        if self._external_review_fen is None:
             return False
+        application = self._version2_application
+        if application is None:
+            return False
+        if getattr(application, "pgn_board_active", False) is True:
+            return True
+        workflow = getattr(application, "book_workflow", None)
+        return workflow is not None and getattr(workflow, "active", False) is True
+
+    def _external_review_active(self) -> bool:
+        """Whether the V2 shell is visibly projecting external review on Board."""
+
+        if not self._external_review_owned():
+            return False
+        application = self._version2_application
         shell = getattr(application, "shell", None)
         route = getattr(getattr(shell, "current_route", None), "route_id", "")
-        if route != "board":
-            return False
-        pgn_active = getattr(application, "pgn_board_active", False) is True
-        workflow = getattr(application, "book_workflow", None)
-        book_active = workflow is not None and getattr(workflow, "active", False) is True
-        return pgn_active or book_active
+        return route == "board"
 
     def project_review_fen(self, fen: str) -> dict[str, Any]:
         """Project an external canonical position without mutating the live game.
@@ -118,19 +125,121 @@ class Version2ReleaseAccessibleChessAPI(Stage1ReleaseAccessibleChessAPI):
             return Board(str(self._external_review_fen))
         return super()._display_board()
 
+    def _visible_ply_count(self) -> int:
+        # External review does not own the live SAN list.  Do not expose hidden
+        # live-game moves or last-move text beside a PGN/Book FEN.
+        if self._external_review_active():
+            return 0
+        return super()._visible_ply_count()
+
     def _at_history_end(self) -> bool:
         # A PGN/Book review position is intentionally not a live move target.
-        # This reuses the existing Stage 1 mutation guard instead of inventing a
-        # second legality or move-routing implementation.
-        if self._external_review_active():
+        if self._external_review_owned():
             return False
         return super()._at_history_end()
+
+    def _analysis_origin_matches(self) -> bool:
+        # External review FENs are presentation origins, never ReviewHistory
+        # nodes.  Ordinary analysis may follow the displayed FEN, but PV
+        # exploration/Insert Move/Insert Line must fail closed instead of
+        # attaching an external document line to a coincident live-history node.
+        if self._external_review_owned():
+            return False
+        return super()._analysis_origin_matches()
+
+    def _external_review_mutation_error(self) -> dict[str, Any]:
+        return self._error(
+            "Спочатку поверніться з перегляду документа."
+            if self.lang == "uk"
+            else "Return from document review first."
+        )
+
+    def make_move(self, text: str) -> dict[str, Any]:
+        # Stage1 make_move performs engine-state work and recognizes single-letter
+        # commands (including `s` -> new_game) before its ordinary review guard.
+        if self._external_review_owned():
+            return self._external_review_mutation_error()
+        return super().make_move(text)
+
+    def activate_square(self, square: str) -> dict[str, Any]:
+        if self._external_review_owned():
+            return self._external_review_mutation_error()
+        return super().activate_square(square)
+
+    def undo(self) -> dict[str, Any]:
+        if self._external_review_owned():
+            return self._external_review_mutation_error()
+        return super().undo()
+
+    def redo(self) -> dict[str, Any]:
+        if self._external_review_owned():
+            return self._external_review_mutation_error()
+        return super().redo()
+
+    def new_game(self) -> dict[str, Any]:
+        if self._external_review_owned():
+            return self._external_review_mutation_error()
+        return super().new_game()
+
+    def clear_board(self) -> dict[str, Any]:
+        if self._external_review_owned():
+            return self._external_review_mutation_error()
+        return super().clear_board()
+
+    def set_fen(self, fen: str) -> dict[str, Any]:
+        if self._external_review_owned():
+            return self._external_review_mutation_error()
+        return super().set_fen(fen)
+
+    def set_position_text(self, text: str, turn: str | None = None) -> dict[str, Any]:
+        if self._external_review_owned():
+            return self._external_review_mutation_error()
+        return super().set_position_text(text, turn)
+
+    def set_turn(self, color: str) -> dict[str, Any]:
+        if self._external_review_owned():
+            return self._external_review_mutation_error()
+        return super().set_turn(color)
+
+    def start_engine_game(
+        self,
+        human_side: str = "white",
+        level: int = 5,
+        initial_minutes: int = 0,
+        increment_seconds: int = 0,
+    ) -> dict[str, Any]:
+        if self._external_review_owned():
+            return self._external_review_mutation_error()
+        return super().start_engine_game(
+            human_side,
+            level,
+            initial_minutes,
+            increment_seconds,
+        )
+
+    def stop_engine_game(self) -> dict[str, Any]:
+        if self._external_review_owned():
+            return self._external_review_mutation_error()
+        return super().stop_engine_game()
+
+    def engine_takeback(self) -> dict[str, Any]:
+        if self._external_review_owned():
+            return self._external_review_mutation_error()
+        return super().engine_takeback()
+
+    def offer_draw_engine_game(self) -> dict[str, Any]:
+        if self._external_review_owned():
+            return self._external_review_mutation_error()
+        return super().offer_draw_engine_game()
+
+    def resign_engine_game(self) -> dict[str, Any]:
+        if self._external_review_owned():
+            return self._external_review_mutation_error()
+        return super().resign_engine_game()
 
     def get_state(self) -> dict[str, Any]:
         state = super().get_state()
         if self._external_review_active():
-            # Do not present the underlying live game's move list as if it
-            # belonged to the externally reviewed PGN/Book position.
             state["historyLength"] = 0
         return state
 
