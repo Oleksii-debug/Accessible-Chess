@@ -53,6 +53,67 @@ class Version2ReleaseAccessibleChessAPI(Stage1ReleaseAccessibleChessAPI):
             raise RuntimeError("Version 2 application is not bound")
         return application
 
+    def _v2_keyboard_fallback_contexts(self, requested_context: object) -> tuple[str, ...]:
+        """Map the inherited Stage1 key handler onto the active V2 registry contexts.
+
+        The shipped document already owns keyboard capture and protects editable
+        controls/selection shortcuts.  Reusing that handler avoids a second JS
+        shortcut engine: only its final Python resolution seam gains V2 context
+        fallbacks after the requested Stage1 context has missed.
+        """
+
+        if self._version2_application is None:
+            return ()
+        requested = str(requested_context or "").strip().lower()
+        application = self._version2()
+        contexts: list[str] = []
+
+        if requested == "document":
+            shell = getattr(application, "shell", None)
+            route = getattr(getattr(shell, "current_route", None), "route_id", "")
+            if route == "library":
+                contexts.append("database")
+            elif route == "books":
+                contexts.append("book_reader")
+            contexts.append("global")
+        elif requested == "board":
+            book_workflow = getattr(application, "book_workflow", None)
+            if bool(getattr(book_workflow, "active", False)):
+                contexts.append("book_reader")
+            elif bool(getattr(application, "pgn_board_active", False)):
+                contexts.append("document")
+            contexts.append("global")
+
+        unique: list[str] = []
+        for context in contexts:
+            if context != requested and context not in unique:
+                unique.append(context)
+        return tuple(unique)
+
+    def keymap_resolve_binding(self, context: str, binding: str) -> dict[str, Any] | None:
+        """Resolve Stage1 first, then active V2 route/global contexts."""
+
+        direct = super().keymap_resolve_binding(context, binding)
+        if direct is not None:
+            return direct
+        for fallback in self._v2_keyboard_fallback_contexts(context):
+            resolved = super().keymap_resolve_binding(fallback, binding)
+            if resolved is not None:
+                return resolved
+        return None
+
+    def keymap_resolve_alias(self, context: str, alias: str) -> dict[str, Any] | None:
+        """Keep command aliases on the same context-convergence rule as bindings."""
+
+        direct = super().keymap_resolve_alias(context, alias)
+        if direct is not None:
+            return direct
+        for fallback in self._v2_keyboard_fallback_contexts(context):
+            resolved = super().keymap_resolve_alias(fallback, alias)
+            if resolved is not None:
+                return resolved
+        return None
+
     def dispatch_action(self, action_id: str, square: str | None = None) -> dict[str, Any]:
         """Keep the inherited Stage1 keyboard fallback valid for V2 registry actions.
 
@@ -69,7 +130,11 @@ class Version2ReleaseAccessibleChessAPI(Stage1ReleaseAccessibleChessAPI):
             and action_id in VERSION2_FULL_PRODUCT_ACTION_IDS
         ):
             if square not in (None, ""):
-                return self._error("Дія Version 2 не приймає поле дошки." if self.lang == "uk" else "Version 2 action does not accept a board square.")
+                return self._error(
+                    "Дія Version 2 не приймає поле дошки."
+                    if self.lang == "uk"
+                    else "Version 2 action does not accept a board square."
+                )
             application = self._version2()
             command = application.adapter.activate_action(
                 action_id,
