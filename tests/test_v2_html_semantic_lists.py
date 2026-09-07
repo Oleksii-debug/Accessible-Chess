@@ -74,13 +74,13 @@ class Version2HtmlSemanticListTests(unittest.TestCase):
 
     def test_nested_list_never_publishes_false_flat_canonical_list(self) -> None:
         imported = self._import(
-            '<ul><li>Parent<ul><li>Child</li></ul></li><li>Peer</li></ul>'
+            '<ul><li>Parent<ul><li>Child A</li><li>Child B</li></ul>tail</li><li>Peer</li></ul>'
         )
         self.assertFalse(any(isinstance(block, ListBlock) for block in imported.document.blocks))
-        paragraph_text = " ".join(self._paragraph_texts(imported))
-        self.assertIn("Parent", paragraph_text)
-        self.assertIn("Child", paragraph_text)
-        self.assertIn("Peer", paragraph_text)
+        self.assertEqual(
+            self._paragraph_texts(imported),
+            ["• Parent Child A Child B tail", "• Peer"],
+        )
         self.assertTrue(any("Nested HTML list structure" in value for value in imported.warnings))
 
 
