@@ -108,7 +108,7 @@ class Version2ApplicationTests(unittest.TestCase):
                 return False
 
             def restore(self, _book_key, _document):
-                self.fail("restore must not run without saved progress")
+                raise AssertionError("restore must not run without saved progress")
 
             def save(self, _book_key, _reader):
                 raise OSError("simulated progress write failure")
@@ -124,6 +124,45 @@ class Version2ApplicationTests(unittest.TestCase):
         self.assertIsNone(self.app.book_delegate)
         self.assertIsNone(self.app.books)
         self.assertEqual(self.app.shell.current_route.route_id, before_route)
+
+    def test_replacing_book_progress_failure_preserves_current_book(self):
+        first = self.root / "first.md"
+        second = self.root / "second.md"
+        first.write_text("# First\n\nOriginal book\n", encoding="utf-8")
+        second.write_text("# Second\n\nReplacement book\n", encoding="utf-8")
+        self.app.open_book(first)
+
+        real_store = self.app.progress_store
+        old_reader = self.app.reader
+        old_key = self.app.book_key
+        old_workflow = self.app.book_workflow
+        old_delegate = self.app.book_delegate
+        old_books = self.app.books
+        old_route = self.app.shell.current_route.route_id
+
+        class FailReplacementProgressStore:
+            def has(self, book_key):
+                return real_store.has(book_key)
+
+            def restore(self, book_key, document):
+                return real_store.restore(book_key, document)
+
+            def save(self, book_key, reader):
+                if book_key != old_key:
+                    raise OSError("simulated replacement progress write failure")
+                return real_store.save(book_key, reader)
+
+        self.app.progress_store = FailReplacementProgressStore()
+
+        with self.assertRaisesRegex(OSError, "simulated replacement progress write failure"):
+            self.app.open_book(second)
+
+        self.assertIs(self.app.reader, old_reader)
+        self.assertEqual(self.app.book_key, old_key)
+        self.assertIs(self.app.book_workflow, old_workflow)
+        self.assertIs(self.app.book_delegate, old_delegate)
+        self.assertIs(self.app.books, old_books)
+        self.assertEqual(self.app.shell.current_route.route_id, old_route)
 
     def test_browser_path_payload_rejected_before_native_picker(self):
         self.dialogs.open_pgn = lambda: self.fail("must not open dialog")
