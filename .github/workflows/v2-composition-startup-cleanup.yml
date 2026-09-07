@@ -1,0 +1,47 @@
+name: V2 Composition Startup Cleanup
+
+on:
+  push:
+    branches:
+      - work/v2-composition-startup-cleanup-20260907
+  pull_request:
+    branches:
+      - work/w5-v2-pgn-real-board-projection-20260907
+
+permissions:
+  contents: read
+
+concurrency:
+  group: v2-composition-startup-cleanup-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  startup-cleanup:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Prove stacked and bounded successor scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          base=083c4c7d9a410732fa320bc978bf49a3a99421a4
+          git merge-base --is-ancestor "$base" HEAD
+          git diff --check "$base" HEAD
+          test -f tests/test_version2_composition_startup_cleanup.py
+          unexpected="$(git diff --name-only "$base" HEAD | grep -Ev '^(.github/workflows/v2-composition-startup-cleanup.yml|acs/version2_release_app.py|tests/test_version2_composition_startup_cleanup.py)$' || true)"
+          test -z "$unexpected"
+      - name: Compile focused composition scope
+        run: python -m py_compile acs/version2_release_app.py tests/test_version2_composition_startup_cleanup.py
+      - name: Run startup cleanup regression
+        run: python -m unittest -v tests.test_version2_composition_startup_cleanup
+      - name: Run inherited V2 release application regressions
+        run: python -m unittest -v tests.test_version2_release_app
