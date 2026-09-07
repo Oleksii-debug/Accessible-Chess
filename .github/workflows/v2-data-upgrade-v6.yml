@@ -26,7 +26,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  V2_V6_BASE: 47750f4a1ad452e6b9b8811afaa3cc699bde4ea8
+  DATA_OWNER: 9828010f7b0c08776684a176352ad1914eeb6409
   D07_V6_BLOB: f5dd56e017c09aa8bf2ba3aa66c0658f8a229e74
 
 jobs:
@@ -54,31 +54,40 @@ jobs:
           python-version: '3.12'
       - name: Install verification dependency
         run: python -m pip install -q pytest==8.4.2
-      - name: Ownership, ancestry, scope and D07 blob lock
+      - name: Exact data-owner ancestry and immutable Product/test locks
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git merge-base "$V2_V6_BASE" HEAD)" = "$V2_V6_BASE"
-          git diff --check "$V2_V6_BASE" HEAD
+          git cat-file -e "$DATA_OWNER^{commit}"
+          git merge-base --is-ancestor "$DATA_OWNER" HEAD
           test "$(git rev-parse HEAD:acs/acsdb.py)" = "$D07_V6_BLOB"
-          changed="$(git diff --name-only "$V2_V6_BASE" HEAD | sort)"
-          expected="$(printf '%s\n' \
-            '.github/workflows/v2-data-upgrade-tracked-writer.yml' \
-            '.github/workflows/v2-data-upgrade-v6.yml' \
-            'acs/settings.py' \
-            'acs/version2_upgrade.py' \
-            'tests/test_v2_upgrade_current_acsdb_identity_audit.py' \
-            'tests/test_v2_upgrade_publish_race_audit.py' \
-            'tests/test_v2_upgrade_tracked_writer_conflict.py' \
-            'tests/test_v2_upgrade_v6_successor.py' \
-            'tests/test_version2_upgrade.py' \
-            'tests/test_version2_upgrade_recovery_integrity.py' \
-            'tests/test_version2_upgrade_stale_writer.py' | sort)"
-          test "$changed" = "$expected"
-          if printf '%s\n' "$changed" | grep -E 'release_preflight|version2_package_preflight|teacher|classroom|education|gametree.py|pgn_|chessbase'; then
-            echo 'Out-of-lane change detected' >&2
-            exit 1
-          fi
+          git diff --check "$DATA_OWNER" HEAD -- \
+            acs/settings.py \
+            acs/version2_upgrade.py \
+            tests/test_v2_upgrade_current_acsdb_identity_audit.py \
+            tests/test_v2_upgrade_publish_race_audit.py \
+            tests/test_v2_upgrade_tracked_writer_conflict.py \
+            tests/test_v2_upgrade_v6_successor.py \
+            tests/test_version2_upgrade.py \
+            tests/test_version2_upgrade_recovery_integrity.py \
+            tests/test_version2_upgrade_stale_writer.py
+          while IFS='=' read -r path expected; do
+            actual="$(git rev-parse "HEAD:$path")"
+            test "$actual" = "$expected" || {
+              echo "Accepted V2 data owner drift: $path expected=$expected actual=$actual" >&2
+              exit 1
+            }
+          done <<'LOCKS'
+          acs/settings.py=3d0dfe1b6765128a970543ff57e533620a80e5fc
+          acs/version2_upgrade.py=b92a2c75e23ffb5944b1a3a758e20c56da34315f
+          tests/test_v2_upgrade_current_acsdb_identity_audit.py=931e02d1cbcea667df8a857b413c343ee19770f8
+          tests/test_v2_upgrade_publish_race_audit.py=b70d5fa08dae643c9c1a082d7abe98d913d8678a
+          tests/test_v2_upgrade_tracked_writer_conflict.py=5d04c0dd33a19912ff939f6010df8ee210c4fdeb
+          tests/test_v2_upgrade_v6_successor.py=163abc29f7c2709fdab3851c32fc710b3fcf4ddf
+          tests/test_version2_upgrade.py=649d08af5ad99d6f3588ed5293d8cc6b573a5e12
+          tests/test_version2_upgrade_recovery_integrity.py=25a2c79060fd152c7efaff5ac094e7a357b0ddc9
+          tests/test_version2_upgrade_stale_writer.py=c3967104ec33827a6027ce0f0af1ba5a18a04744
+          LOCKS
       - name: Compile
         run: python -m compileall -q acs tests run_accessible_chess.py
       - name: Focused V1 to V2 upgrade and D07 v6 integrity regressions
@@ -115,7 +124,8 @@ jobs:
         run: python -m unittest discover -s tests -v
       - name: Full pytest
         run: python -m pytest -q tests
-      - name: SELFTEST and complete diagnostic
+      - name: SELFTEST and complete diagnostics
         run: |
           python -m acs.selftest
           python run_accessible_chess.py --diagnostic
+          if [ -f run_accessible_chess_v2.py ]; then python run_accessible_chess_v2.py --diagnostic; fi
