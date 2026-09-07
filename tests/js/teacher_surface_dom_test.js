@@ -83,14 +83,18 @@ function check(condition, message) {
   if (!condition) throw new Error(message);
 }
 
-function snapshot(pointer) {
+function snapshot(pointer, coordinatesVisible) {
   return {
     board: {
       orientation: "white",
-      coordinates_visible: true,
+      coordinates_visible: coordinatesVisible !== false,
       permission: "select_only",
       engine_visibility: "hidden"
     },
+    pieces: [
+      { square: "e4", symbol: "P", glyph: "♙", name: "white pawn" },
+      { square: "e8", symbol: "k", glyph: "♚", name: "black king" }
+    ],
     pointer: pointer ? { square: pointer } : null,
     highlights: [{ square: "c7", purpose: "target", color: "#ffcc00" }],
     arrows: [{ start_square: "a1", end_square: "h8", purpose: "idea", color: "#0078d4" }],
@@ -145,6 +149,25 @@ async function run() {
   check(squares.length === 64, "teacher board does not contain 64 squares");
   check(root.querySelector("#teacher-square-c7").getAttribute("data-highlight") === "target", "highlight missing");
 
+  const e4Initial = root.querySelector("#teacher-square-e4");
+  check(e4Initial.textContent.includes("♙"), "canonical white pawn is not visible");
+  check(e4Initial.textContent.includes("e4"), "coordinate disappeared while enabled");
+  check(e4Initial.getAttribute("data-piece") === "P", "canonical piece symbol missing");
+  check(e4Initial.getAttribute("aria-label") === "e4, white pawn", "piece accessible label missing");
+
+  const hiddenRoot = new FakeElement("div");
+  window.AccessibleChessTeacherSurface.render(
+    hiddenRoot,
+    snapshot(null, false),
+    invoke,
+    function () {},
+    "",
+    "Action failed"
+  );
+  const hiddenE4 = hiddenRoot.querySelector("#teacher-square-e4");
+  check(hiddenE4.textContent === "♙", "hiding coordinates also hid the chess piece");
+  check(hiddenE4.getAttribute("aria-label") === "e4, white pawn", "hidden coordinate mode lost semantic square/piece identity");
+
   const input = root.querySelector("#teacher-pointer-input");
   check(document.activeElement === input, "pointer input did not receive focus");
   const wholeRenders = root.replaceChildrenCalls;
@@ -164,12 +187,16 @@ async function run() {
   await flushPromises();
   e4.listeners.click();
   await flushPromises();
-  check(calls.some((item) => item[0] === "teacher.student_event" && item[1].kind === "hover"), "hover feedback missing");
-  check(calls.some((item) => item[0] === "teacher.student_event" && item[1].kind === "select"), "selection feedback missing");
+  const hover = calls.find((item) => item[0] === "teacher.student_event" && item[1].kind === "hover");
+  const select = calls.find((item) => item[0] === "teacher.student_event" && item[1].kind === "select");
+  check(Boolean(hover), "hover feedback missing");
+  check(Boolean(select), "selection feedback missing");
+  check(hover[1].piece_name === "white pawn", "hover did not return canonical piece identity");
+  check(select[1].piece_name === "white pawn", "selection did not return canonical piece identity");
   check(!calls.some((item) => item[0] === "student.move" || item[0] === "board.input"), "pointer/hover/selection became a move");
   check(announcements.length === 1 && announcements[0] === "Selected e4", "hover flooded or selection failed to announce once");
 
-  console.log("Teacher pointer/hover/selection DOM contract PASS");
+  console.log("Teacher canonical-piece/pointer/hover/selection DOM contract PASS");
 }
 
 run().catch(function (error) {
