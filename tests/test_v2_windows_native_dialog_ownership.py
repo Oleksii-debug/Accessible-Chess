@@ -20,6 +20,8 @@ class _Owner:
 
 class _DialogResult:
     OK = "ok"
+    Yes = "yes"
+    No = "no"
 
 
 class _NativeDialog:
@@ -49,14 +51,38 @@ class _SaveDialog(_NativeDialog):
     instances: list["_SaveDialog"] = []
 
 
+class _MessageBoxButtons:
+    YesNo = "yes-no"
+
+
+class _MessageBoxIcon:
+    Warning = "warning"
+
+
+class _MessageBox:
+    calls: list[tuple[object, ...]] = []
+    result = _DialogResult.Yes
+
+    @classmethod
+    def Show(cls, *args):  # noqa: N802
+        cls.calls.append(args)
+        return cls.result
+
+
 def _forms_loader():
     return _DialogResult, _OpenDialog, _SaveDialog
+
+
+def _message_box_loader():
+    return _MessageBox, _MessageBoxButtons, _MessageBoxIcon
 
 
 class Version2WindowsNativeDialogOwnershipTests(unittest.TestCase):
     def setUp(self) -> None:
         _OpenDialog.instances.clear()
         _SaveDialog.instances.clear()
+        _MessageBox.calls.clear()
+        _MessageBox.result = _DialogResult.Yes
 
     def test_file_dialogs_supply_exact_owner_for_open_save_and_import(self) -> None:
         owner = _Owner()
@@ -78,6 +104,45 @@ class Version2WindowsNativeDialogOwnershipTests(unittest.TestCase):
         for dialog in (*_OpenDialog.instances, *_SaveDialog.instances):
             self.assertEqual(dialog.show_args, (owner,))
             self.assertTrue(dialog.disposed)
+
+    def test_unsaved_pgn_confirmation_uses_same_exact_owner_contract(self) -> None:
+        owner = _Owner()
+        dialogs = Version2OwnedWindowsFileDialogs(
+            lambda: owner,
+            forms_loader=_forms_loader,
+            message_box_loader=_message_box_loader,
+        )
+
+        self.assertTrue(dialogs.confirm_discard_unsaved_pgn())
+        self.assertEqual(
+            _MessageBox.calls,
+            [
+                (
+                    owner,
+                    "The current PGN has unsaved changes. Discard those changes and open another PGN?",
+                    "Unsaved PGN changes",
+                    _MessageBoxButtons.YesNo,
+                    _MessageBoxIcon.Warning,
+                )
+            ],
+        )
+
+        _MessageBox.result = _DialogResult.No
+        self.assertFalse(dialogs.confirm_discard_unsaved_pgn())
+        self.assertEqual(_MessageBox.calls[-1][0], owner)
+
+    def test_unsaved_pgn_confirmation_fails_before_unowned_message_box(self) -> None:
+        owner = _Owner()
+        owner.Disposing = True
+        dialogs = Version2OwnedWindowsFileDialogs(
+            lambda: owner,
+            forms_loader=_forms_loader,
+            message_box_loader=_message_box_loader,
+        )
+
+        with self.assertRaisesRegex(RuntimeError, "owner is unavailable"):
+            dialogs.confirm_discard_unsaved_pgn()
+        self.assertEqual(_MessageBox.calls, [])
 
     def test_export_dialog_uses_same_exact_owner_contract(self) -> None:
         owner = _Owner()
