@@ -1,0 +1,52 @@
+name: V2 Package Required Resources
+
+on:
+  pull_request:
+    branches:
+      - work/w6-v2-package-preflight-intake-20260907
+    paths:
+      - 'tests/test_v2_package_required_resources.py'
+      - '.github/workflows/v2-package-required-resources.yml'
+      - 'acs/version2_package_preflight.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: v2-package-required-resources-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  OWNER_PARENT: 58be5a7e577714f221be6653655f4bc1d6bb1acd
+  OWNER_PREFLIGHT_BLOB: ab038e5aa68600d1388a71604e9ef0e4221df4bc
+
+jobs:
+  red-first-resource-contract:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Prove RED-first child scope and unchanged preflight owner
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor "$OWNER_PARENT" HEAD
+          git diff --check "$OWNER_PARENT" HEAD
+          mapfile -t changed < <(git diff --name-only "$OWNER_PARENT" HEAD)
+          printf '%s\n' "${changed[@]}"
+          test "${#changed[@]}" -eq 2
+          printf '%s\n' "${changed[@]}" | grep -Fx '.github/workflows/v2-package-required-resources.yml'
+          printf '%s\n' "${changed[@]}" | grep -Fx 'tests/test_v2_package_required_resources.py'
+          test "$(git rev-parse HEAD:acs/version2_package_preflight.py)" = "$OWNER_PREFLIGHT_BLOB"
+          echo 'RED-FIRST SCOPE / OWNER BYTE LOCK PASS'
+
+      - name: Existing V2 package preflight suite must remain green first
+        run: python -m unittest -v tests.test_version2_package_preflight tests.test_version2_package_preflight_hardening
+
+      - name: Required release-resource oracle
+        run: python -m unittest -v tests.test_v2_package_required_resources
