@@ -20,6 +20,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import secrets
 import shutil
 import sqlite3
@@ -51,6 +52,9 @@ _BRIDGE_SCHEMA_VERSION = 1
 _PHASES = {"prepared", "settings_published", "library_published", "committed"}
 _JOURNAL_NAME = ".v1-runtime-bridge-state.json"
 _COMPLETED_NAME = ".v1-runtime-bridge-completed.json"
+_BACKUP_NAME_RE = re.compile(
+    r"\Av1-\d{8}T\d{6}Z-[0-9a-f]{8}-legacy-runtime\Z"
+)
 _IMMUTABLE_RECORD_FIELDS = (
     "schema_version",
     "bridge_id",
@@ -82,6 +86,12 @@ class V1RuntimeBridgeReport:
 
 def _sha256_bytes(payload: bytes) -> str:
     return hashlib.sha256(payload).hexdigest()
+
+
+def _validate_backup_name(value: object, label: str) -> str:
+    if not isinstance(value, str) or _BACKUP_NAME_RE.fullmatch(value) is None:
+        raise V1RuntimeBridgeError(f"{label} is invalid")
+    return value
 
 
 def _require_regular(path: Path, label: str) -> os.stat_result:
@@ -287,9 +297,7 @@ class V1RuntimeBridgeCoordinator:
     def _verify_manifest_binding(
         self, record: Mapping[str, object], label: str
     ) -> None:
-        backup_name = record.get("backup_name")
-        if not isinstance(backup_name, str) or not backup_name:
-            raise V1RuntimeBridgeError(f"{label} is invalid")
+        backup_name = _validate_backup_name(record.get("backup_name"), label)
         backup = self.layout.backup_root / backup_name
         _require_directory(backup, "V1 runtime bridge backup")
         manifest_path = backup / "manifest.json"
