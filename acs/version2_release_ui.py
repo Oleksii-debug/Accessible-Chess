@@ -13,6 +13,7 @@ from collections.abc import Mapping
 from typing import Any, Callable
 
 from .full_product_native_menu import install_full_product_windows_native_menu
+from .full_product_ui_shell import UILanguage
 from .stage1_release_ui import Stage1ReleaseAccessibleChessAPI, _asset_root
 from .version2_profile import Version2NativeMenuController
 
@@ -29,6 +30,37 @@ class Version2ReleaseAccessibleChessAPI(Stage1ReleaseAccessibleChessAPI):
         super().__init__(*args, **kwargs)
         self._version2_application: Any | None = None
 
+    @staticmethod
+    def _apply_application_language(application: Any, language: UILanguage) -> None:
+        """Project one language over every currently materialized V2 surface.
+
+        ``Settings.language`` is persisted by the release API.  The V2 shell,
+        PGN, Library/import and Books objects are presentation consumers only;
+        this method deliberately creates no additional language state.
+        """
+
+        previous = application.shell.language
+        projections: list[Any] = [application.library.projection]
+        if application.pgn is not None:
+            projections.append(application.pgn.projection)
+        if application.books is not None:
+            projections.append(application.books.projection)
+        try:
+            application.shell.set_language(language)
+            for projection in projections:
+                projection.set_language(language)
+        except Exception:
+            try:
+                application.shell.set_language(previous)
+            except Exception:
+                pass
+            for projection in projections:
+                try:
+                    projection.set_language(previous)
+                except Exception:
+                    pass
+            raise
+
     def bind_version2_application(self, application: Any) -> None:
         if self._version2_application is not None and self._version2_application is not application:
             raise RuntimeError("Version 2 application is already bound")
@@ -44,6 +76,7 @@ class Version2ReleaseAccessibleChessAPI(Stage1ReleaseAccessibleChessAPI):
                 raise TypeError("Version 2 application host contract is incomplete")
         if getattr(application, "adapter", None) is None:
             raise TypeError("Version 2 application requires its accepted WebView adapter")
+        self._apply_application_language(application, UILanguage(self.lang))
         self._version2_application = application
 
     def _version2(self) -> Any:
@@ -51,6 +84,56 @@ class Version2ReleaseAccessibleChessAPI(Stage1ReleaseAccessibleChessAPI):
         if application is None:
             raise RuntimeError("Version 2 application is not bound")
         return application
+
+    def set_language(self, lang: str) -> dict[str, Any]:
+        """Persist and apply one language transition across the complete V2 window."""
+
+        if lang not in ("uk", "en"):
+            return super().set_language(lang)
+        previous = self.lang
+        target = UILanguage(lang)
+        settings = getattr(self, "_settings", None)
+        previous_setting = previous
+        if settings is not None:
+            try:
+                stored = settings.get("language", previous)
+                if stored in ("uk", "en"):
+                    previous_setting = stored
+            except Exception:
+                previous_setting = previous
+
+        result = super().set_language(target.value)
+        if not result.get("ok"):
+            return result
+        try:
+            if settings is not None:
+                settings.set("language", target.value)
+            application = self._version2_application
+            if application is not None:
+                self._apply_application_language(application, target)
+        except Exception:
+            application = self._version2_application
+            if application is not None:
+                try:
+                    self._apply_application_language(application, UILanguage(previous))
+                except Exception:
+                    pass
+            try:
+                super().set_language(previous)
+            except Exception:
+                self.lang = previous
+            if settings is not None:
+                try:
+                    settings.set("language", previous_setting)
+                except Exception:
+                    data = getattr(settings, "data", None)
+                    if isinstance(data, dict):
+                        data["language"] = previous_setting
+            return self._concise_error(
+                "Не вдалося зберегти мову програми.",
+                "The application language could not be saved.",
+            )
+        return result
 
     def v2_snapshot(self) -> dict[str, object]:
         return self._version2().snapshot()
