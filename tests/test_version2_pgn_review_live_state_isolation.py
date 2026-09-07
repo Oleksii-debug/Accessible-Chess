@@ -34,7 +34,7 @@ class Version2PgnReviewLiveStateIsolationTests(unittest.TestCase):
             progress_store=BookProgressStore(self.root / "book-progress.json"),
             engine_assistance=EngineAssistedWorkflowService(self.analysis),
             board_dispatch=self.api.v2_board_dispatch,
-            board_position_projector=self.api.project_review_fen,
+            board_position_projector=self.api._project_review_fen,
         )
         self.api.bind_version2_application(self.app)
 
