@@ -60,6 +60,7 @@ class Version2ReleaseAccessibilityContractTests(unittest.TestCase):
             "The Library is not ready to browse yet.",
             "No book is open yet.",
             "Could not load Version 2 sections.",
+            "Could not refresh the board.",
         ):
             with self.subTest(text=english):
                 self.assertIn(english, BOOTSTRAP)
@@ -131,6 +132,9 @@ class Version2ReleaseAccessibilityContractTests(unittest.TestCase):
         self.assertIn('currentRouteId === "library"', queued)
         self.assertIn('global.AccessibleChessLibrarySurface.apply(workspace, event, areaInvoke("library"), announce);', queued)
         self.assertIn('return false;', queued)
+        self.assertIn('function delegatedHasOwnPresentationEvent(actionId)', BOOTSTRAP)
+        self.assertIn('actionId === "library.import" || actionId === "library.cancel_import"', BOOTSTRAP)
+        self.assertIn('if (delegatedHasOwnPresentationEvent(actionId)) return false;', queued)
         drain_start = BOOTSTRAP.index('  function drainEvents()')
         drain_end = BOOTSTRAP.index('  documentRef.addEventListener("focusin"', drain_start)
         drain = BOOTSTRAP[drain_start:drain_end]
@@ -144,6 +148,22 @@ class Version2ReleaseAccessibilityContractTests(unittest.TestCase):
         queued = BOOTSTRAP[apply_start:apply_end]
         self.assertIn('if (payload.announcement) announce(payload.announcement);', queued)
         self.assertIn('return event.kind !== "error" && event.kind !== "status";', queued)
+
+    def test_native_stage1_delegated_actions_refresh_the_existing_stage1_renderer(self) -> None:
+        self.assertIn('async function refreshState()', HTML)
+        self.assertIn('function isVersion2DomainAction(actionId)', BOOTSTRAP)
+        self.assertIn('actionId.indexOf("pgn.") === 0', BOOTSTRAP)
+        self.assertIn('actionId.indexOf("library.") === 0', BOOTSTRAP)
+        self.assertIn('actionId.indexOf("book.") === 0', BOOTSTRAP)
+        self.assertIn('function refreshStage1Surface()', BOOTSTRAP)
+        self.assertIn('Promise.resolve(global.refreshState()).catch(function () {', BOOTSTRAP)
+        apply_start = BOOTSTRAP.index('  function applyQueuedEvent(event)')
+        apply_end = BOOTSTRAP.index('  function drainEvents()', apply_start)
+        queued = BOOTSTRAP[apply_start:apply_end]
+        self.assertIn('if (event.kind === "delegated")', queued)
+        self.assertIn('if (actionId && !isVersion2DomainAction(actionId)) {', queued)
+        self.assertIn('refreshStage1Surface();', queued)
+        self.assertIn('return false;', queued)
 
     def test_native_event_batch_restores_final_route_then_visible_explicit_focus(self) -> None:
         self.assertIn('<button id="board-launcher" type="button">', HTML)
