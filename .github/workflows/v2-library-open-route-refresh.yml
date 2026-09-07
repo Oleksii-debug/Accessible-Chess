@@ -1,0 +1,80 @@
+name: V2 Library Open Route Refresh
+
+on:
+  push:
+    branches:
+      - work/v2-library-open-route-refresh-20260907
+  pull_request:
+    paths:
+      - 'web/version2_release_bootstrap.js'
+      - 'tests/js/version2_library_open_route_refresh_dom_test.js'
+      - '.github/workflows/v2-library-open-route-refresh.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: v2-library-open-route-refresh-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  W4_PARENT: 2ad06750ea4e254ef6aa2a80fac4a735123c0982
+
+jobs:
+  direct-library-open-route:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Prove exact W4 successor scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor "$W4_PARENT" HEAD
+          test "$(git merge-base "$W4_PARENT" HEAD)" = "$W4_PARENT"
+          git diff --check "$W4_PARENT" HEAD
+          changed="$(git diff --name-only "$W4_PARENT" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/v2-library-open-route-refresh.yml' \
+            'tests/js/version2_library_open_route_refresh_dom_test.js' \
+            'web/version2_release_bootstrap.js' | sort)"
+          test "$changed" = "$expected" || {
+            printf 'Unexpected W4 Library-route scope:\n%s\n' "$changed" >&2
+            exit 1
+          }
+
+      - name: JavaScript syntax
+        run: |
+          node --check web/full_product_library.js
+          node --check web/version2_release_bootstrap.js
+          node --check tests/js/version2_release_bootstrap_dom_test.js
+          node --check tests/js/version2_library_open_route_refresh_dom_test.js
+
+      - name: Preserve inherited W4 focus and landmark contract
+        run: node tests/js/version2_release_bootstrap_dom_test.js
+
+      - name: Preserve inherited Book board refresh oracle
+        run: python -m unittest -v tests.test_version2_book_board_stage1_refresh_evidence
+
+      - name: Direct Library open must refresh PGN route and focus
+        run: node tests/js/version2_library_open_route_refresh_dom_test.js
+
+      - name: Focused Python V2 application and accessibility regressions
+        run: >-
+          python -m unittest -v
+          tests.test_version2_application
+          tests.test_version2_release_accessibility_contract
+
+      - name: Full unittest regression
+        run: python -m unittest discover -s tests -v
+
+      - name: Full pytest regression
+        run: python -m pytest -q
