@@ -139,11 +139,9 @@ class Version2Application:
         if self.reader is not None: self.progress_store.save(self.book_key, self.reader)
 
     def _book_event(self, event):
-        if event.kind is BookBoardUiEventKind.BOARD_OPENED:
-            self.pgn_board_active = False
-            self.shell.open_route("board")
-            self._events.append({"kind": "book-board", "payload": {"focus_target": "board-launcher"}})
-        elif event.kind is BookBoardUiEventKind.RETURNED_TO_BOOK:
+        # Board-open/update success becomes authoritative only after the application
+        # has projected the canonical BookBoard FEN into the real release board.
+        if event.kind is BookBoardUiEventKind.RETURNED_TO_BOOK:
             self.shell.open_route("books")
             self.save_book_progress()
         elif event.kind is BookBoardUiEventKind.FAILED:
@@ -152,17 +150,40 @@ class Version2Application:
     def _error(self):
         return {"kind": "error", "payload": {"message": concise_user_error("", language=self.shell.language)}}
 
-    def _project_pgn_position(self, fen=None):
+    def _project_board_position(self, position):
         projector = self._board_position_projector
         if projector is None:
             raise RuntimeError("release board position projector is unavailable")
-        position = self.pgn_commands.current_fen() if fen is None else fen
         if not isinstance(position, str) or not position.strip():
-            raise RuntimeError("canonical PGN position is unavailable")
+            raise RuntimeError("canonical board position is unavailable")
         result = projector(position)
         if not isinstance(result, dict) or result.get("ok") is not True:
-            raise RuntimeError("release board rejected canonical PGN position")
+            raise RuntimeError("release board rejected canonical position")
         return position
+
+    def _project_pgn_position(self, fen=None):
+        position = self.pgn_commands.current_fen() if fen is None else fen
+        return self._project_board_position(position)
+
+    def _recover_book_projection_failure(self, before_view):
+        # Navigation has already committed inside the canonical BookBoardWorkflow.
+        # Roll it back through that owner's immutable cursor API; if the release
+        # board cannot even restore the previous position, leave Board review
+        # entirely through the canonical exact-return path instead of diverging.
+        if before_view is not None and before_view.cursor is not None:
+            try:
+                self.book_workflow.go_to_cursor(before_view.cursor)
+                self._project_board_position(before_view.current_fen)
+                return
+            except Exception:
+                pass
+        if self.book_workflow is not None and self.book_workflow.active:
+            try:
+                self.book_workflow.return_to_book()
+            except Exception:
+                return
+            self.shell.open_route("books")
+            self.save_book_progress()
 
     def _delegate(self, action, payload):
         # Native menus enter the same projection commands as keyboard buttons.
@@ -225,7 +246,20 @@ class Version2Application:
             return None if source is None else self.open_book(source)
         if action.startswith("book."):
             if self.book_delegate is None: raise ValueError("no book is open")
-            if action in self.book_delegate.OWNED_ACTIONS: return self.book_delegate(action, payload)
+            if action in self.book_delegate.OWNED_ACTIONS:
+                before_view = self.book_delegate.view() if self.book_workflow.active else None
+                result = self.book_delegate(action, payload)
+                if result.kind in {BookBoardUiEventKind.BOARD_OPENED, BookBoardUiEventKind.BOARD_UPDATED}:
+                    try:
+                        self._project_board_position(self.book_delegate.view().current_fen)
+                    except Exception:
+                        self._recover_book_projection_failure(before_view)
+                        raise
+                    self.pgn_board_active = False
+                    self.shell.open_route("board")
+                    if result.kind is BookBoardUiEventKind.BOARD_OPENED:
+                        self._events.append({"kind": "book-board", "payload": {"focus_target": "board-launcher"}})
+                return result
             command = {"book.previous_block": "book.previous", "book.next_block": "book.next", "book.bookmark": "book.bookmark.save"}.get(action, action)
             result = self.books.dispatch(command, {"name": "default"} if action == "book.bookmark" else payload)
             if result.kind == "error": raise ValueError("book command failed")
