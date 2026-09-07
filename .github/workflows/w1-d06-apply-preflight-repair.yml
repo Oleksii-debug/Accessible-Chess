@@ -147,7 +147,7 @@ jobs:
                   line_start = line_end + 1
 
           '''
-          replacement = '\n'.join(line[4:] if line.startswith('    ') else line for line in replacement.splitlines()) + '\n'
+          replacement = replacement.rstrip('\n') + '\n'
           new_text = text[:start] + replacement + text[end:]
           if new_text == text:
               raise SystemExit('repair produced no change')
