@@ -13,6 +13,10 @@ is create-only; updates therefore cannot silently overwrite progress that the
 caller never observed.  The lock file itself may survive process termination;
 the operating-system lock is released with the process, so crash residue cannot
 permanently block later progress saves.
+
+Both read and write paths are bounded.  Progress data must be one regular local
+file, duplicate JSON object keys are rejected, and oversized state fails closed
+before parsing or publication.
 """
 
 from contextlib import contextmanager
@@ -23,11 +27,12 @@ import os
 from pathlib import Path
 import stat
 import tempfile
-from typing import Iterator, Mapping
+from typing import Any, Iterator, Mapping
 
 from .training import ExerciseDefinition, ExerciseSession
 
 TRAINING_PROGRESS_STORE_SCHEMA_VERSION = 1
+MAX_TRAINING_PROGRESS_BYTES = 1 * 1024 * 1024
 _ENVELOPE_FIELDS = frozenset({"schema_version", "snapshot"})
 
 
@@ -37,6 +42,10 @@ class TrainingProgressConflictError(RuntimeError):
 
 class TrainingProgressBusyError(RuntimeError):
     """Raised when another writer currently owns the peer publication lock."""
+
+
+class TrainingProgressResourceError(ValueError):
+    """Raised when durable progress exceeds the supported storage bounds."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -51,6 +60,7 @@ def _canonical_bytes(payload: Mapping[str, object]) -> bytes:
         ensure_ascii=False,
         sort_keys=True,
         separators=(",", ":"),
+        allow_nan=False,
     ).encode("utf-8")
 
 
@@ -78,6 +88,15 @@ def _is_reparse_point(metadata: os.stat_result) -> bool:
     return bool(flag and attributes & flag)
 
 
+def _reject_duplicate_object_pairs(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("training progress contains duplicate JSON object keys")
+        result[key] = value
+    return result
+
+
 class TrainingProgressStore:
     """Atomic single-exercise progress file with compare-and-swap updates.
 
@@ -98,13 +117,49 @@ class TrainingProgressStore:
             raise ValueError("path must identify a progress file")
         self._lock_path = self.path.with_name(f".{self.path.name}.lock")
 
-    def load(self, definition: ExerciseDefinition) -> LoadedTrainingProgress | None:
+    @staticmethod
+    def _require_regular_progress(metadata: os.stat_result) -> None:
+        if (
+            stat.S_ISLNK(metadata.st_mode)
+            or _is_reparse_point(metadata)
+            or not stat.S_ISREG(metadata.st_mode)
+        ):
+            raise ValueError("training progress storage is not a regular file")
+
+    def _read_progress_bytes(self, *, missing_ok: bool) -> bytes | None:
+        try:
+            metadata = os.lstat(self.path)
+        except FileNotFoundError:
+            if missing_ok:
+                return None
+            raise ValueError("training progress file is unavailable")
+        except OSError as exc:
+            raise ValueError("training progress file could not be inspected") from exc
+
+        self._require_regular_progress(metadata)
+        if metadata.st_size > MAX_TRAINING_PROGRESS_BYTES:
+            raise TrainingProgressResourceError(
+                "training progress file exceeds the resource limit"
+            )
         try:
             data = self.path.read_bytes()
-        except FileNotFoundError:
+        except OSError as exc:
+            raise ValueError("training progress file could not be read") from exc
+        if len(data) > MAX_TRAINING_PROGRESS_BYTES:
+            raise TrainingProgressResourceError(
+                "training progress file exceeds the resource limit"
+            )
+        return data
+
+    def load(self, definition: ExerciseDefinition) -> LoadedTrainingProgress | None:
+        data = self._read_progress_bytes(missing_ok=True)
+        if data is None:
             return None
         try:
-            payload = json.loads(data.decode("utf-8"))
+            payload = json.loads(
+                data.decode("utf-8"),
+                object_pairs_hook=_reject_duplicate_object_pairs,
+            )
         except (UnicodeDecodeError, json.JSONDecodeError) as exc:
             raise ValueError("invalid training progress file") from exc
         if type(payload) is not dict:
@@ -220,13 +275,10 @@ class TrainingProgressStore:
         temporary: Path | None = None
         with self._exclusive_access():
             try:
-                current_revision: str | None
-                try:
-                    current_data = self.path.read_bytes()
-                except FileNotFoundError:
-                    current_revision = None
-                else:
-                    current_revision = _revision(current_data)
+                current_data = self._read_progress_bytes(missing_ok=True)
+                current_revision = (
+                    None if current_data is None else _revision(current_data)
+                )
 
                 if current_revision != expected:
                     raise TrainingProgressConflictError(
@@ -238,6 +290,10 @@ class TrainingProgressStore:
                     "snapshot": session.snapshot(),
                 }
                 data = _canonical_bytes(envelope)
+                if len(data) > MAX_TRAINING_PROGRESS_BYTES:
+                    raise TrainingProgressResourceError(
+                        "training progress snapshot exceeds the resource limit"
+                    )
                 new_revision = _revision(data)
 
                 fd, raw_path = tempfile.mkstemp(
