@@ -40,12 +40,16 @@ from .version2_windows_library_import_observer import Version2ObservedImportServ
 class Version2Application:
     def __init__(self, database: AcsDatabase, *, progress_store: BookProgressStore,
                  engine_assistance: EngineAssistedWorkflowService, board_dispatch,
-                 copy_text=lambda _: None, language=UILanguage.UA):
+                 board_position_projector=None, copy_text=lambda _: None,
+                 language=UILanguage.UA):
         self._thread = threading.get_ident()
         self.database = database
         self.progress_store = progress_store
         self.engine_assistance = engine_assistance
         self._board_dispatch = board_dispatch
+        if board_position_projector is not None and not callable(board_position_projector):
+            raise TypeError("board_position_projector must be callable or None")
+        self._board_position_projector = board_position_projector
         self._events = deque(maxlen=64)
         self._observation_lock = threading.Lock()
         self._progress = self._result = None
@@ -148,11 +152,23 @@ class Version2Application:
     def _error(self):
         return {"kind": "error", "payload": {"message": concise_user_error("", language=self.shell.language)}}
 
+    def _project_pgn_position(self, fen=None):
+        projector = self._board_position_projector
+        if projector is None:
+            raise RuntimeError("release board position projector is unavailable")
+        position = self.pgn_commands.current_fen() if fen is None else fen
+        if not isinstance(position, str) or not position.strip():
+            raise RuntimeError("canonical PGN position is unavailable")
+        result = projector(position)
+        if not isinstance(result, dict) or result.get("ok") is not True:
+            raise RuntimeError("release board rejected canonical PGN position")
+        return position
+
     def _delegate(self, action, payload):
         # Native menus enter the same projection commands as keyboard buttons.
         if action == "pgn.open_on_board":
             if payload: raise ValueError("PGN board accepts no payload")
-            self.pgn_commands.current_fen()
+            self._project_pgn_position()
             self.pgn_board_active = True
             self.shell.open_route("board")
             return None
@@ -165,13 +181,18 @@ class Version2Application:
             if payload or not self.pgn_board_active: raise ValueError("no PGN board review")
             workspace = self.session.workspace
             before = workspace.cursor
+            before_fen = self.pgn_commands.current_fen()
             try:
                 method = {"pgn.board_next_move": workspace.next_move, "pgn.board_previous_move": workspace.previous_move,
                           "pgn.board_enter_variation": workspace.enter_variation, "pgn.board_leave_variation": workspace.leave_variation}[action]
                 method()
-                self.pgn_commands.current_fen()
+                self._project_pgn_position()
             except Exception:
                 workspace.set_cursor(before)
+                try:
+                    self._project_pgn_position(before_fen)
+                except Exception:
+                    pass
                 raise
             return None
         if action.startswith("pgn.") and action not in {"pgn.open", "pgn.save", "pgn.save_as", "pgn.export_selection"}:
