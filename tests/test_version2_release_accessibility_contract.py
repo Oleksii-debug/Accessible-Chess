@@ -8,6 +8,8 @@ ROOT = Path(__file__).resolve().parents[1]
 BOOTSTRAP = (ROOT / "web" / "version2_release_bootstrap.js").read_text(encoding="utf-8")
 HTML = (ROOT / "web" / "index.html").read_text(encoding="utf-8")
 SHELL = (ROOT / "acs" / "full_product_ui_shell.py").read_text(encoding="utf-8")
+PGN_PROJECTION = (ROOT / "acs" / "pgn_webview_projection.py").read_text(encoding="utf-8")
+BOOK_PROJECTION = (ROOT / "acs" / "book_webview_projection.py").read_text(encoding="utf-8")
 
 
 class Version2ReleaseAccessibilityContractTests(unittest.TestCase):
@@ -59,6 +61,34 @@ class Version2ReleaseAccessibilityContractTests(unittest.TestCase):
         self.assertIn('return documentRef.activeElement === target;', BOOTSTRAP)
         self.assertIn('refresh(true).catch(function () {', BOOTSTRAP)
         self.assertNotIn('refresh(false).catch(function () {', BOOTSTRAP)
+
+    def test_product_route_focus_converges_to_real_surface_or_current_navigation(self) -> None:
+        # Shell defaults are presentation-level placeholders. PGN and Books own
+        # the exact DOM identities of their current canonical content, so route
+        # entry must converge to those identities instead of dropping focus when
+        # renderNavigation replaces the previously focused navigation button.
+        self.assertIn('return "pgn-node-" + sha256(', PGN_PROJECTION)
+        self.assertIn('"focus_target": focus_target', PGN_PROJECTION)
+        self.assertIn('"dom_id": f"book-block-{block.index}"', BOOK_PROJECTION)
+        self.assertIn('"focus_target": snapshot["block"]["dom_id"]', BOOK_PROJECTION)
+
+        self.assertIn('function productSurfaceFocusTarget(snapshot, routeId)', BOOTSTRAP)
+        self.assertIn('return String(snapshot.pgn.focus_target || "");', BOOTSTRAP)
+        self.assertIn('return String(block.dom_id || "");', BOOTSTRAP)
+        self.assertIn('function restoreProductFocus(snapshot, routeId, requestedFocus)', BOOTSTRAP)
+        self.assertIn('if (active && workspace.contains(active)) return true;', BOOTSTRAP)
+        self.assertIn('if (focusById(productSurfaceFocusTarget(snapshot, routeId))) return true;', BOOTSTRAP)
+        self.assertIn('if (focusById(requestedFocus)) return true;', BOOTSTRAP)
+        self.assertIn('return focusById("v2-nav-" + routeId);', BOOTSTRAP)
+        self.assertIn('renderProductSurface(snapshot, routeId, requestedFocus, restoreFocus);', BOOTSTRAP)
+        self.assertIn('if (restoreFocus) restoreProductFocus(snapshot, routeId, requestedFocus);', BOOTSTRAP)
+
+    def test_background_event_refresh_never_steals_keyboard_focus(self) -> None:
+        drain_start = BOOTSTRAP.index('  function drainEvents()')
+        drain_end = BOOTSTRAP.index('  documentRef.addEventListener("focusin"', drain_start)
+        drain = BOOTSTRAP[drain_start:drain_end]
+        self.assertIn('refresh(false);', drain)
+        self.assertNotIn('refresh(true);', drain)
 
 
 if __name__ == "__main__":
