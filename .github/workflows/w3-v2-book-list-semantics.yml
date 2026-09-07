@@ -1,0 +1,48 @@
+name: W3 V2 Book List Semantics
+
+on:
+  push:
+    branches:
+      - work/v2-book-list-webview-evidence-20260907
+  pull_request:
+    branches:
+      - codex/v2-runtime-completion-20260907
+
+permissions:
+  contents: read
+
+concurrency:
+  group: w3-v2-book-list-semantics-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  semantic-list-contract:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Prove exact evidence-only child scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          base=40e1ef2184177600bcc88911529b718adde65df9
+          git merge-base --is-ancestor "$base" HEAD
+          git diff --check "$base" HEAD
+          changed="$(git diff --name-only "$base" HEAD | sort)"
+          expected=$'.github/workflows/w3-v2-book-list-semantics.yml\ntests/test_w3_v2_book_list_semantics.py'
+          test "$changed" = "$expected"
+          git diff --quiet "$base" HEAD -- acs web run_accessible_chess_v2.py
+      - name: Compile evidence and current Book presentation stack
+        run: python -m compileall -q acs tests/test_w3_v2_book_list_semantics.py
+      - name: Existing canonical Book and WebView contracts remain green
+        run: python -m unittest -v tests.test_v2_accessible_book_core tests.test_dev1_books_training_webview_projection
+      - name: W3 semantic-list RED oracle
+        run: python -m unittest -v tests.test_w3_v2_book_list_semantics
