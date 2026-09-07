@@ -137,9 +137,12 @@ jobs:
             echo 'Stage 1 or strict-release contamination detected' >&2
             exit 1
           fi
+          # These are genuinely frozen release/core seams. GameTree/PGN round-trip
+          # and Books owners are intentionally allowed to differ from V2_BASE
+          # because accepted V2 convergence packages changed them and the semantic
+          # suites below are their current authority.
           git diff --quiet "$V2_BASE" HEAD -- \
-            acs/chesscore.py acs/gametree.py acs/pgn_roundtrip.py acs/pgn_workspace.py \
-            acs/bookdocument.py acs/bookreader.py acs/book_training.py \
+            acs/chesscore.py acs/pgn_workspace.py \
             acs/stage1_release_ui.py acs/stage1_release_ui_core.py \
             web/stage1_release_bootstrap.js web/stage1_board_actions.js \
             tools/qa
@@ -160,7 +163,7 @@ jobs:
           tests/test_chessbase_libcbh_external_fixture.py=d915c6517a3577b4f395f8885cc998b257029db6
           tools/optional/LIBCBH_BACKEND.md=8dd90cd1f24bd42c8cbefb23be0dfcc979ca6560
           tools/optional/libcbh_json_bridge.cpp=ab4ffb128eada2fd225386b20f01016e0f87325b
-          acs/library_webview_bridge.py=0e90011a761355251f96d56f204b3875c947daec
+          acs/library_webview_bridge.py=4ee98f89f1d7312b04eb8c3190b6846db16bf3f6
           acs/library_webview_projection.py=149816ad0ca9a8d240e0b0c7057df15fe6cef0b5
           tests/test_dev1_library_webview_projection.py=fc9fbc36b4b6b9a2792a2db6ef09b2f1405a4d9b
           tests/test_library_import_ui_integration.py=7fca70f8100ee38c2f452b04e8165ad54941f773
