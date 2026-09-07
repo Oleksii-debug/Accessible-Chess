@@ -12,8 +12,10 @@ live in this module.
 from collections.abc import Mapping
 from typing import Any, Callable
 
+from .chesscore import Board
 from .full_product_native_menu import install_full_product_windows_native_menu
 from .stage1_release_ui import Stage1ReleaseAccessibleChessAPI, _asset_root
+from .ui_review_adapter import ReviewView
 from .version2_profile import Version2NativeMenuController
 
 
@@ -28,6 +30,7 @@ class Version2ReleaseAccessibleChessAPI(Stage1ReleaseAccessibleChessAPI):
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         self._version2_application: Any | None = None
+        self._version2_review_fen: str | None = None
 
     def bind_version2_application(self, application: Any) -> None:
         if self._version2_application is not None and self._version2_application is not application:
@@ -51,6 +54,70 @@ class Version2ReleaseAccessibleChessAPI(Stage1ReleaseAccessibleChessAPI):
         if application is None:
             raise RuntimeError("Version 2 application is not bound")
         return application
+
+    def _version2_review_active(self) -> bool:
+        """Return whether a V2 format workflow currently owns board presentation."""
+
+        application = self._version2_application
+        if application is None or self._version2_review_fen is None:
+            return False
+        if bool(getattr(application, "pgn_board_active", False)):
+            return True
+        workflow = getattr(application, "book_workflow", None)
+        return workflow is not None and bool(getattr(workflow, "active", False))
+
+    def _project_version2_review_position(self, fen: str) -> dict[str, Any]:
+        """Validate and stage a presentation-only V2 review position.
+
+        The canonical live ``self.board`` and ``ReviewHistory`` are deliberately
+        untouched.  Inherited board rendering/query code consumes the temporary
+        immutable review view only while the owning PGN/Book workflow is active.
+        """
+
+        if not isinstance(fen, str) or not fen.strip():
+            return {"ok": False}
+        try:
+            normalized = Board(fen).fen()
+        except Exception:
+            return {"ok": False}
+        self._version2_review_fen = normalized
+        return {"ok": True}
+
+    def _display_review(self):
+        if not self._version2_review_active():
+            return super()._display_review()
+        fen = self._version2_review_fen
+        if fen is None:
+            return super()._display_review()
+        status = (
+            "Перегляд позиції з документа."
+            if self.lang == "uk"
+            else "Reviewing a document position."
+        )
+        return ReviewView(
+            fen=fen,
+            ply=0,
+            node_id=-1,
+            at_start=False,
+            at_end=False,
+            status=status,
+            last_move=None,
+        )
+
+    def _visible_ply_count(self) -> int:
+        if self._version2_review_active():
+            return 0
+        return super()._visible_ply_count()
+
+    def _at_history_end(self) -> bool:
+        if self._version2_review_active():
+            return False
+        return super()._at_history_end()
+
+    def _analysis_origin_matches(self) -> bool:
+        if self._version2_review_active():
+            return self.analysis_ui.target_fen == self._version2_review_fen
+        return super()._analysis_origin_matches()
 
     def v2_snapshot(self) -> dict[str, object]:
         return self._version2().snapshot()
