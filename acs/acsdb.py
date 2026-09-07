@@ -23,6 +23,7 @@ from .search_policy import (
     SEARCH_FOLD_SQL_FUNCTION,
     install_search_fold,
     literal_like_pattern,
+    normalize_player_search_terms,
     normalize_search_date_bound,
     normalize_search_result,
     normalize_search_source_id,
@@ -875,9 +876,11 @@ class AcsDatabase:
         """Search canonical game metadata with deterministic keyset ordering.
 
         Text filters use Unicode NFKC + casefold with literal LIKE escaping.
-        Diacritics remain significant. ``site`` follows the same literal policy
-        as other metadata and reads canonical ``games.site`` directly; no second
-        presentation search state exists.
+        Diacritics remain significant. Player queries additionally treat
+        comma/whitespace-separated person-name components as order-independent,
+        but all components must match the same White or Black field. ``site``
+        follows the same literal policy as other metadata and reads canonical
+        ``games.site`` directly; no second presentation search state exists.
 
         ``game_date`` searches exact loss-aware PGN Date text. Date and year
         ranges match only complete real dates through the existing deterministic
@@ -887,7 +890,7 @@ class AcsDatabase:
         """
         source_id = normalize_search_source_id(source_id)
         result = normalize_search_result(result)  # type: ignore[assignment]
-        player = normalize_search_term(player, name="player")
+        player_terms = normalize_player_search_terms(player)
         event = normalize_search_term(event, name="event")
         site = normalize_search_term(site, name="site")
         eco = normalize_search_term(eco, name="eco")
@@ -921,12 +924,17 @@ class AcsDatabase:
 
         clauses: list[str] = []
         params: list[object] = []
-        if player:
-            clauses.append(
-                "(sf.white_fold LIKE ? ESCAPE '\\' OR sf.black_fold LIKE ? ESCAPE '\\')"
+        if player_terms:
+            white_terms = " AND ".join(
+                "sf.white_fold LIKE ? ESCAPE '\\'" for _ in player_terms
             )
-            needle = literal_like_pattern(player)
-            params.extend([needle, needle])
+            black_terms = " AND ".join(
+                "sf.black_fold LIKE ? ESCAPE '\\'" for _ in player_terms
+            )
+            clauses.append(f"(({white_terms}) OR ({black_terms}))")
+            needles = [literal_like_pattern(term) for term in player_terms]
+            params.extend(needles)
+            params.extend(needles)
         if event:
             clauses.append("sf.event_fold LIKE ? ESCAPE '\\'")
             params.append(literal_like_pattern(event))
