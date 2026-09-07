@@ -103,13 +103,18 @@ class W1D06NestedCommentFramerConvergenceTests(unittest.TestCase):
             self.assertEqual(caught.exception.accepted_games, 0)
             self.assertEqual(database.search_games(limit=10), [])
 
-    def test_literal_opening_brace_legacy_case_allows_later_result_and_next_game(self) -> None:
+    def test_literal_opening_brace_legacy_case_allows_following_game_boundary(self) -> None:
         source = (
             '[Event "First"]\n[Result "*"]\n\n'
-            '1. e4 {{ editorial opener} e5\n'
-            '*\n'
+            '1. e4 {{ editorial opener} e5 *\n'
             '[Event "Second"]\n[Result "*"]\n\n1. d4 d5 *\n'
         )
+        frames = self._frames(source)
+        self.assertEqual(
+            [frame.tags["Event"] for frame in frames],
+            ["First", "Second"],
+        )
+
         games = parse_pgn_text(source, strict=True)
         self.assertEqual([game.tags["Event"] for game in games], ["First", "Second"])
         self.assertEqual(
