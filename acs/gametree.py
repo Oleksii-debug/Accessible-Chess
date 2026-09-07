@@ -387,19 +387,38 @@ def _parse_line(
     return line, pos, warnings
 
 
-def _brace_comment_state_after_line(line: str, inside_comment: bool) -> bool:
-    """Track PGN brace comments so tag-looking comment lines stay movetext."""
+def _brace_comment_state_after_line(line: str, comment_depth: int) -> int:
+    """Track recoverable brace-comment depth for canonical game framing.
 
+    The tokenizer accepts bounded historical nested brace comments in recovery
+    mode, so framing must not close an outer comment at the first inner ``}``.
+    The immediate ``{{`` spelling remains the established literal-opening-brace
+    compatibility case: on the line where the outer comment opens, the second
+    adjacent opener is treated as comment text rather than a nested delimiter.
+    """
+
+    if type(comment_depth) is not int or comment_depth < 0:
+        raise ValueError("comment_depth must be a non-negative exact integer")
+
+    previous_character = ""
     for character in line:
-        if inside_comment:
-            if character == "}":
-                inside_comment = False
+        if comment_depth == 0:
+            if character == ";":
+                break
+            if character == "{":
+                comment_depth = 1
+            previous_character = character
             continue
-        if character == ";":
-            break
+
         if character == "{":
-            inside_comment = True
-    return inside_comment
+            if comment_depth == 1 and previous_character == "{":
+                previous_character = character
+                continue
+            comment_depth += 1
+        elif character == "}":
+            comment_depth -= 1
+        previous_character = character
+    return comment_depth
 
 
 class PgnGameFrameSizeError(ValueError):
@@ -438,7 +457,7 @@ class CanonicalPgnGameFramer:
 
     @property
     def inside_brace_comment(self) -> bool:
-        return self._inside_brace_comment
+        return self._brace_comment_depth > 0
 
     def _reset(self) -> None:
         self._tags: dict[str, str] = {}
@@ -446,7 +465,7 @@ class CanonicalPgnGameFramer:
         self._raw_lines: list[str] = []
         self._warnings: list[str] = []
         self._seen_movetext = False
-        self._inside_brace_comment = False
+        self._brace_comment_depth = 0
         self._frame_bytes = 0
 
     def _append_raw(self, line: str) -> None:
@@ -479,7 +498,7 @@ class CanonicalPgnGameFramer:
         if type(line) is not str:
             raise TypeError("PGN frame line must be exact text")
 
-        match = None if self._inside_brace_comment else TAG_RE.match(line)
+        match = None if self.inside_brace_comment else TAG_RE.match(line)
         completed: PgnGameFrame | None = None
         if match is not None:
             if self._seen_movetext:
@@ -496,9 +515,9 @@ class CanonicalPgnGameFramer:
         if self._seen_movetext or self._moves:
             self._append_raw(line)
             self._moves.append(line)
-        self._inside_brace_comment = _brace_comment_state_after_line(
+        self._brace_comment_depth = _brace_comment_state_after_line(
             line,
-            self._inside_brace_comment,
+            self._brace_comment_depth,
         )
         return completed
 
