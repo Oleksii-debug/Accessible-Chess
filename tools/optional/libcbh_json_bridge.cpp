@@ -52,6 +52,33 @@ std::string json_string(const std::string& value) {
     return out.str();
 }
 
+unsigned int canonical_evaluation_nag(byte value) {
+    // Pinned libcbh decodes several CBH evaluation bytes into a color-relative
+    // NAG.  ChessBase's independent PGN export of the same bytes preserves the
+    // byte value itself as the PGN NAG. Reconstruct only those deterministic
+    // libcbh transformations here, at the external adapter boundary. Symbol
+    // and prefix annotations are deliberately not normalized by this table.
+    //
+    // Examples from the lawful pinned Annotation corpus:
+    //   raw 0x0b -> libcbh 10, PGN $11
+    //   raw 0x28 -> libcbh 40/41, PGN $40
+    //   raw 0x84 -> libcbh 132/133, PGN $132
+    //   raw 0x8a -> libcbh 136/137, PGN $138
+    switch (static_cast<unsigned int>(value)) {
+    case 10: return 11;
+    case 33: return 32;
+    case 37: return 36;
+    case 41: return 40;
+    case 45: return 44;
+    case 133: return 132;
+    case 136:
+    case 137:
+        return 138;
+    default:
+        return static_cast<unsigned int>(value);
+    }
+}
+
 void write_comment(std::ostream& out, const Comment& comment) {
     std::visit(
         [&out](const auto& value) {
@@ -77,7 +104,7 @@ void write_comment(std::ostream& out, const Comment& comment) {
                 out << "{\"kind\":\"symbol\",\"symbol\":"
                     << static_cast<unsigned int>(value.symbol)
                     << ",\"evaluation\":"
-                    << static_cast<unsigned int>(value.evaluation)
+                    << canonical_evaluation_nag(value.evaluation)
                     << ",\"prefix\":" << static_cast<unsigned int>(value.prefix)
                     << '}';
             }
