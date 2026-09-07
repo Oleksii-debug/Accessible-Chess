@@ -1,9 +1,9 @@
 {
-  "schema_version": 1,
-  "scope": "cbf-cbi-real-corpus-unblock-qualification",
+  "schema_version": 2,
+  "scope": "cbf-cbi-bounded-external-reader-unblock",
   "role": "V2-CHESSBASE-FORMATS",
-  "parent_pr": 302,
-  "parent_sha": "0454f9e19854da9c2261bba4b5d64e688fa3b909",
+  "parent_pr": 348,
+  "parent_sha": "1142466ca4c1553f75dd04c62c8ff0f4202ce61e",
   "format_status": "BLOCKED",
   "support_promotion_allowed": false,
   "candidate_corpus": {
@@ -12,54 +12,76 @@
     "pgn_archive_name": "95DORTPG.ZIP",
     "same_event_distribution_record": true,
     "public_distribution_history": true,
-    "current_index_reference_found": true,
     "actual_archive_bytes_inspected": false,
     "specific_archive_contains_cbf_cbi_confirmed": false,
     "independent_pgn_counterpart_advertised": true,
     "explicit_modern_redistribution_license_found": false,
     "ci_reuse_rights_proven": false,
     "semantic_equivalence_executed": false,
-    "notes": "Historical archive policy preferred contributions not copyrighted by others, but that is not treated as an explicit modern redistribution license. Current reachable indexes point to FTP; this runtime has not inspected either ZIP."
+    "notes": "Public availability is not treated as legal automated-use or redistribution provenance. No historical Pitt bytes are committed or uploaded by this package."
   },
-  "decoder_chain": {
+  "reader_chain": {
     "scidb": {
       "repository": "foolnotion/scidb",
       "commit": "7c1c9d89f2fabab0c1252cdd14c515fb9bfc1415",
-      "license_boundary": "GPL external backend; default Accessible Chess package must not bundle it",
       "cbh2si4_source_blob": "1830d059b987e3b9d4b97803d92f33936a69ace1",
       "cbf_codec_source_blob": "c9608dc93e704070c5ec7f8294d09e6c52374b53",
-      "cli_source_accepts_cbf": true,
+      "license_boundary": "GPL external backend; not bundled in the default Accessible Chess package",
       "source_database_open_mode": "ReadOnly",
-      "output_format": "SI4",
-      "runtime_build_qualified": false
+      "cli_accepts_cbf": true,
+      "cli_contract": "cbh2si4 [options] <ChessBase database> [destination database]",
+      "exact_source_build_proven_by_parent_pr_348": true
     },
     "scid_pgn_export": {
       "repository": "lpt/scid",
       "commit": "5837653efa3975c64cff232006d9f981b36ac56b",
-      "license": "GPL-2.0",
       "scidpgn_blob": "84273490e8ee6b47bc78ca26a274ab559845e7b5",
+      "license": "GPL-2.0",
       "source_opens_database_readonly": true,
       "source_exports_tags_comments_variations": true,
-      "runtime_build_qualified": false
+      "tcscid_binary_sha256_pin_required": true,
+      "scidpgn_script_sha256_pin_required": true,
+      "runtime_invocation": "<pinned tcscid> <pinned scidpgn.tcl> <private SI4>",
+      "exact_runtime_build_proven": false
     },
-    "proposed_external_sequence": [
-      "CBF+CBI immutable source family",
-      "Scidb cbh2si4 read-only conversion",
-      "SI4 temporary database",
-      "Scid tcscid/scidpgn read-only PGN export",
-      "Accessible Chess canonical PGN parser/GameTree validation"
-    ],
-    "accessible_chess_custom_cbf_parser_added": false
+    "accessible_chess": {
+      "custom_cbf_binary_parser_added": false,
+      "product_module": "acs/cbf_cbi_external.py",
+      "registered_as_user_facing_importer": false,
+      "binary_sha256_pin_required": true,
+      "script_sha256_pin_required": true,
+      "path_discovery_used": false,
+      "shell_execution": false,
+      "source_integrity_before_after": true,
+      "private_temp_si4_exact_files": [
+        "decoded.si4",
+        "decoded.sg4",
+        "decoded.sn4"
+      ],
+      "process_timeout_bounded": true,
+      "stdout_stderr_bounded": true,
+      "private_temp_bytes_bounded": true,
+      "canonical_pgn_gametree_validation": true,
+      "canonical_export_reopen_identity_check": true,
+      "atomic_acsdb_library_seam": true
+    }
   },
-  "promotion_requirements": {
-    "real_cbf_cbi_bytes": false,
-    "lawful_ci_reuse": false,
+  "required_acceptance_conditions": {
+    "authentic_real_cbf_cbi_family": false,
+    "legal_automated_use_provenance": false,
     "independent_pgn_or_gametree_oracle": false,
-    "exact_scidb_runtime_build": false,
-    "exact_scid_pgn_runtime_build": false,
-    "decoded_vs_oracle_semantic_equality": false,
-    "canonical_legality_validation": false,
-    "library_search_open_export_reopen_integrity": false
+    "exact_pinned_external_reader": false,
+    "reproducible_build": false,
+    "bounded_execution": true,
+    "canonical_pgn_gametree_validation": true,
+    "atomic_acsdb_import": true,
+    "export_reopen_comparison": true
   },
-  "current_verdict": "BLOCKED: source-level read-only conversion chain is identified, but corpus bytes/rights and executable end-to-end semantic proof are not yet complete."
+  "remaining_external_blockers": [
+    "lawfully reusable authentic .cbf + .cbi bytes",
+    "independent semantic PGN/GameTree oracle for those exact bytes",
+    "real-corpus end-to-end decode versus oracle",
+    "Windows runtime qualification before any Windows user-facing activation"
+  ],
+  "current_verdict": "BLOCKED: Product-side bounded execution, canonical validation, atomic publication and export/reopen seams exist, but lawful authentic corpus/oracle and final exact reader runtime proof remain incomplete."
 }
