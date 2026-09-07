@@ -1,0 +1,48 @@
+name: W3 V2 Markdown List Semantics
+
+on:
+  push:
+    branches:
+      - work/v2-markdown-list-semantics-evidence-20260907
+  pull_request:
+    branches:
+      - codex/v2-runtime-completion-20260907
+
+permissions:
+  contents: read
+
+concurrency:
+  group: w3-v2-markdown-list-semantics-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  semantic-markdown-list-contract:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Prove exact evidence-only child scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          base=40e1ef2184177600bcc88911529b718adde65df9
+          git merge-base --is-ancestor "$base" HEAD
+          git diff --check "$base" HEAD
+          changed="$(git diff --name-only "$base" HEAD | sort)"
+          expected=$'.github/workflows/w3-v2-markdown-list-semantics.yml\ntests/test_w3_v2_markdown_list_semantics.py'
+          test "$changed" = "$expected"
+          git diff --quiet "$base" HEAD -- acs web run_accessible_chess_v2.py
+      - name: Compile evidence and Markdown ingestion stack
+        run: python -m compileall -q acs tests/test_w3_v2_markdown_list_semantics.py
+      - name: Existing Book core and text importer contracts remain green
+        run: python -m unittest -v tests.test_v2_accessible_book_core tests.test_v2_book_text_import
+      - name: W3 Markdown semantic-list RED oracle
+        run: python -m unittest -v tests.test_w3_v2_markdown_list_semantics
