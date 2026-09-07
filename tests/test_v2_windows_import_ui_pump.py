@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import threading
+import time
 import unittest
 
 from acs.version2_windows_file_workflows import FileWorkflowEvent, FileWorkflowEventKind
@@ -40,6 +41,22 @@ class _QueuedPoster:
             self.fail_next = False
             raise RuntimeError("poster failed")
         self.callbacks.append(callback)
+
+
+class _AlwaysFailPoster:
+    def __init__(self) -> None:
+        self.calls = 0
+        self._lock = threading.Lock()
+
+    def __call__(self, callback) -> None:
+        del callback
+        with self._lock:
+            self.calls += 1
+        raise RuntimeError("poster remains unavailable")
+
+    def call_count(self) -> int:
+        with self._lock:
+            return self.calls
 
 
 class _FakeControl:
@@ -195,6 +212,58 @@ class Version2ImportUiWakeupPumpTests(unittest.TestCase):
             ],
         )
         self.assertEqual(mailbox.pending_count, 0)
+
+    def test_failed_post_retries_are_strictly_bounded_without_later_events(self) -> None:
+        mailbox = Version2ImportUiEventMailbox()
+        poster = _AlwaysFailPoster()
+        pump = Version2ImportUiWakeupPump(mailbox, poster, lambda: mailbox.drain())
+        event = FileWorkflowEvent(
+            FileWorkflowEventKind.IMPORT_COMPLETED,
+            "library.import",
+            focus_target="library-import-file",
+            game_count=1,
+        )
+
+        errors = _run_thread(lambda: pump(event))
+        self.assertEqual(len(errors), 1)
+        self.assertIsInstance(errors[0], RuntimeError)
+
+        deadline = time.monotonic() + 1.0
+        while poster.call_count() < 4 and time.monotonic() < deadline:
+            time.sleep(0.01)
+        self.assertEqual(poster.call_count(), 4)
+        stable_calls = poster.call_count()
+        time.sleep(0.1)
+        self.assertEqual(poster.call_count(), stable_calls)
+        self.assertEqual(pump.post_failure_count, 4)
+        self.assertFalse(pump.wakeup_pending)
+        self.assertEqual(mailbox.pending_count, 1)
+        pump.close()
+
+    def test_close_cancels_retry_before_it_can_repost(self) -> None:
+        mailbox = Version2ImportUiEventMailbox()
+        poster = _QueuedPoster()
+        poster.fail_next = True
+        pump = Version2ImportUiWakeupPump(mailbox, poster, lambda: mailbox.drain())
+        event = FileWorkflowEvent(
+            FileWorkflowEventKind.IMPORT_CANCELLED,
+            "library.import",
+            focus_target="library-import-file",
+        )
+
+        def produce_then_close() -> None:
+            try:
+                pump(event)
+            finally:
+                pump.close()
+
+        errors = _run_thread(produce_then_close)
+        self.assertEqual(len(errors), 1)
+        self.assertIsInstance(errors[0], RuntimeError)
+        time.sleep(0.1)
+        self.assertTrue(pump.closed)
+        self.assertEqual(poster.calls, 1)
+        self.assertEqual(mailbox.pending_count, 1)
 
     def test_wrong_thread_wakeup_fails_closed_and_ui_can_recover_pending_events(self) -> None:
         mailbox = Version2ImportUiEventMailbox()
