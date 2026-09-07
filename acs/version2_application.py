@@ -326,9 +326,19 @@ class Version2Application:
         message = messages.get(kind)
         if message: self._events.append({"kind": "status", "payload": {"announcement": message[self.shell.language is UILanguage.EN]}})
 
-    def shutdown(self):
+    def shutdown(self, timeout: float | None = None):
+        """Cancel and join native import work before closing shared application state.
+
+        ``None`` deliberately waits for the canonical import worker to honour its
+        cancellation contract.  The worker is non-daemon because abandoning an
+        in-flight SQLite/import transaction on process exit is not an acceptable
+        release behaviour.  Tests and recovery callers may supply a bounded
+        timeout and retry without closing the database when the worker is still
+        alive.
+        """
         self._assert_thread()
-        if self._files is not None and not self._files.shutdown(timeout=0): return False
+        if self._files is not None and not self._files.shutdown(timeout=timeout):
+            return False
         self.save_book_progress()
         self.database.close()
         return True
