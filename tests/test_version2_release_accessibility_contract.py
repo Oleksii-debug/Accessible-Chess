@@ -98,6 +98,16 @@ class Version2ReleaseAccessibilityContractTests(unittest.TestCase):
         self.assertIn('renderProductSurface(snapshot, routeId, requestedFocus, restoreFocus);', BOOTSTRAP)
         self.assertIn('if (restoreFocus) restoreProductFocus(snapshot, routeId, requestedFocus);', BOOTSTRAP)
 
+    def test_global_navigation_focus_does_not_overwrite_route_local_history(self) -> None:
+        focus_start = BOOTSTRAP.index('  documentRef.addEventListener("focusin"')
+        focus_end = BOOTSTRAP.index('  refresh(true).catch(function () {', focus_start)
+        focus_handler = BOOTSTRAP[focus_start:focus_end]
+        skip = 'if (target.id.indexOf("v2-nav-") === 0) return;'
+        record = 'bridge.v2_record_focus(target.id)'
+        self.assertIn(skip, focus_handler)
+        self.assertIn(record, focus_handler)
+        self.assertLess(focus_handler.index(skip), focus_handler.index(record))
+
     def test_background_event_refresh_never_steals_keyboard_focus(self) -> None:
         drain_start = BOOTSTRAP.index('  function drainEvents()')
         drain_end = BOOTSTRAP.index('  documentRef.addEventListener("focusin"', drain_start)
