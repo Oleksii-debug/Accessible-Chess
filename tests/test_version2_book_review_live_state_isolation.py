@@ -79,6 +79,14 @@ class Version2BookReviewLiveStateIsolationTests(unittest.TestCase):
         self.assertEqual(self.api.live_history_node, live_node)
         self.assertEqual(self._history_identity(self.api), live_history)
 
+        blocked = self.api.make_move("e5")
+        self.assertFalse(blocked["ok"])
+        self.assertEqual(self.api.get_state()["fen"], reviewed_fen)
+        self.assertEqual(self.api.board.fen(), live_fen)
+        self.assertEqual(tuple(self.api.sans), live_sans)
+        self.assertEqual(self.api.live_history_node, live_node)
+        self.assertEqual(self._history_identity(self.api), live_history)
+
         advanced = self.app.browser_command("review", "book.board_next_move")
         self.assertEqual(advanced["kind"], "review")
         advanced_fen = self.app.book_workflow.view().current_fen
