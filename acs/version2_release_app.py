@@ -8,6 +8,7 @@ only after pywebview exposes the real native owner Form.  It creates no chess or
 format semantics of its own.
 """
 
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, Callable
 
@@ -79,6 +80,43 @@ def _install_host_confirmed_document(application: Version2Application, session: 
         application.confirm_document_replace = previous
 
 
+def _share_v2_action_registry(
+    api: Version2ReleaseAccessibleChessAPI,
+    application: Version2Application,
+):
+    """Make Stage 1 keymap editing and V2 routing use one persisted registry.
+
+    Existing Stage 1 remaps are copied into the wider V2 registry first.  The
+    KeymapService then points at that exact object, so keyboard resolution,
+    WebView commands and the native Windows menu cannot drift into parallel
+    command maps during the V2 release.
+    """
+
+    source = api.keymap_service.editor.registry
+    profile = source.to_profile()
+    bindings = profile.get("bindings", {})
+    aliases = profile.get("aliases", {})
+    if not isinstance(bindings, Mapping) or not isinstance(aliases, Mapping):
+        raise ValueError("stored keymap profile is invalid")
+
+    registry = application.adapter.registry
+    for action_id, value in bindings.items():
+        try:
+            registry.definition(action_id)
+        except KeyError:
+            continue
+        registry.set_binding(action_id, value, allow_warnings=True)
+    for action_id, value in aliases.items():
+        try:
+            registry.definition(action_id)
+        except KeyError:
+            continue
+        registry.set_alias(action_id, value)
+
+    api.keymap_service.editor.registry = registry
+    return registry
+
+
 def create_version2_release_application(
     *,
     application_dir: str | Path | None = None,
@@ -134,6 +172,7 @@ def create_version2_release_application(
             board_dispatch=api.v2_board_dispatch,
             copy_text=copy_text,
         )
+        _share_v2_action_registry(api, application)
         api.bind_version2_application(application)
     except Exception:
         database.close()
