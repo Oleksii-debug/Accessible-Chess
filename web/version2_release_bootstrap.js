@@ -214,6 +214,20 @@
     return bridge.v2_snapshot().then(function (snapshot) { render(snapshot, !!restoreFocus); });
   }
 
+  function isVersion2DomainAction(actionId) {
+    return actionId.indexOf("pgn.") === 0 || actionId.indexOf("library.") === 0 || actionId.indexOf("book.") === 0;
+  }
+
+  function refreshStage1Surface() {
+    if (typeof global.refreshState !== "function") {
+      announce(uiText("Не вдалося оновити дошку.", "Could not refresh the board."));
+      return;
+    }
+    Promise.resolve(global.refreshState()).catch(function () {
+      announce(uiText("Не вдалося оновити дошку.", "Could not refresh the board."));
+    });
+  }
+
   function applyQueuedEvent(event) {
     if (!event || typeof event !== "object") return false;
     const payload = event.payload && typeof event.payload === "object" ? event.payload : {};
@@ -229,6 +243,13 @@
         announce(payload.announcement);
       }
       return false;
+    }
+    if (event.kind === "delegated") {
+      const actionId = typeof payload.action_id === "string" ? payload.action_id : "";
+      if (actionId && !isVersion2DomainAction(actionId)) {
+        refreshStage1Surface();
+        return false;
+      }
     }
     if (payload.announcement) announce(payload.announcement);
     if (event.kind === "error" && payload.message) announce(payload.message);
