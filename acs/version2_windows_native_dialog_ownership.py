@@ -113,7 +113,7 @@ class _OwnedDialogMixin:
 
 
 class Version2OwnedWindowsFileDialogs(_OwnedDialogMixin, Version2WindowsFileDialogs):
-    """Owner-bound Open/Save/Import dialogs for the trusted Windows host."""
+    """Owner-bound Open/Save/Import/confirmation dialogs for the trusted Windows host."""
 
     def __init__(
         self,
@@ -123,11 +123,37 @@ class Version2OwnedWindowsFileDialogs(_OwnedDialogMixin, Version2WindowsFileDial
             [], tuple[object, Callable[[], object], Callable[[], object]]
         ]
         | None = None,
+        message_box_loader: Callable[[], tuple[object, object, object]] | None = None,
     ) -> None:
         self._configure_owned_dialogs(
             owner_provider,
             forms_loader or Version2WindowsFileDialogs._load_forms,
         )
+        self._message_box_loader = message_box_loader or self._load_message_box
+
+    @staticmethod
+    def _load_message_box() -> tuple[object, object, object]:
+        import clr  # type: ignore
+
+        clr.AddReference("System.Windows.Forms")
+        from System.Windows.Forms import MessageBox, MessageBoxButtons, MessageBoxIcon  # type: ignore
+
+        return MessageBox, MessageBoxButtons, MessageBoxIcon
+
+    def confirm_discard_unsaved_pgn(self) -> bool:
+        """Show the destructive confirmation modally owned by the application window."""
+
+        owner = self._dialog_owner.resolve()
+        DialogResult, _, _ = self._forms_loader()
+        MessageBox, MessageBoxButtons, MessageBoxIcon = self._message_box_loader()
+        result = MessageBox.Show(
+            owner,
+            "The current PGN has unsaved changes. Discard those changes and open another PGN?",
+            "Unsaved PGN changes",
+            MessageBoxButtons.YesNo,
+            MessageBoxIcon.Warning,
+        )
+        return result == DialogResult.Yes
 
 
 class Version2OwnedWindowsPgnExportDialogs(
