@@ -233,7 +233,7 @@ def create_version2_release_application(
             raise RuntimeError("Version 2 Windows owner control is unavailable")
         book_dialogs = _Version2OwnedBookDialogs(lambda: owner_control)
         application.open_book_dialog = book_dialogs.open_book
-        return Version2WindowsFileWorkflowRuntime(
+        runtime = Version2WindowsFileWorkflowRuntime(
             owner_control=owner_control,
             get_pgn_session=lambda: application.session,
             set_pgn_session=lambda session: _install_host_confirmed_document(application, session),
@@ -244,6 +244,12 @@ def create_version2_release_application(
             next_delegate=api.v2_board_dispatch,
             current_focus_provider=lambda: str(application._focus),
         )
+        # Application-owned replacements (for example Library -> Open game) must
+        # cross the same owner-bound destructive confirmation as native PGN Open.
+        # Before this native owner exists, Version2Application keeps its fail-closed
+        # default, so browser or background code never gains confirmation authority.
+        application.confirm_document_replace = runtime.file_dialogs.confirm_discard_unsaved_pgn
+        return runtime
 
     return api, application, engine_runtime, native_runtime_factory
 
