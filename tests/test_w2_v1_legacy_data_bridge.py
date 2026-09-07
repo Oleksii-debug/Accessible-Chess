@@ -112,6 +112,32 @@ class LegacyV1DataBridgeTests(unittest.TestCase):
                 bridge_legacy_v1_data(exe, layout)
             self.assertEqual(layout.library_path.read_bytes(), before)
 
+    def test_library_conflict_is_detected_before_settings_copy(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            exe = root / "installed"
+            legacy_data = exe / "data"
+            legacy_data.mkdir(parents=True)
+            (legacy_data / "settings.json").write_text(
+                json.dumps({"language": "en", "volume": 42}), encoding="utf-8"
+            )
+            self._make_legacy_library(legacy_data / "library.acsdb")
+            layout = UserDataLayout(root / "canonical")
+            layout.root.mkdir(parents=True)
+            existing = AcsDatabase(layout.library_path)
+            existing.close()
+            before_library = layout.library_path.read_bytes()
+
+            with self.assertRaises(LegacyV1BridgeError):
+                bridge_legacy_v1_data(exe, layout)
+
+            self.assertFalse(
+                layout.settings_path.exists(),
+                "a Library conflict must be detected before settings are materialized",
+            )
+            self.assertEqual(layout.library_path.read_bytes(), before_library)
+            self.assertFalse((layout.root / ".v1-legacy-bridge.json").exists())
+
     def test_bridge_then_existing_upgrade_coordinator_migrates_legacy_settings(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
