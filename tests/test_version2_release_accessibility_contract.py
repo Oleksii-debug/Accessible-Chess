@@ -25,11 +25,11 @@ class Version2ReleaseAccessibilityContractTests(unittest.TestCase):
         self.assertIn('navHeading.textContent = uiText("Розділи", "Sections")', BOOTSTRAP)
 
     def test_document_language_is_set_before_navigation_is_rendered(self) -> None:
-        language = 'documentRef.documentElement.lang = currentLanguage'
-        navigation = 'renderNavigation(snapshot)'
+        language = '    documentRef.documentElement.lang = currentLanguage;'
+        navigation_call = '    renderNavigation(snapshot);'
         self.assertIn(language, BOOTSTRAP)
-        self.assertIn(navigation, BOOTSTRAP)
-        self.assertLess(BOOTSTRAP.index(language), BOOTSTRAP.index(navigation))
+        self.assertIn(navigation_call, BOOTSTRAP)
+        self.assertLess(BOOTSTRAP.index(language), BOOTSTRAP.index(navigation_call))
 
     def test_workspace_does_not_create_a_second_live_region(self) -> None:
         self.assertIn('workspace.setAttribute("aria-live", "off")', BOOTSTRAP)
