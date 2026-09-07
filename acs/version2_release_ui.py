@@ -13,6 +13,7 @@ from collections.abc import Mapping
 from typing import Any, Callable
 
 from .full_product_native_menu import install_full_product_windows_native_menu
+from .full_product_ui_shell import UILanguage
 from .stage1_release_ui import Stage1ReleaseAccessibleChessAPI, _asset_root
 from .version2_profile import Version2NativeMenuController
 
@@ -45,6 +46,45 @@ class Version2ReleaseAccessibleChessAPI(Stage1ReleaseAccessibleChessAPI):
         if getattr(application, "adapter", None) is None:
             raise TypeError("Version 2 application requires its accepted WebView adapter")
         self._version2_application = application
+
+    def set_language(self, lang: str) -> dict[str, Any]:
+        """Apply one settings-backed language transition to Stage1 and all V2 UI."""
+        if type(lang) is not str or lang not in {"uk", "en"}:
+            return super().set_language(lang)
+        previous = self.lang
+        target = UILanguage(lang)
+        application = self._version2_application
+        result = super().set_language(lang)
+        if not result.get("ok"):
+            return result
+        try:
+            if application is not None:
+                setter = getattr(application, "set_language", None)
+                if not callable(setter):
+                    raise TypeError("Version 2 language host contract is incomplete")
+                setter(target)
+            if self._settings is not None:
+                self._settings.set("language", self.lang)
+            return result
+        except Exception:
+            # Persistence is the final commit point. Restore both in-memory
+            # surfaces and the previous setting on any failure so language state
+            # cannot silently split between Stage1 and V2.
+            if self._settings is not None:
+                try:
+                    self._settings.set("language", previous)
+                except Exception:
+                    pass
+            if application is not None:
+                try:
+                    application.set_language(UILanguage(previous))
+                except Exception:
+                    pass
+            super().set_language(previous)
+            return self._concise_error(
+                "Не вдалося змінити мову.",
+                "Language could not be changed.",
+            )
 
     def _version2(self) -> Any:
         application = self._version2_application
