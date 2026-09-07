@@ -49,6 +49,11 @@
     help: "h-help"
   });
 
+  function emptyStatusId(routeId) {
+    if (routeId === "pgn" || routeId === "books") return "v2-" + routeId + "-empty-status";
+    return "";
+  }
+
   function focusById(id) {
     if (!id) return false;
     const target = documentRef.getElementById(id);
@@ -73,7 +78,7 @@
       const block = snapshot.books.block && typeof snapshot.books.block === "object" ? snapshot.books.block : {};
       return String(block.dom_id || "");
     }
-    return "";
+    return emptyStatusId(routeId);
   }
 
   function restoreProductFocus(snapshot, routeId, requestedFocus) {
@@ -82,6 +87,18 @@
     if (focusById(productSurfaceFocusTarget(snapshot, routeId))) return true;
     if (focusById(requestedFocus)) return true;
     return focusById("v2-nav-" + routeId);
+  }
+
+  function renderEmptyProduct(routeId, heading) {
+    const title = documentRef.createElement("h2");
+    title.textContent = String(heading || (routeId === "pgn" ? "PGN" : uiText("Книги", "Books")));
+    const status = documentRef.createElement("p");
+    status.id = emptyStatusId(routeId);
+    status.tabIndex = -1;
+    status.textContent = routeId === "pgn"
+      ? uiText("PGN ще не відкрито.", "No PGN is open yet.")
+      : uiText("Книгу ще не відкрито.", "No book is open yet.");
+    workspace.replaceChildren(title, status);
   }
 
   function areaInvoke(area) {
@@ -118,16 +135,14 @@
     navList.replaceChildren(fragment);
   }
 
-  function renderProductSurface(snapshot, routeId, requestedFocus, restoreFocus) {
+  function renderProductSurface(snapshot, routeId, requestedFocus, restoreFocus, heading) {
     originalMain.hidden = true;
     workspace.hidden = false;
     if (routeId === "pgn") {
       if (snapshot.pgn && global.AccessibleChessPgnSurface) {
         global.AccessibleChessPgnSurface.render(workspace, snapshot.pgn, areaInvoke("pgn"), announce, requestedFocus || "");
       } else {
-        workspace.replaceChildren(Object.assign(documentRef.createElement("p"), {
-          textContent: uiText("PGN ще не відкрито.", "No PGN is open yet.")
-        }));
+        renderEmptyProduct(routeId, heading);
       }
       if (restoreFocus) restoreProductFocus(snapshot, routeId, requestedFocus);
       return;
@@ -143,9 +158,7 @@
       if (snapshot.books && global.AccessibleChessBookSurface) {
         global.AccessibleChessBookSurface.render(workspace, snapshot.books, areaInvoke("books"), announce, requestedFocus || "");
       } else {
-        workspace.replaceChildren(Object.assign(documentRef.createElement("p"), {
-          textContent: uiText("Книгу ще не відкрито.", "No book is open yet.")
-        }));
+        renderEmptyProduct(routeId, heading);
       }
       if (restoreFocus) restoreProductFocus(snapshot, routeId, requestedFocus);
     }
@@ -162,9 +175,10 @@
     const routeId = String(screen.route_id || "board");
     currentRouteId = routeId;
     const requestedFocus = String(screen.focus_target || "");
+    const heading = String(screen.heading || "");
 
     if (routeId === "pgn" || routeId === "library" || routeId === "books") {
-      renderProductSurface(snapshot, routeId, requestedFocus, restoreFocus);
+      renderProductSurface(snapshot, routeId, requestedFocus, restoreFocus, heading);
       return;
     }
 
