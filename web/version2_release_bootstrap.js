@@ -223,7 +223,7 @@
     }
     if (payload.announcement) announce(payload.announcement);
     if (event.kind === "error" && payload.message) announce(payload.message);
-    return event.kind !== "error";
+    return event.kind !== "error" && event.kind !== "status";
   }
 
   function drainEvents() {
