@@ -1,0 +1,95 @@
+name: V2 ImportRegistry Path Privacy
+
+on:
+  push:
+    branches:
+      - work/v2-import-registry-path-privacy-20260907
+  pull_request:
+    paths:
+      - '.github/workflows/v2-import-registry-path-privacy.yml'
+      - 'acs/import_registry.py'
+      - 'tests/test_v2_import_registry_path_privacy.py'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: v2-import-registry-path-privacy-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  STACK_PARENT: 54ed957d9cdc4241a59cf5fbb73918fac8881814
+  REPORT_PATHS_BLOB: 217185ea53d04584103200698df2568af093af46
+  IMPORT_REGISTRY_BLOB: a87d3d8ba54fac053d072ee2373d220c1df1b200
+  PRIVACY_TEST_BLOB: ab98508a8e955873c9ed7af778d6b2df37f17c1d
+
+jobs:
+  focused:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install pinned test dependency
+        run: python -m pip install -q pytest==8.4.2
+
+      - name: Prove stacked ancestry and isolated scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor "$STACK_PARENT" HEAD
+          git diff --check "$STACK_PARENT" HEAD
+          changed="$(git diff --name-only "$STACK_PARENT" HEAD | sort)"
+          allowed="$(printf '%s\n' \
+            .github/workflows/v2-import-registry-path-privacy.yml \
+            acs/import_registry.py \
+            tests/test_v2_import_registry_path_privacy.py | sort)"
+          test "$changed" = "$allowed" || {
+            printf 'Unexpected ImportRegistry privacy scope:\n%s\n' "$changed" >&2
+            exit 1
+          }
+          test "$(git rev-parse HEAD:acs/report_paths.py)" = "$REPORT_PATHS_BLOB"
+          test "$(git rev-parse HEAD:acs/import_registry.py)" = "$IMPORT_REGISTRY_BLOB"
+          test "$(git rev-parse HEAD:tests/test_v2_import_registry_path_privacy.py)" = "$PRIVACY_TEST_BLOB"
+
+      - name: Compile privacy surface
+        run: python -m compileall -q acs/import_registry.py acs/report_paths.py tests/test_v2_import_registry_path_privacy.py tests/test_import_registry.py
+
+      - name: Focused privacy and registry regressions
+        run: python -m unittest -v tests.test_v2_import_registry_path_privacy tests.test_import_registry
+
+      - name: Focused pytest parity
+        run: python -m pytest -q tests/test_v2_import_registry_path_privacy.py tests/test_import_registry.py
+
+  broad-ubuntu:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install pinned test dependency
+        run: python -m pip install -q pytest==8.4.2
+
+      - name: Full unittest regression
+        run: python -m unittest discover -s tests -v
+
+      - name: Full pytest regression
+        run: python -m pytest -q
