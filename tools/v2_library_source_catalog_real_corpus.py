@@ -90,7 +90,10 @@ def _parse_complete_game_subset(path: Path):
             raise AssertionError(
                 f"canonical Product parser returned {len(parsed)} games for {len(batch)} framed records"
             )
-        games.extend(parsed)
+        base_index = len(games)
+        for offset, game in enumerate(parsed):
+            game.source_index = base_index + offset
+            games.append(game)
         batch.clear()
 
     with path.open("r", encoding="utf-8", errors="strict", newline="") as source:
@@ -191,6 +194,8 @@ def main() -> None:
         games = _parse_complete_game_subset(subset)
         if len(games) != SUBSET_GAMES:
             raise AssertionError(f"canonical Product parser returned {len(games)} games")
+        if [game.source_index for game in games] != list(range(SUBSET_GAMES)):
+            raise AssertionError("bounded parser batches did not preserve whole-source indices")
 
         with AcsDatabase(database_path) as database:
             importer = LibraryImportService(database)
