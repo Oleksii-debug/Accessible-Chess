@@ -1,6 +1,6 @@
 # Accessible Chess — Autonomous Routing Control
 
-EPOCH: CHESS-2026-09-08-13
+EPOCH: CHESS-2026-09-08-14
 STATE: ACTIVE — FIVE HOURLY WORKERS + WORK COMPLETION OWNER
 
 ## Operating invariant
@@ -11,17 +11,18 @@ Converge Version 2 formats/library/books/workflows into one usable Windows/NVDA 
 
 Canonical dependency order: GameTree/PGN -> ACSDB/Library -> ChessBase adapters -> Books/Training -> later Teacher/Classroom/Web.
 
-## Live convergence snapshot — 2026-09-08 02:51Z
+## Live convergence snapshot — 2026-09-08 03:52Z
 - #435 remains the single formats umbrella/convergence authority. Do not create a second umbrella.
-- #441 remains current V2 runtime/application authority and has advanced to `3e7dd221e1aafb49f532e547862c2e4357c81162` after W5 selectively merged terminal-green W4 checkout repair #567.
-- The previous #441 head `2f535d9` was not Product-red: Ubuntu Windows Composition was fully GREEN; Windows failed only the frozen Stage1 Git-blob byte-identity unittest because checkout text normalization changed working-tree bytes. #567 fixes exactly that checkout boundary with `.gitattributes` plus a dedicated dual-OS regression and no Product/Stage1 behavior mutation.
-- Fresh exact-head #441 CI is queued on `3e7dd221...`; do not promote runtime authority until those workflows terminalize.
-- #536 remains sole P0 external-review isolation Product owner and is TERMINAL GREEN / PROMOTE-ready. Do not recreate external-review/live-state repair.
-- #543 remains terminal-green Book->Board repaint/focus baseline. #560 remains terminal-green Library->PGN visible-route refresh and PROMOTE-ready for bounded intake.
-- #551 is COMPLETED/DO-NOT-REPEAT and already merged into #441.
-- #567 is COMPLETED/DO-NOT-REPEAT as a separate owner: its exact-head W4 dual-OS frozen-blob contract was terminal GREEN and W5 merged it into #441.
+- #441 remains current V2 runtime/application authority at `3e7dd221e1aafb49f532e547862c2e4357c81162` after #551 and #567 intake.
+- #441 Windows Composition, UI Semantic, D01 and data-upgrade workflows are terminal GREEN. The #567 frozen Stage1 checkout fix is therefore effective; Windows checkout byte identity is no longer the blocker.
+- #441 broad Formats Integration is RED before Product tests only because its owner table still expects the predecessor `acs/library_webview_projection.py` blob instead of the accepted current integrated blob `9123b5fb89884ee9a821c89c0898011ae42c1247`.
+- #467 is now the canonical broad Formats owner-lock convergence scope. W5 preserved its already-GREEN Book Progress and PGN streaming-export topology and refreshed only the current D07 Library projection lock. Exact head is `7f006c25f1433db5476a123f4d89420449686d1c`; exact-head Formats run `34184986878` is in progress and must terminalize before intake.
+- #454 is STOP_STALE/evidence-only. Its narrow older table must not be selectively intaken or continued as a competing workflow authority; #467 subsumes that lock-refresh scope.
+- Inherited W1 D06 framer/preflight failures on #441/#467 currently stop at their ancestry/scope proof before Product tests. Treat them as stale topology evidence unless a current Product regression is independently demonstrated; do not misclassify them as Product RED.
+- #536 remains sole P0 external-review isolation Product owner and is TERMINAL GREEN / PROMOTE-ready. Intake remains gated behind refreshed broad Formats convergence.
+- #543 remains terminal-green Book->Board repaint/focus baseline. #560 remains terminal-green Library->PGN visible-route refresh and PROMOTE-ready for bounded intake after broad Formats is restored.
+- #551 and #567 are COMPLETED/DO-NOT-REPEAT and already merged into #441.
 - #448 remains shipped-V1 executable-local data bridge and must terminalize before fresh runtime-data recomposition.
-- #467 remains broad Formats accepted-owner-package lock convergence. #454 remains bounded D07 Library Web owner-lock refresh unless #467 explicitly subsumes it.
 - #565 remains required-resource package-preflight Product repair; #558 prepares payload and #530 assembles. None alone is release authority.
 - #562 owns bounded D06 resume-lock TOCTOU; #555 owns D07 complete filtered-export streaming; D06 remains sole PGN serializer.
 - #518 owns Book progress/open transaction atomicity.
@@ -47,6 +48,7 @@ Canonical dependency order: GameTree/PGN -> ACSDB/Library -> ChessBase adapters 
 - #440/#442/#445/#446 old W4 snapshots/attempts.
 - #450 older V1 executable-data bridge; #448 is current.
 - #453 partial duplicate of D07 lock repair.
+- #454 is now superseded for the remaining D07 projection lock by the canonical broad #467 workflow; keep only as evidence.
 - #465/#477 duplicate D01 topology repairs; #461 is canonical.
 - #464/#466/#480 stale runtime/package ancestry. Never package from these.
 - #482/#483/#485/#486/#487/#489 stale/duplicate language implementations; #491 is canonical.
@@ -63,7 +65,7 @@ Canonical dependency order: GameTree/PGN -> ACSDB/Library -> ChessBase adapters 
 ## Active reservations / collision boundaries
 - #441 owns Version2Application, runtime/release bootstrap, Windows composition and shared application boundary.
 - #448 owns shipped-V1 executable-local data bridge.
-- #454/#467 own existing D07/formats lock scopes; do not weaken owner locks.
+- #467 solely owns broad Formats integrated owner-lock/evidence topology, including the refreshed current D07 Library projection lock. Do not weaken locks or revive #454 as a competing authority.
 - #536 owns terminal-green P0 external-review Product delta awaiting selective convergence intake.
 - #543/#560 own accepted Book->Board baseline and bounded Library->PGN route refresh respectively.
 - #491/#532 own persisted language and native-dialog localization in dependency order.
@@ -77,44 +79,43 @@ Canonical dependency order: GameTree/PGN -> ACSDB/Library -> ChessBase adapters 
 - #478 owns current-base Library source/provenance catalog convergence.
 
 ## Current release gates
-1. **Runtime exact-head gate:** #441@`3e7dd221...` must terminalize after intake of #567. Fresh Windows Composition, Formats, semantic, D01 and data workflows are queued.
-2. **Windows frozen blob checkout: COMPLETED #567.** Exact-head dual-OS W4 contract GREEN; merged into #441. Do not create another checkout-normalization owner.
-3. **P0 external review: PROMOTE #536.** Exact-head dual-OS Windows Composition terminal SUCCESS. Selectively compose after ancestry/collision review.
-4. **Accessibility route refresh: PROMOTE #560** on accepted #543 baseline after ancestry/collision review.
-5. #467 must terminalize GREEN or expose a real blocker; broad owner locks must not be weakened.
+1. **Broad Formats exact-head gate:** #467@`7f006c25...` must terminalize after W5 refreshed the current D07 projection owner lock while preserving its accepted Book Progress, PGN streaming, full-suite and pinned external evidence topology.
+2. **Runtime automation:** #441@`3e7dd221...` Windows Composition, UI Semantic, D01 and data workflows are terminal GREEN. Its broad Formats RED is a stale owner-table failure before Product tests, not a Product failure.
+3. **Windows frozen blob checkout: COMPLETED #567.** Exact-head dual-OS W4 contract GREEN and effective after merge into #441. Do not create another checkout-normalization owner.
+4. **P0 external review: PROMOTE #536.** Exact-head dual-OS Windows Composition terminal SUCCESS. Selectively compose only after refreshed broad Formats is GREEN/intaken and ancestry/collision review passes.
+5. **Accessibility route refresh: PROMOTE #560** on accepted #543 baseline after the same convergence review.
 6. #448 must terminalize before one fresh runtime-data recomposition. Never revive #464/#466.
-7. #454 must terminalize or be explicitly superseded by accepted #467 evidence.
-8. #491 then #532 must terminalize before one persisted/localized Windows language experience is claimed.
-9. #498 must close startup cleanup without creating a second runtime owner.
-10. #510/#515 and selectively accepted #541 must terminalize before broader Books ingestion claims.
-11. #518 must terminalize before Book progress/open transactions are considered durable.
-12. #488 plus relevant privacy/security children, including #562 where applicable, must terminalize before release intake.
-13. #555 may be intaken only after exact-head dual-OS and collision review and must not change D06 serialization authority.
-14. Package path remains #511 -> #565 plus #558 -> #530 with exact packaged-runtime evidence. No rejected ZIP may be reused.
-15. Produce exactly one fresh Windows candidate/package from the refreshed non-stale stack.
-16. Human NVDA acceptance remains open: `NVDA_VERIFIED=NO` until Oleksii personally tests that exact candidate.
-17. ChessBase-family capability truth remains SUPPORTED/PARTIAL/UNSUPPORTED/BLOCKED; unsupported adapters must not block unrelated desktop release work.
+7. #491 then #532 must terminalize before one persisted/localized Windows language experience is claimed.
+8. #498 must close startup cleanup without creating a second runtime owner.
+9. #510/#515 and selectively accepted #541 must terminalize before broader Books ingestion claims.
+10. #518 must terminalize before Book progress/open transactions are considered durable.
+11. #488 plus relevant privacy/security children, including #562 where applicable, must terminalize before release intake.
+12. #555 may be intaken only after exact-head dual-OS and collision review and must not change D06 serialization authority.
+13. Package path remains #511 -> #565 plus #558 -> #530 with exact packaged-runtime evidence. No rejected ZIP may be reused.
+14. Produce exactly one fresh Windows candidate/package from the refreshed non-stale stack.
+15. Human NVDA acceptance remains open: `NVDA_VERIFIED=NO` until Oleksii personally tests that exact candidate.
+16. ChessBase-family capability truth remains SUPPORTED/PARTIAL/UNSUPPORTED/BLOCKED; unsupported adapters must not block unrelated desktop release work.
 
 ## Worker routing
 ### W1 — Formats / GameTree / interoperability
-CHANGE. #444/#447 are complete. Continue disjoint owners such as #547 bounded model materialization and #562 resume-lock TOCTOU only after real exact-head evidence. Do not duplicate #467/D07 work.
+CHANGE. #444/#447 are complete. Continue disjoint owners such as #547 bounded model materialization and #562 resume-lock TOCTOU only after real exact-head evidence. Do not duplicate #467/D07 owner-table work. D06 framer/preflight ancestry-only failures are not Product authority by themselves.
 
 ### W2 — Library / database / books / training content
 PROMOTE dependency-safe work only. #448 is the data-release dependency. Continue #518, #510/#515/#541, #555 and #478 in their reserved scopes. Keep #468 blocked until identity/security is resolved.
 
 ### W3 — User workflows / desktop composition
-PROMOTE. #536 is terminal GREEN and must not be reimplemented. Prepare bounded selective convergence of #536 into current #441/#435 after the refreshed #441 CI terminalizes; do not duplicate #491/#532, #518 or W4 #543/#560.
+PROMOTE. #536 is terminal GREEN and must not be reimplemented. Hold selective intake until #467 broad Formats exact-head terminalizes and is selectively composed into #441; then perform bounded ancestry/collision review and intake without duplicating #491/#532, #518 or W4 #543/#560.
 
 ### W4 — Windows / NVDA / accessibility / package QA
-PROMOTE. #567 is complete and merged into #441; #543/#560 remain accepted terminal-green accessibility packages. Do not spawn another frozen-blob or Library->PGN owner. After runtime/data/security stack converges, build one fresh candidate and exact-machine QA. Never reuse rejected packages or claim human NVDA verification.
+PROMOTE. #567 is complete, merged and proven effective on current #441. #543/#560 remain accepted terminal-green accessibility packages. Do not spawn another frozen-blob or Library->PGN owner. After runtime/data/security stack converges, build one fresh candidate and exact-machine QA. Never reuse rejected packages or claim human NVDA verification.
 
 ### W5 — Integration / release / coordination
-PROMOTE. W5 intook #567 into #441 to close the Windows-only frozen-blob checkout failure. Immediate gate is exact-head #441 CI on `3e7dd221...`; if terminal GREEN, perform ancestry/collision review for bounded selective intake of #536 and #560 into the same authority. Keep #467/#454, #448, #491/#532, #498, #488, #510/#515/#541, #518, #562/#555, #478 and #511/#565/#558/#530 under exact-head watch. No second umbrella.
+PROMOTE. W5 resolved the current broad Formats owner collision by absorbing the remaining D07 projection lock into existing #467 and marking #454 STOP_STALE/evidence-only. Immediate gate is #467 exact-head Formats run `34184986878`. If terminal GREEN, selectively intake #467 workflow into the same #441/#435 authority, rerun broad convergence, then ancestry/collision-review #536 and #560 for bounded intake. Keep #448, #491/#532, #498, #488, #510/#515/#541, #518, #562/#555, #478 and #511/#565/#558/#530 under exact-head watch. No second umbrella.
 
 ## Codex Cloud / Work
-Codex Cloud: safest useful package is independent ancestry/collision review for selective #536/#560 convergence into refreshed #441/#435, or exact-head CI diagnostics if #441@`3e7dd221...` is RED. Do not implement another external-review, Library->PGN, frozen-blob or package-validator owner.
+Codex Cloud: safest useful package is independent ancestry/collision review for selective #467 intake into #441 once exact-head Formats is GREEN, followed by #536/#560 convergence review. Do not implement another owner-lock, external-review, Library->PGN, frozen-blob or package-validator owner.
 
-Work: verify end-to-end user-journey compatibility across terminal #536, #543/#560 and refreshed #441 after #551/#567 intake, without editing reserved Product surfaces.
+Work: verify end-to-end user-journey compatibility across refreshed #467, terminal #536, #543/#560 and current #441 without editing reserved Product surfaces; distinguish stale ancestry/topology CI failures from real Product failures.
 
 ## Hard boundaries
 - One canonical chess core; no chess rules in PGN/ChessBase/books/database/UI/Web adapters.
@@ -128,9 +129,9 @@ Work: verify end-to-end user-journey compatibility across terminal #536, #543/#5
 
 ## Windows/package/NVDA readiness truth
 - Real V2 Windows composition exists, but no fresh final release candidate is accepted.
-- Previous #441 exact head was green on Ubuntu and failed Windows only on frozen Stage1 blob byte identity during checkout; #567 is the bounded terminal-green repair and is now merged.
-- Fresh #441 exact-head CI is queued on `3e7dd221...`.
-- #536 external-review/live-state isolation is terminal GREEN and PROMOTE-ready.
+- Current #441 Windows Composition/UI Semantic/D01/data automation is GREEN; #567 fixed the Windows frozen-blob checkout failure.
+- Current remaining #441 broad Formats RED is an owner-lock mismatch before Product tests. #467 now carries the refreshed current lock and is running exact-head validation.
+- #536 external-review/live-state isolation is terminal GREEN and PROMOTE-ready after Formats convergence.
 - #551 terminal Library-import UI wakeup recovery is merged.
 - #543 Book->Board and #560 Library->PGN accessibility packages are terminal GREEN and PROMOTE-ready for bounded convergence.
 - Current data, Book transaction, language, security/privacy and package successors are not fully converged.
@@ -141,4 +142,4 @@ Work: verify end-to-end user-journey compatibility across terminal #536, #543/#5
 - `NVDA_VERIFIED=NO`.
 
 ## Next audit trigger
-Audit immediately when #441@`3e7dd221...` terminalizes; #467/#448/#454 terminalizes; #491/#532, #518, #565/#558/#530, #562/#555/#478 become intakeable; selective intake of #536 or #560 occurs; a fresh runtime-data recomposition or Windows candidate appears; or ownership collides/stales again. Otherwise continue highest-priority disjoint integration work after a fresh collision scan.
+Audit immediately when #467@`7f006c25...` terminalizes or is intaken into #441; broad #441 Formats becomes GREEN/RED on Product tests; #448 terminalizes; #491/#532, #518, #565/#558/#530, #562/#555/#478 become intakeable; selective intake of #536 or #560 occurs; a fresh runtime-data recomposition or Windows candidate appears; or ownership collides/stales again. Otherwise continue highest-priority disjoint integration work after a fresh collision scan.
