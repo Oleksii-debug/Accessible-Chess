@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 import tempfile
 import unittest
 
@@ -8,12 +9,24 @@ from acs.acsdb import AcsDatabase
 from acs.analysis_service import AnalysisService
 from acs.book_progress_store import BookProgressStore
 from acs.engine_assisted_workflows import EngineAssistedWorkflowService
+from acs.engine_game_session import EngineTurnState
 from acs.pgn_document import PgnDocumentSession
 from acs.version2_application import Version2Application
 from acs.version2_release_ui import Version2ReleaseAccessibleChessAPI
 
 
 PGN = '[Event "Review isolation"]\n[Result "*"]\n\n1. d4 d5 2. c4 e6 *\n'
+
+
+class _RetryProbeSession:
+    def __init__(self) -> None:
+        self.resume_calls = 0
+
+    def resume(self) -> None:
+        self.resume_calls += 1
+
+    def snapshot(self):
+        return SimpleNamespace(turn_state=EngineTurnState.HUMAN)
 
 
 class Version2ExternalReviewLiveStateIsolationTests(unittest.TestCase):
@@ -138,6 +151,20 @@ class Version2ExternalReviewLiveStateIsolationTests(unittest.TestCase):
 
         self.assertFalse(result["ok"])
         self.assertEqual(self.api._engine_game_phase, before_phase)
+        self._assert_live_identity(live)
+
+    def test_engine_retry_guard_runs_before_session_resume(self) -> None:
+        live, _ = self._open_external_review_after_live_e4()
+        probe = _RetryProbeSession()
+        self.api._engine_session = probe
+        self.api._engine_game_phase = "error"
+        self.api._engine_game_error = "simulated paused engine"
+
+        result = self.api.retry_engine_move()
+
+        self.assertFalse(result["ok"])
+        self.assertEqual(probe.resume_calls, 0)
+        self.assertTrue(self.app.pgn_board_active)
         self._assert_live_identity(live)
 
     def test_external_review_analysis_origin_never_becomes_live_history_origin(self) -> None:
