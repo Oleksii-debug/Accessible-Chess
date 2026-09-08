@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import threading
+import time
 import unittest
+from unittest.mock import patch
 
 from acs.version2_windows_file_workflows import FileWorkflowEvent, FileWorkflowEventKind
 from acs.version2_windows_import_event_mailbox import Version2ImportUiEventMailbox
@@ -195,6 +197,62 @@ class Version2ImportUiWakeupPumpTests(unittest.TestCase):
             ],
         )
         self.assertEqual(mailbox.pending_count, 0)
+
+    def test_post_failure_automatically_retries_pending_terminal_event_once(self) -> None:
+        mailbox = Version2ImportUiEventMailbox()
+        poster = _QueuedPoster()
+        poster.fail_next = True
+        delivered = []
+        pump = Version2ImportUiWakeupPump(
+            mailbox,
+            poster,
+            lambda: delivered.extend(mailbox.drain()),
+        )
+        terminal = FileWorkflowEvent(
+            FileWorkflowEventKind.IMPORT_COMPLETED,
+            "library.import",
+            focus_target="library-import-file",
+            processed_games=1,
+            total_games=1,
+            game_count=1,
+        )
+
+        errors = _run_thread(lambda: pump(terminal))
+        self.assertEqual(len(errors), 1)
+        self.assertEqual(mailbox.pending_count, 1)
+
+        deadline = time.monotonic() + 1.0
+        while not poster.callbacks and time.monotonic() < deadline:
+            time.sleep(0.01)
+        self.assertEqual(len(poster.callbacks), 1)
+        self.assertEqual(poster.calls, 2)
+        self.assertTrue(pump.wakeup_pending)
+
+        poster.callbacks.pop(0)()
+        self.assertEqual(delivered, [terminal])
+        self.assertEqual(mailbox.pending_count, 0)
+        self.assertFalse(pump.wakeup_pending)
+
+    def test_close_cancels_scheduled_automatic_retry(self) -> None:
+        mailbox = Version2ImportUiEventMailbox()
+        poster = _QueuedPoster()
+        poster.fail_next = True
+        pump = Version2ImportUiWakeupPump(mailbox, poster, lambda: mailbox.drain())
+        terminal = FileWorkflowEvent(
+            FileWorkflowEventKind.IMPORT_CANCELLED,
+            "library.import",
+            focus_target="library-import-file",
+        )
+
+        with patch("acs.version2_windows_import_ui_pump._AUTO_RETRY_DELAY_SECONDS", 0.2):
+            errors = _run_thread(lambda: pump(terminal))
+            self.assertEqual(len(errors), 1)
+            pump.close()
+            time.sleep(0.25)
+
+        self.assertTrue(pump.closed)
+        self.assertEqual(poster.calls, 1)
+        self.assertEqual(poster.callbacks, [])
 
     def test_wrong_thread_wakeup_fails_closed_and_ui_can_recover_pending_events(self) -> None:
         mailbox = Version2ImportUiEventMailbox()
