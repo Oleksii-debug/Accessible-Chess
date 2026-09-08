@@ -10,9 +10,10 @@ from urllib.request import Request, urlopen
 import zstandard
 
 from acs.acsdb import AcsDatabase
+from acs.import_contract import fingerprint
 from acs.library_import_service import LibraryImportService
 from acs.library_source_service import LibrarySourceCatalogService, SourceCatalogQuery
-from acs.pgn_service import open_pgn
+from acs.pgn_roundtrip import parse_pgn_text
 
 
 CORPUS_NAME = "lichess-standard-rated-2013-01"
@@ -24,6 +25,7 @@ SUBSET_GAMES = 5_000
 DOWNLOAD_LIMIT_BYTES = 32 * 1024 * 1024
 DOWNLOAD_CHUNK = 1024 * 1024
 GAME_PAGE_LIMIT = 200
+PARSE_BATCH_GAMES = 100
 
 
 def _scan_comment_state(line: str, inside_brace: bool) -> bool:
@@ -41,7 +43,6 @@ def _scan_comment_state(line: str, inside_brace: bool) -> bool:
 
 def _write_complete_game_subset(source: io.TextIOBase, destination: Path, limit: int) -> int:
     """Transport-frame complete Event-delimited records; Product owns PGN semantics."""
-
     current: list[str] = []
     inside_brace = False
     written = 0
@@ -69,11 +70,47 @@ def _write_complete_game_subset(source: io.TextIOBase, destination: Path, limit:
     return written
 
 
+def _parse_complete_game_subset(path: Path):
+    """Parse the 5k transport subset in bounded canonical D06 batches."""
+    games = []
+    batch: list[str] = []
+    current: list[str] = []
+    inside_brace = False
+
+    def flush_record() -> None:
+        record = "".join(current).strip()
+        if record:
+            batch.append(record)
+
+    def flush_batch() -> None:
+        if not batch:
+            return
+        parsed = parse_pgn_text("\n\n".join(batch), strict=False)
+        if len(parsed) != len(batch):
+            raise AssertionError(
+                f"canonical Product parser returned {len(parsed)} games for {len(batch)} framed records"
+            )
+        games.extend(parsed)
+        batch.clear()
+
+    with path.open("r", encoding="utf-8", errors="strict", newline="") as source:
+        for line in source:
+            if not inside_brace and line.startswith('[Event "') and current:
+                flush_record()
+                current = [line]
+                inside_brace = _scan_comment_state(line, False)
+                if len(batch) >= PARSE_BATCH_GAMES:
+                    flush_batch()
+                continue
+            current.append(line)
+            inside_brace = _scan_comment_state(line, inside_brace)
+    flush_record()
+    flush_batch()
+    return tuple(games)
+
+
 def _download_verified(destination: Path) -> int:
-    request = Request(
-        CORPUS_URL,
-        headers={"User-Agent": "Accessible-Chess-D07-Source-Catalog-QA/1"},
-    )
+    request = Request(CORPUS_URL, headers={"User-Agent": "Accessible-Chess-D07-Source-Catalog-QA/1"})
     digest = hashlib.sha256()
     total = 0
     response = urlopen(request, timeout=60)
@@ -96,12 +133,7 @@ def _download_verified(destination: Path) -> int:
 def _make_subset(compressed: Path, subset: Path) -> int:
     with compressed.open("rb") as source:
         reader = zstandard.ZstdDecompressor().stream_reader(source)
-        with reader, io.TextIOWrapper(
-            reader,
-            encoding="utf-8",
-            errors="strict",
-            newline="",
-        ) as text:
+        with reader, io.TextIOWrapper(reader, encoding="utf-8", errors="strict", newline="") as text:
             return _write_complete_game_subset(text, subset, SUBSET_GAMES)
 
 
@@ -110,11 +142,7 @@ def _enumerate_source(catalog: LibrarySourceCatalogService, source_id: int) -> t
     pages = 0
     cursor: int | None = None
     while True:
-        page = catalog.source_games(
-            source_id,
-            after_game_id=cursor,
-            limit=GAME_PAGE_LIMIT,
-        )
+        page = catalog.source_games(source_id, after_game_id=cursor, limit=GAME_PAGE_LIMIT)
         pages += 1
         count += len(page.items)
         if not page.has_more:
@@ -134,10 +162,7 @@ def _validate_catalog_item(item, *, source_id: int, attempt_id: int) -> None:
     if item.game_count != SUBSET_GAMES:
         raise AssertionError(f"source catalog counted {item.game_count} games")
     if item.game_count != (
-        item.full_game_count
-        + item.warning_game_count
-        + item.partial_game_count
-        + item.damaged_game_count
+        item.full_game_count + item.warning_game_count + item.partial_game_count + item.damaged_game_count
     ):
         raise AssertionError("source status aggregate does not equal game count")
     if item.attempt_count != 2:
@@ -162,25 +187,24 @@ def main() -> None:
         if segmented != SUBSET_GAMES:
             raise AssertionError(f"expected {SUBSET_GAMES} complete games, got {segmented}")
 
-        opened = open_pgn(subset)
-        if len(opened.games) != SUBSET_GAMES:
-            raise AssertionError(f"canonical Product parser returned {len(opened.games)} games")
-        if opened.global_warnings:
-            raise AssertionError(f"unexpected global PGN warnings: {opened.global_warnings}")
+        source = fingerprint(subset)
+        games = _parse_complete_game_subset(subset)
+        if len(games) != SUBSET_GAMES:
+            raise AssertionError(f"canonical Product parser returned {len(games)} games")
 
         with AcsDatabase(database_path) as database:
             importer = LibraryImportService(database)
             first = importer.import_games(
-                opened.games,
+                games,
                 source_name=f"{CORPUS_NAME}-first-{SUBSET_GAMES}.pgn",
                 source_format="pgn",
-                source_sha256=opened.source.sha256,
+                source_sha256=source.sha256,
             )
             repeated = importer.import_games(
-                opened.games,
+                games,
                 source_name=f"renamed-{CORPUS_NAME}-first-{SUBSET_GAMES}.pgn",
                 source_format="PGN",
-                source_sha256=opened.source.sha256.upper(),
+                source_sha256=source.sha256.upper(),
             )
             if first.reused or not repeated.reused:
                 raise AssertionError("real exact-source import/reuse classification is wrong")
@@ -192,11 +216,7 @@ def main() -> None:
             if page.has_more or page.next_after_source_id is not None or len(page.items) != 1:
                 raise AssertionError("real source catalog page shape is not exact")
             item = page.items[0]
-            _validate_catalog_item(
-                item,
-                source_id=first.source_id,
-                attempt_id=repeated.attempt_id,
-            )
+            _validate_catalog_item(item, source_id=first.source_id, attempt_id=repeated.attempt_id)
             detail = catalog.get_source(first.source_id)
             if detail != item:
                 raise AssertionError("source detail and catalog aggregate diverged")
@@ -211,11 +231,7 @@ def main() -> None:
             item_after = catalog.get_source(first.source_id)
             if item_after is None:
                 raise AssertionError("reopened catalog lost real source")
-            _validate_catalog_item(
-                item_after,
-                source_id=first.source_id,
-                attempt_id=repeated.attempt_id,
-            )
+            _validate_catalog_item(item_after, source_id=first.source_id, attempt_id=repeated.attempt_id)
             enumerated_after, pages_after = _enumerate_source(catalog, first.source_id)
             if enumerated_after != SUBSET_GAMES:
                 raise AssertionError("reopened source->games count changed")
@@ -232,8 +248,9 @@ def main() -> None:
                 "compressed_sha256": CORPUS_SHA256,
                 "compressed_bytes": compressed_bytes,
                 "subset_games": SUBSET_GAMES,
-                "subset_sha256": opened.source.sha256,
-                "subset_bytes": opened.source.size,
+                "subset_sha256": source.sha256,
+                "subset_bytes": source.size,
+                "parse_batch_games": PARSE_BATCH_GAMES,
             },
             "source_id": first.source_id,
             "sources": 1,

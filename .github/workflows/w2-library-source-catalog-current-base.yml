@@ -25,7 +25,7 @@ env:
   DEDUPE_OWNER_HEAD: 5b68baf4c1f32a992f46067b8da120e4d1168294
   OWNER_SERVICE_BLOB: bb848b9cfc7eb643630143833be52075fca3e165
   OWNER_TEST_BLOB: 99848ec1771e44e44c95af3f6aa9c66d634080fd
-  OWNER_REAL_ORACLE_BLOB: d7a5690cff793892e0056f03e9e5b61d8c5fdda5
+  OWNER_REAL_ORACLE_BLOB: c5b875afed380d4160994abcbc4a9fd5f671d618
   CURRENT_ACSDB_BLOB: f5dd56e017c09aa8bf2ba3aa66c0658f8a229e74
   CURRENT_SEARCH_BLOB: 98466d081fb4c77d52029963c2f295e5f022dd07
   DEDUPE_IMPORT_BLOB: f9f6959c429c2681e355d11faecb0b1034e0f22b
@@ -119,7 +119,7 @@ jobs:
           python-version: '3.12'
       - name: Install pinned real-corpus dependency
         run: python -m pip install -q zstandard==0.23.0
-      - name: Exact owner real CC0 5k source journey
+      - name: Bounded canonical real CC0 5k source journey
         shell: bash
         run: |
           set -euo pipefail
