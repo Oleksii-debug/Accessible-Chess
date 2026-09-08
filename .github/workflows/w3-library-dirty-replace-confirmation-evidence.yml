@@ -3,7 +3,7 @@ name: W3 Library Dirty Replace Confirmation Evidence
 on:
   push:
     branches:
-      - work/w3-library-dirty-replace-confirmation-evidence-20260907
+      - work/v2-library-dirty-replace-confirmation-20260907
   pull_request:
     branches:
       - codex/v2-runtime-completion-20260907
@@ -29,18 +29,18 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Prove evidence-only scope
+      - name: Prove bounded Product successor scope
         shell: bash
         run: |
           set -euo pipefail
           base=40e1ef2184177600bcc88911529b718adde65df9
           git merge-base --is-ancestor "$base" HEAD
           git diff --check "$base" HEAD
-          unexpected="$(git diff --name-only "$base" HEAD | grep -Ev '^(.github/workflows/w3-library-dirty-replace-confirmation-evidence.yml|tests/test_w3_library_dirty_replace_confirmation.py)$' || true)"
+          unexpected="$(git diff --name-only "$base" HEAD | grep -Ev '^(.github/workflows/w3-library-dirty-replace-confirmation-evidence.yml|tests/test_w3_library_dirty_replace_confirmation.py|acs/version2_release_app.py)$' || true)"
           test -z "$unexpected"
-      - name: Compile evidence
+      - name: Compile regression
         run: python -m py_compile tests/test_w3_library_dirty_replace_confirmation.py
       - name: Preserve inherited application/release contracts
         run: python -m unittest -v tests.test_version2_application tests.test_version2_release_app
-      - name: Run W3 RED oracle
+      - name: Run W3 dirty-replacement regression
         run: python -m unittest -v tests.test_w3_library_dirty_replace_confirmation
