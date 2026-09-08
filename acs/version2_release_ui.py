@@ -222,6 +222,14 @@ class Version2ReleaseAccessibleChessAPI(Stage1ReleaseAccessibleChessAPI):
             return self._external_review_mutation_error()
         return super().stop_engine_game()
 
+    def retry_engine_move(self) -> dict[str, Any]:
+        # Retry resumes the inherited engine session before other Stage1 guards.
+        # An external PGN/Book review must therefore fail closed here, before
+        # provider/session recovery can mutate hidden live-game state.
+        if self._external_review_owned():
+            return self._external_review_mutation_error()
+        return super().retry_engine_move()
+
     def engine_takeback(self) -> dict[str, Any]:
         if self._external_review_owned():
             return self._external_review_mutation_error()
