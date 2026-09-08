@@ -4,6 +4,7 @@ This checks thread ownership, not packaged resources, picker accessibility or
 human NVDA acceptance. Only the trusted source picker is replaced by a fixture.
 """
 from concurrent.futures import Future
+from contextlib import closing
 import json
 from pathlib import Path
 import sqlite3
@@ -96,7 +97,7 @@ def main():
             file_runtime_factory=native_factory, loaded_hook=loaded)
         checks["closed_on_native_thread"] = api._ui_closed and bool(
             observed.get("files") and observed["files"].closed)
-        with sqlite3.connect(root / "library.acsdb") as database:
+        with closing(sqlite3.connect(root / "library.acsdb")) as database:
             checks["library_reopens_after_window_close"] = (
                 database.execute("PRAGMA quick_check").fetchone()[0] == "ok"
                 and database.execute("SELECT count(*) FROM games").fetchone()[0] == 1)

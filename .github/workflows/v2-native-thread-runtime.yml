@@ -9,11 +9,6 @@ on:
       - 'tests/test_version2_api_thread_dispatch.py'
       - 'scripts/v2_native_thread_oracle.py'
       - '.github/workflows/v2-native-thread-runtime.yml'
-  pull_request:
-    paths:
-      - 'tests/test_version2_api_thread_dispatch.py'
-      - 'scripts/v2_native_thread_oracle.py'
-      - '.github/workflows/v2-native-thread-runtime.yml'
 
 permissions:
   contents: read
@@ -24,7 +19,6 @@ concurrency:
 
 jobs:
   real-windows-host:
-    if: github.event_name == 'push' || github.event.pull_request.number == 441
     runs-on: windows-2025
     timeout-minutes: 12
     steps:

@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - work/version2-integration-formats-20260827
+      - codex/v2-runtime-completion-20260907
   pull_request:
     paths:
       - '.github/workflows/d01-full-product-native-menu.yml'
