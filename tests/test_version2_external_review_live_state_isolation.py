@@ -26,7 +26,23 @@ class _RetryProbeSession:
         self.resume_calls += 1
 
     def snapshot(self):
-        return SimpleNamespace(turn_state=EngineTurnState.HUMAN)
+        # The retry regression only spies on the mutating resume() boundary, but
+        # the normal fail-closed response still renders the read-only engine
+        # projection. Keep that projection contract complete so a missing fake
+        # field cannot masquerade as a Product failure.
+        return SimpleNamespace(
+            config=SimpleNamespace(
+                engine_side="b",
+                level=SimpleNamespace(level=5),
+                time_control=SimpleNamespace(
+                    initial_ms=0,
+                    increment_ms=0,
+                    untimed=True,
+                ),
+            ),
+            turn_state=EngineTurnState.HUMAN,
+            clock=SimpleNamespace(white_ms=0, black_ms=0),
+        )
 
 
 class Version2ExternalReviewLiveStateIsolationTests(unittest.TestCase):
