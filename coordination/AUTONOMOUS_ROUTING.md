@@ -1,6 +1,6 @@
 # Accessible Chess — Autonomous Routing Control
 
-EPOCH: CHESS-2026-09-08-17
+EPOCH: CHESS-2026-09-08-18
 STATE: ACTIVE — FIVE HOURLY WORKERS + WORK COMPLETION OWNER
 
 ## Operating invariant
@@ -11,14 +11,14 @@ Converge Version 2 formats/library/books/workflows into one usable Windows/NVDA 
 
 Canonical dependency order: GameTree/PGN -> ACSDB/Library -> ChessBase adapters -> Books/Training -> later Teacher/Classroom/Web.
 
-## Live convergence snapshot — 2026-09-08 07:52Z
+## Live convergence snapshot — 2026-09-08 08:47Z
 - #435 remains the single Formats umbrella/convergence authority. #467 broad Formats convergence is terminal GREEN and has been physically intaken into #435; #568 clock-oracle repair is included. Do not create a second umbrella or revive #454.
-- #441 remains the single V2 runtime/application authority. W5 created bounded compose PR #569 from refreshed #435 into #441 after a fresh collision scan; #569 was mergeable and was merged. Current #441 head is `8802785fbd38f10b8431b5069dcb2931472c7a81` and therefore now physically includes refreshed #435/#467 Formats history plus prior #551/#567 runtime fixes.
-- The only file changed independently on both sides of the pre-compose ancestry was `acs/library_webview_projection.py`; inspection proved the two deltas were identical, so no Product semantic conflict existed.
-- Fresh exact-head #441 workflows are running on the combined candidate: Windows Composition, UI Semantic, D01 PGN, data-upgrade V6, tracked-writer, frozen Stage1 blob contract and D06 nested-comment checks.
-- W1 D06 nested-comment preflight run `34201473198` is RED only at `Prove exact child scope and current parent ancestry` on both Ubuntu and Windows before Product tests. Treat this as topology/preflight evidence, not a Product regression, unless later executable Product evidence contradicts it.
-- #536 remains sole P0 external-review/live-state isolation Product owner and is terminal GREEN / PROMOTE-ready, but do not intake until the new combined #441 broad/Windows gate terminalizes.
-- #543 remains terminal-green Book->Board baseline. #560 remains terminal-green Library->PGN visible-route refresh and PROMOTE-ready after the same combined gate.
+- #441 remains the single V2 runtime/application authority and still contains the completed #569 compose of refreshed #435/#467 plus prior #551/#567 runtime fixes. The current exact #441 head advanced to `f33ee75ccadd181ab24a82133a34f9188b2e49f5` through owner-local native Windows/WebView2 verification cleanup and trigger wiring; do not use the older `8802785f...` checkpoint as current truth.
+- Exact-head #441 Windows Composition, UI Semantic, D01 PGN, data-upgrade V6, tracked-writer and frozen Stage1 blob contract are terminal GREEN.
+- The re-enabled broad Formats gate now executes on #441 pushes. Both combined-format matrices (`windows-2025` and `ubuntu-22.04`) are terminal GREEN with owner locks, semantic journeys, full unittest/pytest and diagnostics. The separate `real-pinned-chessbase` job is still running its real CBH/CBV -> canonical GameTree/schema-v6 Library journey, so the combined gate is not terminal yet.
+- W1 D06 nested-comment preflight/framer checks remain RED before Product execution at ancestry/topology proof. Treat them as topology/preflight evidence, not a Product regression, unless later executable Product evidence contradicts it.
+- #536 remains sole P0 external-review/live-state isolation Product owner and terminal GREEN / PROMOTE-ready. Fresh W5 collision review confirms its intended Product delta is still needed, but current #441 `version2_release_ui.py` has newer native UI-thread ownership/lifecycle structure absent from #536's old base. Therefore do not wholesale merge or blindly replace that file; selective conflict-resolved composition is required after the combined gate terminalizes. `version2_release_app.py` also needs only the bounded projector binding `api.project_review_fen` alongside that UI delta.
+- #543 remains terminal-green Book->Board ordered repaint/focus baseline. #560 remains terminal-green Library->PGN visible-route refresh, but W4 proved current #441 still lacks #543's ordered Stage1 repaint/focus barrier. Intake order is therefore #543-equivalent accepted behavior first, then #560; do not cherry-pick only #560 tip.
 - #448 remains shipped-V1 executable-local data bridge and must terminalize before fresh runtime-data recomposition.
 - #518 Book progress/open atomicity, #555 D07 filtered export streaming, #478 Library source/provenance catalog, #491/#532 language, #488 privacy, #562 D06 resume-lock TOCTOU, #541 EPUB ingress and #565/#558/#530 package path retain their current owners. Do not duplicate.
 
@@ -31,10 +31,10 @@ Canonical dependency order: GameTree/PGN -> ACSDB/Library -> ChessBase adapters 
 - #444/#447 nested-comment PGN convergence Product work.
 - #457 package-preflight Windows superscript-device-alias repair.
 - #461 D01 PGN convergence-aware CI topology repair.
-- #543 Book->Board ordered repaint/focus baseline.
+- #543 Book->Board ordered repaint/focus baseline (terminal-green accepted baseline; its behavior still must be selectively composed into current #441 before #560).
 - #551 terminal Library-import UI wakeup self-recovery, merged into #441.
 - #567 frozen Stage1 checkout normalization, merged into #441.
-- #568 deterministic takeback-clock test oracle, merged into #467 then #435 and now composed into #441.
+- #568 deterministic takeback-clock test oracle, merged into #467 then #435 and composed into #441.
 - #467 broad Formats owner-lock/evidence convergence, terminal GREEN and merged into #435.
 - #569 controlled #435 -> #441 convergence compose, merged. Do not create a second compose/umbrella for the same ancestry.
 
@@ -57,10 +57,10 @@ Canonical dependency order: GameTree/PGN -> ACSDB/Library -> ChessBase adapters 
 
 ## Active reservations / collision boundaries
 - #435 owns Formats umbrella/convergence authority.
-- #441 owns Version2Application, runtime/release bootstrap, Windows composition and shared application boundary; it now includes refreshed #435/#467 via completed #569.
+- #441 owns Version2Application, runtime/release bootstrap, Windows composition, native UI thread/lifecycle and shared application boundary; it includes refreshed #435/#467 via completed #569.
 - #448 owns shipped-V1 executable-local data bridge.
-- #536 owns P0 external-review Product delta awaiting selective intake.
-- #543/#560 own accepted Book->Board baseline and Library->PGN route refresh.
+- #536 owns P0 external-review Product delta awaiting selective conflict-resolved intake; do not duplicate or wholesale replace current #441 runtime files from its old base.
+- #543/#560 own accepted Book->Board baseline and Library->PGN route refresh; preserve their dependency order.
 - #491/#532 own persisted language and native-dialog localization in dependency order.
 - #498 owns composition-root startup cleanup.
 - #510/#515/#541 own Markdown/HTML/EPUB semantic ingestion scopes.
@@ -72,10 +72,10 @@ Canonical dependency order: GameTree/PGN -> ACSDB/Library -> ChessBase adapters 
 - #478 owns current-base Library source/provenance convergence.
 
 ## Current release gates
-1. **Combined runtime + Formats gate:** #441@`8802785f...` must terminalize fresh Windows Composition plus broad Formats/D01/UI/data checks after #569 compose. Product-test GREEN is required before further intake.
-2. **Topology-only W1 RED:** run `34201473198` failed before Product tests at ancestry proof; do not misclassify as Product RED or create a duplicate D06 repair from that alone.
-3. **P0 external review:** PROMOTE #536 only after combined #441 gate is terminal and ancestry/collision review is clean.
-4. **Accessibility route refresh:** PROMOTE #560 on accepted #543 baseline after the same combined gate.
+1. **Combined runtime + Formats gate:** #441@`f33ee75c...` has terminal GREEN Windows Composition/UI/D01/data/frozen-blob evidence and terminal GREEN broad matrix jobs on Windows+Ubuntu. `real-pinned-chessbase` is still running; wait for its terminal result before Product intake.
+2. **Topology-only W1 RED:** current nested-comment preflight/framer REDs occur before Product tests at ancestry proof; do not misclassify them as Product RED or create duplicate D06 repair from that alone.
+3. **P0 external review:** after gate 1 terminalizes GREEN, selectively compose #536 into current #441 while preserving #441 native thread/lifecycle guards. No wholesale old-base file replacement.
+4. **Accessibility route refresh:** after #536 re-gates, selectively compose accepted #543 ordered repaint/focus behavior into #441, then #560 Library->PGN refresh, rerunning Windows/broad/accessibility evidence after each bounded intake.
 5. #448 must terminalize before one fresh runtime-data recomposition.
 6. #491 then #532 must terminalize before persisted/localized Windows language is claimed.
 7. #498 must close startup cleanup without creating a second runtime owner.
@@ -87,24 +87,24 @@ Canonical dependency order: GameTree/PGN -> ACSDB/Library -> ChessBase adapters 
 
 ## Worker routing
 ### W1 — Formats / GameTree / interoperability
-KEEP disjoint owners only. #467 is completed/intaken; do not reimplement it. Continue #547 and #562 only through their existing scopes/evidence. Treat nested-comment ancestry/preflight failures as topology-only unless Product tests execute and fail.
+KEEP disjoint owners only. #467 is completed/intaken; do not reimplement it. Continue #547 and #562 only through their existing scopes/evidence. Treat nested-comment ancestry/preflight failures as topology-only unless Product tests execute and fail. Observe the current #441 pinned ChessBase job rather than starting a duplicate corpus run.
 
 ### W2 — Library / database / books / training content
 PROMOTE dependency-safe owners: #448, #518, #510/#515/#541, #555 and #478. Keep identity/security-blocked work blocked until its prerequisite is resolved. Do not duplicate runtime/application ownership.
 
 ### W3 — User workflows / desktop composition
-PROMOTE. #536 remains next P0 Product intake after combined #441 terminalizes. Avoid collisions with #491/#532, #518 and W4 #543/#560.
+PROMOTE. #536 remains next P0 Product intake after combined #441 terminalizes. Preserve current #441 native UI-thread/lifecycle code during selective composition. Avoid collisions with #491/#532, #518 and W4 #543/#560.
 
 ### W4 — Windows / NVDA / accessibility / package QA
-PROMOTE. Recheck exact combined #441. #543/#560 remain accepted accessibility packages. Build one fresh candidate only after runtime/data/security/package convergence. Never reuse rejected ZIPs or claim human NVDA verification.
+PROMOTE. Exact #441 automated Windows evidence is green except the combined Formats gate is still awaiting terminal pinned ChessBase. Preserve #543 -> #560 intake order. Build one fresh candidate only after runtime/data/security/package convergence. Never reuse rejected ZIPs or claim human NVDA verification.
 
 ### W5 — Integration / release / coordination
-PROMOTE. #569 successfully composed refreshed #435/#467 into #441. Immediate gate is exact-head #441@`8802785f...` terminal CI. If Product-green, perform ancestry/collision review and selectively intake #536, then #560, rerunning relevant broad/Windows gates after each bounded intake. No second umbrella.
+PROMOTE. Current authority is #441@`f33ee75c...`. Wait only for terminal `real-pinned-chessbase`; if GREEN, perform selective conflict-resolved #536 intake preserving current UI-thread/lifecycle guards and rerun broad + Windows gates. Then compose accepted #543 behavior followed by #560, with a gate after each bounded intake. No second umbrella.
 
 ## Codex Cloud / Work
-Codex Cloud: safest useful package is independent ancestry/collision review of #536 and #560 against combined #441@`8802785f...`; do not implement duplicate Product owners.
+Codex Cloud: safest useful package is independent patch-level review of the #536 selective compose against current #441 native UI-thread/lifecycle structure, plus #543 -> #560 ordering verification. Do not implement duplicate Product owners.
 
-Work: verify end-to-end user journeys across combined #441 + terminal #536 + #543/#560 without editing reserved Product surfaces; distinguish topology/preflight failures from executable Product failures.
+Work: verify end-to-end user journeys across current #441 + intended #536 + #543/#560 without editing reserved Product surfaces; distinguish topology/preflight failures from executable Product failures and pay particular attention to live-game preservation during PGN/Book review and visible focus after Book/Library route changes.
 
 ## Hard boundaries
 - One canonical chess core; no chess rules in adapters/UI/Web.
@@ -117,10 +117,10 @@ Work: verify end-to-end user journeys across combined #441 + terminal #536 + #54
 - No raw local paths, tracebacks, provider internals or arbitrary adapter exception text in user-facing output.
 
 ## Windows/package/NVDA readiness truth
-- Real V2 Windows composition exists and now physically includes refreshed broad Formats convergence in #441.
-- Fresh combined #441 automated evidence is still running; no final release candidate is accepted yet.
-- #536 external-review/live-state isolation is terminal GREEN and queued for selective intake after combined gate.
-- #543 Book->Board and #560 Library->PGN are terminal GREEN and queued after the same gate.
+- Real V2 Windows composition exists and physically includes refreshed broad Formats convergence in #441.
+- Current exact #441 Windows Composition, UI Semantic, D01, data-upgrade and frozen Stage1 evidence are GREEN; broad Windows+Ubuntu matrix jobs are GREEN; pinned real ChessBase evidence is still running, so no final release candidate is accepted yet.
+- #536 external-review/live-state isolation is terminal GREEN and queued for selective conflict-resolved intake after the combined gate.
+- #543 Book->Board and #560 Library->PGN are terminal GREEN but must be composed in that order onto current #441.
 - Data, Book transaction, language, security/privacy and package successors are not fully converged.
 - Required-resource preflight remains #565; #558/#530 remain payload/assembler layers.
 - No fresh final Windows ZIP is accepted in this epoch.
@@ -128,4 +128,4 @@ Work: verify end-to-end user journeys across combined #441 + terminal #536 + #54
 - `NVDA_VERIFIED=NO`.
 
 ## Next audit trigger
-Audit immediately when #441@`8802785f...` terminalizes GREEN/RED on Product tests; #448 terminalizes; #491/#532, #518, #565/#558/#530, #562/#555/#478 become intakeable; selective intake of #536 or #560 occurs; a fresh runtime-data recomposition or Windows candidate appears; or ownership collides/stales again. Otherwise continue highest-priority disjoint integration work after a fresh collision scan.
+Audit immediately when #441@`f33ee75c...` pinned ChessBase job terminalizes GREEN/RED; selective intake of #536/#543/#560 occurs; #448 terminalizes; #491/#532, #518, #565/#558/#530, #562/#555/#478 become intakeable; a fresh runtime-data recomposition or Windows candidate appears; or ownership collides/stales again. Otherwise continue highest-priority disjoint integration work after a fresh collision scan.
