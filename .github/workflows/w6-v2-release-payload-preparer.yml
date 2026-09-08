@@ -64,7 +64,7 @@ jobs:
         run: >-
           python -m unittest -v
           tests.test_version2_release_payload
-          tests.test_sound_windows
+          tests.test_sound_runtime
           tests.test_stockfish_runtime
           tests.test_version2_package_assembler
           tests.test_version2_package_preflight
