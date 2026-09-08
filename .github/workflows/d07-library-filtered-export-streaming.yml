@@ -26,6 +26,15 @@ jobs:
           fetch-depth: 0
           ref: work/d07-library-filtered-export-streaming-20260907
 
+      - name: Preserve canonical Git bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config core.autocrlf false
+          git config core.eol lf
+          git reset --hard HEAD
+          git checkout-index --force --all
+
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
