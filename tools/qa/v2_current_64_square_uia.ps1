@@ -74,21 +74,20 @@ $root = [System.Windows.Automation.AutomationElement]::FromHandle($proc.MainWind
 if($null -eq $root) { throw 'UIAutomationElement.FromHandle returned null for V2 window' }
 
 function AllElements {
-  try {
-    return @($script:root.FindAll(
-      [System.Windows.Automation.TreeScope]::Subtree,
-      [System.Windows.Automation.Condition]::TrueCondition
-    ))
-  } catch {
-    throw "UIA subtree enumeration failed: $($_.Exception.Message)"
-  }
+  return @($script:root.FindAll(
+    [System.Windows.Automation.TreeScope]::Subtree,
+    [System.Windows.Automation.Condition]::TrueCondition
+  ))
 }
 
 function CoordFor($e) {
   $id = SafeId $e
   if($id -match '^sq-([a-h][1-8])$') { return $Matches[1].ToLowerInvariant() }
   $name = SafeName $e
-  if($name -match '^([a-h][1-8])(?:$|[\s,;:–—-])') { return $Matches[1].ToLowerInvariant() }
+  $type = SafeType $e
+  if($type -match 'DataItem|Custom' -and $name -match '^([a-h][1-8])(?:$|[\s,;:–—-])') {
+    return $Matches[1].ToLowerInvariant()
+  }
   return $null
 }
 
@@ -113,24 +112,9 @@ function InvokeElement($e, [string]$description) {
 function SquareElement([string]$coord) {
   $coord = $coord.ToLowerInvariant()
   $id = "sq-$coord"
-  foreach($e in (AllElements)) {
-    $eid = SafeId $e
-    if($eid -eq $id) { return $e }
-  }
-  foreach($e in (AllElements)) {
-    if((CoordFor $e) -eq $coord) { return $e }
-  }
+  foreach($e in (AllElements)) { if((SafeId $e) -eq $id) { return $e } }
+  foreach($e in (AllElements)) { if((CoordFor $e) -eq $coord) { return $e } }
   return $null
-}
-
-function FocusSquare([string]$coord) {
-  $e = SquareElement $coord
-  if($null -eq $e) { Fail "square $coord not found for focus"; return $false }
-  try { $e.SetFocus(); Start-Sleep -Milliseconds 180 } catch { Fail "SetFocus failed for $coord: $($_.Exception.Message)"; return $false }
-  $focused = $null
-  foreach($x in (AllElements)) { if(SafeFocus $x) { $focused = CoordFor $x; if($focused){break} } }
-  if($focused -ne $coord) { Fail "focus expected $coord but UIA reported '$focused'"; return $false }
-  return $true
 }
 
 function FocusedCoord {
@@ -141,6 +125,15 @@ function FocusedCoord {
     }
   }
   return ''
+}
+
+function FocusSquare([string]$coord) {
+  $e = SquareElement $coord
+  if($null -eq $e) { Fail "square $coord not found for focus"; return $false }
+  try { $e.SetFocus(); Start-Sleep -Milliseconds 180 } catch { Fail "SetFocus failed for $coord: $($_.Exception.Message)"; return $false }
+  $focused = FocusedCoord
+  if($focused -ne $coord) { Fail "focus expected $coord but UIA reported '$focused'"; return $false }
+  return $true
 }
 
 function Snapshot([string]$label) {
@@ -183,12 +176,13 @@ function Snapshot([string]$label) {
     squares=@($raw | Sort-Object coord)
   }
   $script:checkpoints.Add($row)
-  if($raw.Count -ne 64) { Fail "$label: expected exactly 64 connected semantic square nodes, got $($raw.Count)" }
-  if($uniqueCoords.Count -ne 64 -or $missing.Count -gt 0) { Fail "$label: expected all 64 canonical coordinates; missing=$($missing -join ',')" }
-  if($duplicateCoords.Count -gt 0) { Fail "$label: duplicate logical squares: $($duplicateCoords -join ',')" }
-  if($duplicateIds.Count -gt 0) { Fail "$label: duplicate non-empty AutomationId values: $($duplicateIds -join ',')" }
-  if($badNames.Count -gt 0) { Fail "$label: accessible names do not begin with canonical coordinate: $($badNames -join ',')" }
-  if($pieceNamed -eq 0) { Fail "$label: no square exposes coordinate plus piece information" }
+  if($raw.Count -ne 64) { Fail "${label}: expected exactly 64 connected semantic square nodes, got $($raw.Count)" }
+  if($uniqueCoords.Count -ne 64 -or $missing.Count -gt 0) { Fail "${label}: expected all 64 canonical coordinates; missing=$($missing -join ',')" }
+  if($duplicateCoords.Count -gt 0) { Fail "${label}: duplicate logical squares: $($duplicateCoords -join ',')" }
+  if($duplicateIds.Count -gt 0) { Fail "${label}: duplicate non-empty AutomationId values: $($duplicateIds -join ',')" }
+  if($canonicalIdCount -ne 64) { Fail "${label}: expected canonical UIA AutomationId sq-<coordinate> on all 64 squares, got $canonicalIdCount" }
+  if($badNames.Count -gt 0) { Fail "${label}: accessible names do not begin with canonical coordinate: $($badNames -join ',')" }
+  if($pieceNamed -eq 0) { Fail "${label}: no square exposes coordinate plus piece information" }
   return $row
 }
 
@@ -196,13 +190,16 @@ function WaitForName([string]$coord, [bool]$pieceExpected, [int]$timeoutMs=5000)
   $sw=[Diagnostics.Stopwatch]::StartNew()
   while($sw.ElapsedMilliseconds -lt $timeoutMs) {
     $e=SquareElement $coord
-    if($e){$n=SafeName $e; $hasPiece=($n -ne $coord); if($hasPiece -eq $pieceExpected){return $true}}
+    if($e){
+      $n=SafeName $e
+      $hasPiece=($n -ne $coord)
+      if($hasPiece -eq $pieceExpected){return $true}
+    }
     Start-Sleep -Milliseconds 150
   }
   return $false
 }
 
-# Hidden-board precondition: before entering board interaction, hidden semantic squares must not leak into UIA.
 $preCount = @((AllElements) | Where-Object {(CoordFor $_)}).Count
 if($preCount -ne 0) { Fail "initial hidden board leaked $preCount semantic square nodes before board entry" }
 
@@ -214,7 +211,6 @@ if(InvokeElement $launcher 'board launcher') {
   $coverage.white_orientation = $coverage.initial_load
 }
 
-# White-orientation arrow edge behavior from canonical a1.
 if(FocusSquare 'a1') {
   [V2SquareKeys]::Tap(0x25); if((FocusedCoord) -ne 'a1'){Fail 'white orientation ArrowLeft escaped a1 edge'}
   [V2SquareKeys]::Tap(0x28); if((FocusedCoord) -ne 'a1'){Fail 'white orientation ArrowDown escaped a1 edge'}
@@ -222,7 +218,6 @@ if(FocusSquare 'a1') {
   if(FocusSquare 'a1') {[V2SquareKeys]::Tap(0x26); if((FocusedCoord) -ne 'a2'){Fail 'white orientation ArrowUp from a1 did not reach a2'}}
 }
 
-# Enter then Space must drive the real square activation path; together they make legal e2-e4.
 if(FocusSquare 'e2') {
   [V2SquareKeys]::Tap(0x0D)
   Start-Sleep -Milliseconds 250
@@ -236,7 +231,6 @@ if(FocusSquare 'e2') {
   }
 }
 
-# Native Ctrl+Z undo through the current keymap; board must rerender without losing canonical identity/focus.
 if(FocusSquare 'e4') {
   [V2SquareKeys]::Chord(0x11,0x5A)
   if(-not (WaitForName 'e2' $true)) { Fail 'Ctrl+Z undo did not restore piece name on e2' }
@@ -246,7 +240,6 @@ if(FocusSquare 'e4') {
   if((FocusedCoord) -ne 'e4') { Fail "focus continuity after undo expected e4, got '$(FocusedCoord)'" }
 }
 
-# A second state-changing render is a separate stale-node/rerender oracle.
 if(FocusSquare 'e2') {
   [V2SquareKeys]::Tap(0x0D)
   if(FocusSquare 'e4') {[V2SquareKeys]::Tap(0x20); WaitForName 'e4' $true | Out-Null}
@@ -256,33 +249,24 @@ if(FocusSquare 'e2') {
   if((FocusedCoord) -ne 'e4') { Fail "focus continuity after explicit rerender cycle expected e4, got '$(FocusedCoord)'" }
 }
 
-# Probe only the current V2/game surface. Do not borrow the deferred Teacher/Classroom orientation command.
 $orientation = FindByIdOrName 'board-orientation' '(?i)(flip board|board orientation|перевернути дошку|орієнтац.*дош)' 'Button|MenuItem'
 if($null -eq $orientation) {
   Fail 'MAIN_BOARD_ORIENTATION_CONTROL_MISSING: current V2 standalone exposes no main-board white/black orientation control through connected UIA'
-} else {
-  if(InvokeElement $orientation 'main-board orientation') {
-    Start-Sleep -Milliseconds 800
-    $black = Snapshot 'black_orientation'
-    $coverage.black_orientation = ($black.unique_coordinate_count -eq 64)
-    # Canonical identity remains coordinate-based; black orientation must not rename/rekey squares.
-    if(FocusSquare 'a1') {
-      $a1=SquareElement 'a1'; $b=(SafeBounds $a1)
-      # Determine visual orientation from a1/h8 geometry and test the outward edges accordingly.
-      $h8=SquareElement 'h8'; $hb=(SafeBounds $h8)
-      if($b -and $hb) {
-        if($b[0] -gt $hb[0]) {[V2SquareKeys]::Tap(0x27)} else {[V2SquareKeys]::Tap(0x25)}
-        if((FocusedCoord) -ne 'a1'){Fail 'black orientation horizontal outward arrow escaped a1 edge'}
-        if($b[1] -lt $hb[1]) {[V2SquareKeys]::Tap(0x26)} else {[V2SquareKeys]::Tap(0x28)}
-        if((FocusedCoord) -ne 'a1'){Fail 'black orientation vertical outward arrow escaped a1 edge'}
-      }
+} elseif(InvokeElement $orientation 'main-board orientation') {
+  Start-Sleep -Milliseconds 800
+  $black = Snapshot 'black_orientation'
+  $coverage.black_orientation = ($black.unique_coordinate_count -eq 64)
+  if(FocusSquare 'a1') {
+    $a1=SquareElement 'a1'; $b=(SafeBounds $a1)
+    $h8=SquareElement 'h8'; $hb=(SafeBounds $h8)
+    if($b -and $hb) {
+      if($b[0] -gt $hb[0]) {[V2SquareKeys]::Tap(0x27)} else {[V2SquareKeys]::Tap(0x25)}
+      if((FocusedCoord) -ne 'a1'){Fail 'black orientation horizontal outward arrow escaped a1 edge'}
+      if($b[1] -lt $hb[1]) {[V2SquareKeys]::Tap(0x26)} else {[V2SquareKeys]::Tap(0x28)}
+      if((FocusedCoord) -ne 'a1'){Fail 'black orientation vertical outward arrow escaped a1 edge'}
     }
   }
 }
-
-# PGN/Book/Return are intentionally not fabricated. Their connected UIA checkpoints are only marked
-# when the real current standalone exposes a reachable review journey to this evidence process.
-# Absence here remains explicit coverage, not a false GREEN claim.
 
 $report = [ordered]@{
   schema='accessible-chess-v2-current-64-square-uia-v1'
@@ -295,7 +279,7 @@ $report = [ordered]@{
   checkpoints=@($checkpoints)
   failures=@($failures)
   acceptance_pass=($failures.Count -eq 0 -and @($coverage.Values | Where-Object {$_ -ne $true}).Count -eq 0)
-  note='UIA RuntimeId may change on rerender; canonical logical identity is coordinate/DOM id sq-<coordinate>. Human NVDA verification is not claimed.'
+  note='PGN review, Book review and Return are never inferred from static state. They remain false until exercised through the real current standalone. UIA RuntimeId may change on rerender; canonical identity is sq-<coordinate>. NVDA_VERIFIED=NO; HUMAN_TESTED=NO.'
 }
 $parent=Split-Path -Parent $ReportPath
 if($parent -and -not (Test-Path $parent)){New-Item -ItemType Directory -Force -Path $parent|Out-Null}
