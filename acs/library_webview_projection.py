@@ -205,8 +205,12 @@ class LibraryImportWebViewProjection:
             "description": labels["description"],
             "processed_games": self._processed_games,
             "total_games": self._total_games,
-            "progress_label": self._status_message(),
-            "message": self._message,
+            "progress_label": _scrub_visible_text(
+                self._status_message(), language=self._language, limit=500
+            ),
+            "message": _scrub_visible_text(
+                self._message, language=self._language, limit=500
+            ),
             "actions": (
                 {
                     "action": "library.import",
@@ -585,5 +589,11 @@ class LibraryWebViewProjection:
         except Exception as exc:
             return LibraryWebViewEvent(
                 "error",
-                {"message": concise_user_error(exc, language=self._language)},
+                {
+                    "message": _scrub_visible_text(
+                        concise_user_error(exc, language=self._language),
+                        language=self._language,
+                        limit=500,
+                    )
+                },
             )
