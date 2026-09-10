@@ -64,6 +64,8 @@ jobs:
           tests.test_version2_shutdown
           tests.test_stockfish_runtime.StockfishRuntimeTests.test_runtime_reuses_exactly_one_provider_and_owns_close_once
           tests.test_stockfish_runtime.StockfishRuntimeTests.test_analysis_and_play_services_share_runtime_without_duplicate_ownership
+          tests.test_stockfish_runtime.StockfishRuntimeTests.test_failed_provider_close_is_retryable_without_reopening_runtime
+          tests.test_stockfish_runtime.StockfishRuntimeTests.test_uci_process_factory_output_is_validated_and_retryable
 
       - name: Run runtime cleanup failure matrix oracle
         run: python -m unittest -v tests.test_work_v2_runtime_cleanup_failure_matrix
