@@ -119,6 +119,20 @@
           textContent: uiText("Книгу ще не відкрито.", "No book is open yet.")
         }));
       }
+      return;
+    }
+    if (routeId === "training") {
+      if (snapshot.training && global.AccessibleChessTrainingSurface) {
+        const focus = requestedFocus === "training-prompt" ? "training-answer" : requestedFocus;
+        global.AccessibleChessTrainingSurface.render(workspace, snapshot.training, areaInvoke("training"), announce, focus || "training-answer");
+      } else {
+        workspace.replaceChildren(Object.assign(documentRef.createElement("p"), {
+          textContent: uiText(
+            "Відкрийте книгу, перейдіть до блоку «Вправа», а потім відкрийте Тренування.",
+            "Open a book, move to an Exercise block, then open Training."
+          )
+        }));
+      }
     }
   }
 
@@ -133,7 +147,7 @@
     const routeId = String(screen.route_id || "board");
     const requestedFocus = String(screen.focus_target || "");
 
-    if (routeId === "pgn" || routeId === "library" || routeId === "books") {
+    if (routeId === "pgn" || routeId === "library" || routeId === "books" || routeId === "training") {
       renderProductSurface(snapshot, routeId, requestedFocus);
       return;
     }
