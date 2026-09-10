@@ -14,6 +14,7 @@ import hashlib
 from pathlib import Path
 
 from .book_training import (
+    BookTrainingError,
     BookTrainingMaterial,
     build_book_training_material,
     build_current_book_training_material,
@@ -104,19 +105,26 @@ class Version2BookTrainingWorkspace:
         self._revision = revision
         return revision
 
-    def _next_exercise_index(self) -> int:
+    def _next_exercise_material(self) -> tuple[int, BookTrainingMaterial]:
         material = self.material
         if material is None:
             raise RuntimeError("no Training exercise is active")
         current = resolve_book_training_origin(self.reader.document, material.origin)
         for index in range(current.index + 1, len(self.reader.document.blocks)):
-            if isinstance(self.reader.document.blocks[index], Exercise):
-                return index
-        raise LookupError("no next Training exercise")
+            if not isinstance(self.reader.document.blocks[index], Exercise):
+                continue
+            try:
+                candidate = build_book_training_material(self.reader.document, index)
+            except BookTrainingError:
+                # Keep malformed authored chess content readable as a Book block,
+                # but never advertise or fabricate it as a Training exercise.
+                continue
+            return index, candidate
+        raise LookupError("no next valid Training exercise")
 
     def has_next(self) -> bool:
         try:
-            self._next_exercise_index()
+            self._next_exercise_material()
         except (LookupError, RuntimeError, ValueError):
             return False
         return True
@@ -125,10 +133,9 @@ class Version2BookTrainingWorkspace:
         if not self.session.completed:
             raise ValueError("current Training exercise is not complete")
         self.save()
-        next_index = self._next_exercise_index()
+        next_index, material = self._next_exercise_material()
         # Validate the next semantic exercise and its durable state before moving
         # the BookReader or replacing the active Training surface.
-        material = build_book_training_material(self.reader.document, next_index)
         session, bridge, store, revision = self._prepare(material)
         self.reader.go_to(next_index)
         self.material, self._session, self.bridge = material, session, bridge

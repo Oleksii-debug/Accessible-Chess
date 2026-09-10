@@ -39,6 +39,12 @@ from .version2_windows_library_import_observer import Version2ObservedImportServ
 
 
 class Version2Application:
+    # Some canonical shutdown/recovery tests deliberately construct a minimal
+    # application via __new__ instead of __init__. Keep optional Training state
+    # absent-safe on those valid pre-Training construction paths.
+    training_workspace = None
+    training = None
+
     def __init__(self, database: AcsDatabase, *, progress_store: BookProgressStore,
                  engine_assistance: EngineAssistedWorkflowService, board_dispatch,
                  board_position_projector=None, copy_text=lambda _: None,

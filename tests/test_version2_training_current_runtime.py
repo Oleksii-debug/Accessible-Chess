@@ -95,6 +95,53 @@ class Version2TrainingCurrentRuntimeTests(unittest.TestCase):
             self.assertEqual("Second exercise", restored["title"])
             self.assertTrue(restored["progress"]["completed"])
 
+    def test_invalid_semantic_exercise_is_not_advertised_and_next_valid_is_used(self) -> None:
+        document = BookDocument(
+            title="V2 Training semantic skip",
+            language="en",
+            blocks=[
+                Exercise(
+                    fen=START_FEN,
+                    prompt="First exercise",
+                    answer_text="e4",
+                    block_id="valid-one",
+                ),
+                Exercise(
+                    fen=START_FEN,
+                    prompt="Malformed exercise",
+                    answer_text="e5",
+                    block_id="invalid-two",
+                ),
+                Exercise(
+                    fen=START_FEN,
+                    prompt="Third exercise",
+                    answer_text="d4",
+                    block_id="valid-three",
+                ),
+            ],
+        )
+        reader = BookReader(document)
+        with tempfile.TemporaryDirectory(prefix="accessible-chess-v2-training-skip-") as raw:
+            workspace = Version2BookTrainingWorkspace(
+                reader,
+                progress_root=Path(raw),
+                language=UILanguage.EN,
+            )
+            workspace.start_current()
+            completed = workspace.dispatch("training.submit", {"answer": "e4"})
+            actions = {item["command"]: item for item in completed.payload["snapshot"]["actions"]}
+            self.assertTrue(actions["training.continue"]["enabled"])
+
+            continued = workspace.dispatch("training.continue", {})
+            self.assertEqual(2, reader.location().index)
+            self.assertEqual("Third exercise", continued.payload["snapshot"]["title"])
+
+            finished = workspace.dispatch("training.submit", {"answer": "d4"})
+            finished_actions = {
+                item["command"]: item for item in finished.payload["snapshot"]["actions"]
+            }
+            self.assertFalse(finished_actions["training.continue"]["enabled"])
+
     def test_stale_persistence_conflict_rolls_back_in_memory_session(self) -> None:
         document = make_book()
         first_reader = BookReader(document)
