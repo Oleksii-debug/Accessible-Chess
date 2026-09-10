@@ -50,7 +50,7 @@
   });
 
   function emptyStatusId(routeId) {
-    if (routeId === "pgn" || routeId === "library" || routeId === "books") {
+    if (routeId === "pgn" || routeId === "library" || routeId === "books" || routeId === "training") {
       return "v2-" + routeId + "-empty-status";
     }
     return "";
@@ -89,6 +89,9 @@
       const block = snapshot.books.block && typeof snapshot.books.block === "object" ? snapshot.books.block : {};
       return String(block.dom_id || "");
     }
+    if (routeId === "training" && snapshot.training && typeof snapshot.training === "object") {
+      return "training-answer";
+    }
     return emptyStatusId(routeId);
   }
 
@@ -106,7 +109,9 @@
       ? "PGN"
       : routeId === "library"
         ? uiText("Бібліотека", "Library")
-        : uiText("Книги", "Books");
+        : routeId === "training"
+          ? uiText("Тренування", "Training")
+          : uiText("Книги", "Books");
     title.textContent = String(heading || fallbackHeading);
     const status = documentRef.createElement("p");
     status.id = emptyStatusId(routeId);
@@ -115,7 +120,12 @@
       ? uiText("PGN ще не відкрито.", "No PGN is open yet.")
       : routeId === "library"
         ? uiText("Бібліотека ще не готова до перегляду.", "The Library is not ready to browse yet.")
-        : uiText("Книгу ще не відкрито.", "No book is open yet.");
+        : routeId === "training"
+          ? uiText(
+            "Відкрийте книгу, перейдіть до блоку «Вправа», а потім відкрийте Тренування.",
+            "Open a book, move to an Exercise block, then open Training."
+          )
+          : uiText("Книгу ще не відкрито.", "No book is open yet.");
     workspace.replaceChildren(title, status);
   }
 
@@ -192,6 +202,22 @@
         renderEmptyProduct(routeId, heading);
       }
       if (restoreFocus) restoreProductFocus(snapshot, routeId, requestedFocus);
+      return;
+    }
+    if (routeId === "training") {
+      const focus = requestedFocus === "training-prompt" ? "training-answer" : requestedFocus;
+      if (snapshot.training && global.AccessibleChessTrainingSurface) {
+        global.AccessibleChessTrainingSurface.render(
+          workspace,
+          snapshot.training,
+          areaInvoke("training"),
+          announce,
+          focus || "training-answer"
+        );
+      } else {
+        renderEmptyProduct(routeId, heading);
+      }
+      if (restoreFocus) restoreProductFocus(snapshot, routeId, focus);
     }
   }
 
@@ -208,7 +234,7 @@
     const requestedFocus = String(screen.focus_target || "");
     const heading = String(screen.heading || "");
 
-    if (routeId === "pgn" || routeId === "library" || routeId === "books") {
+    if (routeId === "pgn" || routeId === "library" || routeId === "books" || routeId === "training") {
       renderProductSurface(snapshot, routeId, requestedFocus, restoreFocus, heading);
       return;
     }
@@ -226,7 +252,8 @@
   }
 
   function isVersion2DomainAction(actionId) {
-    return actionId.indexOf("pgn.") === 0 || actionId.indexOf("library.") === 0 || actionId.indexOf("book.") === 0;
+    return actionId.indexOf("pgn.") === 0 || actionId.indexOf("library.") === 0 ||
+      actionId.indexOf("book.") === 0 || actionId.indexOf("training.") === 0;
   }
 
   function delegatedHasOwnPresentationEvent(actionId) {
