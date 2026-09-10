@@ -117,13 +117,21 @@ class Version2ReleaseAccessibleChessAPI(Stage1ReleaseAccessibleChessAPI):
         application = self._version2()
         contexts: list[str] = []
 
-        if requested == "document":
+        # The frozen document probes ANALYSIS -> HISTORY -> DOCUMENT for every
+        # non-board keystroke.  Each legacy registry lookup includes GLOBAL on its
+        # own, so active V2 route context must be considered before that GLOBAL
+        # result during every probe or a GLOBAL remap would mask DATABASE/BOOK
+        # bindings before the document probe is reached.
+        if requested in {"analysis", "history", "document"}:
             shell = getattr(application, "shell", None)
             route = getattr(getattr(shell, "current_route", None), "route_id", "")
-            if route == "library":
-                contexts.append("database")
-            elif route == "books":
-                contexts.append("book_reader")
+            route_context = {
+                "pgn": "document",
+                "library": "database",
+                "books": "book_reader",
+            }.get(route)
+            if route_context:
+                contexts.append(route_context)
         elif requested == "board":
             book_workflow = getattr(application, "book_workflow", None)
             if bool(getattr(book_workflow, "active", False)):
