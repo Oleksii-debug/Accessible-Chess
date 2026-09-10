@@ -1,0 +1,58 @@
+name: W3 Library Dirty Replace Confirmation Evidence
+
+on:
+  push:
+    branches:
+      - work/v2-library-dirty-replace-confirmation-20260907
+  pull_request:
+    branches:
+      - codex/v2-runtime-completion-20260907
+
+permissions:
+  contents: read
+
+concurrency:
+  group: w3-library-dirty-replace-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  evidence:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Prove bounded owner delta on accepted current runtime ancestry
+        shell: bash
+        run: |
+          set -euo pipefail
+          upstream=5e778b67538c3a5f8bb841df942eeb3f85d749bc
+          git merge-base --is-ancestor "$upstream" HEAD
+          git diff --check "$upstream" HEAD
+          changed="$(git diff --name-only "$upstream" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/w3-library-dirty-replace-confirmation-evidence.yml' \
+            'acs/version2_release_app.py' \
+            'tests/test_w3_library_dirty_replace_confirmation.py' | sort)"
+          test "$changed" = "$expected" || {
+            printf 'Unexpected W3 dirty-replacement scope:\n%s\n' "$changed" >&2
+            exit 1
+          }
+      - name: Compile exact confirmation seam
+        run: python -m py_compile acs/version2_release_app.py tests/test_w3_library_dirty_replace_confirmation.py
+      - name: Preserve native owner, close guard, no-double-prompt and application contracts
+        run: >-
+          python -m unittest -v
+          tests.test_v2_windows_native_dialog_ownership
+          tests.test_w3_unsaved_pgn_open_guard
+          tests.test_version2_release_app
+          tests.test_version2_application
+      - name: Run W3 dirty Library/application replacement regression
+        run: python -m unittest -v tests.test_w3_library_dirty_replace_confirmation

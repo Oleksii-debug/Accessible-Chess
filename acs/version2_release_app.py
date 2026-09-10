@@ -393,9 +393,17 @@ def create_version2_release_application(
             next_delegate=api.v2_board_dispatch,
             current_focus_provider=lambda: str(application._focus),
         )
-        return _install_close_guard_or_shutdown(
+        file_runtime = _install_close_guard_or_shutdown(
             file_runtime, application, owner_control, book_dialogs
         )
+        # Application-owned PGN replacements, including Library -> Open game,
+        # reuse the exact owner-bound confirmation source used by native PGN Open.
+        # Bind only after the close guard succeeds, so startup failure cannot leave
+        # the application pointing at a file runtime that was synchronously retired.
+        application.confirm_document_replace = (
+            file_runtime.file_dialogs.confirm_discard_unsaved_pgn
+        )
+        return file_runtime
 
     return api, build_application if defer_ui else application, engine_runtime, native_runtime_factory
 
