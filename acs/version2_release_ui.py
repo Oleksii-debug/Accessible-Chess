@@ -10,6 +10,7 @@ live in this module.
 """
 
 from collections.abc import Mapping
+from dataclasses import asdict
 from functools import wraps
 import threading
 from typing import Any, Callable
@@ -19,7 +20,7 @@ from .full_product_native_menu import install_full_product_windows_native_menu
 from .stage1_release_ui import Stage1ReleaseAccessibleChessAPI, _asset_root
 from .ui_native_menu import _resolve_windows_host_form
 from .ui_review_adapter import ReviewView
-from .version2_profile import Version2NativeMenuController
+from .version2_profile import VERSION2_FULL_PRODUCT_ACTION_IDS, Version2NativeMenuController
 
 
 class Version2ReleaseAccessibleChessAPI(Stage1ReleaseAccessibleChessAPI):
@@ -98,6 +99,135 @@ class Version2ReleaseAccessibleChessAPI(Stage1ReleaseAccessibleChessAPI):
         if application is None:
             raise RuntimeError("Version 2 application is not bound")
         return application
+
+    @staticmethod
+    def _keymap_context_name(value: object) -> str:
+        raw = getattr(value, "value", value)
+        return str(raw or "").strip().lower()
+
+    def _v2_keyboard_fallback_contexts(self, requested_context: object) -> tuple[str, ...]:
+        """Map the inherited key owner onto the active V2 registry contexts.
+
+        The shipped Stage 1 document remains the only keyboard-capture engine.
+        This seam changes only central registry lookup order after an exact Stage 1
+        context miss: active V2 route context first, then the existing GLOBAL
+        fallback.  It never parses or normalizes a second shortcut map.
+        """
+
+        if self._version2_application is None:
+            return ()
+        requested = self._keymap_context_name(requested_context)
+        application = self._version2()
+        contexts: list[str] = []
+
+        # The frozen document probes ANALYSIS -> HISTORY -> DOCUMENT for every
+        # non-board keystroke.  Each legacy registry lookup includes GLOBAL on its
+        # own, so active V2 route context must be considered before that GLOBAL
+        # result during every probe or a GLOBAL remap would mask DATABASE/BOOK
+        # bindings before the document probe is reached.
+        if requested in {"analysis", "history", "document"}:
+            shell = getattr(application, "shell", None)
+            route = getattr(getattr(shell, "current_route", None), "route_id", "")
+            route_context = {
+                "pgn": "document",
+                "library": "database",
+                "books": "book_reader",
+            }.get(route)
+            if route_context:
+                contexts.append(route_context)
+        elif requested == "board":
+            book_workflow = getattr(application, "book_workflow", None)
+            if bool(getattr(book_workflow, "active", False)):
+                contexts.append("book_reader")
+            elif bool(getattr(application, "pgn_board_active", False)):
+                contexts.append("document")
+
+        unique: list[str] = []
+        for context in contexts:
+            if context != requested and context not in unique:
+                unique.append(context)
+        return tuple(unique)
+
+    def _resolve_v2_keyboard_value(
+        self,
+        resolver: Callable[[str, str], dict[str, Any] | None],
+        context: str,
+        value: str,
+    ) -> dict[str, Any] | None:
+        """Prefer exact Stage 1, then active V2 route, then GLOBAL fallback."""
+
+        requested = self._keymap_context_name(context)
+        direct = resolver(context, value)
+        if direct is not None and self._keymap_context_name(direct.get("context")) == requested:
+            return direct
+
+        global_fallback = (
+            direct
+            if direct is not None and self._keymap_context_name(direct.get("context")) == "global"
+            else None
+        )
+        for fallback in self._v2_keyboard_fallback_contexts(requested):
+            resolved = resolver(fallback, value)
+            if resolved is None:
+                continue
+            resolved_context = self._keymap_context_name(resolved.get("context"))
+            if resolved_context == fallback:
+                return resolved
+            if global_fallback is None and resolved_context == "global":
+                global_fallback = resolved
+        return global_fallback if global_fallback is not None else direct
+
+    def keymap_resolve_binding(self, context: str, binding: str) -> dict[str, Any] | None:
+        """Resolve the one shared keymap using dynamic V2 route precedence."""
+
+        return self._resolve_v2_keyboard_value(
+            super().keymap_resolve_binding,
+            context,
+            binding,
+        )
+
+    def keymap_resolve_alias(self, context: str, alias: str) -> dict[str, Any] | None:
+        """Keep command aliases on the same dynamic context rule as bindings."""
+
+        return self._resolve_v2_keyboard_value(
+            super().keymap_resolve_alias,
+            context,
+            alias,
+        )
+
+    def dispatch_action(self, action_id: str, square: str | None = None) -> dict[str, Any]:
+        """Route registered V2 keyboard actions through the canonical V2 adapter/router.
+
+        ``web/index.html`` stays the one keyboard owner. Its ``apiAction`` helper
+        renders every result as Stage 1 state, so successful V2 dispatch returns a
+        complete current Stage 1 projection while the V2 application publishes its
+        own route/domain event through the same command path used by native menu.
+        """
+
+        if (
+            self._version2_application is not None
+            and isinstance(action_id, str)
+            and action_id in VERSION2_FULL_PRODUCT_ACTION_IDS
+        ):
+            if square not in (None, ""):
+                return self._error(
+                    "Дія Version 2 не приймає поле дошки."
+                    if self.lang == "uk"
+                    else "Version 2 action does not accept a board square."
+                )
+            application = self._version2()
+            command = application.adapter.activate_action(
+                action_id,
+                current_focus_id=str(getattr(application, "_focus", "")),
+            )
+            application.native_command(command)
+            payload = dict(command.payload)
+            if command.kind == "error":
+                return self._error(str(payload.get("message", "")))
+            result = self._ok("")
+            result["v2"] = asdict(command)
+            return result
+        return super().dispatch_action(action_id, square)
 
     def _external_review_owned(self) -> bool:
         """Whether a PGN/Book workflow still owns the external Board review.
@@ -321,7 +451,7 @@ class Version2ReleaseAccessibleChessAPI(Stage1ReleaseAccessibleChessAPI):
             if set(values) != {"square"} or not isinstance(values.get("square"), str):
                 raise ValueError("board action payload is not supported")
             square = str(values["square"])
-        result = self.dispatch_action(action_id.strip(), square)
+        result = super().dispatch_action(action_id.strip(), square)
         if not isinstance(result, dict):
             raise RuntimeError("canonical board action returned an invalid result")
         if result.get("ok") is False:
