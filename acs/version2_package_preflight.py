@@ -100,6 +100,9 @@ _REQUIRED_SOUND_ROOT = (
 _REQUIRED_SOUND_MANIFEST = (
     _REQUIRED_SOUND_ROOT / DEFAULT_SOUND_MANIFEST
 ).as_posix()
+_REQUIRED_SOUND_PROVENANCE = "THIRD_PARTY_NOTICES/SOUND_PROVENANCE.json"
+_SOUND_PROVENANCE_SCHEMA_VERSION = 1
+_PROVENANCE_PLACEHOLDERS = frozenset({"unknown", "unlicensed", "tbd", "todo", "none", "n/a"})
 _REQUIRED_STOCKFISH_SOURCE = "THIRD_PARTY_NOTICES/Stockfish-18-source.zip"
 _REQUIRED_STOCKFISH_NOTICE = "THIRD_PARTY_NOTICES/Stockfish-NOTICE.txt"
 _REQUIRED_WEB_FILES = (
@@ -409,6 +412,90 @@ def _validate_windows_pe_executable(path: Path, *, label: str) -> None:
         _fail(f"{label} cannot be read: {type(exc).__name__}")
 
 
+def _provenance_text(value: object, *, label: str, max_length: int) -> str:
+    if not isinstance(value, str):
+        _fail(f"sound provenance {label} must be text")
+    normalized = value.strip()
+    if (
+        not normalized
+        or len(normalized) > max_length
+        or any(ord(character) < 32 or ord(character) == 127 for character in normalized)
+    ):
+        _fail(f"sound provenance {label} is invalid")
+    return normalized
+
+
+def _validate_sound_provenance(
+    root: Path,
+    inventory: tuple[str, ...],
+    mapping: dict[object, object],
+) -> None:
+    provenance_path = _require_package_file(
+        root,
+        inventory,
+        _REQUIRED_SOUND_PROVENANCE,
+        label="sound provenance notice",
+    )
+    try:
+        text = provenance_path.read_text(encoding="utf-8-sig")
+    except (OSError, UnicodeError) as exc:
+        _fail(f"sound provenance notice is unreadable: {type(exc).__name__}")
+    provenance = _json_no_duplicates(text, label="sound provenance notice")
+    if set(provenance) != {"schema_version", "events"}:
+        _fail("sound provenance root contract is invalid")
+    if type(provenance.get("schema_version")) is not int or provenance.get(
+        "schema_version"
+    ) != _SOUND_PROVENANCE_SCHEMA_VERSION:
+        _fail("sound provenance schema is invalid")
+    events = provenance.get("events")
+    if not isinstance(events, dict):
+        _fail("sound provenance events must be an object")
+    expected_events = {event.value for event in SoundEvent}
+    if set(events) != expected_events:
+        _fail("sound provenance must declare every semantic sound event exactly once")
+
+    for event in SoundEvent:
+        entry = events.get(event.value)
+        if not isinstance(entry, dict) or set(entry) != {
+            "file",
+            "sha256",
+            "license_id",
+            "source",
+            "creator",
+        }:
+            _fail(f"sound provenance entry contract is invalid: {event.value}")
+        file_name = _provenance_text(entry.get("file"), label="file", max_length=255)
+        if file_name != mapping.get(event.value):
+            _fail(f"sound provenance file does not match manifest: {event.value}")
+        token = _relative_token(file_name, label="sound provenance asset path")
+        if PurePosixPath(token).suffix.casefold() != ".wav":
+            _fail(f"sound provenance asset is not WAV: {event.value}")
+        sound_relative = (_REQUIRED_SOUND_ROOT / PurePosixPath(token)).as_posix()
+        sound_path = _require_package_file(
+            root,
+            inventory,
+            sound_relative,
+            label=f"packaged sound asset {event.value}",
+            min_bytes=45,
+        )
+        digest = _provenance_text(entry.get("sha256"), label="sha256", max_length=64)
+        if not _SHA256_RE.fullmatch(digest):
+            _fail(f"sound provenance SHA-256 is invalid: {event.value}")
+        if _sha256(sound_path) != digest:
+            _fail(f"sound provenance SHA-256 mismatch: {event.value}")
+        license_id = _provenance_text(
+            entry.get("license_id"), label="license_id", max_length=128
+        )
+        if license_id.casefold() in _PROVENANCE_PLACEHOLDERS:
+            _fail(f"sound provenance license identity is unresolved: {event.value}")
+        source = _provenance_text(entry.get("source"), label="source", max_length=1024)
+        if not (source.startswith("https://") or source.startswith("urn:")):
+            _fail(f"sound provenance source must be an HTTPS URL or URN: {event.value}")
+        creator = _provenance_text(entry.get("creator"), label="creator", max_length=512)
+        if creator.casefold() in _PROVENANCE_PLACEHOLDERS:
+            _fail(f"sound provenance creator identity is unresolved: {event.value}")
+
+
 def _validate_required_runtime_resources(
     root: Path,
     inventory: tuple[str, ...],
@@ -486,6 +573,8 @@ def _validate_required_runtime_resources(
             raise
         except (OSError, EOFError, wave.Error) as exc:
             _fail(f"packaged sound asset is invalid: {event.value} ({type(exc).__name__})")
+
+    _validate_sound_provenance(root, inventory, mapping)
 
     source_archive = _require_package_file(
         root,
