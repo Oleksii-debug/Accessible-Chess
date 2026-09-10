@@ -1,4 +1,4 @@
-name: W6 V2 Package Assembler Current Preflight
+name: W6 V2 Package Assembler Current Runtime
 
 on:
   push:
@@ -6,7 +6,7 @@ on:
       - work/w6-v2-package-assembler-current-preflight-20260910
   pull_request:
     branches:
-      - work/v2-package-required-resources-repair-20260907
+      - work/w6-v2-package-preflight-current-runtime-20260910
     paths:
       - 'acs/version2_package_assembler.py'
       - 'tests/test_version2_package_assembler.py'
@@ -21,7 +21,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  PACKAGE_PREFLIGHT_PARENT: 52184fa77adeee2ac16f195c2262784e17e86727
+  CURRENT_RUNTIME_PREFLIGHT_PARENT: fbf428cf05b9f6773b95ed866e14932363ceec68
 
 jobs:
   focused:
@@ -40,19 +40,19 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Exact current preflight parent and narrow assembler scope
+      - name: Exact current-runtime preflight parent and narrow assembler scope
         shell: bash
         run: |
           set -euo pipefail
-          git merge-base --is-ancestor "$PACKAGE_PREFLIGHT_PARENT" HEAD
-          git diff --check "$PACKAGE_PREFLIGHT_PARENT" HEAD
-          changed="$(git diff --name-only "$PACKAGE_PREFLIGHT_PARENT" HEAD | sort)"
+          git merge-base --is-ancestor "$CURRENT_RUNTIME_PREFLIGHT_PARENT" HEAD
+          git diff --check "$CURRENT_RUNTIME_PREFLIGHT_PARENT" HEAD
+          changed="$(git diff --name-only "$CURRENT_RUNTIME_PREFLIGHT_PARENT" HEAD | sort)"
           expected="$(printf '%s\n' \
             '.github/workflows/w6-v2-package-assembler.yml' \
             'acs/version2_package_assembler.py' \
             'tests/test_version2_package_assembler.py' | sort)"
           test "$changed" = "$expected"
-          echo 'CURRENT PREFLIGHT / SINGLE ASSEMBLER SCOPE PASS'
+          echo 'CURRENT RUNTIME PREFLIGHT / SINGLE ASSEMBLER SCOPE PASS'
 
       - name: Compile assembler and canonical preflight
         run: >-
