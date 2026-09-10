@@ -359,7 +359,18 @@ def _parse_entry_list(data: bytes, *, max_entries: int) -> tuple[str, ...]:
             "CBV extractor returned a non-UTF-8 entry list",
             CbvExtractCode.INVALID_ENTRY,
         ) from exc
-    raw_names = [line.rstrip("\r") for line in text.splitlines() if line.rstrip("\r")]
+    non_lf_separators = ("\v", "\f", "\x1c", "\x1d", "\x1e", "\x85", "\u2028", "\u2029")
+    if any(separator in text for separator in non_lf_separators) or "\r" in text.replace("\r\n", ""):
+        raise _error(
+            "CBV extractor returned an invalid entry-list separator",
+            CbvExtractCode.INVALID_ENTRY,
+        )
+    raw_names: list[str] = []
+    for line in text.split("\n"):
+        if line.endswith("\r"):
+            line = line[:-1]
+        if line:
+            raw_names.append(line)
     if not raw_names or len(raw_names) > max_entries:
         raise _error(
             "CBV archive entry count is outside the configured bound",

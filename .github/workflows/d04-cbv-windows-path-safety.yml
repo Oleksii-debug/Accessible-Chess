@@ -56,8 +56,8 @@ jobs:
             printf 'Unexpected D04 scope:\n%s\n' "$changed" >&2
             exit 1
           }
-          test "$(git rev-parse HEAD:acs/cbv_extractor.py)" = "8fc4f12e5eae6782ddbb0e2c12d2d038f989b4aa"
-          test "$(git rev-parse HEAD:tests/test_d04_cbv_windows_path_safety.py)" = "698893cdabfc85d2aa81e8befa842680fdc6e524"
+          test "$(git rev-parse HEAD:acs/cbv_extractor.py)" = "58ac843048a9f48382eea25a6f45ef63944e6dde"
+          test "$(git rev-parse HEAD:tests/test_d04_cbv_windows_path_safety.py)" = "0d1558e8364bfa9f33b8dbc22dc7211d3c4fa91c"
 
       - name: Compile affected Python
         run: python -m compileall -q acs/cbv_extractor.py tests/test_cbv_extractor.py tests/test_d04_cbv_windows_path_safety.py
