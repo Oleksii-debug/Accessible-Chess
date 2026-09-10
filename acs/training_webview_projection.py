@@ -7,7 +7,7 @@ explicitly requests solution reveal.
 """
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 import re
 
@@ -32,6 +32,7 @@ _LABELS = {
         "hint": "Підказка",
         "reveal": "Показати розв’язок",
         "retry": "Спробувати ще раз",
+        "continue": "Наступна вправа",
         "reset": "Почати вправу спочатку",
         "reset_title": "Скинути прогрес вправи?",
         "reset_text": "Поточний прогрес цієї вправи буде скинуто.",
@@ -53,6 +54,7 @@ _LABELS = {
         "hint": "Hint",
         "reveal": "Reveal solution",
         "retry": "Try again",
+        "continue": "Next exercise",
         "reset": "Restart exercise",
         "reset_title": "Reset exercise progress?",
         "reset_text": "The current progress for this exercise will be reset.",
@@ -102,13 +104,17 @@ class TrainingWebViewProjection:
         presenter: TrainingPresenter,
         *,
         language: UILanguage = UILanguage.UA,
+        can_continue: Callable[[], bool] | None = None,
     ) -> None:
         if not isinstance(presenter, TrainingPresenter):
             raise TypeError("presenter must be TrainingPresenter")
         if not isinstance(language, UILanguage):
             raise TypeError("language must be UILanguage")
+        if can_continue is not None and not callable(can_continue):
+            raise TypeError("can_continue must be callable or None")
         self._presenter = presenter
         self._language = language
+        self._can_continue = can_continue
         self._presenter.set_language(language)
 
     @property
@@ -126,6 +132,14 @@ class TrainingWebViewProjection:
         self._language = language
         self._presenter.set_language(language)
         return TrainingWebViewEvent("render", {"snapshot": self.snapshot(), "focus_target": ""})
+
+    def _continuation_available(self, completed: bool) -> bool:
+        if not completed or self._can_continue is None:
+            return False
+        try:
+            return bool(self._can_continue())
+        except Exception:
+            return False
 
     def _snapshot_from_view(self, view: TrainingView) -> dict[str, object]:
         if not isinstance(view, TrainingView):
@@ -178,6 +192,11 @@ class TrainingWebViewProjection:
                 {"command": "training.hint", "label": labels["hint"], "enabled": not view.completed},
                 {"command": "training.reveal", "label": labels["reveal"], "enabled": not view.completed},
                 {"command": "training.retry", "label": labels["retry"], "enabled": not view.completed},
+                {
+                    "command": "training.continue",
+                    "label": labels["continue"],
+                    "enabled": self._continuation_available(view.completed),
+                },
                 {"command": "training.reset.request", "label": labels["reset"], "enabled": True},
             ),
             "reset_dialog": {

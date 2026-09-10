@@ -32,6 +32,7 @@ from .search_service import GameSearchQuery
 from .version2_book_workspace import build_version2_book_webview
 from .version2_pgn_commands import Version2PgnCommands
 from .version2_profile import build_version2_shell, build_version2_router, build_version2_webview_adapter
+from .version2_training_workspace import Version2BookTrainingWorkspace
 from .version2_windows_book_board_adapter import Version2WindowsBookBoardActionDelegate, BookBoardUiEventKind
 from .version2_windows_file_workflows import FileWorkflowEvent, FileWorkflowEventKind, Version2ImportWorkerServices
 from .version2_windows_library_import_observer import Version2ObservedImportServicesFactory
@@ -45,6 +46,7 @@ class Version2Application:
         self._thread = threading.get_ident()
         self.database = database
         self.progress_store = progress_store
+        self.training_progress_root = progress_store.path.parent / "training-progress"
         self.engine_assistance = engine_assistance
         self._board_dispatch = board_dispatch
         if board_position_projector is not None and not callable(board_position_projector):
@@ -59,6 +61,7 @@ class Version2Application:
         self.pgn_board_active = False
         self.pgn = None
         self.reader = self.book_key = self.book_workflow = self.book_delegate = self.books = None
+        self.training_workspace = self.training = None
         self.shell = build_version2_shell(language=language)
         self.router = build_version2_router(self.shell, self._delegate)
         self.adapter = build_version2_webview_adapter(self.shell, self.router)
@@ -124,12 +127,14 @@ class Version2Application:
             kind = BookTextFormat.TXT if suffix == ".txt" else BookTextFormat.MARKDOWN
             imported = import_text_book(raw, source_name=report_safe_name(source), source_format=kind)
         # Parse and validate the entire new source before replacing reader state.
+        self.save_training_progress()
         self.save_book_progress()
         reader = self.progress_store.restore(imported.book_key, imported.document) if self.progress_store.has(imported.book_key) else BookReader(imported.document)
         workflow = BookBoardWorkflow(reader, self.engine_assistance, game_lookup=AcsdbBookGameLookup(self.database))
         delegate = Version2WindowsBookBoardActionDelegate(workflow, event_sink=self._book_event, next_delegate=self._board_dispatch)
         bridge = build_version2_book_webview(reader, workflow, self.router.dispatch, language=self.shell.language)
         self.reader, self.book_key, self.book_workflow, self.book_delegate, self.books = reader, imported.book_key, workflow, delegate, bridge
+        self.training_workspace = self.training = None
         self.shell.open_route("books")
         self.save_book_progress()
         return len(imported.warnings)
@@ -137,6 +142,26 @@ class Version2Application:
     def save_book_progress(self):
         self._assert_thread()
         if self.reader is not None: self.progress_store.save(self.book_key, self.reader)
+
+    def save_training_progress(self):
+        self._assert_thread()
+        if self.training_workspace is not None and self.training is not None:
+            self.training_workspace.save()
+
+    def _start_training_from_current_book(self):
+        self._assert_thread()
+        if self.reader is None or self.reader.location().kind != "Exercise":
+            return False
+        workspace = self.training_workspace
+        if workspace is None or workspace.reader is not self.reader:
+            workspace = Version2BookTrainingWorkspace(
+                self.reader,
+                progress_root=self.training_progress_root,
+                language=self.shell.language,
+            )
+        bridge = workspace.start_current()
+        self.training_workspace, self.training = workspace, bridge
+        return True
 
     def _book_event(self, event):
         # Board-open/update success becomes authoritative only after the application
@@ -265,6 +290,17 @@ class Version2Application:
             if result.kind == "error": raise ValueError("book command failed")
             self.save_book_progress()
             return result
+        if action.startswith("training."):
+            if self.training_workspace is None or self.training is None:
+                raise ValueError("no Training exercise is active")
+            if action == "training.reset":
+                raise ValueError("Training reset requires explicit WebView confirmation")
+            command = "training.reveal" if action == "training.reveal_solution" else action
+            result = self.training_workspace.dispatch(command, payload)
+            if result.kind == "error": raise ValueError("Training command failed")
+            if command == "training.continue": self.save_book_progress()
+            self.training = self.training_workspace.bridge
+            return result
         if self._files is not None and action in {"pgn.open", "pgn.save", "pgn.save_as", "pgn.export_selection", "library.import", "library.cancel_import", "library.export"}:
             result = self._files(action, payload)
             if isinstance(result, FileWorkflowEvent):
@@ -292,7 +328,16 @@ class Version2Application:
                 if payload: raise ValueError("shell accepts no authority payload")
                 if type(command) is not str or not (command.startswith("screen.") or command in {"pgn.open", "pgn.save", "pgn.save_as", "book.open"}):
                     raise ValueError("unsupported shell command")
+                if command == "screen.training":
+                    self._start_training_from_current_book()
                 value = self.adapter.activate_action(command, current_focus_id=self._focus)
+                return asdict(value)
+            if area == "training":
+                if self.training_workspace is None or self.training is None:
+                    raise ValueError("Training exercise is unavailable")
+                value = self.training_workspace.dispatch(command, payload)
+                self.training = self.training_workspace.bridge
+                if command == "training.continue" and value.kind != "error": self.save_book_progress()
                 return asdict(value)
             bridge = {"pgn": self.pgn, "library": self.library, "books": self.books}.get(area)
             if bridge is None: raise ValueError("surface is unavailable")
@@ -309,6 +354,7 @@ class Version2Application:
             "pgn": None if self.pgn is None else self.pgn.projection.snapshot(),
             "library": self.library.projection.snapshot(),
             "books": None if self.books is None else self.books.projection.snapshot(),
+            "training": None if self.training_workspace is None else self.training_workspace.snapshot(),
             "book_board_active": self.book_workflow is not None and self.book_workflow.active,
             "pgn_board_active": self.pgn_board_active,
             "document_dirty": bool(self.session and self.session.dirty),
@@ -322,6 +368,11 @@ class Version2Application:
 
     def native_command(self, value):
         self._assert_thread()
+        if getattr(value, "action_id", None) == "screen.training":
+            try:
+                self._start_training_from_current_book()
+            except Exception:
+                self._events.append(self._error())
         self._events.append(asdict(value))
 
     def record_focus(self, token):
@@ -394,6 +445,7 @@ class Version2Application:
         self._assert_thread()
         if self._files is not None and not self._files.shutdown(timeout=timeout):
             return False
+        self.save_training_progress()
         self.save_book_progress()
         self.database.close()
         return True
