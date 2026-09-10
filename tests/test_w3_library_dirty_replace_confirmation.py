@@ -1,29 +1,165 @@
 from __future__ import annotations
 
 import inspect
+from pathlib import Path
+import tempfile
 import unittest
 
+from acs.acsdb import AcsDatabase
+from acs.analysis_service import AnalysisService
+from acs.book_progress_store import BookProgressStore
+from acs.engine_assisted_workflows import EngineAssistedWorkflowService
+from acs.pgn_document import PgnDocumentSession
+from acs.version2_application import Version2Application
 from acs.version2_release_app import create_version2_release_application
 
 
+PGN_TEMPLATE = """[Event \"{event}\"]
+[Site \"?\"]
+[Date \"2026.09.10\"]
+[Round \"1\"]
+[White \"White\"]
+[Black \"Black\"]
+[Result \"*\"]
+
+1. e4 e5 *
+"""
+
+
 class W3LibraryDirtyReplaceConfirmationEvidenceTests(unittest.TestCase):
-    def test_production_composition_binds_trusted_dirty_replace_confirmation_for_library_open(self) -> None:
-        """Library -> Open game must not be a dead end when the current PGN is dirty.
-
-        Version2Application already owns a fail-closed ``confirm_document_replace``
-        seam.  Native PGN Open is confirmed by the trusted Windows host before
-        installation, but Library -> Open game calls ``set_document`` directly.
-        The production composition therefore needs to bind the same owner-bound
-        confirmation authority after the native owner exists, rather than leave
-        the application's default ``lambda: not dirty`` in place forever.
-        """
-
-        source = inspect.getsource(create_version2_release_application)
-        self.assertIn(
-            "application.confirm_document_replace =",
-            source,
-            "production composition does not bind a trusted confirmation seam for Library -> Open game",
+    def setUp(self) -> None:
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        self.database = AcsDatabase(self.root / "library.acsdb")
+        self.addCleanup(self.database.close)
+        self.analysis = AnalysisService(lambda: None)
+        self.addCleanup(self.analysis.close)
+        self.application = Version2Application(
+            self.database,
+            progress_store=BookProgressStore(self.root / "progress.json"),
+            engine_assistance=EngineAssistedWorkflowService(self.analysis),
+            board_dispatch=lambda *_: None,
+            copy_text=lambda _: None,
         )
+
+    def _session(self, filename: str, event: str) -> PgnDocumentSession:
+        path = self.root / filename
+        path.write_text(PGN_TEMPLATE.format(event=event), encoding="utf-8")
+        return PgnDocumentSession.open(path)
+
+    def _dirty_document(self) -> PgnDocumentSession:
+        session = self._session("current.pgn", "Original")
+        self.application.set_document(session)
+        session.edit_tag("Event", "Unsaved")
+        self.assertTrue(session.dirty)
+        return session
+
+    def _assert_preserved(self, session: PgnDocumentSession, snapshot: dict) -> None:
+        self.assertIs(self.application.session, session)
+        self.assertTrue(session.dirty)
+        self.assertEqual(session.workspace.current_game().tags["Event"], "Unsaved")
+        self.assertEqual(self.application.snapshot(), snapshot)
+
+    def test_production_composition_binds_exact_owner_bound_confirmation_after_runtime_exists(self) -> None:
+        source = inspect.getsource(create_version2_release_application)
+        runtime_build = source.index("runtime = Version2WindowsFileWorkflowRuntime(")
+        binding = source.index(
+            "application.confirm_document_replace = runtime.file_dialogs.confirm_discard_unsaved_pgn"
+        )
+        runtime_return = source.index("return runtime", binding)
+
+        self.assertLess(runtime_build, binding)
+        self.assertLess(binding, runtime_return)
+        self.assertIn(
+            "set_pgn_session=lambda session: _install_host_confirmed_document(application, session)",
+            source,
+            "native PGN Open must retain the host-confirmed no-double-prompt installation path",
+        )
+
+    def test_before_native_owner_dirty_application_replacement_fails_closed(self) -> None:
+        current = self._dirty_document()
+        replacement = self._session("replacement.pgn", "Replacement")
+        before = self.application.snapshot()
+
+        with self.assertRaisesRegex(ValueError, "replacement cancelled"):
+            self.application.set_document(replacement)
+
+        self._assert_preserved(current, before)
+
+    def test_owner_cancel_is_requested_once_and_preserves_dirty_document_exactly(self) -> None:
+        current = self._dirty_document()
+        replacement = self._session("replacement.pgn", "Replacement")
+        before = self.application.snapshot()
+        calls = []
+
+        def deny() -> bool:
+            calls.append("confirm")
+            return False
+
+        self.application.confirm_document_replace = deny
+        with self.assertRaisesRegex(ValueError, "replacement cancelled"):
+            self.application.set_document(replacement)
+
+        self.assertEqual(calls, ["confirm"])
+        self._assert_preserved(current, before)
+
+    def test_owner_dialog_failure_preserves_dirty_document_exactly(self) -> None:
+        current = self._dirty_document()
+        replacement = self._session("replacement.pgn", "Replacement")
+        before = self.application.snapshot()
+        calls = []
+
+        def fail() -> bool:
+            calls.append("confirm")
+            raise RuntimeError("synthetic native dialog failure")
+
+        self.application.confirm_document_replace = fail
+        with self.assertRaisesRegex(RuntimeError, "synthetic native dialog failure"):
+            self.application.set_document(replacement)
+
+        self.assertEqual(calls, ["confirm"])
+        self._assert_preserved(current, before)
+
+    def test_owner_accept_replaces_once_without_browser_confirmation_payload(self) -> None:
+        current = self._dirty_document()
+        replacement = self._session("replacement.pgn", "Replacement")
+        calls = []
+
+        def accept() -> bool:
+            calls.append("confirm")
+            return True
+
+        self.application.confirm_document_replace = accept
+        self.application.set_document(replacement)
+
+        self.assertEqual(calls, ["confirm"])
+        self.assertIs(self.application.session, replacement)
+        self.assertIsNot(self.application.session, current)
+        self.assertEqual(replacement.workspace.current_game().tags["Event"], "Replacement")
+
+        # The application-owned Library route accepts only record identity.  A
+        # browser-supplied confirmation bit is rejected before any authority is
+        # consulted, so browser content can never approve destructive replacement.
+        replacement.edit_tag("Event", "Unsaved")
+        before = self.application.snapshot()
+        calls.clear()
+        with self.assertRaisesRegex(ValueError, "invalid Library game request"):
+            self.application._delegate(
+                "library.open_game",
+                {"game_id": 1, "source_id": 1, "source_index": 0, "confirm": True},
+            )
+        self.assertEqual(calls, [])
+        self._assert_preserved(replacement, before)
+
+    def test_library_open_game_reuses_application_document_replacement_seam(self) -> None:
+        source = inspect.getsource(Version2Application._delegate)
+        self.assertIn(
+            "self.set_document(PgnDocumentSession(PgnWorkspace((game,))))",
+            source,
+            "Library -> Open game bypasses the canonical application replacement seam",
+        )
+        self.assertNotIn("confirm_document_replace(", source)
 
 
 if __name__ == "__main__":

@@ -29,18 +29,30 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Prove bounded Product successor scope
+      - name: Prove bounded owner delta on accepted current runtime ancestry
         shell: bash
         run: |
           set -euo pipefail
-          base=40e1ef2184177600bcc88911529b718adde65df9
-          git merge-base --is-ancestor "$base" HEAD
-          git diff --check "$base" HEAD
-          unexpected="$(git diff --name-only "$base" HEAD | grep -Ev '^(.github/workflows/w3-library-dirty-replace-confirmation-evidence.yml|tests/test_w3_library_dirty_replace_confirmation.py|acs/version2_release_app.py)$' || true)"
-          test -z "$unexpected"
-      - name: Compile regression
-        run: python -m py_compile tests/test_w3_library_dirty_replace_confirmation.py
-      - name: Preserve inherited application/release contracts
-        run: python -m unittest -v tests.test_version2_application tests.test_version2_release_app
-      - name: Run W3 dirty-replacement regression
+          upstream=e358bd1ddfafc21f8798f68e0d390fca804e0203
+          git merge-base --is-ancestor "$upstream" HEAD
+          git diff --check "$upstream" HEAD
+          changed="$(git diff --name-only "$upstream" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/w3-library-dirty-replace-confirmation-evidence.yml' \
+            'acs/version2_release_app.py' \
+            'tests/test_w3_library_dirty_replace_confirmation.py' | sort)"
+          test "$changed" = "$expected" || {
+            printf 'Unexpected W3 dirty-replacement scope:\n%s\n' "$changed" >&2
+            exit 1
+          }
+      - name: Compile exact confirmation seam
+        run: python -m py_compile acs/version2_release_app.py tests/test_w3_library_dirty_replace_confirmation.py
+      - name: Preserve native owner, no-double-prompt and application contracts
+        run: >-
+          python -m unittest -v
+          tests.test_v2_windows_native_dialog_ownership
+          tests.test_w3_unsaved_pgn_open_guard
+          tests.test_version2_release_app
+          tests.test_version2_application
+      - name: Run W3 dirty Library/application replacement regression
         run: python -m unittest -v tests.test_w3_library_dirty_replace_confirmation

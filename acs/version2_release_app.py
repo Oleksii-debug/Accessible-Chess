@@ -166,14 +166,16 @@ def create_version2_release_application(
     settings_path: str | Path | None = None,
     data_root: str | Path | None = None,
     copy_text: Callable[[str], Any] = _copy_text_to_windows_clipboard,
+    defer_ui: bool = False,
 ):
     """Compose one engine provider plus the persistent V2 application state.
 
     Persistent state is recovered/upgraded before any normal ``Settings`` or
     ``AcsDatabase`` writer opens.  The returned native-runtime factory must then be
     called on the actual Windows UI thread with the exact pywebview owner control.
-    This keeps SQLite worker connections and WinForms dialog ownership on their
-    required boundaries.
+    With ``defer_ui=True`` the second return value is a one-shot application
+    factory, invoked by the window's synchronous before_show event on its native
+    STA thread. Diagnostics can keep the eager, calling-thread composition.
     """
 
     layout = _prepare_version2_user_data(
@@ -208,29 +210,42 @@ def create_version2_release_application(
     )
 
     database_path = layout.library_path
-    database = AcsDatabase(database_path)
-    try:
-        application = Version2Application(
-            database,
-            progress_store=BookProgressStore(layout.root / "book-progress.json"),
-            engine_assistance=EngineAssistedWorkflowService(analysis),
-            board_dispatch=api.v2_board_dispatch,
-            copy_text=copy_text,
-        )
-        _share_v2_action_registry(api, application)
-        api.bind_version2_application(application)
-    except Exception:
-        database.close()
+    application = None
+
+    def build_application() -> Version2Application:
+        nonlocal application
+        if application is not None:
+            raise RuntimeError("Version 2 application is already constructed")
+        database = AcsDatabase(database_path)
         try:
-            continuous.close()
-        finally:
-            analysis.close()
-            engine_runtime.close()
-        raise
+            application = Version2Application(
+                database,
+                progress_store=BookProgressStore(layout.root / "book-progress.json"),
+                engine_assistance=EngineAssistedWorkflowService(analysis),
+                board_dispatch=api.v2_board_dispatch,
+                copy_text=copy_text,
+            )
+            _share_v2_action_registry(api, application)
+            api.bind_version2_application(application)
+            return application
+        except Exception:
+            database.close()
+            try:
+                continuous.close()
+            finally:
+                analysis.close()
+                engine_runtime.close()
+            raise
+
+    if not defer_ui:
+        build_application()
 
     def native_runtime_factory(owner_control: object) -> Version2WindowsFileWorkflowRuntime:
         if owner_control is None:
             raise RuntimeError("Version 2 Windows owner control is unavailable")
+        if application is None:
+            raise RuntimeError("Version 2 application must be constructed on the native UI first")
+        application._assert_thread()
         book_dialogs = _Version2OwnedBookDialogs(lambda: owner_control)
         application.open_book_dialog = book_dialogs.open_book
         runtime = Version2WindowsFileWorkflowRuntime(
@@ -244,18 +259,18 @@ def create_version2_release_application(
             next_delegate=api.v2_board_dispatch,
             current_focus_provider=lambda: str(application._focus),
         )
-        # Application-owned replacements (for example Library -> Open game) must
-        # cross the same owner-bound destructive confirmation as native PGN Open.
-        # Before this native owner exists, Version2Application keeps its fail-closed
-        # default, so browser or background code never gains confirmation authority.
+        # Application-owned PGN replacements, including Library -> Open game,
+        # reuse the exact owner-bound confirmation source used by native PGN Open.
+        # Until this real native owner/runtime exists, Version2Application keeps
+        # its fail-closed dirty-document default; browser payloads gain no authority.
         application.confirm_document_replace = runtime.file_dialogs.confirm_discard_unsaved_pgn
         return runtime
 
-    return api, application, engine_runtime, native_runtime_factory
+    return api, build_application if defer_ui else application, engine_runtime, native_runtime_factory
 
 
 def main() -> None:
-    api, application, runtime, native_runtime_factory = create_version2_release_application()
+    api, application, runtime, native_runtime_factory = create_version2_release_application(defer_ui=True)
     run_version2_release_window(
         api,
         application,
