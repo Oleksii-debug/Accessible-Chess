@@ -9,6 +9,7 @@ on:
       - codex/v2-runtime-completion-20260907
     paths:
       - 'acs/book_html_import.py'
+      - 'tests/test_v2_book_html_import.py'
       - 'tests/test_v2_html_semantic_lists.py'
       - '.github/workflows/v2-html-current-d06-recovery.yml'
   workflow_dispatch:
@@ -29,13 +30,13 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 120
     env:
-      CURRENT_PARENT: e358bd1ddfafc21f8798f68e0d390fca804e0203
+      CURRENT_PARENT: daf045295bdc9f7eefb40dfa16b74c8089cfbb4f
       HTML_ORIGINAL: cc949235fba8a9c3f7cb36587a52cb23eed5546d
       HTML_LIST_OWNER: 49756d2a6e702619b5ea54f0428fae07402fd1ef
       D06_RECOVERY_ROOT: 23956a6698ca07e65cb616e755fc934ec8842bce
-      HTML_ADAPTER_BLOB: 2991e79c82fe50da847efbda3fad4cfe36f2debc
+      HTML_ADAPTER_BLOB: 1061e79c9557fb09e965fb0e8d8626e038876edb
       HTML_LIST_TEST_BLOB: 09ee4049fb115a79bf611f2ac96fae15f0a2deac
-      ORIGINAL_HTML_TEST_BLOB: d3a7fa6c920df3d59206aeea831be3c1911ea4d8
+      ORIGINAL_HTML_TEST_BLOB: d8aacb6ab4c8984b02188ed062ff40d9b5e9c234
       REAL_HTML_ORACLE_BLOB: e6bbbebc204b2ea2e34fff629e841c99aa13ef52
       D06_REAL_BOOK_ORACLE_BLOB: 34fbce8e5e6e5faa1cf76d62d2556e9d4c90e5a1
       BOOK_URL: https://www.gutenberg.org/files/16377/16377-h/16377-h.htm
@@ -74,6 +75,7 @@ jobs:
           expected="$(printf '%s\n' \
             '.github/workflows/v2-html-current-d06-recovery.yml' \
             'acs/book_html_import.py' \
+            'tests/test_v2_book_html_import.py' \
             'tests/test_v2_html_semantic_lists.py' | sort)"
           test "$changed" = "$expected" || {
             printf 'Unexpected current-base HTML scope:\n%s\n' "$changed" >&2
@@ -85,7 +87,6 @@ jobs:
             tests/test_v2_pgn_nested_comment_recovery.py \
             scripts/v2_pgn_nested_comment_real_book_oracle.py \
             scripts/v2_real_html_book_oracle.py \
-            tests/test_v2_book_html_import.py \
             acs/bookdocument.py \
             acs/book_index.py \
             acs/bookreader.py \
@@ -108,6 +109,8 @@ jobs:
           test "$(git rev-parse HEAD:scripts/v2_pgn_nested_comment_real_book_oracle.py)" = "$D06_REAL_BOOK_ORACLE_BLOB"
           grep -F 'EXPECTED_GAME_COUNT = 85' scripts/v2_real_html_book_oracle.py
           grep -F 'parse_pgn_text(candidate, strict=False)' acs/book_html_import.py
+          grep -F '_PGN_MARKER_RE.fullmatch' acs/book_html_import.py
+          grep -F 'implicit PGN inference from ordinary text' acs/book_html_import.py
 
       - name: Compile HTML and canonical D06 evidence package
         run: >-
@@ -170,7 +173,7 @@ jobs:
             real-book-16377.html \
             --expected-sha256 "$BOOK_SHA256" 2>&1 | tee d06-pgn73-current.log
 
-      - name: Unchanged real HTML Books 85-game oracle
+      - name: Real HTML Books 85-game explicit-marker oracle
         shell: bash
         run: |
           set -o pipefail
