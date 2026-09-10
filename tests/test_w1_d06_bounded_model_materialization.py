@@ -32,7 +32,7 @@ class _GuardedGames:
 
 
 class _CountingOneShot:
-    """One-shot iterator with exact pull/yield counters and an optional late trap."""
+    """One-shot iterable with exact pull/yield counters and an optional late trap."""
 
     def __init__(self, total: int, *, fail_after_yields: int | None = None) -> None:
         self.total = total
@@ -45,17 +45,15 @@ class _CountingOneShot:
         self.iter_calls += 1
         if self.iter_calls != 1:
             raise AssertionError("PGN source was iterated more than once")
-        return self
-
-    def __next__(self) -> PgnGame:
-        self.next_calls += 1
-        if self.fail_after_yields is not None and self.yields >= self.fail_after_yields:
-            raise RuntimeError("late iterator trap was reached")
-        if self.yields >= self.total:
-            raise StopIteration
-        game = _game(self.yields)
-        self.yields += 1
-        return game
+        while True:
+            self.next_calls += 1
+            if self.fail_after_yields is not None and self.yields >= self.fail_after_yields:
+                raise RuntimeError("late iterator trap was reached")
+            if self.yields >= self.total:
+                return
+            game = _game(self.yields)
+            self.yields += 1
+            yield game
 
 
 def _game(index: int) -> PgnGame:
@@ -109,7 +107,7 @@ class BoundedModelMaterializationTests(unittest.TestCase):
 
         self.assertEqual(source.iter_calls, 1)
         self.assertEqual(source.yields, 2)
-        self.assertEqual(source.next_calls, 3)  # two values plus normal StopIteration
+        self.assertEqual(source.next_calls, 3)  # two values plus normal exhaustion
         self.assertIn('[Event "Bounded 0"]', text)
         self.assertIn('[Event "Bounded 1"]', text)
 
