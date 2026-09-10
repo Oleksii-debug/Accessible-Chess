@@ -223,6 +223,7 @@ def create_version2_release_application(
                 progress_store=BookProgressStore(layout.root / "book-progress.json"),
                 engine_assistance=EngineAssistedWorkflowService(analysis),
                 board_dispatch=api.v2_board_dispatch,
+                board_position_projector=api.project_review_fen,
                 copy_text=copy_text,
             )
             _share_v2_action_registry(api, application)
