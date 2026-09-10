@@ -22,6 +22,7 @@ from .version2_windows_import_event_mailbox import Version2ImportUiEventMailbox
 
 
 _LOG = logging.getLogger(__name__)
+_AUTO_RETRY_DELAY_SECONDS = 0.05
 
 
 class Version2WinFormsUiPoster:
@@ -102,6 +103,7 @@ class Version2ImportUiWakeupPump:
         self._closed = False
         self._post_failures = 0
         self._ready_failures = 0
+        self._retry_timer: threading.Timer | None = None
 
     @property
     def wakeup_pending(self) -> bool:
@@ -141,7 +143,7 @@ class Version2ImportUiWakeupPump:
         self._request_wakeup()
         return returned
 
-    def _request_wakeup(self) -> None:
+    def _request_wakeup(self, *, schedule_retry: bool = True) -> None:
         with self._lock:
             if self._closed or self._wakeup_pending:
                 return
@@ -155,8 +157,37 @@ class Version2ImportUiWakeupPump:
                 self._post_failures += 1
             # The exact event is still retained in the bounded mailbox. Raising
             # here is safe: Version2WindowsFileActionDelegate isolates event_sink
-            # observer failures from canonical import/storage completion.
+            # observer failures from canonical import/storage completion. A single
+            # delayed retry prevents a terminal event from remaining stranded when
+            # no later worker event exists, without creating a busy retry loop.
+            if schedule_retry:
+                self._schedule_retry()
             raise RuntimeError("failed to post Library import event to UI thread") from exc
+
+    def _schedule_retry(self) -> None:
+        with self._lock:
+            if (
+                self._closed
+                or self._retry_timer is not None
+                or self._mailbox.pending_count == 0
+            ):
+                return
+            timer = threading.Timer(_AUTO_RETRY_DELAY_SECONDS, self._retry_pending_wakeup)
+            timer.daemon = True
+            self._retry_timer = timer
+        timer.start()
+
+    def _retry_pending_wakeup(self) -> None:
+        with self._lock:
+            self._retry_timer = None
+            if self._closed or self._mailbox.pending_count == 0:
+                return
+        try:
+            # One automatic attempt only. A second posting failure remains
+            # observable and the mailbox retains the event for explicit recovery.
+            self._request_wakeup(schedule_retry=False)
+        except RuntimeError:
+            _LOG.warning("Version 2 Library UI wake-up retry failed", exc_info=True)
 
     def _run_ui_ready(self) -> None:
         if threading.get_ident() != self._ui_thread_id:
@@ -195,6 +226,10 @@ class Version2ImportUiWakeupPump:
         with self._lock:
             self._closed = True
             self._wakeup_pending = False
+            retry_timer = self._retry_timer
+            self._retry_timer = None
+        if retry_timer is not None:
+            retry_timer.cancel()
 
 
 __all__ = [
