@@ -2,16 +2,17 @@ from __future__ import annotations
 
 """Trusted-host ChessBase decoding to atomic ACSDB publication.
 
-The external decoder owns only the read-only source adapter.  This module is
+The external decoder owns only the read-only source adapter. This module is
 the narrow application seam that hands its already validated canonical
-``PgnGame`` objects to the existing Library import transaction.  It never
+``PgnGame`` objects to the existing Library import transaction. It never
 exposes ChessBase records to ACSDB or presentation code and never writes to the
 source family.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import Enum
 from hashlib import sha256
+import os
 from pathlib import Path
 import tempfile
 from typing import Callable
@@ -24,11 +25,18 @@ from .cbv_extractor import (
     extract_cbv_external,
 )
 from .chessbase_decoder import (
+    ChessBaseDecodeCode,
+    ChessBaseDecodeError,
     ChessBaseDecodeWarning,
     ExternalChessBaseDecoderConfig,
     decode_chessbase_external,
 )
-from .chessbase_integrity import ChessBaseIntegritySnapshot
+from .chessbase_integrity import (
+    ChessBaseIntegrityIOError,
+    ChessBaseIntegritySnapshot,
+    ChessBaseSourceChangedError,
+    verify_integrity_snapshot,
+)
 from .library_import_service import (
     LibraryImportCancelledError,
     LibraryImportControlError,
@@ -36,7 +44,7 @@ from .library_import_service import (
     LibraryImportResult,
     LibraryImportService,
 )
-from .import_contract import verify_source_unchanged
+from .import_contract import SourceFingerprint, fingerprint, verify_source_unchanged
 from .report_paths import report_safe_name
 
 
@@ -69,6 +77,26 @@ class ChessBaseLibraryImportReport:
     @property
     def warning_count(self) -> int:
         return len(self.warnings)
+
+
+@dataclass(frozen=True, slots=True)
+class _PublicationGuard:
+    """Read-only evidence that must still match before ACSDB is touched."""
+
+    source_format: str
+    cbh_snapshot: ChessBaseIntegritySnapshot | None = None
+    cbv_source: SourceFingerprint | None = None
+    decoder_backend: _DecoderBackendSnapshot | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class _DecoderBackendSnapshot:
+    """Exact configured libcbh object plus its canonical execution target."""
+
+    configured_path: Path
+    canonical_path: Path
+    source: SourceFingerprint
+    identity: tuple[int, int, int, int, int]
 
 
 CancelCheck = Callable[[], bool]
@@ -116,6 +144,139 @@ def _poll_cancel(cancel_check: CancelCheck | None) -> None:
         raise LibraryImportCancelledError("ChessBase import cancelled")
 
 
+def _backend_file_identity(path: Path) -> tuple[int, int, int, int, int]:
+    """Return metadata that identifies the exact backend object without opening it."""
+
+    st = path.lstat()
+    return (
+        int(st.st_dev),
+        int(st.st_ino),
+        int(st.st_size),
+        int(st.st_mtime_ns),
+        int(st.st_ctime_ns),
+    )
+
+
+def _capture_decoder_backend(
+    config: ExternalChessBaseDecoderConfig,
+) -> _DecoderBackendSnapshot:
+    """Bind configured spelling and canonical target to one exact backend object."""
+
+    try:
+        configured_path = Path(
+            os.path.abspath(os.fspath(config.executable.expanduser()))
+        )
+        identity_before = _backend_file_identity(configured_path)
+        source = fingerprint(configured_path)
+        canonical_path = Path(source.path)
+        configured_identity = _backend_file_identity(configured_path)
+        canonical_identity = _backend_file_identity(canonical_path)
+    except (OSError, ValueError, RuntimeError) as exc:
+        raise ChessBaseDecodeError(
+            "ChessBase decoder backend failed read-only validation",
+            code=ChessBaseDecodeCode.BACKEND_INVALID,
+        ) from exc
+
+    if (
+        identity_before != configured_identity
+        or configured_identity != canonical_identity
+    ):
+        raise ChessBaseDecodeError(
+            "ChessBase decoder backend changed while its trusted identity was bound",
+            code=ChessBaseDecodeCode.BACKEND_INVALID,
+        )
+
+    return _DecoderBackendSnapshot(
+        configured_path=configured_path,
+        canonical_path=canonical_path,
+        source=source,
+        identity=configured_identity,
+    )
+
+
+def _verify_decoder_backend_unchanged(before: _DecoderBackendSnapshot) -> None:
+    """Reject output if either configured spelling or canonical target drifted."""
+
+    try:
+        configured = fingerprint(before.configured_path)
+        canonical = fingerprint(before.canonical_path)
+        configured_identity = _backend_file_identity(before.configured_path)
+        canonical_identity = _backend_file_identity(before.canonical_path)
+    except (OSError, ValueError, RuntimeError):
+        configured = None
+        canonical = None
+        configured_identity = None
+        canonical_identity = None
+
+    unchanged = (
+        configured is not None
+        and canonical is not None
+        and configured.size == before.source.size
+        and configured.sha256 == before.source.sha256
+        and canonical.size == before.source.size
+        and canonical.sha256 == before.source.sha256
+        and configured_identity == before.identity
+        and canonical_identity == before.identity
+    )
+    if not unchanged:
+        raise ChessBaseDecodeError(
+            "ChessBase decoder backend changed while it was running",
+            code=ChessBaseDecodeCode.BACKEND_INVALID,
+        )
+
+
+def _verify_cbh_publication_snapshot(snapshot: ChessBaseIntegritySnapshot) -> None:
+    """Reject any CBH-family drift after backend validation, before publication."""
+
+    try:
+        verify_integrity_snapshot(snapshot)
+    except (
+        ChessBaseSourceChangedError,
+        ChessBaseIntegrityIOError,
+        OSError,
+        ValueError,
+    ) as exc:
+        raise ChessBaseDecodeError(
+            "ChessBase source changed before Library publication; decoded output was discarded",
+            code=ChessBaseDecodeCode.SOURCE_CHANGED,
+        ) from exc
+
+
+def _verify_cbv_publication_source(before: SourceFingerprint, path: Path) -> None:
+    """Reject archive replacement/mutation after extraction, before publication."""
+
+    try:
+        unchanged = verify_source_unchanged(before, path)
+    except (OSError, ValueError) as exc:
+        raise CbvExtractError(
+            "CBV source could not be revalidated before Library publication",
+            code=CbvExtractCode.SOURCE_CHANGED,
+        ) from exc
+    if not unchanged:
+        raise CbvExtractError(
+            "CBV source changed before Library publication; decoded output was discarded",
+            code=CbvExtractCode.SOURCE_CHANGED,
+        )
+
+
+def _verify_publication_guard(path: str | Path, guard: _PublicationGuard) -> None:
+    if guard.decoder_backend is None:
+        raise RuntimeError("ChessBase publication guard is missing decoder identity")
+    _verify_decoder_backend_unchanged(guard.decoder_backend)
+
+    if guard.source_format == "cbh":
+        if guard.cbh_snapshot is None:
+            raise RuntimeError("CBH publication guard is incomplete")
+        _verify_cbh_publication_snapshot(guard.cbh_snapshot)
+        return
+    if guard.source_format == "cbv":
+        if guard.cbv_source is None:
+            raise RuntimeError("CBV publication guard is incomplete")
+        _verify_cbv_publication_source(guard.cbv_source, Path(path))
+        return
+    raise RuntimeError("ChessBase publication guard has an unsupported source format")
+
+
 class ChessBaseLibraryImportService:
     """Decode a classic CBH family and publish it through one ACSDB transaction."""
 
@@ -142,13 +303,28 @@ class ChessBaseLibraryImportService:
         self._decoder_config = decoder_config
         self._cbv_extractor_config = cbv_extractor_config
 
-    def _decode_source(self, path: str | Path):
-        """Return decoded games plus path-safe provenance for CBH or CBV."""
+    def _decode_with_immutable_backend(self, source_path: Path):
+        backend = _capture_decoder_backend(self._decoder_config)
+        pinned_config = replace(
+            self._decoder_config,
+            executable=backend.canonical_path,
+        )
+        decoded = decode_chessbase_external(source_path, pinned_config)
+        _verify_decoder_backend_unchanged(backend)
+        return decoded, backend
+
+    def _decode_source(
+        self,
+        path: str | Path,
+        *,
+        cancel_check: CancelCheck | None = None,
+    ):
+        """Return decoded games plus path-safe provenance and publication evidence."""
 
         source_path = Path(path)
         suffix = source_path.suffix.lower()
         if suffix == ".cbh":
-            decoded = decode_chessbase_external(source_path, self._decoder_config)
+            decoded, backend = self._decode_with_immutable_backend(source_path)
             return (
                 decoded,
                 report_safe_name(decoded.source.primary_path),
@@ -156,6 +332,11 @@ class ChessBaseLibraryImportService:
                 "cbh",
                 None,
                 None,
+                _PublicationGuard(
+                    "cbh",
+                    cbh_snapshot=decoded.source,
+                    decoder_backend=backend,
+                ),
             )
         if suffix != ".cbv":
             raise CbvExtractError(
@@ -169,20 +350,37 @@ class ChessBaseLibraryImportService:
             )
 
         with tempfile.TemporaryDirectory(prefix="accessible-chess-cbv-") as temporary:
-            extracted = extract_cbv_external(
-                source_path,
-                Path(temporary),
-                self._cbv_extractor_config,
-            )
-            decoded = decode_chessbase_external(
-                extracted.primary_path,
-                self._decoder_config,
-            )
-            if not verify_source_unchanged(extracted.source, source_path):
-                raise CbvExtractError(
-                    "CBV source changed while its extracted database was decoded",
-                    code=CbvExtractCode.SOURCE_CHANGED,
+            try:
+                extracted = extract_cbv_external(
+                    source_path,
+                    Path(temporary),
+                    self._cbv_extractor_config,
+                    cancel_check=cancel_check,
                 )
+            except CbvExtractError as exc:
+                if exc.code is CbvExtractCode.CANCELLED:
+                    raise LibraryImportCancelledError(
+                        "ChessBase import cancelled"
+                    ) from None
+                if exc.code is CbvExtractCode.CONTROL_INVALID:
+                    if isinstance(exc.__cause__, LibraryImportCancelledError):
+                        raise LibraryImportCancelledError(
+                            "ChessBase import cancelled"
+                        ) from None
+                    raise LibraryImportControlError(
+                        "ChessBase import cancellation check failed"
+                    ) from exc
+                raise
+
+            _poll_cancel(cancel_check)
+            decoded, backend = self._decode_with_immutable_backend(extracted.primary_path)
+            # The decoder verifies the extracted family immediately after its
+            # backend exits, then performs bounded JSON/GameTree conversion. A
+            # hostile or crashing external process must not be able to mutate or
+            # delete a companion in that later window and have stale decoded data
+            # escape the private temporary workspace.
+            _verify_cbh_publication_snapshot(decoded.source)
+            _verify_cbv_publication_source(extracted.source, source_path)
             return (
                 decoded,
                 report_safe_name(extracted.source.path),
@@ -190,6 +388,11 @@ class ChessBaseLibraryImportService:
                 "cbv",
                 extracted.backend_name,
                 extracted.backend_sha256,
+                _PublicationGuard(
+                    "cbv",
+                    cbv_source=extracted.source,
+                    decoder_backend=backend,
+                ),
             )
 
     def import_database(
@@ -201,10 +404,13 @@ class ChessBaseLibraryImportService:
     ) -> ChessBaseLibraryImportReport:
         """Decode fully, then atomically publish canonical games to the Library.
 
-        Cancellation is checked before external decoding and again before any
-        ACSDB attempt is created.  The existing Library transaction continues
-        polling through staging and immediately before commit, so cancellation
-        can never publish a partial source.
+        Cancellation is checked before external decoding, during delegated CBV
+        extraction, after extraction/before CBH decode, and again before any
+        ACSDB attempt is created. Immediately after that final callback, the
+        exact source evidence is revalidated so source-family corruption or
+        mutation cannot create an ACSDB source/import-attempt row. The existing
+        Library transaction continues polling through staging and immediately
+        before commit, so cancellation can never publish a partial source.
         """
 
         _poll_cancel(cancel_check)
@@ -215,10 +421,12 @@ class ChessBaseLibraryImportService:
             source_format,
             archive_backend_name,
             archive_backend_sha256,
-        ) = self._decode_source(path)
+            publication_guard,
+        ) = self._decode_source(path, cancel_check=cancel_check)
         _poll_cancel(cancel_check)
 
         warnings = tuple(decoded.warnings)
+        _verify_publication_guard(path, publication_guard)
         if not decoded.games:
             return ChessBaseLibraryImportReport(
                 status=ChessBaseLibraryImportStatus.NO_GAMES,
