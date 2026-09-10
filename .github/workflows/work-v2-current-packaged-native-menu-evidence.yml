@@ -1,0 +1,206 @@
+name: Work V2 Current Packaged Native Menu Evidence
+
+on:
+  pull_request:
+    branches:
+      - codex/v2-runtime-completion-20260907
+    paths:
+      - '.github/workflows/work-v2-current-packaged-native-menu-evidence.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: work-v2-current-packaged-native-menu-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  RUNTIME_PARENT: e358bd1ddfafc21f8798f68e0d390fca804e0203
+  GREEN_PRODUCT_BASELINE: 0343b828315b97426e857cd0692626d9d67adcfe
+  PYWEBVIEW_VERSION: '6.2.1'
+  NUITKA_UPSTREAM_FIX_COMMIT: b7ea05bf570e0b6950de6db7c4c8e579e1b77d29
+
+jobs:
+  windows-packaged-native-menu:
+    runs-on: windows-2025
+    timeout-minutes: 65
+    steps:
+      - name: Checkout exact evidence head
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Prove evidence-only scope and exact current Product bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor "$GREEN_PRODUCT_BASELINE" "$RUNTIME_PARENT"
+          git merge-base --is-ancestor "$RUNTIME_PARENT" HEAD
+          git diff --check "$RUNTIME_PARENT" HEAD
+          changed="$(git diff --name-only "$RUNTIME_PARENT" HEAD)"
+          test "$changed" = '.github/workflows/work-v2-current-packaged-native-menu-evidence.yml'
+          non_workflow="$(git diff --name-only "$GREEN_PRODUCT_BASELINE" HEAD | grep -v '^\.github/workflows/' || true)"
+          test -z "$non_workflow"
+          for path in run_accessible_chess_v2.py acs/version2_release_app.py acs/version2_release_ui.py acs/version2_profile.py acs/full_product_native_menu.py; do
+            test "$(git rev-parse HEAD:$path)" = "$(git rev-parse $RUNTIME_PARENT:$path)"
+            test "$(git rev-parse HEAD:$path)" = "$(git rev-parse $GREEN_PRODUCT_BASELINE:$path)"
+          done
+          echo "EVIDENCE_SHA=$(git rev-parse HEAD)"
+          echo "PRODUCT_SHA=$RUNTIME_PARENT"
+          echo 'PRODUCT_MUTATION=NONE'
+          echo 'EXACT CURRENT V2 PRODUCT / MENU EVIDENCE-ONLY SCOPE PASS'
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install pinned WebView2 runtime bindings and patched Nuitka
+        shell: pwsh
+        run: |
+          $nuitkaUrl="https://github.com/Nuitka/Nuitka/archive/$env:NUITKA_UPSTREAM_FIX_COMMIT.zip"
+          python -m pip install --disable-pip-version-check "pywebview==$env:PYWEBVIEW_VERSION" "Nuitka @ $nuitkaUrl" ordered-set zstandard
+          if($LASTEXITCODE -ne 0){throw 'Pinned Windows runtime/compiler installation failed'}
+          python -c "from pathlib import Path; import nuitka; p=Path(nuitka.__file__).parent/'plugins'/'standard'/'PywebViewPlugin.py'; assert 'webview.platforms.win32' in p.read_text(encoding='utf-8'); print('PATCHED NUITKA PYWEBVIEW PLUGIN PASS')"
+          if($LASTEXITCODE -ne 0){throw 'Pinned Nuitka pywebview patch missing'}
+
+      - name: Source V2 diagnostic
+        shell: pwsh
+        run: |
+          python run_accessible_chess_v2.py --diagnostic
+          if($LASTEXITCODE -ne 0){throw 'Source V2 diagnostic failed before menu build'}
+
+      - name: Build exact V2 standalone executable
+        shell: pwsh
+        run: |
+          python -m nuitka --standalone --assume-yes-for-downloads --windows-console-mode=disable --output-filename=AccessibleChess.exe --include-data-dir=web=web --report=nuitka-compilation-report.xml run_accessible_chess_v2.py
+          if($LASTEXITCODE -ne 0){throw 'V2 Nuitka standalone compile failed'}
+          $exe=Get-ChildItem -Recurse -Filter AccessibleChess.exe | Where-Object {$_.FullName -match '\.dist\\'} | Select-Object -First 1
+          if(-not $exe){throw 'Built V2 AccessibleChess.exe missing'}
+          "V2_EXE=$($exe.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "V2_DIST=$($exe.Directory.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Built executable diagnostic with explicit process exit code
+        shell: pwsh
+        run: |
+          $diag=Start-Process -FilePath $env:V2_EXE -ArgumentList '--diagnostic' -Wait -PassThru
+          if($diag.ExitCode -ne 0){throw "Built V2 executable diagnostic failed with code $($diag.ExitCode)"}
+          Write-Host 'BUILT V2 EXECUTABLE DIAGNOSTIC EXIT=0'
+
+      - name: Launch standalone and prove native MenuBar structure through UIA
+        shell: pwsh
+        run: |
+          $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS='--force-renderer-accessibility'
+          Add-Type -AssemblyName UIAutomationClient
+          Add-Type -AssemblyName UIAutomationTypes
+          $process=Start-Process -FilePath $env:V2_EXE -PassThru
+          try {
+            $ready=$false
+            $watch=[System.Diagnostics.Stopwatch]::StartNew()
+            while($watch.ElapsedMilliseconds -lt 45000){
+              if($process.HasExited){throw "Built V2 process exited before native-menu proof with code $($process.ExitCode)"}
+              $process.Refresh()
+              if($process.MainWindowHandle -ne 0){$ready=$true;break}
+              Start-Sleep -Milliseconds 250
+            }
+            if(-not $ready){throw 'Built V2 window did not become ready for native-menu proof'}
+            Start-Sleep -Seconds 5
+
+            $root=[System.Windows.Automation.AutomationElement]::FromHandle([IntPtr]$process.MainWindowHandle)
+            if($null -eq $root){throw 'Could not resolve packaged V2 top-level window through UIA'}
+            if([int]$root.Current.ProcessId -ne $process.Id){throw 'UIA top-level owner process does not match launched V2 process'}
+
+            $menuCondition=New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::ControlTypeProperty,[System.Windows.Automation.ControlType]::MenuBar)
+            $bars=@($root.FindAll([System.Windows.Automation.TreeScope]::Descendants,$menuCondition))
+            if($bars.Count -ne 1){
+              $seen=@($bars | ForEach-Object {"id='$([string]$_.Current.AutomationId)' name='$([string]$_.Current.Name)' pid=$([int]$_.Current.ProcessId)"}) -join ' | '
+              throw "Expected exactly one native MenuBar under the V2 owner window, found $($bars.Count); all=$seen"
+            }
+            $menu=$bars[0]
+            if([string]$menu.Current.AutomationId -ne 'AccessibleChessFullProductMenu'){throw "Unexpected native MenuBar AutomationId: $([string]$menu.Current.AutomationId)"}
+            if([string]$menu.Current.Name -notin @('Application menu','Меню програми')){throw "Unexpected native MenuBar accessible name: $([string]$menu.Current.Name)"}
+            if([int]$menu.Current.ProcessId -ne $process.Id){throw 'Native MenuBar is not owned by the launched V2 process'}
+            if(-not [bool]$menu.Current.IsEnabled -or [bool]$menu.Current.IsOffscreen){throw 'V2 native MenuBar is disabled or offscreen'}
+
+            $itemCondition=New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::ControlTypeProperty,[System.Windows.Automation.ControlType]::MenuItem)
+            $top=@($menu.FindAll([System.Windows.Automation.TreeScope]::Children,$itemCondition))
+            $names=@($top | ForEach-Object {([string]$_.Current.Name).Replace('&','').Trim()})
+            $expectedUa=@('Файл','Гра','Позиція','PGN','Бібліотека','Імпорт','Експорт','Stockfish','Аналіз','Книги','Налаштування','Довідка')
+            $expectedEn=@('File','Game','Position','PGN','Library','Import','Export','Engine','Analysis','Books','Settings','Help')
+            $actual=($names -join '|')
+            $ua=($expectedUa -join '|')
+            $en=($expectedEn -join '|')
+            if($top.Count -ne 12 -or ($actual -ne $ua -and $actual -ne $en)){
+              throw "Packaged V2 native menu profile mismatch: count=$($top.Count) names=$actual"
+            }
+
+            foreach($entry in $top){
+              if([int]$entry.Current.ProcessId -ne $process.Id){throw "Top native menu item belongs to another process: $([string]$entry.Current.Name)"}
+              if(-not [bool]$entry.Current.IsEnabled -or [bool]$entry.Current.IsOffscreen){throw "Top native menu item is disabled/offscreen: $([string]$entry.Current.Name)"}
+              try {
+                $pattern=$entry.GetCurrentPattern([System.Windows.Automation.ExpandCollapsePattern]::Pattern)
+                if($null -eq $pattern){throw 'null ExpandCollapsePattern'}
+              } catch {
+                throw "Top native menu item lacks ExpandCollapsePattern: $([string]$entry.Current.Name)"
+              }
+            }
+
+            if($names -contains 'Тренування' -or $names -contains 'Training' -or $names -contains 'Учитель/Клас' -or $names -contains 'Teacher/Classroom'){
+              throw 'Deferred Teacher/Training menu leaked into the Version 2 release profile'
+            }
+
+            $evidenceSha=(git rev-parse HEAD).Trim()
+            $summary=[ordered]@{
+              evidence_sha=$evidenceSha
+              product_sha=$env:RUNTIME_PARENT
+              product_equivalent_green_sha=$env:GREEN_PRODUCT_BASELINE
+              product_mutation='NONE'
+              machine_scope='standalone Windows UIA structure only'
+              menu_bar_count=$bars.Count
+              menu_automation_id=[string]$menu.Current.AutomationId
+              menu_name=[string]$menu.Current.Name
+              menu_owner_process_matches=$true
+              menu_descendant_of_launched_owner_window=$true
+              menu_visible=$true
+              menu_enabled=$true
+              top_level_count=$top.Count
+              top_level_names=$names
+              top_level_all_visible_enabled=$true
+              top_level_expand_collapse_pattern=$true
+              deferred_teacher_training_absent=$true
+              structural_uia='PASS'
+              artifact_path_clean=$true
+              alt_arrows_enter_esc='HUMAN_ONLY_UNPROVEN'
+              nvda_menu_usability='HUMAN_ONLY_UNPROVEN'
+              nvda_verified=$false
+              version2_windows_zip=$false
+              ready_for_release=$false
+            }
+            $summary|ConvertTo-Json -Depth 5|Set-Content -Encoding UTF8 packaged-v2-current-native-menu-summary.json
+            Write-Host "CURRENT PACKAGED V2 NATIVE MENUBAR UIA PASS: $actual"
+          }
+          finally {
+            $live=Get-Process -Id $process.Id -ErrorAction SilentlyContinue
+            if($live){Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue}
+          }
+
+      - name: Recheck standalone and evidence path cleanliness
+        if: success()
+        shell: pwsh
+        run: |
+          $source=Get-ChildItem $env:V2_DIST -Recurse -File | Where-Object {$_.Extension -in '.py','.pyc','.pyo'}
+          if($source){throw 'Python source/bytecode leaked into standalone directory'}
+          if(Test-Path (Join-Path $env:V2_DIST 'nuitka-compilation-report.xml')){throw 'Compilation report leaked into standalone directory'}
+          $summary=Get-Content -Raw packaged-v2-current-native-menu-summary.json
+          if($summary -match '(?i)[A-Z]:\\\\|/home/|/Users/|/tmp/'){throw 'Local workstation/runner path leaked into bounded evidence summary'}
+          Write-Host 'V2 CURRENT PACKAGED NATIVE MENU EVIDENCE PASS — HUMAN ALT/ARROWS/ENTER/ESC AND NVDA REMAIN HUMAN_ONLY'
+
+      - name: Upload bounded menu evidence only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: work-v2-current-packaged-native-menu-evidence
+          if-no-files-found: ignore
+          retention-days: 7
+          path: packaged-v2-current-native-menu-summary.json
