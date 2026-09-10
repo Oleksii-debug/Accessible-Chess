@@ -194,4 +194,5 @@ jobs:
           test "$EVAL_RAV_OUTCOME" = success
           test "$BOOK_DOWNLOAD_OUTCOME" = success
           test "$HISTORICAL_OUTCOME" = success
+          test -s pgn-real-semantic-identity.json
           grep -F 'PGN REAL CORPUS SEMANTIC IDENTITY PASS' pgn-real-semantic-identity.txt
