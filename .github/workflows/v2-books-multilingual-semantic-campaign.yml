@@ -1,0 +1,85 @@
+name: V2 Books Multilingual Semantic Campaign
+
+on:
+  push:
+    branches:
+      - qa/v2-books-multilingual-semantic-campaign-20260910
+  pull_request:
+    branches:
+      - work/v2-html-semantic-lists-20260907
+
+permissions:
+  contents: read
+
+concurrency:
+  group: accessible-chess-v2-books-multilingual-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  semantic-campaign:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Prove evidence-only ancestry and committed scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          base=49756d2a6e702619b5ea54f0428fae07402fd1ef
+          git merge-base --is-ancestor "$base" HEAD
+          git diff --check "$base" HEAD
+          changed="$(git diff --name-only "$base" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/v2-books-multilingual-semantic-campaign.yml' \
+            'tests/test_v2_books_multilingual_semantic_campaign.py' | sort)"
+          test "$changed" = "$expected"
+          git diff --quiet "$base" HEAD -- acs web run_accessible_chess.py run_accessible_chess_v2.py
+      - name: Compose exact current peer adapter owners
+        shell: bash
+        run: |
+          set -euo pipefail
+          text_head=7545572a5b7d23a9e15fb091947fe71a70a3d07a
+          epub_head=959613819331b10ddacf5f1c64a6e8487734b562
+          git fetch --no-tags origin "$text_head" "$epub_head"
+
+          test "$(git rev-parse "$text_head:acs/book_text_import.py")" = 1e2f8360da45ef4ab7b03b6179b0c03bf0ad473c
+          test "$(git rev-parse "$text_head:tests/test_v2_book_text_import.py")" = 47a91129a0edf0be8b6ebe554ae2ea64d55534cc
+          test "$(git rev-parse "$text_head:tests/test_v2_markdown_semantic_lists.py")" = aa4271f37dc74d077977b23630966a0708323038
+          test "$(git rev-parse "$epub_head:acs/book_epub_import.py")" = f55ed184aad2dd8d6d512329fb2e5a0db3b3f442
+          test "$(git rev-parse "$epub_head:tests/test_v2_book_epub_import.py")" = 46f95785779b480bc21ca27cc17e5c964c5d5662
+
+          git show "$text_head:acs/book_text_import.py" > acs/book_text_import.py
+          git show "$text_head:tests/test_v2_book_text_import.py" > tests/test_v2_book_text_import.py
+          git show "$text_head:tests/test_v2_markdown_semantic_lists.py" > tests/test_v2_markdown_semantic_lists.py
+          git show "$epub_head:acs/book_epub_import.py" > acs/book_epub_import.py
+          git show "$epub_head:tests/test_v2_book_epub_import.py" > tests/test_v2_book_epub_import.py
+      - name: Compile composed adapters and campaign
+        run: >-
+          python -m py_compile
+          acs/book_text_import.py
+          acs/book_html_import.py
+          acs/book_epub_import.py
+          tests/test_v2_books_multilingual_semantic_campaign.py
+      - name: Existing owner regressions remain green before campaign
+        run: >-
+          python -m unittest -v
+          tests.test_v2_book_text_import
+          tests.test_v2_markdown_semantic_lists
+          tests.test_v2_book_html_import
+          tests.test_v2_html_semantic_lists
+          tests.test_v2_book_epub_import
+          tests.test_bookdocument
+          tests.test_book_index
+          tests.test_bookreader
+      - name: Multilingual semantic reading campaign
+        run: python -m unittest -v tests.test_v2_books_multilingual_semantic_campaign
