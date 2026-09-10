@@ -9,6 +9,8 @@ import unittest
 from unittest import mock
 
 import acs.v1_runtime_bridge as bridge_module
+from acs.acsdb import AcsDatabase
+from acs.settings import Settings
 from acs.v1_runtime_bridge import V1RuntimeBridgeCoordinator, V1RuntimeBridgeError
 from acs.version2_upgrade import UserDataLayout
 
@@ -68,6 +70,16 @@ class V1RuntimeBridgePublicationAtomicityTests(unittest.TestCase):
             connection.close()
         layout = UserDataLayout(root / "localappdata" / "AccessibleChess")
         return executable, library, layout
+
+    @classmethod
+    def _full_fixture(cls, root: Path) -> tuple[Path, Path, UserDataLayout]:
+        executable, library, layout = cls._library_fixture(root)
+        legacy = library.parent
+        (legacy / "settings.json").write_text(
+            json.dumps({"language": "en", "volume": 22}) + "\n",
+            encoding="utf-8",
+        )
+        return executable, legacy, layout
 
     def test_candidate_change_during_settings_publish_leaves_no_v2_target(self) -> None:
         """A failed settings publication must roll back only its own hard-link."""
@@ -249,6 +261,61 @@ class V1RuntimeBridgePublicationAtomicityTests(unittest.TestCase):
                 V1RuntimeBridgeCoordinator(layout, executable).run()
 
             self.assertEqual(layout.library_path.read_bytes(), canonical_before)
+
+    def test_recovery_never_overwrites_newer_legitimate_settings_writer(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            executable, legacy, layout = self._full_fixture(root)
+            legacy_settings_before = (legacy / "settings.json").read_bytes()
+            legacy_library_before = (legacy / "library.acsdb").read_bytes()
+
+            def crash(phase: str) -> None:
+                if phase == "settings-published":
+                    raise RuntimeError("simulated crash after settings publication")
+
+            with self.assertRaises(RuntimeError):
+                V1RuntimeBridgeCoordinator(layout, executable, phase_hook=crash).run()
+
+            Settings(layout.settings_path).set("volume", 91)
+            external_bytes = layout.settings_path.read_bytes()
+
+            for _ in range(2):
+                with self.assertRaises(V1RuntimeBridgeError):
+                    V1RuntimeBridgeCoordinator(layout, executable).run()
+                self.assertEqual(layout.settings_path.read_bytes(), external_bytes)
+                self.assertFalse(layout.library_path.exists())
+                self.assertEqual((legacy / "settings.json").read_bytes(), legacy_settings_before)
+                self.assertEqual((legacy / "library.acsdb").read_bytes(), legacy_library_before)
+
+    def test_recovery_never_overwrites_newer_legitimate_acsdb_writer(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            executable, legacy, layout = self._full_fixture(root)
+            legacy_settings_before = (legacy / "settings.json").read_bytes()
+            legacy_library_before = (legacy / "library.acsdb").read_bytes()
+
+            def crash(phase: str) -> None:
+                if phase == "library-published":
+                    raise RuntimeError("simulated crash after library publication")
+
+            with self.assertRaises(RuntimeError):
+                V1RuntimeBridgeCoordinator(layout, executable, phase_hook=crash).run()
+
+            with AcsDatabase(layout.library_path) as database:
+                source_id = database.add_source(
+                    "external-writer.pgn", "pgn", "f" * 64
+                )
+                self.assertGreater(source_id, 0)
+            external_bytes = layout.library_path.read_bytes()
+            settings_bytes = layout.settings_path.read_bytes()
+
+            for _ in range(2):
+                with self.assertRaises(V1RuntimeBridgeError):
+                    V1RuntimeBridgeCoordinator(layout, executable).run()
+                self.assertEqual(layout.library_path.read_bytes(), external_bytes)
+                self.assertEqual(layout.settings_path.read_bytes(), settings_bytes)
+                self.assertEqual((legacy / "settings.json").read_bytes(), legacy_settings_before)
+                self.assertEqual((legacy / "library.acsdb").read_bytes(), legacy_library_before)
 
 
 if __name__ == "__main__":
