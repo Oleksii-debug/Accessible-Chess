@@ -15,6 +15,7 @@ import threading
 from typing import Any, Callable
 
 from .full_product_native_menu import install_full_product_windows_native_menu
+from .full_product_ui_shell import UILanguage
 from .stage1_release_ui import Stage1ReleaseAccessibleChessAPI, _asset_root
 from .ui_native_menu import _resolve_windows_host_form
 from .version2_profile import Version2NativeMenuController
@@ -35,6 +36,7 @@ class Version2ReleaseAccessibleChessAPI(Stage1ReleaseAccessibleChessAPI):
         self._ui_closed = False
         super().__init__(*args, **kwargs)
         self._version2_application: Any | None = None
+        self._version2_language_refresh: Callable[[], bool] | None = None
 
     def _bind_ui_owner(self, owner: Any, *, action_factory: Callable | None = None) -> None:
         """Trusted host seam: called on the actual Form thread before DB creation."""
@@ -89,6 +91,135 @@ class Version2ReleaseAccessibleChessAPI(Stage1ReleaseAccessibleChessAPI):
         if getattr(application, "adapter", None) is None:
             raise TypeError("Version 2 application requires its accepted WebView adapter")
         self._version2_application = application
+
+    def bind_version2_language_refresh(self, callback: Callable[[], bool]) -> None:
+        """Bind the owner-host refresh used to rebuild localized native menus."""
+
+        if not callable(callback):
+            raise TypeError("Version 2 language refresh callback must be callable")
+        if self._version2_language_refresh is not None and self._version2_language_refresh is not callback:
+            raise RuntimeError("Version 2 language refresh callback is already bound")
+        self._version2_language_refresh = callback
+
+    @staticmethod
+    def _sync_version2_language(application: Any, language: UILanguage) -> None:
+        """Apply one presentation language to every currently materialized V2 surface."""
+
+        if not isinstance(language, UILanguage):
+            raise TypeError("Version 2 language must be UILanguage")
+        shell = getattr(application, "shell", None)
+        set_shell_language = getattr(shell, "set_language", None)
+        if not callable(set_shell_language):
+            raise TypeError("Version 2 shell cannot change language")
+        set_shell_language(language)
+
+        for bridge_name in ("pgn", "library", "books"):
+            bridge = getattr(application, bridge_name, None)
+            if bridge is None:
+                continue
+            projection = getattr(bridge, "projection", None)
+            set_projection_language = getattr(projection, "set_language", None)
+            if not callable(set_projection_language):
+                raise TypeError(f"Version 2 {bridge_name} surface cannot change language")
+            set_projection_language(language)
+
+    @staticmethod
+    def _queue_version2_language_refresh(application: Any) -> None:
+        """Wake the existing V2 event poller without creating a spoken announcement."""
+
+        events = getattr(application, "_events", None)
+        append = getattr(events, "append", None)
+        if not callable(append):
+            raise TypeError("Version 2 application event queue is unavailable")
+        append({"kind": "language", "payload": {}})
+
+    @staticmethod
+    def _restore_settings_language_memory(settings: Any, language: str) -> None:
+        """Undo Settings.set()'s in-memory assignment when its atomic save fails."""
+
+        data = getattr(settings, "data", None)
+        if isinstance(data, dict):
+            data["language"] = language
+
+    @classmethod
+    def _rollback_settings_language(cls, settings: Any, language: str) -> None:
+        if settings is None:
+            return
+        try:
+            settings.set("language", language)
+        except Exception:
+            cls._restore_settings_language_memory(settings, language)
+
+    def _language_error(self, language: str) -> dict[str, Any]:
+        return self._error(
+            "Language could not be changed."
+            if language == "en"
+            else "Не вдалося змінити мову."
+        )
+
+    def set_language(self, lang: str) -> dict[str, Any]:
+        """Persist first, then atomically converge every live V2 presentation surface."""
+
+        if type(lang) is not str:
+            return super().set_language(lang)
+        target = lang.strip().lower()
+        if target not in {"uk", "en"}:
+            return super().set_language(lang)
+
+        previous = self.lang
+        settings = getattr(self, "_settings", None)
+        application = self._version2_application
+
+        if settings is not None:
+            try:
+                settings.set("language", target)
+            except Exception:
+                self._restore_settings_language_memory(settings, previous)
+                return self._language_error(previous)
+
+        try:
+            result = super().set_language(target)
+        except Exception:
+            self._rollback_settings_language(settings, previous)
+            return self._language_error(previous)
+
+        if not result.get("ok"):
+            self._rollback_settings_language(settings, previous)
+            return result
+
+        try:
+            language = UILanguage(target)
+            if application is not None:
+                self._sync_version2_language(application, language)
+            if self._version2_language_refresh is not None:
+                if self._version2_language_refresh() is not True:
+                    raise RuntimeError("Version 2 native menu language refresh failed")
+            if application is not None:
+                self._queue_version2_language_refresh(application)
+        except Exception:
+            try:
+                super().set_language(previous)
+            except Exception:
+                pass
+            if application is not None:
+                try:
+                    self._sync_version2_language(application, UILanguage(previous))
+                except Exception:
+                    pass
+            if self._version2_language_refresh is not None:
+                try:
+                    self._version2_language_refresh()
+                except Exception:
+                    pass
+            self._rollback_settings_language(settings, previous)
+            if application is not None:
+                try:
+                    self._queue_version2_language_refresh(application)
+                except Exception:
+                    pass
+            return self._language_error(previous)
+
+        return result
 
     def _version2(self) -> Any:
         application = self._version2_application
@@ -259,6 +390,10 @@ def run_version2_release_window(
         )
         if not menu_installer(window, controller):
             raise RuntimeError("Accessible Version 2 native Windows menu could not be attached.")
+        if api._version2_language_refresh is None:
+            api.bind_version2_language_refresh(
+                lambda: bool(menu_installer(window, controller))
+            )
         if file_runtime_factory is None or native_files is not None:
             return
         owner = getattr(window, "_accessible_chess_native_menu_host", None)
