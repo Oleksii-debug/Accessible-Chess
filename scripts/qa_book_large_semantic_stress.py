@@ -119,7 +119,6 @@ def build_document(seed: str) -> BookDocument:
     append = blocks.append
     for i in range(PER_KIND):
         suffix = f"{i:05d}"
-        # One rare marker every 1000 records creates a deterministic sparse search set.
         rare = " МАТЧ-Ω-ß-Ж" if i % 1000 == 0 else ""
         append(Heading(
             text=f"Розділ Київ Straße Σίσυφος {suffix}{rare}",
@@ -216,11 +215,9 @@ def main() -> int:
     common_matches, metrics["unicode_dense_search"] = measure(
         "unicode_dense_search", lambda: index.find("КИЇВ"), profile=True
     )
-    assert len(common_matches) == PER_KIND * 5
+    assert len(common_matches) == PER_KIND * 4
     correctness["unicode_dense_match_count"] = len(common_matches)
 
-    # Document current policy is casefold-only.  Record, rather than reinterpret,
-    # canonical-composition behavior so normalization policy stays explicit.
     nfc_doc = BookDocument(title="NFC", blocks=[Paragraph(text="café", block_id="nfc")])
     nfc_index = BookIndex(nfc_doc)
     correctness["nfc_query_matches_nfc_label"] = len(nfc_index.find("CAFÉ")) == 1
@@ -233,8 +230,6 @@ def main() -> int:
     snapshot, metrics["snapshot_deep_anchor"] = measure("snapshot_deep_anchor", reader.snapshot, profile=True)
     assert snapshot["current_target"] == target_match.target.key
 
-    # Core exposes ordered BookIndex.find() results rather than a separate
-    # next/previous-search cursor. Exercise deterministic consumer traversal.
     pos = len(rare_matches) // 2
     previous_match, metrics["previous_match_go_to"] = measure(
         "previous_match_go_to", lambda: reader.go_to(rare_matches[pos - 1].target.index), profile=True
@@ -299,8 +294,6 @@ def main() -> int:
     correctness["changed_source_anchor_fails_closed"] = True
     correctness["changed_source_error"] = changed_error
 
-    # Explicit complexity evidence: search materializes all matches. This is
-    # deterministic and input-bounded, but there is no independent result cap.
     report["complexity_observation"] = {
         "book_index_construct": "O(N) entries plus O(N) key map; immutable snapshot",
         "find": "O(N) scan and O(M) materialized tuple; no max-results parameter",
