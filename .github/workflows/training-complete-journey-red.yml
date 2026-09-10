@@ -30,4 +30,4 @@ jobs:
       - name: Run complete Training journey oracle
         env:
           PYTHONUTF8: "1"
-        run: python scripts/training_complete_journey_oracle.py
+        run: python -m scripts.training_complete_journey_oracle
