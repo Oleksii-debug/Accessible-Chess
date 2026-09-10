@@ -49,7 +49,7 @@ def _html(*, fen: str | None = None, pgn: str = PGN) -> str:
   <table><tr><td>e4</td><td>e5</td></tr></table>
   {diagram}
   <h2 id="games">Анотовані партії</h2>
-  <pre>{pgn}</pre>
+  <pre data-acs-pgn>{pgn}</pre>
 </body>
 </html>'''
 
@@ -89,6 +89,16 @@ class BookHtmlImportTests(unittest.TestCase):
         self.assertIn("{Developing the knight.}", canonical)
         self.assertIn("(", canonical)
         self.assertIn("Білі", canonical)
+
+    def test_unmarked_valid_pgn_remains_reading_text(self) -> None:
+        html = f'''<html><body><h1>Quoted game</h1><pre>{PGN}</pre></body></html>'''
+        result = import_html_book(html, source_name="quoted-pgn.html")
+
+        self.assertEqual(result.pgn_games, 0)
+        self.assertFalse(any(isinstance(block, Game) for block in result.document.blocks))
+        paragraphs = [block.text for block in result.document.blocks if isinstance(block, Paragraph)]
+        self.assertTrue(any('[Event "Accessible book demo"]' in text for text in paragraphs))
+        self.assertIn("Game(pre[data-acs-pgn])", SUPPORTED_HTML_BOOK_CAPABILITY["semantic_blocks"])
 
     def test_explicit_html_position_uses_canonical_board_and_can_be_a_diagram(self) -> None:
         fen = Board.START
