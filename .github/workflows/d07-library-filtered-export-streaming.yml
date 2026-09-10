@@ -10,7 +10,7 @@ permissions:
 
 concurrency:
   group: d07-library-filtered-export-streaming-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   focused-and-regression:
