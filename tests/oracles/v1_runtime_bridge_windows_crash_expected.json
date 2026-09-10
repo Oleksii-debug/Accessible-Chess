@@ -1,0 +1,119 @@
+{
+  "schema_version": 1,
+  "product_authority": {
+    "pr": 448,
+    "exact_head": "d4b4c0a9351bfbfa46398668aedfa70ee108b244"
+  },
+  "invariants": [
+    "legacy settings bytes unchanged",
+    "legacy ACSDB bytes unchanged",
+    "no completion marker while a partial journal remains",
+    "SQLite quick_check=ok and foreign_key_check=[] for every surviving ACSDB",
+    "restart/recovery enters only through V1RuntimeBridgeCoordinator.run()",
+    "newer legitimate Settings/ACSDB writes are never overwritten",
+    "successful recovery is idempotent"
+  ],
+  "cases": [
+    {
+      "id": "before_backup_completion",
+      "injection": "abrupt termination during first stable backup copy",
+      "expected_after_failure": {
+        "journal": "absent",
+        "completion_marker": "absent",
+        "v2_settings": "absent",
+        "v2_library": "absent",
+        "legacy_bytes": "exact"
+      },
+      "expected_restart": "migrated_then_already_migrated"
+    },
+    {
+      "id": "after_backup_before_journal",
+      "injection": "abrupt termination immediately after durable backup manifest publication",
+      "expected_after_failure": {
+        "journal": "absent",
+        "completion_marker": "absent",
+        "v2_settings": "absent",
+        "v2_library": "absent",
+        "backup_manifest": "present",
+        "legacy_bytes": "exact"
+      },
+      "expected_restart": "migrated_then_already_migrated"
+    },
+    {
+      "id": "after_journal_publication",
+      "injection": "abrupt termination at public phase hook prepared",
+      "expected_after_failure": {
+        "journal": "prepared",
+        "completion_marker": "absent",
+        "v2_settings": "absent",
+        "v2_library": "absent",
+        "legacy_bytes": "exact"
+      },
+      "expected_restart": "migrated_then_already_migrated"
+    },
+    {
+      "id": "after_settings_publication_with_newer_writer",
+      "injection": "abrupt termination at settings-published; then Settings.set(volume=91)",
+      "expected_after_failure": {
+        "journal": "settings_published",
+        "completion_marker": "absent",
+        "v2_settings": "newer_external_exact_bytes",
+        "v2_library": "absent",
+        "legacy_bytes": "exact"
+      },
+      "expected_restart": "fail_closed_preserving_newer_settings",
+      "expected_repeated_restart": "same_fail_closed_state"
+    },
+    {
+      "id": "after_library_publication_with_newer_writer",
+      "injection": "abrupt termination at library-published; then AcsDatabase.add_source()",
+      "expected_after_failure": {
+        "journal": "library_published",
+        "completion_marker": "absent",
+        "v2_settings": "published_bridge_exact_bytes",
+        "v2_library": "newer_external_exact_bytes",
+        "legacy_bytes": "exact",
+        "quick_check": "ok",
+        "foreign_key_check": []
+      },
+      "expected_restart": "fail_closed_preserving_newer_library",
+      "expected_repeated_restart": "same_fail_closed_state"
+    },
+    {
+      "id": "during_fsync",
+      "injection": "OSError on first regular-file fsync",
+      "expected_after_failure": {
+        "journal": "absent",
+        "completion_marker": "absent",
+        "v2_settings": "absent",
+        "v2_library": "absent",
+        "legacy_bytes": "exact"
+      },
+      "expected_restart": "migrated_then_already_migrated"
+    },
+    {
+      "id": "during_replace",
+      "injection": "OSError while atomically replacing the durable journal",
+      "expected_after_failure": {
+        "journal": "absent",
+        "completion_marker": "absent",
+        "v2_settings": "absent",
+        "v2_library": "absent",
+        "legacy_bytes": "exact"
+      },
+      "expected_restart": "migrated_then_already_migrated"
+    },
+    {
+      "id": "while_starting_recovery",
+      "injection": "abrupt termination while loading a prepared journal on restart",
+      "expected_after_failure": {
+        "journal": "prepared_exact_bytes_unchanged",
+        "completion_marker": "absent",
+        "v2_settings": "absent",
+        "v2_library": "absent",
+        "legacy_bytes": "exact"
+      },
+      "expected_restart": "migrated_then_already_migrated"
+    }
+  ]
+}
