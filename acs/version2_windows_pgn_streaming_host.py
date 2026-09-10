@@ -53,13 +53,27 @@ class Version2WindowsStreamingFileActionDelegate(Version2WindowsFileActionDelega
             return
 
         services: Version2ImportWorkerServices | None = None
+        progress_started = False
 
         def cancelled() -> bool:
             return cancel_event.is_set()
 
         def streaming_progress(value: StreamingPgnProgress) -> None:
+            nonlocal progress_started
             if not isinstance(value, StreamingPgnProgress):
                 raise TypeError("canonical streaming PGN progress object is invalid")
+            total_games = value.total_games or 0
+            if not progress_started:
+                progress_started = True
+                self._emit_if_current(
+                    generation,
+                    FileWorkflowEvent(
+                        FileWorkflowEventKind.IMPORT_STARTED,
+                        "library.import",
+                        focus_target="library-import-cancel",
+                        total_games=total_games,
+                    ),
+                )
             processed = (
                 value.imported_games
                 if value.phase is StreamingPgnPhase.IMPORTING
@@ -71,7 +85,7 @@ class Version2WindowsStreamingFileActionDelegate(Version2WindowsFileActionDelega
                     FileWorkflowEventKind.IMPORT_PROGRESS,
                     "library.import",
                     processed_games=processed,
-                    total_games=value.total_games or 0,
+                    total_games=total_games,
                 ),
             )
 
