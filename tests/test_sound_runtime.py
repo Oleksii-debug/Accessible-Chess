@@ -1,12 +1,19 @@
 import json
+import sys
 import tempfile
+import types
 import unittest
 import wave
 from pathlib import Path
+from unittest.mock import patch
 
 from acs.sound_events import MoveSoundFacts, SoundEvent
 from acs.sound_runtime import GameSoundRuntime, SoundRuntime, SoundRuntimeSettings
-from acs.sound_windows import PackagedSoundAssetResolver, REQUIRED_SOUND_EVENTS
+from acs.sound_windows import (
+    PackagedSoundAssetResolver,
+    REQUIRED_SOUND_EVENTS,
+    WindowsSoundPlaybackAdapter,
+)
 
 
 class FakePlayback:
@@ -157,6 +164,44 @@ class PackagedSoundResolverTests(unittest.TestCase):
             )
             with self.assertRaises(ValueError):
                 PackagedSoundAssetResolver(tmp).load_manifest()
+
+    def test_windows_playback_uses_python312_compatible_synchronous_flags(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "move.wav"
+            self._write_silent_wav(source)
+
+            class StaticResolver:
+                def resolve(self, event):
+                    self.event = event
+                    return source
+
+            calls = []
+            fake_winsound = types.SimpleNamespace(
+                SND_FILENAME=0x00020000,
+                SND_NODEFAULT=0x00000002,
+                PlaySound=lambda sound, flags: calls.append((sound, flags)),
+            )
+            adapter = WindowsSoundPlaybackAdapter(
+                StaticResolver(),
+                cache_dir=Path(tmp) / "cache",
+            )
+
+            with patch("acs.sound_windows.sys.platform", "win32"), patch.dict(
+                sys.modules,
+                {"winsound": fake_winsound},
+            ):
+                adapter.play(SoundEvent.MOVE, volume=100)
+
+            self.assertFalse(hasattr(fake_winsound, "SND_SYNC"))
+            self.assertEqual(
+                calls,
+                [
+                    (
+                        str(source),
+                        fake_winsound.SND_FILENAME | fake_winsound.SND_NODEFAULT,
+                    )
+                ],
+            )
 
 
 if __name__ == "__main__":
