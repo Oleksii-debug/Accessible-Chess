@@ -44,6 +44,22 @@ def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def _minimal_windows_pe() -> bytes:
+    data = bytearray(512)
+    data[0:2] = b"MZ"
+    pe_offset = 0x80
+    data[0x3C:0x40] = pe_offset.to_bytes(4, "little")
+    data[pe_offset:pe_offset + 4] = b"PE\x00\x00"
+    coff = pe_offset + 4
+    data[coff:coff + 2] = (0x8664).to_bytes(2, "little")
+    data[coff + 2:coff + 4] = (1).to_bytes(2, "little")
+    data[coff + 16:coff + 18] = (0xF0).to_bytes(2, "little")
+    data[coff + 18:coff + 20] = (0x0022).to_bytes(2, "little")
+    optional = coff + 20
+    data[optional:optional + 2] = (0x20B).to_bytes(2, "little")
+    return bytes(data)
+
+
 class Version2PackageAssemblerTests(unittest.TestCase):
     def _sources(self, root: Path) -> tuple[Path, Path]:
         product = root / "prepared-product"
@@ -51,7 +67,7 @@ class Version2PackageAssemblerTests(unittest.TestCase):
 
         web = product / "web"
         web.mkdir(parents=True)
-        (product / "AccessibleChess.exe").write_bytes(b"MZ\0v2-test")
+        (product / "AccessibleChess.exe").write_bytes(_minimal_windows_pe())
         (product / "runtime.dll").write_bytes(b"runtime")
         for name in _REQUIRED_WEB:
             (web / name).write_text(f"// canonical fixture {name}\n", encoding="utf-8")
@@ -74,7 +90,7 @@ class Version2PackageAssemblerTests(unittest.TestCase):
 
         engine = product / "engines" / "stockfish"
         engine.mkdir(parents=True)
-        (engine / "stockfish.exe").write_bytes(b"MZ\x00Stockfish18")
+        (engine / "stockfish.exe").write_bytes(_minimal_windows_pe())
 
         notices.mkdir()
         with zipfile.ZipFile(
