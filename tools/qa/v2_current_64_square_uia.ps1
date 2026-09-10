@@ -180,7 +180,6 @@ function Snapshot([string]$label) {
   if($uniqueCoords.Count -ne 64 -or $missing.Count -gt 0) { Fail "${label}: expected all 64 canonical coordinates; missing=$($missing -join ',')" }
   if($duplicateCoords.Count -gt 0) { Fail "${label}: duplicate logical squares: $($duplicateCoords -join ',')" }
   if($duplicateIds.Count -gt 0) { Fail "${label}: duplicate non-empty AutomationId values: $($duplicateIds -join ',')" }
-  if($canonicalIdCount -ne 64) { Fail "${label}: expected canonical UIA AutomationId sq-<coordinate> on all 64 squares, got $canonicalIdCount" }
   if($badNames.Count -gt 0) { Fail "${label}: accessible names do not begin with canonical coordinate: $($badNames -join ',')" }
   if($pieceNamed -eq 0) { Fail "${label}: no square exposes coordinate plus piece information" }
   return $row
@@ -208,7 +207,12 @@ if(InvokeElement $launcher 'board launcher') {
   Start-Sleep -Seconds 1
   $initial = Snapshot 'initial_load'
   $coverage.initial_load = ($initial.unique_coordinate_count -eq 64)
-  $coverage.white_orientation = $coverage.initial_load
+  $a1=SquareElement 'a1'; $h8=SquareElement 'h8'; $a1b=SafeBounds $a1; $h8b=SafeBounds $h8
+  if($a1b -and $h8b -and $a1b[0] -lt $h8b[0] -and $a1b[1] -gt $h8b[1]) {
+    $coverage.white_orientation = $true
+  } else {
+    Fail 'initial board geometry did not prove white orientation (a1 left/below h8)'
+  }
 }
 
 if(FocusSquare 'a1') {
@@ -249,9 +253,10 @@ if(FocusSquare 'e2') {
   if((FocusedCoord) -ne 'e4') { Fail "focus continuity after explicit rerender cycle expected e4, got '$(FocusedCoord)'" }
 }
 
-$orientation = FindByIdOrName 'board-orientation' '(?i)(flip board|board orientation|перевернути дошку|орієнтац.*дош)' 'Button|MenuItem'
+# Probe only a WebView button on the current V2/game surface. Native Teacher/Classroom menu items are not main-board orientation.
+$orientation = FindByIdOrName 'board-orientation' '(?i)(flip board|board orientation|перевернути дошку|орієнтац.*дош)' 'Button'
 if($null -eq $orientation) {
-  Fail 'MAIN_BOARD_ORIENTATION_CONTROL_MISSING: current V2 standalone exposes no main-board white/black orientation control through connected UIA'
+  Fail 'MAIN_BOARD_ORIENTATION_CONTROL_MISSING: current V2 standalone exposes no main-board white/black orientation button through connected WebView2/UIA'
 } elseif(InvokeElement $orientation 'main-board orientation') {
   Start-Sleep -Milliseconds 800
   $black = Snapshot 'black_orientation'
@@ -275,11 +280,12 @@ $report = [ordered]@{
   window_title=(SafeName $root)
   product_mutation='NONE'
   real_webview2_uia=$true
+  identity_contract='DOM ids are sq-<coordinate>; connected UIA identity is coordinate-first accessible Name because WebView2 does not guarantee HTML id -> AutomationId projection.'
   coverage=$coverage
   checkpoints=@($checkpoints)
   failures=@($failures)
   acceptance_pass=($failures.Count -eq 0 -and @($coverage.Values | Where-Object {$_ -ne $true}).Count -eq 0)
-  note='PGN review, Book review and Return are never inferred from static state. They remain false until exercised through the real current standalone. UIA RuntimeId may change on rerender; canonical identity is sq-<coordinate>. NVDA_VERIFIED=NO; HUMAN_TESTED=NO.'
+  note='PGN review, Book review and Return are never inferred from static state. They remain false until exercised through the real current standalone. UIA RuntimeId may change on rerender. NVDA_VERIFIED=NO; HUMAN_TESTED=NO.'
 }
 $parent=Split-Path -Parent $ReportPath
 if($parent -and -not (Test-Path $parent)){New-Item -ItemType Directory -Force -Path $parent|Out-Null}
