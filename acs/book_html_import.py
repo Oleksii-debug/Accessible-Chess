@@ -4,12 +4,13 @@ from __future__ import annotations
 
 This adapter owns source decoding and structure projection only.  It does not
 implement chess rules or a PGN parser: explicit positions are validated by the
-canonical :class:`acs.chesscore.Board`, and embedded PGN candidates are accepted
-only when the existing bounded D06 ingress can represent exactly one game.
+canonical :class:`acs.chesscore.Board`, and embedded PGN candidates are considered
+only after an exact standalone ``{PGN N}`` source marker, then accepted only when
+the existing bounded D06 ingress can represent exactly one game.
 
 Image-only diagrams remain image notes unless the source carries an explicit
-``data-acs-fen`` marker.  The importer never guesses a chess position from pixels,
-alt text, coordinates, or surrounding prose.
+``data-acs-fen`` marker.  The importer never guesses a chess position or game from
+pixels, alt text, coordinates, ordinary prose, or unmarked PGN-looking text.
 """
 
 from dataclasses import dataclass, field
@@ -175,6 +176,17 @@ def _asset_name(value: str) -> str:
     if not segments or ".." in segments:
         return ""
     return "/".join(segments)
+
+
+def _explicit_pgn_pre(raw: str) -> bool:
+    """Return whether a ``pre`` starts with an explicit PGN marker and Event tag."""
+    lines = raw.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    meaningful = [line.strip() for line in lines if line.strip()]
+    return (
+        len(meaningful) >= 2
+        and _PGN_MARKER_RE.fullmatch(meaningful[0]) is not None
+        and _PGN_EVENT_RE.match(meaningful[1]) is not None
+    )
 
 
 class _SemanticHtmlParser(HTMLParser):
@@ -504,7 +516,7 @@ class _SemanticHtmlParser(HTMLParser):
             if not self._warned_table_flatten:
                 self._warning("HTML table structure is preserved as row text because BookDocument has no table block kind")
                 self._warned_table_flatten = True
-        elif capture.kind == "pre" and "[Event" in raw:
+        elif capture.kind == "pre" and _explicit_pgn_pre(raw):
             return
         self._append_block(
             Paragraph(
@@ -525,18 +537,25 @@ class _SemanticHtmlParser(HTMLParser):
 
 
 def _pgn_candidates(visible_text: str) -> list[str]:
-    """Return source-order PGN-shaped regions; canonical D06 decides validity."""
+    """Return only explicitly marked PGN regions; canonical D06 decides validity."""
     lines = visible_text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
-    starts = [index for index, line in enumerate(lines) if _PGN_EVENT_RE.match(line.strip())]
     candidates: list[str] = []
-    for position, start in enumerate(starts):
-        stop = starts[position + 1] if position + 1 < len(starts) else len(lines)
+    for marker_index, line in enumerate(lines):
+        if _PGN_MARKER_RE.fullmatch(line.strip()) is None:
+            continue
+
+        start = marker_index + 1
+        while start < len(lines) and not lines[start].strip():
+            start += 1
+        if start >= len(lines) or _PGN_EVENT_RE.match(lines[start].strip()) is None:
+            continue
+
         chunk_lines: list[str] = []
-        for line in lines[start:stop]:
-            stripped = line.strip()
-            if chunk_lines and (_PGN_MARKER_RE.match(stripped) or _END_PGN_RE.match(stripped)):
+        for candidate_line in lines[start:]:
+            stripped = candidate_line.strip()
+            if chunk_lines and (_PGN_MARKER_RE.fullmatch(stripped) or _END_PGN_RE.fullmatch(stripped)):
                 break
-            chunk_lines.append(line.rstrip())
+            chunk_lines.append(candidate_line.rstrip())
         while chunk_lines and not chunk_lines[-1].strip():
             chunk_lines.pop()
         candidate = "\n".join(chunk_lines).strip()
@@ -631,7 +650,9 @@ def import_html_book(
     provide a source byte string and, optionally, the names of assets it has
     already resolved.  Missing images are reported but never converted into fake
     chess positions.  ``data-acs-fen`` is the only HTML-level position marker;
-    it is validated through the canonical Board before publication.
+    an exact standalone ``{PGN N}`` line immediately followed by a PGN Event tag
+    is the only HTML-level game marker.  Both paths still delegate canonical chess
+    validation before semantic publication.
     """
 
     display_source = _text(source_name, "source_name")
@@ -711,11 +732,12 @@ SUPPORTED_HTML_BOOK_CAPABILITY = MappingProxyType(
             "Paragraph",
             "List(ordered/unordered)",
             "Note(image)",
-            "Game(PGN)",
+            "Game(explicit {PGN N} marker)",
             "Position(data-acs-fen)",
             "Diagram(img[data-acs-fen])",
         ),
         "does_not_claim": (
+            "implicit PGN inference from ordinary text",
             "image-to-position recognition",
             "arbitrary legacy encodings",
             "network asset fetching",
