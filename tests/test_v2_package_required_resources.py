@@ -5,6 +5,7 @@ from pathlib import Path
 import shutil
 import tempfile
 import unittest
+import wave
 
 from acs.version2_package_preflight import Version2PackagePreflightError
 from tests.test_version2_package_preflight import (
@@ -52,6 +53,23 @@ class Version2PackageRequiredResourcesTests(unittest.TestCase):
                 with self.assertRaises(Version2PackagePreflightError):
                     _validate_tree(root)
 
+    def test_preflight_rejects_each_missing_required_file_family(self):
+        removals = (
+            "AccessibleChess/web/version2_release_bootstrap.js",
+            "AccessibleChess/engines/stockfish/stockfish.exe",
+            "AccessibleChess/assets/sounds/manifest.json",
+            "AccessibleChess/assets/sounds/move.wav",
+            "THIRD_PARTY_NOTICES/Stockfish-18-source.zip",
+            "THIRD_PARTY_NOTICES/Stockfish-NOTICE.txt",
+        )
+        for relative in removals:
+            with self.subTest(relative=relative), tempfile.TemporaryDirectory() as td:
+                root = self._package(td)
+                (root / relative).unlink()
+                _write_checksums(root)
+                with self.assertRaises(Version2PackagePreflightError):
+                    _validate_tree(root)
+
     def test_preflight_rejects_non_windows_stockfish_binary(self):
         with tempfile.TemporaryDirectory() as td:
             root = self._package(td)
@@ -61,7 +79,20 @@ class Version2PackageRequiredResourcesTests(unittest.TestCase):
             _write_checksums(root)
             with self.assertRaisesRegex(
                 Version2PackagePreflightError,
-                "Windows executable",
+                "Windows PE executable",
+            ):
+                _validate_tree(root)
+
+    def test_preflight_rejects_mz_only_stockfish_binary(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = self._package(td)
+            (root / "AccessibleChess/engines/stockfish/stockfish.exe").write_bytes(
+                b"MZ" + (b"\x00" * 126)
+            )
+            _write_checksums(root)
+            with self.assertRaisesRegex(
+                Version2PackagePreflightError,
+                "Windows PE executable",
             ):
                 _validate_tree(root)
 
@@ -107,6 +138,22 @@ class Version2PackageRequiredResourcesTests(unittest.TestCase):
             with self.assertRaisesRegex(
                 Version2PackagePreflightError,
                 "sound asset",
+            ):
+                _validate_tree(root)
+
+    def test_preflight_rejects_non_16_bit_pcm_sound_asset(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = self._package(td)
+            sound = root / "AccessibleChess/assets/sounds/move.wav"
+            with wave.open(str(sound), "wb") as writer:
+                writer.setnchannels(1)
+                writer.setsampwidth(1)
+                writer.setframerate(8000)
+                writer.writeframes(b"\x00" * 16)
+            _write_checksums(root)
+            with self.assertRaisesRegex(
+                Version2PackagePreflightError,
+                "16-bit PCM",
             ):
                 _validate_tree(root)
 
