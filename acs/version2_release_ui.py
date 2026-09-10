@@ -15,9 +15,11 @@ from functools import wraps
 import threading
 from typing import Any, Callable
 
+from .chesscore import Board
 from .full_product_native_menu import install_full_product_windows_native_menu
 from .stage1_release_ui import Stage1ReleaseAccessibleChessAPI, _asset_root
 from .ui_native_menu import _resolve_windows_host_form
+from .ui_review_adapter import ReviewView
 from .version2_profile import VERSION2_FULL_PRODUCT_ACTION_IDS, Version2NativeMenuController
 
 
@@ -36,6 +38,7 @@ class Version2ReleaseAccessibleChessAPI(Stage1ReleaseAccessibleChessAPI):
         self._ui_closed = False
         super().__init__(*args, **kwargs)
         self._version2_application: Any | None = None
+        self._external_review_fen: str | None = None
 
     def _bind_ui_owner(self, owner: Any, *, action_factory: Callable | None = None) -> None:
         """Trusted host seam: called on the actual Form thread before DB creation."""
@@ -226,6 +229,190 @@ class Version2ReleaseAccessibleChessAPI(Stage1ReleaseAccessibleChessAPI):
             return result
         return super().dispatch_action(action_id, square)
 
+    def _external_review_owned(self) -> bool:
+        """Whether a PGN/Book workflow still owns the external Board review.
+
+        Ownership persists while the user temporarily visits another V2 route.
+        Explicit PGN/Book Return ends it.  Keeping this separate from visible
+        Board projection prevents a global/native mutation from changing the
+        hidden live game while the external review session is still open.
+        """
+
+        if self._external_review_fen is None:
+            return False
+        application = self._version2_application
+        if application is None:
+            return False
+        if getattr(application, "pgn_board_active", False) is True:
+            return True
+        workflow = getattr(application, "book_workflow", None)
+        return workflow is not None and getattr(workflow, "active", False) is True
+
+    def _external_review_active(self) -> bool:
+        """Whether the V2 shell is visibly projecting external review on Board."""
+
+        if not self._external_review_owned():
+            return False
+        application = self._version2_application
+        shell = getattr(application, "shell", None)
+        route = getattr(getattr(shell, "current_route", None), "route_id", "")
+        return route == "board"
+
+    def project_review_fen(self, fen: str) -> dict[str, Any]:
+        """Project an external canonical position without mutating the live game.
+
+        PGN and Book review are presentation state.  They must drive the same
+        accessible 64-square board while leaving ``self.board``, SAN history,
+        ReviewHistory identity and engine-game ownership untouched.  Validation
+        is delegated to the canonical Board implementation; malformed input is
+        rejected before the cached projection changes.
+        """
+
+        if type(fen) is not str or not fen.strip():
+            return {"ok": False}
+        try:
+            canonical = Board(fen).fen()
+        except Exception:
+            return {"ok": False}
+        self._external_review_fen = canonical
+        return {"ok": True}
+
+    def _display_review(self) -> ReviewView:
+        if self._external_review_active():
+            return ReviewView(
+                fen=str(self._external_review_fen),
+                ply=0,
+                node_id=-1,
+                at_start=False,
+                at_end=False,
+                status=(
+                    "Зовнішня позиція для перегляду."
+                    if self.lang == "uk"
+                    else "External review position."
+                ),
+                last_move=None,
+            )
+        return super()._display_review()
+
+    def _display_board(self) -> Board:
+        if self._external_review_active():
+            return Board(str(self._external_review_fen))
+        return super()._display_board()
+
+    def _visible_ply_count(self) -> int:
+        if self._external_review_active():
+            return 0
+        return super()._visible_ply_count()
+
+    def _at_history_end(self) -> bool:
+        if self._external_review_owned():
+            return False
+        return super()._at_history_end()
+
+    def _analysis_origin_matches(self) -> bool:
+        if self._external_review_owned():
+            return False
+        return super()._analysis_origin_matches()
+
+    def _external_review_mutation_error(self) -> dict[str, Any]:
+        return self._error(
+            "Спочатку поверніться з перегляду документа."
+            if self.lang == "uk"
+            else "Return from document review first."
+        )
+
+    def make_move(self, text: str) -> dict[str, Any]:
+        if self._external_review_owned():
+            return self._external_review_mutation_error()
+        return super().make_move(text)
+
+    def activate_square(self, square: str) -> dict[str, Any]:
+        if self._external_review_owned():
+            return self._external_review_mutation_error()
+        return super().activate_square(square)
+
+    def undo(self) -> dict[str, Any]:
+        if self._external_review_owned():
+            return self._external_review_mutation_error()
+        return super().undo()
+
+    def redo(self) -> dict[str, Any]:
+        if self._external_review_owned():
+            return self._external_review_mutation_error()
+        return super().redo()
+
+    def new_game(self) -> dict[str, Any]:
+        if self._external_review_owned():
+            return self._external_review_mutation_error()
+        return super().new_game()
+
+    def clear_board(self) -> dict[str, Any]:
+        if self._external_review_owned():
+            return self._external_review_mutation_error()
+        return super().clear_board()
+
+    def set_fen(self, fen: str) -> dict[str, Any]:
+        if self._external_review_owned():
+            return self._external_review_mutation_error()
+        return super().set_fen(fen)
+
+    def set_position_text(self, text: str, turn: str | None = None) -> dict[str, Any]:
+        if self._external_review_owned():
+            return self._external_review_mutation_error()
+        return super().set_position_text(text, turn)
+
+    def set_turn(self, color: str) -> dict[str, Any]:
+        if self._external_review_owned():
+            return self._external_review_mutation_error()
+        return super().set_turn(color)
+
+    def start_engine_game(
+        self,
+        human_side: str = "white",
+        level: int = 5,
+        initial_minutes: int = 0,
+        increment_seconds: int = 0,
+    ) -> dict[str, Any]:
+        if self._external_review_owned():
+            return self._external_review_mutation_error()
+        return super().start_engine_game(
+            human_side,
+            level,
+            initial_minutes,
+            increment_seconds,
+        )
+
+    def stop_engine_game(self) -> dict[str, Any]:
+        if self._external_review_owned():
+            return self._external_review_mutation_error()
+        return super().stop_engine_game()
+
+    def retry_engine_move(self) -> dict[str, Any]:
+        if self._external_review_owned():
+            return self._external_review_mutation_error()
+        return super().retry_engine_move()
+
+    def engine_takeback(self) -> dict[str, Any]:
+        if self._external_review_owned():
+            return self._external_review_mutation_error()
+        return super().engine_takeback()
+
+    def offer_draw_engine_game(self) -> dict[str, Any]:
+        if self._external_review_owned():
+            return self._external_review_mutation_error()
+        return super().offer_draw_engine_game()
+
+    def resign_engine_game(self) -> dict[str, Any]:
+        if self._external_review_owned():
+            return self._external_review_mutation_error()
+        return super().resign_engine_game()
+
+    def get_state(self) -> dict[str, Any]:
+        state = super().get_state()
+        if self._external_review_active():
+            state["historyLength"] = 0
+        return state
+
     def v2_snapshot(self) -> dict[str, object]:
         return self._version2().snapshot()
 
@@ -362,11 +549,27 @@ def run_version2_release_window(
     def close_application(*_args: Any) -> bool:
         nonlocal application_closed
         if application is not None and not application_closed:
-            if not api._invoke_ui(application.shutdown):
-                return False
-            application_closed = True
+            # A production native FormClosing guard shuts application-owned state
+            # down while the owner Form is still alive.  The release loop only
+            # records that completed shutdown here; it must never run it twice.
+            if getattr(application, "_native_close_shutdown_complete", False):
+                application_closed = True
+            else:
+                if not api._invoke_ui(application.shutdown):
+                    return False
+                application_closed = True
         api._ui_closed = True
         return True
+
+    def window_closing_without_destructive_shutdown(*_args: Any) -> bool:
+        # pywebview's closing event can run before or after later WinForms
+        # FormClosing subscribers.  Once the native guard exists, doing cleanup
+        # here would make refusal too late and would duplicate the accepted path.
+        if application is not None and getattr(
+            application, "_native_unsaved_close_guard", None
+        ) is not None:
+            return True
+        return close_application()
 
     def install_menu_on_native_host(*_args: Any) -> None:
         nonlocal application, native_files
@@ -376,8 +579,6 @@ def run_version2_release_window(
             application = application_factory()
             api.bind_version2_application(application)
         elif api._ui_owner is None:
-            # Real already-composed applications must already belong to this
-            # thread; never migrate an open SQLite connection to another thread.
             assert_thread = getattr(application, "_assert_thread", None)
             if callable(assert_thread):
                 assert_thread()
@@ -401,8 +602,6 @@ def run_version2_release_window(
         try:
             install_menu_on_native_host()
         except Exception as error:
-            # pywebview logs event-handler exceptions and continues by default.
-            # Retain failure for the caller and close before exposing a partial UI.
             startup_errors.append(error)
             close_application()
             window.destroy()
@@ -420,7 +619,7 @@ def run_version2_release_window(
     window.events.loaded += install_release_web_contract
     closing = getattr(window.events, "closing", None)
     if closing is not None:
-        window.events.closing += close_application
+        window.events.closing += window_closing_without_destructive_shutdown
     try:
         webview_module.start(gui="edgechromium", private_mode=True)
         if startup_errors:
@@ -431,7 +630,6 @@ def run_version2_release_window(
                 close_application()
         finally:
             try:
-                # Engine cleanup has no SQLite/UI work and runs after Form disposal.
                 Stage1ReleaseAccessibleChessAPI.close_analysis(api)
             finally:
                 if runtime is not None:
