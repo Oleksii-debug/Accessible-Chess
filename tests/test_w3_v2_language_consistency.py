@@ -39,6 +39,11 @@ class W3Version2LanguageConsistencyTests(unittest.TestCase):
                 mock.patch.object(release_app, "_prepare_version2_user_data", return_value=layout),
                 mock.patch.object(release_app, "Settings", return_value=settings),
                 mock.patch.object(release_app, "AnalysisService", return_value=mock.MagicMock()),
+                mock.patch.object(
+                    release_app,
+                    "EngineAssistedWorkflowService",
+                    return_value=mock.MagicMock(),
+                ),
                 mock.patch.object(release_app, "ContinuousAnalysisService", return_value=mock.MagicMock()),
                 mock.patch.object(release_app, "EnginePlayService", return_value=mock.MagicMock()),
                 mock.patch.object(release_app, "SoundRuntime", return_value=mock.MagicMock()),
