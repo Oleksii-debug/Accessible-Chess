@@ -328,10 +328,13 @@ def assemble_version2_package_tree(
     except OSError as exc:
         _fail(f"package output parent cannot be prepared: {type(exc).__name__}")
 
-    holder = Path(tempfile.mkdtemp(prefix=".accessible-chess-v2-assemble-", dir=output.parent))
-    staged = holder / "package"
+    staged = Path(
+        tempfile.mkdtemp(
+            prefix=f".{output.name}.assemble-",
+            dir=output.parent,
+        )
+    )
     try:
-        staged.mkdir()
         _copy_tree(product, staged / "AccessibleChess", label="prepared product directory")
         staged_notices = staged / "THIRD_PARTY_NOTICES"
         _copy_tree(notices, staged_notices, label="third-party notices directory")
@@ -344,7 +347,7 @@ def assemble_version2_package_tree(
         _publish_directory_no_replace(staged, output)
         return Version2PackageAssemblyReport(package_root=output, tree_report=report)
     finally:
-        shutil.rmtree(holder, ignore_errors=True)
+        shutil.rmtree(staged, ignore_errors=True)
 
 
 def write_version2_package_zip(
