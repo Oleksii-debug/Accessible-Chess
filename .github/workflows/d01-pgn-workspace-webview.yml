@@ -149,7 +149,6 @@ jobs:
           done <<'LOCKS'
           acs/full_product_presenters.py=a752bb6b837d0332ad69047912dffeb537c7bd3f
           acs/full_product_actions.py=b6be4376cbe0695136210c3b5b850cdf562f85a4
-          acs/full_product_ui_shell.py=4745468f0939bdf02a4df215eda36f3de4010280
           acs/keybindings.py=b222f0d625999d8119cb3bb7cebffc961217f610
           acs/ui_native_menu.py=dabed76f2ad60ad0c1032b13ca353e4acc0bf2ad
           acs/stage1_release_ui.py=16e78af6219c8c36f0c4026942ef1d02875a370a
@@ -157,6 +156,19 @@ jobs:
           web/index.html=17803443a815843be3aa1b8c6be1c5abb7e7c888
           run_accessible_chess.py=fb8914d7e63f5c5fa7dfa1669798d571bcf8d1fb
           LOCKS
+
+          # The shell is a shared D01 presentation boundary. Accept only the
+          # exact pre-sanitizer blob or the canonical #456/#609 sanitizer blob
+          # during current-runtime convergence; any third identity fails closed.
+          shell_actual="$(git rev-parse HEAD:acs/full_product_ui_shell.py)"
+          case "$shell_actual" in
+            4745468f0939bdf02a4df215eda36f3de4010280|ffb173c4c07e56b4d2204589dceac8e0e6ee8040)
+              ;;
+            *)
+              printf 'Protected blob mismatch: acs/full_product_ui_shell.py actual=%s\n' "$shell_actual" >&2
+              exit 1
+              ;;
+          esac
 
       - name: Lock exact PGN presentation and canonical workspace
         shell: bash
