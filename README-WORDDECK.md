@@ -1,45 +1,49 @@
-# WordDeck (working name)
+# WordDeck
 
-Accessible Windows flashcard trainer for vocabulary study with NVDA/JAWS/Narrator-friendly native WinForms controls.
+WordDeck is an accessible Windows-first English-learning platform designed for keyboard-only operation and screen readers such as NVDA.
 
-## MVP behavior
+Canonical WordDeck source in this repository is **only** the `worddeck-bootstrap` branch. Do not develop WordDeck on `main` and do not migrate it to the separate `Oleksii-debug/WordDeck` repository unless the owner explicitly says `ПЕРЕНОСЬ`.
 
-- Embedded Oxford 3000 English→Ukrainian dictionary, preserving CEFR level and all 3308 source positions from the supplied CEFR list/translation file.
-- Five independent user-controlled decks. New entries start in Deck 1.
-- Randomized shuffle-bag presentation: every entry in the active deck appears once before reshuffling.
-- English is shown by default; translation is revealed on demand.
-- Move the current word directly to any deck.
-- Switch to any deck at any time.
-- Fully rebindable keyboard shortcuts with duplicate detection.
-- Local persistent progress under `%LOCALAPPDATA%\WordDeck`.
-- Import additional TSV dictionaries later without changing the executable.
-- No canvas/custom-drawn primary UI: controls are native WinForms controls with accessible names and normal keyboard focus/UI Automation exposure.
+## Autonomous coordination
 
-## Default shortcuts
+- Live multi-worker control: GitHub issue **#617 — WORDDECK AUTOPULSE — Continuous Full-Product Completion Control**.
+- Stable worker policy: `AGENTS.md` and `WORDDECK_AUTONOMOUS_WORKER_ORCHESTRATION.md` on `worddeck-bootstrap`.
+- Google Drive remains the durable product/pedagogy/control archive.
 
-- Ctrl+Right — next random word
-- Ctrl+Left — previous word in current session
-- Ctrl+T — reveal translation
-- Ctrl+R — refocus/repeat current English word
-- Ctrl+1…Ctrl+5 — switch active deck
-- Alt+1…Alt+5 — move current word to a specific deck
-- Ctrl+K — shortcut settings
-- F1 — help
+Fresh autonomous workers must recover from live GitHub + Drive rather than requiring previous chat history.
 
-All shortcuts are rebindable from Tools > Keyboard shortcuts.
+## Full product target
 
-## Dictionary TSV format
+WordDeck is not limited to flashcards. The approved product direction includes:
 
-Metadata lines begin with `#`, followed by a tab-separated table:
+- Recall and Spelling vocabulary foundations;
+- Sentence/Context practice;
+- active Grammar;
+- Listening/Dictation and broader listening comprehension;
+- Story/Course runtime;
+- Reading and private local book/text ingestion;
+- Word Families/Morphology;
+- cross-mode adaptive mastery, Fast Track and Deep Practice;
+- placement, skill diagnostics and unseen assessment;
+- **Complete English Academy:** Starter/Pre-A1, A1, A2, B1, B2, C1;
+- **Deep Skill Academy:** Grammar, Vocabulary/Lexical Competence, Spelling, Reading, Listening, Speaking & Pronunciation, Writing × six levels = 42 optional specialist courses;
+- production text/audio/content with provenance and redistribution rights;
+- durable learner state, backup, migration, export/import and recovery;
+- hardened Windows packaging and later presentation-neutral portability.
 
-```text
-#id=my-dictionary
-#name=English to Ukrainian
-#sourceLanguage=en
-#targetLanguage=uk
-entryId\tlevel\tsource\ttarget
-my-0001\tA1\thello\tпривіт
-```
+Complete English must remain sufficient for the claimed level by itself. Deep Skill courses are optional specialist/remediation products.
+
+## Current lexical foundation
+
+The established Recall inventory is 5446 canonical entries with stable identity and study scopes All/A1/A2/B1/B2/C1. Existing accepted translation/audio assets must not be mass-regenerated without a proven bounded defect.
+
+Personal learning state lives outside the public application payload under `%LOCALAPPDATA%\WordDeck` and must survive updates.
+
+## Accessibility
+
+Practical operation must remain keyboard-first with accessible names/roles, logical focus and Tab order, textual feedback and no mouse-only essential path. Native editing/list navigation must not be broken by global shortcuts.
+
+Automated UI Automation/accessibility tests are prerequisites but do **not** prove physical NVDA acceptance. `NVDA_VERIFIED` may only be claimed for an explicitly tested artifact after real human NVDA use.
 
 ## Build
 
@@ -49,16 +53,15 @@ Requires .NET 8 SDK on Windows.
 dotnet publish .\WordDeck\WordDeck.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true
 ```
 
-The GitHub Actions workflow publishes a `WordDeck-win-x64` artifact containing the single-file Windows executable.
+Use the repository's current GitHub Actions and release checks for authoritative build/package evidence rather than assuming a developer-tree build is release-ready.
 
-## Accessibility release gate
+## Data and content safety
 
-A build is not considered release-ready until the packaged EXE is manually checked with NVDA for:
-
-1. Main window title announcement.
-2. Menu bar discoverability with Alt.
-3. English word announcement when focus lands on the card.
-4. Translation announcement after reveal shortcut.
-5. Deck switching and word movement with keyboard only.
-6. Shortcut settings operable and understandable with NVDA.
-7. No silent custom-drawn/canvas regions for primary interaction.
+- never ship API keys, OAuth credentials, sessions, cookies, passwords, browser profiles or private logs;
+- never ship personal learner profiles/books in the public release;
+- preserve UTF-8, spaces and Cyrillic Windows paths;
+- back up before risky migrations/imports;
+- hide/restore learner vocabulary reversibly rather than physically deleting canonical dictionary entries;
+- keep private user books local by default;
+- production text/audio/data requires explicit provenance/license suitable for redistribution;
+- competitor platforms may inform general methodology only; do not copy proprietary lessons, exercises, dialogue wording, audio, images or UI expression.
