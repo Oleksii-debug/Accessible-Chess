@@ -32,7 +32,7 @@ from .webapp_keymap import _asset_root
 
 
 class _Version2OwnedBookDialogs(Version2OwnedWindowsFileDialogs):
-    """Owner-bound Open dialog for already-supported HTML/TXT/Markdown books."""
+    """Owner-bound Open and release-lifecycle dialogs for supported books/PGN."""
 
     def open_book(self) -> Path | None:
         DialogResult, OpenFileDialog, _ = self._load_forms()
@@ -51,6 +51,139 @@ class _Version2OwnedBookDialogs(Version2OwnedWindowsFileDialogs):
             return self._selected(dialog, dialog.ShowDialog(), DialogResult.OK)
         finally:
             dialog.Dispose()
+
+    def confirm_discard_unsaved_pgn_on_exit(self) -> bool:
+        """Confirm destructive application close on the exact native owner Form."""
+
+        owner = self._dialog_owner.resolve()
+        DialogResult, _, _ = self._forms_loader()
+        MessageBox, MessageBoxButtons, MessageBoxIcon = self._message_box_loader()
+        result = MessageBox.Show(
+            owner,
+            "The current PGN has unsaved changes. Exit without saving these changes?",
+            "Unsaved PGN changes",
+            MessageBoxButtons.YesNo,
+            MessageBoxIcon.Warning,
+        )
+        return result == DialogResult.Yes
+
+
+def _install_unsaved_pgn_close_guard(
+    application: Version2Application,
+    owner_control: object,
+    dialogs: object,
+):
+    """Own confirmation and accepted cleanup at one native FormClosing boundary.
+
+    The real WinForms ``FormClosing`` event is the authority for File > Exit,
+    Alt+F4, title-bar X and programmatic host close.  Dirty refusal or confirmation
+    failure sets ``Cancel`` before application shutdown is touched.  Clean or
+    explicitly accepted closes run the existing application shutdown while the
+    owner Form and UI thread are still alive.  The release loop observes the
+    completion marker and must not call application shutdown a second time.
+    """
+
+    if owner_control is None:
+        raise RuntimeError("Version 2 Windows owner control is unavailable")
+    confirmation = getattr(dialogs, "confirm_discard_unsaved_pgn_on_exit", None)
+    if not callable(confirmation):
+        raise TypeError("Version 2 exit confirmation is unavailable")
+    shutdown = getattr(application, "shutdown", None)
+    if not callable(shutdown):
+        raise TypeError("Version 2 application shutdown is unavailable")
+    closing_event = getattr(owner_control, "FormClosing", None)
+    if closing_event is None:
+        raise RuntimeError("Version 2 native owner does not expose FormClosing")
+
+    existing = getattr(application, "_native_unsaved_close_guard", None)
+    if existing is not None:
+        raise RuntimeError("Version 2 unsaved close guard is already installed")
+
+    state = {"handling": False, "shutdown_complete": False}
+
+    def cancel_close(event: object) -> None:
+        try:
+            setattr(event, "Cancel", True)
+        except Exception as error:
+            raise RuntimeError("Version 2 native close cannot be cancelled") from error
+
+    def on_form_closing(_sender: object, event: object) -> None:
+        if state["shutdown_complete"]:
+            return
+        if state["handling"]:
+            cancel_close(event)
+            return
+
+        state["handling"] = True
+        try:
+            try:
+                session = getattr(application, "session", None)
+                dirty = session is not None and bool(getattr(session, "dirty"))
+            except Exception:
+                dirty = True
+
+            if dirty:
+                try:
+                    discard = confirmation() is True
+                except Exception:
+                    cancel_close(event)
+                    return
+                if not discard:
+                    cancel_close(event)
+                    return
+
+            try:
+                shutdown_complete = shutdown() is True
+            except Exception as error:
+                setattr(application, "_native_close_shutdown_error", error)
+                cancel_close(event)
+                return
+            if not shutdown_complete:
+                cancel_close(event)
+                return
+
+            state["shutdown_complete"] = True
+            setattr(application, "_native_close_shutdown_complete", True)
+        finally:
+            state["handling"] = False
+
+    owner_control.FormClosing += on_form_closing
+    application._native_unsaved_close_guard = on_form_closing
+    return on_form_closing
+
+
+def _install_close_guard_or_shutdown(
+    file_runtime: object,
+    application: Version2Application,
+    owner_control: object,
+    dialogs: object,
+):
+    """Install the close guard or synchronously retire the unbound runtime.
+
+    The native file runtime is allocated before it can be bound to the application.
+    If FormClosing/owner/dialog validation fails at that boundary, the outer release
+    cleanup cannot see that runtime.  Close it here before propagating the original
+    guard failure; never leave a worker/pump ownerless during startup.
+    """
+
+    try:
+        _install_unsaved_pgn_close_guard(application, owner_control, dialogs)
+    except Exception:
+        cleanup_error = None
+        try:
+            shutdown_runtime = getattr(file_runtime, "shutdown", None)
+            if not callable(shutdown_runtime) or shutdown_runtime() is not True:
+                cleanup_error = RuntimeError(
+                    "Version 2 unbound native runtime did not shut down"
+                )
+        except Exception as exc:
+            cleanup_error = exc
+        if cleanup_error is not None:
+            raise RuntimeError(
+                "Version 2 unbound native runtime cleanup failed after close-guard installation failure"
+            ) from cleanup_error
+        raise
+    return file_runtime
 
 
 def _copy_text_to_windows_clipboard(value: str) -> None:
@@ -248,7 +381,7 @@ def create_version2_release_application(
         application._assert_thread()
         book_dialogs = _Version2OwnedBookDialogs(lambda: owner_control)
         application.open_book_dialog = book_dialogs.open_book
-        return Version2WindowsFileWorkflowRuntime(
+        file_runtime = Version2WindowsFileWorkflowRuntime(
             owner_control=owner_control,
             get_pgn_session=lambda: application.session,
             set_pgn_session=lambda session: _install_host_confirmed_document(application, session),
@@ -258,6 +391,9 @@ def create_version2_release_application(
             pgn_export_event_sink=application._file_event,
             next_delegate=api.v2_board_dispatch,
             current_focus_provider=lambda: str(application._focus),
+        )
+        return _install_close_guard_or_shutdown(
+            file_runtime, application, owner_control, book_dialogs
         )
 
     return api, build_application if defer_ui else application, engine_runtime, native_runtime_factory
