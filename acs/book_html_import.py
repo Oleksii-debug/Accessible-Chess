@@ -242,7 +242,10 @@ class _SemanticHtmlParser(HTMLParser):
         raw = attrs.get("start", "").strip()
         if _HTML_INTEGER_RE.fullmatch(raw) is None:
             return None, False
-        value = int(raw)
+        try:
+            value = int(raw)
+        except (ValueError, OverflowError):
+            return None, False
         return (value, value >= 1)
 
     def _emit_list(self, captured: _ListCapture) -> None:

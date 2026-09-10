@@ -53,8 +53,8 @@ jobs:
             'tests/test_v2_book_epub_import.py' \
             'tests/test_v2_html_semantic_lists.py' | sort)"
           test "$changed" = "$expected"
-          test "$(git rev-parse HEAD:acs/book_html_import.py)" = 13124884e242fb6054917e1ef5bb8ab592013528
-          test "$(git rev-parse HEAD:tests/test_v2_html_semantic_lists.py)" = 0dffabf7d82c51dcedf4f67f0773172c36ec83ba
+          test "$(git rev-parse HEAD:acs/book_html_import.py)" = 2991e79c82fe50da847efbda3fad4cfe36f2debc
+          test "$(git rev-parse HEAD:tests/test_v2_html_semantic_lists.py)" = 09ee4049fb115a79bf611f2ac96fae15f0a2deac
           test "$(git rev-parse HEAD:acs/book_epub_import.py)" = f55ed184aad2dd8d6d512329fb2e5a0db3b3f442
           test "$(git rev-parse HEAD:tests/test_v2_book_epub_import.py)" = 46f95785779b480bc21ca27cc17e5c964c5d5662
           test "$(git rev-parse HEAD:acs/bookdocument.py)" = 42bac4a78bf9148f725cc1f7e638ee0dfc3e4343
