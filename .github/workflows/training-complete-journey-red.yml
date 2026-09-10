@@ -1,0 +1,33 @@
+name: Training complete journey RED oracle
+
+on:
+  push:
+    branches:
+      - qa/training-complete-journey-red-20260910
+  pull_request:
+    paths:
+      - scripts/training_complete_journey_oracle.py
+      - .github/workflows/training-complete-journey-red.yml
+
+permissions:
+  contents: read
+
+jobs:
+  oracle:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Compile evidence oracle
+        run: python -m py_compile scripts/training_complete_journey_oracle.py
+      - name: Run complete Training journey oracle
+        env:
+          PYTHONUTF8: "1"
+        run: python scripts/training_complete_journey_oracle.py
