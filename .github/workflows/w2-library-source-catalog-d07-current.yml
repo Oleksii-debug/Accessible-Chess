@@ -1,0 +1,163 @@
+name: W2 Library Source Catalog D07 Current
+
+on:
+  push:
+    branches:
+      - work/w2-library-source-catalog-d07-current-20260910
+  pull_request:
+    branches:
+      - codex/v2-formats-completion-20260907
+    paths:
+      - 'acs/library_source_service.py'
+      - 'acs/library_import_service.py'
+      - 'tests/test_v2_library_source_catalog.py'
+      - 'tools/v2_library_source_catalog_real_corpus.py'
+      - '.github/workflows/w2-library-source-catalog-d07-current.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: w2-library-source-catalog-d07-current-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CURRENT_BASE: 9f1db6655d4568428952bc252667fa3730ba492f
+  SOURCE_CATALOG_OWNER_HEAD: 8065568d0759c9371e5b4ff5f8a0ac0d813248fe
+  PRIOR_CONVERGENCE_HEAD: e7a0bf6cf4dd27a281a223508d5d8f627657b0ca
+  DEDUPE_OWNER_HEAD: 5b68baf4c1f32a992f46067b8da120e4d1168294
+  OWNER_SERVICE_BLOB: bb848b9cfc7eb643630143833be52075fca3e165
+  OWNER_TEST_BLOB: 99848ec1771e44e44c95af3f6aa9c66d634080fd
+  OWNER_REAL_ORACLE_BLOB: 5f828fbd1ae33572f109b7a99bc58e45951842b1
+  CURRENT_ACSDB_BLOB: f5dd56e017c09aa8bf2ba3aa66c0658f8a229e74
+  CURRENT_SEARCH_BLOB: 98466d081fb4c77d52029963c2f295e5f022dd07
+  DEDUPE_IMPORT_BLOB: f9f6959c429c2681e355d11faecb0b1034e0f22b
+
+jobs:
+  correctness:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Normalize canonical Git bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config core.autocrlf false
+          git config core.eol lf
+          git reset --hard HEAD
+          git checkout-index --force --all
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install pinned verification dependency
+        run: python -m pip install -q pytest==8.4.2
+      - name: Exact current-base scope and owner identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git merge-base "$CURRENT_BASE" HEAD)" = "$CURRENT_BASE"
+          git diff --check "$CURRENT_BASE" HEAD
+          changed="$(git diff --name-only "$CURRENT_BASE" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/w2-library-source-catalog-d07-current.yml' \
+            'acs/library_import_service.py' \
+            'acs/library_source_service.py' \
+            'tests/test_v2_library_source_catalog.py' \
+            'tools/v2_library_source_catalog_real_corpus.py' | sort)"
+          test "$changed" = "$expected"
+          test "$(git rev-parse HEAD:acs/library_source_service.py)" = "$OWNER_SERVICE_BLOB"
+          test "$(git rev-parse HEAD:tests/test_v2_library_source_catalog.py)" = "$OWNER_TEST_BLOB"
+          test "$(git rev-parse HEAD:tools/v2_library_source_catalog_real_corpus.py)" = "$OWNER_REAL_ORACLE_BLOB"
+          test "$(git rev-parse HEAD:acs/acsdb.py)" = "$CURRENT_ACSDB_BLOB"
+          test "$(git rev-parse HEAD:acs/search_service.py)" = "$CURRENT_SEARCH_BLOB"
+          test "$(git rev-parse HEAD:acs/library_import_service.py)" = "$DEDUPE_IMPORT_BLOB"
+          if printf '%s\n' "$changed" | grep -E 'gametree|pgn_|chesscore|book_|training|version2_windows|stage1|web/'; then
+            echo 'Out-of-lane Product mutation' >&2
+            exit 1
+          fi
+      - name: Compile
+        run: python -m compileall -q acs/library_import_service.py acs/library_source_service.py tests/test_v2_library_source_catalog.py tools/v2_library_source_catalog_real_corpus.py
+      - name: Focused source catalog and current D07 regressions
+        run: >-
+          python -m unittest -v
+          tests.test_v2_library_source_catalog
+          tests.test_v2_library_integrity_repair
+          tests.test_v2_library_date_filter_v5
+          tests.test_v2_library_acsdb_search_v4
+          tests.test_v2_library_search_service_v4
+          tests.test_d07_library_import_service
+          tests.test_d07_library_import_start_lock
+          tests.test_d07_library_import_transaction_ownership
+          tests.test_d07_library_search_cancellation
+          tests.test_d07_search_semantic_equivalence
+          tests.test_d07_search_scalar_equivalence
+          tests.test_acsdb
+      - name: Full repository unittest
+        run: python -m unittest discover -s tests -v
+      - name: Full repository pytest
+        run: python -m pytest -q tests
+      - name: SELFTEST and diagnostic
+        run: |
+          python -m acs.selftest
+          python run_accessible_chess.py --diagnostic
+
+  real-lichess-source-catalog-5k:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install pinned real-corpus dependency
+        run: python -m pip install -q zstandard==0.23.0
+      - name: Bounded canonical real CC0 5k source journey
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD:tools/v2_library_source_catalog_real_corpus.py)" = "$OWNER_REAL_ORACLE_BLOB"
+          test "$(git rev-parse HEAD:acs/library_import_service.py)" = "$DEDUPE_IMPORT_BLOB"
+          PYTHONPATH="$PWD" python tools/v2_library_source_catalog_real_corpus.py
+      - name: Bind evidence summary to current convergence head
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          path = Path('source-catalog-real-evidence.json')
+          payload = json.loads(path.read_text(encoding='utf-8'))
+          payload['source_catalog_owner'] = os.environ['SOURCE_CATALOG_OWNER_HEAD']
+          payload['prior_convergence_head'] = os.environ['PRIOR_CONVERGENCE_HEAD']
+          payload['dedupe_owner_source'] = os.environ['DEDUPE_OWNER_HEAD']
+          payload['convergence_base'] = os.environ['CURRENT_BASE']
+          payload['convergence_head'] = os.environ['GITHUB_SHA']
+          path.write_text(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + '\n', encoding='utf-8')
+          PY
+      - name: Upload evidence summary only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: w2-library-source-catalog-d07-current-real-5k
+          path: source-catalog-real-evidence.json
+          if-no-files-found: error
+          retention-days: 7
+      - name: No external corpus/backend payload retained
+        shell: bash
+        run: |
+          set -euo pipefail
+          test ! -e lichess.pgn.zst
+          test ! -e lichess-first-5000.pgn
+          test ! -e libcbh-json-bridge
+          test ! -e libcbh.so
+          test ! -e uncbv
