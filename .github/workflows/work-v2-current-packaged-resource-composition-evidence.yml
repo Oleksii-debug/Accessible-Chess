@@ -14,11 +14,11 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  RUNTIME_PARENT: e358bd1ddfafc21f8798f68e0d390fca804e0203
-  GREEN_PRODUCT_BASELINE: 0343b828315b97426e857cd0692626d9d67adcfe
-  PAYLOAD_OWNER: 23d9dcaa1941ec0c7988757366aceee128e24d45
-  ASSEMBLER_OWNER: 39b8b7969162e96dfef855cf343177dab7cd1299
-  PREFLIGHT_OWNER: cff01c37ed05dca660f3df23f738da143521d215
+  RUNTIME_PARENT: 777dc86c0c5d4cf013477158535bafe373dffca0
+  GREEN_PRODUCT_BASELINE: 777dc86c0c5d4cf013477158535bafe373dffca0
+  PAYLOAD_OWNER: 185da1e60a09d8e013c20fc5480ab6f51f58e456
+  ASSEMBLER_OWNER: b3b0421f41fbd79277edc5ff89403e72eed636f0
+  PREFLIGHT_OWNER: 75e1451fbe6c58d85a542530801df5b51b4dd645
   PYWEBVIEW_VERSION: '6.2.1'
   NUITKA_UPSTREAM_FIX_COMMIT: b7ea05bf570e0b6950de6db7c4c8e579e1b77d29
   STOCKFISH_BINARY_URL: https://github.com/official-stockfish/Stockfish/releases/download/sf_18/stockfish-windows-x86-64.zip
@@ -51,10 +51,12 @@ jobs:
           for path in run_accessible_chess_v2.py acs/version2_release_app.py acs/version2_release_ui.py acs/stockfish_runtime.py acs/sound_windows.py acs/sound_events.py web/index.html web/version2_release_bootstrap.js; do
             test "$(git rev-parse HEAD:$path)" = "$(git rev-parse $RUNTIME_PARENT:$path)"
           done
+          test "$(git show "$RUNTIME_PARENT:acs/sound_windows.py" | grep -c 'SND_SYNC')" = '1'
+          test "$(git show "$RUNTIME_PARENT:acs/sound_windows.py" | grep -c 'winsound.SND_FILENAME | winsound.SND_NODEFAULT')" = '1'
           echo "EVIDENCE_SHA=$(git rev-parse HEAD)"
           echo "RUNTIME_SHA=$RUNTIME_PARENT"
           echo 'PRODUCT_MUTATION=NONE'
-          echo 'CURRENT V2 RUNTIME / EVIDENCE-ONLY SCOPE PASS'
+          echo 'CURRENT V2 REPAIRED RUNTIME / EVIDENCE-ONLY SCOPE PASS'
 
       - uses: actions/setup-python@v5
         with:
