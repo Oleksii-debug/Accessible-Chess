@@ -241,6 +241,7 @@ class BookExactAnchorStressTests(unittest.TestCase):
                 progress_store=progress,
                 engine_assistance=EngineAssistedWorkflowService(analysis),
                 board_dispatch=lambda *_: None,
+                board_position_projector=lambda _fen: {"ok": True},
             )
             book = root / "return.md"
             book.write_text(
