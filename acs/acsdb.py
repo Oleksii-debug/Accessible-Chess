@@ -19,6 +19,7 @@ from typing import Iterable
 
 from .gametree import PgnGame, parse_games, serialize_game
 from .search_policy import (
+    PLAYER_COMPONENT_KEY_SQL_FUNCTION,
     SEARCH_DATE_KEY_SQL_FUNCTION,
     SEARCH_FOLD_SQL_FUNCTION,
     install_search_fold,
@@ -29,6 +30,7 @@ from .search_policy import (
     normalize_search_source_id,
     normalize_search_term,
     normalize_search_year_bound,
+    player_component_key,
     search_fold,
 )
 
@@ -877,10 +879,12 @@ class AcsDatabase:
 
         Text filters use Unicode NFKC + casefold with literal LIKE escaping.
         Diacritics remain significant. Player queries additionally treat
-        comma/whitespace-separated person-name components as order-independent,
-        but all components must match the same White or Black field. ``site``
-        follows the same literal policy as other metadata and reads canonical
-        ``games.site`` directly; no second presentation search state exists.
+        comma/whitespace/apostrophe/hyphen-separated person-name components as
+        order-independent. Multi-component queries require every exact component
+        to occur in the same White or Black field, while one-component queries
+        retain the established substring behavior. ``site`` follows the same
+        literal policy as other metadata and reads canonical ``games.site``
+        directly; no second presentation search state exists.
 
         ``game_date`` searches exact loss-aware PGN Date text. Date and year
         ranges match only complete real dates through the existing deterministic
@@ -925,16 +929,27 @@ class AcsDatabase:
         clauses: list[str] = []
         params: list[object] = []
         if player_terms:
-            white_terms = " AND ".join(
-                "sf.white_fold LIKE ? ESCAPE '\\'" for _ in player_terms
-            )
-            black_terms = " AND ".join(
-                "sf.black_fold LIKE ? ESCAPE '\\'" for _ in player_terms
-            )
-            clauses.append(f"(({white_terms}) OR ({black_terms}))")
-            needles = [literal_like_pattern(term) for term in player_terms]
-            params.extend(needles)
-            params.extend(needles)
+            if len(player_terms) == 1:
+                clauses.append(
+                    "(sf.white_fold LIKE ? ESCAPE '\\' OR sf.black_fold LIKE ? ESCAPE '\\')"
+                )
+                needle = literal_like_pattern(player_terms[0])
+                params.extend([needle, needle])
+            else:
+                white_terms = " AND ".join(
+                    f"INSTR({PLAYER_COMPONENT_KEY_SQL_FUNCTION}(sf.white_fold), ?) > 0"
+                    for _ in player_terms
+                )
+                black_terms = " AND ".join(
+                    f"INSTR({PLAYER_COMPONENT_KEY_SQL_FUNCTION}(sf.black_fold), ?) > 0"
+                    for _ in player_terms
+                )
+                clauses.append(f"(({white_terms}) OR ({black_terms}))")
+                needles = [player_component_key(term) for term in player_terms]
+                if any(needle is None for needle in needles):
+                    raise RuntimeError("player component normalization failed")
+                params.extend(needles)
+                params.extend(needles)
         if event:
             clauses.append("sf.event_fold LIKE ? ESCAPE '\\'")
             params.append(literal_like_pattern(event))
