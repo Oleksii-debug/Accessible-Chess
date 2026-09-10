@@ -71,6 +71,7 @@ _BACKEND_BINARY_SUFFIXES = {
     "", ".exe", ".dll", ".so", ".dylib", ".a", ".lib",
     ".zip", ".7z", ".tar", ".gz",
 }
+_WINDOWS_PE_BINARY_SUFFIXES = frozenset({".exe", ".dll", ".pyd"})
 _ALLOWED_TOP_LEVEL_FILES = {
     MANIFEST_NAME,
     CHECKSUMS_NAME,
@@ -373,39 +374,44 @@ def _require_package_file(
     return path
 
 
+def _has_windows_pe_structure(path: Path) -> bool:
+    """Recognize the bounded PE structure used by package validation and hygiene."""
+    with path.open("rb") as handle:
+        dos_header = handle.read(64)
+        if len(dos_header) < 64 or dos_header[:2] != b"MZ":
+            return False
+        pe_offset = int.from_bytes(dos_header[0x3C:0x40], "little")
+        handle.seek(0, os.SEEK_END)
+        file_size = handle.tell()
+        if pe_offset < 0x40 or pe_offset > file_size - 24:
+            return False
+        handle.seek(pe_offset)
+        pe_header = handle.read(24)
+        if len(pe_header) != 24 or pe_header[:4] != b"PE\x00\x00":
+            return False
+
+        machine = int.from_bytes(pe_header[4:6], "little")
+        section_count = int.from_bytes(pe_header[6:8], "little")
+        optional_header_size = int.from_bytes(pe_header[20:22], "little")
+        characteristics = int.from_bytes(pe_header[22:24], "little")
+        if (
+            machine == 0
+            or section_count == 0
+            or optional_header_size < 2
+            or not characteristics & 0x0002
+            or pe_offset + 24 + optional_header_size > file_size
+        ):
+            return False
+
+        optional_magic = handle.read(2)
+        return optional_magic in {b"\x0b\x01", b"\x0b\x02"}
+
+
 def _validate_windows_pe_executable(path: Path, *, label: str) -> None:
     """Require enough PE structure to reject DOS stubs and MZ-only impostors."""
     try:
-        with path.open("rb") as handle:
-            dos_header = handle.read(64)
-            if len(dos_header) < 64 or dos_header[:2] != b"MZ":
-                _fail(f"{label} is not a valid Windows PE executable")
-            pe_offset = int.from_bytes(dos_header[0x3C:0x40], "little")
-            handle.seek(0, os.SEEK_END)
-            file_size = handle.tell()
-            if pe_offset < 0x40 or pe_offset > file_size - 24:
-                _fail(f"{label} is not a valid Windows PE executable")
-            handle.seek(pe_offset)
-            pe_header = handle.read(24)
-            if len(pe_header) != 24 or pe_header[:4] != b"PE\x00\x00":
-                _fail(f"{label} is not a valid Windows PE executable")
-
-            machine = int.from_bytes(pe_header[4:6], "little")
-            section_count = int.from_bytes(pe_header[6:8], "little")
-            optional_header_size = int.from_bytes(pe_header[20:22], "little")
-            characteristics = int.from_bytes(pe_header[22:24], "little")
-            if (
-                machine == 0
-                or section_count == 0
-                or optional_header_size < 2
-                or not characteristics & 0x0002
-                or pe_offset + 24 + optional_header_size > file_size
-            ):
-                _fail(f"{label} is not a valid Windows PE executable")
-
-            optional_magic = handle.read(2)
-            if optional_magic not in {b"\x0b\x01", b"\x0b\x02"}:
-                _fail(f"{label} is not a valid Windows PE executable")
+        if not _has_windows_pe_structure(path):
+            _fail(f"{label} is not a valid Windows PE executable")
     except Version2PackagePreflightError:
         raise
     except OSError as exc:
@@ -688,6 +694,16 @@ def _scan_text_hygiene(root: Path, inventory: tuple[str, ...], limits: PackageLi
         path = root.joinpath(*PurePosixPath(relative).parts)
         tail = b""
         try:
+            # A PE image can legitimately contain compiler/debug build paths.  Do
+            # not classify those embedded binary strings as package text merely
+            # because UTF-8 error-ignoring happens to expose them.  This is
+            # structure-based, not suffix-only: text renamed to .dll/.exe still
+            # follows the normal path-leak gate.  Credential signatures remain
+            # scanned even inside recognized PE images.
+            is_pe_binary = (
+                PurePosixPath(relative).suffix.casefold() in _WINDOWS_PE_BINARY_SUFFIXES
+                and _has_windows_pe_structure(path)
+            )
             with path.open("rb") as handle:
                 while True:
                     block = handle.read(chunk_size)
@@ -695,9 +711,12 @@ def _scan_text_hygiene(root: Path, inventory: tuple[str, ...], limits: PackageLi
                         break
                     window = tail + block
                     # Signatures are ASCII; ignore unrelated invalid UTF-8 bytes
-                    # without treating a large/binary file as a scan exemption.
+                    # without treating a large file as a scan exemption.
                     text = window.decode("utf-8", errors="ignore")
-                    if any(pattern.search(text) for pattern in _PRIVATE_PATH_PATTERNS):
+                    if (
+                        not is_pe_binary
+                        and any(pattern.search(text) for pattern in _PRIVATE_PATH_PATTERNS)
+                    ):
                         _fail(f"private local path leaked into package text: {relative}")
                     if any(pattern.search(text) for pattern in _SECRET_PATTERNS):
                         _fail(f"secret-like credential leaked into package text: {relative}")
