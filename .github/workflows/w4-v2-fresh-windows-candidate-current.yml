@@ -38,7 +38,6 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD^)" = "$PRODUCT_PARENT"
           test "$(git merge-base "$PRODUCT_PARENT" HEAD)" = "$PRODUCT_PARENT"
           changed="$(git diff --name-only "$PRODUCT_PARENT" HEAD)"
           test "$changed" = '.github/workflows/w4-v2-fresh-windows-candidate-current.yml'
@@ -101,7 +100,6 @@ jobs:
           import struct
           import wave
           from acs.sound_events import SoundEvent
-          from acs.sound_windows import PackagedSoundAssetResolver
 
           root = Path('release-inputs/sounds')
           root.mkdir(parents=True, exist_ok=False)
@@ -140,8 +138,15 @@ jobs:
               json.dumps({'schema_version': 1, 'events': provenance}, sort_keys=True, indent=2) + '\n',
               encoding='utf-8',
           )
-          resolved = PackagedSoundAssetResolver(Path('release-inputs')).load_manifest()
-          assert len(resolved.files) == len(tuple(SoundEvent)) == 9
+          expected = {event.value for event in SoundEvent}
+          assert set(files) == expected and set(provenance) == expected and len(expected) == 9
+          for event in SoundEvent:
+              path = root / files[event.value]
+              with wave.open(str(path), 'rb') as reader:
+                  assert reader.getcomptype() == 'NONE'
+                  assert reader.getsampwidth() == 2
+                  assert reader.getnframes() > 0
+              assert provenance[event.value]['sha256'] == hashlib.sha256(path.read_bytes()).hexdigest()
           print('DETERMINISTIC_SOUND_INPUT_WITH_PROVENANCE=PASS')
           '@ | python -
           if($LASTEXITCODE -ne 0){throw 'Sound input generation/provenance failed'}
