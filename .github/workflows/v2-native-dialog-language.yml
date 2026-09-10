@@ -45,7 +45,8 @@ jobs:
             'acs/version2_windows_library_export.py' \
             'acs/version2_windows_native_dialog_ownership.py' \
             'tests/test_v2_library_export_dialog_language.py' \
-            'tests/test_v2_native_dialog_language.py' | sort)"
+            'tests/test_v2_native_dialog_language.py' \
+            'tests/test_w3_v2_language_consistency.py' | sort)"
           test "$changed" = "$expected"
           git diff --quiet "$base" HEAD -- \
             acs/version2_application.py \
@@ -65,6 +66,7 @@ jobs:
           python -m compileall -q acs
           tests/test_v2_native_dialog_language.py
           tests/test_v2_library_export_dialog_language.py
+          tests/test_w3_v2_language_consistency.py
       - name: Focused native dialog and persisted-language regressions
         run: >-
           python -m unittest -v
