@@ -50,6 +50,7 @@ class Version2Application:
             "book.bookmark.restore",
         }
     )
+    _BOOK_BOARD_OPEN_COMMANDS = frozenset({"book.open_position", "book.open_game"})
 
     def __init__(self, database: AcsDatabase, *, progress_store: BookProgressStore,
                  engine_assistance: EngineAssistedWorkflowService, board_dispatch,
@@ -187,6 +188,10 @@ class Version2Application:
             # Language is presentation state. A broken progress store must not
             # make a non-progress operation fail or mutate durable reader state.
             return self.books.dispatch(command, payload)
+        if command in self._BOOK_BOARD_OPEN_COMMANDS:
+            # The canonical BookBoard delegate owns the required progress write
+            # before it publishes a board projection/route/focus transition.
+            return self.books.dispatch(command, payload)
         if command in self._BOOK_PROGRESS_COMMANDS:
             before = self.reader.snapshot()
             language = self.books.projection.language
@@ -319,8 +324,22 @@ class Version2Application:
             if self.book_delegate is None: raise ValueError("no book is open")
             if action in self.book_delegate.OWNED_ACTIONS:
                 before_view = self.book_delegate.view() if self.book_workflow.active else None
+                opening_board = action in self._BOOK_BOARD_OPEN_COMMANDS
+                before_reader = self.reader.snapshot() if opening_board else None
+                before_language = self.books.projection.language if opening_board else None
+                before_bookmark = self.books.projection.bookmark_name if opening_board else None
                 result = self.book_delegate(action, payload)
                 if result.kind in {BookBoardUiEventKind.BOARD_OPENED, BookBoardUiEventKind.BOARD_UPDATED}:
+                    if result.kind is BookBoardUiEventKind.BOARD_OPENED and opening_board:
+                        try:
+                            self.save_book_progress()
+                        except Exception:
+                            self._restore_book_progress(
+                                before_reader,
+                                language=before_language,
+                                bookmark_name=before_bookmark,
+                            )
+                            raise
                     try:
                         self._project_board_position(self.book_delegate.view().current_fen)
                     except Exception:
