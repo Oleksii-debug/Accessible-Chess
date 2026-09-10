@@ -419,11 +419,27 @@ def run_version2_release_window(
     def close_application(*_args: Any) -> bool:
         nonlocal application_closed
         if application is not None and not application_closed:
-            if not api._invoke_ui(application.shutdown):
-                return False
-            application_closed = True
+            # A production native FormClosing guard shuts application-owned state
+            # down while the owner Form is still alive.  The release loop only
+            # records that completed shutdown here; it must never run it twice.
+            if getattr(application, "_native_close_shutdown_complete", False):
+                application_closed = True
+            else:
+                if not api._invoke_ui(application.shutdown):
+                    return False
+                application_closed = True
         api._ui_closed = True
         return True
+
+    def window_closing_without_destructive_shutdown(*_args: Any) -> bool:
+        # pywebview's closing event can run before or after later WinForms
+        # FormClosing subscribers.  Once the native guard exists, doing cleanup
+        # here would make refusal too late and would duplicate the accepted path.
+        if application is not None and getattr(
+            application, "_native_unsaved_close_guard", None
+        ) is not None:
+            return True
+        return close_application()
 
     def install_menu_on_native_host(*_args: Any) -> None:
         nonlocal application, native_files
@@ -473,7 +489,7 @@ def run_version2_release_window(
     window.events.loaded += install_release_web_contract
     closing = getattr(window.events, "closing", None)
     if closing is not None:
-        window.events.closing += close_application
+        window.events.closing += window_closing_without_destructive_shutdown
     try:
         webview_module.start(gui="edgechromium", private_mode=True)
         if startup_errors:
