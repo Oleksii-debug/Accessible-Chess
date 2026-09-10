@@ -93,10 +93,11 @@ jobs:
           python - <<'PY'
           from pathlib import Path
           from acs.version2_release_payload import _inspect_stockfish_archive
-          executable, license_info = _inspect_stockfish_archive(Path('stockfish.zip'))
+          inspected = _inspect_stockfish_archive(Path('stockfish.zip'))
           print('OFFICIAL STOCKFISH 18 ARCHIVE CONTRACT PASS')
-          print('engine_member=' + executable.filename)
-          print('license_member=' + license_info.filename)
+          print('engine_member=' + inspected.executable.filename)
+          print('license_member=' + inspected.license.filename)
+          print('source_member_count=' + str(len(inspected.source_members)))
           PY
 
   full-regression:

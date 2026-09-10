@@ -2,9 +2,9 @@ from __future__ import annotations
 
 """Prepare release-critical Version 2 runtime payloads before package assembly.
 
-This module is deliberately narrower than the package assembler.  It does not
+This module is deliberately narrower than the package assembler. It does not
 build the Windows executable, download anything, create a release manifest/ZIP,
-or publish an artifact.  It takes already-produced local inputs, verifies the
+or publish an artifact. It takes already-produced local inputs, verifies the
 pinned Stockfish release archive and canonical sound-pack contract, and stages
 one immutable product/notices pair for the existing Version 2 package assembler.
 """
@@ -15,11 +15,18 @@ import json
 from pathlib import Path, PurePosixPath
 import shutil
 import stat
+import struct
 import tempfile
 import wave
 import zipfile
 
-from .sound_windows import PackagedSoundAssetResolver
+from .sound_events import SoundEvent
+from .sound_windows import (
+    DEFAULT_SOUND_MANIFEST,
+    DEFAULT_SOUND_RELATIVE_DIR,
+    PackagedSoundAssetResolver,
+    SOUND_MANIFEST_SCHEMA_VERSION,
+)
 from .stockfish_runtime import (
     PACKAGED_STOCKFISH_RELATIVE_PATH,
     StockfishRuntimeConfig,
@@ -36,12 +43,41 @@ OFFICIAL_STOCKFISH_18_WINDOWS_X64_SHA256 = (
 
 _PREPARED_PRODUCT_DIR = "prepared-product"
 _PREPARED_NOTICES_DIR = "third-party-notices"
-_STOCKFISH_ARCHIVE_NOTICE = "Stockfish-18-windows-x86-64.zip"
+_STOCKFISH_SOURCE_NOTICE = "Stockfish-18-source.zip"
 _STOCKFISH_LICENSE_NOTICE = "Stockfish-COPYING.txt"
+_STOCKFISH_TEXT_NOTICE = "Stockfish-NOTICE.txt"
 _STOCKFISH_PROVENANCE = "STOCKFISH_PROVENANCE.json"
 _MAX_STOCKFISH_ARCHIVE_FILES = 8192
 _MAX_STOCKFISH_ARCHIVE_UNCOMPRESSED = 2 * 1024 * 1024 * 1024
 _RAW_SOURCE_SUFFIXES = {".py", ".pyc", ".pyo"}
+_SOURCE_CODE_SUFFIXES = {
+    ".c",
+    ".cc",
+    ".cpp",
+    ".cxx",
+    ".h",
+    ".hh",
+    ".hpp",
+    ".hxx",
+    ".inc",
+}
+_REQUIRED_WEB_FILES = (
+    Path("web") / "index.html",
+    Path("web") / "stage1_release_bootstrap.js",
+    Path("web") / "stage1_board_actions.js",
+    Path("web") / "full_product_pgn.js",
+    Path("web") / "full_product_library.js",
+    Path("web") / "full_product_books_training.js",
+    Path("web") / "version2_release_bootstrap.js",
+)
+_WINDOWS_RESERVED_NAMES = {
+    "con",
+    "prn",
+    "aux",
+    "nul",
+    *(f"com{index}" for index in range(1, 10)),
+    *(f"lpt{index}" for index in range(1, 10)),
+}
 
 
 class Version2ReleasePayloadError(RuntimeError):
@@ -54,6 +90,13 @@ class PreparedVersion2ReleasePayload:
     product_dir: Path
     notices_dir: Path
     stockfish_executable: Path
+
+
+@dataclass(frozen=True)
+class _StockfishArchiveContents:
+    executable: zipfile.ZipInfo
+    license: zipfile.ZipInfo
+    source_members: tuple[zipfile.ZipInfo, ...]
 
 
 def _sha256(path: Path) -> str:
@@ -79,20 +122,68 @@ def _copy_tree_without_links(source: Path, destination: Path) -> None:
 
 def _safe_zip_name(info: zipfile.ZipInfo) -> PurePosixPath:
     name = info.filename
-    if not isinstance(name, str) or not name or "\\" in name or "\x00" in name:
+    if (
+        not isinstance(name, str)
+        or not name
+        or "\\" in name
+        or "\x00" in name
+        or info.flag_bits & 0x1
+    ):
         raise Version2ReleasePayloadError("Stockfish archive contains an unsafe member name")
+
+    raw_parts = name.split("/")
+    if any(
+        not part
+        or part in {".", ".."}
+        or ":" in part
+        or part.rstrip(" .") != part
+        or any(ord(character) < 32 or ord(character) == 127 for character in part)
+        for part in raw_parts
+    ):
+        if ".." in raw_parts:
+            raise Version2ReleasePayloadError("Stockfish archive contains path traversal")
+        raise Version2ReleasePayloadError("Stockfish archive contains an unsafe member name")
+
     path = PurePosixPath(name)
     if path.is_absolute() or ".." in path.parts:
         raise Version2ReleasePayloadError("Stockfish archive contains path traversal")
-    if path.parts and ":" in path.parts[0]:
-        raise Version2ReleasePayloadError("Stockfish archive contains a drive-qualified path")
+
+    for part in path.parts:
+        stem = part.split(".", 1)[0].casefold()
+        if stem in _WINDOWS_RESERVED_NAMES:
+            raise Version2ReleasePayloadError("Stockfish archive contains a Windows device path")
+
     mode = info.external_attr >> 16
     if mode and stat.S_ISLNK(mode):
         raise Version2ReleasePayloadError("Stockfish archive contains a symlink")
     return path
 
 
-def _inspect_stockfish_archive(archive: Path) -> tuple[zipfile.ZipInfo, zipfile.ZipInfo]:
+def _require_windows_x64_pe(data: bytes) -> None:
+    if len(data) < 64 or data[:2] != b"MZ":
+        raise Version2ReleasePayloadError("Stockfish executable is not a Windows PE image")
+    pe_offset = struct.unpack_from("<I", data, 0x3C)[0]
+    if pe_offset < 64 or pe_offset > len(data) - 26:
+        raise Version2ReleasePayloadError("Stockfish executable has an invalid PE header offset")
+    if data[pe_offset : pe_offset + 4] != b"PE\0\0":
+        raise Version2ReleasePayloadError("Stockfish executable is missing the PE signature")
+
+    coff_offset = pe_offset + 4
+    machine, sections = struct.unpack_from("<HH", data, coff_offset)
+    optional_size = struct.unpack_from("<H", data, coff_offset + 16)[0]
+    characteristics = struct.unpack_from("<H", data, coff_offset + 18)[0]
+    optional_offset = coff_offset + 20
+    if machine != 0x8664:
+        raise Version2ReleasePayloadError("Stockfish executable is not Windows x86-64")
+    if sections <= 0 or not (characteristics & 0x0002):
+        raise Version2ReleasePayloadError("Stockfish executable is not marked executable")
+    if optional_size < 2 or optional_offset + optional_size > len(data):
+        raise Version2ReleasePayloadError("Stockfish executable optional header is invalid")
+    if struct.unpack_from("<H", data, optional_offset)[0] != 0x20B:
+        raise Version2ReleasePayloadError("Stockfish executable is not PE32+ x86-64")
+
+
+def _inspect_stockfish_archive(archive: Path) -> _StockfishArchiveContents:
     if not archive.is_file():
         raise Version2ReleasePayloadError("Stockfish release archive is missing")
     if _sha256(archive) != OFFICIAL_STOCKFISH_18_WINDOWS_X64_SHA256:
@@ -100,7 +191,7 @@ def _inspect_stockfish_archive(archive: Path) -> tuple[zipfile.ZipInfo, zipfile.
 
     try:
         handle = zipfile.ZipFile(archive, "r")
-    except (OSError, zipfile.BadZipFile) as exc:
+    except (OSError, zipfile.BadZipFile, zipfile.LargeZipFile) as exc:
         raise Version2ReleasePayloadError("Stockfish release archive is invalid") from exc
 
     with handle:
@@ -114,37 +205,74 @@ def _inspect_stockfish_archive(archive: Path) -> tuple[zipfile.ZipInfo, zipfile.
         names: set[str] = set()
         executables: list[zipfile.ZipInfo] = []
         licenses: list[zipfile.ZipInfo] = []
-        has_source = False
+        source_members: list[zipfile.ZipInfo] = []
+        has_source_code = False
+
         for info in files:
             path = _safe_zip_name(info)
-            folded = "/".join(path.parts).casefold()
+            folded = path.as_posix().casefold()
             if folded in names:
                 raise Version2ReleasePayloadError("Stockfish archive has duplicate member names")
             names.add(folded)
+
             basename = path.name.casefold()
-            if basename.startswith("stockfish") and basename.endswith(".exe"):
+            if path.suffix.casefold() == ".exe":
                 executables.append(info)
             if basename in {"copying.txt", "copying", "license.txt", "license"}:
                 licenses.append(info)
-            if "src" in {part.casefold() for part in path.parts} and path.suffix.casefold() in {
-                ".cpp",
-                ".h",
-                ".hpp",
-            }:
-                has_source = True
+            if "src" in {part.casefold() for part in path.parts}:
+                source_members.append(info)
+                if path.suffix.casefold() in _SOURCE_CODE_SUFFIXES:
+                    has_source_code = True
 
         if len(executables) != 1:
-            raise Version2ReleasePayloadError("Stockfish archive must contain exactly one engine executable")
+            raise Version2ReleasePayloadError(
+                "Stockfish archive must contain exactly one Windows engine executable"
+            )
+        executable = executables[0]
+        executable_path = _safe_zip_name(executable)
+        if not executable_path.name.casefold().startswith("stockfish"):
+            raise Version2ReleasePayloadError("Stockfish archive executable identity is invalid")
         if not licenses:
             raise Version2ReleasePayloadError("Stockfish archive is missing its license")
-        if not has_source:
+        if not source_members or not has_source_code:
             raise Version2ReleasePayloadError("Stockfish archive is missing corresponding source")
 
-        executable = executables[0]
-        prefix = handle.read(executable, pwd=None)[:2]
-        if prefix != b"MZ":
-            raise Version2ReleasePayloadError("Stockfish executable is not a Windows PE image")
-        return executable, licenses[0]
+        try:
+            executable_bytes = handle.read(executable)
+            license_bytes = handle.read(licenses[0])
+        except (OSError, RuntimeError, zipfile.BadZipFile) as exc:
+            raise Version2ReleasePayloadError("Stockfish archive payload is unreadable") from exc
+        _require_windows_x64_pe(executable_bytes)
+        if not license_bytes.strip():
+            raise Version2ReleasePayloadError("Stockfish license payload is empty")
+
+        return _StockfishArchiveContents(
+            executable=executable,
+            license=licenses[0],
+            source_members=tuple(source_members),
+        )
+
+
+def _write_corresponding_source_archive(
+    upstream: zipfile.ZipFile,
+    source_members: tuple[zipfile.ZipInfo, ...],
+    destination: Path,
+) -> None:
+    with zipfile.ZipFile(destination, "w", compression=zipfile.ZIP_DEFLATED) as output:
+        for info in sorted(source_members, key=lambda item: item.filename.casefold()):
+            path = _safe_zip_name(info)
+            try:
+                data = upstream.read(info)
+            except (OSError, RuntimeError, zipfile.BadZipFile) as exc:
+                raise Version2ReleasePayloadError(
+                    "Stockfish corresponding source payload is unreadable"
+                ) from exc
+            member = zipfile.ZipInfo(path.as_posix(), date_time=(1980, 1, 1, 0, 0, 0))
+            member.compress_type = zipfile.ZIP_DEFLATED
+            member.create_system = 3
+            member.external_attr = 0o100644 << 16
+            output.writestr(member, data)
 
 
 def _copy_verified_stockfish(
@@ -152,21 +280,42 @@ def _copy_verified_stockfish(
     product_dir: Path,
     notices_dir: Path,
 ) -> Path:
-    executable_info, license_info = _inspect_stockfish_archive(archive)
+    inspected = _inspect_stockfish_archive(archive)
     destination = product_dir / PACKAGED_STOCKFISH_RELATIVE_PATH
     destination.parent.mkdir(parents=True, exist_ok=False)
 
     with zipfile.ZipFile(archive, "r") as handle:
-        executable_bytes = handle.read(executable_info)
-        license_bytes = handle.read(license_info)
-    if not executable_bytes or executable_bytes[:2] != b"MZ":
-        raise Version2ReleasePayloadError("Stockfish executable payload is invalid")
-    if not license_bytes.strip():
-        raise Version2ReleasePayloadError("Stockfish license payload is empty")
+        try:
+            executable_bytes = handle.read(inspected.executable)
+            license_bytes = handle.read(inspected.license)
+        except (OSError, RuntimeError, zipfile.BadZipFile) as exc:
+            raise Version2ReleasePayloadError("Stockfish archive payload is unreadable") from exc
+        _require_windows_x64_pe(executable_bytes)
+        if not license_bytes.strip():
+            raise Version2ReleasePayloadError("Stockfish license payload is empty")
+        source_notice = notices_dir / _STOCKFISH_SOURCE_NOTICE
+        _write_corresponding_source_archive(
+            handle,
+            inspected.source_members,
+            source_notice,
+        )
 
     destination.write_bytes(executable_bytes)
-    shutil.copy2(archive, notices_dir / _STOCKFISH_ARCHIVE_NOTICE)
     (notices_dir / _STOCKFISH_LICENSE_NOTICE).write_bytes(license_bytes)
+    notice = (
+        "Stockfish 18\n"
+        "License: GNU General Public License (GPL).\n"
+        f"Upstream release tag: {OFFICIAL_STOCKFISH_18_TAG}\n"
+        f"Upstream commit: {OFFICIAL_STOCKFISH_18_COMMIT}\n"
+        f"Original release asset: {OFFICIAL_STOCKFISH_18_WINDOWS_X64_ARCHIVE}\n"
+        f"Original release asset SHA-256: {OFFICIAL_STOCKFISH_18_WINDOWS_X64_SHA256}\n"
+        f"Corresponding source: {_STOCKFISH_SOURCE_NOTICE}\n"
+        f"License text: {_STOCKFISH_LICENSE_NOTICE}\n"
+        "The corresponding source archive is derived only from the verified official "
+        "release asset and preserves the upstream source file bytes.\n"
+    )
+    (notices_dir / _STOCKFISH_TEXT_NOTICE).write_text(notice, encoding="utf-8")
+
     provenance = {
         "schema_version": 1,
         "product": "Stockfish",
@@ -176,6 +325,10 @@ def _copy_verified_stockfish(
         "release_asset": OFFICIAL_STOCKFISH_18_WINDOWS_X64_ARCHIVE,
         "release_asset_sha256": OFFICIAL_STOCKFISH_18_WINDOWS_X64_SHA256,
         "packaged_executable_sha256": hashlib.sha256(executable_bytes).hexdigest(),
+        "corresponding_source": _STOCKFISH_SOURCE_NOTICE,
+        "corresponding_source_sha256": _sha256(notices_dir / _STOCKFISH_SOURCE_NOTICE),
+        "license": _STOCKFISH_LICENSE_NOTICE,
+        "notice": _STOCKFISH_TEXT_NOTICE,
     }
     (notices_dir / _STOCKFISH_PROVENANCE).write_text(
         json.dumps(provenance, sort_keys=True, indent=2) + "\n",
@@ -184,20 +337,80 @@ def _copy_verified_stockfish(
     return destination
 
 
+def _json_no_duplicates(text: str) -> object:
+    def hook(pairs: list[tuple[str, object]]) -> dict[str, object]:
+        value: dict[str, object] = {}
+        for key, item in pairs:
+            if key in value:
+                raise Version2ReleasePayloadError("sound manifest contains duplicate JSON keys")
+            value[key] = item
+        return value
+
+    try:
+        return json.loads(text, object_pairs_hook=hook)
+    except Version2ReleasePayloadError:
+        raise
+    except (json.JSONDecodeError, UnicodeError) as exc:
+        raise Version2ReleasePayloadError("sound manifest is invalid JSON") from exc
+
+
 def _validate_sound_pack(product_dir: Path) -> None:
+    manifest_path = product_dir / DEFAULT_SOUND_RELATIVE_DIR / DEFAULT_SOUND_MANIFEST
+    try:
+        raw = _json_no_duplicates(manifest_path.read_text(encoding="utf-8-sig"))
+    except OSError as exc:
+        raise Version2ReleasePayloadError("sound manifest is unreadable") from exc
+    if not isinstance(raw, dict):
+        raise Version2ReleasePayloadError("sound manifest root must be an object")
+    schema = raw.get("schema_version")
+    if type(schema) is not int or schema != SOUND_MANIFEST_SCHEMA_VERSION:
+        raise Version2ReleasePayloadError("sound manifest schema is invalid")
+    mapping = raw.get("files")
+    if not isinstance(mapping, dict):
+        raise Version2ReleasePayloadError("sound manifest files must be an object")
+
+    expected_events = {event.value for event in SoundEvent}
+    if len(expected_events) != 9 or set(mapping) != expected_events:
+        raise Version2ReleasePayloadError(
+            "sound manifest must declare exactly all nine semantic sound events"
+        )
+
+    seen_assets: set[str] = set()
+    for event in SoundEvent:
+        value = mapping.get(event.value)
+        if not isinstance(value, str) or not value.strip() or "\\" in value or "\x00" in value:
+            raise Version2ReleasePayloadError(f"sound manifest entry is invalid: {event.value}")
+        token = PurePosixPath(value)
+        if token.is_absolute() or ".." in token.parts or token.as_posix() != value:
+            raise Version2ReleasePayloadError(f"sound asset path is unsafe: {event.value}")
+        if token.suffix.casefold() != ".wav":
+            raise Version2ReleasePayloadError(f"sound asset is not WAV: {event.value}")
+        folded = token.as_posix().casefold()
+        if folded in seen_assets:
+            raise Version2ReleasePayloadError("sound events must use distinct WAV assets")
+        seen_assets.add(folded)
+
     try:
         manifest = PackagedSoundAssetResolver(product_dir).load_manifest()
     except Exception as exc:
-        raise Version2ReleasePayloadError("sound pack does not satisfy the canonical manifest contract") from exc
+        raise Version2ReleasePayloadError(
+            "sound pack does not satisfy the production resolver contract"
+        ) from exc
+    if set(manifest.files) != set(SoundEvent):
+        raise Version2ReleasePayloadError("production sound resolver did not resolve all events")
 
     for path in manifest.files.values():
         try:
             with wave.open(str(path), "rb") as reader:
-                if reader.getsampwidth() != 2:
+                channels = reader.getnchannels()
+                frame_count = reader.getnframes()
+                if reader.getcomptype() != "NONE" or reader.getsampwidth() != 2:
                     raise Version2ReleasePayloadError("release sounds must be 16-bit PCM WAV")
-                if reader.getnframes() <= 0 or reader.getframerate() <= 0:
+                if channels <= 0 or frame_count <= 0 or reader.getframerate() <= 0:
                     raise Version2ReleasePayloadError("release sound WAV is empty or invalid")
-                reader.readframes(1)
+                frames = reader.readframes(frame_count)
+                if len(frames) != frame_count * channels * 2:
+                    raise Version2ReleasePayloadError("release sound WAV is truncated")
         except Version2ReleasePayloadError:
             raise
         except (OSError, EOFError, wave.Error) as exc:
@@ -210,6 +423,36 @@ def _reject_raw_source(product_dir: Path) -> None:
             raise Version2ReleasePayloadError("prepared standalone contains raw Python source")
 
 
+def _require_standalone_contract(standalone: Path) -> None:
+    executable = standalone / "AccessibleChess.exe"
+    if not executable.is_file() or executable.stat().st_size <= 0:
+        raise Version2ReleasePayloadError("standalone AccessibleChess.exe is missing or empty")
+    for relative in _REQUIRED_WEB_FILES:
+        path = standalone / relative
+        if not path.is_file() or path.stat().st_size <= 0:
+            raise Version2ReleasePayloadError(
+                f"standalone required web resource is missing or empty: {relative.as_posix()}"
+            )
+    if (standalone / "engines" / "stockfish").exists():
+        raise Version2ReleasePayloadError("standalone already contains a Stockfish payload")
+    if (standalone / "assets" / "sounds").exists():
+        raise Version2ReleasePayloadError("standalone already contains a sound payload")
+    for path in standalone.rglob("*"):
+        if path.is_file() and path.suffix.casefold() == ".exe":
+            if path.name.casefold().startswith("stockfish"):
+                raise Version2ReleasePayloadError(
+                    "standalone contains a conflicting Stockfish executable"
+                )
+    _reject_raw_source(standalone)
+
+
+def _reject_output_inside_input(output: Path, source: Path, *, label: str) -> None:
+    output_resolved = output.resolve(strict=False)
+    source_resolved = source.resolve(strict=False)
+    if output_resolved == source_resolved or source_resolved in output_resolved.parents:
+        raise Version2ReleasePayloadError(f"output payload root cannot be inside {label}")
+
+
 def prepare_version2_release_payload(
     standalone_dir: str | Path,
     stockfish_release_archive: str | Path,
@@ -218,10 +461,10 @@ def prepare_version2_release_payload(
 ) -> PreparedVersion2ReleasePayload:
     """Atomically stage one complete runtime payload for the V2 package assembler.
 
-    Inputs are local, already-produced artifacts.  The Stockfish archive is pinned
+    Inputs are local, already-produced artifacts. The Stockfish archive is pinned
     to the official Stockfish 18 generic Windows x86-64 release digest; callers
-    cannot override that identity.  ``sound_pack_dir`` must contain the canonical
-    ``manifest.json`` and all nine WAVs at its root.
+    cannot override that identity. ``sound_pack_dir`` must contain the canonical
+    ``manifest.json`` and exactly all nine WAV events at its root.
     """
 
     standalone = Path(standalone_dir)
@@ -233,14 +476,9 @@ def prepare_version2_release_payload(
         raise Version2ReleasePayloadError("output payload root already exists")
     _require_clean_source_tree(standalone, label="standalone")
     _require_clean_source_tree(sounds, label="sound pack")
-    if not (standalone / "AccessibleChess.exe").is_file():
-        raise Version2ReleasePayloadError("standalone AccessibleChess.exe is missing")
-    if not (standalone / "web" / "index.html").is_file():
-        raise Version2ReleasePayloadError("standalone web/index.html is missing")
-    if (standalone / PACKAGED_STOCKFISH_RELATIVE_PATH).exists():
-        raise Version2ReleasePayloadError("standalone already contains a Stockfish payload")
-    if (standalone / "assets" / "sounds").exists():
-        raise Version2ReleasePayloadError("standalone already contains a sound payload")
+    _reject_output_inside_input(output, standalone, label="standalone")
+    _reject_output_inside_input(output, sounds, label="sound pack")
+    _require_standalone_contract(standalone)
 
     parent = output.parent
     parent.mkdir(parents=True, exist_ok=True)
@@ -251,7 +489,7 @@ def prepare_version2_release_payload(
         _copy_tree_without_links(standalone, product)
         notices.mkdir()
 
-        sound_destination = product / "assets" / "sounds"
+        sound_destination = product / DEFAULT_SOUND_RELATIVE_DIR
         sound_destination.parent.mkdir(parents=True, exist_ok=True)
         _copy_tree_without_links(sounds, sound_destination)
         _validate_sound_pack(product)
@@ -263,7 +501,9 @@ def prepare_version2_release_payload(
         )
         resolved = resolve_stockfish_path(StockfishRuntimeConfig(application_dir=product))
         if resolved != stockfish_executable.resolve():
-            raise Version2ReleasePayloadError("packaged Stockfish resolver disagrees with staged payload")
+            raise Version2ReleasePayloadError(
+                "packaged Stockfish resolver disagrees with staged payload"
+            )
         _reject_raw_source(product)
 
         staging.replace(output)
