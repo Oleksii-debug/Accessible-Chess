@@ -13,12 +13,14 @@ on:
       - 'acs/version2_release_app.py'
       - 'acs/version2_release_ui.py'
       - 'acs/version2_windows_*.py'
+      - 'acs/sound_windows.py'
       - 'acs/full_product_actions.py'
       - 'acs/full_product_native_menu.py'
       - 'acs/library_webview_projection.py'
       - 'web/version2_release_bootstrap.js'
       - 'tests/test_version2_*.py'
       - 'tests/test_v2_windows_*.py'
+      - 'tests/test_sound_runtime.py'
       - 'tests/js/version2_release_bootstrap_dom_test.js'
       - 'tests/js/version2_library_open_route_refresh_dom_test.js'
       - '.github/workflows/version2-windows-composition.yml'
@@ -95,6 +97,9 @@ jobs:
 
       - name: Compile Python package
         run: python -m compileall -q acs tests run_accessible_chess.py run_accessible_chess_v2.py
+
+      - name: Python 3.12 packaged sound contract
+        run: python -m unittest -v tests.test_sound_runtime
 
       - name: Parse and execute retained Version 2 web surfaces
         run: |
