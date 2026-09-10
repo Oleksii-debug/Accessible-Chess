@@ -126,13 +126,13 @@ jobs:
           acs/cbv_extractor.py=3203c8b6abf98ba95871108dbac5db1c666b2238
           acs/chessbase_decoder.py=25073fa9f06d195ad0dbb06c40599cd99359a188
           acs/chessbase_integrity.py=44d63f9c97251ad17e8f71af196b39ed7854b9f7
-          acs/chessbase_library_import.py=10920ff99d78a0217432e4b4c72dd65dcf10d8c8
+          acs/chessbase_library_import.py=964b66f4778c8706f9aef6e4e828efcbad769113
           acs/chesscore.py=bac342635e2723b970425c7bf5cc17850bcef59f
           acs/report_paths.py=217185ea53d04584103200698df2568af093af46
           docs/automation/V2_CBH_ANNOTATION_CAPABILITY.json=21625a8b72e14f11c911cb14d14cd6276e9e06b5
           tests/test_cbv_extractor.py=1ae29c6151724789fc342f2e97c22649ce3539b5
           tests/test_cbv_uncbv_external_fixture.py=6476070e952188d94e27eafedaf1b3613fcdb316
-          tests/test_d04_cbh_backend_immutability.py=1c41cd28bd464f44ec78dfbf2cccb285c8500f53
+          tests/test_d04_cbh_backend_immutability.py=79f4deb44369e02774d04073cec413e6a52d02b0
           tests/test_d04_chessbase_integrity_handle_identity.py=374d233142ae98bd2c76ca3a10e0f4b80d45bc3d
           tests/test_d04_drive_relative_report_privacy.py=593c86558fb173f454cecbe5ee399355662b8e59
           tests/test_v2_a4_canonical_nullmove.py=836a40a5c5892b5addc65a7e63ce6dffbe29b220

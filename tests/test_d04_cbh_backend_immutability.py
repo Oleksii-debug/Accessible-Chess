@@ -156,6 +156,31 @@ class D04ChessBaseBackendImmutabilityTests(unittest.TestCase):
 
         self._assert_direct_attack_blocks_publication(mutate_during_decode)
 
+    def test_backend_change_after_decode_before_publication_is_rejected(self) -> None:
+        polls = 0
+
+        def mutate_on_post_decode_poll():
+            nonlocal polls
+            polls += 1
+            if polls == 2:
+                self.backend.write_bytes(b"P" * len(self.trusted_backend_bytes))
+            return False
+
+        with mock.patch.object(
+            chessbase_library_import,
+            "decode_chessbase_external",
+            side_effect=self._good_decoder,
+        ):
+            with self.assertRaises(ChessBaseDecodeError) as caught:
+                self.service.import_database(
+                    self.source,
+                    cancel_check=mutate_on_post_decode_poll,
+                )
+
+        self.assertGreaterEqual(polls, 2)
+        self.assertEqual(caught.exception.code, ChessBaseDecodeCode.BACKEND_INVALID)
+        self.service._library.import_games.assert_not_called()
+
     def test_configured_alias_rebind_is_rejected_even_with_identical_bytes(self) -> None:
         alias = self.root / "libcbh-alias"
         os.link(self.backend, alias)

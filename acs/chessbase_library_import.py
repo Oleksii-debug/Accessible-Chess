@@ -86,6 +86,7 @@ class _PublicationGuard:
     source_format: str
     cbh_snapshot: ChessBaseIntegritySnapshot | None = None
     cbv_source: SourceFingerprint | None = None
+    decoder_backend: _DecoderBackendSnapshot | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -259,6 +260,10 @@ def _verify_cbv_publication_source(before: SourceFingerprint, path: Path) -> Non
 
 
 def _verify_publication_guard(path: str | Path, guard: _PublicationGuard) -> None:
+    if guard.decoder_backend is None:
+        raise RuntimeError("ChessBase publication guard is missing decoder identity")
+    _verify_decoder_backend_unchanged(guard.decoder_backend)
+
     if guard.source_format == "cbh":
         if guard.cbh_snapshot is None:
             raise RuntimeError("CBH publication guard is incomplete")
@@ -306,7 +311,7 @@ class ChessBaseLibraryImportService:
         )
         decoded = decode_chessbase_external(source_path, pinned_config)
         _verify_decoder_backend_unchanged(backend)
-        return decoded
+        return decoded, backend
 
     def _decode_source(
         self,
@@ -319,7 +324,7 @@ class ChessBaseLibraryImportService:
         source_path = Path(path)
         suffix = source_path.suffix.lower()
         if suffix == ".cbh":
-            decoded = self._decode_with_immutable_backend(source_path)
+            decoded, backend = self._decode_with_immutable_backend(source_path)
             return (
                 decoded,
                 report_safe_name(decoded.source.primary_path),
@@ -327,7 +332,11 @@ class ChessBaseLibraryImportService:
                 "cbh",
                 None,
                 None,
-                _PublicationGuard("cbh", cbh_snapshot=decoded.source),
+                _PublicationGuard(
+                    "cbh",
+                    cbh_snapshot=decoded.source,
+                    decoder_backend=backend,
+                ),
             )
         if suffix != ".cbv":
             raise CbvExtractError(
@@ -364,7 +373,7 @@ class ChessBaseLibraryImportService:
                 raise
 
             _poll_cancel(cancel_check)
-            decoded = self._decode_with_immutable_backend(extracted.primary_path)
+            decoded, backend = self._decode_with_immutable_backend(extracted.primary_path)
             # The decoder verifies the extracted family immediately after its
             # backend exits, then performs bounded JSON/GameTree conversion. A
             # hostile or crashing external process must not be able to mutate or
@@ -379,7 +388,11 @@ class ChessBaseLibraryImportService:
                 "cbv",
                 extracted.backend_name,
                 extracted.backend_sha256,
-                _PublicationGuard("cbv", cbv_source=extracted.source),
+                _PublicationGuard(
+                    "cbv",
+                    cbv_source=extracted.source,
+                    decoder_backend=backend,
+                ),
             )
 
     def import_database(
