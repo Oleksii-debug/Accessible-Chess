@@ -1,0 +1,75 @@
+name: D04 CBH Backend Immutability
+
+on:
+  push:
+    branches:
+      - work/d04-cbh-backend-immutability-20260907
+  pull_request:
+    paths:
+      - '.github/workflows/d04-cbh-backend-immutability.yml'
+      - 'acs/chessbase_library_import.py'
+      - 'tests/test_d04_cbh_backend_immutability.py'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: d04-cbh-backend-immutability-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  D04_BASE: 9ac0600bf9d270e02334df1657c1ccc941f909b5
+
+jobs:
+  backend-immutability:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install pinned test dependency
+        run: python -m pip install -q pytest==8.4.2
+
+      - name: Prove ancestry and narrow D04 scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor "$D04_BASE" HEAD
+          git diff --check "$D04_BASE" HEAD
+          changed="$(git diff --name-only "$D04_BASE" HEAD | sort)"
+          allowed="$(printf '%s\n' \
+            .github/workflows/d04-cbh-backend-immutability.yml \
+            acs/chessbase_library_import.py \
+            tests/test_d04_cbh_backend_immutability.py | sort)"
+          test "$changed" = "$allowed" || {
+            printf 'Unexpected D04 scope:\n%s\n' "$changed" >&2
+            exit 1
+          }
+          test "$(git rev-parse HEAD:acs/chessbase_library_import.py)" = "7037be5b890b5614b79c5603b0d04b5ee751b159"
+          test "$(git rev-parse HEAD:tests/test_d04_cbh_backend_immutability.py)" = "62083b14b5c93c6065983d2b665f2dd1c546c8bf"
+
+      - name: Compile affected Python
+        run: python -m compileall -q acs/chessbase_library_import.py tests/test_d04_cbh_backend_immutability.py tests/test_chessbase_decoder.py tests/test_cbv_extractor.py
+
+      - name: Focused backend immutability regressions
+        run: python -m unittest -v tests.test_d04_cbh_backend_immutability tests.test_chessbase_decoder tests.test_cbv_extractor
+
+      - name: Focused pytest parity
+        run: python -m pytest -q tests/test_d04_cbh_backend_immutability.py tests/test_chessbase_decoder.py tests/test_cbv_extractor.py
+
+      - name: Full unittest regression
+        run: python -m unittest discover -s tests -v
+
+      - name: Full pytest regression
+        run: python -m pytest -q

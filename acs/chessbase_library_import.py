@@ -24,6 +24,8 @@ from .cbv_extractor import (
     extract_cbv_external,
 )
 from .chessbase_decoder import (
+    ChessBaseDecodeCode,
+    ChessBaseDecodeError,
     ChessBaseDecodeWarning,
     ExternalChessBaseDecoderConfig,
     decode_chessbase_external,
@@ -36,7 +38,7 @@ from .library_import_service import (
     LibraryImportResult,
     LibraryImportService,
 )
-from .import_contract import verify_source_unchanged
+from .import_contract import SourceFingerprint, fingerprint, verify_source_unchanged
 from .report_paths import report_safe_name
 
 
@@ -116,6 +118,34 @@ def _poll_cancel(cancel_check: CancelCheck | None) -> None:
         raise LibraryImportCancelledError("ChessBase import cancelled")
 
 
+def _capture_decoder_backend(
+    config: ExternalChessBaseDecoderConfig,
+) -> SourceFingerprint:
+    """Fingerprint the exact external decoder before consuming its output."""
+
+    try:
+        return fingerprint(config.executable)
+    except (OSError, ValueError) as exc:
+        raise ChessBaseDecodeError(
+            "ChessBase decoder backend failed read-only validation",
+            code=ChessBaseDecodeCode.BACKEND_INVALID,
+        ) from exc
+
+
+def _verify_decoder_backend_unchanged(before: SourceFingerprint) -> None:
+    """Reject decoded data if the executable changed during the operation."""
+
+    try:
+        unchanged = verify_source_unchanged(before, before.path)
+    except (OSError, ValueError):
+        unchanged = False
+    if not unchanged:
+        raise ChessBaseDecodeError(
+            "ChessBase decoder backend changed while it was running",
+            code=ChessBaseDecodeCode.BACKEND_INVALID,
+        )
+
+
 class ChessBaseLibraryImportService:
     """Decode a classic CBH family and publish it through one ACSDB transaction."""
 
@@ -142,13 +172,19 @@ class ChessBaseLibraryImportService:
         self._decoder_config = decoder_config
         self._cbv_extractor_config = cbv_extractor_config
 
+    def _decode_with_immutable_backend(self, source_path: Path):
+        backend = _capture_decoder_backend(self._decoder_config)
+        decoded = decode_chessbase_external(source_path, self._decoder_config)
+        _verify_decoder_backend_unchanged(backend)
+        return decoded
+
     def _decode_source(self, path: str | Path):
         """Return decoded games plus path-safe provenance for CBH or CBV."""
 
         source_path = Path(path)
         suffix = source_path.suffix.lower()
         if suffix == ".cbh":
-            decoded = decode_chessbase_external(source_path, self._decoder_config)
+            decoded = self._decode_with_immutable_backend(source_path)
             return (
                 decoded,
                 report_safe_name(decoded.source.primary_path),
@@ -174,10 +210,7 @@ class ChessBaseLibraryImportService:
                 Path(temporary),
                 self._cbv_extractor_config,
             )
-            decoded = decode_chessbase_external(
-                extracted.primary_path,
-                self._decoder_config,
-            )
+            decoded = self._decode_with_immutable_backend(extracted.primary_path)
             if not verify_source_unchanged(extracted.source, source_path):
                 raise CbvExtractError(
                     "CBV source changed while its extracted database was decoded",
