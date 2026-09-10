@@ -370,6 +370,45 @@ def _require_package_file(
     return path
 
 
+def _validate_windows_pe_executable(path: Path, *, label: str) -> None:
+    """Require enough PE structure to reject DOS stubs and MZ-only impostors."""
+    try:
+        with path.open("rb") as handle:
+            dos_header = handle.read(64)
+            if len(dos_header) < 64 or dos_header[:2] != b"MZ":
+                _fail(f"{label} is not a valid Windows PE executable")
+            pe_offset = int.from_bytes(dos_header[0x3C:0x40], "little")
+            handle.seek(0, os.SEEK_END)
+            file_size = handle.tell()
+            if pe_offset < 0x40 or pe_offset > file_size - 24:
+                _fail(f"{label} is not a valid Windows PE executable")
+            handle.seek(pe_offset)
+            pe_header = handle.read(24)
+            if len(pe_header) != 24 or pe_header[:4] != b"PE\x00\x00":
+                _fail(f"{label} is not a valid Windows PE executable")
+
+            machine = int.from_bytes(pe_header[4:6], "little")
+            section_count = int.from_bytes(pe_header[6:8], "little")
+            optional_header_size = int.from_bytes(pe_header[20:22], "little")
+            characteristics = int.from_bytes(pe_header[22:24], "little")
+            if (
+                machine == 0
+                or section_count == 0
+                or optional_header_size < 2
+                or not characteristics & 0x0002
+                or pe_offset + 24 + optional_header_size > file_size
+            ):
+                _fail(f"{label} is not a valid Windows PE executable")
+
+            optional_magic = handle.read(2)
+            if optional_magic not in {b"\x0b\x01", b"\x0b\x02"}:
+                _fail(f"{label} is not a valid Windows PE executable")
+    except Version2PackagePreflightError:
+        raise
+    except OSError as exc:
+        _fail(f"{label} cannot be read: {type(exc).__name__}")
+
+
 def _validate_required_runtime_resources(
     root: Path,
     inventory: tuple[str, ...],
@@ -387,15 +426,12 @@ def _validate_required_runtime_resources(
         inventory,
         _REQUIRED_STOCKFISH,
         label="packaged Stockfish 18 executable",
-        min_bytes=2,
+        min_bytes=64,
     )
-    try:
-        with stockfish.open("rb") as handle:
-            signature = handle.read(2)
-    except OSError as exc:
-        _fail(f"packaged Stockfish executable cannot be read: {type(exc).__name__}")
-    if signature != b"MZ":
-        _fail("packaged Stockfish executable is not a Windows executable")
+    _validate_windows_pe_executable(
+        stockfish,
+        label="packaged Stockfish 18 executable",
+    )
 
     manifest_path = _require_package_file(
         root,

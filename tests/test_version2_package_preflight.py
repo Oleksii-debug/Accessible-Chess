@@ -58,10 +58,27 @@ def _write_checksums(root: Path) -> None:
     (root / CHECKSUMS_NAME).write_text("\n".join(rows) + "\n", encoding="utf-8")
 
 
+def _minimal_windows_pe() -> bytes:
+    """Return a structurally valid minimal PE32+ image for package fixtures."""
+    data = bytearray(512)
+    data[0:2] = b"MZ"
+    pe_offset = 0x80
+    data[0x3C:0x40] = pe_offset.to_bytes(4, "little")
+    data[pe_offset:pe_offset + 4] = b"PE\x00\x00"
+    coff = pe_offset + 4
+    data[coff:coff + 2] = (0x8664).to_bytes(2, "little")
+    data[coff + 2:coff + 4] = (1).to_bytes(2, "little")
+    data[coff + 16:coff + 18] = (0xF0).to_bytes(2, "little")
+    data[coff + 18:coff + 20] = (0x0022).to_bytes(2, "little")
+    optional = coff + 20
+    data[optional:optional + 2] = (0x20B).to_bytes(2, "little")
+    return bytes(data)
+
+
 def _make_tree(root: Path) -> None:
     product = root / "AccessibleChess"
     product.mkdir(parents=True)
-    (product / "AccessibleChess.exe").write_bytes(b"MZ\x00V2")
+    (product / "AccessibleChess.exe").write_bytes(_minimal_windows_pe())
 
     web = product / "web"
     web.mkdir()
@@ -99,7 +116,7 @@ def _make_tree(root: Path) -> None:
 
     engine = product / "engines" / "stockfish"
     engine.mkdir(parents=True)
-    (engine / "stockfish.exe").write_bytes(b"MZ\x00Stockfish18")
+    (engine / "stockfish.exe").write_bytes(_minimal_windows_pe())
 
     notices = root / "THIRD_PARTY_NOTICES"
     notices.mkdir()

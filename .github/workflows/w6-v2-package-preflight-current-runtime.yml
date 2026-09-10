@@ -22,11 +22,12 @@ concurrency:
 env:
   CURRENT_RUNTIME_BASE: e358bd1ddfafc21f8798f68e0d390fca804e0203
   OWNER_511_HEAD: 58be5a7e577714f221be6653655f4bc1d6bb1acd
-  OWNER_565_HEAD: cff01c37ed05dca660f3df23f738da143521d215
-  OWNER_PREFLIGHT_BLOB: 94d8de7a501d4f897d4c9aaa87f618832fef1a9e
-  OWNER_TEST_BLOB: 942d700fb850284c1ff4646ac4b72a280687acce
+  OWNER_565_LAST_GREEN_HEAD: cff01c37ed05dca660f3df23f738da143521d215
+  OWNER_565_CURRENT_HEAD: 52184fa77adeee2ac16f195c2262784e17e86727
+  OWNER_PREFLIGHT_BLOB: 9f4a488a8b6c60d8b2a6c33457a46e02804cc7bd
+  OWNER_TEST_BLOB: ed852c095f3c1b4b4c6af59a92101d5b7b30e6bf
   OWNER_HARDENING_BLOB: 9547cad72a58fe556b9a3aee004c7a513c1b7bcc
-  OWNER_REQUIRED_RESOURCES_BLOB: 61d5944e2a576a339d2dbec585175d23f02af5e7
+  OWNER_REQUIRED_RESOURCES_BLOB: 4de614818b6dfe0ed64830dc5af8bb260cfd6203
 
 jobs:
   focused:
@@ -62,13 +63,17 @@ jobs:
             printf 'Unexpected convergence delta:\n%s\n' "$changed" >&2
             exit 1
           }
+          git cat-file -e "$OWNER_565_CURRENT_HEAD^{commit}"
+          git merge-base --is-ancestor "$OWNER_565_LAST_GREEN_HEAD" "$OWNER_565_CURRENT_HEAD"
           test "$(git rev-parse HEAD:acs/version2_package_preflight.py)" = "$OWNER_PREFLIGHT_BLOB"
           test "$(git rev-parse HEAD:tests/test_version2_package_preflight.py)" = "$OWNER_TEST_BLOB"
           test "$(git rev-parse HEAD:tests/test_version2_package_preflight_hardening.py)" = "$OWNER_HARDENING_BLOB"
           test "$(git rev-parse HEAD:tests/test_v2_package_required_resources.py)" = "$OWNER_REQUIRED_RESOURCES_BLOB"
-          test "$(git rev-parse "$OWNER_565_HEAD":acs/version2_package_preflight.py)" = "$OWNER_PREFLIGHT_BLOB"
+          test "$(git rev-parse "$OWNER_565_CURRENT_HEAD":acs/version2_package_preflight.py)" = "$OWNER_PREFLIGHT_BLOB"
+          test "$(git rev-parse "$OWNER_565_CURRENT_HEAD":tests/test_version2_package_preflight.py)" = "$OWNER_TEST_BLOB"
+          test "$(git rev-parse "$OWNER_565_CURRENT_HEAD":tests/test_v2_package_required_resources.py)" = "$OWNER_REQUIRED_RESOURCES_BLOB"
           test "$(git rev-parse "$OWNER_511_HEAD":tests/test_version2_package_preflight_hardening.py)" = "$OWNER_HARDENING_BLOB"
-          echo 'CURRENT_RUNTIME_BASE + EXACT #565/#511 PREFLIGHT OWNER BYTES PASS'
+          echo 'CURRENT_RUNTIME_BASE + EXACT CURRENT #565/#511 PREFLIGHT OWNER BYTES PASS'
 
       - name: Prove one canonical V2 package validator
         shell: bash
