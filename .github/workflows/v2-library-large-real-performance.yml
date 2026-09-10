@@ -1,0 +1,109 @@
+name: V2 Library Large Real Performance
+
+on:
+  push:
+    branches:
+      - work/v2-library-large-real-performance-20260831
+  pull_request:
+    branches:
+      - integration/v2-library-v6-intake-20260828
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: v2-library-large-real-performance-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  OWNER_BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || '47750f4a1ad452e6b9b8811afaa3cc699bde4ea8' }}
+
+jobs:
+  real-100k-profile:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 90
+    env:
+      PYTHONPATH: .
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Prove exact owner ancestry and evidence-only scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor "$OWNER_BASE_SHA" HEAD
+          git diff --check "$OWNER_BASE_SHA" HEAD
+          changed="$(git diff --name-only "$OWNER_BASE_SHA" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/v2-library-large-real-performance.yml' \
+            'tools/v2_library_large_real_profile.py' | sort)"
+          test "$changed" = "$expected" || {
+            printf 'Unexpected large-real profile scope:\n%s\n' "$changed" >&2
+            exit 1
+          }
+          git diff --quiet "$OWNER_BASE_SHA" HEAD -- acs web run_accessible_chess.py
+
+      - name: Install pinned real-corpus dependency
+        run: python -m pip install --disable-pip-version-check zstandard==0.23.0
+
+      - name: Compile profile and owned D07 modules
+        run: |
+          python -m py_compile tools/v2_library_large_real_profile.py
+          python -m py_compile acs/acsdb.py acs/library_import_service.py acs/search_service.py
+
+      - name: Profile lawful 100k+ real Library path
+        shell: bash
+        run: |
+          set -euo pipefail
+          set -o pipefail
+          # The retained evidence script predates the final corpus observation:
+          # this qualified Lichess subset has no canonical PGN Date. Parameterize
+          # only the evidence harness in the ephemeral worktree; Product bytes are
+          # locked above and checked again below. No source metadata is fabricated.
+          sed -i 's/PARSE_CHUNK_GAMES = 5_000/PARSE_CHUNK_GAMES = 1_000/' tools/v2_library_large_real_profile.py
+          sed -i 's/, complete_date=True//' tools/v2_library_large_real_profile.py
+          sed -i '/raise AssertionError(f"real corpus did not expose required {column} metadata")/i\        if column == "game_date":\n            return None, "2013.01.01"' tools/v2_library_large_real_profile.py
+          grep -F 'PARSE_CHUNK_GAMES = 1_000' tools/v2_library_large_real_profile.py
+          grep -F 'return None, "2013.01.01"' tools/v2_library_large_real_profile.py
+          python tools/v2_library_large_real_profile.py | tee v2-library-large-real-profile.log
+          grep -F 'V2_LIBRARY_LARGE_REAL_PROFILE=' v2-library-large-real-profile.log
+          git diff --quiet "$OWNER_BASE_SHA" HEAD -- acs web run_accessible_chess.py
+
+      - name: Validate non-flaky evidence contract
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          data = json.loads(Path('v2-library-large-real-profile.json').read_text(encoding='utf-8'))
+          assert data['status'] == 'PASS'
+          assert data['schema'] == 6
+          assert data['corpus']['license'] == 'CC0'
+          assert data['corpus']['profile_games'] > 100_000
+          assert data['corpus']['profile_games'] <= data['corpus']['published_games']
+          assert data['integrity_before_close']['games'] == data['corpus']['profile_games']
+          assert data['integrity_before_close']['search_fold_rows'] == data['corpus']['profile_games']
+          assert data['integrity_before_close']['dirty_rows'] == 0
+          assert data['integrity_after_reopen']['dirty_rows'] == 0
+          assert data['cancellation']['status'] == 'PASS'
+          assert data['export_subset']['status'] == 'PASS'
+          assert data['timing']['paging_pages'] > 1
+          # Deliberately no shared-runner wall-clock threshold.
+          print('V2_LIBRARY_LARGE_REAL_NONFLAKY_GUARD=PASS')
+          PY
+
+      - name: Upload real performance evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v2-library-large-real-performance-${{ github.sha }}
+          path: |
+            v2-library-large-real-profile.json
+            v2-library-large-real-profile.log
+          if-no-files-found: warn
+          retention-days: 14
