@@ -70,27 +70,33 @@ class CbvWindowsPathSafetyTests(unittest.TestCase):
 
     def test_non_lf_inventory_separators_fail_before_extraction(self) -> None:
         unsafe_payloads = (
-            b"safe.cbh\x0bevil.cbg\n",
-            b"safe.cbh\x0cevil.cbg\n",
-            "safe.cbh\u0085evil.cbg\n".encode("utf-8"),
-            "safe.cbh\u2028evil.cbg\n".encode("utf-8"),
-            "safe.cbh\u2029evil.cbg\n".encode("utf-8"),
-            b"safe.cbh\revil.cbg\n",
+            ("VT", b"safe.cbh\x0bevil.cbg\n"),
+            ("FF", b"safe.cbh\x0cevil.cbg\n"),
+            ("FS", b"safe.cbh\x1cevil.cbg\n"),
+            ("GS", b"safe.cbh\x1devil.cbg\n"),
+            ("RS", b"safe.cbh\x1eevil.cbg\n"),
+            ("NEL", "safe.cbh\u0085evil.cbg\n".encode("utf-8")),
+            ("U+2028", "safe.cbh\u2028evil.cbg\n".encode("utf-8")),
+            ("U+2029", "safe.cbh\u2029evil.cbg\n".encode("utf-8")),
+            ("stray CR", b"safe.cbh\revil.cbg\n"),
         )
-        for payload in unsafe_payloads:
-            with self.subTest(payload=payload):
+        for label, payload in unsafe_payloads:
+            with self.subTest(separator=label):
                 with mock.patch("acs.cbv_extractor._run_uncbv", return_value=payload) as runner:
                     with self.assertRaises(CbvExtractError) as caught:
                         extract_cbv_external(self.source, self.output, self.config)
                 self.assertEqual(caught.exception.code, CbvExtractCode.INVALID_ENTRY)
                 self.assertEqual(
-                    runner.call_count,
-                    1,
-                    "invalid list framing reached the extraction invocation",
+                    [call.args[1][0] for call in runner.call_args_list],
+                    ["list"],
+                    "unsafe inventory must perform exactly one list call and zero extract calls",
                 )
 
     def test_crlf_inventory_remains_valid(self) -> None:
+        commands: list[str] = []
+
         def runner(_executable, arguments, _config, *, cwd, monitor_directory=None):
+            commands.append(arguments[0])
             if arguments[0] == "list":
                 return b"Training Set/Database.v1.cbh\r\nTraining Set/Database.v1.cbg\r\nTraining Set/Database.v1.cba\r\n"
             self.assertEqual(arguments[0], "extract")
@@ -105,6 +111,7 @@ class CbvWindowsPathSafetyTests(unittest.TestCase):
             result = extract_cbv_external(self.source, self.output, self.config)
 
         self.assertEqual(result.entry_count, 3)
+        self.assertEqual(commands, ["list", "extract"])
 
     def test_normal_nested_chessbase_names_remain_valid(self) -> None:
         def runner(_executable, arguments, _config, *, cwd, monitor_directory=None):

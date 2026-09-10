@@ -57,7 +57,7 @@ jobs:
             exit 1
           }
           test "$(git rev-parse HEAD:acs/cbv_extractor.py)" = "58ac843048a9f48382eea25a6f45ef63944e6dde"
-          test "$(git rev-parse HEAD:tests/test_d04_cbv_windows_path_safety.py)" = "2621a02ea975ecc94347360eead0b1ee7cab7281"
+          test "$(git rev-parse HEAD:tests/test_d04_cbv_windows_path_safety.py)" = "0d1558e8364bfa9f33b8dbc22dc7211d3c4fa91c"
 
       - name: Compile affected Python
         run: python -m compileall -q acs/cbv_extractor.py tests/test_cbv_extractor.py tests/test_d04_cbv_windows_path_safety.py
