@@ -1,0 +1,318 @@
+name: Work V2 Current Packaged Resource Composition Evidence
+
+on:
+  push:
+    branches:
+      - work/v2-current-packaged-resource-composition-evidence-20260910
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: work-v2-current-packaged-resource-composition-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  RUNTIME_PARENT: e358bd1ddfafc21f8798f68e0d390fca804e0203
+  GREEN_PRODUCT_BASELINE: 0343b828315b97426e857cd0692626d9d67adcfe
+  PAYLOAD_OWNER: 23d9dcaa1941ec0c7988757366aceee128e24d45
+  ASSEMBLER_OWNER: 39b8b7969162e96dfef855cf343177dab7cd1299
+  PREFLIGHT_OWNER: cff01c37ed05dca660f3df23f738da143521d215
+  PYWEBVIEW_VERSION: '6.2.1'
+  NUITKA_UPSTREAM_FIX_COMMIT: b7ea05bf570e0b6950de6db7c4c8e579e1b77d29
+  STOCKFISH_BINARY_URL: https://github.com/official-stockfish/Stockfish/releases/download/sf_18/stockfish-windows-x86-64.zip
+  STOCKFISH_BINARY_SHA256: 40cc975817e7eee270b03f354810d20956df565420d320f6dd37d454dc81a139
+  STOCKFISH_UPSTREAM_COMMIT: cb3d4ee9b47d0c5aae855b12379378ea1439675c
+  STOCKFISH_SOURCE_URL: https://github.com/official-stockfish/Stockfish/archive/cb3d4ee9b47d0c5aae855b12379378ea1439675c.zip
+
+jobs:
+  windows-current-packaged-resource-composition:
+    runs-on: windows-2025
+    timeout-minutes: 75
+    steps:
+      - name: Checkout exact evidence head
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.sha }}
+
+      - name: Prove one-workflow evidence scope and current runtime identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor "$GREEN_PRODUCT_BASELINE" "$RUNTIME_PARENT"
+          git merge-base --is-ancestor "$RUNTIME_PARENT" HEAD
+          git diff --check "$RUNTIME_PARENT" HEAD
+          changed="$(git diff --name-only "$RUNTIME_PARENT" HEAD)"
+          test "$changed" = '.github/workflows/work-v2-current-packaged-resource-composition-evidence.yml'
+          non_workflow="$(git diff --name-only "$GREEN_PRODUCT_BASELINE" HEAD | grep -v '^\.github/workflows/' || true)"
+          test -z "$non_workflow"
+          for path in run_accessible_chess_v2.py acs/version2_release_app.py acs/version2_release_ui.py acs/stockfish_runtime.py acs/sound_windows.py acs/sound_events.py web/index.html web/version2_release_bootstrap.js; do
+            test "$(git rev-parse HEAD:$path)" = "$(git rev-parse $RUNTIME_PARENT:$path)"
+          done
+          echo "EVIDENCE_SHA=$(git rev-parse HEAD)"
+          echo "RUNTIME_SHA=$RUNTIME_PARENT"
+          echo 'PRODUCT_MUTATION=NONE'
+          echo 'CURRENT V2 RUNTIME / EVIDENCE-ONLY SCOPE PASS'
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install pinned Windows runtime and compiler
+        shell: pwsh
+        run: |
+          $nuitkaUrl="https://github.com/Nuitka/Nuitka/archive/$env:NUITKA_UPSTREAM_FIX_COMMIT.zip"
+          python -m pip install --disable-pip-version-check "pywebview==$env:PYWEBVIEW_VERSION" "Nuitka @ $nuitkaUrl" ordered-set zstandard
+          if($LASTEXITCODE -ne 0){throw 'Pinned Windows runtime/compiler installation failed'}
+          python -c "from pathlib import Path; import nuitka; p=Path(nuitka.__file__).parent/'plugins'/'standard'/'PywebViewPlugin.py'; assert 'webview.platforms.win32' in p.read_text(encoding='utf-8'); print('PATCHED NUITKA PYWEBVIEW PLUGIN PASS')"
+          if($LASTEXITCODE -ne 0){throw 'Pinned Nuitka pywebview patch missing'}
+
+      - name: Source diagnostic on current runtime
+        shell: pwsh
+        run: |
+          python run_accessible_chess_v2.py --diagnostic
+          if($LASTEXITCODE -ne 0){throw 'Current source V2 diagnostic failed'}
+
+      - name: Build current V2 standalone
+        shell: pwsh
+        run: |
+          python -m nuitka --standalone --assume-yes-for-downloads --windows-console-mode=disable --output-filename=AccessibleChess.exe --include-data-dir=web=web --report=nuitka-compilation-report.xml run_accessible_chess_v2.py
+          if($LASTEXITCODE -ne 0){throw 'Current V2 standalone compile failed'}
+          $exe=Get-ChildItem -Recurse -Filter AccessibleChess.exe | Where-Object {$_.FullName -match '\.dist\\'} | Select-Object -First 1
+          if(-not $exe){throw 'Built V2 AccessibleChess.exe missing'}
+          "V2_EXE=$($exe.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "V2_DIST=$($exe.Directory.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          $sha=(Get-FileHash $exe.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+          Write-Host "CURRENT_V2_STANDALONE_SHA256=$sha"
+
+      - name: Built standalone diagnostic with explicit process exit code
+        shell: pwsh
+        run: |
+          $diag=Start-Process -FilePath $env:V2_EXE -ArgumentList '--diagnostic' -Wait -PassThru
+          if($diag.ExitCode -ne 0){throw "Built current V2 executable diagnostic failed with code $($diag.ExitCode)"}
+          Write-Host 'BUILT CURRENT V2 EXECUTABLE DIAGNOSTIC EXIT=0'
+
+      - name: Recheck standalone hygiene before payload staging
+        shell: pwsh
+        run: |
+          if(-not (Test-Path (Join-Path $env:V2_DIST 'web\index.html'))){throw 'Standalone web/index.html missing'}
+          $raw=Get-ChildItem $env:V2_DIST -Recurse -File | Where-Object {$_.Extension -in '.py','.pyc','.pyo'}
+          if($raw){throw 'Raw Python source/bytecode leaked into standalone'}
+          if(Test-Path (Join-Path $env:V2_DIST 'nuitka-compilation-report.xml')){throw 'Compilation report leaked into standalone'}
+          Write-Host 'CURRENT V2 STANDALONE HYGIENE PASS'
+
+      - name: Materialize exact current payload assembler and preflight owners transiently
+        shell: bash
+        run: |
+          set -euo pipefail
+          git show "${PAYLOAD_OWNER}:acs/version2_release_payload.py" > acs/version2_release_payload.py
+          git show "${ASSEMBLER_OWNER}:acs/version2_package_assembler.py" > acs/version2_package_assembler.py
+          git show "${PREFLIGHT_OWNER}:acs/version2_package_preflight.py" > acs/version2_package_preflight.py
+          test "$(git hash-object acs/version2_release_payload.py)" = "$(git rev-parse ${PAYLOAD_OWNER}:acs/version2_release_payload.py)"
+          test "$(git hash-object acs/version2_package_assembler.py)" = "$(git rev-parse ${ASSEMBLER_OWNER}:acs/version2_package_assembler.py)"
+          test "$(git hash-object acs/version2_package_preflight.py)" = "$(git rev-parse ${PREFLIGHT_OWNER}:acs/version2_package_preflight.py)"
+          python -m py_compile acs/version2_release_payload.py acs/version2_package_assembler.py acs/version2_package_preflight.py
+          echo 'EXACT CURRENT RELEASE OWNER BLOBS MATERIALIZED PASS'
+
+      - name: Create canonical nine-event sound pack and download pinned Stockfish inputs
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path 'transient-inputs\sounds' | Out-Null
+          @'
+          import json, math, struct, wave
+          from pathlib import Path
+          from acs.sound_events import SoundEvent
+          expected = ('move','capture','check','castle','promotion','illegal','start','end','tick')
+          actual = tuple(event.value for event in SoundEvent)
+          assert actual == expected, actual
+          root = Path('transient-inputs/sounds')
+          root.mkdir(parents=True, exist_ok=True)
+          for index, event in enumerate(SoundEvent):
+              rate = 22050
+              frame_count = int(rate * 0.12)
+              frequency = 220 + index * 55
+              frames = []
+              for i in range(frame_count):
+                  envelope = max(0.0, 1.0 - i / frame_count)
+                  value = int(7000 * envelope * math.sin(2 * math.pi * frequency * i / rate))
+                  frames.append(struct.pack('<h', value))
+              with wave.open(str(root / f'{event.value}.wav'), 'wb') as out:
+                  out.setnchannels(1)
+                  out.setsampwidth(2)
+                  out.setframerate(rate)
+                  out.writeframes(b''.join(frames))
+          (root / 'manifest.json').write_text(json.dumps({'schema_version': 1, 'files': {event.value: f'{event.value}.wav' for event in SoundEvent}}, ensure_ascii=False, sort_keys=True, indent=2) + '\n', encoding='utf-8')
+          print('CANONICAL NINE-EVENT SOUND INPUT PASS')
+          '@ | python -
+          if($LASTEXITCODE -ne 0){throw 'Canonical sound input creation failed'}
+          curl.exe --fail --location --retry 3 --output 'transient-inputs\stockfish-windows-x86-64.zip' $env:STOCKFISH_BINARY_URL
+          if($LASTEXITCODE -ne 0){throw 'Pinned Stockfish 18 Windows asset download failed'}
+          $binaryHash=(Get-FileHash 'transient-inputs\stockfish-windows-x86-64.zip' -Algorithm SHA256).Hash.ToLowerInvariant()
+          if($binaryHash -ne $env:STOCKFISH_BINARY_SHA256){throw "Stockfish Windows archive digest mismatch: $binaryHash"}
+          Write-Host "STOCKFISH18_BINARY_ARCHIVE_SHA256=$binaryHash"
+          curl.exe --fail --location --retry 3 --output 'transient-inputs\Stockfish-18-source.zip' $env:STOCKFISH_SOURCE_URL
+          if($LASTEXITCODE -ne 0){throw 'Exact Stockfish 18 source download failed'}
+          $sourceHash=(Get-FileHash 'transient-inputs\Stockfish-18-source.zip' -Algorithm SHA256).Hash.ToLowerInvariant()
+          Write-Host "STOCKFISH18_SOURCE_ARCHIVE_SHA256=$sourceHash"
+
+      - name: Compose package exercise runtime validate ZIP readback and delete transient outputs
+        shell: pwsh
+        run: |
+          @'
+          from __future__ import annotations
+          import hashlib, json, os, re, shutil, subprocess, zipfile
+          from pathlib import Path
+          from acs.sound_events import SoundEvent
+          from acs.sound_windows import PackagedSoundAssetResolver, WindowsSoundPlaybackAdapter
+          from acs.stockfish_runtime import StockfishRuntime, StockfishRuntimeConfig
+          from acs.version2_release_payload import prepare_version2_release_payload
+          from acs.version2_package_assembler import assemble_version2_package_tree, write_version2_package_zip
+
+          def sha256(path: Path) -> str:
+              digest = hashlib.sha256()
+              with path.open('rb') as handle:
+                  for block in iter(lambda: handle.read(1024 * 1024), b''):
+                      digest.update(block)
+              return digest.hexdigest()
+
+          evidence_sha = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True, encoding='utf-8').strip()
+          runtime_sha = os.environ['RUNTIME_PARENT']
+          source_zip = Path('transient-inputs/Stockfish-18-source.zip')
+          payload_root = Path('transient-work/payload')
+          package_root = Path('transient-work/package-tree')
+          zip_path = Path('transient-work/AccessibleChess-V2-transient.zip')
+          summary_path = Path('current-v2-packaged-resource-composition-summary.json')
+          stage = 'initialize'
+          summary = {
+              'evidence_sha': evidence_sha,
+              'runtime_sha': runtime_sha,
+              'product_equivalent_green_sha': os.environ['GREEN_PRODUCT_BASELINE'],
+              'product_mutation': 'NONE',
+              'payload_owner_sha': os.environ['PAYLOAD_OWNER'],
+              'assembler_owner_sha': os.environ['ASSEMBLER_OWNER'],
+              'preflight_owner_sha': os.environ['PREFLIGHT_OWNER'],
+              'stockfish_version': 18,
+              'stockfish_upstream_commit': os.environ['STOCKFISH_UPSTREAM_COMMIT'],
+              'stockfish_binary_archive_sha256': os.environ['STOCKFISH_BINARY_SHA256'],
+              'nvda_verified': False,
+              'version2_windows_zip': False,
+              'ready_for_release': False,
+              'downloadable_candidate_generated': False,
+          }
+          try:
+              stage = 'verify-source-archive'
+              with zipfile.ZipFile(source_zip) as archive:
+                  names = tuple(info.filename.replace('\\', '/') for info in archive.infolist())
+              assert any('/src/' in f"/{name.lstrip('/')}" for name in names)
+              summary['stockfish_source_archive_sha256'] = sha256(source_zip)
+              summary['stockfish_source_contains_src'] = True
+
+              stage = 'prepare-current-payload'
+              payload = prepare_version2_release_payload(os.environ['V2_DIST'], 'transient-inputs/stockfish-windows-x86-64.zip', 'transient-inputs/sounds', payload_root)
+              summary['payload_preparer'] = 'PASS'
+
+              stage = 'compose-required-notices-source'
+              shutil.copy2(source_zip, payload.notices_dir / 'Stockfish-18-source.zip')
+              (payload.notices_dir / 'Stockfish-NOTICE.txt').write_text('Stockfish 18\nLicense: GNU GPL v3\nCorresponding source: Stockfish-18-source.zip\n' + f"Upstream commit: {os.environ['STOCKFISH_UPSTREAM_COMMIT']}\n", encoding='utf-8', newline='\n')
+              summary['required_notices_source'] = 'PASS'
+
+              stage = 'exercise-packaged-sound-runtime'
+              resolver = PackagedSoundAssetResolver(payload.product_dir)
+              manifest = resolver.load_manifest()
+              assert tuple(manifest.files) == tuple(SoundEvent)
+              player = WindowsSoundPlaybackAdapter(resolver, cache_dir=Path('transient-work/sound-cache'))
+              for event in SoundEvent:
+                  player.play(event, volume=100)
+              summary['sound_events'] = [event.value for event in SoundEvent]
+              summary['sound_runtime'] = 'PASS'
+
+              stage = 'exercise-stockfish-uci-isready-analysis-bestmove-close'
+              runtime = StockfishRuntime(StockfishRuntimeConfig(application_dir=payload.product_dir))
+              engine = runtime.provider()
+              engine.start()
+              proc = engine.proc
+              assert proc is not None and proc.poll() is None
+              engine_pid = int(proc.pid)
+              summary['uci_isready'] = 'PASS'
+              fen = 'rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1'
+              analysis = engine.analyze(fen, multipv=3, depth=8)
+              assert analysis
+              summary['analysis'] = 'PASS'
+              summary['analysis_lines'] = len(analysis)
+              best = engine.best_move(fen, skill_level=10, movetime_ms=150)
+              assert best is not None and re.fullmatch(r'[a-h][1-8][a-h][1-8][qrbn]?', best)
+              summary['bestmove'] = best
+              runtime.close()
+              assert proc.poll() is not None
+              summary['engine_owned_pid'] = engine_pid
+              summary['engine_process_reaped'] = True
+              summary['stockfish_runtime_close'] = 'PASS'
+
+              stage = 'assemble-current-package-tree'
+              tree_report = assemble_version2_package_tree(payload.product_dir, payload.notices_dir, package_root, integration_sha=runtime_sha)
+              summary['package_tree_preflight'] = 'PASS'
+              summary['package_inventory_count'] = len(tree_report.tree_report.inventory)
+              summary['package_total_bytes'] = tree_report.tree_report.total_bytes
+              summary['package_checksums_verified'] = tree_report.tree_report.checksums_verified
+
+              stage = 'write-validate-delete-transient-zip'
+              zip_report = write_version2_package_zip(package_root, zip_path, expected_integration_sha=runtime_sha)
+              assert zip_path.is_file()
+              summary['package_zip_readback'] = 'PASS'
+              summary['transient_zip_sha256'] = zip_report.archive_sha256
+              zip_path.unlink()
+              assert not zip_path.exists()
+              summary['transient_zip_deleted'] = True
+              summary['result'] = 'PASS'
+              summary['failure_stage'] = None
+          except Exception as exc:
+              summary['result'] = 'FAIL'
+              summary['failure_stage'] = stage
+              summary['failure_type'] = type(exc).__name__
+              raise
+          finally:
+              try:
+                  if zip_path.exists():
+                      zip_path.unlink()
+              except OSError:
+                  pass
+              for path in (package_root, payload_root, Path('transient-work/sound-cache')):
+                  shutil.rmtree(path, ignore_errors=True)
+              summary['transient_zip_deleted'] = not zip_path.exists()
+              summary['transient_package_tree_deleted'] = not package_root.exists()
+              summary['transient_payload_deleted'] = not payload_root.exists()
+              text = json.dumps(summary, sort_keys=True, indent=2) + '\n'
+              if re.search(r'(?i)[A-Z]:\\\\|/home/|/Users/|/tmp/', text):
+                  raise RuntimeError('local path leaked into bounded evidence summary')
+              summary_path.write_text(text, encoding='utf-8', newline='\n')
+          '@ | Set-Content -Encoding UTF8 run_current_packaged_resource_composition.py
+          python run_current_packaged_resource_composition.py
+          $compositionExit=$LASTEXITCODE
+          Remove-Item run_current_packaged_resource_composition.py -Force -ErrorAction SilentlyContinue
+          if($compositionExit -ne 0){throw "Current packaged resource composition failed with exit code $compositionExit"}
+
+      - name: Require no orphan Stockfish process and no transient ZIP
+        if: always()
+        shell: pwsh
+        run: |
+          $orphans=Get-Process -ErrorAction SilentlyContinue | Where-Object {$_.ProcessName -like 'stockfish*'}
+          if($orphans){
+            $orphans | Stop-Process -Force -ErrorAction SilentlyContinue
+            throw 'Orphan Stockfish process remained after packaged runtime close'
+          }
+          if(Test-Path 'transient-work\AccessibleChess-V2-transient.zip'){
+            Remove-Item 'transient-work\AccessibleChess-V2-transient.zip' -Force
+            throw 'Transient ZIP survived composition step'
+          }
+          Write-Host 'NO ORPHAN STOCKFISH PROCESS / NO TRANSIENT ZIP PASS'
+
+      - name: Upload bounded evidence only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: work-v2-current-packaged-resource-composition-evidence
+          if-no-files-found: ignore
+          retention-days: 7
+          path: current-v2-packaged-resource-composition-summary.json
