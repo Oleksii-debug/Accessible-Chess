@@ -32,6 +32,7 @@ from .search_service import GameSearchQuery
 from .version2_book_workspace import build_version2_book_webview
 from .version2_pgn_commands import Version2PgnCommands
 from .version2_profile import build_version2_shell, build_version2_router, build_version2_webview_adapter
+from .version2_training_workspace import Version2TrainingWorkspace
 from .version2_windows_book_board_adapter import Version2WindowsBookBoardActionDelegate, BookBoardUiEventKind
 from .version2_windows_file_workflows import FileWorkflowEvent, FileWorkflowEventKind, Version2ImportWorkerServices
 from .version2_windows_library_import_observer import Version2ObservedImportServicesFactory
@@ -40,11 +41,15 @@ from .version2_windows_library_import_observer import Version2ObservedImportServ
 class Version2Application:
     def __init__(self, database: AcsDatabase, *, progress_store: BookProgressStore,
                  engine_assistance: EngineAssistedWorkflowService, board_dispatch,
+                 training_progress_root: str | Path | None = None,
                  board_position_projector=None, copy_text=lambda _: None,
                  language=UILanguage.UA):
         self._thread = threading.get_ident()
         self.database = database
         self.progress_store = progress_store
+        self.training_progress_root = (
+            None if training_progress_root is None else Path(training_progress_root)
+        )
         self.engine_assistance = engine_assistance
         self._board_dispatch = board_dispatch
         if board_position_projector is not None and not callable(board_position_projector):
@@ -59,6 +64,7 @@ class Version2Application:
         self.pgn_board_active = False
         self.pgn = None
         self.reader = self.book_key = self.book_workflow = self.book_delegate = self.books = None
+        self.training = None
         self.shell = build_version2_shell(language=language)
         self.router = build_version2_router(self.shell, self._delegate)
         self.adapter = build_version2_webview_adapter(self.shell, self.router)
@@ -129,7 +135,17 @@ class Version2Application:
         workflow = BookBoardWorkflow(reader, self.engine_assistance, game_lookup=AcsdbBookGameLookup(self.database))
         delegate = Version2WindowsBookBoardActionDelegate(workflow, event_sink=self._book_event, next_delegate=self._board_dispatch)
         bridge = build_version2_book_webview(reader, workflow, self.router.dispatch, language=self.shell.language)
+        training = (
+            None
+            if self.training_progress_root is None
+            else Version2TrainingWorkspace(
+                imported.document,
+                self.training_progress_root,
+                language=self.shell.language,
+            )
+        )
         self.reader, self.book_key, self.book_workflow, self.book_delegate, self.books = reader, imported.book_key, workflow, delegate, bridge
+        self.training = training
         self.shell.open_route("books")
         self.save_book_progress()
         return len(imported.warnings)
@@ -265,6 +281,16 @@ class Version2Application:
             if result.kind == "error": raise ValueError("book command failed")
             self.save_book_progress()
             return result
+        if action.startswith("training."):
+            if self.training is None or not self.training.available:
+                raise ValueError("no training exercise is available")
+            if action == "training.reset":
+                # Native ActionRegistry/keymap dispatch has no modal confirmation
+                # payload.  Reset is therefore browser-only until an owner-bound
+                # native confirmation path exists.
+                raise ValueError("training reset requires explicit confirmation")
+            command = "training.reveal" if action == "training.reveal_solution" else action
+            return self.training.dispatch(command, payload)
         if self._files is not None and action in {"pgn.open", "pgn.save", "pgn.save_as", "pgn.export_selection", "library.import", "library.cancel_import", "library.export"}:
             result = self._files(action, payload)
             if isinstance(result, FileWorkflowEvent):
@@ -294,7 +320,7 @@ class Version2Application:
                     raise ValueError("unsupported shell command")
                 value = self.adapter.activate_action(command, current_focus_id=self._focus)
                 return asdict(value)
-            bridge = {"pgn": self.pgn, "library": self.library, "books": self.books}.get(area)
+            bridge = {"pgn": self.pgn, "library": self.library, "books": self.books, "training": self.training}.get(area)
             if bridge is None: raise ValueError("surface is unavailable")
             value = bridge.dispatch(command, payload)
             if area == "books" and value.kind != "error": self.save_book_progress()
@@ -309,6 +335,7 @@ class Version2Application:
             "pgn": None if self.pgn is None else self.pgn.projection.snapshot(),
             "library": self.library.projection.snapshot(),
             "books": None if self.books is None else self.books.projection.snapshot(),
+            "training": None if self.training is None or not self.training.available else self.training.snapshot(),
             "book_board_active": self.book_workflow is not None and self.book_workflow.active,
             "pgn_board_active": self.pgn_board_active,
             "document_dirty": bool(self.session and self.session.dirty),
