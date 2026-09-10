@@ -221,6 +221,7 @@ def create_version2_release_application(
             application = Version2Application(
                 database,
                 progress_store=BookProgressStore(layout.root / "book-progress.json"),
+                training_progress_root=layout.root / "training-progress",
                 engine_assistance=EngineAssistedWorkflowService(analysis),
                 board_dispatch=api.v2_board_dispatch,
                 copy_text=copy_text,
