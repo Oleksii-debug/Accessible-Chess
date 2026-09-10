@@ -20,6 +20,7 @@ on:
       - 'tests/test_version2_*.py'
       - 'tests/test_v2_windows_*.py'
       - 'tests/js/version2_release_bootstrap_dom_test.js'
+      - 'tests/js/version2_library_open_route_refresh_dom_test.js'
       - '.github/workflows/version2-windows-composition.yml'
 
 permissions:
@@ -102,6 +103,7 @@ jobs:
           node --check web/full_product_books_training.js
           node --check web/version2_release_bootstrap.js
           node tests/js/version2_release_bootstrap_dom_test.js
+          node tests/js/version2_library_open_route_refresh_dom_test.js
 
       - name: Version 2 release host contracts
         run: >-
