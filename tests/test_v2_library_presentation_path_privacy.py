@@ -79,6 +79,7 @@ class V2LibraryPresentationPathPrivacyTests(unittest.TestCase):
         if require_placeholder:
             test.assertIn("local path hidden", text.casefold())
         test.assertNotIn(raw, text)
+        test.assertNotIn(raw[:20], text)
         test.assertNotIn("PrivateUser", text)
         test.assertNotIn("private-share", text)
 
@@ -95,6 +96,8 @@ class V2LibraryPresentationPathPrivacyTests(unittest.TestCase):
                 self.assertIn("[локальний шлях приховано]", ukrainian)
                 self.assertNotIn(raw, english)
                 self.assertNotIn(raw, ukrainian)
+                self.assertNotIn(raw[:20], english)
+                self.assertNotIn(raw[:20], ukrainian)
                 self.assertNotIn("PrivateUser", english)
                 self.assertNotIn("PrivateUser", ukrainian)
                 self.assertNotIn("private-share", english)
