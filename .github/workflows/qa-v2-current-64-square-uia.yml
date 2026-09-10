@@ -1,0 +1,143 @@
+name: QA V2 current 64-square WebView2 UIA
+
+on:
+  push:
+    branches:
+      - qa/v2-current-64-square-uia-20260910
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  PRODUCT_SHA: e358bd1ddfafc21f8798f68e0d390fca804e0203
+  PYWEBVIEW_VERSION: 6.2.1
+  NUITKA_UPSTREAM_FIX_COMMIT: b7ea05bf570e0b6950de6db7c4c8e579e1b77d29
+
+jobs:
+  real-webview2-uia:
+    name: Real standalone / WebView2 / UIA 64-square matrix
+    runs-on: windows-2025
+    timeout-minutes: 70
+    steps:
+      - name: Checkout exact evidence lane
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Prove PRODUCT_MUTATION=NONE and exact runtime ancestry
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor "$PRODUCT_SHA" HEAD
+          git diff --check "$PRODUCT_SHA" HEAD
+          printf '%s\n' \
+            '.github/workflows/qa-v2-current-64-square-uia.yml' \
+            'tools/qa/v2_current_64_square_uia.ps1' | sort > expected.txt
+          git diff --name-only "$PRODUCT_SHA" HEAD | sort > actual.txt
+          diff -u expected.txt actual.txt
+          git diff --exit-code "$PRODUCT_SHA" HEAD -- run_accessible_chess_v2.py acs web
+          echo "PRODUCT_MUTATION=NONE exact Product SHA $PRODUCT_SHA"
+
+      - name: Parse QA oracle before consuming Windows build time
+        shell: pwsh
+        run: |
+          $tokens=$null
+          $errors=$null
+          [System.Management.Automation.Language.Parser]::ParseFile(
+            (Resolve-Path tools/qa/v2_current_64_square_uia.ps1),
+            [ref]$tokens,
+            [ref]$errors
+          ) | Out-Null
+          if($errors.Count -gt 0){
+            $errors | ForEach-Object { Write-Error $_.Message }
+            throw 'QA PowerShell oracle has parser errors'
+          }
+          Write-Host 'QA ORACLE PARSE PASS'
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install pinned WebView2 binding and patched Nuitka
+        shell: pwsh
+        run: |
+          $nuitkaUrl="https://github.com/Nuitka/Nuitka/archive/$env:NUITKA_UPSTREAM_FIX_COMMIT.zip"
+          python -m pip install --disable-pip-version-check "pywebview==$env:PYWEBVIEW_VERSION" "Nuitka @ $nuitkaUrl" ordered-set zstandard
+          if($LASTEXITCODE -ne 0){throw 'Pinned Windows runtime/compiler installation failed'}
+          python -c "from pathlib import Path; import nuitka; p=Path(nuitka.__file__).parent/'plugins'/'standard'/'PywebViewPlugin.py'; assert 'webview.platforms.win32' in p.read_text(encoding='utf-8'); print('PATCHED NUITKA PYWEBVIEW PLUGIN PASS')"
+          if($LASTEXITCODE -ne 0){throw 'Pinned Nuitka pywebview patch missing'}
+
+      - name: Source diagnostic on exact current Product
+        shell: pwsh
+        run: |
+          python run_accessible_chess_v2.py --diagnostic
+          if($LASTEXITCODE -ne 0){throw 'Source V2 release diagnostic failed'}
+
+      - name: Build exact current V2 standalone
+        shell: pwsh
+        run: |
+          python -m nuitka --standalone --assume-yes-for-downloads --windows-console-mode=disable --output-filename=AccessibleChess.exe --include-data-dir=web=web --report=nuitka-compilation-report.xml run_accessible_chess_v2.py
+          if($LASTEXITCODE -ne 0){throw 'V2 Nuitka standalone compile failed'}
+          $exe=Get-ChildItem -Recurse -Filter AccessibleChess.exe | Where-Object {$_.FullName -match '\\.dist\\'} | Select-Object -First 1
+          if(-not $exe){throw 'Built V2 AccessibleChess.exe missing'}
+          "V2_EXE=$($exe.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "V2_DIST=$($exe.Directory.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          Write-Host "V2 standalone executable: $($exe.FullName)"
+
+      - name: Built executable diagnostic
+        shell: pwsh
+        run: |
+          & $env:V2_EXE --diagnostic
+          if($LASTEXITCODE -ne 0){throw 'Built V2 executable diagnostic failed before UIA proof'}
+
+      - name: Launch exact standalone and execute real WebView2 UIA oracle
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path evidence | Out-Null
+          $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS='--force-renderer-accessibility'
+          $process=Start-Process -FilePath $env:V2_EXE -PassThru
+          try {
+            $ready=$false
+            $watch=[System.Diagnostics.Stopwatch]::StartNew()
+            while($watch.ElapsedMilliseconds -lt 30000){
+              if($process.HasExited){throw "Built V2 process exited before UIA proof with code $($process.ExitCode)"}
+              $process.Refresh()
+              if($process.MainWindowHandle -ne 0){$ready=$true;break}
+              Start-Sleep -Milliseconds 250
+            }
+            if(-not $ready){throw 'Built V2 window did not become ready for UIA proof'}
+            Start-Sleep -Seconds 4
+            & ./tools/qa/v2_current_64_square_uia.ps1 -AppPid $process.Id -ReportPath evidence/v2-current-64-square-uia.json -ProductSha $env:PRODUCT_SHA
+            $oracleExit=$LASTEXITCODE
+            if(Test-Path evidence/v2-current-64-square-uia.json){
+              Get-Content evidence/v2-current-64-square-uia.json -Raw | Write-Host
+            }
+            if($oracleExit -ne 0){throw "64-square UIA oracle returned $oracleExit"}
+          }
+          finally {
+            $live=Get-Process -Id $process.Id -ErrorAction SilentlyContinue
+            if($live){Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue}
+          }
+
+      - name: Record executable identity
+        if: always()
+        shell: pwsh
+        run: |
+          if($env:V2_EXE -and (Test-Path $env:V2_EXE)){
+            $hash=(Get-FileHash -Algorithm SHA256 $env:V2_EXE).Hash.ToLowerInvariant()
+            "product_sha=$env:PRODUCT_SHA`nexecutable_sha256=$hash`nNVDA_VERIFIED=NO`nHUMAN_TESTED=NO" | Set-Content evidence/executable-identity.txt -Encoding UTF8
+            Write-Host "V2_UIA_EXECUTABLE_SHA256=$hash"
+          }
+
+      - name: Upload bounded evidence even on RED
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v2-current-64-square-uia-${{ github.sha }}
+          if-no-files-found: ignore
+          retention-days: 14
+          path: |
+            evidence/**
+            nuitka-compilation-report.xml
