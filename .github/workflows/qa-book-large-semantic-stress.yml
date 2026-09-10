@@ -1,0 +1,67 @@
+name: QA Book large semantic stress
+
+on:
+  push:
+    branches:
+      - qa/book-large-semantic-stress-20260910
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  stress:
+    name: Book stress (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-22.04
+          - windows-2025
+    steps:
+      - name: Checkout exact branch
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Prove Product scope is unchanged from Book runtime owner
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --name-only d08b85fe975b5dbbe52a939f7e80940f8f77fe3e...HEAD | tee changed-files.txt
+          test "$(wc -l < changed-files.txt | tr -d ' ')" = "2"
+          grep -Fx '.github/workflows/qa-book-large-semantic-stress.yml' changed-files.txt
+          grep -Fx 'scripts/qa_book_large_semantic_stress.py' changed-files.txt
+          if grep -E '^(acs/|tests/)' changed-files.txt; then
+            echo 'Product or Product tests changed in PRODUCT_MUTATION=NONE lane' >&2
+            exit 1
+          fi
+
+      - name: Compile focused code
+        run: python -m compileall -q acs scripts/qa_book_large_semantic_stress.py
+
+      - name: Existing Books regressions
+        run: python -m unittest tests.test_bookdocument tests.test_book_index tests.test_bookreader tests.test_v2_accessible_book_core
+
+      - name: Run 100k-block semantic stress oracle
+        env:
+          PYTHONPATH: .
+          BOOK_STRESS_PER_KIND: '20000'
+          BOOK_STRESS_REPORT: book_large_semantic_stress_report.json
+        run: python scripts/qa_book_large_semantic_stress.py
+
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: book-large-semantic-stress-${{ matrix.os }}
+          path: |
+            book_large_semantic_stress_report.json
+            changed-files.txt
+          if-no-files-found: warn
+          retention-days: 7
