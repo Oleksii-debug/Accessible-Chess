@@ -1,0 +1,58 @@
+name: QA D07 Unicode Search Matrix 2026-09-10
+
+on:
+  push:
+    branches:
+      - qa/d07-unicode-search-matrix-20260910
+
+permissions:
+  contents: read
+
+concurrency:
+  group: accessible-chess-qa-d07-unicode-search-matrix-20260910
+  cancel-in-progress: true
+
+env:
+  PRODUCT_SHA: 9e62392c4d9168e32345928ba590e4a3dcffcedb
+
+jobs:
+  unicode-search-matrix:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Prove exact Product ancestry and QA-only delta
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor "$PRODUCT_SHA" HEAD
+          git diff --check "$PRODUCT_SHA" HEAD
+          changed="$(git diff --name-only "$PRODUCT_SHA" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/qa-d07-unicode-search-matrix-20260910.yml' \
+            'tests/test_d07_unicode_search_matrix_audit.py' | sort)"
+          test "$changed" = "$expected" || {
+            printf 'Unexpected QA scope:\n%s\n' "$changed" >&2
+            exit 1
+          }
+          git diff --quiet "$PRODUCT_SHA" HEAD -- acs web run_accessible_chess.py
+          test "$(git rev-parse HEAD:acs/acsdb.py)" = "$(git rev-parse "$PRODUCT_SHA":acs/acsdb.py)"
+          test "$(git rev-parse HEAD:acs/search_policy.py)" = "$(git rev-parse "$PRODUCT_SHA":acs/search_policy.py)"
+          test "$(git rev-parse HEAD:acs/search_service.py)" = "$(git rev-parse "$PRODUCT_SHA":acs/search_service.py)"
+
+      - name: Compile audit test
+        run: python -m py_compile tests/test_d07_unicode_search_matrix_audit.py
+
+      - name: Execute deterministic Unicode search matrix
+        run: python -m unittest -v tests.test_d07_unicode_search_matrix_audit
