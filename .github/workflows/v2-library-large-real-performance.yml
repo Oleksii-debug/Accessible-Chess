@@ -17,7 +17,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  OWNER_BASE_SHA: 47750f4a1ad452e6b9b8811afaa3cc699bde4ea8
+  OWNER_BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || '47750f4a1ad452e6b9b8811afaa3cc699bde4ea8' }}
 
 jobs:
   real-100k-profile:
