@@ -1,0 +1,70 @@
+name: Book Exact Anchor Stress Current Owner
+
+on:
+  push:
+    branches:
+      - evidence/book-exact-anchor-stress-current-20260910
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: book-exact-anchor-stress-current-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  exact-anchor-stress:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Prove exact current-owner ancestry and evidence-only scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          base=e440eafcaeaf1c8284a5926d003581ad57d9e2b5
+          git merge-base --is-ancestor "$base" HEAD
+          git diff --check "$base" HEAD
+          changed="$(git diff --name-only "$base" HEAD | sort)"
+          expected="$(printf '%s\n' '.github/workflows/book-exact-anchor-stress-current.yml' 'tests/test_book_exact_anchor_stress.py' 'tests/test_book_replacement_reopen_exact_anchor.py' | sort)"
+          test "$changed" = "$expected"
+          git diff --quiet "$base" HEAD -- acs web
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install verification dependency
+        run: python -m pip install -q pytest==8.4.2
+
+      - name: Compile exact-anchor evidence
+        run: >-
+          python -m compileall -q
+          tests/test_book_exact_anchor_stress.py
+          tests/test_book_replacement_reopen_exact_anchor.py
+
+      - name: Run current-owner Book transaction and exact-anchor regressions
+        run: >-
+          python -m unittest -v
+          tests.test_book_exact_anchor_stress
+          tests.test_book_replacement_reopen_exact_anchor
+          tests.test_v2_book_transaction_current_runtime
+          tests.test_v2_book_board_workflow
+          tests.test_bookreader
+
+      - name: Pytest current-owner exact-anchor evidence
+        run: >-
+          python -m pytest -q
+          tests/test_book_exact_anchor_stress.py
+          tests/test_book_replacement_reopen_exact_anchor.py
+          tests/test_v2_book_transaction_current_runtime.py
+          tests/test_v2_book_board_workflow.py
+          tests/test_bookreader.py
