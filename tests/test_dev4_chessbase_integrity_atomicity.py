@@ -63,7 +63,7 @@ class Dev4ChessBaseIntegrityAtomicityTests(unittest.TestCase):
             replacement = root / "replacement.bin"
             parked = root / "source.parked"
             original_bytes = b"authoritative-source-0001"
-            replacement_bytes = b"untrusted-replace--0001"
+            replacement_bytes = b"B" * len(original_bytes)
             self.assertEqual(len(original_bytes), len(replacement_bytes))
             source.write_bytes(original_bytes)
             replacement.write_bytes(replacement_bytes)
