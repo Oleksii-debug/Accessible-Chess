@@ -74,7 +74,7 @@ class Version2PackageRequiredResourcesTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             root = self._package(td)
             (root / "AccessibleChess/engines/stockfish/stockfish.exe").write_bytes(
-                b"not-a-windows-executable"
+                b"\x7fELF" + (b"\x00" * 124)
             )
             _write_checksums(root)
             with self.assertRaisesRegex(
