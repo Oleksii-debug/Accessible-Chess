@@ -34,7 +34,7 @@ jobs:
           git merge-base --is-ancestor "$base" HEAD
           git diff --check "$base" HEAD
           changed="$(git diff --name-only "$base" HEAD | sort)"
-          expected="$(printf '%s\n' '.github/workflows/book-exact-anchor-stress.yml' 'tests/test_book_exact_anchor_stress.py' | sort)"
+          expected="$(printf '%s\n' '.github/workflows/book-exact-anchor-stress.yml' 'tests/test_book_exact_anchor_stress.py' 'tests/test_book_replacement_reopen_exact_anchor.py' | sort)"
           test "$changed" = "$expected"
           git diff --quiet "$base" HEAD -- acs web
 
@@ -46,12 +46,16 @@ jobs:
         run: python -m pip install -q pytest==8.4.2
 
       - name: Compile evidence oracle
-        run: python -m compileall -q tests/test_book_exact_anchor_stress.py
+        run: >-
+          python -m compileall -q
+          tests/test_book_exact_anchor_stress.py
+          tests/test_book_replacement_reopen_exact_anchor.py
 
       - name: Run exact anchor stress plus current owner atomicity regressions
         run: >-
           python -m unittest -v
           tests.test_book_exact_anchor_stress
+          tests.test_book_replacement_reopen_exact_anchor
           tests.test_w6_v2_book_progress_command_atomicity
           tests.test_v2_book_progress_transaction_repair
           tests.test_version2_application
@@ -60,6 +64,7 @@ jobs:
         run: >-
           python -m pytest -q
           tests/test_book_exact_anchor_stress.py
+          tests/test_book_replacement_reopen_exact_anchor.py
           tests/test_w6_v2_book_progress_command_atomicity.py
           tests/test_v2_book_progress_transaction_repair.py
           tests/test_version2_application.py
