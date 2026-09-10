@@ -47,6 +47,30 @@ class Dev4ChessBaseIntegrityIoObservabilityTests(unittest.TestCase):
             self.assertNotIn("synthetic companion I/O failure", rendered)
             self.assertNotIn(str(root), rendered)
 
+    def test_primary_open_failure_is_domain_error_and_sanitized(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="d04-cbh-primary-open-failure-") as directory:
+            root = Path(directory)
+            primary = root / "private-primary.cbh"
+            primary.write_bytes(b"header")
+
+            original_open = os.open
+            primary_absolute = primary.absolute()
+
+            def guarded_open(path, flags, *args, **kwargs):
+                candidate = Path(os.fsdecode(path))
+                if candidate == primary_absolute:
+                    raise PermissionError("synthetic primary filesystem detail")
+                return original_open(path, flags, *args, **kwargs)
+
+            with patch.object(import_contract.os, "open", side_effect=guarded_open):
+                with self.assertRaises(ChessBaseIntegrityIOError) as caught:
+                    capture_integrity_snapshot(primary)
+
+            rendered = str(caught.exception)
+            self.assertIn("private-primary.cbh", rendered)
+            self.assertNotIn("synthetic primary filesystem detail", rendered)
+            self.assertNotIn(str(root), rendered)
+
 
 if __name__ == "__main__":
     unittest.main()
