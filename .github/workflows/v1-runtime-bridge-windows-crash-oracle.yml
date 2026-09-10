@@ -1,0 +1,85 @@
+name: V1 Runtime Bridge Windows Crash Oracle
+
+on:
+  push:
+    branches:
+      - qa/v1-v2-windows-crash-restart-oracle-20260910
+  pull_request:
+    paths:
+      - 'tests/test_v1_runtime_bridge_windows_crash_oracle.py'
+      - 'tests/oracles/v1_runtime_bridge_windows_crash_expected.json'
+      - '.github/workflows/v1-runtime-bridge-windows-crash-oracle.yml'
+      - 'acs/v1_runtime_bridge.py'
+      - 'acs/version2_upgrade.py'
+      - 'acs/settings.py'
+      - 'acs/acsdb.py'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: v1-runtime-bridge-windows-crash-oracle-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PRODUCT_PR: '448'
+  PRODUCT_HEAD: d4b4c0a9351bfbfa46398668aedfa70ee108b244
+
+jobs:
+  windows-crash-restart-oracle:
+    runs-on: windows-2025
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Prove exact Product ancestry and evidence-only scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor "$PRODUCT_HEAD" HEAD
+          changed="$(git diff --name-only "$PRODUCT_HEAD" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/v1-runtime-bridge-windows-crash-oracle.yml' \
+            'tests/oracles/v1_runtime_bridge_windows_crash_expected.json' \
+            'tests/test_v1_runtime_bridge_windows_crash_oracle.py' | sort)"
+          test "$changed" = "$expected"
+          test "$(git rev-parse "$PRODUCT_HEAD":acs/v1_runtime_bridge.py)" = "$(git rev-parse HEAD:acs/v1_runtime_bridge.py)"
+          test "$(git rev-parse "$PRODUCT_HEAD":acs/version2_upgrade.py)" = "$(git rev-parse HEAD:acs/version2_upgrade.py)"
+          test "$(git rev-parse "$PRODUCT_HEAD":acs/settings.py)" = "$(git rev-parse HEAD:acs/settings.py)"
+          test "$(git rev-parse "$PRODUCT_HEAD":acs/acsdb.py)" = "$(git rev-parse HEAD:acs/acsdb.py)"
+
+      - name: Syntax and imports
+        run: >-
+          python -m compileall -q
+          acs/v1_runtime_bridge.py
+          acs/version2_upgrade.py
+          acs/settings.py
+          acs/acsdb.py
+          tests/test_v1_runtime_bridge_windows_crash_oracle.py
+
+      - name: Windows crash restart oracle
+        run: >-
+          python -m unittest -v
+          tests.test_v1_runtime_bridge_windows_crash_oracle
+
+      - name: Existing bridge regression guard
+        run: >-
+          python -m unittest -v
+          tests.test_v1_runtime_bridge
+          tests.test_v1_runtime_bridge_publication_atomicity
+          tests.test_v1_runtime_bridge_backup_path_security
+
+      - name: Emit exact oracle authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "PRODUCT_PR=$PRODUCT_PR"
+          echo "PRODUCT_HEAD=$PRODUCT_HEAD"
+          echo "ORACLE_HEAD=$(git rev-parse HEAD)"
+          cat tests/oracles/v1_runtime_bridge_windows_crash_expected.json
