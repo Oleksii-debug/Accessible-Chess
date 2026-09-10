@@ -26,29 +26,57 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Prove exact child scope and current parent ancestry
+      - name: Prove accepted D06 framer bytes on current ancestry
         shell: bash
         env:
           PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
           set -euo pipefail
+          recovery_root="23956a6698ca07e65cb616e755fc934ec8842bce"
+          owner_head="f9d08346d38b66108f1c5d1a952ab4b3828c8866"
+          formats_convergence="a5ddee60af2ed423d3f6e51edfb3e8219fa2b57a"
+          runtime_intake="9f1db6655d4568428952bc252667fa3730ba492f"
+          expected_gametree_blob="102895cb7acb7012cde6d0686ea53b99c33700a6"
+          expected_test_blob="3706457c6c4e4e0188be6cae7d3e556d86148d1a"
+
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             upstream="$PR_BASE_SHA"
+            test -n "$upstream"
+            git merge-base --is-ancestor "$upstream" HEAD
+            git merge-base --is-ancestor "$recovery_root" HEAD
+            git merge-base --is-ancestor "$owner_head" HEAD
+            git merge-base --is-ancestor "$formats_convergence" HEAD
+            git merge-base --is-ancestor "$runtime_intake" HEAD
+            git diff --check "$upstream" HEAD
+
+            owner_delta="$(git diff --name-only "$upstream" HEAD -- \
+              '.github/workflows/w1-d06-nested-comment-framer.yml' \
+              'acs/gametree.py' \
+              'tests/test_w1_d06_nested_comment_framer_convergence.py' | sort)"
+            case "$owner_delta" in
+              ""|'.github/workflows/w1-d06-nested-comment-framer.yml') ;;
+              *)
+                printf 'Unexpected W1 D06 framer-owned delta on current ancestry:\n%s\n' "$owner_delta" >&2
+                exit 1
+                ;;
+            esac
           else
             upstream="9ac0600bf9d270e02334df1657c1ccc941f909b5"
+            git merge-base --is-ancestor "$upstream" HEAD
+            git diff --check "$upstream" HEAD
+            changed="$(git diff --name-only "$upstream" HEAD | sort)"
+            expected="$(printf '%s\n' \
+              '.github/workflows/w1-d06-nested-comment-framer.yml' \
+              'acs/gametree.py' \
+              'tests/test_w1_d06_nested_comment_framer_convergence.py' | sort)"
+            test "$changed" = "$expected" || {
+              printf 'Unexpected W1 D06 framer scope:\n%s\n' "$changed" >&2
+              exit 1
+            }
           fi
-          test -n "$upstream"
-          git merge-base --is-ancestor "$upstream" HEAD
-          git diff --check "$upstream" HEAD
-          changed="$(git diff --name-only "$upstream" HEAD | sort)"
-          expected="$(printf '%s\n' \
-            '.github/workflows/w1-d06-nested-comment-framer.yml' \
-            'acs/gametree.py' \
-            'tests/test_w1_d06_nested_comment_framer_convergence.py' | sort)"
-          test "$changed" = "$expected" || {
-            printf 'Unexpected W1 D06 framer scope:\n%s\n' "$changed" >&2
-            exit 1
-          }
+
+          test "$(git rev-parse HEAD:acs/gametree.py)" = "$expected_gametree_blob"
+          test "$(git rev-parse HEAD:tests/test_w1_d06_nested_comment_framer_convergence.py)" = "$expected_test_blob"
       - name: Compile canonical PGN modules
         run: python -m compileall -q acs/gametree.py acs/pgn_roundtrip.py tests/test_w1_d06_nested_comment_framer_convergence.py
       - name: Focused W1 D06 framer regression
