@@ -19,9 +19,9 @@ concurrency:
 
 env:
   CURRENT_ASSEMBLER_PARENT: b3b0421f41fbd79277edc5ff89403e72eed636f0
-  SOURCE_PAYLOAD_OWNER: 29392271672fdd6fc619dff466b093ec630bbcb8
-  SOURCE_PAYLOAD_BLOB: c8ef33a1e18bc4111fefa13c4d9062d5e66af88b
-  SOURCE_TEST_BLOB: c95e3cad4681cd1ffe4475cfc2ae4a1432b04b2f
+  SOURCE_PAYLOAD_OWNER: acd277cafd5ac6f7d312e26dc79105308c6fac0b
+  SOURCE_PAYLOAD_BLOB: 426f36212e11c01653facd3af991d05b54867135
+  SOURCE_TEST_BLOB: e3de5cefebb2eb15dbca5e4deb6e57919e7812c1
   STOCKFISH_URL: https://github.com/official-stockfish/Stockfish/releases/download/sf_18/stockfish-windows-x86-64.zip
 
 jobs:

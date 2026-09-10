@@ -54,6 +54,8 @@ class Version2ReleasePayloadTests(unittest.TestCase):
             json.dumps({"schema_version": 1, "files": files}, sort_keys=True),
             encoding="utf-8",
         )
+        self.sound_provenance = self.sounds / "provenance.json"
+        self._write_sound_provenance()
 
         self.stockfish = self.root / "stockfish.zip"
         self.stockfish_executable = self._windows_x64_pe(b"stockfish18")
@@ -66,6 +68,23 @@ class Version2ReleasePayloadTests(unittest.TestCase):
             writer.setsampwidth(2)
             writer.setframerate(8000)
             writer.writeframes(struct.pack("<h", sample) * 8)
+
+    def _write_sound_provenance(self) -> None:
+        manifest = json.loads((self.sounds / "manifest.json").read_text(encoding="utf-8"))
+        events: dict[str, dict[str, str]] = {}
+        for event in SoundEvent:
+            file_name = manifest["files"][event.value]
+            events[event.value] = {
+                "file": file_name,
+                "sha256": self._digest(self.sounds / file_name),
+                "license_id": "CC0-1.0",
+                "source": f"urn:accessible-chess:test-fixture:sound:{event.value}",
+                "creator": "Accessible Chess synthetic test fixture",
+            }
+        self.sound_provenance.write_text(
+            json.dumps({"schema_version": 1, "events": events}, sort_keys=True),
+            encoding="utf-8",
+        )
 
     @staticmethod
     def _windows_x64_pe(payload_bytes: bytes = b"") -> bytes:
@@ -147,8 +166,21 @@ class Version2ReleasePayloadTests(unittest.TestCase):
                 self.assertEqual(reader.getcomptype(), "NONE")
                 self.assertEqual(reader.getsampwidth(), 2)
                 self.assertGreater(reader.getnframes(), 0)
+        self.assertFalse((manifest.root / "provenance.json").exists())
 
         notices = result.notices_dir
+        sound_provenance = json.loads(
+            (notices / "SOUND_PROVENANCE.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(sound_provenance["schema_version"], 1)
+        self.assertEqual(set(sound_provenance["events"]), {event.value for event in SoundEvent})
+        for event in SoundEvent:
+            entry = sound_provenance["events"][event.value]
+            self.assertEqual(entry["file"], manifest.files[event].name)
+            self.assertEqual(entry["sha256"], self._digest(manifest.files[event]))
+            self.assertEqual(entry["license_id"], "CC0-1.0")
+            self.assertTrue(entry["source"].startswith("urn:accessible-chess:test-fixture:"))
+
         source_notice = notices / "Stockfish-18-source.zip"
         self.assertTrue(source_notice.is_file())
         with zipfile.ZipFile(source_notice) as archive:
@@ -204,6 +236,9 @@ class Version2ReleasePayloadTests(unittest.TestCase):
         )
         self.assertTrue(
             (package / "THIRD_PARTY_NOTICES" / "Stockfish-NOTICE.txt").is_file()
+        )
+        self.assertTrue(
+            (package / "THIRD_PARTY_NOTICES" / "SOUND_PROVENANCE.json").is_file()
         )
         self.assertTrue((package / "RELEASE_MANIFEST.json").is_file())
         self.assertTrue((package / "SHA256SUMS.txt").is_file())
@@ -406,6 +441,46 @@ class Version2ReleasePayloadTests(unittest.TestCase):
         self._assert_no_publication(output)
 
         manifest_path.write_text(json.dumps(original, sort_keys=True), encoding="utf-8")
+
+    def test_sound_provenance_is_required_and_bound_to_every_asset(self) -> None:
+        original = json.loads(self.sound_provenance.read_text(encoding="utf-8"))
+        event = next(iter(SoundEvent)).value
+
+        self.sound_provenance.unlink()
+        output = self.root / "payload-provenance-missing"
+        with self.assertRaisesRegex(payload.Version2ReleasePayloadError, "sound provenance"):
+            self._prepare(output)
+        self._assert_no_publication(output)
+        self.sound_provenance.write_text(json.dumps(original), encoding="utf-8")
+
+        cases = (
+            ("digest", {"sha256": "0" * 64}, "SHA-256 mismatch"),
+            ("license", {"license_id": "unknown"}, "license identity is unresolved"),
+            ("source", {"source": r"C:\\private\\sound.wav"}, "HTTPS URL or URN"),
+            ("creator", {"creator": "TBD"}, "creator identity is unresolved"),
+            ("file", {"file": "other.wav"}, "does not match manifest"),
+        )
+        for label, mutation, expected in cases:
+            with self.subTest(label=label):
+                changed = json.loads(json.dumps(original))
+                changed["events"][event].update(mutation)
+                self.sound_provenance.write_text(json.dumps(changed), encoding="utf-8")
+                output = self.root / f"payload-provenance-{label}"
+                with self.assertRaisesRegex(payload.Version2ReleasePayloadError, expected):
+                    self._prepare(output)
+                self._assert_no_publication(output)
+        self.sound_provenance.write_text(json.dumps(original, sort_keys=True), encoding="utf-8")
+
+    def test_sound_provenance_event_set_is_closed_world(self) -> None:
+        original = json.loads(self.sound_provenance.read_text(encoding="utf-8"))
+        missing = json.loads(json.dumps(original))
+        missing["events"].pop(next(iter(SoundEvent)).value)
+        self.sound_provenance.write_text(json.dumps(missing), encoding="utf-8")
+        output = self.root / "payload-provenance-event-missing"
+        with self.assertRaisesRegex(payload.Version2ReleasePayloadError, "exactly all nine"):
+            self._prepare(output)
+        self._assert_no_publication(output)
+        self.sound_provenance.write_text(json.dumps(original, sort_keys=True), encoding="utf-8")
 
     def test_non_pcm_empty_or_truncated_wav_fails_without_output(self) -> None:
         target = self.sounds / f"{next(iter(SoundEvent)).value}.wav"

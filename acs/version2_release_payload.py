@@ -47,6 +47,10 @@ _STOCKFISH_SOURCE_NOTICE = "Stockfish-18-source.zip"
 _STOCKFISH_LICENSE_NOTICE = "Stockfish-COPYING.txt"
 _STOCKFISH_TEXT_NOTICE = "Stockfish-NOTICE.txt"
 _STOCKFISH_PROVENANCE = "STOCKFISH_PROVENANCE.json"
+_SOUND_PROVENANCE_SOURCE = "provenance.json"
+_SOUND_PROVENANCE_NOTICE = "SOUND_PROVENANCE.json"
+_SOUND_PROVENANCE_SCHEMA_VERSION = 1
+_PROVENANCE_PLACEHOLDERS = frozenset({"unknown", "unlicensed", "tbd", "todo", "none", "n/a"})
 _MAX_STOCKFISH_ARCHIVE_FILES = 8192
 _MAX_STOCKFISH_ARCHIVE_UNCOMPRESSED = 2 * 1024 * 1024 * 1024
 _RAW_SOURCE_SUFFIXES = {".py", ".pyc", ".pyo"}
@@ -348,12 +352,12 @@ def _copy_verified_stockfish(
     return destination
 
 
-def _json_no_duplicates(text: str) -> object:
+def _json_no_duplicates(text: str, *, label: str = "sound manifest") -> object:
     def hook(pairs: list[tuple[str, object]]) -> dict[str, object]:
         value: dict[str, object] = {}
         for key, item in pairs:
             if key in value:
-                raise Version2ReleasePayloadError("sound manifest contains duplicate JSON keys")
+                raise Version2ReleasePayloadError(f"{label} contains duplicate JSON keys")
             value[key] = item
         return value
 
@@ -362,7 +366,7 @@ def _json_no_duplicates(text: str) -> object:
     except Version2ReleasePayloadError:
         raise
     except (json.JSONDecodeError, UnicodeError) as exc:
-        raise Version2ReleasePayloadError("sound manifest is invalid JSON") from exc
+        raise Version2ReleasePayloadError(f"{label} is invalid JSON") from exc
 
 
 def _validate_sound_pack(product_dir: Path) -> None:
@@ -428,6 +432,129 @@ def _validate_sound_pack(product_dir: Path) -> None:
             raise Version2ReleasePayloadError("release sound WAV is unreadable") from exc
 
 
+def _provenance_text(value: object, *, label: str, max_length: int) -> str:
+    if not isinstance(value, str):
+        raise Version2ReleasePayloadError(f"sound provenance {label} must be text")
+    normalized = value.strip()
+    if (
+        not normalized
+        or len(normalized) > max_length
+        or any(ord(character) < 32 or ord(character) == 127 for character in normalized)
+    ):
+        raise Version2ReleasePayloadError(f"sound provenance {label} is invalid")
+    return normalized
+
+
+def _publish_sound_provenance(product_dir: Path, notices_dir: Path) -> None:
+    sound_root = product_dir / DEFAULT_SOUND_RELATIVE_DIR
+    provenance_path = sound_root / _SOUND_PROVENANCE_SOURCE
+    manifest_path = sound_root / DEFAULT_SOUND_MANIFEST
+    try:
+        raw = _json_no_duplicates(
+            provenance_path.read_text(encoding="utf-8-sig"),
+            label="sound provenance",
+        )
+        manifest_raw = _json_no_duplicates(
+            manifest_path.read_text(encoding="utf-8-sig"),
+            label="sound manifest",
+        )
+    except OSError as exc:
+        raise Version2ReleasePayloadError("sound provenance is missing or unreadable") from exc
+
+    if not isinstance(raw, dict) or set(raw) != {"schema_version", "events"}:
+        raise Version2ReleasePayloadError("sound provenance root contract is invalid")
+    if raw.get("schema_version") != _SOUND_PROVENANCE_SCHEMA_VERSION:
+        raise Version2ReleasePayloadError("sound provenance schema is invalid")
+    events = raw.get("events")
+    if not isinstance(events, dict):
+        raise Version2ReleasePayloadError("sound provenance events must be an object")
+
+    expected_events = {event.value for event in SoundEvent}
+    if len(expected_events) != 9 or set(events) != expected_events:
+        raise Version2ReleasePayloadError(
+            "sound provenance must declare exactly all nine semantic sound events"
+        )
+    if not isinstance(manifest_raw, dict) or not isinstance(manifest_raw.get("files"), dict):
+        raise Version2ReleasePayloadError("sound manifest files must be an object")
+    mapping = manifest_raw["files"]
+
+    normalized_events: dict[str, dict[str, str]] = {}
+    for event in SoundEvent:
+        entry = events.get(event.value)
+        if not isinstance(entry, dict) or set(entry) != {
+            "file",
+            "sha256",
+            "license_id",
+            "source",
+            "creator",
+        }:
+            raise Version2ReleasePayloadError(
+                f"sound provenance entry contract is invalid: {event.value}"
+            )
+
+        file_name = _provenance_text(entry.get("file"), label="file", max_length=255)
+        if file_name != mapping.get(event.value):
+            raise Version2ReleasePayloadError(
+                f"sound provenance file does not match manifest: {event.value}"
+            )
+        token = PurePosixPath(file_name)
+        if token.is_absolute() or ".." in token.parts or token.as_posix() != file_name:
+            raise Version2ReleasePayloadError(
+                f"sound provenance file path is unsafe: {event.value}"
+            )
+        asset_path = sound_root / Path(*token.parts)
+
+        digest = _provenance_text(entry.get("sha256"), label="sha256", max_length=64)
+        if (
+            len(digest) != 64
+            or digest != digest.lower()
+            or any(character not in "0123456789abcdef" for character in digest)
+        ):
+            raise Version2ReleasePayloadError(
+                f"sound provenance SHA-256 is invalid: {event.value}"
+            )
+        if not asset_path.is_file() or _sha256(asset_path) != digest:
+            raise Version2ReleasePayloadError(
+                f"sound provenance SHA-256 mismatch: {event.value}"
+            )
+
+        license_id = _provenance_text(
+            entry.get("license_id"), label="license_id", max_length=128
+        )
+        if license_id.casefold() in _PROVENANCE_PLACEHOLDERS:
+            raise Version2ReleasePayloadError(
+                f"sound provenance license identity is unresolved: {event.value}"
+            )
+        source = _provenance_text(entry.get("source"), label="source", max_length=1024)
+        if not (source.startswith("https://") or source.startswith("urn:")):
+            raise Version2ReleasePayloadError(
+                f"sound provenance source must be an HTTPS URL or URN: {event.value}"
+            )
+        creator = _provenance_text(entry.get("creator"), label="creator", max_length=512)
+        if creator.casefold() in _PROVENANCE_PLACEHOLDERS:
+            raise Version2ReleasePayloadError(
+                f"sound provenance creator identity is unresolved: {event.value}"
+            )
+
+        normalized_events[event.value] = {
+            "file": file_name,
+            "sha256": digest,
+            "license_id": license_id,
+            "source": source,
+            "creator": creator,
+        }
+
+    notice = {
+        "schema_version": _SOUND_PROVENANCE_SCHEMA_VERSION,
+        "events": normalized_events,
+    }
+    (notices_dir / _SOUND_PROVENANCE_NOTICE).write_text(
+        json.dumps(notice, sort_keys=True, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    provenance_path.unlink()
+
+
 def _reject_raw_source(product_dir: Path) -> None:
     for path in product_dir.rglob("*"):
         if path.is_file() and path.suffix.casefold() in _RAW_SOURCE_SUFFIXES:
@@ -475,7 +602,7 @@ def prepare_version2_release_payload(
     Inputs are local, already-produced artifacts. The Stockfish archive is pinned
     to the official Stockfish 18 generic Windows x86-64 release digest; callers
     cannot override that identity. ``sound_pack_dir`` must contain the canonical
-    ``manifest.json`` and exactly all nine WAV events at its root.
+    ``manifest.json``, provenance identity, and exactly all nine WAV events.
     """
 
     standalone = Path(standalone_dir)
@@ -504,6 +631,7 @@ def prepare_version2_release_payload(
         sound_destination.parent.mkdir(parents=True, exist_ok=True)
         _copy_tree_without_links(sounds, sound_destination)
         _validate_sound_pack(product)
+        _publish_sound_provenance(product, notices)
 
         stockfish_executable = _copy_verified_stockfish(
             stockfish_archive,
