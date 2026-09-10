@@ -272,6 +272,30 @@ class Version2ReleasePayloadTests(unittest.TestCase):
                 self._write_stockfish_archive(self.stockfish)
         self.assertFalse((self.root / "escape.txt").exists())
 
+    def test_stockfish_archive_unsafe_directory_entry_fails_before_publication(self) -> None:
+        with zipfile.ZipFile(self.stockfish, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+            archive.writestr(
+                "stockfish/stockfish-windows-x86-64.exe",
+                self.stockfish_executable,
+            )
+            archive.writestr("stockfish/Copying.txt", b"GNU GENERAL PUBLIC LICENSE\n")
+            archive.writestr("stockfish/src/uci.cpp", b"// corresponding source\n")
+            archive.writestr("../escape/", b"")
+        output = self.root / "payload"
+        with patch.object(
+            payload,
+            "OFFICIAL_STOCKFISH_18_WINDOWS_X64_SHA256",
+            self._digest(self.stockfish),
+        ):
+            with self.assertRaisesRegex(payload.Version2ReleasePayloadError, "path traversal"):
+                payload.prepare_version2_release_payload(
+                    self.standalone,
+                    self.stockfish,
+                    self.sounds,
+                    output,
+                )
+        self._assert_no_publication(output)
+
     def test_stockfish_archive_symlink_member_fails_before_publication(self) -> None:
         with zipfile.ZipFile(self.stockfish, "w", compression=zipfile.ZIP_DEFLATED) as archive:
             archive.writestr(

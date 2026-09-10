@@ -131,7 +131,10 @@ def _safe_zip_name(info: zipfile.ZipInfo) -> PurePosixPath:
     ):
         raise Version2ReleasePayloadError("Stockfish archive contains an unsafe member name")
 
-    raw_parts = name.split("/")
+    normalized_name = name[:-1] if info.is_dir() and name.endswith("/") else name
+    if not normalized_name:
+        raise Version2ReleasePayloadError("Stockfish archive contains an unsafe member name")
+    raw_parts = normalized_name.split("/")
     if any(
         not part
         or part in {".", ".."}
@@ -144,7 +147,7 @@ def _safe_zip_name(info: zipfile.ZipInfo) -> PurePosixPath:
             raise Version2ReleasePayloadError("Stockfish archive contains path traversal")
         raise Version2ReleasePayloadError("Stockfish archive contains an unsafe member name")
 
-    path = PurePosixPath(name)
+    path = PurePosixPath(normalized_name)
     if path.is_absolute() or ".." in path.parts:
         raise Version2ReleasePayloadError("Stockfish archive contains path traversal")
 
@@ -195,14 +198,27 @@ def _inspect_stockfish_archive(archive: Path) -> _StockfishArchiveContents:
         raise Version2ReleasePayloadError("Stockfish release archive is invalid") from exc
 
     with handle:
-        files = [info for info in handle.infolist() if not info.is_dir()]
-        if not files or len(files) > _MAX_STOCKFISH_ARCHIVE_FILES:
-            raise Version2ReleasePayloadError("Stockfish archive file-count limit exceeded")
+        entries = handle.infolist()
+        if not entries or len(entries) > _MAX_STOCKFISH_ARCHIVE_FILES:
+            raise Version2ReleasePayloadError("Stockfish archive entry-count limit exceeded")
+
+        names: set[str] = set()
+        files: list[zipfile.ZipInfo] = []
+        for info in entries:
+            path = _safe_zip_name(info)
+            folded = path.as_posix().casefold()
+            if folded in names:
+                raise Version2ReleasePayloadError("Stockfish archive has duplicate member names")
+            names.add(folded)
+            if not info.is_dir():
+                files.append(info)
+
+        if not files:
+            raise Version2ReleasePayloadError("Stockfish archive contains no files")
         total = sum(info.file_size for info in files)
         if total <= 0 or total > _MAX_STOCKFISH_ARCHIVE_UNCOMPRESSED:
             raise Version2ReleasePayloadError("Stockfish archive size limit exceeded")
 
-        names: set[str] = set()
         executables: list[zipfile.ZipInfo] = []
         licenses: list[zipfile.ZipInfo] = []
         source_members: list[zipfile.ZipInfo] = []
@@ -210,11 +226,6 @@ def _inspect_stockfish_archive(archive: Path) -> _StockfishArchiveContents:
 
         for info in files:
             path = _safe_zip_name(info)
-            folded = path.as_posix().casefold()
-            if folded in names:
-                raise Version2ReleasePayloadError("Stockfish archive has duplicate member names")
-            names.add(folded)
-
             basename = path.name.casefold()
             if path.suffix.casefold() == ".exe":
                 executables.append(info)
