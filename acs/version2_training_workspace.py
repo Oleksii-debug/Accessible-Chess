@@ -2,16 +2,16 @@ from __future__ import annotations
 
 """Bounded V2 composition from semantic Book exercises to canonical Training.
 
-This module owns no chess or exercise correctness.  It composes the existing
+This module owns no chess or exercise correctness. It composes the existing
 BookDocument -> Training provenance bridge, ExerciseSession/TrainingPresenter,
-strict WebView projection, and atomic TrainingProgressStore.  Per-exercise file
+strict WebView projection, and atomic TrainingProgressStore. Per-exercise file
 names are SHA-256 digests of the already-canonical exercise identity so source
 paths and authored identifiers never become filesystem names or browser state.
 """
 
+from collections.abc import Mapping
 import hashlib
 from pathlib import Path
-from collections.abc import Mapping
 
 from .book_training import (
     BookTrainingMaterial,
@@ -50,6 +50,7 @@ class Version2BookTrainingWorkspace:
         self.language = language
         self.material: BookTrainingMaterial | None = None
         self.bridge: TrainingWebViewBridge | None = None
+        self._session: ExerciseSession | None = None
         self._store: TrainingProgressStore | None = None
         self._revision: str | None = None
 
@@ -76,24 +77,23 @@ class Version2BookTrainingWorkspace:
     def _prepare(
         self,
         material: BookTrainingMaterial,
-    ) -> tuple[TrainingWebViewBridge, TrainingProgressStore, str | None]:
+    ) -> tuple[ExerciseSession, TrainingWebViewBridge, TrainingProgressStore, str | None]:
         store = self._store_for(material)
         loaded = store.load(material.definition)
         session = ExerciseSession(material.definition) if loaded is None else loaded.session
         revision = None if loaded is None else loaded.revision
-        return self._bridge_for(session), store, revision
+        return session, self._bridge_for(session), store, revision
 
     @property
     def session(self) -> ExerciseSession:
-        bridge = self.bridge
-        if bridge is None:
+        if self._session is None:
             raise RuntimeError("no Training exercise is active")
-        return bridge.projection._presenter.session
+        return self._session
 
     def start_current(self) -> TrainingWebViewBridge:
         material = build_current_book_training_material(self.reader)
-        bridge, store, revision = self._prepare(material)
-        self.material, self.bridge = material, bridge
+        session, bridge, store, revision = self._prepare(material)
+        self.material, self._session, self.bridge = material, session, bridge
         self._store, self._revision = store, revision
         return bridge
 
@@ -129,9 +129,9 @@ class Version2BookTrainingWorkspace:
         # Validate the next semantic exercise and its durable state before moving
         # the BookReader or replacing the active Training surface.
         material = build_book_training_material(self.reader.document, next_index)
-        bridge, store, revision = self._prepare(material)
+        session, bridge, store, revision = self._prepare(material)
         self.reader.go_to(next_index)
-        self.material, self.bridge = material, bridge
+        self.material, self._session, self.bridge = material, session, bridge
         self._store, self._revision = store, revision
         return bridge.projection.retry()
 
@@ -155,6 +155,7 @@ class Version2BookTrainingWorkspace:
             # A stale/busy durable write must not leave in-memory progress ahead
             # of disk truth. Restore the exact pre-command canonical session.
             restored = ExerciseSession.restore(material.definition, before)
+            self._session = restored
             self.bridge = self._bridge_for(restored)
             self._revision = revision
             raise
