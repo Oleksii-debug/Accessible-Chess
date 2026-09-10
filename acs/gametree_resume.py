@@ -704,6 +704,35 @@ def _exclusive_store_lock(destination: Path) -> Iterator[None]:
             "resume store lock could not be opened",
             code=GameTreeResumeCode.IO_FAILURE,
         ) from exc
+
+    # Pre-open lstat is defense-in-depth only: the pathname can change
+    # between validation and open. Bind the opened handle back to the
+    # current lock pathname before any write or OS lock operation.
+    try:
+        opened = os.fstat(handle.fileno())
+        current = lock_path.lstat()
+    except OSError as exc:
+        handle.close()
+        raise GameTreeResumeError(
+            "resume store lock identity could not be verified",
+            code=GameTreeResumeCode.IO_FAILURE,
+        ) from exc
+    opened_key = (opened.st_dev, opened.st_ino)
+    current_key = (current.st_dev, current.st_ino)
+    if (
+        stat.S_ISLNK(current.st_mode)
+        or _is_reparse_point(current)
+        or not stat.S_ISREG(current.st_mode)
+        or not stat.S_ISREG(opened.st_mode)
+        or getattr(current, "st_nlink", 1) != 1
+        or getattr(opened, "st_nlink", 1) != 1
+        or opened_key != current_key
+    ):
+        handle.close()
+        raise GameTreeResumeError(
+            "resume store lock changed while being opened",
+            code=GameTreeResumeCode.IO_FAILURE,
+        )
     try:
         if os.name == "nt":
             import msvcrt
