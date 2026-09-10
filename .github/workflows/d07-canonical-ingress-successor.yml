@@ -4,15 +4,6 @@ on:
   push:
     branches:
       - work/d07-canonical-ingress-successor-20260910
-  pull_request:
-    branches:
-      - codex/v2-formats-completion-20260907
-    paths:
-      - '.github/workflows/d07-canonical-ingress-successor.yml'
-      - 'acs/acsdb.py'
-      - 'acs/duplicate_detection.py'
-      - 'tests/test_d07_canonical_ingress_successor.py'
-      - 'tests/test_v2_d07_ingress_convergence_after_dedupe_audit.py'
 
 permissions:
   contents: read
@@ -37,7 +28,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          ref: ${{ github.sha }}
 
       - name: Normalize worktree to canonical Git bytes
         shell: bash
