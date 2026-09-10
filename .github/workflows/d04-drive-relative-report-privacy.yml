@@ -1,0 +1,75 @@
+name: D04 Drive Relative Report Privacy
+
+on:
+  push:
+    branches:
+      - work/d04-v2-drive-relative-report-privacy-20260907
+  pull_request:
+    paths:
+      - '.github/workflows/d04-drive-relative-report-privacy.yml'
+      - 'acs/report_paths.py'
+      - 'tests/test_d04_drive_relative_report_privacy.py'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: d04-drive-relative-report-privacy-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  D04_BASE: 9ac0600bf9d270e02334df1657c1ccc941f909b5
+
+jobs:
+  privacy:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install pinned test dependency
+        run: python -m pip install -q pytest==8.4.2
+
+      - name: Prove ancestry and narrow D04 scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor "$D04_BASE" HEAD
+          git diff --check "$D04_BASE" HEAD
+          changed="$(git diff --name-only "$D04_BASE" HEAD | sort)"
+          allowed="$(printf '%s\n' \
+            .github/workflows/d04-drive-relative-report-privacy.yml \
+            acs/report_paths.py \
+            tests/test_d04_drive_relative_report_privacy.py | sort)"
+          test "$changed" = "$allowed" || {
+            printf 'Unexpected D04 scope:\n%s\n' "$changed" >&2
+            exit 1
+          }
+          test "$(git rev-parse HEAD:acs/report_paths.py)" = "217185ea53d04584103200698df2568af093af46"
+          test "$(git rev-parse HEAD:tests/test_d04_drive_relative_report_privacy.py)" = "593c86558fb173f454cecbe5ee399355662b8e59"
+
+      - name: Compile affected Python
+        run: python -m compileall -q acs/report_paths.py tests/test_d04_drive_relative_report_privacy.py tests/test_dev4_chessbase_cross_platform_path_privacy.py tests/test_dev4_chessbase_report_path_privacy.py
+
+      - name: Focused report privacy regressions
+        run: python -m unittest -v tests.test_d04_drive_relative_report_privacy tests.test_dev4_chessbase_cross_platform_path_privacy tests.test_dev4_chessbase_report_path_privacy
+
+      - name: Focused pytest parity
+        run: python -m pytest -q tests/test_d04_drive_relative_report_privacy.py tests/test_dev4_chessbase_cross_platform_path_privacy.py tests/test_dev4_chessbase_report_path_privacy.py
+
+      - name: Full unittest regression
+        run: python -m unittest discover -s tests -v
+
+      - name: Full pytest regression
+        run: python -m pytest -q
