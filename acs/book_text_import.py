@@ -451,6 +451,15 @@ def _parse_markdown(text: str, builder: _Builder) -> None:
             indent = list_match.group("indent")
             ordered = list_match.group("number") is not None
             start_value = int(list_match.group("number")) if ordered else None
+
+            if indent:
+                builder.paragraph(line.strip(), number)
+                builder.warning(
+                    "Markdown list indentation or nesting could not be represented canonically and was preserved as readable text"
+                )
+                index += 1
+                continue
+
             if ordered and start_value is not None and start_value < 1:
                 builder.paragraph(line.strip(), number)
                 builder.warning(
