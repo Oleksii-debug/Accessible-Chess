@@ -1,0 +1,115 @@
+name: W6 V2 Package Assembler Current Runtime
+
+on:
+  push:
+    branches:
+      - work/w6-v2-package-assembler-current-preflight-20260910
+  pull_request:
+    branches:
+      - work/w6-v2-package-preflight-current-runtime-20260910
+    paths:
+      - 'acs/version2_package_assembler.py'
+      - 'tests/test_version2_package_assembler.py'
+      - '.github/workflows/w6-v2-package-assembler.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: w6-v2-package-assembler-current-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CURRENT_RUNTIME_PREFLIGHT_PARENT: 1fb5cbcd4ed638a2334a2ed2c751933575da1561
+
+jobs:
+  focused:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Exact current-runtime preflight parent and narrow assembler scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor "$CURRENT_RUNTIME_PREFLIGHT_PARENT" HEAD
+          git diff --check "$CURRENT_RUNTIME_PREFLIGHT_PARENT" HEAD
+          changed="$(git diff --name-only "$CURRENT_RUNTIME_PREFLIGHT_PARENT" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/w6-v2-package-assembler.yml' \
+            'acs/version2_package_assembler.py' \
+            'tests/test_version2_package_assembler.py' | sort)"
+          test "$changed" = "$expected"
+          echo 'CURRENT RUNTIME PREFLIGHT / SINGLE ASSEMBLER SCOPE PASS'
+
+      - name: Compile assembler and canonical preflight
+        run: >-
+          python -m compileall -q
+          acs/version2_package_assembler.py
+          acs/version2_package_preflight.py
+          tests/test_version2_package_assembler.py
+          tests/test_version2_package_preflight.py
+          tests/test_version2_package_preflight_hardening.py
+          tests/test_v2_package_required_resources.py
+
+      - name: Direct fresh temp sibling oracle
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          import tempfile
+          from unittest.mock import patch
+
+          from acs.version2_package_assembler import assemble_version2_package_tree
+          from tests.test_version2_package_assembler import (
+              Version2PackageAssemblerTests,
+              _SHA,
+          )
+
+          real_mkdtemp = tempfile.mkdtemp
+          observed = []
+
+          def record_mkdtemp(*args, **kwargs):
+              observed.append((kwargs.get("prefix"), kwargs.get("dir")))
+              return real_mkdtemp(*args, **kwargs)
+
+          with tempfile.TemporaryDirectory() as td:
+              root = Path(td)
+              product, notices = Version2PackageAssemblerTests()._sources(root)
+              output = root / "candidate"
+              with patch(
+                  "acs.version2_package_assembler.tempfile.mkdtemp",
+                  side_effect=record_mkdtemp,
+              ):
+                  assemble_version2_package_tree(
+                      product,
+                      notices,
+                      output,
+                      integration_sha=_SHA,
+                  )
+              assert observed == [(".candidate.assemble-", root)], observed
+              assert output.is_dir()
+              assert not any(root.glob(".candidate.assemble-*"))
+          print("DIRECT FRESH TEMP SIBLING PASS")
+          PY
+
+      - name: Deterministic assembler plus current canonical preflight regressions
+        run: >-
+          python -m unittest -v
+          tests.test_version2_package_assembler
+          tests.test_version2_package_preflight
+          tests.test_version2_package_preflight_hardening
+          tests.test_v2_package_required_resources
