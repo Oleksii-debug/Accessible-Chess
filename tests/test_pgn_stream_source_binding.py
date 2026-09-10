@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 
+import acs.pgn_streaming_import as streaming
 from acs.acsdb import AcsDatabase
 from acs.library_import_service import LibraryImportResult, LibraryImportService
 from acs.pgn_streaming_import import (
@@ -11,6 +14,7 @@ from acs.pgn_streaming_import import (
     StreamingPgnFailurePolicy,
     StreamingPgnImportError,
     StreamingPgnLibraryImporter,
+    StreamingPgnLimits,
     StreamingPgnPhase,
 )
 
@@ -44,11 +48,26 @@ class _ReplaceBeforeStreamImporter(StreamingPgnLibraryImporter):
         self._replacement = replacement
 
     def _stream_source(self, source, spool, **kwargs):
-        # This is the exact historical gap: the preliminary fingerprint is done,
-        # but the streaming descriptor has not yet been opened. Replace the path
-        # atomically with a different valid regular PGN before delegating.
+        # Preliminary identity/fingerprint binding is complete, but the held
+        # streaming descriptor has not yet been opened.
         self._replacement.replace(Path(source.path))
         return super()._stream_source(source, spool, **kwargs)
+
+
+class _MutateBeforePublicationImporter(StreamingPgnLibraryImporter):
+    def _stream_source(self, source, spool, **kwargs):
+        failure = super()._stream_source(source, spool, **kwargs)
+        path = Path(source.path)
+        original = path.read_bytes()
+        mutated = original.replace(b"Original two", b"Changed! two", 1)
+        if len(mutated) != len(original) or mutated == original:
+            raise AssertionError("test mutation must preserve source size")
+        with path.open("r+b", buffering=0) as handle:
+            handle.seek(0)
+            handle.write(mutated)
+            handle.flush()
+            os.fsync(handle.fileno())
+        return failure
 
 
 class _ObservedLibraryProxy:
@@ -86,12 +105,132 @@ class StreamingPgnSourceBindingTests(unittest.TestCase):
                 )
 
             self.assertEqual(caught.exception.code, StreamingPgnErrorCode.SOURCE_CHANGED)
-            # A path swap must be rejected at descriptor binding, not after the
-            # replacement has already been parsed into canonical frames.
             self.assertEqual(
                 [item for item in progress if item.phase is StreamingPgnPhase.PARSING],
                 [],
             )
+            self.assertEqual(database.search_games(limit=100), [])
+
+    def test_byte_identical_replacement_before_stream_open_is_rejected_by_object_identity(self) -> None:
+        with tempfile.TemporaryDirectory() as directory, AcsDatabase() as database:
+            root = Path(directory)
+            source = root / "source.pgn"
+            replacement = root / "replacement.pgn"
+            source.write_text(ORIGINAL_PGN, encoding="utf-8", newline="")
+            replacement.write_text(ORIGINAL_PGN, encoding="utf-8", newline="")
+            original_identity = (source.stat().st_dev, source.stat().st_ino)
+            progress = []
+
+            importer = _ReplaceBeforeStreamImporter(
+                LibraryImportService(database),
+                replacement,
+            )
+            with self.assertRaises(StreamingPgnImportError) as caught:
+                importer.import_file(
+                    source,
+                    failure_policy=StreamingPgnFailurePolicy.SOURCE_ATOMIC,
+                    progress_callback=progress.append,
+                )
+
+            self.assertEqual(caught.exception.code, StreamingPgnErrorCode.SOURCE_CHANGED)
+            self.assertNotEqual((source.stat().st_dev, source.stat().st_ino), original_identity)
+            self.assertEqual(source.read_text(encoding="utf-8"), ORIGINAL_PGN)
+            self.assertEqual(
+                [item for item in progress if item.phase is StreamingPgnPhase.PARSING],
+                [],
+            )
+            self.assertEqual(database.search_games(limit=100), [])
+
+    def test_path_swap_after_descriptor_open_never_redirects_parse_or_publishes(self) -> None:
+        with tempfile.TemporaryDirectory() as directory, AcsDatabase() as database:
+            root = Path(directory)
+            source = root / "source.pgn"
+            replacement = root / "replacement.pgn"
+            source.write_text(ORIGINAL_PGN, encoding="utf-8", newline="")
+            replacement.write_bytes(b"\xffreplacement bytes must never be parsed\n")
+            progress = []
+            original_open = streaming._open_bound_source_fd
+            swapped = False
+
+            def open_then_swap(*args, **kwargs):
+                nonlocal swapped
+                fd = original_open(*args, **kwargs)
+                replacement.replace(source)
+                swapped = True
+                return fd
+
+            with patch.object(streaming, "_open_bound_source_fd", side_effect=open_then_swap):
+                with self.assertRaises(StreamingPgnImportError) as caught:
+                    StreamingPgnLibraryImporter(LibraryImportService(database)).import_file(
+                        source,
+                        failure_policy=StreamingPgnFailurePolicy.SOURCE_ATOMIC,
+                        progress_callback=progress.append,
+                    )
+
+            self.assertTrue(swapped)
+            self.assertEqual(caught.exception.code, StreamingPgnErrorCode.SOURCE_CHANGED)
+            self.assertEqual(source.read_bytes(), b"\xffreplacement bytes must never be parsed\n")
+            self.assertTrue(
+                any(
+                    item.phase is StreamingPgnPhase.PARSING and item.accepted_games == 2
+                    for item in progress
+                )
+            )
+            self.assertEqual(database.search_games(limit=100), [])
+
+    def test_same_inode_mutation_during_read_is_rejected_before_publication(self) -> None:
+        with tempfile.TemporaryDirectory() as directory, AcsDatabase() as database:
+            source = Path(directory) / "source.pgn"
+            source.write_text(ORIGINAL_PGN, encoding="utf-8", newline="")
+            original = source.read_bytes()
+            mutated = original.replace(b"Original two", b"Changed! two", 1)
+            self.assertEqual(len(mutated), len(original))
+            self.assertNotEqual(mutated, original)
+            identity = (source.stat().st_dev, source.stat().st_ino)
+            did_mutate = False
+            progress = []
+
+            def mutate_after_first_read(item):
+                nonlocal did_mutate
+                progress.append(item)
+                if did_mutate or item.phase is not StreamingPgnPhase.PARSING:
+                    return
+                with source.open("r+b", buffering=0) as handle:
+                    handle.seek(0)
+                    handle.write(mutated)
+                    handle.flush()
+                    os.fsync(handle.fileno())
+                did_mutate = True
+
+            with self.assertRaises(StreamingPgnImportError) as caught:
+                StreamingPgnLibraryImporter(LibraryImportService(database)).import_file(
+                    source,
+                    failure_policy=StreamingPgnFailurePolicy.SOURCE_ATOMIC,
+                    limits=StreamingPgnLimits(read_chunk_bytes=16),
+                    progress_callback=mutate_after_first_read,
+                )
+
+            self.assertTrue(did_mutate)
+            self.assertEqual(caught.exception.code, StreamingPgnErrorCode.SOURCE_CHANGED)
+            self.assertEqual((source.stat().st_dev, source.stat().st_ino), identity)
+            self.assertEqual(source.read_bytes(), mutated)
+            self.assertEqual(database.search_games(limit=100), [])
+
+    def test_same_inode_mutation_after_parse_before_publication_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as directory, AcsDatabase() as database:
+            source = Path(directory) / "source.pgn"
+            source.write_text(ORIGINAL_PGN, encoding="utf-8", newline="")
+            identity = (source.stat().st_dev, source.stat().st_ino)
+
+            with self.assertRaises(StreamingPgnImportError) as caught:
+                _MutateBeforePublicationImporter(LibraryImportService(database)).import_file(
+                    source,
+                    failure_policy=StreamingPgnFailurePolicy.SOURCE_ATOMIC,
+                )
+
+            self.assertEqual(caught.exception.code, StreamingPgnErrorCode.SOURCE_CHANGED)
+            self.assertEqual((source.stat().st_dev, source.stat().st_ino), identity)
+            self.assertIn(b"Changed! two", source.read_bytes())
             self.assertEqual(database.search_games(limit=100), [])
 
     def test_streaming_accepts_v2_observer_wrapped_canonical_library_service(self) -> None:
