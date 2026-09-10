@@ -1,0 +1,118 @@
+name: D07 Canonical PGN Ingress Current Successor
+
+on:
+  push:
+    branches:
+      - work/d07-canonical-ingress-successor-20260910
+  pull_request:
+    branches:
+      - codex/v2-formats-completion-20260907
+    paths:
+      - '.github/workflows/d07-canonical-ingress-successor.yml'
+      - 'acs/acsdb.py'
+      - 'acs/duplicate_detection.py'
+      - 'tests/test_d07_canonical_ingress_successor.py'
+      - 'tests/test_v2_d07_ingress_convergence_after_dedupe_audit.py'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: d07-canonical-ingress-successor-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  OWNER_BASE: 9f1db6655d4568428952bc252667fa3730ba492f
+  AUDIT_TEST_BLOB: 06f650e8db4baf23d26ef81de4113dcadcc470cc
+
+jobs:
+  correctness:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 65
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Normalize worktree to canonical Git bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config core.autocrlf false
+          git config core.eol lf
+          git reset --hard HEAD
+          git checkout-index --force --all
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install pinned verification dependency
+        run: python -m pip install -q pytest==8.4.2
+
+      - name: Prove exact ancestry and bounded owner scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git merge-base "$OWNER_BASE" HEAD)" = "$OWNER_BASE"
+          git diff --check "$OWNER_BASE" HEAD
+          changed="$(git diff --name-only "$OWNER_BASE" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/d07-canonical-ingress-successor.yml' \
+            'acs/acsdb.py' \
+            'acs/duplicate_detection.py' \
+            'tests/test_d07_canonical_ingress_successor.py' \
+            'tests/test_v2_d07_ingress_convergence_after_dedupe_audit.py' | sort)"
+          test "$changed" = "$expected"
+          test "$(git rev-parse HEAD:tests/test_v2_d07_ingress_convergence_after_dedupe_audit.py)" = "$AUDIT_TEST_BLOB"
+          if printf '%s\n' "$changed" | grep -E 'gametree.py|pgn_roundtrip.py|pgn_service.py|library_import_service.py|search_service.py|chessbase|book|stage1|release_preflight|web/'; then
+            echo 'D06, adjacent D07, ChessBase, Books, Stage1, release, or UI scope contamination detected' >&2
+            exit 1
+          fi
+
+      - name: Compile Product and regression surfaces
+        run: python -m compileall -q acs tests tools run_accessible_chess.py
+
+      - name: Focused canonical D06 and D07 owner regressions
+        run: >-
+          python -m unittest -v
+          tests.test_d07_canonical_ingress_successor
+          tests.test_v2_d07_ingress_convergence_after_dedupe_audit
+          tests.test_acsdb
+          tests.test_duplicate_detection
+          tests.test_game_identity
+          tests.test_d07_library_import_service
+          tests.test_d07_library_import_start_lock
+          tests.test_d07_library_import_transaction_ownership
+          tests.test_d06_pgn_roundtrip
+          tests.test_d06_file_ingress_nag_normalization
+          tests.test_dev4_import_history_error_privacy
+          tests.test_version2_formats_integration
+
+      - name: Full repository unittest
+        shell: bash
+        run: |
+          set -o pipefail
+          python -m unittest discover -s tests -v 2>&1 | tee full-unittest.log
+
+      - name: Full repository pytest
+        run: python -m pytest -q tests
+
+      - name: SELFTEST and complete diagnostic
+        run: |
+          python -m acs.selftest
+          python run_accessible_chess.py --diagnostic
+
+      - name: Upload full-test diagnostic
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: d07-canonical-ingress-successor-${{ matrix.os }}
+          path: full-unittest.log
+          if-no-files-found: ignore
+          retention-days: 7
