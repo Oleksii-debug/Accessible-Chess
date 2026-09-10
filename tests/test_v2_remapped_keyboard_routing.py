@@ -81,7 +81,8 @@ class Version2RemappedKeyboardRoutingTests(unittest.TestCase):
         self.assertEqual(resolved["actionId"], "library.next_page")
         self.assertEqual(resolved["context"], "database")
         self.assertEqual(self.application.routed[-1][0], "library.next_page")
-        self.assertEqual(result["v2"]["kind"], "action")
+        self.assertEqual(result["v2"]["kind"], "delegated")
+        self.assertEqual(result["v2"]["payload"]["action_id"], "library.next_page")
 
     def test_book_reader_remap_executes_through_same_router_on_books_route(self) -> None:
         self.registry.set_binding("book.next_heading", "Ctrl+Alt+H", allow_warnings=True)
@@ -92,7 +93,8 @@ class Version2RemappedKeyboardRoutingTests(unittest.TestCase):
         self.assertEqual(resolved["actionId"], "book.next_heading")
         self.assertEqual(resolved["context"], "book_reader")
         self.assertEqual(self.application.routed[-1][0], "book.next_heading")
-        self.assertEqual(result["v2"]["kind"], "action")
+        self.assertEqual(result["v2"]["kind"], "delegated")
+        self.assertEqual(result["v2"]["payload"]["action_id"], "book.next_heading")
 
     def test_conflicting_cross_context_remaps_follow_dynamic_route_precedence(self) -> None:
         chord = "Ctrl+Alt+R"
