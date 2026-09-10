@@ -9,9 +9,10 @@ exposes ChessBase records to ACSDB or presentation code and never writes to the
 source family.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import Enum
 from hashlib import sha256
+import os
 from pathlib import Path
 import tempfile
 from typing import Callable
@@ -87,6 +88,16 @@ class _PublicationGuard:
     cbv_source: SourceFingerprint | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class _DecoderBackendSnapshot:
+    """Exact configured libcbh object plus its canonical execution target."""
+
+    configured_path: Path
+    canonical_path: Path
+    source: SourceFingerprint
+    identity: tuple[int, int, int, int, int]
+
+
 CancelCheck = Callable[[], bool]
 ProgressCallback = Callable[[LibraryImportProgress], None]
 
@@ -132,27 +143,80 @@ def _poll_cancel(cancel_check: CancelCheck | None) -> None:
         raise LibraryImportCancelledError("ChessBase import cancelled")
 
 
+def _backend_file_identity(path: Path) -> tuple[int, int, int, int, int]:
+    """Return metadata that identifies the exact backend object without opening it."""
+
+    st = path.lstat()
+    return (
+        int(st.st_dev),
+        int(st.st_ino),
+        int(st.st_size),
+        int(st.st_mtime_ns),
+        int(st.st_ctime_ns),
+    )
+
+
 def _capture_decoder_backend(
     config: ExternalChessBaseDecoderConfig,
-) -> SourceFingerprint:
-    """Fingerprint the exact external decoder before consuming its output."""
+) -> _DecoderBackendSnapshot:
+    """Bind configured spelling and canonical target to one exact backend object."""
 
     try:
-        return fingerprint(config.executable)
-    except (OSError, ValueError) as exc:
+        configured_path = Path(
+            os.path.abspath(os.fspath(config.executable.expanduser()))
+        )
+        identity_before = _backend_file_identity(configured_path)
+        source = fingerprint(configured_path)
+        canonical_path = Path(source.path)
+        configured_identity = _backend_file_identity(configured_path)
+        canonical_identity = _backend_file_identity(canonical_path)
+    except (OSError, ValueError, RuntimeError) as exc:
         raise ChessBaseDecodeError(
             "ChessBase decoder backend failed read-only validation",
             code=ChessBaseDecodeCode.BACKEND_INVALID,
         ) from exc
 
+    if (
+        identity_before != configured_identity
+        or configured_identity != canonical_identity
+    ):
+        raise ChessBaseDecodeError(
+            "ChessBase decoder backend changed while its trusted identity was bound",
+            code=ChessBaseDecodeCode.BACKEND_INVALID,
+        )
 
-def _verify_decoder_backend_unchanged(before: SourceFingerprint) -> None:
-    """Reject decoded data if the executable changed during the operation."""
+    return _DecoderBackendSnapshot(
+        configured_path=configured_path,
+        canonical_path=canonical_path,
+        source=source,
+        identity=configured_identity,
+    )
+
+
+def _verify_decoder_backend_unchanged(before: _DecoderBackendSnapshot) -> None:
+    """Reject output if either configured spelling or canonical target drifted."""
 
     try:
-        unchanged = verify_source_unchanged(before, before.path)
-    except (OSError, ValueError):
-        unchanged = False
+        configured = fingerprint(before.configured_path)
+        canonical = fingerprint(before.canonical_path)
+        configured_identity = _backend_file_identity(before.configured_path)
+        canonical_identity = _backend_file_identity(before.canonical_path)
+    except (OSError, ValueError, RuntimeError):
+        configured = None
+        canonical = None
+        configured_identity = None
+        canonical_identity = None
+
+    unchanged = (
+        configured is not None
+        and canonical is not None
+        and configured.size == before.source.size
+        and configured.sha256 == before.source.sha256
+        and canonical.size == before.source.size
+        and canonical.sha256 == before.source.sha256
+        and configured_identity == before.identity
+        and canonical_identity == before.identity
+    )
     if not unchanged:
         raise ChessBaseDecodeError(
             "ChessBase decoder backend changed while it was running",
@@ -236,7 +300,11 @@ class ChessBaseLibraryImportService:
 
     def _decode_with_immutable_backend(self, source_path: Path):
         backend = _capture_decoder_backend(self._decoder_config)
-        decoded = decode_chessbase_external(source_path, self._decoder_config)
+        pinned_config = replace(
+            self._decoder_config,
+            executable=backend.canonical_path,
+        )
+        decoded = decode_chessbase_external(source_path, pinned_config)
         _verify_decoder_backend_unchanged(backend)
         return decoded
 
