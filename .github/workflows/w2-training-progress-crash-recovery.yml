@@ -15,7 +15,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  W2_CURRENT_BASE: e358bd1ddfafc21f8798f68e0d390fca804e0203
+  W2_CURRENT_BASE: 9ec7ea5332462616da64b43c75eb7fab1e2b0e64
   W2_OWNER_STORE_BLOB: 564bab3519e1f1055defe0997f93f84ce08d1617
   W2_TRAINING_BLOB: 28dcb58b11cd1e8dcd3904eee1ebc81d40d0ffcb
 
