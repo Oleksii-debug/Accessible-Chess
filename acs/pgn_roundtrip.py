@@ -275,17 +275,20 @@ def _preflight_text(
 
     normalized = text.replace("\r\n", "\n").replace("\r", "\n")
     _preflight_recovered_brace_comment_lengths(normalized)
-    inside_brace = False
-    brace_length = 0
     token_count = [0]
     tags_in_game = 0
     seen_movetext = False
+    comment_until = 0
+    line_start = 0
 
     for line in normalized.split("\n"):
-        # Match the same header grammar as gametree while outside multiline
-        # brace comments.  A line that looks like a header but does not satisfy
-        # the grammar is not silently reinterpreted as a SAN token stream.
-        if not inside_brace and line.lstrip().startswith("["):
+        line_end = line_start + len(line)
+        starts_inside_comment = comment_until > line_start
+
+        # Match the same header grammar as gametree while outside a
+        # brace-comment span. A line that starts inside recovered
+        # comment text cannot become a tag boundary after its close.
+        if not starts_inside_comment and line.lstrip().startswith("["):
             match = TAG_RE.match(line)
             if match is None:
                 raise PgnRoundTripError(
@@ -307,9 +310,10 @@ def _preflight_text(
                     PgnRoundTripErrorCode.TAG_SIZE_LIMIT,
                 )
             _claim_token(token_count, source_budget)
+            line_start = line_end + 1
             continue
 
-        if line.strip() and not inside_brace:
+        if line.strip() and not starts_inside_comment:
             seen_movetext = True
 
         token_length = 0
@@ -321,28 +325,32 @@ def _preflight_text(
                 token_length = 0
 
         index = 0
+        if starts_inside_comment:
+            if comment_until > line_end:
+                line_start = line_end + 1
+                continue
+            index = comment_until - line_start
+            comment_until = 0
+            if line[index:].strip():
+                seen_movetext = True
+
         while index < len(line):
             character = line[index]
-            if inside_brace:
-                if character == "}":
-                    inside_brace = False
-                    _claim_token(token_count, source_budget)
-                    brace_length = 0
-                else:
-                    brace_length += 1
-                    if brace_length > MAX_PGN_COMMENT_CHARS:
-                        _raise_limit(
-                            "PGN brace comment exceeds the field safety limit",
-                            PgnRoundTripErrorCode.COMMENT_SIZE_LIMIT,
-                        )
-                index += 1
-                continue
-
             if character == "{":
                 flush_token()
-                inside_brace = True
-                brace_length = 0
-                index += 1
+                span_end, _nested, _unterminated = _scan_brace_comment_span(
+                    normalized,
+                    line_start + index,
+                )
+                # The canonical recovery tokenizer publishes one
+                # Comment token for this whole shared span. Count that
+                # same unit here instead of interpreting content after
+                # an inner recovered close as movetext.
+                _claim_token(token_count, source_budget)
+                if span_end > line_end:
+                    comment_until = span_end
+                    break
+                index = span_end - line_start
                 continue
             if character == ";":
                 flush_token()
@@ -378,16 +386,7 @@ def _preflight_text(
             index += 1
 
         flush_token()
-        if inside_brace:
-            # Preserve a bounded accounting unit for the newline that belongs
-            # to a multiline brace comment.
-            brace_length += 1
-            if brace_length > MAX_PGN_COMMENT_CHARS:
-                _raise_limit(
-                    "PGN brace comment exceeds the field safety limit",
-                    PgnRoundTripErrorCode.COMMENT_SIZE_LIMIT,
-                )
-
+        line_start = line_end + 1
     return normalized
 
 

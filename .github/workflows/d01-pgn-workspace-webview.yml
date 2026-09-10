@@ -3,7 +3,15 @@ name: D01 PGN Workspace WebView
 on:
   pull_request:
     paths:
+      - 'acs/full_product_presenters.py'
       - 'acs/full_product_actions.py'
+      - 'acs/full_product_ui_shell.py'
+      - 'acs/keybindings.py'
+      - 'acs/ui_native_menu.py'
+      - 'acs/stage1_release_ui.py'
+      - 'acs/stage1_release_ui_core.py'
+      - 'acs/pgn_workspace.py'
+      - 'tests/test_pgn_workspace.py'
       - 'acs/pgn_webview_bridge.py'
       - 'acs/pgn_webview_projection.py'
       - 'acs/pgn_workspace_webview_adapter.py'
@@ -12,6 +20,8 @@ on:
       - 'tests/test_dev1_pgn_webview_projection.py'
       - 'tests/test_dev1_pgn_workspace_webview_adapter.py'
       - 'web/full_product_pgn.js'
+      - 'web/index.html'
+      - 'run_accessible_chess.py'
       - '.github/workflows/d01-pgn-workspace-webview.yml'
   workflow_dispatch:
 
@@ -35,9 +45,9 @@ jobs:
       D01_FEATURE: 76d20f9ce3f24120935a8f122ce0c8e0b6e4fb64
       P1_PARENT: fe249c24cad049f77a998ff305fbad0ace77c6ac
       P1_REPAIR: 48b0aeabd485d9f9e26e335f232209e86debeb7a
-      D06_HEAD: 1e3ea862bcff2ac13077f879c2ce9af01c4f983f
       D06_WORKSPACE_BLOB: 346f31f828191e76d57b372bb6c84a4a90568594
       D06_WORKSPACE_TEST_BLOB: edce8f6a591ffc09d419e9046e14725c4a07cf54
+      PR_BASE: ${{ github.event.pull_request.base.sha }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -51,9 +61,8 @@ jobs:
           git config core.autocrlf false
           git config core.eol lf
           git reset --hard HEAD
-          # actions/checkout has already populated the Windows worktree before
-          # the repository-local config above exists.  A hard reset may retain
-          # those CRLF bytes because the index is clean, so force a byte rewrite.
+          # actions/checkout populates the Windows worktree before repository-local
+          # EOL settings exist. Force a byte rewrite before blob identity gates.
           git checkout-index --force --all
 
       - uses: actions/setup-python@v5
@@ -63,46 +72,71 @@ jobs:
       - name: Install pinned verification dependency
         run: python -m pip install -q pytest==8.4.2
 
-      - name: Prove exact ancestry and isolated D01 scope
+      - name: Prove isolated owner or convergence topology
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD~2)" = "$P1_PARENT"
-          test "$(git rev-parse HEAD~1)" = "$P1_REPAIR"
-          test "$(git rev-list --count "$D01_BASE"..HEAD)" = "7"
           git merge-base --is-ancestor "$D01_BASE" HEAD
           git merge-base --is-ancestor "$D01_FEATURE" HEAD
-          git diff --check "$D01_BASE" HEAD
-          repair_changed="$(git diff --name-only "$P1_PARENT" HEAD | sort)"
-          repair_expected="$(printf '%s\n' \
-            '.github/workflows/d01-pgn-workspace-webview.yml' \
-            'acs/full_product_actions.py' \
-            'acs/pgn_webview_projection.py' \
-            'acs/pgn_workspace_webview_adapter.py' \
-            'tests/js/pgn_surface_dom_test.js' \
-            'tests/test_dev1_pgn_workspace_webview_adapter.py' \
-            'web/full_product_pgn.js' | sort)"
-          test "$repair_changed" = "$repair_expected"
-          test "$(git diff --name-only "$P1_REPAIR" HEAD)" = '.github/workflows/d01-pgn-workspace-webview.yml'
-          changed="$(git diff --name-only "$D01_BASE" HEAD | sort)"
-          expected="$(printf '%s\n' \
-            '.github/workflows/d01-pgn-workspace-webview.yml' \
-            'acs/full_product_actions.py' \
-            'acs/pgn_webview_bridge.py' \
-            'acs/pgn_webview_projection.py' \
-            'acs/pgn_workspace_webview_adapter.py' \
-            'tests/js/pgn_surface_dom_test.js' \
-            'tests/test_dev1_pgn_webview_atomicity.py' \
-            'tests/test_dev1_pgn_webview_projection.py' \
-            'tests/test_dev1_pgn_workspace_webview_adapter.py' \
-            'web/full_product_pgn.js' | sort)"
-          test "$changed" = "$expected"
-          if printf '%s\n' "$changed" | grep -E '(^|/)tools/qa/|windows-stage1-strict|release_preflight|pgn_workspace\.py$|pgn_document\.py$'; then
-            echo 'Foreign owner or strict-release contamination detected' >&2
-            exit 1
+
+          legacy_isolated=false
+          if [ "$(git rev-list --count "$D01_BASE"..HEAD)" = "7" ] \
+             && [ "$(git rev-parse HEAD~2)" = "$P1_PARENT" ] \
+             && [ "$(git rev-parse HEAD~1)" = "$P1_REPAIR" ]; then
+            legacy_isolated=true
           fi
 
-      - name: Lock frozen Stage1 and central D01 routing
+          if [ "$legacy_isolated" = true ]; then
+            git diff --check "$D01_BASE" HEAD
+            repair_changed="$(git diff --name-only "$P1_PARENT" HEAD | sort)"
+            repair_expected="$(printf '%s\n' \
+              '.github/workflows/d01-pgn-workspace-webview.yml' \
+              'acs/full_product_actions.py' \
+              'acs/pgn_webview_projection.py' \
+              'acs/pgn_workspace_webview_adapter.py' \
+              'tests/js/pgn_surface_dom_test.js' \
+              'tests/test_dev1_pgn_workspace_webview_adapter.py' \
+              'web/full_product_pgn.js' | sort)"
+            test "$repair_changed" = "$repair_expected"
+            test "$(git diff --name-only "$P1_REPAIR" HEAD)" = '.github/workflows/d01-pgn-workspace-webview.yml'
+            changed="$(git diff --name-only "$D01_BASE" HEAD | sort)"
+            expected="$(printf '%s\n' \
+              '.github/workflows/d01-pgn-workspace-webview.yml' \
+              'acs/full_product_actions.py' \
+              'acs/pgn_webview_bridge.py' \
+              'acs/pgn_webview_projection.py' \
+              'acs/pgn_workspace_webview_adapter.py' \
+              'tests/js/pgn_surface_dom_test.js' \
+              'tests/test_dev1_pgn_webview_atomicity.py' \
+              'tests/test_dev1_pgn_webview_projection.py' \
+              'tests/test_dev1_pgn_workspace_webview_adapter.py' \
+              'web/full_product_pgn.js' | sort)"
+            test "$changed" = "$expected"
+            if printf '%s\n' "$changed" | grep -E '(^|/)tools/qa/|windows-stage1-strict|release_preflight|pgn_workspace\.py$|pgn_document\.py$'; then
+              echo 'Foreign owner or strict-release contamination detected' >&2
+              exit 1
+            fi
+            echo 'D01_TOPOLOGY=LEGACY_ISOLATED'
+          else
+            if [ -n "${PR_BASE:-}" ]; then
+              git cat-file -e "$PR_BASE^{commit}"
+              git merge-base --is-ancestor "$PR_BASE" HEAD
+              git diff --check "$PR_BASE" HEAD
+              changed="$(git diff --name-only "$PR_BASE" HEAD | sort)"
+            else
+              # Manual dispatch has no pull-request base. Exact feature/shared blob
+              # locks and the complete semantic suites below remain authoritative.
+              git diff --check HEAD^ HEAD
+              changed="$(git diff --name-only HEAD^ HEAD | sort)"
+            fi
+            if printf '%s\n' "$changed" | grep -E '(^|/)tools/qa/|windows-stage1-strict'; then
+              echo 'Strict QA ownership contamination detected' >&2
+              exit 1
+            fi
+            echo 'D01_TOPOLOGY=CONVERGENCE'
+          fi
+
+      - name: Lock frozen Stage1 and current shared D01 routing
         shell: bash
         run: |
           set -euo pipefail
@@ -114,8 +148,8 @@ jobs:
             }
           done <<'LOCKS'
           acs/full_product_presenters.py=a752bb6b837d0332ad69047912dffeb537c7bd3f
-          acs/full_product_actions.py=ade8f65186c3cf00c9f0ab372fc815e4a635e803
-          acs/full_product_ui_shell.py=f97b3b35dbca7c0527d068ad557ddf3c67c3e491
+          acs/full_product_actions.py=b6be4376cbe0695136210c3b5b850cdf562f85a4
+          acs/full_product_ui_shell.py=4745468f0939bdf02a4df215eda36f3de4010280
           acs/keybindings.py=b222f0d625999d8119cb3bb7cebffc961217f610
           acs/ui_native_menu.py=dabed76f2ad60ad0c1032b13ca353e4acc0bf2ad
           acs/stage1_release_ui.py=16e78af6219c8c36f0c4026942ef1d02875a370a
@@ -124,7 +158,7 @@ jobs:
           run_accessible_chess.py=fb8914d7e63f5c5fa7dfa1669798d571bcf8d1fb
           LOCKS
 
-      - name: Lock exact PGN presentation package
+      - name: Lock exact PGN presentation and canonical workspace
         shell: bash
         run: |
           set -euo pipefail
@@ -135,6 +169,8 @@ jobs:
               exit 1
             }
           done <<'LOCKS'
+          acs/pgn_workspace.py=346f31f828191e76d57b372bb6c84a4a90568594
+          tests/test_pgn_workspace.py=edce8f6a591ffc09d419e9046e14725c4a07cf54
           acs/pgn_webview_projection.py=45049519527cda3d9c9f3c4de8e4244afc9fc614
           acs/pgn_webview_bridge.py=c8f108c8dcc01c37503833abb5c626d89093145e
           acs/pgn_workspace_webview_adapter.py=4343fa698f7503cf257218868aa927b099ddf21b
@@ -144,10 +180,12 @@ jobs:
           tests/test_dev1_pgn_workspace_webview_adapter.py=ef3be2ed1297e1b81bdecfaed233b948a08774ef
           tests/js/pgn_surface_dom_test.js=d2539b0674e68aa5ff1f040161be4f34943b5cf6
           LOCKS
+          test "$(git rev-parse HEAD:acs/pgn_workspace.py)" = "$D06_WORKSPACE_BLOB"
+          test "$(git rev-parse HEAD:tests/test_pgn_workspace.py)" = "$D06_WORKSPACE_TEST_BLOB"
 
       - name: Compile and parse D01 PGN presentation
         run: |
-          python -m compileall -q acs/full_product_actions.py acs/pgn_webview_projection.py acs/pgn_webview_bridge.py acs/pgn_workspace_webview_adapter.py tests/test_dev1_pgn_webview_projection.py tests/test_dev1_pgn_webview_atomicity.py tests/test_dev1_pgn_workspace_webview_adapter.py
+          python -m compileall -q acs/full_product_actions.py acs/pgn_workspace.py acs/pgn_webview_projection.py acs/pgn_webview_bridge.py acs/pgn_workspace_webview_adapter.py tests/test_pgn_workspace.py tests/test_dev1_pgn_webview_projection.py tests/test_dev1_pgn_webview_atomicity.py tests/test_dev1_pgn_workspace_webview_adapter.py
           node --check web/full_product_pgn.js
           node --check tests/js/pgn_surface_dom_test.js
           node tests/js/pgn_surface_dom_test.js
@@ -155,6 +193,7 @@ jobs:
       - name: D01 PGN focused regressions
         run: >-
           python -m unittest -v
+          tests.test_pgn_workspace
           tests.test_dev1_pgn_webview_projection
           tests.test_dev1_pgn_webview_atomicity
           tests.test_dev1_pgn_workspace_webview_adapter
@@ -169,16 +208,10 @@ jobs:
           tests.test_whole_product_user_journey
           tests.test_keybindings
 
-      - name: Prove exact compatibility with current D06 PgnWorkspace
+      - name: Prove exact current PgnWorkspace to one D01 action path
         shell: bash
         run: |
           set -euo pipefail
-          git cat-file -e "$D06_HEAD^{commit}" || git fetch --no-tags origin "$D06_HEAD"
-          test "$(git rev-parse "$D06_HEAD:acs/pgn_workspace.py")" = "$D06_WORKSPACE_BLOB"
-          test "$(git rev-parse "$D06_HEAD:tests/test_pgn_workspace.py")" = "$D06_WORKSPACE_TEST_BLOB"
-          git show "$D06_HEAD:acs/pgn_workspace.py" > acs/pgn_workspace.py
-          git show "$D06_HEAD:tests/test_pgn_workspace.py" > tests/test_pgn_workspace.py
-          python -m unittest -v tests.test_pgn_workspace
           python - <<'PY'
           from acs.full_product_actions import FullProductActionRouter
           from acs.full_product_ui_shell import AccessibleShellState, UILanguage
@@ -258,7 +291,6 @@ jobs:
               AccessibleShellState(language=UILanguage.EN),
               host,
           )
-
           projection = PgnWorkspaceWebViewProjection(workspace, router, language=UILanguage.EN)
           bridge = PgnWebViewBridge(projection)
 
@@ -284,7 +316,7 @@ jobs:
           expect("pgn.parent", {}, "pgn.parent_variation")
           expect("pgn.select", {"node_id": variation["node_id"]}, "pgn.select_item")
           result = expect("pgn.variation_promote", {}, "pgn.variation_promote")
-          action_id, payload = calls[-1]
+          _, payload = calls[-1]
           assert payload["expected_record_digest"] == owner.view().current_record_digest
           assert payload["content_revision"] == owner.content_revision
           browser_result = repr(result.payload)
@@ -309,10 +341,8 @@ jobs:
           assert back.payload["snapshot"]["game"]["index"] == 0
           assert workspace.mutations
           assert all(inside_delegate for _, inside_delegate in workspace.mutations)
-          print("Exact D06 PgnWorkspace -> one registered D01 WebView action path PASS")
+          print("Current exact D06 PgnWorkspace -> one registered D01 WebView action path PASS")
           PY
-          rm -f acs/pgn_workspace.py tests/test_pgn_workspace.py
-          find acs tests -type f -name '*pgn_workspace*.pyc' -delete || true
 
       - name: Full repository unittest
         run: python -m unittest discover -s tests -v
