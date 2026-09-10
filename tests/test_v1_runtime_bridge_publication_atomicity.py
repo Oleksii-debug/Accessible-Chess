@@ -222,6 +222,34 @@ class V1RuntimeBridgePublicationAtomicityTests(unittest.TestCase):
             self.assertEqual(again.status, "already_migrated")
             self.assertEqual(again.bridge_id, report.bridge_id)
 
+    def test_completed_marker_rejects_missing_legacy_settings(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            executable, settings, layout = self._settings_fixture(root)
+            V1RuntimeBridgeCoordinator(layout, executable).run()
+            canonical_before = layout.settings_path.read_bytes()
+
+            settings.unlink()
+
+            with self.assertRaisesRegex(V1RuntimeBridgeError, "settings disappeared"):
+                V1RuntimeBridgeCoordinator(layout, executable).run()
+
+            self.assertEqual(layout.settings_path.read_bytes(), canonical_before)
+
+    def test_completed_marker_rejects_missing_legacy_library(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            executable, library, layout = self._library_fixture(root)
+            V1RuntimeBridgeCoordinator(layout, executable).run()
+            canonical_before = layout.library_path.read_bytes()
+
+            library.unlink()
+
+            with self.assertRaisesRegex(V1RuntimeBridgeError, "library disappeared"):
+                V1RuntimeBridgeCoordinator(layout, executable).run()
+
+            self.assertEqual(layout.library_path.read_bytes(), canonical_before)
+
 
 if __name__ == "__main__":
     unittest.main()
