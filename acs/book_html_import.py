@@ -4,12 +4,13 @@ from __future__ import annotations
 
 This adapter owns source decoding and structure projection only.  It does not
 implement chess rules or a PGN parser: explicit positions are validated by the
-canonical :class:`acs.chesscore.Board`, and embedded PGN candidates are accepted
-only when the existing bounded D06 ingress can represent exactly one game.
+canonical :class:`acs.chesscore.Board`, and explicitly marked PGN candidates are
+accepted only when the existing bounded D06 ingress can represent exactly one game.
 
 Image-only diagrams remain image notes unless the source carries an explicit
-``data-acs-fen`` marker.  The importer never guesses a chess position from pixels,
-alt text, coordinates, or surrounding prose.
+``data-acs-fen`` marker.  Embedded games likewise require an explicit
+``pre[data-acs-pgn]`` marker.  The importer never guesses chess semantics from
+pixels, alt text, coordinates, or surrounding prose.
 """
 
 from dataclasses import dataclass, field
@@ -190,6 +191,7 @@ class _SemanticHtmlParser(HTMLParser):
         self.visible_chars = 0
         self.image_references: list[str] = []
         self.missing_assets: set[str] = set()
+        self.pgn_candidates: list[str] = []
         self._captures: list[_Capture] = []
         self._lists: list[_ListCapture] = []
         self._suppressed_depth = 0
@@ -504,7 +506,8 @@ class _SemanticHtmlParser(HTMLParser):
             if not self._warned_table_flatten:
                 self._warning("HTML table structure is preserved as row text because BookDocument has no table block kind")
                 self._warned_table_flatten = True
-        elif capture.kind == "pre" and "[Event" in raw:
+        elif capture.kind == "pre" and "data-acs-pgn" in capture.attrs:
+            self.pgn_candidates.append(raw.strip())
             return
         self._append_block(
             Paragraph(
@@ -630,8 +633,9 @@ def import_html_book(
     Network/file access is deliberately outside this adapter.  A trusted host may
     provide a source byte string and, optionally, the names of assets it has
     already resolved.  Missing images are reported but never converted into fake
-    chess positions.  ``data-acs-fen`` is the only HTML-level position marker;
-    it is validated through the canonical Board before publication.
+    chess positions.  ``data-acs-fen`` is the only HTML-level position marker and
+    ``pre[data-acs-pgn]`` is the only HTML-level game marker; both delegate to
+    canonical chess/PGN services before publication.
     """
 
     display_source = _text(source_name, "source_name")
@@ -653,9 +657,8 @@ def import_html_book(
             code=BookHtmlImportErrorCode.INVALID_ARGUMENT,
         ) from exc
 
-    visible_text = "".join(parser.visible_parts)
     warnings = list(parser.warnings)
-    embedded_games = _canonical_pgn_games(_pgn_candidates(visible_text), warnings)
+    embedded_games = _canonical_pgn_games(parser.pgn_candidates, warnings)
     for block in embedded_games:
         parser._append_block(block)
 
@@ -711,12 +714,13 @@ SUPPORTED_HTML_BOOK_CAPABILITY = MappingProxyType(
             "Paragraph",
             "List(ordered/unordered)",
             "Note(image)",
-            "Game(PGN)",
+            "Game(pre[data-acs-pgn])",
             "Position(data-acs-fen)",
             "Diagram(img[data-acs-fen])",
         ),
         "does_not_claim": (
             "image-to-position recognition",
+            "implicit PGN/FEN recognition from ordinary prose",
             "arbitrary legacy encodings",
             "network asset fetching",
             "TXT",
