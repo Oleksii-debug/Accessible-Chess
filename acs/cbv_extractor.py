@@ -27,6 +27,24 @@ MAX_EXTRACTED_BYTES = 16 * 1024 * 1024 * 1024
 MAX_LIST_STDOUT = 4 * 1024 * 1024
 MAX_BACKEND_STDERR = 1 * 1024 * 1024
 MAX_ENTRY_NAME_CHARS = 1024
+_WINDOWS_FORBIDDEN_CHARS = frozenset('<>:"|?*')
+_WINDOWS_RESERVED_STEMS = frozenset(
+    {
+        "con",
+        "prn",
+        "aux",
+        "nul",
+        "clock$",
+        *(f"com{index}" for index in range(1, 10)),
+        *(f"lpt{index}" for index in range(1, 10)),
+        "com¹",
+        "com²",
+        "com³",
+        "lpt¹",
+        "lpt²",
+        "lpt³",
+    }
+)
 
 
 class CbvExtractCode(str, Enum):
@@ -302,6 +320,17 @@ def _run_uncbv(
     return bytes(stdout.buffer)
 
 
+def _windows_component_is_unsafe(part: str) -> bool:
+    """Return whether one archive path component has unsafe Windows semantics."""
+
+    if part.endswith((" ", ".")):
+        return True
+    if any(ord(character) < 32 or character in _WINDOWS_FORBIDDEN_CHARS for character in part):
+        return True
+    stem = part.split(".", 1)[0].rstrip(" .").casefold()
+    return stem in _WINDOWS_RESERVED_STEMS
+
+
 def _normalize_entry_name(value: str) -> str:
     if not value or len(value) > MAX_ENTRY_NAME_CHARS or "\x00" in value:
         raise _error("CBV archive contains an invalid entry name", CbvExtractCode.INVALID_ENTRY)
@@ -316,6 +345,7 @@ def _normalize_entry_name(value: str) -> str:
         or not parts
         or any(part in {"", ".", ".."} for part in parts)
         or any(len(part) > 255 for part in parts)
+        or any(_windows_component_is_unsafe(part) for part in parts)
     ):
         raise _error("CBV archive contains an unsafe entry path", CbvExtractCode.INVALID_ENTRY)
     return PurePosixPath(*parts).as_posix()
