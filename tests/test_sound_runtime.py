@@ -1,12 +1,19 @@
 import json
+import sys
 import tempfile
 import unittest
 import wave
 from pathlib import Path
+from types import SimpleNamespace
+from unittest import mock
 
 from acs.sound_events import MoveSoundFacts, SoundEvent
 from acs.sound_runtime import GameSoundRuntime, SoundRuntime, SoundRuntimeSettings
-from acs.sound_windows import PackagedSoundAssetResolver, REQUIRED_SOUND_EVENTS
+from acs.sound_windows import (
+    PackagedSoundAssetResolver,
+    REQUIRED_SOUND_EVENTS,
+    WindowsSoundPlaybackAdapter,
+)
 
 
 class FakePlayback:
@@ -18,6 +25,14 @@ class FakePlayback:
         self.calls.append((event, volume))
         if event == self.fail_on:
             raise FileNotFoundError(f"missing {event.value}")
+
+
+class FixedSoundResolver:
+    def __init__(self, path):
+        self.path = Path(path)
+
+    def resolve(self, event):
+        return self.path
 
 
 class SoundRuntimeTests(unittest.TestCase):
@@ -157,6 +172,37 @@ class PackagedSoundResolverTests(unittest.TestCase):
             )
             with self.assertRaises(ValueError):
                 PackagedSoundAssetResolver(tmp).load_manifest()
+
+
+class WindowsSoundPlaybackAdapterTests(unittest.TestCase):
+    def test_sync_playback_uses_only_supported_winsound_flags(self):
+        calls = []
+        fake_winsound = SimpleNamespace(
+            SND_FILENAME=0x00020000,
+            SND_NODEFAULT=0x00000002,
+            PlaySound=lambda path, flags: calls.append((path, flags)),
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            sound = Path(tmp) / "move.wav"
+            sound.write_bytes(b"not-read-at-full-volume")
+            adapter = WindowsSoundPlaybackAdapter(
+                FixedSoundResolver(sound),
+                cache_dir=Path(tmp) / "cache",
+            )
+            with mock.patch.object(sys, "platform", "win32"), mock.patch.dict(
+                sys.modules,
+                {"winsound": fake_winsound},
+            ):
+                adapter.play(SoundEvent.MOVE, volume=100)
+            self.assertEqual(
+                calls,
+                [
+                    (
+                        str(sound),
+                        fake_winsound.SND_FILENAME | fake_winsound.SND_NODEFAULT,
+                    )
+                ],
+            )
 
 
 if __name__ == "__main__":
