@@ -11,12 +11,22 @@ from acs.analysis_service import AnalysisService
 from acs.book_progress_store import BookProgressStore
 from acs.engine_assisted_workflows import EngineAssistedWorkflowService
 from acs.full_product_ui_shell import UILanguage
+from acs.pgn_document import PgnDocumentSession
 from acs.settings import Settings
 from acs.version2_application import Version2Application
 import acs.version2_release_app as release_app
 from acs.version2_release_ui import (
     Version2ReleaseAccessibleChessAPI,
     run_version2_release_window,
+)
+
+
+PGN = (
+    '[Event "Language owner"]\n'
+    '[White "Петренко"]\n'
+    '[Black "Smith"]\n'
+    '[Result "*"]\n\n'
+    '1. e4 e5 *\n'
 )
 
 
@@ -65,14 +75,14 @@ class _WebView:
 
 
 class _HostApplication:
-    def __init__(self) -> None:
+    def __init__(self, *, language: UILanguage = UILanguage.UA) -> None:
         from acs.version2_profile import (
             build_version2_router,
             build_version2_shell,
             build_version2_webview_adapter,
         )
 
-        self.shell = build_version2_shell()
+        self.shell = build_version2_shell(language=language)
         self.router = build_version2_router(self.shell, lambda action, payload: {"action": action})
         self.adapter = build_version2_webview_adapter(self.shell, self.router)
         self._focus = ""
@@ -115,9 +125,27 @@ class W6Version2LanguageOwnerCurrentTests(unittest.TestCase):
         api.bind_version2_application(application)
         return api, application, analysis
 
+    def _materialize_real_pgn_and_books(self, application: Version2Application, root: Path) -> None:
+        application.set_document(PgnDocumentSession.from_text(PGN))
+        book = root / "language-owner.md"
+        book.write_text(
+            "# Мовний тест\n\nАбзац для перевірки реальної Books projection.\n",
+            encoding="utf-8",
+        )
+        application.open_book(book)
+        snapshot = application.snapshot()
+        self.assertIsNotNone(snapshot["pgn"])
+        self.assertIsNotNone(snapshot["books"])
+        application.drain_events()
+
+    def _assert_all_snapshot_languages(self, application: Version2Application, expected: str) -> None:
+        snapshot = application.snapshot()
+        self.assertEqual(snapshot["document"]["lang"], expected)
+        self.assertEqual(snapshot["pgn"]["document"]["lang"], expected)
+        self.assertEqual(snapshot["library"]["document"]["lang"], expected)
+        self.assertEqual(snapshot["books"]["document"]["lang"], expected)
+
     def _close_real_application(self, api, application, analysis) -> None:
-        application.pgn = None
-        application.books = None
         application.shutdown()
         analysis.close()
         api.close_analysis()
@@ -176,15 +204,13 @@ class W6Version2LanguageOwnerCurrentTests(unittest.TestCase):
                 UILanguage.EN,
             )
 
-    def test_live_switch_persists_for_restart_and_syncs_materialized_surfaces_silently(self) -> None:
+    def test_live_switch_persists_for_restart_and_syncs_real_surfaces_silently(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             settings = Settings(root / "settings.json")
             api, application, analysis = self._real_application(root, settings)
-            pgn_projection = mock.Mock()
-            books_projection = mock.Mock()
-            application.pgn = SimpleNamespace(projection=pgn_projection)
-            application.books = SimpleNamespace(projection=books_projection)
+            self._materialize_real_pgn_and_books(application, root)
+            self._assert_all_snapshot_languages(application, "uk")
             native_refresh = mock.Mock(return_value=True)
             api.bind_version2_language_refresh(native_refresh)
             try:
@@ -193,15 +219,12 @@ class W6Version2LanguageOwnerCurrentTests(unittest.TestCase):
                 self.assertEqual(Settings(root / "settings.json").get("language"), "en")
                 self.assertEqual(api.lang, "en")
                 self.assertEqual(application.shell.language, UILanguage.EN)
-                pgn_projection.set_language.assert_called_once_with(UILanguage.EN)
-                books_projection.set_language.assert_called_once_with(UILanguage.EN)
+                self.assertEqual(application.pgn.projection.language, UILanguage.EN)
+                self.assertEqual(application.library.projection.language, UILanguage.EN)
+                self.assertEqual(application.books.projection.language, UILanguage.EN)
+                self._assert_all_snapshot_languages(application, "en")
                 native_refresh.assert_called_once_with()
 
-                application.pgn = None
-                application.books = None
-                snapshot = application.snapshot()
-                self.assertEqual(snapshot["document"]["lang"], "en")
-                self.assertEqual(snapshot["library"]["document"]["lang"], "en")
                 events = application.drain_events()
                 self.assertEqual(events, ({"kind": "language", "payload": {}},))
                 self.assertNotIn("announcement", events[0]["payload"])
@@ -209,34 +232,33 @@ class W6Version2LanguageOwnerCurrentTests(unittest.TestCase):
             finally:
                 self._close_real_application(api, application, analysis)
 
-    def test_persistence_failure_restores_settings_memory_and_leaves_every_surface_unchanged(self) -> None:
+    def test_persistence_failure_restores_settings_memory_and_leaves_real_surfaces_unchanged(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             settings = Settings(root / "settings.json")
-            settings.save = mock.Mock(side_effect=OSError("disk unavailable"))
             api, application, analysis = self._real_application(root, settings)
+            self._materialize_real_pgn_and_books(application, root)
+            settings.save = mock.Mock(side_effect=OSError("disk unavailable"))
             try:
                 result = api.set_language("en")
                 self.assertFalse(result["ok"])
                 self.assertEqual(settings.get("language"), "uk")
                 self.assertEqual(api.lang, "uk")
                 self.assertEqual(application.shell.language, UILanguage.UA)
-                snapshot = application.snapshot()
-                self.assertEqual(snapshot["document"]["lang"], "uk")
-                self.assertEqual(snapshot["library"]["document"]["lang"], "uk")
+                self.assertEqual(application.pgn.projection.language, UILanguage.UA)
+                self.assertEqual(application.library.projection.language, UILanguage.UA)
+                self.assertEqual(application.books.projection.language, UILanguage.UA)
+                self._assert_all_snapshot_languages(application, "uk")
                 self.assertFalse(application.drain_events())
             finally:
                 self._close_real_application(api, application, analysis)
 
-    def test_host_refresh_failure_rolls_back_durable_settings_all_surfaces_and_native_menu(self) -> None:
+    def test_host_refresh_failure_rolls_back_durable_settings_real_surfaces_and_native_menu(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             settings = Settings(root / "settings.json")
             api, application, analysis = self._real_application(root, settings)
-            pgn_projection = mock.Mock()
-            books_projection = mock.Mock()
-            application.pgn = SimpleNamespace(projection=pgn_projection)
-            application.books = SimpleNamespace(projection=books_projection)
+            self._materialize_real_pgn_and_books(application, root)
             native_refresh = mock.Mock(side_effect=[False, True])
             api.bind_version2_language_refresh(native_refresh)
             try:
@@ -246,35 +268,28 @@ class W6Version2LanguageOwnerCurrentTests(unittest.TestCase):
                 self.assertEqual(settings.get("language"), "uk")
                 self.assertEqual(api.lang, "uk")
                 self.assertEqual(application.shell.language, UILanguage.UA)
-                self.assertEqual(
-                    pgn_projection.set_language.call_args_list,
-                    [mock.call(UILanguage.EN), mock.call(UILanguage.UA)],
-                )
-                self.assertEqual(
-                    books_projection.set_language.call_args_list,
-                    [mock.call(UILanguage.EN), mock.call(UILanguage.UA)],
-                )
+                self.assertEqual(application.pgn.projection.language, UILanguage.UA)
+                self.assertEqual(application.library.projection.language, UILanguage.UA)
+                self.assertEqual(application.books.projection.language, UILanguage.UA)
+                self._assert_all_snapshot_languages(application, "uk")
                 self.assertEqual(native_refresh.call_count, 2)
 
-                application.pgn = None
-                application.books = None
-                snapshot = application.snapshot()
-                self.assertEqual(snapshot["document"]["lang"], "uk")
-                self.assertEqual(snapshot["library"]["document"]["lang"], "uk")
                 events = application.drain_events()
                 self.assertEqual(events, ({"kind": "language", "payload": {}},))
                 self.assertNotIn("announcement", events[0]["payload"])
+                self.assertNotIn("message", events[0]["payload"])
             finally:
                 self._close_real_application(api, application, analysis)
 
-    def test_release_window_binds_existing_menu_installer_as_live_refresh_owner(self) -> None:
+    def test_release_window_uses_shell_language_for_initial_menu_and_binds_live_refresh_owner(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             api = Version2ReleaseAccessibleChessAPI(
                 keymap_path=root / "keymap.json",
                 settings=mock.Mock(),
+                lang="en",
             )
-            application = _HostApplication()
+            application = _HostApplication(language=UILanguage.EN)
             webview = _WebView()
             installs = []
 
@@ -286,6 +301,8 @@ class W6Version2LanguageOwnerCurrentTests(unittest.TestCase):
             )
 
             self.assertEqual(len(installs), 1)
+            controller = installs[0][1]
+            self.assertEqual(controller.spec()[0].label, "&File")
             self.assertIsNotNone(api._version2_language_refresh)
             self.assertTrue(application.closed)
 
