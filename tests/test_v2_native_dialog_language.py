@@ -126,6 +126,10 @@ class Version2NativeDialogLanguageTests(unittest.TestCase):
         self.assertEqual(dialogs.open_pgn(), Path("selected.pgn"))
         self.assertEqual(_OpenDialog.instances[-1].Title, "Open PGN")
         self.assertIn("All files", _OpenDialog.instances[-1].Filter)
+        self.assertEqual(dialogs.save_pgn_as("private.pgn"), Path("private.pgn"))
+        self.assertEqual(_SaveDialog.instances[-1].Title, "Save PGN As")
+        self.assertEqual(dialogs.select_library_import(), Path("selected.pgn"))
+        self.assertEqual(_OpenDialog.instances[-1].Title, "Import into Library")
         self.assertTrue(dialogs.confirm_discard_unsaved_pgn())
         self.assertEqual(_MessageBox.calls[-1][2], "Unsaved PGN changes")
 
@@ -210,6 +214,11 @@ class Version2NativeDialogLanguageTests(unittest.TestCase):
                 mock.patch.object(release_app, "_prepare_version2_user_data", return_value=layout),
                 mock.patch.object(release_app, "Settings", return_value=settings),
                 mock.patch.object(release_app, "AnalysisService", return_value=mock.MagicMock()),
+                mock.patch.object(
+                    release_app,
+                    "EngineAssistedWorkflowService",
+                    return_value=mock.MagicMock(),
+                ),
                 mock.patch.object(release_app, "ContinuousAnalysisService", return_value=mock.MagicMock()),
                 mock.patch.object(release_app, "EnginePlayService", return_value=mock.MagicMock()),
                 mock.patch.object(release_app, "SoundRuntime", return_value=mock.MagicMock()),
@@ -242,9 +251,47 @@ class Version2NativeDialogLanguageTests(unittest.TestCase):
         def broken_provider():
             raise RuntimeError("private language provider detail")
 
-        text = Version2WindowsDialogText(broken_provider)
-        self.assertEqual(text.get("open_pgn_title"), "Open PGN")
-        self.assertEqual(text.get("unsaved_pgn_title"), "Unsaved PGN changes")
+        owner = _Owner()
+        dialogs = Version2OwnedWindowsFileDialogs(
+            lambda: owner,
+            forms_loader=_forms_loader,
+            message_box_loader=_message_box_loader,
+            language_provider=broken_provider,
+        )
+        exports = Version2OwnedWindowsPgnExportDialogs(
+            lambda: owner,
+            forms_loader=_forms_loader,
+            language_provider=broken_provider,
+        )
+        books = _Version2OwnedBookDialogs(
+            lambda: owner,
+            forms_loader=_forms_loader,
+            language_provider=broken_provider,
+        )
+
+        self.assertEqual(dialogs.open_pgn(), Path("selected.pgn"))
+        self.assertEqual(_OpenDialog.instances[-1].Title, "Open PGN")
+        self.assertEqual(dialogs.save_pgn_as("game.pgn"), Path("game.pgn"))
+        self.assertEqual(_SaveDialog.instances[-1].Title, "Save PGN As")
+        self.assertEqual(dialogs.select_library_import(), Path("selected.pgn"))
+        self.assertEqual(_OpenDialog.instances[-1].Title, "Import into Library")
+        self.assertTrue(dialogs.confirm_discard_unsaved_pgn())
+        self.assertEqual(_MessageBox.calls[-1][2], "Unsaved PGN changes")
+        self.assertEqual(exports.export_selection(), Path("selection.pgn"))
+        self.assertEqual(_SaveDialog.instances[-1].Title, "Export PGN selection")
+        self.assertEqual(books.open_book(), Path("selected.pgn"))
+        self.assertEqual(_OpenDialog.instances[-1].Title, "Open chess book")
+
+        projected = "\n".join(
+            [
+                *[dialog.Title for dialog in _OpenDialog.instances],
+                *[dialog.Filter for dialog in _OpenDialog.instances],
+                *[dialog.Title for dialog in _SaveDialog.instances],
+                *[dialog.Filter for dialog in _SaveDialog.instances],
+                *[str(value) for call in _MessageBox.calls for value in call],
+            ]
+        )
+        self.assertNotIn("private language provider detail", projected)
 
     def test_invalid_language_provider_contract_is_rejected(self) -> None:
         with self.assertRaisesRegex(TypeError, "language provider"):
