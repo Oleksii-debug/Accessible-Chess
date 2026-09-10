@@ -49,7 +49,8 @@ def _html(*, fen: str | None = None, pgn: str = PGN) -> str:
   <table><tr><td>e4</td><td>e5</td></tr></table>
   {diagram}
   <h2 id="games">Анотовані партії</h2>
-  <pre>{pgn}</pre>
+  <pre>{{PGN 01}}
+{pgn}</pre>
 </body>
 </html>'''
 
@@ -89,6 +90,36 @@ class BookHtmlImportTests(unittest.TestCase):
         self.assertIn("{Developing the knight.}", canonical)
         self.assertIn("(", canonical)
         self.assertIn("Білі", canonical)
+
+    def test_unmarked_valid_pgn_is_readable_text_and_never_fabricates_game(self) -> None:
+        source = f'''<!doctype html>
+<html><head><title>Quoted PGN</title></head><body>
+<h1>Example notation</h1>
+<p>The following notation is quoted as ordinary book text.</p>
+<pre>{PGN}</pre>
+</body></html>'''
+        result = import_html_book(source, source_name="quoted-pgn.html")
+
+        self.assertEqual(result.pgn_games, 0)
+        self.assertFalse(any(isinstance(block, Game) for block in result.document.blocks))
+        paragraphs = [block for block in result.document.blocks if isinstance(block, Paragraph)]
+        self.assertTrue(any('[Event "Accessible book demo"]' in block.text for block in paragraphs))
+        self.assertTrue(any("1. e4 e5" in block.text for block in paragraphs))
+
+    def test_pgn_marker_must_be_standalone_and_immediately_own_an_event_region(self) -> None:
+        prose_marker = import_html_book(
+            f'''<html><body><p>Reference {{PGN 01}} below.</p><pre>{PGN}</pre></body></html>''',
+            source_name="prose-marker.html",
+        )
+        orphan_marker = import_html_book(
+            f'''<html><body><p>{{PGN 01}}</p><p>Commentary first.</p><pre>{PGN}</pre></body></html>''',
+            source_name="orphan-marker.html",
+        )
+
+        self.assertEqual(prose_marker.pgn_games, 0)
+        self.assertEqual(orphan_marker.pgn_games, 0)
+        self.assertFalse(any(isinstance(block, Game) for block in prose_marker.document.blocks))
+        self.assertFalse(any(isinstance(block, Game) for block in orphan_marker.document.blocks))
 
     def test_explicit_html_position_uses_canonical_board_and_can_be_a_diagram(self) -> None:
         fen = Board.START
@@ -171,10 +202,15 @@ class BookHtmlImportTests(unittest.TestCase):
             reopened_game = reopened.next_game()
             self.assertEqual(reopened_game.block_id, game_location.block_id)
 
-    def test_capability_profile_does_not_claim_unimplemented_formats(self) -> None:
+    def test_capability_profile_does_not_claim_unimplemented_or_implicit_semantics(self) -> None:
         self.assertEqual(SUPPORTED_HTML_BOOK_CAPABILITY["format"], "HTML/XHTML")
+        self.assertIn(
+            "Game(explicit {PGN N} marker)",
+            SUPPORTED_HTML_BOOK_CAPABILITY["semantic_blocks"],
+        )
         non_claims = set(SUPPORTED_HTML_BOOK_CAPABILITY["does_not_claim"])
         self.assertTrue({"TXT", "Markdown", "DOCX", "EPUB", "PDF/OCR"}.issubset(non_claims))
+        self.assertIn("implicit PGN inference from ordinary text", non_claims)
 
 
 if __name__ == "__main__":
