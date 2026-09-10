@@ -3,8 +3,10 @@ from __future__ import annotations
 from pathlib import Path
 import tempfile
 import unittest
+from unittest import mock
 
 from acs.full_product_webview_adapter import WebViewCommand
+from acs.stage1_release_ui import Stage1ReleaseAccessibleChessAPI
 from acs.version2_profile import build_version2_router, build_version2_shell, build_version2_webview_adapter
 from acs.version2_release_ui import Version2ReleaseAccessibleChessAPI, run_version2_release_window
 
@@ -57,6 +59,34 @@ class _WebView:
         self.window.events.loaded.fire()
 
 
+class _CreateWindowFailureWebView(_WebView):
+    def create_window(self, title, **kwargs):
+        raise RuntimeError("window creation failed")
+
+
+class _FailingStartWebView(_WebView):
+    def __init__(self, error):
+        super().__init__()
+        self.error = error
+
+    def start(self, **kwargs):
+        self.started = kwargs
+        self.window.events.before_show.fire()
+        self.window.events.loaded.fire()
+        raise self.error
+
+
+class _Runtime:
+    def __init__(self, error=None):
+        self.closed = 0
+        self.error = error
+
+    def close(self):
+        self.closed += 1
+        if self.error is not None:
+            raise self.error
+
+
 class _Application:
     def __init__(self):
         self.shell = build_version2_shell()
@@ -93,6 +123,18 @@ class _Application:
     def shutdown(self):
         self.closed = True
         return True
+
+
+class _FailingApplication(_Application):
+    def __init__(self, error):
+        super().__init__()
+        self.error = error
+        self.shutdown_count = 0
+
+    def shutdown(self):
+        self.closed = True
+        self.shutdown_count += 1
+        raise self.error
 
 
 class Version2ReleaseUiTests(unittest.TestCase):
@@ -186,6 +228,86 @@ class Version2ReleaseUiTests(unittest.TestCase):
 
         self.assertEqual(built, [])
         self.assertTrue(app.closed)
+
+    def test_release_window_cleans_resources_when_create_window_fails(self):
+        api = self.make_api()
+        app = _Application()
+        runtime = _Runtime()
+
+        with self.assertRaisesRegex(RuntimeError, "window creation failed"):
+            run_version2_release_window(
+                api,
+                app,
+                runtime,
+                webview_module=_CreateWindowFailureWebView(),
+            )
+
+        self.assertTrue(app.closed)
+        self.assertEqual(runtime.closed, 1)
+
+    def test_release_window_cleans_resources_when_packaged_document_is_missing(self):
+        api = self.make_api()
+        app = _Application()
+        runtime = _Runtime()
+        with tempfile.TemporaryDirectory() as directory:
+            missing_root = Path(directory)
+            with mock.patch("acs.version2_release_ui._asset_root", return_value=missing_root):
+                with self.assertRaisesRegex(RuntimeError, "Accessible HTML UI not found"):
+                    run_version2_release_window(api, app, runtime, webview_module=_WebView())
+
+        self.assertTrue(app.closed)
+        self.assertEqual(runtime.closed, 1)
+
+    def test_active_webview_failure_remains_primary_across_all_cleanup_failures(self):
+        api = self.make_api()
+        primary = RuntimeError("PRIMARY_WEBVIEW_RUNTIME")
+        app_cleanup = RuntimeError("SECONDARY_APPLICATION_SHUTDOWN")
+        analysis_cleanup = RuntimeError("SECONDARY_ANALYSIS_CLOSE")
+        runtime_cleanup = RuntimeError("SECONDARY_RUNTIME_CLOSE")
+        app = _FailingApplication(app_cleanup)
+        runtime = _Runtime(runtime_cleanup)
+
+        with mock.patch.object(
+            Stage1ReleaseAccessibleChessAPI,
+            "close_analysis",
+            side_effect=analysis_cleanup,
+        ):
+            with self.assertRaises(RuntimeError) as caught:
+                run_version2_release_window(
+                    api,
+                    app,
+                    runtime,
+                    webview_module=_FailingStartWebView(primary),
+                )
+
+        self.assertIs(caught.exception, primary)
+        self.assertEqual(app.shutdown_count, 1)
+        self.assertEqual(runtime.closed, 1)
+
+    def test_application_cleanup_failure_remains_primary_over_later_cleanup(self):
+        api = self.make_api()
+        application_failure = RuntimeError("PRIMARY_APPLICATION_SHUTDOWN")
+        analysis_cleanup = RuntimeError("SECONDARY_ANALYSIS_CLOSE")
+        runtime_cleanup = RuntimeError("SECONDARY_RUNTIME_CLOSE")
+        app = _FailingApplication(application_failure)
+        runtime = _Runtime(runtime_cleanup)
+
+        with mock.patch.object(
+            Stage1ReleaseAccessibleChessAPI,
+            "close_analysis",
+            side_effect=analysis_cleanup,
+        ):
+            with self.assertRaises(RuntimeError) as caught:
+                run_version2_release_window(
+                    api,
+                    app,
+                    runtime,
+                    webview_module=_WebView(),
+                )
+
+        self.assertIs(caught.exception, application_failure)
+        self.assertEqual(app.shutdown_count, 1)
+        self.assertEqual(runtime.closed, 1)
 
 
 if __name__ == "__main__":
