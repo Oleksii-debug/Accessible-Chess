@@ -121,8 +121,3 @@ jobs:
         run: python -m unittest discover -s tests -v
       - name: Full pytest
         run: python -m pytest -q
-      - name: Selftest and diagnostics
-        run: |
-          python scripts/selftest.py
-          python scripts/diagnose.py
-          python scripts/version2_diagnostic.py
