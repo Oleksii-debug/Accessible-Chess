@@ -44,6 +44,7 @@ jobs:
           expected="$(printf '%s\n' \
             '.github/workflows/v2-html-semantic-lists.yml' \
             'acs/book_html_import.py' \
+            'tests/test_v2_book_html_import.py' \
             'tests/test_v2_html_semantic_lists.py' | sort)"
           test "$changed" = "$expected"
           git diff --quiet "$base" HEAD -- \
@@ -51,7 +52,7 @@ jobs:
             acs/chesscore.py acs/gametree.py acs/pgn_roundtrip.py \
             acs/book_text_import.py web tools/qa
       - name: Compile bounded HTML adapter
-        run: python -m py_compile acs/book_html_import.py tests/test_v2_html_semantic_lists.py
+        run: python -m py_compile acs/book_html_import.py tests/test_v2_book_html_import.py tests/test_v2_html_semantic_lists.py
       - name: Existing HTML importer contracts
         run: python -m unittest -v tests.test_v2_book_html_import
       - name: Canonical semantic-list regression
