@@ -34,6 +34,10 @@ class Version2PackageRequiredResourcesTests(unittest.TestCase):
                 report.inventory,
             )
             self.assertIn(
+                "THIRD_PARTY_NOTICES/SOUND_PROVENANCE.json",
+                report.inventory,
+            )
+            self.assertIn(
                 "THIRD_PARTY_NOTICES/Stockfish-18-source.zip",
                 report.inventory,
             )
@@ -59,6 +63,7 @@ class Version2PackageRequiredResourcesTests(unittest.TestCase):
             "AccessibleChess/engines/stockfish/stockfish.exe",
             "AccessibleChess/assets/sounds/manifest.json",
             "AccessibleChess/assets/sounds/move.wav",
+            "THIRD_PARTY_NOTICES/SOUND_PROVENANCE.json",
             "THIRD_PARTY_NOTICES/Stockfish-18-source.zip",
             "THIRD_PARTY_NOTICES/Stockfish-NOTICE.txt",
         )
@@ -154,6 +159,61 @@ class Version2PackageRequiredResourcesTests(unittest.TestCase):
             with self.assertRaisesRegex(
                 Version2PackagePreflightError,
                 "16-bit PCM",
+            ):
+                _validate_tree(root)
+
+    def test_preflight_rejects_sound_provenance_not_bound_to_asset(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = self._package(td)
+            provenance_path = root / "THIRD_PARTY_NOTICES/SOUND_PROVENANCE.json"
+            provenance = json.loads(provenance_path.read_text(encoding="utf-8"))
+            provenance["events"]["move"]["sha256"] = "0" * 64
+            provenance_path.write_text(
+                json.dumps(provenance, sort_keys=True, indent=2) + "\n",
+                encoding="utf-8",
+            )
+            _write_checksums(root)
+            with self.assertRaisesRegex(
+                Version2PackagePreflightError,
+                "sound provenance SHA-256 mismatch",
+            ):
+                _validate_tree(root)
+
+    def test_preflight_rejects_unresolved_or_local_sound_provenance_identity(self):
+        cases = (
+            ("license", "license_id", "unknown", "license identity is unresolved"),
+            ("creator", "creator", "TBD", "creator identity is unresolved"),
+            ("source", "source", r"C:\\private\\move.wav", "HTTPS URL or URN"),
+            ("file", "file", "other.wav", "does not match manifest"),
+        )
+        for label, field, value, expected in cases:
+            with self.subTest(label=label), tempfile.TemporaryDirectory() as td:
+                root = self._package(td)
+                provenance_path = root / "THIRD_PARTY_NOTICES/SOUND_PROVENANCE.json"
+                provenance = json.loads(provenance_path.read_text(encoding="utf-8"))
+                provenance["events"]["move"][field] = value
+                provenance_path.write_text(
+                    json.dumps(provenance, sort_keys=True, indent=2) + "\n",
+                    encoding="utf-8",
+                )
+                _write_checksums(root)
+                with self.assertRaisesRegex(Version2PackagePreflightError, expected):
+                    _validate_tree(root)
+
+    def test_preflight_rejects_incomplete_sound_provenance_event_set(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = self._package(td)
+            provenance_path = root / "THIRD_PARTY_NOTICES/SOUND_PROVENANCE.json"
+            provenance = json.loads(provenance_path.read_text(encoding="utf-8"))
+            del provenance["events"]["tick"]
+            provenance_path.write_text(
+                json.dumps(provenance, sort_keys=True, indent=2) + "\n",
+                encoding="utf-8",
+            )
+            _write_checksums(root)
+            with self.assertRaisesRegex(
+                Version2PackagePreflightError,
+                "every semantic sound event",
             ):
                 _validate_tree(root)
 

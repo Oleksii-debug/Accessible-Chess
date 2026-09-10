@@ -120,6 +120,23 @@ def _make_tree(root: Path) -> None:
 
     notices = root / "THIRD_PARTY_NOTICES"
     notices.mkdir()
+    sound_provenance = {
+        "schema_version": 1,
+        "events": {
+            event.value: {
+                "file": sound_files[event.value],
+                "sha256": _sha256(sounds / sound_files[event.value]),
+                "license_id": "CC0-1.0",
+                "source": f"urn:accessible-chess:test-fixture:sound:{event.value}",
+                "creator": "Accessible Chess synthetic test fixture",
+            }
+            for event in SoundEvent
+        },
+    }
+    (notices / "SOUND_PROVENANCE.json").write_text(
+        json.dumps(sound_provenance, sort_keys=True, indent=2) + "\n",
+        encoding="utf-8",
+    )
     source_archive = notices / "Stockfish-18-source.zip"
     with zipfile.ZipFile(source_archive, "w", compression=zipfile.ZIP_DEFLATED) as archive:
         archive.writestr("Stockfish-sf_18/src/main.cpp", "// source fixture\n")
