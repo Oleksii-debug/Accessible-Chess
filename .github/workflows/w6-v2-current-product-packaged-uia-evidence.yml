@@ -1,0 +1,171 @@
+name: W6 V2 Current Product Packaged UIA Evidence
+
+on:
+  push:
+    branches:
+      - qa/w6-v2-current-product-uia-20260910
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: w6-v2-current-product-packaged-uia-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  EVIDENCE_PARENT: e358bd1ddfafc21f8798f68e0d390fca804e0203
+  PRODUCT_PARENT: 0343b828315b97426e857cd0692626d9d67adcfe
+  PYWEBVIEW_VERSION: '6.2.1'
+  NUITKA_UPSTREAM_FIX_COMMIT: b7ea05bf570e0b6950de6db7c4c8e579e1b77d29
+  QA_WRAPPER_COMMIT: bf4a4c1c71860c90d1b086ea4f91fa34b665cb81
+  QA_BASELINE_COMMIT: 0549391267073f9d006ec8271af148fe17edcdb6
+  SOURCE_INTEGRATION_SHA: 0343b828315b97426e857cd0692626d9d67adcfe
+
+jobs:
+  windows-packaged-uia:
+    runs-on: windows-2025
+    timeout-minutes: 65
+    steps:
+      - name: Checkout exact evidence child
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.sha }}
+
+      - name: Prove one-file evidence child and exact current Product bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor "$EVIDENCE_PARENT" HEAD
+          git merge-base --is-ancestor "$PRODUCT_PARENT" HEAD
+          git diff --check "$EVIDENCE_PARENT" HEAD
+          changed="$(git diff --name-only "$EVIDENCE_PARENT" HEAD)"
+          test "$changed" = '.github/workflows/w6-v2-current-product-packaged-uia-evidence.yml'
+          non_workflow="$(git diff --name-only "$PRODUCT_PARENT" HEAD | grep -v '^\.github/workflows/' || true)"
+          test -z "$non_workflow"
+          for path in run_accessible_chess_v2.py acs/version2_release_app.py acs/version2_release_ui.py acs/version2_application.py web/index.html web/stage1_release_bootstrap.js web/stage1_board_actions.js; do
+            test "$(git rev-parse HEAD:$path)" = "$(git rev-parse $PRODUCT_PARENT:$path)"
+          done
+          echo "PRODUCT_SHA=$PRODUCT_PARENT"
+          echo 'EXACT CURRENT W5 V2 PRODUCT BYTES / UIA EVIDENCE-ONLY SCOPE PASS'
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install pinned WebView2 runtime bindings and patched Nuitka
+        shell: pwsh
+        run: |
+          $nuitkaUrl="https://github.com/Nuitka/Nuitka/archive/$env:NUITKA_UPSTREAM_FIX_COMMIT.zip"
+          python -m pip install --disable-pip-version-check "pywebview==$env:PYWEBVIEW_VERSION" "Nuitka @ $nuitkaUrl" ordered-set zstandard
+          if($LASTEXITCODE -ne 0){throw 'Pinned Windows runtime/compiler installation failed'}
+          python -c "from pathlib import Path; import nuitka; p=Path(nuitka.__file__).parent/'plugins'/'standard'/'PywebViewPlugin.py'; assert 'webview.platforms.win32' in p.read_text(encoding='utf-8'); print('PATCHED NUITKA PYWEBVIEW PLUGIN PASS')"
+          if($LASTEXITCODE -ne 0){throw 'Pinned Nuitka pywebview patch missing'}
+
+      - name: Materialize immutable strict UIA helper without modifying QA ownership
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin "$QA_WRAPPER_COMMIT" "$QA_BASELINE_COMMIT"
+          mkdir -p .v2-uia-evidence
+          git show "$QA_WRAPPER_COMMIT:tools/qa/stage1_packaged_e2e_crossprocess.ps1" > .v2-uia-evidence/stage1_packaged_e2e_crossprocess.ps1
+          git show "$QA_WRAPPER_COMMIT:tools/qa/stage1_uia_topology_v5.ps1" > .v2-uia-evidence/stage1_uia_topology_v5.ps1
+          git show "$QA_WRAPPER_COMMIT:tools/qa/stage1_uia_topology_classify.py" > .v2-uia-evidence/stage1_uia_topology_classify.py
+          test -s .v2-uia-evidence/stage1_packaged_e2e_crossprocess.ps1
+          test -s .v2-uia-evidence/stage1_uia_topology_v5.ps1
+          test -s .v2-uia-evidence/stage1_uia_topology_classify.py
+          echo 'IMMUTABLE STRICT UIA HELPER MATERIALIZATION PASS'
+
+      - name: Source diagnostic before Windows build
+        shell: pwsh
+        run: |
+          python run_accessible_chess_v2.py --diagnostic
+          if($LASTEXITCODE -ne 0){throw 'Source V2 release diagnostic failed before UIA build'}
+
+      - name: Build exact V2 standalone executable
+        shell: pwsh
+        run: |
+          python -m nuitka --standalone --assume-yes-for-downloads --windows-console-mode=disable --output-filename=AccessibleChess.exe --include-data-dir=web=web --report=nuitka-compilation-report.xml run_accessible_chess_v2.py
+          if($LASTEXITCODE -ne 0){throw 'V2 Nuitka standalone compile failed'}
+          $exe=Get-ChildItem -Recurse -Filter AccessibleChess.exe | Where-Object {$_.FullName -match '\.dist\\'} | Select-Object -First 1
+          if(-not $exe){throw 'Built V2 AccessibleChess.exe missing'}
+          "V2_EXE=$($exe.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "V2_DIST=$($exe.Directory.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          Write-Host "V2 standalone executable: $($exe.FullName)"
+
+      - name: Built executable diagnostic before interactive proof
+        shell: pwsh
+        run: |
+          & $env:V2_EXE --diagnostic
+          if($LASTEXITCODE -ne 0){throw 'Built V2 executable diagnostic failed before UIA proof'}
+
+      - name: Launch built V2 and prove inherited packaged UIA keyboard semantics
+        shell: pwsh
+        run: |
+          $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS='--force-renderer-accessibility'
+          $process=Start-Process -FilePath $env:V2_EXE -PassThru
+          try {
+            $ready=$false
+            $watch=[System.Diagnostics.Stopwatch]::StartNew()
+            while($watch.ElapsedMilliseconds -lt 30000){
+              if($process.HasExited){throw "Built V2 process exited before UIA proof with code $($process.ExitCode)"}
+              $process.Refresh()
+              if($process.MainWindowHandle -ne 0){$ready=$true;break}
+              Start-Sleep -Milliseconds 250
+            }
+            if(-not $ready){throw 'Built V2 window did not become ready for UIA proof'}
+            Start-Sleep -Seconds 4
+            & .\.v2-uia-evidence\stage1_packaged_e2e_crossprocess.ps1 -AppPid $process.Id -ProductRoot (Resolve-Path .).Path
+            if($LASTEXITCODE -ne 0){throw 'Immutable strict packaged UIA helper failed on V2 executable'}
+            if(-not (Test-Path packaged-uia-strict-summary.json)){throw 'Packaged UIA summary missing'}
+            $summary=Get-Content packaged-uia-strict-summary.json -Raw | ConvertFrom-Json
+            if([int]$summary.semantic_square_count -ne 64){throw 'Packaged V2 did not expose exactly 64 semantic squares'}
+            if([string]$summary.clipboard -ne 'e9'){throw 'Packaged V2 standard Ctrl+A/Ctrl+C proof did not pass'}
+            if(-not [bool]$summary.invalid_e9_fen_unchanged){throw 'Packaged V2 invalid-input atomicity proof did not pass'}
+            if(-not [bool]$summary.board_focus_continuity){throw 'Packaged V2 board focus continuity proof did not pass'}
+            Write-Host 'V2 PACKAGED UIA / MOVE EDIT / CTRL+A+C / 64-SQUARE / FOCUS PROOF PASS'
+          }
+          finally {
+            $live=Get-Process -Id $process.Id -ErrorAction SilentlyContinue
+            if($live){Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue}
+          }
+
+      - name: Record exact Product and executable authority
+        if: success()
+        shell: pwsh
+        run: |
+          $source=Get-ChildItem $env:V2_DIST -Recurse -File | Where-Object {$_.Extension -in '.py','.pyc','.pyo'}
+          if($source){throw 'Python source/bytecode leaked into standalone directory'}
+          $exeHash=(Get-FileHash -Algorithm SHA256 $env:V2_EXE).Hash.ToLowerInvariant()
+          $authority=[ordered]@{
+            schema_version=1
+            product_sha=$env:PRODUCT_PARENT
+            evidence_sha='${{ github.sha }}'
+            runner_os='windows-2025'
+            pywebview_version=$env:PYWEBVIEW_VERSION
+            nuitka_commit=$env:NUITKA_UPSTREAM_FIX_COMMIT
+            qa_wrapper_commit=$env:QA_WRAPPER_COMMIT
+            qa_baseline_commit=$env:QA_BASELINE_COMMIT
+            executable_sha256=$exeHash
+            release_zip_created=$false
+          }
+          $authority | ConvertTo-Json -Depth 4 | Set-Content -Encoding utf8 current-product-uia-authority.json
+          Write-Host "V2_UIA_EXECUTABLE_SHA256=$exeHash"
+          Write-Host "V2_UIA_PRODUCT_SHA=$env:PRODUCT_PARENT"
+          Write-Host 'V2 CURRENT PRODUCT PACKAGED UIA EVIDENCE PASS — NOT A RELEASE ZIP'
+
+      - name: Upload bounded UIA evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: w6-v2-current-product-packaged-uia-evidence
+          if-no-files-found: ignore
+          retention-days: 7
+          path: |
+            uia-topology-report-v5.json
+            uia-topology-strict-raw.json
+            uia-topology-strict.json
+            packaged-uia-strict-summary.json
+            current-product-uia-authority.json
