@@ -8,7 +8,8 @@ has been validated. PGN serialization/publication is delegated to the existing
 D06 atomic writer so Library export cannot become a second serializer.
 """
 
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
+from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from enum import Enum
 from pathlib import Path
@@ -19,6 +20,7 @@ from .gametree import PgnGame
 from .pgn_roundtrip import parse_pgn_text
 from .pgn_service import SourceFingerprint, save_pgn_atomic
 from .search_service import GameSearchQuery, GameSearchService
+
 
 _MAX_SELECTED_GAMES: Final = 5000
 _EXPORT_PAGE_SIZE: Final = 200
@@ -152,14 +154,15 @@ class LibraryExportService:
         self._database = database
         self._search = search_service or GameSearchService(database)
 
-    def _selected_ids(self, request: LibraryExportRequest) -> tuple[int, ...]:
+    def _iter_selected_ids(self, request: LibraryExportRequest) -> Iterator[int]:
         if request.scope is LibraryExportScope.SELECTED:
-            return request.game_ids
+            yield from request.game_ids
+            return
         if request.scope is not LibraryExportScope.FILTERED or request.query is None:
             raise LibraryExportError("invalid Library export request")
 
-        ids: list[int] = []
         cursor: int | None = None
+        found = False
         while True:
             page_query = replace(
                 request.query,
@@ -167,15 +170,21 @@ class LibraryExportService:
                 limit=_EXPORT_PAGE_SIZE,
             )
             page = self._search.search(page_query)
-            ids.extend(item.game_id for item in page.items)
+            for item in page.items:
+                found = True
+                yield item.game_id
             if not page.has_more:
                 break
             if page.next_after_game_id is None or page.next_after_game_id == cursor:
                 raise LibraryExportError("Library export paging did not advance")
             cursor = page.next_after_game_id
-        if not ids:
+        if not found:
             raise LibraryExportError("Library export contains no games")
-        return tuple(ids)
+
+    def _selected_ids(self, request: LibraryExportRequest) -> tuple[int, ...]:
+        """Compatibility helper for callers that explicitly request materialized ids."""
+
+        return tuple(self._iter_selected_ids(request))
 
     def _load_game(self, game_id: int) -> PgnGame:
         row = self._database.get_game(game_id)
@@ -192,41 +201,70 @@ class LibraryExportService:
             raise LibraryExportError("Library export record must contain exactly one game")
         return games[0]
 
+    def _iter_games(self, request: LibraryExportRequest) -> Iterator[PgnGame]:
+        for game_id in self._iter_selected_ids(request):
+            yield self._load_game(game_id)
+
+    @contextmanager
+    def _read_snapshot(self):
+        if self._database.conn.in_transaction:
+            raise LibraryExportError("Library database is busy")
+        # Hold one SQLite read transaction for the whole D06 consumption. This
+        # preserves the exact filtered set while avoiding all-game materialization.
+        self._database.conn.execute("BEGIN")
+        try:
+            yield
+        finally:
+            self._database.conn.rollback()
+
     def resolve_games(self, request: LibraryExportRequest) -> tuple[PgnGame, ...]:
-        """Resolve one immutable export snapshot in deterministic Library-id order."""
+        """Resolve one immutable export snapshot in deterministic Library-id order.
+
+        This compatibility API intentionally materializes its result. The normal
+        end-user export path below is incremental and should be used for large sets.
+        """
 
         if not isinstance(request, LibraryExportRequest):
             raise TypeError("request must be LibraryExportRequest")
-        if self._database.conn.in_transaction:
-            raise LibraryExportError("Library database is busy")
-
-        # One explicit read transaction gives filtered paging + record loading a
-        # stable SQLite snapshot while concurrent imports append elsewhere.
-        self._database.conn.execute("BEGIN")
-        try:
-            ids = self._selected_ids(request)
-            if len(ids) > _MAX_SELECTED_GAMES and request.scope is LibraryExportScope.SELECTED:
+        with self._read_snapshot():
+            games = tuple(self._iter_games(request))
+            if len(games) > _MAX_SELECTED_GAMES and request.scope is LibraryExportScope.SELECTED:
                 raise LibraryExportError("selected Library export is too large")
-            games = tuple(self._load_game(game_id) for game_id in ids)
-            if len(games) != len(ids):
-                raise LibraryExportError("Library export snapshot is incomplete")
             return games
-        finally:
-            self._database.conn.rollback()
 
     def export_to(
         self,
         destination: str | Path,
         request: LibraryExportRequest,
     ) -> LibraryExportResult:
-        """Resolve a read-only snapshot then delegate publication to D06."""
+        """Stream one stable Library snapshot into the canonical D06 writer."""
 
         if not isinstance(request, LibraryExportRequest):
             raise TypeError("request must be LibraryExportRequest")
-        games = self.resolve_games(request)
-        fingerprint = save_pgn_atomic(destination, games, overwrite=True)
+        # Preserve the historical selected-scope resource bound even when a
+        # caller constructs the frozen request dataclass directly. FILTERED is
+        # intentionally uncapped here: its complete result set is streamed.
+        if request.scope is LibraryExportScope.SELECTED and len(request.game_ids) > _MAX_SELECTED_GAMES:
+            raise LibraryExportError("selected Library export is too large")
+        game_count = 0
+
+        def counted_games() -> Iterator[PgnGame]:
+            nonlocal game_count
+            for game in self._iter_games(request):
+                game_count += 1
+                yield game
+
+        # The transaction stays open while save_pgn_atomic consumes the lazy
+        # iterable, so paging and row loads all observe one exact read snapshot.
+        # D06 still owns temp-file writing, cleanup and atomic publication.
+        with self._read_snapshot():
+            fingerprint = save_pgn_atomic(
+                destination,
+                counted_games(),
+                overwrite=True,
+            )
         return LibraryExportResult(
-            game_count=len(games),
+            game_count=game_count,
             destination_fingerprint=fingerprint,
         )
 
