@@ -2,7 +2,7 @@ from __future__ import annotations
 
 """Transient compatibility probe for the exact real 2CBV corpus and pinned uncbv.
 
-The chess payload is downloaded into a TemporaryDirectory only.  The report
+The chess payload is downloaded into a TemporaryDirectory only. The report
 contains hashes, sizes, return codes and suffix/count topology; source bytes,
 entry names and extracted file contents are never persisted as evidence.
 """
@@ -29,21 +29,34 @@ SOURCE_SIZE = 40857
 MAX_CAPTURE_BYTES = 1024 * 1024
 MAX_EXTRACTED_FILES = 1024
 MAX_EXTRACTED_BYTES = 64 * 1024 * 1024
+_UNCBV_REJECTION_SUFFIX = ": not a cbv archive"
 
 
 class ProbeError(RuntimeError):
     pass
 
 
+def _is_uncbv_rejection_line(line: str) -> bool:
+    return line.strip().casefold().endswith(_UNCBV_REJECTION_SUFFIX)
+
+
 def _suffix_histogram(names: Iterable[str]) -> dict[str, int]:
     counts: Counter[str] = Counter()
     for raw in names:
         name = raw.strip().replace("\\", "/")
-        if not name:
+        if not name or _is_uncbv_rejection_line(name):
             continue
         suffix = PurePosixPath(name).suffix.casefold() or "<none>"
         counts[suffix] += 1
     return dict(sorted(counts.items()))
+
+
+def _command_accepted(result: dict[str, object]) -> bool:
+    return bool(
+        result.get("returncode") == 0
+        and not result.get("timed_out")
+        and not result.get("parser_rejected_as_cbv")
+    )
 
 
 def _run(binary: Path, args: list[str], *, cwd: Path) -> dict[str, object]:
@@ -59,7 +72,11 @@ def _run(binary: Path, args: list[str], *, cwd: Path) -> dict[str, object]:
             check=False,
         )
     except subprocess.TimeoutExpired:
-        return {"timed_out": True, "returncode": None}
+        return {
+            "timed_out": True,
+            "returncode": None,
+            "parser_rejected_as_cbv": False,
+        }
     stdout = completed.stdout
     stderr = completed.stderr
     if len(stdout) > MAX_CAPTURE_BYTES or len(stderr) > MAX_CAPTURE_BYTES:
@@ -68,6 +85,10 @@ def _run(binary: Path, args: list[str], *, cwd: Path) -> dict[str, object]:
         lines = stdout.decode("utf-8", errors="strict").splitlines()
     except UnicodeDecodeError:
         lines = []
+    parser_rejected = any(_is_uncbv_rejection_line(line) for line in lines)
+    listed_lines = [
+        line for line in lines if line.strip() and not _is_uncbv_rejection_line(line)
+    ]
     return {
         "timed_out": False,
         "returncode": completed.returncode,
@@ -75,8 +96,9 @@ def _run(binary: Path, args: list[str], *, cwd: Path) -> dict[str, object]:
         "stdout_sha256": sha256(stdout).hexdigest(),
         "stderr_bytes": len(stderr),
         "stderr_sha256": sha256(stderr).hexdigest(),
-        "listed_entry_count": len([line for line in lines if line.strip()]),
-        "listed_suffixes": _suffix_histogram(lines),
+        "parser_rejected_as_cbv": parser_rejected,
+        "listed_entry_count": len(listed_lines),
+        "listed_suffixes": _suffix_histogram(listed_lines),
     }
 
 
@@ -106,6 +128,12 @@ def _scan_extracted(root: Path) -> dict[str, object]:
     }
 
 
+def _assert_source_identity(path: Path) -> None:
+    data = path.read_bytes()
+    if len(data) != SOURCE_SIZE or sha256(data).hexdigest() != SOURCE_SHA256:
+        raise ProbeError("real 2CBV source identity changed during reader execution")
+
+
 def run_probe(binary: Path, expected_binary_sha256: str) -> dict[str, object]:
     binary = binary.resolve(strict=True)
     if not binary.is_file():
@@ -120,7 +148,7 @@ def run_probe(binary: Path, expected_binary_sha256: str) -> dict[str, object]:
         raise ProbeError("real 2CBV source identity changed")
 
     report: dict[str, object] = {
-        "schema_version": 1,
+        "schema_version": 2,
         "format": "2CBV",
         "source_url": SOURCE_URL,
         "final_url": final_url,
@@ -138,41 +166,50 @@ def run_probe(binary: Path, expected_binary_sha256: str) -> dict[str, object]:
         alias = root / "source.cbv"
         original.write_bytes(payload)
         shutil.copyfile(original, alias)
+        _assert_source_identity(original)
+        _assert_source_identity(alias)
 
         original_list = _run(binary, ["list", os.fspath(original)], cwd=root)
         alias_list = _run(binary, ["list", os.fspath(alias)], cwd=root)
         report["list_original_2cbv"] = original_list
         report["list_cbv_alias"] = alias_list
+        report["backend_recognizes_original_extension"] = _command_accepted(original_list)
+        report["backend_recognizes_payload_when_renamed_cbv"] = _command_accepted(alias_list)
+        report["backend_parser_rejected_exact_payload"] = bool(
+            original_list.get("parser_rejected_as_cbv")
+            and alias_list.get("parser_rejected_as_cbv")
+        )
 
-        alias_list_ok = alias_list.get("returncode") == 0 and not alias_list.get("timed_out")
-        original_list_ok = original_list.get("returncode") == 0 and not original_list.get("timed_out")
-        report["backend_recognizes_original_extension"] = bool(original_list_ok)
-        report["backend_recognizes_payload_when_renamed_cbv"] = bool(alias_list_ok)
+        output = root / "extracted"
+        output.mkdir()
+        extraction = _run(
+            binary,
+            ["extract", os.fspath(alias), f"--output={output}", "--no-confirm"],
+            cwd=root,
+        )
+        report["extract_cbv_alias"] = extraction
+        topology = _scan_extracted(output)
+        report["extracted_topology"] = topology
+        report["backend_can_extract_payload"] = bool(
+            _command_accepted(extraction) and topology["file_count"] > 0
+        )
 
-        if alias_list_ok:
-            output = root / "extracted"
-            output.mkdir()
-            extraction = _run(
-                binary,
-                ["extract", os.fspath(alias), f"--output={output}", "--no-confirm"],
-                cwd=root,
-            )
-            report["extract_cbv_alias"] = extraction
-            if extraction.get("returncode") == 0 and not extraction.get("timed_out"):
-                report["extracted_topology"] = _scan_extracted(output)
-                report["backend_can_extract_payload"] = True
-            else:
-                report["backend_can_extract_payload"] = False
-        else:
-            report["backend_can_extract_payload"] = False
+        _assert_source_identity(original)
+        _assert_source_identity(alias)
+        report["source_integrity_preserved"] = True
 
-    topology = report.get("extracted_topology")
+    if sha256(binary.read_bytes()).hexdigest() != backend_sha:
+        raise ProbeError("uncbv binary identity changed during reader execution")
+    report["backend_integrity_preserved"] = True
+
+    topology = report["extracted_topology"]
     suffixes = topology.get("suffixes", {}) if isinstance(topology, dict) else {}
     report["extracts_modern_2cbh_family"] = bool(
         report["backend_can_extract_payload"]
         and isinstance(suffixes, dict)
         and suffixes.get(".2cbh", 0) == 1
     )
+    report["semantic_comparison_status"] = "not_executed_no_decoded_gametree"
     report["decoder_qualified"] = False
     report["semantic_acceptance_executed"] = False
     return report

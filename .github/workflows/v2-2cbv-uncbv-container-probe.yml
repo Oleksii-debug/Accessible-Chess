@@ -86,19 +86,35 @@ jobs:
 
           path = Path(f"2cbv-uncbv-{sys.argv[1]}.json")
           report = json.loads(path.read_text(encoding="utf-8"))
+          assert report["schema_version"] == 2
           assert report["source_sha256"] == os.environ["SOURCE_SHA256"]
           assert report["source_size"] == 40857
+          assert report["source_integrity_preserved"] is True
+          assert report["backend_integrity_preserved"] is True
           assert report["payload_persisted"] is False
           assert report["payload_uploaded_as_artifact"] is False
           assert report["support_promotion_allowed"] is False
+          assert report["backend_parser_rejected_exact_payload"] is True
+          assert report["list_original_2cbv"]["parser_rejected_as_cbv"] is True
+          assert report["list_cbv_alias"]["parser_rejected_as_cbv"] is True
+          assert report["extract_cbv_alias"]["parser_rejected_as_cbv"] is True
+          assert report["list_original_2cbv"]["listed_entry_count"] == 0
+          assert report["list_cbv_alias"]["listed_entry_count"] == 0
+          assert report["backend_recognizes_original_extension"] is False
+          assert report["backend_recognizes_payload_when_renamed_cbv"] is False
+          assert report["backend_can_extract_payload"] is False
+          assert report["extracted_topology"]["file_count"] == 0
+          assert report["extracted_topology"]["total_bytes"] == 0
+          assert report["extracts_modern_2cbh_family"] is False
+          assert report["semantic_comparison_status"] == "not_executed_no_decoded_gametree"
           assert report["decoder_qualified"] is False
           assert report["semantic_acceptance_executed"] is False
           print(
               "2CBV uncbv evidence:",
-              "original=", report["backend_recognizes_original_extension"],
-              "renamed=", report["backend_recognizes_payload_when_renamed_cbv"],
+              "parser_rejected=", report["backend_parser_rejected_exact_payload"],
               "extract=", report["backend_can_extract_payload"],
               "2cbh=", report["extracts_modern_2cbh_family"],
+              "integrity=", report["source_integrity_preserved"],
           )
           PY
 
