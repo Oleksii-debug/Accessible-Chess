@@ -362,24 +362,30 @@ class V1RuntimeBridgeCoordinator:
         if bool(marker.get("has_settings")):
             if not self.layout.settings_path.is_file():
                 raise V1RuntimeBridgeError("completed V2 settings are missing")
-            if "settings" in sources:
-                expected = identities.get("settings_sha256")
-                if not isinstance(expected, str) or _hash(sources["settings"]) != expected:
-                    raise V1RuntimeBridgeError(
-                        "legacy settings changed after the completed V2 migration"
-                    )
+            if "settings" not in sources:
+                raise V1RuntimeBridgeError(
+                    "legacy settings disappeared after the completed V2 migration"
+                )
+            expected = identities.get("settings_sha256")
+            if not isinstance(expected, str) or _hash(sources["settings"]) != expected:
+                raise V1RuntimeBridgeError(
+                    "legacy settings changed after the completed V2 migration"
+                )
         if bool(marker.get("has_library")):
             if not self.layout.library_path.is_file():
                 raise V1RuntimeBridgeError("completed V2 library is missing")
-            if "library" in sources:
-                expected = identities.get("library_state_sha256")
-                if (
-                    not isinstance(expected, str)
-                    or _legacy_sqlite_state(sources["library"]) != expected
-                ):
-                    raise V1RuntimeBridgeError(
-                        "legacy library changed after the completed V2 migration"
-                    )
+            if "library" not in sources:
+                raise V1RuntimeBridgeError(
+                    "legacy library disappeared after the completed V2 migration"
+                )
+            expected = identities.get("library_state_sha256")
+            if (
+                not isinstance(expected, str)
+                or _legacy_sqlite_state(sources["library"]) != expected
+            ):
+                raise V1RuntimeBridgeError(
+                    "legacy library changed after the completed V2 migration"
+                )
 
         return V1RuntimeBridgeReport(
             status="already_migrated",
