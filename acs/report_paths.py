@@ -2,10 +2,9 @@ from __future__ import annotations
 
 """Portable report-only path sanitization.
 
-Internal paths remain available to filesystem code. Serialized reports and
-user-facing diagnostics must never depend on the host OS interpretation of a
-foreign path syntax. Safe relative provenance may be retained, but absolute
-workstation directories must not cross report boundaries.
+Internal paths remain available to filesystem code. User-facing diagnostics and
+serialized reports must not expose absolute workstation directories, regardless
+of whether the submitted path uses POSIX or Windows separators.
 """
 
 import os
@@ -15,11 +14,10 @@ from typing import Any
 def report_safe_name(path: Any) -> str:
     """Return portable relative provenance or a basename for private paths.
 
-    Both slash conventions are recognized lexically, independent of the host
-    OS. Absolute POSIX paths, Windows drive paths and UNC paths are reduced to
-    their final component. Safe relative paths are preserved with ``/`` so a
-    stable provenance such as ``incoming/game.cbh`` is not needlessly lost.
-    Any relative traversal component fails closed to the final basename.
+    Safe relative provenance such as ``incoming/game.pgn`` is retained and
+    normalized to ``/``. Absolute POSIX paths, Windows drive-qualified paths
+    (including drive-relative ``C:folder/file`` forms), UNC paths, and relative
+    traversal fail closed to a basename.
     """
 
     try:
@@ -39,13 +37,12 @@ def report_safe_name(path: Any) -> str:
 
     is_posix_absolute = text.startswith("/")
     is_unc_absolute = text.startswith("//")
-    is_windows_drive_absolute = (
-        len(text) >= 3
+    is_windows_drive_qualified = (
+        len(text) >= 2
         and text[0].isalpha()
         and text[1] == ":"
-        and text[2] == "/"
     )
-    if is_posix_absolute or is_unc_absolute or is_windows_drive_absolute:
+    if is_posix_absolute or is_unc_absolute or is_windows_drive_qualified:
         return basename
 
     parts = [part for part in text.split("/") if part not in {"", "."}]

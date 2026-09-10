@@ -1,0 +1,334 @@
+name: D04 Classic CBH CBV Current Formats Convergence
+
+on:
+  push:
+    branches:
+      - work/d04-classic-cbh-cbv-metadata-current-formats-20260910
+  pull_request:
+    paths:
+      - '.github/workflows/d04-classic-current-formats-convergence.yml'
+      - 'acs/cbv_extractor.py'
+      - 'acs/chessbase_decoder.py'
+      - 'acs/chessbase_integrity.py'
+      - 'acs/chessbase_library_import.py'
+      - 'acs/chessbase_metadata.py'
+      - 'acs/chesscore.py'
+      - 'acs/report_paths.py'
+      - 'docs/automation/V2_CBH_ANNOTATION_CAPABILITY.json'
+      - 'tests/test_cbv_extractor.py'
+      - 'tests/test_cbv_uncbv_external_fixture.py'
+      - 'tests/test_d04_cbh_backend_immutability.py'
+      - 'tests/test_d04_chessbase_integrity_handle_identity.py'
+      - 'tests/test_d04_drive_relative_report_privacy.py'
+      - 'tests/test_v2_a4_canonical_nullmove.py'
+      - 'tests/test_v2_chessbase_metadata.py'
+      - 'tests/test_v2_dev07_cbh_canonical_adapter.py'
+      - 'tests/test_v2_dev07_cbh_real_corpora.py'
+      - 'tests/test_v2_dev09_cbh_annotations_variations.py'
+      - 'tests/test_version2_formats_integration.py'
+      - 'tests/v2_chessbase_metadata_probe.py'
+      - 'tools/optional/libcbh_json_bridge.cpp'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: d04-classic-current-formats-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  FORMATS_AUTHORITY: 9f1db6655d4568428952bc252667fa3730ba492f
+  LIBCBH_COMMIT: 9641c5c3949d8fb210b17dd9aa54455645843696
+  UNCBV_COMMIT: 3c18e8a7c6a30c21f945a1ab5462521c306dca57
+  EXPECTED_UNCBV_SHA256: ce1488f9d451bba75409b303ef6b82fd27654ac129613960e5a755653baf96ec
+  EXPECTED_TWIC_CBV_SHA256: b87ec2039d2f34941f73e17e36cc01e090286f0054437a9a5e0e279acbf4ed3f
+  EXPECTED_TWIC_PGN_ZIP_SHA256: e5ed447adaff1c06f9d646f5dec93c68d89bf1b7a761537cf2533be2e11f5984
+
+jobs:
+  focused-current-formats:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 70
+    steps:
+      - name: Checkout exact convergence head
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install pinned test dependency
+        run: python -m pip install -q pytest==8.4.2
+
+      - name: Prove exact Formats ancestry and bounded convergence scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor "$FORMATS_AUTHORITY" HEAD
+          git diff --check "$FORMATS_AUTHORITY" HEAD
+          changed="$(git diff --name-only "$FORMATS_AUTHORITY" HEAD | sort)"
+          allowed="$(printf '%s\n' \
+            .github/workflows/d04-classic-current-formats-convergence.yml \
+            acs/cbv_extractor.py \
+            acs/chessbase_decoder.py \
+            acs/chessbase_integrity.py \
+            acs/chessbase_library_import.py \
+            acs/chessbase_metadata.py \
+            acs/chesscore.py \
+            acs/report_paths.py \
+            docs/automation/V2_CBH_ANNOTATION_CAPABILITY.json \
+            tests/test_cbv_extractor.py \
+            tests/test_cbv_uncbv_external_fixture.py \
+            tests/test_d04_cbh_backend_immutability.py \
+            tests/test_d04_chessbase_integrity_handle_identity.py \
+            tests/test_d04_drive_relative_report_privacy.py \
+            tests/test_v2_a4_canonical_nullmove.py \
+            tests/test_v2_chessbase_metadata.py \
+            tests/test_v2_dev07_cbh_canonical_adapter.py \
+            tests/test_v2_dev07_cbh_real_corpora.py \
+            tests/test_v2_dev09_cbh_annotations_variations.py \
+            tests/test_version2_formats_integration.py \
+            tests/v2_chessbase_metadata_probe.py \
+            tools/optional/libcbh_json_bridge.cpp | sort)"
+          test "$changed" = "$allowed" || {
+            printf 'Unexpected D04 successor scope:\n%s\n' "$changed" >&2
+            exit 1
+          }
+          git diff --quiet "$FORMATS_AUTHORITY" HEAD -- \
+            acs/acsdb.py \
+            acs/search_service.py \
+            acs/search_policy.py \
+            acs/library_import_service.py \
+            acs/game_identity.py \
+            acs/pgn_service.py
+
+      - name: Lock accepted owner bytes and composed bridge
+        shell: bash
+        run: |
+          set -euo pipefail
+          while IFS='=' read -r path expected; do
+            actual="$(git rev-parse "HEAD:$path")"
+            test "$actual" = "$expected" || {
+              printf 'Convergence blob mismatch: %s expected=%s actual=%s\n' "$path" "$expected" "$actual" >&2
+              exit 1
+            }
+          done <<'LOCKS'
+          acs/cbv_extractor.py=3203c8b6abf98ba95871108dbac5db1c666b2238
+          acs/chessbase_decoder.py=25073fa9f06d195ad0dbb06c40599cd99359a188
+          acs/chessbase_integrity.py=44d63f9c97251ad17e8f71af196b39ed7854b9f7
+          acs/chessbase_library_import.py=ed696cd110490e77358791be2abd80db628a8d73
+          acs/chessbase_metadata.py=37797764f83d807f667ef049e760257aec131342
+          acs/chesscore.py=bac342635e2723b970425c7bf5cc17850bcef59f
+          acs/report_paths.py=217185ea53d04584103200698df2568af093af46
+          docs/automation/V2_CBH_ANNOTATION_CAPABILITY.json=21625a8b72e14f11c911cb14d14cd6276e9e06b5
+          tests/test_cbv_extractor.py=1ae29c6151724789fc342f2e97c22649ce3539b5
+          tests/test_cbv_uncbv_external_fixture.py=6476070e952188d94e27eafedaf1b3613fcdb316
+          tests/test_d04_cbh_backend_immutability.py=62083b14b5c93c6065983d2b665f2dd1c546c8bf
+          tests/test_d04_chessbase_integrity_handle_identity.py=374d233142ae98bd2c76ca3a10e0f4b80d45bc3d
+          tests/test_d04_drive_relative_report_privacy.py=593c86558fb173f454cecbe5ee399355662b8e59
+          tests/test_v2_a4_canonical_nullmove.py=836a40a5c5892b5addc65a7e63ce6dffbe29b220
+          tests/test_v2_chessbase_metadata.py=60ff0655005ae81f116e62748f40451216c7d812
+          tests/test_v2_dev07_cbh_canonical_adapter.py=722555c1d917a10efc7370bd0e59d61bc70bb7f2
+          tests/test_v2_dev07_cbh_real_corpora.py=7482e10d36341e178637e24caa1031d0761c821b
+          tests/test_v2_dev09_cbh_annotations_variations.py=6f4c2e7b5eb89cba10144bc86c872bc9789a492c
+          tests/test_version2_formats_integration.py=31e21a1384596278d39a50146c6b6f92167c7ace
+          tests/v2_chessbase_metadata_probe.py=bf15a35f379348185d09637167aee14e87f7194f
+          tools/optional/libcbh_json_bridge.cpp=c7b75442be885c92ccf728ba71b57f1f81a9d10d
+          LOCKS
+
+      - name: Prove blocked formats are not claimed by this classic capability
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          data = json.loads(Path('docs/automation/V2_CBH_ANNOTATION_CAPABILITY.json').read_text(encoding='utf-8'))
+          assert data.get('scope') == 'classic-cbh-annotations-through-pinned-libcbh'
+          rendered = json.dumps(data, ensure_ascii=False).casefold()
+          assert 'cbf_cbi_2cbh_cbone_cbz_support' in rendered
+          PY
+
+      - name: Compile convergence
+        run: python -m compileall -q acs tests run_accessible_chess.py
+
+      - name: Focused classic CBH CBV metadata D07 publication regressions
+        run: >-
+          python -m unittest -v
+          tests.test_cbv_extractor
+          tests.test_chessbase_decoder
+          tests.test_chessbase_integrity
+          tests.test_d04_cbh_backend_immutability
+          tests.test_d04_chessbase_integrity_handle_identity
+          tests.test_d04_drive_relative_report_privacy
+          tests.test_import_contract
+          tests.test_v2_a4_canonical_nullmove
+          tests.test_v2_chessbase_metadata
+          tests.test_v2_dev07_cbh_canonical_adapter
+          tests.test_version2_formats_integration
+
+      - name: Focused pytest parity
+        run: >-
+          python -m pytest -q
+          tests/test_cbv_extractor.py
+          tests/test_chessbase_decoder.py
+          tests/test_chessbase_integrity.py
+          tests/test_d04_cbh_backend_immutability.py
+          tests/test_d04_chessbase_integrity_handle_identity.py
+          tests/test_d04_drive_relative_report_privacy.py
+          tests/test_v2_a4_canonical_nullmove.py
+          tests/test_v2_chessbase_metadata.py
+          tests/test_v2_dev07_cbh_canonical_adapter.py
+          tests/test_version2_formats_integration.py
+
+      - name: SELFTEST and diagnostic
+        run: |
+          python -m acs.selftest
+          python run_accessible_chess.py --diagnostic
+
+  real-pinned-chessbase:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 110
+    steps:
+      - name: Checkout exact convergence head
+        uses: actions/checkout@v4
+        with:
+          path: product
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Checkout pinned lawful libcbh corpus
+        uses: actions/checkout@v4
+        with:
+          repository: rolandlo/libcbh
+          ref: 9641c5c3949d8fb210b17dd9aa54455645843696
+          path: upstream/libcbh
+          fetch-depth: 1
+
+      - name: Checkout pinned lawful uncbv corpus
+        uses: actions/checkout@v4
+        with:
+          repository: antoyo/uncbv
+          ref: 3c18e8a7c6a30c21f945a1ab5462521c306dca57
+          path: upstream/uncbv
+          fetch-depth: 1
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Build pinned libcbh and composed bridge
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S upstream/libcbh -B upstream/libcbh/build -DCMAKE_BUILD_TYPE=Release -DGTEST=OFF
+          cmake --build upstream/libcbh/build --config Release --parallel 2
+          mkdir -p product/build/libcbh
+          c++ -std=c++20 -O2 \
+            -DLIBCBH_SOURCE_COMMIT=\"$LIBCBH_COMMIT\" \
+            -I upstream/libcbh/include \
+            product/tools/optional/libcbh_json_bridge.cpp \
+            -L upstream/libcbh/build -lcbh \
+            -Wl,-rpath,'$ORIGIN' \
+            -o product/build/libcbh/libcbh-json-bridge
+          cp -a upstream/libcbh/build/libcbh.so* product/build/libcbh/
+          test -x product/build/libcbh/libcbh-json-bridge
+
+      - name: Build and fingerprint pinned uncbv and CBV corpus
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo build --release --locked --manifest-path upstream/uncbv/Cargo.toml
+          test -x upstream/uncbv/target/release/uncbv
+          uncbv_sha="$(sha256sum upstream/uncbv/target/release/uncbv | cut -d' ' -f1)"
+          cbv_sha="$(sha256sum upstream/uncbv/tests/twic1134.cbv | cut -d' ' -f1)"
+          test "$uncbv_sha" = "$EXPECTED_UNCBV_SHA256"
+          test "$cbv_sha" = "$EXPECTED_TWIC_CBV_SHA256"
+          echo "UNCBV_BINARY_SHA256=$uncbv_sha" >> "$GITHUB_ENV"
+          echo "TWIC_CBV_SHA256=$cbv_sha" >> "$GITHUB_ENV"
+          printf 'UNCBV_SHA256=%s\nTWIC1134_CBV_SHA256=%s\n' "$uncbv_sha" "$cbv_sha"
+
+      - name: Acquire and fingerprint independent lawful TWIC 1134 PGN oracle
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p transient-corpus/twic1134
+          curl --fail --location --retry 3 --connect-timeout 30 \
+            https://theweekinchess.com/zips/twic1134g.zip \
+            -o transient-corpus/twic1134g.zip
+          zip_sha="$(sha256sum transient-corpus/twic1134g.zip | cut -d' ' -f1)"
+          test "$zip_sha" = "$EXPECTED_TWIC_PGN_ZIP_SHA256"
+          pgn_member="$(unzip -Z1 transient-corpus/twic1134g.zip | grep -Ei '\.pgn$' | head -n 1)"
+          test "$pgn_member" = "twic1134.pgn"
+          unzip -q transient-corpus/twic1134g.zip -d transient-corpus/twic1134
+          pgn_path="$(realpath "transient-corpus/twic1134/$pgn_member")"
+          test -s "$pgn_path"
+          echo "TWIC_PGN_FIXTURE=$pgn_path" >> "$GITHUB_ENV"
+          printf 'TWIC1134_PGN_ZIP_SHA256=%s\nTWIC1134_PGN_MEMBER=%s\n' "$zip_sha" "$pgn_member"
+
+      - name: Real pinned classic CBH CBV semantic journeys
+        working-directory: product
+        shell: bash
+        env:
+          LIBCBH_BRIDGE: ${{ github.workspace }}/product/build/libcbh/libcbh-json-bridge
+          LIBCBH_ROOT: ${{ github.workspace }}/upstream/libcbh
+          LIBCBH_FIXTURE_DIR: ${{ github.workspace }}/upstream/libcbh/gtest/WithVariations
+          LIBCBH_ANNOTATION_DIR: ${{ github.workspace }}/upstream/libcbh/gtest/Annotation
+          LIBCBH_VARIATION_DIR: ${{ github.workspace }}/upstream/libcbh/gtest/WithVariations
+          LIBCBH_UNUSUAL_DIR: ${{ github.workspace }}/upstream/libcbh/gtest/UnusualStart
+          UNCBV_BINARY: ${{ github.workspace }}/upstream/uncbv/target/release/uncbv
+          UNCBV_FIXTURE: ${{ github.workspace }}/upstream/uncbv/tests/twic1134.cbv
+          UNCBV_SMALL_FIXTURE: ${{ github.workspace }}/upstream/uncbv/tests/small.cbv
+        run: |
+          set -o pipefail
+          {
+            python -m unittest -v tests.test_chessbase_libcbh_external_fixture
+            python -m unittest -v tests.test_v2_dev07_cbh_real_corpora
+            python -m unittest -v tests.test_v2_dev09_cbh_annotations_variations
+            python -m unittest -v tests.test_cbv_uncbv_external_fixture
+            python -m unittest -v tests.test_version2_formats_integration
+          } 2>&1 | tee real-pinned.log
+
+      - name: Real 6117-game metadata Library Search Export Reopen oracle
+        working-directory: product
+        shell: bash
+        env:
+          V2_METADATA_BASE_SHA: ${{ env.FORMATS_AUTHORITY }}
+          LIBCBH_BRIDGE: ${{ github.workspace }}/product/build/libcbh/libcbh-json-bridge
+          UNCBV_BINARY: ${{ github.workspace }}/upstream/uncbv/target/release/uncbv
+          UNCBV_FIXTURE: ${{ github.workspace }}/upstream/uncbv/tests/twic1134.cbv
+        run: |
+          set -o pipefail
+          python -m tests.v2_chessbase_metadata_probe 2>&1 | tee metadata-pinned.log
+
+      - name: Default product tree excludes optional external backends
+        working-directory: product
+        shell: bash
+        run: |
+          set -euo pipefail
+          test ! -e libcbh-json-bridge
+          test ! -e libcbh.so
+          test ! -e uncbv
+          test -z "$(git status --porcelain --untracked-files=no)"
+
+      - name: Remove transient copyrighted corpus before artifact publication
+        if: always()
+        shell: bash
+        run: rm -rf transient-corpus upstream/uncbv/tests/*.cbv upstream/uncbv/tests/*.cbz || true
+
+      - name: Upload bounded real-corpus diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: d04-classic-current-real-pinned
+          path: |
+            product/real-pinned.log
+            product/metadata-pinned.log
+            product/chessbase-metadata-summary.json
+          if-no-files-found: ignore
+          retention-days: 7
