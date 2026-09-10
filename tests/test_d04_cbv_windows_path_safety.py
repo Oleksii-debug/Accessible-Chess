@@ -10,6 +10,7 @@ from acs.cbv_extractor import (
     CbvExtractCode,
     CbvExtractError,
     ExternalCbvExtractorConfig,
+    _validate_output_inventory_names,
     extract_cbv_external,
 )
 
@@ -31,41 +32,87 @@ class CbvWindowsPathSafetyTests(unittest.TestCase):
             timeout_seconds=3,
         )
 
-    def test_windows_special_or_ambiguous_names_fail_before_extraction(self) -> None:
-        unsafe_entries = (
-            "CON.cbh",
-            "nested/prn.cbg",
-            "nested/AUX.txt",
-            "nested/NUL",
-            "nested/COM1.cba",
-            "nested/com9.anything",
-            "nested/LPT1.cbt",
-            "nested/lpt9.txt",
-            "nested/CLOCK$.cbh",
-            "nested/COM¹.cbh",
-            "nested/LPT³.cbg",
+    @staticmethod
+    def _unsafe_windows_names() -> tuple[str, ...]:
+        reserved = (
+            "CON",
+            "PRN",
+            "AUX",
+            "NUL",
+            "CLOCK$",
+            *(f"COM{index}" for index in range(1, 10)),
+            *(f"LPT{index}" for index in range(1, 10)),
+            "COM¹",
+            "COM²",
+            "COM³",
+            "LPT¹",
+            "LPT²",
+            "LPT³",
+        )
+        reserved_paths = tuple(
+            path
+            for name in reserved
+            for path in (f"nested/{name}", f"nested/{name.lower()}.cbh")
+        )
+        forbidden = tuple(
+            f"nested/bad{character}name.cbh"
+            for character in '<>:"|?*'
+        )
+        controls = tuple(
+            f"nested/bad{chr(codepoint)}name.cbh"
+            for codepoint in range(32)
+            if codepoint != 10  # LF is the backend record separator, never an entry character.
+        )
+        return (
+            *reserved_paths,
             "nested/database.cbh:secret",
-            "nested/bad?.cbh",
-            "nested/bad*.cbh",
-            "nested/bad\".cbh",
-            "nested/bad<.cbh",
-            "nested/bad>.cbh",
-            "nested/bad|.cbh",
+            *forbidden,
+            *controls,
             "nested/trailing-dot.cbh.",
             "nested/trailing-space.cbh ",
-            "nested/control\tname.cbh",
+            "/absolute/database.cbh",
+            r"\rooted\database.cbh",
+            "C:/private/database.cbh",
+            r"C:\private\database.cbh",
+            r"C:relative\database.cbh",
+            r"\\server\share\database.cbh",
+            "../escape.cbh",
+            "nested/../escape.cbh",
+            "nested/deeper/../../escape.cbh",
         )
-        for entry in unsafe_entries:
-            with self.subTest(entry=entry):
-                payload = (entry + "\n").encode("utf-8")
+
+    def _assert_list_rejected_before_extract(self, entry: str) -> None:
+        payload = (entry + "\n").encode("utf-8")
+        with mock.patch("acs.cbv_extractor._run_uncbv", return_value=payload) as runner:
+            with self.assertRaises(CbvExtractError) as caught:
+                extract_cbv_external(self.source, self.output, self.config)
+        self.assertEqual(caught.exception.code, CbvExtractCode.INVALID_ENTRY)
+        self.assertEqual(
+            [call.args[1][0] for call in runner.call_args_list],
+            ["list"],
+            "unsafe archive entry must stop after exactly one list call",
+        )
+
+    def test_exhaustive_windows_unsafe_names_fail_before_extraction(self) -> None:
+        for entry in self._unsafe_windows_names():
+            with self.subTest(entry=repr(entry)):
+                self._assert_list_rejected_before_extract(entry)
+
+    def test_case_collisions_fail_before_extraction(self) -> None:
+        unsafe_lists = (
+            b"same.cbh\nSAME.CBH\n",
+            b"Folder/A.cbh\nfolder/B.cbg\n",
+            b"Folder/A.cbh\nFOLDER/A.CBH\n",
+        )
+        for payload in unsafe_lists:
+            with self.subTest(payload=payload):
                 with mock.patch("acs.cbv_extractor._run_uncbv", return_value=payload) as runner:
                     with self.assertRaises(CbvExtractError) as caught:
                         extract_cbv_external(self.source, self.output, self.config)
                 self.assertEqual(caught.exception.code, CbvExtractCode.INVALID_ENTRY)
                 self.assertEqual(
-                    runner.call_count,
-                    1,
-                    "unsafe archive entry reached the extraction invocation",
+                    [call.args[1][0] for call in runner.call_args_list],
+                    ["list"],
                 )
 
     def test_non_lf_inventory_separators_fail_before_extraction(self) -> None:
@@ -92,6 +139,38 @@ class CbvWindowsPathSafetyTests(unittest.TestCase):
                     "unsafe inventory must perform exactly one list call and zero extract calls",
                 )
 
+    def test_actual_output_inventory_reuses_complete_windows_name_policy(self) -> None:
+        for entry in self._unsafe_windows_names():
+            with self.subTest(entry=repr(entry)):
+                with self.assertRaises(CbvExtractError) as caught:
+                    _validate_output_inventory_names(set(), {entry})
+                self.assertEqual(caught.exception.code, CbvExtractCode.OUTPUT_INVALID)
+
+    def test_actual_output_inventory_rejects_case_collisions(self) -> None:
+        inventories = (
+            (set(), {"same.cbh", "SAME.CBH"}),
+            ({"Folder", "folder"}, {"Folder/A.cbh"}),
+            ({"Folder"}, {"Folder/A.cbh", "FOLDER/A.CBG"}),
+        )
+        for directories, files in inventories:
+            with self.subTest(directories=directories, files=files):
+                with self.assertRaises(CbvExtractError) as caught:
+                    _validate_output_inventory_names(directories, files)
+                self.assertEqual(caught.exception.code, CbvExtractCode.OUTPUT_INVALID)
+
+    def test_unlisted_empty_output_directory_is_rejected(self) -> None:
+        def runner(_executable, arguments, _config, **_kwargs):
+            if arguments[0] == "list":
+                return b"Archive.cbh\n"
+            (self.output / "Archive.cbh").write_bytes(b"header")
+            (self.output / "unexpected-empty-directory").mkdir()
+            return b""
+
+        with mock.patch("acs.cbv_extractor._run_uncbv", side_effect=runner):
+            with self.assertRaises(CbvExtractError) as caught:
+                extract_cbv_external(self.source, self.output, self.config)
+        self.assertEqual(caught.exception.code, CbvExtractCode.OUTPUT_INVALID)
+
     def test_crlf_inventory_remains_valid(self) -> None:
         commands: list[str] = []
 
@@ -113,29 +192,39 @@ class CbvWindowsPathSafetyTests(unittest.TestCase):
         self.assertEqual(result.entry_count, 3)
         self.assertEqual(commands, ["list", "extract"])
 
-    def test_normal_nested_chessbase_names_remain_valid(self) -> None:
+    def test_legitimate_nested_unicode_and_device_like_names_remain_valid(self) -> None:
+        entries = (
+            "Training Set/Україна 2026/Database.v1.cbh",
+            "Training Set/Україна 2026/COM10.cbg",
+            "Training Set/Україна 2026/LPT10.cba",
+            "Training Set/Україна 2026/clock.cbt",
+            "Training Set/Україна 2026/auxiliary name.cbj",
+        )
+
         def runner(_executable, arguments, _config, *, cwd, monitor_directory=None):
             if arguments[0] == "list":
-                return (
-                    "Training Set/Database.v1.cbh\n"
-                    "Training Set/Database.v1.cbg\n"
-                    "Training Set/Database.v1.cba\n"
-                ).encode("utf-8")
+                return ("\n".join(entries) + "\n").encode("utf-8")
             self.assertEqual(arguments[0], "extract")
             self.assertEqual(Path(cwd), self.output)
             self.assertEqual(Path(monitor_directory), self.output)
-            nested = self.output / "Training Set"
-            nested.mkdir()
-            (nested / "Database.v1.cbh").write_bytes(b"header")
-            (nested / "Database.v1.cbg").write_bytes(b"moves")
-            (nested / "Database.v1.cba").write_bytes(b"annotations")
+            for entry in entries:
+                target = self.output.joinpath(*entry.split("/"))
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(entry.encode("utf-8"))
             return b""
 
         with mock.patch("acs.cbv_extractor._run_uncbv", side_effect=runner):
             result = extract_cbv_external(self.source, self.output, self.config)
 
-        self.assertEqual(result.primary_path, self.output / "Training Set" / "Database.v1.cbh")
-        self.assertEqual(result.entry_count, 3)
+        self.assertEqual(
+            result.primary_path,
+            self.output / "Training Set" / "Україна 2026" / "Database.v1.cbh",
+        )
+        self.assertEqual(result.entry_count, len(entries))
+        _validate_output_inventory_names(
+            {"Training Set", "Training Set/Україна 2026"},
+            set(entries),
+        )
 
 
 if __name__ == "__main__":
