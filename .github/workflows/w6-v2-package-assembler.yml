@@ -21,7 +21,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  PACKAGE_PREFLIGHT_PARENT: d5e5ae78157193927907dfa3b3af507168bfd9fe
+  PACKAGE_PREFLIGHT_PARENT: 52184fa77adeee2ac16f195c2262784e17e86727
 
 jobs:
   focused:
