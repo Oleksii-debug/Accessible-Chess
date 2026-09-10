@@ -23,7 +23,7 @@ concurrency:
 
 env:
   PRODUCT_PR: '448'
-  PRODUCT_HEAD: d4b4c0a9351bfbfa46398668aedfa70ee108b244
+  PRODUCT_HEAD: 6a9e28d3ff22c7463c0dd5167fc753bb467664cf
 
 jobs:
   windows-crash-restart-oracle:
