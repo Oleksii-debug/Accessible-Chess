@@ -24,7 +24,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          ref: work/d07-library-filtered-export-streaming-20260907
+          ref: ${{ github.sha }}
 
       - name: Preserve canonical Git bytes
         shell: bash
@@ -42,11 +42,13 @@ jobs:
       - name: Install verification dependency
         run: python -m pip install -q pytest==8.4.2
 
-      - name: Prove current Formats ancestry and narrow ownership
+      - name: Prove owner history current Formats ancestry and narrow ownership
         shell: bash
         run: |
           set -euo pipefail
-          base=a5ddee60af2ed423d3f6e51edfb3e8219fa2b57a
+          old_owner=08c79d7fd2c937d4792b65288df73e1f2a1852bc
+          base=9f1db6655d4568428952bc252667fa3730ba492f
+          git merge-base --is-ancestor "$old_owner" HEAD
           git merge-base --is-ancestor "$base" HEAD
           git diff --check "$base" HEAD
           unexpected="$(git diff --name-only "$base" HEAD | grep -v -E '^(\.github/workflows/d07-library-filtered-export-streaming\.yml|acs/library_export_service\.py|tests/test_d07_library_export_service\.py)$' || true)"
