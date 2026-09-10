@@ -56,10 +56,29 @@ class V2LibraryPresentationPathPrivacyTests(unittest.TestCase):
             language=language,
         )
 
-    @staticmethod
-    def _assert_private_path_hidden(test: unittest.TestCase, visible: object) -> None:
-        text = repr(visible)
-        test.assertIn("local path hidden", text.casefold())
+    @classmethod
+    def _visible_text(cls, value: object) -> str:
+        if isinstance(value, str):
+            return value
+        if isinstance(value, dict):
+            return " ".join(cls._visible_text(item) for item in value.values())
+        if isinstance(value, (tuple, list)):
+            return " ".join(cls._visible_text(item) for item in value)
+        return str(value)
+
+    @classmethod
+    def _assert_private_path_hidden(
+        cls,
+        test: unittest.TestCase,
+        visible: object,
+        raw: str,
+        *,
+        require_placeholder: bool,
+    ) -> None:
+        text = cls._visible_text(visible)
+        if require_placeholder:
+            test.assertIn("local path hidden", text.casefold())
+        test.assertNotIn(raw, text)
         test.assertNotIn("PrivateUser", text)
         test.assertNotIn("private-share", text)
 
@@ -74,6 +93,8 @@ class V2LibraryPresentationPathPrivacyTests(unittest.TestCase):
                 )
                 self.assertIn("[local path hidden]", english)
                 self.assertIn("[локальний шлях приховано]", ukrainian)
+                self.assertNotIn(raw, english)
+                self.assertNotIn(raw, ukrainian)
                 self.assertNotIn("PrivateUser", english)
                 self.assertNotIn("PrivateUser", ukrainian)
                 self.assertNotIn("private-share", english)
@@ -104,6 +125,8 @@ class V2LibraryPresentationPathPrivacyTests(unittest.TestCase):
                         "source_label": ready_snapshot["rows"][0]["source_label"],
                         "result": ready_snapshot["rows"][0]["result"],
                     },
+                    raw,
+                    require_placeholder=True,
                 )
 
                 error_view = LibraryView(
@@ -121,6 +144,8 @@ class V2LibraryPresentationPathPrivacyTests(unittest.TestCase):
                         "message": error_snapshot["message"],
                         "summary": error_snapshot["summary"],
                     },
+                    raw,
+                    require_placeholder=True,
                 )
 
     def test_import_error_message_progress_and_nvda_announcement_are_scrubbed(self) -> None:
@@ -139,6 +164,8 @@ class V2LibraryPresentationPathPrivacyTests(unittest.TestCase):
                         "progress_label": event.payload["import"]["progress_label"],
                         "announcement": event.payload["announcement"],
                     },
+                    raw,
+                    require_placeholder=False,
                 )
 
     def test_safe_call_error_event_is_scrubbed(self) -> None:
@@ -157,7 +184,12 @@ class V2LibraryPresentationPathPrivacyTests(unittest.TestCase):
 
                 event = projection.safe_call(fail)
                 self.assertEqual("error", event.kind)
-                self._assert_private_path_hidden(self, event.payload)
+                self._assert_private_path_hidden(
+                    self,
+                    event.payload,
+                    raw,
+                    require_placeholder=False,
+                )
 
     def test_safe_domain_text_is_preserved(self) -> None:
         safe_values = (
