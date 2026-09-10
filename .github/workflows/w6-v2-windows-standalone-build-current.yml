@@ -1,0 +1,136 @@
+name: W6 V2 Windows Standalone Build Current
+
+on:
+  push:
+    branches:
+      - work/w6-v2-windows-standalone-build-current-20260910
+    paths:
+      - '.github/workflows/w6-v2-windows-standalone-build-current.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: w6-v2-standalone-current-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PRODUCT_PARENT: 0343b828315b97426e857cd0692626d9d67adcfe
+  PYTHON_VERSION: '3.12.10'
+  PYWEBVIEW_VERSION: '6.2.1'
+  NUITKA_UPSTREAM_FIX_COMMIT: b7ea05bf570e0b6950de6db7c4c8e579e1b77d29
+  ORDERED_SET_VERSION: '4.1.0'
+  ZSTANDARD_VERSION: '0.25.0'
+
+jobs:
+  windows-standalone-build:
+    runs-on: windows-2025
+    timeout-minutes: 55
+    steps:
+      - name: Checkout exact evidence successor
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+
+      - name: Prove exact W5 Product and workflow-only mutation
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = "$PRODUCT_PARENT"
+          mapfile -t changed < <(git diff --name-only "$PRODUCT_PARENT" HEAD)
+          test "${#changed[@]}" -eq 1
+          test "${changed[0]}" = '.github/workflows/w6-v2-windows-standalone-build-current.yml'
+          git diff --check "$PRODUCT_PARENT" HEAD
+          echo "PRODUCT_SHA=$PRODUCT_PARENT"
+          echo "EVIDENCE_SHA=$(git rev-parse HEAD)"
+          echo "LAUNCHER_BLOB=$(git rev-parse HEAD:run_accessible_chess_v2.py)"
+          echo "WEB_INDEX_BLOB=$(git rev-parse HEAD:web/index.html)"
+          echo 'PRODUCT_MUTATION=NONE'
+
+      - name: Setup exact Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install qualified pinned Windows compiler stack
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $nuitkaUrl="https://github.com/Nuitka/Nuitka/archive/$env:NUITKA_UPSTREAM_FIX_COMMIT.zip"
+          python -m pip install --disable-pip-version-check "pywebview==$env:PYWEBVIEW_VERSION" "Nuitka @ $nuitkaUrl" "ordered-set==$env:ORDERED_SET_VERSION" "zstandard==$env:ZSTANDARD_VERSION"
+          if($LASTEXITCODE -ne 0){throw 'Pinned Windows runtime/compiler installation failed'}
+          python -c "import sys, webview, nuitka, ordered_set, zstandard; from pathlib import Path; assert sys.version_info[:3] == (3,12,10); p=Path(nuitka.__file__).parent/'plugins'/'standard'/'PywebViewPlugin.py'; assert 'webview.platforms.win32' in p.read_text(encoding='utf-8'); print('PYTHON='+sys.version.split()[0]); print('NUITKA='+nuitka.Version.getNuitkaVersion()); print('PATCHED_NUITKA_PYWEBVIEW_PLUGIN=PASS')"
+          if($LASTEXITCODE -ne 0){throw 'Qualified pinned compiler-stack verification failed'}
+          Write-Host "RUNNER_OS=$env:RUNNER_OS"
+          Write-Host "IMAGE_OS=$env:ImageOS"
+          Write-Host "IMAGE_VERSION=$env:ImageVersion"
+
+      - name: Source diagnostic before build
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          python run_accessible_chess_v2.py --diagnostic
+          $code=$LASTEXITCODE
+          if($code -ne 0){throw "SOURCE_DIAGNOSTIC_PRODUCT_FAILURE exit=$code"}
+          Write-Host 'SOURCE_DIAGNOSTIC=PASS'
+
+      - name: Build standalone AccessibleChess.exe
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $report=Join-Path $env:RUNNER_TEMP 'nuitka-compilation-report.xml'
+          python -m nuitka --standalone --assume-yes-for-downloads --windows-console-mode=disable --output-filename=AccessibleChess.exe --include-data-dir=web=web "--report=$report" run_accessible_chess_v2.py
+          $code=$LASTEXITCODE
+          if($code -ne 0){throw "NUITKA_BUILD_TOOLCHAIN_FAILURE exit=$code"}
+          $dist=(Resolve-Path 'run_accessible_chess_v2.dist').Path
+          $exe=Join-Path $dist 'AccessibleChess.exe'
+          if(-not (Test-Path -LiteralPath $exe -PathType Leaf)){throw 'NUITKA_BUILD_OUTPUT_FAILURE AccessibleChess.exe missing'}
+          "V2_EXE=$exe" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "V2_DIST=$dist" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          Write-Host "V2_DIST=$dist"
+          Write-Host "V2_EXE=$exe"
+          Write-Host "COMPILATION_REPORT_WORKSPACE_ONLY=$report"
+
+      - name: Built EXE diagnostic after build
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $stdout=Join-Path $env:RUNNER_TEMP 'v2-exe-diagnostic.stdout.txt'
+          $stderr=Join-Path $env:RUNNER_TEMP 'v2-exe-diagnostic.stderr.txt'
+          $proc=Start-Process -FilePath $env:V2_EXE -ArgumentList '--diagnostic' -Wait -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+          if(Test-Path $stdout){Get-Content -LiteralPath $stdout | ForEach-Object {Write-Host $_}}
+          if(Test-Path $stderr){Get-Content -LiteralPath $stderr | ForEach-Object {Write-Host "STDERR: $_"}}
+          if($proc.ExitCode -ne 0){throw "BUILT_EXE_DIAGNOSTIC_PRODUCT_OR_PACKAGING_FAILURE exit=$($proc.ExitCode)"}
+          $diag=(Get-Content -LiteralPath $stdout -Raw)
+          if($diag -notmatch 'ACCESSIBLE CHESS V2 RELEASE-CANDIDATE DIAGNOSTIC PASS'){throw 'BUILT_EXE_DIAGNOSTIC_PASS_MARKER_MISSING'}
+          Write-Host 'BUILT_EXE_DIAGNOSTIC=PASS'
+
+      - name: Standalone privacy asset SHA and complete file inventory
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $source=@(Get-ChildItem -LiteralPath $env:V2_DIST -Recurse -File | Where-Object {$_.Extension -in '.py','.pyc','.pyo'})
+          if($source.Count -ne 0){$source | ForEach-Object {Write-Host "LEAKED_PYTHON=$($_.FullName)"}; throw 'RAW_PYTHON_SOURCE_OR_BYTECODE_LEAK'}
+          $reports=@(Get-ChildItem -LiteralPath $env:V2_DIST -Recurse -File | Where-Object {$_.Name -match '(?i)(nuitka.*report|compilation[-_ ]?report)'})
+          if($reports.Count -ne 0){$reports | ForEach-Object {Write-Host "LEAKED_COMPILATION_REPORT=$($_.FullName)"}; throw 'COMPILATION_REPORT_LEAK'}
+          $index=Join-Path $env:V2_DIST 'web\index.html'
+          if(-not (Test-Path -LiteralPath $index -PathType Leaf)){throw 'BUNDLED_WEB_INDEX_MISSING'}
+          $exeHash=(Get-FileHash -Algorithm SHA256 -LiteralPath $env:V2_EXE).Hash.ToLowerInvariant()
+          $root=(Resolve-Path -LiteralPath $env:V2_DIST).Path
+          $files=@(Get-ChildItem -LiteralPath $root -Recurse -File | Sort-Object FullName)
+          Write-Host "PRODUCT_SHA=$env:PRODUCT_PARENT"
+          Write-Host "V2_STANDALONE_SHA256=$exeHash"
+          Write-Host "V2_STANDALONE_FILE_COUNT=$($files.Count)"
+          Write-Host 'V2_FILE_INVENTORY_BEGIN'
+          foreach($file in $files){
+            $relative=$file.FullName.Substring($root.Length).TrimStart('\') -replace '\\','/'
+            $hash=(Get-FileHash -Algorithm SHA256 -LiteralPath $file.FullName).Hash.ToLowerInvariant()
+            Write-Host ("V2_FILE|{0}|{1}|{2}" -f $relative,$file.Length,$hash)
+          }
+          Write-Host 'V2_FILE_INVENTORY_END'
+          Write-Host 'RAW_PYTHON_LEAK=NO'
+          Write-Host 'COMPILATION_REPORT_LEAK=NO'
+          Write-Host 'BUNDLED_WEB_INDEX=PASS'
+          Write-Host 'VERSION2_WINDOWS_ZIP=NO'
+          Write-Host 'W6_CURRENT_STANDALONE_BUILD_EVIDENCE=PASS'
