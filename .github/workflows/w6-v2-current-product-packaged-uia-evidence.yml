@@ -1,9 +1,11 @@
 name: W6 V2 Current Product Packaged UIA Evidence
 
 on:
-  push:
+  pull_request:
     branches:
-      - qa/w6-v2-current-product-uia-20260910
+      - codex/v2-runtime-completion-20260907
+    paths:
+      - '.github/workflows/w6-v2-current-product-packaged-uia-evidence.yml'
   workflow_dispatch:
 
 permissions:
@@ -31,7 +33,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          ref: ${{ github.sha }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - name: Prove one-file evidence child and exact current Product bytes
         shell: bash
@@ -142,7 +144,7 @@ jobs:
           $authority=[ordered]@{
             schema_version=1
             product_sha=$env:PRODUCT_PARENT
-            evidence_sha='${{ github.sha }}'
+            evidence_sha='${{ github.event.pull_request.head.sha || github.sha }}'
             runner_os='windows-2025'
             pywebview_version=$env:PYWEBVIEW_VERSION
             nuitka_commit=$env:NUITKA_UPSTREAM_FIX_COMMIT
