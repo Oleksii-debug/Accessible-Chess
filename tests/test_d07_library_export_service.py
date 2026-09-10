@@ -107,6 +107,17 @@ class LibraryExportServiceTests(unittest.TestCase):
                 {"scope": "filtered", "filters": {"destination": "/tmp/private.pgn"}}
             )
 
+    def test_streaming_export_retains_direct_selected_limit(self) -> None:
+        request = LibraryExportRequest(
+            scope=LibraryExportScope.SELECTED,
+            game_ids=tuple(range(1, 5002)),
+        )
+        with patch("acs.library_export_service.save_pgn_atomic") as writer:
+            with self.assertRaisesRegex(LibraryExportError, "selected Library export is too large"):
+                self.service.export_to(Path("ignored.pgn"), request)
+        writer.assert_not_called()
+        self.assertFalse(self.db.conn.in_transaction)
+
     def test_selected_export_is_deterministic_by_canonical_game_id_and_reopens_equivalent(self) -> None:
         request = LibraryExportRequest.selected([self.ids[2], self.ids[0]])
         self.assertEqual(request.scope, LibraryExportScope.SELECTED)
@@ -160,6 +171,31 @@ class LibraryExportServiceTests(unittest.TestCase):
         self.assertEqual(payload["scope"], "filtered")
         self.assertNotIn("limit", payload["filters"])
         self.assertNotIn("after_game_id", payload["filters"])
+
+    def test_filtered_export_has_no_selected_5000_game_cap(self) -> None:
+        sample = self.service._load_game(self.ids[0])
+        request = LibraryExportRequest.filtered(GameSearchQuery())
+        fingerprint = object()
+
+        def many_games(_request):
+            for _ in range(5001):
+                yield sample
+
+        def consume_stream(destination, games, *, overwrite=False, expected_sha256=None):
+            self.assertEqual(sum(1 for _ in games), 5001)
+            self.assertTrue(overwrite)
+            self.assertIsNone(expected_sha256)
+            return fingerprint
+
+        with patch.object(self.service, "_iter_games", side_effect=many_games), patch(
+            "acs.library_export_service.save_pgn_atomic",
+            side_effect=consume_stream,
+        ):
+            result = self.service.export_to(Path("ignored.pgn"), request)
+
+        self.assertEqual(result.game_count, 5001)
+        self.assertIs(result.destination_fingerprint, fingerprint)
+        self.assertFalse(self.db.conn.in_transaction)
 
     def test_filtered_export_streams_before_full_materialization_under_one_snapshot(self) -> None:
         loaded_ids: list[int] = []

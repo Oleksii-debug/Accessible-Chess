@@ -241,6 +241,11 @@ class LibraryExportService:
 
         if not isinstance(request, LibraryExportRequest):
             raise TypeError("request must be LibraryExportRequest")
+        # Preserve the historical selected-scope resource bound even when a
+        # caller constructs the frozen request dataclass directly. FILTERED is
+        # intentionally uncapped here: its complete result set is streamed.
+        if request.scope is LibraryExportScope.SELECTED and len(request.game_ids) > _MAX_SELECTED_GAMES:
+            raise LibraryExportError("selected Library export is too large")
         game_count = 0
 
         def counted_games() -> Iterator[PgnGame]:
