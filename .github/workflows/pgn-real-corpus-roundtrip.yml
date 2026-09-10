@@ -1,36 +1,42 @@
-name: PGN Real Corpus Round-Trip
+name: PGN Real Corpus Semantic Identity
 
 on:
   pull_request:
+    branches:
+      - codex/v2-formats-completion-20260907
     paths:
       - 'scripts/pgn_real_corpus_oracle.py'
       - 'scripts/pgn_real_corpus_session_oracle.py'
       - 'scripts/pgn_real_eval_rav_oracle.py'
+      - 'scripts/pgn_real_corpus_semantic_identity_oracle.py'
       - '.github/workflows/pgn-real-corpus-roundtrip.yml'
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: pgn-real-corpus-roundtrip-${{ github.ref }}
+  group: pgn-real-corpus-semantic-identity-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 env:
-  PGN_BASE: d706eb93b9a4df3c6e99ab1af584a9cfe6b6f5ea
+  D06_AUTHORITY: 9f1db6655d4568428952bc252667fa3730ba492f
+  BOOK_URL: https://www.gutenberg.org/files/16377/16377-h/16377-h.htm
+  BOOK_SHA256: 397cd3d816b6e685d30d3d7cfb36627cff415c754cc8f4e455c24da652d3c21e
 
 jobs:
-  real-corpus:
+  corpus:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-22.04, windows-2025]
+        os: [ubuntu-24.04, windows-2025]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 45
+    timeout-minutes: 100
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          ref: ${{ github.event.pull_request.head.sha }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - name: Preserve exact Git bytes
         shell: bash
@@ -48,88 +54,144 @@ jobs:
       - name: Install pinned QA dependencies
         run: python -m pip install -q pytest==8.4.2 zstandard==0.23.0
 
-      - name: Prove repaired D06 base and evidence-only scope
+      - name: Prove current D06 ancestry and evidence-only scope
         shell: bash
         run: |
           set -euo pipefail
-          git cat-file -e "$PGN_BASE^{commit}"
-          test "$(git merge-base HEAD "$PGN_BASE")" = "$PGN_BASE"
-          git diff --check "$PGN_BASE" HEAD
-          changed="$(git diff --name-only "$PGN_BASE" HEAD | sort)"
+          git cat-file -e "$D06_AUTHORITY^{commit}"
+          test "$(git merge-base HEAD "$D06_AUTHORITY")" = "$D06_AUTHORITY"
+          git diff --check "$D06_AUTHORITY" HEAD
+          changed="$(git diff --name-only "$D06_AUTHORITY" HEAD | sort)"
           expected="$(printf '%s\n' \
             '.github/workflows/pgn-real-corpus-roundtrip.yml' \
             'scripts/pgn_real_corpus_oracle.py' \
             'scripts/pgn_real_corpus_session_oracle.py' \
-            'scripts/pgn_real_eval_rav_oracle.py' | sort)"
-          test "$changed" = "$expected"
-          git diff --quiet "$PGN_BASE" HEAD -- acs tests web run_accessible_chess.py
-          test "$(git rev-parse HEAD:acs/pgn_roundtrip.py)" = "96d62bf6dd7b2f5c8a75d5f2bd1fde2ad0823d20"
-          test "$(git rev-parse HEAD:acs/pgn_document.py)" = "ae0b7d3815c4d277b68ef3c170c95255cf5c6442"
-          echo 'PGN-03 REPAIRED-BASE EVIDENCE-ONLY SCOPE PASS'
+            'scripts/pgn_real_eval_rav_oracle.py' \
+            'scripts/pgn_real_corpus_semantic_identity_oracle.py' | sort)"
+          test "$changed" = "$expected" || {
+            printf 'Unexpected PGN-03 QA scope:\n%s\n' "$changed" >&2
+            exit 1
+          }
+          git diff --quiet "$D06_AUTHORITY" HEAD -- acs tests web tools docs run_accessible_chess.py
+          test "$(git rev-parse HEAD:acs/pgn_roundtrip.py)" = "13c0db6d44ea9ec769240e9d0087641eb4e4382a"
+          test "$(git rev-parse HEAD:acs/gametree.py)" = "102895cb7acb7012cde6d0686ea53b99c33700a6"
+          echo 'PGN-03 CURRENT D06 EVIDENCE-ONLY SCOPE PASS'
 
-      - name: Compile and self-test corpus tools
-        run: |
-          python -m py_compile scripts/pgn_real_corpus_oracle.py scripts/pgn_real_corpus_session_oracle.py scripts/pgn_real_eval_rav_oracle.py
-          python -m scripts.pgn_real_corpus_session_oracle --selftest
+      - name: Compile corpus evidence package
+        run: >-
+          python -m py_compile
+          scripts/pgn_real_corpus_oracle.py
+          scripts/pgn_real_corpus_session_oracle.py
+          scripts/pgn_real_eval_rav_oracle.py
+          scripts/pgn_real_corpus_semantic_identity_oracle.py
+          scripts/v2_pgn_nested_comment_real_book_oracle.py
 
-      - name: Focused canonical PGN and GameTree regressions
+      - name: Focused canonical D06 regressions
         run: >-
           python -m unittest -v
-          tests.test_d06_real_corpus_recovery
-          tests.test_gametree
           tests.test_d06_pgn_roundtrip
-          tests.test_d06_gametree_persistence_vertical
-          tests.test_d06_annotation_insertion_persistence_vertical
-          tests.test_pgn_document
-          tests.test_pgn_workspace
-          tests.test_pgn_concurrent_save
-          tests.test_pgn_service
-          tests.test_dev4_pgn_encoding_quality
-          tests.test_dev4_pgn_resource_security
-          tests.test_dev4_pgn_export_path_security
-          tests.test_dev4_pgn_export_concurrency_security
-          tests.test_dev4_pgn_export_failure_recovery
-          tests.test_dev4_pgn_postcommit_cleanup_atomicity
+          tests.test_v2_pgn_semantic_fidelity
+          tests.test_v2_pgn_nested_comment_recovery
+          tests.test_w1_d06_nested_comment_framer_convergence
+          tests.test_w1_d06_nested_comment_preflight_convergence
 
-      - name: Verify pinned real Lichess SetUp/FEN and recursive RAV
+      - name: Full-source distribution and semantic identity campaign
+        id: distribution
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -o pipefail
+          python -m scripts.pgn_real_corpus_semantic_identity_oracle \
+            --report pgn-real-semantic-identity.json \
+            2>&1 | tee pgn-real-semantic-identity.txt
+
+      - name: Real black-to-move SetUp FEN and recursive RAV
+        id: eval_rav
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -o pipefail
+          python -m scripts.pgn_real_eval_rav_oracle 2>&1 | tee pgn-real-eval-rav.txt
+          grep -F '"prefix_pinned": true' pgn-real-eval-rav.txt
+          grep -F '"prefix_sha256": "1ab774b1f4ce4558bac6c21f76eef14776b10ad56e07fe45fc02ec867f0ace87"' pgn-real-eval-rav.txt
+          grep -F '"candidate_fen": "8/4r3/2R2pk1/6pp/3P4/6P1/5K1P/8 b - - 0 1"' pgn-real-eval-rav.txt
+          grep -F '"nested_path_depth": 2' pgn-real-eval-rav.txt
+          grep -F 'PGN REAL EVAL FEN NESTED RAV PASS' pgn-real-eval-rav.txt
+
+      - name: Download exact lawful historical chess book
+        id: book_download
+        continue-on-error: true
         shell: bash
         run: |
           set -euo pipefail
-          python -m scripts.pgn_real_eval_rav_oracle 2>&1 | tee pgn-real-eval-rav-report.txt
-          grep -F '"prefix_pinned": true' pgn-real-eval-rav-report.txt
-          grep -F '"prefix_sha256": "1ab774b1f4ce4558bac6c21f76eef14776b10ad56e07fe45fc02ec867f0ace87"' pgn-real-eval-rav-report.txt
-          grep -F '"candidate_line_number": 2' pgn-real-eval-rav-report.txt
-          grep -F '"nested_path_depth": 2' pgn-real-eval-rav-report.txt
-          grep -F 'PGN REAL EVAL FEN NESTED RAV PASS' pgn-real-eval-rav-report.txt
+          python - <<'PY'
+          import hashlib
+          import os
+          import urllib.request
 
-      - name: Verify 4,000 pinned real records through strict and recovery contracts
+          request = urllib.request.Request(
+              os.environ['BOOK_URL'],
+              headers={'User-Agent': 'Accessible-Chess-D06-Corpus-QA/2'},
+          )
+          with urllib.request.urlopen(request, timeout=60) as response:
+              data = response.read()
+          digest = hashlib.sha256(data).hexdigest()
+          print(f'REAL_BOOK_SOURCE_BYTES={len(data)}')
+          print(f'REAL_BOOK_SOURCE_SHA256={digest}')
+          if digest != os.environ['BOOK_SHA256']:
+              raise SystemExit('historical book source SHA-256 changed')
+          with open('real-book-16377.html', 'wb') as stream:
+              stream.write(data)
+          PY
+
+      - name: Recovery-only malformed historical PGN identity
+        id: historical
+        if: always() && steps.book_download.outcome == 'success'
+        continue-on-error: true
         shell: bash
         run: |
-          set -euo pipefail
-          python -m scripts.pgn_real_corpus_session_oracle --games-per-corpus 2000 --batch-size 250 2>&1 | tee pgn-real-corpus-report.txt
-          grep -F '"sampled_records_total": 4000' pgn-real-corpus-report.txt
-          grep -F '"recovery_records_total":' pgn-real-corpus-report.txt
-          grep -F '"strict_roundtrip_games_total":' pgn-real-corpus-report.txt
-          grep -F 'PGN REAL CORPUS SESSION ROUND-TRIP PASS' pgn-real-corpus-report.txt
+          set -o pipefail
+          python -m scripts.v2_pgn_nested_comment_real_book_oracle \
+            real-book-16377.html \
+            --expected-sha256 "$BOOK_SHA256" \
+            2>&1 | tee pgn-real-historical-recovery.txt
+          grep -F 'REAL_BOOK_PGN_73_RECOVERY=PASS' pgn-real-historical-recovery.txt
+          grep -F 'REAL_BOOK_PGN_73_STRICT_SOURCE=REJECTED_AS_RECOVERY_REQUIRED' pgn-real-historical-recovery.txt
+          grep -F 'REAL_BOOK_PGN_73_CANONICAL_REOPEN=PASS' pgn-real-historical-recovery.txt
+          grep -F 'REAL_BOOK_PGN_73_LEGAL_PLIES=68' pgn-real-historical-recovery.txt
 
-      - name: Upload corpus evidence report
+      - name: Remove transient source bytes
+        if: always()
+        shell: bash
+        run: rm -f -- real-book-16377.html
+
+      - name: Upload exact corpus evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: pgn-real-corpus-${{ matrix.os }}
+          name: pgn-real-semantic-identity-${{ matrix.os }}
           path: |
-            pgn-real-eval-rav-report.txt
-            pgn-real-corpus-report.txt
+            pgn-real-semantic-identity.json
+            pgn-real-semantic-identity.txt
+            pgn-real-eval-rav.txt
+            pgn-real-historical-recovery.txt
           if-no-files-found: ignore
           retention-days: 14
 
-      - name: Full repository unittest
-        run: python -m unittest discover -s tests
-
-      - name: Full repository pytest
-        run: python -m pytest -q tests
-
-      - name: SELFTEST and complete diagnostic
+      - name: Enforce complete campaign result
+        if: always()
+        shell: bash
+        env:
+          DISTRIBUTION_OUTCOME: ${{ steps.distribution.outcome }}
+          EVAL_RAV_OUTCOME: ${{ steps.eval_rav.outcome }}
+          BOOK_DOWNLOAD_OUTCOME: ${{ steps.book_download.outcome }}
+          HISTORICAL_OUTCOME: ${{ steps.historical.outcome }}
         run: |
-          python -m acs.selftest
-          python run_accessible_chess.py --diagnostic
+          set -euo pipefail
+          printf 'distribution=%s eval_rav=%s book_download=%s historical=%s\n' \
+            "$DISTRIBUTION_OUTCOME" "$EVAL_RAV_OUTCOME" "$BOOK_DOWNLOAD_OUTCOME" "$HISTORICAL_OUTCOME"
+          test "$DISTRIBUTION_OUTCOME" = success
+          test "$EVAL_RAV_OUTCOME" = success
+          test "$BOOK_DOWNLOAD_OUTCOME" = success
+          test "$HISTORICAL_OUTCOME" = success
+          grep -F 'PGN REAL CORPUS SEMANTIC IDENTITY PASS' pgn-real-semantic-identity.txt

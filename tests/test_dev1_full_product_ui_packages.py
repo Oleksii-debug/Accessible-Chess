@@ -65,7 +65,7 @@ class FullProductActionTests(unittest.TestCase):
         screen = router.dispatch("screen.library", current_focus_id="board-square-e4")
         self.assertTrue(screen.handled_by_shell)
         self.assertEqual("library", screen.route_id)
-        self.assertEqual("library-search", screen.focus_target)
+        self.assertEqual("library-search-player", screen.focus_target)
         self.assertEqual([], calls)
         domain = router.dispatch("library.open_game", {"game_id": 41})
         self.assertFalse(domain.handled_by_shell)

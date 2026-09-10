@@ -214,6 +214,23 @@ def _validate_games(games: object) -> tuple[Sequence[PgnGame], int]:
     return games, total
 
 
+def _validate_source_warning_count(value: object) -> int:
+    """Validate source-level warnings before any durable import state exists.
+
+    Format adapters can discover warnings that do not belong to one decoded
+    game, for example a skipped record in a multi-game source.  Keeping that
+    count separate from ``PgnGame.warnings`` avoids attaching database-level
+    diagnostics to an arbitrary game while still making the atomic ACSDB audit
+    row and UI completion summary honest.
+    """
+
+    if type(value) is not int:
+        raise TypeError("source_warning_count must be an integer")
+    if not 0 <= value <= _SQLITE_INTEGER_MAX:
+        raise ValueError("source_warning_count is outside the supported range")
+    return value
+
+
 def _is_sqlite_busy(exc: sqlite3.OperationalError) -> bool:
     """Classify only SQLite BUSY/LOCKED conditions as retryable contention."""
 
@@ -302,6 +319,7 @@ class LibraryImportService:
         source_name: str,
         source_format: str,
         source_sha256: str,
+        source_warning_count: int = 0,
         cancel_check: CancelCheck | None = None,
         progress_callback: ProgressCallback | None = None,
     ) -> LibraryImportResult:
@@ -327,6 +345,7 @@ class LibraryImportService:
             source_format=source_format,
             source_sha256=source_sha256,
         )
+        source_warning_count = _validate_source_warning_count(source_warning_count)
         parsed_games, total_games = _validate_games(games)
         _validate_callback(cancel_check, name="cancel_check")
         _validate_callback(progress_callback, name="progress_callback")
@@ -348,7 +367,7 @@ class LibraryImportService:
             )
             _poll_cancel(cancel_check, database=self._db)
 
-            warning_count = 0
+            warning_count = source_warning_count
             first_game_id: int | None = None
             last_game_id: int | None = None
 

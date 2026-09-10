@@ -5,7 +5,8 @@ from __future__ import annotations
 This module is deliberately presentation-neutral.  It does not parse chess moves
 itself and it does not own a second board.  Book structure is read through the
 existing BookDocument/BookIndex contracts, solution PGN is read through the
-existing GameTree parser, and every answer is resolved by ``chesscore.Board``.
+canonical bounded D06 PGN ingress, and every answer is resolved by
+``chesscore.Board``.
 """
 
 from dataclasses import dataclass
@@ -18,7 +19,8 @@ from .book_index import AmbiguousBookTargetError, BookIndex
 from .bookdocument import BookDocument, Exercise
 from .bookreader import BookReader, ReadingLocation
 from .chesscore import Board
-from .gametree import GameTreeContractError, MoveNode, PgnGame, parse_games
+from .gametree import MoveNode, PgnGame
+from .pgn_roundtrip import PgnRoundTripError, parse_pgn_text
 from .training import ExerciseDefinition, ExerciseStep
 
 
@@ -447,8 +449,8 @@ def _canonical_steps_from_pgn(start_board: Board, solution_pgn: str) -> tuple[Ex
             code=BookTrainingErrorCode.INVALID_FIELD,
         )
     try:
-        games = parse_games(solution_pgn)
-    except (GameTreeContractError, TypeError, ValueError) as exc:
+        games = parse_pgn_text(solution_pgn, strict=False)
+    except (PgnRoundTripError, TypeError, ValueError) as exc:
         raise BookTrainingError(
             "book exercise solution_pgn is structurally invalid",
             code=BookTrainingErrorCode.UNSUPPORTED_SOLUTION,

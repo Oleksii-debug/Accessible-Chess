@@ -1,0 +1,27 @@
+name: W2 Book Training Canonical Ingress
+
+on:
+  push:
+    branches:
+      - automation/w2-book-training-canonical-ingress-20260907
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  focused:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Compile
+        run: python -m compileall -q acs tests
+      - name: Canonical ingress regression
+        run: python -m unittest -v tests.test_w2_book_training_canonical_ingress tests.test_d08_book_training_contract tests.test_d08_training_canonical_resume

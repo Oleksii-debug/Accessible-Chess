@@ -178,7 +178,7 @@ class FullProductNativeMenuTests(unittest.TestCase):
         command = controller.activate(library)
         self.assertEqual("route", command.kind)
         self.assertEqual("library", command.payload["route_id"])
-        self.assertEqual("library-search", command.payload["focus_target"])
+        self.assertEqual("library-search-player", command.payload["focus_target"])
         self.assertEqual([], calls)
         self.assertEqual([command], commands)
 

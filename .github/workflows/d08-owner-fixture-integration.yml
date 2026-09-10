@@ -2,6 +2,8 @@ name: D08 Owner Fixture Integration CI
 
 on:
   pull_request:
+    branches:
+      - autopulse/d08-book-training-contract-20260823
     paths:
       - 'tests/test_dev1_full_product_ui_packages.py'
       - 'tests/test_dev3_student_progress.py'

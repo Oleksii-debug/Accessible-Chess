@@ -62,11 +62,17 @@ def _fingerprint(path: Path, extension: str, role: str) -> SourceFileEvidence:
     try:
         before = path.lstat()
     except OSError as exc:
-        raise ChessBaseIntegrityIOError(f"ChessBase source evidence is unavailable for {safe_name}") from exc
+        raise ChessBaseIntegrityIOError(
+            f"ChessBase source evidence is unavailable for {safe_name}"
+        ) from exc
     if stat.S_ISLNK(before.st_mode) or _is_reparse_point(before):
-        raise ChessBaseIntegrityIOError("ChessBase source evidence must not follow filesystem indirection")
+        raise ChessBaseIntegrityIOError(
+            "ChessBase source evidence must not follow filesystem indirection"
+        )
     if not stat.S_ISREG(before.st_mode):
-        raise ChessBaseIntegrityIOError("ChessBase source evidence must be a regular file")
+        raise ChessBaseIntegrityIOError(
+            "ChessBase source evidence must be a regular file"
+        )
 
     digest = sha256()
     size = 0
@@ -76,12 +82,16 @@ def _fingerprint(path: Path, extension: str, role: str) -> SourceFileEvidence:
                 size += len(chunk)
                 digest.update(chunk)
     except OSError as exc:
-        raise ChessBaseIntegrityIOError(f"ChessBase source evidence is unavailable for {safe_name}") from exc
+        raise ChessBaseIntegrityIOError(
+            f"ChessBase source evidence is unavailable for {safe_name}"
+        ) from exc
 
     try:
         after = path.lstat()
     except OSError as exc:
-        raise ChessBaseIntegrityIOError(f"ChessBase source evidence disappeared for {safe_name}") from exc
+        raise ChessBaseIntegrityIOError(
+            f"ChessBase source evidence disappeared for {safe_name}"
+        ) from exc
     if (
         before.st_dev != after.st_dev
         or before.st_ino != after.st_ino
@@ -90,7 +100,9 @@ def _fingerprint(path: Path, extension: str, role: str) -> SourceFileEvidence:
         or stat.S_ISLNK(after.st_mode)
         or _is_reparse_point(after)
     ):
-        raise ChessBaseSourceChangedError("ChessBase source changed while integrity evidence was being collected")
+        raise ChessBaseSourceChangedError(
+            "ChessBase source changed while integrity evidence was being collected"
+        )
 
     return SourceFileEvidence(
         path=Path(os.path.abspath(os.fspath(path))),
@@ -101,35 +113,68 @@ def _fingerprint(path: Path, extension: str, role: str) -> SourceFileEvidence:
     )
 
 
-def _evidence_paths(probe: ChessBaseSourceProbe) -> Iterable[tuple[Path, str, str]]:
-    yield probe.path, probe.extension, "primary_source" if probe.is_primary_source else "component_source"
+def _evidence_paths(
+    probe: ChessBaseSourceProbe,
+) -> Iterable[tuple[Path, str, str]]:
+    yield (
+        probe.path,
+        probe.extension,
+        "primary_source" if probe.is_primary_source else "component_source",
+    )
     for component in probe.existing_components:
         yield component.path, component.extension, component.role
 
 
-def capture_integrity_snapshot(path: str | Path) -> ChessBaseIntegritySnapshot:
+def _require_complete_legacy_cbf_pair(probe: ChessBaseSourceProbe) -> None:
+    """Fail closed before any future CBF decoder sees an incomplete family."""
+    if probe.extension != ".cbf":
+        return
+    cbi = tuple(
+        component for component in probe.components if component.extension == ".cbi"
+    )
+    if len(cbi) != 1 or not cbi[0].exists:
+        raise ChessBaseIntegrityIOError(
+            "Legacy CBF source requires one same-stem .cbi index companion"
+        )
+
+
+def capture_integrity_snapshot(
+    path: str | Path,
+) -> ChessBaseIntegritySnapshot:
     probe = probe_chessbase_source(path)
     if not probe.recognized:
-        raise ValueError(f"Unsupported ChessBase-family source: {report_safe_name(probe.path)}")
+        raise ValueError(
+            f"Unsupported ChessBase-family source: {report_safe_name(probe.path)}"
+        )
     if probe.path.is_symlink():
-        raise ChessBaseIntegrityIOError("ChessBase primary source must not be a symlink")
+        raise ChessBaseIntegrityIOError(
+            "ChessBase primary source must not be a symlink"
+        )
     if not probe.path.exists() or not probe.path.is_file():
         raise FileNotFoundError(probe.path)
+    _require_complete_legacy_cbf_pair(probe)
 
     files = tuple(
         _fingerprint(file_path, extension, role)
         for file_path, extension, role in _evidence_paths(probe)
     )
-    return ChessBaseIntegritySnapshot(primary_path=files[0].path, files=files)
+    return ChessBaseIntegritySnapshot(
+        primary_path=files[0].path,
+        files=files,
+    )
 
 
-def verify_integrity_snapshot(snapshot: ChessBaseIntegritySnapshot) -> ChessBaseIntegritySnapshot:
+def verify_integrity_snapshot(
+    snapshot: ChessBaseIntegritySnapshot,
+) -> ChessBaseIntegritySnapshot:
     try:
         current = capture_integrity_snapshot(snapshot.primary_path)
     except ChessBaseSourceChangedError:
         raise
     except (OSError, ValueError, RuntimeError) as exc:
-        raise ChessBaseIntegrityIOError("ChessBase integrity verification could not read source evidence") from exc
+        raise ChessBaseIntegrityIOError(
+            "ChessBase integrity verification could not read source evidence"
+        ) from exc
     if current != snapshot:
         raise ChessBaseSourceChangedError(
             "ChessBase source family changed after the integrity snapshot; "

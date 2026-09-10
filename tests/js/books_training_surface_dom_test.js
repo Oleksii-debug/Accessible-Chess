@@ -234,6 +234,16 @@ async function run() {
   check(document.activeElement === bookRoot.querySelector("#book-block-3"), "book navigation focus was not restored");
   check(announcements.includes("Try again") && announcements.includes("Correct"), "explicit announcements missing");
 
+  const listSnapshot = bookSnapshot(4, "List");
+  listSnapshot.block.role = "group";
+  listSnapshot.block.list = { ordered: true, start: 4, items: ["Centre", "<img onerror=bad()>"] };
+  window.AccessibleChessBookSurface.render(bookRoot, listSnapshot, bookInvoke, announce, "book-block-4", "Action failed");
+  const list = bookRoot.querySelector("#book-block-4");
+  check(list.tagName === "OL" && list.attributes.start === "4", "ordered list numbering lost");
+  check(list.children.length === 2 && list.children.every((item) => item.tagName === "LI"), "list item semantics lost");
+  check(list.children[1].textContent === "<img onerror=bad()>", "list content must remain literal text");
+  check(document.activeElement === list, "list reading focus lost");
+
   console.log("Books/Training DOM focus and editing contract PASS");
 }
 

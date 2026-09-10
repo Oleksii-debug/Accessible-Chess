@@ -2,10 +2,12 @@ from __future__ import annotations
 
 """Read-only import contract for external chess database families.
 
-This module deliberately does not decode proprietary ChessBase formats yet.
-It establishes the safety and reporting boundary every future decoder must
-obey: never mutate the source, preserve provenance, and report full/partial/
-damaged outcomes explicitly instead of silently dropping records.
+This module establishes the safety and reporting boundary every format adapter
+must obey: never mutate the source, preserve provenance, and report full/
+partial/damaged outcomes explicitly instead of silently dropping records.
+Semantic CBH and CBV import lives behind separately configured external
+backends; the placeholder below remains the fail-closed registry adapter used
+when those optional backends are not configured.
 """
 
 from dataclasses import dataclass, field
@@ -202,15 +204,15 @@ def verify_source_unchanged(before: SourceFingerprint, path: str | Path) -> bool
 
 
 class UnsupportedChessBaseImporter:
-    """Safety placeholder until a verified decoder exists.
+    """Safety placeholder used when no verified external decoder is configured.
 
     It recognizes ChessBase-family suffixes but intentionally refuses to claim
     successful decoding. This prevents future UI code from treating an
     unimplemented or heuristic parser as full compatibility.
     """
 
-    format_name = "ChessBase family (decoder pending verification)"
-    suffixes = (".cbh", ".cbv", ".cbf", ".2cbh")
+    format_name = "ChessBase family (optional decoder not configured)"
+    suffixes = (".cbh", ".cbv", ".cbf", ".2cbh", ".cbone")
 
     def inspect(self, path: Path) -> ImportReport:
         source = fingerprint(path)
@@ -222,7 +224,7 @@ class UnsupportedChessBaseImporter:
             ImportedRecord(
                 source_record_id="container",
                 quality=ImportQuality.WARNING,
-                message="Recognized ChessBase-family container; verified decoder not implemented yet.",
+                message="Recognized ChessBase-family source; optional verified decoder is not configured.",
                 warnings=("No source bytes were modified.",),
             )
         )
