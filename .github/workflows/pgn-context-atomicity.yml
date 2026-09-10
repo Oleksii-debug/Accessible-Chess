@@ -78,6 +78,7 @@ jobs:
           tests/test_pgn_document.py
           tests/test_pgn_document_context_atomicity.py
           tests/test_pgn_document_setup_fen_integrity.py
+          tests/test_v2_pgn_semantic_fidelity.py
 
       - name: Focused PGN document regressions
         run: >-
@@ -88,7 +89,7 @@ jobs:
           tests.test_pgn_workspace
           tests.test_pgn_service
           tests.test_d06_pgn_roundtrip
-          tests.test_gametree_legality
+          tests.test_v2_pgn_semantic_fidelity
 
       - name: Full repository unittest
         run: python -m unittest discover -s tests -v
