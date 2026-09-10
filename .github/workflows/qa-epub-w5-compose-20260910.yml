@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - qa/epub-w5-compose-20260910
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -44,6 +45,14 @@ jobs:
           base=e358bd1ddfafc21f8798f68e0d390fca804e0203
           git merge-base --is-ancestor "$base" HEAD
           git diff --check "$base" HEAD
+          changed="$(git diff --name-only "$base" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/qa-epub-w5-compose-20260910.yml' \
+            'acs/book_epub_import.py' \
+            'acs/book_html_import.py' \
+            'tests/test_v2_book_epub_import.py' \
+            'tests/test_v2_html_semantic_lists.py' | sort)"
+          test "$changed" = "$expected"
           test "$(git rev-parse HEAD:acs/book_html_import.py)" = 13124884e242fb6054917e1ef5bb8ab592013528
           test "$(git rev-parse HEAD:tests/test_v2_html_semantic_lists.py)" = 0dffabf7d82c51dcedf4f67f0773172c36ec83ba
           test "$(git rev-parse HEAD:acs/book_epub_import.py)" = f55ed184aad2dd8d6d512329fb2e5a0db3b3f442
