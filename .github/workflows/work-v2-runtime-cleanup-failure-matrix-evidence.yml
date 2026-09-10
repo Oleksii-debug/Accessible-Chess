@@ -1,0 +1,69 @@
+name: Work V2 Runtime Cleanup Failure Matrix Evidence
+
+on:
+  push:
+    branches:
+      - work/v2-runtime-cleanup-failure-matrix-evidence-20260910
+  pull_request:
+    branches:
+      - work/v2-book-open-progress-atomicity-20260907
+    paths:
+      - 'tests/test_work_v2_runtime_cleanup_failure_matrix.py'
+      - '.github/workflows/work-v2-runtime-cleanup-failure-matrix-evidence.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: work-v2-runtime-cleanup-failure-matrix-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  evidence:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install pinned verification dependencies
+        run: python -m pip install -q pytest==8.4.2 zstandard==0.23.0
+
+      - name: Prove exact #518 parent and evidence-only scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE=d08b85fe975b5dbbe52a939f7e80940f8f77fe3e
+          git merge-base --is-ancestor "$BASE" HEAD
+          test "$(git merge-base "$BASE" HEAD)" = "$BASE"
+          git diff --check "$BASE" HEAD
+          changed="$(git diff --name-only "$BASE" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/work-v2-runtime-cleanup-failure-matrix-evidence.yml' \
+            'tests/test_work_v2_runtime_cleanup_failure_matrix.py' | sort)"
+          test "$changed" = "$expected"
+          git diff --quiet "$BASE" HEAD -- acs web run_accessible_chess.py run_accessible_chess_v2.py
+
+      - name: Compile evidence
+        run: python -m py_compile tests/test_work_v2_runtime_cleanup_failure_matrix.py
+
+      - name: Prove inherited cleanup and Stockfish ownership baselines
+        run: >-
+          python -m unittest -v
+          tests.test_work_v2_shutdown_progress_failure_cleanup
+          tests.test_version2_shutdown
+          tests.test_stockfish_runtime.StockfishRuntimeTests.test_runtime_reuses_exactly_one_provider_and_owns_close_once
+          tests.test_stockfish_runtime.StockfishRuntimeTests.test_analysis_and_play_services_share_runtime_without_duplicate_ownership
+
+      - name: Run runtime cleanup failure matrix oracle
+        run: python -m unittest -v tests.test_work_v2_runtime_cleanup_failure_matrix
