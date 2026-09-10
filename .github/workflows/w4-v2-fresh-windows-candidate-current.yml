@@ -15,11 +15,14 @@ concurrency:
 
 env:
   PRODUCT_PARENT: 5e778b67538c3a5f8bb841df942eeb3f85d749bc
+  SOURCE_INTEGRATION_SHA: 5e778b67538c3a5f8bb841df942eeb3f85d749bc
   PYTHON_VERSION: '3.12.10'
   PYWEBVIEW_VERSION: '6.2.1'
   NUITKA_UPSTREAM_FIX_COMMIT: b7ea05bf570e0b6950de6db7c4c8e579e1b77d29
   ORDERED_SET_VERSION: '4.1.0'
   ZSTANDARD_VERSION: '0.25.0'
+  QA_WRAPPER_COMMIT: bf4a4c1c71860c90d1b086ea4f91fa34b665cb81
+  QA_BASELINE_COMMIT: 0549391267073f9d006ec8271af148fe17edcdb6
   STOCKFISH_URL: https://github.com/official-stockfish/Stockfish/releases/download/sf_18/stockfish-windows-x86-64.zip
   STOCKFISH_SHA256: 40cc975817e7eee270b03f354810d20956df565420d320f6dd37d454dc81a139
   CANDIDATE_FILE: Accessible-Chess-V2-5e778b6-NVDA-test-candidate.zip
@@ -62,6 +65,20 @@ jobs:
           if($LASTEXITCODE -ne 0){throw 'Pinned Windows runtime/compiler installation failed'}
           python -c "import sys,nuitka; from pathlib import Path; assert sys.version_info[:3]==(3,12,10); p=Path(nuitka.__file__).parent/'plugins'/'standard'/'PywebViewPlugin.py'; assert 'webview.platforms.win32' in p.read_text(encoding='utf-8'); print('QUALIFIED_COMPILER_STACK=PASS')"
           if($LASTEXITCODE -ne 0){throw 'Qualified compiler stack verification failed'}
+
+      - name: Materialize immutable strict packaged UIA helper
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin "$QA_WRAPPER_COMMIT" "$QA_BASELINE_COMMIT"
+          mkdir -p .v2-uia-evidence
+          git show "$QA_WRAPPER_COMMIT:tools/qa/stage1_packaged_e2e_crossprocess.ps1" > .v2-uia-evidence/stage1_packaged_e2e_crossprocess.ps1
+          git show "$QA_WRAPPER_COMMIT:tools/qa/stage1_uia_topology_v5.ps1" > .v2-uia-evidence/stage1_uia_topology_v5.ps1
+          git show "$QA_WRAPPER_COMMIT:tools/qa/stage1_uia_topology_classify.py" > .v2-uia-evidence/stage1_uia_topology_classify.py
+          test -s .v2-uia-evidence/stage1_packaged_e2e_crossprocess.ps1
+          test -s .v2-uia-evidence/stage1_uia_topology_v5.ps1
+          test -s .v2-uia-evidence/stage1_uia_topology_classify.py
+          echo 'IMMUTABLE_STRICT_PACKAGED_UIA_HELPER=READY'
 
       - name: Source release diagnostic
         shell: pwsh
@@ -248,6 +265,40 @@ jobs:
           Write-Host 'PACKAGED_STOCKFISH_UCI_SMOKE=PASS'
           Write-Host 'FRESH_EXTRACTION=PASS'
 
+      - name: Prove fresh-extracted packaged keyboard and UIA semantics
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS='--force-renderer-accessibility'
+          $productRoot=(Resolve-Path 'fresh-extraction\AccessibleChess').Path
+          $exe=(Resolve-Path (Join-Path $productRoot 'AccessibleChess.exe')).Path
+          $process=Start-Process -FilePath $exe -WorkingDirectory $productRoot -PassThru
+          try {
+            $ready=$false
+            $watch=[System.Diagnostics.Stopwatch]::StartNew()
+            while($watch.ElapsedMilliseconds -lt 30000){
+              if($process.HasExited){throw "Fresh-extracted V2 process exited before UIA proof with code $($process.ExitCode)"}
+              $process.Refresh()
+              if($process.MainWindowHandle -ne 0){$ready=$true;break}
+              Start-Sleep -Milliseconds 250
+            }
+            if(-not $ready){throw 'Fresh-extracted V2 window did not become ready for UIA proof'}
+            Start-Sleep -Seconds 4
+            & .\.v2-uia-evidence\stage1_packaged_e2e_crossprocess.ps1 -AppPid $process.Id -ProductRoot $productRoot
+            if($LASTEXITCODE -ne 0){throw 'Immutable strict packaged UIA helper failed on fresh-extracted candidate'}
+            if(-not (Test-Path packaged-uia-strict-summary.json)){throw 'Packaged UIA summary missing'}
+            $summary=Get-Content packaged-uia-strict-summary.json -Raw | ConvertFrom-Json
+            if([int]$summary.semantic_square_count -ne 64){throw 'Fresh candidate did not expose exactly 64 semantic squares'}
+            if([string]$summary.clipboard -ne 'e9'){throw 'Fresh candidate Ctrl+A/Ctrl+C proof did not pass'}
+            if(-not [bool]$summary.invalid_e9_fen_unchanged){throw 'Fresh candidate invalid-input atomicity proof did not pass'}
+            if(-not [bool]$summary.board_focus_continuity){throw 'Fresh candidate board focus continuity proof did not pass'}
+            Write-Host 'FRESH_PACKAGED_UIA_KEYBOARD_64_SQUARE_FOCUS_PROOF=PASS'
+          }
+          finally {
+            $live=Get-Process -Id $process.Id -ErrorAction SilentlyContinue
+            if($live){Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue}
+          }
+
       - name: Upload real Windows candidate ZIP
         uses: actions/upload-artifact@v4
         with:
@@ -266,5 +317,5 @@ jobs:
           Write-Host "CANDIDATE_ZIP_SHA256=$digest"
           Write-Host 'VERSION2_WINDOWS_ZIP=YES'
           Write-Host 'FRESH_WINDOWS_CANDIDATE=YES'
-          Write-Host 'AUTOMATED_UIA_PROOF=NOT_CLAIMED_BY_THIS_WORKFLOW'
+          Write-Host 'AUTOMATED_UIA_PROOF=PASS'
           Write-Host 'NVDA_VERIFIED=NO'
