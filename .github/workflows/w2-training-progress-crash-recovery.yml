@@ -1,0 +1,91 @@
+name: W2 Training Progress Current-Base Convergence
+
+on:
+  pull_request:
+    paths:
+      - 'acs/training_progress_store.py'
+      - 'tests/test_w2_training_progress_crash_recovery.py'
+      - '.github/workflows/w2-training-progress-crash-recovery.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: w2-training-progress-current-base-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  W2_CURRENT_BASE: e358bd1ddfafc21f8798f68e0d390fca804e0203
+  W2_OWNER_STORE_BLOB: 564bab3519e1f1055defe0997f93f84ce08d1617
+  W2_TRAINING_BLOB: 28dcb58b11cd1e8dcd3904eee1ebc81d40d0ffcb
+
+jobs:
+  focused:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Exact current-base scope and owner identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git merge-base "$W2_CURRENT_BASE" HEAD)" = "$W2_CURRENT_BASE"
+          git diff --check "$W2_CURRENT_BASE" HEAD
+          changed="$(git diff --name-only "$W2_CURRENT_BASE" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/w2-training-progress-crash-recovery.yml' \
+            'acs/training_progress_store.py' \
+            'tests/test_w2_training_progress_crash_recovery.py' | sort)"
+          test "$changed" = "$expected" || {
+            printf 'Unexpected W2 convergence scope:\n%s\n' "$changed" >&2
+            exit 1
+          }
+          test "$(git rev-parse HEAD:acs/training.py)" = "$W2_TRAINING_BLOB"
+          test "$(git rev-parse HEAD:acs/training_progress_store.py)" = "$W2_OWNER_STORE_BLOB"
+          if printf '%s\n' "$changed" | grep -E 'gametree|pgn_|chesscore|book_training|version2_|release_preflight'; then
+            echo 'Out-of-lane Product mutation' >&2
+            exit 1
+          fi
+      - name: Compile
+        run: python -m compileall -q acs/training.py acs/training_progress_store.py tests/test_w2_training_progress_crash_recovery.py
+      - name: Crash, identity, CAS and restart oracle
+        run: python -m unittest -v tests.test_w2_training_progress_crash_recovery
+      - name: Existing Training and Books integration regressions
+        run: >-
+          python -m unittest -v
+          tests.test_training
+          tests.test_d08_training_canonical_resume
+          tests.test_d08_book_training_contract
+          tests.test_books_training_ui_integration
+
+  broad-regression:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install verification dependency
+        run: python -m pip install -q pytest==8.4.2
+      - name: Full unittest
+        run: python -m unittest discover -s tests -v
+      - name: Full pytest
+        run: python -m pytest -q tests
+      - name: SELFTEST and diagnostic
+        run: |
+          python -m acs.selftest
+          python run_accessible_chess.py --diagnostic
