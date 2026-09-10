@@ -2,7 +2,7 @@
   "schema_version": 1,
   "product_authority": {
     "pr": 448,
-    "exact_head": "d4b4c0a9351bfbfa46398668aedfa70ee108b244"
+    "exact_head": "6a9e28d3ff22c7463c0dd5167fc753bb467664cf"
   },
   "invariants": [
     "legacy settings bytes unchanged",
