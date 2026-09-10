@@ -45,14 +45,25 @@ class Version2RemappedKeyboardRoutingTests(unittest.TestCase):
         self.assertTrue(result.get("ok"))
         return resolved, result
 
+    def shipped_document_resolve(self, binding: str) -> dict | None:
+        """Mirror the frozen web/index.html ANALYSIS -> HISTORY -> DOCUMENT probes."""
+        for context in ("analysis", "history", "document"):
+            resolved = self.api.keymap_resolve_binding(context, binding)
+            if resolved is not None:
+                return resolved
+        return None
+
     def test_v2_and_stage1_share_exactly_one_registry(self) -> None:
         self.assertIs(self.api.keymap_service.editor.registry, self.application.adapter.registry)
 
     def test_global_remap_executes_through_v2_application_router(self) -> None:
         self.registry.set_binding("screen.library", "Ctrl+Alt+L", allow_warnings=True)
 
-        resolved, result = self.resolve_and_dispatch("document", "Ctrl+Alt+L")
+        resolved = self.shipped_document_resolve("Ctrl+Alt+L")
+        self.assertIsNotNone(resolved)
+        result = self.api.dispatch_action(resolved["actionId"])
 
+        self.assertTrue(result.get("ok"))
         self.assertEqual(resolved["actionId"], "screen.library")
         self.assertEqual(resolved["context"], "global")
         self.assertEqual(self.application.shell.current_route.route_id, "library")
@@ -76,8 +87,11 @@ class Version2RemappedKeyboardRoutingTests(unittest.TestCase):
         self.registry.set_binding("library.next_page", "Ctrl+Alt+N", allow_warnings=True)
         self.api.dispatch_action("screen.library")
 
-        resolved, result = self.resolve_and_dispatch("document", "Ctrl+Alt+N")
+        resolved = self.shipped_document_resolve("Ctrl+Alt+N")
+        self.assertIsNotNone(resolved)
+        result = self.api.dispatch_action(resolved["actionId"])
 
+        self.assertTrue(result.get("ok"))
         self.assertEqual(resolved["actionId"], "library.next_page")
         self.assertEqual(resolved["context"], "database")
         self.assertEqual(self.application.routed[-1][0], "library.next_page")
@@ -88,8 +102,11 @@ class Version2RemappedKeyboardRoutingTests(unittest.TestCase):
         self.registry.set_binding("book.next_heading", "Ctrl+Alt+H", allow_warnings=True)
         self.api.dispatch_action("screen.books")
 
-        resolved, result = self.resolve_and_dispatch("document", "Ctrl+Alt+H")
+        resolved = self.shipped_document_resolve("Ctrl+Alt+H")
+        self.assertIsNotNone(resolved)
+        result = self.api.dispatch_action(resolved["actionId"])
 
+        self.assertTrue(result.get("ok"))
         self.assertEqual(resolved["actionId"], "book.next_heading")
         self.assertEqual(resolved["context"], "book_reader")
         self.assertEqual(self.application.routed[-1][0], "book.next_heading")
@@ -102,36 +119,41 @@ class Version2RemappedKeyboardRoutingTests(unittest.TestCase):
         self.registry.set_binding("library.next_page", chord, allow_warnings=True)
         self.registry.set_binding("book.next_heading", chord, allow_warnings=True)
 
-        initial = self.api.keymap_resolve_binding("document", chord)
+        initial = self.shipped_document_resolve(chord)
+        self.assertIsNotNone(initial)
         self.assertEqual(initial["actionId"], "screen.library")
         self.assertEqual(initial["context"], "global")
         self.api.dispatch_action(initial["actionId"])
         self.assertEqual(self.application.shell.current_route.route_id, "library")
 
-        library = self.api.keymap_resolve_binding("document", chord)
+        library = self.shipped_document_resolve(chord)
+        self.assertIsNotNone(library)
         self.assertEqual(library["actionId"], "library.next_page")
         self.assertEqual(library["context"], "database")
         self.api.dispatch_action(library["actionId"])
         self.assertEqual(self.application.routed[-1][0], "library.next_page")
 
         self.api.dispatch_action("screen.books")
-        books = self.api.keymap_resolve_binding("document", chord)
+        books = self.shipped_document_resolve(chord)
+        self.assertIsNotNone(books)
         self.assertEqual(books["actionId"], "book.next_heading")
         self.assertEqual(books["context"], "book_reader")
         self.api.dispatch_action(books["actionId"])
         self.assertEqual(self.application.routed[-1][0], "book.next_heading")
 
         self.api.dispatch_action("screen.board")
-        back_to_global = self.api.keymap_resolve_binding("document", chord)
+        back_to_global = self.shipped_document_resolve(chord)
+        self.assertIsNotNone(back_to_global)
         self.assertEqual(back_to_global["actionId"], "screen.library")
         self.assertEqual(back_to_global["context"], "global")
 
-    def test_exact_stage1_document_binding_still_beats_global_v2_conflict(self) -> None:
+    def test_active_pgn_document_binding_beats_global_v2_conflict_during_real_probe_order(self) -> None:
         chord = "Ctrl+Alt+G"
         self.registry.set_binding("pgn.next_game", chord, allow_warnings=True)
         self.registry.set_binding("screen.library", chord, allow_warnings=True)
+        self.api.dispatch_action("screen.pgn")
 
-        resolved = self.api.keymap_resolve_binding("document", chord)
+        resolved = self.shipped_document_resolve(chord)
 
         self.assertIsNotNone(resolved)
         self.assertEqual(resolved["actionId"], "pgn.next_game")
@@ -146,7 +168,7 @@ class Version2RemappedKeyboardRoutingTests(unittest.TestCase):
         self.assertEqual(global_value["actionId"], "screen.library")
         self.api.dispatch_action(global_value["actionId"])
 
-        library_value = self.api.keymap_resolve_alias("document", alias)
+        library_value = self.api.keymap_resolve_alias("analysis", alias)
         self.assertEqual(library_value["actionId"], "library.next_page")
         self.assertEqual(library_value["context"], "database")
 
@@ -181,7 +203,7 @@ class Version2RemappedKeyboardRoutingTests(unittest.TestCase):
         self.assertNotIn("v2", stage1)
 
     def test_without_v2_binding_stage1_behavior_remains_unchanged(self) -> None:
-        unresolved = self.api.keymap_resolve_binding("document", "Ctrl+Alt+Shift+F12")
+        unresolved = self.shipped_document_resolve("Ctrl+Alt+Shift+F12")
         self.assertIsNone(unresolved)
 
 
