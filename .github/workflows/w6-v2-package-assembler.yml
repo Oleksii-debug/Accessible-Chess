@@ -1,0 +1,73 @@
+name: W6 V2 Package Assembler Current Preflight
+
+on:
+  push:
+    branches:
+      - work/w6-v2-package-assembler-current-preflight-20260910
+  pull_request:
+    branches:
+      - work/v2-package-required-resources-repair-20260907
+    paths:
+      - 'acs/version2_package_assembler.py'
+      - 'tests/test_version2_package_assembler.py'
+      - '.github/workflows/w6-v2-package-assembler.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: w6-v2-package-assembler-current-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PACKAGE_PREFLIGHT_PARENT: cff01c37ed05dca660f3df23f738da143521d215
+
+jobs:
+  focused:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Exact current preflight parent and narrow assembler scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor "$PACKAGE_PREFLIGHT_PARENT" HEAD
+          git diff --check "$PACKAGE_PREFLIGHT_PARENT" HEAD
+          changed="$(git diff --name-only "$PACKAGE_PREFLIGHT_PARENT" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/w6-v2-package-assembler.yml' \
+            'acs/version2_package_assembler.py' \
+            'tests/test_version2_package_assembler.py' | sort)"
+          test "$changed" = "$expected"
+          echo 'CURRENT PREFLIGHT / SINGLE ASSEMBLER SCOPE PASS'
+
+      - name: Compile assembler and canonical preflight
+        run: >-
+          python -m compileall -q
+          acs/version2_package_assembler.py
+          acs/version2_package_preflight.py
+          tests/test_version2_package_assembler.py
+          tests/test_version2_package_preflight.py
+          tests/test_version2_package_preflight_hardening.py
+          tests/test_v2_package_required_resources.py
+
+      - name: Deterministic assembler plus current canonical preflight regressions
+        run: >-
+          python -m unittest -v
+          tests.test_version2_package_assembler
+          tests.test_version2_package_preflight
+          tests.test_version2_package_preflight_hardening
+          tests.test_v2_package_required_resources
