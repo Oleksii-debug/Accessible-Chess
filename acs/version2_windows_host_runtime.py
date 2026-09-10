@@ -14,10 +14,7 @@ import threading
 from typing import Any
 
 from .pgn_document import PgnDocumentSession
-from .version2_windows_file_workflows import (
-    Version2ImportWorkerServices,
-    Version2WindowsFileActionDelegate,
-)
+from .version2_windows_file_workflows import Version2ImportWorkerServices
 from .version2_windows_import_event_mailbox import Version2ImportUiEventMailbox
 from .version2_windows_import_ui_pump import (
     Version2ImportUiWakeupPump,
@@ -28,6 +25,7 @@ from .version2_windows_native_dialog_ownership import (
     Version2OwnedWindowsPgnExportDialogs,
 )
 from .version2_windows_pgn_export import Version2WindowsPgnExportDelegate
+from .version2_windows_pgn_streaming_host import Version2WindowsStreamingFileActionDelegate
 
 
 class Version2WindowsFileWorkflowRuntime:
@@ -106,7 +104,7 @@ class Version2WindowsFileWorkflowRuntime:
             next_delegate=next_delegate,
             current_focus_provider=current_focus_provider,
         )
-        self._file_delegate = Version2WindowsFileActionDelegate(
+        self._file_delegate = Version2WindowsStreamingFileActionDelegate(
             dialogs=self._file_dialogs,
             get_pgn_session=get_pgn_session,
             set_pgn_session=set_pgn_session,
