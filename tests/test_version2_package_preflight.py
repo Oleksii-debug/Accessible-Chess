@@ -285,6 +285,63 @@ class Version2PackagePreflightTests(unittest.TestCase):
                 self.assertNotIn("Developer", str(captured.exception))
                 self.assertNotIn("github_pat_", str(captured.exception))
 
+    def test_valid_pe_binary_private_build_path_is_not_misclassified_as_text(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "package"
+            root.mkdir()
+            _make_tree(root)
+            dll = (
+                root
+                / "AccessibleChess"
+                / "clr_loader"
+                / "ffi"
+                / "dlls"
+                / "amd64"
+                / "ClrLoader.dll"
+            )
+            dll.parent.mkdir(parents=True)
+            dll.write_bytes(
+                _minimal_windows_pe()
+                + b"\x00compiler=C:\\Users\\Builder\\source\\clr_loader\\ClrLoader.pdb\x00"
+            )
+            _write_checksums(root)
+            report = _validate_tree(root)
+            self.assertIn(
+                "AccessibleChess/clr_loader/ffi/dlls/amd64/ClrLoader.dll",
+                report.inventory,
+            )
+
+    def test_text_disguised_as_dll_does_not_bypass_private_path_gate(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "package"
+            root.mkdir()
+            _make_tree(root)
+            fake = root / "AccessibleChess" / "looks-binary.dll"
+            fake.write_bytes(b"diagnostic=C:\\Users\\Developer\\secret\\build")
+            _write_checksums(root)
+            with self.assertRaisesRegex(
+                Version2PackagePreflightError,
+                "private local path leaked into package text",
+            ):
+                _validate_tree(root)
+
+    def test_valid_pe_binary_does_not_bypass_secret_gate(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "package"
+            root.mkdir()
+            _make_tree(root)
+            dll = root / "AccessibleChess" / "helper.dll"
+            dll.write_bytes(
+                _minimal_windows_pe()
+                + b"\x00token=github_pat_ABCDEFGHIJKLMNOPQRSTUVWXYZ123456\x00"
+            )
+            _write_checksums(root)
+            with self.assertRaisesRegex(
+                Version2PackagePreflightError,
+                "secret-like credential leaked into package text",
+            ):
+                _validate_tree(root)
+
     def test_tree_bounds_fail_before_trusting_checksums(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td) / "package"
