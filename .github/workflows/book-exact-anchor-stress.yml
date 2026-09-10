@@ -1,0 +1,65 @@
+name: Book Exact Anchor Stress Evidence
+
+on:
+  push:
+    branches:
+      - evidence/book-exact-anchor-stress-20260910
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: book-exact-anchor-stress-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  exact-anchor-stress:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Prove evidence-only scope and owner ancestry
+        shell: bash
+        run: |
+          set -euo pipefail
+          base=d08b85fe975b5dbbe52a939f7e80940f8f77fe3e
+          git merge-base --is-ancestor "$base" HEAD
+          git diff --check "$base" HEAD
+          changed="$(git diff --name-only "$base" HEAD | sort)"
+          expected="$(printf '%s\n' '.github/workflows/book-exact-anchor-stress.yml' 'tests/test_book_exact_anchor_stress.py' | sort)"
+          test "$changed" = "$expected"
+          git diff --quiet "$base" HEAD -- acs web
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install verification dependency
+        run: python -m pip install -q pytest==8.4.2
+
+      - name: Compile evidence oracle
+        run: python -m compileall -q tests/test_book_exact_anchor_stress.py
+
+      - name: Run exact anchor stress plus current owner atomicity regressions
+        run: >-
+          python -m unittest -v
+          tests.test_book_exact_anchor_stress
+          tests.test_w6_v2_book_progress_command_atomicity
+          tests.test_v2_book_progress_transaction_repair
+          tests.test_version2_application
+
+      - name: Pytest focused evidence
+        run: >-
+          python -m pytest -q
+          tests/test_book_exact_anchor_stress.py
+          tests/test_w6_v2_book_progress_command_atomicity.py
+          tests/test_v2_book_progress_transaction_repair.py
+          tests/test_version2_application.py
