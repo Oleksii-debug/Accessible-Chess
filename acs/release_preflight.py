@@ -31,15 +31,35 @@ _FORBIDDEN_COMPONENTS = {
     "build_snapshot_exact", "build_snapshot_parts", "dist", "package",
     "source", "tests",
 }
+_FORBIDDEN_BUILD_DEBUG_NAMES = {
+    "nuitka-compilation-report.xml",
+    "nuitka-crash-report.xml",
+}
+_FORBIDDEN_BUILD_DEBUG_SUFFIXES = {".pdb", ".dmp", ".log"}
+_WINDOWS_RESERVED_BASENAMES = {
+    "con", "prn", "aux", "nul",
+    *(f"com{index}" for index in range(1, 10)),
+    *(f"lpt{index}" for index in range(1, 10)),
+}
+_WINDOWS_FORBIDDEN_FILENAME_CHARS = frozenset('<>"|?*')
 _ALLOWED_TOP_LEVEL_FILES = {
     "RELEASE_MANIFEST.json", "SHA256SUMS.txt", "native-menu-self-diagnostic.json",
     "packaged-uia-strict-summary.json",
 }
 _ALLOWED_TOP_LEVEL_DIRS = {"AccessibleChess", "THIRD_PARTY_NOTICES"}
 _REQUIRED_SOUND_EVENTS = tuple(event.value for event in SoundEvent)
+_REQUIRED_WEB_RESOURCES = (
+    "web/index.html",
+    "web/stage1_release_bootstrap.js",
+    "web/stage1_board_actions.js",
+)
 _EXPECTED_RELEASE_LABEL = "NVDA TEST CANDIDATE — WAITING FOR USER TEST"
 _EXPECTED_STOCKFISH_VERSION = "18"
 _STOCKFISH_SOURCE_ROOT = "Stockfish-sf_18"
+_MAX_STOCKFISH_SOURCE_ZIP_BYTES = 8 * 1024 * 1024
+_MAX_STOCKFISH_SOURCE_ENTRIES = 4096
+_MAX_STOCKFISH_SOURCE_MEMBER_BYTES = 16 * 1024 * 1024
+_MAX_STOCKFISH_SOURCE_TOTAL_BYTES = 64 * 1024 * 1024
 _HUMAN_ONLY_UNPROVEN = "HUMAN-ONLY UNPROVEN"
 
 
@@ -78,6 +98,19 @@ def _relative_posix(root: Path, path: Path) -> str:
     return PurePosixPath(*relative.parts).as_posix()
 
 
+def _validate_windows_portable_component(part: str, *, label: str) -> None:
+    if (
+        part.endswith((" ", "."))
+        or ":" in part
+        or any(character in _WINDOWS_FORBIDDEN_FILENAME_CHARS for character in part)
+        or any(ord(character) < 32 for character in part)
+    ):
+        _fail(f"{label} must be Windows-portable")
+    basename = part.split(".", 1)[0].casefold()
+    if basename in _WINDOWS_RESERVED_BASENAMES:
+        _fail(f"{label} must be Windows-portable")
+
+
 def _validate_relative_token(value: str, *, label: str) -> str:
     if not isinstance(value, str) or not value or "\x00" in value:
         _fail(f"{label} must be non-empty text")
@@ -87,10 +120,20 @@ def _validate_relative_token(value: str, *, label: str) -> str:
         _fail(f"{label} must be relative")
     if any(part in {"", ".", ".."} for part in token.parts):
         _fail(f"{label} contains unsafe path components")
+    for part in token.parts:
+        _validate_windows_portable_component(part, label=label)
     canonical = token.as_posix()
     if canonical != normalized:
         _fail(f"{label} is not canonical")
     return canonical
+
+
+def _validate_release_artifact_path(relative: str) -> None:
+    path = PurePosixPath(relative)
+    name = path.name.casefold()
+    suffix = path.suffix.casefold()
+    if name in _FORBIDDEN_BUILD_DEBUG_NAMES or suffix in _FORBIDDEN_BUILD_DEBUG_SUFFIXES:
+        _fail("build/debug/privacy artifact is forbidden in release tree")
 
 
 def _sha256(path: Path) -> str:
@@ -113,16 +156,24 @@ def _read_json_object(path: Path, *, label: str) -> dict[str, object]:
 
 def _inventory(root: Path) -> tuple[str, ...]:
     entries: list[str] = []
+    casefold_paths: dict[str, str] = {}
     for path in root.rglob("*"):
-        relative = _relative_posix(root, path)
+        relative = _validate_relative_token(_relative_posix(root, path), label="release path")
         parts = PurePosixPath(relative).parts
         if path.is_symlink():
             _fail(f"symbolic link is forbidden in release tree: {relative}")
         if any(part.casefold() in _FORBIDDEN_COMPONENTS for part in parts):
             _fail(f"stale/build/source component is forbidden: {relative}")
+        folded = relative.casefold()
+        previous = casefold_paths.get(folded)
+        if previous is not None and previous != relative:
+            _fail("case-insensitive path collision is forbidden in release tree")
+        casefold_paths[folded] = relative
         if path.is_file():
             if path.suffix.casefold() in _SOURCE_SUFFIXES:
                 _fail(f"raw product source is forbidden: {relative}")
+            if "/" in relative:
+                _validate_release_artifact_path(relative)
             entries.append(relative)
     return tuple(sorted(entries, key=lambda value: value.casefold()))
 
@@ -153,6 +204,11 @@ def _require_file(root: Path, relative: str, *, nonempty: bool = True) -> Path:
     if nonempty and path.stat().st_size <= 0:
         _fail(f"required release file is empty: {relative}")
     return path
+
+
+def _validate_web_resources(product_root: Path) -> None:
+    for relative in _REQUIRED_WEB_RESOURCES:
+        _require_file(product_root, relative)
 
 
 def _validate_sound_pack(product_root: Path) -> None:
@@ -200,12 +256,36 @@ def _validate_third_party(root: Path) -> None:
     source = _require_file(root, "THIRD_PARTY_NOTICES/Stockfish-18-source.zip")
     notice = _require_file(root, "THIRD_PARTY_NOTICES/NOTICE.txt")
     readme = _require_file(root, "THIRD_PARTY_NOTICES/README.txt")
+    if source.stat().st_size > _MAX_STOCKFISH_SOURCE_ZIP_BYTES:
+        _fail("Stockfish source archive is too large")
     try:
         with zipfile.ZipFile(source) as archive:
             infos = archive.infolist()
-            if not infos or archive.testzip() is not None:
+            if not infos:
+                _fail("Stockfish source archive is empty or corrupt")
+            if len(infos) > _MAX_STOCKFISH_SOURCE_ENTRIES:
+                _fail("Stockfish source archive has too many entries")
+            total_uncompressed = 0
+            for info in infos:
+                if info.file_size > _MAX_STOCKFISH_SOURCE_MEMBER_BYTES:
+                    _fail("Stockfish source archive member is too large")
+                total_uncompressed += info.file_size
+                if total_uncompressed > _MAX_STOCKFISH_SOURCE_TOTAL_BYTES:
+                    _fail("Stockfish source archive uncompressed payload is too large")
+            if archive.testzip() is not None:
                 _fail("Stockfish source archive is empty or corrupt")
             names = [_zip_member_token(info) for info in infos]
+            seen_names: set[str] = set()
+            casefold_names: dict[str, str] = {}
+            for name in names:
+                if name in seen_names:
+                    _fail("duplicate Stockfish source ZIP entry")
+                seen_names.add(name)
+                folded = name.casefold()
+                previous = casefold_names.get(folded)
+                if previous is not None and previous != name:
+                    _fail("case-insensitive Stockfish source ZIP collision")
+                casefold_names[folded] = name
             if any(
                 name != _STOCKFISH_SOURCE_ROOT
                 and not name.startswith(_STOCKFISH_SOURCE_ROOT + "/")
@@ -320,6 +400,7 @@ def _read_checksums(root: Path) -> dict[str, str]:
     except (OSError, UnicodeError) as exc:
         _fail(f"SHA256SUMS is unreadable: {type(exc).__name__}")
     result: dict[str, str] = {}
+    casefold_paths: dict[str, str] = {}
     for line in lines:
         match = re.fullmatch(r"([0-9A-Fa-f]{64})  (.+)", line)
         if match is None:
@@ -330,6 +411,11 @@ def _read_checksums(root: Path) -> dict[str, str]:
             _fail("SHA256SUMS must not checksum itself")
         if relative in result:
             _fail(f"SHA256SUMS contains duplicate path: {relative}")
+        folded = relative.casefold()
+        previous = casefold_paths.get(folded)
+        if previous is not None and previous != relative:
+            _fail("case-insensitive path collision is forbidden in SHA256SUMS")
+        casefold_paths[folded] = relative
         if not _SHA256_RE.fullmatch(digest):
             _fail("SHA256SUMS contains invalid digest")
         result[relative] = digest
@@ -348,6 +434,7 @@ def inspect_release_package(root: str | Path) -> ReleasePreflightReport:
     _require_file(root_path, "AccessibleChess/AccessibleChess.exe")
     stockfish_rel = PurePosixPath("AccessibleChess", *PACKAGED_STOCKFISH_RELATIVE_PATH.parts).as_posix()
     _require_file(root_path, stockfish_rel)
+    _validate_web_resources(root_path / "AccessibleChess")
     _validate_sound_pack(root_path / "AccessibleChess")
     _validate_third_party(root_path)
     integration_sha, qa_commit = _validate_manifest(root_path)
