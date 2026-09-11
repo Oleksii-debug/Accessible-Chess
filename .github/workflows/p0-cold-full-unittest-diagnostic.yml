@@ -1,0 +1,56 @@
+name: P0 Cold Full Unittest Diagnostic
+
+on:
+  push:
+    branches:
+      - fix/p0-cold-full-unittest-shared-blocker-20260912
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: p0-cold-full-unittest-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  cold-full-unittest:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install exact preflight verification dependency
+        run: python -m pip install -q pytest==8.4.2
+      - name: Reproduce cold full unittest and retain bounded failure evidence
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import subprocess
+          import sys
+
+          command = [sys.executable, '-m', 'unittest', 'discover', '-s', 'tests', '-v']
+          completed = subprocess.run(command, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+          output = completed.stdout or ''
+          Path('cold-full-unittest.log').write_text(output, encoding='utf-8')
+          lines = output.splitlines()
+          print('COLD_FULL_UNITTEST_RETURN_CODE=', completed.returncode)
+          print('COLD_FULL_UNITTEST_LAST_300_LINES_BEGIN')
+          print('\n'.join(lines[-300:]))
+          print('COLD_FULL_UNITTEST_LAST_300_LINES_END')
+          raise SystemExit(completed.returncode)
+          PY
+      - name: Upload exact cold-suite log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cold-full-unittest-log
+          path: cold-full-unittest.log
+          if-no-files-found: error
+          retention-days: 3
