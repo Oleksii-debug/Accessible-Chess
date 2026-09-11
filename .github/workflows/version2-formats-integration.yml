@@ -86,6 +86,7 @@ env:
   CHESSBASE_SOURCE: 5e2c390e0cd66cca166b80fec88c7402784ade47
   LIBCBH_COMMIT: 9641c5c3949d8fb210b17dd9aa54455645843696
   UNCBV_COMMIT: 3c18e8a7c6a30c21f945a1ab5462521c306dca57
+  V2_ACCEPTED_STAGE1_BOOTSTRAP_BLOB: bced41192feb068a71ed0789be5629164a37e6c9
 
 jobs:
   combined-formats:
@@ -137,19 +138,28 @@ jobs:
           git cat-file -e "$LIBRARY_SOURCE^{commit}"
           git cat-file -e "$CHESSBASE_SOURCE^{commit}"
           git diff --check "$V2_BASE" HEAD
+
+          actual_stage1_bootstrap_blob="$(git rev-parse HEAD:web/stage1_release_bootstrap.js)"
+          if [ "$actual_stage1_bootstrap_blob" != "$V2_ACCEPTED_STAGE1_BOOTSTRAP_BLOB" ]; then
+            echo "Unexpected Stage 1 bootstrap blob: $actual_stage1_bootstrap_blob" >&2
+            exit 1
+          fi
+
           changed="$(git diff --name-only "$V2_BASE" HEAD | sort)"
-          if printf '%s\n' "$changed" | grep -E '(^|/)(stage1|tools/qa/|windows-stage1|release_preflight)'; then
+          unapproved_changed="$(printf '%s\n' "$changed" | grep -v '^web/stage1_release_bootstrap\.js$' || true)"
+          if printf '%s\n' "$unapproved_changed" | grep -E '(^|/)(stage1|tools/qa/|windows-stage1|release_preflight)'; then
             echo 'Stage 1 or strict-release contamination detected' >&2
             exit 1
           fi
           # These are genuinely frozen release/core seams. GameTree/PGN round-trip
           # and Books owners are intentionally allowed to differ from V2_BASE
           # because accepted V2 convergence packages changed them and the semantic
-          # suites below are their current authority.
+          # suites below are their current authority. The accepted Stage 1 bootstrap
+          # is separately pinned above by exact blob identity.
           git diff --quiet "$V2_BASE" HEAD -- \
             acs/chesscore.py acs/pgn_workspace.py \
             acs/stage1_release_ui.py acs/stage1_release_ui_core.py \
-            web/stage1_release_bootstrap.js web/stage1_board_actions.js \
+            web/stage1_board_actions.js \
             tools/qa
 
       - name: Lock exact integrated owner blobs
