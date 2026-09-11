@@ -1,0 +1,29 @@
+name: QA D06 Bounded Adversarial Oracle
+
+on:
+  push:
+    branches:
+      - qa/d06-bounded-adversarial-20260910
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  adversarial:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Compile QA oracle and touched D06 modules
+        run: python -m compileall -q acs/pgn_roundtrip.py acs/gametree.py acs/pgn_service.py tests/test_qa_d06_bounded_adversarial.py
+      - name: Run deterministic bounded adversarial oracle
+        run: python -m unittest -v tests.test_qa_d06_bounded_adversarial
