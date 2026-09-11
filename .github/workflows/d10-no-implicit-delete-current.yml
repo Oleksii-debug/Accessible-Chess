@@ -4,7 +4,7 @@ on:
   pull_request:
     paths:
       - 'acs/education_workspace.py'
-      - 'tests/test_d10_no-implicit-delete-current.py'
+      - 'tests/test_d10_no_implicit_delete_current.py'
       - '.github/workflows/d10-no-implicit-delete-current.yml'
   workflow_dispatch:
 
