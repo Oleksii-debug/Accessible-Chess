@@ -122,6 +122,8 @@ def _windows_open_no_reparse(path: Path, *, create: bool) -> int:
     FILE_FLAG_OPEN_REPARSE_POINT = 0x00200000
     FILE_TYPE_DISK = 0x0001
     FILE_ATTRIBUTE_TAG_INFO_CLASS = 9
+    ERROR_FILE_NOT_FOUND = 2
+    ERROR_PATH_NOT_FOUND = 3
 
     class FILE_ATTRIBUTE_TAG_INFO(ctypes.Structure):
         _fields_ = [
@@ -171,6 +173,12 @@ def _windows_open_no_reparse(path: Path, *, create: bool) -> int:
     invalid = ctypes.c_void_p(-1).value
     if handle == invalid:
         error = ctypes.get_last_error()
+        if error in {ERROR_FILE_NOT_FOUND, ERROR_PATH_NOT_FOUND}:
+            raise FileNotFoundError(
+                error,
+                "could not open training progress storage",
+                str(path),
+            )
         raise OSError(error, "could not open training progress storage")
 
     transferred = False
