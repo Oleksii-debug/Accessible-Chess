@@ -13,7 +13,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  OWNER_BASE: 450f1cc2ccf786cd07c7b41853e449fc12740b19
+  OWNER_BASE: 5592f24129573cb85abee0ed7a5261e1ce98a855
   AUDIT_TEST_BLOB: 06f650e8db4baf23d26ef81de4113dcadcc470cc
 
 jobs:
@@ -58,6 +58,7 @@ jobs:
             'acs/acsdb.py' \
             'acs/duplicate_detection.py' \
             'tests/test_d07_canonical_ingress_successor.py' \
+            'tests/test_dev4_import_history_error_privacy.py' \
             'tests/test_v2_d07_ingress_convergence_after_dedupe_audit.py' | sort)"
           test "$changed" = "$expected"
           test "$(git rev-parse HEAD:tests/test_v2_d07_ingress_convergence_after_dedupe_audit.py)" = "$AUDIT_TEST_BLOB"
