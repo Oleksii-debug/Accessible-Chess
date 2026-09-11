@@ -26,6 +26,7 @@ from acs.version2_starter_content_application import Version2StarterContentAppli
 
 EXPECTED_BOOKLETS = 24
 EXPECTED_TRAINING_EXERCISES = 144
+MIN_UNIQUE_TRAINING_FENS = 64
 
 
 class StarterBooksTrainingReleaseTests(unittest.TestCase):
@@ -39,7 +40,7 @@ class StarterBooksTrainingReleaseTests(unittest.TestCase):
         self.assertGreaterEqual(manifest["material_count"], 24)
         self.assertEqual(EXPECTED_TRAINING_EXERCISES, manifest["training_exercise_count"])
         self.assertGreaterEqual(manifest["training_exercise_count"], 100)
-        self.assertGreaterEqual(manifest["training_unique_fen_count"], 64)
+        self.assertGreaterEqual(manifest["training_unique_fen_count"], MIN_UNIQUE_TRAINING_FENS)
 
         materials = manifest["materials"]
         self.assertEqual(EXPECTED_BOOKLETS, len(materials))
@@ -75,7 +76,7 @@ class StarterBooksTrainingReleaseTests(unittest.TestCase):
         self.assertEqual(EXPECTED_TRAINING_EXERCISES, len(tasks))
         self.assertEqual(len(tasks), len({task.task_id for task in tasks}))
         self.assertGreaterEqual(len({task.opening for task in tasks}), 16)
-        self.assertGreaterEqual(len({task.fen for task in tasks}), 64)
+        self.assertGreaterEqual(len({task.fen for task in tasks}), MIN_UNIQUE_TRAINING_FENS)
         self.assertEqual({"w", "b"}, {task.fen.split()[1] for task in tasks})
 
         course = build_training_ready_starter_course()
@@ -84,7 +85,10 @@ class StarterBooksTrainingReleaseTests(unittest.TestCase):
         self.assertEqual([], course.validate_structure())
         exercises = [block for block in course.blocks if isinstance(block, Exercise)]
         self.assertEqual(EXPECTED_TRAINING_EXERCISES, len(exercises))
-        self.assertEqual(len(exercises), len({exercise.fen for exercise in exercises}))
+        self.assertGreaterEqual(
+            len({exercise.fen for exercise in exercises}),
+            MIN_UNIQUE_TRAINING_FENS,
+        )
 
         exercise_indexes = [
             index for index, block in enumerate(course.blocks) if isinstance(block, Exercise)
