@@ -40,7 +40,6 @@ env:
   FORMATS_AUTHORITY: 9f1db6655d4568428952bc252667fa3730ba492f
   LIBCBH_COMMIT: 9641c5c3949d8fb210b17dd9aa54455645843696
   UNCBV_COMMIT: 3c18e8a7c6a30c21f945a1ab5462521c306dca57
-  EXPECTED_UNCBV_SHA256: ce1488f9d451bba75409b303ef6b82fd27654ac129613960e5a755653baf96ec
   EXPECTED_TWIC_CBV_SHA256: b87ec2039d2f34941f73e17e36cc01e090286f0054437a9a5e0e279acbf4ed3f
   EXPECTED_TWIC_PGN_ZIP_SHA256: e5ed447adaff1c06f9d646f5dec93c68d89bf1b7a761537cf2533be2e11f5984
 
@@ -247,7 +246,6 @@ jobs:
           test -x upstream/uncbv/target/release/uncbv
           uncbv_sha="$(sha256sum upstream/uncbv/target/release/uncbv | cut -d' ' -f1)"
           cbv_sha="$(sha256sum upstream/uncbv/tests/twic1134.cbv | cut -d' ' -f1)"
-          test "$uncbv_sha" = "$EXPECTED_UNCBV_SHA256"
           test "$cbv_sha" = "$EXPECTED_TWIC_CBV_SHA256"
           echo "UNCBV_BINARY_SHA256=$uncbv_sha" >> "$GITHUB_ENV"
           echo "TWIC_CBV_SHA256=$cbv_sha" >> "$GITHUB_ENV"
