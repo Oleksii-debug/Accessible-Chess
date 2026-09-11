@@ -10,6 +10,7 @@ $script:stateRoot = Join-Path ([Environment]::GetFolderPath([Environment+Special
 $script:originalStateBackup = Join-Path ([IO.Path]::GetTempPath()) ("WordDeck-package-recovery-original-" + [Guid]::NewGuid().ToString('N'))
 $script:replacementRoot = Join-Path ([IO.Path]::GetTempPath()) ("WordDeck package replacement Ω " + [Guid]::NewGuid().ToString('N'))
 $script:hadOriginalState = Test-Path -LiteralPath $script:stateRoot
+$script:originalBackupPrepared = $false
 $script:primaryFailure = $null
 $script:cleanupFailures = [System.Collections.Generic.List[string]]::new()
 
@@ -99,13 +100,14 @@ try {
     $candidate = (Resolve-Path -LiteralPath $CandidateRoot).Path
     Assert-NoPersonalStateInPackage $candidate 'original candidate'
 
-    # Protect any pre-existing developer/runner profile. The acceptance run gets a
-    # clean isolated WordDeck LocalAppData tree, then restores the original bytes.
+    # Protect any pre-existing developer/runner profile. Never remove its live
+    # state tree until a separate recovery copy is proven to exist.
     if ($script:hadOriginalState) {
         Copy-Item -LiteralPath $script:stateRoot -Destination $script:originalStateBackup -Recurse -Force
         if (-not (Test-Path -LiteralPath $script:originalStateBackup -PathType Container)) {
             Fail 'could not create a recovery copy of the pre-existing WordDeck state tree.'
         }
+        $script:originalBackupPrepared = $true
         Remove-Item -LiteralPath $script:stateRoot -Recurse -Force
     }
 
@@ -166,40 +168,59 @@ if ($null -ne $script:appPid -and $script:appPid -gt 0) {
     $script:appPid = $null
 }
 
-# Restoring a profile that existed before the test is the highest cleanup
-# priority. Every restoration step is attempted independently and any failure is
-# terminal, but no cleanup error may erase a primary acceptance failure.
-try {
-    if (Test-Path -LiteralPath $script:stateRoot) {
-        Remove-Item -LiteralPath $script:stateRoot -Recurse -Force
-    }
-}
-catch {
-    Record-CleanupFailure 'remove test learner state before restoration' $_
-}
-
+# Restore pre-test learner state only when the backup was successfully materialized.
+# If a primary failure happened before backup preparation, leave the original live
+# state tree untouched. Never delete an existing profile merely because setup failed.
 if ($script:hadOriginalState) {
-    if (-not (Test-Path -LiteralPath $script:originalStateBackup -PathType Container)) {
-        $script:cleanupFailures.Add('learner state restoration: pre-existing WordDeck state backup is missing')
-    }
-    else {
-        try {
-            Move-Item -LiteralPath $script:originalStateBackup -Destination $script:stateRoot -Force
+    if ($script:originalBackupPrepared) {
+        if (-not (Test-Path -LiteralPath $script:originalStateBackup -PathType Container)) {
+            $script:cleanupFailures.Add('learner state restoration: prepared pre-existing state backup is missing; live state tree was left untouched')
         }
-        catch {
-            Record-CleanupFailure 'learner state restoration move' $_
-        }
-        if (-not (Test-Path -LiteralPath $script:stateRoot -PathType Container)) {
-            $script:cleanupFailures.Add('learner state restoration: pre-existing WordDeck state tree is not present after restore attempt')
+        else {
+            try {
+                if (Test-Path -LiteralPath $script:stateRoot) {
+                    Remove-Item -LiteralPath $script:stateRoot -Recurse -Force
+                }
+            }
+            catch {
+                Record-CleanupFailure 'remove test learner state before restoration' $_
+            }
+
+            try {
+                if (Test-Path -LiteralPath $script:stateRoot) {
+                    throw 'test learner state still exists; refusing to overlay the pre-test backup'
+                }
+                Move-Item -LiteralPath $script:originalStateBackup -Destination $script:stateRoot -Force
+            }
+            catch {
+                Record-CleanupFailure 'learner state restoration move' $_
+            }
+
+            if (-not (Test-Path -LiteralPath $script:stateRoot -PathType Container)) {
+                $script:cleanupFailures.Add('learner state restoration: pre-existing WordDeck state tree is not present after restore attempt')
+            }
         }
     }
 }
-elseif (Test-Path -LiteralPath $script:originalStateBackup) {
+else {
+    # This run started with no WordDeck profile, so only test-created state may be
+    # present and is always safe to remove.
     try {
-        Remove-Item -LiteralPath $script:originalStateBackup -Recurse -Force
+        if (Test-Path -LiteralPath $script:stateRoot) {
+            Remove-Item -LiteralPath $script:stateRoot -Recurse -Force
+        }
     }
     catch {
-        Record-CleanupFailure 'unexpected state-backup cleanup' $_
+        Record-CleanupFailure 'remove isolated test learner state' $_
+    }
+
+    if (Test-Path -LiteralPath $script:originalStateBackup) {
+        try {
+            Remove-Item -LiteralPath $script:originalStateBackup -Recurse -Force
+        }
+        catch {
+            Record-CleanupFailure 'unexpected state-backup cleanup' $_
+        }
     }
 }
 
