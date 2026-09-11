@@ -72,6 +72,9 @@ _REQUIRED_WEB_FILES = (
     Path("web") / "full_product_pgn.js",
     Path("web") / "full_product_library.js",
     Path("web") / "full_product_books_training.js",
+    Path("web") / "full_product_teacher.js",
+    Path("web") / "full_product_education.js",
+    Path("web") / "version2_final_product_bootstrap.js",
     Path("web") / "version2_release_bootstrap.js",
 )
 _WINDOWS_RESERVED_NAMES = {
