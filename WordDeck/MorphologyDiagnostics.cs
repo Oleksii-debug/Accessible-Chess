@@ -20,7 +20,7 @@ internal sealed record MorphologyReleaseEvidence(
         var issues = new List<string>();
         if (!Enum.IsDefined(typeof(MorphologyDatasetClass), DatasetClass))
             issues.Add("Dataset class is invalid.");
-        if (SourceSha256.Length != 64 || !SourceSha256.All(Uri.IsHexDigit))
+        if (string.IsNullOrWhiteSpace(SourceSha256) || SourceSha256.Length != 64 || !SourceSha256.All(Uri.IsHexDigit))
             issues.Add("Source SHA-256 must contain exactly 64 hexadecimal characters.");
         if (RedistributionApproved && string.IsNullOrWhiteSpace(ApprovalReference))
             issues.Add("Redistribution approval requires a non-empty approval reference.");
@@ -65,7 +65,8 @@ internal static class MorphologyDiagnostics
         MorphologyBuildResult build,
         DictionaryPackage dictionary,
         MorphologyReleaseEvidence? releaseEvidence = null,
-        IReadOnlyList<MorphologyValidationIssue>? importIssues = null)
+        IReadOnlyList<MorphologyValidationIssue>? importIssues = null,
+        string? analyzedSourceSha256 = null)
     {
         ArgumentNullException.ThrowIfNull(package);
         ArgumentNullException.ThrowIfNull(build);
@@ -135,17 +136,39 @@ internal static class MorphologyDiagnostics
         int quarantineCount = build.Issues.Count + (importIssues?.Count ?? 0);
         MorphologyDatasetClass datasetClass = releaseEvidence?.DatasetClass ?? MorphologyDatasetClass.ExternalCandidate;
         bool redistributionApproved = releaseEvidence?.RedistributionApproved ?? false;
-        IReadOnlyList<string> evidenceIssues = releaseEvidence?.Validate() ?? new[] { "No explicit release evidence was supplied." };
+        var evidenceIssues = releaseEvidence?.Validate().ToList() ?? new List<string> { "No explicit release evidence was supplied." };
+        bool sourceHashBound = false;
+        if (releaseEvidence is not null)
+        {
+            if (string.IsNullOrWhiteSpace(analyzedSourceSha256))
+            {
+                evidenceIssues.Add("Actual analyzed source SHA-256 is required to bind release evidence to the exact candidate.");
+            }
+            else if (analyzedSourceSha256.Length != 64 || !analyzedSourceSha256.All(Uri.IsHexDigit))
+            {
+                evidenceIssues.Add("Actual analyzed source SHA-256 must contain exactly 64 hexadecimal characters.");
+            }
+            else if (!string.Equals(releaseEvidence.SourceSha256, analyzedSourceSha256, StringComparison.OrdinalIgnoreCase))
+            {
+                evidenceIssues.Add("Release-evidence source SHA-256 does not match the exact analyzed candidate.");
+            }
+            else
+            {
+                sourceHashBound = true;
+            }
+        }
+
         bool releaseEligible =
             releaseEvidence is not null &&
             releaseEvidence.DatasetClass == MorphologyDatasetClass.ApprovedProduction &&
             releaseEvidence.RedistributionApproved &&
+            sourceHashBound &&
             evidenceIssues.Count == 0 &&
             quarantineCount == 0 &&
             build.AcceptedRelations > 0;
 
         string boundary = releaseEligible
-            ? "Release evidence is structurally complete for this exact candidate. Independent source/license review is still required before integration or shipment."
+            ? "Release evidence is structurally complete and hash-bound to this exact analyzed candidate. Independent source/license review is still required before integration or shipment."
             : datasetClass == MorphologyDatasetClass.TestFixture
                 ? "Synthetic/test-only morphology evidence. It cannot support production Word Families claims or release packaging."
                 : "External morphology candidate only. Coverage and validation do not imply redistribution approval or production acceptance.";
