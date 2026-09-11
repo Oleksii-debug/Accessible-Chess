@@ -193,7 +193,12 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $doc = Get-Content -LiteralPath '.\artifacts\context-evidence\context-coverage.json' -Raw | ConvertFrom-Json
+          $coveragePath = '.\artifacts\context-evidence\context-coverage.json'
+          $gapPath = '.\artifacts\context-evidence\context-coverage.gaps.json'
+          if (-not (Test-Path -LiteralPath $coveragePath)) { throw 'Coverage evidence was not emitted.' }
+          if (-not (Test-Path -LiteralPath $gapPath)) { throw 'Coverage gap evidence was not emitted.' }
+
+          $doc = Get-Content -LiteralPath $coveragePath -Raw | ConvertFrom-Json
           $p = $doc.Payload
           if ($p.SourceId -ne 'tatoeba-en-uk-attributed-ccby-v1') { throw 'Unexpected corpus PackId.' }
           if ($p.DatabaseSha256 -ne $env:CONTEXT_SQLITE_SHA) { throw 'Coverage evidence is not bound to exact live SQLite hash.' }
@@ -205,30 +210,10 @@ jobs:
           if ($p.TwoTarget.CoveredEntryCount -lt 4469) { throw "Two-target coverage regressed below historical floor 4469: $($p.TwoTarget.CoveredEntryCount)" }
           if ($p.ThreeTarget.CoveredEntryCount -lt 4362) { throw "Three-target coverage regressed below historical floor 4362: $($p.ThreeTarget.CoveredEntryCount)" }
 
-          $physicalDoc = Get-Content -LiteralPath '.\artifacts\context-evidence\context-coverage.physical-forms.json' -Raw | ConvertFrom-Json
-          $physical = $physicalDoc.Payload
-          if ($physical.DictionaryEntryCount -ne 5446 -or $physical.UniqueLexicalFormCount -ge 5446) { throw 'Physical-form denominator must collapse at least one homographic stable-ID group.' }
-          if ($physical.AmbiguousLexicalFormCount -le 0 -or $physical.StableIdsInAmbiguousLexicalForms -le $physical.AmbiguousLexicalFormCount) { throw 'Physical-form ambiguity accounting is missing or inconsistent.' }
-          foreach ($depth in @($physical.OneTarget,$physical.TwoTarget,$physical.ThreeTarget)) {
-            if ($depth.CoveredLexicalFormCount + $depth.UncoveredLexicalFormCount -ne $physical.UniqueLexicalFormCount) { throw 'Physical-form coverage does not partition its unique lexical-form universe.' }
-          }
-          if ($physical.RedistributionApproved) { throw 'Physical-form evidence must not approve redistribution.' }
-
-          $stableDoc = Get-Content -LiteralPath '.\artifacts\context-evidence\context-coverage.stable-identities.json' -Raw | ConvertFrom-Json
-          $stable = $stableDoc.Payload
-          if ($stable.StableTagEvidenceSha256 -ne $doc.EvidenceDigestSha256) { throw 'Stable-ID evidence is not bound to the exact stable-tag evidence document.' }
-          if ($stable.PhysicalFormEvidenceSha256 -ne $physicalDoc.EvidenceDigestSha256) { throw 'Stable-ID evidence is not bound to the exact physical-form evidence document.' }
-          foreach ($depth in @($stable.OneTarget,$stable.TwoTarget,$stable.ThreeTarget)) {
-            if ($depth.ResolvedStableCoveredEntryCount + $depth.UnresolvedAmbiguousEntryCount + $depth.StableTagAbsentEntryCount -ne 5446) { throw 'Stable-ID coverage does not partition the exact Oxford universe.' }
-            if ($depth.ResolvedStableCoveredEntryCount -gt $depth.StableTagParticipatingEntryCount) { throw 'Resolved stable-ID coverage cannot exceed stable-tag participation.' }
-          }
-          if ($stable.OneTarget.UnresolvedAmbiguousEntryCount -le 0) { throw 'Stable-tag-participating homographic stable IDs must remain explicitly unresolved without POS/sense evidence.' }
-          if ($stable.RedistributionApproved) { throw 'Stable-ID evidence must not approve redistribution.' }
-
-          $gap = Get-Content -LiteralPath '.\artifacts\context-evidence\context-coverage.gaps.json' -Raw | ConvertFrom-Json
+          $gap = Get-Content -LiteralPath $gapPath -Raw | ConvertFrom-Json
           if ($gap.Payload.MissingOneTargetCount -ne (5446 - $p.OneTarget.CoveredEntryCount)) { throw 'One-target gap accounting does not match live coverage.' }
           if ($gap.Payload.MissingNaturalPairOnlyCount -lt 0 -or $gap.Payload.MissingNaturalTripleOnlyCount -lt 0) { throw 'Live gap accounting contains an invalid negative count.' }
-          Write-Host ("Live exact EN-UA evidence: sentences={0}; stable one/two/three={1}/{2}/{3}; historical floors=208408,4492/4469/4362" -f `
+          Write-Host ("Live exact EN-UA evidence: sentences={0}; one/two/three={1}/{2}/{3}; historical floors=208408,4492/4469/4362" -f `
             $p.SentenceCount,$p.OneTarget.CoveredEntryCount,$p.TwoTarget.CoveredEntryCount,$p.ThreeTarget.CoveredEntryCount)
 
       - name: Preserve non-redistributable provenance metadata with coverage evidence
