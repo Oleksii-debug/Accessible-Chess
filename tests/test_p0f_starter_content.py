@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 
-from acs.acsdb import AcsDatabase
+from acs.acsdb import ACSDB_SCHEMA_VERSION, AcsDatabase
 from acs.starter_content import (
     CONTENT_LICENSE_ID,
     INSTRUCTIONAL_SEEDS,
@@ -70,6 +70,7 @@ def test_stress_pgn_routes_through_canonical_import_and_search(tmp_path):
         assert report.total == 96
         assert report.damaged == 0
         assert len(report.game_ids) == 96
+        assert database.verify_integrity() == ACSDB_SCHEMA_VERSION
         total, distinct = database.conn.execute(
             "SELECT COUNT(*), COUNT(DISTINCT pgn_text) FROM games"
         ).fetchone()
@@ -83,7 +84,7 @@ def test_sample_library_uses_canonical_import_and_is_searchable(tmp_path):
     build_sample_library(database_path, starter_pgn=build_starter_pgn(32))
 
     with AcsDatabase(database_path) as database:
-        assert database.verify_integrity() == 32
+        assert database.verify_integrity() == ACSDB_SCHEMA_VERSION
         total, distinct = database.conn.execute(
             "SELECT COUNT(*), COUNT(DISTINCT pgn_text) FROM games"
         ).fetchone()
