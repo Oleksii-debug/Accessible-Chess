@@ -37,8 +37,9 @@ jobs:
     timeout-minutes: 55
     env:
       SOURCE_HEAD_SHA: a322c20044afebd9d5d3ae4d66305d87e94b04e5
-      CLAIM_BASE_SHA: 8996cddcf3091adcef615d5f0cd65e7e13190da9
-      CONVERGENCE_COMMIT_SHA: 8eca5f4d06646b4ff80d422d075c54d1ff9cdb73
+      PRIOR_LINEAGE_HEAD_SHA: eb5b23e9fab601139a12958d409fcb9719316f52
+      CLAIM_BASE_SHA: 38df77a62d76f92442f65b2a888c82266d33be9d
+      CONVERGENCE_COMMIT_SHA: 9c2cd32174ba35dfda4c02fabdf93f98cf4b7ded
     steps:
       - uses: actions/checkout@v4
         with:
@@ -70,18 +71,19 @@ jobs:
           if [ -z "$base" ]; then
             base="$CLAIM_BASE_SHA"
           fi
-          git cat-file -e "${base}^{commit}" || git fetch --no-tags origin "$base"
-          git cat-file -e "${SOURCE_HEAD_SHA}^{commit}" || git fetch --no-tags origin "$SOURCE_HEAD_SHA"
-          git cat-file -e "${CONVERGENCE_COMMIT_SHA}^{commit}" || git fetch --no-tags origin "$CONVERGENCE_COMMIT_SHA"
+          for commit in "$base" "$SOURCE_HEAD_SHA" "$PRIOR_LINEAGE_HEAD_SHA" "$CONVERGENCE_COMMIT_SHA"; do
+            git cat-file -e "${commit}^{commit}" || git fetch --no-tags origin "$commit"
+          done
           test "$base" = "$CLAIM_BASE_SHA" || {
             printf 'Remote convergence is stale: claim-base=%s event-base=%s\n' "$CLAIM_BASE_SHA" "$base" >&2
             exit 1
           }
           git merge-base --is-ancestor "$base" HEAD
           git merge-base --is-ancestor "$SOURCE_HEAD_SHA" HEAD
+          git merge-base --is-ancestor "$PRIOR_LINEAGE_HEAD_SHA" HEAD
           git merge-base --is-ancestor "$CONVERGENCE_COMMIT_SHA" HEAD
           test "$(git rev-parse "${CONVERGENCE_COMMIT_SHA}^1")" = "$base"
-          test "$(git rev-parse "${CONVERGENCE_COMMIT_SHA}^2")" = "$SOURCE_HEAD_SHA"
+          test "$(git rev-parse "${CONVERGENCE_COMMIT_SHA}^2")" = "$PRIOR_LINEAGE_HEAD_SHA"
           git diff --check "$base" HEAD -- . ':!docs/REMOTE_CONNECTIVITY_CONTRACT.md'
           changed="$(git diff --name-only "$base" HEAD | sort)"
           expected="$(printf '%s\n' \
