@@ -6,6 +6,13 @@ on:
       - 'acs/education_progress_lifecycle.py'
       - 'tests/test_d10_review_progress_delete_privacy.py'
       - '.github/workflows/d10-review-progress-delete-privacy.yml'
+  push:
+    branches:
+      - 'work/d10-review-progress-delete-privacy-20260911'
+    paths:
+      - 'acs/education_progress_lifecycle.py'
+      - 'tests/test_d10_review_progress_delete_privacy.py'
+      - '.github/workflows/d10-review-progress-delete-privacy.yml'
   workflow_dispatch:
 
 permissions:
@@ -46,11 +53,19 @@ jobs:
 
       - name: Prove bounded current-runtime scope
         shell: bash
+        env:
+          CANONICAL_BASE_SHA: 0b8fa275890cd82565eceece71063cb4353ea8c8
         run: |
           set -euo pipefail
-          test -n "${GITHUB_BASE_REF:-}"
-          git fetch --no-tags origin "${GITHUB_BASE_REF}:refs/remotes/origin/${GITHUB_BASE_REF}"
-          base="$(git rev-parse "origin/${GITHUB_BASE_REF}")"
+          if [ "${GITHUB_EVENT_NAME}" = "pull_request" ]; then
+            test -n "${GITHUB_BASE_REF:-}"
+            git fetch --no-tags origin "${GITHUB_BASE_REF}:refs/remotes/origin/${GITHUB_BASE_REF}"
+            base="$(git rev-parse "origin/${GITHUB_BASE_REF}")"
+          else
+            base="$CANONICAL_BASE_SHA"
+          fi
+          test "$base" = "$CANONICAL_BASE_SHA"
+          git cat-file -e "$base^{commit}"
           git merge-base --is-ancestor "$base" HEAD
           git diff --check "$base" HEAD
           changed="$(git diff --name-only "$base" HEAD | sort)"
