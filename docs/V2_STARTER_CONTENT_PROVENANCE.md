@@ -1,37 +1,70 @@
 # V2 offline starter Books/Training provenance
 
-Status: W3 / P0-F source evidence. This document does **not** set `HUMAN_ACCEPTED=YES` or `NVDA_VERIFIED=YES`.
+Status: P0-F release-content source evidence. This document does **not** set `HUMAN_ACCEPTED=YES` or `NVDA_VERIFIED=YES`, and it does not by itself prove final ZIP inclusion.
 
-## Scope
+## Release content model
 
-The built-in V2 starter corpus lives in `acs/starter_books_training_content.py`. The authored corpus uses the canonical `BookDocument` model and contains Ukrainian prose plus short self-check questions. `acs/starter_books_training_runtime.py` converts those self-check blocks into the canonical one-move Training contract while preserving each authored question and factual answer in the readable Book flow. The final product then consumes the result through the existing `BookReader`, Books WebView/native menu path, `book_training` bridge, canonical chess core and Training workspace. No second content engine, remote service, browser download, LLM, or network request is used at runtime.
+The original W3 authoring corpus remains in `acs/starter_books_training_content.py` as Ukrainian lesson modules and factual self-check source material. The release layer is `acs/starter_books_training_release.py`. It composes that lawful project-authored source into the actual offline starter material consumed by the final V2 application while continuing to reuse the canonical `BookDocument`, Books reader, `book_training`, chess core and Training workspace. No second Books engine, second Training engine, remote service, browser download, LLM or runtime network dependency is introduced.
 
-The corpus contains 27 Ukrainian tutorial materials and 135 Training exercises. Every packaged Training exercise is required to pass `build_book_training_material`, so its expected answer is a legal canonical chess move rather than arbitrary quiz text. The packaged final-product composition opens the aggregate starter course automatically as the initial Books document, while the existing Training route moves to the first canonical exercise when needed.
+The release inventory contains:
 
-## Provenance and rights inventory
+- 24 distinct multi-chapter Ukrainian learning materials;
+- 12 authored chapters in every material;
+- one ready-to-open aggregate Ukrainian course;
+- 144 position-specific canonical Training exercises;
+- 16 reviewed instructional opening families;
+- multiple legal FEN positions from both sides to move, captured before each reviewed move;
+- the existing Books -> Training application journey with persistence through the canonical progress store.
 
-All prose, questions and answers in this starter corpus were newly authored for the Accessible Chess project on 2026-09-11. They do not copy third-party books, articles, annotated games, puzzle databases, or proprietary chess-course text. They contain only original explanatory prose plus ordinary chess facts and terminology.
+The 24 release materials are not counted from the old three-paragraph lesson fragments. Each release material is a complete twelve-chapter reading path built from the authored lesson corpus, including explanatory prose and self-check material. The aggregate course keeps those factual self-checks as readable Book text rather than misrepresenting arbitrary quiz strings as chess moves.
 
-The semantic metadata records the rights statement:
+## Position Training provenance
 
-`Project-authored for Accessible Chess; no third-party text or games`
+The Training catalogue is deterministic authored data, not a random/hash move generator and not parser padding. It starts from the 16 reviewed instructional opening prefixes already present in the lawful starter corpus and extends each prefix with three explicit reviewed continuation plies. `build_training_task_catalogue()` walks every explicit line through the canonical chess core and records the exact FEN before each move. Illegal authored moves fail closed.
 
-There are no bundled third-party media files, web resources, external URLs, credentials, tokens, cookies, user data, browser profiles, or private logs in this W3 corpus.
+Each published `Exercise` therefore has:
 
-## Deterministic inventory
+- a position-specific legal FEN;
+- an opening/theme/learning-goal prompt coupled to that position;
+- one explicit legal coordinate move which `book_training` resolves through the canonical `Board` into canonical SAN;
+- a stable semantic block/source identity.
 
-`starter_content_manifest()` is the machine-readable inventory. The W3 acceptance gate requires:
+The release catalogue contains 144 exercises, exceeding the binding >=100 ready-exercise requirement without cycling unrelated opening moves from a single start position.
 
-- at least 24 distinct tutorial materials; current corpus: 27;
-- at least 100 canonical Training exercises; current corpus: 135;
-- all 135 packaged exercises accepted by the canonical `BookDocument -> book_training -> chesscore.Board` path;
-- Ukrainian language metadata;
-- a non-empty provenance/rights statement;
-- unique semantic block identifiers;
-- valid canonical exercise FEN values;
-- no network URL dependency in the aggregate course;
-- deterministic first-run Books and Training availability through the existing V2 application.
+## Provenance and redistribution license
+
+All prose, self-checks, learning paths and added Training continuations in this release corpus are project-authored for Accessible Chess. They do not copy third-party books, commercial databases, proprietary courses, puzzle collections or commentary.
+
+Machine-readable release metadata uses:
+
+`LicenseRef-Accessible-Chess-Starter-Books-Training-1.0`
+
+Ukrainian terms are carried by `STARTER_RELEASE_LICENSE_TERMS_UK`: the marked starter Books/Training materials may be used, copied, modified and redistributed with Accessible Chess or separately when the provenance/license notice is preserved; the grant does not cover unrelated third-party works. `starter_release_manifest()` records the license identifier and terms and repeats the license identifier for every release material together with its source, chapter count and word count.
+
+The release source identifier is:
+
+`Accessible Chess project-authored offline starter corpus`
+
+There are no bundled credentials, tokens, cookies, browser profiles, user data or private logs in this corpus.
+
+## Deterministic acceptance inventory
+
+The focused P0-F acceptance gate requires, on Ubuntu and Windows:
+
+- exactly 24 release materials and at least 24 by contract;
+- at least 12 chapters per material;
+- at least 1000 words per material across headings/prose/self-check text;
+- explicit per-material source and redistribution license identifier;
+- exactly 144 Training exercises and at least 100 by contract;
+- meaningful FEN diversity, both sides to move and all 16 reviewed opening families;
+- unique semantic exercise identities;
+- canonical legality of **every** Training exercise through `BookDocument -> book_training -> chesscore.Board`;
+- a real final-product first-run Books -> Training startup path;
+- derived user-facing inventory counts so old `24/120` literals cannot drift from the release catalogue;
+- no runtime network dependency.
 
 ## Acceptance boundary
 
-Automated tests can prove schema validity, inventory counts, semantic parsing, legal Training conversion, first-run application composition and Training startup. They cannot prove physical NVDA behavior. Oleksii must perform the final packaged Windows/NVDA acceptance before `NVDA_VERIFIED` or `HUMAN_ACCEPTED` may be changed to true.
+This source-level repair closes the prior W3 semantic defects only when its exact-head dual-OS qualification is green and W5 integrates it into the current Full Product. It does **not** prove that W2's separate >=200 curated instructional/sample-game requirement is satisfied, and it does not prove that the content is physically present in the final Windows ZIP. W5/W6 package-content verification must still prove archive inclusion, fresh extraction, offline discovery and execution.
+
+Automated tests cannot prove physical NVDA behavior. Only Oleksii's packaged Windows/NVDA protocol can set `NVDA_VERIFIED=YES` or `HUMAN_ACCEPTED=YES`.
