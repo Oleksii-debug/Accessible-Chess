@@ -9,6 +9,7 @@ on:
       - work/full-product-teacher-education-reachability-20260911
     paths:
       - acs/starter_books_training_content.py
+      - acs/starter_books_training_runtime.py
       - acs/version2_starter_content_application.py
       - acs/version2_education_mutation_release.py
       - tests/test_w3_p0f_starter_books_training_content.py
@@ -44,6 +45,7 @@ jobs:
         run: >-
           python -m py_compile
           acs/starter_books_training_content.py
+          acs/starter_books_training_runtime.py
           acs/version2_starter_content_application.py
           acs/version2_education_mutation_release.py
           tests/test_w3_p0f_starter_books_training_content.py
