@@ -9,9 +9,13 @@ router, persistence format, or browser authority.
 
 from .book_board_workflow import BookBoardWorkflow
 from .book_library_game_lookup import AcsdbBookGameLookup
-from .bookdocument import Exercise
+from .bookdocument import Exercise, Paragraph
 from .bookreader import BookReader
-from .starter_books_training_content import STARTER_COURSE_BOOK_KEY, build_starter_course
+from .starter_books_training_content import (
+    STARTER_COURSE_BOOK_KEY,
+    build_starter_course,
+    starter_content_manifest,
+)
 from .version2_book_workspace import build_version2_book_webview
 from .version2_education_mutation_application import Version2EducationMutationApplication
 from .version2_windows_book_board_adapter import Version2WindowsBookBoardActionDelegate
@@ -30,6 +34,16 @@ class Version2StarterContentApplication(Version2EducationMutationApplication):
             raise ValueError("return to the book before replacing the starter course")
 
         document = build_starter_course()
+        manifest = starter_content_manifest()
+        introduction = document.blocks[1]
+        if isinstance(introduction, Paragraph):
+            introduction.text = (
+                f"Офлайн-курс містить {manifest['material_count']} українських навчальних модулів "
+                f"та {manifest['exercise_count']} вправ. Він використовує той самий BookDocument і "
+                "той самий Training, що й імпортовані книги, тому доступний без мережі та без "
+                "ручного пошуку файлів."
+            )
+
         if self.progress_store.has(STARTER_COURSE_BOOK_KEY):
             reader = self.progress_store.restore(STARTER_COURSE_BOOK_KEY, document)
         else:
