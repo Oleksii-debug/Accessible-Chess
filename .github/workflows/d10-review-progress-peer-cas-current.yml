@@ -5,12 +5,6 @@ on:
     paths:
       - 'tests/test_d10_review_progress_peer_cas.py'
       - '.github/workflows/d10-review-progress-peer-cas-current.yml'
-  push:
-    branches:
-      - 'work/d10-review-progress-peer-cas-current-8996-20260911'
-    paths:
-      - 'tests/test_d10_review_progress_peer_cas.py'
-      - '.github/workflows/d10-review-progress-peer-cas-current.yml'
   workflow_dispatch:
 
 permissions:
@@ -28,6 +22,11 @@ jobs:
         os: [ubuntu-22.04, windows-2025]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 40
+    env:
+      INTEGRATED_AUTHORITY_SHA: 38df77a62d76f92442f65b2a888c82266d33be9d
+      RETAINED_PRODUCT_BRANCH: work/full-product-teacher-education-reachability-20260911
+      SOURCE_TEST_BLOB: 407b2a68b29be6715fc08ff44c2566e30784cb58
+      PRODUCT_STORE_BLOB: cdde3943fcf07f70b21da2c28bc0a984b9dfef2b
     steps:
       - uses: actions/checkout@v4
         with:
@@ -49,35 +48,38 @@ jobs:
       - name: Install pinned verification dependency
         run: python -m pip install -q pytest==8.4.2
 
-      - name: Prove current Full Product authority and qualification-only scope
+      - name: Prove candidate scope or retained Full Product authority
         shell: bash
-        env:
-          CANONICAL_BASE_SHA: 8996cddcf3091adcef615d5f0cd65e7e13190da9
-          SOURCE_TEST_BLOB: 407b2a68b29be6715fc08ff44c2566e30784cb58
-          PRODUCT_STORE_BLOB: cdde3943fcf07f70b21da2c28bc0a984b9dfef2b
         run: |
           set -euo pipefail
-          if [ "${GITHUB_EVENT_NAME}" = "pull_request" ]; then
-            test -n "${GITHUB_BASE_REF:-}"
+          git cat-file -e "${INTEGRATED_AUTHORITY_SHA}^{commit}"
+          git merge-base --is-ancestor "$INTEGRATED_AUTHORITY_SHA" HEAD
+
+          if [ "${GITHUB_EVENT_NAME}" = "pull_request" ] && [ "${GITHUB_HEAD_REF:-}" != "$RETAINED_PRODUCT_BRANCH" ]; then
+            test "${GITHUB_BASE_REF:-}" = "$RETAINED_PRODUCT_BRANCH"
             git fetch --no-tags origin "${GITHUB_BASE_REF}:refs/remotes/origin/${GITHUB_BASE_REF}"
             base="$(git rev-parse "origin/${GITHUB_BASE_REF}")"
+            test "$base" = "$INTEGRATED_AUTHORITY_SHA"
+            changed="$(git diff --name-only "$base" HEAD | sort)"
+            expected=".github/workflows/d10-review-progress-peer-cas-current.yml"
+            test "$changed" = "$expected"
+            git diff --check "$base" HEAD -- .github/workflows/d10-review-progress-peer-cas-current.yml
+            printf 'peer-CAS gate mode=candidate base=%s head=%s\n' "$base" "$(git rev-parse HEAD)"
           else
-            base="$CANONICAL_BASE_SHA"
+            if [ "${GITHUB_EVENT_NAME}" = "pull_request" ]; then
+              test "${GITHUB_HEAD_REF:-}" = "$RETAINED_PRODUCT_BRANCH"
+            fi
+            git diff --check "$INTEGRATED_AUTHORITY_SHA" HEAD -- \
+              .github/workflows/d10-review-progress-peer-cas-current.yml \
+              tests/test_d10_review_progress_peer_cas.py
+            printf 'peer-CAS gate mode=retained integrated-authority=%s head=%s\n' \
+              "$INTEGRATED_AUTHORITY_SHA" "$(git rev-parse HEAD)"
           fi
-          test "$base" = "$CANONICAL_BASE_SHA"
-          git cat-file -e "${base}^{commit}"
-          git merge-base --is-ancestor "$base" HEAD
-          git diff --check "$base" HEAD
-
-          changed="$(git diff --name-only "$base" HEAD | sort)"
-          expected="$(printf '%s\n' \
-            '.github/workflows/d10-review-progress-peer-cas-current.yml' \
-            'tests/test_d10_review_progress_peer_cas.py' | sort)"
-          test "$changed" = "$expected"
 
           test "$(git rev-parse HEAD:tests/test_d10_review_progress_peer_cas.py)" = "$SOURCE_TEST_BLOB"
           test "$(git rev-parse HEAD:acs/student_progress_store.py)" = "$PRODUCT_STORE_BLOB"
-          test "$(git rev-parse "$base:acs/student_progress_store.py")" = "$PRODUCT_STORE_BLOB"
+          test "$(git rev-parse "${INTEGRATED_AUTHORITY_SHA}:tests/test_d10_review_progress_peer_cas.py")" = "$SOURCE_TEST_BLOB"
+          test "$(git rev-parse "${INTEGRATED_AUTHORITY_SHA}:acs/student_progress_store.py")" = "$PRODUCT_STORE_BLOB"
 
       - name: Compile qualification test
         run: python -m py_compile tests/test_d10_review_progress_peer_cas.py
