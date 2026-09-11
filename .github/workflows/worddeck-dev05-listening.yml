@@ -21,7 +21,19 @@ jobs:
     runs-on: windows-2025
     timeout-minutes: 25
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout exact candidate revision
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 1
+      - name: Assert exact checkout
+        shell: pwsh
+        run: |
+          $expected = "${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}"
+          $actual = (git rev-parse HEAD).Trim()
+          if ($actual -ne $expected) {
+            throw "Listening gate checkout mismatch: expected $expected, got $actual"
+          }
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '8.0.x'
