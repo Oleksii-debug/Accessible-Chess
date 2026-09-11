@@ -39,6 +39,42 @@ internal static class StoryCourseContractSelfTest
                 dictionary),
             "Technical fixture was allowed to claim Complete English authority.");
 
+        ExpectInvalid(
+            () => StoryCourseContractValidator.Validate(
+                fixture with
+                {
+                    CurriculumAuthority = StoryCourseCurriculumAuthority.ApprovedCurriculum,
+                    ClaimsCompleteEnglishCourse = true
+                },
+                dictionary),
+            "Generated fixture provenance bypassed Complete English authority by setting ApprovedCurriculum.");
+
+        StoryCourseObjectiveContract moduleOnlyObjective = new(
+            "objective.module-only",
+            "Module objective intentionally not owned by the fixture unit.",
+            new[] { "comprehension" });
+        StoryCourseModuleContract sourceModule = fixture.Levels[0].Modules[0];
+        StoryCourseComprehensionTaskContract crossUnitTask = unit.ComprehensionTasks[0] with
+        {
+            ObjectiveIds = new[] { moduleOnlyObjective.ObjectiveId }
+        };
+        StoryCourseUnitContract crossUnitEvidence = unit with
+        {
+            ComprehensionTasks = new[] { crossUnitTask }
+        };
+        StoryCourseModuleContract crossUnitModule = sourceModule with
+        {
+            Objectives = new[] { sourceModule.Objectives[0], moduleOnlyObjective },
+            Units = new[] { crossUnitEvidence }
+        };
+        StoryCourseLevelContract crossUnitLevel = fixture.Levels[0] with
+        {
+            Modules = new[] { crossUnitModule }
+        };
+        ExpectInvalid(
+            () => StoryCourseContractValidator.Validate(fixture with { Levels = new[] { crossUnitLevel } }, dictionary),
+            "A task was allowed to claim evidence for a module objective that its unit did not own.");
+
         var exposureOnly = new StoryCourseObjectiveProgressContract(
             "objective.describe-light",
             ExposureCount: 12,
@@ -57,6 +93,14 @@ internal static class StoryCourseContractSelfTest
                 StoryCourseMasteryDecision.Mastered, null).Validate(),
             "Mastery without an explicit decision authority was accepted.");
 
+        ExpectInvalid(
+            () => (exposureOnly with
+            {
+                MasteryDecision = (StoryCourseMasteryDecision)999,
+                DecisionAuthority = "assessment.invalid-enum"
+            }).Validate(),
+            "Unknown mastery enum value was accepted.");
+
         var assessed = new StoryCourseObjectiveProgressContract(
             "objective.describe-light", 12, 4, 2, 1,
             StoryCourseMasteryDecision.Mastered, "assessment.unit-checkpoint.v1");
@@ -73,6 +117,10 @@ internal static class StoryCourseContractSelfTest
                 [assessed.ObjectiveId] = assessed
             });
         progress.Validate();
+
+        ExpectInvalid(
+            () => (progress with { CompletedTaskIds = new[] { "task id with spaces" } }).Validate(),
+            "Progress completed-task collection accepted a non-stable identifier.");
 
         Console.WriteLine("WordDeck Story/Course contract self-test PASS.");
     }
