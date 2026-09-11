@@ -51,24 +51,63 @@ jobs:
         env:
           CANONICAL_BASE_SHA: 4cf3a7dd2de8847458bd8d5923f4cc234364496b
           SOURCE_HEAD_SHA: 1ec05b87ed2a776bfb3625059a45588c0b1ff6e6
+          AGGREGATE_REF: work/full-product-teacher-education-reachability-20260911
+          AGGREGATE_ANCHOR_SHA: 05d9cb289a5d81dd483b18197e5f76c46aff3012
         run: |
           set -euo pipefail
-          test -n "${GITHUB_BASE_REF:-}"
-          git fetch --no-tags origin "${GITHUB_BASE_REF}:refs/remotes/origin/${GITHUB_BASE_REF}"
-          base="$(git rev-parse "origin/${GITHUB_BASE_REF}")"
-          test "$base" = "$CANONICAL_BASE_SHA"
           git cat-file -e "$SOURCE_HEAD_SHA^{commit}"
-          git merge-base --is-ancestor "$CANONICAL_BASE_SHA" HEAD
-          git merge-base --is-ancestor "$SOURCE_HEAD_SHA" HEAD
-          git diff --check "$CANONICAL_BASE_SHA" HEAD
-          changed="$(git diff --name-only "$CANONICAL_BASE_SHA" HEAD | sort)"
-          expected="$(printf '%s\n' \
-            '.github/workflows/d01-pgn-workspace-webview.yml' \
-            '.github/workflows/w1-d06-bounded-model-materialization-convergence.yml' \
-            'acs/pgn_roundtrip.py' \
-            'acs/pgn_workspace.py' \
-            'tests/test_w1_d06_bounded_model_materialization.py' | sort)"
-          test "$changed" = "$expected"
+          aggregate_context="${GITHUB_HEAD_REF:-${GITHUB_REF_NAME:-}}"
+
+          if [ "$aggregate_context" = "$AGGREGATE_REF" ]; then
+            git cat-file -e "$AGGREGATE_ANCHOR_SHA^{commit}"
+            git merge-base --is-ancestor "$SOURCE_HEAD_SHA" HEAD
+            git merge-base --is-ancestor "$AGGREGATE_ANCHOR_SHA" HEAD
+            git diff --check "$AGGREGATE_ANCHOR_SHA" HEAD
+            git diff --quiet "$AGGREGATE_ANCHOR_SHA" HEAD -- \
+              acs/pgn_roundtrip.py \
+              acs/pgn_workspace.py \
+              tests/test_w1_d06_bounded_model_materialization.py
+            echo 'W1_D06_TOPOLOGY=CANONICAL_AGGREGATE'
+          elif [ "${GITHUB_BASE_REF:-}" = "$AGGREGATE_REF" ]; then
+            git fetch --no-tags origin "${GITHUB_BASE_REF}:refs/remotes/origin/${GITHUB_BASE_REF}"
+            base="$(git rev-parse "origin/${GITHUB_BASE_REF}")"
+            test "$base" = "$AGGREGATE_ANCHOR_SHA"
+            git merge-base --is-ancestor "$base" HEAD
+            git merge-base --is-ancestor "$SOURCE_HEAD_SHA" HEAD
+            git diff --check "$base" HEAD
+            changed="$(git diff --name-only "$base" HEAD | sort)"
+            test -n "$changed"
+            allowed="$(printf '%s\n' \
+              '.github/workflows/d01-teacher-classroom-webview.yml' \
+              '.github/workflows/d10-no-implicit-delete-current.yml' \
+              '.github/workflows/d10-review-progress-delete-privacy-convergence.yml' \
+              '.github/workflows/version2-windows-composition.yml' \
+              '.github/workflows/w1-d06-bounded-model-materialization-convergence.yml' | sort)"
+            while IFS= read -r path; do
+              printf '%s\n' "$allowed" | grep -Fx -- "$path" >/dev/null || {
+                printf 'Out-of-scope aggregate harness repair: %s\n' "$path" >&2
+                exit 1
+              }
+            done <<< "$changed"
+            echo 'W1_D06_TOPOLOGY=AGGREGATE_HARNESS_CHILD'
+          else
+            test -n "${GITHUB_BASE_REF:-}"
+            git fetch --no-tags origin "${GITHUB_BASE_REF}:refs/remotes/origin/${GITHUB_BASE_REF}"
+            base="$(git rev-parse "origin/${GITHUB_BASE_REF}")"
+            test "$base" = "$CANONICAL_BASE_SHA"
+            git merge-base --is-ancestor "$CANONICAL_BASE_SHA" HEAD
+            git merge-base --is-ancestor "$SOURCE_HEAD_SHA" HEAD
+            git diff --check "$CANONICAL_BASE_SHA" HEAD
+            changed="$(git diff --name-only "$CANONICAL_BASE_SHA" HEAD | sort)"
+            expected="$(printf '%s\n' \
+              '.github/workflows/d01-pgn-workspace-webview.yml' \
+              '.github/workflows/w1-d06-bounded-model-materialization-convergence.yml' \
+              'acs/pgn_roundtrip.py' \
+              'acs/pgn_workspace.py' \
+              'tests/test_w1_d06_bounded_model_materialization.py' | sort)"
+            test "$changed" = "$expected"
+          fi
+
           for path in \
             acs/pgn_roundtrip.py \
             acs/pgn_workspace.py \
