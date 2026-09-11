@@ -1,0 +1,123 @@
+name: V2 Books Training Presentation Sanitizer
+
+on:
+  push:
+    branches:
+      - work/v2-books-training-presentation-sanitizer-20260910
+  pull_request:
+    paths:
+      - '.github/workflows/v2-shared-presentation-path-privacy.yml'
+      - 'acs/presentation_privacy.py'
+      - 'acs/book_webview_projection.py'
+      - 'acs/training_webview_projection.py'
+      - 'acs/library_webview_projection.py'
+      - 'tests/test_v2_shared_presentation_path_privacy.py'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: v2-books-training-presentation-sanitizer-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  STACK_PARENT: 5bb55bbbbd3148d975e24cc772faa34e37471671
+  PRIVACY_BLOB: e9b4fb9b9f9cf83f81ee09fc942892066ccae29b
+  BOOK_PROJECTION_BLOB: 707268d119e3844f2d4b5c2611976e7fd2af406a
+  TRAINING_PROJECTION_BLOB: 848586c8927a531335b0f09a7b0830550c9265cb
+  LIBRARY_PROJECTION_BLOB: 272422a4e3c5527766ee7889dabbbdce7ff416a0
+  PRIVACY_TEST_BLOB: e7be014c32cdcfae56599a441a045e95113c3ee2
+  LIBRARY_PRIVACY_TEST_BLOB: 8610e373c95b8f7beb646def0eaebb4f744577a3
+
+jobs:
+  focused:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install pinned test dependency
+        run: python -m pip install -q pytest==8.4.2
+
+      - name: Prove exact successor ancestry and bounded privacy scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor "$STACK_PARENT" HEAD
+          git diff --check "$STACK_PARENT" HEAD
+          changed="$(git diff --name-only "$STACK_PARENT" HEAD | sort)"
+          allowed="$(printf '%s\n' \
+            .github/workflows/v2-shared-presentation-path-privacy.yml \
+            acs/presentation_privacy.py \
+            tests/test_v2_shared_presentation_path_privacy.py | sort)"
+          test "$changed" = "$allowed" || {
+            printf 'Unexpected Books/Training presentation sanitizer scope:\n%s\n' "$changed" >&2
+            exit 1
+          }
+          test "$(git rev-parse HEAD:acs/presentation_privacy.py)" = "$PRIVACY_BLOB"
+          test "$(git rev-parse HEAD:acs/book_webview_projection.py)" = "$BOOK_PROJECTION_BLOB"
+          test "$(git rev-parse HEAD:acs/training_webview_projection.py)" = "$TRAINING_PROJECTION_BLOB"
+          test "$(git rev-parse HEAD:acs/library_webview_projection.py)" = "$LIBRARY_PROJECTION_BLOB"
+          test "$(git rev-parse HEAD:tests/test_v2_shared_presentation_path_privacy.py)" = "$PRIVACY_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_v2_library_presentation_path_privacy.py)" = "$LIBRARY_PRIVACY_TEST_BLOB"
+
+      - name: Compile shared presentation privacy surfaces
+        run: >-
+          python -m compileall -q
+          acs/presentation_privacy.py
+          acs/book_webview_projection.py
+          acs/training_webview_projection.py
+          acs/library_webview_projection.py
+          tests/test_v2_shared_presentation_path_privacy.py
+          tests/test_v2_library_presentation_path_privacy.py
+
+      - name: Focused Books Training and dependent Library privacy regressions
+        run: >-
+          python -m unittest -v
+          tests.test_v2_shared_presentation_path_privacy
+          tests.test_dev1_books_training_webview_projection
+          tests.test_books_training_ui_integration
+          tests.test_v2_library_presentation_path_privacy
+          tests.test_dev1_library_webview_projection
+
+      - name: Focused pytest parity
+        run: >-
+          python -m pytest -q
+          tests/test_v2_shared_presentation_path_privacy.py
+          tests/test_dev1_books_training_webview_projection.py
+          tests/test_books_training_ui_integration.py
+          tests/test_v2_library_presentation_path_privacy.py
+          tests/test_dev1_library_webview_projection.py
+
+  broad-ubuntu:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install pinned test dependency
+        run: python -m pip install -q pytest==8.4.2
+
+      - name: Full unittest regression
+        run: python -m unittest discover -s tests -v
+
+      - name: Full pytest regression
+        run: python -m pytest -q
