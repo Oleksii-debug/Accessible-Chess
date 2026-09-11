@@ -58,42 +58,90 @@ jobs:
 
       - name: Prove exact PR ancestry and D01 scope
         shell: bash
+        env:
+          AGGREGATE_REF: work/full-product-teacher-education-reachability-20260911
+          AGGREGATE_ANCHOR_SHA: 05d9cb289a5d81dd483b18197e5f76c46aff3012
         run: |
           set -euo pipefail
-          base_ref="${GITHUB_BASE_REF:-codex/v2-runtime-completion-20260907}"
-          git fetch --no-tags origin "${base_ref}:refs/remotes/origin/${base_ref}"
-          base="$(git rev-parse "origin/${base_ref}")"
-          merge_base="$(git merge-base "$base" HEAD)"
-          test "$merge_base" = "$base" || {
-            printf 'D01 head is stale against base: base=%s merge-base=%s\n' "$base" "$merge_base" >&2
-            exit 1
-          }
-          git diff --check "$base" HEAD
-          allowed="$(printf '%s\n' \
-            '.github/workflows/d01-teacher-classroom-webview.yml' \
-            'acs/classroom_webview_bridge.py' \
-            'acs/classroom_webview_projection.py' \
-            'acs/teacher_webview_bridge.py' \
-            'acs/teacher_webview_projection.py' \
-            'tests/js/teacher_surface_dom_test.js' \
-            'tests/test_d09_teacher_canonical_webview_composition.py' \
-            'tests/test_dev1_classroom_web_asset.py' \
-            'tests/test_dev1_classroom_webview_bridge.py' \
-            'tests/test_dev1_classroom_webview_privacy.py' \
-            'tests/test_dev1_classroom_webview_projection.py' \
-            'tests/test_dev1_teacher_webview_projection.py' \
-            'tests/test_teacher_webview_bridge.py' \
-            'web/full_product_classroom.js' \
-            'web/full_product_teacher.js' | sort)"
-          changed="$(git diff --name-only "$base" HEAD | sort)"
-          test -n "$changed"
-          while IFS= read -r path; do
-            printf '%s\n' "$allowed" | grep -Fx -- "$path" >/dev/null || {
-              printf 'Out-of-scope D01 change: %s\n' "$path" >&2
+          aggregate_context="${GITHUB_HEAD_REF:-${GITHUB_REF_NAME:-}}"
+
+          if [ "$aggregate_context" = "$AGGREGATE_REF" ]; then
+            git cat-file -e "$AGGREGATE_ANCHOR_SHA^{commit}"
+            git merge-base --is-ancestor "$AGGREGATE_ANCHOR_SHA" HEAD
+            git diff --check "$AGGREGATE_ANCHOR_SHA" HEAD
+            git diff --quiet "$AGGREGATE_ANCHOR_SHA" HEAD -- \
+              acs/classroom_webview_bridge.py \
+              acs/classroom_webview_projection.py \
+              acs/teacher_webview_bridge.py \
+              acs/teacher_webview_projection.py \
+              tests/js/teacher_surface_dom_test.js \
+              tests/test_d09_teacher_canonical_webview_composition.py \
+              tests/test_dev1_classroom_web_asset.py \
+              tests/test_dev1_classroom_webview_bridge.py \
+              tests/test_dev1_classroom_webview_privacy.py \
+              tests/test_dev1_classroom_webview_projection.py \
+              tests/test_dev1_teacher_webview_projection.py \
+              tests/test_teacher_webview_bridge.py \
+              web/full_product_classroom.js \
+              web/full_product_teacher.js
+            echo 'D01_TEACHER_TOPOLOGY=CANONICAL_AGGREGATE'
+          elif [ "${GITHUB_BASE_REF:-}" = "$AGGREGATE_REF" ]; then
+            git fetch --no-tags origin "${GITHUB_BASE_REF}:refs/remotes/origin/${GITHUB_BASE_REF}"
+            base="$(git rev-parse "origin/${GITHUB_BASE_REF}")"
+            test "$base" = "$AGGREGATE_ANCHOR_SHA"
+            git merge-base --is-ancestor "$base" HEAD
+            git diff --check "$base" HEAD
+            changed="$(git diff --name-only "$base" HEAD | sort)"
+            test -n "$changed"
+            allowed="$(printf '%s\n' \
+              '.github/workflows/d01-teacher-classroom-webview.yml' \
+              '.github/workflows/d10-no-implicit-delete-current.yml' \
+              '.github/workflows/d10-review-progress-delete-privacy-convergence.yml' \
+              '.github/workflows/version2-windows-composition.yml' \
+              '.github/workflows/w1-d06-bounded-model-materialization-convergence.yml' | sort)"
+            while IFS= read -r path; do
+              printf '%s\n' "$allowed" | grep -Fx -- "$path" >/dev/null || {
+                printf 'Out-of-scope aggregate harness repair: %s\n' "$path" >&2
+                exit 1
+              }
+            done <<< "$changed"
+            echo 'D01_TEACHER_TOPOLOGY=AGGREGATE_HARNESS_CHILD'
+          else
+            base_ref="${GITHUB_BASE_REF:-codex/v2-runtime-completion-20260907}"
+            git fetch --no-tags origin "${base_ref}:refs/remotes/origin/${base_ref}"
+            base="$(git rev-parse "origin/${base_ref}")"
+            merge_base="$(git merge-base "$base" HEAD)"
+            test "$merge_base" = "$base" || {
+              printf 'D01 head is stale against base: base=%s merge-base=%s\n' "$base" "$merge_base" >&2
               exit 1
             }
-          done <<< "$changed"
-          printf 'D01 scope PASS against %s\n%s\n' "$base" "$changed"
+            git diff --check "$base" HEAD
+            allowed="$(printf '%s\n' \
+              '.github/workflows/d01-teacher-classroom-webview.yml' \
+              'acs/classroom_webview_bridge.py' \
+              'acs/classroom_webview_projection.py' \
+              'acs/teacher_webview_bridge.py' \
+              'acs/teacher_webview_projection.py' \
+              'tests/js/teacher_surface_dom_test.js' \
+              'tests/test_d09_teacher_canonical_webview_composition.py' \
+              'tests/test_dev1_classroom_web_asset.py' \
+              'tests/test_dev1_classroom_webview_bridge.py' \
+              'tests/test_dev1_classroom_webview_privacy.py' \
+              'tests/test_dev1_classroom_webview_projection.py' \
+              'tests/test_dev1_teacher_webview_projection.py' \
+              'tests/test_teacher_webview_bridge.py' \
+              'web/full_product_classroom.js' \
+              'web/full_product_teacher.js' | sort)"
+            changed="$(git diff --name-only "$base" HEAD | sort)"
+            test -n "$changed"
+            while IFS= read -r path; do
+              printf '%s\n' "$allowed" | grep -Fx -- "$path" >/dev/null || {
+                printf 'Out-of-scope D01 change: %s\n' "$path" >&2
+                exit 1
+              }
+            done <<< "$changed"
+            printf 'D01 scope PASS against %s\n%s\n' "$base" "$changed"
+          fi
 
       - name: Compile Teacher and Classroom package
         run: >-
