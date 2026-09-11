@@ -14,14 +14,14 @@ enable_webview2_renderer_accessibility()
 if "--diagnostic" in sys.argv:
     # Automated evidence only. Human NVDA verification remains Oleksii-only on
     # the exact packaged candidate and is never inferred from this diagnostic.
-    # The diagnostic composes the same Version 2 production root as the real
+    # The diagnostic composes the same final-product release root as the real
     # launcher. Only external engine/audio/clipboard/data-root effects are
     # replaced through existing injected composition ports for deterministic CI.
     from acs.selftest import run as core_run
     from acs.stage1_release_ui import complete_user_flow_diagnostic
-    from acs.version2_profile import validate_version2_profile
-    from acs.version2_release_app import create_version2_release_application
-    from acs.version2_release_ui import _resource_sources
+    from acs.version2_final_product_profile import validate_final_product_profile
+    from acs.version2_final_release import create_version2_release_application
+    from acs import version2_release_ui as _release_ui
 
     class _DiagnosticEngine:
         def analyze(self, fen, multipv=5, depth=16):
@@ -52,8 +52,8 @@ if "--diagnostic" in sys.argv:
             return None
 
     core_run()
-    validate_version2_profile()
-    resources = _resource_sources()
+    validate_final_product_profile()
+    resources = _release_ui._resource_sources()
     runtime = _DiagnosticRuntime()
     application = None
     api = None
@@ -90,6 +90,16 @@ if "--diagnostic" in sys.argv:
                     cleanup_order.append("runtime")
 
     resource_names = tuple(name for name, _source in resources)
+    navigation = (
+        tuple(item.get("route_id", "") for item in v2_state.get("navigation", ()))
+        if isinstance(v2_state, dict)
+        else ()
+    )
+    product_status = (
+        v2_state.get("product_status", {})
+        if isinstance(v2_state, dict)
+        else {}
+    )
     if (
         not isinstance(semantic, dict)
         or not semantic.get("ok")
@@ -100,15 +110,22 @@ if "--diagnostic" in sys.argv:
         or flow.get("boardCells") != 64
         or not isinstance(v2_state, dict)
         or not isinstance(v2_state.get("library"), dict)
+        or not isinstance(v2_state.get("education"), dict)
+        or v2_state.get("teacher") is not None
+        or "teacher" not in navigation
+        or "classes" not in navigation
+        or product_status.get("remote_transport") != "not_approved"
         or cleanup_order != ["application", "analysis", "runtime"]
         or not runtime.closed
-        or "V2 release bootstrap" not in resource_names
+        or "V2 final-product bootstrap" not in resource_names
+        or "V2 Teacher surface" not in resource_names
+        or "V2 Education surface" not in resource_names
         or "V2 PGN surface" not in resource_names
         or "V2 Library surface" not in resource_names
         or "V2 Books surface" not in resource_names
     ):
         raise SystemExit(
-            "ACCESSIBLE CHESS V2 DIAGNOSTIC FAILED: "
+            "ACCESSIBLE CHESS V2 FINAL-PRODUCT DIAGNOSTIC FAILED: "
             + json.dumps(
                 {
                     "semantic": semantic,
@@ -121,7 +138,7 @@ if "--diagnostic" in sys.argv:
                 ensure_ascii=False,
             )
         )
-    print("ACCESSIBLE CHESS V2 PRODUCTION COMPOSITION DIAGNOSTIC PASS")
+    print("ACCESSIBLE CHESS V2 FINAL-PRODUCT COMPOSITION DIAGNOSTIC PASS")
 else:
     from acs.webview2_accessibility import install_pywebview_accessibility_host_patch
 
@@ -130,6 +147,6 @@ else:
     if not install_pywebview_safe_local_server_port():
         raise SystemExit("Accessible WebView2 local server could not be initialized.")
 
-    from acs.version2_release_app import main
+    from acs.version2_final_release import main
 
     main()
