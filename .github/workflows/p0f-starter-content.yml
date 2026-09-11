@@ -1,9 +1,6 @@
 name: P0-F Starter Content Qualification
 
 on:
-  push:
-    branches:
-      - work/w2-p0f-starter-pgn-library-20260911
   pull_request:
     branches:
       - work/full-product-teacher-education-reachability-20260911
@@ -18,7 +15,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: p0f-starter-content-${{ github.ref }}
+  group: p0f-starter-content-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -77,20 +74,56 @@ jobs:
       - name: Build default acceptance-volume bundle
         run: python scripts/build_starter_content.py .p0f-default
 
-      - name: Verify default manifest and ACSDB integrity
+      - name: Verify 240-game starter and licensed payload manifest
         run: |
           python - <<'PY'
           import json
           from pathlib import Path
           from acs.acsdb import AcsDatabase
+          from acs.starter_content import CONTENT_LICENSE_ID
 
           root = Path('.p0f-default')
           manifest = json.loads((root / 'manifest.json').read_text(encoding='utf-8'))
           assert manifest['counts']['starter_games'] >= 200
           assert manifest['counts']['stress_games'] > manifest['counts']['starter_games']
           assert manifest['provenance']['third_party_corpus'] is False
+          assert manifest['license']['id'] == CONTENT_LICENSE_ID
+          assert set(manifest['license']['applies_to']) == set(manifest['files'])
+          assert all(item['license_id'] == CONTENT_LICENSE_ID for item in manifest['files'].values())
           with AcsDatabase(root / 'sample_library.acsdb') as db:
-              assert db.verify_integrity() >= 200
+              assert db.verify_integrity() == manifest['counts']['starter_games']
+              total, distinct = db.conn.execute(
+                  'SELECT COUNT(*), COUNT(DISTINCT pgn_text) FROM games'
+              ).fetchone()
+              assert total == distinct == manifest['counts']['starter_games']
               assert len(db.search_games(player='Учень', limit=25)) == 25
-          print('P0_F_DEFAULT_VOLUME=PASS')
+              assert db.search_games(opening='Game', limit=25)
+          print('P0_F_STARTER_DEFAULT_VOLUME=PASS')
+          PY
+
+      - name: Prove full 1200-game stress corpus through canonical import and search
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          from acs.acsdb import AcsDatabase
+
+          root = Path('.p0f-default')
+          stress_text = (root / 'stress_uk.pgn').read_text(encoding='utf-8')
+          with AcsDatabase(root / 'stress_acceptance.acsdb') as db:
+              report = db.import_pgn_text(stress_text, source_name='stress_uk.pgn')
+              assert report.total == 1200
+              assert report.damaged == 0
+              assert len(report.game_ids) == 1200
+              assert db.verify_integrity() == 1200
+              total, distinct, whites, blacks, events = db.conn.execute(
+                  'SELECT COUNT(*), COUNT(DISTINCT pgn_text), '
+                  'COUNT(DISTINCT white), COUNT(DISTINCT black), COUNT(DISTINCT event) FROM games'
+              ).fetchone()
+              assert total == distinct == 1200
+              assert whites >= 20
+              assert blacks >= 10
+              assert events >= 16
+              assert len(db.search_games(player='Учень', limit=25)) == 25
+              assert len(db.search_games(event='Accessible Chess', limit=25)) == 25
+          print('P0_F_STRESS_1200_CANONICAL_IMPORT_SEARCH=PASS')
           PY
