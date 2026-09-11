@@ -36,6 +36,10 @@ class Version2WindowsFileWorkflowRuntime:
     ``BeginInvoke`` marshalling.  ``import_ui_ready`` receives the bounded mailbox
     on that same UI thread; the Library presentation owner remains responsible for
     interpreting/draining its path-free canonical events.
+
+    ``dialog_language_provider`` is presentation-only and resolved lazily by each
+    native dialog.  It may therefore follow the live V2 shell language without
+    rebuilding this runtime or creating a second language state.
     """
 
     def __init__(
@@ -50,6 +54,7 @@ class Version2WindowsFileWorkflowRuntime:
         pgn_export_event_sink: Callable[[object], Any],
         next_delegate: Callable[[str, Mapping[str, object]], Any],
         current_focus_provider: Callable[[], str] | None = None,
+        dialog_language_provider: Callable[[], object] | None = None,
         mailbox_max_events: int = 64,
         ui_delegate_factory: Callable[[Callable[[], None]], object] | None = None,
         file_forms_loader: Callable[[], tuple[object, Callable[[], object], Callable[[], object]]]
@@ -70,6 +75,8 @@ class Version2WindowsFileWorkflowRuntime:
                 raise TypeError(f"{name} must be callable")
         if current_focus_provider is not None and not callable(current_focus_provider):
             raise TypeError("current_focus_provider must be callable")
+        if dialog_language_provider is not None and not callable(dialog_language_provider):
+            raise TypeError("dialog_language_provider must be callable")
 
         self._ui_thread_id = threading.get_ident()
         self._lock = threading.RLock()
@@ -92,10 +99,12 @@ class Version2WindowsFileWorkflowRuntime:
         self._file_dialogs = Version2OwnedWindowsFileDialogs(
             lambda: owner_control,
             forms_loader=file_forms_loader,
+            language_provider=dialog_language_provider,
         )
         self._export_dialogs = Version2OwnedWindowsPgnExportDialogs(
             lambda: owner_control,
             forms_loader=export_forms_loader,
+            language_provider=dialog_language_provider,
         )
         self._export_delegate = Version2WindowsPgnExportDelegate(
             dialogs=self._export_dialogs,
