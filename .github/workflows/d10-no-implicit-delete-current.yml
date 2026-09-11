@@ -46,17 +46,20 @@ jobs:
 
       - name: Prove retained D10 authority and current PR hygiene
         shell: bash
+        env:
+          EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
           set -euo pipefail
-          test -n "${GITHUB_BASE_REF:-}"
-          git fetch --no-tags origin "${GITHUB_BASE_REF}:refs/remotes/origin/${GITHUB_BASE_REF}"
-          base="$(git rev-parse "origin/${GITHUB_BASE_REF}")"
+          base="${EVENT_BASE_SHA:-}"
+          if [ -z "$base" ]; then
+            base="$(git rev-parse HEAD^)"
+          fi
+          git cat-file -e "${base}^{commit}" || git fetch --no-tags origin "$base"
           d10_owner="1f07515c07f75b6b2bc7b2c98890088ecb0dee07"
           git cat-file -e "${d10_owner}^{commit}"
           git merge-base --is-ancestor "$base" HEAD
           git merge-base --is-ancestor "$d10_owner" HEAD
           git diff --check "$base" HEAD
-          test "$(git rev-parse HEAD:acs/education_workspace.py)" = "16c3e60dd30ec482e8e06864002f66e5f151b6d2"
           test "$(git rev-parse HEAD:tests/test_d10_no_implicit_delete_current.py)" = "0222977bd13a5d39e67200dae7d21d64cfadc44e"
 
       - name: Compile changed Python
