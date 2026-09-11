@@ -4,6 +4,7 @@ from pathlib import Path
 import stat
 import tempfile
 import unittest
+from unittest.mock import patch
 import zipfile
 
 from acs.version2_package_preflight import (
@@ -196,6 +197,48 @@ class StockfishSourceArchivePreflightTests(unittest.TestCase):
                 _write_archive(archive_path, entries)
                 with self.assertRaisesRegex(
                     Version2PackagePreflightError, "does not contain source files"
+                ):
+                    _validate_stockfish_source_archive(archive_path, _limits())
+
+
+    def test_validator_opens_zip_from_stable_snapshot_not_pathname(self):
+        with tempfile.TemporaryDirectory() as td:
+            archive_path = Path(td) / "Stockfish-18-source.zip"
+            _write_archive(
+                archive_path,
+                (("Stockfish/src/main.cpp", b"// source fixture\n"),),
+            )
+            original_zipfile = zipfile.ZipFile
+            with patch(
+                "acs.version2_package_preflight.zipfile.ZipFile",
+                wraps=original_zipfile,
+            ) as wrapped:
+                _validate_stockfish_source_archive(archive_path, _limits())
+            self.assertTrue(wrapped.call_args_list)
+            first_arg = wrapped.call_args_list[0].args[0]
+            self.assertFalse(isinstance(first_arg, (str, Path)))
+
+    def test_file_descendant_topology_collisions_fail_closed(self):
+        cases = (
+            (
+                ("Stockfish/src", b"regular file\n"),
+                ("Stockfish/src/main.cpp", b"child\n"),
+            ),
+            (
+                ("Stockfish/SRC", b"regular file\n"),
+                ("Stockfish/src/main.cpp", b"child\n"),
+            ),
+            (
+                ("Stockfish/src/main.cpp", b"child\n"),
+                ("Stockfish/src", b"regular file\n"),
+            ),
+        )
+        for entries in cases:
+            with self.subTest(entries=entries), tempfile.TemporaryDirectory() as td:
+                archive_path = Path(td) / "Stockfish-18-source.zip"
+                _write_archive(archive_path, entries)
+                with self.assertRaisesRegex(
+                    Version2PackagePreflightError, "topology collision"
                 ):
                     _validate_stockfish_source_archive(archive_path, _limits())
 

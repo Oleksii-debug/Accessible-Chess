@@ -113,6 +113,9 @@ _REQUIRED_WEB_FILES = (
     "AccessibleChess/web/full_product_pgn.js",
     "AccessibleChess/web/full_product_library.js",
     "AccessibleChess/web/full_product_books_training.js",
+    "AccessibleChess/web/full_product_teacher.js",
+    "AccessibleChess/web/full_product_education.js",
+    "AccessibleChess/web/version2_final_product_bootstrap.js",
     "AccessibleChess/web/version2_release_bootstrap.js",
 )
 
@@ -220,6 +223,108 @@ def _sha256(path: Path) -> str:
     except OSError as exc:
         _fail(f"package file cannot be read: {type(exc).__name__}")
     return digest.hexdigest()
+
+
+def _same_file_snapshot(left: os.stat_result, right: os.stat_result) -> bool:
+    """Compare pathname/open-handle identity plus content-relevant metadata."""
+    try:
+        same_identity = os.path.samestat(left, right)
+    except (AttributeError, OSError):
+        same_identity = (
+            getattr(left, "st_dev", None),
+            getattr(left, "st_ino", None),
+        ) == (
+            getattr(right, "st_dev", None),
+            getattr(right, "st_ino", None),
+        )
+    return bool(
+        same_identity
+        and int(left.st_size) == int(right.st_size)
+        and getattr(left, "st_mtime_ns", None) == getattr(right, "st_mtime_ns", None)
+    )
+
+
+def _snapshot_regular_file(
+    path: Path,
+    *,
+    label: str,
+    max_bytes: int,
+):
+    """Copy one verified pathname identity once, then validate immutable snapshot bytes."""
+    before = _safe_lstat(path, label=label)
+    if not stat.S_ISREG(before.st_mode):
+        _fail(f"{label} must be a regular file")
+    if before.st_size > max_bytes:
+        _fail(f"{label} exceeds archive byte limit")
+
+    snapshot = tempfile.SpooledTemporaryFile(
+        max_size=min(max_bytes, 64 * 1024 * 1024),
+        mode="w+b",
+    )
+    source = None
+    digest = hashlib.sha256()
+    try:
+        source = path.open("rb")
+        opened = os.fstat(source.fileno())
+        if not stat.S_ISREG(opened.st_mode) or _reparse(opened):
+            _fail(f"{label} must remain a regular non-reparse file")
+        if not _same_file_snapshot(before, opened):
+            _fail(f"{label} changed while being opened")
+
+        copied = 0
+        while True:
+            block = source.read(1024 * 1024)
+            if not block:
+                break
+            copied += len(block)
+            if copied > max_bytes:
+                _fail(f"{label} exceeds archive byte limit")
+            digest.update(block)
+            snapshot.write(block)
+
+        after_read = os.fstat(source.fileno())
+        after_path = _safe_lstat(path, label=label)
+        if (
+            not _same_file_snapshot(opened, after_read)
+            or not _same_file_snapshot(after_read, after_path)
+            or copied != int(after_read.st_size)
+        ):
+            _fail(f"{label} changed while being read")
+        snapshot.seek(0)
+        return snapshot, digest.hexdigest()
+    except Version2PackagePreflightError:
+        snapshot.close()
+        raise
+    except OSError as exc:
+        snapshot.close()
+        _fail(f"{label} cannot be read safely: {type(exc).__name__}")
+    finally:
+        if source is not None:
+            source.close()
+
+
+def _register_zip_topology(
+    token: str,
+    *,
+    is_dir: bool,
+    files: set[str],
+    directories: set[str],
+    label: str,
+) -> None:
+    parts = token.casefold().split("/")
+    folded = "/".join(parts)
+    ancestors = {"/".join(parts[:index]) for index in range(1, len(parts))}
+    if any(parent in files for parent in ancestors):
+        _fail(f"{label} path topology collision")
+    if is_dir:
+        if folded in files:
+            _fail(f"{label} path topology collision")
+        directories.add(folded)
+    else:
+        if folded in directories:
+            _fail(f"{label} path topology collision")
+        files.add(folded)
+    directories.update(ancestors)
 
 
 def _backend_payload(relative: str) -> bool:
@@ -506,93 +611,99 @@ def _validate_stockfish_source_archive(
     source_archive: Path,
     limits: PackageLimits,
 ) -> None:
-    """Validate the nested corresponding-source ZIP without extracting it."""
-    archive_info = _safe_lstat(
+    """Validate one immutable snapshot of the nested corresponding-source ZIP."""
+    snapshot, _ = _snapshot_regular_file(
         source_archive,
-        label="Stockfish 18 corresponding source archive",
+        label="Stockfish source ZIP",
+        max_bytes=limits.max_archive_bytes,
     )
-    if not stat.S_ISREG(archive_info.st_mode):
-        _fail("Stockfish corresponding source archive must be a regular file")
-    if archive_info.st_size > limits.max_archive_bytes:
-        _fail("Stockfish source ZIP exceeds archive byte limit")
     try:
-        with zipfile.ZipFile(source_archive) as archive:
-            infos = archive.infolist()
-            if not infos:
-                _fail("Stockfish corresponding source archive is empty")
-            if len(infos) > limits.max_files * 2:
-                _fail("Stockfish source ZIP exceeds member-count limit")
+        with snapshot:
+            with zipfile.ZipFile(snapshot) as archive:
+                infos = archive.infolist()
+                if not infos:
+                    _fail("Stockfish corresponding source archive is empty")
+                if len(infos) > limits.max_files * 2:
+                    _fail("Stockfish source ZIP exceeds member-count limit")
 
-            seen: set[str] = set()
-            file_count = 0
-            total = 0
-            has_source_file = False
-            for info in infos:
-                raw = (
-                    info.filename[:-1]
-                    if info.is_dir() and info.filename.endswith("/")
-                    else info.filename
-                )
-                token = _relative_token(raw, label="Stockfish source ZIP member path")
-                folded = token.casefold()
-                if folded in seen:
-                    _fail("Stockfish source ZIP members collide under Windows case-folding")
-                seen.add(folded)
-
-                unix_mode = (info.external_attr >> 16) & 0xFFFF
-                file_type = stat.S_IFMT(unix_mode)
-                if file_type == stat.S_IFLNK:
-                    _fail("Stockfish source ZIP symbolic links are forbidden")
-                if file_type not in {0, stat.S_IFREG, stat.S_IFDIR}:
-                    _fail("Stockfish source ZIP special files are forbidden")
-                if info.flag_bits & 0x1:
-                    _fail("encrypted Stockfish source ZIP members are forbidden")
-                if info.is_dir():
-                    continue
-
-                file_count += 1
-                if file_count > limits.max_files:
-                    _fail("Stockfish source ZIP exceeds file-count limit")
-                if info.file_size > limits.max_member_bytes:
-                    _fail("Stockfish source ZIP member exceeds uncompressed size limit")
-                total += int(info.file_size)
-                if total > limits.max_bytes:
-                    _fail("Stockfish source ZIP exceeds total uncompressed byte limit")
-                if info.file_size:
-                    if info.compress_size <= 0:
-                        _fail("Stockfish source ZIP member has invalid compressed size")
-                    if info.file_size > info.compress_size * limits.max_compression_ratio:
-                        _fail("Stockfish source ZIP member exceeds compression-ratio limit")
-
-                written = 0
-                try:
-                    with archive.open(info, "r") as source:
-                        while True:
-                            block = source.read(1024 * 1024)
-                            if not block:
-                                break
-                            written += len(block)
-                            if written > info.file_size or written > limits.max_member_bytes:
-                                _fail("Stockfish source ZIP member expanded beyond declared bounds")
-                except Version2PackagePreflightError:
-                    raise
-                except (OSError, RuntimeError, zipfile.BadZipFile) as exc:
-                    _fail(
-                        "Stockfish source ZIP member readback failed: "
-                        f"{type(exc).__name__}"
+                seen: set[str] = set()
+                topology_files: set[str] = set()
+                topology_directories: set[str] = set()
+                file_count = 0
+                total = 0
+                has_source_file = False
+                for info in infos:
+                    raw = (
+                        info.filename[:-1]
+                        if info.is_dir() and info.filename.endswith("/")
+                        else info.filename
                     )
-                if written != info.file_size:
-                    _fail("Stockfish source ZIP member readback size mismatch")
-                if written and "/src/" in f"/{token}":
-                    has_source_file = True
+                    token = _relative_token(raw, label="Stockfish source ZIP member path")
+                    folded = token.casefold()
+                    if folded in seen:
+                        _fail("Stockfish source ZIP members collide under Windows case-folding")
+                    seen.add(folded)
 
-            if not has_source_file:
-                _fail("Stockfish corresponding source archive does not contain source files")
+                    unix_mode = (info.external_attr >> 16) & 0xFFFF
+                    file_type = stat.S_IFMT(unix_mode)
+                    if file_type == stat.S_IFLNK:
+                        _fail("Stockfish source ZIP symbolic links are forbidden")
+                    if file_type not in {0, stat.S_IFREG, stat.S_IFDIR}:
+                        _fail("Stockfish source ZIP special files are forbidden")
+                    if info.flag_bits & 0x1:
+                        _fail("encrypted Stockfish source ZIP members are forbidden")
+                    _register_zip_topology(
+                        token,
+                        is_dir=info.is_dir(),
+                        files=topology_files,
+                        directories=topology_directories,
+                        label="Stockfish source ZIP",
+                    )
+                    if info.is_dir():
+                        continue
+
+                    file_count += 1
+                    if file_count > limits.max_files:
+                        _fail("Stockfish source ZIP exceeds file-count limit")
+                    if info.file_size > limits.max_member_bytes:
+                        _fail("Stockfish source ZIP member exceeds uncompressed size limit")
+                    total += int(info.file_size)
+                    if total > limits.max_bytes:
+                        _fail("Stockfish source ZIP exceeds total uncompressed byte limit")
+                    if info.file_size:
+                        if info.compress_size <= 0:
+                            _fail("Stockfish source ZIP member has invalid compressed size")
+                        if info.file_size > info.compress_size * limits.max_compression_ratio:
+                            _fail("Stockfish source ZIP member exceeds compression-ratio limit")
+
+                    written = 0
+                    try:
+                        with archive.open(info, "r") as source:
+                            while True:
+                                block = source.read(1024 * 1024)
+                                if not block:
+                                    break
+                                written += len(block)
+                                if written > info.file_size or written > limits.max_member_bytes:
+                                    _fail("Stockfish source ZIP member expanded beyond declared bounds")
+                    except Version2PackagePreflightError:
+                        raise
+                    except (OSError, RuntimeError, zipfile.BadZipFile) as exc:
+                        _fail(
+                            "Stockfish source ZIP member readback failed: "
+                            f"{type(exc).__name__}"
+                        )
+                    if written != info.file_size:
+                        _fail("Stockfish source ZIP member readback size mismatch")
+                    if written and "/src/" in f"/{token}":
+                        has_source_file = True
+
+                if not has_source_file:
+                    _fail("Stockfish corresponding source archive does not contain source files")
     except Version2PackagePreflightError:
         raise
     except (OSError, zipfile.BadZipFile, zipfile.LargeZipFile) as exc:
         _fail(f"Stockfish corresponding source archive is invalid: {type(exc).__name__}")
-
 
 def _validate_required_runtime_resources(
     root: Path,
@@ -861,6 +972,8 @@ def _validate_zip_entries(
     if len(infos) > limits.max_files * 2:
         _fail("Version 2 ZIP exceeds member-count limit")
     seen: set[str] = set()
+    topology_files: set[str] = set()
+    topology_directories: set[str] = set()
     total = 0
     validated: list[tuple[zipfile.ZipInfo, str]] = []
     for info in infos:
@@ -877,6 +990,13 @@ def _validate_zip_entries(
             _fail("ZIP special files are forbidden")
         if info.flag_bits & 0x1:
             _fail("encrypted ZIP members are forbidden")
+        _register_zip_topology(
+            token,
+            is_dir=info.is_dir(),
+            files=topology_files,
+            directories=topology_directories,
+            label="Version 2 ZIP",
+        )
         if not info.is_dir():
             _validate_file_policy(token)
             if info.file_size > limits.max_member_bytes:
@@ -892,7 +1012,6 @@ def _validate_zip_entries(
         validated.append((info, token))
     return tuple(validated)
 
-
 def validate_version2_package_zip(
     zip_path: str | Path,
     *,
@@ -903,51 +1022,51 @@ def validate_version2_package_zip(
         raise TypeError("limits must be PackageLimits")
     expected_sha = _normalize_expected_integration_sha(expected_integration_sha)
     path = Path(zip_path)
-    info = _safe_lstat(path, label="Version 2 ZIP")
-    if not stat.S_ISREG(info.st_mode):
-        _fail("Version 2 ZIP must be a regular file")
-    if info.st_size > limits.max_archive_bytes:
-        _fail("Version 2 ZIP exceeds archive byte limit")
-    archive_sha = _sha256(path)
+    snapshot, archive_sha = _snapshot_regular_file(
+        path,
+        label="Version 2 ZIP",
+        max_bytes=limits.max_archive_bytes,
+    )
 
     try:
-        with zipfile.ZipFile(path) as archive:
-            entries = _validate_zip_entries(archive, limits)
-            with tempfile.TemporaryDirectory(prefix="accessible-chess-v2-readback-") as td:
-                root = Path(td)
-                extracted_files: set[str] = set()
-                for member, token in entries:
-                    target = root.joinpath(*PurePosixPath(token).parts)
-                    if member.is_dir():
-                        target.mkdir(parents=True, exist_ok=True)
-                        continue
-                    target.parent.mkdir(parents=True, exist_ok=True)
-                    written = 0
-                    try:
-                        with archive.open(member, "r") as source, target.open("xb") as destination:
-                            while True:
-                                block = source.read(1024 * 1024)
-                                if not block:
-                                    break
-                                written += len(block)
-                                if written > member.file_size or written > limits.max_member_bytes:
-                                    _fail("ZIP member expanded beyond declared bounds")
-                                destination.write(block)
-                    except Version2PackagePreflightError:
-                        raise
-                    except (OSError, RuntimeError, zipfile.BadZipFile) as exc:
-                        _fail(f"ZIP member readback failed: {type(exc).__name__}")
-                    if written != member.file_size:
-                        _fail("ZIP member readback size mismatch")
-                    extracted_files.add(token)
-                report = validate_version2_package_tree(
-                    root,
-                    expected_integration_sha=expected_sha,
-                    limits=limits,
-                )
-                if set(report.inventory) != extracted_files:
-                    _fail("ZIP readback inventory differs from archive file inventory")
-                return replace(report, archive_sha256=archive_sha)
+        with snapshot:
+            with zipfile.ZipFile(snapshot) as archive:
+                entries = _validate_zip_entries(archive, limits)
+                with tempfile.TemporaryDirectory(prefix="accessible-chess-v2-readback-") as td:
+                    root = Path(td)
+                    extracted_files: set[str] = set()
+                    for member, token in entries:
+                        target = root.joinpath(*PurePosixPath(token).parts)
+                        if member.is_dir():
+                            target.mkdir(parents=True, exist_ok=True)
+                            continue
+                        target.parent.mkdir(parents=True, exist_ok=True)
+                        written = 0
+                        try:
+                            with archive.open(member, "r") as source, target.open("xb") as destination:
+                                while True:
+                                    block = source.read(1024 * 1024)
+                                    if not block:
+                                        break
+                                    written += len(block)
+                                    if written > member.file_size or written > limits.max_member_bytes:
+                                        _fail("ZIP member expanded beyond declared bounds")
+                                    destination.write(block)
+                        except Version2PackagePreflightError:
+                            raise
+                        except (OSError, RuntimeError, zipfile.BadZipFile) as exc:
+                            _fail(f"ZIP member readback failed: {type(exc).__name__}")
+                        if written != member.file_size:
+                            _fail("ZIP member readback size mismatch")
+                        extracted_files.add(token)
+                    report = validate_version2_package_tree(
+                        root,
+                        expected_integration_sha=expected_sha,
+                        limits=limits,
+                    )
+                    if set(report.inventory) != extracted_files:
+                        _fail("ZIP readback inventory differs from archive file inventory")
+                    return replace(report, archive_sha256=archive_sha)
     except Version2PackagePreflightError:
         raise
     except (OSError, zipfile.BadZipFile, zipfile.LargeZipFile) as exc:
