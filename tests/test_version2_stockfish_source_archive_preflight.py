@@ -45,6 +45,23 @@ class StockfishSourceArchivePreflightTests(unittest.TestCase):
             )
             _validate_stockfish_source_archive(archive_path, _limits())
 
+    def test_archive_file_size_limit_fails_closed(self):
+        with tempfile.TemporaryDirectory() as td:
+            archive_path = Path(td) / "Stockfish-18-source.zip"
+            _write_archive(
+                archive_path,
+                (("Stockfish-sf_18/src/main.cpp", b"// source fixture\n"),),
+            )
+            archive_size = archive_path.stat().st_size
+            self.assertGreater(archive_size, 1)
+            with self.assertRaisesRegex(
+                Version2PackagePreflightError, "archive byte limit"
+            ):
+                _validate_stockfish_source_archive(
+                    archive_path,
+                    _limits(max_archive_bytes=archive_size - 1),
+                )
+
     def test_unsafe_and_reserved_paths_fail_closed(self):
         cases = (
             ("../escape.cpp", "unsafe"),
