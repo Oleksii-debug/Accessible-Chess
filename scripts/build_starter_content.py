@@ -5,8 +5,15 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
+import sys
 
-from acs.starter_content import (
+# Make direct execution reliable on Windows/Linux even when the repository has
+# not been installed as a package: `python scripts/build_starter_content.py ...`.
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from acs.starter_content import (  # noqa: E402
     STARTER_GAME_COUNT,
     STRESS_GAME_COUNT,
     build_starter_bundle,
