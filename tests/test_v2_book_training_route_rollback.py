@@ -111,6 +111,11 @@ class Version2BookTrainingRouteRollbackTests(unittest.TestCase):
         self.assertEqual(snapshot["screen"]["route_id"], "books")
         self.assertEqual(snapshot["screen"]["focus_target"], "book-reader")
         self.assertIsNone(snapshot["training"])
+        self.assertEqual(
+            self.app.drain_events(),
+            ({"kind": "route", "payload": {"route_id": "books"}},),
+        )
+        self.assertEqual(self.app.drain_events(), ())
 
     def test_rollback_does_not_clobber_unrelated_active_route(self):
         self._open_exercise_book()
@@ -133,6 +138,7 @@ class Version2BookTrainingRouteRollbackTests(unittest.TestCase):
         self.assertIsNone(self.app.training)
         self.assertEqual(self.app.shell.current_route.route_id, "settings")
         self.assertEqual(self.app.shell.restore_focus_target(), "settings-list")
+        self.assertEqual(self.app.drain_events(), ())
 
 
 if __name__ == "__main__":
