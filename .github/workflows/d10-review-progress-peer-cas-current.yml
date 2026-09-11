@@ -49,35 +49,60 @@ jobs:
       - name: Install pinned verification dependency
         run: python -m pip install -q pytest==8.4.2
 
-      - name: Prove current Full Product authority and qualification-only scope
+      - name: Prove exact current authority and integration-safe scope
         shell: bash
         env:
-          CANONICAL_BASE_SHA: 8996cddcf3091adcef615d5f0cd65e7e13190da9
+          PINNED_AUTHORITY_SHA: 38df77a62d76f92442f65b2a888c82266d33be9d
+          FROZEN_UMBRELLA_BASE_SHA: 0b8fa275890cd82565eceece71063cb4353ea8c8
+          UMBRELLA_HEAD_REF: work/full-product-teacher-education-reachability-20260911
           SOURCE_TEST_BLOB: 407b2a68b29be6715fc08ff44c2566e30784cb58
           PRODUCT_STORE_BLOB: cdde3943fcf07f70b21da2c28bc0a984b9dfef2b
         run: |
           set -euo pipefail
-          if [ "${GITHUB_EVENT_NAME}" = "pull_request" ]; then
-            test -n "${GITHUB_BASE_REF:-}"
-            git fetch --no-tags origin "${GITHUB_BASE_REF}:refs/remotes/origin/${GITHUB_BASE_REF}"
-            base="$(git rev-parse "origin/${GITHUB_BASE_REF}")"
-          else
-            base="$CANONICAL_BASE_SHA"
-          fi
-          test "$base" = "$CANONICAL_BASE_SHA"
-          git cat-file -e "${base}^{commit}"
-          git merge-base --is-ancestor "$base" HEAD
-          git diff --check "$base" HEAD
 
-          changed="$(git diff --name-only "$base" HEAD | sort)"
-          expected="$(printf '%s\n' \
-            '.github/workflows/d10-review-progress-peer-cas-current.yml' \
-            'tests/test_d10_review_progress_peer_cas.py' | sort)"
+          event_base=""
+          event_head_ref=""
+          if [ "${GITHUB_EVENT_NAME}" = "pull_request" ]; then
+            event_base="$(python - <<'PY'
+          import json
+          import os
+          with open(os.environ['GITHUB_EVENT_PATH'], 'r', encoding='utf-8') as handle:
+              event = json.load(handle)
+          print(event['pull_request']['base']['sha'])
+          PY
+          )"
+            event_head_ref="${GITHUB_HEAD_REF:-}"
+          fi
+
+          mode=""
+          if [ "${GITHUB_EVENT_NAME}" = "pull_request" ] && [ "$event_base" = "$PINNED_AUTHORITY_SHA" ]; then
+            mode="candidate"
+          elif [ "${GITHUB_EVENT_NAME}" = "pull_request" ] \
+            && [ "$event_base" = "$FROZEN_UMBRELLA_BASE_SHA" ] \
+            && [ "$event_head_ref" = "$UMBRELLA_HEAD_REF" ]; then
+            mode="integrated-umbrella"
+            test "$(git rev-parse HEAD^1)" = "$PINNED_AUTHORITY_SHA"
+          elif [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
+            mode="manual"
+          else
+            echo "Unsupported qualification geometry: event=${GITHUB_EVENT_NAME} base=${event_base:-none} head_ref=${event_head_ref:-none}" >&2
+            exit 1
+          fi
+
+          git cat-file -e "${PINNED_AUTHORITY_SHA}^{commit}"
+          git merge-base --is-ancestor "$PINNED_AUTHORITY_SHA" HEAD
+          git diff --check "$PINNED_AUTHORITY_SHA" HEAD
+
+          changed="$(git diff --name-only "$PINNED_AUTHORITY_SHA" HEAD | sort)"
+          expected='.github/workflows/d10-review-progress-peer-cas-current.yml'
           test "$changed" = "$expected"
 
+          test "$(git rev-parse "$PINNED_AUTHORITY_SHA:tests/test_d10_review_progress_peer_cas.py")" = "$SOURCE_TEST_BLOB"
           test "$(git rev-parse HEAD:tests/test_d10_review_progress_peer_cas.py)" = "$SOURCE_TEST_BLOB"
+          test "$(git rev-parse "$PINNED_AUTHORITY_SHA:acs/student_progress_store.py")" = "$PRODUCT_STORE_BLOB"
           test "$(git rev-parse HEAD:acs/student_progress_store.py)" = "$PRODUCT_STORE_BLOB"
-          test "$(git rev-parse "$base:acs/student_progress_store.py")" = "$PRODUCT_STORE_BLOB"
+
+          echo "D10 peer-CAS qualification geometry=${mode}"
 
       - name: Compile qualification test
         run: python -m py_compile tests/test_d10_review_progress_peer_cas.py
