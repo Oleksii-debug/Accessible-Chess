@@ -1,0 +1,80 @@
+name: WordDeck packaged state recovery
+
+on:
+  pull_request:
+    branches: [worddeck-bootstrap]
+    paths:
+      - 'WordDeck/**'
+      - '.github/workflows/worddeck-package-recovery.yml'
+  push:
+    branches: [worddeck-bootstrap]
+    paths:
+      - 'WordDeck/**'
+      - '.github/workflows/worddeck-package-recovery.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  package-recovery:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify WordDeck-only authority boundary
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $head = (git rev-parse HEAD).Trim()
+          Write-Host "Package recovery checkout: $head"
+          if ($env:GITHUB_EVENT_NAME -eq 'pull_request') {
+            $base = '${{ github.event.pull_request.base.sha }}'
+            $changed = @(git diff --name-only "$base...HEAD")
+            $forbidden = @($changed | Where-Object {
+              $_ -notlike 'WordDeck/*' -and $_ -ne '.github/workflows/worddeck-package-recovery.yml'
+            })
+            if ($forbidden.Count -ne 0) {
+              throw "Package-recovery PR crosses WordDeck authority boundary: $($forbidden -join ', ')"
+            }
+          }
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Build and publish self-contained Windows package
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          dotnet build .\WordDeck\WordDeck.csproj -c Release
+          if ($LASTEXITCODE -ne 0) { throw 'Release build failed.' }
+          dotnet run --project .\WordDeck\WordDeck.csproj -c Release -- --self-test
+          if ($LASTEXITCODE -ne 0) { throw 'Source self-test failed.' }
+          dotnet publish .\WordDeck\WordDeck.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o .\artifacts\release
+          if ($LASTEXITCODE -ne 0) { throw 'Self-contained publish failed.' }
+          & .\artifacts\release\WordDeck.exe --self-test
+          if ($LASTEXITCODE -ne 0) { throw 'Published EXE self-test failed.' }
+
+      - name: Verify clean published package before state test
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $forbidden = @(Get-ChildItem .\artifacts\release -Recurse -File | Where-Object {
+            $_.Name -match '^state(\.backup)?\.json$' -or
+            $_.Name -match '^spelling-state(\.backup)?\.json$' -or
+            $_.Name -match '^sentence-coach-state(\.backup)?\.json$' -or
+            $_.Name -like 'WordDeck-profile*.json' -or
+            $_.FullName -match '[\\/]Backups[\\/]'
+          })
+          if ($forbidden.Count -ne 0) { throw "Published tree contains personal state: $($forbidden.FullName -join ', ')" }
+
+      - name: Setup WinApp CLI for real Windows UI Automation
+        uses: microsoft/setup-WinAppCli@v0.1
+
+      - name: Prove close reopen and clean package replacement preserve state
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & .\WordDeck\scripts\worddeck-package-recovery-smoke.ps1 -CandidateRoot .\artifacts\release
