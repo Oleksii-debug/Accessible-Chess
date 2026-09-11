@@ -1,0 +1,104 @@
+name: V2 EPUB Current-Base Convergence
+
+on:
+  push:
+    branches:
+      - work/v2-book-epub-semantic-ingress-20260907
+  pull_request:
+    branches:
+      - work/full-product-teacher-education-reachability-20260911
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: accessible-chess-v2-epub-current-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  epub-current-base:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Preserve canonical Git bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config core.autocrlf false
+          git config core.eol lf
+          git reset --hard HEAD
+          git checkout-index --force --all
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install pinned verification dependency
+        run: python -m pip install -q pytest==8.4.2
+
+      - name: Prove current-base ancestry and bounded EPUB scope
+        shell: bash
+        env:
+          CANONICAL_BASE_SHA: 99d11c19314ef3ef9d2558b399fcc5dcedbd13b3
+        run: |
+          set -euo pipefail
+          base="$CANONICAL_BASE_SHA"
+          git cat-file -e "${base}^{commit}" || git fetch --no-tags origin "$base"
+          git merge-base --is-ancestor "$base" HEAD
+          git diff --check "$base" HEAD
+          changed="$(git diff --name-only "$base" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/v2-book-epub-semantic-ingress.yml' \
+            'acs/book_epub_import.py' \
+            'tests/test_v2_book_epub_import.py' | sort)"
+          test "$changed" = "$expected"
+          test "$(git rev-parse HEAD:acs/book_html_import.py)" = 1061e79c9557fb09e965fb0e8d8626e038876edb
+          test "$(git rev-parse HEAD:acs/book_epub_import.py)" = f55ed184aad2dd8d6d512329fb2e5a0db3b3f442
+          test "$(git rev-parse HEAD:tests/test_v2_book_epub_import.py)" = d3a714b8bdfceac23242634ebe721dd1b07f5ad9
+          git diff --quiet "$base" HEAD -- \
+            acs/book_html_import.py acs/book_text_import.py acs/bookdocument.py \
+            acs/chesscore.py acs/gametree.py acs/pgn_roundtrip.py \
+            acs/version2_application.py acs/version2_release_app.py \
+            run_accessible_chess_v2.py web tools/qa
+
+      - name: Compile EPUB adapter and regressions
+        run: python -m py_compile acs/book_epub_import.py tests/test_v2_book_epub_import.py
+
+      - name: EPUB semantic, provenance and adversarial regressions
+        run: python -m unittest -v tests.test_v2_book_epub_import
+
+      - name: Inherited current HTML semantic contracts
+        run: >-
+          python -m unittest -v
+          tests.test_v2_book_html_import
+          tests.test_v2_html_semantic_lists
+
+      - name: Canonical Book core and reader regressions
+        run: >-
+          python -m unittest -v
+          tests.test_bookdocument
+          tests.test_book_index
+          tests.test_bookreader
+          tests.test_v2_accessible_book_core
+
+      - name: Full repository unittest
+        run: python -m unittest discover -s tests -v
+
+      - name: Full repository pytest
+        run: python -m pytest -q tests
+
+      - name: Product diagnostics
+        run: |
+          python -m acs.selftest
+          python run_accessible_chess.py --diagnostic
+          python run_accessible_chess_v2.py --diagnostic
