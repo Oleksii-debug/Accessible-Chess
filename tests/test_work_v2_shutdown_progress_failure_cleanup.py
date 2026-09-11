@@ -13,7 +13,8 @@ from acs.version2_application import Version2Application
 
 
 class _FailingProgressStore:
-    def __init__(self, error: BaseException | None = None) -> None:
+    def __init__(self, path: Path, error: BaseException | None = None) -> None:
+        self.path = path
         self.error = error or OSError("synthetic progress publication failure")
 
     def save(self, _book_key, _reader) -> None:
@@ -42,7 +43,11 @@ class Version2ShutdownProgressFailureCleanupEvidenceTests(unittest.TestCase):
             database = AcsDatabase(root / "library.acsdb")
             analysis = AnalysisService(lambda: None)
             try:
-                application = self._application(database, analysis, _FailingProgressStore())
+                application = self._application(
+                    database,
+                    analysis,
+                    _FailingProgressStore(root / "book-progress.json"),
+                )
 
                 with self.assertRaisesRegex(OSError, "synthetic progress publication failure"):
                     application.shutdown()
@@ -68,7 +73,7 @@ class Version2ShutdownProgressFailureCleanupEvidenceTests(unittest.TestCase):
                 application = self._application(
                     database,
                     analysis,
-                    _FailingProgressStore(progress_failure),
+                    _FailingProgressStore(root / "book-progress.json", progress_failure),
                 )
                 with mock.patch.object(database, "close", side_effect=database_failure) as close:
                     with self.assertRaises(OSError) as caught:
