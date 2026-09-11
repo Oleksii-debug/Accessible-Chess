@@ -15,13 +15,127 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: w1-d06-bounded-model-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
+  apply-public-error-boundary-repair:
+    if: github.event_name == 'push' && github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Prove exact repair parent
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected='e6bb64becd819f52b55fb554dbabf7c74ba9f09b'
+          actual="$(git rev-parse HEAD^)"
+          test "$actual" = "$expected" || {
+            printf 'Same-lineage repair collision: expected parent %s, got %s\n' "$expected" "$actual" >&2
+            exit 1
+          }
+      - name: Apply bounded public error-boundary repair
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('acs/pgn_roundtrip.py')
+          text = path.read_text(encoding='utf-8')
+
+          old = """    Comment,\n    GameTreeSerializationError,\n"""
+          new = """    Comment,\n    GameTreeContractError,\n    GameTreeErrorCode,\n    GameTreeSerializationError,\n"""
+          if text.count(old) != 1:
+              raise SystemExit('unexpected gametree import shape')
+          text = text.replace(old, new, 1)
+
+          old = """    games = tuple(parse_games(normalized))\n"""
+          new = """    try:\n        games = tuple(parse_games(normalized))\n    except GameTreeContractError as exc:\n        if exc.code in {\n            GameTreeErrorCode.GRAPH_DEPTH_LIMIT,\n            GameTreeErrorCode.GRAPH_NODE_LIMIT,\n        }:\n            raise PgnRoundTripError(\n                \"PGN structure exceeds the safety limit\",\n                code=PgnRoundTripErrorCode.TOKEN_COUNT_LIMIT,\n            ) from exc\n        raise PgnRoundTripError(\n            \"PGN contains invalid structural data\",\n            code=PgnRoundTripErrorCode.MALFORMED_PGN,\n        ) from exc\n"""
+          if text.count(old) != 1:
+              raise SystemExit('unexpected parse_games boundary shape')
+          text = text.replace(old, new, 1)
+
+          old = """    snapshot: list[PgnGame] = []\n    try:\n        iterator = iter(games)\n        for index, game in enumerate(iterator):\n            if index >= MAX_PGN_GAMES:\n                _raise_limit(\n                    \"PGN contains too many games\",\n                    PgnRoundTripErrorCode.GAME_COUNT_LIMIT,\n                )\n            snapshot.append(game)\n    except TypeError as exc:\n        raise PgnRoundTripError(\n            \"PGN games must be an iterable of PgnGame values\",\n            code=PgnRoundTripErrorCode.INVALID_MODEL,\n        ) from exc\n\n"""
+          new = """    snapshot: list[PgnGame] = []\n    try:\n        iterator = iter(games)\n    except Exception as exc:\n        raise PgnRoundTripError(\n            \"PGN games must be an iterable of PgnGame values\",\n            code=PgnRoundTripErrorCode.INVALID_MODEL,\n        ) from exc\n\n    index = 0\n    while True:\n        try:\n            game = next(iterator)\n        except StopIteration:\n            break\n        except Exception as exc:\n            raise PgnRoundTripError(\n                \"PGN game source failed during bounded materialization\",\n                code=PgnRoundTripErrorCode.INVALID_MODEL,\n            ) from exc\n        if index >= MAX_PGN_GAMES:\n            _raise_limit(\n                \"PGN contains too many games\",\n                PgnRoundTripErrorCode.GAME_COUNT_LIMIT,\n            )\n        snapshot.append(game)\n        index += 1\n\n"""
+          if text.count(old) != 1:
+              raise SystemExit('unexpected bounded materializer shape')
+          text = text.replace(old, new, 1)
+
+          path.write_text(text, encoding='utf-8', newline='\n')
+          PY
+      - name: Execute the two routed RED contracts before commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m py_compile acs/pgn_roundtrip.py
+          python - <<'PY'
+          from unittest import mock
+          import acs.pgn_roundtrip as pgn_roundtrip
+          from acs.gametree import PgnGame, VariationLine
+
+          class HostileIterator:
+              def __init__(self):
+                  self.pulls = 0
+                  self.iter_calls = 0
+              def __iter__(self):
+                  self.iter_calls += 1
+                  if self.iter_calls != 1:
+                      raise AssertionError('source iterated more than once')
+                  return self
+              def __next__(self):
+                  if self.pulls >= 1:
+                      raise RuntimeError('HOSTILE_PRIVATE_SENTINEL must not escape')
+                  self.pulls += 1
+                  return PgnGame(tags={'Result': '*'}, line=VariationLine(result='*'))
+
+          hostile = HostileIterator()
+          try:
+              pgn_roundtrip.serialize_pgn_text(hostile)
+          except pgn_roundtrip.PgnRoundTripError as exc:
+              assert exc.code is pgn_roundtrip.PgnRoundTripErrorCode.INVALID_MODEL
+              assert 'HOSTILE_PRIVATE_SENTINEL' not in str(exc)
+              assert hostile.iter_calls == 1
+              assert hostile.pulls == 1
+          else:
+              raise AssertionError('hostile iterable did not fail closed')
+
+          source = '[Result "*"]\n\n1. e4 (1... e5 (2. Nf3 (2... Nc6))) *\n'
+          with mock.patch('acs.gametree.MAX_VARIATION_DEPTH', 1), mock.patch.object(
+              pgn_roundtrip, 'MAX_VARIATION_DEPTH', 1
+          ):
+              try:
+                  pgn_roundtrip.parse_pgn_text(source)
+              except pgn_roundtrip.PgnRoundTripError as exc:
+                  assert exc.code is pgn_roundtrip.PgnRoundTripErrorCode.TOKEN_COUNT_LIMIT
+              else:
+                  raise AssertionError('deep RAV did not fail closed')
+          PY
+      - name: Commit same-lineage Product repair
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add acs/pgn_roundtrip.py
+          git diff --cached --quiet && {
+            echo 'Expected Product delta was not produced.' >&2
+            exit 1
+          }
+          git commit -m 'fix(d06): sanitize public codec boundary errors'
+          git push origin "HEAD:${GITHUB_REF_NAME}"
+
   focused:
     strategy:
       fail-fast: false
