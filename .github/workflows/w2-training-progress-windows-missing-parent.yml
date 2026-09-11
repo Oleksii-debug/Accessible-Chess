@@ -1,6 +1,9 @@
 name: W2 Training Progress Windows Missing Parent
 
 on:
+  push:
+    branches:
+      - work/w2-training-progress-windows-missing-parent-repair-20260911
   pull_request:
     paths:
       - 'acs/training_progress_store.py'
