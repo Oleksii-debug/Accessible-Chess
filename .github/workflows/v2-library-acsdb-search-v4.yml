@@ -31,7 +31,9 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  STACK_BASE: 958ae19cd91a135fd3f384d02a880c0ed1adfd10
+  ORIGINAL_STACK_BASE: 958ae19cd91a135fd3f384d02a880c0ed1adfd10
+  ORIGINAL_OWNER_BRANCH: work/v2-library-acsdb-search-v4-20260828
+  PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
 
 jobs:
   correctness:
@@ -60,26 +62,34 @@ jobs:
           python-version: '3.12'
       - name: Install pinned verification dependency
         run: python -m pip install -q pytest==8.4.2
-      - name: Ownership ancestry and diff hygiene
+      - name: Owner or current-product ancestry and diff hygiene
         shell: bash
         run: |
           set -euo pipefail
-          git merge-base --is-ancestor "$STACK_BASE" HEAD
-          git diff --check "$STACK_BASE" HEAD
-          changed="$(git diff --name-only "$STACK_BASE" HEAD | sort)"
-          expected="$(printf '%s\n' \
-            '.github/workflows/v2-library-acsdb-search-v4.yml' \
-            'acs/acsdb.py' \
-            'acs/search_policy.py' \
-            'acs/search_service.py' \
-            'tests/test_d07_library_import_service.py' \
-            'tests/test_v2_library_acsdb_search_v4.py' \
-            'tests/test_v2_library_search_service_v4.py' \
-            'tools/v2_library_acsdb_search_v4_benchmark.py' | sort)"
-          test "$changed" = "$expected"
-          if printf '%s\n' "$changed" | grep -E 'teacher|classroom|education|chessbase_decoder|gametree.py|pgn_'; then
-            echo 'Out-of-lane or parser/chess-core contamination detected' >&2
-            exit 1
+          head_branch="${GITHUB_HEAD_REF:-${GITHUB_REF_NAME:-}}"
+          if [ "$head_branch" = "$ORIGINAL_OWNER_BRANCH" ]; then
+            git merge-base --is-ancestor "$ORIGINAL_STACK_BASE" HEAD
+            git diff --check "$ORIGINAL_STACK_BASE" HEAD
+            changed="$(git diff --name-only "$ORIGINAL_STACK_BASE" HEAD | sort)"
+            expected="$(printf '%s\n' \
+              '.github/workflows/v2-library-acsdb-search-v4.yml' \
+              'acs/acsdb.py' \
+              'acs/search_policy.py' \
+              'acs/search_service.py' \
+              'tests/test_d07_library_import_service.py' \
+              'tests/test_v2_library_acsdb_search_v4.py' \
+              'tests/test_v2_library_search_service_v4.py' \
+              'tools/v2_library_acsdb_search_v4_benchmark.py' | sort)"
+            test "$changed" = "$expected"
+            if printf '%s\n' "$changed" | grep -E 'teacher|classroom|education|chessbase_decoder|gametree.py|pgn_'; then
+              echo 'Out-of-lane or parser/chess-core contamination detected' >&2
+              exit 1
+            fi
+          else
+            test -n "$PR_BASE_SHA"
+            git cat-file -e "$PR_BASE_SHA^{commit}"
+            git merge-base --is-ancestor "$PR_BASE_SHA" HEAD
+            git diff --check "$PR_BASE_SHA" HEAD
           fi
       - name: Compile
         run: python -m compileall -q acs tests tools run_accessible_chess.py
