@@ -191,14 +191,70 @@ async function run() {
   const wholeRenders = root.replaceChildrenCalls;
   input.value = "f3";
   input.listeners.input();
+  check(input.value === "", "pointer editor did not clear synchronously after f3");
   await flushPromises();
   check(calls[0][0] === "teacher.pointer_input", "pointer did not use pointer command");
   check(calls[0][1].coordinate === "f3", "pointer coordinate changed");
   check(root.querySelector("#teacher-pointer-input") === input, "pointer update replaced the editor");
-  check(input.value === "", "pointer editor did not clear after f3");
+  check(input.value === "", "pointer editor did not stay clear after f3 response");
   check(document.activeElement === input, "pointer editor focus was not restored");
   check(root.replaceChildrenCalls === wholeRenders, "pointer update rerendered the whole Teacher surface");
   check(root.querySelector("#teacher-square-f3").getAttribute("data-pointer") === "true", "visual pointer did not move to f3");
+
+  const delayedCalls = [];
+  const delayedResolvers = [];
+  const delayedInvoke = (command, payload) => {
+    if (command !== "teacher.pointer_input") throw new Error("unexpected delayed command " + command);
+    delayedCalls.push([command, payload]);
+    return new Promise((resolve) => delayedResolvers.push(resolve));
+  };
+  const delayedRoot = new FakeElement("div");
+  window.AccessibleChessTeacherSurface.render(
+    delayedRoot,
+    snapshot(null),
+    delayedInvoke,
+    function () {},
+    "teacher-pointer-input",
+    "Action failed"
+  );
+  const delayedInput = delayedRoot.querySelector("#teacher-pointer-input");
+  delayedInput.value = "f3";
+  delayedInput.listeners.input();
+  check(delayedInput.value === "", "first rapid pointer coordinate was not cleared synchronously");
+  delayedInput.value = "c7";
+  delayedInput.listeners.input();
+  check(delayedInput.value === "", "second rapid pointer coordinate was not cleared synchronously");
+  check(delayedCalls.length === 2, "rapid pointer input did not dispatch exactly two requests");
+  check(delayedCalls[0][1].coordinate === "f3", "first rapid pointer coordinate changed");
+  check(delayedCalls[1][1].coordinate === "c7", "second rapid pointer coordinate changed");
+
+  delayedInput.value = "h";
+  delayedResolvers[1]({
+    kind: "render-pointer",
+    payload: {
+      snapshot: snapshot("c7"),
+      clear_editor: true,
+      focus_target: "teacher-pointer-input",
+      announcement: ""
+    }
+  });
+  await flushPromises();
+  check(delayedInput.value === "h", "latest pointer response cleared newer partial input");
+  check(delayedRoot.querySelector("#teacher-square-c7").getAttribute("data-pointer") === "true", "latest rapid pointer result was not rendered");
+
+  delayedResolvers[0]({
+    kind: "render-pointer",
+    payload: {
+      snapshot: snapshot("f3"),
+      clear_editor: true,
+      focus_target: "teacher-pointer-input",
+      announcement: ""
+    }
+  });
+  await flushPromises();
+  check(delayedInput.value === "h", "stale pointer response cleared newer partial input");
+  check(delayedRoot.querySelector("#teacher-square-c7").getAttribute("data-pointer") === "true", "stale pointer response overwrote the latest pointer result");
+  check(document.activeElement === delayedInput, "rapid pointer flow lost editor focus");
 
   const e4 = root.querySelector("#teacher-square-e4");
   e4.listeners.mouseenter();
