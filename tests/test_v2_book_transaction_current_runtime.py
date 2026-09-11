@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -9,8 +10,12 @@ from unittest.mock import patch
 from acs.acsdb import AcsDatabase
 from acs.analysis_service import AnalysisService
 from acs.book_progress_store import BookProgressStore
+from acs.bookdocument import BookDocument, Exercise
 from acs.engine_assisted_workflows import EngineAssistedWorkflowService
 from acs.version2_application import Version2Application
+
+
+START_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
 
 
 class Version2BookTransactionCurrentRuntimeTests(unittest.TestCase):
@@ -121,6 +126,77 @@ class Version2BookTransactionCurrentRuntimeTests(unittest.TestCase):
         self.assertEqual(self.app.reader.snapshot(), before)
         self.assertEqual(self.app.book_key, before_key)
         self.assertEqual(self.app.shell.current_route.route_id, before_route)
+
+    def test_training_state_survives_book_rollback_without_stale_reader_binding(self):
+        source = self._book("training-rollback.md", "Training rollback")
+        document = BookDocument(
+            title="Training rollback",
+            language="en",
+            source_name="training-rollback.md",
+            blocks=[
+                Exercise(
+                    fen=START_FEN,
+                    prompt="First exercise",
+                    answer_text="e4",
+                    block_id="exercise-one",
+                    source_anchor="chapter-1:exercise-1",
+                ),
+                Exercise(
+                    fen=START_FEN,
+                    prompt="Second exercise",
+                    answer_text="d4",
+                    block_id="exercise-two",
+                    source_anchor="chapter-1:exercise-2",
+                ),
+            ],
+        )
+        imported = SimpleNamespace(
+            book_key="training-rollback-book",
+            document=document,
+            warnings=(),
+        )
+        with patch("acs.version2_application.import_text_book", return_value=imported):
+            self.app.open_book(source)
+
+        reader_before = self.app.reader
+        reader_snapshot_before = reader_before.snapshot()
+        self.assertTrue(self.app._start_training_from_current_book())
+        training_before = self.app.training_workspace
+        self.assertIsNotNone(training_before)
+        self.assertIs(training_before.reader, reader_before)
+
+        completed = self.app.browser_command(
+            "training",
+            "training.submit",
+            {"answer": "e4"},
+        )
+        self.assertEqual(completed["kind"], "render")
+        self.assertTrue(completed["payload"]["snapshot"]["progress"]["completed"])
+        progress_files = tuple(self.app.training_progress_root.glob("*.json"))
+        self.assertEqual(len(progress_files), 1)
+        durable_training_before = progress_files[0].read_bytes()
+
+        with patch.object(
+            self.progress_store,
+            "save",
+            side_effect=OSError("simulated Book durable progress failure"),
+        ):
+            result = self.app.browser_command("books", "book.next")
+
+        self.assertEqual(result["kind"], "error")
+        self.assertEqual(self.app.reader.snapshot(), reader_snapshot_before)
+        self.assertIsNot(self.app.reader, reader_before)
+        self.assertIsNone(self.app.training_workspace)
+        self.assertIsNone(self.app.training)
+        self.assertEqual(progress_files[0].read_bytes(), durable_training_before)
+
+        self.assertTrue(self.app._start_training_from_current_book())
+        self.assertIsNot(self.app.training_workspace, training_before)
+        self.assertIs(self.app.training_workspace.reader, self.app.reader)
+        restored_training = self.app.training_workspace.snapshot()
+        self.assertIsNotNone(restored_training)
+        self.assertTrue(restored_training["progress"]["completed"])
+        self.assertEqual(progress_files[0].read_bytes(), durable_training_before)
 
     def test_bookmark_save_failure_restores_reader_and_transient_name(self):
         source = self._book("bookmark.md", "Bookmark")
