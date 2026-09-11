@@ -56,8 +56,8 @@ jobs:
           git merge-base --is-ancestor "$base" HEAD
           git merge-base --is-ancestor "$d10_owner" HEAD
           git diff --check "$base" HEAD
-          test -f acs/education_workspace.py
-          test -f tests/test_d10_no_implicit_delete_current.py
+          test "$(git rev-parse HEAD:acs/education_workspace.py)" = "16c3e60dd30ec482e8e06864002f66e5f151b6d2"
+          test "$(git rev-parse HEAD:tests/test_d10_no_implicit_delete_current.py)" = "0222977bd13a5d39e67200dae7d21d64cfadc44e"
 
       - name: Compile changed Python
         run: python -m py_compile acs/education_workspace.py tests/test_d10_no_implicit_delete_current.py
