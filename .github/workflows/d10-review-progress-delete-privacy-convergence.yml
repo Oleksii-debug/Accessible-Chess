@@ -46,13 +46,18 @@ jobs:
       - name: Install pinned verification dependency
         run: python -m pip install -q pytest==8.4.2
 
-      - name: Prove retained D10 convergence authority and current PR hygiene
+      - name: Prove retained D10 convergence authority and immutable PR-base hygiene
         shell: bash
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
           set -euo pipefail
-          test -n "${GITHUB_BASE_REF:-}"
-          git fetch --no-tags origin "${GITHUB_BASE_REF}:refs/remotes/origin/${GITHUB_BASE_REF}"
-          base="$(git rev-parse "origin/${GITHUB_BASE_REF}")"
+          base="${PR_BASE_SHA:-}"
+          test -n "$base" || {
+            printf 'D10 convergence qualification requires pull_request event base SHA\n' >&2
+            exit 1
+          }
+          git cat-file -e "${base}^{commit}"
           d10_owner="c096fc2b4e3bf02a2853a893319cb9512842bed0"
           git cat-file -e "${d10_owner}^{commit}"
           git merge-base --is-ancestor "$base" HEAD
@@ -66,6 +71,7 @@ jobs:
           do
             test "$(git rev-parse "HEAD:$path")" = "$(git rev-parse "$d10_owner:$path")"
           done
+          printf 'D10 retained authority PASS: immutable-pr-base=%s owner=%s head=%s\n' "$base" "$d10_owner" "$(git rev-parse HEAD)"
 
       - name: Compile converged Python
         run: >-
