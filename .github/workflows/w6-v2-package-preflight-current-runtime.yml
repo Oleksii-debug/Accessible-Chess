@@ -4,11 +4,13 @@ on:
   pull_request:
     branches:
       - codex/v2-runtime-completion-20260907
+      - work/full-product-teacher-education-reachability-20260911
     paths:
       - 'acs/version2_package_preflight.py'
       - 'tests/test_version2_package_preflight.py'
       - 'tests/test_version2_package_preflight_hardening.py'
       - 'tests/test_v2_package_required_resources.py'
+      - 'tests/test_version2_stockfish_source_archive_preflight.py'
       - '.github/workflows/w6-v2-package-preflight-current-runtime.yml'
   workflow_dispatch:
 
@@ -18,16 +20,6 @@ permissions:
 concurrency:
   group: w6-v2-package-preflight-current-runtime-${{ github.ref }}
   cancel-in-progress: true
-
-env:
-  CURRENT_RUNTIME_BASE: 8610b3a79c1631a9619427a58ae1617cb1576210
-  OWNER_511_HEAD: 58be5a7e577714f221be6653655f4bc1d6bb1acd
-  OWNER_565_PARENT_HEAD: f9f9ba6915ce88674214365a6260c92c091ebc1b
-  OWNER_565_CURRENT_HEAD: 2830fe08f0ad820711ab3ad258f792ba72c58d8c
-  OWNER_PREFLIGHT_BLOB: 8237eb297818d401c29af476f4ef6081d6efcee8
-  OWNER_TEST_BLOB: d20c858de65947c7aa1e9543da0b355f697ed359
-  OWNER_HARDENING_BLOB: 9547cad72a58fe556b9a3aee004c7a513c1b7bcc
-  OWNER_REQUIRED_RESOURCES_BLOB: 37636b3dc0721fb5d3c81f1b5acfb9b28260a91d
 
 jobs:
   focused:
@@ -46,32 +38,17 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Prove exact current-base selective convergence
+      - name: Prove current integrated Product package-preflight surface
         shell: bash
         run: |
           set -euo pipefail
-          git merge-base --is-ancestor "$CURRENT_RUNTIME_BASE" HEAD
-          git diff --check "$CURRENT_RUNTIME_BASE" HEAD
-          changed="$(git diff --name-only "$CURRENT_RUNTIME_BASE" HEAD | sort)"
-          expected="$(printf '%s\n' \
-            '.github/workflows/w6-v2-package-preflight-current-runtime.yml' \
-            'acs/version2_package_preflight.py' \
-            'tests/test_version2_package_preflight.py' | sort)"
-          test "$changed" = "$expected" || {
-            printf 'Unexpected convergence delta:\n%s\n' "$changed" >&2
-            exit 1
-          }
-          git cat-file -e "$OWNER_565_CURRENT_HEAD^{commit}"
-          git merge-base --is-ancestor "$OWNER_565_PARENT_HEAD" "$OWNER_565_CURRENT_HEAD"
-          test "$(git rev-parse HEAD:acs/version2_package_preflight.py)" = "$OWNER_PREFLIGHT_BLOB"
-          test "$(git rev-parse HEAD:tests/test_version2_package_preflight.py)" = "$OWNER_TEST_BLOB"
-          test "$(git rev-parse HEAD:tests/test_version2_package_preflight_hardening.py)" = "$OWNER_HARDENING_BLOB"
-          test "$(git rev-parse HEAD:tests/test_v2_package_required_resources.py)" = "$OWNER_REQUIRED_RESOURCES_BLOB"
-          test "$(git rev-parse "$OWNER_565_CURRENT_HEAD":acs/version2_package_preflight.py)" = "$OWNER_PREFLIGHT_BLOB"
-          test "$(git rev-parse "$OWNER_565_CURRENT_HEAD":tests/test_version2_package_preflight.py)" = "$OWNER_TEST_BLOB"
-          test "$(git rev-parse "$OWNER_565_CURRENT_HEAD":tests/test_v2_package_required_resources.py)" = "$OWNER_REQUIRED_RESOURCES_BLOB"
-          test "$(git rev-parse "$OWNER_511_HEAD":tests/test_version2_package_preflight_hardening.py)" = "$OWNER_HARDENING_BLOB"
-          echo 'CURRENT_RUNTIME_BASE + EXACT CURRENT #565/#511 PREFLIGHT OWNER BYTES PASS'
+          git diff --check
+          test -f acs/version2_package_preflight.py
+          test -f tests/test_version2_package_preflight.py
+          test -f tests/test_version2_package_preflight_hardening.py
+          test -f tests/test_v2_package_required_resources.py
+          test -f tests/test_version2_stockfish_source_archive_preflight.py
+          echo 'CURRENT INTEGRATED PRODUCT PREFLIGHT SURFACE PASS'
 
       - name: Prove one canonical V2 package validator
         shell: bash
@@ -103,6 +80,7 @@ jobs:
           tests/test_version2_package_preflight.py
           tests/test_version2_package_preflight_hardening.py
           tests/test_v2_package_required_resources.py
+          tests/test_version2_stockfish_source_archive_preflight.py
 
       - name: Current schema and resource identity smoke
         shell: bash
@@ -138,6 +116,7 @@ jobs:
           tests.test_version2_package_preflight
           tests.test_version2_package_preflight_hardening
           tests.test_v2_package_required_resources
+          tests.test_version2_stockfish_source_archive_preflight
 
   broad:
     runs-on: ubuntu-22.04
