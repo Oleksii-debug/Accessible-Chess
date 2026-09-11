@@ -517,32 +517,6 @@ def run_version2_release_window(
     else:
         api.bind_version2_application(application)
 
-    html = _asset_root() / "web" / "index.html"
-    if not html.exists():
-        if runtime is not None:
-            runtime.close()
-        raise RuntimeError("Accessible HTML UI not found in packaged resources.")
-    sources = _resource_sources()
-
-    if webview_module is None:
-        import webview as webview_module  # type: ignore[no-redef]
-
-    window = webview_module.create_window(
-        "Accessible Chess",
-        url=str(html),
-        js_api=api,
-        width=1150,
-        height=820,
-        min_size=(800, 600),
-        text_select=True,
-    )
-
-    def exit_application() -> None:
-        destroy = getattr(window, "destroy", None)
-        if callable(destroy):
-            destroy()
-
-    native_files: Any | None = None
     application_closed = False
     startup_errors: list[Exception] = []
 
@@ -561,79 +535,134 @@ def run_version2_release_window(
         api._ui_closed = True
         return True
 
-    def window_closing_without_destructive_shutdown(*_args: Any) -> bool:
-        # pywebview's closing event can run before or after later WinForms
-        # FormClosing subscribers.  Once the native guard exists, doing cleanup
-        # here would make refusal too late and would duplicate the accepted path.
-        if application is not None and getattr(
-            application, "_native_unsaved_close_guard", None
-        ) is not None:
-            return True
-        return close_application()
+    primary_error: BaseException | None = None
+    cleanup_error: BaseException | None = None
 
-    def install_menu_on_native_host(*_args: Any) -> None:
-        nonlocal application, native_files
-        if application_factory is not None:
-            owner = _resolve_windows_host_form(window)
-            api._bind_ui_owner(owner)
-            application = application_factory()
-            api.bind_version2_application(application)
-        elif api._ui_owner is None:
-            assert_thread = getattr(application, "_assert_thread", None)
-            if callable(assert_thread):
-                assert_thread()
-        controller = Version2NativeMenuController(
-            application.adapter,
-            application.native_command,
-            exit_callback=exit_application,
-            current_focus_provider=lambda: str(getattr(application, "_focus", "")),
-        )
-        if not menu_installer(window, controller):
-            raise RuntimeError("Accessible Version 2 native Windows menu could not be attached.")
-        if file_runtime_factory is None or native_files is not None:
-            return
-        owner = getattr(window, "_accessible_chess_native_menu_host", None)
-        if owner is None:
-            raise RuntimeError("Accessible Version 2 native Windows owner could not be resolved.")
-        native_files = file_runtime_factory(owner)
-        application.bind_files(native_files)
-
-    def start_native_host(*_args: Any) -> None:
-        try:
-            install_menu_on_native_host()
-        except Exception as error:
-            startup_errors.append(error)
-            close_application()
-            window.destroy()
-            raise
-
-    def install_release_web_contract(*_args: Any) -> None:
-        if startup_errors:
-            return
-        for _label, source in sources:
-            window.evaluate_js(source)
-        if loaded_hook is not None:
-            loaded_hook(window)
-
-    window.events.before_show += start_native_host
-    window.events.loaded += install_release_web_contract
-    closing = getattr(window.events, "closing", None)
-    if closing is not None:
-        window.events.closing += window_closing_without_destructive_shutdown
     try:
+        # Keep every startup step after application/runtime composition inside the
+        # same lifecycle boundary.  This selectively preserves #476's startup
+        # cleanup contract on the current V2 runtime without reverting newer UI
+        # ownership, close guards or external-review behavior.
+        html = _asset_root() / "web" / "index.html"
+        if not html.exists():
+            raise RuntimeError("Accessible HTML UI not found in packaged resources.")
+        sources = _resource_sources()
+
+        if webview_module is None:
+            import webview as webview_module  # type: ignore[no-redef]
+
+        window = webview_module.create_window(
+            "Accessible Chess",
+            url=str(html),
+            js_api=api,
+            width=1150,
+            height=820,
+            min_size=(800, 600),
+            text_select=True,
+        )
+
+        def exit_application() -> None:
+            destroy = getattr(window, "destroy", None)
+            if callable(destroy):
+                destroy()
+
+        native_files: Any | None = None
+
+        def window_closing_without_destructive_shutdown(*_args: Any) -> bool:
+            # pywebview's closing event can run before or after later WinForms
+            # FormClosing subscribers.  Once the native guard exists, doing cleanup
+            # here would make refusal too late and would duplicate the accepted path.
+            if application is not None and getattr(
+                application, "_native_unsaved_close_guard", None
+            ) is not None:
+                return True
+            return close_application()
+
+        def install_menu_on_native_host(*_args: Any) -> None:
+            nonlocal application, native_files
+            if application_factory is not None:
+                owner = _resolve_windows_host_form(window)
+                api._bind_ui_owner(owner)
+                application = application_factory()
+                api.bind_version2_application(application)
+            elif api._ui_owner is None:
+                assert_thread = getattr(application, "_assert_thread", None)
+                if callable(assert_thread):
+                    assert_thread()
+            controller = Version2NativeMenuController(
+                application.adapter,
+                application.native_command,
+                exit_callback=exit_application,
+                current_focus_provider=lambda: str(getattr(application, "_focus", "")),
+            )
+            if not menu_installer(window, controller):
+                raise RuntimeError("Accessible Version 2 native Windows menu could not be attached.")
+            if file_runtime_factory is None or native_files is not None:
+                return
+            owner = getattr(window, "_accessible_chess_native_menu_host", None)
+            if owner is None:
+                raise RuntimeError("Accessible Version 2 native Windows owner could not be resolved.")
+            native_files = file_runtime_factory(owner)
+            application.bind_files(native_files)
+
+        def start_native_host(*_args: Any) -> None:
+            try:
+                install_menu_on_native_host()
+            except Exception as error:
+                startup_errors.append(error)
+                try:
+                    close_application()
+                finally:
+                    window.destroy()
+                raise
+
+        def install_release_web_contract(*_args: Any) -> None:
+            if startup_errors:
+                return
+            for _label, source in sources:
+                window.evaluate_js(source)
+            if loaded_hook is not None:
+                loaded_hook(window)
+
+        window.events.before_show += start_native_host
+        window.events.loaded += install_release_web_contract
+        closing = getattr(window.events, "closing", None)
+        if closing is not None:
+            window.events.closing += window_closing_without_destructive_shutdown
         webview_module.start(gui="edgechromium", private_mode=True)
         if startup_errors:
             raise startup_errors[0]
-    finally:
-        try:
-            if application is not None and not application_closed:
-                close_application()
-        finally:
-            try:
-                Stage1ReleaseAccessibleChessAPI.close_analysis(api)
-            finally:
-                if runtime is not None:
-                    runtime.close()
+    except BaseException as error:
+        # If native startup recorded the real owner failure but its immediate
+        # shutdown also failed, keep the original startup failure primary.
+        primary_error = startup_errors[0] if startup_errors else error
+
+    # Cleanup is ordered and exhaustive.  The first failure remains observable,
+    # while later cleanup failures never replace an already-active Product/runtime
+    # failure.  This closes the exact failure-precedence gap proven by #588.
+    try:
+        if application is not None and not application_closed:
+            close_application()
+    except BaseException as error:
+        cleanup_error = error
+
+    try:
+        Stage1ReleaseAccessibleChessAPI.close_analysis(api)
+    except BaseException as error:
+        if cleanup_error is None:
+            cleanup_error = error
+
+    try:
+        if runtime is not None:
+            runtime.close()
+    except BaseException as error:
+        if cleanup_error is None:
+            cleanup_error = error
+
+    if primary_error is not None:
+        raise primary_error
+    if cleanup_error is not None:
+        raise cleanup_error
 
 
 __all__ = [
