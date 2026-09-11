@@ -70,14 +70,15 @@ jobs:
           test "$(git rev-parse HEAD:acs/education_class_management.py)" = "7b5e8c309ac453cb904552b23af658357db377db"
           test "$(git rev-parse HEAD:acs/version2_education_mutation_application.py)" = "f3a2633c400a4f07fffa52d478456c62a8330fc6"
           test "$(git rev-parse HEAD:run_accessible_chess_v2.py)" = "125f378e87acbca993acf54bd4012e93539384d3"
-          test "$(git rev-parse HEAD:tests/test_version2_education_class_create.py)" = "3a354dbf7c5f472b1bdd72f06f1b969e709c5394"
 
           release_blob="$(git rev-parse HEAD:acs/version2_education_mutation_release.py)"
           case "$release_blob" in
             3bd742fb0ba81dfb36bd18857d5bace9da5ff311)
+              test "$(git rev-parse HEAD:tests/test_version2_education_class_create.py)" = "3a354dbf7c5f472b1bdd72f06f1b969e709c5394"
               echo 'EDUCATION_RELEASE_PROFILE=PRE_W3_CANONICAL'
               ;;
             334c8210571be8212638e948032e61d1eee4df4d)
+              test "$(git rev-parse HEAD:tests/test_version2_education_class_create.py)" = "5242a08a3bdefc3050a1fda6cd7d306e726503a7"
               test "$(git rev-parse HEAD:acs/version2_starter_content_application.py)" = "ee32e912f84dff1a5befa1f1034e602f423819a5"
               test "$(git rev-parse HEAD:acs/starter_books_training_runtime.py)" = "1fb85f1282efcd5dedb51dfa2ebfe2adf7c1a310"
               test "$(git rev-parse HEAD:acs/starter_books_training_content.py)" = "04bbc4aaf44bf9421f7e02adeb10c965ef3f1d9d"
