@@ -11,11 +11,8 @@ from .book_board_workflow import BookBoardWorkflow
 from .book_library_game_lookup import AcsdbBookGameLookup
 from .bookdocument import Exercise, Paragraph
 from .bookreader import BookReader
-from .starter_books_training_content import (
-    STARTER_COURSE_BOOK_KEY,
-    build_starter_course,
-    starter_content_manifest,
-)
+from .starter_books_training_content import STARTER_COURSE_BOOK_KEY, starter_content_manifest
+from .starter_books_training_runtime import build_training_ready_starter_course
 from .version2_book_workspace import build_version2_book_webview
 from .version2_education_mutation_application import Version2EducationMutationApplication
 from .version2_windows_book_board_adapter import Version2WindowsBookBoardActionDelegate
@@ -33,7 +30,7 @@ class Version2StarterContentApplication(Version2EducationMutationApplication):
         if self.book_workflow is not None and self.book_workflow.active:
             raise ValueError("return to the book before replacing the starter course")
 
-        document = build_starter_course()
+        document = build_training_ready_starter_course()
         manifest = starter_content_manifest()
         introduction = document.blocks[1]
         if isinstance(introduction, Paragraph):
