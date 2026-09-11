@@ -66,15 +66,20 @@ jobs:
       - name: Prove Version 2 ancestry and convergence-safe isolation
         shell: bash
         env:
-          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_BASE_REF: ${{ github.event.pull_request.base.ref }}
         run: |
           set -euo pipefail
           git cat-file -e "$V2_FORMATS_UPSTREAM^{commit}"
           git merge-base --is-ancestor "$V2_FORMATS_UPSTREAM" HEAD
 
-          scope_base="$PR_BASE_SHA"
-          if [ -z "$scope_base" ]; then
-            scope_base="$V2_FORMATS_UPSTREAM"
+          scope_base="$V2_FORMATS_UPSTREAM"
+          if [ -n "$PR_BASE_REF" ]; then
+            remote_base="refs/remotes/origin/$PR_BASE_REF"
+            if ! git show-ref --verify --quiet "$remote_base"; then
+              echo "Current pull-request base ref is unavailable: $remote_base" >&2
+              exit 1
+            fi
+            scope_base="$(git rev-parse "$remote_base")"
           fi
           git cat-file -e "$scope_base^{commit}"
           git merge-base --is-ancestor "$scope_base" HEAD
