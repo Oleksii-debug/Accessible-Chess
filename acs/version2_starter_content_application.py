@@ -11,7 +11,8 @@ from .book_board_workflow import BookBoardWorkflow
 from .book_library_game_lookup import AcsdbBookGameLookup
 from .bookdocument import Exercise, Paragraph
 from .bookreader import BookReader
-from .starter_books_training_content import STARTER_COURSE_BOOK_KEY, starter_content_manifest
+from .starter_books_training_content import STARTER_COURSE_BOOK_KEY
+from .starter_books_training_release import starter_release_manifest
 from .starter_books_training_runtime import build_training_ready_starter_course
 from .version2_book_workspace import build_version2_book_webview
 from .version2_education_mutation_application import Version2EducationMutationApplication
@@ -26,19 +27,19 @@ class Version2StarterContentApplication(Version2EducationMutationApplication):
         self._install_starter_course()
 
     def _install_starter_course(self) -> None:
-        """Stage one canonical built-in book without changing the active route."""
+        """Stage one canonical built-in course without changing the active route."""
         if self.book_workflow is not None and self.book_workflow.active:
             raise ValueError("return to the book before replacing the starter course")
 
         document = build_training_ready_starter_course()
-        manifest = starter_content_manifest()
+        manifest = starter_release_manifest()
         introduction = document.blocks[1]
         if isinstance(introduction, Paragraph):
             introduction.text = (
-                f"Офлайн-курс містить {manifest['material_count']} українських навчальних модулів "
-                f"та {manifest['exercise_count']} вправ. Він використовує той самий BookDocument і "
-                "той самий Training, що й імпортовані книги, тому доступний без мережі та без "
-                "ручного пошуку файлів."
+                f"Офлайн-пакет містить {manifest['material_count']} багаторозділові українські "
+                f"посібники та {manifest['training_exercise_count']} позиційні вправи. "
+                "Він використовує той самий BookDocument і той самий Training, що й імпортовані "
+                "книги, тому доступний без мережі та без ручного пошуку файлів."
             )
 
         if self.progress_store.has(STARTER_COURSE_BOOK_KEY):
