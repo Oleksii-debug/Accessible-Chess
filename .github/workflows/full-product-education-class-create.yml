@@ -6,6 +6,7 @@ on:
       - 'acs/education_class_management.py'
       - 'acs/version2_education_mutation_application.py'
       - 'acs/version2_education_mutation_release.py'
+      - 'acs/version2_final_product_profile.py'
       - 'run_accessible_chess_v2.py'
       - 'tests/test_version2_education_class_create.py'
       - '.github/workflows/full-product-education-class-create.yml'
@@ -47,7 +48,7 @@ jobs:
       - name: Install pinned verification dependency
         run: python -m pip install -q pytest==8.4.2
 
-      - name: Prove retained Education authority and current PR hygiene
+      - name: Prove retained Education owner and current PR hygiene
         shell: bash
         env:
           EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
@@ -63,11 +64,18 @@ jobs:
           git merge-base --is-ancestor "$base" HEAD
           git merge-base --is-ancestor "$education_owner" HEAD
           git diff --check "$base" HEAD
-          test "$(git rev-parse HEAD:acs/education_class_management.py)" = "7b5e8c309ac453cb904552b23af658357db377db"
-          test "$(git rev-parse HEAD:acs/version2_education_mutation_application.py)" = "f3a2633c400a4f07fffa52d478456c62a8330fc6"
-          test "$(git rev-parse HEAD:acs/version2_education_mutation_release.py)" = "3bd742fb0ba81dfb36bd18857d5bace9da5ff311"
-          test "$(git rev-parse HEAD:run_accessible_chess_v2.py)" = "125f378e87acbca993acf54bd4012e93539384d3"
-          test "$(git rev-parse HEAD:tests/test_version2_education_class_create.py)" = "3a354dbf7c5f472b1bdd72f06f1b969e709c5394"
+
+          for path in \
+            acs/education_class_management.py \
+            acs/version2_education_mutation_release.py \
+            run_accessible_chess_v2.py
+          do
+            test "$(git rev-parse "HEAD:${path}")" = "$(git rev-parse "${education_owner}:${path}")" || {
+              printf 'Retained class-create owner blob drift: %s\n' "$path" >&2
+              exit 1
+            }
+          done
+          printf 'Class-create retained authority PASS: owner=%s base=%s\n' "$education_owner" "$base"
 
       - name: Compile changed Python
         run: >-
@@ -75,10 +83,11 @@ jobs:
           acs/education_class_management.py
           acs/version2_education_mutation_application.py
           acs/version2_education_mutation_release.py
+          acs/version2_final_product_profile.py
           run_accessible_chess_v2.py
           tests/test_version2_education_class_create.py
 
-      - name: Focused Education mutation and persistence regression
+      - name: Focused Education mutation open-selected and persistence regression
         run: >-
           python -m pytest -q
           tests/test_version2_education_class_create.py
