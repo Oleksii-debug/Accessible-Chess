@@ -1,18 +1,19 @@
-name: D10 No Implicit Delete Current Runtime
+name: D10 Prepared Position Current Convergence
 
 on:
   pull_request:
     paths:
       - 'acs/education_workspace.py'
-      - 'tests/test_d10_no_implicit_delete_current.py'
+      - 'tests/test_d10_prepared_position_durability.py'
       - '.github/workflows/d10-no-implicit-delete-current.yml'
+      - '.github/workflows/d10-prepared-position-current-convergence.yml'
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: d10-no-implicit-delete-${{ github.ref }}
+  group: d10-prepared-position-current-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -22,7 +23,7 @@ jobs:
       matrix:
         os: [ubuntu-22.04, windows-2025]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 35
+    timeout-minutes: 50
     steps:
       - uses: actions/checkout@v4
         with:
@@ -44,10 +45,11 @@ jobs:
       - name: Install pinned verification dependency
         run: python -m pip install -q pytest==8.4.2
 
-      - name: Prove retained D10 authority and current PR hygiene
+      - name: Prove current authority, source provenance and bounded scope
         shell: bash
         env:
           EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          SOURCE_HEAD_SHA: bbd52bf60f2215d3798189cd860c9682eddcdecb
         run: |
           set -euo pipefail
           base="${EVENT_BASE_SHA:-}"
@@ -55,24 +57,47 @@ jobs:
             base="$(git rev-parse HEAD^)"
           fi
           git cat-file -e "${base}^{commit}" || git fetch --no-tags origin "$base"
-          d10_owner="1f07515c07f75b6b2bc7b2c98890088ecb0dee07"
-          git cat-file -e "${d10_owner}^{commit}"
+          git cat-file -e "${SOURCE_HEAD_SHA}^{commit}" || git fetch --no-tags origin "$SOURCE_HEAD_SHA"
           git merge-base --is-ancestor "$base" HEAD
-          git merge-base --is-ancestor "$d10_owner" HEAD
+          git merge-base --is-ancestor "$SOURCE_HEAD_SHA" HEAD
           git diff --check "$base" HEAD
+
+          allowed="$(printf '%s\n' \
+            '.github/workflows/d10-no-implicit-delete-current.yml' \
+            '.github/workflows/d10-prepared-position-current-convergence.yml' \
+            'acs/education_workspace.py' \
+            'tests/test_d10_prepared_position_durability.py' | sort)"
+          changed="$(git diff --name-only "$base" HEAD | sort)"
+          test "$changed" = "$allowed"
+
+          test "$(git rev-parse HEAD:tests/test_d10_prepared_position_durability.py)" = "2cf247c3a475ad2728e8c950f0ce622b07ee722e"
           test "$(git rev-parse HEAD:tests/test_d10_no_implicit_delete_current.py)" = "0222977bd13a5d39e67200dae7d21d64cfadc44e"
 
-      - name: Compile changed Python
-        run: python -m py_compile acs/education_workspace.py tests/test_d10_no_implicit_delete_current.py
+      - name: Compile converged Education workspace
+        run: >-
+          python -m py_compile
+          acs/education_workspace.py
+          tests/test_d10_prepared_position_durability.py
+          tests/test_d10_no_implicit_delete_current.py
 
-      - name: Focused D10 durability regression
+      - name: Focused prepared-position and current lifecycle regressions
         run: >-
           python -m pytest -q
+          tests/test_d10_prepared_position_durability.py
           tests/test_d10_no_implicit_delete_current.py
           tests/test_education_workspace.py
           tests/test_education_records.py
           tests/test_classroom_domain.py
+          tests/test_version2_education_class_create.py
+          tests/test_version2_final_product_composition.py
+
+      - name: Final-product production-composition diagnostic
+        run: python run_accessible_chess_v2.py --diagnostic
 
       - name: Broad unittest regression on Ubuntu
         if: matrix.os == 'ubuntu-22.04'
         run: python -m unittest discover -s tests -p 'test_*.py'
+
+      - name: Broad pytest regression on Ubuntu
+        if: matrix.os == 'ubuntu-22.04'
+        run: python -m pytest -q
