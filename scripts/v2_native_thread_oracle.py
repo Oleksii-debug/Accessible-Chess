@@ -1,7 +1,8 @@
 """Actual Windows/WebView2 source host, bridge, SQLite and import-pump oracle.
 
 This checks thread ownership, not packaged resources, picker accessibility or
-human NVDA acceptance. Only the trusted source picker is replaced by a fixture.
+human NVDA acceptance. Only trusted file-picker boundaries are replaced by
+fixtures owned by this oracle.
 """
 from concurrent.futures import Future
 from contextlib import closing
@@ -15,6 +16,7 @@ import time
 
 from acs.version2_release_app import create_version2_release_application
 from acs.version2_release_ui import run_version2_release_window
+from acs.version2_windows_file_workflows import FileWorkflowEventKind
 
 
 def main():
@@ -31,6 +33,9 @@ def main():
         observed = {}
 
         def loaded(window):
+            app = None
+            files = None
+
             def wait(predicate):
                 deadline = time.monotonic() + 25
                 while time.monotonic() < deadline:
@@ -77,10 +82,31 @@ def main():
                 opened = bridge("pywebview.api.v2_browser_command('library','library.open_game',{})")
                 selected = bridge("pywebview.api.v2_browser_command('pgn','pgn.select',{node_id:'g0:main/m0'})")
                 edited = bridge("pywebview.api.v2_browser_command('pgn','pgn.comment_edit',{text:'Коментар з Windows'})")
+                dirty_before_save = api._invoke_ui(lambda: app.session.dirty)
                 checks["library_to_detached_pgn_edit"] = (
                     searched["kind"] == "render" and opened["kind"] == "delegated"
                     and selected["kind"] == edited["kind"] == "selection"
-                    and api._invoke_ui(lambda: app.session.dirty))
+                    and dirty_before_save)
+
+                # A dirty-document close now correctly opens a native confirmation.
+                # A headless runner cannot answer that modal dialog, so finish the
+                # actual user journey through the existing trusted Save As workflow
+                # before closing. This keeps the close guard enabled and exercises
+                # canonical PGN persistence instead of bypassing Product behavior.
+                saved_copy = root / "thread-edited-saved.pgn"
+                api._invoke_ui(lambda: setattr(
+                    files.file_dialogs,
+                    "save_pgn_as",
+                    lambda _suggested="game.pgn": saved_copy,
+                ))
+                saved_event = api._invoke_ui(lambda: files("pgn.save_as", {}))
+                checks["dirty_pgn_saved_before_close"] = (
+                    getattr(saved_event, "kind", None) is FileWorkflowEventKind.PGN_SAVED_AS
+                    and saved_copy.is_file()
+                    and "Коментар з Windows" in saved_copy.read_text(encoding="utf-8")
+                    and not api._invoke_ui(lambda: app.session.dirty)
+                )
+
                 checks["canonical_affinity_guard_retained"] = False
                 try:
                     app.snapshot()
@@ -91,6 +117,19 @@ def main():
             except Exception as error:
                 failures.append(type(error).__name__ + ": " + str(error))
             finally:
+                # If an assertion fails after the oracle made the document dirty,
+                # save the test-owned session directly through its canonical PGN
+                # session contract so teardown cannot deadlock on a modal prompt.
+                if app is not None:
+                    try:
+                        dirty = api._invoke_ui(
+                            lambda: bool(app.session is not None and app.session.dirty)
+                        )
+                        if dirty:
+                            cleanup_path = root / "thread-oracle-cleanup.pgn"
+                            api._invoke_ui(lambda: app.session.save_as(cleanup_path))
+                    except Exception as error:
+                        failures.append("teardown " + type(error).__name__ + ": " + str(error))
                 window.destroy()
 
         run_version2_release_window(api, factory, runtime,
