@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - worddeck-swarm-dev02-context-sentence
+      - worddeck-swarm-dev02-context-sentence-r3
   pull_request:
     branches:
       - worddeck-bootstrap
@@ -40,7 +41,7 @@ jobs:
               sha: context.sha,
               state: 'pending',
               context: 'WordDeck DEV02 Stage 11 Context Gate',
-              description: 'DEV02 exact-tip Windows + lexical coverage gate is running.',
+              description: 'DEV02 exact-tip Windows + split lexical coverage gate is running.',
               target_url: targetUrl
             });
 
@@ -124,7 +125,7 @@ jobs:
           "CONTEXT_SQLITE=$($sqlite.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           "CONTEXT_SQLITE_SHA=$actual" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
-      - name: Measure exact lexical-form-aware 1 2 3 target coverage
+      - name: Measure exact physical-form and conservative stable-ID coverage
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
@@ -137,7 +138,7 @@ jobs:
             tatoeba-en-uk-attributed-ccby-v1
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-      - name: Validate exact corpus coverage and external-data boundary
+      - name: Validate exact corpus identity and split coverage semantics
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
@@ -149,16 +150,39 @@ jobs:
           if (-not $p.ExactDatabaseIdentityVerified -or -not $p.CanSupportRealCorpusCoverageClaim) { throw 'Exact real-corpus identity was not verified.' }
           if ($p.RedistributionApproved) { throw 'Coverage tooling must never self-approve redistribution.' }
           if ($p.SentenceCount -ne 208408) { throw "Unexpected exact corpus sentence count: $($p.SentenceCount)" }
-          if ($p.OneTarget.CoveredEntryCount -ne 4492) { throw "Unexpected one-target coverage: $($p.OneTarget.CoveredEntryCount)" }
-          if ($p.TwoTarget.CoveredEntryCount -ne 4469) { throw "Unexpected natural two-target coverage: $($p.TwoTarget.CoveredEntryCount)" }
-          if ($p.ThreeTarget.CoveredEntryCount -ne 4362) { throw "Unexpected natural three-target coverage: $($p.ThreeTarget.CoveredEntryCount)" }
+          if ($p.OneTarget.CoveredEntryCount -ne 4492 -or $p.TwoTarget.CoveredEntryCount -ne 4469 -or $p.ThreeTarget.CoveredEntryCount -ne 4362) {
+            throw 'Historical stable-tag participation changed unexpectedly.'
+          }
+
+          $physicalDoc = Get-Content -LiteralPath '.\artifacts\context-evidence\context-coverage.physical-forms.json' -Raw | ConvertFrom-Json
+          $physical = $physicalDoc.Payload
+          if ($physical.DictionaryEntryCount -ne 5446 -or $physical.UniqueLexicalFormCount -ge 5446) { throw 'Physical-form denominator must collapse at least one homographic stable-ID group.' }
+          if ($physical.AmbiguousLexicalFormCount -le 0 -or $physical.StableIdsInAmbiguousLexicalForms -le $physical.AmbiguousLexicalFormCount) { throw 'Physical-form ambiguity accounting is missing or inconsistent.' }
+          foreach ($depth in @($physical.OneTarget,$physical.TwoTarget,$physical.ThreeTarget)) {
+            if ($depth.CoveredLexicalFormCount + $depth.UncoveredLexicalFormCount -ne $physical.UniqueLexicalFormCount) { throw 'Physical-form coverage does not partition its unique lexical-form universe.' }
+          }
+          if ($physical.RedistributionApproved) { throw 'Physical-form evidence must not approve redistribution.' }
+
+          $stableDoc = Get-Content -LiteralPath '.\artifacts\context-evidence\context-coverage.stable-identities.json' -Raw | ConvertFrom-Json
+          $stable = $stableDoc.Payload
+          if ($stable.StableTagEvidenceSha256 -ne $doc.EvidenceDigestSha256) { throw 'Stable-ID evidence is not bound to the exact stable-tag evidence document.' }
+          if ($stable.PhysicalFormEvidenceSha256 -ne $physicalDoc.EvidenceDigestSha256) { throw 'Stable-ID evidence is not bound to the exact physical-form evidence document.' }
+          foreach ($depth in @($stable.OneTarget,$stable.TwoTarget,$stable.ThreeTarget)) {
+            if ($depth.ResolvedStableCoveredEntryCount + $depth.UnresolvedAmbiguousEntryCount + $depth.StableTagAbsentEntryCount -ne 5446) { throw 'Stable-ID coverage does not partition the exact Oxford universe.' }
+            if ($depth.ResolvedStableCoveredEntryCount -gt $depth.StableTagParticipatingEntryCount) { throw 'Resolved stable-ID coverage cannot exceed stable-tag participation.' }
+          }
+          if ($stable.OneTarget.UnresolvedAmbiguousEntryCount -le 0) { throw 'Stable-tag-participating homographic stable IDs must remain explicitly unresolved without POS/sense evidence.' }
+          if ($stable.RedistributionApproved) { throw 'Stable-ID evidence must not approve redistribution.' }
+
           $gap = Get-Content -LiteralPath '.\artifacts\context-evidence\context-coverage.gaps.json' -Raw | ConvertFrom-Json
           if ($gap.Payload.MissingOneTargetCount -ne 954 -or $gap.Payload.MissingNaturalPairOnlyCount -ne 23 -or $gap.Payload.MissingNaturalTripleOnlyCount -ne 107) {
-            throw 'Gap accounting no longer matches exact attributed corpus evidence.'
+            throw 'Historical stable-tag gap accounting changed unexpectedly.'
           }
-          Write-Host ("Exact real EN-UA coverage: one={0}/5446; two={1}/5446; three={2}/5446; missing any={3}; pair-only={4}; triple-only={5}" -f `
-            $p.OneTarget.CoveredEntryCount,$p.TwoTarget.CoveredEntryCount,$p.ThreeTarget.CoveredEntryCount, `
-            $gap.Payload.MissingOneTargetCount,$gap.Payload.MissingNaturalPairOnlyCount,$gap.Payload.MissingNaturalTripleOnlyCount)
+          Write-Host ("Split exact corpus evidence: unique_forms={0}; ambiguous_forms={1}; physical one/two/three={2}/{3}/{4}; stable resolved one/two/three={5}/{6}/{7}; unresolved_ids={8}" -f `
+            $physical.UniqueLexicalFormCount,$physical.AmbiguousLexicalFormCount, `
+            $physical.OneTarget.CoveredLexicalFormCount,$physical.TwoTarget.CoveredLexicalFormCount,$physical.ThreeTarget.CoveredLexicalFormCount, `
+            $stable.OneTarget.ResolvedStableCoveredEntryCount,$stable.TwoTarget.ResolvedStableCoveredEntryCount,$stable.ThreeTarget.ResolvedStableCoveredEntryCount, `
+            $stable.OneTarget.UnresolvedAmbiguousEntryCount)
 
       - name: Upload coverage evidence
         uses: actions/upload-artifact@v4
