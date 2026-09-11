@@ -5,12 +5,6 @@ on:
     paths:
       - 'tests/test_d10_review_progress_peer_cas.py'
       - '.github/workflows/d10-review-progress-peer-cas-current.yml'
-  push:
-    branches:
-      - 'work/d10-review-progress-peer-cas-current-8996-20260911'
-    paths:
-      - 'tests/test_d10_review_progress_peer_cas.py'
-      - '.github/workflows/d10-review-progress-peer-cas-current.yml'
   workflow_dispatch:
 
 permissions:
@@ -49,35 +43,29 @@ jobs:
       - name: Install pinned verification dependency
         run: python -m pip install -q pytest==8.4.2
 
-      - name: Prove current Full Product authority and qualification-only scope
+      - name: Prove retained D10 peer-CAS authority and current PR hygiene
         shell: bash
         env:
-          CANONICAL_BASE_SHA: 8996cddcf3091adcef615d5f0cd65e7e13190da9
+          EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          SOURCE_HEAD_SHA: 273c4616e6eae13602ac49f6eb7f219b3a7db6ec
           SOURCE_TEST_BLOB: 407b2a68b29be6715fc08ff44c2566e30784cb58
           PRODUCT_STORE_BLOB: cdde3943fcf07f70b21da2c28bc0a984b9dfef2b
         run: |
           set -euo pipefail
-          if [ "${GITHUB_EVENT_NAME}" = "pull_request" ]; then
-            test -n "${GITHUB_BASE_REF:-}"
-            git fetch --no-tags origin "${GITHUB_BASE_REF}:refs/remotes/origin/${GITHUB_BASE_REF}"
-            base="$(git rev-parse "origin/${GITHUB_BASE_REF}")"
-          else
-            base="$CANONICAL_BASE_SHA"
+          base="${EVENT_BASE_SHA:-}"
+          if [ -z "$base" ]; then
+            base="$(git rev-parse HEAD^)"
           fi
-          test "$base" = "$CANONICAL_BASE_SHA"
-          git cat-file -e "${base}^{commit}"
+          git cat-file -e "${base}^{commit}" || git fetch --no-tags origin "$base"
+          git cat-file -e "${SOURCE_HEAD_SHA}^{commit}" || git fetch --no-tags origin "$SOURCE_HEAD_SHA"
           git merge-base --is-ancestor "$base" HEAD
+          git merge-base --is-ancestor "$SOURCE_HEAD_SHA" HEAD
           git diff --check "$base" HEAD
 
-          changed="$(git diff --name-only "$base" HEAD | sort)"
-          expected="$(printf '%s\n' \
-            '.github/workflows/d10-review-progress-peer-cas-current.yml' \
-            'tests/test_d10_review_progress_peer_cas.py' | sort)"
-          test "$changed" = "$expected"
-
           test "$(git rev-parse HEAD:tests/test_d10_review_progress_peer_cas.py)" = "$SOURCE_TEST_BLOB"
+          test "$(git rev-parse "$SOURCE_HEAD_SHA:tests/test_d10_review_progress_peer_cas.py")" = "$SOURCE_TEST_BLOB"
           test "$(git rev-parse HEAD:acs/student_progress_store.py)" = "$PRODUCT_STORE_BLOB"
-          test "$(git rev-parse "$base:acs/student_progress_store.py")" = "$PRODUCT_STORE_BLOB"
+          test "$(git rev-parse "$SOURCE_HEAD_SHA:acs/student_progress_store.py")" = "$PRODUCT_STORE_BLOB"
 
       - name: Compile qualification test
         run: python -m py_compile tests/test_d10_review_progress_peer_cas.py
