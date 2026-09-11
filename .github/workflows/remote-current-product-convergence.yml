@@ -63,19 +63,20 @@ jobs:
 
       - name: Prove current-base ancestry source provenance and bounded delta
         shell: bash
-        env:
-          EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
           set -euo pipefail
-          base="${EVENT_BASE_SHA:-}"
-          if [ -z "$base" ]; then
+          if [ "${GITHUB_EVENT_NAME}" = "pull_request" ]; then
+            test -n "${GITHUB_BASE_REF:-}"
+            git fetch --no-tags origin "${GITHUB_BASE_REF}:refs/remotes/origin/${GITHUB_BASE_REF}"
+            base="$(git rev-parse "origin/${GITHUB_BASE_REF}")"
+          else
             base="$CLAIM_BASE_SHA"
           fi
           for commit in "$base" "$SOURCE_HEAD_SHA" "$PRIOR_LINEAGE_HEAD_SHA" "$CONVERGENCE_COMMIT_SHA"; do
             git cat-file -e "${commit}^{commit}" || git fetch --no-tags origin "$commit"
           done
           test "$base" = "$CLAIM_BASE_SHA" || {
-            printf 'Remote convergence is stale: claim-base=%s event-base=%s\n' "$CLAIM_BASE_SHA" "$base" >&2
+            printf 'Remote convergence is stale: claim-base=%s live-base=%s\n' "$CLAIM_BASE_SHA" "$base" >&2
             exit 1
           }
           git merge-base --is-ancestor "$base" HEAD
@@ -128,11 +129,16 @@ jobs:
 
       - name: Prove canonical product authorities remain untouched
         shell: bash
-        env:
-          EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
           set -euo pipefail
-          base="${EVENT_BASE_SHA:-$CLAIM_BASE_SHA}"
+          if [ "${GITHUB_EVENT_NAME}" = "pull_request" ]; then
+            test -n "${GITHUB_BASE_REF:-}"
+            git fetch --no-tags origin "${GITHUB_BASE_REF}:refs/remotes/origin/${GITHUB_BASE_REF}"
+            base="$(git rev-parse "origin/${GITHUB_BASE_REF}")"
+          else
+            base="$CLAIM_BASE_SHA"
+          fi
+          test "$base" = "$CLAIM_BASE_SHA"
           git diff --exit-code "$base" HEAD -- \
             acs/remote_session.py \
             acs/teaching_session.py \
