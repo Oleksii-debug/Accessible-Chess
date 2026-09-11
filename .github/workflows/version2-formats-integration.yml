@@ -80,7 +80,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  V2_BASE: 6567f3d35ffefaa85ae7e8b87d9fcc0d188e7cac
+  V2_BASE: 0b8fa275890cd82565eceece71063cb4353ea8c8
   LIBRARY_SOURCE: 60dc2afc846b49e91c50f1682464833a1004789f
   LIBRARY_V6_SOURCE: c1bd4f0c7610365458689a786ebb56d1c7d073df
   CHESSBASE_SOURCE: 5e2c390e0cd66cca166b80fec88c7402784ade47
@@ -114,7 +114,7 @@ jobs:
             git cat-file blob "HEAD:$path" > "$path"
             actual="$(git hash-object --no-filters "$path")"
             test "$actual" = "$expected" || {
-              printf 'Frozen Stage 1 workspace blob mismatch: %s expected=%s actual=%s\n' "$path" "$expected" "$actual" >&2
+              printf 'Frozen Stage 1 workspace blob mismatch: %s expected=%s actual=%s\n' "$path" "$expected" >&2
               exit 1
             }
           done <<'FROZEN_STAGE1'
@@ -155,9 +155,15 @@ jobs:
           # and Books owners are intentionally allowed to differ from V2_BASE
           # because accepted V2 convergence packages changed them and the semantic
           # suites below are their current authority. The accepted Stage 1 bootstrap
-          # is separately pinned above by exact blob identity.
+          # is separately pinned above by exact blob identity. Bounded D06 model
+          # materialization is accepted only at its exact integrated workspace blob.
+          workspace_actual="$(git rev-parse HEAD:acs/pgn_workspace.py)"
+          test "$workspace_actual" = "b59e6bfff9806dff2092e5c7f93b68daff6407ef" || {
+            printf 'Unexpected bounded D06 workspace blob: %s\n' "$workspace_actual" >&2
+            exit 1
+          }
           git diff --quiet "$V2_BASE" HEAD -- \
-            acs/chesscore.py acs/pgn_workspace.py \
+            acs/chesscore.py \
             acs/stage1_release_ui.py acs/stage1_release_ui_core.py \
             web/stage1_board_actions.js \
             tools/qa
@@ -169,7 +175,7 @@ jobs:
           while IFS='=' read -r path expected; do
             actual="$(git rev-parse "HEAD:$path")"
             test "$actual" = "$expected" || {
-              printf 'Owner blob mismatch: %s expected=%s actual=%s\n' "$path" "$expected" "$actual" >&2
+              printf 'Owner blob mismatch: %s expected=%s actual=%s\n' "$path" "$expected" >&2
               exit 1
             }
           done <<'LOCKS'
@@ -197,7 +203,7 @@ jobs:
           tests/test_chessbase_adapter.py=a76aefcfa0e18dc2fc8049ebe4c85e7c4edd7b24
           tests/test_v2_chessbase_capability_manifest.py=216f0675b7fab0bf57c7dea70d57b21f47434ca7
           .github/workflows/d06-real-corpus-recovery.yml=0afef77aac8894b0077895e73bb65f7b251520a5
-          acs/pgn_document.py=ae0b7d3815c4d277b68ef3c170c95255cf5c6442
+          acs/pgn_document.py=9e7b51104aa3eb38e3a322a436944806ff37bb2f
           tests/test_d06_real_corpus_recovery.py=8bf849bc3246bc70fff59637c169c9873d9520dd
           .github/workflows/d06-file-ingress-nag-normalization.yml=bf7d802aeb921f92ac121ff38fe6972601c2d299
           .github/workflows/d06-pgn-streaming-export.yml=56640aaa94422e80a1410320f6b7bcc39f72d52d
@@ -295,7 +301,7 @@ jobs:
             git cat-file blob "HEAD:$path" > "$path"
             actual="$(git hash-object --no-filters "$path")"
             test "$actual" = "$expected" || {
-              printf 'Frozen Stage 1 pre-suite blob mismatch: %s expected=%s actual=%s\n' "$path" "$expected" "$actual" >&2
+              printf 'Frozen Stage 1 pre-suite blob mismatch: %s expected=%s actual=%s\n' "$path" "$expected" >&2
               exit 1
             }
           done <<'FROZEN_STAGE1'
