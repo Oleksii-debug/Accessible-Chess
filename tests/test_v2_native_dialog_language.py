@@ -17,12 +17,22 @@ from acs.version2_windows_native_dialog_ownership import (
 )
 
 
+class _EventHook:
+    def __init__(self) -> None:
+        self.handlers: list[object] = []
+
+    def __iadd__(self, handler):
+        self.handlers.append(handler)
+        return self
+
+
 class _Owner:
     def __init__(self) -> None:
         self.IsDisposed = False
         self.Disposing = False
         self.InvokeRequired = False
         self.posted: list[object] = []
+        self.FormClosing = _EventHook()
 
     def BeginInvoke(self, delegate):  # noqa: N802
         self.posted.append(delegate)
@@ -160,6 +170,32 @@ class Version2NativeDialogLanguageTests(unittest.TestCase):
         self.assertEqual(books.open_book(), Path("selected.pgn"))
         self.assertEqual(_OpenDialog.instances[-1].Title, "Open chess book")
 
+    def test_dirty_exit_confirmation_uses_same_live_language_owner(self) -> None:
+        owner = _Owner()
+        language = {"value": UILanguage.UA}
+        books = _Version2OwnedBookDialogs(
+            lambda: owner,
+            forms_loader=_forms_loader,
+            message_box_loader=_message_box_loader,
+            language_provider=lambda: language["value"],
+        )
+
+        self.assertTrue(books.confirm_discard_unsaved_pgn_on_exit())
+        self.assertEqual(_MessageBox.calls[-1][0], owner)
+        self.assertEqual(
+            _MessageBox.calls[-1][1],
+            "Поточний PGN має незбережені зміни. Вийти без збереження цих змін?",
+        )
+        self.assertEqual(_MessageBox.calls[-1][2], "Незбережені зміни PGN")
+
+        language["value"] = UILanguage.EN
+        self.assertTrue(books.confirm_discard_unsaved_pgn_on_exit())
+        self.assertEqual(
+            _MessageBox.calls[-1][1],
+            "The current PGN has unsaved changes. Exit without saving these changes?",
+        )
+        self.assertEqual(_MessageBox.calls[-1][2], "Unsaved PGN changes")
+
     def test_host_runtime_projects_one_live_language_provider_to_both_dialog_ports(self) -> None:
         owner = _Owner()
         language = {"value": UILanguage.UA}
@@ -240,7 +276,9 @@ class Version2NativeDialogLanguageTests(unittest.TestCase):
                     )
                 )
                 self.assertIs(returned_application, application)
-                self.assertIs(native_runtime_factory(_Owner()), native_runtime)
+                owner = _Owner()
+                self.assertIs(native_runtime_factory(owner), native_runtime)
+                self.assertEqual(len(owner.FormClosing.handlers), 1)
 
             provider = runtime_class.call_args.kwargs["dialog_language_provider"]
             self.assertEqual(provider(), UILanguage.UA)
@@ -281,6 +319,8 @@ class Version2NativeDialogLanguageTests(unittest.TestCase):
         self.assertEqual(_SaveDialog.instances[-1].Title, "Export PGN selection")
         self.assertEqual(books.open_book(), Path("selected.pgn"))
         self.assertEqual(_OpenDialog.instances[-1].Title, "Open chess book")
+        self.assertTrue(books.confirm_discard_unsaved_pgn_on_exit())
+        self.assertEqual(_MessageBox.calls[-1][2], "Unsaved PGN changes")
 
         projected = "\n".join(
             [
