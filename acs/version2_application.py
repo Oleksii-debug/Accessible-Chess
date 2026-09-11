@@ -172,6 +172,7 @@ class Version2Application:
 
     def _restore_book_progress(self, snapshot, *, language, bookmark_name):
         """Restore a failed Book progress transaction without partial UI state."""
+        training_was_active = self.training_workspace is not None or self.training is not None
         restored_reader = BookReader.restore_snapshot(self.reader.document, snapshot)
         restored_workflow = BookBoardWorkflow(
             restored_reader,
@@ -198,6 +199,11 @@ class Version2Application:
         # replaces that reader, discard any bridge that would otherwise reference
         # the rejected post-mutation state.
         self.training_workspace = self.training = None
+        # If that invalidated Training model was the active shell surface, do not
+        # leave a dead Training route published. Recover through the canonical
+        # Books route/focus contract; unrelated active routes remain untouched.
+        if training_was_active and self.shell.current_route.route_id == "training":
+            self._focus = self.shell.open_route("books")
 
     def _start_training_from_current_book(self):
         self._assert_thread()
