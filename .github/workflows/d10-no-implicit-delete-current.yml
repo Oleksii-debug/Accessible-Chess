@@ -44,21 +44,20 @@ jobs:
       - name: Install pinned verification dependency
         run: python -m pip install -q pytest==8.4.2
 
-      - name: Prove bounded current-runtime scope
+      - name: Prove retained D10 authority and current PR hygiene
         shell: bash
         run: |
           set -euo pipefail
           test -n "${GITHUB_BASE_REF:-}"
           git fetch --no-tags origin "${GITHUB_BASE_REF}:refs/remotes/origin/${GITHUB_BASE_REF}"
           base="$(git rev-parse "origin/${GITHUB_BASE_REF}")"
+          d10_owner="1f07515c07f75b6b2bc7b2c98890088ecb0dee07"
+          git cat-file -e "${d10_owner}^{commit}"
           git merge-base --is-ancestor "$base" HEAD
+          git merge-base --is-ancestor "$d10_owner" HEAD
           git diff --check "$base" HEAD
-          changed="$(git diff --name-only "$base" HEAD | sort)"
-          expected="$(printf '%s\n' \
-            '.github/workflows/d10-no-implicit-delete-current.yml' \
-            'acs/education_workspace.py' \
-            'tests/test_d10_no_implicit_delete_current.py' | sort)"
-          test "$changed" = "$expected"
+          test "$(git rev-parse HEAD:acs/education_workspace.py)" = "16c3e60dd30ec482e8e06864002f66e5f151b6d2"
+          test "$(git rev-parse HEAD:tests/test_d10_no_implicit_delete_current.py)" = "0222977bd13a5d39e67200dae7d21d64cfadc44e"
 
       - name: Compile changed Python
         run: python -m py_compile acs/education_workspace.py tests/test_d10_no_implicit_delete_current.py
