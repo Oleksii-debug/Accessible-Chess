@@ -18,7 +18,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  D04_BASE: 5592f24129573cb85abee0ed7a5261e1ce98a855
+  D04_BASE: 0b8fa275890cd82565eceece71063cb4353ea8c8
 
 jobs:
   cbv-path-safety:
