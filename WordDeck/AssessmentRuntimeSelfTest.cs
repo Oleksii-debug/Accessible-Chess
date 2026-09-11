@@ -10,6 +10,7 @@ internal static class AssessmentRuntimeSelfTest
         TestRetakeRotation();
         TestDifficultyRouting();
         TestResumePersistenceAndFailClosedVersion();
+        TestPersistedStateCrossLinksFailClosed();
         Console.WriteLine("WordDeck assessment runtime self-test PASS.");
     }
 
@@ -30,6 +31,11 @@ internal static class AssessmentRuntimeSelfTest
         Require(runtime.IsUnseen(changedContent), "item version change did not create new unseen content");
 
         AssessmentSessionState formal = runtime.StartSession(pool, AssessmentMode.Assessment, 4, true, t.AddMinutes(2), sessionId: "formal-one");
+        bool partialResultRejected = false;
+        try { _ = runtime.BuildAssessmentResults(formal.SessionId); }
+        catch (InvalidOperationException) { partialResultRejected = true; }
+        Require(partialResultRejected, "incomplete formal session produced a formal result");
+
         bool hintRejected = false;
         try { runtime.RecordAttempt(formal.SessionId, pool, AssessmentMark.Correct, usedHint: true, attemptId: "illegal-hint"); }
         catch (InvalidOperationException) { hintRejected = true; }
@@ -128,6 +134,50 @@ internal static class AssessmentRuntimeSelfTest
         {
             if (Directory.Exists(root)) Directory.Delete(root, true);
         }
+    }
+
+    private static void TestPersistedStateCrossLinksFailClosed()
+    {
+        AssessmentRuntimeState orphan = BuildOneAttemptState();
+        orphan.Attempts[0].SessionId = "missing-session";
+        RequireStateRejected(orphan, "orphan attempt was accepted");
+
+        AssessmentRuntimeState wrongMode = BuildOneAttemptState();
+        wrongMode.Attempts[0].Mode = AssessmentMode.Practice;
+        RequireStateRejected(wrongMode, "attempt/session mode mismatch was accepted");
+
+        AssessmentRuntimeState wrongPrefix = BuildOneAttemptState();
+        wrongPrefix.Attempts[0].ItemKey = wrongPrefix.Sessions[0].ItemOrder[1];
+        RequireStateRejected(wrongPrefix, "attempt outside the consumed fixed prefix was accepted");
+
+        AssessmentRuntimeState wrongCursor = BuildOneAttemptState();
+        wrongCursor.Sessions[0].Cursor = 0;
+        RequireStateRejected(wrongCursor, "session cursor/attempt count mismatch was accepted");
+
+        AssessmentItemPool pool = BuildPool(1, 1);
+        var completeRuntime = new AssessmentRuntime();
+        AssessmentSessionState complete = completeRuntime.StartSession(pool, AssessmentMode.Assessment, 1, false, sessionId: "complete-one");
+        completeRuntime.RecordAttempt(complete.SessionId, pool, AssessmentMark.Correct, attemptId: "complete-attempt");
+        complete.CompletedAtUtc = null;
+        RequireStateRejected(completeRuntime.State, "complete session without completion timestamp was accepted");
+    }
+
+    private static AssessmentRuntimeState BuildOneAttemptState()
+    {
+        AssessmentItemPool pool = BuildPool(1, 1);
+        var runtime = new AssessmentRuntime();
+        AssessmentSessionState session = runtime.StartSession(pool, AssessmentMode.Assessment, 2, false, sessionId: "integrity-one");
+        runtime.RecordAttempt(session.SessionId, pool, AssessmentMark.Correct, attemptId: "integrity-attempt");
+        runtime.State.Validate();
+        return runtime.State;
+    }
+
+    private static void RequireStateRejected(AssessmentRuntimeState state, string message)
+    {
+        bool rejected = false;
+        try { _ = new AssessmentRuntime(state); }
+        catch (InvalidDataException) { rejected = true; }
+        Require(rejected, message);
     }
 
     private static AssessmentItemPool BuildPool(int poolVersion, int itemAVersion)
