@@ -1,0 +1,56 @@
+name: W3 P0-F Starter Books Training
+
+on:
+  push:
+    branches:
+      - work/w3-p0f-starter-books-training-content-20260911
+  pull_request:
+    branches:
+      - work/full-product-teacher-education-reachability-20260911
+    paths:
+      - acs/starter_books_training_content.py
+      - acs/starter_books_training_runtime.py
+      - acs/version2_starter_content_application.py
+      - acs/version2_education_mutation_release.py
+      - tests/test_w3_p0f_starter_books_training_content.py
+      - docs/V2_STARTER_CONTENT_PROVENANCE.md
+      - .github/workflows/w3-p0f-starter-books-training.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: accessible-chess-w3-p0f-starter-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  starter-books-training:
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-24.04
+          - windows-2025
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install pinned test runner
+        run: python -m pip install -q pytest==8.4.2
+      - name: Compile bounded W3 source
+        run: >-
+          python -m py_compile
+          acs/starter_books_training_content.py
+          acs/starter_books_training_runtime.py
+          acs/version2_starter_content_application.py
+          acs/version2_education_mutation_release.py
+          tests/test_w3_p0f_starter_books_training_content.py
+      - name: Prove starter corpus and current Training compatibility
+        run: >-
+          python -m pytest -q
+          tests/test_w3_p0f_starter_books_training_content.py
+          tests/test_version2_training_current_runtime.py

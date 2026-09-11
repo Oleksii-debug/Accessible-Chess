@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-"""Post-#645 final-product composition with the first durable Education mutation.
+"""Post-#645 final-product composition with Education mutation and starter content.
 
 The accepted #645 release adapter uses import-time late binding because it is a
-standalone post-freeze composition root.  This stacked child is also exercised in
+standalone post-freeze composition root. This stacked child is also exercised in
 large in-process regression suites, so importing it must not permanently replace
-any narrower Version 2 release owner.  Apply every #645 release seam only while
+any narrower Version 2 release owner. Apply every #645 release seam only while
 this child is composing/running, then restore the exact previous objects.
 """
 
@@ -15,11 +15,11 @@ from typing import Any, Callable, Iterator
 from . import version2_release_app as _release_app
 from . import version2_release_ui as _release_ui
 from .full_product_ui_shell import UILanguage
-from .version2_education_mutation_application import Version2EducationMutationApplication
 from .version2_final_product_profile import (
     FINAL_PRODUCT_ACTION_IDS,
     FinalProductNativeMenuController,
 )
+from .version2_starter_content_application import Version2StarterContentApplication
 
 
 def final_product_resource_sources() -> tuple[tuple[str, str], ...]:
@@ -68,7 +68,7 @@ def _final_product_mutation_bindings() -> Iterator[Callable[[Any, UILanguage], N
     previous_sync = getattr(api_type, "_sync_version2_language")
     previous_resources = _release_ui._resource_sources
 
-    _release_app.Version2Application = Version2EducationMutationApplication
+    _release_app.Version2Application = Version2StarterContentApplication
     _release_ui.VERSION2_FULL_PRODUCT_ACTION_IDS = FINAL_PRODUCT_ACTION_IDS
     _release_ui.Version2NativeMenuController = FinalProductNativeMenuController
     setattr(
@@ -100,8 +100,8 @@ def create_version2_release_application(*args: Any, **kwargs: Any):
     """Compose through the existing release root without leaking global ownership.
 
     ``version2_release_app`` defers application construction onto the native UI
-    thread when ``defer_ui=True``.  In that mode the returned one-shot builder
-    reacquires the same bounded bindings at invocation time.  The returned API
+    thread when ``defer_ui=True``. In that mode the returned one-shot builder
+    reacquires the same bounded bindings at invocation time. The returned API
     receives an instance-local language synchronizer so later language changes do
     not depend on process-global class mutation.
     """
@@ -127,7 +127,7 @@ def create_version2_release_application(*args: Any, **kwargs: Any):
 
 
 def main() -> None:
-    # The existing main() owns the complete synchronous UI lifetime.  Keep all
+    # The existing main() owns the complete synchronous UI lifetime. Keep all
     # final-product seams installed for that lifetime, including the deferred
     # native UI-thread construction, then restore prior process state on exit.
     with _final_product_mutation_bindings():
