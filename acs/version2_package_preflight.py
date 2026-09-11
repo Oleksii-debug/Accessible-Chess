@@ -502,9 +502,102 @@ def _validate_sound_provenance(
             _fail(f"sound provenance creator identity is unresolved: {event.value}")
 
 
+def _validate_stockfish_source_archive(
+    source_archive: Path,
+    limits: PackageLimits,
+) -> None:
+    """Validate the nested corresponding-source ZIP without extracting it."""
+    archive_info = _safe_lstat(
+        source_archive,
+        label="Stockfish 18 corresponding source archive",
+    )
+    if not stat.S_ISREG(archive_info.st_mode):
+        _fail("Stockfish corresponding source archive must be a regular file")
+    if archive_info.st_size > limits.max_archive_bytes:
+        _fail("Stockfish source ZIP exceeds archive byte limit")
+    try:
+        with zipfile.ZipFile(source_archive) as archive:
+            infos = archive.infolist()
+            if not infos:
+                _fail("Stockfish corresponding source archive is empty")
+            if len(infos) > limits.max_files * 2:
+                _fail("Stockfish source ZIP exceeds member-count limit")
+
+            seen: set[str] = set()
+            file_count = 0
+            total = 0
+            has_source_file = False
+            for info in infos:
+                raw = (
+                    info.filename[:-1]
+                    if info.is_dir() and info.filename.endswith("/")
+                    else info.filename
+                )
+                token = _relative_token(raw, label="Stockfish source ZIP member path")
+                folded = token.casefold()
+                if folded in seen:
+                    _fail("Stockfish source ZIP members collide under Windows case-folding")
+                seen.add(folded)
+
+                unix_mode = (info.external_attr >> 16) & 0xFFFF
+                file_type = stat.S_IFMT(unix_mode)
+                if file_type == stat.S_IFLNK:
+                    _fail("Stockfish source ZIP symbolic links are forbidden")
+                if file_type not in {0, stat.S_IFREG, stat.S_IFDIR}:
+                    _fail("Stockfish source ZIP special files are forbidden")
+                if info.flag_bits & 0x1:
+                    _fail("encrypted Stockfish source ZIP members are forbidden")
+                if info.is_dir():
+                    continue
+
+                file_count += 1
+                if file_count > limits.max_files:
+                    _fail("Stockfish source ZIP exceeds file-count limit")
+                if info.file_size > limits.max_member_bytes:
+                    _fail("Stockfish source ZIP member exceeds uncompressed size limit")
+                total += int(info.file_size)
+                if total > limits.max_bytes:
+                    _fail("Stockfish source ZIP exceeds total uncompressed byte limit")
+                if info.file_size:
+                    if info.compress_size <= 0:
+                        _fail("Stockfish source ZIP member has invalid compressed size")
+                    if info.file_size > info.compress_size * limits.max_compression_ratio:
+                        _fail("Stockfish source ZIP member exceeds compression-ratio limit")
+
+                written = 0
+                try:
+                    with archive.open(info, "r") as source:
+                        while True:
+                            block = source.read(1024 * 1024)
+                            if not block:
+                                break
+                            written += len(block)
+                            if written > info.file_size or written > limits.max_member_bytes:
+                                _fail("Stockfish source ZIP member expanded beyond declared bounds")
+                except Version2PackagePreflightError:
+                    raise
+                except (OSError, RuntimeError, zipfile.BadZipFile) as exc:
+                    _fail(
+                        "Stockfish source ZIP member readback failed: "
+                        f"{type(exc).__name__}"
+                    )
+                if written != info.file_size:
+                    _fail("Stockfish source ZIP member readback size mismatch")
+                if written and "/src/" in f"/{token}":
+                    has_source_file = True
+
+            if not has_source_file:
+                _fail("Stockfish corresponding source archive does not contain source files")
+    except Version2PackagePreflightError:
+        raise
+    except (OSError, zipfile.BadZipFile, zipfile.LargeZipFile) as exc:
+        _fail(f"Stockfish corresponding source archive is invalid: {type(exc).__name__}")
+
+
 def _validate_required_runtime_resources(
     root: Path,
     inventory: tuple[str, ...],
+    limits: PackageLimits,
 ) -> None:
     for relative in _REQUIRED_WEB_FILES:
         _require_package_file(
@@ -588,13 +681,7 @@ def _validate_required_runtime_resources(
         _REQUIRED_STOCKFISH_SOURCE,
         label="Stockfish 18 corresponding source archive",
     )
-    try:
-        with zipfile.ZipFile(source_archive) as archive:
-            names = tuple(info.filename.replace("\\", "/") for info in archive.infolist())
-    except (OSError, zipfile.BadZipFile, zipfile.LargeZipFile) as exc:
-        _fail(f"Stockfish corresponding source archive is invalid: {type(exc).__name__}")
-    if not any("/src/" in f"/{name.lstrip('/')}" for name in names):
-        _fail("Stockfish corresponding source archive does not contain source files")
+    _validate_stockfish_source_archive(source_archive, limits)
 
     notice_path = _require_package_file(
         root,
@@ -745,7 +832,7 @@ def validate_version2_package_tree(
     root = Path(root)
     inventory, total = _inventory(root, limits)
     _validate_topology(root, inventory)
-    _validate_required_runtime_resources(root, inventory)
+    _validate_required_runtime_resources(root, inventory, limits)
     integration_sha, _ = _manifest(root)
     if integration_sha != expected_sha:
         _fail("release manifest integration_sha does not match expected integration authority")
