@@ -446,12 +446,22 @@ class Version2Application:
         in-flight SQLite/import transaction on process exit is not an acceptable
         release behaviour.  Tests and recovery callers may supply a bounded
         timeout and retry without closing the database when the worker is still
-        alive.
+        alive. Once worker shutdown succeeds, ACSDB cleanup is attempted even if
+        durable Book progress publication fails, without letting a later close
+        failure replace that first progress failure.
         """
         self._assert_thread()
         if self._files is not None and not self._files.shutdown(timeout=timeout):
             return False
         self.save_training_progress()
-        self.save_book_progress()
+        try:
+            self.save_book_progress()
+        except BaseException as progress_error:
+            progress_traceback = progress_error.__traceback__
+            try:
+                self.database.close()
+            except BaseException:
+                pass
+            raise progress_error.with_traceback(progress_traceback)
         self.database.close()
         return True
