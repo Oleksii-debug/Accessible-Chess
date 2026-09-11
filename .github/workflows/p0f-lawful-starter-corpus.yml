@@ -3,7 +3,7 @@ name: P0-F Lawful Real Starter Corpus
 on:
   push:
     branches:
-      - fix/p0f-w2-curated-corpus-converged-20260912
+      - fix/p0f-w2-curation-postmerge-20260912
   pull_request:
     branches:
       - work/full-product-teacher-education-reachability-20260911
@@ -22,7 +22,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  CLAIM_BASE: 497b75aa85093d58eda766a1cacf34f7718628fb
+  CLAIM_BASE: d5fef87936d721a985aea37c08fe439ad2c70af2
   PINNED_CORPUS_SHA256: aa40b3671fa3cf1072eb182892cd90b0e1e003a4a5943492f64b77e7f3fd1635
 
 jobs:
@@ -38,15 +38,12 @@ jobs:
         with:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
-
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-
       - name: Install pinned test runner
         run: python -m pip install -q pytest==8.4.2
-
-      - name: Prove claim geometry and bounded paths
+      - name: Prove post-merge repair geometry and bounded paths
         shell: bash
         run: |
           set -euo pipefail
@@ -61,20 +58,10 @@ jobs:
             'tests/test_p0f_lawful_starter_bundle.py' \
             'tools/p0f_lawful_starter_bundle.py' | sort)"
           test "$changed" = "$expected"
-
       - name: Compile bounded repair
-        run: >-
-          python -m py_compile
-          tools/p0f_lawful_starter_bundle.py
-          tests/test_p0f_lawful_starter_bundle.py
-
+        run: python -m py_compile tools/p0f_lawful_starter_bundle.py tests/test_p0f_lawful_starter_bundle.py
       - name: Run lawful starter and existing W2 P0-F regressions
-        run: >-
-          python -m pytest -q
-          tests/test_p0f_lawful_starter_bundle.py
-          tests/test_p0f_starter_content.py
-          tests/test_acsdb.py
-          tests/test_gametree.py
+        run: python -m pytest -q tests/test_p0f_lawful_starter_bundle.py tests/test_p0f_starter_content.py tests/test_acsdb.py tests/test_gametree.py
 
   real-cc0-release-bundle:
     runs-on: ubuntu-22.04
@@ -84,21 +71,17 @@ jobs:
         with:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
-
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-
       - name: Install previously-qualified decompressor
         run: python -m pip install -q zstandard==0.23.0
-
-      - name: Build exact lawful offline starter bundle
+      - name: Build exact curated lawful offline starter bundle
         shell: bash
         run: |
           set -euo pipefail
           PYTHONPATH="$PWD" python tools/p0f_lawful_starter_bundle.py .p0f-lawful
-
-      - name: Prove binding #691 W2 semantics on produced bytes
+      - name: Prove binding #691 W2 curation semantics on produced bytes
         shell: bash
         run: |
           set -euo pipefail
@@ -108,8 +91,7 @@ jobs:
           from pathlib import Path
           from acs.acsdb import ACSDB_SCHEMA_VERSION, AcsDatabase
           from acs.starter_content import CONTENT_LICENSE_ID
-          from tools.p0f_lawful_starter_bundle import CORPUS_LICENSE_ID, CORPUS_SHA256
-
+          from tools.p0f_lawful_starter_bundle import CORPUS_LICENSE_ID, CORPUS_SHA256, CURATION_MIN_PLIES
           root = Path('.p0f-lawful')
           manifest = json.loads((root / 'manifest.json').read_text(encoding='utf-8'))
           assert manifest['schema_version'] == 3
@@ -118,30 +100,40 @@ jobs:
           assert manifest['starter_source']['compressed_sha256'] == CORPUS_SHA256
           assert manifest['starter_source']['license_id'] == CORPUS_LICENSE_ID == 'CC0-1.0'
           assert manifest['starter_source']['selected_games'] >= 200
+          assert manifest['starter_source']['selection'] == 'deterministic quality-and-representativeness curation v1'
+          curation = manifest['curation']
+          assert curation['policy_version'] == 1
+          assert curation['selected_games'] == manifest['starter_source']['selected_games']
+          assert len(curation['games']) == curation['selected_games']
+          assert curation['distinct_opening_prefixes'] >= 16
+          minimum_per_result = curation['representativeness_gate']['minimum_per_result']
+          assert set(curation['result_counts']) == {'1-0', '0-1', '1/2-1/2'}
+          assert all(value >= minimum_per_result for value in curation['result_counts'].values())
+          assert min(game['plies'] for game in curation['games']) >= CURATION_MIN_PLIES
+          assert all(game['result'] in {'1-0', '0-1', '1/2-1/2'} for game in curation['games'])
+          assert all(game['white'] != game['black'] for game in curation['games'])
+          assert all(600 <= game['white_elo'] <= 3500 for game in curation['games'])
+          assert all(600 <= game['black_elo'] <= 3500 for game in curation['games'])
+          assert [game['source_index'] for game in curation['games']] == sorted(game['source_index'] for game in curation['games'])
+          assert len({game['record_sha256'] for game in curation['games']}) == curation['selected_games']
           assert manifest['counts']['starter_games'] >= 200
           assert manifest['counts']['stress_games'] > manifest['counts']['starter_games']
           assert manifest['files']['starter_uk.pgn']['license_id'] == CORPUS_LICENSE_ID
           assert manifest['files']['sample_library.acsdb']['license_id'] == CORPUS_LICENSE_ID
           assert manifest['files']['stress_uk.pgn']['license_id'] == CONTENT_LICENSE_ID
-          assert set(path.name for path in root.iterdir()) == {
-              'starter_uk.pgn', 'stress_uk.pgn', 'sample_library.acsdb', 'manifest.json'
-          }
+          assert set(path.name for path in root.iterdir()) == {'starter_uk.pgn', 'stress_uk.pgn', 'sample_library.acsdb', 'manifest.json'}
           for name, metadata in manifest['files'].items():
               payload = (root / name).read_bytes()
               assert len(payload) == metadata['bytes']
               assert hashlib.sha256(payload).hexdigest() == metadata['sha256']
           with AcsDatabase(root / 'sample_library.acsdb') as db:
               assert db.verify_integrity() == ACSDB_SCHEMA_VERSION
-              total, distinct, players, events = db.conn.execute(
-                  "SELECT COUNT(*), COUNT(DISTINCT pgn_text), "
-                  "COUNT(DISTINCT white || char(0) || black), COUNT(DISTINCT event) FROM games"
-              ).fetchone()
+              total, distinct, players, events = db.conn.execute("SELECT COUNT(*), COUNT(DISTINCT pgn_text), COUNT(DISTINCT white || char(0) || black), COUNT(DISTINCT event) FROM games").fetchone()
               assert total == distinct == manifest['counts']['starter_games']
               assert players >= 20
               assert events >= 1
-          print('P0_F_W2_LAWFUL_REAL_STARTER=PASS')
+          print('P0_F_W2_CURATED_REAL_STARTER=PASS')
           PY
-
       - name: Upload only final release-content evidence
         uses: actions/upload-artifact@v4
         with:
