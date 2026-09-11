@@ -50,7 +50,7 @@ jobs:
       - name: Prove exact convergence ancestry scope and source blobs
         shell: bash
         env:
-          CANONICAL_BASE_SHA: 4cf3a7dd2de8847458bd8d5923f4cc234364496b
+          CANONICAL_BASE_SHA: 05d9cb289a5d81dd483b18197e5f76c46aff3012
           SOURCE_HEAD_SHA: ee5e53a552837279f043d2390e2fa46a2d01a10a
         run: |
           set -euo pipefail
