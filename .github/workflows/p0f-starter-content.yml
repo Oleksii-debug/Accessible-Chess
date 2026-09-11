@@ -1,0 +1,96 @@
+name: P0-F Starter Content Qualification
+
+on:
+  push:
+    branches:
+      - work/w2-p0f-starter-pgn-library-20260911
+  pull_request:
+    branches:
+      - work/full-product-teacher-education-reachability-20260911
+    paths:
+      - 'acs/starter_content.py'
+      - 'scripts/build_starter_content.py'
+      - 'tests/test_p0f_starter_content.py'
+      - 'docs/P0F_STARTER_CONTENT_PROVENANCE.md'
+      - '.github/workflows/p0f-starter-content.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: p0f-starter-content-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  focused:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install pinned test runner
+        run: python -m pip install -q pytest==8.4.2
+
+      - name: Compile bounded source
+        run: >-
+          python -m py_compile
+          acs/starter_content.py
+          scripts/build_starter_content.py
+          tests/test_p0f_starter_content.py
+
+      - name: Run starter, ACSDB, and GameTree regressions
+        run: >-
+          python -m pytest -q
+          tests/test_p0f_starter_content.py
+          tests/test_acsdb.py
+          tests/test_gametree.py
+
+      - name: Prove direct CLI invocation without package install
+        run: >-
+          python scripts/build_starter_content.py
+          .p0f-smoke
+          --starter-games 32
+          --stress-games 64
+
+  default-volume:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Build default acceptance-volume bundle
+        run: python scripts/build_starter_content.py .p0f-default
+
+      - name: Verify default manifest and ACSDB integrity
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          from acs.acsdb import AcsDatabase
+
+          root = Path('.p0f-default')
+          manifest = json.loads((root / 'manifest.json').read_text(encoding='utf-8'))
+          assert manifest['counts']['starter_games'] >= 200
+          assert manifest['counts']['stress_games'] > manifest['counts']['starter_games']
+          assert manifest['provenance']['third_party_corpus'] is False
+          with AcsDatabase(root / 'sample_library.acsdb') as db:
+              assert db.verify_integrity() >= 200
+              assert len(db.search_games(player='Учень', limit=25)) == 25
+          print('P0_F_DEFAULT_VOLUME=PASS')
+          PY
