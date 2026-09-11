@@ -92,6 +92,9 @@ try {
     # clean isolated WordDeck LocalAppData tree, then restores the original bytes.
     if ($script:hadOriginalState) {
         Copy-Item -LiteralPath $script:stateRoot -Destination $script:originalStateBackup -Recurse -Force
+        if (-not (Test-Path -LiteralPath $script:originalStateBackup -PathType Container)) {
+            Fail 'could not create a recovery copy of the pre-existing WordDeck state tree.'
+        }
         Remove-Item -LiteralPath $script:stateRoot -Recurse -Force
     }
 
@@ -132,16 +135,33 @@ try {
 }
 finally {
     if ($null -ne $script:appPid -and $script:appPid -gt 0) {
-        try { Stop-Process -Id $script:appPid -Force -ErrorAction SilentlyContinue } catch { }
+        try {
+            Stop-Process -Id $script:appPid -Force -ErrorAction SilentlyContinue
+            Wait-Process -Id $script:appPid -Timeout 10 -ErrorAction SilentlyContinue
+        } catch { }
+        $script:appPid = $null
     }
-    try {
-        if (Test-Path -LiteralPath $script:replacementRoot) { Remove-Item -LiteralPath $script:replacementRoot -Recurse -Force }
-    } catch { }
-    try {
-        if (Test-Path -LiteralPath $script:stateRoot) { Remove-Item -LiteralPath $script:stateRoot -Recurse -Force }
-        if ($script:hadOriginalState -and (Test-Path -LiteralPath $script:originalStateBackup)) {
-            Copy-Item -LiteralPath $script:originalStateBackup -Destination $script:stateRoot -Recurse -Force
+
+    # Test artifacts must not remain locked or leak into later acceptance work.
+    if (Test-Path -LiteralPath $script:replacementRoot) {
+        Remove-Item -LiteralPath $script:replacementRoot -Recurse -Force
+    }
+
+    # Restoring a profile that existed before the test is a hard safety property,
+    # not best-effort cleanup. A restore failure must fail the acceptance run.
+    if (Test-Path -LiteralPath $script:stateRoot) {
+        Remove-Item -LiteralPath $script:stateRoot -Recurse -Force
+    }
+    if ($script:hadOriginalState) {
+        if (-not (Test-Path -LiteralPath $script:originalStateBackup -PathType Container)) {
+            Fail 'pre-existing WordDeck state backup is missing during cleanup; refusing to report PASS.'
         }
-        if (Test-Path -LiteralPath $script:originalStateBackup) { Remove-Item -LiteralPath $script:originalStateBackup -Recurse -Force }
-    } catch { }
+        Move-Item -LiteralPath $script:originalStateBackup -Destination $script:stateRoot -Force
+        if (-not (Test-Path -LiteralPath $script:stateRoot -PathType Container)) {
+            Fail 'pre-existing WordDeck state tree was not restored; refusing to report PASS.'
+        }
+    }
+    elseif (Test-Path -LiteralPath $script:originalStateBackup) {
+        Remove-Item -LiteralPath $script:originalStateBackup -Recurse -Force
+    }
 }
