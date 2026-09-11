@@ -228,10 +228,16 @@ internal sealed class BookReadingProductService
         var request = new BookImportRequest(sourceId, displayName.Trim(), format, bytes, provenance, quality, true);
         BookDocument document = BookReadingImporter.Import(request, lexicon);
 
-        string privateSource = SavePrivateSource(document, bytes, format);
-        bool existedBeforeImport = _corpusIndex.ListBooks().Any(item => item.BookId.Equals(document.BookId, StringComparison.OrdinalIgnoreCase));
+        // Import spans the durable document tables and separately rebuilt search/
+        // navigation indexes. Keep an exact SQLite snapshot so a failure in the
+        // second stage cannot strand a ghost book, stale indexes, or a database
+        // row whose promised exact private source has already been removed.
+        string rollbackSnapshot = BookReadingRecovery.Backup(_databasePath, "pre-import");
+        string? privateSource = null;
+        bool privateSourceExistedBefore = false;
         try
         {
+            privateSource = SavePrivateSource(document, bytes, format, out privateSourceExistedBefore);
             _stateStore.SaveDocument(document);
             _corpusIndex.Rebuild(document, lexicon);
             BookCoverageSummary coverage = _corpusIndex.GetCoverageSummary(document.BookId, vocabulary.KnownEntryIds, vocabulary.LearningEntryIds);
@@ -249,17 +255,35 @@ internal sealed class BookReadingProductService
                 "Private local book: source bytes and reading database stay under the Windows user profile and are never packaged into the public WordDeck ZIP by this service.",
                 extraction);
         }
-        catch
+        catch (Exception importFailure)
         {
-            if (!existedBeforeImport)
+            var recoveryFailures = new List<Exception>();
+            try
             {
-                try { if (File.Exists(privateSource)) File.Delete(privateSource); } catch { }
+                BookReadingRecovery.Restore(_databasePath, rollbackSnapshot);
             }
+            catch (Exception recoveryFailure)
+            {
+                recoveryFailures.Add(recoveryFailure);
+            }
+
+            if (privateSource is not null && !privateSourceExistedBefore)
+            {
+                try { if (File.Exists(privateSource)) File.Delete(privateSource); }
+                catch (Exception cleanupFailure) { recoveryFailures.Add(cleanupFailure); }
+            }
+
+            if (recoveryFailures.Count > 0)
+                throw new AggregateException("Private book import failed and safe rollback was incomplete. Existing recovery evidence was retained.", new[] { importFailure }.Concat(recoveryFailures));
             throw;
+        }
+        finally
+        {
+            try { if (File.Exists(rollbackSnapshot)) File.Delete(rollbackSnapshot); } catch { }
         }
     }
 
-    private string SavePrivateSource(BookDocument document, byte[] bytes, BookSourceFormat format)
+    private string SavePrivateSource(BookDocument document, byte[] bytes, BookSourceFormat format, out bool existedBefore)
     {
         string extension = format switch
         {
@@ -270,6 +294,7 @@ internal sealed class BookReadingProductService
             _ => ".bin"
         };
         string destination = Path.Combine(_sourceDirectory, document.BookId + extension);
+        existedBefore = File.Exists(destination);
         string temp = destination + ".tmp-" + Guid.NewGuid().ToString("N");
         try
         {
