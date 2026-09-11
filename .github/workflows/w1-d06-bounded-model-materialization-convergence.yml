@@ -1,0 +1,93 @@
+name: W1 D06 Bounded Model Materialization Convergence
+
+on:
+  pull_request:
+    paths:
+      - 'acs/pgn_roundtrip.py'
+      - 'acs/pgn_workspace.py'
+      - 'tests/test_w1_d06_bounded_model_materialization.py'
+      - '.github/workflows/w1-d06-bounded-model-materialization-convergence.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: w1-d06-bounded-model-convergence-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Preserve exact Git bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config core.autocrlf false
+          git config core.eol lf
+          git reset --hard HEAD
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install pinned verification dependency
+        run: python -m pip install -q pytest==8.4.2
+
+      - name: Prove exact convergence ancestry scope and source blobs
+        shell: bash
+        env:
+          CANONICAL_BASE_SHA: f8aa6c7f28c04dbcb75d3e6fa1234e589666da0f
+          SOURCE_HEAD_SHA: 1ec05b87ed2a776bfb3625059a45588c0b1ff6e6
+        run: |
+          set -euo pipefail
+          test -n "${GITHUB_BASE_REF:-}"
+          git fetch --no-tags origin "${GITHUB_BASE_REF}:refs/remotes/origin/${GITHUB_BASE_REF}"
+          base="$(git rev-parse "origin/${GITHUB_BASE_REF}")"
+          test "$base" = "$CANONICAL_BASE_SHA"
+          git cat-file -e "$SOURCE_HEAD_SHA^{commit}"
+          git merge-base --is-ancestor "$CANONICAL_BASE_SHA" HEAD
+          git merge-base --is-ancestor "$SOURCE_HEAD_SHA" HEAD
+          git diff --check "$CANONICAL_BASE_SHA" HEAD
+          changed="$(git diff --name-only "$CANONICAL_BASE_SHA" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/w1-d06-bounded-model-materialization-convergence.yml' \
+            'acs/pgn_roundtrip.py' \
+            'acs/pgn_workspace.py' \
+            'tests/test_w1_d06_bounded_model_materialization.py' | sort)"
+          test "$changed" = "$expected"
+          for path in \
+            acs/pgn_roundtrip.py \
+            acs/pgn_workspace.py \
+            tests/test_w1_d06_bounded_model_materialization.py
+          do
+            test "$(git rev-parse "HEAD:$path")" = "$(git rev-parse "$SOURCE_HEAD_SHA:$path")"
+          done
+
+      - name: Compile converged PGN modules
+        run: python -m compileall -q acs/pgn_roundtrip.py acs/pgn_workspace.py tests/test_w1_d06_bounded_model_materialization.py
+
+      - name: Focused bounded-materialization and canonical PGN regression
+        run: python -m unittest -v tests.test_w1_d06_bounded_model_materialization tests.test_d06_pgn_roundtrip
+
+      - name: Final-product production-composition diagnostic
+        run: python run_accessible_chess_v2.py --diagnostic
+
+      - name: Broad repository unittest on Ubuntu
+        if: matrix.os == 'ubuntu-22.04'
+        run: python -m unittest discover -s tests -p 'test_*.py'
+
+      - name: Broad repository pytest on Ubuntu
+        if: matrix.os == 'ubuntu-22.04'
+        run: python -m pytest -q
