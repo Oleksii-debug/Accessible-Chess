@@ -27,6 +27,7 @@ on:
       - integration/accessible-chess-next
       - integration/version2-final-formats-20260831
       - codex/v2-formats-completion-20260907
+      - codex/v2-runtime-completion-20260907
     paths:
       - 'web/**'
       - 'run_accessible_chess.py'
