@@ -49,12 +49,15 @@ jobs:
       - name: Prove retained D06 bounded-materialization authority and current PR hygiene
         shell: bash
         env:
+          EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           SOURCE_HEAD_SHA: 1ec05b87ed2a776bfb3625059a45588c0b1ff6e6
         run: |
           set -euo pipefail
-          test -n "${GITHUB_BASE_REF:-}"
-          git fetch --no-tags origin "${GITHUB_BASE_REF}:refs/remotes/origin/${GITHUB_BASE_REF}"
-          base="$(git rev-parse "origin/${GITHUB_BASE_REF}")"
+          base="${EVENT_BASE_SHA:-}"
+          if [ -z "$base" ]; then
+            base="$(git rev-parse HEAD^)"
+          fi
+          git cat-file -e "${base}^{commit}" || git fetch --no-tags origin "$base"
           git cat-file -e "$SOURCE_HEAD_SHA^{commit}"
           git merge-base --is-ancestor "$base" HEAD
           git merge-base --is-ancestor "$SOURCE_HEAD_SHA" HEAD
