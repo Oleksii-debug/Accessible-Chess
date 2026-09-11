@@ -9,6 +9,10 @@ from acs.acsdb import AcsDatabase
 from acs.cbv_extractor import ExternalCbvExtractorConfig, extract_cbv_external
 from acs.chessbase_decoder import ExternalChessBaseDecoderConfig
 from acs.chessbase_library_import import ChessBaseLibraryImportService
+from acs.game_identity import same_game_tree
+from acs.gametree import parse_games
+from acs.pgn_service import open_pgn, save_pgn_atomic
+from acs.search_service import GameSearchQuery, GameSearchService
 
 
 LIBCBH_COMMIT = "9641c5c3949d8fb210b17dd9aa54455645843696"
@@ -64,10 +68,12 @@ class CbvUncbvExternalFixtureTests(unittest.TestCase):
             self.assertEqual(result.primary_path.suffix.lower(), ".cbh")
             self.assertTrue(result.primary_path.is_file())
 
-    def test_real_cbv_to_libcbh_to_canonical_acsdatabase(self) -> None:
+    def test_real_cbv_to_library_search_export_reopen_and_acsdb_reopen(self) -> None:
         self.assertEqual(self.fixture.name.lower(), "twic1134.cbv")
         with tempfile.TemporaryDirectory() as temporary:
-            database = AcsDatabase(Path(temporary) / "real-cbv.acsdb")
+            root = Path(temporary)
+            database_path = root / "real-cbv.acsdb"
+            database = AcsDatabase(database_path)
             try:
                 service = ChessBaseLibraryImportService(
                     database,
@@ -81,11 +87,33 @@ class CbvUncbvExternalFixtureTests(unittest.TestCase):
                 self.assertEqual(report.decoded_game_count, TWIC_1134_EXPECTED_GAMES)
                 self.assertEqual(report.imported_game_count, TWIC_1134_EXPECTED_GAMES)
                 self.assertIsNotNone(report.library_result)
-                row = database.get_source(report.library_result.source_id)
+                source_id = report.library_result.source_id
+                row = database.get_source(source_id)
                 self.assertEqual(row["source_format"], "cbv")
                 self.assertEqual(row["sha256"], report.source_sha256)
+
+                page = GameSearchService(database).search(GameSearchQuery())
+                self.assertGreater(len(page.items), 0)
+                stored = database.get_game(page.items[0].game_id)
+                canonical = parse_games(stored["pgn_text"])[0]
+                export_path = root / "sample-from-real-cbv.pgn"
+                save_pgn_atomic(export_path, (canonical,))
+                reopened = open_pgn(export_path).games[0]
+                self.assertTrue(same_game_tree(canonical, reopened))
             finally:
                 database.close()
+
+            reopened_database = AcsDatabase(database_path)
+            try:
+                row = reopened_database.get_source(source_id)
+                self.assertEqual(row["source_format"], "cbv")
+                self.assertEqual(row["sha256"], report.source_sha256)
+                count = reopened_database.conn.execute(
+                    "SELECT COUNT(*) FROM games"
+                ).fetchone()[0]
+                self.assertEqual(count, TWIC_1134_EXPECTED_GAMES)
+            finally:
+                reopened_database.close()
 
 
 if __name__ == "__main__":
