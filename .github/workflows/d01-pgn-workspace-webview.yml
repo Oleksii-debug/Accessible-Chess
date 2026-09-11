@@ -183,7 +183,7 @@ jobs:
             }
           done <<'LOCKS'
           tests/test_pgn_workspace.py=edce8f6a591ffc09d419e9046e14725c4a07cf54
-          acs/pgn_webview_projection.py=45049519527cda3d9c9f3c4de8e4244afc9fc614
+          acs/pgn_webview_projection.py=e054f12da2bbaa580669ec5854d3acf725f91bf3
           acs/pgn_webview_bridge.py=c8f108c8dcc01c37503833abb5c626d89093145e
           acs/pgn_workspace_webview_adapter.py=4343fa698f7503cf257218868aa927b099ddf21b
           web/full_product_pgn.js=947319b17b4dda179bb2393a6194e2d2a8960220
