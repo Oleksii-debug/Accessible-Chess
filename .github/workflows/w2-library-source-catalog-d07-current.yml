@@ -8,6 +8,7 @@ on:
     paths:
       - 'acs/library_import_service.py'
       - 'acs/library_source_service.py'
+      - 'tests/test_d07_library_import_exact_source_order.py'
       - 'tests/test_v2_library_source_catalog.py'
       - 'tools/v2_library_source_catalog_real_corpus.py'
       - '.github/workflows/w2-library-source-catalog-d07-current.yml'
@@ -24,7 +25,8 @@ env:
   CURRENT_BASE: 99d11c19314ef3ef9d2558b399fcc5dcedbd13b3
   SOURCE_HEAD: 93d7b1ff646fc8e4ff5ef2c82b976fab6a23359d
   DEDUPE_OWNER_HEAD: 5b68baf4c1f32a992f46067b8da120e4d1168294
-  REPAIRED_IMPORT_BLOB: f9f6959c429c2681e355d11faecb0b1034e0f22b
+  REPAIRED_IMPORT_BLOB: 60aeb06516689bd81686606da83cf00c79327d96
+  IDEMPOTENCY_TEST_BLOB: 076e08f62d921147b49e30656f33aad92435228b
   OWNER_SERVICE_BLOB: bb848b9cfc7eb643630143833be52075fca3e165
   OWNER_TEST_BLOB: 99848ec1771e44e44c95af3f6aa9c66d634080fd
   OWNER_REAL_ORACLE_BLOB: 5f828fbd1ae33572f109b7a99bc58e45951842b1
@@ -87,11 +89,13 @@ jobs:
             '.github/workflows/w2-library-source-catalog-d07-current.yml' \
             'acs/library_import_service.py' \
             'acs/library_source_service.py' \
+            'tests/test_d07_library_import_exact_source_order.py' \
             'tests/test_v2_library_source_catalog.py' \
             'tools/v2_library_source_catalog_real_corpus.py' | sort)"
           test "$changed" = "$expected"
           test "$(git rev-parse HEAD:acs/library_import_service.py)" = "$REPAIRED_IMPORT_BLOB"
           test "$(git rev-parse HEAD:acs/library_source_service.py)" = "$OWNER_SERVICE_BLOB"
+          test "$(git rev-parse HEAD:tests/test_d07_library_import_exact_source_order.py)" = "$IDEMPOTENCY_TEST_BLOB"
           test "$(git rev-parse HEAD:tests/test_v2_library_source_catalog.py)" = "$OWNER_TEST_BLOB"
           test "$(git rev-parse HEAD:tools/v2_library_source_catalog_real_corpus.py)" = "$OWNER_REAL_ORACLE_BLOB"
           test "$(git rev-parse HEAD:acs/acsdb.py)" = "$CURRENT_ACSDB_BLOB"
@@ -100,11 +104,12 @@ jobs:
           test "$(git rev-parse "$CURRENT_BASE:acs/search_service.py")" = "$CURRENT_SEARCH_BLOB"
 
       - name: Compile bounded source catalog and repaired importer
-        run: python -m py_compile acs/library_import_service.py acs/library_source_service.py tests/test_v2_library_source_catalog.py tools/v2_library_source_catalog_real_corpus.py
+        run: python -m py_compile acs/library_import_service.py acs/library_source_service.py tests/test_d07_library_import_exact_source_order.py tests/test_v2_library_source_catalog.py tools/v2_library_source_catalog_real_corpus.py
 
       - name: Focused source catalog and current D07 regressions
         run: >-
           python -m unittest -v
+          tests.test_d07_library_import_exact_source_order
           tests.test_v2_library_source_catalog
           tests.test_v2_library_integrity_repair
           tests.test_v2_library_date_filter_v5
