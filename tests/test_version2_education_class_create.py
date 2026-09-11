@@ -3,6 +3,7 @@ from __future__ import annotations
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from acs import classroom_domain as cd
 from acs.education_class_management import create_class
@@ -121,13 +122,79 @@ class EducationClassProjectionTests(unittest.TestCase):
         self.assertEqual(event.kind, "error")
         self.assertEqual(workspace.classroom.classes, ())
 
-    def test_release_composition_uses_mutation_application_class(self) -> None:
+
+class EducationMutationReleaseBindingTests(unittest.TestCase):
+    def test_import_keeps_parent_final_product_application_owner(self) -> None:
+        from acs import version2_education_mutation_release as mutation_release
         from acs import version2_release_app
-        from acs import version2_education_mutation_release  # noqa: F401
+        from acs.version2_final_product_application import Version2FinalProductApplication
 
         self.assertIs(
             version2_release_app.Version2Application,
-            Version2EducationMutationApplication,
+            Version2FinalProductApplication,
+        )
+        self.assertIsNotNone(mutation_release.create_version2_release_application)
+
+    def test_eager_factory_binds_child_only_during_composition(self) -> None:
+        from acs import version2_education_mutation_release as mutation_release
+        from acs import version2_release_app
+        from acs.version2_final_product_application import Version2FinalProductApplication
+
+        observed: list[object] = []
+
+        def fake_factory(*args: object, **kwargs: object):
+            observed.append(version2_release_app.Version2Application)
+            return ("api", "application", "runtime", "native")
+
+        with mock.patch.object(
+            mutation_release._release_app,
+            "create_version2_release_application",
+            side_effect=fake_factory,
+        ):
+            result = mutation_release.create_version2_release_application()
+
+        self.assertEqual(result, ("api", "application", "runtime", "native"))
+        self.assertEqual(observed, [Version2EducationMutationApplication])
+        self.assertIs(
+            version2_release_app.Version2Application,
+            Version2FinalProductApplication,
+        )
+
+    def test_deferred_factory_rebinds_child_on_native_ui_construction(self) -> None:
+        from acs import version2_education_mutation_release as mutation_release
+        from acs import version2_release_app
+        from acs.version2_final_product_application import Version2FinalProductApplication
+
+        observed: list[object] = []
+
+        def fake_factory(*args: object, **kwargs: object):
+            self.assertTrue(kwargs.get("defer_ui"))
+
+            def build_application():
+                observed.append(version2_release_app.Version2Application)
+                return "application"
+
+            return ("api", build_application, "runtime", "native")
+
+        with mock.patch.object(
+            mutation_release._release_app,
+            "create_version2_release_application",
+            side_effect=fake_factory,
+        ):
+            api, application_factory, runtime, native = (
+                mutation_release.create_version2_release_application(defer_ui=True)
+            )
+            self.assertIs(
+                version2_release_app.Version2Application,
+                Version2FinalProductApplication,
+            )
+            application = application_factory()
+
+        self.assertEqual((api, application, runtime, native), ("api", "application", "runtime", "native"))
+        self.assertEqual(observed, [Version2EducationMutationApplication])
+        self.assertIs(
+            version2_release_app.Version2Application,
+            Version2FinalProductApplication,
         )
 
 
