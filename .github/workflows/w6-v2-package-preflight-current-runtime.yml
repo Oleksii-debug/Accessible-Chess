@@ -9,6 +9,8 @@ on:
       - 'tests/test_version2_package_preflight.py'
       - 'tests/test_version2_package_preflight_hardening.py'
       - 'tests/test_v2_package_required_resources.py'
+      - 'tests/test_version2_package_zip_topology_preflight.py'
+      - 'tests/test_version2_stockfish_source_archive_preflight.py'
       - '.github/workflows/w6-v2-package-preflight-current-runtime.yml'
   workflow_dispatch:
 
@@ -20,14 +22,13 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  CURRENT_RUNTIME_BASE: 8610b3a79c1631a9619427a58ae1617cb1576210
-  OWNER_511_HEAD: 58be5a7e577714f221be6653655f4bc1d6bb1acd
-  OWNER_565_PARENT_HEAD: f9f9ba6915ce88674214365a6260c92c091ebc1b
-  OWNER_565_CURRENT_HEAD: 2830fe08f0ad820711ab3ad258f792ba72c58d8c
-  OWNER_PREFLIGHT_BLOB: 8237eb297818d401c29af476f4ef6081d6efcee8
-  OWNER_TEST_BLOB: d20c858de65947c7aa1e9543da0b355f697ed359
-  OWNER_HARDENING_BLOB: 9547cad72a58fe556b9a3aee004c7a513c1b7bcc
-  OWNER_REQUIRED_RESOURCES_BLOB: 37636b3dc0721fb5d3c81f1b5acfb9b28260a91d
+  INTEGRATED_PREFLIGHT_OWNER: 44aa0dbb6340e0d85aa7a2b439a72bb2f450c6d9
+  CURRENT_PREFLIGHT_BLOB: c66c41257b82bacce8af4b5d09ffd8db2893a666
+  CURRENT_TEST_BLOB: 5e66654c3ea54222efe670fdc44a124797bd466d
+  CURRENT_HARDENING_BLOB: 9547cad72a58fe556b9a3aee004c7a513c1b7bcc
+  CURRENT_REQUIRED_RESOURCES_BLOB: 37636b3dc0721fb5d3c81f1b5acfb9b28260a91d
+  CURRENT_ZIP_TOPOLOGY_BLOB: 2a849e00e192d8d91118d7f2edd5274ff576c5ed
+  CURRENT_STOCKFISH_SOURCE_BLOB: 7b772885f8bdb68bbf2c8a65a1e776d0da0f630e
 
 jobs:
   focused:
@@ -46,32 +47,20 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Prove exact current-base selective convergence
+      - name: Prove retained integrated package-preflight authority
         shell: bash
         run: |
           set -euo pipefail
-          git merge-base --is-ancestor "$CURRENT_RUNTIME_BASE" HEAD
-          git diff --check "$CURRENT_RUNTIME_BASE" HEAD
-          changed="$(git diff --name-only "$CURRENT_RUNTIME_BASE" HEAD | sort)"
-          expected="$(printf '%s\n' \
-            '.github/workflows/w6-v2-package-preflight-current-runtime.yml' \
-            'acs/version2_package_preflight.py' \
-            'tests/test_version2_package_preflight.py' | sort)"
-          test "$changed" = "$expected" || {
-            printf 'Unexpected convergence delta:\n%s\n' "$changed" >&2
-            exit 1
-          }
-          git cat-file -e "$OWNER_565_CURRENT_HEAD^{commit}"
-          git merge-base --is-ancestor "$OWNER_565_PARENT_HEAD" "$OWNER_565_CURRENT_HEAD"
-          test "$(git rev-parse HEAD:acs/version2_package_preflight.py)" = "$OWNER_PREFLIGHT_BLOB"
-          test "$(git rev-parse HEAD:tests/test_version2_package_preflight.py)" = "$OWNER_TEST_BLOB"
-          test "$(git rev-parse HEAD:tests/test_version2_package_preflight_hardening.py)" = "$OWNER_HARDENING_BLOB"
-          test "$(git rev-parse HEAD:tests/test_v2_package_required_resources.py)" = "$OWNER_REQUIRED_RESOURCES_BLOB"
-          test "$(git rev-parse "$OWNER_565_CURRENT_HEAD":acs/version2_package_preflight.py)" = "$OWNER_PREFLIGHT_BLOB"
-          test "$(git rev-parse "$OWNER_565_CURRENT_HEAD":tests/test_version2_package_preflight.py)" = "$OWNER_TEST_BLOB"
-          test "$(git rev-parse "$OWNER_565_CURRENT_HEAD":tests/test_v2_package_required_resources.py)" = "$OWNER_REQUIRED_RESOURCES_BLOB"
-          test "$(git rev-parse "$OWNER_511_HEAD":tests/test_version2_package_preflight_hardening.py)" = "$OWNER_HARDENING_BLOB"
-          echo 'CURRENT_RUNTIME_BASE + EXACT CURRENT #565/#511 PREFLIGHT OWNER BYTES PASS'
+          git cat-file -e "$INTEGRATED_PREFLIGHT_OWNER^{commit}"
+          git merge-base --is-ancestor "$INTEGRATED_PREFLIGHT_OWNER" HEAD
+          git diff --check
+          test "$(git rev-parse HEAD:acs/version2_package_preflight.py)" = "$CURRENT_PREFLIGHT_BLOB"
+          test "$(git rev-parse HEAD:tests/test_version2_package_preflight.py)" = "$CURRENT_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_version2_package_preflight_hardening.py)" = "$CURRENT_HARDENING_BLOB"
+          test "$(git rev-parse HEAD:tests/test_v2_package_required_resources.py)" = "$CURRENT_REQUIRED_RESOURCES_BLOB"
+          test "$(git rev-parse HEAD:tests/test_version2_package_zip_topology_preflight.py)" = "$CURRENT_ZIP_TOPOLOGY_BLOB"
+          test "$(git rev-parse HEAD:tests/test_version2_stockfish_source_archive_preflight.py)" = "$CURRENT_STOCKFISH_SOURCE_BLOB"
+          echo 'RETAINED INTEGRATED #686 PACKAGE PREFLIGHT AUTHORITY PASS'
 
       - name: Prove one canonical V2 package validator
         shell: bash
@@ -103,6 +92,8 @@ jobs:
           tests/test_version2_package_preflight.py
           tests/test_version2_package_preflight_hardening.py
           tests/test_v2_package_required_resources.py
+          tests/test_version2_package_zip_topology_preflight.py
+          tests/test_version2_stockfish_source_archive_preflight.py
 
       - name: Current schema and resource identity smoke
         shell: bash
@@ -132,12 +123,14 @@ jobs:
           print('CURRENT V2 PACKAGE CONTRACT IDENTITY PASS')
           PY
 
-      - name: Canonical V2 tree ZIP and required-resource regressions
+      - name: Canonical V2 tree ZIP and security regressions
         run: >-
           python -m unittest -v
           tests.test_version2_package_preflight
           tests.test_version2_package_preflight_hardening
           tests.test_v2_package_required_resources
+          tests.test_version2_package_zip_topology_preflight
+          tests.test_version2_stockfish_source_archive_preflight
 
   broad:
     runs-on: ubuntu-22.04
