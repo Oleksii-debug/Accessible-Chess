@@ -1,0 +1,382 @@
+name: Post-freeze V2 Windows Package Qualification
+
+on:
+  push:
+    branches:
+      - work/post-freeze-v2-windows-package-qualification-20260911
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: post-freeze-v2-windows-package-qualification-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  EXPECTED_PRODUCT_SHA: 966a33c425470aa7c681914ff357be0aa261b70e
+  EXPECTED_PREVIOUS_CANDIDATE_SHA: 90a66ba0e38eac780a9bc82097966df24cc4b60d
+  PYTHON_VERSION: '3.12.10'
+  PYWEBVIEW_VERSION: '6.2.1'
+  PYTHONNET_VERSION: '3.1.0'
+  CLR_LOADER_VERSION: '0.3.1'
+  CFFI_VERSION: '2.1.1'
+  PYCPARSER_VERSION: '3.0'
+  TYPING_EXTENSIONS_VERSION: '4.16.0'
+  NUITKA_UPSTREAM_FIX_COMMIT: b7ea05bf570e0b6950de6db7c4c8e579e1b77d29
+  ORDERED_SET_VERSION: '4.1.0'
+  ZSTANDARD_VERSION: '0.25.0'
+  QA_WRAPPER_COMMIT: bf4a4c1c71860c90d1b086ea4f91fa34b665cb81
+  QA_BASELINE_COMMIT: 0549391267073f9d006ec8271af148fe17edcdb6
+  STOCKFISH_URL: https://github.com/official-stockfish/Stockfish/releases/download/sf_18/stockfish-windows-x86-64.zip
+  STOCKFISH_SHA256: 40cc975817e7eee270b03f354810d20956df565420d320f6dd37d454dc81a139
+
+jobs:
+  qualify-package:
+    runs-on: windows-2025
+    timeout-minutes: 75
+    steps:
+      - name: Checkout exact package qualification child
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+
+      - name: Bind package identity to exact current Product and prior package lineage
+        shell: bash
+        run: |
+          set -euo pipefail
+          parent_line="$(git rev-list --parents -n 1 HEAD)"
+          test "$(wc -w <<<"$parent_line" | tr -d ' ')" = '3'
+          product_parent="$(git rev-parse HEAD^1)"
+          previous_candidate="$(git rev-parse HEAD^2)"
+          test "$product_parent" = "$EXPECTED_PRODUCT_SHA"
+          test "$previous_candidate" = "$EXPECTED_PREVIOUS_CANDIDATE_SHA"
+          short="${product_parent:0:7}"
+          echo "PRODUCT_PARENT=$product_parent" >> "$GITHUB_ENV"
+          echo "SOURCE_INTEGRATION_SHA=$product_parent" >> "$GITHUB_ENV"
+          echo "CANDIDATE_FILE=Accessible-Chess-V2-${short}-post-freeze-package-qualification.zip" >> "$GITHUB_ENV"
+          echo "CANDIDATE_PRODUCT_SHA=$product_parent"
+          echo "PREVIOUS_PACKAGE_CANDIDATE_SHA=$previous_candidate"
+          echo 'PRODUCT_SOURCE_MUTATION=NONE'
+
+      - name: Prove workflow-only delta and package authorities
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git merge-base "$PRODUCT_PARENT" HEAD)" = "$PRODUCT_PARENT"
+          test "$(git merge-base "$EXPECTED_PREVIOUS_CANDIDATE_SHA" HEAD)" = "$EXPECTED_PREVIOUS_CANDIDATE_SHA"
+          changed="$(git diff --name-only "$PRODUCT_PARENT" HEAD)"
+          test "$changed" = '.github/workflows/post-freeze-v2-windows-package-qualification.yml'
+          git diff --check "$PRODUCT_PARENT" HEAD
+          if git cat-file -e "$PRODUCT_PARENT:.github/workflows/post-freeze-v2-windows-package-qualification.yml" 2>/dev/null; then
+            echo 'PACKAGE_WORKFLOW_ALREADY_PRESENT_IN_PRODUCT_PARENT' >&2
+            exit 1
+          fi
+          test -f acs/version2_release_payload.py
+          test -f acs/version2_package_assembler.py
+          test -f acs/version2_package_preflight.py
+          test -f run_accessible_chess_v2.py
+          echo 'WORKFLOW_ONLY_DELTA=PASS'
+
+      - name: Setup exact Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install qualified pinned Windows compiler stack
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $nuitkaUrl="https://github.com/Nuitka/Nuitka/archive/$env:NUITKA_UPSTREAM_FIX_COMMIT.zip"
+          python -m pip install --disable-pip-version-check "pywebview==$env:PYWEBVIEW_VERSION" "pythonnet==$env:PYTHONNET_VERSION" "clr-loader==$env:CLR_LOADER_VERSION" "cffi==$env:CFFI_VERSION" "pycparser==$env:PYCPARSER_VERSION" "typing-extensions==$env:TYPING_EXTENSIONS_VERSION" "Nuitka @ $nuitkaUrl" "ordered-set==$env:ORDERED_SET_VERSION" "zstandard==$env:ZSTANDARD_VERSION"
+          if($LASTEXITCODE -ne 0){throw 'Pinned Windows runtime/compiler installation failed'}
+          @'
+          import os
+          import sys
+          from importlib.metadata import version
+          from pathlib import Path
+          import nuitka
+
+          expected = {
+              'pywebview': os.environ['PYWEBVIEW_VERSION'],
+              'pythonnet': os.environ['PYTHONNET_VERSION'],
+              'clr-loader': os.environ['CLR_LOADER_VERSION'],
+              'cffi': os.environ['CFFI_VERSION'],
+              'pycparser': os.environ['PYCPARSER_VERSION'],
+              'typing_extensions': os.environ['TYPING_EXTENSIONS_VERSION'],
+              'ordered-set': os.environ['ORDERED_SET_VERSION'],
+              'zstandard': os.environ['ZSTANDARD_VERSION'],
+          }
+          assert sys.version_info[:3] == (3, 12, 10)
+          for distribution, wanted in expected.items():
+              resolved = version(distribution)
+              print(f'PINNED_RUNTIME_VERSION {distribution}={resolved}')
+              assert resolved == wanted, (distribution, resolved, wanted)
+          plugin = Path(nuitka.__file__).parent / 'plugins' / 'standard' / 'PyWebViewPlugin.py'
+          assert 'webview.platforms.win32' in plugin.read_text(encoding='utf-8')
+          print('QUALIFIED_COMPILER_STACK=PASS')
+          '@ | python -
+          if($LASTEXITCODE -ne 0){throw 'Qualified compiler stack verification failed'}
+
+      - name: Materialize immutable strict packaged UIA helper
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin "$QA_WRAPPER_COMMIT" "$QA_BASELINE_COMMIT"
+          mkdir -p .v2-uia-evidence
+          git show "$QA_WRAPPER_COMMIT:tools/qa/stage1_packaged_e2e_crossprocess.ps1" > .v2-uia-evidence/stage1_packaged_e2e_crossprocess.ps1
+          git show "$QA_WRAPPER_COMMIT:tools/qa/stage1_uia_topology_v5.ps1" > .v2-uia-evidence/stage1_uia_topology_v5.ps1
+          git show "$QA_WRAPPER_COMMIT:tools/qa/stage1_uia_topology_classify.py" > .v2-uia-evidence/stage1_uia_topology_classify.py
+          test -s .v2-uia-evidence/stage1_packaged_e2e_crossprocess.ps1
+          test -s .v2-uia-evidence/stage1_uia_topology_v5.ps1
+          test -s .v2-uia-evidence/stage1_uia_topology_classify.py
+          echo 'IMMUTABLE_STRICT_PACKAGED_UIA_HELPER=READY'
+
+      - name: Source release diagnostic and retained rollback oracle
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          python run_accessible_chess_v2.py --diagnostic
+          if($LASTEXITCODE -ne 0){throw 'SOURCE_V2_DIAGNOSTIC_PRODUCT_FAILURE'}
+          python -m unittest -v tests.test_v2_book_training_route_rollback
+          if($LASTEXITCODE -ne 0){throw 'BOOK_ROLLBACK_PYTHON_REGRESSION_FAILURE'}
+          node --check tests/js/version2_release_bootstrap_dom_test.js
+          if($LASTEXITCODE -ne 0){throw 'BOOK_ROLLBACK_HOST_ORACLE_PARSE_FAILURE'}
+          node tests/js/version2_release_bootstrap_dom_test.js
+          if($LASTEXITCODE -ne 0){throw 'BOOK_ROLLBACK_HOST_PUBLICATION_ORACLE_FAILURE'}
+          Write-Host 'SOURCE_V2_DIAGNOSTIC=PASS'
+          Write-Host 'BOOK_ROLLBACK_HOST_PUBLICATION_ORACLE=PASS'
+
+      - name: Build standalone AccessibleChess.exe
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $report=Join-Path $env:RUNNER_TEMP 'nuitka-compilation-report.xml'
+          python -m nuitka --standalone --assume-yes-for-downloads --windows-console-mode=disable --output-filename=AccessibleChess.exe --include-data-dir=web=web "--report=$report" run_accessible_chess_v2.py
+          if($LASTEXITCODE -ne 0){throw 'NUITKA_BUILD_TOOLCHAIN_FAILURE'}
+          $dist=(Resolve-Path 'run_accessible_chess_v2.dist').Path
+          $exe=Join-Path $dist 'AccessibleChess.exe'
+          if(-not (Test-Path -LiteralPath $exe -PathType Leaf)){throw 'AccessibleChess.exe missing'}
+          $leaks=@(Get-ChildItem -LiteralPath $dist -Recurse -File | Where-Object {$_.Extension -in '.py','.pyc','.pyo'})
+          if($leaks.Count -ne 0){throw 'RAW_PYTHON_SOURCE_OR_BYTECODE_LEAK'}
+          $reports=@(Get-ChildItem -LiteralPath $dist -Recurse -File | Where-Object {$_.Name -match '(?i)(nuitka.*report|compilation[-_ ]?report)'})
+          if($reports.Count -ne 0){throw 'COMPILATION_REPORT_LEAK'}
+          Write-Host "STANDALONE_EXE_SHA256=$((Get-FileHash -Algorithm SHA256 -LiteralPath $exe).Hash.ToLowerInvariant())"
+          Write-Host 'STANDALONE_BUILD=PASS'
+
+      - name: Build deterministic nine-event sound input with provenance
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          @'
+          import hashlib
+          import json
+          import math
+          from pathlib import Path
+          import struct
+          import wave
+          from acs.sound_events import SoundEvent
+
+          root = Path('release-inputs/sounds')
+          root.mkdir(parents=True, exist_ok=False)
+          frequencies = (330, 220, 660, 440, 550, 140, 392, 196, 880)
+          files = {}
+          provenance = {}
+          for event, frequency in zip(SoundEvent, frequencies, strict=True):
+              name = f'{event.value}.wav'
+              path = root / name
+              sample_rate = 22050
+              duration = 0.12 if event.value == 'tick' else 0.18
+              frames = []
+              count = int(sample_rate * duration)
+              for index in range(count):
+                  envelope = max(0.0, 1.0 - index / count)
+                  value = int(9000 * envelope * math.sin(2 * math.pi * frequency * index / sample_rate))
+                  frames.append(struct.pack('<h', value))
+              with wave.open(str(path), 'wb') as writer:
+                  writer.setnchannels(1)
+                  writer.setsampwidth(2)
+                  writer.setframerate(sample_rate)
+                  writer.writeframes(b''.join(frames))
+              files[event.value] = name
+              provenance[event.value] = {
+                  'file': name,
+                  'sha256': hashlib.sha256(path.read_bytes()).hexdigest(),
+                  'license_id': 'CC0-1.0',
+                  'source': f'urn:accessible-chess:generated-tone:v1:{event.value}',
+                  'creator': 'Accessible Chess deterministic tone generator',
+              }
+          (root / 'manifest.json').write_text(
+              json.dumps({'schema_version': 1, 'files': files}, sort_keys=True, indent=2) + '\n',
+              encoding='utf-8',
+          )
+          (root / 'provenance.json').write_text(
+              json.dumps({'schema_version': 1, 'events': provenance}, sort_keys=True, indent=2) + '\n',
+              encoding='utf-8',
+          )
+          expected = {event.value for event in SoundEvent}
+          assert set(files) == expected and set(provenance) == expected and len(expected) == 9
+          for event in SoundEvent:
+              path = root / files[event.value]
+              with wave.open(str(path), 'rb') as reader:
+                  assert reader.getcomptype() == 'NONE'
+                  assert reader.getsampwidth() == 2
+                  assert reader.getnframes() > 0
+              assert provenance[event.value]['sha256'] == hashlib.sha256(path.read_bytes()).hexdigest()
+          print('DETERMINISTIC_SOUND_INPUT_WITH_PROVENANCE=PASS')
+          '@ | python -
+          if($LASTEXITCODE -ne 0){throw 'Sound input generation/provenance failed'}
+
+      - name: Download exact official Stockfish 18 Windows release
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          New-Item -ItemType Directory -Force -Path release-inputs | Out-Null
+          Invoke-WebRequest -Uri $env:STOCKFISH_URL -OutFile 'release-inputs\stockfish.zip'
+          $digest=(Get-FileHash -Algorithm SHA256 -LiteralPath 'release-inputs\stockfish.zip').Hash.ToLowerInvariant()
+          if($digest -ne $env:STOCKFISH_SHA256){throw "STOCKFISH_SHA256_MISMATCH $digest"}
+          Write-Host "STOCKFISH_RELEASE_SHA256=$digest"
+
+      - name: Prepare canonical payload assemble package and deterministic ZIP
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          @'
+          import hashlib
+          import os
+          from pathlib import Path
+          from acs.version2_release_payload import prepare_version2_release_payload
+          from acs.version2_package_assembler import assemble_version2_package_tree, write_version2_package_zip
+
+          parent = os.environ['PRODUCT_PARENT']
+          candidate = os.environ['CANDIDATE_FILE']
+          out = Path('candidate-output')
+          prepared = prepare_version2_release_payload(
+              Path('run_accessible_chess_v2.dist'),
+              Path('release-inputs/stockfish.zip'),
+              Path('release-inputs/sounds'),
+              out / 'prepared',
+          )
+          assembled = assemble_version2_package_tree(
+              prepared.product_dir,
+              prepared.notices_dir,
+              out / 'package',
+              integration_sha=parent,
+          )
+          primary = out / candidate
+          repro = out / (candidate + '.repro.zip')
+          first = write_version2_package_zip(
+              assembled.package_root,
+              primary,
+              expected_integration_sha=parent,
+          )
+          second = write_version2_package_zip(
+              assembled.package_root,
+              repro,
+              expected_integration_sha=parent,
+          )
+          one = hashlib.sha256(primary.read_bytes()).hexdigest()
+          two = hashlib.sha256(repro.read_bytes()).hexdigest()
+          if one != two:
+              raise SystemExit(f'DETERMINISTIC_ZIP_MISMATCH {one} {two}')
+          repro.unlink()
+          print(f'CANDIDATE_ZIP={primary}')
+          print(f'CANDIDATE_ZIP_SHA256={one}')
+          print(f'CANDIDATE_INTEGRATION_SHA={first.integration_sha}')
+          print(f'CANDIDATE_FILE_COUNT={len(first.inventory)}')
+          print('CANONICAL_PAYLOAD_ASSEMBLER_PREFLIGHT=PASS')
+          print('DETERMINISTIC_ZIP_REPRODUCTION=PASS')
+          '@ | python -
+          if($LASTEXITCODE -ne 0){throw 'Canonical V2 candidate assembly failed'}
+
+      - name: Fresh extraction readback packaged diagnostic and engine smoke
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $zip=Join-Path 'candidate-output' $env:CANDIDATE_FILE
+          New-Item -ItemType Directory -Path fresh-extraction | Out-Null
+          Expand-Archive -LiteralPath $zip -DestinationPath fresh-extraction
+          @'
+          import os
+          from pathlib import Path
+          from acs.version2_package_preflight import validate_version2_package_tree
+          report = validate_version2_package_tree(
+              Path('fresh-extraction'),
+              expected_integration_sha=os.environ['PRODUCT_PARENT'],
+          )
+          print(f'FRESH_EXTRACTION_PREFLIGHT_FILES={len(report.inventory)}')
+          print('FRESH_EXTRACTION_PREFLIGHT=PASS')
+          '@ | python -
+          if($LASTEXITCODE -ne 0){throw 'Fresh extraction canonical preflight failed'}
+          $exe=(Resolve-Path 'fresh-extraction\AccessibleChess\AccessibleChess.exe').Path
+          $stdout=Join-Path $env:RUNNER_TEMP 'packaged-v2-diagnostic.stdout.txt'
+          $stderr=Join-Path $env:RUNNER_TEMP 'packaged-v2-diagnostic.stderr.txt'
+          $proc=Start-Process -FilePath $exe -ArgumentList '--diagnostic' -Wait -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+          if(Test-Path $stdout){Get-Content -LiteralPath $stdout | ForEach-Object {Write-Host $_}}
+          if(Test-Path $stderr){Get-Content -LiteralPath $stderr | ForEach-Object {Write-Host "STDERR: $_"}}
+          if($proc.ExitCode -ne 0){throw "PACKAGED_EXE_DIAGNOSTIC_FAILURE exit=$($proc.ExitCode)"}
+          $diag=(Get-Content -LiteralPath $stdout -Raw)
+          if($diag -notmatch 'ACCESSIBLE CHESS V2 FINAL-PRODUCT COMPOSITION DIAGNOSTIC PASS'){throw 'PACKAGED_EXE_DIAGNOSTIC_PASS_MARKER_MISSING'}
+          $engine=(Resolve-Path 'fresh-extraction\AccessibleChess\engines\stockfish\stockfish.exe').Path
+          $engineOutput=(@('uci','isready','quit') | & $engine 2>&1 | Out-String)
+          if($LASTEXITCODE -ne 0 -or $engineOutput -notmatch 'uciok' -or $engineOutput -notmatch 'readyok'){throw 'PACKAGED_STOCKFISH_UCI_SMOKE_FAILURE'}
+          Write-Host 'PACKAGED_EXE_DIAGNOSTIC=PASS'
+          Write-Host 'PACKAGED_STOCKFISH_UCI_SMOKE=PASS'
+          Write-Host 'FRESH_EXTRACTION=PASS'
+
+      - name: Prove fresh-extracted packaged keyboard and UIA semantics
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS='--force-renderer-accessibility'
+          $productRoot=(Resolve-Path 'fresh-extraction\AccessibleChess').Path
+          $exe=(Resolve-Path (Join-Path $productRoot 'AccessibleChess.exe')).Path
+          $process=Start-Process -FilePath $exe -WorkingDirectory $productRoot -PassThru
+          try {
+            $ready=$false
+            $watch=[System.Diagnostics.Stopwatch]::StartNew()
+            while($watch.ElapsedMilliseconds -lt 30000){
+              if($process.HasExited){throw "Fresh-extracted V2 process exited before UIA proof with code $($process.ExitCode)"}
+              $process.Refresh()
+              if($process.MainWindowHandle -ne 0){$ready=$true;break}
+              Start-Sleep -Milliseconds 250
+            }
+            if(-not $ready){throw 'Fresh-extracted V2 window did not become ready for UIA proof'}
+            Start-Sleep -Seconds 4
+            & .\.v2-uia-evidence\stage1_packaged_e2e_crossprocess.ps1 -AppPid $process.Id -ProductRoot $productRoot
+            if($LASTEXITCODE -ne 0){throw 'Immutable strict packaged UIA helper failed on fresh-extracted candidate'}
+            if(-not (Test-Path packaged-uia-strict-summary.json)){throw 'Packaged UIA summary missing'}
+            $summary=Get-Content packaged-uia-strict-summary.json -Raw | ConvertFrom-Json
+            if([int]$summary.semantic_square_count -ne 64){throw 'Fresh candidate did not expose exactly 64 semantic squares'}
+            if([string]$summary.clipboard -ne 'e9'){throw 'Fresh candidate Ctrl+A/Ctrl+C proof did not pass'}
+            if(-not [bool]$summary.invalid_e9_fen_unchanged){throw 'Fresh candidate invalid-input atomicity proof did not pass'}
+            if(-not [bool]$summary.board_focus_continuity){throw 'Fresh candidate board focus continuity proof did not pass'}
+            Write-Host 'FRESH_PACKAGED_UIA_KEYBOARD_64_SQUARE_FOCUS_PROOF=PASS'
+          }
+          finally {
+            $live=Get-Process -Id $process.Id -ErrorAction SilentlyContinue
+            if($live){Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue}
+          }
+
+      - name: Upload post-freeze Windows package qualification artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Accessible-Chess-V2-post-freeze-package-qualification
+          path: candidate-output/Accessible-Chess-V2-*-post-freeze-package-qualification.zip
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+
+      - name: Package qualification checkpoint
+        shell: pwsh
+        run: |
+          $zip=Join-Path 'candidate-output' $env:CANDIDATE_FILE
+          $digest=(Get-FileHash -Algorithm SHA256 -LiteralPath $zip).Hash.ToLowerInvariant()
+          Write-Host "CANDIDATE_PRODUCT_SHA=$env:PRODUCT_PARENT"
+          Write-Host "CANDIDATE_ZIP_SHA256=$digest"
+          Write-Host 'VERSION2_WINDOWS_ZIP=YES'
+          Write-Host 'POST_FREEZE_PACKAGE_QUALIFICATION=PASS'
+          Write-Host 'FRESH_WINDOWS_PACKAGE=YES'
+          Write-Host 'AUTOMATED_UIA_PROOF=PASS'
+          Write-Host 'HUMAN_TESTED=NO'
+          Write-Host 'NVDA_VERIFIED=NO'
