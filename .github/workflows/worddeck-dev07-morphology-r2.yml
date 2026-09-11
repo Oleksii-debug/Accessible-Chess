@@ -1,0 +1,55 @@
+name: WordDeck DEV07 morphology R2 gate
+
+on:
+  push:
+    branches:
+      - worddeck-swarm-dev07-morphology-r2
+    paths:
+      - 'WordDeck/Morphology*.cs'
+      - 'WordDeck/MORPHOLOGY_DATA_CONTRACT.md'
+      - 'WordDeckMorphologyHarness/**'
+      - '.github/workflows/worddeck-dev07-morphology-r2.yml'
+  pull_request:
+    branches:
+      - worddeck-bootstrap
+    paths:
+      - 'WordDeck/Morphology*.cs'
+      - 'WordDeck/MORPHOLOGY_DATA_CONTRACT.md'
+      - 'WordDeckMorphologyHarness/**'
+      - '.github/workflows/worddeck-dev07-morphology-r2.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: worddeck-dev07-morphology-r2-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  morphology:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout exact commit
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Build exact production WordDeck with warnings as errors
+        run: dotnet build .\WordDeck\WordDeck.csproj -c Release --nologo -warnaserror
+
+      - name: Run deterministic Stage 18 morphology tests
+        run: dotnet run --project .\WordDeckMorphologyHarness\WordDeckMorphologyHarness.csproj -c Release --nologo
+
+      - name: Publish exact self-contained Windows application
+        run: dotnet publish .\WordDeck\WordDeck.csproj -c Release -r win-x64 --self-contained true --nologo -o .\artifacts\publish
+
+      - name: Run published WordDeck regression self-test
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+          & .\artifacts\publish\WordDeck.exe --self-test
