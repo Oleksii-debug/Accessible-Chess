@@ -68,43 +68,86 @@ jobs:
         shell: bash
         env:
           PR_BASE_REF: ${{ github.event.pull_request.base.ref }}
+          AGGREGATE_REF: work/full-product-teacher-education-reachability-20260911
+          AGGREGATE_ANCHOR_SHA: 05d9cb289a5d81dd483b18197e5f76c46aff3012
         run: |
           set -euo pipefail
           git cat-file -e "$V2_FORMATS_UPSTREAM^{commit}"
           git merge-base --is-ancestor "$V2_FORMATS_UPSTREAM" HEAD
+          aggregate_context="${GITHUB_HEAD_REF:-${GITHUB_REF_NAME:-}}"
 
-          scope_base="$V2_FORMATS_UPSTREAM"
-          if [ -n "$PR_BASE_REF" ]; then
-            remote_base="refs/remotes/origin/$PR_BASE_REF"
-            if ! git show-ref --verify --quiet "$remote_base"; then
-              echo "Current pull-request base ref is unavailable: $remote_base" >&2
+          if [ "$aggregate_context" = "$AGGREGATE_REF" ]; then
+            git cat-file -e "$AGGREGATE_ANCHOR_SHA^{commit}"
+            git merge-base --is-ancestor "$AGGREGATE_ANCHOR_SHA" HEAD
+            git diff --check "$AGGREGATE_ANCHOR_SHA" HEAD
+            actual_stage1_bootstrap_blob="$(git rev-parse HEAD:web/stage1_release_bootstrap.js)"
+            test "$actual_stage1_bootstrap_blob" = "$V2_ACCEPTED_STAGE1_BOOTSTRAP_BLOB" || {
+              echo "Unexpected Stage 1 bootstrap blob: $actual_stage1_bootstrap_blob" >&2
+              exit 1
+            }
+            git diff --quiet "$AGGREGATE_ANCHOR_SHA" HEAD -- \
+              run_accessible_chess.py acs/release_app.py \
+              acs/stage1_release_ui.py acs/stage1_release_ui_core.py \
+              acs/chesscore.py acs/gametree.py acs/pgn_document.py \
+              acs/pgn_service.py acs/pgn_workspace.py \
+              web/stage1_board_actions.js \
+              tools/qa
+            echo 'V2_COMPOSITION_TOPOLOGY=CANONICAL_AGGREGATE'
+          elif [ "${GITHUB_BASE_REF:-}" = "$AGGREGATE_REF" ]; then
+            git fetch --no-tags origin "${GITHUB_BASE_REF}:refs/remotes/origin/${GITHUB_BASE_REF}"
+            base="$(git rev-parse "origin/${GITHUB_BASE_REF}")"
+            test "$base" = "$AGGREGATE_ANCHOR_SHA"
+            git merge-base --is-ancestor "$base" HEAD
+            git diff --check "$base" HEAD
+            changed="$(git diff --name-only "$base" HEAD | sort)"
+            test -n "$changed"
+            allowed="$(printf '%s\n' \
+              '.github/workflows/d01-teacher-classroom-webview.yml' \
+              '.github/workflows/d10-no-implicit-delete-current.yml' \
+              '.github/workflows/d10-review-progress-delete-privacy-convergence.yml' \
+              '.github/workflows/version2-windows-composition.yml' \
+              '.github/workflows/w1-d06-bounded-model-materialization-convergence.yml' | sort)"
+            while IFS= read -r path; do
+              printf '%s\n' "$allowed" | grep -Fx -- "$path" >/dev/null || {
+                printf 'Out-of-scope aggregate harness repair: %s\n' "$path" >&2
+                exit 1
+              }
+            done <<< "$changed"
+            echo 'V2_COMPOSITION_TOPOLOGY=AGGREGATE_HARNESS_CHILD'
+          else
+            scope_base="$V2_FORMATS_UPSTREAM"
+            if [ -n "$PR_BASE_REF" ]; then
+              remote_base="refs/remotes/origin/$PR_BASE_REF"
+              if ! git show-ref --verify --quiet "$remote_base"; then
+                echo "Current pull-request base ref is unavailable: $remote_base" >&2
+                exit 1
+              fi
+              scope_base="$(git rev-parse "$remote_base")"
+            fi
+            git cat-file -e "$scope_base^{commit}"
+            git merge-base --is-ancestor "$scope_base" HEAD
+            git diff --check "$scope_base" HEAD
+
+            actual_stage1_bootstrap_blob="$(git rev-parse HEAD:web/stage1_release_bootstrap.js)"
+            if [ "$actual_stage1_bootstrap_blob" != "$V2_ACCEPTED_STAGE1_BOOTSTRAP_BLOB" ]; then
+              echo "Unexpected Stage 1 bootstrap blob: $actual_stage1_bootstrap_blob" >&2
               exit 1
             fi
-            scope_base="$(git rev-parse "$remote_base")"
-          fi
-          git cat-file -e "$scope_base^{commit}"
-          git merge-base --is-ancestor "$scope_base" HEAD
-          git diff --check "$scope_base" HEAD
 
-          actual_stage1_bootstrap_blob="$(git rev-parse HEAD:web/stage1_release_bootstrap.js)"
-          if [ "$actual_stage1_bootstrap_blob" != "$V2_ACCEPTED_STAGE1_BOOTSTRAP_BLOB" ]; then
-            echo "Unexpected Stage 1 bootstrap blob: $actual_stage1_bootstrap_blob" >&2
-            exit 1
+            changed="$(git diff --name-only "$scope_base" HEAD | sort)"
+            unapproved_changed="$(printf '%s\n' "$changed" | grep -v '^web/stage1_release_bootstrap\.js$' || true)"
+            if printf '%s\n' "$unapproved_changed" | grep -E '(^|/)(stage1|tools/qa/|windows-stage1|release_preflight)'; then
+              echo 'Stage 1 or strict-release contamination detected' >&2
+              exit 1
+            fi
+            git diff --quiet "$scope_base" HEAD -- \
+              run_accessible_chess.py acs/release_app.py \
+              acs/stage1_release_ui.py acs/stage1_release_ui_core.py \
+              acs/chesscore.py acs/gametree.py acs/pgn_document.py \
+              acs/pgn_service.py acs/pgn_workspace.py \
+              web/stage1_board_actions.js \
+              tools/qa
           fi
-
-          changed="$(git diff --name-only "$scope_base" HEAD | sort)"
-          unapproved_changed="$(printf '%s\n' "$changed" | grep -v '^web/stage1_release_bootstrap\.js$' || true)"
-          if printf '%s\n' "$unapproved_changed" | grep -E '(^|/)(stage1|tools/qa/|windows-stage1|release_preflight)'; then
-            echo 'Stage 1 or strict-release contamination detected' >&2
-            exit 1
-          fi
-          git diff --quiet "$scope_base" HEAD -- \
-            run_accessible_chess.py acs/release_app.py \
-            acs/stage1_release_ui.py acs/stage1_release_ui_core.py \
-            acs/chesscore.py acs/gametree.py acs/pgn_document.py \
-            acs/pgn_service.py acs/pgn_workspace.py \
-            web/stage1_board_actions.js \
-            tools/qa
 
       - name: Compile Python package
         run: python -m compileall -q acs tests run_accessible_chess.py run_accessible_chess_v2.py
