@@ -6,7 +6,7 @@ Status: W3 / P0-F source evidence. This document does **not** set `HUMAN_ACCEPTE
 
 The built-in V2 starter corpus lives in `acs/starter_books_training_content.py` and is consumed through the existing canonical `BookDocument`, `BookReader`, Books WebView/native menu path, and Training workspace. No second content engine, remote service, browser download, LLM, or network request is used at runtime.
 
-The corpus contains 24 Ukrainian tutorial materials and 120 canonical `Exercise` blocks. The packaged final-product composition opens the aggregate starter course automatically as the initial Books document, while the existing Training route moves to the first canonical exercise when needed.
+The corpus contains 27 Ukrainian tutorial materials and 135 canonical `Exercise` blocks. The packaged final-product composition opens the aggregate starter course automatically as the initial Books document, while the existing Training route moves to the first canonical exercise when needed.
 
 ## Provenance and rights inventory
 
@@ -22,8 +22,8 @@ There are no bundled third-party media files, web resources, external URLs, cred
 
 `starter_content_manifest()` is the machine-readable inventory. The W3 acceptance gate requires:
 
-- exactly 24 distinct tutorial materials;
-- at least 100 canonical Training exercises; current corpus: 120;
+- at least 24 distinct tutorial materials; current corpus: 27;
+- at least 100 canonical Training exercises; current corpus: 135;
 - Ukrainian language metadata;
 - a non-empty provenance/rights statement;
 - unique semantic block identifiers;
