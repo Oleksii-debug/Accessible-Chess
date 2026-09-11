@@ -1,0 +1,66 @@
+name: W1 D06 Bounded Model Materialization
+
+on:
+  push:
+    branches:
+      - work/w1-d06-bounded-model-materialization-20260907
+  pull_request:
+    branches:
+      - codex/v2-runtime-completion-20260907
+    paths:
+      - 'acs/pgn_roundtrip.py'
+      - 'acs/pgn_workspace.py'
+      - 'tests/test_w1_d06_bounded_model_materialization.py'
+      - '.github/workflows/w1-d06-bounded-model-materialization.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: w1-d06-bounded-model-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  focused:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Prove bounded current-runtime scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          base_ref="${GITHUB_BASE_REF:-codex/v2-runtime-completion-20260907}"
+          git fetch --no-tags origin "${base_ref}:refs/remotes/origin/${base_ref}"
+          base="$(git rev-parse "origin/${base_ref}")"
+          merge_base="$(git merge-base "$base" HEAD)"
+          test "$merge_base" = "$base" || {
+            printf 'D06 head is stale against base: base=%s merge-base=%s\n' "$base" "$merge_base" >&2
+            exit 1
+          }
+          git diff --check "$base" HEAD
+          changed="$(git diff --name-only "$base" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/w1-d06-bounded-model-materialization.yml' \
+            'acs/pgn_roundtrip.py' \
+            'acs/pgn_workspace.py' \
+            'tests/test_w1_d06_bounded_model_materialization.py' | sort)"
+          test "$changed" = "$expected"
+      - name: Compile touched PGN modules
+        run: python -m compileall -q acs/pgn_roundtrip.py acs/pgn_workspace.py tests/test_w1_d06_bounded_model_materialization.py
+      - name: Focused bounded-materialization regression
+        run: python -m unittest -v tests.test_w1_d06_bounded_model_materialization tests.test_d06_pgn_roundtrip
+      - name: Broad repository unittest on Ubuntu
+        if: matrix.os == 'ubuntu-24.04'
+        run: python -m unittest discover -s tests -p 'test_*.py'
