@@ -222,7 +222,12 @@ internal static class BookReadingRecovery
 
     private static SqliteConnection Open(string path, SqliteOpenMode mode)
     {
-        var connection = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = path, Mode = mode }.ToString());
+        var connection = new SqliteConnection(new SqliteConnectionStringBuilder
+        {
+            DataSource = path,
+            Mode = mode,
+            Pooling = false
+        }.ToString());
         connection.Open();
         return connection;
     }
