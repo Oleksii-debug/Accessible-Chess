@@ -17,7 +17,13 @@ from .library_export_workspace import build_library_export_webview
 from .search_service import GameSearchQuery
 from .teacher_webview_bridge import TeacherWebViewBridge
 from .teacher_webview_projection import TeacherWebViewProjection
-from .teaching_session import TeachingSessionState
+from .teaching_classroom_adapter import apply_classroom_action
+from .teaching_session import (
+    LessonSession,
+    TeachingSessionState,
+    start_session,
+    validate_lesson_session_scope,
+)
 from .version2_application import Version2Application
 from .version2_final_product_profile import (
     build_final_product_router,
@@ -30,9 +36,10 @@ class Version2FinalProductApplication(Version2Application):
     """One application authority with bounded D09/D10 presentation seams.
 
     Teacher state remains absent until a trusted host binds an actual canonical
-    ``TeachingSessionState`` provider. Education state is loaded from the durable
-    D10 workspace store. Corrupt/unreadable Education state is never overwritten
-    automatically and does not prevent the core chess product from starting.
+    ``TeachingSessionState`` provider or starts a canonical ``LessonSession``.
+    Education state is loaded from the durable D10 workspace store.
+    Corrupt/unreadable Education state is never overwritten automatically and
+    does not prevent the core chess product from starting.
     """
 
     def __init__(
@@ -74,6 +81,8 @@ class Version2FinalProductApplication(Version2Application):
         self.teacher: TeacherWebViewBridge | None = None
         self._teacher_state_provider: Callable[[], TeachingSessionState] | None = None
         self._teacher_dispatch: Callable[[str, Mapping[str, object]], object] | None = None
+        self._teaching_plan: LessonSession | None = None
+        self._teaching_state: TeachingSessionState | None = None
 
     def _load_education(self, language: UILanguage) -> None:
         try:
@@ -129,7 +138,7 @@ class Version2FinalProductApplication(Version2Application):
         *,
         expected_revision: str | None,
     ) -> str:
-        """Trusted CAS publication seam for a future canonical editor owner."""
+        """Trusted CAS publication seam for a canonical editor owner."""
 
         self._assert_thread()
         revision = self.education_store.save(
@@ -146,30 +155,125 @@ class Version2FinalProductApplication(Version2Application):
     def education_revision(self) -> str | None:
         return self._education_revision
 
+    def _install_teaching_binding(
+        self,
+        state_provider: Callable[[], TeachingSessionState],
+        dispatch: Callable[[str, Mapping[str, object]], object],
+    ) -> None:
+        """Publish a Teacher bridge only after its canonical projection exists."""
+
+        projection = TeacherWebViewProjection.from_teaching_session(
+            dispatch,
+            state_provider,
+        )
+        bridge = TeacherWebViewBridge(
+            projection,
+            language=self.shell.language,
+        )
+        self._teacher_state_provider = state_provider
+        self._teacher_dispatch = dispatch
+        self.teacher = bridge
+
+    def _clear_teaching_binding(self) -> None:
+        self.teacher = None
+        self._teacher_state_provider = None
+        self._teacher_dispatch = None
+
     def bind_teaching_session(
         self,
         state_provider: Callable[[], TeachingSessionState],
         dispatch: Callable[[str, Mapping[str, object]], object],
     ) -> None:
-        """Bind D09 UI directly over a trusted canonical teaching-session owner."""
+        """Bind D09 UI directly over an external trusted teaching-session owner."""
 
         self._assert_thread()
-        projection = TeacherWebViewProjection.from_teaching_session(
-            dispatch,
-            state_provider,
+        if self.teacher is not None or self._teaching_state is not None:
+            raise RuntimeError("Teaching session is already bound")
+        self._install_teaching_binding(state_provider, dispatch)
+
+    def _owned_teaching_state(self) -> TeachingSessionState:
+        state = self._teaching_state
+        if type(state) is not TeachingSessionState:
+            raise RuntimeError("No application-owned teaching session is active")
+        return state
+
+    def _dispatch_owned_teaching_action(
+        self,
+        action_id: str,
+        payload: Mapping[str, object],
+    ) -> TeachingSessionState:
+        """Apply one Teacher action through the canonical D09+D10 CAS boundary."""
+
+        self._assert_thread()
+        plan = self._teaching_plan
+        state = self._teaching_state
+        workspace = self._education_workspace
+        if type(plan) is not LessonSession or type(state) is not TeachingSessionState:
+            raise RuntimeError("No application-owned teaching session is active")
+        if type(workspace) is not EducationWorkspace:
+            raise RuntimeError("Education workspace is unavailable")
+
+        next_state = apply_classroom_action(
+            plan,
+            state,
+            workspace.classroom,
+            action_id,
+            payload,
+            expected_revision=state.revision,
         )
-        self._teacher_state_provider = state_provider
-        self._teacher_dispatch = dispatch
-        self.teacher = TeacherWebViewBridge(
-            projection,
-            language=self.shell.language,
-        )
+        self._teaching_state = next_state
+        return next_state
+
+    def start_teaching_session(self, plan: LessonSession) -> TeachingSessionState:
+        """Start one trusted canonical D09 lesson against current durable D10 scope.
+
+        The browser cannot supply or replace the plan. Validation and canonical
+        state construction complete before the Teacher surface becomes reachable.
+        Any projection/binding failure rolls the in-memory session back entirely.
+        """
+
+        self._assert_thread()
+        if type(plan) is not LessonSession:
+            raise TypeError("teaching plan must be LessonSession")
+        if self.teacher is not None or self._teaching_state is not None:
+            raise RuntimeError("Teaching session is already bound")
+        workspace = self._education_workspace
+        if type(workspace) is not EducationWorkspace:
+            raise RuntimeError("Education workspace is unavailable")
+
+        validate_lesson_session_scope(plan, workspace.classroom)
+        state = start_session(plan)
+        self._teaching_plan = plan
+        self._teaching_state = state
+        try:
+            self._install_teaching_binding(
+                self._owned_teaching_state,
+                self._dispatch_owned_teaching_action,
+            )
+        except Exception:
+            self._teaching_plan = None
+            self._teaching_state = None
+            self._clear_teaching_binding()
+            raise
+        return state
+
+    def stop_teaching_session(self) -> None:
+        """Retire the application-owned live lesson and remove its Teacher bridge."""
+
+        self._assert_thread()
+        if self._teaching_state is None:
+            raise RuntimeError("No application-owned teaching session is active")
+        self._teaching_plan = None
+        self._teaching_state = None
+        self._clear_teaching_binding()
 
     def unbind_teaching_session(self) -> None:
+        """Unbind any trusted Teacher owner and discard only local live ownership."""
+
         self._assert_thread()
-        self.teacher = None
-        self._teacher_state_provider = None
-        self._teacher_dispatch = None
+        self._teaching_plan = None
+        self._teaching_state = None
+        self._clear_teaching_binding()
 
     def sync_composed_surfaces_language(self, language: UILanguage) -> None:
         self._assert_thread()
