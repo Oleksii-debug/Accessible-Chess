@@ -1,0 +1,87 @@
+name: V2 Composition Startup Cleanup Current Product
+
+on:
+  push:
+    branches:
+      - work/v2-composition-startup-cleanup-20260907
+  pull_request:
+    branches:
+      - work/full-product-teacher-education-reachability-20260911
+    paths:
+      - .github/workflows/v2-composition-startup-cleanup.yml
+      - tests/test_version2_composition_startup_cleanup.py
+
+permissions:
+  contents: read
+
+concurrency:
+  group: v2-composition-startup-cleanup-current-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CURRENT_PRODUCT_BASE: 966a33c425470aa7c681914ff357be0aa261b70e
+  PRIOR_498_HEAD: b41d1c6a8577bcb783e8538c11b9404014819d07
+  PRODUCT_BLOB: cefe085d3001e456028790fa8f86927306f6e363
+  REGRESSION_BLOB: 0db93784501d50cbefa9d9044a4e62dda6103c03
+
+jobs:
+  current-product-startup-cleanup:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Prove exact current authority and QA-only convergence
+        shell: bash
+        env:
+          EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          for commit in "$CURRENT_PRODUCT_BASE" "$PRIOR_498_HEAD"; do
+            git cat-file -e "${commit}^{commit}" || git fetch --no-tags origin "$commit"
+          done
+          test "$(git rev-parse HEAD^1)" = "$CURRENT_PRODUCT_BASE"
+          git merge-base --is-ancestor "$CURRENT_PRODUCT_BASE" HEAD
+          git merge-base --is-ancestor "$PRIOR_498_HEAD" HEAD
+          if [ -n "${EVENT_BASE_SHA:-}" ]; then
+            test "$EVENT_BASE_SHA" = "$CURRENT_PRODUCT_BASE"
+          fi
+          git diff --check "$CURRENT_PRODUCT_BASE" HEAD
+          changed="$(git diff --name-only "$CURRENT_PRODUCT_BASE" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/v2-composition-startup-cleanup.yml' \
+            'tests/test_version2_composition_startup_cleanup.py' | sort)"
+          test "$changed" = "$expected"
+          test "$(git rev-parse HEAD:acs/version2_release_app.py)" = "$PRODUCT_BLOB"
+          test "$(git rev-parse HEAD:tests/test_version2_composition_startup_cleanup.py)" = "$REGRESSION_BLOB"
+
+      - name: Compile startup cleanup scope
+        run: python -m py_compile acs/version2_release_app.py tests/test_version2_composition_startup_cleanup.py
+
+      - name: Replay startup cleanup failure matrix
+        run: python -m unittest -v tests.test_version2_composition_startup_cleanup tests.test_version2_release_app
+
+      - name: Full repository unittest
+        if: matrix.os == 'ubuntu-22.04'
+        run: python -m unittest discover -s tests -p 'test_*.py'
+
+      - name: Selftest and current V2 diagnostic
+        run: |
+          python -m acs.selftest
+          python run_accessible_chess_v2.py --diagnostic
+
+      - name: Emit exact authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "CURRENT_PRODUCT_BASE=$CURRENT_PRODUCT_BASE"
+          echo "PRIOR_498_HEAD=$PRIOR_498_HEAD"
+          echo "QUALIFIED_HEAD=$(git rev-parse HEAD)"
