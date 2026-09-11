@@ -16,9 +16,11 @@ on:
       - 'acs/full_product_actions.py'
       - 'acs/full_product_native_menu.py'
       - 'acs/library_webview_projection.py'
+      - 'acs/stage1_release_ui.py'
       - 'web/version2_release_bootstrap.js'
       - 'tests/test_version2_*.py'
       - 'tests/test_v2_windows_*.py'
+      - 'tests/test_v2_board_analysis_hotkey_feedback.py'
       - 'tests/js/version2_release_bootstrap_dom_test.js'
       - 'tests/js/version2_library_open_route_refresh_dom_test.js'
       - '.github/workflows/version2-windows-composition.yml'
@@ -33,6 +35,8 @@ concurrency:
 env:
   V2_FORMATS_UPSTREAM: b18ac89bb7f1ef3d4106517fe3521179ab4522a1
   V2_ACCEPTED_STAGE1_BOOTSTRAP_BLOB: bced41192feb068a71ed0789be5629164a37e6c9
+  V2_ACCEPTED_STAGE1_UI_BLOB: 16e78af6219c8c36f0c4026942ef1d02875a370a
+  V2_ACCEPTED_P0G_STAGE1_UI_BLOB: c8629e690a10fa8e10a2053fdc85284f635d2beb
   V2_ACCEPTED_PGN_WORKSPACE_BLOB: b59e6bfff9806dff2092e5c7f93b68daff6407ef
 
 jobs:
@@ -100,14 +104,26 @@ jobs:
           fi
 
           changed="$(git diff --name-only "$scope_base" HEAD | sort)"
-          unapproved_changed="$(printf '%s\n' "$changed" | grep -v '^web/stage1_release_bootstrap\.js$' || true)"
+          if printf '%s\n' "$changed" | grep -Fxq 'acs/stage1_release_ui.py'; then
+            actual_stage1_ui_blob="$(git rev-parse HEAD:acs/stage1_release_ui.py)"
+            case "$actual_stage1_ui_blob" in
+              "$V2_ACCEPTED_STAGE1_UI_BLOB"|"$V2_ACCEPTED_P0G_STAGE1_UI_BLOB")
+                ;;
+              *)
+                echo "Unexpected Stage 1 release facade blob: $actual_stage1_ui_blob" >&2
+                exit 1
+                ;;
+            esac
+          fi
+
+          unapproved_changed="$(printf '%s\n' "$changed" | grep -Ev '^(web/stage1_release_bootstrap\.js|acs/stage1_release_ui\.py)$' || true)"
           if printf '%s\n' "$unapproved_changed" | grep -E '(^|/)(stage1|tools/qa/|windows-stage1|release_preflight)'; then
             echo 'Stage 1 or strict-release contamination detected' >&2
             exit 1
           fi
           git diff --quiet "$scope_base" HEAD -- \
             run_accessible_chess.py acs/release_app.py \
-            acs/stage1_release_ui.py acs/stage1_release_ui_core.py \
+            acs/stage1_release_ui_core.py \
             acs/chesscore.py acs/gametree.py acs/pgn_document.py \
             acs/pgn_service.py \
             web/stage1_board_actions.js \
@@ -150,6 +166,7 @@ jobs:
           tests.test_books_training_ui_integration
           tests.test_version2_formats_integration
           tests.test_nvda_p0_contract
+          tests.test_v2_board_analysis_hotkey_feedback
 
       - name: Version 2 data migration and atomicity regressions
         run: >-
