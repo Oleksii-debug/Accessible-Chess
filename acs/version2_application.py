@@ -45,6 +45,20 @@ class Version2Application:
     training_workspace = None
     training = None
 
+    _BOOK_PROGRESS_COMMANDS = frozenset(
+        {
+            "book.previous",
+            "book.next",
+            "book.previous_heading",
+            "book.next_heading",
+            "book.next_position",
+            "book.next_game",
+            "book.bookmark.save",
+            "book.bookmark.restore",
+        }
+    )
+    _BOOK_BOARD_OPEN_COMMANDS = frozenset({"book.open_position", "book.open_game"})
+
     def __init__(self, database: AcsDatabase, *, progress_store: BookProgressStore,
                  engine_assistance: EngineAssistedWorkflowService, board_dispatch,
                  board_position_projector=None, copy_text=lambda _: None,
@@ -132,17 +146,19 @@ class Version2Application:
         else:
             kind = BookTextFormat.TXT if suffix == ".txt" else BookTextFormat.MARKDOWN
             imported = import_text_book(raw, source_name=report_safe_name(source), source_format=kind)
-        # Parse and validate the entire new source before replacing reader state.
+        # Persist the old durable state before staging a replacement.
         self.save_training_progress()
         self.save_book_progress()
         reader = self.progress_store.restore(imported.book_key, imported.document) if self.progress_store.has(imported.book_key) else BookReader(imported.document)
         workflow = BookBoardWorkflow(reader, self.engine_assistance, game_lookup=AcsdbBookGameLookup(self.database))
         delegate = Version2WindowsBookBoardActionDelegate(workflow, event_sink=self._book_event, next_delegate=self._board_dispatch)
         bridge = build_version2_book_webview(reader, workflow, self.router.dispatch, language=self.shell.language)
+        # Do not publish the staged reader/workflow/route until its initial
+        # progress state is durably accepted by the canonical progress store.
+        self.progress_store.save(imported.book_key, reader)
         self.reader, self.book_key, self.book_workflow, self.book_delegate, self.books = reader, imported.book_key, workflow, delegate, bridge
         self.training_workspace = self.training = None
         self.shell.open_route("books")
-        self.save_book_progress()
         return len(imported.warnings)
 
     def save_book_progress(self):
@@ -153,6 +169,35 @@ class Version2Application:
         self._assert_thread()
         if self.training_workspace is not None and self.training is not None:
             self.training_workspace.save()
+
+    def _restore_book_progress(self, snapshot, *, language, bookmark_name):
+        """Restore a failed Book progress transaction without partial UI state."""
+        restored_reader = BookReader.restore_snapshot(self.reader.document, snapshot)
+        restored_workflow = BookBoardWorkflow(
+            restored_reader,
+            self.engine_assistance,
+            game_lookup=AcsdbBookGameLookup(self.database),
+        )
+        restored_delegate = Version2WindowsBookBoardActionDelegate(
+            restored_workflow,
+            event_sink=self._book_event,
+            next_delegate=self._board_dispatch,
+        )
+        restored_books = build_version2_book_webview(
+            restored_reader,
+            restored_workflow,
+            self.router.dispatch,
+            language=language,
+        )
+        restored_books.projection.restore_bookmark_name(bookmark_name)
+        self.reader = restored_reader
+        self.book_workflow = restored_workflow
+        self.book_delegate = restored_delegate
+        self.books = restored_books
+        # Training is transient UI over a specific reader object. Once rollback
+        # replaces that reader, discard any bridge that would otherwise reference
+        # the rejected post-mutation state.
+        self.training_workspace = self.training = None
 
     def _start_training_from_current_book(self):
         self._assert_thread()
@@ -168,6 +213,38 @@ class Version2Application:
         bridge = workspace.start_current()
         self.training_workspace, self.training = workspace, bridge
         return True
+
+    def _dispatch_book_surface_command(self, command, payload=None):
+        """Publish mutating Book commands only after durable progress succeeds."""
+        if self.books is None or self.reader is None:
+            raise ValueError("no book is open")
+        if command == "book.language":
+            # Language is presentation state, not durable reader progress.
+            return self.books.dispatch(command, payload)
+        if command in self._BOOK_BOARD_OPEN_COMMANDS:
+            # The canonical BookBoard delegate owns board-opening publication.
+            return self.books.dispatch(command, payload)
+        if command in self._BOOK_PROGRESS_COMMANDS:
+            before = self.reader.snapshot()
+            language = self.books.projection.language
+            bookmark_name = self.books.projection.bookmark_name
+            result = self.books.dispatch(command, payload)
+            if result.kind == "error":
+                return result
+            try:
+                self.save_book_progress()
+            except Exception:
+                self._restore_book_progress(
+                    before,
+                    language=language,
+                    bookmark_name=bookmark_name,
+                )
+                return self.books.projection.generic_error()
+            return result
+        result = self.books.dispatch(command, payload)
+        if result.kind != "error":
+            self.save_book_progress()
+        return result
 
     def _book_event(self, event):
         # Board-open/update success becomes authoritative only after the application
@@ -279,8 +356,22 @@ class Version2Application:
             if self.book_delegate is None: raise ValueError("no book is open")
             if action in self.book_delegate.OWNED_ACTIONS:
                 before_view = self.book_delegate.view() if self.book_workflow.active else None
+                opening_board = action in self._BOOK_BOARD_OPEN_COMMANDS
+                before_reader = self.reader.snapshot() if opening_board else None
+                before_language = self.books.projection.language if opening_board else None
+                before_bookmark = self.books.projection.bookmark_name if opening_board else None
                 result = self.book_delegate(action, payload)
                 if result.kind in {BookBoardUiEventKind.BOARD_OPENED, BookBoardUiEventKind.BOARD_UPDATED}:
+                    if result.kind is BookBoardUiEventKind.BOARD_OPENED and opening_board:
+                        try:
+                            self.save_book_progress()
+                        except Exception:
+                            self._restore_book_progress(
+                                before_reader,
+                                language=before_language,
+                                bookmark_name=before_bookmark,
+                            )
+                            raise
                     try:
                         self._project_board_position(self.book_delegate.view().current_fen)
                     except Exception:
@@ -292,9 +383,11 @@ class Version2Application:
                         self._events.append({"kind": "book-board", "payload": {"focus_target": "board-launcher"}})
                 return result
             command = {"book.previous_block": "book.previous", "book.next_block": "book.next", "book.bookmark": "book.bookmark.save"}.get(action, action)
-            result = self.books.dispatch(command, {"name": "default"} if action == "book.bookmark" else payload)
+            result = self._dispatch_book_surface_command(
+                command,
+                {"name": "default"} if action == "book.bookmark" else payload,
+            )
             if result.kind == "error": raise ValueError("book command failed")
-            self.save_book_progress()
             return result
         if action.startswith("training."):
             if self.training_workspace is None or self.training is None:
@@ -345,10 +438,12 @@ class Version2Application:
                 self.training = self.training_workspace.bridge
                 if command == "training.continue" and value.kind != "error": self.save_book_progress()
                 return asdict(value)
-            bridge = {"pgn": self.pgn, "library": self.library, "books": self.books}.get(area)
+            if area == "books":
+                value = self._dispatch_book_surface_command(command, payload)
+                return asdict(value)
+            bridge = {"pgn": self.pgn, "library": self.library}.get(area)
             if bridge is None: raise ValueError("surface is unavailable")
             value = bridge.dispatch(command, payload)
-            if area == "books" and value.kind != "error": self.save_book_progress()
             return asdict(value)
         except Exception:
             return self._error()
