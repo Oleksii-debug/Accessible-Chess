@@ -1,0 +1,151 @@
+name: P0-F Lawful Real Starter Corpus
+
+on:
+  push:
+    branches:
+      - fix/p0f-w2-curated-corpus-post-integration-20260912
+  pull_request:
+    branches:
+      - work/full-product-teacher-education-reachability-20260911
+    paths:
+      - 'tools/p0f_lawful_starter_bundle.py'
+      - 'tests/test_p0f_lawful_starter_bundle.py'
+      - 'docs/P0F_STARTER_CONTENT_PROVENANCE.md'
+      - '.github/workflows/p0f-lawful-starter-corpus.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: p0f-lawful-real-starter-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  CLAIM_BASE: 2fc77d9b17d6cbf1de8a853032b22086bb7b80d0
+  PINNED_CORPUS_SHA256: aa40b3671fa3cf1072eb182892cd90b0e1e003a4a5943492f64b77e7f3fd1635
+
+jobs:
+  bounded-regression:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install pinned test runner
+        run: python -m pip install -q pytest==8.4.2
+
+      - name: Prove claim geometry and bounded paths
+        shell: bash
+        run: |
+          set -euo pipefail
+          git cat-file -e "$CLAIM_BASE^{commit}"
+          git merge-base --is-ancestor "$CLAIM_BASE" HEAD
+          test "$(git merge-base "$CLAIM_BASE" HEAD)" = "$CLAIM_BASE"
+          git diff --check "$CLAIM_BASE" HEAD
+          changed="$(git diff --name-only "$CLAIM_BASE" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/p0f-lawful-starter-corpus.yml' \
+            'docs/P0F_STARTER_CONTENT_PROVENANCE.md' \
+            'tests/test_p0f_lawful_starter_bundle.py' \
+            'tools/p0f_lawful_starter_bundle.py' | sort)"
+          test "$changed" = "$expected"
+
+      - name: Compile bounded repair
+        run: >-
+          python -m py_compile
+          tools/p0f_lawful_starter_bundle.py
+          tests/test_p0f_lawful_starter_bundle.py
+
+      - name: Run lawful starter and existing W2 P0-F regressions
+        run: >-
+          python -m pytest -q
+          tests/test_p0f_lawful_starter_bundle.py
+          tests/test_p0f_starter_content.py
+          tests/test_acsdb.py
+          tests/test_gametree.py
+
+  real-cc0-release-bundle:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install previously-qualified decompressor
+        run: python -m pip install -q zstandard==0.23.0
+
+      - name: Build exact lawful offline starter bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          PYTHONPATH="$PWD" python tools/p0f_lawful_starter_bundle.py .p0f-lawful
+
+      - name: Prove binding #691 W2 semantics on produced bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import hashlib
+          import json
+          from pathlib import Path
+          from acs.acsdb import ACSDB_SCHEMA_VERSION, AcsDatabase
+          from acs.starter_content import CONTENT_LICENSE_ID
+          from tools.p0f_lawful_starter_bundle import CORPUS_LICENSE_ID, CORPUS_SHA256
+
+          root = Path('.p0f-lawful')
+          manifest = json.loads((root / 'manifest.json').read_text(encoding='utf-8'))
+          assert manifest['schema_version'] == 3
+          assert manifest['bundle_kind'] == 'lawful-curated-real-game-starter'
+          assert manifest['runtime_network_required'] is False
+          assert manifest['starter_source']['compressed_sha256'] == CORPUS_SHA256
+          assert manifest['starter_source']['license_id'] == CORPUS_LICENSE_ID == 'CC0-1.0'
+          assert manifest['starter_source']['selected_games'] >= 200
+          assert manifest['counts']['starter_games'] >= 200
+          assert manifest['counts']['stress_games'] > manifest['counts']['starter_games']
+          assert manifest['files']['starter_uk.pgn']['license_id'] == CORPUS_LICENSE_ID
+          assert manifest['files']['sample_library.acsdb']['license_id'] == CORPUS_LICENSE_ID
+          assert manifest['files']['stress_uk.pgn']['license_id'] == CONTENT_LICENSE_ID
+          assert set(path.name for path in root.iterdir()) == {
+              'starter_uk.pgn', 'stress_uk.pgn', 'sample_library.acsdb', 'manifest.json'
+          }
+          for name, metadata in manifest['files'].items():
+              payload = (root / name).read_bytes()
+              assert len(payload) == metadata['bytes']
+              assert hashlib.sha256(payload).hexdigest() == metadata['sha256']
+          with AcsDatabase(root / 'sample_library.acsdb') as db:
+              assert db.verify_integrity() == ACSDB_SCHEMA_VERSION
+              total, distinct, players, events = db.conn.execute(
+                  "SELECT COUNT(*), COUNT(DISTINCT pgn_text), "
+                  "COUNT(DISTINCT white || char(0) || black), COUNT(DISTINCT event) FROM games"
+              ).fetchone()
+              assert total == distinct == manifest['counts']['starter_games']
+              assert players >= 20
+              assert events >= 5
+          print('P0_F_W2_LAWFUL_REAL_STARTER=PASS')
+          PY
+
+      - name: Upload only final release-content evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: p0f-lawful-real-starter-${{ github.sha }}
+          path: .p0f-lawful/
+          if-no-files-found: error
+          retention-days: 7
