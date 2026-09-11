@@ -1,0 +1,65 @@
+name: W3 P0-F Content Quality Fix Forward
+
+on:
+  pull_request:
+    paths:
+      - "acs/starter_books_training_quality.py"
+      - "acs/starter_books_training_runtime.py"
+      - "tests/test_w3_p0f_starter_quality_fix_forward.py"
+      - "tests/test_w3_p0f_starter_books_training_content.py"
+      - "docs/V2_STARTER_CONTENT_PROVENANCE.md"
+      - ".github/workflows/w3-p0f-content-quality-fix-forward.yml"
+  push:
+    branches:
+      - "fix/w3-p0f-content-quality-20260912"
+    paths:
+      - "acs/starter_books_training_quality.py"
+      - "acs/starter_books_training_runtime.py"
+      - "tests/test_w3_p0f_starter_quality_fix_forward.py"
+      - "docs/V2_STARTER_CONTENT_PROVENANCE.md"
+      - ".github/workflows/w3-p0f-content-quality-fix-forward.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  focused:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Diff hygiene
+        shell: bash
+        run: git diff --check
+      - name: Compile W3 fix-forward
+        run: >-
+          python -m py_compile
+          acs/starter_books_training_quality.py
+          acs/starter_books_training_runtime.py
+          tests/test_w3_p0f_starter_quality_fix_forward.py
+      - name: Prove substantial content, license, FEN diversity and canonical Training
+        run: >-
+          python -m unittest -v
+          tests.test_w3_p0f_starter_quality_fix_forward
+          tests.test_w3_p0f_starter_books_training_content
+
+  regression:
+    if: ${{ github.event_name == 'pull_request' || github.ref == 'refs/heads/fix/w3-p0f-content-quality-20260912' }}
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Full unittest regression
+        run: python -m unittest discover -v
+      - name: Product selftest and V2 diagnostic
+        run: |
+          python -m acs.selftest
+          python run_accessible_chess_v2.py --diagnostic
