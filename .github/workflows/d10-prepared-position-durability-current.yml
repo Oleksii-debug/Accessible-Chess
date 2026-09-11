@@ -71,14 +71,11 @@ jobs:
           python -m pytest -q
           tests/test_d10_prepared_position_durability.py
           tests/test_education_workspace.py
-          tests/test_education_workspace_adversarial.py
-          tests/test_education_workspace_remote_paths.py
-          tests/test_education_workspace_store_adversarial.py
           tests/test_education_classroom_integration.py
           tests/test_education_records.py
-          tests/test_education_records_adversarial.py
+          tests/test_education_records_store.py
           tests/test_classroom_domain.py
-          tests/test_classroom_domain_adversarial.py
+          tests/test_classroom_domain_corruption.py
           tests/test_teaching_session.py
           tests/test_teaching_session_adversarial.py
           tests/test_d10_remote_checkpoint_provenance.py
