@@ -388,16 +388,18 @@ class LibraryImportService:
     ) -> tuple[int, int]:
         """Prove stored canonical content equals the current decoded batch.
 
-        Comparison streams stored rows in source-index order and uses the existing
-        canonical GameTree serializer. No second PGN parser/serializer or unbounded
-        database-side identity list is introduced. Any canonical drift for the same
-        immutable source identity fails closed rather than silently reusing or
-        overwriting old Library truth.
+        Comparison streams stored rows in durable publication order, matching the
+        caller sequence that the first atomic publication inserted. This keeps
+        exact retries deterministic even when valid ``source_index`` values are
+        non-monotonic, without sorting/copying the potentially large input batch.
+        The existing canonical GameTree serializer remains the sole content oracle.
+        Any canonical drift for the same immutable source identity fails closed
+        rather than silently reusing or overwriting old Library truth.
         """
 
         cursor = self._db.conn.execute(
             """SELECT id, source_index, import_status, warnings_json, pgn_text
-               FROM games WHERE source_id=? ORDER BY source_index, id""",
+               FROM games WHERE source_id=? ORDER BY id""",
             (source_id,),
         )
         first_game_id: int | None = None
