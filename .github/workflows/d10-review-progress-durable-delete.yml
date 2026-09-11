@@ -1,0 +1,94 @@
+name: D10 Review Progress Durable Delete
+
+on:
+  pull_request:
+    paths:
+      - 'acs/education_progress_transaction.py'
+      - 'tests/test_d10_review_progress_durable_delete.py'
+      - '.github/workflows/d10-review-progress-durable-delete.yml'
+  push:
+    branches:
+      - 'work/d10-review-progress-durable-delete-20260911'
+    paths:
+      - 'acs/education_progress_transaction.py'
+      - 'tests/test_d10_review_progress_durable_delete.py'
+      - '.github/workflows/d10-review-progress-durable-delete.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: d10-review-progress-durable-delete-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Preserve exact Git bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config core.autocrlf false
+          git config core.eol lf
+          git reset --hard HEAD
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install pinned verification dependency
+        run: python -m pip install -q pytest==8.4.2
+
+      - name: Prove bounded #644 successor scope
+        shell: bash
+        env:
+          PARENT_SHA: 2f68b4765a8aa955433892a2da3ee612d3a55535
+        run: |
+          set -euo pipefail
+          git cat-file -e "$PARENT_SHA^{commit}"
+          git merge-base --is-ancestor "$PARENT_SHA" HEAD
+          git diff --check "$PARENT_SHA" HEAD
+          changed="$(git diff --name-only "$PARENT_SHA" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/d10-review-progress-durable-delete.yml' \
+            'acs/education_progress_transaction.py' \
+            'tests/test_d10_review_progress_durable_delete.py' | sort)"
+          test "$changed" = "$expected"
+
+          # This lane must not mutate either canonical store or frozen release paths.
+          test "$(git rev-parse "$PARENT_SHA:acs/education_workspace_store.py")" = "$(git rev-parse 'HEAD:acs/education_workspace_store.py')"
+          test "$(git rev-parse "$PARENT_SHA:acs/student_progress_store.py")" = "$(git rev-parse 'HEAD:acs/student_progress_store.py')"
+          test "$(git rev-parse "$PARENT_SHA:acs/education_progress_lifecycle.py")" = "$(git rev-parse 'HEAD:acs/education_progress_lifecycle.py')"
+
+      - name: Compile bounded Python
+        run: >-
+          python -m py_compile
+          acs/education_progress_transaction.py
+          tests/test_d10_review_progress_durable_delete.py
+
+      - name: Focused D10 durable privacy regression
+        run: >-
+          python -m pytest -q
+          tests/test_d10_review_progress_durable_delete.py
+          tests/test_d10_review_progress_delete_privacy.py
+          tests/test_dev3_student_progress.py
+          tests/test_dev3_student_progress_store.py
+          tests/test_education_workspace.py
+          tests/test_education_records.py
+          tests/test_classroom_domain.py
+
+      - name: Broad unittest regression on Ubuntu
+        if: matrix.os == 'ubuntu-22.04'
+        run: python -m unittest discover -s tests -p 'test_*.py'
