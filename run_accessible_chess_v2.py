@@ -20,7 +20,7 @@ if "--diagnostic" in sys.argv:
     from acs.selftest import run as core_run
     from acs.stage1_release_ui import complete_user_flow_diagnostic
     from acs.version2_final_product_profile import validate_final_product_profile
-    from acs.version2_final_release import create_version2_release_application
+    from acs.version2_education_mutation_release import create_version2_release_application
     from acs import version2_release_ui as _release_ui
 
     class _DiagnosticEngine:
@@ -148,6 +148,6 @@ else:
     if not install_pywebview_safe_local_server_port():
         raise SystemExit("Accessible WebView2 local server could not be initialized.")
 
-    from acs.version2_final_release import main
+    from acs.version2_education_mutation_release import main
 
     main()
