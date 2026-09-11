@@ -505,6 +505,7 @@ def _validate_sound_provenance(
 def _validate_required_runtime_resources(
     root: Path,
     inventory: tuple[str, ...],
+    limits: PackageLimits,
 ) -> None:
     for relative in _REQUIRED_WEB_FILES:
         _require_package_file(
@@ -588,12 +589,25 @@ def _validate_required_runtime_resources(
         _REQUIRED_STOCKFISH_SOURCE,
         label="Stockfish 18 corresponding source archive",
     )
+    source_archive_info = _safe_lstat(
+        source_archive,
+        label="Stockfish 18 corresponding source archive",
+    )
+    if source_archive_info.st_size > limits.max_archive_bytes:
+        _fail("Stockfish corresponding source archive exceeds archive byte limit")
     try:
         with zipfile.ZipFile(source_archive) as archive:
-            names = tuple(info.filename.replace("\\", "/") for info in archive.infolist())
+            entries = _validate_zip_entries(
+                archive,
+                limits,
+                enforce_package_file_policy=False,
+            )
     except (OSError, zipfile.BadZipFile, zipfile.LargeZipFile) as exc:
         _fail(f"Stockfish corresponding source archive is invalid: {type(exc).__name__}")
-    if not any("/src/" in f"/{name.lstrip('/')}" for name in names):
+    if not any(
+        not info.is_dir() and "/src/" in f"/{token.lstrip('/')}"
+        for info, token in entries
+    ):
         _fail("Stockfish corresponding source archive does not contain source files")
 
     notice_path = _require_package_file(
@@ -745,7 +759,7 @@ def validate_version2_package_tree(
     root = Path(root)
     inventory, total = _inventory(root, limits)
     _validate_topology(root, inventory)
-    _validate_required_runtime_resources(root, inventory)
+    _validate_required_runtime_resources(root, inventory, limits)
     integration_sha, _ = _manifest(root)
     if integration_sha != expected_sha:
         _fail("release manifest integration_sha does not match expected integration authority")
@@ -767,6 +781,8 @@ def _zip_member_token(info: zipfile.ZipInfo) -> str:
 def _validate_zip_entries(
     archive: zipfile.ZipFile,
     limits: PackageLimits,
+    *,
+    enforce_package_file_policy: bool = True,
 ) -> tuple[tuple[zipfile.ZipInfo, str], ...]:
     infos = archive.infolist()
     if not infos:
@@ -791,7 +807,8 @@ def _validate_zip_entries(
         if info.flag_bits & 0x1:
             _fail("encrypted ZIP members are forbidden")
         if not info.is_dir():
-            _validate_file_policy(token)
+            if enforce_package_file_policy:
+                _validate_file_policy(token)
             if info.file_size > limits.max_member_bytes:
                 _fail("ZIP member exceeds uncompressed size limit")
             total += int(info.file_size)
