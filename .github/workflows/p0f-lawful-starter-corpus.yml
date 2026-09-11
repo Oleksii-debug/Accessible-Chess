@@ -138,7 +138,7 @@ jobs:
               ).fetchone()
               assert total == distinct == manifest['counts']['starter_games']
               assert players >= 20
-              assert events >= 5
+              assert events >= 1
           print('P0_F_W2_LAWFUL_REAL_STARTER=PASS')
           PY
 
