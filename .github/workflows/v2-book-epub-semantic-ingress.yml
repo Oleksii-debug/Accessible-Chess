@@ -1,23 +1,40 @@
-name: V2 EPUB Current-Base Convergence
+name: V2 EPUB Retained Regression
 
 on:
   push:
     branches:
-      - work/v2-book-epub-semantic-ingress-20260907
+      - fix/v2-epub-retained-gate-20260911
   pull_request:
     branches:
       - work/full-product-teacher-education-reachability-20260911
+    paths:
+      - .github/workflows/v2-book-epub-semantic-ingress.yml
+      - acs/book_epub_import.py
+      - acs/book_html_import.py
+      - acs/book_text_import.py
+      - acs/bookdocument.py
+      - acs/chesscore.py
+      - acs/gametree.py
+      - acs/pgn_roundtrip.py
+      - acs/version2_application.py
+      - tests/test_v2_book_epub_import.py
+      - tests/test_v2_book_html_import.py
+      - tests/test_v2_html_semantic_lists.py
+      - tests/test_bookdocument.py
+      - tests/test_book_index.py
+      - tests/test_bookreader.py
+      - tests/test_v2_accessible_book_core.py
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: accessible-chess-v2-epub-current-${{ github.ref }}
+  group: accessible-chess-v2-epub-retained-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  epub-current-base:
+  epub-retained-regression:
     strategy:
       fail-fast: false
       matrix:
@@ -46,30 +63,18 @@ jobs:
       - name: Install pinned verification dependency
         run: python -m pip install -q pytest==8.4.2
 
-      - name: Prove current-base ancestry and bounded EPUB scope
+      - name: Prove integrated EPUB ancestry and retained gate hygiene
         shell: bash
         env:
-          CANONICAL_BASE_SHA: 99d11c19314ef3ef9d2558b399fcc5dcedbd13b3
+          EPUB_INTEGRATION_SHA: b7eaab155cd86d41a6126a6a26c15c7f8bacfb53
         run: |
           set -euo pipefail
-          base="$CANONICAL_BASE_SHA"
-          git cat-file -e "${base}^{commit}" || git fetch --no-tags origin "$base"
-          git merge-base --is-ancestor "$base" HEAD
-          git diff --check "$base" HEAD
-          changed="$(git diff --name-only "$base" HEAD | sort)"
-          expected="$(printf '%s\n' \
-            '.github/workflows/v2-book-epub-semantic-ingress.yml' \
-            'acs/book_epub_import.py' \
-            'tests/test_v2_book_epub_import.py' | sort)"
-          test "$changed" = "$expected"
-          test "$(git rev-parse HEAD:acs/book_html_import.py)" = 1061e79c9557fb09e965fb0e8d8626e038876edb
-          test "$(git rev-parse HEAD:acs/book_epub_import.py)" = f55ed184aad2dd8d6d512329fb2e5a0db3b3f442
-          test "$(git rev-parse HEAD:tests/test_v2_book_epub_import.py)" = d3a714b8bdfceac23242634ebe721dd1b07f5ad9
-          git diff --quiet "$base" HEAD -- \
-            acs/book_html_import.py acs/book_text_import.py acs/bookdocument.py \
-            acs/chesscore.py acs/gametree.py acs/pgn_roundtrip.py \
-            acs/version2_application.py acs/version2_release_app.py \
-            run_accessible_chess_v2.py web tools/qa
+          integrated="$EPUB_INTEGRATION_SHA"
+          git cat-file -e "${integrated}^{commit}" || git fetch --no-tags origin "$integrated"
+          git merge-base --is-ancestor "$integrated" HEAD
+          git diff --check "$integrated" HEAD
+          test -s acs/book_epub_import.py
+          test -s tests/test_v2_book_epub_import.py
 
       - name: Compile EPUB adapter and regressions
         run: python -m py_compile acs/book_epub_import.py tests/test_v2_book_epub_import.py
