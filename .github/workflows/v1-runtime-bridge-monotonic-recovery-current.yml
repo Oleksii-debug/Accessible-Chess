@@ -1,0 +1,125 @@
+name: V1 Runtime Bridge Monotonic Recovery Current
+
+on:
+  push:
+    branches:
+      - fix/v1-bridge-monotonic-recovery-20260911
+    paths:
+      - 'acs/v1_runtime_bridge.py'
+      - 'tests/test_v1_runtime_bridge_windows_crash_oracle.py'
+      - 'tests/oracles/v1_runtime_bridge_windows_crash_expected.json'
+      - '.github/workflows/v1-runtime-bridge-monotonic-recovery-current.yml'
+  pull_request:
+    paths:
+      - 'acs/v1_runtime_bridge.py'
+      - 'tests/test_v1_runtime_bridge_windows_crash_oracle.py'
+      - 'tests/oracles/v1_runtime_bridge_windows_crash_expected.json'
+      - '.github/workflows/v1-runtime-bridge-monotonic-recovery-current.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: v1-runtime-bridge-monotonic-recovery-current-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PRODUCT_BASE: 38df77a62d76f92442f65b2a888c82266d33be9d
+  SOURCE_REPAIR: 532badb15d73ad2fd734d33f223bb59c44d8d5fd
+  ORACLE_SOURCE: ff52de10713d76f8e81f753b3126c9e5304b67b7
+  REPAIR_BLOB: 5a4d5676e9b036fd6642e707f7dfd2d45feb42b8
+  ORACLE_TEST_BLOB: b9388445c1510800da59f6f31dee52c7643f4ed3
+  ORACLE_JSON_BLOB: 34517c2737ab25c79ec5495d0121f76694e4311f
+
+jobs:
+  qualify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Preserve exact Git bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config core.autocrlf false
+          git config core.eol lf
+          git reset --hard HEAD
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install pinned verification dependency
+        run: python -m pip install -q pytest==8.4.2
+
+      - name: Prove exact current authority, repair lineage and unchanged oracle
+        shell: bash
+        env:
+          EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          base="${EVENT_BASE_SHA:-$PRODUCT_BASE}"
+          test "$base" = "$PRODUCT_BASE"
+          for commit in "$PRODUCT_BASE" "$SOURCE_REPAIR" "$ORACLE_SOURCE"; do
+            git cat-file -e "${commit}^{commit}" || git fetch --no-tags origin "$commit"
+          done
+          git merge-base --is-ancestor "$PRODUCT_BASE" HEAD
+          git merge-base --is-ancestor "$SOURCE_REPAIR" HEAD
+          git diff --check "$PRODUCT_BASE" HEAD
+
+          changed="$(git diff --name-only "$PRODUCT_BASE" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/v1-runtime-bridge-monotonic-recovery-current.yml' \
+            'acs/v1_runtime_bridge.py' \
+            'tests/oracles/v1_runtime_bridge_windows_crash_expected.json' \
+            'tests/test_v1_runtime_bridge_windows_crash_oracle.py' | sort)"
+          test "$changed" = "$expected"
+
+          test "$(git rev-parse HEAD:acs/v1_runtime_bridge.py)" = "$REPAIR_BLOB"
+          test "$(git rev-parse "$SOURCE_REPAIR":acs/v1_runtime_bridge.py)" = "$REPAIR_BLOB"
+          test "$(git rev-parse HEAD:tests/test_v1_runtime_bridge_windows_crash_oracle.py)" = "$ORACLE_TEST_BLOB"
+          test "$(git rev-parse "$ORACLE_SOURCE":tests/test_v1_runtime_bridge_windows_crash_oracle.py)" = "$ORACLE_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/oracles/v1_runtime_bridge_windows_crash_expected.json)" = "$ORACLE_JSON_BLOB"
+          test "$(git rev-parse "$ORACLE_SOURCE":tests/oracles/v1_runtime_bridge_windows_crash_expected.json)" = "$ORACLE_JSON_BLOB"
+          test "$(git rev-parse "$PRODUCT_BASE":acs/v1_runtime_bridge.py)" != "$REPAIR_BLOB"
+
+      - name: Syntax and imports
+        run: >-
+          python -m compileall -q
+          acs/v1_runtime_bridge.py
+          acs/version2_upgrade.py
+          acs/settings.py
+          acs/acsdb.py
+          tests/test_v1_runtime_bridge_windows_crash_oracle.py
+
+      - name: Exact unchanged crash-restart oracle and bridge regressions
+        run: >-
+          python -m unittest -v
+          tests.test_v1_runtime_bridge_windows_crash_oracle
+          tests.test_v1_runtime_bridge
+          tests.test_v1_runtime_bridge_publication_atomicity
+          tests.test_v1_runtime_bridge_backup_path_security
+
+      - name: Broad repository unittest regression
+        if: matrix.os == 'ubuntu-22.04'
+        run: python -m unittest discover -s tests -p 'test_*.py'
+
+      - name: Emit exact repair authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "PRODUCT_BASE=$PRODUCT_BASE"
+          echo "SOURCE_REPAIR=$SOURCE_REPAIR"
+          echo "ORACLE_SOURCE=$ORACLE_SOURCE"
+          echo "QUALIFIED_HEAD=$(git rev-parse HEAD)"
+          echo "HUMAN_TESTED=NO"
+          echo "NVDA_VERIFIED=NO"
