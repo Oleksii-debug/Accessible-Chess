@@ -7,6 +7,7 @@ from acs.acsdb import AcsDatabase
 from acs.starter_content import (
     STARTER_GAME_COUNT,
     STRESS_GAME_COUNT,
+    _generate_game,
     build_sample_library,
     build_starter_bundle,
     build_starter_pgn,
@@ -18,32 +19,43 @@ def _game_count(text: str) -> int:
     return text.count('[Event "')
 
 
-def test_starter_pgn_is_deterministic_project_authored_and_large_enough():
-    first = build_starter_pgn()
-    second = build_starter_pgn()
+def test_acceptance_volume_defaults_are_substantial():
+    assert STARTER_GAME_COUNT >= 200
+    assert STRESS_GAME_COUNT > STARTER_GAME_COUNT
+
+
+def test_starter_pgn_is_deterministic_project_authored():
+    first = build_starter_pgn(8)
+    second = build_starter_pgn(8)
 
     assert first == second
-    assert _game_count(first) == STARTER_GAME_COUNT
-    assert STARTER_GAME_COUNT >= 200
+    assert _game_count(first) == 8
     assert "project-authored synthetic corpus" in first
     assert "Синтетична навчальна партія" in first
     assert "http://" not in first
     assert "https://" not in first
 
 
+def test_default_starter_games_have_distinct_legal_sequences():
+    movetexts = {
+        _generate_game(index, max_plies=32).movetext
+        for index in range(1, STARTER_GAME_COUNT + 1)
+    }
+    assert len(movetexts) == STARTER_GAME_COUNT
+
+
 def test_stress_pgn_is_larger_and_deterministic():
-    first = build_stress_pgn()
-    second = build_stress_pgn()
+    first = build_stress_pgn(16)
+    second = build_stress_pgn(16)
 
     assert first == second
-    assert _game_count(first) == STRESS_GAME_COUNT
-    assert STRESS_GAME_COUNT > STARTER_GAME_COUNT
-    assert len(first.encode("utf-8")) > len(build_starter_pgn().encode("utf-8"))
+    assert _game_count(first) == 16
+    assert len(first.encode("utf-8")) > len(build_starter_pgn(8).encode("utf-8"))
 
 
 def test_sample_library_uses_canonical_import_and_is_searchable(tmp_path):
     database_path = tmp_path / "sample_library.acsdb"
-    build_sample_library(database_path)
+    build_sample_library(database_path, starter_pgn=build_starter_pgn(32))
 
     with AcsDatabase(database_path) as database:
         assert database.verify_integrity() >= 1
@@ -56,13 +68,13 @@ def test_sample_library_uses_canonical_import_and_is_searchable(tmp_path):
 
 
 def test_bundle_manifest_hashes_every_payload_and_records_provenance(tmp_path):
-    manifest = build_starter_bundle(tmp_path)
+    manifest = build_starter_bundle(tmp_path, starter_count=32, stress_count=64)
 
     assert manifest["provenance"]["kind"] == "project-authored-synthetic"
     assert manifest["provenance"]["third_party_corpus"] is False
     assert manifest["provenance"]["network_required"] is False
-    assert manifest["counts"]["starter_games"] == STARTER_GAME_COUNT
-    assert manifest["counts"]["stress_games"] == STRESS_GAME_COUNT
+    assert manifest["counts"]["starter_games"] == 32
+    assert manifest["counts"]["stress_games"] == 64
 
     on_disk = json.loads((tmp_path / "manifest.json").read_text(encoding="utf-8"))
     assert on_disk == manifest
