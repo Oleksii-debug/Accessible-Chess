@@ -121,6 +121,7 @@ public sealed record DeepPractice(
 public static class CourseContractIdentifiers
 {
     private static readonly Regex StableId = new("^[a-z0-9][a-z0-9._-]*$", RegexOptions.Compiled | RegexOptions.CultureInvariant);
+    private static readonly Regex SchemeOrDrivePrefix = new("^[A-Za-z][A-Za-z0-9+.-]*:", RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
     public static bool IsStableId(string? value) =>
         !string.IsNullOrWhiteSpace(value) &&
@@ -133,8 +134,13 @@ public static class CourseContractIdentifiers
             return false;
         if (value.Contains("://", StringComparison.Ordinal) || value.StartsWith('/') || value.StartsWith('\\'))
             return false;
-        if (value.Length >= 3 && char.IsLetter(value[0]) && value[1] == ':' && (value[2] == '\\' || value[2] == '/'))
+        if (value.Contains('\\') || SchemeOrDrivePrefix.IsMatch(value))
             return false;
+
+        string[] segments = value.Split('/');
+        if (segments.Any(segment => string.IsNullOrEmpty(segment) || segment is "." or ".."))
+            return false;
+
         return true;
     }
 }
