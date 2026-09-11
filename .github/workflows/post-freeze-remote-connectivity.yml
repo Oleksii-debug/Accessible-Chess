@@ -9,11 +9,13 @@ on:
       - 'acs/remote_durability.py'
       - 'acs/remote_controller.py'
       - 'acs/remote_event_delivery.py'
+      - 'acs/remote_user_journey.py'
       - 'tests/test_remote_connectivity.py'
       - 'tests/test_remote_provider.py'
       - 'tests/test_remote_durability.py'
       - 'tests/test_remote_controller.py'
       - 'tests/test_remote_event_delivery.py'
+      - 'tests/test_remote_user_journey.py'
       - '.github/workflows/post-freeze-remote-connectivity.yml'
   workflow_dispatch:
 
@@ -72,11 +74,13 @@ jobs:
             'acs/remote_event_delivery.py' \
             'acs/remote_protocol_control.py' \
             'acs/remote_provider.py' \
+            'acs/remote_user_journey.py' \
             'tests/test_remote_connectivity.py' \
             'tests/test_remote_controller.py' \
             'tests/test_remote_durability.py' \
             'tests/test_remote_event_delivery.py' \
-            'tests/test_remote_provider.py' | sort)"
+            'tests/test_remote_provider.py' \
+            'tests/test_remote_user_journey.py' | sort)"
           test "$changed" = "$expected"
 
       - name: Prove canonical Product authorities are untouched
@@ -105,11 +109,13 @@ jobs:
           acs/remote_durability.py
           acs/remote_controller.py
           acs/remote_event_delivery.py
+          acs/remote_user_journey.py
           tests/test_remote_connectivity.py
           tests/test_remote_provider.py
           tests/test_remote_durability.py
           tests/test_remote_controller.py
           tests/test_remote_event_delivery.py
+          tests/test_remote_user_journey.py
 
       - name: Focused remote connectivity tests
         run: >-
@@ -119,6 +125,7 @@ jobs:
           tests.test_remote_durability
           tests.test_remote_controller
           tests.test_remote_event_delivery
+          tests.test_remote_user_journey
 
       - name: Canonical remote and teaching regression tests
         run: >-
