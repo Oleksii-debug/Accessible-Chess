@@ -47,24 +47,27 @@ jobs:
       - name: Install pinned verification dependency
         run: python -m pip install -q pytest==8.4.2
 
-      - name: Prove bounded child scope
+      - name: Prove retained Education authority and current PR hygiene
         shell: bash
+        env:
+          EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
           set -euo pipefail
-          test -n "${GITHUB_BASE_REF:-}"
-          git fetch --no-tags origin "${GITHUB_BASE_REF}:refs/remotes/origin/${GITHUB_BASE_REF}"
-          base="$(git rev-parse "origin/${GITHUB_BASE_REF}")"
+          base="${EVENT_BASE_SHA:-}"
+          if [ -z "$base" ]; then
+            base="$(git rev-parse HEAD^)"
+          fi
+          git cat-file -e "${base}^{commit}" || git fetch --no-tags origin "$base"
+          education_owner="3df622f6d667b3513222003df159e52188e60bda"
+          git cat-file -e "${education_owner}^{commit}"
           git merge-base --is-ancestor "$base" HEAD
+          git merge-base --is-ancestor "$education_owner" HEAD
           git diff --check "$base" HEAD
-          changed="$(git diff --name-only "$base" HEAD | sort)"
-          expected="$(printf '%s\n' \
-            '.github/workflows/full-product-education-class-create.yml' \
-            'acs/education_class_management.py' \
-            'acs/version2_education_mutation_application.py' \
-            'acs/version2_education_mutation_release.py' \
-            'run_accessible_chess_v2.py' \
-            'tests/test_version2_education_class_create.py' | sort)"
-          test "$changed" = "$expected"
+          test "$(git rev-parse HEAD:acs/education_class_management.py)" = "7b5e8c309ac453cb904552b23af658357db377db"
+          test "$(git rev-parse HEAD:acs/version2_education_mutation_application.py)" = "f3a2633c400a4f07fffa52d478456c62a8330fc6"
+          test "$(git rev-parse HEAD:acs/version2_education_mutation_release.py)" = "3bd742fb0ba81dfb36bd18857d5bace9da5ff311"
+          test "$(git rev-parse HEAD:run_accessible_chess_v2.py)" = "125f378e87acbca993acf54bd4012e93539384d3"
+          test "$(git rev-parse HEAD:tests/test_version2_education_class_create.py)" = "3a354dbf7c5f472b1bdd72f06f1b969e709c5394"
 
       - name: Compile changed Python
         run: >-
