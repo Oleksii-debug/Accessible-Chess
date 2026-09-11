@@ -151,32 +151,59 @@ class StreamingPgnSourceBindingTests(unittest.TestCase):
             progress = []
             original_open = streaming._open_bound_source_fd
             swapped = False
+            swap_blocked = False
 
             def open_then_swap(*args, **kwargs):
-                nonlocal swapped
+                nonlocal swapped, swap_blocked
                 fd = original_open(*args, **kwargs)
-                replacement.replace(source)
-                swapped = True
+                try:
+                    replacement.replace(source)
+                except PermissionError:
+                    # Windows opens this descriptor without delete sharing, so NT
+                    # itself prevents the path replacement while the trusted fd is
+                    # held. That is a valid stronger form of the same invariant.
+                    swap_blocked = True
+                else:
+                    swapped = True
                 return fd
 
+            caught = None
+            result = None
             with patch.object(streaming, "_open_bound_source_fd", side_effect=open_then_swap):
-                with self.assertRaises(StreamingPgnImportError) as caught:
-                    StreamingPgnLibraryImporter(LibraryImportService(database)).import_file(
+                try:
+                    result = StreamingPgnLibraryImporter(
+                        LibraryImportService(database)
+                    ).import_file(
                         source,
                         failure_policy=StreamingPgnFailurePolicy.SOURCE_ATOMIC,
                         progress_callback=progress.append,
                     )
+                except StreamingPgnImportError as exc:
+                    caught = exc
 
-            self.assertTrue(swapped)
-            self.assertEqual(caught.exception.code, StreamingPgnErrorCode.SOURCE_CHANGED)
-            self.assertEqual(source.read_bytes(), b"\xffreplacement bytes must never be parsed\n")
+            self.assertNotEqual(swapped, swap_blocked)
             self.assertTrue(
                 any(
                     item.phase is StreamingPgnPhase.PARSING and item.accepted_games == 2
                     for item in progress
                 )
             )
-            self.assertEqual(database.search_games(limit=100), [])
+
+            if swapped:
+                self.assertIsNotNone(caught)
+                self.assertEqual(caught.code, StreamingPgnErrorCode.SOURCE_CHANGED)
+                self.assertEqual(
+                    source.read_bytes(),
+                    b"\xffreplacement bytes must never be parsed\n",
+                )
+                self.assertEqual(database.search_games(limit=100), [])
+            else:
+                self.assertTrue(swap_blocked)
+                self.assertIsNone(caught)
+                self.assertIsNotNone(result)
+                self.assertTrue(result.complete)
+                self.assertEqual(source.read_text(encoding="utf-8"), ORIGINAL_PGN)
+                self.assertEqual(len(database.search_games(limit=100)), 2)
 
     def test_same_inode_mutation_during_read_is_rejected_before_publication(self) -> None:
         with tempfile.TemporaryDirectory() as directory, AcsDatabase() as database:
