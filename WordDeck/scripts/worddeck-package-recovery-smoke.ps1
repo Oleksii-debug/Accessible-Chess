@@ -142,13 +142,8 @@ finally {
         $script:appPid = $null
     }
 
-    # Test artifacts must not remain locked or leak into later acceptance work.
-    if (Test-Path -LiteralPath $script:replacementRoot) {
-        Remove-Item -LiteralPath $script:replacementRoot -Recurse -Force
-    }
-
-    # Restoring a profile that existed before the test is a hard safety property,
-    # not best-effort cleanup. A restore failure must fail the acceptance run.
+    # Restoring a profile that existed before the test is the first cleanup
+    # priority. A failure here must never be masked by disposable temp cleanup.
     if (Test-Path -LiteralPath $script:stateRoot) {
         Remove-Item -LiteralPath $script:stateRoot -Recurse -Force
     }
@@ -163,5 +158,11 @@ finally {
     }
     elseif (Test-Path -LiteralPath $script:originalStateBackup) {
         Remove-Item -LiteralPath $script:originalStateBackup -Recurse -Force
+    }
+
+    # The temporary replacement package is disposable. Clean it only after the
+    # pre-test learner state is safe again; any leftover lock still fails the run.
+    if (Test-Path -LiteralPath $script:replacementRoot) {
+        Remove-Item -LiteralPath $script:replacementRoot -Recurse -Force
     }
 }
