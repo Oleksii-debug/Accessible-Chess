@@ -1,6 +1,9 @@
 name: W6 V2 Package Preflight Current Runtime
 
 on:
+  push:
+    branches:
+      - fix/w6-package-retained-gates-20260912
   pull_request:
     branches:
       - codex/v2-runtime-completion-20260907
