@@ -23,6 +23,7 @@ from .settings import Settings
 from .sound_runtime import GameSoundRuntime, SoundRuntime, SoundRuntimeSettings
 from .sound_windows import PackagedSoundAssetResolver, WindowsSoundPlaybackAdapter
 from .stockfish_runtime import StockfishRuntime, StockfishRuntimeConfig
+from .v1_runtime_bridge import V1RuntimeBridgeCoordinator
 from .version2_application import Version2Application
 from .version2_release_ui import Version2ReleaseAccessibleChessAPI, run_version2_release_window
 from .version2_upgrade import UserDataLayout, Version2UpgradeCoordinator
@@ -276,13 +277,33 @@ def _prepare_version2_user_data(
     *,
     data_root: str | Path | None = None,
     settings_path: str | Path | None = None,
+    application_dir: str | Path | None = None,
     coordinator_factory: Callable[[UserDataLayout], Any] = Version2UpgradeCoordinator,
+    bridge_factory: Callable[[UserDataLayout, Path], Any] = V1RuntimeBridgeCoordinator,
 ) -> UserDataLayout:
-    """Recover/upgrade V2 state before any normal settings or database writer opens."""
+    """Recover/upgrade user data before any normal settings or database writer opens.
+
+    A shipped V1 installation stored its user data beside ``AccessibleChess.exe``.
+    When that exact packaged executable exists, import that bounded legacy topology
+    first.  Then run the canonical in-root V2 upgrader.  Source/diagnostic trees with
+    no packaged executable retain the existing V2-only startup path.
+    """
 
     if not callable(coordinator_factory):
         raise TypeError("coordinator_factory must be callable")
+    if not callable(bridge_factory):
+        raise TypeError("bridge_factory must be callable")
     layout = _version2_user_data_layout(data_root=data_root, settings_path=settings_path)
+
+    if application_dir is not None:
+        executable = Path(application_dir) / "AccessibleChess.exe"
+        if executable.is_file():
+            bridge = bridge_factory(layout, executable)
+            bridge_run = getattr(bridge, "run", None)
+            if not callable(bridge_run):
+                raise TypeError("V1 runtime bridge coordinator must expose run()")
+            bridge_run()
+
     coordinator = coordinator_factory(layout)
     run = getattr(coordinator, "run", None)
     if not callable(run):
@@ -311,11 +332,12 @@ def create_version2_release_application(
     STA thread. Diagnostics can keep the eager, calling-thread composition.
     """
 
+    app_dir = Path(application_dir) if application_dir is not None else _asset_root()
     layout = _prepare_version2_user_data(
         data_root=data_root,
         settings_path=settings_path,
+        application_dir=app_dir,
     )
-    app_dir = Path(application_dir) if application_dir is not None else _asset_root()
     engine_runtime = runtime_factory(StockfishRuntimeConfig(application_dir=app_dir))
     analysis = AnalysisService(engine_runtime.provider, owns_engine=False)
     continuous = ContinuousAnalysisService(analysis)
