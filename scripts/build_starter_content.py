@@ -20,6 +20,14 @@ from acs.starter_content import (  # noqa: E402
 )
 
 
+def _configure_stdout_utf8() -> None:
+    """Keep the CLI's Ukrainian manifest portable across Windows code pages."""
+
+    reconfigure = getattr(sys.stdout, "reconfigure", None)
+    if callable(reconfigure):
+        reconfigure(encoding="utf-8", errors="strict")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Build deterministic project-authored Accessible Chess starter assets."
@@ -40,6 +48,7 @@ def main() -> int:
         starter_count=args.starter_games,
         stress_count=args.stress_games,
     )
+    _configure_stdout_utf8()
     print(json.dumps(manifest, ensure_ascii=False, sort_keys=True))
     return 0
 
