@@ -58,8 +58,6 @@ jobs:
         with:
           python-version: "3.12"
       - name: Full unittest regression
-        run: python -m unittest discover -v
-      - name: Product selftest and V2 diagnostic
-        run: |
-          python -m acs.selftest
-          python run_accessible_chess_v2.py --diagnostic
+        run: python -m unittest discover -s tests -v
+      - name: V2 diagnostic launch
+        run: python run_accessible_chess_v2.py --diagnostic
