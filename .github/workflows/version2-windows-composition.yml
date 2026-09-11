@@ -32,6 +32,7 @@ concurrency:
 
 env:
   V2_FORMATS_UPSTREAM: b18ac89bb7f1ef3d4106517fe3521179ab4522a1
+  V2_ACCEPTED_STAGE1_BOOTSTRAP_BLOB: bced41192feb068a71ed0789be5629164a37e6c9
 
 jobs:
   composition:
@@ -85,8 +86,15 @@ jobs:
           git merge-base --is-ancestor "$scope_base" HEAD
           git diff --check "$scope_base" HEAD
 
+          actual_stage1_bootstrap_blob="$(git rev-parse HEAD:web/stage1_release_bootstrap.js)"
+          if [ "$actual_stage1_bootstrap_blob" != "$V2_ACCEPTED_STAGE1_BOOTSTRAP_BLOB" ]; then
+            echo "Unexpected Stage 1 bootstrap blob: $actual_stage1_bootstrap_blob" >&2
+            exit 1
+          fi
+
           changed="$(git diff --name-only "$scope_base" HEAD | sort)"
-          if printf '%s\n' "$changed" | grep -E '(^|/)(stage1|tools/qa/|windows-stage1|release_preflight)'; then
+          unapproved_changed="$(printf '%s\n' "$changed" | grep -v '^web/stage1_release_bootstrap\.js$' || true)"
+          if printf '%s\n' "$unapproved_changed" | grep -E '(^|/)(stage1|tools/qa/|windows-stage1|release_preflight)'; then
             echo 'Stage 1 or strict-release contamination detected' >&2
             exit 1
           fi
@@ -95,7 +103,7 @@ jobs:
             acs/stage1_release_ui.py acs/stage1_release_ui_core.py \
             acs/chesscore.py acs/gametree.py acs/pgn_document.py \
             acs/pgn_service.py acs/pgn_workspace.py \
-            web/stage1_release_bootstrap.js web/stage1_board_actions.js \
+            web/stage1_board_actions.js \
             tools/qa
 
       - name: Compile Python package
