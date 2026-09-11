@@ -1,0 +1,66 @@
+name: V2 Current Composition Startup Cleanup
+
+on:
+  push:
+    branches:
+      - work/v2-composition-startup-cleanup-current-20260911
+  pull_request:
+    paths:
+      - 'acs/version2_release_app.py'
+      - 'tests/test_version2_composition_startup_cleanup_current.py'
+      - '.github/workflows/v2-composition-startup-cleanup-current.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: v2-current-startup-cleanup-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  FROZEN_RUNTIME_BASE: 450f1cc2ccf786cd07c7b41853e449fc12740b19
+
+jobs:
+  startup-cleanup:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Prove exact frozen-runtime ancestry and bounded scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          git cat-file -e "$FROZEN_RUNTIME_BASE^{commit}"
+          git merge-base --is-ancestor "$FROZEN_RUNTIME_BASE" HEAD
+          git diff --check "$FROZEN_RUNTIME_BASE" HEAD
+          unexpected="$(git diff --name-only "$FROZEN_RUNTIME_BASE" HEAD | grep -Ev '^(acs/version2_release_app.py|tests/test_version2_composition_startup_cleanup_current.py|.github/workflows/v2-composition-startup-cleanup-current.yml)$' || true)"
+          if [ -n "$unexpected" ]; then
+            echo "Unexpected startup-cleanup scope:" >&2
+            printf '%s\n' "$unexpected" >&2
+            exit 1
+          fi
+
+      - name: Compile focused release composition
+        run: >-
+          python -m py_compile
+          acs/version2_release_app.py
+          tests/test_version2_composition_startup_cleanup_current.py
+
+      - name: Run startup cleanup and inherited release-host regressions
+        run: >-
+          python -m unittest -v
+          tests.test_version2_composition_startup_cleanup_current
+          tests.test_version2_release_app
+          tests.test_version2_release_ui
