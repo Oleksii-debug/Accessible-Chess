@@ -198,13 +198,13 @@
     if (previous && typeof previous.replaceWith === "function") previous.replaceWith(replacement);
   }
 
-  function applyTeacherEvent(root, result, invoke, announce, fallbackMessage) {
+  function applyTeacherEvent(root, result, invoke, announce, fallbackMessage, preservePointerEditorValue) {
     if (!root || !result || typeof result !== "object") return;
     const payload = result.payload && typeof result.payload === "object" ? result.payload : {};
     if ((result.kind === "render-pointer" || result.kind === "render-visual") && payload.snapshot) {
       replaceVisual(root, payload.snapshot, invoke, announce, fallbackMessage);
     }
-    if (payload.clear_editor) {
+    if (payload.clear_editor && !preservePointerEditorValue) {
       const input = root.querySelector("#teacher-pointer-input");
       if (input) input.value = "";
     }
@@ -238,10 +238,16 @@
     form.appendChild(input);
     form.appendChild(submit);
 
+    let pointerRequestSequence = 0;
     function submitPointer() {
       if (input.value.length !== 2) return;
-      safeInvoke(invoke, "teacher.pointer_input", { coordinate: input.value }, function (result) {
-        applyTeacherEvent(root, result, invoke, announce, fallbackMessage);
+      const coordinate = input.value;
+      input.value = "";
+      pointerRequestSequence += 1;
+      const requestSequence = pointerRequestSequence;
+      safeInvoke(invoke, "teacher.pointer_input", { coordinate: coordinate }, function (result) {
+        if (requestSequence !== pointerRequestSequence) return;
+        applyTeacherEvent(root, result, invoke, announce, fallbackMessage, true);
       }, announce, fallbackMessage);
     }
     input.addEventListener("input", submitPointer);
