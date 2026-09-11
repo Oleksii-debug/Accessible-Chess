@@ -40,13 +40,8 @@ class _Version2OwnedBookDialogs(Version2OwnedWindowsFileDialogs):
         DialogResult, OpenFileDialog, _ = self._load_forms()
         dialog = OpenFileDialog()
         try:
-            dialog.Title = "Open chess book"
-            dialog.Filter = (
-                "Supported books (*.html;*.htm;*.xhtml;*.txt;*.md;*.markdown)|"
-                "*.html;*.htm;*.xhtml;*.txt;*.md;*.markdown|"
-                "HTML books (*.html;*.htm;*.xhtml)|*.html;*.htm;*.xhtml|"
-                "Text and Markdown (*.txt;*.md;*.markdown)|*.txt;*.md;*.markdown"
-            )
+            dialog.Title = self.dialog_text("open_book_title")
+            dialog.Filter = self.dialog_text("book_filter")
             dialog.CheckFileExists = True
             dialog.CheckPathExists = True
             dialog.Multiselect = False
@@ -62,8 +57,8 @@ class _Version2OwnedBookDialogs(Version2OwnedWindowsFileDialogs):
         MessageBox, MessageBoxButtons, MessageBoxIcon = self._message_box_loader()
         result = MessageBox.Show(
             owner,
-            "The current PGN has unsaved changes. Exit without saving these changes?",
-            "Unsaved PGN changes",
+            self.dialog_text("exit_unsaved_pgn_message"),
+            self.dialog_text("exit_unsaved_pgn_title"),
             MessageBoxButtons.YesNo,
             MessageBoxIcon.Warning,
         )
@@ -410,7 +405,11 @@ def create_version2_release_application(
         if application is None:
             raise RuntimeError("Version 2 application must be constructed on the native UI first")
         application._assert_thread()
-        book_dialogs = _Version2OwnedBookDialogs(lambda: owner_control)
+        dialog_language_provider = lambda: application.shell.language
+        book_dialogs = _Version2OwnedBookDialogs(
+            lambda: owner_control,
+            language_provider=dialog_language_provider,
+        )
         application.open_book_dialog = book_dialogs.open_book
         file_runtime = Version2WindowsFileWorkflowRuntime(
             owner_control=owner_control,
@@ -422,6 +421,7 @@ def create_version2_release_application(
             pgn_export_event_sink=application._file_event,
             next_delegate=api.v2_board_dispatch,
             current_focus_provider=lambda: str(application._focus),
+            dialog_language_provider=dialog_language_provider,
         )
         file_runtime = _install_close_guard_or_shutdown(
             file_runtime, application, owner_control, book_dialogs
