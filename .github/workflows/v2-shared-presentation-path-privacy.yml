@@ -7,6 +7,7 @@ on:
   pull_request:
     paths:
       - '.github/workflows/v2-shared-presentation-path-privacy.yml'
+      - '.github/workflows/version2-formats-integration.yml'
       - 'acs/presentation_privacy.py'
       - 'acs/book_webview_projection.py'
       - 'acs/training_webview_projection.py'
@@ -56,6 +57,7 @@ jobs:
           changed="$(git diff --name-only "$CURRENT_BASE" HEAD | sort)"
           allowed="$(printf '%s\n' \
             .github/workflows/v2-shared-presentation-path-privacy.yml \
+            .github/workflows/version2-formats-integration.yml \
             acs/book_webview_projection.py \
             acs/library_webview_projection.py \
             acs/pgn_webview_projection.py \
@@ -65,7 +67,7 @@ jobs:
             tests/test_v2_pgn_webview_path_privacy.py \
             tests/test_v2_shared_presentation_path_privacy.py | sort)"
           test "$changed" = "$allowed" || {
-            printf 'Unexpected current presentation privacy scope:\n%s\n' "$changed" >&2
+            printf 'Unexpected current presentation privacy qualification scope:\n%s\n' "$changed" >&2
             exit 1
           }
 
