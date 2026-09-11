@@ -8,6 +8,7 @@ on:
     paths:
       - 'acs/training_progress_store.py'
       - 'tests/test_w2_training_progress_crash_recovery.py'
+      - 'tests/js/v2_remapped_keyboard_native_editing_test.js'
       - '.github/workflows/w2-training-progress-windows-missing-parent.yml'
 
 permissions:
@@ -48,6 +49,7 @@ jobs:
           expected="$(printf '%s\n' \
             '.github/workflows/w2-training-progress-windows-missing-parent.yml' \
             'acs/training_progress_store.py' \
+            'tests/js/v2_remapped_keyboard_native_editing_test.js' \
             'tests/test_w2_training_progress_crash_recovery.py' | sort)"
           test "$changed" = "$expected" || {
             printf 'Unexpected W2 repair scope:\n%s\n' "$changed" >&2
@@ -65,6 +67,8 @@ jobs:
           tests.test_d08_book_training_contract
           tests.test_books_training_ui_integration
           tests.test_version2_training_current_runtime
+      - name: Native-editing harness survives platform line endings
+        run: node tests/js/v2_remapped_keyboard_native_editing_test.js
       - name: Full repository unittest
         run: python -m unittest discover -s tests -v
       - name: Full repository pytest
