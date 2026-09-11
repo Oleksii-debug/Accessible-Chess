@@ -56,7 +56,32 @@ internal static class Program
         Require(!physicalAssetResult.IsValid && physicalAssetResult.Issues.Any(x => x.Code == "resource_key_invalid"),
             "Core accepted a Windows-specific physical audio path.");
 
+        AssertLogicalResourceKeyBoundary(valid, capabilities, skills);
         AssertPresentationNeutralSurface();
+    }
+
+    private static void AssertLogicalResourceKeyBoundary(Course valid, ILearningCapabilityRegistry capabilities, ISkillTargetRegistry skills)
+    {
+        string[] invalidKeys =
+        {
+            "../audio.wav",
+            @"..\audio.wav",
+            "audio/../secret.wav",
+            "audio/./prompt.wav",
+            "C:audio.wav",
+            "file:audio.wav"
+        };
+
+        foreach (string invalidKey in invalidKeys)
+        {
+            Course invalid = valid with { AudioAssets = new[] { valid.AudioAssets[0] with { AssetKey = invalidKey } } };
+            CourseValidationResult invalidResult = CourseContractValidator.Validate(invalid, capabilities, skills);
+            Require(!invalidResult.IsValid && invalidResult.Issues.Any(x => x.Code == "resource_key_invalid"),
+                $"Logical resource validation accepted path/URI-shaped key '{invalidKey}'.");
+        }
+
+        Require(CourseContractIdentifiers.IsLogicalResourceKey("audio/course/prompt"),
+            "Portable hierarchical logical resource keys must remain valid.");
     }
 
     private static Course BuildFixture()
