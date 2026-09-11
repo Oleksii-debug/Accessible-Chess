@@ -9,6 +9,7 @@ from acs.gametree import PgnGame, VariationLine
 from acs.pgn_roundtrip import (
     PgnRoundTripError,
     PgnRoundTripErrorCode,
+    parse_pgn_text,
     serialize_pgn_text,
 )
 from acs.pgn_workspace import PgnWorkspace, PgnWorkspaceError, PgnWorkspaceErrorCode
@@ -122,6 +123,29 @@ class BoundedModelMaterializationTests(unittest.TestCase):
         self.assertEqual(source.iter_calls, 1)
         self.assertEqual(source.yields, 3)
         self.assertEqual(source.next_calls, 3)
+
+    def test_serializer_sanitizes_late_producer_exception(self) -> None:
+        source = _CountingOneShot(total=2, fail_after_yields=1)
+
+        with self.assertRaises(PgnRoundTripError) as raised:
+            serialize_pgn_text(source)
+
+        self.assertEqual(raised.exception.code, PgnRoundTripErrorCode.INVALID_MODEL)
+        self.assertEqual(source.iter_calls, 1)
+        self.assertEqual(source.yields, 1)
+        self.assertEqual(source.next_calls, 2)
+        self.assertNotIn("late iterator trap", str(raised.exception))
+
+    def test_parser_deep_rav_normalizes_gametree_limit(self) -> None:
+        source = '[Result "*"]\n\n1. e4 (1... e5 (2. Nf3 (2... Nc6))) *\n'
+
+        with mock.patch("acs.gametree.MAX_VARIATION_DEPTH", 1), mock.patch.object(
+            pgn_roundtrip, "MAX_VARIATION_DEPTH", 1
+        ):
+            with self.assertRaises(PgnRoundTripError) as raised:
+                parse_pgn_text(source)
+
+        self.assertEqual(raised.exception.code, PgnRoundTripErrorCode.TOKEN_COUNT_LIMIT)
 
     def test_workspace_rejects_over_limit_before_deepcopy(self) -> None:
         source = (_game(index) for index in range(3))
