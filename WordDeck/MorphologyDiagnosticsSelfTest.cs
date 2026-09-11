@@ -22,7 +22,12 @@ internal static class MorphologyDiagnosticsSelfTest
             false,
             string.Empty);
 
-        MorphologyCandidateDiagnostics report = MorphologyDiagnostics.Analyze(package, build, dictionary, evidence);
+        MorphologyCandidateDiagnostics report = MorphologyDiagnostics.Analyze(
+            package,
+            build,
+            dictionary,
+            evidence,
+            analyzedSourceSha256: new string('a', 64));
         Assert(report.DictionaryEntries == 6, "Dictionary entry count is wrong.");
         Assert(report.CoveredStableIds == 4 && report.GapStableIds == 2, "Stable-ID coverage/gap partition is wrong.");
         Assert(report.FamilyCount == 2, "Family count is wrong.");
@@ -51,7 +56,12 @@ internal static class MorphologyDiagnosticsSelfTest
             "not-a-sha",
             true,
             "approval:test");
-        MorphologyCandidateDiagnostics malformed = MorphologyDiagnostics.Analyze(package, clean, dictionary, malformedEvidence);
+        MorphologyCandidateDiagnostics malformed = MorphologyDiagnostics.Analyze(
+            package,
+            clean,
+            dictionary,
+            malformedEvidence,
+            analyzedSourceSha256: new string('a', 64));
         Assert(!malformed.ReleaseEligible, "Malformed source hash must block release eligibility.");
         Assert(malformed.ReleaseEvidenceIssues.Any(issue => issue.Contains("SHA-256", StringComparison.OrdinalIgnoreCase)), "Malformed hash issue is missing.");
 
@@ -60,8 +70,34 @@ internal static class MorphologyDiagnosticsSelfTest
             new string('b', 64),
             true,
             "synthetic-structural-test-only");
-        MorphologyCandidateDiagnostics eligible = MorphologyDiagnostics.Analyze(package, clean, dictionary, structurallyComplete);
-        Assert(eligible.ReleaseEligible, "Structurally complete approved evidence should pass the machine release-evidence gate.");
+
+        MorphologyCandidateDiagnostics missingActual = MorphologyDiagnostics.Analyze(
+            package,
+            clean,
+            dictionary,
+            structurallyComplete);
+        Assert(!missingActual.ReleaseEligible, "Release evidence without the actual analyzed source hash must fail closed.");
+        Assert(missingActual.ReleaseEvidenceIssues.Any(issue => issue.Contains("actual analyzed", StringComparison.OrdinalIgnoreCase)),
+            "Missing actual analyzed source hash issue is absent.");
+
+        MorphologyCandidateDiagnostics mismatched = MorphologyDiagnostics.Analyze(
+            package,
+            clean,
+            dictionary,
+            structurallyComplete,
+            analyzedSourceSha256: new string('c', 64));
+        Assert(!mismatched.ReleaseEligible, "A release-evidence hash that does not match the analyzed candidate must fail closed.");
+        Assert(mismatched.ReleaseEvidenceIssues.Any(issue => issue.Contains("does not match", StringComparison.OrdinalIgnoreCase)),
+            "Mismatched source hash issue is absent.");
+
+        MorphologyCandidateDiagnostics eligible = MorphologyDiagnostics.Analyze(
+            package,
+            clean,
+            dictionary,
+            structurallyComplete,
+            analyzedSourceSha256: new string('b', 64));
+        Assert(eligible.ReleaseEligible, "Structurally complete approved evidence bound to the exact analyzed source hash should pass the machine release-evidence gate.");
+        Assert(eligible.EvidenceBoundary.Contains("hash-bound", StringComparison.OrdinalIgnoreCase), "Exact candidate hash binding is not explicit in the release boundary.");
         Assert(eligible.EvidenceBoundary.Contains("Independent", StringComparison.OrdinalIgnoreCase), "Machine gate must not masquerade as independent source/license approval.");
 
         MorphologyBuildResult quarantined = MorphologyOverlayBuilder.Build(
@@ -69,7 +105,12 @@ internal static class MorphologyDiagnosticsSelfTest
                 new MorphologyRelation("r-act-action", "family-act", "ox:act:v", "ox:action:n", MorphologyRelationKind.Derivation, null, "fixture:1"),
                 new MorphologyRelation("bad", "family-act", "ox:act:v", "missing", MorphologyRelationKind.Derivation, null, "fixture:bad")),
             dictionary);
-        MorphologyCandidateDiagnostics blocked = MorphologyDiagnostics.Analyze(package, quarantined, dictionary, structurallyComplete);
+        MorphologyCandidateDiagnostics blocked = MorphologyDiagnostics.Analyze(
+            package,
+            quarantined,
+            dictionary,
+            structurallyComplete,
+            analyzedSourceSha256: new string('b', 64));
         Assert(!blocked.ReleaseEligible && blocked.QuarantinedIssues > 0, "Any quarantined candidate relation must block release eligibility.");
     }
 
