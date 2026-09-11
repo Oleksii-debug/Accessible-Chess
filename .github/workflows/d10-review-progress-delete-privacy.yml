@@ -4,14 +4,18 @@ on:
   pull_request:
     paths:
       - 'acs/education_progress_lifecycle.py'
+      - 'acs/education_progress_transaction.py'
       - 'tests/test_d10_review_progress_delete_privacy.py'
+      - 'tests/test_d10_review_progress_transaction.py'
       - '.github/workflows/d10-review-progress-delete-privacy.yml'
   push:
     branches:
       - 'work/d10-review-progress-delete-privacy-20260911'
     paths:
       - 'acs/education_progress_lifecycle.py'
+      - 'acs/education_progress_transaction.py'
       - 'tests/test_d10_review_progress_delete_privacy.py'
+      - 'tests/test_d10_review_progress_transaction.py'
       - '.github/workflows/d10-review-progress-delete-privacy.yml'
   workflow_dispatch:
 
@@ -72,19 +76,24 @@ jobs:
           expected="$(printf '%s\n' \
             '.github/workflows/d10-review-progress-delete-privacy.yml' \
             'acs/education_progress_lifecycle.py' \
-            'tests/test_d10_review_progress_delete_privacy.py' | sort)"
+            'acs/education_progress_transaction.py' \
+            'tests/test_d10_review_progress_delete_privacy.py' \
+            'tests/test_d10_review_progress_transaction.py' | sort)"
           test "$changed" = "$expected"
 
       - name: Compile changed Python
         run: >-
           python -m py_compile
           acs/education_progress_lifecycle.py
+          acs/education_progress_transaction.py
           tests/test_d10_review_progress_delete_privacy.py
+          tests/test_d10_review_progress_transaction.py
 
-      - name: Focused D10 privacy lifecycle regression
+      - name: Focused D10 privacy lifecycle and recovery regression
         run: >-
           python -m pytest -q
           tests/test_d10_review_progress_delete_privacy.py
+          tests/test_d10_review_progress_transaction.py
           tests/test_dev3_student_progress.py
           tests/test_dev3_student_progress_store.py
           tests/test_education_workspace.py
