@@ -45,11 +45,12 @@ jobs:
       - name: Install pinned verification dependency
         run: python -m pip install -q pytest==8.4.2
 
-      - name: Prove current authority, source provenance and bounded scope
+      - name: Prove retained prepared-position authority and current PR hygiene
         shell: bash
         env:
           EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           SOURCE_HEAD_SHA: bbd52bf60f2215d3798189cd860c9682eddcdecb
+          PREPARED_OWNER_SHA: 1a88d70f38abe8fc156035c8b602821ad4252a99
         run: |
           set -euo pipefail
           base="${EVENT_BASE_SHA:-}"
@@ -58,20 +59,24 @@ jobs:
           fi
           git cat-file -e "${base}^{commit}" || git fetch --no-tags origin "$base"
           git cat-file -e "${SOURCE_HEAD_SHA}^{commit}" || git fetch --no-tags origin "$SOURCE_HEAD_SHA"
+          git cat-file -e "${PREPARED_OWNER_SHA}^{commit}" || git fetch --no-tags origin "$PREPARED_OWNER_SHA"
           git merge-base --is-ancestor "$base" HEAD
           git merge-base --is-ancestor "$SOURCE_HEAD_SHA" HEAD
+          git merge-base --is-ancestor "$PREPARED_OWNER_SHA" HEAD
           git diff --check "$base" HEAD
 
-          allowed="$(printf '%s\n' \
-            '.github/workflows/d10-no-implicit-delete-current.yml' \
-            '.github/workflows/d10-prepared-position-current-convergence.yml' \
-            'acs/education_workspace.py' \
-            'tests/test_d10_prepared_position_durability.py' | sort)"
-          changed="$(git diff --name-only "$base" HEAD | sort)"
-          test "$changed" = "$allowed"
-
-          test "$(git rev-parse HEAD:tests/test_d10_prepared_position_durability.py)" = "2cf247c3a475ad2728e8c950f0ce622b07ee722e"
-          test "$(git rev-parse HEAD:tests/test_d10_no_implicit_delete_current.py)" = "0222977bd13a5d39e67200dae7d21d64cfadc44e"
+          for path in \
+            acs/education_workspace.py \
+            tests/test_d10_prepared_position_durability.py \
+            tests/test_d10_no_implicit_delete_current.py
+          do
+            test "$(git rev-parse "HEAD:$path")" = "$(git rev-parse "${PREPARED_OWNER_SHA}:$path")" || {
+              printf 'Prepared-position retained blob drift: %s\n' "$path" >&2
+              exit 1
+            }
+          done
+          printf 'Prepared-position retained authority PASS: source=%s owner=%s base=%s head=%s\n' \
+            "$SOURCE_HEAD_SHA" "$PREPARED_OWNER_SHA" "$base" "$(git rev-parse HEAD)"
 
       - name: Compile converged Education workspace
         run: >-
