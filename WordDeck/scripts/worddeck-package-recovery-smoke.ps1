@@ -72,10 +72,24 @@ function Start-Candidate([string]$root) {
 
 function Close-CandidateGracefully {
     if ($null -eq $script:appPid -or $script:appPid -le 0) { return }
+
+    # Keep this a real graceful product close so MainForm.FormClosing must run and
+    # persist learner state. Do not infer failure from Wait-Process exceptions:
+    # the UI command can close WordDeck before PowerShell resolves the PID, and a
+    # missing PID is the successful state we are waiting for, not an error.
+    $closingPid = [int]$script:appPid
     Send-Keys 'alt+f4' 'Current English word'
-    try { Wait-Process -Id $script:appPid -Timeout 15 -ErrorAction Stop }
-    catch { Fail "WordDeck process $script:appPid did not exit after Alt+F4." }
-    $script:appPid = $null
+    $deadline = [DateTime]::UtcNow.AddSeconds(15)
+    do {
+        $remaining = Get-Process -Id $closingPid -ErrorAction SilentlyContinue
+        if ($null -eq $remaining) {
+            $script:appPid = $null
+            return
+        }
+        Start-Sleep -Milliseconds 200
+    } while ([DateTime]::UtcNow -lt $deadline)
+
+    Fail "WordDeck process $closingPid remained alive for 15 seconds after Alt+F4."
 }
 
 function Assert-NoPersonalStateInPackage([string]$root, [string]$context) {
