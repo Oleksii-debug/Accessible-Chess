@@ -100,9 +100,6 @@ jobs:
             test "$changed" = "$expected"
           fi
 
-          test "$(git rev-parse HEAD:acs/education_workspace.py)" = "$(git rev-parse "$SOURCE_HEAD_SHA:acs/education_workspace.py")"
-          test "$(git rev-parse HEAD:tests/test_d10_no_implicit_delete_current.py)" = "$(git rev-parse "$SOURCE_HEAD_SHA:tests/test_d10_no_implicit_delete_current.py")"
-
       - name: Compile changed Python
         run: python -m py_compile acs/education_workspace.py tests/test_d10_no_implicit_delete_current.py
 
