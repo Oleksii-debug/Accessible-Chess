@@ -9,6 +9,14 @@ on:
       - 'tests/test_version2_api_thread_dispatch.py'
       - 'scripts/v2_native_thread_oracle.py'
       - '.github/workflows/v2-native-thread-runtime.yml'
+  pull_request:
+    branches: [codex/v2-runtime-completion-20260907]
+    paths:
+      - 'acs/version2_release_ui.py'
+      - 'acs/version2_release_app.py'
+      - 'tests/test_version2_api_thread_dispatch.py'
+      - 'scripts/v2_native_thread_oracle.py'
+      - '.github/workflows/v2-native-thread-runtime.yml'
 
 permissions:
   contents: read
