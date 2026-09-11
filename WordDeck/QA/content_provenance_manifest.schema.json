@@ -5,51 +5,149 @@
   "description": "Common fail-closed projection for every asset eligible to enter a commercial/public WordDeck release. Conditional origin/release semantics are enforced by WordDeck/tools/validate_content_provenance.py.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "assets"],
+  "required": [
+    "schema_version",
+    "assets"
+  ],
   "properties": {
-    "schema_version": {"const": "1.0"},
+    "schema_version": {
+      "const": "1.0"
+    },
     "assets": {
       "type": "array",
-      "items": {"$ref": "#/$defs/asset"}
+      "items": {
+        "$ref": "#/$defs/asset"
+      }
     }
   },
   "$defs": {
-    "sha256": {"type": "string", "pattern": "^[0-9A-Fa-f]{64}$"},
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9A-Fa-f]{64}$"
+    },
     "status": {
-      "enum": ["CLEARED_PRODUCTION", "CLEARED_INTERNAL_ONLY", "PRIVATE_LOCAL_ONLY", "QUARANTINED", "BLOCKED", "RETIRED"]
+      "enum": [
+        "CLEARED_PRODUCTION",
+        "CLEARED_INTERNAL_ONLY",
+        "PRIVATE_LOCAL_ONLY",
+        "QUARANTINED",
+        "BLOCKED",
+        "RETIRED"
+      ]
     },
     "originClass": {
-      "enum": ["PROJECT_AUTHORED", "AI_ASSISTED", "TTS_GENERATED", "NATIVE_AUDIO", "OXFORD_REFERENCE", "TATOEBA_TEXT", "TATOEBA_AUDIO", "PUBLIC_DOMAIN", "LICENSED_CORPUS", "USER_PRIVATE_BOOK", "COMPETITOR_RESEARCH"]
+      "enum": [
+        "PROJECT_AUTHORED",
+        "AI_ASSISTED",
+        "TTS_GENERATED",
+        "NATIVE_AUDIO",
+        "OXFORD_REFERENCE",
+        "TATOEBA_TEXT",
+        "TATOEBA_AUDIO",
+        "PUBLIC_DOMAIN",
+        "LICENSED_CORPUS",
+        "USER_PRIVATE_BOOK",
+        "COMPETITOR_RESEARCH"
+      ]
     },
     "asset": {
       "type": "object",
-      "required": ["asset_id", "asset_type", "language", "content_hash_sha256", "status", "origin", "rights", "contributors", "dependencies", "review", "evidence", "release"],
+      "required": [
+        "asset_id",
+        "asset_type",
+        "language",
+        "content_hash_sha256",
+        "status",
+        "origin",
+        "rights",
+        "contributors",
+        "dependencies",
+        "review",
+        "evidence",
+        "release"
+      ],
       "properties": {
-        "asset_id": {"type": "string", "minLength": 1},
-        "asset_type": {"type": "string", "minLength": 1},
-        "language": {"type": "string", "minLength": 1},
-        "content_hash_sha256": {"$ref": "#/$defs/sha256"},
-        "status": {"$ref": "#/$defs/status"},
+        "asset_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "asset_type": {
+          "type": "string",
+          "minLength": 1
+        },
+        "language": {
+          "type": "string",
+          "minLength": 1
+        },
+        "content_hash_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "status": {
+          "$ref": "#/$defs/status"
+        },
         "origin": {
           "type": "object",
-          "required": ["class", "source_name", "source_snapshot_id"],
-          "properties": {"class": {"$ref": "#/$defs/originClass"}}
+          "required": [
+            "class",
+            "source_name",
+            "source_snapshot_id"
+          ],
+          "properties": {
+            "class": {
+              "$ref": "#/$defs/originClass"
+            }
+          }
         },
-        "rights": {"type": "object"},
-        "contributors": {"type": "array"},
-        "dependencies": {"type": "array"},
+        "rights": {
+          "type": "object"
+        },
+        "contributors": {
+          "type": "array"
+        },
+        "dependencies": {
+          "type": "array"
+        },
         "review": {
           "type": "object",
-          "required": ["rights_reviewer_id", "rights_review_state", "editorial_originality_state", "source_validation_state", "reviewed_at", "reviewed_content_hash_sha256"]
+          "required": [
+            "rights_reviewer_id",
+            "rights_review_state",
+            "editorial_originality_state",
+            "source_validation_state",
+            "reviewed_at",
+            "reviewed_content_hash_sha256"
+          ]
         },
-        "evidence": {"type": "array"},
-        "release": {"type": "object", "required": ["allowed_channels"]},
-        "ai": {"type": "object"},
-        "tts": {"type": "object"},
-        "tatoeba": {"type": "object"},
-        "public_domain": {"type": "object"},
-        "licensed_corpus": {"type": "object"},
-        "private_user_book": {"type": "object"}
+        "evidence": {
+          "type": "array"
+        },
+        "release": {
+          "type": "object",
+          "required": [
+            "allowed_channels"
+          ]
+        },
+        "ai": {
+          "type": "object"
+        },
+        "tts": {
+          "type": "object"
+        },
+        "tatoeba": {
+          "type": "object"
+        },
+        "public_domain": {
+          "type": "object"
+        },
+        "licensed_corpus": {
+          "type": "object"
+        },
+        "private_user_book": {
+          "type": "object"
+        },
+        "native_audio": {
+          "type": "object"
+        }
       }
     }
   }
