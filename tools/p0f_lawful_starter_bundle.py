@@ -4,19 +4,20 @@ from __future__ import annotations
 
 The runtime never downloads anything. This build/qualification tool fetches (or
 accepts a local copy of) one exact Lichess standard-rated archive, verifies the
-compressed SHA-256, extracts the first N complete PGN records, then materializes
-the existing four-file starter payload contract:
+compressed SHA-256, deterministically curates a representative quality subset,
+then materializes the existing four-file starter payload contract:
 
 - starter_uk.pgn: immutable lawful real-game sample (CC0-1.0);
 - stress_uk.pgn: deterministic project-authored load/search corpus;
 - sample_library.acsdb: canonical ACSDB import of starter_uk.pgn;
-- manifest.json: hashes, counts, provenance, licenses and selection policy.
+- manifest.json: hashes, counts, provenance, licenses and curation evidence.
 
 No downloaded archive is required after build time, and no network path is used
 by AccessibleChess.exe.
 """
 
 import argparse
+from collections import Counter
 import hashlib
 import io
 import json
@@ -32,6 +33,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from acs.acsdb import ACSDB_SCHEMA_VERSION, AcsDatabase  # noqa: E402
+from acs.pgn_roundtrip import PgnRoundTripError, parse_pgn_text  # noqa: E402
 from acs.starter_content import (  # noqa: E402
     CONTENT_LICENSE_ID,
     CONTENT_LICENSE_TERMS_UK,
@@ -51,6 +53,22 @@ STARTER_REAL_GAME_COUNT = 240
 MINIMUM_REAL_GAME_COUNT = 200
 DOWNLOAD_LIMIT_BYTES = 32 * 1024 * 1024
 DOWNLOAD_CHUNK = 1024 * 1024
+
+CURATION_POLICY_ID = "accessible-chess-p0f-real-sample-v1"
+CURATION_MIN_PLIES = 20
+CURATION_MIN_OPENING_PREFIXES = 12
+CURATION_RESULT_MINIMUMS = {
+    "1-0": 20,
+    "0-1": 20,
+    "1/2-1/2": 8,
+}
+CURATION_LENGTH_MINIMUMS = {
+    "20-59": 20,
+    "60-99": 20,
+    "100+": 8,
+}
+CURATION_VALID_RESULTS = frozenset(CURATION_RESULT_MINIMUMS)
+CURATION_MAX_SCANNED_GAMES = 5_000
 
 
 def _sha256_bytes(payload: bytes) -> str:
@@ -78,38 +96,254 @@ def _scan_comment_state(line: str, inside_brace: bool) -> bool:
     return inside_brace
 
 
+def _iter_complete_game_records(source: io.TextIOBase):
+    """Yield Event-framed PGN records while preserving source bytes as text."""
+
+    current: list[str] = []
+    inside_brace = False
+    for line in source:
+        if not inside_brace and line.startswith('[Event "') and current:
+            record = "".join(current).strip()
+            if record:
+                yield record
+            current = [line]
+            inside_brace = _scan_comment_state(line, False)
+            continue
+        current.append(line)
+        inside_brace = _scan_comment_state(line, inside_brace)
+
+    if current:
+        record = "".join(current).strip()
+        if record:
+            yield record
+
+
 def _write_complete_game_subset(source: io.TextIOBase, destination: Path, limit: int) -> int:
-    """Frame complete Event-delimited PGN records without changing PGN semantics."""
+    """Legacy framing helper retained for bounded regression coverage."""
 
     if type(limit) is not int or limit < MINIMUM_REAL_GAME_COUNT:
         raise ValueError(f"starter real-game limit must be >= {MINIMUM_REAL_GAME_COUNT}")
 
-    current: list[str] = []
-    inside_brace = False
     written = 0
     with destination.open("w", encoding="utf-8", newline="\n") as output:
-        for line in source:
-            if not inside_brace and line.startswith('[Event "') and current:
-                record = "".join(current).strip()
-                if record:
-                    output.write(record)
-                    output.write("\n\n")
-                    written += 1
-                    if written >= limit:
-                        return written
-                current = [line]
-                inside_brace = _scan_comment_state(line, False)
-                continue
-            current.append(line)
-            inside_brace = _scan_comment_state(line, inside_brace)
-
-        if current and written < limit:
-            record = "".join(current).strip()
-            if record:
-                output.write(record)
-                output.write("\n")
-                written += 1
+        for record in _iter_complete_game_records(source):
+            output.write(record)
+            output.write("\n\n")
+            written += 1
+            if written >= limit:
+                break
     return written
+
+
+def _metadata_text(tags: dict[str, str], name: str) -> str:
+    value = tags.get(name, "").strip()
+    if not value or value in {"?", "-"}:
+        return ""
+    return value
+
+
+def _length_band(plies: int) -> str:
+    if plies < 60:
+        return "20-59"
+    if plies < 100:
+        return "60-99"
+    return "100+"
+
+
+def _candidate_evidence(record: str, source_index: int) -> tuple[dict[str, object] | None, str | None]:
+    """Return strict machine-verifiable quality evidence for one source game."""
+
+    try:
+        games = parse_pgn_text(record, strict=True)
+    except PgnRoundTripError:
+        return None, "strict_parse_failure"
+    if len(games) != 1:
+        return None, "not_exactly_one_game"
+
+    game = games[0]
+    tag_result = game.tags.get("Result", "*").strip()
+    line_result = game.line.result or "*"
+    if tag_result not in CURATION_VALID_RESULTS or line_result != tag_result:
+        return None, "invalid_or_unfinished_result"
+
+    white = _metadata_text(game.tags, "White")
+    black = _metadata_text(game.tags, "Black")
+    event = _metadata_text(game.tags, "Event")
+    if not white or not black or not event:
+        return None, "missing_player_or_event_metadata"
+
+    plies = len(game.line.moves)
+    if plies < CURATION_MIN_PLIES:
+        return None, "too_short"
+
+    opening_moves = tuple(node.san for node in game.line.moves[:4])
+    if len(opening_moves) < 4:
+        return None, "insufficient_opening_prefix"
+
+    return {
+        "source_index": source_index,
+        "event": event,
+        "white": white,
+        "black": black,
+        "result": tag_result,
+        "plies": plies,
+        "length_band": _length_band(plies),
+        "opening_prefix": list(opening_moves),
+        "record_sha256": _sha256_bytes(record.encode("utf-8")),
+    }, None
+
+
+def _representative_pool_ready(candidates: list[dict[str, object]], limit: int) -> bool:
+    if len(candidates) < limit:
+        return False
+
+    result_counts = Counter(str(candidate["result"]) for candidate in candidates)
+    if any(result_counts[result] < minimum for result, minimum in CURATION_RESULT_MINIMUMS.items()):
+        return False
+
+    length_counts = Counter(str(candidate["length_band"]) for candidate in candidates)
+    if any(
+        length_counts[band] < minimum
+        for band, minimum in CURATION_LENGTH_MINIMUMS.items()
+    ):
+        return False
+
+    openings = {tuple(candidate["opening_prefix"]) for candidate in candidates}
+    return len(openings) >= CURATION_MIN_OPENING_PREFIXES
+
+
+def _select_representative_candidates(
+    candidates: list[dict[str, object]], limit: int
+) -> list[dict[str, object]]:
+    """Select deterministically while making every representation floor mandatory."""
+
+    if type(limit) is not int or limit < MINIMUM_REAL_GAME_COUNT:
+        raise ValueError(f"starter real-game limit must be >= {MINIMUM_REAL_GAME_COUNT}")
+    if not _representative_pool_ready(candidates, limit):
+        raise RuntimeError("eligible source pool does not satisfy representative curation floors")
+
+    required: set[int] = set()
+
+    for result, minimum in CURATION_RESULT_MINIMUMS.items():
+        matches = [
+            index for index, candidate in enumerate(candidates)
+            if candidate["result"] == result
+        ][:minimum]
+        required.update(matches)
+
+    for band, minimum in CURATION_LENGTH_MINIMUMS.items():
+        matches = [
+            index for index, candidate in enumerate(candidates)
+            if candidate["length_band"] == band
+        ][:minimum]
+        required.update(matches)
+
+    seen_openings: set[tuple[str, ...]] = set()
+    for index, candidate in enumerate(candidates):
+        opening = tuple(str(move) for move in candidate["opening_prefix"])
+        if opening in seen_openings:
+            continue
+        seen_openings.add(opening)
+        required.add(index)
+        if len(seen_openings) >= CURATION_MIN_OPENING_PREFIXES:
+            break
+
+    if len(required) > limit:
+        raise RuntimeError("curation floors exceed requested starter sample size")
+
+    selected = set(required)
+    for index in range(len(candidates)):
+        if len(selected) >= limit:
+            break
+        selected.add(index)
+
+    chosen = [candidates[index] for index in sorted(selected)]
+    if len(chosen) != limit:
+        raise RuntimeError(f"expected {limit} curated games, selected {len(chosen)}")
+    return chosen
+
+
+def _selected_aggregate_evidence(selected: list[dict[str, object]]) -> dict[str, object]:
+    result_counts = Counter(str(candidate["result"]) for candidate in selected)
+    length_counts = Counter(str(candidate["length_band"]) for candidate in selected)
+    openings = {tuple(candidate["opening_prefix"]) for candidate in selected}
+
+    for result, minimum in CURATION_RESULT_MINIMUMS.items():
+        if result_counts[result] < minimum:
+            raise RuntimeError(f"curated sample lacks result stratum {result}")
+    for band, minimum in CURATION_LENGTH_MINIMUMS.items():
+        if length_counts[band] < minimum:
+            raise RuntimeError(f"curated sample lacks length stratum {band}")
+    if len(openings) < CURATION_MIN_OPENING_PREFIXES:
+        raise RuntimeError("curated sample lacks opening-prefix diversity")
+
+    return {
+        "selected_result_counts": dict(sorted(result_counts.items())),
+        "selected_length_band_counts": dict(sorted(length_counts.items())),
+        "distinct_opening_prefixes": len(openings),
+    }
+
+
+def _curate_complete_game_subset(
+    source: io.TextIOBase,
+    destination: Path,
+    limit: int,
+) -> dict[str, object]:
+    """Fail-closed deterministic curation of a representative real-game sample."""
+
+    if type(limit) is not int or limit < MINIMUM_REAL_GAME_COUNT:
+        raise ValueError(f"starter real-game limit must be >= {MINIMUM_REAL_GAME_COUNT}")
+
+    candidates: list[dict[str, object]] = []
+    records: dict[int, str] = {}
+    rejected: Counter[str] = Counter()
+    scanned = 0
+
+    for source_index, record in enumerate(_iter_complete_game_records(source), start=1):
+        scanned = source_index
+        evidence, reason = _candidate_evidence(record, source_index)
+        if evidence is None:
+            rejected[reason or "unknown"] += 1
+        else:
+            records[source_index] = record
+            candidates.append(evidence)
+            if _representative_pool_ready(candidates, limit):
+                break
+        if scanned >= CURATION_MAX_SCANNED_GAMES:
+            break
+
+    if not _representative_pool_ready(candidates, limit):
+        raise RuntimeError(
+            "pinned source did not satisfy curation floors within "
+            f"{CURATION_MAX_SCANNED_GAMES} scanned games"
+        )
+
+    selected = _select_representative_candidates(candidates, limit)
+    with destination.open("w", encoding="utf-8", newline="\n") as output:
+        for candidate in selected:
+            output.write(records[int(candidate["source_index"])])
+            output.write("\n\n")
+
+    aggregate = _selected_aggregate_evidence(selected)
+    return {
+        "policy_id": CURATION_POLICY_ID,
+        "parser": "acs.pgn_roundtrip.parse_pgn_text(strict=True)",
+        "criteria": {
+            "minimum_plies": CURATION_MIN_PLIES,
+            "valid_results": sorted(CURATION_VALID_RESULTS),
+            "required_metadata": ["Event", "White", "Black"],
+            "result_minimums": CURATION_RESULT_MINIMUMS,
+            "length_band_minimums": CURATION_LENGTH_MINIMUMS,
+            "minimum_distinct_opening_prefixes": CURATION_MIN_OPENING_PREFIXES,
+            "opening_prefix_plies": 4,
+            "maximum_scanned_games": CURATION_MAX_SCANNED_GAMES,
+        },
+        "scanned_records": scanned,
+        "eligible_records": len(candidates),
+        "rejected_records": dict(sorted(rejected.items())),
+        "selected_games": selected,
+        **aggregate,
+    }
 
 
 def _download_verified(destination: Path) -> int:
@@ -145,7 +379,11 @@ def _verify_local_source(path: Path) -> int:
     return size
 
 
-def _extract_subset(compressed: Path, destination: Path, limit: int) -> int:
+def _extract_curated_subset(
+    compressed: Path,
+    destination: Path,
+    limit: int,
+) -> dict[str, object]:
     try:
         import zstandard
     except ImportError as exc:  # pragma: no cover - dependency is exercised in Actions.
@@ -157,7 +395,7 @@ def _extract_subset(compressed: Path, destination: Path, limit: int) -> int:
     with compressed.open("rb") as source:
         reader = zstandard.ZstdDecompressor().stream_reader(source)
         with reader, io.TextIOWrapper(reader, encoding="utf-8", errors="strict", newline="") as text:
-            return _write_complete_game_subset(text, destination, limit)
+            return _curate_complete_game_subset(text, destination, limit)
 
 
 def _write_text_atomic(path: Path, text: str, *, overwrite: bool) -> None:
@@ -212,6 +450,53 @@ def _prove_sample_database(path: Path, expected_games: int) -> dict[str, int]:
         }
 
 
+def _validate_curation_manifest_evidence(
+    evidence: dict[str, object],
+    starter_count: int,
+    starter_pgn: str,
+) -> None:
+    if not isinstance(evidence, dict):
+        raise TypeError("curation_evidence must be a dictionary")
+    if evidence.get("policy_id") != CURATION_POLICY_ID:
+        raise ValueError("curation evidence has an unexpected policy identity")
+    if evidence.get("parser") != "acs.pgn_roundtrip.parse_pgn_text(strict=True)":
+        raise ValueError("curation evidence has an unexpected parser identity")
+    criteria = evidence.get("criteria")
+    if not isinstance(criteria, dict):
+        raise ValueError("curation evidence criteria are missing")
+    expected_criteria = {
+        "minimum_plies": CURATION_MIN_PLIES,
+        "valid_results": sorted(CURATION_VALID_RESULTS),
+        "required_metadata": ["Event", "White", "Black"],
+        "result_minimums": CURATION_RESULT_MINIMUMS,
+        "length_band_minimums": CURATION_LENGTH_MINIMUMS,
+        "minimum_distinct_opening_prefixes": CURATION_MIN_OPENING_PREFIXES,
+        "opening_prefix_plies": 4,
+        "maximum_scanned_games": CURATION_MAX_SCANNED_GAMES,
+    }
+    if criteria != expected_criteria:
+        raise ValueError("curation evidence criteria do not match the qualified policy")
+    selected = evidence.get("selected_games")
+    if not isinstance(selected, list) or len(selected) != starter_count:
+        raise ValueError("curation evidence selected_games count does not match starter_count")
+    aggregate = _selected_aggregate_evidence(selected)
+    for key, value in aggregate.items():
+        if evidence.get(key) != value:
+            raise ValueError(f"curation aggregate mismatch for {key}")
+
+    records = list(_iter_complete_game_records(io.StringIO(starter_pgn)))
+    if len(records) != starter_count:
+        raise ValueError("starter PGN record count does not match curation evidence")
+    expected_hashes = [
+        str(candidate.get("record_sha256", "")).lower()
+        for candidate in selected
+        if isinstance(candidate, dict)
+    ]
+    actual_hashes = [_sha256_bytes(record.encode("utf-8")) for record in records]
+    if expected_hashes != actual_hashes:
+        raise ValueError("curation evidence does not match selected starter PGN records")
+
+
 def build_release_bundle_from_curated_pgn(
     destination: str | Path,
     *,
@@ -219,10 +504,11 @@ def build_release_bundle_from_curated_pgn(
     starter_count: int,
     source_subset_sha256: str,
     source_compressed_bytes: int,
+    curation_evidence: dict[str, object],
     overwrite: bool = False,
     stress_count: int = STRESS_GAME_COUNT,
 ) -> dict[str, object]:
-    """Materialize the release four-file bundle from a verified lawful PGN subset."""
+    """Materialize the release four-file bundle from a verified curated lawful subset."""
 
     if type(starter_count) is not int or starter_count < MINIMUM_REAL_GAME_COUNT:
         raise ValueError(f"starter_count must be >= {MINIMUM_REAL_GAME_COUNT}")
@@ -234,6 +520,7 @@ def build_release_bundle_from_curated_pgn(
         raise ValueError("source_subset_sha256 must be a SHA-256 hex digest")
     if type(stress_count) is not int or stress_count <= starter_count:
         raise ValueError("stress_count must be greater than starter_count")
+    _validate_curation_manifest_evidence(curation_evidence, starter_count, starter_pgn)
 
     output = Path(destination)
     output.mkdir(parents=True, exist_ok=True)
@@ -267,9 +554,10 @@ def build_release_bundle_from_curated_pgn(
             "published_games": CORPUS_PUBLISHED_GAMES,
             "compressed_sha256": CORPUS_SHA256,
             "compressed_bytes": source_compressed_bytes,
-            "selection": f"first {starter_count} complete Event-framed standard-rated games",
+            "selection": CURATION_POLICY_ID,
             "subset_sha256": source_subset_sha256.lower(),
             "selected_games": starter_count,
+            "curation": curation_evidence,
         },
         "licenses": {
             CORPUS_LICENSE_ID: {
@@ -309,7 +597,7 @@ def build_from_pinned_lichess(
     stress_count: int = STRESS_GAME_COUNT,
     source_zst: str | Path | None = None,
 ) -> dict[str, object]:
-    """Verify the pinned CC0 archive, extract a bounded sample, and build release assets."""
+    """Verify the pinned CC0 archive, curate a representative sample, and build assets."""
 
     with tempfile.TemporaryDirectory(prefix="accessible-chess-p0f-lawful-") as temporary:
         root = Path(temporary)
@@ -323,9 +611,10 @@ def build_from_pinned_lichess(
             compressed_bytes = _verify_local_source(source)
             shutil.copyfile(source, compressed)
 
-        segmented = _extract_subset(compressed, subset, starter_count)
-        if segmented != starter_count:
-            raise RuntimeError(f"expected {starter_count} complete games, got {segmented}")
+        curation_evidence = _extract_curated_subset(compressed, subset, starter_count)
+        selected = curation_evidence["selected_games"]
+        if not isinstance(selected, list) or len(selected) != starter_count:
+            raise RuntimeError(f"expected {starter_count} curated games")
         subset_bytes = subset.read_bytes()
         subset_sha256 = _sha256_bytes(subset_bytes)
         starter_text = subset_bytes.decode("utf-8", errors="strict")
@@ -336,6 +625,7 @@ def build_from_pinned_lichess(
             starter_count=starter_count,
             source_subset_sha256=subset_sha256,
             source_compressed_bytes=compressed_bytes,
+            curation_evidence=curation_evidence,
             overwrite=overwrite,
             stress_count=stress_count,
         )
@@ -349,7 +639,7 @@ def _configure_stdout_utf8() -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Build the lawful CC0 P0-F starter PGN/ACSDB bundle for Accessible Chess."
+        description="Build the curated lawful CC0 P0-F starter PGN/ACSDB bundle for Accessible Chess."
     )
     parser.add_argument("destination", type=Path)
     parser.add_argument("--starter-games", type=int, default=STARTER_REAL_GAME_COUNT)
