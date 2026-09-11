@@ -507,6 +507,14 @@ def _validate_stockfish_source_archive(
     limits: PackageLimits,
 ) -> None:
     """Validate the nested corresponding-source ZIP without extracting it."""
+    archive_info = _safe_lstat(
+        source_archive,
+        label="Stockfish 18 corresponding source archive",
+    )
+    if not stat.S_ISREG(archive_info.st_mode):
+        _fail("Stockfish corresponding source archive must be a regular file")
+    if archive_info.st_size > limits.max_archive_bytes:
+        _fail("Stockfish source ZIP exceeds archive byte limit")
     try:
         with zipfile.ZipFile(source_archive) as archive:
             infos = archive.infolist()
