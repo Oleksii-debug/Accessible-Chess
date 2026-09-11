@@ -8,7 +8,9 @@ on:
       - 'WordDeck/QA/content_provenance_manifest.schema.json'
       - 'WordDeck/QA/CONTENT_PROVENANCE_GATE.md'
       - 'WordDeck/tools/validate_content_provenance.py'
+      - 'WordDeck/tools/validate_content_provenance_strict.py'
       - 'WordDeck/tools/test_validate_content_provenance.py'
+      - 'WordDeck/tools/test_validate_content_provenance_strict.py'
       - '.github/workflows/worddeck-content-provenance.yml'
   push:
     branches: [worddeck-bootstrap]
@@ -17,7 +19,9 @@ on:
       - 'WordDeck/QA/content_provenance_manifest.schema.json'
       - 'WordDeck/QA/CONTENT_PROVENANCE_GATE.md'
       - 'WordDeck/tools/validate_content_provenance.py'
+      - 'WordDeck/tools/validate_content_provenance_strict.py'
       - 'WordDeck/tools/test_validate_content_provenance.py'
+      - 'WordDeck/tools/test_validate_content_provenance_strict.py'
       - '.github/workflows/worddeck-content-provenance.yml'
   workflow_dispatch:
 
@@ -35,12 +39,15 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Run fail-closed provenance regression suite
+      - name: Run base fail-closed provenance regression suite
         run: python WordDeck/tools/test_validate_content_provenance.py
 
-      - name: Validate canonical manifest structure and semantics
+      - name: Run strict origin-policy regression suite
+        run: python WordDeck/tools/test_validate_content_provenance_strict.py
+
+      - name: Validate canonical manifest under strict commercial policy
         run: >-
-          python WordDeck/tools/validate_content_provenance.py
+          python WordDeck/tools/validate_content_provenance_strict.py
           --manifest WordDeck/QA/content_provenance_manifest.json
 
       - name: Prove a commercial release cannot bypass an empty manifest
@@ -60,7 +67,7 @@ jobs:
             ]
           }
           JSON
-          if python WordDeck/tools/validate_content_provenance.py \
+          if python WordDeck/tools/validate_content_provenance_strict.py \
               --manifest WordDeck/QA/content_provenance_manifest.json \
               --inventory "$tmp/inventory.json"; then
             echo 'FAIL: unregistered commercial asset bypassed the provenance gate.' >&2
