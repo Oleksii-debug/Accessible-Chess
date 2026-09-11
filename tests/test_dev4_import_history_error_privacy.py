@@ -3,6 +3,7 @@ from __future__ import annotations
 import unittest
 from unittest import mock
 
+import acs.acsdb as acsdb_module
 from acs.acsdb import AcsDatabase
 from acs.import_history_service import ImportHistoryQuery, ImportHistoryService
 
@@ -24,8 +25,28 @@ class Dev4ImportHistoryErrorPrivacyTests(unittest.TestCase):
         secret_detail = "provider_token=qa-do-not-persist-12345"
         raw_error = RuntimeError(f"decoder failed at {private_path}; {secret_detail}")
 
+        parser_symbols = [
+            symbol
+            for symbol in ("parse_pgn_text", "parse_games")
+            if hasattr(acsdb_module, symbol)
+        ]
+        self.assertEqual(
+            parser_symbols,
+            [parser_symbols[0]] if parser_symbols else [],
+            "ACSDB must expose one parser seam for import fault injection",
+        )
+        self.assertEqual(
+            len(parser_symbols),
+            1,
+            "ACSDB must expose exactly one parser seam for import fault injection",
+        )
+
         with AcsDatabase(":memory:") as database:
-            with mock.patch("acs.acsdb.parse_games", side_effect=raw_error):
+            with mock.patch.object(
+                acsdb_module,
+                parser_symbols[0],
+                side_effect=raw_error,
+            ):
                 with self.assertRaises(RuntimeError):
                     database.import_pgn_text(
                         '[Event "Safe visible name"]\n[Result "*"]\n\n*\n',
