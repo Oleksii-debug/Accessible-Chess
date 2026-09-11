@@ -130,6 +130,8 @@ internal sealed class AssessmentSessionState
             throw new InvalidDataException("Assessment session item order contains duplicate content identities.");
         if (CompletedAtUtc.HasValue && !IsComplete)
             throw new InvalidDataException("Assessment session is marked complete before its cursor reached the end.");
+        if (IsComplete && !CompletedAtUtc.HasValue)
+            throw new InvalidDataException("Completed assessment session is missing its completion timestamp.");
     }
 }
 
@@ -144,19 +146,55 @@ internal sealed class AssessmentRuntimeState
     {
         if (SchemaVersion != CurrentSchemaVersion)
             throw new InvalidDataException($"Unsupported assessment runtime schema {SchemaVersion}; expected {CurrentSchemaVersion}.");
-        var sessions = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        var sessions = new Dictionary<string, AssessmentSessionState>(StringComparer.OrdinalIgnoreCase);
         foreach (AssessmentSessionState session in Sessions)
         {
             if (session is null) throw new InvalidDataException("Assessment runtime contains a null session.");
             session.Validate();
-            if (!sessions.Add(session.SessionId)) throw new InvalidDataException($"Duplicate assessment session id {session.SessionId}.");
+            if (!sessions.TryAdd(session.SessionId, session))
+                throw new InvalidDataException($"Duplicate assessment session id {session.SessionId}.");
         }
-        var attempts = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        var attemptIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var attemptsBySession = new Dictionary<string, List<AssessmentAttempt>>(StringComparer.OrdinalIgnoreCase);
         foreach (AssessmentAttempt attempt in Attempts)
         {
             if (attempt is null) throw new InvalidDataException("Assessment runtime contains a null attempt.");
             attempt.Validate();
-            if (!attempts.Add(attempt.AttemptId)) throw new InvalidDataException($"Duplicate assessment attempt id {attempt.AttemptId}.");
+            if (!attemptIds.Add(attempt.AttemptId)) throw new InvalidDataException($"Duplicate assessment attempt id {attempt.AttemptId}.");
+            if (!sessions.TryGetValue(attempt.SessionId, out AssessmentSessionState? session))
+                throw new InvalidDataException($"Assessment attempt {attempt.AttemptId} references unknown session {attempt.SessionId}.");
+            if (attempt.Mode != session.Mode)
+                throw new InvalidDataException($"Assessment attempt {attempt.AttemptId} mode does not match session {session.SessionId}.");
+            if (!string.Equals(attempt.ItemKey.PoolId, session.PoolId, StringComparison.OrdinalIgnoreCase) || attempt.ItemKey.PoolVersion != session.PoolVersion)
+                throw new InvalidDataException($"Assessment attempt {attempt.AttemptId} does not match session {session.SessionId} pool identity/version.");
+            if (!attemptsBySession.TryGetValue(session.SessionId, out List<AssessmentAttempt>? sessionAttempts))
+            {
+                sessionAttempts = new List<AssessmentAttempt>();
+                attemptsBySession.Add(session.SessionId, sessionAttempts);
+            }
+            sessionAttempts.Add(attempt);
+        }
+
+        foreach (AssessmentSessionState session in sessions.Values)
+        {
+            attemptsBySession.TryGetValue(session.SessionId, out List<AssessmentAttempt>? sessionAttempts);
+            sessionAttempts ??= new List<AssessmentAttempt>();
+            if (sessionAttempts.Count != session.Cursor)
+                throw new InvalidDataException($"Assessment session {session.SessionId} cursor does not match its recorded attempt count.");
+
+            var expectedConsumed = new HashSet<string>(
+                session.ItemOrder.Take(session.Cursor).Select(x => x.ContentIdentity),
+                StringComparer.OrdinalIgnoreCase);
+            var actualConsumed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (AssessmentAttempt attempt in sessionAttempts)
+            {
+                if (!actualConsumed.Add(attempt.ItemKey.ContentIdentity))
+                    throw new InvalidDataException($"Assessment session {session.SessionId} contains multiple attempts for the same consumed item.");
+            }
+            if (!actualConsumed.SetEquals(expectedConsumed))
+                throw new InvalidDataException($"Assessment session {session.SessionId} attempts do not match its fixed consumed item prefix.");
         }
     }
 }
@@ -298,6 +336,9 @@ internal sealed class AssessmentRuntime
     {
         AssessmentSessionState session = FindSession(sessionId);
         if (session.Mode != AssessmentMode.Assessment) throw new InvalidOperationException("Practice sessions do not produce formal assessment results.");
+        if (!session.IsComplete || !session.CompletedAtUtc.HasValue)
+            throw new InvalidOperationException("Formal assessment results are unavailable until the fixed assessment session is complete.");
+        _state.Validate();
         AssessmentAttempt[] attempts = _state.Attempts
             .Where(x => x.Mode == AssessmentMode.Assessment && string.Equals(x.SessionId, session.SessionId, StringComparison.OrdinalIgnoreCase))
             .OrderBy(x => x.RecordedAtUtc).ThenBy(x => x.AttemptId, StringComparer.Ordinal).ToArray();
