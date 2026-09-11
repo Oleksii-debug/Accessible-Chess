@@ -53,6 +53,7 @@ internal sealed record StoryCourseProvenanceContract(
     public void Validate(string ownerId)
     {
         StoryCourseContractId.Require(ownerId, "provenance owner id");
+        if (!Enum.IsDefined(Origin)) throw new InvalidDataException($"{ownerId} provenance origin is invalid.");
         StoryCourseContractText.Require(SourceId, $"{ownerId} provenance source id");
         StoryCourseContractText.Require(Version, $"{ownerId} provenance version");
         StoryCourseContractText.Require(LicenseOrRights, $"{ownerId} provenance license/rights");
@@ -151,6 +152,7 @@ internal sealed record StoryCourseNarrativeContract(
     public void Validate(string unitId)
     {
         StoryCourseContractId.Require(ContentId, $"{unitId} dialogue/story id");
+        if (!Enum.IsDefined(Kind)) throw new InvalidDataException($"{ContentId} dialogue/story kind is invalid.");
         StoryCourseContractText.Require(Text, $"{ContentId} dialogue/story text");
         if (SpeakerIds is null || SpeakerIds.Any(string.IsNullOrWhiteSpace))
             throw new InvalidDataException($"{ContentId} speaker metadata is invalid.");
@@ -171,6 +173,7 @@ internal sealed record StoryCourseComprehensionTaskContract(
     public void Validate(string unitId, ISet<string> objectiveIds)
     {
         StoryCourseContractId.Require(TaskId, $"{unitId} comprehension task id");
+        if (!Enum.IsDefined(Kind)) throw new InvalidDataException($"{TaskId} comprehension kind is invalid.");
         StoryCourseContractText.Require(Prompt, $"{TaskId} comprehension prompt");
         StoryCourseContractReferences.RequireOwned(ObjectiveIds, objectiveIds, TaskId, "objective");
         if (AcceptedBoundedResponses is null || AcceptedBoundedResponses.Any(string.IsNullOrWhiteSpace))
@@ -192,6 +195,7 @@ internal sealed record StoryCourseProductiveTaskContract(
     public void Validate(string unitId, ISet<string> objectiveIds)
     {
         StoryCourseContractId.Require(TaskId, $"{unitId} productive task id");
+        if (!Enum.IsDefined(Channel)) throw new InvalidDataException($"{TaskId} productive channel is invalid.");
         StoryCourseContractText.Require(Prompt, $"{TaskId} productive prompt");
         StoryCourseContractReferences.RequireOwned(ObjectiveIds, objectiveIds, TaskId, "objective");
         StoryCourseContractId.Require(EvaluationPolicyId, $"{TaskId} evaluation policy id");
@@ -261,8 +265,12 @@ internal static class StoryCourseContractValidator
         StoryCourseContractText.Require(manifest.Title, $"{manifest.CourseId} title");
         manifest.Provenance?.Validate(manifest.CourseId);
         if (manifest.Provenance is null) throw new InvalidDataException($"{manifest.CourseId} provenance is required.");
-        if (manifest.ClaimsCompleteEnglishCourse && manifest.CurriculumAuthority != StoryCourseCurriculumAuthority.ApprovedCurriculum)
-            throw new InvalidDataException("A technical fixture or pedagogical draft cannot claim to be a Complete English course.");
+        if (!Enum.IsDefined(manifest.CurriculumAuthority))
+            throw new InvalidDataException($"{manifest.CourseId} curriculum authority is invalid.");
+        if (manifest.ClaimsCompleteEnglishCourse &&
+            (manifest.CurriculumAuthority != StoryCourseCurriculumAuthority.ApprovedCurriculum ||
+             manifest.Provenance.Origin is StoryCourseContentOrigin.GeneratedFixture or StoryCourseContentOrigin.LearnerLocal))
+            throw new InvalidDataException("Only approved, non-fixture/non-learner-local curriculum may claim Complete English authority.");
         if (manifest.Levels is null || manifest.Levels.Count == 0)
             throw new InvalidDataException($"{manifest.CourseId} requires at least one level contract.");
         RequireUnique(manifest.Levels.Select(level => level.LevelId), "level");
@@ -318,6 +326,7 @@ internal static class StoryCourseContractValidator
             throw new InvalidDataException($"Unit {unit.UnitId} is attached to the wrong module.");
         StoryCourseContractText.Require(unit.Title, $"{unit.UnitId} title");
         StoryCourseContractReferences.RequireOwned(unit.ObjectiveIds, moduleObjectiveIds, unit.UnitId, "objective");
+        var unitObjectiveIds = new HashSet<string>(unit.ObjectiveIds, StringComparer.OrdinalIgnoreCase);
         unit.Provenance?.Validate(unit.UnitId);
         if (unit.Provenance is null) throw new InvalidDataException($"{unit.UnitId} provenance is required.");
 
@@ -338,19 +347,19 @@ internal static class StoryCourseContractValidator
         foreach (StoryCourseComprehensionTaskContract task in unit.ComprehensionTasks)
         {
             if (!globalTaskIds.Add(task.TaskId)) throw new InvalidDataException($"Duplicate task id '{task.TaskId}'.");
-            task.Validate(unit.UnitId, moduleObjectiveIds);
+            task.Validate(unit.UnitId, unitObjectiveIds);
         }
         foreach (StoryCourseProductiveTaskContract task in unit.ProductiveTasks)
         {
             if (!globalTaskIds.Add(task.TaskId)) throw new InvalidDataException($"Duplicate task id '{task.TaskId}'.");
-            task.Validate(unit.UnitId, moduleObjectiveIds);
+            task.Validate(unit.UnitId, unitObjectiveIds);
         }
 
         if (unit.Checkpoint is not null)
         {
             if (!globalCheckpointIds.Add(unit.Checkpoint.CheckpointId))
                 throw new InvalidDataException($"Duplicate checkpoint id '{unit.Checkpoint.CheckpointId}'.");
-            unit.Checkpoint.Validate(unit.UnitId, moduleObjectiveIds);
+            unit.Checkpoint.Validate(unit.UnitId, unitObjectiveIds);
         }
     }
 
@@ -376,6 +385,7 @@ internal sealed record StoryCourseObjectiveProgressContract(
         StoryCourseContractId.Require(ObjectiveId, "progress objective id");
         if (ExposureCount < 0 || ComprehensionEvidenceCount < 0 || ProductiveEvidenceCount < 0 || CheckpointEvidenceCount < 0)
             throw new InvalidDataException($"{ObjectiveId} progress counters cannot be negative.");
+        if (!Enum.IsDefined(MasteryDecision)) throw new InvalidDataException($"{ObjectiveId} mastery decision is invalid.");
         if (MasteryDecision != StoryCourseMasteryDecision.Unknown && string.IsNullOrWhiteSpace(DecisionAuthority))
             throw new InvalidDataException($"{ObjectiveId} mastery decision requires an explicit external decision authority/policy.");
         if (MasteryDecision == StoryCourseMasteryDecision.Unknown && !string.IsNullOrWhiteSpace(DecisionAuthority))
@@ -426,6 +436,7 @@ internal sealed record StoryCourseProgressContract(
     {
         if (values is null || values.Any(string.IsNullOrWhiteSpace) || values.Distinct(StringComparer.OrdinalIgnoreCase).Count() != values.Count)
             throw new InvalidDataException($"{label} must be a unique stable-id collection.");
+        foreach (string value in values) StoryCourseContractId.Require(value, label);
     }
 }
 
