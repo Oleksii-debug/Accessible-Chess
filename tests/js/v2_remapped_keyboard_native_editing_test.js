@@ -4,7 +4,7 @@ const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
 
-const html = fs.readFileSync(path.join(__dirname, '..', '..', 'web', 'index.html'), 'utf8');
+const html = fs.readFileSync(path.join(__dirname, '..', '..', 'web', 'index.html'), 'utf8').replace(/\r\n?/g, '\n');
 const prefix = "document.addEventListener('keydown',async e=>{";
 const editableGuard = "if(['INPUT','TEXTAREA','SELECT'].includes(e.target.tagName))return;";
 const start = html.indexOf(prefix + "if(capture)return;");
