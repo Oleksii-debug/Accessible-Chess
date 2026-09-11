@@ -18,7 +18,9 @@ import codecs
 from dataclasses import dataclass
 from enum import Enum
 import hashlib
+import os
 from pathlib import Path
+import stat
 import tempfile
 from typing import BinaryIO, overload
 
@@ -34,7 +36,6 @@ from .library_import_service import (
     LibraryImportControlError,
     LibraryImportProgress,
     LibraryImportResult,
-    LibraryImportService,
     LibraryImportStorageError,
 )
 from .pgn_roundtrip import (
@@ -391,12 +392,79 @@ def _raise_budget_failure(
     ) from exc
 
 
+def _open_bound_source_fd(
+    source: SourceFingerprint,
+    *,
+    chunk_size: int,
+    accepted_games: int,
+) -> int:
+    """Bind streaming reads to the already-validated regular-file snapshot.
+
+    The descriptor is opened non-blocking/no-follow where supported, then the
+    path is fingerprinted again while that descriptor remains held. No source
+    bytes are consumed until descriptor identity and byte snapshot agree with the
+    preliminary fingerprint. Later path replacement cannot redirect the held
+    descriptor; the existing pre-publication fingerprint still rejects changes.
+    """
+
+    flags = (
+        os.O_RDONLY
+        | getattr(os, "O_BINARY", 0)
+        | getattr(os, "O_NOFOLLOW", 0)
+        | getattr(os, "O_NONBLOCK", 0)
+    )
+    try:
+        fd = os.open(source.path, flags)
+    except OSError as exc:
+        raise StreamingPgnImportError(
+            "PGN source changed before streaming",
+            code=StreamingPgnErrorCode.SOURCE_CHANGED,
+            accepted_games=accepted_games,
+        ) from exc
+
+    try:
+        opened = os.fstat(fd)
+        if not stat.S_ISREG(opened.st_mode):
+            raise StreamingPgnImportError(
+                "PGN source changed before streaming",
+                code=StreamingPgnErrorCode.SOURCE_CHANGED,
+                accepted_games=accepted_games,
+            )
+        rebound = fingerprint(source.path, chunk_size=chunk_size)
+        rebound_stat = os.stat(rebound.path, follow_symlinks=False)
+        same_identity = (opened.st_dev, opened.st_ino) == (
+            rebound_stat.st_dev,
+            rebound_stat.st_ino,
+        )
+        same_snapshot = (
+            rebound.size == source.size
+            and rebound.sha256 == source.sha256
+        )
+        if not same_identity or not same_snapshot:
+            raise StreamingPgnImportError(
+                "PGN source changed before streaming",
+                code=StreamingPgnErrorCode.SOURCE_CHANGED,
+                accepted_games=accepted_games,
+            )
+        return fd
+    except StreamingPgnImportError:
+        os.close(fd)
+        raise
+    except Exception as exc:
+        os.close(fd)
+        raise StreamingPgnImportError(
+            "PGN source changed before streaming",
+            code=StreamingPgnErrorCode.SOURCE_CHANGED,
+            accepted_games=accepted_games,
+        ) from exc
+
+
 class StreamingPgnLibraryImporter:
     """Incrementally parse a PGN file and publish canonical games via Library."""
 
-    def __init__(self, library: LibraryImportService) -> None:
-        if not isinstance(library, LibraryImportService):
-            raise TypeError("library must be a LibraryImportService")
+    def __init__(self, library: object) -> None:
+        if not callable(getattr(library, "import_games", None)):
+            raise TypeError("library must expose canonical import_games")
         self._library = library
 
     def import_file(
@@ -531,6 +599,12 @@ class StreamingPgnLibraryImporter:
                     cancel_check=cancel_check,
                     progress_callback=library_progress,
                 )
+                if not isinstance(library_result, LibraryImportResult):
+                    raise StreamingPgnImportError(
+                        "PGN Library publication returned an invalid result",
+                        code=StreamingPgnErrorCode.LIBRARY_ERROR,
+                        accepted_games=accepted_games,
+                    )
             except StreamingPgnImportCancelledError:
                 raise
             except LibraryImportCancelledError as exc:
@@ -629,10 +703,15 @@ class StreamingPgnLibraryImporter:
                 ) from exc
 
         try:
-            with open(source.path, "rb", buffering=0) as handle:
+            fd = _open_bound_source_fd(
+                source,
+                chunk_size=limits.read_chunk_bytes,
+                accepted_games=len(spool),
+            )
+            try:
                 while True:
                     _poll_cancel(cancel_check, accepted_games=len(spool))
-                    chunk = handle.read(limits.read_chunk_bytes)
+                    chunk = os.read(fd, limits.read_chunk_bytes)
                     if not chunk:
                         break
                     bytes_read += len(chunk)
@@ -717,6 +796,8 @@ class StreamingPgnLibraryImporter:
                     failure = accept_frame(completed.text)
                     if failure is not None:
                         return failure
+            finally:
+                os.close(fd)
         except StreamingPgnImportError:
             raise
         except OSError as exc:
