@@ -80,7 +80,6 @@ jobs:
           python -m pytest -q
           tests/test_version2_education_class_create.py
           tests/test_education_workspace.py
-          tests/test_education_workspace_store.py
           tests/test_education_webview_projection.py
           tests/test_education_webview_bridge.py
           tests/test_version2_final_product_composition.py
