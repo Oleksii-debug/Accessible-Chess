@@ -46,6 +46,7 @@ jobs:
       P1_PARENT: fe249c24cad049f77a998ff305fbad0ace77c6ac
       P1_REPAIR: 48b0aeabd485d9f9e26e335f232209e86debeb7a
       D06_WORKSPACE_BLOB: 346f31f828191e76d57b372bb6c84a4a90568594
+      D06_BOUNDED_WORKSPACE_BLOB: b59e6bfff9806dff2092e5c7f93b68daff6407ef
       D06_WORKSPACE_TEST_BLOB: edce8f6a591ffc09d419e9046e14725c4a07cf54
       PR_BASE: ${{ github.event.pull_request.base.sha }}
     steps:
@@ -181,7 +182,6 @@ jobs:
               exit 1
             }
           done <<'LOCKS'
-          acs/pgn_workspace.py=346f31f828191e76d57b372bb6c84a4a90568594
           tests/test_pgn_workspace.py=edce8f6a591ffc09d419e9046e14725c4a07cf54
           acs/pgn_webview_projection.py=45049519527cda3d9c9f3c4de8e4244afc9fc614
           acs/pgn_webview_bridge.py=c8f108c8dcc01c37503833abb5c626d89093145e
@@ -192,7 +192,16 @@ jobs:
           tests/test_dev1_pgn_workspace_webview_adapter.py=ef3be2ed1297e1b81bdecfaed233b948a08774ef
           tests/js/pgn_surface_dom_test.js=d2539b0674e68aa5ff1f040161be4f34943b5cf6
           LOCKS
-          test "$(git rev-parse HEAD:acs/pgn_workspace.py)" = "$D06_WORKSPACE_BLOB"
+
+          workspace_actual="$(git rev-parse HEAD:acs/pgn_workspace.py)"
+          case "$workspace_actual" in
+            "$D06_WORKSPACE_BLOB"|"$D06_BOUNDED_WORKSPACE_BLOB")
+              ;;
+            *)
+              printf 'Feature blob mismatch: acs/pgn_workspace.py actual=%s\n' "$workspace_actual" >&2
+              exit 1
+              ;;
+          esac
           test "$(git rev-parse HEAD:tests/test_pgn_workspace.py)" = "$D06_WORKSPACE_TEST_BLOB"
 
       - name: Compile and parse D01 PGN presentation
