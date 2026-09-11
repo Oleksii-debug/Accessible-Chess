@@ -18,7 +18,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  FROZEN_RUNTIME_BASE: 450f1cc2ccf786cd07c7b41853e449fc12740b19
+  CURRENT_RUNTIME_BASE: dbeacbb16289347c8739d616b2f38a7e9ecb16da
 
 jobs:
   startup-cleanup:
@@ -38,14 +38,14 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Prove exact frozen-runtime ancestry and bounded scope
+      - name: Prove exact current-runtime ancestry and bounded scope
         shell: bash
         run: |
           set -euo pipefail
-          git cat-file -e "$FROZEN_RUNTIME_BASE^{commit}"
-          git merge-base --is-ancestor "$FROZEN_RUNTIME_BASE" HEAD
-          git diff --check "$FROZEN_RUNTIME_BASE" HEAD
-          unexpected="$(git diff --name-only "$FROZEN_RUNTIME_BASE" HEAD | grep -Ev '^(acs/version2_release_app.py|tests/test_version2_composition_startup_cleanup_current.py|.github/workflows/v2-composition-startup-cleanup-current.yml)$' || true)"
+          git cat-file -e "$CURRENT_RUNTIME_BASE^{commit}"
+          git merge-base --is-ancestor "$CURRENT_RUNTIME_BASE" HEAD
+          git diff --check "$CURRENT_RUNTIME_BASE" HEAD
+          unexpected="$(git diff --name-only "$CURRENT_RUNTIME_BASE" HEAD | grep -Ev '^(acs/version2_release_app.py|tests/test_version2_composition_startup_cleanup_current.py|.github/workflows/v2-composition-startup-cleanup-current.yml)$' || true)"
           if [ -n "$unexpected" ]; then
             echo "Unexpected startup-cleanup scope:" >&2
             printf '%s\n' "$unexpected" >&2
