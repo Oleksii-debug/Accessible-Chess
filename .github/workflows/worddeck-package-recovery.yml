@@ -21,14 +21,20 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout exact candidate revision
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
 
-      - name: Verify WordDeck-only authority boundary
+      - name: Verify exact revision and WordDeck-only authority boundary
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
           $head = (git rev-parse HEAD).Trim()
-          Write-Host "Package recovery checkout: $head"
+          $expected = '${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}'
+          if ($head -ne $expected) { throw "Package recovery checkout mismatch: expected=$expected actual=$head" }
+          Write-Host "Exact package recovery checkout PASS: $head"
           if ($env:GITHUB_EVENT_NAME -eq 'pull_request') {
             $base = '${{ github.event.pull_request.base.sha }}'
             $changed = @(git diff --name-only "$base...HEAD")
