@@ -7,9 +7,15 @@ on:
   pull_request:
     branches:
       - codex/v2-runtime-completion-20260907
+      - work/full-product-teacher-education-reachability-20260911
     paths:
       - 'acs/version2_package_assembler.py'
       - 'tests/test_version2_package_assembler.py'
+      - 'acs/version2_package_preflight.py'
+      - 'tests/test_version2_package_preflight.py'
+      - 'tests/test_version2_package_preflight_hardening.py'
+      - 'tests/test_v2_package_required_resources.py'
+      - 'tests/test_version2_stockfish_source_archive_preflight.py'
       - '.github/workflows/w6-v2-package-assembler.yml'
   workflow_dispatch:
 
@@ -19,10 +25,6 @@ permissions:
 concurrency:
   group: w6-v2-package-assembler-current-${{ github.ref }}
   cancel-in-progress: true
-
-env:
-  CURRENT_RUNTIME_PREFLIGHT_PARENT: daf045295bdc9f7eefb40dfa16b74c8089cfbb4f
-  PREFLIGHT_BLOB: 8d0f050ef9354d3141ef624449e78482eea85535
 
 jobs:
   focused:
@@ -41,21 +43,28 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Exact current-runtime preflight parent and narrow assembler scope
+      - name: Prove current integrated Product assembler and preflight surface
         shell: bash
         run: |
           set -euo pipefail
-          git merge-base --is-ancestor "$CURRENT_RUNTIME_PREFLIGHT_PARENT" HEAD
-          test "$(git rev-parse "$CURRENT_RUNTIME_PREFLIGHT_PARENT":acs/version2_package_preflight.py)" = "$PREFLIGHT_BLOB"
-          test "$(git rev-parse HEAD:acs/version2_package_preflight.py)" = "$PREFLIGHT_BLOB"
-          git diff --check "$CURRENT_RUNTIME_PREFLIGHT_PARENT" HEAD
-          changed="$(git diff --name-only "$CURRENT_RUNTIME_PREFLIGHT_PARENT" HEAD | sort)"
-          expected="$(printf '%s\n' \
-            '.github/workflows/w6-v2-package-assembler.yml' \
-            'acs/version2_package_assembler.py' \
-            'tests/test_version2_package_assembler.py' | sort)"
-          test "$changed" = "$expected"
-          echo 'CURRENT RUNTIME + CANONICAL PREFLIGHT / SINGLE ASSEMBLER SCOPE PASS'
+          git diff --check
+          test -f acs/version2_package_assembler.py
+          test -f acs/version2_package_preflight.py
+          test -f tests/test_version2_package_assembler.py
+          test -f tests/test_version2_package_preflight.py
+          test -f tests/test_version2_package_preflight_hardening.py
+          test -f tests/test_v2_package_required_resources.py
+          test -f tests/test_version2_stockfish_source_archive_preflight.py
+          python - <<'PY'
+          from pathlib import Path
+          validators = sorted(
+              p.as_posix()
+              for p in Path('acs').glob('*.py')
+              if ('version2_package_preflight' in p.name or 'version2_package_validator' in p.name)
+          )
+          assert validators == ['acs/version2_package_preflight.py'], validators
+          print('CURRENT INTEGRATED PRODUCT / SINGLE ASSEMBLER+PREFLIGHT SURFACE PASS')
+          PY
 
       - name: Compile assembler and canonical preflight
         run: >-
@@ -66,6 +75,7 @@ jobs:
           tests/test_version2_package_preflight.py
           tests/test_version2_package_preflight_hardening.py
           tests/test_v2_package_required_resources.py
+          tests/test_version2_stockfish_source_archive_preflight.py
 
       - name: Direct fresh temp sibling oracle
         shell: bash
@@ -105,3 +115,4 @@ jobs:
           tests.test_version2_package_preflight
           tests.test_version2_package_preflight_hardening
           tests.test_v2_package_required_resources
+          tests.test_version2_stockfish_source_archive_preflight
