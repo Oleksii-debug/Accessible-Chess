@@ -31,11 +31,6 @@ class Dev4ImportHistoryErrorPrivacyTests(unittest.TestCase):
             if hasattr(acsdb_module, symbol)
         ]
         self.assertEqual(
-            parser_symbols,
-            [parser_symbols[0]] if parser_symbols else [],
-            "ACSDB must expose one parser seam for import fault injection",
-        )
-        self.assertEqual(
             len(parser_symbols),
             1,
             "ACSDB must expose exactly one parser seam for import fault injection",
