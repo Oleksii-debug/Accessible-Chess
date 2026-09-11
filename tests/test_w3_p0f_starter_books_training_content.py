@@ -7,16 +7,17 @@ import unittest
 from acs.acsdb import AcsDatabase
 from acs.analysis_service import AnalysisService
 from acs.book_progress_store import BookProgressStore
+from acs.book_training import build_book_training_material
 from acs.bookdocument import Exercise, Heading, Paragraph
 from acs.engine_assisted_workflows import EngineAssistedWorkflowService
 from acs.starter_books_training_content import (
     STARTER_CONTENT_LANGUAGE,
     STARTER_CONTENT_RIGHTS,
     STARTER_COURSE_BOOK_KEY,
-    build_starter_course,
     build_starter_materials,
     starter_content_manifest,
 )
+from acs.starter_books_training_runtime import build_training_ready_starter_course
 from acs.version2_starter_content_application import Version2StarterContentApplication
 
 
@@ -59,8 +60,8 @@ class StarterBooksTrainingContentTests(unittest.TestCase):
             self.assertTrue(all(block.answer_text and block.answer_text.strip() for block in exercises))
             self.assertTrue(all(block.fen.strip() for block in exercises))
 
-    def test_aggregate_course_is_offline_training_ready(self) -> None:
-        course = build_starter_course()
+    def test_aggregate_course_is_offline_and_all_exercises_are_training_ready(self) -> None:
+        course = build_training_ready_starter_course()
         self.assertEqual("Accessible Chess: стартовий курс", course.title)
         self.assertEqual(STARTER_CONTENT_LANGUAGE, course.language)
         self.assertEqual(EXPECTED_EXERCISES, len(course.exercises()))
@@ -69,6 +70,15 @@ class StarterBooksTrainingContentTests(unittest.TestCase):
         self.assertEqual(len(ids), len(set(ids)))
         self.assertNotIn("http://", repr(course.as_dict()))
         self.assertNotIn("https://", repr(course.as_dict()))
+
+        exercise_indexes = [
+            index for index, block in enumerate(course.blocks) if isinstance(block, Exercise)
+        ]
+        self.assertEqual(EXPECTED_EXERCISES, len(exercise_indexes))
+        for index in exercise_indexes:
+            material = build_book_training_material(course, index)
+            self.assertEqual(1, len(material.definition.steps))
+            self.assertTrue(material.definition.steps[0].accepted_moves)
 
     def test_final_product_application_preloads_books_and_starts_training(self) -> None:
         with tempfile.TemporaryDirectory(prefix="accessible-chess-w3-p0f-") as raw:
