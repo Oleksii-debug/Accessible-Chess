@@ -1,0 +1,111 @@
+name: D07 Canonical Ingress Final-Product Convergence
+
+on:
+  push:
+    branches:
+      - work/full-product-d07-canonical-ingress-converge-20260911
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: d07-canonical-ingress-final-product-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    env:
+      CANONICAL_BASE_SHA: 4d3415dd11e16be2357ad688a80aac0d19f9c005
+      SOURCE_HEAD: ee5e53a552837279f043d2390e2fa46a2d01a10a
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Prove histories and first-parent topology
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin \
+            work/full-product-teacher-education-reachability-20260911 \
+            pull/586/head \
+            pull/441/head
+
+          FIRST_PARENT="$(git rev-parse HEAD^1)"
+          if [[ "${FIRST_PARENT}" != "${CANONICAL_BASE_SHA}" ]]; then
+            echo "::error::Expected #645 head ${CANONICAL_BASE_SHA} as first parent, got ${FIRST_PARENT}."
+            exit 1
+          fi
+
+          git merge-base --is-ancestor "${CANONICAL_BASE_SHA}" HEAD
+          git merge-base --is-ancestor "${SOURCE_HEAD}" HEAD
+          git merge-base --is-ancestor "0b8fa275890cd82565eceece71063cb4353ea8c8" HEAD
+
+          test "$(git rev-parse "origin/work/full-product-teacher-education-reachability-20260911")" = "${CANONICAL_BASE_SHA}"
+          test "$(git rev-parse refs/remotes/pull/586/head)" = "${SOURCE_HEAD}"
+
+      - name: Prove bounded D07 scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t changed < <(git diff --name-only "${CANONICAL_BASE_SHA}..HEAD")
+          printf '%s\n' "${changed[@]}"
+
+          expected=(
+            ".github/workflows/d07-canonical-ingress-final-product-convergence.yml"
+            "acs/acsdb.py"
+            "acs/duplicate_detection.py"
+            "tests/test_d07_canonical_ingress_successor.py"
+            "tests/test_dev4_import_history_error_privacy.py"
+            "tests/test_v2_d07_ingress_convergence_after_dedupe_audit.py"
+          )
+
+          test "${#changed[@]}" -eq "${#expected[@]}"
+          for item in "${changed[@]}"; do
+            printf '%s\n' "${expected[@]}" | grep -Fxq "${item}" || {
+              echo "::error::Unexpected convergence path: ${item}"
+              exit 1
+            }
+          done
+          for item in "${expected[@]}"; do
+            printf '%s\n' "${changed[@]}" | grep -Fxq "${item}" || {
+              echo "::error::Missing convergence path: ${item}"
+              exit 1
+            }
+          done
+
+      - name: Prove exact accepted D07 payload
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected_blob () {
+            local path="$1"
+            local expected="$2"
+            local actual
+            actual="$(git rev-parse "HEAD:${path}")"
+            if [[ "${actual}" != "${expected}" ]]; then
+              echo "::error::${path} blob drifted: expected ${expected}, got ${actual}."
+              exit 1
+            fi
+          }
+
+          expected_blob acs/acsdb.py 1e28f97546e63969a4670cbfd0b60584722d09a7
+          expected_blob acs/duplicate_detection.py 53e74ee266572d9a293dccb23788cbbccd9393b9
+          expected_blob tests/test_d07_canonical_ingress_successor.py eef2546adf2a35988efeeadc36d7cde6d25b0d2f
+          expected_blob tests/test_dev4_import_history_error_privacy.py d7debb951c1d279f92fbc6325d7e0c799d3fb120
+          expected_blob tests/test_v2_d07_ingress_convergence_after_dedupe_audit.py 06f650e8db4baf23d26ef81de4113dcadcc470cc
+
+      - name: Run focused D07 canonical-ingress plus privacy gate
+        run: >-
+          python -m unittest -v
+          tests.test_d07_canonical_ingress_successor
+          tests.test_v2_d07_ingress_convergence_after_dedupe_audit
+          tests.test_dev4_import_history_error_privacy
+
+      - name: Run full suite
+        run: python -m unittest discover -s tests -v
