@@ -1,0 +1,504 @@
+name: Temporary 686 security repair
+
+on:
+  push:
+    branches:
+      - work/v2-stockfish-source-zip-preflight-20260911
+
+permissions:
+  contents: write
+
+concurrency:
+  group: tmp-686-security-repair
+  cancel-in-progress: true
+
+jobs:
+  repair:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: work/v2-stockfish-source-zip-preflight-20260911
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Apply bounded SAME-lineage repairs
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          preflight_path = Path('acs/version2_package_preflight.py')
+          text = preflight_path.read_text(encoding='utf-8')
+
+          resource_anchor = '''    "AccessibleChess/web/full_product_books_training.js",\n    "AccessibleChess/web/version2_release_bootstrap.js",'''
+          resource_replacement = '''    "AccessibleChess/web/full_product_books_training.js",\n    "AccessibleChess/web/full_product_teacher.js",\n    "AccessibleChess/web/full_product_education.js",\n    "AccessibleChess/web/version2_final_product_bootstrap.js",\n    "AccessibleChess/web/version2_release_bootstrap.js",'''
+          assert text.count(resource_anchor) == 1
+          text = text.replace(resource_anchor, resource_replacement)
+
+          helper_anchor = '''def _backend_payload(relative: str) -> bool:\n'''
+          assert text.count(helper_anchor) == 1
+          helpers = r'''def _same_file_snapshot(left: os.stat_result, right: os.stat_result) -> bool:
+              """Compare pathname/open-handle identity plus content-relevant metadata."""
+              try:
+                  same_identity = os.path.samestat(left, right)
+              except (AttributeError, OSError):
+                  same_identity = (
+                      getattr(left, "st_dev", None),
+                      getattr(left, "st_ino", None),
+                  ) == (
+                      getattr(right, "st_dev", None),
+                      getattr(right, "st_ino", None),
+                  )
+              return bool(
+                  same_identity
+                  and int(left.st_size) == int(right.st_size)
+                  and getattr(left, "st_mtime_ns", None) == getattr(right, "st_mtime_ns", None)
+              )
+
+
+          def _snapshot_regular_file(
+              path: Path,
+              *,
+              label: str,
+              max_bytes: int,
+          ):
+              """Copy one verified pathname identity once, then validate immutable snapshot bytes."""
+              before = _safe_lstat(path, label=label)
+              if not stat.S_ISREG(before.st_mode):
+                  _fail(f"{label} must be a regular file")
+              if before.st_size > max_bytes:
+                  _fail(f"{label} exceeds archive byte limit")
+
+              snapshot = tempfile.SpooledTemporaryFile(
+                  max_size=min(max_bytes, 64 * 1024 * 1024),
+                  mode="w+b",
+              )
+              source = None
+              digest = hashlib.sha256()
+              try:
+                  source = path.open("rb")
+                  opened = os.fstat(source.fileno())
+                  if not stat.S_ISREG(opened.st_mode) or _reparse(opened):
+                      _fail(f"{label} must remain a regular non-reparse file")
+                  if not _same_file_snapshot(before, opened):
+                      _fail(f"{label} changed while being opened")
+
+                  copied = 0
+                  while True:
+                      block = source.read(1024 * 1024)
+                      if not block:
+                          break
+                      copied += len(block)
+                      if copied > max_bytes:
+                          _fail(f"{label} exceeds archive byte limit")
+                      digest.update(block)
+                      snapshot.write(block)
+
+                  after_read = os.fstat(source.fileno())
+                  after_path = _safe_lstat(path, label=label)
+                  if (
+                      not _same_file_snapshot(opened, after_read)
+                      or not _same_file_snapshot(after_read, after_path)
+                      or copied != int(after_read.st_size)
+                  ):
+                      _fail(f"{label} changed while being read")
+                  snapshot.seek(0)
+                  return snapshot, digest.hexdigest()
+              except Version2PackagePreflightError:
+                  snapshot.close()
+                  raise
+              except OSError as exc:
+                  snapshot.close()
+                  _fail(f"{label} cannot be read safely: {type(exc).__name__}")
+              finally:
+                  if source is not None:
+                      source.close()
+
+
+          def _register_zip_topology(
+              token: str,
+              *,
+              is_dir: bool,
+              files: set[str],
+              directories: set[str],
+              label: str,
+          ) -> None:
+              parts = token.casefold().split("/")
+              folded = "/".join(parts)
+              ancestors = {"/".join(parts[:index]) for index in range(1, len(parts))}
+              if any(parent in files for parent in ancestors):
+                  _fail(f"{label} path topology collision")
+              if is_dir:
+                  if folded in files:
+                      _fail(f"{label} path topology collision")
+                  directories.add(folded)
+              else:
+                  if folded in directories:
+                      _fail(f"{label} path topology collision")
+                  files.add(folded)
+              directories.update(ancestors)
+
+
+          '''
+          text = text.replace(helper_anchor, helpers + helper_anchor)
+
+          def replace_section(source: str, start: str, end: str, replacement: str) -> str:
+              assert source.count(start) == 1, (start, source.count(start))
+              assert source.count(end) == 1, (end, source.count(end))
+              left = source.index(start)
+              right = source.index(end, left)
+              return source[:left] + replacement.rstrip() + "\n\n" + source[right:]
+
+          source_validator = r'''def _validate_stockfish_source_archive(
+              source_archive: Path,
+              limits: PackageLimits,
+          ) -> None:
+              """Validate one immutable snapshot of the nested corresponding-source ZIP."""
+              snapshot, _ = _snapshot_regular_file(
+                  source_archive,
+                  label="Stockfish source ZIP",
+                  max_bytes=limits.max_archive_bytes,
+              )
+              try:
+                  with snapshot:
+                      with zipfile.ZipFile(snapshot) as archive:
+                          infos = archive.infolist()
+                          if not infos:
+                              _fail("Stockfish corresponding source archive is empty")
+                          if len(infos) > limits.max_files * 2:
+                              _fail("Stockfish source ZIP exceeds member-count limit")
+
+                          seen: set[str] = set()
+                          topology_files: set[str] = set()
+                          topology_directories: set[str] = set()
+                          file_count = 0
+                          total = 0
+                          has_source_file = False
+                          for info in infos:
+                              raw = (
+                                  info.filename[:-1]
+                                  if info.is_dir() and info.filename.endswith("/")
+                                  else info.filename
+                              )
+                              token = _relative_token(raw, label="Stockfish source ZIP member path")
+                              folded = token.casefold()
+                              if folded in seen:
+                                  _fail("Stockfish source ZIP members collide under Windows case-folding")
+                              seen.add(folded)
+
+                              unix_mode = (info.external_attr >> 16) & 0xFFFF
+                              file_type = stat.S_IFMT(unix_mode)
+                              if file_type == stat.S_IFLNK:
+                                  _fail("Stockfish source ZIP symbolic links are forbidden")
+                              if file_type not in {0, stat.S_IFREG, stat.S_IFDIR}:
+                                  _fail("Stockfish source ZIP special files are forbidden")
+                              if info.flag_bits & 0x1:
+                                  _fail("encrypted Stockfish source ZIP members are forbidden")
+                              _register_zip_topology(
+                                  token,
+                                  is_dir=info.is_dir(),
+                                  files=topology_files,
+                                  directories=topology_directories,
+                                  label="Stockfish source ZIP",
+                              )
+                              if info.is_dir():
+                                  continue
+
+                              file_count += 1
+                              if file_count > limits.max_files:
+                                  _fail("Stockfish source ZIP exceeds file-count limit")
+                              if info.file_size > limits.max_member_bytes:
+                                  _fail("Stockfish source ZIP member exceeds uncompressed size limit")
+                              total += int(info.file_size)
+                              if total > limits.max_bytes:
+                                  _fail("Stockfish source ZIP exceeds total uncompressed byte limit")
+                              if info.file_size:
+                                  if info.compress_size <= 0:
+                                      _fail("Stockfish source ZIP member has invalid compressed size")
+                                  if info.file_size > info.compress_size * limits.max_compression_ratio:
+                                      _fail("Stockfish source ZIP member exceeds compression-ratio limit")
+
+                              written = 0
+                              try:
+                                  with archive.open(info, "r") as source:
+                                      while True:
+                                          block = source.read(1024 * 1024)
+                                          if not block:
+                                              break
+                                          written += len(block)
+                                          if written > info.file_size or written > limits.max_member_bytes:
+                                              _fail("Stockfish source ZIP member expanded beyond declared bounds")
+                              except Version2PackagePreflightError:
+                                  raise
+                              except (OSError, RuntimeError, zipfile.BadZipFile) as exc:
+                                  _fail(
+                                      "Stockfish source ZIP member readback failed: "
+                                      f"{type(exc).__name__}"
+                                  )
+                              if written != info.file_size:
+                                  _fail("Stockfish source ZIP member readback size mismatch")
+                              if written and "/src/" in f"/{token}":
+                                  has_source_file = True
+
+                          if not has_source_file:
+                              _fail("Stockfish corresponding source archive does not contain source files")
+              except Version2PackagePreflightError:
+                  raise
+              except (OSError, zipfile.BadZipFile, zipfile.LargeZipFile) as exc:
+                  _fail(f"Stockfish corresponding source archive is invalid: {type(exc).__name__}")
+          '''
+          text = replace_section(
+              text,
+              'def _validate_stockfish_source_archive(\n',
+              'def _validate_required_runtime_resources(\n',
+              source_validator,
+          )
+
+          zip_entries = r'''def _validate_zip_entries(
+              archive: zipfile.ZipFile,
+              limits: PackageLimits,
+          ) -> tuple[tuple[zipfile.ZipInfo, str], ...]:
+              infos = archive.infolist()
+              if not infos:
+                  _fail("Version 2 ZIP is empty")
+              if len(infos) > limits.max_files * 2:
+                  _fail("Version 2 ZIP exceeds member-count limit")
+              seen: set[str] = set()
+              topology_files: set[str] = set()
+              topology_directories: set[str] = set()
+              total = 0
+              validated: list[tuple[zipfile.ZipInfo, str]] = []
+              for info in infos:
+                  token = _zip_member_token(info)
+                  folded = token.casefold()
+                  if folded in seen:
+                      _fail("ZIP members collide under Windows case-folding")
+                  seen.add(folded)
+                  unix_mode = (info.external_attr >> 16) & 0xFFFF
+                  file_type = stat.S_IFMT(unix_mode)
+                  if file_type == stat.S_IFLNK:
+                      _fail("ZIP symbolic links are forbidden")
+                  if file_type not in {0, stat.S_IFREG, stat.S_IFDIR}:
+                      _fail("ZIP special files are forbidden")
+                  if info.flag_bits & 0x1:
+                      _fail("encrypted ZIP members are forbidden")
+                  _register_zip_topology(
+                      token,
+                      is_dir=info.is_dir(),
+                      files=topology_files,
+                      directories=topology_directories,
+                      label="Version 2 ZIP",
+                  )
+                  if not info.is_dir():
+                      _validate_file_policy(token)
+                      if info.file_size > limits.max_member_bytes:
+                          _fail("ZIP member exceeds uncompressed size limit")
+                      total += int(info.file_size)
+                      if total > limits.max_bytes:
+                          _fail("ZIP exceeds total uncompressed byte limit")
+                      if info.file_size:
+                          if info.compress_size <= 0:
+                              _fail("ZIP member has invalid compressed size")
+                          if info.file_size > info.compress_size * limits.max_compression_ratio:
+                              _fail("ZIP member exceeds compression-ratio limit")
+                  validated.append((info, token))
+              return tuple(validated)
+          '''
+          text = replace_section(
+              text,
+              'def _validate_zip_entries(\n',
+              'def validate_version2_package_zip(\n',
+              zip_entries,
+          )
+
+          zip_validator = r'''def validate_version2_package_zip(
+              zip_path: str | Path,
+              *,
+              expected_integration_sha: str,
+              limits: PackageLimits = PackageLimits(),
+          ) -> Version2PackagePreflightReport:
+              if not isinstance(limits, PackageLimits):
+                  raise TypeError("limits must be PackageLimits")
+              expected_sha = _normalize_expected_integration_sha(expected_integration_sha)
+              path = Path(zip_path)
+              snapshot, archive_sha = _snapshot_regular_file(
+                  path,
+                  label="Version 2 ZIP",
+                  max_bytes=limits.max_archive_bytes,
+              )
+
+              try:
+                  with snapshot:
+                      with zipfile.ZipFile(snapshot) as archive:
+                          entries = _validate_zip_entries(archive, limits)
+                          with tempfile.TemporaryDirectory(prefix="accessible-chess-v2-readback-") as td:
+                              root = Path(td)
+                              extracted_files: set[str] = set()
+                              for member, token in entries:
+                                  target = root.joinpath(*PurePosixPath(token).parts)
+                                  if member.is_dir():
+                                      target.mkdir(parents=True, exist_ok=True)
+                                      continue
+                                  target.parent.mkdir(parents=True, exist_ok=True)
+                                  written = 0
+                                  try:
+                                      with archive.open(member, "r") as source, target.open("xb") as destination:
+                                          while True:
+                                              block = source.read(1024 * 1024)
+                                              if not block:
+                                                  break
+                                              written += len(block)
+                                              if written > member.file_size or written > limits.max_member_bytes:
+                                                  _fail("ZIP member expanded beyond declared bounds")
+                                              destination.write(block)
+                                  except Version2PackagePreflightError:
+                                      raise
+                                  except (OSError, RuntimeError, zipfile.BadZipFile) as exc:
+                                      _fail(f"ZIP member readback failed: {type(exc).__name__}")
+                                  if written != member.file_size:
+                                      _fail("ZIP member readback size mismatch")
+                                  extracted_files.add(token)
+                              report = validate_version2_package_tree(
+                                  root,
+                                  expected_integration_sha=expected_sha,
+                                  limits=limits,
+                              )
+                              if set(report.inventory) != extracted_files:
+                                  _fail("ZIP readback inventory differs from archive file inventory")
+                              return replace(report, archive_sha256=archive_sha)
+              except Version2PackagePreflightError:
+                  raise
+              except (OSError, zipfile.BadZipFile, zipfile.LargeZipFile) as exc:
+                  _fail(f"Version 2 ZIP is unreadable or corrupt: {type(exc).__name__}")
+          '''
+          start = text.index('def validate_version2_package_zip(\n')
+          text = text[:start] + zip_validator.rstrip() + '\n'
+          preflight_path.write_text(text, encoding='utf-8')
+
+          source_test_path = Path('tests/test_version2_stockfish_source_archive_preflight.py')
+          source_tests = source_test_path.read_text(encoding='utf-8')
+          assert source_tests.count('import unittest\nimport zipfile\n') == 1
+          source_tests = source_tests.replace(
+              'import unittest\nimport zipfile\n',
+              'import unittest\nfrom unittest.mock import patch\nimport zipfile\n',
+          )
+          source_insert = r'''
+              def test_validator_opens_zip_from_stable_snapshot_not_pathname(self):
+                  with tempfile.TemporaryDirectory() as td:
+                      archive_path = Path(td) / "Stockfish-18-source.zip"
+                      _write_archive(
+                          archive_path,
+                          (("Stockfish/src/main.cpp", b"// source fixture\n"),),
+                      )
+                      original_zipfile = zipfile.ZipFile
+                      with patch(
+                          "acs.version2_package_preflight.zipfile.ZipFile",
+                          wraps=original_zipfile,
+                      ) as wrapped:
+                          _validate_stockfish_source_archive(archive_path, _limits())
+                      self.assertTrue(wrapped.call_args_list)
+                      first_arg = wrapped.call_args_list[0].args[0]
+                      self.assertFalse(isinstance(first_arg, (str, Path)))
+
+              def test_file_descendant_topology_collisions_fail_closed(self):
+                  cases = (
+                      (
+                          ("Stockfish/src", b"regular file\n"),
+                          ("Stockfish/src/main.cpp", b"child\n"),
+                      ),
+                      (
+                          ("Stockfish/SRC", b"regular file\n"),
+                          ("Stockfish/src/main.cpp", b"child\n"),
+                      ),
+                      (
+                          ("Stockfish/src/main.cpp", b"child\n"),
+                          ("Stockfish/src", b"regular file\n"),
+                      ),
+                  )
+                  for entries in cases:
+                      with self.subTest(entries=entries), tempfile.TemporaryDirectory() as td:
+                          archive_path = Path(td) / "Stockfish-18-source.zip"
+                          _write_archive(archive_path, entries)
+                          with self.assertRaisesRegex(
+                              Version2PackagePreflightError, "topology collision"
+                          ):
+                              _validate_stockfish_source_archive(archive_path, _limits())
+          '''
+          marker = '\n\nif __name__ == "__main__":\n'
+          assert source_tests.count(marker) == 1
+          source_tests = source_tests.replace(marker, '\n' + source_insert + marker)
+          source_test_path.write_text(source_tests, encoding='utf-8')
+
+          package_test_path = Path('tests/test_version2_package_preflight.py')
+          package_tests = package_test_path.read_text(encoding='utf-8')
+          fixture_anchor = '''        "full_product_books_training.js",\n        "version2_release_bootstrap.js",'''
+          fixture_replacement = '''        "full_product_books_training.js",\n        "full_product_teacher.js",\n        "full_product_education.js",\n        "version2_final_product_bootstrap.js",\n        "version2_release_bootstrap.js",'''
+          assert package_tests.count(fixture_anchor) == 1
+          package_tests = package_tests.replace(fixture_anchor, fixture_replacement)
+
+          test_anchor = '''    def test_manifest_and_checksum_tamper_fail_closed(self):\n'''
+          assert package_tests.count(test_anchor) == 1
+          new_tests = r'''    def test_final_product_runtime_web_resources_are_required(self):
+                  required = (
+                      "full_product_teacher.js",
+                      "full_product_education.js",
+                      "version2_final_product_bootstrap.js",
+                  )
+                  for missing in required:
+                      with self.subTest(missing=missing), tempfile.TemporaryDirectory() as td:
+                          root = Path(td) / "package"
+                          root.mkdir()
+                          _make_tree(root)
+                          (root / "AccessibleChess" / "web" / missing).unlink()
+                          _write_checksums(root)
+                          with self.assertRaisesRegex(
+                              Version2PackagePreflightError, "web resource is missing"
+                          ):
+                              _validate_tree(root)
+
+              def test_final_zip_and_nested_zip_use_snapshot_handles(self):
+                  with tempfile.TemporaryDirectory() as td:
+                      base = Path(td)
+                      root = base / "package"
+                      root.mkdir()
+                      _make_tree(root)
+                      archive = base / "Accessible-Chess-V2.zip"
+                      _zip_tree(root, archive)
+                      original_zipfile = zipfile.ZipFile
+                      with patch(
+                          "acs.version2_package_preflight.zipfile.ZipFile",
+                          wraps=original_zipfile,
+                      ) as wrapped:
+                          report = _validate_zip(archive)
+                      self.assertEqual(report.integration_sha, _SHA)
+                      self.assertGreaterEqual(len(wrapped.call_args_list), 2)
+                      for call in wrapped.call_args_list:
+                          self.assertFalse(isinstance(call.args[0], (str, Path)))
+
+          '''
+          package_tests = package_tests.replace(test_anchor, new_tests + test_anchor)
+          package_test_path.write_text(package_tests, encoding='utf-8')
+          PY
+
+      - name: Focused syntax and regressions
+        run: |
+          python -m py_compile acs/version2_package_preflight.py tests/test_version2_stockfish_source_archive_preflight.py tests/test_version2_package_preflight.py
+          python -m unittest -v tests.test_version2_stockfish_source_archive_preflight tests.test_version2_package_preflight
+
+      - name: Commit repaired SAME lineage and remove temporary workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/tmp-686-security-repair.yml
+          git add acs/version2_package_preflight.py tests/test_version2_stockfish_source_archive_preflight.py tests/test_version2_package_preflight.py
+          git diff --cached --check
+          git commit -m "Repair #686 immutable ZIP validation and runtime resources"
+          git push origin HEAD:work/v2-stockfish-source-zip-preflight-20260911
