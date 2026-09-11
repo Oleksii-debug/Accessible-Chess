@@ -48,21 +48,32 @@ jobs:
       - name: Install pinned verification dependency
         run: python -m pip install -q pytest==8.4.2
 
-      - name: Bind exact current-runtime parent and prove bounded language scope
+      - name: Bind language owner or prove integrated runtime regression scope
         shell: bash
         run: |
           set -euo pipefail
-          parent_line="$(git rev-list --parents -n 1 HEAD)"
-          test "$(wc -w <<<"$parent_line" | tr -d ' ')" = '3'
           base="$(git rev-parse HEAD^1)"
-          predecessor="$(git rev-parse HEAD^2)"
-          if git cat-file -e "$base:.github/workflows/w6-v2-language-owner-current.yml" 2>/dev/null; then
-            echo 'FIRST_PARENT_IS_NOT_CANONICAL_RUNTIME' >&2
-            exit 1
-          fi
-          git cat-file -e "$predecessor:.github/workflows/w6-v2-language-owner-current.yml"
           git merge-base --is-ancestor "$base" HEAD
           git diff --check "$base" HEAD
+
+          # Once the language owner has been integrated, later canonical runtime
+          # merges must keep running the regression suite instead of pretending
+          # every descendant HEAD is the original two-parent owner intake.
+          if git cat-file -e "$base:.github/workflows/w6-v2-language-owner-current.yml" 2>/dev/null; then
+            git cat-file -e "$base:acs/version2_release_app.py"
+            git cat-file -e "$base:acs/version2_release_ui.py"
+            git cat-file -e "$base:tests/test_w6_v2_language_owner_current.py"
+            echo 'LANGUAGE_GATE_MODE=integrated-regression'
+            echo "LANGUAGE_PRODUCT_PARENT=$base"
+            exit 0
+          fi
+
+          # First integration of this owner remains fail-closed and bounded to
+          # the exact four owner paths, preserving the original provenance gate.
+          parent_line="$(git rev-list --parents -n 1 HEAD)"
+          test "$(wc -w <<<"$parent_line" | tr -d ' ')" = '3'
+          predecessor="$(git rev-parse HEAD^2)"
+          git cat-file -e "$predecessor:.github/workflows/w6-v2-language-owner-current.yml"
           changed="$(git diff --name-only "$base" HEAD | sort)"
           expected="$(printf '%s\n' \
             '.github/workflows/w6-v2-language-owner-current.yml' \
@@ -83,6 +94,7 @@ jobs:
             tools/qa \
             run_accessible_chess.py \
             run_accessible_chess_v2.py
+          echo 'LANGUAGE_GATE_MODE=owner-intake'
           echo "LANGUAGE_PRODUCT_PARENT=$base"
           echo "LANGUAGE_PREDECESSOR=$predecessor"
 
