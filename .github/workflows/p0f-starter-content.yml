@@ -79,7 +79,7 @@ jobs:
           python - <<'PY'
           import json
           from pathlib import Path
-          from acs.acsdb import AcsDatabase
+          from acs.acsdb import ACSDB_SCHEMA_VERSION, AcsDatabase
           from acs.starter_content import CONTENT_LICENSE_ID
 
           root = Path('.p0f-default')
@@ -91,7 +91,7 @@ jobs:
           assert set(manifest['license']['applies_to']) == set(manifest['files'])
           assert all(item['license_id'] == CONTENT_LICENSE_ID for item in manifest['files'].values())
           with AcsDatabase(root / 'sample_library.acsdb') as db:
-              assert db.verify_integrity() == manifest['counts']['starter_games']
+              assert db.verify_integrity() == ACSDB_SCHEMA_VERSION
               total, distinct = db.conn.execute(
                   'SELECT COUNT(*), COUNT(DISTINCT pgn_text) FROM games'
               ).fetchone()
@@ -105,7 +105,7 @@ jobs:
         run: |
           python - <<'PY'
           from pathlib import Path
-          from acs.acsdb import AcsDatabase
+          from acs.acsdb import ACSDB_SCHEMA_VERSION, AcsDatabase
 
           root = Path('.p0f-default')
           stress_text = (root / 'stress_uk.pgn').read_text(encoding='utf-8')
@@ -114,7 +114,7 @@ jobs:
               assert report.total == 1200
               assert report.damaged == 0
               assert len(report.game_ids) == 1200
-              assert db.verify_integrity() == 1200
+              assert db.verify_integrity() == ACSDB_SCHEMA_VERSION
               total, distinct, whites, blacks, events = db.conn.execute(
                   'SELECT COUNT(*), COUNT(DISTINCT pgn_text), '
                   'COUNT(DISTINCT white), COUNT(DISTINCT black), COUNT(DISTINCT event) FROM games'
