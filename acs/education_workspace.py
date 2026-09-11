@@ -5,26 +5,41 @@ from __future__ import annotations
 ``ClassroomSnapshot`` remains the authority for current educational state.
 ``EducationLedger`` remains the authority for immutable assignment-attempt and
 remote-session checkpoint history. This module binds them into one validated
-workspace so callers never have to publish two independently durable files and
-risk a crash leaving their classroom digest/history anchor out of sync.
+workspace so callers never have to publish independently durable files and risk
+a crash leaving their classroom digest/history anchor or reusable teaching
+positions out of sync.
 
-No chess state, Training evaluation, Library/ACSDB data, or live D09 Classroom
-interaction state is owned here.
+Prepared positions reuse the canonical D09 ``TeachingPositionSource`` contract.
+Live board state, move legality, Training evaluation, Library/ACSDB data, and live
+D09 Classroom interaction state are not owned here.
 """
 
 from dataclasses import dataclass, replace
 import hashlib
 import json
+import re
 from typing import Any, Mapping
 
 from . import classroom_domain as cd
 from . import education_records as er
+from .teaching_session import (
+    PositionSourceKind,
+    TeachingPositionSource,
+    TeachingSessionError,
+)
 
 
 EDUCATION_WORKSPACE_VERSION = 1
-MAX_WORKSPACE_JSON_BYTES = cd.MAX_SNAPSHOT_BYTES + er.MAX_SNAPSHOT_BYTES + 256_000
+MAX_PREPARED_POSITIONS = 1024
+MAX_WORKSPACE_JSON_BYTES = cd.MAX_SNAPSHOT_BYTES + er.MAX_SNAPSHOT_BYTES + 512_000
 MAX_WIRE_INTEGER = (1 << 53) - 1
-_WORKSPACE_FIELDS = frozenset({"version", "classroom", "ledger", "digest"})
+_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
+_WORKSPACE_FIELDS_LEGACY = frozenset({"version", "classroom", "ledger", "digest"})
+_WORKSPACE_FIELDS = frozenset(
+    {"version", "classroom", "ledger", "prepared_positions", "digest"}
+)
+_PREPARED_POSITION_FIELDS = frozenset({"position_id", "source", "revision"})
+_POSITION_SOURCE_FIELDS = frozenset({"kind", "fen", "source_ref", "source_index"})
 
 
 class EducationWorkspaceError(ValueError):
@@ -32,17 +47,35 @@ class EducationWorkspaceError(ValueError):
 
 
 @dataclass(frozen=True)
+class PreparedPosition:
+    """Durable reusable teaching position with stable identity and CAS revision."""
+
+    position_id: str
+    source: TeachingPositionSource
+    revision: int = 0
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "position_id", _id(self.position_id, "prepared position id"))
+        if type(self.source) is not TeachingPositionSource:
+            raise EducationWorkspaceError(
+                "prepared position source must be canonical TeachingPositionSource"
+            )
+        _revision(self.revision, "prepared position revision")
+
+
+@dataclass(frozen=True)
 class EducationWorkspace:
     """One canonical D10 persistence unit.
 
     The ledger must always be anchored to the exact current ClassroomSnapshot.
-    ``EducationWorkspaceStore`` can therefore publish both authorities with one
-    filesystem replace instead of a two-file best-effort sequence.
+    ``EducationWorkspaceStore`` can therefore publish current Classroom state,
+    D10 history, and prepared teaching positions with one filesystem replace.
     """
 
     classroom: cd.ClassroomSnapshot
     ledger: er.EducationLedger
     version: int = EDUCATION_WORKSPACE_VERSION
+    prepared_positions: tuple[PreparedPosition, ...] = ()
 
     def __post_init__(self) -> None:
         if type(self.version) is not int or self.version != EDUCATION_WORKSPACE_VERSION:
@@ -57,6 +90,20 @@ class EducationWorkspace:
             raise EducationWorkspaceError(
                 "workspace ledger is not anchored to the current classroom"
             )
+        if (
+            type(self.prepared_positions) is not tuple
+            or len(self.prepared_positions) > MAX_PREPARED_POSITIONS
+        ):
+            raise EducationWorkspaceError(
+                "prepared positions must be a bounded tuple"
+            )
+        if any(type(item) is not PreparedPosition for item in self.prepared_positions):
+            raise EducationWorkspaceError(
+                "prepared positions contain invalid record type"
+            )
+        ids = tuple(item.position_id for item in self.prepared_positions)
+        if len(set(ids)) != len(ids):
+            raise EducationWorkspaceError("prepared position ids must be unique")
 
     @classmethod
     def empty(cls, classroom: cd.ClassroomSnapshot) -> "EducationWorkspace":
@@ -73,6 +120,9 @@ class EducationWorkspace:
             "version": self.version,
             "classroom": self.classroom.to_record(),
             "ledger": self.ledger.to_record(),
+            "prepared_positions": [
+                _prepared_position_to_record(item) for item in self.prepared_positions
+            ],
         }
 
     def to_record(self) -> dict[str, object]:
@@ -89,10 +139,12 @@ class EducationWorkspace:
     @classmethod
     def from_record(cls, value: Mapping[str, Any]) -> "EducationWorkspace":
         data = _mapping(value, "education workspace")
-        if set(data) != _WORKSPACE_FIELDS:
+        actual_fields = frozenset(data)
+        if actual_fields not in {_WORKSPACE_FIELDS_LEGACY, _WORKSPACE_FIELDS}:
             raise EducationWorkspaceError("education workspace schema mismatch")
         supplied_digest = _digest_text(data["digest"], "workspace digest")
-        body = {key: data[key] for key in ("version", "classroom", "ledger")}
+        body_keys = tuple(key for key in data if key != "digest")
+        body = {key: data[key] for key in body_keys}
         if _digest(body) != supplied_digest:
             raise EducationWorkspaceError("education workspace digest mismatch")
         version = data["version"]
@@ -107,7 +159,26 @@ class EducationWorkspace:
             ledger = er.EducationLedger.from_record(raw_ledger)
         except (cd.ClassroomDomainError, er.EducationRecordsError) as exc:
             raise EducationWorkspaceError("invalid nested education workspace state") from exc
-        return cls(classroom=classroom, ledger=ledger, version=version)
+
+        prepared_positions: tuple[PreparedPosition, ...] = ()
+        if actual_fields == _WORKSPACE_FIELDS:
+            raw_positions = data["prepared_positions"]
+            if (
+                type(raw_positions) is not list
+                or len(raw_positions) > MAX_PREPARED_POSITIONS
+            ):
+                raise EducationWorkspaceError(
+                    "prepared positions must be a bounded JSON array"
+                )
+            prepared_positions = tuple(
+                _prepared_position_from_record(item) for item in raw_positions
+            )
+        return cls(
+            classroom=classroom,
+            ledger=ledger,
+            version=version,
+            prepared_positions=prepared_positions,
+        )
 
     @classmethod
     def from_json(cls, text: str) -> "EducationWorkspace":
@@ -132,6 +203,81 @@ class EducationWorkspace:
 
     def student_view(self, actor_student_id: str) -> er.StudentRecordsView:
         return self.ledger.student_view(self.classroom, actor_student_id)
+
+
+def save_prepared_position(
+    workspace: EducationWorkspace,
+    *,
+    position_id: str,
+    source: TeachingPositionSource,
+    expected_position_revision: int,
+) -> EducationWorkspace:
+    """Create or CAS-update one durable prepared teaching position.
+
+    The source is the canonical D09 teaching-position contract, so FEN
+    normalization and PGN/book/database provenance rules are reused instead of
+    being reimplemented in D10.  ``EducationWorkspaceStore`` supplies the outer
+    file-level CAS when this returned workspace is durably published.
+    """
+
+    workspace = _workspace(workspace)
+    position_id = _id(position_id, "prepared position id")
+    expected = _revision(
+        expected_position_revision,
+        "expected prepared position revision",
+    )
+    if type(source) is not TeachingPositionSource:
+        raise EducationWorkspaceError(
+            "prepared position source must be canonical TeachingPositionSource"
+        )
+
+    existing = next(
+        (
+            item
+            for item in workspace.prepared_positions
+            if item.position_id == position_id
+        ),
+        None,
+    )
+    if existing is None:
+        if expected != 0:
+            raise EducationWorkspaceError("stale prepared position revision")
+        candidate = PreparedPosition(position_id=position_id, source=source)
+        return replace(
+            workspace,
+            prepared_positions=workspace.prepared_positions + (candidate,),
+        )
+
+    if existing.revision != expected:
+        raise EducationWorkspaceError("stale prepared position revision")
+    if existing.source == source:
+        return workspace
+    replacement = PreparedPosition(
+        position_id=position_id,
+        source=source,
+        revision=existing.revision + 1,
+    )
+    return replace(
+        workspace,
+        prepared_positions=tuple(
+            replacement if item.position_id == position_id else item
+            for item in workspace.prepared_positions
+        ),
+    )
+
+
+def get_prepared_position(
+    workspace: EducationWorkspace,
+    position_id: str,
+) -> PreparedPosition:
+    workspace = _workspace(workspace)
+    position_id = _id(position_id, "prepared position id")
+    matches = tuple(
+        item for item in workspace.prepared_positions if item.position_id == position_id
+    )
+    if len(matches) != 1:
+        raise EducationWorkspaceError("unknown or ambiguous prepared position")
+    return matches[0]
 
 
 def commit_classroom(
@@ -164,7 +310,7 @@ def commit_classroom(
         raise EducationWorkspaceError("classroom commit rejected") from exc
     if new_classroom == workspace.classroom and ledger is workspace.ledger:
         return workspace
-    return EducationWorkspace(classroom=new_classroom, ledger=ledger)
+    return replace(workspace, classroom=new_classroom, ledger=ledger)
 
 
 def submit_homework(
@@ -256,7 +402,7 @@ def submit_homework(
         raise EducationWorkspaceError(
             "assignment submission could not be anchored to current homework"
         ) from exc
-    return EducationWorkspace(classroom=new_classroom, ledger=anchored_ledger)
+    return replace(workspace, classroom=new_classroom, ledger=anchored_ledger)
 
 
 def set_student_consent(
@@ -350,7 +496,7 @@ def checkpoint_remote_session(
         raise EducationWorkspaceError("remote session checkpoint rejected") from exc
     if ledger is workspace.ledger:
         return workspace
-    return EducationWorkspace(classroom=workspace.classroom, ledger=ledger)
+    return replace(workspace, ledger=ledger)
 
 
 def _workspace(value: object) -> EducationWorkspace:
@@ -359,6 +505,44 @@ def _workspace(value: object) -> EducationWorkspace:
     if value.ledger.classroom_digest != value.classroom.digest:
         raise EducationWorkspaceError("workspace anchor is corrupt")
     return value
+
+
+def _prepared_position_to_record(item: PreparedPosition) -> dict[str, object]:
+    return {
+        "position_id": item.position_id,
+        "source": {
+            "kind": item.source.kind.value,
+            "fen": item.source.fen,
+            "source_ref": item.source.source_ref,
+            "source_index": item.source.source_index,
+        },
+        "revision": item.revision,
+    }
+
+
+def _prepared_position_from_record(value: object) -> PreparedPosition:
+    data = _mapping(value, "prepared position")
+    if set(data) != _PREPARED_POSITION_FIELDS:
+        raise EducationWorkspaceError("prepared position schema mismatch")
+    source_data = _mapping(data["source"], "prepared position source")
+    if set(source_data) != _POSITION_SOURCE_FIELDS:
+        raise EducationWorkspaceError("prepared position source schema mismatch")
+    try:
+        source = TeachingPositionSource(
+            kind=PositionSourceKind(source_data["kind"]),
+            fen=source_data["fen"],
+            source_ref=source_data["source_ref"],
+            source_index=source_data["source_index"],
+        )
+    except (ValueError, TeachingSessionError, TypeError) as exc:
+        raise EducationWorkspaceError(
+            "prepared position source is not canonical"
+        ) from exc
+    return PreparedPosition(
+        position_id=data["position_id"],
+        source=source,
+        revision=data["revision"],
+    )
 
 
 def _find_homework(classroom: cd.ClassroomSnapshot, homework_id: str) -> cd.Homework:
@@ -416,6 +600,23 @@ def _derived_operation_id(operation_id: object, purpose: str) -> str:
     except UnicodeEncodeError as exc:
         raise EducationWorkspaceError("operation id contains invalid Unicode") from exc
     return "ws:" + hashlib.sha256(seed).hexdigest()
+
+
+def _id(value: object, label: str) -> str:
+    if type(value) is not str or _ID_RE.fullmatch(value) is None:
+        raise EducationWorkspaceError(
+            f"{label} must be a canonical opaque identifier"
+        )
+    return value
+
+
+def _revision(value: object, label: str) -> int:
+    if type(value) is not int or not 0 <= value <= MAX_WIRE_INTEGER:
+        raise EducationWorkspaceError(
+            f"{label} must be a non-negative JSON-safe integer not greater than "
+            f"{MAX_WIRE_INTEGER}"
+        )
+    return value
 
 
 def _mapping(value: object, label: str) -> Mapping[str, Any]:
