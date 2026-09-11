@@ -25,9 +25,11 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  PRODUCT_BASE: 38df77a62d76f92442f65b2a888c82266d33be9d
+  CURRENT_PRODUCT_BASE: 6618292424b1942d2e176a41e15d31dc93adfe70
+  ORIGINAL_REPAIR_HEAD: 87a3d11622a554b9769de44ba8fd7cf86144ee18
   SOURCE_REPAIR: 532badb15d73ad2fd734d33f223bb59c44d8d5fd
   ORACLE_SOURCE: ff52de10713d76f8e81f753b3126c9e5304b67b7
+  REPAIR_BRANCH: fix/v1-bridge-monotonic-recovery-20260911
   REPAIR_BLOB: 5a4d5676e9b036fd6642e707f7dfd2d45feb42b8
   ORACLE_TEST_BLOB: b9388445c1510800da59f6f31dee52c7643f4ed3
   ORACLE_JSON_BLOB: 34517c2737ab25c79ec5495d0121f76694e4311f
@@ -61,36 +63,49 @@ jobs:
       - name: Install pinned verification dependency
         run: python -m pip install -q pytest==8.4.2
 
-      - name: Prove exact current authority, repair lineage and unchanged oracle
+      - name: Prove candidate or retained authority and unchanged recovery oracle
         shell: bash
         env:
           EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          EVENT_HEAD_REF: ${{ github.head_ref }}
+          EVENT_REF_NAME: ${{ github.ref_name }}
         run: |
           set -euo pipefail
-          base="${EVENT_BASE_SHA:-$PRODUCT_BASE}"
-          test "$base" = "$PRODUCT_BASE"
-          for commit in "$PRODUCT_BASE" "$SOURCE_REPAIR" "$ORACLE_SOURCE"; do
+          for commit in "$CURRENT_PRODUCT_BASE" "$ORIGINAL_REPAIR_HEAD" "$SOURCE_REPAIR" "$ORACLE_SOURCE"; do
             git cat-file -e "${commit}^{commit}" || git fetch --no-tags origin "$commit"
           done
-          git merge-base --is-ancestor "$PRODUCT_BASE" HEAD
+
+          candidate=0
+          if [ "${EVENT_HEAD_REF:-}" = "$REPAIR_BRANCH" ] || [ "${EVENT_REF_NAME:-}" = "$REPAIR_BRANCH" ]; then
+            candidate=1
+          fi
+
+          if [ "$candidate" = "1" ]; then
+            base="${EVENT_BASE_SHA:-}"
+            if [ -z "$base" ]; then
+              base="$(git rev-parse HEAD^)"
+            fi
+            test "$base" = "$CURRENT_PRODUCT_BASE"
+            test "$(git rev-parse HEAD^)" = "$CURRENT_PRODUCT_BASE"
+            git diff --check "$CURRENT_PRODUCT_BASE" HEAD
+            changed="$(git diff --name-only "$CURRENT_PRODUCT_BASE" HEAD | sort)"
+            expected='.github/workflows/v1-runtime-bridge-monotonic-recovery-current.yml'
+            test "$changed" = "$expected"
+            echo "MODE=candidate"
+          else
+            git merge-base --is-ancestor "$CURRENT_PRODUCT_BASE" HEAD
+            git merge-base --is-ancestor "$ORIGINAL_REPAIR_HEAD" HEAD
+            git diff --check "$CURRENT_PRODUCT_BASE" HEAD
+            echo "MODE=retained"
+          fi
+
           git merge-base --is-ancestor "$SOURCE_REPAIR" HEAD
-          git diff --check "$PRODUCT_BASE" HEAD
-
-          changed="$(git diff --name-only "$PRODUCT_BASE" HEAD | sort)"
-          expected="$(printf '%s\n' \
-            '.github/workflows/v1-runtime-bridge-monotonic-recovery-current.yml' \
-            'acs/v1_runtime_bridge.py' \
-            'tests/oracles/v1_runtime_bridge_windows_crash_expected.json' \
-            'tests/test_v1_runtime_bridge_windows_crash_oracle.py' | sort)"
-          test "$changed" = "$expected"
-
           test "$(git rev-parse HEAD:acs/v1_runtime_bridge.py)" = "$REPAIR_BLOB"
           test "$(git rev-parse "$SOURCE_REPAIR":acs/v1_runtime_bridge.py)" = "$REPAIR_BLOB"
           test "$(git rev-parse HEAD:tests/test_v1_runtime_bridge_windows_crash_oracle.py)" = "$ORACLE_TEST_BLOB"
           test "$(git rev-parse "$ORACLE_SOURCE":tests/test_v1_runtime_bridge_windows_crash_oracle.py)" = "$ORACLE_TEST_BLOB"
           test "$(git rev-parse HEAD:tests/oracles/v1_runtime_bridge_windows_crash_expected.json)" = "$ORACLE_JSON_BLOB"
           test "$(git rev-parse "$ORACLE_SOURCE":tests/oracles/v1_runtime_bridge_windows_crash_expected.json)" = "$ORACLE_JSON_BLOB"
-          test "$(git rev-parse "$PRODUCT_BASE":acs/v1_runtime_bridge.py)" != "$REPAIR_BLOB"
 
       - name: Syntax and imports
         run: >-
@@ -113,11 +128,12 @@ jobs:
         if: matrix.os == 'ubuntu-22.04'
         run: python -m unittest discover -s tests -p 'test_*.py'
 
-      - name: Emit exact repair authority
+      - name: Emit exact recovery authority
         shell: bash
         run: |
           set -euo pipefail
-          echo "PRODUCT_BASE=$PRODUCT_BASE"
+          echo "CURRENT_PRODUCT_BASE=$CURRENT_PRODUCT_BASE"
+          echo "ORIGINAL_REPAIR_HEAD=$ORIGINAL_REPAIR_HEAD"
           echo "SOURCE_REPAIR=$SOURCE_REPAIR"
           echo "ORACLE_SOURCE=$ORACLE_SOURCE"
           echo "QUALIFIED_HEAD=$(git rev-parse HEAD)"
