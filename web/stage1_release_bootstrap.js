@@ -256,6 +256,19 @@ function installMoveFocusPolicy() {
         return result;
     };
     wrappedSubmit.__stage1FocusPolicy = true;
+
+    // index.html installed this exact baseSubmit function object as the
+    // move-submit click listener before the release bootstrap ran. Replacing
+    // window.submitMove alone cannot update an already-registered DOM listener,
+    // so native/UIA Invoke would bypass the board-focus policy and finish on
+    // Move Input. Rebind only the button click path; Move Input Enter keeps its
+    // original behavior and remains focused in the edit control.
+    const submit = byId('move-submit');
+    if (submit) {
+        submit.removeEventListener('click', baseSubmit);
+        submit.addEventListener('click', wrappedSubmit);
+    }
+
     window.submitMove = wrappedSubmit;
     document.body.dataset.stage1MoveFocusPolicyReady = 'true';
 }
