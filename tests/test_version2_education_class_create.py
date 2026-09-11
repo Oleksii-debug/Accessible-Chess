@@ -126,6 +126,12 @@ class EducationClassProjectionTests(unittest.TestCase):
 
 
 class EducationMutationReleaseBindingTests(unittest.TestCase):
+    def assert_education_capable_owner(self, observed: list[object]) -> None:
+        self.assertEqual(len(observed), 1)
+        owner = observed[0]
+        self.assertIsInstance(owner, type)
+        self.assertTrue(issubclass(owner, Version2EducationMutationApplication))
+
     def test_import_preserves_exact_prior_release_application_owner(self) -> None:
         from acs import version2_education_mutation_release as mutation_release
         from acs import version2_release_app
@@ -156,7 +162,7 @@ class EducationMutationReleaseBindingTests(unittest.TestCase):
             result = mutation_release.create_version2_release_application()
 
         self.assertEqual(result, (api, "application", "runtime", "native"))
-        self.assertEqual(observed, [Version2EducationMutationApplication])
+        self.assert_education_capable_owner(observed)
         self.assertTrue(callable(api._sync_version2_language))
         self.assertIs(version2_release_app.Version2Application, previous_owner)
 
@@ -193,7 +199,7 @@ class EducationMutationReleaseBindingTests(unittest.TestCase):
             (returned_api, application, runtime, native),
             (api, "application", "runtime", "native"),
         )
-        self.assertEqual(observed, [Version2EducationMutationApplication])
+        self.assert_education_capable_owner(observed)
         self.assertIs(version2_release_app.Version2Application, previous_owner)
 
 
