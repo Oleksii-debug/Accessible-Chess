@@ -41,6 +41,16 @@ class TrainingProgressCrashRecoveryTests(unittest.TestCase):
             (ExerciseStep(frozenset({"e4"})),),
         )
 
+    def test_load_missing_nested_progress_path_is_empty_and_read_only(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "never-created" / "nested" / "training-progress.json"
+            self.assertFalse(path.parent.exists())
+
+            loaded = TrainingProgressStore(path).load(self._definition())
+
+            self.assertIsNone(loaded)
+            self.assertFalse(path.parent.exists())
+
     def test_persistent_lock_file_residue_does_not_block_save(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             path = Path(td) / "training-progress.json"
