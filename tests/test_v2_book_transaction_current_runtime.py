@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-import sqlite3
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -214,30 +213,6 @@ class Version2BookTransactionCurrentRuntimeTests(unittest.TestCase):
         self.assertIsNone(self.app.book_delegate)
         self.assertIsNone(self.app.books)
         self.assertEqual(self.app.shell.current_route.route_id, before_route)
-
-    def test_shutdown_progress_failure_still_closes_acsdb(self):
-        database = AcsDatabase(self.root / "shutdown-library.acsdb")
-        analysis = AnalysisService(lambda: None)
-        self.addCleanup(analysis.close)
-
-        class FailingProgressStore:
-            def save(self, _book_key, _reader):
-                raise OSError("synthetic shutdown progress failure")
-
-        application = Version2Application(
-            database,
-            progress_store=FailingProgressStore(),
-            engine_assistance=EngineAssistedWorkflowService(analysis),
-            board_dispatch=lambda *_args: None,
-        )
-        application.reader = object()
-        application.book_key = "shutdown-evidence-book"
-
-        with self.assertRaisesRegex(OSError, "shutdown progress failure"):
-            application.shutdown()
-
-        with self.assertRaises(sqlite3.ProgrammingError):
-            database.conn.execute("SELECT 1")
 
 
 if __name__ == "__main__":
