@@ -33,7 +33,7 @@ concurrency:
 env:
   ORIGINAL_STACK_BASE: 958ae19cd91a135fd3f384d02a880c0ed1adfd10
   ORIGINAL_OWNER_BRANCH: work/v2-library-acsdb-search-v4-20260828
-  PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+  CURRENT_PRODUCT_BASE: 4d3415dd11e16be2357ad688a80aac0d19f9c005
 
 jobs:
   correctness:
@@ -62,7 +62,7 @@ jobs:
           python-version: '3.12'
       - name: Install pinned verification dependency
         run: python -m pip install -q pytest==8.4.2
-      - name: Owner or current-product ancestry and diff hygiene
+      - name: Owner or exact current-product ancestry and diff hygiene
         shell: bash
         run: |
           set -euo pipefail
@@ -86,10 +86,9 @@ jobs:
               exit 1
             fi
           else
-            test -n "$PR_BASE_SHA"
-            git cat-file -e "$PR_BASE_SHA^{commit}"
-            git merge-base --is-ancestor "$PR_BASE_SHA" HEAD
-            git diff --check "$PR_BASE_SHA" HEAD
+            git cat-file -e "$CURRENT_PRODUCT_BASE^{commit}"
+            git merge-base --is-ancestor "$CURRENT_PRODUCT_BASE" HEAD
+            git diff --check "$CURRENT_PRODUCT_BASE" HEAD
           fi
       - name: Compile
         run: python -m compileall -q acs tests tools run_accessible_chess.py
