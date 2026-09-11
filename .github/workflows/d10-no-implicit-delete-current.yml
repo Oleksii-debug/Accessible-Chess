@@ -4,7 +4,7 @@ on:
   pull_request:
     paths:
       - 'acs/education_workspace.py'
-      - 'tests/test_d10_no_implicit_delete_current.py'
+      - 'tests/test_d10_no-implicit-delete-current.py'
       - '.github/workflows/d10-no-implicit-delete-current.yml'
   workflow_dispatch:
 
@@ -48,7 +48,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          base=b9983f63ca7c8e1c6c523433f2be8a8c840aa18d
+          test -n "${GITHUB_BASE_REF:-}"
+          git fetch --no-tags origin "${GITHUB_BASE_REF}:refs/remotes/origin/${GITHUB_BASE_REF}"
+          base="$(git rev-parse "origin/${GITHUB_BASE_REF}")"
           git merge-base --is-ancestor "$base" HEAD
           git diff --check "$base" HEAD
           changed="$(git diff --name-only "$base" HEAD | sort)"
