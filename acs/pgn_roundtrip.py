@@ -21,6 +21,8 @@ from typing import Iterable
 
 from .gametree import (
     Comment,
+    GameTreeContractError,
+    GameTreeErrorCode,
     GameTreeSerializationError,
     MAX_TREE_NODES,
     MAX_VARIATION_DEPTH,
@@ -490,7 +492,21 @@ def parse_pgn_text(
         source_budget=source_budget,
         text_precounted=text_precounted,
     )
-    games = tuple(parse_games(normalized))
+    try:
+        games = tuple(parse_games(normalized))
+    except GameTreeContractError as exc:
+        if exc.code in {
+            GameTreeErrorCode.GRAPH_DEPTH_LIMIT,
+            GameTreeErrorCode.GRAPH_NODE_LIMIT,
+        }:
+            raise PgnRoundTripError(
+                "PGN structure exceeds the safety limit",
+                code=PgnRoundTripErrorCode.TOKEN_COUNT_LIMIT,
+            ) from exc
+        raise PgnRoundTripError(
+            "PGN contains invalid structural data",
+            code=PgnRoundTripErrorCode.MALFORMED_PGN,
+        ) from exc
     if len(games) > MAX_PGN_GAMES:
         _raise_limit(
             "PGN contains too many games",
@@ -713,18 +729,30 @@ def materialize_pgn_games_bounded(
     snapshot: list[PgnGame] = []
     try:
         iterator = iter(games)
-        for index, game in enumerate(iterator):
-            if index >= MAX_PGN_GAMES:
-                _raise_limit(
-                    "PGN contains too many games",
-                    PgnRoundTripErrorCode.GAME_COUNT_LIMIT,
-                )
-            snapshot.append(game)
-    except TypeError as exc:
+    except Exception as exc:
         raise PgnRoundTripError(
             "PGN games must be an iterable of PgnGame values",
             code=PgnRoundTripErrorCode.INVALID_MODEL,
         ) from exc
+
+    index = 0
+    while True:
+        try:
+            game = next(iterator)
+        except StopIteration:
+            break
+        except Exception as exc:
+            raise PgnRoundTripError(
+                "PGN game source failed during bounded materialization",
+                code=PgnRoundTripErrorCode.INVALID_MODEL,
+            ) from exc
+        if index >= MAX_PGN_GAMES:
+            _raise_limit(
+                "PGN contains too many games",
+                PgnRoundTripErrorCode.GAME_COUNT_LIMIT,
+            )
+        snapshot.append(game)
+        index += 1
 
     bounded = tuple(snapshot)
     _measure_games(bounded)
