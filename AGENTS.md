@@ -39,6 +39,32 @@ The full target is an accessible commercial English-learning platform:
 
 Architecture or curriculum documents alone do not finish the product. Production content, real runtime wiring, assessment and packaged user journeys must exist.
 
+## Maximum final-product scope lock — 2026-09-11
+
+The mandatory core is larger than the original Foundation/MVP. Workers must preserve and advance the whole product, not stop after a green vocabulary release.
+
+Mandatory completion includes:
+- six complete Complete English courses through C1, each independently sufficient for its target level;
+- 42 optional Deep Skill courses, never hidden prerequisites for Complete English;
+- Recall, Spelling, Sentence/Context + Sentence Spelling, active Grammar, Dictation/Listening, Story/Micro Stories, Narrative Course, Real Reading/private-book ingestion, Word Families/Morphology and one cross-mode adaptive learner model;
+- production Speaking & Pronunciation runtime with microphone/response workflows, interaction/sustained-speech tasks and honest ASR/pronunciation limits;
+- production Writing/free-response runtime with composing, revision/editing, genre/register tasks, rubrics and feedback;
+- Quick Placement, Full Skills Diagnostic, module/checkpoint/retention tests, unseen level exits, separate skill profiles, versioned assessment pools, item-exposure tracking, retake reserves/parallel forms, attempt history and resume;
+- level-appropriate production audio, including multi-speaker/connected speech and human/native material where advanced listening/pronunciation quality requires it;
+- sufficient original/licensed production lessons, explanations, dialogues, stories, reading texts, listening scripts/audio, speaking/writing tasks, grammar/lexical exercises, assessment banks, metadata, provenance and QA. Samples/fixtures/architecture alone are not course completion.
+
+Competitive target: WordDeck may aim to be measurably stronger than mainstream apps in proficiency gained per focused hour, reduced redundant practice through evidence-gated Fast Track, depth of explanations, productive Speaking/Writing, genuine B2/C1 performance, transparent skill diagnostics/remediation and accessibility. Do not claim superiority without credible pilot/assessment evidence.
+
+### Tracked advanced/someday expansion register
+
+These previously discussed capabilities must remain visible and architecture-compatible, but do not outrank a nearer mandatory-core blocker unless the owner later promotes them:
+- My Corrector integration/evidence-sharing seam; it remains a separate companion unless explicitly merged;
+- optional bounded AI for difficult explanations, personalized examples/stories and free-form speaking/writing assistance; AI never silently owns canonical mastery, CEFR certification or irreversible progress;
+- custom/personal learning content, user vocabulary/books/texts and future custom course/module packs with versioned schemas, privacy and provenance;
+- professional visual design, optional accessible image cards, Blazor Hybrid/semantic HTML and later real web frontend reusing Core/Application learning logic;
+- optional secure accounts/authentication, profile/cross-device sync, subscriptions/entitlements, announcements/update metadata and privacy-preserving aggregate telemetry without accidentally breaking offline learning;
+- optional future social/community learning and teacher/classroom layers with consent/privacy and full keyboard/NVDA parity.
+
 ## Parallel work
 
 Repeated autonomous runs may overlap. Before mutation, read #617 and refresh remote source/PR state.
