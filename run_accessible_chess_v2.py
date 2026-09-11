@@ -20,8 +20,10 @@ if "--diagnostic" in sys.argv:
     from acs.selftest import run as core_run
     from acs.stage1_release_ui import complete_user_flow_diagnostic
     from acs.version2_final_product_profile import validate_final_product_profile
-    from acs.version2_education_mutation_release import create_version2_release_application
-    from acs import version2_release_ui as _release_ui
+    from acs.version2_education_mutation_release import (
+        create_version2_release_application,
+        final_product_resource_sources,
+    )
 
     class _DiagnosticEngine:
         def analyze(self, fen, multipv=5, depth=16):
@@ -53,7 +55,7 @@ if "--diagnostic" in sys.argv:
 
     core_run()
     validate_final_product_profile()
-    resources = _release_ui._resource_sources()
+    resources = final_product_resource_sources()
     runtime = _DiagnosticRuntime()
     application = None
     api = None
