@@ -25,6 +25,10 @@ class Dev4ImportHistoryErrorPrivacyTests(unittest.TestCase):
         secret_detail = "provider_token=qa-do-not-persist-12345"
         raw_error = RuntimeError(f"decoder failed at {private_path}; {secret_detail}")
 
+        # Keep this security oracle attached to the single parser seam actually
+        # owned by ACSDB.  Current Product uses parse_games; canonical D07
+        # convergence replaces it with parse_pgn_text rather than adding a
+        # second parser path.
         parser_symbols = [
             symbol
             for symbol in ("parse_pgn_text", "parse_games")
