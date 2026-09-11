@@ -49,13 +49,10 @@ jobs:
       - name: Prove current-base ancestry and bounded EPUB scope
         shell: bash
         env:
-          EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          CANONICAL_BASE_SHA: 4d3415dd11e16be2357ad688a80aac0d19f9c005
         run: |
           set -euo pipefail
-          base="${EVENT_BASE_SHA:-}"
-          if [ -z "$base" ]; then
-            base=4d3415dd11e16be2357ad688a80aac0d19f9c005
-          fi
+          base="$CANONICAL_BASE_SHA"
           git cat-file -e "${base}^{commit}" || git fetch --no-tags origin "$base"
           git merge-base --is-ancestor "$base" HEAD
           git diff --check "$base" HEAD
@@ -67,6 +64,7 @@ jobs:
           test "$changed" = "$expected"
           test "$(git rev-parse HEAD:acs/book_html_import.py)" = 1061e79c9557fb09e965fb0e8d8626e038876edb
           test "$(git rev-parse HEAD:acs/book_epub_import.py)" = f55ed184aad2dd8d6d512329fb2e5a0db3b3f442
+          test "$(git rev-parse HEAD:tests/test_v2_book_epub_import.py)" = d3a714b8bdfceac23242634ebe721dd1b07f5ad9
           git diff --quiet "$base" HEAD -- \
             acs/book_html_import.py acs/book_text_import.py acs/bookdocument.py \
             acs/chesscore.py acs/gametree.py acs/pgn_roundtrip.py \
