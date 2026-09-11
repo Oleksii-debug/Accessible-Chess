@@ -56,13 +56,18 @@ jobs:
       - name: Install pinned verification dependency
         run: python -m pip install -q pytest==8.4.2
 
-      - name: Prove retained Markdown convergence authority and current PR hygiene
+      - name: Prove retained Markdown convergence authority and immutable PR-base hygiene
         shell: bash
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
           set -euo pipefail
-          test -n "${GITHUB_BASE_REF:-}"
-          git fetch --no-tags origin "${GITHUB_BASE_REF}:refs/remotes/origin/${GITHUB_BASE_REF}"
-          base="$(git rev-parse "origin/${GITHUB_BASE_REF}")"
+          base="${PR_BASE_SHA:-}"
+          test -n "$base" || {
+            printf 'Markdown convergence qualification requires pull_request event base SHA\n' >&2
+            exit 1
+          }
+          git cat-file -e "${base}^{commit}"
           markdown_owner="2954b8e95f678d62bfc8f7c56ef5cf9f826e6247"
           git cat-file -e "${markdown_owner}^{commit}"
           git merge-base --is-ancestor "$base" HEAD
@@ -75,6 +80,7 @@ jobs:
           do
             test "$(git rev-parse "HEAD:$path")" = "$(git rev-parse "$markdown_owner:$path")"
           done
+          printf 'Markdown retained authority PASS: immutable-pr-base=%s owner=%s head=%s\n' "$base" "$markdown_owner" "$(git rev-parse HEAD)"
 
       - name: Compile bounded Books adapter
         run: python -m py_compile acs/book_text_import.py tests/test_v2_book_text_import.py tests/test_v2_markdown_semantic_lists.py
