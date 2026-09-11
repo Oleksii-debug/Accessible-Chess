@@ -8,6 +8,23 @@ import unittest
 from acs.version2_release_ui import Version2ReleaseAccessibleChessAPI
 
 
+_ANALYSIS_SHORTCUTS = {
+    "Alt+1": "analysis.pv1",
+    "Alt+2": "analysis.pv2",
+    "Alt+3": "analysis.pv3",
+    "Alt+4": "analysis.pv4",
+    "Alt+5": "analysis.pv5",
+    "Alt+Up": "analysis.previous_pv",
+    "Alt+Down": "analysis.next_pv",
+    "Alt+L": "analysis.lock_target",
+    "Alt+Enter": "analysis.explore_pv",
+    "Alt+Escape": "analysis.return",
+    "Ctrl+Alt+M": "analysis.insert_move",
+    "Ctrl+Alt+V": "analysis.insert_line",
+    "Alt+R": "analysis.restart",
+}
+
+
 class _FakeContinuousAnalysis:
     def __init__(self) -> None:
         self.running = False
@@ -87,6 +104,16 @@ class Version2BoardAnalysisHotkeyFeedbackTests(unittest.TestCase):
             continuous_analysis=engine,
         )
         return api, engine
+
+    def test_every_analysis_shortcut_resolves_from_board_focus(self) -> None:
+        api, _engine = self.make_api()
+
+        for binding, expected_action in _ANALYSIS_SHORTCUTS.items():
+            with self.subTest(binding=binding):
+                resolved = api.keymap_resolve_binding("board", binding)
+                self.assertIsNotNone(resolved)
+                self.assertEqual(resolved["actionId"], expected_action)
+                self.assertEqual(resolved["context"], "analysis")
 
     def test_alt_pv_shortcuts_resolve_from_board_and_expose_result(self) -> None:
         api, engine = self.make_api()
