@@ -9,8 +9,10 @@ temporary directory, and then hands the extracted classic ``.cbh`` family to
 the existing semantic decoder.
 """
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 from enum import Enum
+from itertools import chain
 import os
 from pathlib import Path, PurePosixPath, PureWindowsPath
 import stat
@@ -27,6 +29,24 @@ MAX_EXTRACTED_BYTES = 16 * 1024 * 1024 * 1024
 MAX_LIST_STDOUT = 4 * 1024 * 1024
 MAX_BACKEND_STDERR = 1 * 1024 * 1024
 MAX_ENTRY_NAME_CHARS = 1024
+_WINDOWS_FORBIDDEN_CHARS = frozenset('<>:"|?*')
+_WINDOWS_RESERVED_STEMS = frozenset(
+    {
+        "con",
+        "prn",
+        "aux",
+        "nul",
+        "clock$",
+        *(f"com{index}" for index in range(1, 10)),
+        *(f"lpt{index}" for index in range(1, 10)),
+        "com¹",
+        "com²",
+        "com³",
+        "lpt¹",
+        "lpt²",
+        "lpt³",
+    }
+)
 
 
 class CbvExtractCode(str, Enum):
@@ -163,7 +183,8 @@ def _sterile_environment(executable: Path) -> dict[str, str]:
     return env
 
 
-def _scan_output(directory: Path) -> tuple[set[str], int]:
+def _scan_output(directory: Path) -> tuple[set[str], set[str], int]:
+    directories: set[str] = set()
     files: set[str] = set()
     total = 0
     try:
@@ -177,6 +198,7 @@ def _scan_output(directory: Path) -> tuple[set[str], int]:
                         "CBV extractor produced an unsafe directory entry",
                         CbvExtractCode.OUTPUT_INVALID,
                     )
+                directories.add(child.relative_to(directory).as_posix())
             for name in file_names:
                 child = current_path / name
                 st = child.lstat()
@@ -188,6 +210,7 @@ def _scan_output(directory: Path) -> tuple[set[str], int]:
                 relative = child.relative_to(directory).as_posix()
                 files.add(relative)
                 total += st.st_size
+        _validate_output_inventory_names(directories, files)
     except CbvExtractError:
         raise
     except OSError as exc:
@@ -195,7 +218,7 @@ def _scan_output(directory: Path) -> tuple[set[str], int]:
             "CBV extraction output could not be inspected",
             CbvExtractCode.OUTPUT_INVALID,
         ) from exc
-    return files, total
+    return files, directories, total
 
 
 def _run_uncbv(
@@ -256,7 +279,7 @@ def _run_uncbv(
             break
         if monitor_directory is not None:
             try:
-                _, size = _scan_output(monitor_directory)
+                _, _, size = _scan_output(monitor_directory)
                 if size > config.max_extracted_bytes:
                     monitor_error = _error(
                         "CBV extracted content exceeds the configured limit",
@@ -302,6 +325,17 @@ def _run_uncbv(
     return bytes(stdout.buffer)
 
 
+def _windows_component_is_unsafe(part: str) -> bool:
+    """Return whether one archive path component has unsafe Windows semantics."""
+
+    if part.endswith((" ", ".")):
+        return True
+    if any(ord(character) < 32 or character in _WINDOWS_FORBIDDEN_CHARS for character in part):
+        return True
+    stem = part.split(".", 1)[0].rstrip(" .").casefold()
+    return stem in _WINDOWS_RESERVED_STEMS
+
+
 def _normalize_entry_name(value: str) -> str:
     if not value or len(value) > MAX_ENTRY_NAME_CHARS or "\x00" in value:
         raise _error("CBV archive contains an invalid entry name", CbvExtractCode.INVALID_ENTRY)
@@ -316,9 +350,44 @@ def _normalize_entry_name(value: str) -> str:
         or not parts
         or any(part in {"", ".", ".."} for part in parts)
         or any(len(part) > 255 for part in parts)
+        or any(_windows_component_is_unsafe(part) for part in parts)
     ):
         raise _error("CBV archive contains an unsafe entry path", CbvExtractCode.INVALID_ENTRY)
     return PurePosixPath(*parts).as_posix()
+
+
+def _validate_windows_path_inventory(
+    names: Iterable[str],
+    *,
+    code: CbvExtractCode,
+    message: str,
+) -> None:
+    exact_names: set[str] = set()
+    folded_paths: dict[str, str] = {}
+    for value in names:
+        try:
+            normalized = _normalize_entry_name(value)
+        except CbvExtractError as exc:
+            raise _error(message, code) from exc
+        if normalized != value or normalized in exact_names:
+            raise _error(message, code)
+        exact_names.add(normalized)
+        parts = PurePosixPath(normalized).parts
+        for depth in range(1, len(parts) + 1):
+            identity = PurePosixPath(*parts[:depth]).as_posix()
+            folded = identity.casefold()
+            previous = folded_paths.get(folded)
+            if previous is not None and previous != identity:
+                raise _error(message, code)
+            folded_paths[folded] = identity
+
+
+def _validate_output_inventory_names(directories: Iterable[str], files: Iterable[str]) -> None:
+    _validate_windows_path_inventory(
+        chain(directories, files),
+        code=CbvExtractCode.OUTPUT_INVALID,
+        message="CBV extractor produced an unsafe or case-colliding output path",
+    )
 
 
 def _parse_entry_list(data: bytes, *, max_entries: int) -> tuple[str, ...]:
@@ -329,19 +398,29 @@ def _parse_entry_list(data: bytes, *, max_entries: int) -> tuple[str, ...]:
             "CBV extractor returned a non-UTF-8 entry list",
             CbvExtractCode.INVALID_ENTRY,
         ) from exc
-    raw_names = [line.rstrip("\r") for line in text.splitlines() if line.rstrip("\r")]
+    non_lf_separators = ("\v", "\f", "\x1c", "\x1d", "\x1e", "\x85", "\u2028", "\u2029")
+    if any(separator in text for separator in non_lf_separators) or "\r" in text.replace("\r\n", ""):
+        raise _error(
+            "CBV extractor returned an invalid entry-list separator",
+            CbvExtractCode.INVALID_ENTRY,
+        )
+    raw_names: list[str] = []
+    for line in text.split("\n"):
+        if line.endswith("\r"):
+            line = line[:-1]
+        if line:
+            raw_names.append(line)
     if not raw_names or len(raw_names) > max_entries:
         raise _error(
             "CBV archive entry count is outside the configured bound",
             CbvExtractCode.RESOURCE_LIMIT,
         )
     names = tuple(_normalize_entry_name(name) for name in raw_names)
-    folded = [name.casefold() for name in names]
-    if len(set(folded)) != len(folded):
-        raise _error(
-            "CBV archive contains duplicate or case-colliding entries",
-            CbvExtractCode.INVALID_ENTRY,
-        )
+    _validate_windows_path_inventory(
+        names,
+        code=CbvExtractCode.INVALID_ENTRY,
+        message="CBV archive contains duplicate or case-colliding entries",
+    )
     return names
 
 
@@ -418,14 +497,19 @@ def extract_cbv_external(
             CbvExtractCode.BACKEND_INVALID,
         )
 
-    observed, extracted_bytes = _scan_output(output)
+    observed, observed_directories, extracted_bytes = _scan_output(output)
     if extracted_bytes > config.max_extracted_bytes:
         raise _error(
             "CBV extracted content exceeds the configured limit",
             CbvExtractCode.RESOURCE_LIMIT,
         )
     expected = set(entries)
-    if observed != expected:
+    expected_directories: set[str] = set()
+    for entry in entries:
+        parts = PurePosixPath(entry).parts
+        for depth in range(1, len(parts)):
+            expected_directories.add(PurePosixPath(*parts[:depth]).as_posix())
+    if observed != expected or observed_directories != expected_directories:
         raise _error(
             "CBV extractor output does not match the validated archive entry list",
             CbvExtractCode.OUTPUT_INVALID,
