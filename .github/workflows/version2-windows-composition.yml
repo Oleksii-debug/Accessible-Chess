@@ -33,6 +33,7 @@ concurrency:
 env:
   V2_FORMATS_UPSTREAM: b18ac89bb7f1ef3d4106517fe3521179ab4522a1
   V2_ACCEPTED_STAGE1_BOOTSTRAP_BLOB: bced41192feb068a71ed0789be5629164a37e6c9
+  V2_ACCEPTED_PGN_WORKSPACE_BLOB: b59e6bfff9806dff2092e5c7f93b68daff6407ef
 
 jobs:
   composition:
@@ -92,6 +93,12 @@ jobs:
             exit 1
           fi
 
+          actual_pgn_workspace_blob="$(git rev-parse HEAD:acs/pgn_workspace.py)"
+          if [ "$actual_pgn_workspace_blob" != "$V2_ACCEPTED_PGN_WORKSPACE_BLOB" ]; then
+            echo "Unexpected canonical PGN workspace blob: $actual_pgn_workspace_blob" >&2
+            exit 1
+          fi
+
           changed="$(git diff --name-only "$scope_base" HEAD | sort)"
           unapproved_changed="$(printf '%s\n' "$changed" | grep -v '^web/stage1_release_bootstrap\.js$' || true)"
           if printf '%s\n' "$unapproved_changed" | grep -E '(^|/)(stage1|tools/qa/|windows-stage1|release_preflight)'; then
@@ -102,7 +109,7 @@ jobs:
             run_accessible_chess.py acs/release_app.py \
             acs/stage1_release_ui.py acs/stage1_release_ui_core.py \
             acs/chesscore.py acs/gametree.py acs/pgn_document.py \
-            acs/pgn_service.py acs/pgn_workspace.py \
+            acs/pgn_service.py \
             web/stage1_board_actions.js \
             tools/qa
 
