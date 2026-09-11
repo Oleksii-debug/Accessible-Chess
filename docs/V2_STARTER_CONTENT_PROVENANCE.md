@@ -1,37 +1,46 @@
 # V2 offline starter Books/Training provenance
 
-Status: W3 / P0-F source evidence. This document does **not** set `HUMAN_ACCEPTED=YES` or `NVDA_VERIFIED=YES`.
+Status: W3 / P0-F source and redistribution evidence. This document does **not** set `HUMAN_ACCEPTED=YES` or `NVDA_VERIFIED=YES`.
 
-## Scope
+## Canonical product path
 
-The built-in V2 starter corpus lives in `acs/starter_books_training_content.py`. The authored corpus uses the canonical `BookDocument` model and contains Ukrainian prose plus short self-check questions. `acs/starter_books_training_runtime.py` converts those self-check blocks into the canonical one-move Training contract while preserving each authored question and factual answer in the readable Book flow. The final product then consumes the result through the existing `BookReader`, Books WebView/native menu path, `book_training` bridge, canonical chess core and Training workspace. No second content engine, remote service, browser download, LLM, or network request is used at runtime.
+The original project-authored Ukrainian seed lessons remain in `acs/starter_books_training_content.py`. The P0-F quality layer is `acs/starter_books_training_quality.py`. It reuses those authored explanations as source material, expands them into self-contained learning materials, and builds position-specific exercises exclusively through the canonical `BookDocument`, `Exercise`, `Diagram`, `VariationTree` and `chesscore.Board` contracts. `acs/starter_books_training_runtime.py` publishes that quality course through the existing Books/Training route; it does not invent moves or create a second quiz, chess, Books or Training engine.
 
-The corpus contains 27 Ukrainian tutorial materials and 135 Training exercises. Every packaged Training exercise is required to pass `build_book_training_material`, so its expected answer is a legal canonical chess move rather than arbitrary quiz text. The packaged final-product composition opens the aggregate starter course automatically as the initial Books document, while the existing Training route moves to the first canonical exercise when needed.
+The aggregate built-in course remains immediately available offline on first run. It contains 27 distinct substantial Ukrainian learning materials and 135 position-specific canonical Training exercises. Every material contains extended explanatory prose, a semantic diagram, a FEN-rooted variation and five exercises. The course deliberately retains the existing product count of 27 materials / 135 exercises while replacing the former arbitrary opening-move adapter with exercises whose prompt, FEN and legal answer belong to the same position.
 
-## Provenance and rights inventory
+## Project-authored provenance and redistribution license
 
-All prose, questions and answers in this starter corpus were newly authored for the Accessible Chess project on 2026-09-11. They do not copy third-party books, articles, annotated games, puzzle databases, or proprietary chess-course text. They contain only original explanatory prose plus ordinary chess facts and terminology.
+All W3 starter prose, self-checks, diagrams/position descriptions and Training prompts are project-authored for Accessible Chess. They do not reproduce third-party books, commercial databases, annotated games, puzzle collections, articles or proprietary course text.
 
-The semantic metadata records the rights statement:
+The project-authored W3 starter corpus is distributed as:
 
-`Project-authored for Accessible Chess; no third-party text or games`
+- license identifier: `CC-BY-4.0`;
+- license name: Creative Commons Attribution 4.0 International;
+- attribution: `Accessible Chess project`;
+- embedded redistribution terms: copying, redistribution and adaptation are permitted with attribution to the Accessible Chess project; no warranty is provided;
+- source type: `project-authored`;
+- source identity: per-material `urn:accessible-chess:starter:...` URI.
 
-There are no bundled third-party media files, web resources, external URLs, credentials, tokens, cookies, user data, browser profiles, or private logs in this W3 corpus.
+`starter_quality_manifest()` is the machine-readable source/provenance/license inventory. Each material entry carries its own source URI, source type, license identifier, license terms, attribution, word count, exercise count, position FEN inventory, Diagram flag and VariationTree flag. This is the W3 P0-F redistribution manifest; the older `STARTER_CONTENT_RIGHTS` string remains historical source metadata and is not used as a substitute for the explicit license record.
 
-## Deterministic inventory
+No third-party media, credentials, tokens, cookies, private logs, browser profiles or network-fetched runtime assets are introduced by this W3 fix-forward.
 
-`starter_content_manifest()` is the machine-readable inventory. The W3 acceptance gate requires:
+## Semantic acceptance
 
-- at least 24 distinct tutorial materials; current corpus: 27;
-- at least 100 canonical Training exercises; current corpus: 135;
-- all 135 packaged exercises accepted by the canonical `BookDocument -> book_training -> chesscore.Board` path;
-- Ukrainian language metadata;
-- a non-empty provenance/rights statement;
-- unique semantic block identifiers;
-- valid canonical exercise FEN values;
-- no network URL dependency in the aggregate course;
-- deterministic first-run Books and Training availability through the existing V2 application.
+The strengthened W3 gate requires all of the following on Ubuntu and Windows where applicable:
 
-## Acceptance boundary
+- at least 24 distinct substantial project-authored learning materials; current course: 27;
+- at least 500 words of instructional prose in every material, in addition to semantic lists/diagrams/variations/exercises;
+- exactly five position-specific Training exercises per material; current course: 135 total;
+- at least 24 distinct FEN positions in the aggregate course;
+- a semantic `Diagram` and `VariationTree` in every material;
+- every Training answer accepted by `chesscore.Board.parse_move` from that exercise's own FEN;
+- every exercise accepted by the canonical `BookDocument -> book_training` material builder;
+- unique semantic block IDs and clean `BookDocument.validate_structure()` output;
+- deterministic offline first-run Books/Training composition with no network dependency.
 
-Automated tests can prove schema validity, inventory counts, semantic parsing, legal Training conversion, first-run application composition and Training startup. They cannot prove physical NVDA behavior. Oleksii must perform the final packaged Windows/NVDA acceptance before `NVDA_VERIFIED` or `HUMAN_ACCEPTED` may be changed to true.
+The position set includes multiple common opening structures plus isolated rook, bishop, knight and queen movement, a pawn endgame, castling rights and promotion. Opening-derived FEN values are produced by applying legal coordinate moves through the canonical Board; custom positions are likewise validated by Board before publication.
+
+## Release boundary
+
+This W3 repair closes only the Books/Training semantic-content and redistribution-license portion of P0-F. W2 owns the lawful PGN/sample ACSDB/Library corpus, W4 owns accessibility/hotkey feedback, and W5 owns serial integration and final package-content proof. The final Windows ZIP must still prove that the exact integrated content is physically present after fresh extraction, discoverable and usable offline. Physical NVDA acceptance remains Oleksii-only; therefore `HUMAN_ACCEPTED=NO` and `NVDA_VERIFIED=NO` remain mandatory until that test occurs.
