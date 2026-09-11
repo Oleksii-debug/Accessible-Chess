@@ -4,15 +4,16 @@ from __future__ import annotations
 
 This adapter owns source decoding and structure projection only.  It does not
 implement chess rules or a PGN parser: explicit positions are validated by the
-canonical :class:`acs.chesscore.Board`, and embedded PGN candidates are accepted
-only when the existing bounded D06 ingress can represent exactly one game.
+canonical :class:`acs.chesscore.Board`, and embedded PGN candidates are considered
+only after an exact standalone ``{PGN N}`` source marker, then accepted only when
+the existing bounded D06 ingress can represent exactly one game.
 
 Image-only diagrams remain image notes unless the source carries an explicit
-``data-acs-fen`` marker.  The importer never guesses a chess position from pixels,
-alt text, coordinates, or surrounding prose.
+``data-acs-fen`` marker.  The importer never guesses a chess position or game from
+pixels, alt text, coordinates, ordinary prose, or unmarked PGN-looking text.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from hashlib import sha256
 from html.parser import HTMLParser
@@ -20,7 +21,16 @@ import re
 from types import MappingProxyType
 from urllib.parse import urlsplit
 
-from .bookdocument import BookDocument, Diagram, Game, Heading, Note, Paragraph, Position
+from .bookdocument import (
+    BookDocument,
+    Diagram,
+    Game,
+    Heading,
+    ListBlock,
+    Note,
+    Paragraph,
+    Position,
+)
 from .chesscore import Board
 from .pgn_roundtrip import PgnRoundTripError, parse_pgn_text
 
@@ -67,6 +77,16 @@ class _Capture:
     kind: str
     attrs: dict[str, str]
     parts: list[str]
+    list_depth: int = 0
+
+
+@dataclass(slots=True)
+class _ListCapture:
+    tag: str
+    attrs: dict[str, str]
+    items: list[str] = field(default_factory=list)
+    unsupported: bool = False
+    nested: bool = False
 
 
 _BLOCK_BOUNDARY_TAGS = frozenset(
@@ -96,6 +116,7 @@ _CAPTURE_KINDS = {
 _PGN_EVENT_RE = re.compile(r'^\[Event\s+"', re.IGNORECASE)
 _PGN_MARKER_RE = re.compile(r'^\{PGN\s+\d+\}\s*$', re.IGNORECASE)
 _END_PGN_RE = re.compile(r'^End of PGN Supplement\s*$', re.IGNORECASE)
+_HTML_INTEGER_RE = re.compile(r"^[+-]?\d+$")
 
 
 def _text(value: object, field: str, *, optional: bool = False) -> str | None:
@@ -157,6 +178,17 @@ def _asset_name(value: str) -> str:
     return "/".join(segments)
 
 
+def _explicit_pgn_pre(raw: str) -> bool:
+    """Return whether a ``pre`` starts with an explicit PGN marker and Event tag."""
+    lines = raw.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    meaningful = [line.strip() for line in lines if line.strip()]
+    return (
+        len(meaningful) >= 2
+        and _PGN_MARKER_RE.fullmatch(meaningful[0]) is not None
+        and _PGN_EVENT_RE.match(meaningful[1]) is not None
+    )
+
+
 class _SemanticHtmlParser(HTMLParser):
     def __init__(self, *, available_assets: frozenset[str] | None) -> None:
         super().__init__(convert_charrefs=True)
@@ -171,17 +203,23 @@ class _SemanticHtmlParser(HTMLParser):
         self.image_references: list[str] = []
         self.missing_assets: set[str] = set()
         self._captures: list[_Capture] = []
+        self._lists: list[_ListCapture] = []
         self._suppressed_depth = 0
         self._node_count = 0
         self._ids: dict[str, int] = {}
         self._warned_table_flatten = False
-        self._warned_list_flatten = False
+        self._warned_list_fallback = False
 
     def _warning(self, message: str) -> None:
         if len(self.warnings) < MAX_HTML_WARNINGS:
             self.warnings.append(message)
         elif len(self.warnings) == MAX_HTML_WARNINGS:
             self.warnings.append("additional HTML import warnings were suppressed")
+
+    def _list_warning(self, message: str) -> None:
+        if not self._warned_list_fallback:
+            self._warning(message)
+            self._warned_list_fallback = True
 
     def _append_visible(self, text: str) -> None:
         if not text:
@@ -208,6 +246,69 @@ class _SemanticHtmlParser(HTMLParser):
                 code=BookHtmlImportErrorCode.RESOURCE_LIMIT,
             )
         self.blocks.append(block)
+
+    @staticmethod
+    def _ordered_start(attrs: dict[str, str]) -> tuple[int | None, bool]:
+        if "start" not in attrs:
+            return None, True
+        raw = attrs.get("start", "").strip()
+        if _HTML_INTEGER_RE.fullmatch(raw) is None:
+            return None, False
+        try:
+            value = int(raw)
+        except (ValueError, OverflowError):
+            return None, False
+        return (value, value >= 1)
+
+    def _emit_list(self, captured: _ListCapture) -> None:
+        items = [item for item in captured.items if item]
+        if not items:
+            return
+        ordered = captured.tag == "ol"
+        start, start_valid = self._ordered_start(captured.attrs) if ordered else (None, True)
+        unsupported = captured.unsupported or not start_valid
+
+        if unsupported:
+            if ordered and not start_valid:
+                self._list_warning(
+                    "HTML ordered list start could not be represented canonically and was preserved as reading text because canonical List start must be positive"
+                )
+            else:
+                self._list_warning(
+                    "HTML list numbering or nesting could not be represented canonically and was preserved as readable text"
+                )
+            for item in items:
+                # Once numbering semantics are outside the canonical ListBlock model
+                # (reversed lists, per-item value overrides, invalid starts, nesting),
+                # never synthesize a numeric sequence. Preserve the source item text
+                # and list membership only; the warning above makes structure loss
+                # explicit without publishing invented ordering as book truth.
+                text = f"• {item}"
+                self._append_block(
+                    Paragraph(
+                        text=text,
+                        block_id=self._block_id("Paragraph", text),
+                        source_anchor=captured.attrs.get("id") or None,
+                    )
+                )
+            return
+
+        identity = (
+            ("ordered" if ordered else "unordered")
+            + "\0"
+            + (str(start) if start is not None else "")
+            + "\0"
+            + "\0".join(items)
+        )
+        self._append_block(
+            ListBlock(
+                items=items,
+                ordered=ordered,
+                start=start if ordered else None,
+                block_id=self._block_id("List", identity),
+                source_anchor=captured.attrs.get("id") or None,
+            )
+        )
 
     def _validate_fen(self, fen: str) -> str:
         try:
@@ -300,9 +401,45 @@ class _SemanticHtmlParser(HTMLParser):
         elif "data-acs-fen" in attrs:
             self._emit_explicit_position(tag, attrs)
 
+        if tag in {"ol", "ul"} and self._lists:
+            for capture in self._captures:
+                if capture.kind == "list_item" and capture.list_depth == len(self._lists):
+                    capture.parts.append(" ")
+
+        if tag in {"ol", "ul"}:
+            nested = bool(self._lists)
+            if nested:
+                self._lists[-1].unsupported = True
+            unsupported = nested or "reversed" in attrs
+            if tag == "ol":
+                _, start_valid = self._ordered_start(attrs)
+                unsupported = unsupported or not start_valid
+            self._lists.append(
+                _ListCapture(
+                    tag=tag,
+                    attrs=attrs,
+                    unsupported=unsupported,
+                    nested=nested,
+                )
+            )
+
         kind = _CAPTURE_KINDS.get(tag)
         if kind is not None:
-            self._captures.append(_Capture(tag=tag, kind=kind, attrs=attrs, parts=[]))
+            if kind == "list_item" and self._lists and "value" in attrs:
+                self._lists[-1].unsupported = True
+            if kind == "list_item" and self._lists:
+                for capture in self._captures:
+                    if capture.kind == "list_item" and capture.list_depth < len(self._lists):
+                        capture.parts.append(" ")
+            self._captures.append(
+                _Capture(
+                    tag=tag,
+                    kind=kind,
+                    attrs=attrs,
+                    parts=[],
+                    list_depth=len(self._lists) if kind == "list_item" else 0,
+                )
+            )
 
     def handle_startendtag(self, tag: str, attrs_list: list[tuple[str, str | None]]) -> None:
         self.handle_starttag(tag, attrs_list)
@@ -320,6 +457,20 @@ class _SemanticHtmlParser(HTMLParser):
         if self._captures and self._captures[-1].tag == tag:
             capture = self._captures.pop()
             self._finish_capture(capture)
+        if tag in {"ol", "ul"} and self._lists and self._lists[-1].tag == tag:
+            captured = self._lists.pop()
+            if captured.nested:
+                for capture in self._captures:
+                    if capture.kind == "list_item" and capture.list_depth == len(self._lists):
+                        capture.parts.append(" ")
+                # Text from a nested list is already retained by the enclosing
+                # list-item capture. Suppress a second flattened copy and make the
+                # outer list fall back with an explicit structure-loss warning.
+                self._list_warning(
+                    "Nested HTML list structure cannot be represented by the flat canonical List block and was preserved as readable parent-item text"
+                )
+            else:
+                self._emit_list(captured)
         if tag in _BLOCK_BOUNDARY_TAGS:
             self._append_visible("\n")
 
@@ -354,15 +505,18 @@ class _SemanticHtmlParser(HTMLParser):
             )
             return
         if capture.kind == "list_item":
-            if not self._warned_list_flatten:
-                self._warning("HTML list structure is preserved as ordered reading text because BookDocument has no list block kind")
-                self._warned_list_flatten = True
+            if self._lists and capture.list_depth == len(self._lists):
+                self._lists[-1].items.append(text)
+                return
+            self._list_warning(
+                "HTML list item occurred outside a representable list container and was preserved as readable text"
+            )
             text = "• " + text
         elif capture.kind == "table_row":
             if not self._warned_table_flatten:
                 self._warning("HTML table structure is preserved as row text because BookDocument has no table block kind")
                 self._warned_table_flatten = True
-        elif capture.kind == "pre" and "[Event" in raw:
+        elif capture.kind == "pre" and _explicit_pgn_pre(raw):
             return
         self._append_block(
             Paragraph(
@@ -376,21 +530,32 @@ class _SemanticHtmlParser(HTMLParser):
         super().close()
         while self._captures:
             self._finish_capture(self._captures.pop(), recovered=True)
+        while self._lists:
+            captured = self._lists.pop()
+            captured.unsupported = True
+            self._emit_list(captured)
 
 
 def _pgn_candidates(visible_text: str) -> list[str]:
-    """Return source-order PGN-shaped regions; canonical D06 decides validity."""
+    """Return only explicitly marked PGN regions; canonical D06 decides validity."""
     lines = visible_text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
-    starts = [index for index, line in enumerate(lines) if _PGN_EVENT_RE.match(line.strip())]
     candidates: list[str] = []
-    for position, start in enumerate(starts):
-        stop = starts[position + 1] if position + 1 < len(starts) else len(lines)
+    for marker_index, line in enumerate(lines):
+        if _PGN_MARKER_RE.fullmatch(line.strip()) is None:
+            continue
+
+        start = marker_index + 1
+        while start < len(lines) and not lines[start].strip():
+            start += 1
+        if start >= len(lines) or _PGN_EVENT_RE.match(lines[start].strip()) is None:
+            continue
+
         chunk_lines: list[str] = []
-        for line in lines[start:stop]:
-            stripped = line.strip()
-            if chunk_lines and (_PGN_MARKER_RE.match(stripped) or _END_PGN_RE.match(stripped)):
+        for candidate_line in lines[start:]:
+            stripped = candidate_line.strip()
+            if chunk_lines and (_PGN_MARKER_RE.fullmatch(stripped) or _END_PGN_RE.fullmatch(stripped)):
                 break
-            chunk_lines.append(line.rstrip())
+            chunk_lines.append(candidate_line.rstrip())
         while chunk_lines and not chunk_lines[-1].strip():
             chunk_lines.pop()
         candidate = "\n".join(chunk_lines).strip()
@@ -485,7 +650,9 @@ def import_html_book(
     provide a source byte string and, optionally, the names of assets it has
     already resolved.  Missing images are reported but never converted into fake
     chess positions.  ``data-acs-fen`` is the only HTML-level position marker;
-    it is validated through the canonical Board before publication.
+    an exact standalone ``{PGN N}`` line immediately followed by a PGN Event tag
+    is the only HTML-level game marker.  Both paths still delegate canonical chess
+    validation before semantic publication.
     """
 
     display_source = _text(source_name, "source_name")
@@ -563,12 +730,14 @@ SUPPORTED_HTML_BOOK_CAPABILITY = MappingProxyType(
         "semantic_blocks": (
             "Heading",
             "Paragraph",
+            "List(ordered/unordered)",
             "Note(image)",
-            "Game(PGN)",
+            "Game(explicit {PGN N} marker)",
             "Position(data-acs-fen)",
             "Diagram(img[data-acs-fen])",
         ),
         "does_not_claim": (
+            "implicit PGN inference from ordinary text",
             "image-to-position recognition",
             "arbitrary legacy encodings",
             "network asset fetching",

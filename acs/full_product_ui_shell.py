@@ -49,9 +49,24 @@ ROUTES: tuple[ModuleRoute, ...] = (
 
 _ROUTE_INDEX = {route.route_id: route for route in ROUTES}
 _INTERNAL_ERROR_PATTERN = re.compile(
-    r'(?:Traceback|File\s+".*?"|[A-Za-z]:\\|/[^\s]+\.py\b|sqlite|UCI\s+error|HRESULT|'
-    r'OperationalError|PermissionError|WinError\s*\d+)',
+    r'(?:Traceback|File\s+".*?"|sqlite|'
+    r'\b[A-Za-z_][\w.]*?(?:Error|Exception)\s*:|UCI\s+error|HRESULT|'
+    r'OperationalError|PermissionError|WinError\s*\d+|'
+    r'\b(?:provider|backend|subprocess)\b)',
     re.IGNORECASE,
+)
+_LOCAL_PATH_PATTERN = re.compile(
+    r'(?:(?<![A-Za-z0-9])[A-Za-z]:(?:[\\/]|(?=[^:\s]{1,160}(?:[\\/]|$)))|'
+    r'\\\\[^\\\s]+\\[^\\\s]+|file://|'
+    r'/(?:home|tmp|var|private|opt|usr|mnt|Users|etc|srv|run|root|Applications)(?:/|\b)|'
+    r'(?:^|[\s"\'(=])/(?:[^/\s]+/)+[^/\s]+)',
+    re.IGNORECASE,
+)
+_UCI_PROTOCOL_PATTERN = re.compile(
+    r'^\s*(?:uci|isready|uciok|readyok|stop|quit|ponderhit)\s*$|'
+    r'^\s*(?:id\s+(?:name|author)\b|option\s+name\b|bestmove\b|info\b|'
+    r'setoption\s+name\b|position\s+(?:startpos|fen)\b|go(?:\s|$))',
+    re.IGNORECASE | re.MULTILINE,
 )
 
 
@@ -216,15 +231,23 @@ def concise_user_error(
     """Project failures into concise user speech without developer internals."""
     if not isinstance(language, UILanguage):
         raise TypeError("language must be UILanguage")
-    text = str(message or "").strip()
     fallback = (
         "Не вдалося виконати дію."
         if language is UILanguage.UA
         else "The action could not be completed."
     )
+    try:
+        text = "" if message is None else str(message).strip()
+    except Exception:
+        return fallback
     if not text:
         return fallback
-    if _INTERNAL_ERROR_PATTERN.search(text) or len(text) > 180:
+    if (
+        _INTERNAL_ERROR_PATTERN.search(text)
+        or _LOCAL_PATH_PATTERN.search(text)
+        or _UCI_PROTOCOL_PATTERN.search(text)
+        or len(text) > 180
+    ):
         return fallback
     return text
 

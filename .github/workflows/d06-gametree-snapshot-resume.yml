@@ -16,6 +16,11 @@ concurrency:
 
 env:
   D06_RESUME_BASE: a3e52c621210c2dd5251dea4f97b611c12d56a22
+  D06_RESUME_BLOB: e22a406a8f4c1f00c3d36390109d53f3088d332b
+  D06_REGRESSION_BLOB: 87e54b3d282ba4c2288737d745d2f29f4ae7076b
+  D06_SNAPSHOT_BLOB: ac08a89055372c02d3d15744fd4de5a1fd0059d5
+  D06_PGN_ROUNDTRIP_BLOB: 13c0db6d44ea9ec769240e9d0087641eb4e4382a
+  D06_NAVIGATION_BLOB: 6209c29382105153ae4b22d4d70f9675a931826d
 
 jobs:
   gametree-resume:
@@ -47,27 +52,25 @@ jobs:
       - name: Install pinned verification dependency
         run: python -m pip install -q pytest==8.4.2
 
-      - name: Prove exact successor ownership and locked canonical dependencies
+      - name: Prove canonical D06 identities without rejecting later runtime convergence
         shell: bash
         run: |
           set -euo pipefail
           git cat-file -e "$D06_RESUME_BASE^{commit}"
           test "$(git merge-base HEAD "$D06_RESUME_BASE")" = "$D06_RESUME_BASE"
-          git diff --check "$D06_RESUME_BASE" HEAD
-          changed="$(git diff --name-only "$D06_RESUME_BASE" HEAD | sort)"
-          printf '%s\n' "$changed"
-          test -n "$changed"
-          test "$(printf '%s\n' "$changed" | grep -Fxc '.github/workflows/d06-gametree-snapshot-resume.yml')" = 1
-          test "$(printf '%s\n' "$changed" | grep -Fxc 'tests/test_d06_gametree_snapshot_resume.py')" = 1
-          unexpected="$(printf '%s\n' "$changed" | grep -vFx \
-            -e '.github/workflows/d06-gametree-snapshot-resume.yml' \
-            -e 'acs/gametree_resume.py' \
-            -e 'tests/test_d06_gametree_snapshot_resume.py' || true)"
-          test -z "$unexpected"
-          test "$(git rev-parse HEAD:acs/gametree_snapshot.py)" = "ac08a89055372c02d3d15744fd4de5a1fd0059d5"
-          test "$(git rev-parse HEAD:acs/pgn_roundtrip.py)" = "96d62bf6dd7b2f5c8a75d5f2bd1fde2ad0823d20"
-          test "$(git rev-parse HEAD:acs/gametree_navigation.py)" = "6209c29382105153ae4b22d4d70f9675a931826d"
-          echo 'D06 GAMETREE RESUME OWNERSHIP PASS'
+          git diff --check "$D06_RESUME_BASE" HEAD -- \
+            .github/workflows/d06-gametree-snapshot-resume.yml \
+            acs/gametree_resume.py \
+            tests/test_d06_gametree_snapshot_resume.py \
+            acs/gametree_snapshot.py \
+            acs/pgn_roundtrip.py \
+            acs/gametree_navigation.py
+          test "$(git rev-parse HEAD:acs/gametree_resume.py)" = "$D06_RESUME_BLOB"
+          test "$(git rev-parse HEAD:tests/test_d06_gametree_snapshot_resume.py)" = "$D06_REGRESSION_BLOB"
+          test "$(git rev-parse HEAD:acs/gametree_snapshot.py)" = "$D06_SNAPSHOT_BLOB"
+          test "$(git rev-parse HEAD:acs/pgn_roundtrip.py)" = "$D06_PGN_ROUNDTRIP_BLOB"
+          test "$(git rev-parse HEAD:acs/gametree_navigation.py)" = "$D06_NAVIGATION_BLOB"
+          echo 'D06 GAMETREE RESUME CURRENT-RUNTIME IDENTITY PASS'
 
       - name: Compile RED-first regression and Product module when present
         shell: bash

@@ -141,6 +141,27 @@ class Stage1PackagedFocusOriginContractTests(unittest.TestCase):
         self.assertIn("const result = await baseSubmit.apply(this, args)", text)
         self.assertIn("settleBoardFocusAfterInvoke(boardSquare)", text)
 
+    def test_preinstalled_move_submit_listener_is_rebound_to_focus_policy(self) -> None:
+        text = self.bootstrap
+        start = text.index("function installMoveFocusPolicy()")
+        end = text.index("function installMoveEntryIdentity()", start)
+        body = text[start:end]
+
+        self.assertIn("const baseSubmit = window.submitMove", body)
+        self.assertIn("wrappedSubmit.__stage1FocusPolicy = true", body)
+        self.assertIn("const submit = byId('move-submit')", body)
+        self.assertIn("submit.removeEventListener('click', baseSubmit)", body)
+        self.assertIn("submit.addEventListener('click', wrappedSubmit)", body)
+        self.assertIn("window.submitMove = wrappedSubmit", body)
+        self.assertLess(
+            body.index("submit.removeEventListener('click', baseSubmit)"),
+            body.index("submit.addEventListener('click', wrappedSubmit)"),
+        )
+        self.assertEqual(text.count("submit.removeEventListener('click', baseSubmit)"), 1)
+        self.assertEqual(text.count("submit.addEventListener('click', wrappedSubmit)"), 1)
+        self.assertNotIn("keydown", body)
+        self.assertIn("if(e.key==='Enter'){e.preventDefault();submitMove()}", self.html)
+
     def test_uia_invoke_has_bounded_settled_focus_convergence(self) -> None:
         text = self.bootstrap
         self.assertIn("function settleBoardFocusAfterInvoke(square)", text)

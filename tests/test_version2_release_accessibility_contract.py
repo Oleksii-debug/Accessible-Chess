@@ -1,0 +1,206 @@
+from __future__ import annotations
+
+import unittest
+from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parents[1]
+BOOTSTRAP = (ROOT / "web" / "version2_release_bootstrap.js").read_text(encoding="utf-8")
+HTML = (ROOT / "web" / "index.html").read_text(encoding="utf-8")
+SHELL = (ROOT / "acs" / "full_product_ui_shell.py").read_text(encoding="utf-8")
+PGN_PROJECTION = (ROOT / "acs" / "pgn_webview_projection.py").read_text(encoding="utf-8")
+BOOK_PROJECTION = (ROOT / "acs" / "book_webview_projection.py").read_text(encoding="utf-8")
+WINDOWS_COMPOSITION = (ROOT / ".github" / "workflows" / "version2-windows-composition.yml").read_text(encoding="utf-8")
+
+
+class Version2ReleaseAccessibilityContractTests(unittest.TestCase):
+    def test_navigation_buttons_keep_concise_native_names(self) -> None:
+        self.assertIn('const button = documentRef.createElement("button")', BOOTSTRAP)
+        self.assertIn('button.textContent = String(item.label || item.route_id || "")', BOOTSTRAP)
+        self.assertIn('button.setAttribute("aria-current", "page")', BOOTSTRAP)
+        self.assertNotIn("aria-describedby", BOOTSTRAP)
+        self.assertNotIn('button.id + "-description"', BOOTSTRAP)
+
+    def test_v2_navigation_is_a_named_landmark_in_both_languages(self) -> None:
+        self.assertIn('const nav = documentRef.createElement("nav")', BOOTSTRAP)
+        self.assertIn('nav.setAttribute("aria-label", uiText(', BOOTSTRAP)
+        self.assertIn('"Розділи Accessible Chess"', BOOTSTRAP)
+        self.assertIn('"Accessible Chess sections"', BOOTSTRAP)
+        self.assertIn('navHeading.textContent = uiText("Розділи", "Sections")', BOOTSTRAP)
+
+    def test_document_language_is_set_before_navigation_is_rendered(self) -> None:
+        language = '    documentRef.documentElement.lang = currentLanguage;'
+        navigation_call = '    renderNavigation(snapshot);'
+        self.assertIn(language, BOOTSTRAP)
+        self.assertIn(navigation_call, BOOTSTRAP)
+        self.assertLess(BOOTSTRAP.index(language), BOOTSTRAP.index(navigation_call))
+
+    def test_workspace_does_not_create_a_second_live_region(self) -> None:
+        self.assertIn('workspace.setAttribute("aria-live", "off")', BOOTSTRAP)
+        self.assertNotIn('workspace.setAttribute("aria-live", "polite")', BOOTSTRAP)
+        self.assertNotIn('workspace.setAttribute("aria-live", "assertive")', BOOTSTRAP)
+
+    def test_product_routes_keep_a_real_main_landmark(self) -> None:
+        self.assertIn('const workspace = documentRef.createElement("main")', BOOTSTRAP)
+        self.assertNotIn('const workspace = documentRef.createElement("section")', BOOTSTRAP)
+        product_start = BOOTSTRAP.index('  function renderProductSurface(')
+        product_end = BOOTSTRAP.index('  function render(snapshot, restoreFocus)', product_start)
+        product = BOOTSTRAP[product_start:product_end]
+        self.assertIn('originalMain.hidden = true;', product)
+        self.assertIn('workspace.hidden = false;', product)
+        self.assertLess(product.index('originalMain.hidden = true;'), product.index('workspace.hidden = false;'))
+        stage1_restore = BOOTSTRAP[product_end:]
+        self.assertIn('workspace.hidden = true;', stage1_restore)
+        self.assertIn('originalMain.hidden = false;', stage1_restore)
+
+    def test_fallback_status_text_follows_document_language(self) -> None:
+        for english in (
+            "Could not open the section.",
+            "No PGN is open yet.",
+            "The Library is not ready to browse yet.",
+            "No book is open yet.",
+            "Could not load Version 2 sections.",
+            "Could not refresh the board.",
+        ):
+            with self.subTest(text=english):
+                self.assertIn(english, BOOTSTRAP)
+
+    def test_initial_snapshot_restores_the_shell_keyboard_focus_target(self) -> None:
+        self.assertIn('default_focus_id="move-input"', SHELL)
+        self.assertIn('<input id="move-input" type="text"', HTML)
+        self.assertIn('function restoreStage1Focus(routeId, requestedFocus)', BOOTSTRAP)
+        self.assertIn('if (focusById(requestedFocus)) return true;', BOOTSTRAP)
+        self.assertIn('return focusById(stage1Focus[routeId] || "");', BOOTSTRAP)
+        self.assertIn('return documentRef.activeElement === target;', BOOTSTRAP)
+        self.assertIn('refresh(true).catch(function () {', BOOTSTRAP)
+        self.assertNotIn('refresh(false).catch(function () {', BOOTSTRAP)
+
+    def test_focus_targets_under_hidden_routes_are_never_programmatically_focused(self) -> None:
+        self.assertIn('function hiddenByAncestor(target)', BOOTSTRAP)
+        self.assertIn('if (node.hidden) return true;', BOOTSTRAP)
+        self.assertIn('node = node.parentNode;', BOOTSTRAP)
+        self.assertIn('if (!target || hiddenByAncestor(target) || typeof target.focus !== "function") return false;', BOOTSTRAP)
+
+    def test_product_route_focus_converges_to_real_surface_or_current_navigation(self) -> None:
+        self.assertIn('return "pgn-node-" + sha256(', PGN_PROJECTION)
+        self.assertIn('"focus_target": focus_target', PGN_PROJECTION)
+        self.assertIn('"dom_id": f"book-block-{block.index}"', BOOK_PROJECTION)
+        self.assertIn('"focus_target": snapshot["block"]["dom_id"]', BOOK_PROJECTION)
+        self.assertIn('function productSurfaceFocusTarget(snapshot, routeId)', BOOTSTRAP)
+        self.assertIn('return String(snapshot.pgn.focus_target || "");', BOOTSTRAP)
+        self.assertIn('return String(block.dom_id || "");', BOOTSTRAP)
+        self.assertIn('function restoreProductFocus(snapshot, routeId, requestedFocus)', BOOTSTRAP)
+        self.assertIn('if (active && workspace.contains(active)) return true;', BOOTSTRAP)
+        self.assertIn('if (focusById(productSurfaceFocusTarget(snapshot, routeId))) return true;', BOOTSTRAP)
+        self.assertIn('if (focusById(requestedFocus)) return true;', BOOTSTRAP)
+        self.assertIn('return focusById("v2-nav-" + routeId);', BOOTSTRAP)
+        self.assertIn('renderProductSurface(snapshot, routeId, requestedFocus, restoreFocus, heading);', BOOTSTRAP)
+        self.assertIn('if (restoreFocus) restoreProductFocus(snapshot, routeId, requestedFocus);', BOOTSTRAP)
+
+    def test_empty_product_routes_have_heading_and_focusable_status(self) -> None:
+        self.assertIn('routeId === "pgn" || routeId === "library" || routeId === "books"', BOOTSTRAP)
+        self.assertIn('return "v2-" + routeId + "-empty-status";', BOOTSTRAP)
+        self.assertIn('function renderEmptyProduct(routeId, heading)', BOOTSTRAP)
+        self.assertIn('const title = documentRef.createElement("h2");', BOOTSTRAP)
+        self.assertIn('routeId === "library"', BOOTSTRAP)
+        self.assertIn('uiText("Бібліотека", "Library")', BOOTSTRAP)
+        self.assertIn('uiText("Бібліотека ще не готова до перегляду.", "The Library is not ready to browse yet.")', BOOTSTRAP)
+        self.assertIn('status.id = emptyStatusId(routeId);', BOOTSTRAP)
+        self.assertIn('status.tabIndex = -1;', BOOTSTRAP)
+        self.assertIn('workspace.replaceChildren(title, status);', BOOTSTRAP)
+        library_start = BOOTSTRAP.index('    if (routeId === "library") {')
+        library_end = BOOTSTRAP.index('    if (routeId === "books") {', library_start)
+        library = BOOTSTRAP[library_start:library_end]
+        self.assertIn('renderEmptyProduct(routeId, heading);', library)
+        self.assertIn('const heading = String(screen.heading || "");', BOOTSTRAP)
+
+    def test_global_navigation_focus_does_not_overwrite_route_local_history(self) -> None:
+        focus_start = BOOTSTRAP.index('  documentRef.addEventListener("focusin"')
+        focus_end = BOOTSTRAP.index('  refresh(true).catch(function () {', focus_start)
+        focus_handler = BOOTSTRAP[focus_start:focus_end]
+        skip = 'if (target.id.indexOf("v2-nav-") === 0) return;'
+        record = 'bridge.v2_record_focus(target.id)'
+        self.assertIn(skip, focus_handler)
+        self.assertIn(record, focus_handler)
+        self.assertLess(focus_handler.index(skip), focus_handler.index(record))
+
+    def test_library_import_events_patch_only_the_import_region(self) -> None:
+        apply_start = BOOTSTRAP.index('  function applyQueuedEvent(event, orderedStage1Refreshes)')
+        apply_end = BOOTSTRAP.index('  function drainEvents()', apply_start)
+        queued = BOOTSTRAP[apply_start:apply_end]
+        self.assertIn('if (event.kind === "render-import")', queued)
+        self.assertIn('currentRouteId === "library"', queued)
+        self.assertIn('global.AccessibleChessLibrarySurface.apply(workspace, event, areaInvoke("library"), announce);', queued)
+        self.assertIn('return false;', queued)
+        self.assertIn('function delegatedHasOwnPresentationEvent(actionId)', BOOTSTRAP)
+        self.assertIn('actionId === "library.import" || actionId === "library.cancel_import"', BOOTSTRAP)
+        self.assertIn('if (delegatedHasOwnPresentationEvent(actionId)) return false;', queued)
+        drain_start = BOOTSTRAP.index('  function drainEvents()')
+        drain_end = BOOTSTRAP.index('  documentRef.addEventListener("focusin"', drain_start)
+        drain = BOOTSTRAP[drain_start:drain_end]
+        self.assertIn('let needsRefresh = false;', drain)
+        self.assertIn('const refreshRequired = applyQueuedEvent(event, orderedStage1Refreshes);', drain)
+        self.assertIn('if (!refreshRequired) return;', drain)
+
+    def test_status_only_events_announce_without_rebuilding_the_active_surface(self) -> None:
+        apply_start = BOOTSTRAP.index('  function applyQueuedEvent(event, orderedStage1Refreshes)')
+        apply_end = BOOTSTRAP.index('  function drainEvents()', apply_start)
+        queued = BOOTSTRAP[apply_start:apply_end]
+        self.assertIn('if (payload.announcement) announce(payload.announcement);', queued)
+        self.assertIn('return event.kind !== "error" && event.kind !== "status";', queued)
+
+    def test_native_stage1_delegated_actions_refresh_the_existing_stage1_renderer(self) -> None:
+        self.assertIn('async function refreshState()', HTML)
+        self.assertIn('function isVersion2DomainAction(actionId)', BOOTSTRAP)
+        self.assertIn('actionId.indexOf("pgn.") === 0', BOOTSTRAP)
+        self.assertIn('actionId.indexOf("library.") === 0', BOOTSTRAP)
+        self.assertIn('actionId.indexOf("book.") === 0', BOOTSTRAP)
+        self.assertIn('function refreshStage1Surface()', BOOTSTRAP)
+        self.assertIn('return Promise.resolve(global.refreshState()).then(function () {', BOOTSTRAP)
+        self.assertIn('announce(uiText("Не вдалося оновити дошку.", "Could not refresh the board."));', BOOTSTRAP)
+        apply_start = BOOTSTRAP.index('  function applyQueuedEvent(event, orderedStage1Refreshes)')
+        apply_end = BOOTSTRAP.index('  function drainEvents()', apply_start)
+        queued = BOOTSTRAP[apply_start:apply_end]
+        self.assertIn('if (event.kind === "delegated")', queued)
+        self.assertIn('if (actionId && !isVersion2DomainAction(actionId)) {', queued)
+        self.assertIn('refreshStage1Surface();', queued)
+        self.assertIn('return false;', queued)
+
+    def test_book_board_repaint_is_an_awaited_focus_barrier(self) -> None:
+        apply_start = BOOTSTRAP.index('  function applyQueuedEvent(event, orderedStage1Refreshes)')
+        apply_end = BOOTSTRAP.index('  function drainEvents()', apply_start)
+        queued = BOOTSTRAP[apply_start:apply_end]
+        self.assertIn('if (event.kind === "book-board")', queued)
+        self.assertIn('orderedStage1Refreshes.push(refreshStage1Surface());', queued)
+        drain_start = BOOTSTRAP.index('  function drainEvents()')
+        drain_end = BOOTSTRAP.index('  documentRef.addEventListener("focusin"', drain_start)
+        drain = BOOTSTRAP[drain_start:drain_end]
+        self.assertIn('const orderedStage1Refreshes = [];', drain)
+        self.assertIn('const repaintBarrier = orderedStage1Refreshes.length', drain)
+        self.assertIn('Promise.all(orderedStage1Refreshes)', drain)
+        self.assertIn('return refresh(true);', drain)
+
+    def test_native_event_batch_restores_final_route_then_visible_explicit_focus(self) -> None:
+        self.assertIn('<button id="board-launcher" type="button">', HTML)
+        drain_start = BOOTSTRAP.index('  function drainEvents()')
+        drain_end = BOOTSTRAP.index('  documentRef.addEventListener("focusin"', drain_start)
+        drain = BOOTSTRAP[drain_start:drain_end]
+        self.assertIn('let queuedFocusTarget = "";', drain)
+        self.assertIn('const candidate = typeof payload.focus_target === "string" ? payload.focus_target : "";', drain)
+        self.assertIn('if (candidate) queuedFocusTarget = candidate;', drain)
+        self.assertIn('return refresh(true);', drain)
+        self.assertIn('if (queuedFocusTarget) focusById(queuedFocusTarget);', drain)
+        self.assertLess(
+            drain.index('return refresh(true);'),
+            drain.index('if (queuedFocusTarget) focusById(queuedFocusTarget);'),
+        )
+
+    def test_windows_composition_executes_behavioral_v2_bootstrap_smoke(self) -> None:
+        test_path = "tests/js/version2_release_bootstrap_dom_test.js"
+        self.assertIn("- '" + test_path + "'", WINDOWS_COMPOSITION)
+        self.assertIn("node " + test_path, WINDOWS_COMPOSITION)
+        self.assertIn("matrix:\n        os: [ubuntu-22.04, windows-2025]", WINDOWS_COMPOSITION)
+
+
+if __name__ == "__main__":
+    unittest.main()

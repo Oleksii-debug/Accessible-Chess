@@ -5,11 +5,12 @@ from __future__ import annotations
 Version 2 is intentionally narrower than the repository's full long-term product
 preview. This module composes the already-owned shell, ActionRegistry, WebView
 adapter and native-menu implementation while exposing only the Version 2 release
-surface: Board/Analysis, PGN/GameTree, Library/Search, Books, Settings and Help.
+surface: Board/Analysis, PGN/GameTree, Library/Search, Books, Training, Settings
+and Help.
 
-Teacher/Classroom, Training, Classes/Education and Remote remain preserved in the
-repository but are not made visible by this profile. No chess, PGN, database or
-book rules are implemented here.
+Teacher/Classroom, Classes/Education and Remote remain preserved in the
+repository but are not made visible by this profile. No chess, PGN, database,
+book or training rules are implemented here.
 """
 
 from collections.abc import Callable, Mapping
@@ -42,6 +43,7 @@ VERSION2_ROUTE_IDS: tuple[str, ...] = (
     "pgn",
     "library",
     "books",
+    "training",
     "settings",
     "help",
 )
@@ -69,7 +71,7 @@ VERSION2_ROUTES: tuple[ModuleRoute, ...] = tuple(
     _VERSION2_ROUTE_INDEX[route_id] for route_id in VERSION2_ROUTE_IDS
 )
 
-_VERSION2_DOMAIN_PREFIXES = ("pgn.", "library.", "book.")
+_VERSION2_DOMAIN_PREFIXES = ("pgn.", "library.", "book.", "training.")
 _VERSION2_SCREEN_ACTION_IDS = frozenset(route.open_action_id for route in VERSION2_ROUTES)
 VERSION2_FULL_PRODUCT_ACTIONS = tuple(
     definition
@@ -83,10 +85,8 @@ VERSION2_FULL_PRODUCT_ACTION_IDS = frozenset(
 
 _VERSION2_FORBIDDEN_ACTIONS = frozenset(
     {
-        "screen.training",
         "screen.teacher",
         "screen.classes",
-        "training.submit",
         "teacher.pointer_input",
         "student.move",
         "classes.open",

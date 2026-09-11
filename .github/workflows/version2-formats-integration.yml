@@ -4,13 +4,16 @@ on:
   push:
     branches:
       - work/version2-integration-formats-20260827
+      - codex/v2-runtime-completion-20260907
   pull_request:
     paths:
       - '.github/workflows/d01-full-product-native-menu.yml'
       - '.github/workflows/d06-file-ingress-nag-normalization.yml'
       - '.github/workflows/d06-real-corpus-recovery.yml'
+      - '.github/workflows/d06-pgn-streaming-export.yml'
       - '.github/workflows/d08-owner-fixture-integration.yml'
       - '.github/workflows/v2-book-progress-store.yml'
+      - '.github/workflows/v2-book-progress-production-repair.yml'
       - '.github/workflows/v2-cbf-cbi-evidence.yml'
       - '.github/workflows/v2-library-acsdb-search-v4.yml'
       - '.github/workflows/v2-library-date-filter-v5.yml'
@@ -44,6 +47,7 @@ on:
       - 'tests/test_chessbase_libcbh_external_fixture.py'
       - 'tests/test_d06_file_ingress_nag_normalization.py'
       - 'tests/test_d06_real_corpus_recovery.py'
+      - 'tests/test_v2_pgn_streaming_export.py'
       - 'tests/test_d07_library_import_service.py'
       - 'tests/test_dev1_full_product_accessible_shell.py'
       - 'tests/test_dev1_full_product_ui_packages.py'
@@ -53,6 +57,7 @@ on:
       - 'tests/test_library_import_ui_integration.py'
       - 'tests/test_library_workspace_ui_integration.py'
       - 'tests/test_v2_book_progress_store.py'
+      - 'tests/test_v2_book_progress_store_production.py'
       - 'tests/test_v2_chessbase_capability_manifest.py'
       - 'tests/test_v2_library_acsdb_search_v4.py'
       - 'tests/test_v2_library_date_filter_v5.py'
@@ -81,6 +86,7 @@ env:
   CHESSBASE_SOURCE: 5e2c390e0cd66cca166b80fec88c7402784ade47
   LIBCBH_COMMIT: 9641c5c3949d8fb210b17dd9aa54455645843696
   UNCBV_COMMIT: 3c18e8a7c6a30c21f945a1ab5462521c306dca57
+  V2_ACCEPTED_STAGE1_BOOTSTRAP_BLOB: bced41192feb068a71ed0789be5629164a37e6c9
 
 jobs:
   combined-formats:
@@ -132,19 +138,28 @@ jobs:
           git cat-file -e "$LIBRARY_SOURCE^{commit}"
           git cat-file -e "$CHESSBASE_SOURCE^{commit}"
           git diff --check "$V2_BASE" HEAD
+
+          actual_stage1_bootstrap_blob="$(git rev-parse HEAD:web/stage1_release_bootstrap.js)"
+          if [ "$actual_stage1_bootstrap_blob" != "$V2_ACCEPTED_STAGE1_BOOTSTRAP_BLOB" ]; then
+            echo "Unexpected Stage 1 bootstrap blob: $actual_stage1_bootstrap_blob" >&2
+            exit 1
+          fi
+
           changed="$(git diff --name-only "$V2_BASE" HEAD | sort)"
-          if printf '%s\n' "$changed" | grep -E '(^|/)(stage1|tools/qa/|windows-stage1|release_preflight)'; then
+          unapproved_changed="$(printf '%s\n' "$changed" | grep -v '^web/stage1_release_bootstrap\.js$' || true)"
+          if printf '%s\n' "$unapproved_changed" | grep -E '(^|/)(stage1|tools/qa/|windows-stage1|release_preflight)'; then
             echo 'Stage 1 or strict-release contamination detected' >&2
             exit 1
           fi
           # These are genuinely frozen release/core seams. GameTree/PGN round-trip
           # and Books owners are intentionally allowed to differ from V2_BASE
           # because accepted V2 convergence packages changed them and the semantic
-          # suites below are their current authority.
+          # suites below are their current authority. The accepted Stage 1 bootstrap
+          # is separately pinned above by exact blob identity.
           git diff --quiet "$V2_BASE" HEAD -- \
             acs/chesscore.py acs/pgn_workspace.py \
             acs/stage1_release_ui.py acs/stage1_release_ui_core.py \
-            web/stage1_release_bootstrap.js web/stage1_board_actions.js \
+            web/stage1_board_actions.js \
             tools/qa
 
       - name: Lock exact integrated owner blobs
@@ -164,14 +179,16 @@ jobs:
           tools/optional/LIBCBH_BACKEND.md=8dd90cd1f24bd42c8cbefb23be0dfcc979ca6560
           tools/optional/libcbh_json_bridge.cpp=ab4ffb128eada2fd225386b20f01016e0f87325b
           acs/library_webview_bridge.py=4ee98f89f1d7312b04eb8c3190b6846db16bf3f6
-          acs/library_webview_projection.py=149816ad0ca9a8d240e0b0c7057df15fe6cef0b5
+          acs/library_webview_projection.py=9123b5fb89884ee9a821c89c0898011ae42c1247
           tests/test_dev1_library_webview_projection.py=fc9fbc36b4b6b9a2792a2db6ef09b2f1405a4d9b
           tests/test_library_import_ui_integration.py=7fca70f8100ee38c2f452b04e8165ad54941f773
           tests/js/library_surface_dom_test.js=7f69c17619f73d7c001392ea43e037933d75a50b
           web/full_product_library.js=e102301b75e211b718462ce15ade749742dd0a30
-          .github/workflows/v2-book-progress-store.yml=a06bdd168a2f519c528e94fc2853b75ce31f759c
-          acs/book_progress_store.py=665e2f4d09460f69850e4f71d739eca8e71f932e
+          .github/workflows/v2-book-progress-store.yml=6709ef4a0357784c07e170b7cb4fba54adeffb2f
+          .github/workflows/v2-book-progress-production-repair.yml=f6a206f8774255b9a5961955763b9a8d07b5b72a
+          acs/book_progress_store.py=0ea20c5a0e172852a0a48e2e01caa2de037b6342
           tests/test_v2_book_progress_store.py=3887db6f4b92e0450a8c7994a03c25f4cd8baf9b
+          tests/test_v2_book_progress_store_production.py=c2855823860059941a61c13109a9b686c26330e5
           .github/workflows/v2-cbf-cbi-evidence.yml=f8882b122b80b829d300f8eb3f3c4e0ec9a0d5ec
           acs/chessbase_adapter.py=b99cff635f845c7f5160242f9cc6c84c40b88c47
           acs/chessbase_integrity.py=18734bbac21ed4df337c09587244ea469fe60ca9
@@ -183,8 +200,10 @@ jobs:
           acs/pgn_document.py=ae0b7d3815c4d277b68ef3c170c95255cf5c6442
           tests/test_d06_real_corpus_recovery.py=8bf849bc3246bc70fff59637c169c9873d9520dd
           .github/workflows/d06-file-ingress-nag-normalization.yml=bf7d802aeb921f92ac121ff38fe6972601c2d299
-          acs/pgn_service.py=967669297402d91fd3c5651629b4f82c071a03ed
+          .github/workflows/d06-pgn-streaming-export.yml=56640aaa94422e80a1410320f6b7bcc39f72d52d
+          acs/pgn_service.py=9079bd16f3783886e10cad9396f08fc5458738cb
           tests/test_d06_file_ingress_nag_normalization.py=466d201b514b94e2c4b11fd49c96ff4b9878e28c
+          tests/test_v2_pgn_streaming_export.py=f12627d462ce73a07fd1b9ddd25edad4414720c6
           .github/workflows/v2-library-acsdb-search-v4.yml=8314872e3d4d5f008ce77e4b630c6b05db1c042d
           .github/workflows/v2-library-date-filter-v5.yml=be4d1bee84327075752739d4273aaa04b6fb91eb
           .github/workflows/v2-library-integrity-repair.yml=bd8895696a95a43a707d7cac0305166179d21408
@@ -223,11 +242,13 @@ jobs:
           tests.test_library_workspace_ui_integration
           tests.test_d06_real_corpus_recovery
           tests.test_d06_file_ingress_nag_normalization
+          tests.test_v2_pgn_streaming_export
           tests.test_pgn_document
           tests.test_pgn_workspace
           tests.test_dev1_pgn_workspace_webview_adapter
           tests.test_books_training_ui_integration
           tests.test_v2_book_progress_store
+          tests.test_v2_book_progress_store_production
           tests.test_whole_product_user_journey
 
       - name: Library schema-v6 integrity date and bounded search matrix

@@ -42,14 +42,14 @@ class Version2WindowsCompositionProfileTests(unittest.TestCase):
             VERSION2_ROUTE_IDS,
         )
         self.assertEqual(shell.current_route.route_id, "board")
-        self.assertNotIn("training", VERSION2_ROUTE_IDS)
+        self.assertIn("training", VERSION2_ROUTE_IDS)
         self.assertNotIn("teacher", VERSION2_ROUTE_IDS)
         self.assertNotIn("classes", VERSION2_ROUTE_IDS)
+        for action_id in ("screen.training", "training.submit"):
+            self.assertEqual(registry.definition(action_id).action_id, action_id)
         for action_id in (
-            "screen.training",
             "screen.teacher",
             "screen.classes",
-            "training.submit",
             "teacher.pointer_input",
             "student.move",
             "classes.open",

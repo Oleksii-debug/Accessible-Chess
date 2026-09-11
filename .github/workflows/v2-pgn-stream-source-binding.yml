@@ -6,7 +6,7 @@ on:
       - work/v2-pgn-stream-source-binding-20260907
   pull_request:
     branches:
-      - codex/v2-formats-completion-20260907
+      - work/full-product-teacher-education-reachability-20260911
     paths:
       - 'acs/pgn_streaming_import.py'
       - 'tests/test_pgn_stream_source_binding.py'
@@ -40,13 +40,12 @@ jobs:
       - name: Install pinned verification dependencies
         run: python -m pip install -q pytest==8.4.2 zstandard==0.23.0
 
-      - name: Prove exact base ancestry and narrow scope
+      - name: Prove exact current base ancestry and narrow scope
         shell: bash
         run: |
           set -euo pipefail
-          BASE=9ac0600bf9d270e02334df1657c1ccc941f909b5
+          BASE=b7eaab155cd86d41a6126a6a26c15c7f8bacfb53
           git merge-base --is-ancestor "$BASE" HEAD
-          test "$(git merge-base "$BASE" HEAD)" = "$BASE"
           git diff --check "$BASE" HEAD
           changed="$(git diff --name-only "$BASE" HEAD | sort)"
           expected="$(printf '%s\n' \

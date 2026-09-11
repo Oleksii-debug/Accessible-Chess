@@ -14,10 +14,7 @@ import threading
 from typing import Any
 
 from .pgn_document import PgnDocumentSession
-from .version2_windows_file_workflows import (
-    Version2ImportWorkerServices,
-    Version2WindowsFileActionDelegate,
-)
+from .version2_windows_file_workflows import Version2ImportWorkerServices
 from .version2_windows_import_event_mailbox import Version2ImportUiEventMailbox
 from .version2_windows_import_ui_pump import (
     Version2ImportUiWakeupPump,
@@ -28,6 +25,7 @@ from .version2_windows_native_dialog_ownership import (
     Version2OwnedWindowsPgnExportDialogs,
 )
 from .version2_windows_pgn_export import Version2WindowsPgnExportDelegate
+from .version2_windows_pgn_streaming_host import Version2WindowsStreamingFileActionDelegate
 
 
 class Version2WindowsFileWorkflowRuntime:
@@ -38,6 +36,10 @@ class Version2WindowsFileWorkflowRuntime:
     ``BeginInvoke`` marshalling.  ``import_ui_ready`` receives the bounded mailbox
     on that same UI thread; the Library presentation owner remains responsible for
     interpreting/draining its path-free canonical events.
+
+    ``dialog_language_provider`` is presentation-only and resolved lazily by each
+    native dialog.  It may therefore follow the live V2 shell language without
+    rebuilding this runtime or creating a second language state.
     """
 
     def __init__(
@@ -52,6 +54,7 @@ class Version2WindowsFileWorkflowRuntime:
         pgn_export_event_sink: Callable[[object], Any],
         next_delegate: Callable[[str, Mapping[str, object]], Any],
         current_focus_provider: Callable[[], str] | None = None,
+        dialog_language_provider: Callable[[], object] | None = None,
         mailbox_max_events: int = 64,
         ui_delegate_factory: Callable[[Callable[[], None]], object] | None = None,
         file_forms_loader: Callable[[], tuple[object, Callable[[], object], Callable[[], object]]]
@@ -72,6 +75,8 @@ class Version2WindowsFileWorkflowRuntime:
                 raise TypeError(f"{name} must be callable")
         if current_focus_provider is not None and not callable(current_focus_provider):
             raise TypeError("current_focus_provider must be callable")
+        if dialog_language_provider is not None and not callable(dialog_language_provider):
+            raise TypeError("dialog_language_provider must be callable")
 
         self._ui_thread_id = threading.get_ident()
         self._lock = threading.RLock()
@@ -94,10 +99,12 @@ class Version2WindowsFileWorkflowRuntime:
         self._file_dialogs = Version2OwnedWindowsFileDialogs(
             lambda: owner_control,
             forms_loader=file_forms_loader,
+            language_provider=dialog_language_provider,
         )
         self._export_dialogs = Version2OwnedWindowsPgnExportDialogs(
             lambda: owner_control,
             forms_loader=export_forms_loader,
+            language_provider=dialog_language_provider,
         )
         self._export_delegate = Version2WindowsPgnExportDelegate(
             dialogs=self._export_dialogs,
@@ -106,7 +113,7 @@ class Version2WindowsFileWorkflowRuntime:
             next_delegate=next_delegate,
             current_focus_provider=current_focus_provider,
         )
-        self._file_delegate = Version2WindowsFileActionDelegate(
+        self._file_delegate = Version2WindowsStreamingFileActionDelegate(
             dialogs=self._file_dialogs,
             get_pgn_session=get_pgn_session,
             set_pgn_session=set_pgn_session,

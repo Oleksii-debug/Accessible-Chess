@@ -121,6 +121,15 @@ class BookWebViewProjection:
     def language(self) -> UILanguage:
         return self._language
 
+    @property
+    def bookmark_name(self) -> str:
+        """Return the transient bookmark input value for transaction rollback."""
+        return self._last_bookmark
+
+    def restore_bookmark_name(self, name: object) -> None:
+        """Restore previously validated transient bookmark input state."""
+        self._last_bookmark = _bookmark_name(name)
+
     def set_language(self, language: UILanguage | str) -> BookWebViewEvent:
         if isinstance(language, str):
             try:
