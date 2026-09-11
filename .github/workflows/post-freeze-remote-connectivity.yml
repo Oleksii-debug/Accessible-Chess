@@ -5,8 +5,15 @@ on:
     paths:
       - 'acs/remote_connectivity.py'
       - 'acs/remote_provider.py'
+      - 'acs/remote_protocol_control.py'
+      - 'acs/remote_durability.py'
+      - 'acs/remote_controller.py'
+      - 'acs/remote_event_delivery.py'
       - 'tests/test_remote_connectivity.py'
       - 'tests/test_remote_provider.py'
+      - 'tests/test_remote_durability.py'
+      - 'tests/test_remote_controller.py'
+      - 'tests/test_remote_event_delivery.py'
       - '.github/workflows/post-freeze-remote-connectivity.yml'
   workflow_dispatch:
 
@@ -60,8 +67,15 @@ jobs:
           expected="$(printf '%s\n' \
             '.github/workflows/post-freeze-remote-connectivity.yml' \
             'acs/remote_connectivity.py' \
+            'acs/remote_controller.py' \
+            'acs/remote_durability.py' \
+            'acs/remote_event_delivery.py' \
+            'acs/remote_protocol_control.py' \
             'acs/remote_provider.py' \
             'tests/test_remote_connectivity.py' \
+            'tests/test_remote_controller.py' \
+            'tests/test_remote_durability.py' \
+            'tests/test_remote_event_delivery.py' \
             'tests/test_remote_provider.py' | sort)"
           test "$changed" = "$expected"
 
@@ -76,7 +90,9 @@ jobs:
             acs/teaching_classroom_adapter.py \
             acs/classroom_domain.py \
             acs/education_workspace.py \
+            acs/education_workspace_store.py \
             acs/education_records.py \
+            acs/classroom_presentation.py \
             run_accessible_chess.py \
             web/index.html
 
@@ -85,14 +101,24 @@ jobs:
           python -m compileall -q
           acs/remote_connectivity.py
           acs/remote_provider.py
+          acs/remote_protocol_control.py
+          acs/remote_durability.py
+          acs/remote_controller.py
+          acs/remote_event_delivery.py
           tests/test_remote_connectivity.py
           tests/test_remote_provider.py
+          tests/test_remote_durability.py
+          tests/test_remote_controller.py
+          tests/test_remote_event_delivery.py
 
       - name: Focused remote connectivity tests
         run: >-
           python -m unittest -v
           tests.test_remote_connectivity
           tests.test_remote_provider
+          tests.test_remote_durability
+          tests.test_remote_controller
+          tests.test_remote_event_delivery
 
       - name: Canonical remote and teaching regression tests
         run: >-
