@@ -243,8 +243,10 @@ class Version2NativeDialogLanguageTests(unittest.TestCase):
             api = mock.MagicMock()
             application = mock.MagicMock()
             application.shell.language = UILanguage.UA
+            application._native_unsaved_close_guard = None
             database = mock.MagicMock()
             native_runtime = mock.MagicMock()
+            native_runtime.shutdown.return_value = True
 
             with (
                 mock.patch.object(release_app, "_prepare_version2_user_data", return_value=layout),
@@ -304,6 +306,7 @@ class Version2NativeDialogLanguageTests(unittest.TestCase):
         books = _Version2OwnedBookDialogs(
             lambda: owner,
             forms_loader=_forms_loader,
+            message_box_loader=_message_box_loader,
             language_provider=broken_provider,
         )
 
