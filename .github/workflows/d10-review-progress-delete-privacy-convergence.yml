@@ -51,24 +51,64 @@ jobs:
         env:
           CANONICAL_BASE_SHA: f8aa6c7f28c04dbcb75d3e6fa1234e589666da0f
           SOURCE_HEAD_SHA: c096fc2b4e3bf02a2853a893319cb9512842bed0
+          AGGREGATE_REF: work/full-product-teacher-education-reachability-20260911
+          AGGREGATE_ANCHOR_SHA: 05d9cb289a5d81dd483b18197e5f76c46aff3012
         run: |
           set -euo pipefail
-          test -n "${GITHUB_BASE_REF:-}"
-          git fetch --no-tags origin "${GITHUB_BASE_REF}:refs/remotes/origin/${GITHUB_BASE_REF}"
-          base="$(git rev-parse "origin/${GITHUB_BASE_REF}")"
-          test "$base" = "$CANONICAL_BASE_SHA"
           git cat-file -e "$SOURCE_HEAD_SHA^{commit}"
-          git merge-base --is-ancestor "$CANONICAL_BASE_SHA" HEAD
-          git merge-base --is-ancestor "$SOURCE_HEAD_SHA" HEAD
-          git diff --check "$CANONICAL_BASE_SHA" HEAD
-          changed="$(git diff --name-only "$CANONICAL_BASE_SHA" HEAD | sort)"
-          expected="$(printf '%s\n' \
-            '.github/workflows/d10-review-progress-delete-privacy-convergence.yml' \
-            'acs/education_progress_lifecycle.py' \
-            'acs/education_progress_transaction.py' \
-            'tests/test_d10_review_progress_delete_privacy.py' \
-            'tests/test_d10_review_progress_transaction.py' | sort)"
-          test "$changed" = "$expected"
+          aggregate_context="${GITHUB_HEAD_REF:-${GITHUB_REF_NAME:-}}"
+
+          if [ "$aggregate_context" = "$AGGREGATE_REF" ]; then
+            git cat-file -e "$AGGREGATE_ANCHOR_SHA^{commit}"
+            git merge-base --is-ancestor "$SOURCE_HEAD_SHA" HEAD
+            git merge-base --is-ancestor "$AGGREGATE_ANCHOR_SHA" HEAD
+            git diff --check "$AGGREGATE_ANCHOR_SHA" HEAD
+            git diff --quiet "$AGGREGATE_ANCHOR_SHA" HEAD -- \
+              acs/education_progress_lifecycle.py \
+              acs/education_progress_transaction.py \
+              tests/test_d10_review_progress_delete_privacy.py \
+              tests/test_d10_review_progress_transaction.py
+            echo 'D10_REVIEW_PRIVACY_TOPOLOGY=CANONICAL_AGGREGATE'
+          elif [ "${GITHUB_BASE_REF:-}" = "$AGGREGATE_REF" ]; then
+            git fetch --no-tags origin "${GITHUB_BASE_REF}:refs/remotes/origin/${GITHUB_BASE_REF}"
+            base="$(git rev-parse "origin/${GITHUB_BASE_REF}")"
+            test "$base" = "$AGGREGATE_ANCHOR_SHA"
+            git merge-base --is-ancestor "$base" HEAD
+            git merge-base --is-ancestor "$SOURCE_HEAD_SHA" HEAD
+            git diff --check "$base" HEAD
+            changed="$(git diff --name-only "$base" HEAD | sort)"
+            test -n "$changed"
+            allowed="$(printf '%s\n' \
+              '.github/workflows/d01-teacher-classroom-webview.yml' \
+              '.github/workflows/d10-no-implicit-delete-current.yml' \
+              '.github/workflows/d10-review-progress-delete-privacy-convergence.yml' \
+              '.github/workflows/version2-windows-composition.yml' \
+              '.github/workflows/w1-d06-bounded-model-materialization-convergence.yml' | sort)"
+            while IFS= read -r path; do
+              printf '%s\n' "$allowed" | grep -Fx -- "$path" >/dev/null || {
+                printf 'Out-of-scope aggregate harness repair: %s\n' "$path" >&2
+                exit 1
+              }
+            done <<< "$changed"
+            echo 'D10_REVIEW_PRIVACY_TOPOLOGY=AGGREGATE_HARNESS_CHILD'
+          else
+            test -n "${GITHUB_BASE_REF:-}"
+            git fetch --no-tags origin "${GITHUB_BASE_REF}:refs/remotes/origin/${GITHUB_BASE_REF}"
+            base="$(git rev-parse "origin/${GITHUB_BASE_REF}")"
+            test "$base" = "$CANONICAL_BASE_SHA"
+            git merge-base --is-ancestor "$CANONICAL_BASE_SHA" HEAD
+            git merge-base --is-ancestor "$SOURCE_HEAD_SHA" HEAD
+            git diff --check "$CANONICAL_BASE_SHA" HEAD
+            changed="$(git diff --name-only "$CANONICAL_BASE_SHA" HEAD | sort)"
+            expected="$(printf '%s\n' \
+              '.github/workflows/d10-review-progress-delete-privacy-convergence.yml' \
+              'acs/education_progress_lifecycle.py' \
+              'acs/education_progress_transaction.py' \
+              'tests/test_d10_review_progress_delete_privacy.py' \
+              'tests/test_d10_review_progress_transaction.py' | sort)"
+            test "$changed" = "$expected"
+          fi
+
           for path in \
             acs/education_progress_lifecycle.py \
             acs/education_progress_transaction.py \
