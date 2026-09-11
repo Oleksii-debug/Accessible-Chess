@@ -49,11 +49,15 @@ jobs:
 
       - name: Prove retained Education authority and current PR hygiene
         shell: bash
+        env:
+          EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
           set -euo pipefail
-          test -n "${GITHUB_BASE_REF:-}"
-          git fetch --no-tags origin "${GITHUB_BASE_REF}:refs/remotes/origin/${GITHUB_BASE_REF}"
-          base="$(git rev-parse "origin/${GITHUB_BASE_REF}")"
+          base="${EVENT_BASE_SHA:-}"
+          if [ -z "$base" ]; then
+            base="$(git rev-parse HEAD^)"
+          fi
+          git cat-file -e "${base}^{commit}" || git fetch --no-tags origin "$base"
           education_owner="3df622f6d667b3513222003df159e52188e60bda"
           git cat-file -e "${education_owner}^{commit}"
           git merge-base --is-ancestor "$base" HEAD
