@@ -184,6 +184,8 @@ def _licensed_file(payload: bytes, *, license_id: str) -> dict[str, object]:
 
 
 def _prove_sample_database(path: Path, expected_games: int) -> dict[str, int]:
+    """Prove the binding W2 sample properties without inventing event-count rules."""
+
     with AcsDatabase(path) as database:
         if database.verify_integrity() != ACSDB_SCHEMA_VERSION:
             raise RuntimeError("sample ACSDB integrity/schema verification failed")
@@ -196,10 +198,12 @@ def _prove_sample_database(path: Path, expected_games: int) -> dict[str, int]:
                 f"lawful starter ACSDB count mismatch: total={total}, distinct={distinct}, "
                 f"expected={expected_games}"
             )
-        if players < 20 or events < 5:
+        if players < 20:
             raise RuntimeError(
-                f"lawful starter sample lacks useful metadata diversity: players={players}, events={events}"
+                f"lawful starter sample lacks player diversity: distinct_player_pairs={players}"
             )
+        if events < 1:
+            raise RuntimeError("lawful starter sample has no Event metadata")
         return {
             "games": int(total),
             "distinct_games": int(distinct),
@@ -224,7 +228,9 @@ def build_release_bundle_from_curated_pgn(
         raise ValueError(f"starter_count must be >= {MINIMUM_REAL_GAME_COUNT}")
     if starter_pgn.count('[Event "') != starter_count:
         raise ValueError("starter PGN complete-record count does not match starter_count")
-    if len(source_subset_sha256) != 64:
+    if len(source_subset_sha256) != 64 or any(
+        character not in "0123456789abcdefABCDEF" for character in source_subset_sha256
+    ):
         raise ValueError("source_subset_sha256 must be a SHA-256 hex digest")
     if type(stress_count) is not int or stress_count <= starter_count:
         raise ValueError("stress_count must be greater than starter_count")
@@ -262,7 +268,7 @@ def build_release_bundle_from_curated_pgn(
             "compressed_sha256": CORPUS_SHA256,
             "compressed_bytes": source_compressed_bytes,
             "selection": f"first {starter_count} complete Event-framed standard-rated games",
-            "subset_sha256": source_subset_sha256,
+            "subset_sha256": source_subset_sha256.lower(),
             "selected_games": starter_count,
         },
         "licenses": {
