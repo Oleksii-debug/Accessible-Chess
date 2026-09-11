@@ -138,6 +138,7 @@ if "--diagnostic" in sys.argv:
                 ensure_ascii=False,
             )
         )
+    print("PRODUCTION COMPOSITION DIAGNOSTIC PASS")
     print("ACCESSIBLE CHESS V2 FINAL-PRODUCT COMPOSITION DIAGNOSTIC PASS")
 else:
     from acs.webview2_accessibility import install_pywebview_accessibility_host_patch
