@@ -6,6 +6,7 @@ on:
       - 'acs/pgn_roundtrip.py'
       - 'acs/pgn_workspace.py'
       - 'tests/test_w1_d06_bounded_model_materialization.py'
+      - '.github/workflows/d01-pgn-workspace-webview.yml'
       - '.github/workflows/w1-d06-bounded-model-materialization-convergence.yml'
   workflow_dispatch:
 
@@ -62,6 +63,7 @@ jobs:
           git diff --check "$CANONICAL_BASE_SHA" HEAD
           changed="$(git diff --name-only "$CANONICAL_BASE_SHA" HEAD | sort)"
           expected="$(printf '%s\n' \
+            '.github/workflows/d01-pgn-workspace-webview.yml' \
             '.github/workflows/w1-d06-bounded-model-materialization-convergence.yml' \
             'acs/pgn_roundtrip.py' \
             'acs/pgn_workspace.py' \
