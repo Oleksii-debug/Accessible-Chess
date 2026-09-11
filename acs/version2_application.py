@@ -204,6 +204,11 @@ class Version2Application:
         # Books route/focus contract; unrelated active routes remain untouched.
         if training_was_active and self.shell.current_route.route_id == "training":
             self._focus = self.shell.open_route("books")
+            # The packaged WebView consumes the application event queue on its
+            # polling seam. A route event requests one authoritative snapshot
+            # refresh; omit focus_target so the host chooses the real current
+            # Book block DOM id instead of the shell-only ``book-reader`` token.
+            self._events.append({"kind": "route", "payload": {"route_id": "books"}})
 
     def _start_training_from_current_book(self):
         self._assert_thread()

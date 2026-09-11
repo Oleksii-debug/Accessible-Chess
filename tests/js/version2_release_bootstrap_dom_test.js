@@ -95,6 +95,8 @@ global.document = documentRef;
 
 let currentRoute = "board";
 let libraryAvailable = false;
+let booksAvailable = false;
+let trainingAvailable = false;
 let eventQueue = [];
 let intervalCallback = null;
 let snapshotCalls = 0;
@@ -107,15 +109,17 @@ function snapshot(route) {
     board: "move-input",
     pgn: "pgn-game-list",
     library: "library-search-player",
-    books: "book-reader"
+    books: "book-reader",
+    training: "training-prompt"
   }[route] || "";
   const headings = {
     board: "Board",
     pgn: "PGN",
     library: "Library",
-    books: "Books"
+    books: "Books",
+    training: "Training"
   };
-  const navigation = ["board", "pgn", "library", "books"].map((routeId) => ({
+  const navigation = ["board", "pgn", "library", "books", "training"].map((routeId) => ({
     route_id: routeId,
     label: headings[routeId],
     action_id: "screen." + routeId,
@@ -127,7 +131,8 @@ function snapshot(route) {
     screen: { route_id: route, heading: headings[route], focus_target: focus },
     pgn: null,
     library: route === "library" && libraryAvailable ? { heading: "Library" } : null,
-    books: null
+    books: route === "books" && booksAvailable ? { block: { dom_id: "book-block-1" } } : null,
+    training: route === "training" && trainingAvailable ? { prompt: "Exercise" } : null
   };
 }
 
@@ -173,6 +178,20 @@ const windowObject = {
     apply: (_root, event) => {
       if (!event || event.kind !== "render-import") throw new Error("unexpected Library event");
       libraryApplyCalls += 1;
+    }
+  },
+  AccessibleChessBookSurface: {
+    render: (root) => {
+      const block = new FakeElement("section");
+      block.id = "book-block-1";
+      root.replaceChildren(block);
+    }
+  },
+  AccessibleChessTrainingSurface: {
+    render: (root) => {
+      const answer = new FakeElement("input");
+      answer.id = "training-answer";
+      root.replaceChildren(answer);
     }
   }
 };
@@ -294,6 +313,28 @@ async function clickRoute(routeId) {
   check(originalMain.hidden === true, "final PGN route exposed the Stage 1 main");
   check(finalPgnStatus !== null, "final PGN route did not render its empty status");
   check(documentRef.activeElement === finalPgnStatus, "stale Board focus target overrode final-route focus");
+
+  booksAvailable = true;
+  trainingAvailable = true;
+  await clickRoute("training");
+  const staleTrainingAnswer = documentRef.getElementById("training-answer");
+  check(staleTrainingAnswer !== null, "Training surface did not render before rollback simulation");
+  check(documentRef.activeElement === staleTrainingAnswer, "Training surface did not focus the answer input");
+
+  const genericBookError = "The action could not be completed.";
+  live.textContent = genericBookError;
+  const beforeRollbackSnapshotCalls = snapshotCalls;
+  currentRoute = "books";
+  eventQueue = [{ kind: "route", payload: { route_id: "books" } }];
+  intervalCallback();
+  await flush();
+  await flush();
+  const restoredBookBlock = documentRef.getElementById("book-block-1");
+  check(snapshotCalls === beforeRollbackSnapshotCalls + 1, "Book rollback route event did not trigger exactly one V2 snapshot refresh");
+  check(restoredBookBlock !== null, "Book rollback refresh did not replace stale Training DOM with Books DOM");
+  check(documentRef.getElementById("training-answer") === null, "stale Training answer remained in the DOM after Book rollback refresh");
+  check(documentRef.activeElement === restoredBookBlock, "Book rollback refresh did not focus the restored canonical book block");
+  check(live.textContent === genericBookError, "Book rollback refresh erased the generic failure announcement");
 
   await clickRoute("board");
   const beforeStage1ActionSnapshots = snapshotCalls;
