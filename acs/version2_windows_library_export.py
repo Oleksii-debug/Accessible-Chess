@@ -6,6 +6,10 @@ The browser supplies only a selection/filter identity. This module validates tha
 identity before opening a native Save dialog, then gives the host-selected path
 to :class:`LibraryExportService`. It deliberately reuses #300's owner-bound PGN
 Save-dialog implementation and D06's writer through the D07 service.
+
+Language remains presentation-only: callers may pass the live Version 2 language
+provider through this builder so both the D07 Save dialog and the surrounding
+file runtime resolve the same canonical shell language without another state.
 """
 
 from collections.abc import Callable, Mapping
@@ -166,6 +170,7 @@ def build_version2_windows_library_file_runtime(
     pgn_export_event_sink: Callable[[object], Any],
     next_delegate: Callable[[str, Mapping[str, object]], Any],
     current_focus_provider: Callable[[], str] | None = None,
+    dialog_language_provider: Callable[[], object] | None = None,
     mailbox_max_events: int = 64,
     ui_delegate_factory: Callable[[Callable[[], None]], object] | None = None,
     file_forms_loader: Callable[[], tuple[object, Callable[[], object], Callable[[], object]]] | None = None,
@@ -175,9 +180,12 @@ def build_version2_windows_library_file_runtime(
 
     if not isinstance(library_service, LibraryExportService):
         raise TypeError("library_service must be LibraryExportService")
+    if dialog_language_provider is not None and not callable(dialog_language_provider):
+        raise TypeError("dialog_language_provider must be callable")
     library_dialogs = Version2OwnedWindowsPgnExportDialogs(
         lambda: owner_control,
         forms_loader=export_forms_loader,
+        language_provider=dialog_language_provider,
     )
     library_delegate = Version2WindowsLibraryExportDelegate(
         dialogs=library_dialogs,
@@ -198,6 +206,7 @@ def build_version2_windows_library_file_runtime(
         pgn_export_event_sink=pgn_export_event_sink,
         next_delegate=library_delegate,
         current_focus_provider=current_focus_provider,
+        dialog_language_provider=dialog_language_provider,
         mailbox_max_events=mailbox_max_events,
         ui_delegate_factory=ui_delegate_factory,
         file_forms_loader=file_forms_loader,

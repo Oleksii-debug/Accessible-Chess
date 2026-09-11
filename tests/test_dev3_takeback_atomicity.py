@@ -70,9 +70,11 @@ class Dev3TakebackAtomicityTests(unittest.TestCase):
 
     def test_invalid_clock_provider_cannot_clear_lifecycle_or_mutate_clock(self):
         undo_calls = []
+        now = _Time()
         session, _state = self._session(
             undo=lambda: undo_calls.append("undo"),
             restore=lambda: object(),
+            now=now,
         )
         before = session.snapshot()
 
