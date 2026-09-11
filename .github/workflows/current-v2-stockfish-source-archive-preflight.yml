@@ -1,0 +1,63 @@
+name: Current V2 Stockfish Source Archive Preflight
+
+on:
+  pull_request:
+    branches:
+      - work/full-product-teacher-education-reachability-20260911
+    paths:
+      - 'acs/version2_package_preflight.py'
+      - 'tests/test_version2_stockfish_source_archive_preflight.py'
+      - '.github/workflows/current-v2-stockfish-source-archive-preflight.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: current-v2-stockfish-source-archive-preflight-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  focused:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Prove exact current Full Product base and bounded delta
+        shell: bash
+        run: |
+          set -euo pipefail
+          base=99d11c19314ef3ef9d2558b399fcc5dcedbd13b3
+          git merge-base --is-ancestor "$base" HEAD
+          git diff --check "$base" HEAD
+          changed="$(git diff --name-only "$base" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/current-v2-stockfish-source-archive-preflight.yml' \
+            'acs/version2_package_preflight.py' \
+            'tests/test_version2_stockfish_source_archive_preflight.py' | sort)"
+          test "$changed" = "$expected" || {
+            printf 'Unexpected bounded-delta change set:\n%s\n' "$changed" >&2
+            exit 1
+          }
+
+      - name: Compile focused preflight surface
+        run: >-
+          python -m compileall -q
+          acs/version2_package_preflight.py
+          tests/test_version2_stockfish_source_archive_preflight.py
+          tests/test_version2_package_preflight.py
+          tests/test_version2_package_preflight_hardening.py
+          tests/test_v2_package_required_resources.py
+
+      - name: Run current V2 package and Stockfish-source regressions
+        run: >-
+          python -m unittest -v
+          tests.test_version2_stockfish_source_archive_preflight
+          tests.test_version2_package_preflight
+          tests.test_version2_package_preflight_hardening
+          tests.test_v2_package_required_resources
