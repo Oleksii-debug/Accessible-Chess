@@ -49,13 +49,20 @@ def control_request(
     )
 
 
-def acknowledgement_for(request: RemoteEnvelope) -> RemoteEnvelope:
+def acknowledgement_for(
+    request: RemoteEnvelope,
+    *,
+    checkpoint_sequence: int | None = None,
+    checkpoint_digest: str | None = None,
+) -> RemoteEnvelope:
     if not isinstance(request, RemoteEnvelope) or request.kind not in {
         RemoteMessageKind.EVENT,
         RemoteMessageKind.RESUME,
         RemoteMessageKind.LEAVE,
     }:
         raise RemoteControlError("remote message cannot be acknowledged")
+    sequence = request.sequence if checkpoint_sequence is None else checkpoint_sequence
+    digest = request.checkpoint_digest if checkpoint_digest is None else checkpoint_digest
     return RemoteEnvelope(
         request.version,
         RemoteMessageKind.ACK,
@@ -63,10 +70,36 @@ def acknowledgement_for(request: RemoteEnvelope) -> RemoteEnvelope:
         request.session_id,
         request.actor_id,
         request.role,
-        request.sequence,
+        sequence,
         {"request_id": request.message_id},
-        request.checkpoint_digest,
+        digest,
     )
+
+
+def require_ack_checkpoint(
+    request: RemoteEnvelope,
+    response: RemoteEnvelope,
+    context: RemoteConnectionContext,
+) -> tuple[int, str]:
+    """Validate ACK identity and return the peer's independently reported checkpoint."""
+    if not isinstance(context, RemoteConnectionContext):
+        raise RemoteControlError("remote connection context is invalid")
+    principal = context.principal
+    if (
+        not isinstance(response, RemoteEnvelope)
+        or response.kind is not RemoteMessageKind.ACK
+        or response.message_id != operation_id("ack", request.message_id)
+        or response.session_id != request.session_id
+        or response.actor_id != principal.person_id
+        or response.role is not principal.role
+        or dict(response.payload) != {"request_id": request.message_id}
+        or type(response.sequence) is not int
+        or isinstance(response.sequence, bool)
+        or response.sequence < 0
+        or type(response.checkpoint_digest) is not str
+    ):
+        raise RemoteControlError("remote acknowledgement identity is invalid")
+    return response.sequence, response.checkpoint_digest
 
 
 def require_ack(
@@ -74,19 +107,8 @@ def require_ack(
     response: RemoteEnvelope,
     context: RemoteConnectionContext,
 ) -> None:
-    if not isinstance(context, RemoteConnectionContext):
-        raise RemoteControlError("remote connection context is invalid")
-    principal = context.principal
-    if (
-        not isinstance(response, RemoteEnvelope)
-        or response.kind is not RemoteMessageKind.ACK
-        or response.session_id != request.session_id
-        or response.actor_id != principal.person_id
-        or response.role is not principal.role
-        or response.sequence != request.sequence
-        or response.checkpoint_digest != request.checkpoint_digest
-        or dict(response.payload) != {"request_id": request.message_id}
-    ):
+    sequence, digest = require_ack_checkpoint(request, response, context)
+    if sequence != request.sequence or digest != request.checkpoint_digest:
         raise RemoteControlError("remote acknowledgement does not match request")
 
 

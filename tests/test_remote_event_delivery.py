@@ -1,12 +1,17 @@
 from __future__ import annotations
 import unittest
 
-from acs.remote_connectivity import RemoteConnectivityError, RemoteMessageKind
+from acs.remote_connectivity import RemoteMessageKind
 from acs.remote_controller import RemoteLifecycleStatus
 from acs.remote_event_delivery import RemoteEventDelivery, RemoteEventDeliveryError
 from acs.remote_protocol_control import acknowledgement_for
 from acs.remote_session import RemoteEventKind, RemoteSessionEvent
-from tests.test_remote_controller import Factory, make_controller
+from tests.test_remote_controller import (
+    Factory,
+    StatefulPeer,
+    make_controller,
+    principal,
+)
 
 
 def event(sequence=1, square="e4") -> RemoteSessionEvent:
@@ -21,37 +26,75 @@ def event(sequence=1, square="e4") -> RemoteSessionEvent:
 
 class RemoteEventDeliveryTests(unittest.TestCase):
     def test_success_requires_peer_ack_then_durable_checkpoint(self) -> None:
-        controller, durability, _factory = make_controller()
+        actor = principal()
+        peer = StatefulPeer(actor)
+        controller, durability, _factory = make_controller(
+            factory=Factory(actor, peer)
+        )
         controller.connect()
         delivery = RemoteEventDelivery(controller)
         delivery.publish(event())
         self.assertIs(controller.status, RemoteLifecycleStatus.CONNECTED)
         self.assertEqual(controller.log.state.last_sequence, 1)
+        self.assertEqual(peer.log.events, controller.log.events)
         self.assertEqual(durability.point.last_sequence, 1)
-        self.assertEqual(durability.point.snapshot_digest, controller.log.to_snapshot()["digest"])
+        self.assertEqual(
+            durability.point.snapshot_digest, controller.log.to_snapshot()["digest"]
+        )
 
-    def test_disconnect_after_local_accept_leaves_recoverable_uncertain_state(self) -> None:
-        def handler(request):
-            if request.kind is RemoteMessageKind.EVENT:
-                raise RemoteConnectivityError("simulated disconnect after accept")
-            return acknowledgement_for(request)
-
-        factory = Factory(__import__("tests.test_remote_controller", fromlist=["principal"]).principal(), handler)
-        controller, durability, _ = make_controller(factory=factory)
+    def test_disconnect_after_peer_accept_before_ack_resumes_without_replay(self) -> None:
+        actor = principal()
+        peer = StatefulPeer(actor)
+        peer.drop_next_event_ack_after_accept = True
+        controller, durability, _ = make_controller(factory=Factory(actor, peer))
         controller.connect()
         durable_before = durability.point.snapshot_digest
         delivery = RemoteEventDelivery(controller)
+
         with self.assertRaisesRegex(RemoteEventDeliveryError, "resume is required"):
             delivery.publish(event())
+
         self.assertIs(controller.status, RemoteLifecycleStatus.ERROR)
         self.assertEqual(controller.log.state.last_sequence, 1)
+        self.assertEqual(peer.log.state.last_sequence, 1)
         self.assertEqual(durability.point.last_sequence, 0)
         self.assertEqual(durability.point.snapshot_digest, durable_before)
 
         controller.reconnect()
+
         self.assertIs(controller.status, RemoteLifecycleStatus.CONNECTED)
+        self.assertEqual(peer.log.events, controller.log.events)
         self.assertEqual(durability.point.last_sequence, 1)
-        self.assertEqual(durability.point.snapshot_digest, controller.log.to_snapshot()["digest"])
+        self.assertEqual(
+            durability.point.snapshot_digest, controller.log.to_snapshot()["digest"]
+        )
+
+    def test_disconnect_before_peer_accept_replays_exact_uncheckpointed_event(self) -> None:
+        actor = principal()
+        peer = StatefulPeer(actor)
+        peer.reject_next_event_before_accept = True
+        controller, durability, _ = make_controller(factory=Factory(actor, peer))
+        controller.connect()
+        durable_before = durability.point.snapshot_digest
+        delivery = RemoteEventDelivery(controller)
+
+        with self.assertRaisesRegex(RemoteEventDeliveryError, "resume is required"):
+            delivery.publish(event())
+
+        self.assertIs(controller.status, RemoteLifecycleStatus.ERROR)
+        self.assertEqual(controller.log.state.last_sequence, 1)
+        self.assertEqual(peer.log.state.last_sequence, 0)
+        self.assertEqual(durability.point.last_sequence, 0)
+        self.assertEqual(durability.point.snapshot_digest, durable_before)
+
+        controller.reconnect()
+
+        self.assertIs(controller.status, RemoteLifecycleStatus.CONNECTED)
+        self.assertEqual(peer.log.events, controller.log.events)
+        self.assertEqual(durability.point.last_sequence, 1)
+        self.assertEqual(
+            durability.point.snapshot_digest, controller.log.to_snapshot()["digest"]
+        )
 
     def test_revoked_membership_fails_before_local_mutation(self) -> None:
         controller, durability, factory = make_controller()
@@ -103,8 +146,9 @@ class RemoteEventDeliveryTests(unittest.TestCase):
                 "0" * 64,
             )
 
-        from tests.test_remote_controller import principal
-        controller, durability, _factory = make_controller(factory=Factory(principal(), handler))
+        controller, durability, _factory = make_controller(
+            factory=Factory(principal(), handler)
+        )
         controller.connect()
         before = durability.calls
         with self.assertRaises(RemoteEventDeliveryError):

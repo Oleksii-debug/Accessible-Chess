@@ -2,9 +2,19 @@
 from __future__ import annotations
 from enum import Enum
 
-from .remote_connectivity import AuthenticatedPrincipal, RemoteMessageKind
+from .remote_connectivity import (
+    AuthenticatedPrincipal,
+    RemoteEnvelope,
+    RemoteMessageKind,
+    event_envelope,
+)
 from .remote_durability import RemoteDurabilityError, RemoteDurablePoint
-from .remote_protocol_control import control_request, operation_id, require_ack
+from .remote_protocol_control import (
+    control_request,
+    operation_id,
+    require_ack,
+    require_ack_checkpoint,
+)
 from .remote_provider import RemoteConnector
 from .remote_session import RemoteSessionLog
 
@@ -98,18 +108,44 @@ class RemoteLessonController:
             self._verify_prefix(point)
         except (RemoteDurabilityError, RemoteControllerError) as exc:
             self._fail("remote resume point is invalid", exc)
-        self._open("reconnect")
-        digest = self._digest()
-        if point.last_sequence != self.log.state.last_sequence or point.snapshot_digest != digest:
+
+        local_sequence = self.log.state.last_sequence
+        local_digest = self._digest()
+        peer_sequence, peer_digest = self._open(
+            "reconnect",
+            sequence=point.last_sequence,
+            digest=point.snapshot_digest,
+            accept_peer_checkpoint=True,
+        )
+        peer_matches_local = (
+            peer_sequence == local_sequence and peer_digest == local_digest
+        )
+        peer_matches_durable = (
+            peer_sequence == point.last_sequence
+            and peer_digest == point.snapshot_digest
+        )
+        if peer_matches_local:
+            pass
+        elif peer_matches_durable:
+            try:
+                self._replay_uncheckpointed(point)
+            except Exception as exc:
+                self._drop()
+                self._fail("remote pending event replay failed", exc)
+        else:
+            self._drop()
+            self._fail("remote peer history conflicts with local recovery state")
+
+        if point.last_sequence != local_sequence or point.snapshot_digest != local_digest:
             try:
                 point = self.durability.checkpoint(
                     self.log,
-                    operation_id=operation_id("resume", digest),
+                    operation_id=operation_id("resume", local_digest),
                 )
             except RemoteDurabilityError as exc:
                 self._drop()
                 self._fail("remote resumed state could not be published", exc)
-        if point.last_sequence != self.log.state.last_sequence or point.snapshot_digest != digest:
+        if point.last_sequence != local_sequence or point.snapshot_digest != local_digest:
             self._drop()
             self._fail("remote durable resume point is inconsistent")
         self.status = RemoteLifecycleStatus.CONNECTED
@@ -146,20 +182,38 @@ class RemoteLessonController:
         self.status = RemoteLifecycleStatus.ERROR
         self.accepting_mutations = False
 
-    def _open(self, purpose: str) -> None:
+    def _open(
+        self,
+        purpose: str,
+        *,
+        sequence: int | None = None,
+        digest: str | None = None,
+        accept_peer_checkpoint: bool = False,
+    ) -> tuple[int, str]:
         connected = None
         try:
             connected = self.connector.connect(self.principal)
             if self.authorizer.authorize(self.principal) is not True:
                 raise RemoteControllerError("remote participant is not authorized")
+            request_sequence = (
+                self.log.state.last_sequence if sequence is None else sequence
+            )
+            request_digest = self._digest() if digest is None else digest
             request = control_request(
                 RemoteMessageKind.RESUME,
                 self.principal,
-                self.log.state.last_sequence,
-                self._digest(),
+                request_sequence,
+                request_digest,
                 purpose=purpose,
             )
-            require_ack(request, connected.provider.exchange(request), connected.context)
+            response = connected.provider.exchange(request)
+            if accept_peer_checkpoint:
+                peer_checkpoint = require_ack_checkpoint(
+                    request, response, connected.context
+                )
+            else:
+                require_ack(request, response, connected.context)
+                peer_checkpoint = request_sequence, request_digest
         except Exception as exc:
             if connected is not None:
                 try:
@@ -169,6 +223,36 @@ class RemoteLessonController:
             self._fail("remote connection could not be established", exc)
         self.provider = connected.provider
         self.context = connected.context
+        return peer_checkpoint
+
+    def _replay_uncheckpointed(self, point: RemoteDurablePoint) -> None:
+        if self.provider is None or self.context is None:
+            raise RemoteControllerError("remote recovery provider is unavailable")
+        prefix = RemoteSessionLog(self.principal.session_id)
+        prefix.extend(self.log.events[: point.last_sequence])
+        if prefix.to_snapshot()["digest"] != point.snapshot_digest:
+            raise RemoteControllerError("remote durable prefix changed during recovery")
+        for event in self.log.events[point.last_sequence :]:
+            prefix.append(event)
+            digest = prefix.to_snapshot()["digest"]
+            base = event_envelope(event, self.principal)
+            request = RemoteEnvelope(
+                base.version,
+                base.kind,
+                base.message_id,
+                base.session_id,
+                base.actor_id,
+                base.role,
+                base.sequence,
+                base.payload,
+                digest,
+            )
+            require_ack(request, self.provider.exchange(request), self.context)
+        if (
+            prefix.state.last_sequence != self.log.state.last_sequence
+            or prefix.to_snapshot()["digest"] != self._digest()
+        ):
+            raise RemoteControllerError("remote pending replay does not match local history")
 
     def _verify_prefix(self, point: RemoteDurablePoint) -> None:
         if point.last_sequence > self.log.state.last_sequence:

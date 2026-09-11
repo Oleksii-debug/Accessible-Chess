@@ -37,9 +37,13 @@ jobs:
     timeout-minutes: 55
     env:
       SOURCE_HEAD_SHA: a322c20044afebd9d5d3ae4d66305d87e94b04e5
-      PRIOR_LINEAGE_HEAD_SHA: eb5b23e9fab601139a12958d409fcb9719316f52
-      CLAIM_BASE_SHA: 38df77a62d76f92442f65b2a888c82266d33be9d
-      CONVERGENCE_COMMIT_SHA: 9c2cd32174ba35dfda4c02fabdf93f98cf4b7ded
+      PRIOR_LINEAGE_HEAD_SHA: 3ac1d6babdb8d0944b109b1e070783fdb369ab4d
+      CLAIM_BASE_SHA: 6618292424b1942d2e176a41e15d31dc93adfe70
+      CONVERGENCE_COMMIT_SHA: b77fcb07165e0c1ce34d56d6b5a4ff37bac0eb46
+      REPAIR_CONTROLLER_BLOB: aeade91b5f85e8cd098bca6eae195dc5dfde8c80
+      REPAIR_PROTOCOL_BLOB: 3049588499785a485839d069cf983d748a9de582
+      REPAIR_CONTROLLER_TEST_BLOB: f6514751d1b4c5da830ad44cdd4af5c02ba130ee
+      REPAIR_DELIVERY_TEST_BLOB: 85f6ff4dad8bc4cb5b50dedc5e51cc7cfa752ed0
     steps:
       - uses: actions/checkout@v4
         with:
@@ -61,7 +65,7 @@ jobs:
       - name: Install pinned verification dependency
         run: python -m pip install -q pytest==8.4.2
 
-      - name: Prove current-base ancestry source provenance and bounded delta
+      - name: Prove current-base ancestry source provenance and bounded repair
         shell: bash
         run: |
           set -euo pipefail
@@ -86,6 +90,7 @@ jobs:
           test "$(git rev-parse "${CONVERGENCE_COMMIT_SHA}^1")" = "$base"
           test "$(git rev-parse "${CONVERGENCE_COMMIT_SHA}^2")" = "$PRIOR_LINEAGE_HEAD_SHA"
           git diff --check "$base" HEAD -- . ':!docs/REMOTE_CONNECTIVITY_CONTRACT.md'
+
           changed="$(git diff --name-only "$base" HEAD | sort)"
           expected="$(printf '%s\n' \
             '.github/workflows/remote-current-product-convergence.yml' \
@@ -107,25 +112,26 @@ jobs:
 
           for path in \
             acs/remote_connectivity.py \
-            acs/remote_controller.py \
             acs/remote_durability.py \
             acs/remote_event_delivery.py \
-            acs/remote_protocol_control.py \
             acs/remote_provider.py \
             acs/remote_user_journey.py \
             docs/REMOTE_CONNECTIVITY_CONTRACT.md \
             tests/test_remote_connectivity.py \
-            tests/test_remote_controller.py \
             tests/test_remote_durability.py \
-            tests/test_remote_event_delivery.py \
             tests/test_remote_provider.py \
             tests/test_remote_user_journey.py
           do
             test "$(git rev-parse "HEAD:${path}")" = "$(git rev-parse "${SOURCE_HEAD_SHA}:${path}")" || {
-              printf 'Remote source blob drift: %s\n' "$path" >&2
+              printf 'Remote retained source blob drift: %s\n' "$path" >&2
               exit 1
             }
           done
+
+          test "$(git rev-parse HEAD:acs/remote_controller.py)" = "$REPAIR_CONTROLLER_BLOB"
+          test "$(git rev-parse HEAD:acs/remote_protocol_control.py)" = "$REPAIR_PROTOCOL_BLOB"
+          test "$(git rev-parse HEAD:tests/test_remote_controller.py)" = "$REPAIR_CONTROLLER_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_remote_event_delivery.py)" = "$REPAIR_DELIVERY_TEST_BLOB"
 
       - name: Prove canonical product authorities remain untouched
         shell: bash
@@ -175,7 +181,7 @@ jobs:
           tests/test_remote_event_delivery.py
           tests/test_remote_user_journey.py
 
-      - name: Focused Remote tests
+      - name: Focused Remote tests including independent peer recovery
         run: >-
           python -m unittest -v
           tests.test_remote_connectivity
