@@ -1,0 +1,109 @@
+name: D10 Review Progress Delete Privacy Convergence
+
+on:
+  pull_request:
+    paths:
+      - 'acs/education_progress_lifecycle.py'
+      - 'acs/education_progress_transaction.py'
+      - 'tests/test_d10_review_progress_delete_privacy.py'
+      - 'tests/test_d10_review_progress_transaction.py'
+      - '.github/workflows/d10-review-progress-delete-privacy-convergence.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: d10-review-progress-delete-privacy-convergence-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Preserve exact Git bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config core.autocrlf false
+          git config core.eol lf
+          git reset --hard HEAD
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install pinned verification dependency
+        run: python -m pip install -q pytest==8.4.2
+
+      - name: Prove exact convergence ancestry scope and source blobs
+        shell: bash
+        env:
+          CANONICAL_BASE_SHA: f8aa6c7f28c04dbcb75d3e6fa1234e589666da0f
+          SOURCE_HEAD_SHA: c096fc2b4e3bf02a2853a893319cb9512842bed0
+        run: |
+          set -euo pipefail
+          test -n "${GITHUB_BASE_REF:-}"
+          git fetch --no-tags origin "${GITHUB_BASE_REF}:refs/remotes/origin/${GITHUB_BASE_REF}"
+          base="$(git rev-parse "origin/${GITHUB_BASE_REF}")"
+          test "$base" = "$CANONICAL_BASE_SHA"
+          git cat-file -e "$SOURCE_HEAD_SHA^{commit}"
+          git merge-base --is-ancestor "$CANONICAL_BASE_SHA" HEAD
+          git merge-base --is-ancestor "$SOURCE_HEAD_SHA" HEAD
+          git diff --check "$CANONICAL_BASE_SHA" HEAD
+          changed="$(git diff --name-only "$CANONICAL_BASE_SHA" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/d10-review-progress-delete-privacy-convergence.yml' \
+            'acs/education_progress_lifecycle.py' \
+            'acs/education_progress_transaction.py' \
+            'tests/test_d10_review_progress_delete_privacy.py' \
+            'tests/test_d10_review_progress_transaction.py' | sort)"
+          test "$changed" = "$expected"
+          for path in \
+            acs/education_progress_lifecycle.py \
+            acs/education_progress_transaction.py \
+            tests/test_d10_review_progress_delete_privacy.py \
+            tests/test_d10_review_progress_transaction.py
+          do
+            test "$(git rev-parse "HEAD:$path")" = "$(git rev-parse "$SOURCE_HEAD_SHA:$path")"
+          done
+
+      - name: Compile converged Python
+        run: >-
+          python -m py_compile
+          acs/education_progress_lifecycle.py
+          acs/education_progress_transaction.py
+          tests/test_d10_review_progress_delete_privacy.py
+          tests/test_d10_review_progress_transaction.py
+
+      - name: Focused D10 privacy lifecycle and recovery regression
+        run: >-
+          python -m pytest -q
+          tests/test_d10_review_progress_delete_privacy.py
+          tests/test_d10_review_progress_transaction.py
+          tests/test_dev3_student_progress.py
+          tests/test_dev3_student_progress_store.py
+          tests/test_education_workspace.py
+          tests/test_education_records.py
+          tests/test_classroom_domain.py
+
+      - name: Final-product production-composition diagnostic
+        run: python run_accessible_chess_v2.py --diagnostic
+
+      - name: Broad unittest regression on Ubuntu
+        if: matrix.os == 'ubuntu-22.04'
+        run: python -m unittest discover -s tests -p 'test_*.py'
+
+      - name: Broad pytest regression on Ubuntu
+        if: matrix.os == 'ubuntu-22.04'
+        run: python -m pytest -q
