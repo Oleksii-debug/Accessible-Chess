@@ -308,6 +308,26 @@ def _prepare_version2_user_data(
     return layout
 
 
+def _close_partial_version2_composition(*resources: Any | None) -> None:
+    """Best-effort unwind for resources acquired before V2 composition completes.
+
+    The constructor/startup exception is the primary failure. Cleanup therefore
+    runs in caller-supplied reverse ownership order, attempts every acquired
+    resource, and never replaces the primary exception with a close failure.
+    """
+
+    for resource in resources:
+        if resource is None:
+            continue
+        close = getattr(resource, "close", None)
+        if not callable(close):
+            continue
+        try:
+            close()
+        except Exception:
+            pass
+
+
 def create_version2_release_application(
     *,
     application_dir: str | Path | None = None,
@@ -334,37 +354,45 @@ def create_version2_release_application(
         settings_path=settings_path,
         application_dir=app_dir,
     )
-    engine_runtime = runtime_factory(StockfishRuntimeConfig(application_dir=app_dir))
-    analysis = AnalysisService(engine_runtime.provider, owns_engine=False)
-    continuous = ContinuousAnalysisService(analysis)
-    engine_play = EnginePlayService(engine_runtime.provider, owns_engine=False)
 
-    settings = Settings(layout.settings_path)
-    language_value = settings.get("language", "uk")
+    engine_runtime: Any | None = None
+    analysis: Any | None = None
+    continuous: Any | None = None
     try:
-        language = UILanguage(language_value)
-    except (TypeError, ValueError):
-        language = UILanguage.UA
-    playback = sound_playback
-    if playback is None:
-        playback = WindowsSoundPlaybackAdapter(
-            PackagedSoundAssetResolver(app_dir),
-            cache_dir=(layout.root / "sound-cache") if data_root is not None else _sound_cache_dir(),
-        )
-    sound_runtime = SoundRuntime(
-        playback,
-        settings=lambda: SoundRuntimeSettings.from_mapping(settings.data),
-    )
-    game_sounds = GameSoundRuntime(sound_runtime)
+        engine_runtime = runtime_factory(StockfishRuntimeConfig(application_dir=app_dir))
+        analysis = AnalysisService(engine_runtime.provider, owns_engine=False)
+        continuous = ContinuousAnalysisService(analysis)
+        engine_play = EnginePlayService(engine_runtime.provider, owns_engine=False)
 
-    api = Version2ReleaseAccessibleChessAPI(
-        continuous_analysis=continuous,
-        game_sounds=game_sounds,
-        sound_runtime=sound_runtime,
-        settings=settings,
-        engine_play_service=engine_play,
-        lang=language.value,
-    )
+        settings = Settings(layout.settings_path)
+        language_value = settings.get("language", "uk")
+        try:
+            language = UILanguage(language_value)
+        except (TypeError, ValueError):
+            language = UILanguage.UA
+        playback = sound_playback
+        if playback is None:
+            playback = WindowsSoundPlaybackAdapter(
+                PackagedSoundAssetResolver(app_dir),
+                cache_dir=(layout.root / "sound-cache") if data_root is not None else _sound_cache_dir(),
+            )
+        sound_runtime = SoundRuntime(
+            playback,
+            settings=lambda: SoundRuntimeSettings.from_mapping(settings.data),
+        )
+        game_sounds = GameSoundRuntime(sound_runtime)
+
+        api = Version2ReleaseAccessibleChessAPI(
+            continuous_analysis=continuous,
+            game_sounds=game_sounds,
+            sound_runtime=sound_runtime,
+            settings=settings,
+            engine_play_service=engine_play,
+            lang=language.value,
+        )
+    except Exception:
+        _close_partial_version2_composition(continuous, analysis, engine_runtime)
+        raise
 
     database_path = layout.library_path
     application = None
@@ -373,8 +401,9 @@ def create_version2_release_application(
         nonlocal application
         if application is not None:
             raise RuntimeError("Version 2 application is already constructed")
-        database = AcsDatabase(database_path)
+        database: Any | None = None
         try:
+            database = AcsDatabase(database_path)
             application = Version2Application(
                 database,
                 progress_store=BookProgressStore(layout.root / "book-progress.json"),
@@ -388,12 +417,12 @@ def create_version2_release_application(
             api.bind_version2_application(application)
             return application
         except Exception:
-            database.close()
-            try:
-                continuous.close()
-            finally:
-                analysis.close()
-                engine_runtime.close()
+            _close_partial_version2_composition(
+                database,
+                continuous,
+                analysis,
+                engine_runtime,
+            )
             raise
 
     if not defer_ui:
