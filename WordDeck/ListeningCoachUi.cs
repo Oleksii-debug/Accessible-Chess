@@ -142,11 +142,15 @@ internal sealed class ListeningCoachForm : Form
     private void ChangeScope()
     {
         if (_scope.SelectedItem is not ScopeChoice selected) return;
+        if (!ShouldApplyScopeChange(_state.ActiveScopeId, selected.Id)) return;
         _engine.CancelCurrent();
         _state.ActiveScopeId = selected.Id;
         SafeSave();
         if (Visible) StartNext(autoPlay: true, recordSkip: false);
     }
+
+    internal static bool ShouldApplyScopeChange(string currentScopeId, string selectedScopeId) =>
+        !string.Equals(currentScopeId, selectedScopeId, StringComparison.OrdinalIgnoreCase);
 
     private void StartNext(bool autoPlay, bool recordSkip)
     {
