@@ -25,6 +25,20 @@ EDUCATION_WORKSPACE_VERSION = 1
 MAX_WORKSPACE_JSON_BYTES = cd.MAX_SNAPSHOT_BYTES + er.MAX_SNAPSHOT_BYTES + 256_000
 MAX_WIRE_INTEGER = (1 << 53) - 1
 _WORKSPACE_FIELDS = frozenset({"version", "classroom", "ledger", "digest"})
+_PROTECTED_IDENTITY_FIELDS = (
+    ("classes", "class_id"),
+    ("groups", "group_id"),
+    ("courses", "course_id"),
+    ("cohorts", "cohort_id"),
+    ("materials", "material_id"),
+    ("lessons", "lesson_id"),
+    ("assignments", "assignment_id"),
+    ("homework", "homework_id"),
+    ("student_games", "student_game_id"),
+    ("results", "result_id"),
+    ("progress", "progress_id"),
+    ("teacher_notes", "note_id"),
+)
 
 
 class EducationWorkspaceError(ValueError):
@@ -143,16 +157,38 @@ def commit_classroom(
 ) -> EducationWorkspace:
     """Atomically re-anchor validated current Classroom state to D10 history.
 
-    This is the generic composition primitive for canonical Classroom mutations.
-    It does not manufacture domain records. Callers must first produce a valid
-    ``ClassroomSnapshot`` through the owning domain. Deleted student tombstones
-    are monotonic: once deleted, an identity cannot silently disappear or revive.
+    This generic composition primitive permits updates and additions, but it
+    fails closed if an existing entity identity disappears. Deletion/purge must
+    go through an explicit lifecycle operation that scopes the allowed records.
+    Student identities retain the stricter tombstone contract.
     """
 
+    return _commit_classroom(
+        workspace,
+        new_classroom,
+        operation_id=operation_id,
+        expected_ledger_revision=expected_ledger_revision,
+        allowed_removed_ids=None,
+    )
+
+
+def _commit_classroom(
+    workspace: EducationWorkspace,
+    new_classroom: cd.ClassroomSnapshot,
+    *,
+    operation_id: str,
+    expected_ledger_revision: int,
+    allowed_removed_ids: Mapping[str, frozenset[str]] | None,
+) -> EducationWorkspace:
     workspace = _workspace(workspace)
     if type(new_classroom) is not cd.ClassroomSnapshot:
         raise EducationWorkspaceError("new classroom must be ClassroomSnapshot")
     _protect_student_tombstones(workspace.classroom, new_classroom)
+    _protect_record_identities(
+        workspace.classroom,
+        new_classroom,
+        allowed_removed_ids=allowed_removed_ids,
+    )
     try:
         ledger = er.reconcile_classroom(
             workspace.ledger,
@@ -243,6 +279,11 @@ def submit_homework(
         ),
     )
     _protect_student_tombstones(workspace.classroom, new_classroom)
+    _protect_record_identities(
+        workspace.classroom,
+        new_classroom,
+        allowed_removed_ids=None,
+    )
 
     anchor_operation_id = _derived_operation_id(operation_id, "homework-anchor")
     try:
@@ -290,11 +331,19 @@ def set_student_consent(
         )
     except cd.ClassroomDomainError as exc:
         raise EducationWorkspaceError("student consent change rejected") from exc
-    return commit_classroom(
+    allowed_removed_ids = {
+        "teacher_notes": frozenset(
+            item.note_id
+            for item in workspace.classroom.teacher_notes
+            if item.student_id == student_id
+        )
+    }
+    return _commit_classroom(
         workspace,
         new_classroom,
         operation_id=operation_id,
         expected_ledger_revision=expected_ledger_revision,
+        allowed_removed_ids=allowed_removed_ids,
     )
 
 
@@ -317,6 +366,10 @@ def delete_student(
             operation_id=operation_id,
             expected_ledger_revision=expected_ledger_revision,
         )
+    allowed_removed_ids = _student_owned_removals(
+        workspace.classroom,
+        student_id,
+    )
     try:
         new_classroom = cd.delete_student(
             workspace.classroom,
@@ -325,11 +378,12 @@ def delete_student(
         )
     except cd.ClassroomDomainError as exc:
         raise EducationWorkspaceError("student deletion rejected") from exc
-    return commit_classroom(
+    return _commit_classroom(
         workspace,
         new_classroom,
         operation_id=operation_id,
         expected_ledger_revision=expected_ledger_revision,
+        allowed_removed_ids=allowed_removed_ids,
     )
 
 
@@ -406,6 +460,61 @@ def _protect_student_tombstones(
             )
         if previous.deleted and not current.deleted:
             raise EducationWorkspaceError("deleted student identity cannot be revived")
+
+
+def _protect_record_identities(
+    old: cd.ClassroomSnapshot,
+    new: cd.ClassroomSnapshot,
+    *,
+    allowed_removed_ids: Mapping[str, frozenset[str]] | None,
+) -> None:
+    allowed = {} if allowed_removed_ids is None else dict(allowed_removed_ids)
+    known_collections = {collection for collection, _ in _PROTECTED_IDENTITY_FIELDS}
+    unknown = set(allowed) - known_collections
+    if unknown:
+        raise EducationWorkspaceError(
+            f"unsupported explicit lifecycle collections: {sorted(unknown)!r}"
+        )
+
+    for collection, id_attr in _PROTECTED_IDENTITY_FIELDS:
+        old_ids = {getattr(item, id_attr) for item in getattr(old, collection)}
+        new_ids = {getattr(item, id_attr) for item in getattr(new, collection)}
+        permitted = allowed.get(collection, frozenset())
+        if type(permitted) is not frozenset or any(type(value) is not str for value in permitted):
+            raise EducationWorkspaceError("explicit lifecycle identity allowance is invalid")
+        unexpected = (old_ids - new_ids) - permitted
+        if unexpected:
+            raise EducationWorkspaceError(
+                f"existing {collection} identity cannot disappear without explicit lifecycle: "
+                f"{sorted(unexpected)!r}"
+            )
+
+
+def _student_owned_removals(
+    classroom: cd.ClassroomSnapshot,
+    student_id: str,
+) -> dict[str, frozenset[str]]:
+    return {
+        "homework": frozenset(
+            item.homework_id for item in classroom.homework if item.student_id == student_id
+        ),
+        "student_games": frozenset(
+            item.student_game_id
+            for item in classroom.student_games
+            if item.student_id == student_id
+        ),
+        "results": frozenset(
+            item.result_id for item in classroom.results if item.student_id == student_id
+        ),
+        "progress": frozenset(
+            item.progress_id for item in classroom.progress if item.student_id == student_id
+        ),
+        "teacher_notes": frozenset(
+            item.note_id
+            for item in classroom.teacher_notes
+            if item.student_id == student_id
+        ),
+    }
 
 
 def _derived_operation_id(operation_id: object, purpose: str) -> str:
