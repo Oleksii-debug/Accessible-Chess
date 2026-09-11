@@ -1,0 +1,114 @@
+name: Final Work Master Stage1 JSON Canonicality
+
+on:
+  pull_request:
+    branches:
+      - d04/stage1-stockfish-source-zip-bounds-20260823
+    paths:
+      - 'acs/release_preflight.py'
+      - 'tests/test_final_master_release_json_canonicality.py'
+      - 'docs/work/FINAL_WORK_MASTER_CURRENT.md'
+      - '.github/workflows/final-master-stage1-json-canonicality.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: final-work-master-stage1-json-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  BASE_SHA: 53791a44176627b012f72c3ac5b7720214194975
+  QA_SHA: 811ba1c8bb15aeb1241087822f45136e6ee537e8
+  QA_TEST_BLOB: 457d8e50d8a30adc9bd5de592f3eff6eedc862c8
+  PRODUCT_BLOB: 485c876d6476f2b86d3155be3db355084db6094c
+
+jobs:
+  exact-json-canonicality:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - name: Checkout exact Product head
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Preserve repository LF bytes on Windows
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config core.autocrlf false
+          git config core.eol lf
+          git -c core.autocrlf=false checkout HEAD -- .
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install verification dependency
+        run: python -m pip install -q pytest
+
+      - name: Prove exact ancestry, Product blob, and narrow scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git merge-base HEAD "$BASE_SHA")" = "$BASE_SHA"
+          test "$(git rev-parse HEAD:acs/release_preflight.py)" = "$PRODUCT_BLOB"
+          git diff --check "$BASE_SHA"...HEAD
+          changed="$(git diff --name-only "$BASE_SHA"...HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/final-master-stage1-json-canonicality.yml' \
+            'acs/release_preflight.py' \
+            'docs/work/FINAL_WORK_MASTER_CURRENT.md' \
+            'tests/test_final_master_release_json_canonicality.py' | sort)"
+          printf '%s\n' "$changed"
+          test "$changed" = "$expected"
+
+      - name: Materialize immutable PR 249 oracle
+        shell: bash
+        run: |
+          set -euo pipefail
+          git cat-file -e "$QA_SHA^{commit}"
+          test "$(git rev-parse "$QA_SHA:tests/test_dev4_release_json_duplicate_keys.py")" = "$QA_TEST_BLOB"
+          git show "$QA_SHA:tests/test_dev4_release_json_duplicate_keys.py" > tests/test_dev4_release_json_duplicate_keys.py
+          test "$(git hash-object tests/test_dev4_release_json_duplicate_keys.py)" = "$QA_TEST_BLOB"
+
+      - name: Compile
+        run: >-
+          python -m compileall -q acs tests run_accessible_chess.py
+
+      - name: Immutable duplicate-key oracle and owner regressions
+        run: >-
+          python -m unittest -v
+          tests.test_dev4_release_json_duplicate_keys
+          tests.test_final_master_release_json_canonicality
+
+      - name: Existing D04 release-preflight regressions
+        run: >-
+          python -m unittest -v
+          tests.test_release_preflight
+          tests.test_d04_release_preflight_hygiene
+          tests.test_d04_release_archive_canonicality
+          tests.test_d04_stockfish_source_zip_bounds
+          tests.test_stage1_release_path_privacy
+          tests.test_stage1_stockfish_runtime_path_privacy
+          tests.test_stage1_resource_error_privacy
+
+      - name: Full unittest
+        run: python -m unittest discover -s tests -v
+
+      - name: Full pytest
+        run: python -m pytest -q tests
+
+      - name: Canonical SELFTEST
+        run: python -m acs.selftest
+
+      - name: Complete diagnostic
+        run: python run_accessible_chess.py --diagnostic
