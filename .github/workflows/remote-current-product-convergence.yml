@@ -1,0 +1,222 @@
+name: Remote Current Product Convergence
+
+on:
+  push:
+    branches:
+      - work/remote-current-product-convergence-20260911
+  pull_request:
+    branches:
+      - work/full-product-teacher-education-reachability-20260911
+    paths:
+      - 'acs/remote_connectivity.py'
+      - 'acs/remote_controller.py'
+      - 'acs/remote_durability.py'
+      - 'acs/remote_event_delivery.py'
+      - 'acs/remote_protocol_control.py'
+      - 'acs/remote_provider.py'
+      - 'acs/remote_user_journey.py'
+      - 'docs/REMOTE_CONNECTIVITY_CONTRACT.md'
+      - 'tests/test_remote_connectivity.py'
+      - 'tests/test_remote_controller.py'
+      - 'tests/test_remote_durability.py'
+      - 'tests/test_remote_event_delivery.py'
+      - 'tests/test_remote_provider.py'
+      - 'tests/test_remote_user_journey.py'
+      - '.github/workflows/remote-current-product-convergence.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: remote-current-product-convergence-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 55
+    env:
+      CLAIM_BASE_SHA: 99d11c19314ef3ef9d2558b399fcc5dcedbd13b3
+      PRIOR_LINEAGE_HEAD_SHA: 101a609d2a5070bd303cefbdcadb298108aef258
+      REPAIR_CONTROLLER_BLOB: aeade91b5f85e8cd098bca6eae195dc5dfde8c80
+      REPAIR_PROTOCOL_BLOB: 3049588499785a485839d069cf983d748a9de582
+      REPAIR_CONTROLLER_TEST_BLOB: f6514751d1b4c5da830ad44cdd4af5c02ba130ee
+      REPAIR_DELIVERY_TEST_BLOB: 85f6ff4dad8bc4cb5b50dedc5e51cc7cfa752ed0
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Preserve exact Git bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config core.autocrlf false
+          git config core.eol lf
+          git reset --hard HEAD
+          git checkout-index --force --all
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install pinned verification dependency
+        run: python -m pip install -q pytest==8.4.2
+
+      - name: Prove current-base ancestry provenance and bounded Remote scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          base="$CLAIM_BASE_SHA"
+          prior="$PRIOR_LINEAGE_HEAD_SHA"
+          for commit in "$base" "$prior"; do
+            git cat-file -e "${commit}^{commit}" || git fetch --no-tags origin "$commit"
+          done
+          if [ "${GITHUB_EVENT_NAME}" = "pull_request" ]; then
+            test -n "${GITHUB_BASE_REF:-}"
+            git fetch --no-tags origin "${GITHUB_BASE_REF}:refs/remotes/origin/${GITHUB_BASE_REF}"
+            live_base="$(git rev-parse "origin/${GITHUB_BASE_REF}")"
+            test "$live_base" = "$base" || {
+              printf 'Remote convergence is stale: claim-base=%s live-base=%s\n' "$base" "$live_base" >&2
+              exit 1
+            }
+          fi
+          test "$(git rev-parse HEAD^1)" = "$base"
+          test "$(git rev-parse HEAD^2)" = "$prior"
+          git merge-base --is-ancestor "$base" HEAD
+          git merge-base --is-ancestor "$prior" HEAD
+          git diff --check "$base" HEAD -- . ':!docs/REMOTE_CONNECTIVITY_CONTRACT.md'
+
+          changed="$(git diff --name-only "$base" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/remote-current-product-convergence.yml' \
+            'acs/remote_connectivity.py' \
+            'acs/remote_controller.py' \
+            'acs/remote_durability.py' \
+            'acs/remote_event_delivery.py' \
+            'acs/remote_protocol_control.py' \
+            'acs/remote_provider.py' \
+            'acs/remote_user_journey.py' \
+            'docs/REMOTE_CONNECTIVITY_CONTRACT.md' \
+            'tests/test_remote_connectivity.py' \
+            'tests/test_remote_controller.py' \
+            'tests/test_remote_durability.py' \
+            'tests/test_remote_event_delivery.py' \
+            'tests/test_remote_provider.py' \
+            'tests/test_remote_user_journey.py' | sort)"
+          test "$changed" = "$expected"
+
+          for path in \
+            acs/remote_connectivity.py \
+            acs/remote_controller.py \
+            acs/remote_durability.py \
+            acs/remote_event_delivery.py \
+            acs/remote_protocol_control.py \
+            acs/remote_provider.py \
+            acs/remote_user_journey.py \
+            docs/REMOTE_CONNECTIVITY_CONTRACT.md \
+            tests/test_remote_connectivity.py \
+            tests/test_remote_controller.py \
+            tests/test_remote_durability.py \
+            tests/test_remote_event_delivery.py \
+            tests/test_remote_provider.py \
+            tests/test_remote_user_journey.py
+          do
+            test "$(git rev-parse "HEAD:${path}")" = "$(git rev-parse "${prior}:${path}")" || {
+              printf 'Remote retained blob drift: %s\n' "$path" >&2
+              exit 1
+            }
+          done
+
+          test "$(git rev-parse HEAD:acs/remote_controller.py)" = "$REPAIR_CONTROLLER_BLOB"
+          test "$(git rev-parse HEAD:acs/remote_protocol_control.py)" = "$REPAIR_PROTOCOL_BLOB"
+          test "$(git rev-parse HEAD:tests/test_remote_controller.py)" = "$REPAIR_CONTROLLER_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_remote_event_delivery.py)" = "$REPAIR_DELIVERY_TEST_BLOB"
+
+      - name: Prove canonical Product authorities remain untouched
+        shell: bash
+        run: |
+          set -euo pipefail
+          base="$CLAIM_BASE_SHA"
+          git diff --exit-code "$base" HEAD -- \
+            acs/remote_session.py \
+            acs/teaching_session.py \
+            acs/teaching_session_adapter.py \
+            acs/teaching_classroom_adapter.py \
+            acs/classroom_domain.py \
+            acs/education_workspace.py \
+            acs/education_workspace_store.py \
+            acs/education_records.py \
+            acs/classroom_presentation.py \
+            acs/full_product_actions.py \
+            acs/full_product_presenters.py \
+            acs/full_product_ui_shell.py \
+            acs/version2_application.py \
+            acs/version2_release_app.py \
+            run_accessible_chess.py \
+            run_accessible_chess_v2.py \
+            web/index.html
+
+      - name: Compile Remote current-product package
+        run: >-
+          python -m compileall -q
+          acs/remote_connectivity.py
+          acs/remote_provider.py
+          acs/remote_protocol_control.py
+          acs/remote_durability.py
+          acs/remote_controller.py
+          acs/remote_event_delivery.py
+          acs/remote_user_journey.py
+          tests/test_remote_connectivity.py
+          tests/test_remote_provider.py
+          tests/test_remote_durability.py
+          tests/test_remote_controller.py
+          tests/test_remote_event_delivery.py
+          tests/test_remote_user_journey.py
+
+      - name: Focused Remote tests including independent peer recovery
+        run: >-
+          python -m unittest -v
+          tests.test_remote_connectivity
+          tests.test_remote_provider
+          tests.test_remote_durability
+          tests.test_remote_controller
+          tests.test_remote_event_delivery
+          tests.test_remote_user_journey
+
+      - name: Canonical Remote and Teaching regressions
+        run: >-
+          python -m unittest -v
+          tests.test_remote_session
+          tests.test_d10_remote_checkpoint_provenance
+          tests.test_teaching_session
+          tests.test_teaching_session_adapter
+          tests.test_teaching_session_adversarial
+          tests.test_teaching_classroom_adapter
+          tests.test_teaching_classroom_floor_control
+
+      - name: Current full-product composition regressions
+        run: >-
+          python -m unittest -v
+          tests.test_whole_product_user_journey
+          tests.test_version2_application
+          tests.test_version2_release_diagnostic_composition
+          tests.test_version2_composition_startup_cleanup_current
+
+      - name: Full repository unittest
+        run: python -m unittest discover -s tests -v
+
+      - name: Full repository pytest
+        run: python -m pytest -q tests
+
+      - name: Current-product diagnostics
+        run: |
+          python -m acs.selftest
+          python run_accessible_chess.py --diagnostic
+          python run_accessible_chess_v2.py --diagnostic

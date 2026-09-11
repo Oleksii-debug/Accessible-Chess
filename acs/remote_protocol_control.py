@@ -1,0 +1,125 @@
+"""Strict connect/resume/leave control envelopes for remote lessons."""
+from __future__ import annotations
+
+import hashlib
+import json
+
+from .remote_connectivity import (
+    AuthenticatedPrincipal,
+    RemoteConnectionContext,
+    RemoteEnvelope,
+    RemoteMessageKind,
+)
+
+
+class RemoteControlError(ValueError):
+    """Raised when a control exchange cannot be proven canonical."""
+
+
+def control_request(
+    kind: RemoteMessageKind,
+    principal: AuthenticatedPrincipal,
+    sequence: int,
+    snapshot_digest: str,
+    *,
+    purpose: str,
+) -> RemoteEnvelope:
+    if kind not in {RemoteMessageKind.RESUME, RemoteMessageKind.LEAVE}:
+        raise RemoteControlError("remote control message kind is invalid")
+    if purpose not in {"connect", "reconnect", "leave"}:
+        raise RemoteControlError("remote control purpose is invalid")
+    return RemoteEnvelope(
+        1,
+        kind,
+        operation_id(
+            kind.value,
+            principal.session_id,
+            principal.person_id,
+            principal.role.value,
+            sequence,
+            snapshot_digest,
+            purpose,
+        ),
+        principal.session_id,
+        principal.person_id,
+        principal.role,
+        sequence,
+        {"purpose": purpose},
+        snapshot_digest,
+    )
+
+
+def acknowledgement_for(
+    request: RemoteEnvelope,
+    *,
+    checkpoint_sequence: int | None = None,
+    checkpoint_digest: str | None = None,
+) -> RemoteEnvelope:
+    if not isinstance(request, RemoteEnvelope) or request.kind not in {
+        RemoteMessageKind.EVENT,
+        RemoteMessageKind.RESUME,
+        RemoteMessageKind.LEAVE,
+    }:
+        raise RemoteControlError("remote message cannot be acknowledged")
+    sequence = request.sequence if checkpoint_sequence is None else checkpoint_sequence
+    digest = request.checkpoint_digest if checkpoint_digest is None else checkpoint_digest
+    return RemoteEnvelope(
+        request.version,
+        RemoteMessageKind.ACK,
+        operation_id("ack", request.message_id),
+        request.session_id,
+        request.actor_id,
+        request.role,
+        sequence,
+        {"request_id": request.message_id},
+        digest,
+    )
+
+
+def require_ack_checkpoint(
+    request: RemoteEnvelope,
+    response: RemoteEnvelope,
+    context: RemoteConnectionContext,
+) -> tuple[int, str]:
+    """Validate ACK identity and return the peer's independently reported checkpoint."""
+    if not isinstance(context, RemoteConnectionContext):
+        raise RemoteControlError("remote connection context is invalid")
+    principal = context.principal
+    if (
+        not isinstance(response, RemoteEnvelope)
+        or response.kind is not RemoteMessageKind.ACK
+        or response.message_id != operation_id("ack", request.message_id)
+        or response.session_id != request.session_id
+        or response.actor_id != principal.person_id
+        or response.role is not principal.role
+        or dict(response.payload) != {"request_id": request.message_id}
+        or type(response.sequence) is not int
+        or isinstance(response.sequence, bool)
+        or response.sequence < 0
+        or type(response.checkpoint_digest) is not str
+    ):
+        raise RemoteControlError("remote acknowledgement identity is invalid")
+    return response.sequence, response.checkpoint_digest
+
+
+def require_ack(
+    request: RemoteEnvelope,
+    response: RemoteEnvelope,
+    context: RemoteConnectionContext,
+) -> None:
+    sequence, digest = require_ack_checkpoint(request, response, context)
+    if sequence != request.sequence or digest != request.checkpoint_digest:
+        raise RemoteControlError("remote acknowledgement does not match request")
+
+
+def operation_id(*parts: object) -> str:
+    try:
+        encoded = json.dumps(
+            parts,
+            ensure_ascii=False,
+            allow_nan=False,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    except (TypeError, ValueError, UnicodeError) as exc:
+        raise RemoteControlError("remote operation identity cannot be derived") from exc
+    return "remote:" + hashlib.sha256(encoded).hexdigest()
