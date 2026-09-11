@@ -164,7 +164,7 @@ def test_release_bundle_requires_binding_minimum_real_game_count(tmp_path):
             starter_count=16,
             source_subset_sha256="a" * 64,
             source_compressed_bytes=1,
-            curation_evidence=_fake_curation_evidence(starter_pgn),
+            curation_evidence={},
             stress_count=32,
         )
 
