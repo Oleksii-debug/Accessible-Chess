@@ -20,23 +20,31 @@ from acs.starter_books_training_content import (
 from acs.version2_starter_content_application import Version2StarterContentApplication
 
 
+EXPECTED_MATERIALS = 27
+EXPECTED_EXERCISES = 135
+
+
 class StarterBooksTrainingContentTests(unittest.TestCase):
     def test_manifest_meets_p0f_volume_and_provenance_gate(self) -> None:
         manifest = starter_content_manifest()
         self.assertEqual(1, manifest["schema_version"])
         self.assertEqual("uk", manifest["language"])
         self.assertEqual(STARTER_CONTENT_RIGHTS, manifest["rights"])
-        self.assertEqual(24, manifest["material_count"])
+        self.assertGreaterEqual(manifest["material_count"], 24)
+        self.assertEqual(EXPECTED_MATERIALS, manifest["material_count"])
         self.assertGreaterEqual(manifest["exercise_count"], 100)
-        self.assertEqual(120, manifest["exercise_count"])
-        self.assertEqual(24, len(manifest["materials"]))
-        self.assertEqual(24, len({item["material_id"] for item in manifest["materials"]}))
+        self.assertEqual(EXPECTED_EXERCISES, manifest["exercise_count"])
+        self.assertEqual(EXPECTED_MATERIALS, len(manifest["materials"]))
+        self.assertEqual(
+            EXPECTED_MATERIALS,
+            len({item["material_id"] for item in manifest["materials"]}),
+        )
         self.assertTrue(all(item["exercise_count"] == 5 for item in manifest["materials"]))
 
-    def test_all_24_materials_are_substantial_canonical_bookdocuments(self) -> None:
+    def test_all_materials_are_substantial_canonical_bookdocuments(self) -> None:
         materials = build_starter_materials()
-        self.assertEqual(24, len(materials))
-        self.assertEqual(24, len({material.title for material in materials}))
+        self.assertEqual(EXPECTED_MATERIALS, len(materials))
+        self.assertEqual(EXPECTED_MATERIALS, len({material.title for material in materials}))
         for material in materials:
             self.assertEqual(STARTER_CONTENT_LANGUAGE, material.language)
             self.assertEqual(STARTER_CONTENT_RIGHTS, material.source_rights)
@@ -55,7 +63,7 @@ class StarterBooksTrainingContentTests(unittest.TestCase):
         course = build_starter_course()
         self.assertEqual("Accessible Chess: стартовий курс", course.title)
         self.assertEqual(STARTER_CONTENT_LANGUAGE, course.language)
-        self.assertEqual(120, len(course.exercises()))
+        self.assertEqual(EXPECTED_EXERCISES, len(course.exercises()))
         self.assertEqual([], course.validate_structure())
         ids = [block.block_id for block in course.blocks if block.block_id]
         self.assertEqual(len(ids), len(set(ids)))
@@ -80,7 +88,7 @@ class StarterBooksTrainingContentTests(unittest.TestCase):
                     self.assertIsNotNone(app.reader)
                     self.assertIsNotNone(app.books)
                     self.assertEqual("Heading", app.reader.location().kind)
-                    self.assertEqual(120, len(app.reader.document.exercises()))
+                    self.assertEqual(EXPECTED_EXERCISES, len(app.reader.document.exercises()))
 
                     self.assertTrue(app._start_training_from_current_book())
                     self.assertEqual("Exercise", app.reader.location().kind)
