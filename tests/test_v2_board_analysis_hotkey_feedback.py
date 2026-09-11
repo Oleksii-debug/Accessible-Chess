@@ -146,7 +146,7 @@ class Version2BoardAnalysisHotkeyFeedbackTests(unittest.TestCase):
         self.assertEqual(resolved["actionId"], "board.evaluation")
         self.assertEqual(resolved["context"], "board")
 
-    def test_unavailable_analysis_hotkey_is_not_silent(self) -> None:
+    def test_disabled_analysis_hotkey_is_not_silent(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             api = Version2ReleaseAccessibleChessAPI(
                 keymap_path=Path(temp) / "keymap.json"
@@ -156,9 +156,10 @@ class Version2BoardAnalysisHotkeyFeedbackTests(unittest.TestCase):
 
             result = api.dispatch_action(resolved["actionId"])
 
-            self.assertFalse(result["ok"])
-            self.assertTrue(str(result.get("announcement") or "").strip())
-            self.assertIn("недоступ", str(result["announcement"]).lower())
+            self.assertTrue(result["ok"])
+            announcement = str(result.get("announcement") or "").strip()
+            self.assertTrue(announcement)
+            self.assertIn("вимкнено", announcement.lower())
 
 
 if __name__ == "__main__":
