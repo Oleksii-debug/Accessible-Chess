@@ -16,6 +16,11 @@ concurrency:
 env:
   PYTHON_VERSION: '3.12.10'
   PYWEBVIEW_VERSION: '6.2.1'
+  PYTHONNET_VERSION: '3.1.0'
+  CLR_LOADER_VERSION: '0.3.1'
+  CFFI_VERSION: '2.1.1'
+  PYCPARSER_VERSION: '3.0'
+  TYPING_EXTENSIONS_VERSION: '4.16.0'
   NUITKA_UPSTREAM_FIX_COMMIT: b7ea05bf570e0b6950de6db7c4c8e579e1b77d29
   ORDERED_SET_VERSION: '4.1.0'
   ZSTANDARD_VERSION: '0.25.0'
@@ -78,9 +83,34 @@ jobs:
         run: |
           $ErrorActionPreference='Stop'
           $nuitkaUrl="https://github.com/Nuitka/Nuitka/archive/$env:NUITKA_UPSTREAM_FIX_COMMIT.zip"
-          python -m pip install --disable-pip-version-check "pywebview==$env:PYWEBVIEW_VERSION" "Nuitka @ $nuitkaUrl" "ordered-set==$env:ORDERED_SET_VERSION" "zstandard==$env:ZSTANDARD_VERSION"
+          python -m pip install --disable-pip-version-check "pywebview==$env:PYWEBVIEW_VERSION" "pythonnet==$env:PYTHONNET_VERSION" "clr-loader==$env:CLR_LOADER_VERSION" "cffi==$env:CFFI_VERSION" "pycparser==$env:PYCPARSER_VERSION" "typing-extensions==$env:TYPING_EXTENSIONS_VERSION" "Nuitka @ $nuitkaUrl" "ordered-set==$env:ORDERED_SET_VERSION" "zstandard==$env:ZSTANDARD_VERSION"
           if($LASTEXITCODE -ne 0){throw 'Pinned Windows runtime/compiler installation failed'}
-          python -c "import sys,nuitka; from pathlib import Path; assert sys.version_info[:3]==(3,12,10); p=Path(nuitka.__file__).parent/'plugins'/'standard'/'PywebViewPlugin.py'; assert 'webview.platforms.win32' in p.read_text(encoding='utf-8'); print('QUALIFIED_COMPILER_STACK=PASS')"
+          @'
+          import os
+          import sys
+          from importlib.metadata import version
+          from pathlib import Path
+          import nuitka
+
+          expected = {
+              'pywebview': os.environ['PYWEBVIEW_VERSION'],
+              'pythonnet': os.environ['PYTHONNET_VERSION'],
+              'clr-loader': os.environ['CLR_LOADER_VERSION'],
+              'cffi': os.environ['CFFI_VERSION'],
+              'pycparser': os.environ['PYCPARSER_VERSION'],
+              'typing_extensions': os.environ['TYPING_EXTENSIONS_VERSION'],
+              'ordered-set': os.environ['ORDERED_SET_VERSION'],
+              'zstandard': os.environ['ZSTANDARD_VERSION'],
+          }
+          assert sys.version_info[:3] == (3, 12, 10)
+          for distribution, wanted in expected.items():
+              resolved = version(distribution)
+              print(f'PINNED_RUNTIME_VERSION {distribution}={resolved}')
+              assert resolved == wanted, (distribution, resolved, wanted)
+          plugin = Path(nuitka.__file__).parent / 'plugins' / 'standard' / 'PyWebViewPlugin.py'
+          assert 'webview.platforms.win32' in plugin.read_text(encoding='utf-8')
+          print('QUALIFIED_COMPILER_STACK=PASS')
+          '@ | python -
           if($LASTEXITCODE -ne 0){throw 'Qualified compiler stack verification failed'}
 
       - name: Materialize immutable strict packaged UIA helper
