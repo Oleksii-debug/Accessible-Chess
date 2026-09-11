@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import importlib
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import mock
 
 from acs import classroom_domain as cd
@@ -124,27 +126,27 @@ class EducationClassProjectionTests(unittest.TestCase):
 
 
 class EducationMutationReleaseBindingTests(unittest.TestCase):
-    def test_import_keeps_parent_final_product_application_owner(self) -> None:
+    def test_import_preserves_exact_prior_release_application_owner(self) -> None:
         from acs import version2_education_mutation_release as mutation_release
         from acs import version2_release_app
-        from acs.version2_final_product_application import Version2FinalProductApplication
 
-        self.assertIs(
-            version2_release_app.Version2Application,
-            Version2FinalProductApplication,
-        )
+        previous_owner = version2_release_app.Version2Application
+        importlib.reload(mutation_release)
+
+        self.assertIs(version2_release_app.Version2Application, previous_owner)
         self.assertIsNotNone(mutation_release.create_version2_release_application)
 
     def test_eager_factory_binds_child_only_during_composition(self) -> None:
         from acs import version2_education_mutation_release as mutation_release
         from acs import version2_release_app
-        from acs.version2_final_product_application import Version2FinalProductApplication
 
+        previous_owner = version2_release_app.Version2Application
         observed: list[object] = []
+        api = SimpleNamespace()
 
         def fake_factory(*args: object, **kwargs: object):
             observed.append(version2_release_app.Version2Application)
-            return ("api", "application", "runtime", "native")
+            return (api, "application", "runtime", "native")
 
         with mock.patch.object(
             mutation_release._release_app,
@@ -153,19 +155,18 @@ class EducationMutationReleaseBindingTests(unittest.TestCase):
         ):
             result = mutation_release.create_version2_release_application()
 
-        self.assertEqual(result, ("api", "application", "runtime", "native"))
+        self.assertEqual(result, (api, "application", "runtime", "native"))
         self.assertEqual(observed, [Version2EducationMutationApplication])
-        self.assertIs(
-            version2_release_app.Version2Application,
-            Version2FinalProductApplication,
-        )
+        self.assertTrue(callable(api._sync_version2_language))
+        self.assertIs(version2_release_app.Version2Application, previous_owner)
 
     def test_deferred_factory_rebinds_child_on_native_ui_construction(self) -> None:
         from acs import version2_education_mutation_release as mutation_release
         from acs import version2_release_app
-        from acs.version2_final_product_application import Version2FinalProductApplication
 
+        previous_owner = version2_release_app.Version2Application
         observed: list[object] = []
+        api = SimpleNamespace()
 
         def fake_factory(*args: object, **kwargs: object):
             self.assertTrue(kwargs.get("defer_ui"))
@@ -174,28 +175,26 @@ class EducationMutationReleaseBindingTests(unittest.TestCase):
                 observed.append(version2_release_app.Version2Application)
                 return "application"
 
-            return ("api", build_application, "runtime", "native")
+            return (api, build_application, "runtime", "native")
 
         with mock.patch.object(
             mutation_release._release_app,
             "create_version2_release_application",
             side_effect=fake_factory,
         ):
-            api, application_factory, runtime, native = (
+            returned_api, application_factory, runtime, native = (
                 mutation_release.create_version2_release_application(defer_ui=True)
             )
-            self.assertIs(
-                version2_release_app.Version2Application,
-                Version2FinalProductApplication,
-            )
+            self.assertIs(version2_release_app.Version2Application, previous_owner)
+            self.assertTrue(callable(returned_api._sync_version2_language))
             application = application_factory()
 
-        self.assertEqual((api, application, runtime, native), ("api", "application", "runtime", "native"))
-        self.assertEqual(observed, [Version2EducationMutationApplication])
-        self.assertIs(
-            version2_release_app.Version2Application,
-            Version2FinalProductApplication,
+        self.assertEqual(
+            (returned_api, application, runtime, native),
+            (api, "application", "runtime", "native"),
         )
+        self.assertEqual(observed, [Version2EducationMutationApplication])
+        self.assertIs(version2_release_app.Version2Application, previous_owner)
 
 
 if __name__ == "__main__":
