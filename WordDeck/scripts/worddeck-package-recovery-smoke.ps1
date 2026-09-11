@@ -10,8 +10,19 @@ $script:stateRoot = Join-Path ([Environment]::GetFolderPath([Environment+Special
 $script:originalStateBackup = Join-Path ([IO.Path]::GetTempPath()) ("WordDeck-package-recovery-original-" + [Guid]::NewGuid().ToString('N'))
 $script:replacementRoot = Join-Path ([IO.Path]::GetTempPath()) ("WordDeck package replacement Ω " + [Guid]::NewGuid().ToString('N'))
 $script:hadOriginalState = Test-Path -LiteralPath $script:stateRoot
+$script:primaryFailure = $null
+$script:cleanupFailures = [System.Collections.Generic.List[string]]::new()
 
 function Fail([string]$message) { throw "WordDeck package recovery FAIL: $message" }
+
+function Record-CleanupFailure([string]$phase, $errorRecord) {
+    $message = if ($null -ne $errorRecord -and $null -ne $errorRecord.Exception) {
+        $errorRecord.Exception.Message
+    } else {
+        [string]$errorRecord
+    }
+    $script:cleanupFailures.Add("$phase`: $message")
+}
 
 function Invoke-WinApp([string[]]$arguments, [switch]$Json) {
     $output = & winapp @arguments
@@ -133,36 +144,85 @@ try {
     if (-not (Test-Path -LiteralPath $statePath -PathType Leaf)) { Fail 'state.json disappeared after clean package replacement.' }
     Write-Host "WordDeck package recovery PASS: graceful close/reopen preserved A1 + current Recall word; clean program-tree replacement reopened against preserved external LocalAppData state; package trees contain no personal state."
 }
-finally {
-    if ($null -ne $script:appPid -and $script:appPid -gt 0) {
-        try {
-            Stop-Process -Id $script:appPid -Force -ErrorAction SilentlyContinue
-            Wait-Process -Id $script:appPid -Timeout 10 -ErrorAction SilentlyContinue
-        } catch { }
-        $script:appPid = $null
-    }
+catch {
+    # Do not rethrow yet. Cleanup must always run, and its failures must be reported
+    # without erasing the original acceptance failure that triggered cleanup.
+    $script:primaryFailure = $_
+}
 
-    # Restoring a profile that existed before the test is the first cleanup
-    # priority. A failure here must never be masked by disposable temp cleanup.
+# Stop any process still owned by this acceptance run, but continue attempting
+# learner-state restoration even if process cleanup itself fails.
+if ($null -ne $script:appPid -and $script:appPid -gt 0) {
+    try {
+        Stop-Process -Id $script:appPid -Force -ErrorAction SilentlyContinue
+        $remaining = Get-Process -Id $script:appPid -ErrorAction SilentlyContinue
+        if ($null -ne $remaining) {
+            Wait-Process -Id $script:appPid -Timeout 10 -ErrorAction Stop
+        }
+    }
+    catch {
+        Record-CleanupFailure 'process cleanup' $_
+    }
+    $script:appPid = $null
+}
+
+# Restoring a profile that existed before the test is the highest cleanup
+# priority. Every restoration step is attempted independently and any failure is
+# terminal, but no cleanup error may erase a primary acceptance failure.
+try {
     if (Test-Path -LiteralPath $script:stateRoot) {
         Remove-Item -LiteralPath $script:stateRoot -Recurse -Force
     }
-    if ($script:hadOriginalState) {
-        if (-not (Test-Path -LiteralPath $script:originalStateBackup -PathType Container)) {
-            Fail 'pre-existing WordDeck state backup is missing during cleanup; refusing to report PASS.'
+}
+catch {
+    Record-CleanupFailure 'remove test learner state before restoration' $_
+}
+
+if ($script:hadOriginalState) {
+    if (-not (Test-Path -LiteralPath $script:originalStateBackup -PathType Container)) {
+        $script:cleanupFailures.Add('learner state restoration: pre-existing WordDeck state backup is missing')
+    }
+    else {
+        try {
+            Move-Item -LiteralPath $script:originalStateBackup -Destination $script:stateRoot -Force
         }
-        Move-Item -LiteralPath $script:originalStateBackup -Destination $script:stateRoot -Force
+        catch {
+            Record-CleanupFailure 'learner state restoration move' $_
+        }
         if (-not (Test-Path -LiteralPath $script:stateRoot -PathType Container)) {
-            Fail 'pre-existing WordDeck state tree was not restored; refusing to report PASS.'
+            $script:cleanupFailures.Add('learner state restoration: pre-existing WordDeck state tree is not present after restore attempt')
         }
     }
-    elseif (Test-Path -LiteralPath $script:originalStateBackup) {
+}
+elseif (Test-Path -LiteralPath $script:originalStateBackup) {
+    try {
         Remove-Item -LiteralPath $script:originalStateBackup -Recurse -Force
     }
+    catch {
+        Record-CleanupFailure 'unexpected state-backup cleanup' $_
+    }
+}
 
-    # The temporary replacement package is disposable. Clean it only after the
-    # pre-test learner state is safe again; any leftover lock still fails the run.
-    if (Test-Path -LiteralPath $script:replacementRoot) {
+# The replacement program tree is disposable and must be cleaned only after
+# learner state has been restored or the restoration failure has been recorded.
+if (Test-Path -LiteralPath $script:replacementRoot) {
+    try {
         Remove-Item -LiteralPath $script:replacementRoot -Recurse -Force
     }
+    catch {
+        Record-CleanupFailure 'temporary replacement package cleanup' $_
+    }
+}
+
+if ($null -ne $script:primaryFailure) {
+    if ($script:cleanupFailures.Count -ne 0) {
+        $primaryMessage = $script:primaryFailure.Exception.Message
+        $cleanupMessage = $script:cleanupFailures -join ' | '
+        throw "WordDeck package recovery FAIL: primary acceptance failure: $primaryMessage; cleanup/restoration failure(s): $cleanupMessage"
+    }
+    throw $script:primaryFailure
+}
+
+if ($script:cleanupFailures.Count -ne 0) {
+    Fail ("cleanup/restoration failure(s): " + ($script:cleanupFailures -join ' | '))
 }
