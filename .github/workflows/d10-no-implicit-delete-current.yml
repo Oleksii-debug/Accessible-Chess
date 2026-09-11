@@ -46,19 +46,62 @@ jobs:
 
       - name: Prove bounded current-runtime scope
         shell: bash
+        env:
+          SOURCE_HEAD_SHA: 7e03931a61586e4f6d01fcf2498567eb08cdb398
+          AGGREGATE_REF: work/full-product-teacher-education-reachability-20260911
+          AGGREGATE_ANCHOR_SHA: 05d9cb289a5d81dd483b18197e5f76c46aff3012
         run: |
           set -euo pipefail
-          test -n "${GITHUB_BASE_REF:-}"
-          git fetch --no-tags origin "${GITHUB_BASE_REF}:refs/remotes/origin/${GITHUB_BASE_REF}"
-          base="$(git rev-parse "origin/${GITHUB_BASE_REF}")"
-          git merge-base --is-ancestor "$base" HEAD
-          git diff --check "$base" HEAD
-          changed="$(git diff --name-only "$base" HEAD | sort)"
-          expected="$(printf '%s\n' \
-            '.github/workflows/d10-no-implicit-delete-current.yml' \
-            'acs/education_workspace.py' \
-            'tests/test_d10_no_implicit_delete_current.py' | sort)"
-          test "$changed" = "$expected"
+          git cat-file -e "$SOURCE_HEAD_SHA^{commit}"
+          aggregate_context="${GITHUB_HEAD_REF:-${GITHUB_REF_NAME:-}}"
+
+          if [ "$aggregate_context" = "$AGGREGATE_REF" ]; then
+            git cat-file -e "$AGGREGATE_ANCHOR_SHA^{commit}"
+            git merge-base --is-ancestor "$SOURCE_HEAD_SHA" HEAD
+            git merge-base --is-ancestor "$AGGREGATE_ANCHOR_SHA" HEAD
+            git diff --check "$AGGREGATE_ANCHOR_SHA" HEAD
+            git diff --quiet "$AGGREGATE_ANCHOR_SHA" HEAD -- \
+              acs/education_workspace.py \
+              tests/test_d10_no_implicit_delete_current.py
+            echo 'D10_NO_IMPLICIT_DELETE_TOPOLOGY=CANONICAL_AGGREGATE'
+          elif [ "${GITHUB_BASE_REF:-}" = "$AGGREGATE_REF" ]; then
+            git fetch --no-tags origin "${GITHUB_BASE_REF}:refs/remotes/origin/${GITHUB_BASE_REF}"
+            base="$(git rev-parse "origin/${GITHUB_BASE_REF}")"
+            test "$base" = "$AGGREGATE_ANCHOR_SHA"
+            git merge-base --is-ancestor "$base" HEAD
+            git merge-base --is-ancestor "$SOURCE_HEAD_SHA" HEAD
+            git diff --check "$base" HEAD
+            changed="$(git diff --name-only "$base" HEAD | sort)"
+            test -n "$changed"
+            allowed="$(printf '%s\n' \
+              '.github/workflows/d01-teacher-classroom-webview.yml' \
+              '.github/workflows/d10-no-implicit-delete-current.yml' \
+              '.github/workflows/d10-review-progress-delete-privacy-convergence.yml' \
+              '.github/workflows/version2-windows-composition.yml' \
+              '.github/workflows/w1-d06-bounded-model-materialization-convergence.yml' | sort)"
+            while IFS= read -r path; do
+              printf '%s\n' "$allowed" | grep -Fx -- "$path" >/dev/null || {
+                printf 'Out-of-scope aggregate harness repair: %s\n' "$path" >&2
+                exit 1
+              }
+            done <<< "$changed"
+            echo 'D10_NO_IMPLICIT_DELETE_TOPOLOGY=AGGREGATE_HARNESS_CHILD'
+          else
+            test -n "${GITHUB_BASE_REF:-}"
+            git fetch --no-tags origin "${GITHUB_BASE_REF}:refs/remotes/origin/${GITHUB_BASE_REF}"
+            base="$(git rev-parse "origin/${GITHUB_BASE_REF}")"
+            git merge-base --is-ancestor "$base" HEAD
+            git diff --check "$base" HEAD
+            changed="$(git diff --name-only "$base" HEAD | sort)"
+            expected="$(printf '%s\n' \
+              '.github/workflows/d10-no-implicit-delete-current.yml' \
+              'acs/education_workspace.py' \
+              'tests/test_d10_no_implicit_delete_current.py' | sort)"
+            test "$changed" = "$expected"
+          fi
+
+          test "$(git rev-parse HEAD:acs/education_workspace.py)" = "$(git rev-parse "$SOURCE_HEAD_SHA:acs/education_workspace.py")"
+          test "$(git rev-parse HEAD:tests/test_d10_no_implicit_delete_current.py)" = "$(git rev-parse "$SOURCE_HEAD_SHA:tests/test_d10_no_implicit_delete_current.py")"
 
       - name: Compile changed Python
         run: python -m py_compile acs/education_workspace.py tests/test_d10_no_implicit_delete_current.py
