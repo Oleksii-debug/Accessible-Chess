@@ -1,26 +1,34 @@
-name: D06 GameTree Snapshot Resume
+name: D06 GameTree Snapshot Resume Current
 
 on:
+  push:
+    branches:
+      - work/d06-gametree-snapshot-resume-20260831
   pull_request:
+    branches:
+      - work/full-product-teacher-education-reachability-20260911
     paths:
       - 'acs/gametree_resume.py'
       - 'tests/test_d06_gametree_snapshot_resume.py'
       - '.github/workflows/d06-gametree-snapshot-resume.yml'
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: d06-gametree-snapshot-resume-${{ github.ref }}
+  group: d06-gametree-snapshot-resume-current-${{ github.ref }}
   cancel-in-progress: true
 
 env:
-  D06_RESUME_BASE: a3e52c621210c2dd5251dea4f97b611c12d56a22
-  D06_RESUME_BLOB: e22a406a8f4c1f00c3d36390109d53f3088d332b
-  D06_REGRESSION_BLOB: 87e54b3d282ba4c2288737d745d2f29f4ae7076b
-  D06_SNAPSHOT_BLOB: ac08a89055372c02d3d15744fd4de5a1fd0059d5
-  D06_PGN_ROUNDTRIP_BLOB: 13c0db6d44ea9ec769240e9d0087641eb4e4382a
-  D06_NAVIGATION_BLOB: 6209c29382105153ae4b22d4d70f9675a931826d
+  CURRENT_PRODUCT_BASE: 966a33c425470aa7c681914ff357be0aa261b70e
+  SOURCE_HEAD: b2be9b74848a06787548adefb4d9f5cce02cf534
+  SOURCE_PRODUCT_BLOB: de2e05e7558190785edf268f25c277f7d4292625
+  SOURCE_TEST_BLOB: 87e54b3d282ba4c2288737d745d2f29f4ae7076b
+  CURRENT_SNAPSHOT_BLOB: ac08a89055372c02d3d15744fd4de5a1fd0059d5
+  CURRENT_NAVIGATION_BLOB: 6209c29382105153ae4b22d4d70f9675a931826d
+  CURRENT_PGN_ROUNDTRIP_BLOB: a9e29beb7566bc38158354ed9fe617d12d757772
+  CURRENT_GAMETREE_BLOB: 102895cb7acb7012cde6d0686ea53b99c33700a6
 
 jobs:
   gametree-resume:
@@ -29,12 +37,12 @@ jobs:
       matrix:
         os: [ubuntu-22.04, windows-2025]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 45
+    timeout-minutes: 75
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          ref: ${{ github.event.pull_request.head.sha }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - name: Preserve exact Git bytes
         shell: bash
@@ -43,7 +51,6 @@ jobs:
           git config core.autocrlf false
           git config core.eol lf
           git reset --hard HEAD
-          git checkout-index --force --all
 
       - uses: actions/setup-python@v5
         with:
@@ -52,39 +59,43 @@ jobs:
       - name: Install pinned verification dependency
         run: python -m pip install -q pytest==8.4.2
 
-      - name: Prove canonical D06 identities without rejecting later runtime convergence
+      - name: Prove current-product reconvergence and owner isolation
         shell: bash
         run: |
           set -euo pipefail
-          git cat-file -e "$D06_RESUME_BASE^{commit}"
-          test "$(git merge-base HEAD "$D06_RESUME_BASE")" = "$D06_RESUME_BASE"
-          git diff --check "$D06_RESUME_BASE" HEAD -- \
-            .github/workflows/d06-gametree-snapshot-resume.yml \
-            acs/gametree_resume.py \
-            tests/test_d06_gametree_snapshot_resume.py \
-            acs/gametree_snapshot.py \
-            acs/pgn_roundtrip.py \
-            acs/gametree_navigation.py
-          test "$(git rev-parse HEAD:acs/gametree_resume.py)" = "$D06_RESUME_BLOB"
-          test "$(git rev-parse HEAD:tests/test_d06_gametree_snapshot_resume.py)" = "$D06_REGRESSION_BLOB"
-          test "$(git rev-parse HEAD:acs/gametree_snapshot.py)" = "$D06_SNAPSHOT_BLOB"
-          test "$(git rev-parse HEAD:acs/pgn_roundtrip.py)" = "$D06_PGN_ROUNDTRIP_BLOB"
-          test "$(git rev-parse HEAD:acs/gametree_navigation.py)" = "$D06_NAVIGATION_BLOB"
-          echo 'D06 GAMETREE RESUME CURRENT-RUNTIME IDENTITY PASS'
+          for commit in "$CURRENT_PRODUCT_BASE" "$SOURCE_HEAD"; do
+            git cat-file -e "${commit}^{commit}" || git fetch --no-tags origin "$commit"
+          done
+          git merge-base --is-ancestor "$CURRENT_PRODUCT_BASE" HEAD
+          git merge-base --is-ancestor "$SOURCE_HEAD" HEAD
+          test "$(git rev-parse HEAD^)" = "$CURRENT_PRODUCT_BASE"
+          git diff --check "$CURRENT_PRODUCT_BASE" HEAD
+          changed="$(git diff --name-only "$CURRENT_PRODUCT_BASE" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/d06-gametree-snapshot-resume.yml' \
+            'acs/gametree_resume.py' \
+            'tests/test_d06_gametree_snapshot_resume.py' | sort)"
+          test "$changed" = "$expected"
+          test "$(git rev-parse HEAD:acs/gametree_resume.py)" = "$SOURCE_PRODUCT_BLOB"
+          test "$(git rev-parse HEAD:tests/test_d06_gametree_snapshot_resume.py)" = "$SOURCE_TEST_BLOB"
+          test "$(git rev-parse HEAD:acs/gametree_snapshot.py)" = "$CURRENT_SNAPSHOT_BLOB"
+          test "$(git rev-parse HEAD:acs/gametree_navigation.py)" = "$CURRENT_NAVIGATION_BLOB"
+          test "$(git rev-parse HEAD:acs/pgn_roundtrip.py)" = "$CURRENT_PGN_ROUNDTRIP_BLOB"
+          test "$(git rev-parse HEAD:acs/gametree.py)" = "$CURRENT_GAMETREE_BLOB"
+          for path in \
+            acs/version2_application.py \
+            acs/version2_release_ui.py \
+            run_accessible_chess_v2.py; do
+            test "$(git rev-parse "HEAD:$path")" = "$(git rev-parse "$CURRENT_PRODUCT_BASE:$path")"
+          done
 
-      - name: Compile RED-first regression and Product module when present
-        shell: bash
-        run: |
-          set -euo pipefail
-          python -m py_compile tests/test_d06_gametree_snapshot_resume.py
-          if test -f acs/gametree_resume.py; then
-            python -m py_compile acs/gametree_resume.py
-          fi
+      - name: Compile resume layer
+        run: >-
+          python -m compileall -q
+          acs/gametree_resume.py
+          tests/test_d06_gametree_snapshot_resume.py
 
-      - name: RED-first durable resume regression
-        run: python -m unittest -v tests.test_d06_gametree_snapshot_resume
-
-      - name: Focused D06 snapshot persistence regressions
+      - name: Focused current D06 persistence regressions
         run: >-
           python -m unittest -v
           tests.test_d06_gametree_snapshot_resume
@@ -99,13 +110,28 @@ jobs:
           tests.test_pgn_concurrent_save
           tests.test_version2_formats_integration
 
+      - name: Focused pytest parity
+        run: >-
+          python -m pytest -q
+          tests/test_d06_gametree_snapshot_resume.py
+          tests/test_d06_snapshot_canonical_restore.py
+          tests/test_d06_gametree_persistence_vertical.py
+          tests/test_d06_annotation_insertion_persistence_vertical.py
+          tests/test_d06_pgn_roundtrip.py
+          tests/test_d06_file_ingress_nag_normalization.py
+          tests/test_d06_real_corpus_recovery.py
+          tests/test_game_identity.py
+          tests/test_gametree.py
+          tests/test_pgn_concurrent_save.py
+          tests/test_version2_formats_integration.py
+
       - name: Full repository unittest
-        run: python -m unittest discover -s tests
+        run: python -m unittest discover -s tests -v
 
       - name: Full repository pytest
         run: python -m pytest -q tests
 
-      - name: SELFTEST and diagnostic
+      - name: SELFTEST and final-product diagnostic
         run: |
           python -m acs.selftest
-          python run_accessible_chess.py --diagnostic
+          python run_accessible_chess_v2.py --diagnostic
