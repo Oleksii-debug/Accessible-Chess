@@ -145,7 +145,8 @@ jobs:
       - name: Upload only final release-content evidence
         uses: actions/upload-artifact@v4
         with:
-          name: p0f-lawful-real-starter-${{ github.sha }}
+          name: p0f-lawful-real-starter-${{ github.event.pull_request.head.sha || github.sha }}
           path: .p0f-lawful/
           if-no-files-found: error
+          include-hidden-files: true
           retention-days: 7
