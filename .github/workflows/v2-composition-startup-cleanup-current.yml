@@ -9,6 +9,7 @@ on:
       - 'acs/version2_release_app.py'
       - 'tests/test_version2_composition_startup_cleanup_current.py'
       - '.github/workflows/v2-composition-startup-cleanup-current.yml'
+      - '.github/workflows/v2-native-dialog-language.yml'
 
 permissions:
   contents: read
@@ -45,7 +46,7 @@ jobs:
           git cat-file -e "$CURRENT_RUNTIME_BASE^{commit}"
           git merge-base --is-ancestor "$CURRENT_RUNTIME_BASE" HEAD
           git diff --check "$CURRENT_RUNTIME_BASE" HEAD
-          unexpected="$(git diff --name-only "$CURRENT_RUNTIME_BASE" HEAD | grep -Ev '^(acs/version2_release_app.py|tests/test_version2_composition_startup_cleanup_current.py|.github/workflows/v2-composition-startup-cleanup-current.yml)$' || true)"
+          unexpected="$(git diff --name-only "$CURRENT_RUNTIME_BASE" HEAD | grep -Ev '^(acs/version2_release_app.py|tests/test_version2_composition_startup_cleanup_current.py|.github/workflows/v2-composition-startup-cleanup-current.yml|.github/workflows/v2-native-dialog-language.yml)$' || true)"
           if [ -n "$unexpected" ]; then
             echo "Unexpected startup-cleanup scope:" >&2
             printf '%s\n' "$unexpected" >&2
