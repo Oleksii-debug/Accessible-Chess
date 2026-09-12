@@ -152,6 +152,7 @@ internal sealed class StoryCourseRuntimeForm : Form
     private readonly LearnerCourseStateStore _learnerStore;
     private readonly StoryCourseLearnerStateBridge _learnerBridge;
     private StoryCourseProgressContract _progress;
+    private StoryCourseProgressContract _lastPersistedProgress;
     private readonly IReadOnlyList<string> _packageWarnings;
     private readonly List<UnitChoice> _units;
     private bool _changing;
@@ -299,6 +300,7 @@ internal sealed class StoryCourseRuntimeForm : Form
         _dictionary = dictionary ?? throw new ArgumentNullException(nameof(dictionary));
         _store = store ?? throw new ArgumentNullException(nameof(store));
         _progress = progress ?? throw new ArgumentNullException(nameof(progress));
+        _lastPersistedProgress = _progress;
         _learnerStore = learnerStore ?? throw new ArgumentNullException(nameof(learnerStore));
         _learnerBridge = learnerBridge ?? throw new ArgumentNullException(nameof(learnerBridge));
         _packageWarnings = packageWarnings ?? Array.Empty<string>();
@@ -815,11 +817,13 @@ internal sealed class StoryCourseRuntimeForm : Form
         try
         {
             _store.Save(_progress);
+            _lastPersistedProgress = _progress;
             error = null;
             return true;
         }
         catch (Exception ex)
         {
+            _progress = _lastPersistedProgress;
             error = "Legacy прогрес курсу не вдалося безпечно зберегти. Наявні файли не видалялися. " + ex.Message;
             _status.Text = error;
             return false;
