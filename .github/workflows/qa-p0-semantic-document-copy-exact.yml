@@ -1,0 +1,72 @@
+name: QA P0 Semantic Document Copy Exact
+
+on:
+  push:
+    branches:
+      - qa/p0-semantic-document-copy-exact-20260912
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: qa-p0-semantic-document-copy-exact-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  TARGET_PRODUCT_HEAD: 342c56c3a557177f44af8bb9c6bf788ff7ebf025
+  CURRENT_PRODUCT_BASE: dfac3af0811a0e1abab7132149bfbd8377b04fb5
+  TARGET_BOOTSTRAP_BLOB: 54ec25fc8e2e711fa08aa78f0064a3427cade307
+  TARGET_TEST_BLOB: da6c6bd2a77029a6a0b7dfdcb5a72cde6ef2213d
+
+jobs:
+  qualify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Prove QA-only child and exact Product authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = "$TARGET_PRODUCT_HEAD"
+          git merge-base --is-ancestor "$CURRENT_PRODUCT_BASE" "$TARGET_PRODUCT_HEAD"
+          test "$(git merge-base "$CURRENT_PRODUCT_BASE" "$TARGET_PRODUCT_HEAD")" = "$CURRENT_PRODUCT_BASE"
+          changed_child="$(git diff --name-only "$TARGET_PRODUCT_HEAD" HEAD)"
+          test "$changed_child" = '.github/workflows/qa-p0-semantic-document-copy-exact.yml'
+          product_changed="$(git diff --name-only "$CURRENT_PRODUCT_BASE" "$TARGET_PRODUCT_HEAD" | sort)"
+          expected="$(printf '%s\n' 'tests/test_p0_semantic_document_copy.py' 'web/version2_final_product_bootstrap.js' | sort)"
+          test "$product_changed" = "$expected"
+          test "$(git rev-parse "$TARGET_PRODUCT_HEAD:web/version2_final_product_bootstrap.js")" = "$TARGET_BOOTSTRAP_BLOB"
+          test "$(git rev-parse "$TARGET_PRODUCT_HEAD:tests/test_p0_semantic_document_copy.py")" = "$TARGET_TEST_BLOB"
+          git diff --check "$CURRENT_PRODUCT_BASE" "$TARGET_PRODUCT_HEAD"
+          echo "QUALIFIED_PRODUCT_HEAD=$TARGET_PRODUCT_HEAD"
+          echo 'QA_ONLY_CHILD=YES'
+
+      - name: Focused semantic document-copy contract
+        run: python -m unittest -v tests.test_p0_semantic_document_copy
+
+      - name: Shipping bootstrap JavaScript syntax
+        run: node --check web/version2_final_product_bootstrap.js
+
+      - name: Shipping Python seam syntax
+        run: >-
+          python -m compileall -q
+          acs/stage1_release_ui.py
+          acs/version2_education_mutation_release.py
+          tests/test_p0_semantic_document_copy.py
+
+      - name: Evidence boundary
+        shell: bash
+        run: |
+          echo 'PRODUCT_MUTATION=NONE'
+          echo 'PACKAGED_CLIPBOARD_PROOF=NO'
+          echo 'HUMAN_TESTED=NO'
+          echo 'NVDA_VERIFIED=NO'
