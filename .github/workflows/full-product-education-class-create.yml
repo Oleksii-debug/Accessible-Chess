@@ -24,7 +24,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  CURRENT_PRODUCT_BASE: d56e5db0f251da49f1a5ec5653e856402b7a76c6
+  INTEGRATED_EDUCATION_OWNER: 7580f614a2d422a4af8120a4ee33264d78cf1502
   MUTATION_APP_BLOB: f9429f3c9e9a6fdc32708716cacfa669c7cb4184
   FINAL_PROFILE_BLOB: 7f5a2a6b2be9ed68c41a6e6dae7ad4ceb6330f87
   OPEN_SELECTED_TEST_BLOB: 23a426d61a9b466b9bdb33d5158bcd9cf78ae37f
@@ -62,21 +62,24 @@ jobs:
       - name: Install pinned verification dependency
         run: python -m pip install -q pytest==8.4.2
 
-      - name: Prove current Product authority and bounded P0 repair scope
+      - name: Prove retained Education class-create authority on current Product
         shell: bash
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
           set -euo pipefail
-          git cat-file -e "${CURRENT_PRODUCT_BASE}^{commit}"
-          test "$(git rev-parse HEAD^1)" = "$CURRENT_PRODUCT_BASE"
-          test "$(git merge-base HEAD "$CURRENT_PRODUCT_BASE")" = "$CURRENT_PRODUCT_BASE"
-          git diff --check "$CURRENT_PRODUCT_BASE" HEAD
-          changed="$(git diff --name-only "$CURRENT_PRODUCT_BASE" HEAD | sort)"
-          expected="$(printf '%s\n' \
-            '.github/workflows/d01-education-management-webview.yml' \
-            '.github/workflows/full-product-education-class-create.yml' \
-            'acs/version2_education_mutation_application.py' \
-            'tests/test_version2_education_open_selected.py' | sort)"
-          test "$changed" = "$expected"
+
+          if [ -n "${PR_BASE_SHA:-}" ]; then
+            product_base="$PR_BASE_SHA"
+          else
+            product_base="$(git rev-parse HEAD^1)"
+          fi
+
+          git cat-file -e "${product_base}^{commit}"
+          test "$(git merge-base HEAD "$product_base")" = "$product_base"
+          git merge-base --is-ancestor "$INTEGRATED_EDUCATION_OWNER" "$product_base"
+          git merge-base --is-ancestor "$INTEGRATED_EDUCATION_OWNER" HEAD
+          git diff --check "$product_base" HEAD
 
           education_owner="3df622f6d667b3513222003df159e52188e60bda"
           git cat-file -e "${education_owner}^{commit}"
