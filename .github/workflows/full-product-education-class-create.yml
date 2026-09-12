@@ -79,7 +79,12 @@ jobs:
           git merge-base --is-ancestor "$education_owner" HEAD
           test "$(git rev-parse HEAD:acs/education_class_management.py)" = "7b5e8c309ac453cb904552b23af658357db377db"
           test "$(git rev-parse HEAD:acs/version2_education_mutation_release.py)" = "$CURRENT_EDUCATION_RELEASE_BLOB"
-          test "$(git rev-parse HEAD:run_accessible_chess_v2.py)" = "125f378e87acbca993acf54bd4012e93539384d3"
+          # The launcher is composition-owned and may legitimately change while
+          # retaining Education. Keep it in pull_request.paths and prove it by
+          # compile + focused Education tests + production diagnostic below,
+          # rather than freezing one historical launcher blob forever.
+          git cat-file -e "HEAD:run_accessible_chess_v2.py"
+          test -s run_accessible_chess_v2.py
           test "$(git rev-parse HEAD:tests/test_version2_education_class_create.py)" = "$CURRENT_SHARED_EDUCATION_TEST_BLOB"
           test "$(git rev-parse HEAD:acs/version2_education_mutation_application.py)" = "$MUTATION_APP_BLOB"
           test "$(git rev-parse HEAD:acs/version2_final_product_profile.py)" = "$FINAL_PROFILE_BLOB"
