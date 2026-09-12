@@ -105,12 +105,10 @@ def run_release_window(api: Stage1ReleaseAccessibleChessAPI, runtime: Any | None
 
     html = _asset_root() / "web" / "index.html"
     bootstrap = _asset_root() / "web" / "stage1_release_bootstrap.js"
-    document_copy = _asset_root() / "web" / "document_text_copy.js"
     board_bridge = _asset_root() / "web" / "stage1_board_actions.js"
     for path, label in (
         (html, "Accessible HTML UI"),
         (bootstrap, "Stage 1 WebView bootstrap"),
-        (document_copy, "Semantic document copy surface"),
         (board_bridge, "Stage 1 board action bridge"),
     ):
         if not path.exists():
@@ -120,7 +118,6 @@ def run_release_window(api: Stage1ReleaseAccessibleChessAPI, runtime: Any | None
             # a build machine/user profile path through the user-facing error.
             raise RuntimeError(f"{label} not found in packaged resources.")
     bootstrap_source = bootstrap.read_text(encoding="utf-8")
-    document_copy_source = document_copy.read_text(encoding="utf-8")
     board_bridge_source = board_bridge.read_text(encoding="utf-8")
 
     window = webview.create_window(
@@ -139,7 +136,6 @@ def run_release_window(api: Stage1ReleaseAccessibleChessAPI, runtime: Any | None
             raise RuntimeError("Accessible native Windows menu could not be attached to the WebView2 host.")
 
     def install_release_web_contract(*_args: Any) -> None:
-        window.evaluate_js(document_copy_source)
         window.evaluate_js(bootstrap_source)
         window.evaluate_js(board_bridge_source)
 
