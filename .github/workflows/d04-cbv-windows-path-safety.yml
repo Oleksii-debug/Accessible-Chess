@@ -1,0 +1,79 @@
+name: D04 CBV Windows Path Safety
+
+on:
+  push:
+    branches:
+      - work/d04-cbv-windows-entry-safety-exhaustive-20260910
+  pull_request:
+    paths:
+      - '.github/workflows/d04-cbv-windows-path-safety.yml'
+      - 'acs/cbv_extractor.py'
+      - 'tests/test_d04_cbv_windows_path_safety.py'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: d04-cbv-windows-path-safety-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  D04_BASE: 3f6aedbbf48cdc3e7542452268766430b8c0bbc6
+  D04_PRODUCT_BLOB: f8b56bbed81c92a4eaa8791c815c9b0163d1ec5a
+  D04_TEST_BLOB: 3ce3deec3b0646a3c49f1bad3c75f449d4e67eee
+
+jobs:
+  cbv-path-safety:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install pinned test dependency
+        run: python -m pip install -q pytest==8.4.2
+
+      - name: Prove current authority and bounded D04 scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          git cat-file -e "${D04_BASE}^{commit}"
+          git merge-base --is-ancestor "$D04_BASE" HEAD
+          test "$(git merge-base "$D04_BASE" HEAD)" = "$D04_BASE"
+          git diff --check "$D04_BASE" HEAD
+          changed="$(git diff --name-only "$D04_BASE" HEAD | sort)"
+          allowed="$(printf '%s\n' \
+            .github/workflows/d04-cbv-windows-path-safety.yml \
+            acs/cbv_extractor.py \
+            tests/test_d04_cbv_windows_path_safety.py | sort)"
+          test "$changed" = "$allowed" || {
+            printf 'Unexpected D04 scope:\n%s\n' "$changed" >&2
+            exit 1
+          }
+          test "$(git rev-parse HEAD:acs/cbv_extractor.py)" = "$D04_PRODUCT_BLOB"
+          test "$(git rev-parse HEAD:tests/test_d04_cbv_windows_path_safety.py)" = "$D04_TEST_BLOB"
+
+      - name: Compile affected Python
+        run: python -m compileall -q acs/cbv_extractor.py tests/test_cbv_extractor.py tests/test_d04_cbv_windows_path_safety.py
+
+      - name: Focused CBV extraction regressions
+        run: python -m unittest -v tests.test_cbv_extractor tests.test_d04_cbv_windows_path_safety
+
+      - name: Focused pytest parity
+        run: python -m pytest -q tests/test_cbv_extractor.py tests/test_d04_cbv_windows_path_safety.py
+
+      - name: Full unittest regression
+        run: python -m unittest discover -s tests -v
+
+      - name: Full pytest regression
+        run: python -m pytest -q
