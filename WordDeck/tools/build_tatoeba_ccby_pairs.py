@@ -12,10 +12,13 @@ import argparse
 import bz2
 import hashlib
 import json
+import sys
 import tempfile
+import time
+import urllib.error
 import urllib.request
 from pathlib import Path
-from typing import Dict, Iterable, Iterator, Tuple
+from typing import Callable, Dict, Iterable, Iterator, Tuple
 
 OFFICIAL_URLS = {
     "english_detailed": "https://downloads.tatoeba.org/exports/per_language/eng/eng_sentences_detailed.tsv.bz2",
@@ -23,6 +26,9 @@ OFFICIAL_URLS = {
     "links": "https://downloads.tatoeba.org/exports/per_language/eng/eng-ukr_links.tsv.bz2",
 }
 LICENSE = "CC BY 2.0 FR"
+DOWNLOAD_ATTEMPTS = 4
+DOWNLOAD_TIMEOUT_SECONDS = 180
+DOWNLOAD_BACKOFF_SECONDS = (1.0, 2.0, 4.0)
 
 
 def _sha256(path: Path) -> str:
@@ -140,18 +146,56 @@ def build_pairs(
     }
 
 
+def _download_one(
+    url: str,
+    destination: Path,
+    *,
+    opener: Callable = urllib.request.urlopen,
+    sleeper: Callable[[float], None] = time.sleep,
+    attempts: int = DOWNLOAD_ATTEMPTS,
+    timeout_seconds: int = DOWNLOAD_TIMEOUT_SECONDS,
+) -> None:
+    if attempts < 1:
+        raise ValueError("download attempts must be >= 1")
+    if timeout_seconds <= 0:
+        raise ValueError("download timeout must be > 0")
+
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    partial = destination.with_name(destination.name + ".part")
+    partial.unlink(missing_ok=True)
+
+    for attempt in range(1, attempts + 1):
+        request = urllib.request.Request(url, headers={"User-Agent": "WordDeck-development/1.0"})
+        try:
+            with opener(request, timeout=timeout_seconds) as response, partial.open("wb") as out:
+                while True:
+                    chunk = response.read(1024 * 1024)
+                    if not chunk:
+                        break
+                    out.write(chunk)
+            partial.replace(destination)
+            return
+        except (urllib.error.URLError, TimeoutError, OSError) as exc:
+            partial.unlink(missing_ok=True)
+            if attempt >= attempts:
+                raise RuntimeError(
+                    f"failed to download {url} after {attempts} attempts"
+                ) from exc
+            delay = DOWNLOAD_BACKOFF_SECONDS[min(attempt - 1, len(DOWNLOAD_BACKOFF_SECONDS) - 1)]
+            print(
+                f"Transient Tatoeba download failure for {url} "
+                f"(attempt {attempt}/{attempts}); retrying in {delay:g}s: {exc}",
+                file=sys.stderr,
+            )
+            sleeper(delay)
+
+
 def download_exports(directory: Path) -> dict[str, Path]:
     directory.mkdir(parents=True, exist_ok=True)
     result = {}
     for key, url in OFFICIAL_URLS.items():
         destination = directory / url.rsplit("/", 1)[-1]
-        request = urllib.request.Request(url, headers={"User-Agent": "WordDeck-development/1.0"})
-        with urllib.request.urlopen(request, timeout=180) as response, destination.open("wb") as out:
-            while True:
-                chunk = response.read(1024 * 1024)
-                if not chunk:
-                    break
-                out.write(chunk)
+        _download_one(url, destination)
         result[key] = destination
     return result
 
@@ -171,6 +215,23 @@ def write_manifest(path: Path, inputs: dict[str, Path], output: Path, stats: dic
     }
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
+class _SelfTestResponse:
+    def __init__(self, chunks: list[bytes | BaseException]):
+        self._chunks = iter(chunks)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
+    def read(self, _size: int) -> bytes:
+        value = next(self._chunks, b"")
+        if isinstance(value, BaseException):
+            raise value
+        return value
 
 
 def self_test() -> None:
@@ -202,6 +263,58 @@ def self_test() -> None:
         data = json.loads(manifest.read_text(encoding="utf-8"))
         assert data["license"] == LICENSE
         assert "usernames retained" in data["license_filter"]
+
+        retry_target = root / "retry.bin"
+        retry_target.write_bytes(b"last-good")
+        retry_calls = []
+        retry_sleeps = []
+
+        def flaky_opener(_request, *, timeout):
+            retry_calls.append(timeout)
+            if len(retry_calls) == 1:
+                return _SelfTestResponse([b"partial", TimeoutError("synthetic timeout")])
+            return _SelfTestResponse([b"complete", b""])
+
+        _download_one(
+            "https://example.invalid/retry",
+            retry_target,
+            opener=flaky_opener,
+            sleeper=retry_sleeps.append,
+            attempts=2,
+            timeout_seconds=9,
+        )
+        assert retry_target.read_bytes() == b"complete"
+        assert retry_calls == [9, 9]
+        assert retry_sleeps == [1.0]
+        assert not retry_target.with_name(retry_target.name + ".part").exists()
+
+        exhausted_target = root / "exhausted.bin"
+        exhausted_target.write_bytes(b"last-good")
+        exhausted_calls = []
+        exhausted_sleeps = []
+
+        def failing_opener(_request, *, timeout):
+            exhausted_calls.append(timeout)
+            return _SelfTestResponse([b"partial", TimeoutError("synthetic timeout")])
+
+        try:
+            _download_one(
+                "https://example.invalid/exhausted",
+                exhausted_target,
+                opener=failing_opener,
+                sleeper=exhausted_sleeps.append,
+                attempts=2,
+                timeout_seconds=7,
+            )
+        except RuntimeError as exc:
+            assert "after 2 attempts" in str(exc)
+        else:
+            raise AssertionError("retry exhaustion did not fail closed")
+        assert exhausted_target.read_bytes() == b"last-good"
+        assert exhausted_calls == [7, 7]
+        assert exhausted_sleeps == [1.0]
+        assert not exhausted_target.with_name(exhausted_target.name + ".part").exists()
+
     print("Tatoeba attributed CC-BY pair-builder self-test passed.")
 
 
