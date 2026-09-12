@@ -5,12 +5,16 @@ on:
     branches: [worddeck-bootstrap]
     paths:
       - 'WordDeck/**'
-      - '.github/workflows/worddeck-package-recovery.yml'
+      - 'WordDeck*Harness/**'
+      - '.github/workflows/worddeck-*.yml'
+      - '.github/workflows/worddeck-*.yaml'
   push:
     branches: [worddeck-bootstrap]
     paths:
       - 'WordDeck/**'
-      - '.github/workflows/worddeck-package-recovery.yml'
+      - 'WordDeck*Harness/**'
+      - '.github/workflows/worddeck-*.yml'
+      - '.github/workflows/worddeck-*.yaml'
   workflow_dispatch:
 
 permissions:
@@ -31,18 +35,68 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
+
+          function Test-WordDeckAuthorityPath([string]$Path) {
+            return (
+              $Path -like 'WordDeck/*' -or
+              $Path -like 'WordDeck*Harness/*' -or
+              $Path -like '.github/workflows/worddeck-*.yml' -or
+              $Path -like '.github/workflows/worddeck-*.yaml'
+            )
+          }
+
+          $allowedRegressionPaths = @(
+            'WordDeck/AssessmentRuntime.cs',
+            'WordDeckMorphologyHarness/Program.cs',
+            'WordDeckCourseContractsHarness/WordDeckCourseContractsHarness.csproj',
+            '.github/workflows/worddeck-mass120-110-assessment-runtime.yml',
+            '.github/workflows/worddeck-example.yaml'
+          )
+          foreach ($sample in $allowedRegressionPaths) {
+            if (-not (Test-WordDeckAuthorityPath $sample)) {
+              throw "Authority-boundary regression: expected allowed path was rejected: $sample"
+            }
+          }
+
+          $forbiddenRegressionPaths = @(
+            'AccessibleChess/App.xaml.cs',
+            '.github/workflows/ci.yml',
+            'README.md'
+          )
+          foreach ($sample in $forbiddenRegressionPaths) {
+            if (Test-WordDeckAuthorityPath $sample) {
+              throw "Authority-boundary regression: expected forbidden path was accepted: $sample"
+            }
+          }
+
           $head = (git rev-parse HEAD).Trim()
           $expected = '${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}'
           if ($head -ne $expected) { throw "Package recovery checkout mismatch: expected=$expected actual=$head" }
           Write-Host "Exact package recovery checkout PASS: $head"
+
           if ($env:GITHUB_EVENT_NAME -eq 'pull_request') {
-            $base = '${{ github.event.pull_request.base.sha }}'
-            $changed = @(git diff --name-only "$base...HEAD")
-            $forbidden = @($changed | Where-Object {
-              $_ -notlike 'WordDeck/*' -and
-              $_ -notlike '.github/workflows/worddeck-*.yml' -and
-              $_ -notlike '.github/workflows/worddeck-*.yaml'
-            })
+            if ([string]::IsNullOrWhiteSpace($env:GITHUB_BASE_REF)) {
+              throw 'Package-recovery authority boundary cannot resolve an empty pull-request base branch.'
+            }
+
+            $baseRemote = "refs/remotes/origin/$($env:GITHUB_BASE_REF)"
+            & git fetch --no-tags origin "+refs/heads/$($env:GITHUB_BASE_REF):$baseRemote"
+            if ($LASTEXITCODE -ne 0) {
+              throw "Package-recovery authority boundary failed to fetch base branch: $($env:GITHUB_BASE_REF)"
+            }
+
+            $base = (& git merge-base HEAD $baseRemote).Trim()
+            if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($base)) {
+              throw "Package-recovery authority boundary failed to resolve merge-base for HEAD and $baseRemote"
+            }
+
+            $changed = @(& git diff --name-only "$base...HEAD")
+            if ($LASTEXITCODE -ne 0) {
+              throw "Package-recovery authority boundary failed to diff merge-base $base against HEAD."
+            }
+
+            Write-Host "Authority merge-base: $base; base branch: $($env:GITHUB_BASE_REF)"
+            $forbidden = @($changed | Where-Object { -not (Test-WordDeckAuthorityPath $_) })
             if ($forbidden.Count -ne 0) {
               throw "Package-recovery PR crosses WordDeck authority boundary: $($forbidden -join ', ')"
             }
