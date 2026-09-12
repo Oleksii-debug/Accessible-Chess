@@ -368,7 +368,7 @@ internal sealed partial class MainForm : Form
         RefreshDeckUi();
         RestoreSequenceForScope();
         UpdateCounts();
-        SaveState();
+        SaveState(preserveStoredCurrentEntry: true);
     }
 
     private DictionaryPackage WithCustomEntries(DictionaryPackage basePackage)
@@ -414,7 +414,7 @@ internal sealed partial class MainForm : Form
         RefreshDeckUi();
         RestoreSequenceForScope();
         UpdateCounts();
-        SaveState();
+        SaveState(preserveStoredCurrentEntry: true);
         AnnounceStatus($"Recall study scope: {StudyScopeIds.DisplayName(scopeId)}. {_scopeService.ScopeTotal(scopeId)} words in this scope.");
         RestoreCurrentOrNextWord(focusWord);
     }
@@ -1010,13 +1010,14 @@ internal sealed partial class MainForm : Form
         return true;
     }
 
-    private void SaveState()
+    private void SaveState(bool preserveStoredCurrentEntry = false)
     {
         _state.ActiveDictionaryId = _package?.Id;
         if (_scopeService is not null)
         {
             _scopeService.SetActiveDeck(ActiveScopeId, _activeDeckId);
-            _scopeService.SetCurrentEntry(ActiveScopeId, _current?.Id);
+            if (!preserveStoredCurrentEntry)
+                _scopeService.SetCurrentEntry(ActiveScopeId, _current?.Id);
             PersistActiveShuffle();
         }
         _store.Save(_state);
