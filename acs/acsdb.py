@@ -17,7 +17,8 @@ import sqlite3
 import tempfile
 from typing import Iterable
 
-from .gametree import PgnGame, parse_games, serialize_game
+from .gametree import PgnGame, serialize_game
+from .pgn_roundtrip import parse_pgn_text
 from .search_policy import (
     SEARCH_DATE_KEY_SQL_FUNCTION,
     SEARCH_FOLD_SQL_FUNCTION,
@@ -796,7 +797,13 @@ class AcsDatabase:
         digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
         attempt_id = self._create_import_attempt(source_name, "pgn", digest)
         try:
-            games = parse_games(text)
+            # Library publication must consume the same bounded D06 ingress
+            # contract as PGN open/edit/save.  ``strict=False`` deliberately
+            # retains the existing loss-aware damaged-source behavior while
+            # still enforcing canonical resource limits, SAN validation and
+            # attached symbolic-NAG normalization before any source/game row is
+            # published.
+            games = parse_pgn_text(text, strict=False)
             if not games:
                 with self.conn:
                     source_id = self._insert_source(source_name, "pgn", digest)
