@@ -19,14 +19,17 @@ from typing import Iterable
 
 from .gametree import PgnGame, parse_games, serialize_game
 from .search_policy import (
+    PLAYER_COMPONENT_KEY_SQL_FUNCTION,
     SEARCH_DATE_KEY_SQL_FUNCTION,
     SEARCH_FOLD_SQL_FUNCTION,
     install_search_fold,
     literal_like_pattern,
+    normalize_player_search_terms,
     normalize_search_date_bound,
     normalize_search_result,
     normalize_search_source_id,
     normalize_search_term,
+    player_component_key,
     search_fold,
 )
 
@@ -937,7 +940,7 @@ class AcsDatabase:
         """
         source_id = normalize_search_source_id(source_id)
         result = normalize_search_result(result)  # type: ignore[assignment]
-        player = normalize_search_term(player, name="player")
+        player_terms = normalize_player_search_terms(player)
         event = normalize_search_term(event, name="event")
         eco = normalize_search_term(eco, name="eco")
         opening = normalize_search_term(opening, name="opening")
@@ -952,12 +955,28 @@ class AcsDatabase:
 
         clauses: list[str] = []
         params: list[object] = []
-        if player:
-            clauses.append(
-                "(sf.white_fold LIKE ? ESCAPE '\\' OR sf.black_fold LIKE ? ESCAPE '\\')"
-            )
-            needle = literal_like_pattern(player)
-            params.extend([needle, needle])
+        if player_terms:
+            if len(player_terms) == 1:
+                clauses.append(
+                    "(sf.white_fold LIKE ? ESCAPE '\\' OR sf.black_fold LIKE ? ESCAPE '\\')"
+                )
+                needle = literal_like_pattern(player_terms[0])
+                params.extend([needle, needle])
+            else:
+                white_terms = " AND ".join(
+                    f"INSTR({PLAYER_COMPONENT_KEY_SQL_FUNCTION}(sf.white_fold), ?) > 0"
+                    for _ in player_terms
+                )
+                black_terms = " AND ".join(
+                    f"INSTR({PLAYER_COMPONENT_KEY_SQL_FUNCTION}(sf.black_fold), ?) > 0"
+                    for _ in player_terms
+                )
+                clauses.append(f"(({white_terms}) OR ({black_terms}))")
+                needles = [player_component_key(term) for term in player_terms]
+                if any(needle is None for needle in needles):
+                    raise RuntimeError("player component normalization failed")
+                params.extend(needles)
+                params.extend(needles)
         if event:
             clauses.append("sf.event_fold LIKE ? ESCAPE '\\'")
             params.append(literal_like_pattern(event))
