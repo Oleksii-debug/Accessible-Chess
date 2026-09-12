@@ -22,13 +22,21 @@ class SemanticDocumentCopyContractTests(unittest.TestCase):
             self.assertRegex(source, r"create_window\([\s\S]*?text_select\s*=\s*True")
 
     def test_stage1_plain_ctrl_c_and_existing_selection_are_not_hijacked(self) -> None:
-        self.assertIn("String(e.key).toLowerCase()==='c')return", self.index)
-        self.assertIn("selection&&selection.toString()", self.index)
-        self.assertNotRegex(
-            self.index,
-            r"(?is)(?:ctrlKey[^\n]{0,180}(?:key|code)[^\n]{0,80}['\"]c['\"][^\n]{0,300}preventDefault)|"
-            r"(?:['\"]c['\"][^\n]{0,180}ctrlKey[^\n]{0,300}preventDefault)",
-        )
+        handler_start = self.index.index("document.addEventListener('keydown',async e=>{if(capture)return;")
+        handler_end = self.index.index("\nel('move-submit')", handler_start)
+        handler = self.index[handler_start:handler_end]
+
+        ctrl_c_guard = "if(e.ctrlKey&&!e.altKey&&!e.shiftKey&&String(e.key).toLowerCase()==='c')return;"
+        selection_guard = "if(e.ctrlKey&&!e.altKey&&selection&&selection.toString())return;"
+        action_prevent = "if(a){e.preventDefault();executeAction(a.actionId)}"
+
+        ctrl_c_at = handler.index(ctrl_c_guard)
+        selection_at = handler.index(selection_guard)
+        action_prevent_at = handler.index(action_prevent)
+
+        self.assertNotIn("preventDefault", handler[:ctrl_c_at])
+        self.assertLess(ctrl_c_at, selection_at)
+        self.assertLess(selection_at, action_prevent_at)
 
     def test_v2_semantic_text_is_explicitly_selectable(self) -> None:
         self.assertIn('selectionStyle.id = "v2-semantic-selection-style"', self.v2_bootstrap)
