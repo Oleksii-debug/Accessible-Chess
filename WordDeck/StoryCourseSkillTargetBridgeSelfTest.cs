@@ -28,6 +28,14 @@ internal static class StoryCourseSkillTargetBridgeSelfTest
         Require(resolved.SkillTargets[0].TargetRef == "CE-ST-M08-TL001",
             "Exact externally governed target identity/case was not preserved.");
 
+        ResolvedStoryCourseTargets learnerRuntimeResolved = StoryCourseRuntimeForm.ResolveUnitTargetsForDisplay(
+            dictionary,
+            approved,
+            unit.UnitId);
+        Require(learnerRuntimeResolved.SkillTargets.Count == 1 &&
+                learnerRuntimeResolved.SkillTargets[0].TargetRef == "CE-ST-M08-TL001",
+            "Learner-facing runtime unit resolution dropped approved governed course-target authority.");
+
         string json = StoryCoursePackageLoader.Serialize(approved);
         StoryCourseManifestContract roundTrip = StoryCoursePackageLoader.Deserialize(json);
         string roundTripRef = roundTrip.Levels[0].Modules[0].Units[0].Targets.SkillTargets.Single().TargetRef;
@@ -42,6 +50,16 @@ internal static class StoryCourseSkillTargetBridgeSelfTest
             StoryCoursePackageDiscoveryResult discovery = StoryCoursePackageLoader.Discover(dictionary, new[] { tempRoot });
             Require(discovery.Errors.Count == 0 && discovery.Courses.Count == 1,
                 "Learner-facing package loader rejected an approved package carrying a governed course target.");
+
+            StoryCourseManifestContract discovered = discovery.Courses.Single();
+            StoryCourseUnitContract discoveredUnit = discovered.Levels[0].Modules[0].Units[0];
+            ResolvedStoryCourseTargets discoveredRuntimeResolved = StoryCourseRuntimeForm.ResolveUnitTargetsForDisplay(
+                dictionary,
+                discovered,
+                discoveredUnit.UnitId);
+            Require(discoveredRuntimeResolved.SkillTargets.Count == 1 &&
+                    discoveredRuntimeResolved.SkillTargets[0].TargetRef == "CE-ST-M08-TL001",
+                "Approved package passed discovery but failed the real learner runtime target-resolution path.");
         }
         finally
         {
@@ -55,9 +73,24 @@ internal static class StoryCourseSkillTargetBridgeSelfTest
             () => StoryCourseContractValidator.Validate(technicalFixture, dictionary),
             "Non-approved curriculum was allowed to self-authorize a governed course target.");
 
+        StoryCourseUnitContract technicalUnit = technicalFixture.Levels[0].Modules[0].Units[0];
+        ExpectInvalid(
+            () => StoryCourseRuntimeForm.ResolveUnitTargetsForDisplay(
+                dictionary,
+                technicalFixture,
+                technicalUnit.UnitId),
+            "Learner-facing runtime display path allowed TechnicalFixture authority to authorize a governed course target.");
+
         ExpectInvalid(
             () => StoryCourseIdentityResolver.Resolve(dictionary, unit.Targets, unit.UnitId),
             "Legacy/default resolver silently authorized governed course targets without approved curriculum authority.");
+
+        ExpectInvalid(
+            () => StoryCourseRuntimeForm.ResolveUnitTargetsForDisplay(
+                dictionary,
+                approved,
+                "unit.not-owned-by-manifest"),
+            "Learner-facing runtime display path accepted a unit that is not owned by the approved manifest.");
 
         ExpectInvalid(
             () => StoryCourseContractValidator.Validate(
