@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - work/d04-classic-chessbase-handle-identity-20260907
+      - fix/d04-retained-gate-current-product-20260912
   pull_request:
     paths:
       - '.github/workflows/d04-chessbase-integrity-handle-identity.yml'
@@ -20,9 +21,12 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  D04_CURRENT_BASE: d236e3775732d13e2eb5ad97e0b1da5581ade547
+  D04_OWNER: d56e5db0f251da49f1a5ec5653e856402b7a76c6
   INTEGRITY_BLOB: c08f0869f996d4ec428a90c64e9846374a720562
   IMPORT_CONTRACT_BLOB: a072d0ee5c54c303e2af0112f83225282bcb0e1c
+  HANDLE_IDENTITY_TEST_BLOB: 374d233142ae98bd2c76ca3a10e0f4b80d45bc3d
+  ATOMICITY_TEST_BLOB: 10943344862e41c405e7af46a91383841ea1da71
+  IO_OBSERVABILITY_TEST_BLOB: 80070604b66425d2c9008c01f924263cf532a478
 
 jobs:
   current-integrity-convergence:
@@ -54,22 +58,22 @@ jobs:
       - name: Install pinned verification dependency
         run: python -m pip install -q pytest==8.4.2
 
-      - name: Prove current authority and bounded convergence
+      - name: Prove retained D04 authority and exact accepted bytes
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git merge-base HEAD "$D04_CURRENT_BASE")" = "$D04_CURRENT_BASE"
-          git diff --check "$D04_CURRENT_BASE" HEAD
-          changed="$(git diff --name-only "$D04_CURRENT_BASE" HEAD | sort)"
-          expected="$(printf '%s\n' \
+          test "$(git merge-base HEAD "$D04_OWNER")" = "$D04_OWNER"
+          git diff --check "$D04_OWNER" HEAD -- \
             '.github/workflows/d04-chessbase-integrity-handle-identity.yml' \
             'acs/chessbase_integrity.py' \
             'tests/test_d04_chessbase_integrity_handle_identity.py' \
             'tests/test_dev4_chessbase_integrity_atomicity.py' \
-            'tests/test_dev4_chessbase_integrity_io_observability.py' | sort)"
-          test "$changed" = "$expected"
+            'tests/test_dev4_chessbase_integrity_io_observability.py'
           test "$(git rev-parse HEAD:acs/chessbase_integrity.py)" = "$INTEGRITY_BLOB"
           test "$(git rev-parse HEAD:acs/import_contract.py)" = "$IMPORT_CONTRACT_BLOB"
+          test "$(git rev-parse HEAD:tests/test_d04_chessbase_integrity_handle_identity.py)" = "$HANDLE_IDENTITY_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_dev4_chessbase_integrity_atomicity.py)" = "$ATOMICITY_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_dev4_chessbase_integrity_io_observability.py)" = "$IO_OBSERVABILITY_TEST_BLOB"
 
       - name: Compile integrity boundary and oracles
         run: >-
