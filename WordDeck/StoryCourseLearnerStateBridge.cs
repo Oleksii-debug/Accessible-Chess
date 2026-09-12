@@ -171,13 +171,15 @@ internal sealed class StoryCourseLearnerStateBridge
         DateTimeOffset now = _clock();
         SetPosition(state, pathId, manifest.CourseId, owned.Module.ModuleId, owned.Unit.UnitId, task.TaskId, now);
         bool requiredChannelPerformed = submissionKind == StoryCourseProductiveSubmissionKind.RequiredChannelPerformance;
-        string skillId = task.Channel switch
-        {
-            StoryCourseProductiveChannel.Speaking => "speaking-pronunciation",
-            StoryCourseProductiveChannel.Writing => "writing",
-            StoryCourseProductiveChannel.Mixed => "integrated-production",
-            _ => throw new InvalidDataException($"Productive task '{task.TaskId}' has invalid channel '{task.Channel}'.")
-        };
+        string skillId = submissionKind == StoryCourseProductiveSubmissionKind.TypedFallback
+            ? "typed-fallback"
+            : task.Channel switch
+            {
+                StoryCourseProductiveChannel.Speaking => "speaking-pronunciation",
+                StoryCourseProductiveChannel.Writing => "writing",
+                StoryCourseProductiveChannel.Mixed => "integrated-production",
+                _ => throw new InvalidDataException($"Productive task '{task.TaskId}' has invalid channel '{task.Channel}'.")
+            };
 
         foreach (string objectiveId in RequireOwnedObjectives(owned, task.ObjectiveIds, task.TaskId))
         {
@@ -222,6 +224,9 @@ internal sealed class StoryCourseLearnerStateBridge
     {
         ArgumentNullException.ThrowIfNull(manifest);
         StoryCourseContractId.Require(manifest.CourseId, "learner course id");
+        if (manifest.CurriculumAuthority != StoryCourseCurriculumAuthority.ApprovedCurriculum)
+            throw new InvalidDataException(
+                $"Story/Course learner-state evidence requires independently approved curriculum; '{manifest.CourseId}' has authority '{manifest.CurriculumAuthority}'.");
         StoryCourseContractId.Require(moduleId, "learner course module id");
         StoryCourseContractId.Require(unitId, "learner course unit id");
         if (manifest.Levels is null)
